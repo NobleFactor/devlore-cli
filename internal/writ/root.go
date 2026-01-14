@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
 // Package writ implements the writ CLI commands.
@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/internal/clifactory"
+	"github.com/NobleFactor/devlore-cli/schema"
 )
 
 // Version information, set at build time via ldflags.
@@ -51,6 +52,19 @@ lore installs tools, writ deploys configuration.`,
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newConfigureCmd())
 
+	// Shared metadata
+	manHeader := clifactory.ManHeader{
+		Title:   "WRIT",
+		Section: "1",
+		Source:  "Writ " + version,
+		Manual:  "Writ Manual",
+	}
+	configInfo := clifactory.ConfigInfo{
+		Name:          "writ",
+		Schema:        schema.WritSchema,
+		DefaultConfig: schema.WritDefaultConfig,
+	}
+
 	// Add shared commands from clifactory
 	rootCmd.AddCommand(clifactory.NewCompletionCmd(rootCmd))
 	rootCmd.AddCommand(clifactory.NewVersionCmd(clifactory.VersionInfo{
@@ -58,11 +72,12 @@ lore installs tools, writ deploys configuration.`,
 		Commit:    commit,
 		BuildDate: buildDate,
 	}))
-	rootCmd.AddCommand(clifactory.NewManCmd(rootCmd, clifactory.ManHeader{
-		Title:   "WRIT",
-		Section: "1",
-		Source:  "Writ " + version,
-		Manual:  "Writ Manual",
+	rootCmd.AddCommand(clifactory.NewManCmd(rootCmd, manHeader))
+	rootCmd.AddCommand(clifactory.NewConfigCmd(configInfo))
+	rootCmd.AddCommand(clifactory.NewSelfInstallCmd(rootCmd, clifactory.SelfInstallInfo{
+		Name:       "writ",
+		ManHeader:  manHeader,
+		ConfigInfo: configInfo,
 	}))
 
 	return rootCmd

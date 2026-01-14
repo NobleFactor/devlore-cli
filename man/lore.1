@@ -1,0 +1,232 @@
+'\" t
+.\" SPDX-License-Identifier: MIT
+.\" Copyright (c) 2025 Noble Factor. All rights reserved.
+.\"
+.TH LORE 1 "2026-01-11" "Lore 0.1" "Lore Manual"
+.SH NAME
+lore \- the tribal knowledge package deployer
+.SH SYNOPSIS
+.sp
+.nf
+\fBlore\fR [\-v | \-\-version] [\-h | \-\-help]
+\fBlore\fR <command> [<args>]
+.fi
+.SH DESCRIPTION
+Lore is a cross-platform package deployment tool that captures tribal
+knowledge about installing software.
+It delegates to native package managers when possible and provides
+custom deployment scripts when necessary.
+.sp
+Lore exists because "install this package" is rarely the whole story.
+Docker requires adding vendor repositories, removing conflicting packages,
+and installing five separate components.
+Pandoc needs a PDF engine, which needs LaTeX, which needs tlmgr to install
+packages that aren't documented anywhere.
+.sp
+Lore captures this knowledge once and shares it forever.
+What took someone hours to figure out, you get in minutes.
+Share within your team, your organization, or the community at large.
+The registry grows with every contribution.
+.sp
+See \fBloretutorial\fR(7) to get started, then see \fBloreeveryday\fR(7) for
+a useful minimum set of commands.
+After you mastered the basic concepts, you can come back to this page
+to learn what commands Lore offers.
+You can learn more about individual Lore commands with "lore help <command>".
+\fBlorecli\fR(7) gives you an overview of the command-line syntax.
+.SH OPTIONS
+.TP
+\fB\-v\fR, \fB\-\-version\fR
+Prints the Lore version.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Prints a synopsis and list of the most commonly used commands.
+If a Lore command is named, this option will bring up the manual
+page for that command.
+.TP
+\fB\-\-config\fR=<file>
+Use the given configuration file instead of the default
+\fI~/.config/lore/config.yaml\fR.
+.TP
+\fB\-\-registry\fR=<path>
+Use the given registry path instead of the default.
+.TP
+\fB\-\-dry\-run\fR
+Show what would be done without making changes.
+This flag is inherited by subcommands.
+.TP
+\fB\-\-verbose\fR
+Detailed output for debugging.
+.TP
+\fB\-\-quiet\fR
+Suppress non-error output.
+.SH "LORE COMMANDS"
+We divide Lore into high level ("porcelain") commands and low level
+("plumbing") commands.
+.SH "HIGH-LEVEL COMMANDS (PORCELAIN)"
+.SS "Main Porcelain Commands"
+.TP
+\fBlore-deploy\fR(1)
+Deploy packages to the local system.
+This is the primary command for installing software.
+.TP
+\fBlore-upgrade\fR(1)
+Upgrade previously deployed packages to newer versions.
+.TP
+\fBlore-decommission\fR(1)
+Remove packages and clean up their resources.
+.TP
+\fBlore-reconcile\fR(1)
+Compare deployment receipts against actual system state and report drift.
+.SS "Ancillary Commands"
+.TP
+\fBlore-bundle\fR(1)
+Create self-extracting deployment bundles for air-gapped environments.
+.TP
+\fBlore-manifest\fR(1)
+Create and manage package lifecycle manifests (package authoring).
+.TP
+\fBlore-search\fR(1)
+Search available packages in the registry.
+.TP
+\fBlore-list\fR(1)
+List deployed packages from pipeline receipts.
+.TP
+\fBlore-resolve\fR(1)
+Show how a package would be installed on this platform.
+.TP
+\fBlore-update\fR(1)
+Synchronize the local registry cache from the central registry.
+.SH "CONCEPTS"
+.SS "Package-Spec"
+A package with optional features and settings.
+Specified on the command line:
+.sp
+.RS 4
+.nf
+docker \-\-with rootless
+pandoc \-\-with pdf-latex \-\-with paper=a4
+.fi
+.RE
+.sp
+Features (no \fB=\fR) enable capabilities.
+Settings (\fB=\fR present) configure behavior.
+.SS "Package-Manifest"
+A file containing one package-spec per line.
+Referenced with the \fB@\fR prefix:
+.sp
+.RS 4
+.nf
+lore deploy @workstation.manifest
+.fi
+.RE
+.SS "Pipeline-Receipt"
+The output from a pipeline execution.
+Contains the exact versions, features, and settings that were deployed.
+Receipts can be used as input to subsequent pipelines.
+.SS "Package-Lifecycle-Manifest"
+A registry entry defining how to deploy, upgrade, and decommission a package.
+Contains YAML metadata and Starlark phase scripts.
+.SS "Pipelines"
+Lore organizes operations into four pipelines:
+.sp
+.RS 4
+.IP "\fBdeploy\fR" 4
+Install and configure packages for first use.
+Phases: prepare \[->] install \[->] provision \[->] verify.
+.IP "\fBupgrade\fR" 4
+Update deployed packages to newer versions.
+.IP "\fBdecommission\fR" 4
+Remove packages and clean up resources.
+.IP "\fBreconcile\fR" 4
+Compare expected state (receipt) against actual system state.
+.RE
+.SH "CONFIGURATION"
+.SS "User Configuration"
+.TP
+\fI~/.config/lore/config.yaml\fR
+User-specific settings: preferred shell, default features, registry location.
+.SS "Registry"
+.TP
+\fI~/.local/share/lore/registry/\fR
+Local cache of package-lifecycle-manifests synced from central registry.
+.SS "State"
+.TP
+\fI~/.local/state/lore/\fR
+Pipeline execution history and receipts.
+.SH "ENVIRONMENT"
+.TP
+\fBLORE_HOME\fR
+If set, overrides the default location for lore state and configuration.
+.TP
+\fBLORE_REGISTRY\fR
+If set, specifies the registry URL for synchronization.
+.SH EXAMPLES
+Deploy packages:
+.sp
+.RS 4
+.nf
+lore deploy kubectl gh docker
+lore deploy docker \-\-with rootless
+lore deploy @team.manifest
+.fi
+.RE
+.sp
+Deploy from multiple sources:
+.sp
+.RS 4
+.nf
+lore deploy @base.manifest @team.manifest neovim \-\-with lsp
+cat packages.txt | lore deploy
+.fi
+.RE
+.sp
+Check what would happen without making changes:
+.sp
+.RS 4
+.nf
+lore \-\-dry\-run deploy docker \-\-with rootless
+.fi
+.RE
+.sp
+Compare deployed state to actual system:
+.sp
+.RS 4
+.nf
+lore reconcile @workstation.receipt
+.fi
+.RE
+.SH "SEE ALSO"
+\fBlore-deploy\fR(1),
+\fBlore-upgrade\fR(1),
+\fBlore-decommission\fR(1),
+\fBlore-reconcile\fR(1),
+\fBlore-bundle\fR(1),
+\fBlore-manifest\fR(1),
+\fBloretutorial\fR(7),
+\fBlorecli\fR(7)
+.SH NOTES
+.SS "Design Principles"
+.sp
+.IP "\fBCapture and share tribal knowledge\fR" 4
+Installation wisdom that would otherwise live in blog posts or
+"ask someone who's done it" is encoded once and shared forever \(em
+with your team, your organization, or the community at large.
+.IP "\fBDeclare what, not how\fR" 4
+Specify package names; Lore determines the best installation method
+for your platform.
+.IP "\fBAugment, don't replace\fR" 4
+Lore delegates to native package managers whenever possible.
+Custom scripts exist for tools that need special handling.
+.IP "\fBPipeline execution\fR" 4
+Every deployment follows a predictable pipeline: prepare \[->] install \[->]
+provision \[->] verify.
+On failure, rollback executes in reverse order.
+.IP "\fBNo training required\fR" 4
+Package authors look at man pages, recognize Python-like Starlark syntax,
+and write.
+No DSL to learn; no framework to master.
+.SH BUGS
+Report bugs at \fIhttps://github.com/NobleFactor/devlore/issues\fR
+.SH AUTHOR
+David Noble <david@thenobles.us>

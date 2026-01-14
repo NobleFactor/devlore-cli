@@ -1,0 +1,100 @@
+'\" t
+.\" SPDX-License-Identifier: MIT
+.\" Copyright (c) 2025 Noble Factor. All rights reserved.
+.\"
+.TH LORE-UPGRADE 1 "2026-01-11" "Lore 0.1" "Lore Manual"
+.SH NAME
+lore-upgrade \- Upgrade previously deployed packages
+.SH SYNOPSIS
+.sp
+.nf
+\fBlore upgrade\fR @<receipt> [\-\-target @<manifest>]
+\fBlore upgrade\fR <package>...
+.fi
+.SH DESCRIPTION
+Upgrade packages that were previously deployed with \fBlore-deploy\fR(1).
+The upgrade pipeline updates installed software while preserving
+configuration and migrating state as needed.
+.sp
+The upgrade pipeline consists of four phases:
+.sp
+.RS 4
+.IP "\fBplan\fR" 4
+Assess upgrade compatibility and determine upgrade path.
+Check version compatibility, identify breaking changes.
+.IP "\fBupgrade\fR" 4
+Replace old version with new version via native package manager or download.
+.IP "\fBmigrate\fR" 4
+Transfer state from old version to new.
+Export configuration, transform data formats, import to new version.
+.IP "\fBverify\fR" 4
+Confirm the upgrade succeeded.
+Run verification, validate migrated data, generate new receipt.
+.RE
+.sp
+On success, a new pipeline-receipt is generated reflecting the
+upgraded state.
+.SH OPTIONS
+.SS "Input Options"
+.TP
+\fB@\fR<receipt>
+Use an existing pipeline-receipt as the baseline.
+Upgrades packages listed in the receipt.
+.TP
+\fB\-\-target\fR @<manifest>
+Specify target versions via a manifest.
+If omitted, upgrades to latest available versions.
+.TP
+<package>
+Upgrade specific packages by name.
+Uses the most recent receipt for each package.
+.SS "Behavior Options"
+.TP
+\fB\-\-dry\-run\fR
+Show what would be upgraded without making changes.
+.TP
+\fB\-\-no\-migrate\fR
+Skip the migrate phase.
+Use with caution; configuration may not be preserved.
+.TP
+\fB\-\-force\fR
+Upgrade even if already at target version.
+.SH EXAMPLES
+Upgrade all packages from a receipt:
+.sp
+.RS 4
+.nf
+lore upgrade @workstation.receipt
+.fi
+.RE
+.sp
+Upgrade to specific versions:
+.sp
+.RS 4
+.nf
+lore upgrade @workstation.receipt \-\-target @latest.manifest
+.fi
+.RE
+.sp
+Upgrade specific packages:
+.sp
+.RS 4
+.nf
+lore upgrade docker kubectl
+.fi
+.RE
+.sp
+Dry run to see what would change:
+.sp
+.RS 4
+.nf
+lore \-\-dry\-run upgrade @workstation.receipt
+.fi
+.RE
+.SH "SEE ALSO"
+\fBlore\fR(1),
+\fBlore-deploy\fR(1),
+\fBlore-decommission\fR(1),
+\fBlore-reconcile\fR(1)
+.SH AUTHOR
+David Noble <david@thenobles.us>

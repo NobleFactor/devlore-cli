@@ -1,0 +1,37 @@
+# Embedded defaults (user config overrides these)
+# See schema/config.json for validation schema
+
+lore:
+  ai-provider:
+    model:
+      name: llama3.1:8b
+      provider: ollama
+
+    preferences:
+      consult-user-before-changes: true
+      validate-existing-packages: true
+      search-internet: always
+
+  sources:
+    corporate: []  # None embedded; user adds their own
+
+    trusted-domains:
+      # Primary sources (official vendor documentation)
+      - developer.apple.com
+      - docs.microsoft.com
+      - learn.microsoft.com
+      - cloud.google.com
+      - docs.aws.amazon.com
+      - docs.github.com
+      # Tier-1 reputable sources
+      - wiki.archlinux.org
+      - docs.docker.com
+      - kubernetes.io
+      - helm.sh
+      - terraform.io
+      - brew.sh
+      - formulae.brew.sh
+      - chocolatey.org
+      - winget.run
+
+    blocked-domains: []  # None embedded; user adds their own
