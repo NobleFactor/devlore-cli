@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://noblefactor.com/schemas/writ-config.json",
+  "title": "Writ Configuration",
+  "description": "Configuration schema for the writ CLI tool",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "description": "Path to a single environment repo (shorthand for personal layer). Use 'repos' array for multi-layer setup.",
+      "default": "~/.local/share/dotfiles"
+    },
+    "repos": {
+      "type": "array",
+      "description": "Environment repos with layer precedence: base → team → personal (personal wins conflicts)",
+      "items": {
+        "type": "object",
+        "description": "A writ-managed environment repo",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name for the repo (inferred from path/url if omitted)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Local path to the repo (mutually exclusive with url)"
+          },
+          "url": {
+            "type": "string",
+            "description": "Remote URL to clone (mutually exclusive with path). Cloned to XDG_DATA_HOME/<name>/ on first use."
+          },
+          "layer": {
+            "type": "string",
+            "description": "Layer determines precedence: base (lowest) → team → personal (highest, wins conflicts)",
+            "enum": ["base", "team", "personal"],
+            "default": "personal"
+          }
+        },
+        "oneOf": [
+          { "required": ["path", "layer"] },
+          { "required": ["url", "layer"] }
+        ]
+      }
+    },
+    "vars": {
+      "type": "object",
+      "description": "Template variables for dotfile processing",
+      "properties": {
+        "USER_NAME": {
+          "type": "string",
+          "description": "User's full name for git config and other templates"
+        },
+        "USER_EMAIL": {
+          "type": "string",
+          "description": "User's email address for git config and other templates"
+        },
+        "EDITOR": {
+          "type": "string",
+          "description": "Preferred editor path"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Custom template variable"
+      }
+    },
+    "targets": {
+      "type": "object",
+      "description": "Segment values per target",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Target-specific segment values",
+        "properties": {
+          "DISTRO": {
+            "type": "string",
+            "description": "Linux distribution (debian, ubuntu, fedora, etc.)"
+          },
+          "ROLE": {
+            "type": "string",
+            "description": "Machine role (desktop, server, workstation, etc.)"
+          },
+          "SITE": {
+            "type": "string",
+            "description": "Site or location identifier"
+          }
+        },
+        "additionalProperties": {
+          "type": "string",
+          "description": "Custom segment value"
+        }
+      }
+    },
+    "backup_suffix": {
+      "type": "string",
+      "description": "Suffix for backup files when overwriting",
+      "default": ".writ-backup"
+    },
+    "secrets": {
+      "type": "object",
+      "description": "Secrets configuration",
+      "properties": {
+        "backend": {
+          "type": "string",
+          "description": "Secrets backend",
+          "enum": ["age", "sops"],
+          "default": "age"
+        },
+        "identity": {
+          "type": "string",
+          "description": "Path to age identity file or SOPS config"
+        }
+      }
+    }
+  }
+}

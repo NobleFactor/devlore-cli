@@ -1,0 +1,143 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Noble Factor. All rights reserved.
+#
+# Example binding definition for GitHub CLI (gh)
+#
+# This shows the YAML format for defining Starlark bindings.
+# Start with `bindgen parse gh repo issue pr` then refine.
+
+name: gh
+description: GitHub CLI for repository and issue management
+
+commands:
+  repo_clone:
+    description: Clone a repository to local directory
+    args:
+      - name: repository
+        type: string
+        required: true
+        position: 0
+        description: Repository to clone (owner/repo or URL)
+    flags:
+      - name: depth
+        type: int
+        description: Create a shallow clone with N commits
+
+  repo_create:
+    description: Create a new repository
+    args:
+      - name: name
+        type: string
+        required: true
+        position: 0
+        description: Repository name
+    flags:
+      - name: public
+        type: bool
+        description: Make repository public
+      - name: private
+        type: bool
+        description: Make repository private
+      - name: description
+        short: d
+        type: string
+        description: Repository description
+      - name: clone
+        type: bool
+        description: Clone the repository after creation
+
+  issue_create:
+    description: Create a new issue
+    flags:
+      - name: title
+        short: t
+        type: string
+        description: Issue title
+      - name: body
+        short: b
+        type: string
+        description: Issue body
+      - name: label
+        short: l
+        type: string_list
+        description: Labels to add
+      - name: assignee
+        short: a
+        type: string_list
+        description: Assignees
+    returns:
+      type: result
+      fields: [ok, stdout, stderr, code]
+      parse: none
+
+  issue_list:
+    description: List issues in repository
+    flags:
+      - name: state
+        short: s
+        type: string
+        default: open
+        description: Filter by state
+        values: [open, closed, all]
+      - name: limit
+        short: L
+        type: int
+        default: "30"
+        description: Maximum number of issues
+      - name: label
+        short: l
+        type: string_list
+        description: Filter by labels
+    returns:
+      type: result
+      parse: json
+
+  pr_create:
+    description: Create a pull request
+    flags:
+      - name: title
+        short: t
+        type: string
+        description: PR title
+      - name: body
+        short: b
+        type: string
+        description: PR body
+      - name: base
+        short: B
+        type: string
+        description: Base branch
+      - name: head
+        short: H
+        type: string
+        description: Head branch
+      - name: draft
+        short: d
+        type: bool
+        description: Create as draft PR
+
+  pr_merge:
+    description: Merge a pull request
+    args:
+      - name: number
+        type: int
+        required: false
+        position: 0
+        description: PR number (defaults to current branch PR)
+    flags:
+      - name: merge
+        short: m
+        type: bool
+        description: Use merge commit
+      - name: squash
+        short: s
+        type: bool
+        description: Squash commits
+      - name: rebase
+        short: r
+        type: bool
+        description: Rebase commits
+      - name: delete-branch
+        short: d
+        type: bool
+        description: Delete branch after merge

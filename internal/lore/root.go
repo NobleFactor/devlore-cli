@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
 // Package lore implements the lore CLI commands.
@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/internal/clifactory"
+	"github.com/NobleFactor/devlore-cli/schema"
 )
 
 // Version information, set at build time via ldflags.
@@ -58,6 +59,19 @@ What took someone hours to figure out, you get in minutes.`,
 	rootCmd.AddCommand(newUpdateCmd())
 	rootCmd.AddCommand(newOnboardCmd())
 
+	// Shared metadata
+	manHeader := clifactory.ManHeader{
+		Title:   "LORE",
+		Section: "1",
+		Source:  "Lore " + version,
+		Manual:  "Lore Manual",
+	}
+	configInfo := clifactory.ConfigInfo{
+		Name:          "lore",
+		Schema:        schema.LoreSchema,
+		DefaultConfig: schema.LoreDefaultConfig,
+	}
+
 	// Add shared commands from clifactory
 	rootCmd.AddCommand(clifactory.NewCompletionCmd(rootCmd))
 	rootCmd.AddCommand(clifactory.NewVersionCmd(clifactory.VersionInfo{
@@ -65,11 +79,12 @@ What took someone hours to figure out, you get in minutes.`,
 		Commit:    commit,
 		BuildDate: buildDate,
 	}))
-	rootCmd.AddCommand(clifactory.NewManCmd(rootCmd, clifactory.ManHeader{
-		Title:   "LORE",
-		Section: "1",
-		Source:  "Lore " + version,
-		Manual:  "Lore Manual",
+	rootCmd.AddCommand(clifactory.NewManCmd(rootCmd, manHeader))
+	rootCmd.AddCommand(clifactory.NewConfigCmd(configInfo))
+	rootCmd.AddCommand(clifactory.NewSelfInstallCmd(rootCmd, clifactory.SelfInstallInfo{
+		Name:       "lore",
+		ManHeader:  manHeader,
+		ConfigInfo: configInfo,
 	}))
 
 	return rootCmd

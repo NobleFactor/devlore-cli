@@ -1,0 +1,256 @@
+'\" t
+.\" SPDX-License-Identifier: MIT
+.\" Copyright (c) 2025 Noble Factor. All rights reserved.
+.\"
+.TH LORE-BUNDLE 1 "2026-01-11" "Lore 0.1" "Lore Manual"
+.SH NAME
+lore-bundle \- Create self-extracting deployment bundles
+.SH SYNOPSIS
+.sp
+.nf
+\fBlore bundle\fR @<manifest> \-\-output <file>
+\fBlore bundle\fR <package>... \-\-output <file>
+.fi
+.SH DESCRIPTION
+Create a self-extracting deployment bundle containing lore, the registry,
+and all artifacts needed to deploy the specified packages.
+Bundles enable deployment in air-gapped environments without network access.
+.sp
+The bundle includes:
+.sp
+.RS 4
+.IP \(bu 4
+The lore binary
+.IP \(bu 4
+Package-lifecycle-manifests for requested packages
+.IP \(bu 4
+Pre-downloaded artifacts (tarballs, installers, etc.)
+.IP \(bu 4
+A bootstrap script that extracts and runs deployment
+.RE
+.sp
+Bundles are platform-specific.
+The bundle is created for the current platform by default.
+.SH OPTIONS
+.SS "Input Options"
+.TP
+\fB@\fR<manifest>
+Include all packages from the manifest in the bundle.
+.TP
+<package>
+Include specific packages in the bundle.
+\fB\-\-with\fR flags are supported to include feature-specific artifacts.
+.SS "Output Options"
+.TP
+\fB\-\-output\fR=<file>, \fB\-o\fR <file>
+Write the bundle to the specified file.
+Use \fB.run\fR extension for self-extracting bundles on Unix,
+\fB.exe\fR for Windows.
+Required.
+.TP
+\fB\-\-format\fR=<format>
+Bundle format: \fBself-extracting\fR (default), \fBtar\fR, \fBzip\fR.
+.SS "Platform Options"
+.TP
+\fB\-\-platform\fR=<os>/<arch>
+Create bundle for a different platform.
+Examples: \fBlinux/amd64\fR, \fBdarwin/arm64\fR, \fBwindows/amd64\fR.
+.SS "Content Options"
+.TP
+\fB\-\-include\-registry\fR
+Include the full registry (not just requested packages).
+Useful for environments where additional packages may be needed.
+.TP
+\fB\-\-include\-repo\fR=<path>
+Include a git repository in the bundle.
+The repository is cloned and included in the bundle's \fBrepos/\fR directory.
+Can be specified multiple times to include multiple repositories.
+Useful for including project source code or custom tooling.
+.TP
+\fB\-\-verify\fR
+Verify all artifacts after downloading.
+.SH "BUNDLE STRUCTURE"
+A self-extracting bundle contains:
+.sp
+.RS 4
+.nf
+bundle.run
+\[u2514]\[u2500]\[u2500] embedded/
+    \[u251C]\[u2500]\[u2500] lore                 # lore binary
+    \[u251C]\[u2500]\[u2500] registry/            # package-lifecycle-manifests
+    \[u2502]   \[u251C]\[u2500]\[u2500] docker/
+    \[u2502]   \[u2514]\[u2500]\[u2500] pandoc/
+    \[u251C]\[u2500]\[u2500] artifacts/           # pre-downloaded files
+    \[u2502]   \[u251C]\[u2500]\[u2500] docker-24.0.7.tar.gz
+    \[u2502]   \[u2514]\[u2500]\[u2500] pandoc-3.1.11.pkg
+    \[u251C]\[u2500]\[u2500] repos/               # included repositories
+    \[u2502]   \[u251C]\[u2500]\[u2500] customer-project/
+    \[u2502]   \[u2514]\[u2500]\[u2500] my-debug-tools/
+    \[u2514]\[u2500]\[u2500] manifest.yaml        # what to deploy
+.fi
+.RE
+.sp
+Repositories are extracted to \fB~/src/\fR by default during deployment.
+.SH "EXECUTION"
+Self-extracting bundles can be run directly:
+.sp
+.RS 4
+.nf
+chmod +x team-deploy.run
+\&./team-deploy.run deploy
+.fi
+.RE
+.sp
+Available bundle commands:
+.sp
+.RS 4
+.IP "\fBdeploy\fR" 4
+Extract and run \fBlore deploy\fR with bundled artifacts.
+.IP "\fBextract\fR" 4
+Extract contents to a directory without deploying.
+.IP "\fBlist\fR" 4
+List packages and artifacts in the bundle.
+.IP "\fBverify\fR" 4
+Verify bundle integrity (checksums).
+.RE
+.SH EXAMPLES
+Create a bundle from a manifest:
+.sp
+.RS 4
+.nf
+lore bundle @server.manifest \-\-output server-deploy.run
+.fi
+.RE
+.sp
+Create a bundle for specific packages:
+.sp
+.RS 4
+.nf
+lore bundle docker \-\-with rootless kubectl \-\-output k8s-tools.run
+.fi
+.RE
+.sp
+Create a bundle for a different platform:
+.sp
+.RS 4
+.nf
+lore bundle @server.manifest \-\-platform linux/amd64 \-o server-linux.run
+.fi
+.RE
+.sp
+Deploy from a bundle on air-gapped system:
+.sp
+.RS 4
+.nf
+# Transfer bundle via USB or internal network
+scp server-deploy.run target:/tmp/
+
+# On target system
+chmod +x /tmp/server-deploy.run
+/tmp/server-deploy.run deploy
+.fi
+.RE
+.sp
+Extract without deploying:
+.sp
+.RS 4
+.nf
+\&./server-deploy.run extract \-\-dir /opt/lore-bundle
+.fi
+.RE
+.sp
+Cross-platform debugging bundle with repositories:
+.sp
+.RS 4
+.nf
+lore bundle @workstation.receipt \\
+    \-\-platform linux/fedora \\
+    \-\-include\-repo ~/src/customer\-project \\
+    \-\-include\-repo ~/src/my\-debug\-tools \\
+    \-\-output debug\-env.run
+.fi
+.RE
+.SH "CROSS-PLATFORM DEBUGGING"
+Create a debug environment on an unfamiliar platform using your existing
+workstation receipt:
+.sp
+.RS 4
+.IP "1." 4
+Create bundle from your receipt, targeting the debug platform:
+.sp
+.RS 4
+.nf
+lore bundle @workstation.receipt \\
+    \-\-platform linux/fedora \\
+    \-\-include\-repo ~/src/customer\-project \\
+    \-o debug\-env.run
+.fi
+.RE
+.IP "2." 4
+Provision a VM and transfer the bundle:
+.sp
+.RS 4
+.nf
+scp debug\-env.run fedora\-vm:/tmp/
+.fi
+.RE
+.IP "3." 4
+Deploy on the target:
+.sp
+.RS 4
+.nf
+ssh fedora\-vm '/tmp/debug\-env.run deploy'
+.fi
+.RE
+.IP "4." 4
+Start debugging:
+.sp
+.RS 4
+.nf
+ssh fedora\-vm
+cd ~/src/customer\-project
+# Your tools are here. Same config, different platform.
+.fi
+.RE
+.RE
+.sp
+Lore translates your receipt to the target platform (e.g., apt packages
+become dnf packages) and bundles platform-appropriate artifacts.
+.SH "AIR-GAPPED WORKFLOW"
+The bundle command enables deployment in environments without
+external network access:
+.sp
+.RS 4
+.IP "1." 4
+On a connected system, create the bundle:
+.sp
+.RS 4
+.nf
+lore bundle @production.manifest \-o production-deploy.run
+.fi
+.RE
+.IP "2." 4
+Transfer via approved mechanism (USB, internal network, etc.):
+.sp
+.RS 4
+.nf
+scp production-deploy.run air-gapped-host:/tmp/
+.fi
+.RE
+.IP "3." 4
+On the air-gapped system, execute:
+.sp
+.RS 4
+.nf
+/tmp/production-deploy.run deploy
+.fi
+.RE
+.RE
+.sp
+The bundle contains everything needed; no network access required
+during deployment.
+.SH "SEE ALSO"
+\fBlore\fR(1),
+\fBlore-deploy\fR(1)
+.SH AUTHOR
+David Noble <david@thenobles.us>
