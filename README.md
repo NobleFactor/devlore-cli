@@ -63,7 +63,7 @@ devlore-cli/
 │   ├── lore/main.go           # lore entry point
 │   └── writ/main.go           # writ entry point
 ├── internal/
-│   ├── clifactory/            # Shared CLI infrastructure
+│   ├── cli/                   # Shared CLI infrastructure
 │   │   ├── completion.go      # completion command
 │   │   ├── man.go             # man command
 │   │   ├── version.go         # version command
