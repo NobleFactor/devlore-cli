@@ -3,11 +3,31 @@
 
 // Package pwsh provides a persistent PowerShell session for lore.
 //
-// Unlike bash where each command spawns a new process, PowerShell runs
-// as a persistent session. Commands are sent to stdin, output is captured
-// from stdout/stderr. State (variables, functions) persists across commands.
+// # Architecture: Why a persistent session?
 //
-//	ps := pwsh.New()
+// Starlark is the orchestration layer (logic, control flow, variables).
+// The execution backend differs by platform:
+//
+//   - Unix: stateless shell.run() is fine — each command is a new process.
+//   - Windows: a persistent PowerShell session is the natural backend.
+//
+// PowerShell modules (Az, ActiveDirectory, PackageManagement) establish
+// authenticated sessions on import. COM/.NET objects (WMI, Registry, IIS)
+// are expensive to instantiate. DSC operations require compile→test→apply
+// within a single session. Spawning `pwsh -Command` for each operation
+// loses all of this state.
+//
+// This package is intended as a Starlark binding (pwsh.run, pwsh.set) —
+// the Starlark script decides what to do, the PowerShell session handles
+// how on Windows.
+//
+// # Usage
+//
+// Commands run directly in session scope. Variables, functions, and module
+// imports persist across calls. If a command calls `exit N`, the session
+// terminates and the exit code is captured from the process state.
+//
+//	ps, _ := pwsh.New()
 //	defer ps.Close()
 //
 //	ps.Run("$greeting = 'Hello'")
