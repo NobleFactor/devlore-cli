@@ -5,8 +5,8 @@
 
 package host
 
-// Stub for non-Linux platforms
+// Stub for non-Linux platforms. Never called at runtime; NewHost()
+// dispatches via runtime.GOOS. Exists only for cross-platform compilation.
 func newLinuxHost() Host {
-	// Return a darwin host as fallback (will work for basic operations)
-	return newDarwinHost()
+	panic("newLinuxHost called on non-linux platform")
 }

@@ -22,14 +22,5 @@ if [[ -n "${staged_go}" ]]; then
     go vet ./...
 fi
 
-# Shell checks: shellcheck + shfmt on staged shell files
-staged_sh=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(sh|bash)$|pre-commit$' || true)
-if [[ -n "${staged_sh}" ]]; then
-    if command -v shellcheck &>/dev/null; then
-        echo "${staged_sh}" | xargs shellcheck
-    fi
-
-    if command -v shfmt &>/dev/null; then
-        echo "${staged_sh}" | xargs shfmt -d -i 4 -bn -ci
-    fi
-fi
+# Shell checks: shfmt + shellcheck via shell-lint script
+.github/scripts/shell-lint.sh

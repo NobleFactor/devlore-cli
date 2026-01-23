@@ -31,10 +31,7 @@ jobs:
       - name: Test
         run: go test ./... -timeout 60s
 
-      - name: Shellcheck
-        run: find . -name '*.sh' -o -name 'pre-commit' | xargs shellcheck
-
-      - name: Shfmt
+      - name: Shell lint
         run: |
           go install mvdan.cc/sh/v3/cmd/shfmt@latest
-          find . -name '*.sh' -o -name 'pre-commit' | xargs shfmt -d -i 4 -bn -ci
+          .github/scripts/shell-lint.sh
