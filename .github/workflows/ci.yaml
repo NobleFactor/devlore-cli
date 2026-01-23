@@ -23,10 +23,18 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Lint
-        uses: golangci-lint/golangci-lint-action@v6
+      - name: Lint Go
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
 
       - name: Test
         run: go test ./... -timeout 60s
+
+      - name: Shellcheck
+        run: find . -name '*.sh' -o -name 'pre-commit' | xargs shellcheck
+
+      - name: Shfmt
+        run: |
+          go install mvdan.cc/sh/v3/cmd/shfmt@latest
+          find . -name '*.sh' -o -name 'pre-commit' | xargs shfmt -d -i 4 -bn -ci

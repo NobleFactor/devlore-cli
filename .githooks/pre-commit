@@ -1,27 +1,35 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: SSPL-1.0
-# Pre-commit hook: fast checks only (gofmt + go vet).
+# Pre-commit hook: fast checks only.
 # Activated by: git config core.hooksPath .githooks
 
 set -o errexit
 set -o nounset
 set -o pipefail
 
-# Only check staged .go files
-staged=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
-if [[ -z "${staged}" ]]; then
-    exit 0
+# Go checks: gofmt + go vet on staged .go files
+staged_go=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+if [[ -n "${staged_go}" ]]; then
+    unformatted=$(echo "${staged_go}" | xargs gofmt -l || true)
+    if [[ -n "${unformatted}" ]]; then
+        echo "gofmt: these files need formatting:"
+        echo "${unformatted}"
+        echo ""
+        echo "Run: gofmt -w <files>"
+        exit 1
+    fi
+
+    go vet ./...
 fi
 
-# Check formatting
-unformatted=$(echo "${staged}" | xargs gofmt -l || true)
-if [[ -n "${unformatted}" ]]; then
-    echo "gofmt: these files need formatting:"
-    echo "${unformatted}"
-    echo ""
-    echo "Run: gofmt -w \${unformatted}"
-    exit 1
-fi
+# Shell checks: shellcheck + shfmt on staged shell files
+staged_sh=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(sh|bash)$|pre-commit$' || true)
+if [[ -n "${staged_sh}" ]]; then
+    if command -v shellcheck &>/dev/null; then
+        echo "${staged_sh}" | xargs shellcheck
+    fi
 
-# Run vet
-go vet ./...
+    if command -v shfmt &>/dev/null; then
+        echo "${staged_sh}" | xargs shfmt -d -i 4 -bn -ci
+    fi
+fi

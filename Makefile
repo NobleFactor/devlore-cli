@@ -7,7 +7,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
 
-.PHONY: all build clean test vet lint check dev
+.PHONY: all build clean test vet lint shellcheck shfmt check dev
 
 all: build
 
@@ -27,7 +27,13 @@ vet:
 lint:
 	golangci-lint run
 
-check: vet lint test
+shellcheck:
+	find . -name '*.sh' -o -name 'pre-commit' | xargs shellcheck
+
+shfmt:
+	find . -name '*.sh' -o -name 'pre-commit' | xargs shfmt -d -i 4 -bn -ci
+
+check: vet lint shellcheck shfmt test
 
 dev:
 	git config core.hooksPath .githooks
