@@ -25,50 +25,82 @@ type SelfInstallInfo struct {
 // Usage:
 //
 //	./tool self-install ~/.local
+//	./tool self-install ~/.local --personal-repo=~/dotfiles
 //
 // This performs complete installation:
-//   - Moves binary to <root>/bin/
+//   - Copies binary to <root>/bin/
 //   - Installs man pages to <root>/share/man/man1/
 //   - Installs completions for bash, zsh, fish
 //   - Initializes config in XDG_CONFIG_HOME
 //   - Initializes cache in XDG_CACHE_HOME
+//   - Scans and registers repos (if --personal-repo or --team-repo provided)
 func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "self-install <root-directory>",
 		Short: "Complete installation to specified directory",
 		Long: `Install ` + info.Name + ` and all supporting files to the specified root directory.
 
 This command:
-  1. Moves the binary to <root>/bin/` + info.Name + `
+  1. Copies the binary to <root>/bin/` + info.Name + `
   2. Installs man pages to <root>/share/man/man1/
   3. Installs shell completions for bash, zsh, and fish
   4. Creates default config at $XDG_CONFIG_HOME/` + info.Name + `/config.yaml
   5. Initializes cache directory at $XDG_CACHE_HOME/` + info.Name + `/
+  6. Scans and registers repositories (if --personal-repo or --team-repo provided)
+
+Repository flags accept a local path. The repo is scanned for writ compatibility
+and migration guidance is provided if the structure doesn't match.
 
 Example:
   ./` + info.Name + ` self-install ~/.local
+  ./` + info.Name + ` self-install ~/.local --personal-repo=~/dotfiles
+  ./` + info.Name + ` self-install ~/.local --personal-repo=~/dotfiles --team-repo=~/work/configs
 
 After installation, ensure <root>/bin is in your PATH.
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := args[0]
+			root = expandTilde(root)
 
-			// Expand ~ if present
-			if len(root) >= 2 && root[:2] == "~/" {
-				home := os.Getenv("HOME")
-				root = filepath.Join(home, root[2:])
-			} else if root == "~" {
-				root = os.Getenv("HOME")
-			}
+			personalRepo, _ := cmd.Flags().GetString("personal-repo")
+			teamRepo, _ := cmd.Flags().GetString("team-repo")
 
-			return runSelfInstall(rootCmd, root, info)
+			return runSelfInstall(rootCmd, root, info, repoFlags{
+				Personal: expandTilde(personalRepo),
+				Team:     expandTilde(teamRepo),
+			})
 		},
 	}
+
+	cmd.Flags().String("personal-repo", "", "Path to personal environment repository")
+	cmd.Flags().String("team-repo", "", "Path to team environment repository")
+
+	return cmd
+}
+
+// repoFlags holds the --personal-repo and --team-repo flag values.
+type repoFlags struct {
+	Personal string
+	Team     string
+}
+
+// expandTilde expands ~ to $HOME in a path.
+func expandTilde(path string) string {
+	if path == "" {
+		return ""
+	}
+	if len(path) >= 2 && path[:2] == "~/" {
+		return filepath.Join(os.Getenv("HOME"), path[2:])
+	}
+	if path == "~" {
+		return os.Getenv("HOME")
+	}
+	return path
 }
 
 // runSelfInstall performs the complete installation.
-func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo) error {
+func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, repos repoFlags) error {
 	var installed []string
 
 	// 1. Install binary
@@ -112,19 +144,54 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo) e
 	installed = append(installed, fmt.Sprintf("Cache:       %s", cachePath))
 
 	// Print summary
-	fmt.Printf("Installed %s to %s\n\n", info.Name, root)
+	Success("Installed %s to %s", info.Name, root)
+	fmt.Fprintf(os.Stderr, "\n")
 	for _, line := range installed {
-		fmt.Printf("  %s\n", line)
+		Note("  %s", line)
 	}
 
 	// Print PATH reminder
 	binDir := filepath.Join(root, "bin")
-	fmt.Printf("\nAdd %s to your PATH if not already present.\n", binDir)
+	Note("Add %s to your PATH if not already present.", binDir)
+
+	// 6. Scan and register repos
+	if repos.Personal != "" {
+		fmt.Fprintf(os.Stderr, "\n")
+		scanAndRegisterRepo(repos.Personal, "personal", info.Name)
+	}
+	if repos.Team != "" {
+		fmt.Fprintf(os.Stderr, "\n")
+		scanAndRegisterRepo(repos.Team, "team", info.Name)
+	}
 
 	return nil
 }
 
-// installBinary moves the current executable to the target location.
+// scanAndRegisterRepo scans a repository path, reports results, and registers
+// it in the shared config. If migration is needed, guidance is printed but the
+// repo is still registered so the user can migrate and re-run self-install to verify.
+func scanAndRegisterRepo(path, layer, tool string) {
+	result := ScanRepo(path)
+	result.PrintReport()
+
+	// Register the repo regardless of migration status
+	if err := RegisterRepo(tool, RepoEntry{
+		Layer: layer,
+		Path:  path,
+		URL:   result.Remote,
+	}); err != nil {
+		Error("Failed to register %s repo: %v", layer, err)
+		return
+	}
+
+	if result.NeedsMigration() {
+		Warn("Registered %s repo despite migration needs — fix and re-run self-install to verify", layer)
+	} else {
+		Success("Registered %s repo: %s", layer, path)
+	}
+}
+
+// installBinary copies the current executable to the target location.
 func installBinary(root, name string) (string, error) {
 	// Get current executable path
 	currentExe, err := os.Executable()
@@ -152,7 +219,7 @@ func installBinary(root, name string) (string, error) {
 		return targetPath, nil
 	}
 
-	// Copy binary (don't move, in case of failure)
+	// Copy binary (preserve the build artifact)
 	if err := copyFile(currentExe, targetPath); err != nil {
 		return "", err
 	}
@@ -161,10 +228,6 @@ func installBinary(root, name string) (string, error) {
 	if err := os.Chmod(targetPath, 0755); err != nil {
 		return "", fmt.Errorf("failed to make executable: %w", err)
 	}
-
-	// Remove original (we copied successfully)
-	// Ignore errors here - the original might be read-only or in use
-	_ = os.Remove(currentExe)
 
 	return targetPath, nil
 }

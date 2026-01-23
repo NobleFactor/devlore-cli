@@ -49,7 +49,7 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.PersistentFlags().String("target", "Home", "Target to operate on")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Show what would be done without making changes")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
-	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-error output")
+	cli.AddSilentFlag(rootCmd)
 
 	// Deployment mode flags (mirrors lore ADR-033)
 	rootCmd.PersistentFlags().Bool("interactive", false, "Force interactive mode (prompts for conflicts)")
@@ -68,6 +68,7 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newSecretsCmd())
 	rootCmd.AddCommand(newReceiptCmd())
+	rootCmd.AddCommand(newInspectCmd())
 
 	// Shared metadata
 	manHeader := cli.ManHeader{

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -22,118 +23,238 @@ type ConfigInfo struct {
 	DefaultConfig []byte // Default configuration content
 }
 
-// NewConfigCmd creates the config command with git-style interface.
+// NewConfigCmd creates the config command with git-style subcommands.
+//
+// Dot-paths match the config file structure exactly. No implicit prefixing.
+// "writ.repos.0.path" in the CLI reads writ.repos[0].path in the file.
+// "secrets.mode" reads secrets.mode. WYSIWYG.
+//
 // Usage:
 //
-//	tool config <key>              # Get value
-//	tool config <key> <value>      # Set value
-//	tool config --list             # List all settings
-//	tool config --edit             # Open in $EDITOR
-//	tool config --unset <key>      # Remove a key
-//	tool config --validate         # Validate against schema
-//	tool config --schema           # Output JSON schema
-//	tool config --path             # Show config file location
+//	tool config get <key>...                    # Get values
+//	tool config set <key>=<value>...            # Set values
+//	tool config unset <key>...                  # Remove keys
+//	tool config list                            # List all settings
+//	tool config edit                            # Open in $EDITOR
+//	tool config validate                        # Validate against schema
+//	tool config schema                          # Output JSON schema
+//	tool config path                            # Show config file location
 func NewConfigCmd(info ConfigInfo) *cobra.Command {
-	var (
-		list     bool
-		edit     bool
-		unset    string
-		validate bool
-		schema   bool
-		path     bool
-		mutation MutationFlags
-	)
-
 	cmd := &cobra.Command{
-		Use:   "config [<key> [<value>]]",
+		Use:   "config <command>",
 		Short: "Get and set configuration options",
 		Long: `Get and set ` + info.Name + ` configuration options.
 
-The configuration file is stored at $XDG_CONFIG_HOME/` + info.Name + `/config.yaml
-(default: ~/.config/` + info.Name + `/config.yaml).
+Configuration is stored at $XDG_CONFIG_HOME/devlore/config.yaml
+(default: ~/.config/devlore/config.yaml). This file is shared across
+writ and lore, with tool-specific settings under their respective keys.
 
-Examples:
-  ` + info.Name + ` config repo                    # Get repo path
-  ` + info.Name + ` config repo ~/dotfiles         # Set repo path
-  ` + info.Name + ` config --list                  # List all settings
-  ` + info.Name + ` config --edit                  # Open config in editor
-  ` + info.Name + ` config --unset repo            # Remove repo setting
+Dot-paths match the file structure exactly:
+  "` + info.Name + `.repos.0.path"    → tool-specific setting
+  "secrets.mode"             → shared setting
 `,
-		Args: cobra.MaximumNArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfgPath := configFilePath(info.Name)
-
-			// Handle flags first (mutually exclusive operations)
-			switch {
-			case list:
-				return configList(cfgPath)
-			case edit:
-				return configEdit(cfgPath, info.DefaultConfig)
-			case unset != "":
-				if err := configUnset(cfgPath, unset); err != nil {
-					return err
-				}
-				return RenderMutationTo(map[string]string{"unset": unset}, mutation)
-			case validate:
-				return configValidate(cfgPath, info.Schema)
-			case schema:
-				return configSchema(info.Schema)
-			case path:
-				return configPath(cfgPath)
-			}
-
-			// Positional arguments: get or set
-			switch len(args) {
-			case 0:
-				// No args and no flags: show help
-				return cmd.Help()
-			case 1:
-				// Get value
-				return configGet(cfgPath, args[0])
-			case 2:
-				// Set value
-				if err := configSet(cfgPath, args[0], args[1]); err != nil {
-					return err
-				}
-				// Output with --passthru
-				return RenderMutationTo(map[string]string{args[0]: args[1]}, mutation)
-			}
-
-			return nil
-		},
 	}
 
-	cmd.Flags().BoolVarP(&list, "list", "l", false, "List all configuration settings")
-	cmd.Flags().BoolVarP(&edit, "edit", "e", false, "Open config file in editor")
-	cmd.Flags().StringVar(&unset, "unset", "", "Remove a configuration key")
-	cmd.Flags().BoolVar(&validate, "validate", false, "Validate config against schema")
-	cmd.Flags().BoolVar(&schema, "schema", false, "Output embedded JSON schema")
-	cmd.Flags().BoolVar(&path, "path", false, "Show config file location")
-	AddMutationFlags(cmd, &mutation)
-
-	// Add completion for config keys from schema
-	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		// Only complete first argument (the key)
-		if len(args) > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		return getSchemaKeys(info.Schema, toComplete), cobra.ShellCompDirectiveNoFileComp
-	}
-
-	// Also add completion for --unset flag
-	cmd.RegisterFlagCompletionFunc("unset", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return getSchemaKeys(info.Schema, toComplete), cobra.ShellCompDirectiveNoFileComp
-	})
+	cmd.AddCommand(newConfigGetCmd(info))
+	cmd.AddCommand(newConfigSetCmd(info))
+	cmd.AddCommand(newConfigUnsetCmd(info))
+	cmd.AddCommand(newConfigListCmd(info))
+	cmd.AddCommand(newConfigEditCmd(info))
+	cmd.AddCommand(newConfigValidateCmd(info))
+	cmd.AddCommand(newConfigSchemaCmd(info))
+	cmd.AddCommand(newConfigPathCmd(info))
 
 	return cmd
 }
 
-// configFilePath returns the path to the config file.
-func configFilePath(toolName string) string {
-	return filepath.Join(ConfigHome(), toolName, "config.yaml")
+
+// configKeyCompletion returns a ValidArgsFunction for config key completion.
+// Completions include full dot-paths matching the file structure.
+func configKeyCompletion(info ConfigInfo) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		keys := getSchemaKeys(info.Schema, toComplete)
+		return keys, cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
-// loadConfig loads the config file as a map.
+func newConfigGetCmd(info ConfigInfo) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "get <key>...",
+		Short: "Get configuration values",
+		Long: `Get one or more configuration values by dot-path key.
+
+Examples:
+  ` + info.Name + ` config get ` + info.Name + `.repos.0.path
+  ` + info.Name + ` config get secrets.identity_file
+  ` + info.Name + ` config get ` + info.Name + `.vars.USER_NAME ` + info.Name + `.vars.USER_EMAIL`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfgPath := SharedConfigPath()
+			config, err := loadConfig(cfgPath)
+			if err != nil {
+				return err
+			}
+
+			for _, key := range args {
+				value, exists := getNestedValue(config, key)
+				if !exists {
+					return ExitWith(ExitDataErr, fmt.Errorf("key not found: %s", key))
+				}
+				fmt.Println(formatValue(value))
+			}
+			return nil
+		},
+	}
+
+	cmd.ValidArgsFunction = configKeyCompletion(info)
+
+	return cmd
+}
+
+func newConfigSetCmd(info ConfigInfo) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "set <key>=<value>...",
+		Short: "Set configuration values",
+		Long: `Set one or more configuration values using key=value syntax.
+
+Examples:
+  ` + info.Name + ` config set ` + info.Name + `.vars.USER_NAME="David Noble"
+  ` + info.Name + ` config set secrets.mode=0600
+  ` + info.Name + ` config set ` + info.Name + `.vars.USER_NAME=david ` + info.Name + `.vars.USER_EMAIL=d@example.com`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfgPath := SharedConfigPath()
+			config, err := loadConfig(cfgPath)
+			if err != nil {
+				return err
+			}
+
+			for _, arg := range args {
+				idx := strings.Index(arg, "=")
+				if idx == -1 {
+					return ExitWith(ExitUsage, fmt.Errorf("invalid argument %q: expected key=value", arg))
+				}
+				key := arg[:idx]
+				value := arg[idx+1:]
+				typed, err := coerceValue(info.Schema, key, value)
+				if err != nil {
+					return err
+				}
+				setNestedValue(config, key, typed)
+			}
+
+			return saveConfig(cfgPath, config)
+		},
+	}
+
+	cmd.ValidArgsFunction = configKeyCompletion(info)
+
+	return cmd
+}
+
+func newConfigUnsetCmd(info ConfigInfo) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "unset <key>...",
+		Short: "Remove configuration keys",
+		Long: `Remove one or more configuration keys.
+
+Examples:
+  ` + info.Name + ` config unset ` + info.Name + `.vars.USER_NAME
+  ` + info.Name + ` config unset secrets.identity_command`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfgPath := SharedConfigPath()
+			config, err := loadConfig(cfgPath)
+			if err != nil {
+				return err
+			}
+
+			for _, key := range args {
+				if !deleteNestedValue(config, key) {
+					return ExitWith(ExitDataErr, fmt.Errorf("key not found: %s", key))
+				}
+			}
+
+			return saveConfig(cfgPath, config)
+		},
+	}
+
+	cmd.ValidArgsFunction = configKeyCompletion(info)
+
+	return cmd
+}
+
+func newConfigListCmd(info ConfigInfo) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all configuration settings",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfgPath := SharedConfigPath()
+			config, err := loadConfig(cfgPath)
+			if err != nil {
+				return err
+			}
+
+			if len(config) == 0 {
+				Note("No configuration set")
+				return nil
+			}
+
+			printFlattened("", config)
+			return nil
+		},
+	}
+}
+
+func newConfigEditCmd(info ConfigInfo) *cobra.Command {
+	return &cobra.Command{
+		Use:   "edit",
+		Short: "Open configuration file in $EDITOR",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfgPath := SharedConfigPath()
+			return configEdit(cfgPath, info.DefaultConfig)
+		},
+	}
+}
+
+func newConfigValidateCmd(info ConfigInfo) *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate",
+		Short: "Validate configuration against schema",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfgPath := SharedConfigPath()
+			return configValidate(cfgPath, info.Schema)
+		},
+	}
+}
+
+func newConfigSchemaCmd(info ConfigInfo) *cobra.Command {
+	return &cobra.Command{
+		Use:   "schema",
+		Short: "Output the embedded JSON schema",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return configSchema(info.Schema)
+		},
+	}
+}
+
+func newConfigPathCmd(info ConfigInfo) *cobra.Command {
+	return &cobra.Command{
+		Use:   "path",
+		Short: "Show configuration file location",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return configPath(SharedConfigPath())
+		},
+	}
+}
+
+// loadConfig loads the config file as a map. Supports YAML (.yaml, .yml)
+// and JSON (.json) formats, detected by file extension.
 func loadConfig(path string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -144,8 +265,16 @@ func loadConfig(path string) (map[string]interface{}, error) {
 	}
 
 	var config map[string]interface{}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("invalid YAML: %w", err)
+
+	switch configFormat(path) {
+	case "json":
+		if err := json.Unmarshal(data, &config); err != nil {
+			return nil, fmt.Errorf("invalid JSON: %w", err)
+		}
+	default:
+		if err := yaml.Unmarshal(data, &config); err != nil {
+			return nil, fmt.Errorf("invalid YAML: %w", err)
+		}
 	}
 
 	if config == nil {
@@ -155,7 +284,8 @@ func loadConfig(path string) (map[string]interface{}, error) {
 	return config, nil
 }
 
-// saveConfig saves the config map to file.
+// saveConfig saves the config map to file. Supports YAML (.yaml, .yml)
+// and JSON (.json) formats, detected by file extension.
 func saveConfig(path string, config map[string]interface{}) error {
 	// Create directory if needed
 	dir := filepath.Dir(path)
@@ -163,57 +293,35 @@ func saveConfig(path string, config map[string]interface{}) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	data, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+	var data []byte
+	var err error
+
+	switch configFormat(path) {
+	case "json":
+		data, err = json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal config: %w", err)
+		}
+		data = append(data, '\n')
+	default:
+		data, err = yaml.Marshal(config)
+		if err != nil {
+			return fmt.Errorf("failed to marshal config: %w", err)
+		}
 	}
 
 	return os.WriteFile(path, data, 0644)
 }
 
-// configGet retrieves a configuration value.
-func configGet(path, key string) error {
-	config, err := loadConfig(path)
-	if err != nil {
-		return err
+// configFormat returns "json" or "yaml" based on the file extension.
+func configFormat(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".json" {
+		return "json"
 	}
-
-	value, exists := getNestedValue(config, key)
-	if !exists {
-		return fmt.Errorf("key not found: %s", key)
-	}
-
-	fmt.Println(formatValue(value))
-	return nil
+	return "yaml"
 }
 
-// configSet sets a configuration value.
-func configSet(path, key, value string) error {
-	config, err := loadConfig(path)
-	if err != nil {
-		return err
-	}
-
-	setNestedValue(config, key, value)
-
-	return saveConfig(path, config)
-}
-
-// configList displays all configuration settings.
-func configList(path string) error {
-	config, err := loadConfig(path)
-	if err != nil {
-		return err
-	}
-
-	if len(config) == 0 {
-		fmt.Println("# No configuration set")
-		return nil
-	}
-
-	printFlattened("", config)
-	return nil
-}
 
 // configEdit opens the config file in the user's editor.
 func configEdit(path string, defaultConfig []byte) error {
@@ -242,20 +350,6 @@ func configEdit(path string, defaultConfig []byte) error {
 	cmd.Stderr = os.Stderr
 
 	return cmd.Run()
-}
-
-// configUnset removes a configuration key.
-func configUnset(path, key string) error {
-	config, err := loadConfig(path)
-	if err != nil {
-		return err
-	}
-
-	if !deleteNestedValue(config, key) {
-		return fmt.Errorf("key not found: %s", key)
-	}
-
-	return saveConfig(path, config)
 }
 
 // configValidate validates the config against the schema.
@@ -346,7 +440,7 @@ func getNestedValue(m map[string]interface{}, key string) (interface{}, bool) {
 }
 
 // setNestedValue sets a value in a nested map using dot notation.
-func setNestedValue(m map[string]interface{}, key, value string) {
+func setNestedValue(m map[string]interface{}, key string, value interface{}) {
 	parts := strings.Split(key, ".")
 
 	if len(parts) == 1 {
@@ -427,6 +521,119 @@ func formatValue(v interface{}) string {
 	}
 }
 
+// =============================================================================
+// Shared Config: Repository Registration
+// =============================================================================
+//
+// All configuration writes go through these functions to maintain a single
+// source of truth. The shared config lives at $XDG_CONFIG_HOME/devlore/config.yaml
+// and is shared across writ and lore.
+//
+// Repos are stored as:
+//
+//	writ:
+//	  repos:
+//	    - layer: personal
+//	      path: ~/dotfiles
+//	    - layer: team
+//	      path: ~/work/configs
+//	      url: git@github.com:company/configs.git
+
+// RepoEntry represents a repository configuration entry.
+type RepoEntry struct {
+	Layer string // "personal", "team", or "base"
+	Path  string // Local filesystem path
+	URL   string // Optional remote URL
+	Name  string // Optional display name
+}
+
+// RegisterRepo registers a repository in the shared config file.
+// If a repo with the same layer already exists, it is replaced.
+func RegisterRepo(tool string, entry RepoEntry) error {
+	cfgPath := SharedConfigPath()
+
+	config, err := loadConfig(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+
+	// Ensure tool section exists
+	toolSection, ok := config[tool].(map[string]interface{})
+	if !ok {
+		toolSection = make(map[string]interface{})
+		config[tool] = toolSection
+	}
+
+	// Get or create repos array, removing existing entry for this layer
+	var repos []interface{}
+	if existing, ok := toolSection["repos"].([]interface{}); ok {
+		for _, r := range existing {
+			if repoMap, ok := r.(map[string]interface{}); ok {
+				if repoMap["layer"] != entry.Layer {
+					repos = append(repos, r)
+				}
+			}
+		}
+	}
+
+	// Build new entry
+	newRepo := map[string]interface{}{
+		"layer": entry.Layer,
+		"path":  entry.Path,
+	}
+	if entry.URL != "" {
+		newRepo["url"] = entry.URL
+	}
+	if entry.Name != "" {
+		newRepo["name"] = entry.Name
+	}
+	repos = append(repos, newRepo)
+
+	toolSection["repos"] = repos
+
+	return saveConfig(cfgPath, config)
+}
+
+// UnregisterRepo removes a repository for the given layer from the shared config.
+func UnregisterRepo(tool, layer string) error {
+	cfgPath := SharedConfigPath()
+
+	config, err := loadConfig(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+
+	toolSection, ok := config[tool].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("no %s configuration found", tool)
+	}
+
+	existing, ok := toolSection["repos"].([]interface{})
+	if !ok || len(existing) == 0 {
+		return fmt.Errorf("no repos configured for %s", tool)
+	}
+
+	var repos []interface{}
+	found := false
+	for _, r := range existing {
+		if repoMap, ok := r.(map[string]interface{}); ok {
+			if repoMap["layer"] == layer {
+				found = true
+				continue
+			}
+		}
+		repos = append(repos, r)
+	}
+
+	if !found {
+		return fmt.Errorf("no %s repo configured for layer %q", tool, layer)
+	}
+
+	toolSection["repos"] = repos
+
+	return saveConfig(cfgPath, config)
+}
+
 // getSchemaKeys extracts all valid config keys from a JSON schema.
 // Returns keys in dot notation (e.g., "vars.USER_NAME").
 func getSchemaKeys(schemaBytes []byte, prefix string) []string {
@@ -474,4 +681,93 @@ func extractKeys(prefix string, properties map[string]interface{}, keys *[]strin
 			}
 		}
 	}
+}
+
+// coerceValue converts a string value to the appropriate Go type based on
+// the JSON schema type for the given key. Returns an error if the key is
+// unknown (not declared in schema and parent has no additionalProperties)
+// or if the value can't be parsed to the declared type.
+func coerceValue(schemaBytes []byte, key, value string) (interface{}, error) {
+	schemaType, found := schemaTypeForKey(schemaBytes, key)
+	if !found {
+		return nil, ExitWith(ExitDataErr, fmt.Errorf("unknown configuration key: %s", key))
+	}
+
+	switch schemaType {
+	case "boolean":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on":
+			return true, nil
+		case "false", "0", "no", "off":
+			return false, nil
+		default:
+			return nil, ExitWith(ExitDataErr, fmt.Errorf("invalid boolean for %s: %q (expected true/false)", key, value))
+		}
+	case "integer":
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return nil, ExitWith(ExitDataErr, fmt.Errorf("invalid integer for %s: %q", key, value))
+		}
+		return n, nil
+	case "number":
+		f, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, ExitWith(ExitDataErr, fmt.Errorf("invalid number for %s: %q", key, value))
+		}
+		return f, nil
+	}
+
+	return value, nil
+}
+
+// schemaTypeForKey walks the JSON schema to find the type declaration for
+// a dot-path key. Returns the type string and true if found, or "" and false
+// if the key is not declared in the schema. Respects additionalProperties
+// for keys under objects like writ.vars or writ.targets.
+func schemaTypeForKey(schemaBytes []byte, key string) (string, bool) {
+	var schema map[string]interface{}
+	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+		return "", false
+	}
+
+	parts := strings.Split(key, ".")
+	current := schema
+
+	for i, part := range parts {
+		properties, _ := current["properties"].(map[string]interface{})
+
+		prop, inProperties := properties[part].(map[string]interface{})
+		if !inProperties {
+			// Check additionalProperties on the current schema node
+			addlProps, hasAddl := current["additionalProperties"].(map[string]interface{})
+			if !hasAddl {
+				return "", false
+			}
+
+			// For the last part, the type comes from additionalProperties
+			if i == len(parts)-1 {
+				if t, ok := addlProps["type"].(string); ok {
+					return t, true
+				}
+				return "string", true
+			}
+
+			// For intermediate parts, descend into additionalProperties
+			current = addlProps
+			continue
+		}
+
+		// Found in declared properties
+		if i == len(parts)-1 {
+			if t, ok := prop["type"].(string); ok {
+				return t, true
+			}
+			return "string", true
+		}
+
+		// Descend into this property for the next part
+		current = prop
+	}
+
+	return "", false
 }

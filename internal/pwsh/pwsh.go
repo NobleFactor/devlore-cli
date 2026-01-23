@@ -3,11 +3,31 @@
 
 // Package pwsh provides a persistent PowerShell session for lore.
 //
-// Unlike bash where each command spawns a new process, PowerShell runs
-// as a persistent session. Commands are sent to stdin, output is captured
-// from stdout/stderr. State (variables, functions) persists across commands.
+// # Architecture: Why a persistent session?
 //
-//	ps := pwsh.New()
+// Starlark is the orchestration layer (logic, control flow, variables).
+// The execution backend differs by platform:
+//
+//   - Unix: stateless shell.run() is fine — each command is a new process.
+//   - Windows: a persistent PowerShell session is the natural backend.
+//
+// PowerShell modules (Az, ActiveDirectory, PackageManagement) establish
+// authenticated sessions on import. COM/.NET objects (WMI, Registry, IIS)
+// are expensive to instantiate. DSC operations require compile→test→apply
+// within a single session. Spawning `pwsh -Command` for each operation
+// loses all of this state.
+//
+// This package is intended as a Starlark binding (pwsh.run, pwsh.set) —
+// the Starlark script decides what to do, the PowerShell session handles
+// how on Windows.
+//
+// # Usage
+//
+// Commands run directly in session scope. Variables, functions, and module
+// imports persist across calls. If a command calls `exit N`, the session
+// terminates and the exit code is captured from the process state.
+//
+//	ps, _ := pwsh.New()
 //	defer ps.Close()
 //
 //	ps.Run("$greeting = 'Hello'")
@@ -22,10 +42,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
+
+// ansiRe matches ANSI escape sequences (CSI and OSC).
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07`)
 
 // Result captures the output of a PowerShell command.
 type Result struct {
@@ -83,6 +107,7 @@ type Session struct {
 	mu      sync.Mutex
 	audit   io.Writer
 	history []*Result
+	dead    bool // true if the PowerShell process has exited
 
 	// Marker used to detect end of command output
 	marker string
@@ -153,24 +178,17 @@ func findPowerShell() (string, error) {
 	return "", fmt.Errorf("PowerShell not found. Install PowerShell 7+: https://aka.ms/powershell")
 }
 
-// init sets up the session with helper functions.
+// init drains any startup output from the PowerShell process.
 func (s *Session) init() {
-	// Define a function to execute commands and output a marker when done
-	initScript := fmt.Sprintf(`
-function Invoke-LoreCommand {
-    param([string]$Command)
-    try {
-        Invoke-Expression $Command
-        $global:LASTEXITCODE = if ($?) { 0 } else { 1 }
-    } catch {
-        Write-Error $_
-        $global:LASTEXITCODE = 1
-    }
-    Write-Output "%s$global:LASTEXITCODE"
-}
-`, s.marker)
+	// Emit a ready marker to consume any startup ANSI sequences or banners.
+	fmt.Fprintf(s.stdin, "Write-Output '%sREADY'\n", s.marker)
 
-	fmt.Fprintln(s.stdin, initScript)
+	for s.scanner.Scan() {
+		line := stripANSI(s.scanner.Text())
+		if strings.HasPrefix(line, s.marker+"READY") {
+			break
+		}
+	}
 }
 
 // readStderr continuously reads from stderr.
@@ -196,6 +214,9 @@ func (s *Session) History() []*Result {
 }
 
 // Run executes a PowerShell command and returns the result.
+// Commands run directly in session scope, so variables persist across calls.
+// If the command calls `exit N`, the session terminates and the exit code
+// is captured from the process state.
 func (s *Session) Run(command string) *Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -205,25 +226,47 @@ func (s *Session) Run(command string) *Result {
 		Start:   time.Now(),
 	}
 
+	if s.dead {
+		result.Error = "session terminated"
+		result.ExitCode = 1
+		s.history = append(s.history, result)
+		return result
+	}
+
 	// Clear stderr buffer
 	s.errBuf.Reset()
 
-	// Send command wrapped in our helper
-	wrappedCmd := fmt.Sprintf(`Invoke-LoreCommand -Command %s`, quotePowerShell(command))
-	fmt.Fprintln(s.stdin, wrappedCmd)
+	// Send command directly in session scope, then emit a marker with the
+	// exit code. Using $global:LASTEXITCODE preserves native command exit
+	// codes; $? reflects PowerShell command success.
+	fmt.Fprintf(s.stdin, "%s\n", command)
+	fmt.Fprintf(s.stdin, "Write-Output '%s'$(if ($?) { $global:LASTEXITCODE } else { if ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 } })\n", s.marker)
 
-	// Read output until we see the marker
+	// Read output until we see the marker, stripping ANSI escape sequences.
+	// If the scanner hits EOF (process exited), capture exit from process state.
 	var stdout strings.Builder
 	for s.scanner.Scan() {
-		line := s.scanner.Text()
+		line := stripANSI(s.scanner.Text())
 		if strings.HasPrefix(line, s.marker) {
-			// Extract exit code from marker line
 			exitCodeStr := strings.TrimPrefix(line, s.marker)
 			fmt.Sscanf(exitCodeStr, "%d", &result.ExitCode)
 			break
 		}
 		stdout.WriteString(line)
 		stdout.WriteString("\n")
+	}
+
+	// If scanner stopped without finding marker, the process exited (e.g., `exit N`)
+	if !strings.HasPrefix(stripANSI(s.scanner.Text()), s.marker) {
+		s.dead = true
+		if err := s.cmd.Wait(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				result.ExitCode = exitErr.ExitCode()
+			} else {
+				result.ExitCode = 1
+				result.Error = err.Error()
+			}
+		}
 	}
 
 	result.Duration = time.Since(result.Start)
@@ -269,7 +312,15 @@ func (s *Session) Script(commands ...string) *Result {
 // Close terminates the PowerShell session.
 func (s *Session) Close() error {
 	s.stdin.Close()
+	if s.dead {
+		return nil
+	}
 	return s.cmd.Wait()
+}
+
+// stripANSI removes ANSI escape sequences from a string.
+func stripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
 }
 
 // quotePowerShell quotes a string for safe use in PowerShell.

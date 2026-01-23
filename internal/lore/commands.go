@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -300,6 +302,33 @@ environment repository.`,
 	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
 	cmd.MarkFlagRequired("from")
+
+	return cmd
+}
+
+func newInspectCmd() *cobra.Command {
+	var output cli.OutputFlags
+
+	cmd := &cobra.Command{
+		Use:   "inspect <package>",
+		Short: "Show detailed information about a package",
+		Long: `Show detailed information about a package.
+
+Displays the resolved lifecycle manifest, platform support, features,
+dependencies, and deployment history for a package.
+
+Output is JSON by default for scripting. Use --format for alternatives.`,
+		Example: `  lore inspect docker
+  lore inspect kubectl --format yaml
+  lore inspect docker --format '{{.Name}}\t{{.Version}}'`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Printf("inspect %s: not yet implemented\n", args[0])
+			return nil
+		},
+	}
+
+	cli.AddOutputFlags(cmd, &output)
 
 	return cmd
 }
