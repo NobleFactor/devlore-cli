@@ -27,7 +27,7 @@ type SelfInstallInfo struct {
 //	./tool self-install ~/.local
 //
 // This performs complete installation:
-//   - Moves binary to <root>/bin/
+//   - Copies binary to <root>/bin/
 //   - Installs man pages to <root>/share/man/man1/
 //   - Installs completions for bash, zsh, fish
 //   - Initializes config in XDG_CONFIG_HOME
@@ -39,7 +39,7 @@ func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Comm
 		Long: `Install ` + info.Name + ` and all supporting files to the specified root directory.
 
 This command:
-  1. Moves the binary to <root>/bin/` + info.Name + `
+  1. Copies the binary to <root>/bin/` + info.Name + `
   2. Installs man pages to <root>/share/man/man1/
   3. Installs shell completions for bash, zsh, and fish
   4. Creates default config at $XDG_CONFIG_HOME/` + info.Name + `/config.yaml
@@ -124,7 +124,7 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo) e
 	return nil
 }
 
-// installBinary moves the current executable to the target location.
+// installBinary copies the current executable to the target location.
 func installBinary(root, name string) (string, error) {
 	// Get current executable path
 	currentExe, err := os.Executable()
@@ -152,7 +152,7 @@ func installBinary(root, name string) (string, error) {
 		return targetPath, nil
 	}
 
-	// Copy binary (don't move, in case of failure)
+	// Copy binary (preserve the build artifact)
 	if err := copyFile(currentExe, targetPath); err != nil {
 		return "", err
 	}
@@ -161,10 +161,6 @@ func installBinary(root, name string) (string, error) {
 	if err := os.Chmod(targetPath, 0755); err != nil {
 		return "", fmt.Errorf("failed to make executable: %w", err)
 	}
-
-	// Remove original (we copied successfully)
-	// Ignore errors here - the original might be read-only or in use
-	_ = os.Remove(currentExe)
 
 	return targetPath, nil
 }
