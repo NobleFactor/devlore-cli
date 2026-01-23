@@ -7,7 +7,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
 
-.PHONY: all build clean test vet lint shell-lint check dev
+.PHONY: all build clean test vet lint shell-lint check dev docs
 
 all: build
 
@@ -35,3 +35,6 @@ check: vet lint shell-lint test
 dev:
 	git config core.hooksPath .githooks
 	@echo "Hooks activated: .githooks/pre-commit"
+
+docs:
+	go run ./cmd/docgen --output-dir=docs/cli --version=$(VERSION)

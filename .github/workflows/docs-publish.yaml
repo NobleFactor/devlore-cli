@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: SSPL-1.0
+name: Publish CLI Docs
+
+on:
+  push:
+    branches: [develop, 'release*', main]
+
+jobs:
+  generate-and-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CLI repo
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate CLI docs
+        run: go run ./cmd/docgen --output-dir=generated-docs/cli --version=${{ steps.version.outputs.version }}
+
+      - name: Checkout site repo
+        uses: actions/checkout@v4
+        with:
+          repository: NobleFactor/devlore.noblefactor.com
+          token: ${{ secrets.SITE_DEPLOY_TOKEN }}
+          path: site
+
+      - name: Update site content
+        run: |
+          rm -rf site/src/content/cli/
+          cp -r generated-docs/cli/ site/src/content/cli/
+          rm -rf site/src/content/guides/
+          cp -r docs/guides/ site/src/content/guides/
+
+      - name: Create PR on site repo
+        working-directory: site
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
+        run: |
+          BRANCH="cli-docs/update-$(date -u +%Y%m%d-%H%M%S)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add src/content/cli/ src/content/guides/
+          if git diff --cached --quiet; then
+            echo "No changes to docs, skipping PR."
+            exit 0
+          fi
+          git commit -m "Update docs from devlore-cli@${GITHUB_SHA::7}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "Update CLI documentation" \
+            --body "Automated update from [devlore-cli@\`${GITHUB_SHA::7}\`](https://github.com/NobleFactor/devlore-cli/commit/${GITHUB_SHA}).
+
+Triggered by push to \`${GITHUB_REF_NAME}\` branch.
+
+Includes CLI reference (generated) and guides (hand-written)." \
+            --base develop
