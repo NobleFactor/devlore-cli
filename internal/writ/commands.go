@@ -1676,6 +1676,34 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
+func newInspectCmd() *cobra.Command {
+	var output cli.OutputFlags
+
+	cmd := &cobra.Command{
+		Use:   "inspect <project|file>",
+		Short: "Show detailed information about a project or deployed file",
+		Long: `Show detailed information about a project or deployed file.
+
+For a project: shows source location, deployed files, segments, and state.
+For a file path: shows source, target, operations, checksums, and drift status.
+
+Output is JSON by default for scripting. Use --format for alternatives.`,
+		Example: `  writ inspect noblefactor
+  writ inspect ~/.zshrc
+  writ inspect noblefactor --format yaml
+  writ inspect noblefactor --format '{{.Name}}\t{{.Source}}'`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Println("inspect: not yet implemented")
+			return nil
+		},
+	}
+
+	cli.AddOutputFlags(cmd, &output)
+
+	return cmd
+}
+
 func newListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",

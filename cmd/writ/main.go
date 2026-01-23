@@ -7,12 +7,13 @@ package main
 import (
 	"os"
 
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/writ"
 )
 
 func main() {
 	cmd := writ.NewRootCmd()
 	if err := cmd.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }
