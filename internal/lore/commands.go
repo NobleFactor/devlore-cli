@@ -301,7 +301,7 @@ environment repository.`,
 	cmd.Flags().String("registry", "", "Registry to match against")
 	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
-	cmd.MarkFlagRequired("from")
+	_ = cmd.MarkFlagRequired("from")
 
 	return cmd
 }

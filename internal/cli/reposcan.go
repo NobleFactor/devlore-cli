@@ -24,10 +24,10 @@ type RepoScanResult struct {
 	GitError string
 
 	// Structure detection
-	Structure    RepoStructure
-	HomePath     string   // path to detected Home-equivalent directory
-	Projects     []ProjectInfo
-	NestedUnder  string   // non-empty if projects are nested (e.g., "Configs")
+	Structure     RepoStructure
+	HomePath      string // path to detected Home-equivalent directory
+	Projects      []ProjectInfo
+	NestedUnder   string // non-empty if projects are nested (e.g., "Configs")
 	TemplateCount int
 	SecretCount   int
 	HasRecipients bool
@@ -65,9 +65,9 @@ func (s RepoStructure) String() string {
 
 // ProjectInfo describes a detected project directory.
 type ProjectInfo struct {
-	Name     string
-	Path     string
-	Segment  string // segment suffix (e.g., "Darwin", "Unix")
+	Name      string
+	Path      string
+	Segment   string // segment suffix (e.g., "Darwin", "Unix")
 	FileCount int
 	Templates int
 	Secrets   int
@@ -215,7 +215,7 @@ func scanProjects(result *RepoScanResult, projectsPath string) {
 		}
 
 		// Count files, templates, secrets
-		filepath.Walk(projPath, func(path string, info os.FileInfo, err error) error {
+		_ = filepath.Walk(projPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}

@@ -353,7 +353,7 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 	projectSet := make(map[string]bool)
 
 	// Walk the target directory looking for symlinks
-	filepath.Walk(targetRoot, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(targetRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}

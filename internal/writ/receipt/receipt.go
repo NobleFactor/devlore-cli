@@ -278,9 +278,7 @@ func (r *Receipt) Write() (string, error) {
 	// Update "latest" symlink
 	latestPath := LatestReceiptPath()
 	_ = os.Remove(latestPath) // Ignore error if doesn't exist
-	if err := os.Symlink(filename, latestPath); err != nil {
-		// Non-fatal, just log if verbose
-	}
+	_ = os.Symlink(filename, latestPath)
 
 	return path, nil
 }

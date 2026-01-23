@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-//go:build !windows
+//go:build !darwin
 
 package host
 
-// Stub for non-Windows platforms. Never called at runtime; NewHost()
+// Stub for non-Darwin platforms. Never called at runtime; NewHost()
 // dispatches via runtime.GOOS. Exists only for cross-platform compilation.
-func newWindowsHost() Host {
-	panic("newWindowsHost called on non-windows platform")
+func newDarwinHost() Host {
+	panic("newDarwinHost called on non-darwin platform")
 }

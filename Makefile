@@ -7,7 +7,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
 
-.PHONY: all build clean test
+.PHONY: all build clean test vet lint shell-lint check dev
 
 all: build
 
@@ -19,4 +19,19 @@ clean:
 	rm -rf build/
 
 test:
-	go test ./...
+	go test ./... -timeout 60s
+
+vet:
+	go vet ./...
+
+lint:
+	golangci-lint run
+
+shell-lint:
+	.github/scripts/shell-lint.sh
+
+check: vet lint shell-lint test
+
+dev:
+	git config core.hooksPath .githooks
+	@echo "Hooks activated: .githooks/pre-commit"

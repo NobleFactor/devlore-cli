@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: SSPL-1.0
+# Pre-commit hook: fast checks only.
+# Activated by: git config core.hooksPath .githooks
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# Go checks: gofmt + go vet on staged .go files
+staged_go=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+if [[ -n "${staged_go}" ]]; then
+    unformatted=$(echo "${staged_go}" | xargs gofmt -l || true)
+    if [[ -n "${unformatted}" ]]; then
+        echo "gofmt: these files need formatting:"
+        echo "${unformatted}"
+        echo ""
+        echo "Run: gofmt -w <files>"
+        exit 1
+    fi
+
+    go vet ./...
+fi
+
+# Shell checks: shfmt + shellcheck via shell-lint script
+.github/scripts/shell-lint.sh

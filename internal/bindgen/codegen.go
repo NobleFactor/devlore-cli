@@ -9,6 +9,9 @@ import (
 	"strings"
 	"text/template"
 	"unicode"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // GoGenerator produces Go source code for Starlark bindings.
@@ -21,8 +24,9 @@ func NewGoGenerator() *GoGenerator {
 
 // Generate produces Go source code for a binding definition.
 func (g *GoGenerator) Generate(def *BindingDef) (string, error) {
+	titleCaser := cases.Title(language.Und)
 	tmpl, err := template.New("binding").Funcs(template.FuncMap{
-		"title":       strings.Title,
+		"title":       titleCaser.String,
 		"lower":       strings.ToLower,
 		"camel":       toCamelCase,
 		"export":      toExportedName,
@@ -122,14 +126,15 @@ func (g *GoGenerator) buildCmd(cmd *Command) string {
 
 // toCamelCase converts snake_case to camelCase.
 func toCamelCase(s string) string {
+	titleCaser := cases.Title(language.Und)
 	parts := strings.Split(s, "-")
 	for i := 1; i < len(parts); i++ {
-		parts[i] = strings.Title(parts[i])
+		parts[i] = titleCaser.String(parts[i])
 	}
 	result := strings.Join(parts, "")
 	parts = strings.Split(result, "_")
 	for i := 1; i < len(parts); i++ {
-		parts[i] = strings.Title(parts[i])
+		parts[i] = titleCaser.String(parts[i])
 	}
 	return strings.Join(parts, "")
 }

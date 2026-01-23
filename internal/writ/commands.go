@@ -746,11 +746,9 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve source root from config
-	sourceRoot := cli.GetString("writ", "repo", true)
-	if sourceRoot == "" {
+	if cli.GetString("writ", "repo", true) == "" {
 		return fmt.Errorf("no repo configured; set writ.repo in config or use WRIT_REPO env var")
 	}
-	sourceRoot = expandPath(sourceRoot)
 
 	// Get segments for template expansion
 	segs := segment.DetectSegments()
@@ -1297,7 +1295,6 @@ func outputStatusJSON(report *status.Report) error {
 	fmt.Println(string(data))
 	return nil
 }
-
 
 // outputStatusText outputs the status report as human-readable text.
 func outputStatusText(report *status.Report) error {
@@ -1858,7 +1855,7 @@ for the relevant projects first.`,
 	}
 
 	cmd.Flags().String("layer", "", "Layer of the repository to remove (required)")
-	cmd.MarkFlagRequired("layer")
+	_ = cmd.MarkFlagRequired("layer")
 
 	return cmd
 }
