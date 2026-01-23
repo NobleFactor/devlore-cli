@@ -202,16 +202,16 @@ func (d *DockerBindings) images(thread *starlark.Thread, fn *starlark.Builtin, a
 
 		dict := starlark.NewDict(4)
 		if v, ok := img["ID"]; ok {
-			dict.SetKey(starlark.String("id"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("id"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		if v, ok := img["Repository"]; ok {
-			dict.SetKey(starlark.String("repository"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("repository"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		if v, ok := img["Tag"]; ok {
-			dict.SetKey(starlark.String("tag"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("tag"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		if v, ok := img["Size"]; ok {
-			dict.SetKey(starlark.String("size"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("size"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		images = append(images, dict)
 	}
@@ -270,19 +270,19 @@ func (d *DockerBindings) ps(thread *starlark.Thread, fn *starlark.Builtin, args 
 
 		dict := starlark.NewDict(5)
 		if v, ok := ctr["ID"]; ok {
-			dict.SetKey(starlark.String("id"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("id"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		if v, ok := ctr["Names"]; ok {
-			dict.SetKey(starlark.String("name"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("name"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		if v, ok := ctr["Image"]; ok {
-			dict.SetKey(starlark.String("image"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("image"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		if v, ok := ctr["Status"]; ok {
-			dict.SetKey(starlark.String("status"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("status"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		if v, ok := ctr["Ports"]; ok {
-			dict.SetKey(starlark.String("ports"), starlark.String(fmt.Sprintf("%v", v)))
+			_ = dict.SetKey(starlark.String("ports"), starlark.String(fmt.Sprintf("%v", v)))
 		}
 		containers = append(containers, dict)
 	}

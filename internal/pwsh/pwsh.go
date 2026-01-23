@@ -248,8 +248,12 @@ func (s *Session) Run(command string) *Result {
 	for s.scanner.Scan() {
 		line := stripANSI(s.scanner.Text())
 		if strings.HasPrefix(line, s.marker) {
-			exitCodeStr := strings.TrimPrefix(line, s.marker)
-			fmt.Sscanf(exitCodeStr, "%d", &result.ExitCode)
+			exitCodeStr := strings.TrimSpace(strings.TrimPrefix(line, s.marker))
+			if exitCodeStr != "" {
+				if _, err := fmt.Sscanf(exitCodeStr, "%d", &result.ExitCode); err != nil {
+					result.ExitCode = 1
+				}
+			}
 			break
 		}
 		stdout.WriteString(line)
@@ -360,7 +364,9 @@ func Ensure() error {
 
 	// Check major version
 	var major int
-	fmt.Sscanf(ver, "%d", &major)
+	if _, err := fmt.Sscanf(ver, "%d", &major); err != nil {
+		return fmt.Errorf("PowerShell 7+ required, found %s\nInstall: https://aka.ms/powershell", ver)
+	}
 	if major < 7 {
 		return fmt.Errorf("PowerShell 7+ required, found %s\nInstall: https://aka.ms/powershell", ver)
 	}
