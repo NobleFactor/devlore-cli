@@ -1,0 +1,76 @@
+# Devlore Configuration
+# Shared config for lore and writ: ~/.config/devlore/config.yaml
+# See: lore config --schema  OR  writ config --schema
+
+# Shared secrets configuration (ADR-050)
+# secrets:
+#   identity_file: ~/.ssh/id_ed25519
+#   # OR use external source:
+#   # identity_command: "op read op://Personal/age-key/private"
+#   recipients_file: .age-recipients
+#   mode: "0600"
+#   on_error: error
+
+# Lore configuration
+lore:
+  # registry: ~/.local/share/lore/registry
+  # verbose: false
+  # quiet: false
+  # dry_run: false
+
+  ai_provider:
+    model:
+      name: llama3.1:8b
+      provider: ollama
+
+    preferences:
+      consult_user_before_changes: true
+      validate_existing_packages: true
+      search_internet: always
+
+  sources:
+    corporate: []  # None embedded; user adds their own
+
+    trusted_domains:
+      # Primary sources (official vendor documentation)
+      - developer.apple.com
+      - docs.microsoft.com
+      - learn.microsoft.com
+      - cloud.google.com
+      - docs.aws.amazon.com
+      - docs.github.com
+      # Tier-1 reputable sources
+      - wiki.archlinux.org
+      - docs.docker.com
+      - kubernetes.io
+      - helm.sh
+      - terraform.io
+      - brew.sh
+      - formulae.brew.sh
+      - chocolatey.org
+      - winget.run
+
+    blocked_domains: []  # None embedded; user adds their own
+
+# Writ configuration
+writ:
+  # Single repo (shorthand for personal layer)
+  # repo: ~/.local/share/dotfiles
+
+  # Multiple repos with layer precedence: base -> team -> personal
+  # repos:
+  #   - path: ~/.local/share/dotfiles
+  #     layer: personal
+  #   - url: git@github.com:acme/team-env.git
+  #     layer: team
+
+  # Template variables (populated by 'writ configure')
+  # vars:
+  #   USER_NAME: "Your Name"
+  #   USER_EMAIL: "you@example.com"
+  #   EDITOR: "/usr/bin/vim"
+
+  # verbose: false
+  # quiet: false
+  # dry_run: false
+  backup_suffix: ".writ-backup"

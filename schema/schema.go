@@ -1,25 +1,27 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-// Package schema provides embedded JSON schemas and default configs for lore and writ.
+// Package schema provides embedded JSON schemas and default configs for the devlore ecosystem.
 package schema
 
 import _ "embed"
 
-// Lore schema and default config.
+// DevloreSchema is the shared JSON schema for the devlore config file.
+// Both lore and writ read from ~/.config/devlore/config.yaml.
+//
+//go:embed devlore-config.json
+var DevloreSchema []byte
+
+// DevloreDefaultConfig is the shared default configuration.
+//
+//go:embed defaults/devlore-config.yaml
+var DevloreDefaultConfig []byte
+
+// Legacy aliases for backward compatibility.
+// These point to the shared devlore schema and config.
 var (
-	//go:embed lore-config.json
-	LoreSchema []byte
-
-	//go:embed defaults/lore-config.yaml
-	LoreDefaultConfig []byte
-)
-
-// Writ schema and default config.
-var (
-	//go:embed writ-config.json
-	WritSchema []byte
-
-	//go:embed defaults/writ-config.yaml
-	WritDefaultConfig []byte
+	LoreSchema        = DevloreSchema
+	LoreDefaultConfig = DevloreDefaultConfig
+	WritSchema        = DevloreSchema
+	WritDefaultConfig = DevloreDefaultConfig
 )

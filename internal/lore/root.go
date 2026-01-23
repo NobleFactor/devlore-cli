@@ -5,9 +5,13 @@
 package lore
 
 import (
-	"github.com/spf13/cobra"
+	"fmt"
+	"os"
 
-	"github.com/NobleFactor/devlore-cli/internal/clifactory"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
@@ -20,9 +24,12 @@ var (
 
 // NewRootCmd creates the root lore command with all subcommands.
 func NewRootCmd() *cobra.Command {
+	cli.SetProgramName("lore")
+
 	rootCmd := &cobra.Command{
-		Use:   "lore",
-		Short: "The tribal knowledge package deployer",
+		Use:                   "lore",
+		Short:                 "The tribal knowledge package deployer",
+		DisableAutoGenTag:     true,
 		Long: `Lore is a cross-platform package deployment tool that captures tribal
 knowledge about installing software.
 
@@ -37,14 +44,22 @@ anywhere.
 
 Lore captures this knowledge once and shares it forever.
 What took someone hours to figure out, you get in minutes.`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return initConfig(cmd)
+		},
 	}
 
 	// Global flags
-	rootCmd.PersistentFlags().String("config", "", "Config file (default: ~/.config/lore/config.yaml)")
+	rootCmd.PersistentFlags().String("config", "", "Config file (default: ~/.config/devlore/config.yaml)")
 	rootCmd.PersistentFlags().String("registry", "", "Registry path")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Show what would be done without making changes")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-error output")
+
+	// Deployment mode flags (ADR-033)
+	rootCmd.PersistentFlags().Bool("interactive", false, "Force interactive mode (prompts, rich output)")
+	rootCmd.PersistentFlags().Bool("unattended", false, "Force unattended mode (no prompts, sensible defaults)")
+	rootCmd.MarkFlagsMutuallyExclusive("interactive", "unattended")
 
 	// Add subcommands
 	rootCmd.AddCommand(newDeployCmd())
@@ -58,34 +73,71 @@ What took someone hours to figure out, you get in minutes.`,
 	rootCmd.AddCommand(newResolveCmd())
 	rootCmd.AddCommand(newUpdateCmd())
 	rootCmd.AddCommand(newOnboardCmd())
+	rootCmd.AddCommand(newPublishCmd())
+	rootCmd.AddCommand(newAuditCmd())
 
 	// Shared metadata
-	manHeader := clifactory.ManHeader{
+	manHeader := cli.ManHeader{
 		Title:   "LORE",
 		Section: "1",
 		Source:  "Lore " + version,
 		Manual:  "Lore Manual",
 	}
-	configInfo := clifactory.ConfigInfo{
+	configInfo := cli.ConfigInfo{
 		Name:          "lore",
 		Schema:        schema.LoreSchema,
 		DefaultConfig: schema.LoreDefaultConfig,
 	}
 
-	// Add shared commands from clifactory
-	rootCmd.AddCommand(clifactory.NewCompletionCmd(rootCmd))
-	rootCmd.AddCommand(clifactory.NewVersionCmd(clifactory.VersionInfo{
+	// Add shared commands from cli
+	// Replace Cobra's built-in help with git-style help (prefers man pages)
+	rootCmd.SetHelpCommand(cli.NewHelpCmd(rootCmd, manHeader))
+	rootCmd.AddCommand(cli.NewCompletionCmd(rootCmd))
+	rootCmd.AddCommand(cli.NewVersionCmd(cli.VersionInfo{
 		Version:   version,
 		Commit:    commit,
 		BuildDate: buildDate,
 	}))
-	rootCmd.AddCommand(clifactory.NewManCmd(rootCmd, manHeader))
-	rootCmd.AddCommand(clifactory.NewConfigCmd(configInfo))
-	rootCmd.AddCommand(clifactory.NewSelfInstallCmd(rootCmd, clifactory.SelfInstallInfo{
+	rootCmd.AddCommand(cli.NewManCmd(rootCmd, manHeader))
+	rootCmd.AddCommand(cli.NewConfigCmd(configInfo))
+	rootCmd.AddCommand(cli.NewSelfInstallCmd(rootCmd, cli.SelfInstallInfo{
 		Name:       "lore",
 		ManHeader:  manHeader,
 		ConfigInfo: configInfo,
 	}))
 
 	return rootCmd
+}
+
+// initConfig initializes Viper configuration.
+// Precedence (lowest to highest): config file → environment variables → flags
+func initConfig(cmd *cobra.Command) error {
+	// Initialize Viper with shared devlore config
+	if err := cli.InitViper(cli.ViperConfig{
+		Name:            "lore",
+		EnvPrefix:       "LORE",
+		UseSharedConfig: true,
+	}); err != nil {
+		return err
+	}
+
+	// Check for custom config file via flag
+	if cfgFile, _ := cmd.Flags().GetString("config"); cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+		if err := viper.ReadInConfig(); err != nil {
+			return fmt.Errorf("failed to read config %s: %w", cfgFile, err)
+		}
+	}
+
+	// Bind flags to viper (flag values override config/env)
+	if err := cli.BindFlags(cmd, "lore", true); err != nil {
+		return err
+	}
+
+	// Debug output if verbose
+	if viper.GetBool("lore.verbose") {
+		fmt.Fprintf(os.Stderr, "Using config: %s\n", viper.ConfigFileUsed())
+	}
+
+	return nil
 }

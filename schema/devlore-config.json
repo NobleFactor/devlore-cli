@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://noblefactor.com/schemas/devlore-config.json",
+  "title": "Devlore Configuration",
+  "description": "Shared configuration schema for the devlore ecosystem (lore and writ)",
+  "type": "object",
+  "properties": {
+    "secrets": {
+      "type": "object",
+      "description": "Shared secrets configuration for age-encrypted files (ADR-050)",
+      "properties": {
+        "identity_file": {
+          "type": "string",
+          "description": "Path to age identity file or SSH private key for decryption"
+        },
+        "identity_command": {
+          "type": "string",
+          "description": "Command to fetch identity from external source (e.g., '1password', 'vault')"
+        },
+        "recipients_file": {
+          "type": "string",
+          "description": "Recipients file location (relative to target root)",
+          "default": ".age-recipients"
+        },
+        "mode": {
+          "type": "string",
+          "description": "File permissions for decrypted secrets",
+          "default": "0600"
+        },
+        "on_error": {
+          "type": "string",
+          "description": "Behavior on decryption failure",
+          "enum": ["error", "warn", "skip"],
+          "default": "error"
+        }
+      }
+    },
+    "lore": {
+      "type": "object",
+      "description": "Lore-specific configuration",
+      "properties": {
+        "registry": {
+          "type": "string",
+          "description": "Path to the package registry"
+        },
+        "verbose": {
+          "type": "boolean",
+          "description": "Enable verbose output",
+          "default": false
+        },
+        "quiet": {
+          "type": "boolean",
+          "description": "Suppress non-error output",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Show what would be done without making changes",
+          "default": false
+        },
+        "ai_provider": {
+          "type": "object",
+          "description": "AI provider configuration for manifest authoring",
+          "properties": {
+            "model": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Model identifier (e.g., 'llama3.1:8b', 'claude-sonnet-4-20250514')",
+                  "default": "llama3.1:8b"
+                },
+                "provider": {
+                  "type": "string",
+                  "enum": ["ollama", "anthropic", "openai", "azure-openai", "groq", "openrouter", "custom"],
+                  "description": "AI provider backend",
+                  "default": "ollama"
+                },
+                "api_key": {
+                  "type": "string",
+                  "description": "API key (supports ${ENV_VAR} expansion)"
+                },
+                "endpoint": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "Custom endpoint URL (for azure-openai or custom providers)"
+                }
+              },
+              "required": ["name", "provider"]
+            },
+            "preferences": {
+              "type": "object",
+              "properties": {
+                "consult_user_before_changes": {
+                  "type": "boolean",
+                  "description": "Require user approval before modifying existing packages",
+                  "default": true
+                },
+                "validate_existing_packages": {
+                  "type": "boolean",
+                  "description": "Check upstream for updates even if package exists locally",
+                  "default": true
+                },
+                "search_internet": {
+                  "type": "string",
+                  "enum": ["always", "on-demand", "never"],
+                  "description": "When to search internet for installation information",
+                  "default": "always"
+                }
+              }
+            }
+          }
+        },
+        "sources": {
+          "type": "object",
+          "description": "Documentation source configuration",
+          "properties": {
+            "corporate": {
+              "type": "array",
+              "description": "Organization-specific documentation sources (highest priority)",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {"type": "string"},
+                  "url": {"type": "string", "format": "uri"}
+                },
+                "required": ["name", "url"]
+              }
+            },
+            "trusted_domains": {
+              "type": "array",
+              "description": "Additional domains to trust (extends embedded whitelist)",
+              "items": {"type": "string", "format": "hostname"}
+            },
+            "blocked_domains": {
+              "type": "array",
+              "description": "Domains to never consult (overrides embedded whitelist)",
+              "items": {"type": "string", "format": "hostname"}
+            }
+          }
+        }
+      }
+    },
+    "writ": {
+      "type": "object",
+      "description": "Writ-specific configuration",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Path to a single environment repo (shorthand for personal layer)",
+          "default": "~/.local/share/dotfiles"
+        },
+        "repos": {
+          "type": "array",
+          "description": "Environment repos with layer precedence: base → team → personal",
+          "items": {
+            "type": "object",
+            "description": "A writ-managed environment repo",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Display name for the repo"
+              },
+              "path": {
+                "type": "string",
+                "description": "Local path to the repo (mutually exclusive with url)"
+              },
+              "url": {
+                "type": "string",
+                "description": "Remote URL to clone (mutually exclusive with path)"
+              },
+              "layer": {
+                "type": "string",
+                "description": "Layer determines precedence: base (lowest) → team → personal (highest)",
+                "enum": ["base", "team", "personal"],
+                "default": "personal"
+              }
+            },
+            "oneOf": [
+              { "required": ["path", "layer"] },
+              { "required": ["url", "layer"] }
+            ]
+          }
+        },
+        "vars": {
+          "type": "object",
+          "description": "Template variables for dotfile processing",
+          "properties": {
+            "USER_NAME": {
+              "type": "string",
+              "description": "User's full name for git config and other templates"
+            },
+            "USER_EMAIL": {
+              "type": "string",
+              "description": "User's email address for git config and other templates"
+            },
+            "EDITOR": {
+              "type": "string",
+              "description": "Preferred editor path"
+            }
+          },
+          "additionalProperties": {
+            "type": "string",
+            "description": "Custom template variable"
+          }
+        },
+        "targets": {
+          "type": "object",
+          "description": "Segment values per target",
+          "additionalProperties": {
+            "type": "object",
+            "description": "Target-specific segment values",
+            "properties": {
+              "DISTRO": {
+                "type": "string",
+                "description": "Linux distribution (debian, ubuntu, fedora, etc.)"
+              },
+              "ROLE": {
+                "type": "string",
+                "description": "Machine role (desktop, server, workstation, etc.)"
+              },
+              "SITE": {
+                "type": "string",
+                "description": "Site or location identifier"
+              }
+            },
+            "additionalProperties": {
+              "type": "string",
+              "description": "Custom segment value"
+            }
+          }
+        },
+        "backup_suffix": {
+          "type": "string",
+          "description": "Suffix for backup files when overwriting",
+          "default": ".writ-backup"
+        },
+        "verbose": {
+          "type": "boolean",
+          "description": "Enable verbose output",
+          "default": false
+        },
+        "quiet": {
+          "type": "boolean",
+          "description": "Suppress non-error output",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Show what would be done without making changes",
+          "default": false
+        }
+      }
+    }
+  }
+}
