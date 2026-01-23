@@ -18,7 +18,6 @@ import (
 	"filippo.io/age"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/writ/exec"
@@ -2231,142 +2230,26 @@ func getConfiguredRepos() []RepoConfig {
 	return result
 }
 
-// registerRepo registers a repository in the config file.
+// registerRepo registers a repository in the shared config file.
 func registerRepo(layer, path, url string) error {
 	return registerRepoWithName(layer, path, url, "")
 }
 
 // registerRepoWithName registers a repository with an optional display name.
+// Delegates to the shared cli.RegisterRepo API.
 func registerRepoWithName(layer, path, url, name string) error {
-	configPath := filepath.Join(cli.ConfigHome(), "devlore", "config.yaml")
-
-	// Ensure config directory exists
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		return fmt.Errorf("create config directory: %w", err)
-	}
-
-	// Read existing config
-	configData, err := os.ReadFile(configPath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read config: %w", err)
-	}
-
-	// Parse existing config
-	var config map[string]interface{}
-	if len(configData) > 0 {
-		if err := yaml.Unmarshal(configData, &config); err != nil {
-			return fmt.Errorf("parse config: %w", err)
-		}
-	}
-	if config == nil {
-		config = make(map[string]interface{})
-	}
-
-	// Ensure writ section exists
-	writSection, ok := config["writ"].(map[string]interface{})
-	if !ok {
-		writSection = make(map[string]interface{})
-		config["writ"] = writSection
-	}
-
-	// Get or create repos array
-	var repos []interface{}
-	if existingRepos, ok := writSection["repos"].([]interface{}); ok {
-		// Remove any existing entry for this layer
-		for _, r := range existingRepos {
-			if repoMap, ok := r.(map[string]interface{}); ok {
-				if repoMap["layer"] != layer {
-					repos = append(repos, r)
-				}
-			}
-		}
-	}
-
-	// Add new repo entry
-	newRepo := map[string]interface{}{
-		"path":  path,
-		"layer": layer,
-	}
-	if name != "" {
-		newRepo["name"] = name
-	}
-	if url != "" {
-		newRepo["url"] = url
-	}
-	repos = append(repos, newRepo)
-
-	writSection["repos"] = repos
-
-	// Write config back
-	newConfigData, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
-	}
-
-	if err := os.WriteFile(configPath, newConfigData, 0644); err != nil {
-		return fmt.Errorf("write config: %w", err)
-	}
-
-	// Reload viper
-	viper.Set("writ.repos", repos)
-
-	return nil
+	return cli.RegisterRepo("writ", cli.RepoEntry{
+		Layer: layer,
+		Path:  path,
+		URL:   url,
+		Name:  name,
+	})
 }
 
-// unregisterRepo removes a repository from the config file.
+// unregisterRepo removes a repository from the shared config file.
+// Delegates to the shared cli.UnregisterRepo API.
 func unregisterRepo(layer string) error {
-	configPath := filepath.Join(cli.ConfigHome(), "devlore", "config.yaml")
-
-	// Read existing config
-	configData, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("read config: %w", err)
-	}
-
-	// Parse existing config
-	var config map[string]interface{}
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		return fmt.Errorf("parse config: %w", err)
-	}
-
-	// Get writ section
-	writSection, ok := config["writ"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("no writ section in config")
-	}
-
-	// Filter repos array
-	var repos []interface{}
-	if existingRepos, ok := writSection["repos"].([]interface{}); ok {
-		for _, r := range existingRepos {
-			if repoMap, ok := r.(map[string]interface{}); ok {
-				if repoMap["layer"] != layer {
-					repos = append(repos, r)
-				}
-			}
-		}
-	}
-
-	if len(repos) > 0 {
-		writSection["repos"] = repos
-	} else {
-		delete(writSection, "repos")
-	}
-
-	// Write config back
-	newConfigData, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
-	}
-
-	if err := os.WriteFile(configPath, newConfigData, 0644); err != nil {
-		return fmt.Errorf("write config: %w", err)
-	}
-
-	// Reload viper
-	viper.Set("writ.repos", repos)
-
-	return nil
+	return cli.UnregisterRepo("writ", layer)
 }
 
 // createRepoStructure creates the standard writ repository structure.
