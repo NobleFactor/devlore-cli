@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -97,7 +98,7 @@ Examples:
 			for _, key := range args {
 				value, exists := getNestedValue(config, key)
 				if !exists {
-					return fmt.Errorf("key not found: %s", key)
+					return ExitWith(ExitDataErr, fmt.Errorf("key not found: %s", key))
 				}
 				fmt.Println(formatValue(value))
 			}
@@ -131,11 +132,15 @@ Examples:
 			for _, arg := range args {
 				idx := strings.Index(arg, "=")
 				if idx == -1 {
-					return fmt.Errorf("invalid argument %q: expected key=value", arg)
+					return ExitWith(ExitUsage, fmt.Errorf("invalid argument %q: expected key=value", arg))
 				}
 				key := arg[:idx]
 				value := arg[idx+1:]
-				setNestedValue(config, key, value)
+				typed, err := coerceValue(info.Schema, key, value)
+				if err != nil {
+					return err
+				}
+				setNestedValue(config, key, typed)
 			}
 
 			return saveConfig(cfgPath, config)
@@ -166,7 +171,7 @@ Examples:
 
 			for _, key := range args {
 				if !deleteNestedValue(config, key) {
-					return fmt.Errorf("key not found: %s", key)
+					return ExitWith(ExitDataErr, fmt.Errorf("key not found: %s", key))
 				}
 			}
 
@@ -248,7 +253,8 @@ func newConfigPathCmd(info ConfigInfo) *cobra.Command {
 	}
 }
 
-// loadConfig loads the config file as a map.
+// loadConfig loads the config file as a map. Supports YAML (.yaml, .yml)
+// and JSON (.json) formats, detected by file extension.
 func loadConfig(path string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -259,8 +265,16 @@ func loadConfig(path string) (map[string]interface{}, error) {
 	}
 
 	var config map[string]interface{}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("invalid YAML: %w", err)
+
+	switch configFormat(path) {
+	case "json":
+		if err := json.Unmarshal(data, &config); err != nil {
+			return nil, fmt.Errorf("invalid JSON: %w", err)
+		}
+	default:
+		if err := yaml.Unmarshal(data, &config); err != nil {
+			return nil, fmt.Errorf("invalid YAML: %w", err)
+		}
 	}
 
 	if config == nil {
@@ -270,7 +284,8 @@ func loadConfig(path string) (map[string]interface{}, error) {
 	return config, nil
 }
 
-// saveConfig saves the config map to file.
+// saveConfig saves the config map to file. Supports YAML (.yaml, .yml)
+// and JSON (.json) formats, detected by file extension.
 func saveConfig(path string, config map[string]interface{}) error {
 	// Create directory if needed
 	dir := filepath.Dir(path)
@@ -278,57 +293,35 @@ func saveConfig(path string, config map[string]interface{}) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	data, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+	var data []byte
+	var err error
+
+	switch configFormat(path) {
+	case "json":
+		data, err = json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal config: %w", err)
+		}
+		data = append(data, '\n')
+	default:
+		data, err = yaml.Marshal(config)
+		if err != nil {
+			return fmt.Errorf("failed to marshal config: %w", err)
+		}
 	}
 
 	return os.WriteFile(path, data, 0644)
 }
 
-// configGet retrieves a configuration value.
-func configGet(path, key string) error {
-	config, err := loadConfig(path)
-	if err != nil {
-		return err
+// configFormat returns "json" or "yaml" based on the file extension.
+func configFormat(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".json" {
+		return "json"
 	}
-
-	value, exists := getNestedValue(config, key)
-	if !exists {
-		return fmt.Errorf("key not found: %s", key)
-	}
-
-	fmt.Println(formatValue(value))
-	return nil
+	return "yaml"
 }
 
-// configSet sets a configuration value.
-func configSet(path, key, value string) error {
-	config, err := loadConfig(path)
-	if err != nil {
-		return err
-	}
-
-	setNestedValue(config, key, value)
-
-	return saveConfig(path, config)
-}
-
-// configList displays all configuration settings.
-func configList(path string) error {
-	config, err := loadConfig(path)
-	if err != nil {
-		return err
-	}
-
-	if len(config) == 0 {
-		fmt.Println("# No configuration set")
-		return nil
-	}
-
-	printFlattened("", config)
-	return nil
-}
 
 // configEdit opens the config file in the user's editor.
 func configEdit(path string, defaultConfig []byte) error {
@@ -357,20 +350,6 @@ func configEdit(path string, defaultConfig []byte) error {
 	cmd.Stderr = os.Stderr
 
 	return cmd.Run()
-}
-
-// configUnset removes a configuration key.
-func configUnset(path, key string) error {
-	config, err := loadConfig(path)
-	if err != nil {
-		return err
-	}
-
-	if !deleteNestedValue(config, key) {
-		return fmt.Errorf("key not found: %s", key)
-	}
-
-	return saveConfig(path, config)
 }
 
 // configValidate validates the config against the schema.
@@ -461,7 +440,7 @@ func getNestedValue(m map[string]interface{}, key string) (interface{}, bool) {
 }
 
 // setNestedValue sets a value in a nested map using dot notation.
-func setNestedValue(m map[string]interface{}, key, value string) {
+func setNestedValue(m map[string]interface{}, key string, value interface{}) {
 	parts := strings.Split(key, ".")
 
 	if len(parts) == 1 {
@@ -702,4 +681,93 @@ func extractKeys(prefix string, properties map[string]interface{}, keys *[]strin
 			}
 		}
 	}
+}
+
+// coerceValue converts a string value to the appropriate Go type based on
+// the JSON schema type for the given key. Returns an error if the key is
+// unknown (not declared in schema and parent has no additionalProperties)
+// or if the value can't be parsed to the declared type.
+func coerceValue(schemaBytes []byte, key, value string) (interface{}, error) {
+	schemaType, found := schemaTypeForKey(schemaBytes, key)
+	if !found {
+		return nil, ExitWith(ExitDataErr, fmt.Errorf("unknown configuration key: %s", key))
+	}
+
+	switch schemaType {
+	case "boolean":
+		switch strings.ToLower(value) {
+		case "true", "1", "yes", "on":
+			return true, nil
+		case "false", "0", "no", "off":
+			return false, nil
+		default:
+			return nil, ExitWith(ExitDataErr, fmt.Errorf("invalid boolean for %s: %q (expected true/false)", key, value))
+		}
+	case "integer":
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return nil, ExitWith(ExitDataErr, fmt.Errorf("invalid integer for %s: %q", key, value))
+		}
+		return n, nil
+	case "number":
+		f, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, ExitWith(ExitDataErr, fmt.Errorf("invalid number for %s: %q", key, value))
+		}
+		return f, nil
+	}
+
+	return value, nil
+}
+
+// schemaTypeForKey walks the JSON schema to find the type declaration for
+// a dot-path key. Returns the type string and true if found, or "" and false
+// if the key is not declared in the schema. Respects additionalProperties
+// for keys under objects like writ.vars or writ.targets.
+func schemaTypeForKey(schemaBytes []byte, key string) (string, bool) {
+	var schema map[string]interface{}
+	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+		return "", false
+	}
+
+	parts := strings.Split(key, ".")
+	current := schema
+
+	for i, part := range parts {
+		properties, _ := current["properties"].(map[string]interface{})
+
+		prop, inProperties := properties[part].(map[string]interface{})
+		if !inProperties {
+			// Check additionalProperties on the current schema node
+			addlProps, hasAddl := current["additionalProperties"].(map[string]interface{})
+			if !hasAddl {
+				return "", false
+			}
+
+			// For the last part, the type comes from additionalProperties
+			if i == len(parts)-1 {
+				if t, ok := addlProps["type"].(string); ok {
+					return t, true
+				}
+				return "string", true
+			}
+
+			// For intermediate parts, descend into additionalProperties
+			current = addlProps
+			continue
+		}
+
+		// Found in declared properties
+		if i == len(parts)-1 {
+			if t, ok := prop["type"].(string); ok {
+				return t, true
+			}
+			return "string", true
+		}
+
+		// Descend into this property for the next part
+		current = prop
+	}
+
+	return "", false
 }
