@@ -478,12 +478,7 @@ func (r *Receipt) ToDependencyGraph() *DependencyGraph {
 
 	// Promote edges: keep only inter-project and cross-tool edges
 	for _, e := range r.Edges {
-		dg.Edges = append(dg.Edges, DependencyEdge{
-			From:     e.From,
-			To:       e.To,
-			Relation: e.Relation,
-			Artifact: e.Artifact,
-		})
+		dg.Edges = append(dg.Edges, DependencyEdge(e))
 	}
 
 	// Add implicit delegate edges from project to delegate target
