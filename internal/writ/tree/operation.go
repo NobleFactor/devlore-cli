@@ -64,3 +64,13 @@ func (ops Operations) HasCopy() bool {
 	}
 	return false
 }
+
+// HasDelegate returns true if the operations include a delegate operation.
+func (ops Operations) HasDelegate() bool {
+	for _, op := range ops {
+		if op == OpDelegate {
+			return true
+		}
+	}
+	return false
+}

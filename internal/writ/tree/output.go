@@ -4,33 +4,33 @@
 package tree
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
 )
 
-// String returns a human-readable representation of the tree.
-func (t *Tree) String() string {
+// CompactString returns a compact summary of the build result.
+func (r *BuildResult) CompactString() string {
+	return fmt.Sprintf("%d files (%d links, %d templates, %d secrets) from %d directories",
+		r.FileCount(), r.LinkCount(), r.TemplateCount(), r.SecretCount(), len(r.MatchedDirs))
+}
+
+// String returns a human-readable representation of the build result.
+func (r *BuildResult) String() string {
 	var sb strings.Builder
 
-	// Header
-	sb.WriteString(fmt.Sprintf("Deployment Tree: %s → %s\n\n", t.SourceRoot, t.TargetRoot))
+	sb.WriteString(fmt.Sprintf("Deployment: %s → %s\n\n", r.SourceRoot, r.TargetRoot))
+	sb.WriteString(fmt.Sprintf("Projects: %s\n\n", strings.Join(r.Projects, ", ")))
 
-	// Projects
-	sb.WriteString(fmt.Sprintf("Projects: %s\n\n", strings.Join(t.Projects, ", ")))
-
-	// Matched directories
 	sb.WriteString("Matched directories:\n")
-	for _, m := range t.MatchedDirs {
+	for _, m := range r.MatchedDirs {
 		sb.WriteString(fmt.Sprintf("  %s/\n", filepath.Base(m.Path)))
 	}
 	sb.WriteString("\n")
 
-	// Collision warnings
-	if t.HasCollisions() {
-		sb.WriteString(fmt.Sprintf("Collisions (%d):\n", len(t.Collisions)))
-		for _, c := range t.Collisions {
+	if r.HasCollisions() {
+		sb.WriteString(fmt.Sprintf("Collisions (%d):\n", len(r.Collisions)))
+		for _, c := range r.Collisions {
 			sb.WriteString(fmt.Sprintf("  %s: %s (specificity %d) overrides %s (specificity %d)\n",
 				c.Target,
 				filepath.Base(filepath.Dir(c.Winner)),
@@ -41,66 +41,14 @@ func (t *Tree) String() string {
 		sb.WriteString("\n")
 	}
 
-	// Summary
-	sb.WriteString(fmt.Sprintf("Files (%d):\n", len(t.Nodes)))
+	sb.WriteString(fmt.Sprintf("Files (%d):\n", r.FileCount()))
 	sb.WriteString(fmt.Sprintf("  Links: %d, Templates: %d, Secrets: %d\n\n",
-		t.LinkCount(), t.TemplateCount(), t.SecretCount()))
+		r.LinkCount(), r.TemplateCount(), r.SecretCount()))
 
-	// File list
-	for _, n := range t.Nodes {
-		// Format: relTarget → target [operations]
-		ops := formatOps(n.Operations)
-		sb.WriteString(fmt.Sprintf("  %-40s → ~/%s %s\n",
-			n.RelTarget, n.RelTarget, ops))
+	for _, n := range r.Graph.Nodes {
+		ops := "[" + strings.Join(n.Operations, ", ") + "]"
+		sb.WriteString(fmt.Sprintf("  %-40s %s\n", n.ID, ops))
 	}
 
 	return sb.String()
-}
-
-// formatOps formats operations for display.
-func formatOps(ops Operations) string {
-	if len(ops) == 1 && ops[0] == OpLink {
-		return "[link]"
-	}
-	return "[" + strings.Join(ops.Strings(), ", ") + "]"
-}
-
-// JSON returns the tree as JSON.
-func (t *Tree) JSON() ([]byte, error) {
-	return json.MarshalIndent(t, "", "  ")
-}
-
-// CompactString returns a compact summary of the tree.
-func (t *Tree) CompactString() string {
-	return fmt.Sprintf("%d files (%d links, %d templates, %d secrets) from %d directories",
-		t.FileCount(), t.LinkCount(), t.TemplateCount(), t.SecretCount(), len(t.MatchedDirs))
-}
-
-// NodesByProject returns nodes grouped by project.
-func (t *Tree) NodesByProject() map[string][]*Node {
-	groups := make(map[string][]*Node)
-	for _, n := range t.Nodes {
-		groups[n.Project] = append(groups[n.Project], n)
-	}
-	return groups
-}
-
-// NodesByOperation returns nodes grouped by primary operation type.
-func (t *Tree) NodesByOperation() map[Operation][]*Node {
-	groups := make(map[Operation][]*Node)
-	for _, n := range t.Nodes {
-		if len(n.Operations) > 0 {
-			// Group by first operation (primary type)
-			primary := n.Operations[0]
-			// But if it's decrypt or expand, that's the interesting one
-			for _, op := range n.Operations {
-				if op == OpDecrypt || op == OpExpand {
-					primary = op
-					break
-				}
-			}
-			groups[primary] = append(groups[primary], n)
-		}
-	}
-	return groups
 }

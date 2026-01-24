@@ -9,49 +9,50 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/NobleFactor/devlore-cli/internal/engine"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 )
 
-// Tree represents the full deployment tree.
-type Tree struct {
-	// SourceRoot is the source root directory (e.g., ~/dotfiles/Home/Configs).
-	SourceRoot string `json:"source_root"`
+// BuildResult contains the built execution graph and build-time metadata.
+type BuildResult struct {
+	// Graph is the execution graph ready for the engine.
+	Graph *engine.Graph
 
-	// TargetRoot is the target root directory (e.g., $HOME).
-	TargetRoot string `json:"target_root"`
+	// SourceRoot is the source root directory.
+	SourceRoot string
 
-	// Projects included in this tree.
-	Projects []string `json:"projects"`
+	// TargetRoot is the target root directory.
+	TargetRoot string
+
+	// Projects included in this build.
+	Projects []string
 
 	// MatchedDirs are the directories that matched the segments.
-	MatchedDirs []segment.MatchResult `json:"matched_dirs"`
-
-	// Nodes are all file nodes in the tree.
-	Nodes []*Node `json:"nodes"`
+	MatchedDirs []segment.MatchResult
 
 	// Collisions are files where a more specific source overrode a less specific one.
-	Collisions []Collision `json:"collisions,omitempty"`
+	Collisions []Collision
 }
 
 // Collision records when a more specific file overrides a less specific one.
 type Collision struct {
 	// Target is the relative target path that had a collision.
-	Target string `json:"target"`
+	Target string
 
 	// Winner is the source that won (more specific).
-	Winner string `json:"winner"`
+	Winner string
 
 	// WinnerSpecificity is the number of suffixes on the winning directory.
-	WinnerSpecificity int `json:"winner_specificity"`
+	WinnerSpecificity int
 
 	// Loser is the source that was overridden (less specific).
-	Loser string `json:"loser"`
+	Loser string
 
 	// LoserSpecificity is the number of suffixes on the losing directory.
-	LoserSpecificity int `json:"loser_specificity"`
+	LoserSpecificity int
 }
 
-// BuildConfig holds configuration for building a deployment tree.
+// BuildConfig holds configuration for building a deployment graph.
 type BuildConfig struct {
 	// SourceRoot is the source directory (e.g., ~/dotfiles/Home/Configs).
 	SourceRoot string
@@ -66,116 +67,105 @@ type BuildConfig struct {
 	Segments segment.Segments
 }
 
-// Build creates a deployment tree from the given configuration.
-func Build(cfg BuildConfig) (*Tree, error) {
-	// Match directories for the requested projects
+// Build creates an execution graph from the given configuration.
+func Build(cfg BuildConfig) (*BuildResult, error) {
 	matches, err := segment.MatchDirectories(cfg.SourceRoot, cfg.Projects, cfg.Segments)
 	if err != nil {
 		return nil, err
 	}
 
-	tree := &Tree{
+	result := &BuildResult{
+		Graph:       &engine.Graph{},
 		SourceRoot:  cfg.SourceRoot,
 		TargetRoot:  cfg.TargetRoot,
 		Projects:    cfg.Projects,
 		MatchedDirs: matches,
 	}
 
-	// Collect all nodes, tracking by target path for collision detection
-	nodesByTarget := make(map[string]*Node)
+	// Collect nodes, tracking by target path for collision detection
+	type nodeEntry struct {
+		node        *engine.Node
+		specificity int
+	}
+	nodesByTarget := make(map[string]nodeEntry)
 
-	// Walk each matched directory and collect files
 	for _, match := range matches {
 		nodes, err := walkDirectory(match, cfg.TargetRoot)
 		if err != nil {
 			return nil, err
 		}
 
+		specificity := len(match.Suffixes)
 		for _, node := range nodes {
-			existing, exists := nodesByTarget[node.RelTarget]
+			existing, exists := nodesByTarget[node.ID]
 			if !exists {
-				nodesByTarget[node.RelTarget] = node
+				nodesByTarget[node.ID] = nodeEntry{node: node, specificity: specificity}
 				continue
 			}
 
-			// Collision detected - more specific wins
-			existingSpec := len(existing.Suffixes)
-			newSpec := len(node.Suffixes)
-
-			if newSpec > existingSpec {
-				// New node is more specific, it wins
-				tree.Collisions = append(tree.Collisions, Collision{
-					Target:            node.RelTarget,
+			// Collision: more specific wins
+			if specificity > existing.specificity {
+				result.Collisions = append(result.Collisions, Collision{
+					Target:            node.ID,
 					Winner:            node.Source,
-					WinnerSpecificity: newSpec,
-					Loser:             existing.Source,
-					LoserSpecificity:  existingSpec,
+					WinnerSpecificity: specificity,
+					Loser:             existing.node.Source,
+					LoserSpecificity:  existing.specificity,
 				})
-				nodesByTarget[node.RelTarget] = node
-			} else if newSpec < existingSpec {
-				// Existing is more specific, it stays
-				tree.Collisions = append(tree.Collisions, Collision{
-					Target:            node.RelTarget,
-					Winner:            existing.Source,
-					WinnerSpecificity: existingSpec,
+				nodesByTarget[node.ID] = nodeEntry{node: node, specificity: specificity}
+			} else if specificity < existing.specificity {
+				result.Collisions = append(result.Collisions, Collision{
+					Target:            node.ID,
+					Winner:            existing.node.Source,
+					WinnerSpecificity: existing.specificity,
 					Loser:             node.Source,
-					LoserSpecificity:  newSpec,
+					LoserSpecificity:  specificity,
 				})
 			} else {
-				// Same specificity - last one wins (arbitrary but deterministic based on match order)
-				// This shouldn't happen in practice if directories are properly organized
-				tree.Collisions = append(tree.Collisions, Collision{
-					Target:            node.RelTarget,
+				// Same specificity — last wins
+				result.Collisions = append(result.Collisions, Collision{
+					Target:            node.ID,
 					Winner:            node.Source,
-					WinnerSpecificity: newSpec,
-					Loser:             existing.Source,
-					LoserSpecificity:  existingSpec,
+					WinnerSpecificity: specificity,
+					Loser:             existing.node.Source,
+					LoserSpecificity:  existing.specificity,
 				})
-				nodesByTarget[node.RelTarget] = node
+				nodesByTarget[node.ID] = nodeEntry{node: node, specificity: specificity}
 			}
 		}
 	}
 
-	// Convert map to slice
-	for _, node := range nodesByTarget {
-		tree.Nodes = append(tree.Nodes, node)
+	// Convert map to sorted slice
+	for _, entry := range nodesByTarget {
+		result.Graph.Nodes = append(result.Graph.Nodes, entry.node)
 	}
-
-	// Sort nodes by target path for consistent output
-	sort.Slice(tree.Nodes, func(i, j int) bool {
-		return tree.Nodes[i].RelTarget < tree.Nodes[j].RelTarget
+	sort.Slice(result.Graph.Nodes, func(i, j int) bool {
+		return result.Graph.Nodes[i].ID < result.Graph.Nodes[j].ID
 	})
 
-	return tree, nil
+	return result, nil
 }
 
-// walkDirectory walks a matched directory and returns nodes for all files.
-func walkDirectory(match segment.MatchResult, targetRoot string) ([]*Node, error) {
-	var nodes []*Node
+// walkDirectory walks a matched directory and returns engine nodes for all files.
+func walkDirectory(match segment.MatchResult, targetRoot string) ([]*engine.Node, error) {
+	var nodes []*engine.Node
 
 	err := filepath.WalkDir(match.Path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-
-		// Skip directories (we only care about files)
 		if d.IsDir() {
 			return nil
 		}
 
-		// Note: We include hidden files (like .bashrc) - they're valid dotfiles
-
-		// Get relative path from the matched directory
 		relPath, err := filepath.Rel(match.Path, path)
 		if err != nil {
 			return err
 		}
 
-		// Determine target name and operations from filename
 		dir := filepath.Dir(relPath)
 		targetName, ops := ProcessingPipeline(d.Name())
 
-		// Build relative target path
 		var relTarget string
 		if dir == "." {
 			relTarget = targetName
@@ -183,24 +173,27 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*Node, error
 			relTarget = filepath.Join(dir, targetName)
 		}
 
-		// Determine file mode
+		// Secrets get restricted permissions
 		var mode os.FileMode
 		for _, op := range ops {
 			if op == OpDecrypt {
-				mode = 0600 // Secrets get restricted permissions
+				mode = 0600
 				break
 			}
 		}
 
-		node := &Node{
+		node := &engine.Node{
+			ID:         relTarget,
+			Operations: ops.Strings(),
 			Source:     path,
 			Target:     filepath.Join(targetRoot, relTarget),
-			RelSource:  relPath,
-			RelTarget:  relTarget,
-			Operations: ops,
-			Mode:       mode,
 			Project:    match.Project,
-			Suffixes:   match.Suffixes,
+			Mode:       mode,
+			Metadata:   make(map[string]string),
+		}
+
+		if ops.HasDelegate() {
+			node.DelegateTo = "lore"
 		}
 
 		nodes = append(nodes, node)
@@ -210,50 +203,62 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*Node, error
 	return nodes, err
 }
 
-// FileCount returns the number of files in the tree.
-func (t *Tree) FileCount() int {
-	return len(t.Nodes)
+// HasCollisions returns true if there were file collisions during build.
+func (r *BuildResult) HasCollisions() bool {
+	return len(r.Collisions) > 0
+}
+
+// FileCount returns the number of files in the graph.
+func (r *BuildResult) FileCount() int {
+	return len(r.Graph.Nodes)
 }
 
 // SecretCount returns the number of encrypted files.
-func (t *Tree) SecretCount() int {
+func (r *BuildResult) SecretCount() int {
 	count := 0
-	for _, n := range t.Nodes {
-		if n.IsSecret() {
-			count++
+	for _, n := range r.Graph.Nodes {
+		for _, op := range n.Operations {
+			if op == "decrypt" {
+				count++
+				break
+			}
 		}
 	}
 	return count
 }
 
 // TemplateCount returns the number of template files.
-func (t *Tree) TemplateCount() int {
+func (r *BuildResult) TemplateCount() int {
 	count := 0
-	for _, n := range t.Nodes {
-		if n.IsTemplate() {
-			count++
+	for _, n := range r.Graph.Nodes {
+		for _, op := range n.Operations {
+			if op == "expand" {
+				count++
+				break
+			}
 		}
 	}
 	return count
 }
 
 // LinkCount returns the number of simple symlink files.
-func (t *Tree) LinkCount() int {
+func (r *BuildResult) LinkCount() int {
 	count := 0
-	for _, n := range t.Nodes {
-		if n.IsLink() {
+	for _, n := range r.Graph.Nodes {
+		if len(n.Operations) == 1 && n.Operations[0] == "link" {
 			count++
 		}
 	}
 	return count
 }
 
-// HasCollisions returns true if there were file collisions during build.
-func (t *Tree) HasCollisions() bool {
-	return len(t.Collisions) > 0
-}
-
-// CollisionCount returns the number of file collisions.
-func (t *Tree) CollisionCount() int {
-	return len(t.Collisions)
+// DelegateCount returns the number of delegate nodes.
+func (r *BuildResult) DelegateCount() int {
+	count := 0
+	for _, n := range r.Graph.Nodes {
+		if n.DelegateTo != "" {
+			count++
+		}
+	}
+	return count
 }

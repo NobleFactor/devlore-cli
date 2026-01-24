@@ -13,6 +13,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
+// nodeIsDelegate returns true if the node's operations contain only "delegate".
+func nodeIsDelegate(ops []string) bool {
+	return len(ops) == 1 && ops[0] == "delegate"
+}
+
 // State represents the status of a deployed file.
 type State int
 
@@ -189,20 +194,20 @@ func FromReceiptWithDrift(rcpt *receipt.Receipt, receiptPath string, checkDrift 
 	return report
 }
 
-// FromTree generates status by checking entries in a deployment tree.
-func FromTree(t *tree.Tree) *Report {
+// FromBuildResult generates status by checking entries in a build result.
+func FromBuildResult(br *tree.BuildResult) *Report {
 	report := &Report{
-		TargetRoot:  t.TargetRoot,
-		SourceRoot:  t.SourceRoot,
-		Projects:    t.Projects,
+		TargetRoot:  br.TargetRoot,
+		SourceRoot:  br.SourceRoot,
+		Projects:    br.Projects,
 		FromReceipt: false,
 	}
 
-	for _, node := range t.Nodes {
-		if node.IsDelegate() {
+	for _, node := range br.Graph.Nodes {
+		if nodeIsDelegate(node.Operations) {
 			continue // Skip delegate nodes
 		}
-		entry := checkEntry(node.Source, node.Target, node.RelTarget, node.Project, node.Operations.Strings())
+		entry := checkEntry(node.Source, node.Target, node.ID, node.Project, node.Operations)
 		report.Entries = append(report.Entries, entry)
 	}
 
