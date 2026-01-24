@@ -21,7 +21,9 @@ func TestProcessingPipeline(t *testing.T) {
 		{"foo", "foo", []Operation{OpLink}},
 		{"foo.template", "foo", []Operation{OpExpand, OpCopy}},
 		{"foo.age", "foo", []Operation{OpDecrypt, OpCopy}},
+		{"foo.sops", "foo", []Operation{OpDecrypt, OpCopy}},
 		{"foo.template.age", "foo", []Operation{OpDecrypt, OpExpand, OpCopy}},
+		{"foo.template.sops", "foo", []Operation{OpDecrypt, OpExpand, OpCopy}},
 		{".bashrc", ".bashrc", []Operation{OpLink}},
 		{".bashrc.template", ".bashrc", []Operation{OpExpand, OpCopy}},
 		{"config.yaml.template.age", "config.yaml", []Operation{OpDecrypt, OpExpand, OpCopy}},
@@ -95,7 +97,7 @@ func TestBuild(t *testing.T) {
 
 	targetDir := t.TempDir()
 
-	tree, err := Build(BuildConfig{
+	result, err := Build(BuildConfig{
 		SourceRoot: tmpDir,
 		TargetRoot: targetDir,
 		Projects:   []string{"all", "noblefactor"},
@@ -108,47 +110,38 @@ func TestBuild(t *testing.T) {
 
 	// Verify matched directories
 	expectedDirs := 5 // all, all.Darwin, all.Unix, noblefactor, noblefactor.Unix
-	if len(tree.MatchedDirs) != expectedDirs {
-		t.Errorf("got %d matched dirs, want %d", len(tree.MatchedDirs), expectedDirs)
-		for _, m := range tree.MatchedDirs {
+	if len(result.MatchedDirs) != expectedDirs {
+		t.Errorf("got %d matched dirs, want %d", len(result.MatchedDirs), expectedDirs)
+		for _, m := range result.MatchedDirs {
 			t.Logf("  matched: %s", filepath.Base(m.Path))
 		}
 	}
 
 	// Verify files were found
 	expectedFiles := 6 // all the files we created
-	if len(tree.Nodes) != expectedFiles {
-		t.Errorf("got %d nodes, want %d", len(tree.Nodes), expectedFiles)
-		for _, n := range tree.Nodes {
-			t.Logf("  node: %s -> %s %v", n.RelSource, n.RelTarget, n.Operations.Strings())
+	if len(result.Graph.Nodes) != expectedFiles {
+		t.Errorf("got %d nodes, want %d", len(result.Graph.Nodes), expectedFiles)
+		for _, n := range result.Graph.Nodes {
+			t.Logf("  node: %s ops=%v", n.ID, n.Operations)
 		}
 	}
 
 	// Verify template detection
-	if tree.TemplateCount() != 1 {
-		t.Errorf("template count = %d, want 1", tree.TemplateCount())
+	if result.TemplateCount() != 1 {
+		t.Errorf("template count = %d, want 1", result.TemplateCount())
 	}
 
 	// Verify link count
-	if tree.LinkCount() != 5 {
-		t.Errorf("link count = %d, want 5", tree.LinkCount())
+	if result.LinkCount() != 5 {
+		t.Errorf("link count = %d, want 5", result.LinkCount())
 	}
 
 	// Test output
-	output := tree.String()
+	output := result.String()
 	if output == "" {
 		t.Error("String() returned empty")
 	}
 	t.Logf("Tree output:\n%s", output)
-
-	// Test JSON
-	jsonBytes, err := tree.JSON()
-	if err != nil {
-		t.Errorf("JSON() failed: %v", err)
-	}
-	if len(jsonBytes) == 0 {
-		t.Error("JSON() returned empty")
-	}
 }
 
 func TestBuildWithCollisions(t *testing.T) {
@@ -157,8 +150,8 @@ func TestBuildWithCollisions(t *testing.T) {
 
 	// Create directories with different specificity
 	dirs := []string{
-		"all",          // specificity 0
-		"all.Darwin",   // specificity 1
+		"all",        // specificity 0
+		"all.Darwin", // specificity 1
 	}
 
 	for _, d := range dirs {
@@ -185,7 +178,7 @@ func TestBuildWithCollisions(t *testing.T) {
 
 	targetDir := t.TempDir()
 
-	tree, err := Build(BuildConfig{
+	result, err := Build(BuildConfig{
 		SourceRoot: tmpDir,
 		TargetRoot: targetDir,
 		Projects:   []string{"all"},
@@ -197,26 +190,27 @@ func TestBuildWithCollisions(t *testing.T) {
 	}
 
 	// Should have exactly 1 node (collision resolved)
-	if len(tree.Nodes) != 1 {
-		t.Errorf("got %d nodes, want 1 (collision should resolve to single node)", len(tree.Nodes))
+	if len(result.Graph.Nodes) != 1 {
+		t.Errorf("got %d nodes, want 1 (collision should resolve to single node)", len(result.Graph.Nodes))
 	}
 
 	// Should have 1 collision recorded
-	if len(tree.Collisions) != 1 {
-		t.Errorf("got %d collisions, want 1", len(tree.Collisions))
+	if len(result.Collisions) != 1 {
+		t.Errorf("got %d collisions, want 1", len(result.Collisions))
 	}
 
 	// The winner should be the more specific one (all.Darwin)
-	if len(tree.Nodes) > 0 {
-		node := tree.Nodes[0]
-		if len(node.Suffixes) != 1 || node.Suffixes[0] != "Darwin" {
-			t.Errorf("winner should be from all.Darwin, got suffixes %v", node.Suffixes)
+	if len(result.Graph.Nodes) > 0 {
+		node := result.Graph.Nodes[0]
+		// The winner source should contain "all.Darwin"
+		if !strings.Contains(node.Source, "all.Darwin") {
+			t.Errorf("winner should be from all.Darwin, got source %s", node.Source)
 		}
 	}
 
 	// Verify collision details
-	if len(tree.Collisions) > 0 {
-		c := tree.Collisions[0]
+	if len(result.Collisions) > 0 {
+		c := result.Collisions[0]
 		if c.Target != ".bashrc" {
 			t.Errorf("collision target = %q, want %q", c.Target, ".bashrc")
 		}
@@ -229,7 +223,7 @@ func TestBuildWithCollisions(t *testing.T) {
 	}
 
 	// Verify output includes collision warning
-	output := tree.String()
+	output := result.String()
 	if !strings.Contains(output, "Collisions (1)") {
 		t.Error("output should contain collision warning")
 	}
@@ -237,34 +231,25 @@ func TestBuildWithCollisions(t *testing.T) {
 	t.Logf("Tree output:\n%s", output)
 }
 
-func TestNodeHelpers(t *testing.T) {
+func TestOperationHelpers(t *testing.T) {
 	tests := []struct {
-		ops        []Operation
-		isSecret   bool
-		isTemplate bool
-		isLink     bool
-		isDelegate bool
+		ops         Operations
+		hasCopy     bool
+		hasDelegate bool
 	}{
-		{[]Operation{OpLink}, false, false, true, false},
-		{[]Operation{OpExpand, OpCopy}, false, true, false, false},
-		{[]Operation{OpDecrypt, OpCopy}, true, false, false, false},
-		{[]Operation{OpDecrypt, OpExpand, OpCopy}, true, true, false, false},
-		{[]Operation{OpDelegate}, false, false, false, true},
+		{Operations{OpLink}, false, false},
+		{Operations{OpExpand, OpCopy}, true, false},
+		{Operations{OpDecrypt, OpCopy}, true, false},
+		{Operations{OpDecrypt, OpExpand, OpCopy}, true, false},
+		{Operations{OpDelegate}, false, true},
 	}
 
 	for _, tt := range tests {
-		n := &Node{Operations: tt.ops}
-		if n.IsSecret() != tt.isSecret {
-			t.Errorf("IsSecret() with %v = %v, want %v", tt.ops, n.IsSecret(), tt.isSecret)
+		if got := tt.ops.HasCopy(); got != tt.hasCopy {
+			t.Errorf("HasCopy() with %v = %v, want %v", tt.ops.Strings(), got, tt.hasCopy)
 		}
-		if n.IsTemplate() != tt.isTemplate {
-			t.Errorf("IsTemplate() with %v = %v, want %v", tt.ops, n.IsTemplate(), tt.isTemplate)
-		}
-		if n.IsLink() != tt.isLink {
-			t.Errorf("IsLink() with %v = %v, want %v", tt.ops, n.IsLink(), tt.isLink)
-		}
-		if n.IsDelegate() != tt.isDelegate {
-			t.Errorf("IsDelegate() with %v = %v, want %v", tt.ops, n.IsDelegate(), tt.isDelegate)
+		if got := tt.ops.HasDelegate(); got != tt.hasDelegate {
+			t.Errorf("HasDelegate() with %v = %v, want %v", tt.ops.Strings(), got, tt.hasDelegate)
 		}
 	}
 }

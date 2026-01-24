@@ -4,23 +4,29 @@
 package writ
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	osexec "os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"filippo.io/age"
+	"filippo.io/age/armor"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/writ/exec"
+	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/receipt"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/state"
@@ -67,16 +73,16 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	segmentFlags, _ := cmd.Flags().GetStringArray("segment")
 
 	// Determine conflict resolution strategy
-	var resolution exec.ConflictResolution
+	var resolution engine.ConflictResolution
 	switch conflictFlag {
 	case "stop", "":
-		resolution = exec.ResolutionStop
+		resolution = engine.ResolutionStop
 	case "backup":
-		resolution = exec.ResolutionBackup
+		resolution = engine.ResolutionBackup
 	case "overwrite":
-		resolution = exec.ResolutionOverwrite
+		resolution = engine.ResolutionOverwrite
 	case "skip":
-		resolution = exec.ResolutionSkip
+		resolution = engine.ResolutionSkip
 	default:
 		return fmt.Errorf("invalid --conflict value %q: must be stop, backup, overwrite, or skip", conflictFlag)
 	}
@@ -143,7 +149,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load age identities for decryption and signing
-	identities, identityErr := exec.LoadIdentities()
+	identities, identityErr := identity.LoadIdentities()
 	if identityErr != nil && deployTree.SecretCount() > 0 {
 		return fmt.Errorf("load identities: %w (required for %d encrypted files)", identityErr, deployTree.SecretCount())
 	}
@@ -167,38 +173,55 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create executor
-	executor := &exec.Executor{
-		DryRun:             dryRun,
-		ConflictResolution: resolution,
-		Identities:         identities,
-		TemplateData:       templateData,
-		Segments:           segMap,
-		Output:             os.Stdout,
+	// Build engine data (template vars + builtins + decryptor)
+	engineData := builtinTemplateData(segMap)
+	for k, v := range templateData {
+		engineData[k] = v
 	}
 
+	// Set up decryptor if identities available
+	if identityErr == nil && len(identities) > 0 {
+		engineData["decryptor"] = makeDecryptor(identities)
+	}
+
+	// Dry-run: output plan and return
+	if dryRun {
+		return outputDryRun(deployTree)
+	}
+
+	// Create engine
+	registry := engine.NewRegistry()
+	for _, op := range engine.FileOps() {
+		registry.Register(op)
+	}
+	eng := engine.New(registry, engine.Options{
+		DryRun:             false,
+		Data:               engineData,
+		ConflictResolution: resolution,
+	})
+
 	// Pre-flight conflict detection
-	preflight := executor.Preflight(deployTree)
+	preflight := eng.Preflight(deployTree.Graph)
 
 	// Report conflicts upfront
-	if len(preflight.Conflicts) > 0 {
+	if preflight.HasConflicts() {
 		fmt.Fprintf(os.Stderr, "\nConflicts detected (%d):\n", len(preflight.Conflicts))
 		for _, c := range preflight.Conflicts {
-			fmt.Fprintf(os.Stderr, "  %s: %s (%s)\n", c.Node.RelTarget, c.Message, c.Type)
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", c.Node.ID, c.Message)
 		}
 
-		if resolution == exec.ResolutionStop {
-			fmt.Fprintf(os.Stderr, "\nUse --backup, --overwrite, or --skip to resolve conflicts.\n")
+		if resolution == engine.ResolutionStop {
+			fmt.Fprintf(os.Stderr, "\nUse --conflict=backup, --conflict=overwrite, or --conflict=skip to resolve.\n")
 			return fmt.Errorf("%d conflict(s) detected", len(preflight.Conflicts))
 		}
 
 		// Show what will happen
 		switch resolution {
-		case exec.ResolutionBackup:
+		case engine.ResolutionBackup:
 			fmt.Fprintf(os.Stderr, "\nBacking up conflicting files...\n")
-		case exec.ResolutionOverwrite:
+		case engine.ResolutionOverwrite:
 			fmt.Fprintf(os.Stderr, "\nOverwriting conflicting files...\n")
-		case exec.ResolutionSkip:
+		case engine.ResolutionSkip:
 			fmt.Fprintf(os.Stderr, "\nSkipping conflicting files...\n")
 		}
 	}
@@ -207,77 +230,104 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if verbose && len(preflight.AlreadyDone) > 0 {
 		fmt.Fprintf(os.Stderr, "\nAlready deployed (%d):\n", len(preflight.AlreadyDone))
 		for _, c := range preflight.AlreadyDone {
-			fmt.Fprintf(os.Stderr, "  %s\n", c.Node.RelTarget)
+			fmt.Fprintf(os.Stderr, "  %s\n", c.Node.ID)
 		}
 	}
 
+	// Handle conflicts before execution
+	var backupPaths map[string]string // node.Target → backup path
+	skippedSet := make(map[string]bool)
+
+	switch resolution {
+	case engine.ResolutionBackup:
+		backupPaths = make(map[string]string)
+		timestamp := time.Now().Format("20060102-150405")
+		for _, c := range preflight.Conflicts {
+			backupPath := c.Node.Target + ".writ-backup." + timestamp
+			if err := os.Rename(c.Node.Target, backupPath); err != nil {
+				return fmt.Errorf("backup %s: %w", c.Node.Target, err)
+			}
+			backupPaths[c.Node.Target] = backupPath
+		}
+	case engine.ResolutionSkip:
+		for _, c := range preflight.Conflicts {
+			skippedSet[c.Node.ID] = true
+		}
+	}
+
+	// Build node lookup map
+	nodeByID := make(map[string]*engine.Node)
+	for _, n := range deployTree.Graph.Nodes {
+		nodeByID[n.ID] = n
+	}
+
+	// Collect already-deployed node IDs
+	alreadyDeployedSet := make(map[string]bool)
+	for _, c := range preflight.AlreadyDone {
+		alreadyDeployedSet[c.Node.ID] = true
+	}
+
 	// Execute deployment
-	results, err := executor.Execute(deployTree)
+	results, err := eng.Run(context.Background(), deployTree.Graph)
 	if err != nil {
 		return fmt.Errorf("execute: %w", err)
 	}
 
-	// Build receipt (skip for dry-run)
-	var rcpt *receipt.Receipt
-	if !dryRun {
-		rcpt = receipt.New(sourceRoot, targetRoot, args, segMap)
+	// Build receipt
+	rcpt := receipt.New(sourceRoot, targetRoot, args, segMap)
 
-		// Populate receipt from results
-		for _, r := range results {
-			if r.Node == nil {
-				continue
-			}
-
-			if r.Node.IsDelegate() {
-				rcpt.AddDelegated(r.Node)
-				continue
-			}
-
-			if r.Skipped {
-				rcpt.AddSkipped(r.Node.RelTarget)
-				continue
-			}
-
-			// Determine if already deployed (symlink already correct)
-			alreadyDeployed := r.Message == "already deployed"
-
-			// Use checksums for copied files (templates, secrets)
-			if r.SourceChecksum != "" || r.TargetChecksum != "" {
-				rcpt.AddNodeWithChecksums(r.Node, alreadyDeployed, r.SourceChecksum, r.TargetChecksum)
-			} else {
-				rcpt.AddNode(r.Node, alreadyDeployed)
-			}
-		}
-
-		// Record backups (from preflight conflicts when using backup resolution)
-		if resolution == exec.ResolutionBackup {
-			timestamp := time.Now().Format("20060102-150405")
-			for _, c := range preflight.Conflicts {
-				backupPath := c.Node.Target + ".writ-backup." + timestamp
-				rcpt.AddBackup(c.Node.Target, backupPath)
-			}
-		}
-	}
-
-	// Count results for summary
-	var deployed, skipped, backed int
+	var deployed, skipped int
 	for _, r := range results {
-		if r.Skipped {
+		node := nodeByID[r.NodeID]
+		if node == nil {
+			continue
+		}
+
+		// Handle skipped nodes
+		if skippedSet[r.NodeID] {
+			rcpt.AddSkipped(r.NodeID)
 			skipped++
-		} else if r.Success {
+			continue
+		}
+
+		// Handle delegate nodes
+		if isDelegate(node) {
+			rcpt.AddDelegated(node)
+			continue
+		}
+
+		// Determine if already deployed
+		alreadyDeployed := alreadyDeployedSet[r.NodeID]
+
+		// Use checksums for copied files (templates, secrets)
+		if r.SourceChecksum != "" || r.TargetChecksum != "" {
+			rcpt.AddNodeWithChecksums(node, alreadyDeployed, r.SourceChecksum, r.TargetChecksum)
+		} else {
+			rcpt.AddNode(node, alreadyDeployed)
+		}
+
+		if r.Status == engine.StatusCompleted {
 			deployed++
 		}
 	}
-	backed = len(preflight.Conflicts)
-	if resolution != exec.ResolutionBackup {
-		backed = 0
+
+	// Record backups in receipt
+	if backupPaths != nil {
+		for target, backupPath := range backupPaths {
+			rcpt.AddBackup(target, backupPath)
+		}
 	}
 
 	// Handle delegated nodes (packages.manifest files)
-	delegated := exec.DelegatedNodes(results)
-	if len(delegated) > 0 && !dryRun {
-		fmt.Fprintf(os.Stderr, "\nDelegated to lore (%d manifests):\n", len(delegated))
-		for _, node := range delegated {
+	var delegatedNodes []*engine.Node
+	for _, n := range deployTree.Graph.Nodes {
+		if isDelegate(n) {
+			delegatedNodes = append(delegatedNodes, n)
+		}
+	}
+	if len(delegatedNodes) > 0 {
+		fmt.Fprintf(os.Stderr, "\nDelegated to lore (%d manifests):\n", len(delegatedNodes))
+		for _, node := range delegatedNodes {
 			fmt.Fprintf(os.Stderr, "  %s\n", node.Source)
 		}
 		fmt.Fprintf(os.Stderr, "Run 'lore apply' to install packages.\n")
@@ -285,39 +335,34 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	// Sign and write receipt
 	var receiptFilename string
-	if !dryRun && rcpt != nil {
-		// Sign receipt if we have an age identity
-		if signingIdentity != nil {
-			if err := rcpt.Sign(signingIdentity); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to sign receipt: %v\n", err)
-			} else if verbose {
-				fmt.Fprintf(os.Stderr, "Receipt signed with: %s\n", signingIdentity.Recipient().String())
-			}
+	if signingIdentity != nil {
+		if err := rcpt.Sign(signingIdentity); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to sign receipt: %v\n", err)
 		} else if verbose {
-			fmt.Fprintf(os.Stderr, "Warning: no age identity found, receipt will be unsigned\n")
+			fmt.Fprintf(os.Stderr, "Receipt signed with: %s\n", signingIdentity.Recipient().String())
 		}
+	} else if verbose {
+		fmt.Fprintf(os.Stderr, "Warning: no age identity found, receipt will be unsigned\n")
+	}
 
-		receiptPath, err := rcpt.Write()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to write receipt: %v\n", err)
-		} else {
-			receiptFilename = filepath.Base(receiptPath)
-			if verbose {
-				fmt.Fprintf(os.Stderr, "Receipt: %s\n", receiptPath)
-			}
+	receiptPath, err := rcpt.Write()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write receipt: %v\n", err)
+	} else {
+		receiptFilename = filepath.Base(receiptPath)
+		if verbose {
+			fmt.Fprintf(os.Stderr, "Receipt: %s\n", receiptPath)
 		}
 	}
 
 	// Update state file
-	if !dryRun && rcpt != nil && receiptFilename != "" {
+	if receiptFilename != "" {
 		deployState, err := state.LoadOrCreate(sourceRoot, targetRoot)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to load state: %v\n", err)
 		} else {
-			// Merge receipt entries into state
 			deployState.UpdateFromReceipt(rcpt, receiptFilename)
 
-			// Sign state if we have an identity
 			if signingIdentity != nil {
 				if err := deployState.Sign(signingIdentity); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to sign state: %v\n", err)
@@ -332,17 +377,16 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Summary (unless dry-run, which outputs JSON)
-	if !dryRun {
-		summary := deployTree.CompactString()
-		if skipped > 0 {
-			summary += fmt.Sprintf(", %d skipped", skipped)
-		}
-		if backed > 0 {
-			summary += fmt.Sprintf(", %d backed up", backed)
-		}
-		fmt.Printf("\nDeployed %s\n", summary)
+	// Summary
+	backed := len(backupPaths)
+	summaryStr := deployTree.CompactString()
+	if skipped > 0 {
+		summaryStr += fmt.Sprintf(", %d skipped", skipped)
 	}
+	if backed > 0 {
+		summaryStr += fmt.Sprintf(", %d backed up", backed)
+	}
+	fmt.Printf("\nDeployed %s\n", summaryStr)
 
 	return nil
 }
@@ -411,7 +455,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load identities for signature verification
-	identities, identityErr := exec.LoadIdentities()
+	identities, identityErr := identity.LoadIdentities()
 
 	// Verify state signature if state exists
 	if deployState != nil {
@@ -771,7 +815,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load age identities for decryption and signing
-	identities, identityErr := exec.LoadIdentities()
+	identities, identityErr := identity.LoadIdentities()
 
 	// Get X25519 identity for signing
 	var signingIdentity *age.X25519Identity
@@ -811,14 +855,13 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Upgrading %d copied file(s)...\n", len(copied))
 	}
 
-	// Create executor for regeneration
-	executor := &exec.Executor{
-		DryRun:             dryRun,
-		ConflictResolution: exec.ResolutionOverwrite, // We handle drift ourselves
-		Identities:         identities,
-		TemplateData:       templateData,
-		Segments:           segMap,
-		Output:             os.Stdout,
+	// Build engine data (template vars + builtins + decryptor)
+	engineData := builtinTemplateData(segMap)
+	for k, v := range templateData {
+		engineData[k] = v
+	}
+	if identityErr == nil && len(identities) > 0 {
+		engineData["decryptor"] = makeDecryptor(identities)
 	}
 
 	// Track results
@@ -847,28 +890,49 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Build a tree node for this file
-		node := &tree.Node{
-			Source:    entry.Source,
-			Target:    filepath.Join(deployState.TargetRoot, relTarget),
-			RelTarget: relTarget,
-			Project:   entry.Project,
-		}
-
 		// Determine operations from source file
-		targetName, ops := tree.ProcessingPipeline(filepath.Base(entry.Source))
-		_ = targetName // We already have the target
-		node.Operations = ops
+		_, ops := tree.ProcessingPipeline(filepath.Base(entry.Source))
+		opStrings := ops.Strings()
 
 		// Check if we need identities for decryption
-		if node.IsSecret() && identityErr != nil {
+		if hasDecryptOp(opStrings) && identityErr != nil {
 			return fmt.Errorf("load identities: %w (required for encrypted files)", identityErr)
 		}
 
-		// Execute the regeneration
-		result := executor.ExecuteNode(node)
-		if !result.Success {
-			fmt.Fprintf(os.Stderr, "  ✗ %s: %s\n", relTarget, result.Message)
+		// Build an engine node for this file
+		target := filepath.Join(deployState.TargetRoot, relTarget)
+		node := &engine.Node{
+			ID:         relTarget,
+			Operations: opStrings,
+			Source:     entry.Source,
+			Target:     target,
+			Project:    entry.Project,
+		}
+
+		// Set restricted permissions for secrets
+		if hasDecryptOp(opStrings) {
+			node.Mode = 0600
+		}
+
+		// Execute via single-node graph
+		registry := engine.NewRegistry()
+		for _, op := range engine.FileOps() {
+			registry.Register(op)
+		}
+		eng := engine.New(registry, engine.Options{
+			DryRun:             dryRun,
+			Data:               engineData,
+			ConflictResolution: engine.ResolutionOverwrite,
+		})
+
+		graph := &engine.Graph{Nodes: []*engine.Node{node}}
+		results, runErr := eng.Run(context.Background(), graph)
+		if runErr != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", relTarget, runErr)
+			continue
+		}
+		if len(results) > 0 && results[0].Status == engine.StatusFailed {
+			fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", relTarget, results[0].Error)
 			continue
 		}
 
@@ -884,7 +948,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		// Update checksums in state
 		if !dryRun {
 			newSourceChecksum := receipt.ChecksumFile(entry.Source)
-			newTargetChecksum := receipt.ChecksumFile(node.Target)
+			newTargetChecksum := receipt.ChecksumFile(target)
 			deployState.UpdateChecksum(relTarget, newSourceChecksum, newTargetChecksum)
 		}
 	}
@@ -988,7 +1052,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("build tree: %w", err)
 		}
 
-		report = status.FromTree(deployTree)
+		report = status.FromBuildResult(deployTree)
 	} else {
 		// No projects: prefer state file, fall back to scanning + receipt
 		deployState, stateErr := state.Load()
@@ -999,7 +1063,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 			// Verify signature if drift checking is enabled
 			if checkDrift {
-				identities, identityErr := exec.LoadIdentities()
+				identities, identityErr := identity.LoadIdentities()
 				if identityErr != nil {
 					return fmt.Errorf("load identities for signature verification: %w", identityErr)
 				}
@@ -1028,7 +1092,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 				// Verify signature if drift checking is enabled
 				if checkDrift {
 					// Load identities for verification
-					identities, identityErr := exec.LoadIdentities()
+					identities, identityErr := identity.LoadIdentities()
 					if identityErr != nil {
 						return fmt.Errorf("load identities for signature verification: %w", identityErr)
 					}
@@ -2487,4 +2551,132 @@ of your environment state.`,
 	})
 
 	return cmd
+}
+
+// builtinTemplateData returns the default template data available to all templates.
+func builtinTemplateData(segMap map[string]string) map[string]any {
+	data := make(map[string]any)
+
+	// Platform info
+	data["OS"] = runtime.GOOS
+	data["ARCH"] = runtime.GOARCH
+	hostname, _ := os.Hostname()
+	data["Hostname"] = hostname
+
+	// User info
+	data["Home"] = os.Getenv("HOME")
+	if u, err := user.Current(); err == nil {
+		data["Username"] = u.Username
+	} else {
+		data["Username"] = os.Getenv("USER")
+	}
+
+	// Segments
+	data["Segments"] = segMap
+
+	// XDG directories
+	home := os.Getenv("HOME")
+	data["ConfigHome"] = xdgPath("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	data["DataHome"] = xdgPath("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	data["StateHome"] = xdgPath("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	data["CacheHome"] = xdgPath("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+
+	// Environment lookup function (usable in templates as {{ Env "KEY" }})
+	data["Env"] = func(key string) string {
+		return os.Getenv(key)
+	}
+
+	return data
+}
+
+// xdgPath returns the XDG directory from env or the default path.
+func xdgPath(envVar, defaultPath string) string {
+	if v := os.Getenv(envVar); v != "" {
+		return v
+	}
+	return defaultPath
+}
+
+// makeDecryptor creates an age decryptor function from loaded identities.
+func makeDecryptor(identities []age.Identity) func([]byte) ([]byte, error) {
+	return func(encrypted []byte) ([]byte, error) {
+		var reader io.Reader
+
+		// Detect if armored
+		if bytes.HasPrefix(encrypted, []byte("-----BEGIN AGE ENCRYPTED FILE-----")) {
+			reader = armor.NewReader(bytes.NewReader(encrypted))
+		} else {
+			reader = bytes.NewReader(encrypted)
+		}
+
+		decrypted, err := age.Decrypt(reader, identities...)
+		if err != nil {
+			return nil, fmt.Errorf("age decrypt: %w", err)
+		}
+
+		plaintext, err := io.ReadAll(decrypted)
+		if err != nil {
+			return nil, fmt.Errorf("read decrypted: %w", err)
+		}
+
+		return plaintext, nil
+	}
+}
+
+// isDelegate returns true if the node is a delegate operation.
+func isDelegate(node *engine.Node) bool {
+	return len(node.Operations) == 1 && node.Operations[0] == "delegate"
+}
+
+// hasDecryptOp returns true if the operations include decrypt.
+func hasDecryptOp(ops []string) bool {
+	for _, op := range ops {
+		if op == "decrypt" {
+			return true
+		}
+	}
+	return false
+}
+
+// DryRunOutput represents the dry-run output format.
+type DryRunOutput struct {
+	SourceRoot string       `json:"source_root"`
+	TargetRoot string       `json:"target_root"`
+	Projects   []string     `json:"projects"`
+	Nodes      []DryRunNode `json:"nodes"`
+}
+
+// DryRunNode represents a node in the dry-run output.
+type DryRunNode struct {
+	ID         string   `json:"id"`
+	Operations []string `json:"operations"`
+	Source     string   `json:"source"`
+	Target     string   `json:"target"`
+	Project    string   `json:"project"`
+}
+
+// outputDryRun outputs the deployment plan as JSON.
+func outputDryRun(br *tree.BuildResult) error {
+	output := DryRunOutput{
+		SourceRoot: br.SourceRoot,
+		TargetRoot: br.TargetRoot,
+		Projects:   br.Projects,
+	}
+
+	for _, n := range br.Graph.Nodes {
+		output.Nodes = append(output.Nodes, DryRunNode{
+			ID:         n.ID,
+			Operations: n.Operations,
+			Source:     n.Source,
+			Target:     n.Target,
+			Project:    n.Project,
+		})
+	}
+
+	data, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return nil
 }

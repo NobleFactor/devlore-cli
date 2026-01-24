@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-package exec
+// Package identity provides age identity loading for writ.
+package identity
 
 import (
 	"bufio"

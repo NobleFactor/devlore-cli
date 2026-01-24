@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
+	"github.com/NobleFactor/devlore-cli/internal/engine"
 )
 
 // CurrentVersion is the receipt format version.
@@ -161,10 +161,10 @@ func New(sourceRoot, targetRoot string, projects []string, segments map[string]s
 }
 
 // AddNode adds a deployed file node to the receipt.
-func (r *Receipt) AddNode(node *tree.Node, alreadyDeployed bool) {
+func (r *Receipt) AddNode(node *engine.Node, alreadyDeployed bool) {
 	n := Node{
-		ID:        node.RelTarget,
-		Operation: primaryOperation(node.Operations.Strings()),
+		ID:        node.ID,
+		Operation: primaryOperation(node.Operations),
 		Status:    "completed",
 		Timestamp: time.Now().Format(time.RFC3339),
 		Source:    node.Source,
@@ -183,10 +183,10 @@ func (r *Receipt) AddNode(node *tree.Node, alreadyDeployed bool) {
 }
 
 // AddNodeWithChecksums adds a deployed file node with content checksums.
-func (r *Receipt) AddNodeWithChecksums(node *tree.Node, alreadyDeployed bool, sourceChecksum, targetChecksum string) {
+func (r *Receipt) AddNodeWithChecksums(node *engine.Node, alreadyDeployed bool, sourceChecksum, targetChecksum string) {
 	n := Node{
-		ID:             node.RelTarget,
-		Operation:      primaryOperation(node.Operations.Strings()),
+		ID:             node.ID,
+		Operation:      primaryOperation(node.Operations),
 		Status:         "completed",
 		Timestamp:      time.Now().Format(time.RFC3339),
 		Source:         node.Source,
@@ -207,16 +207,16 @@ func (r *Receipt) AddNodeWithChecksums(node *tree.Node, alreadyDeployed bool, so
 }
 
 // AddDelegated records a delegated manifest as a delegate node.
-func (r *Receipt) AddDelegated(node *tree.Node) {
+func (r *Receipt) AddDelegated(node *engine.Node) {
 	n := Node{
-		ID:         node.RelTarget,
+		ID:         node.ID,
 		Operation:  "delegate",
 		Status:     "completed",
 		Timestamp:  time.Now().Format(time.RFC3339),
 		Source:     node.Source,
 		Target:     node.Target,
 		Project:    node.Project,
-		DelegateTo: "lore",
+		DelegateTo: node.DelegateTo,
 	}
 	r.Nodes = append(r.Nodes, n)
 }
