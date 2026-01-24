@@ -1,0 +1,4 @@
+#!/bin/bash
+# Generate a new SSH authentication key
+set -euo pipefail
+ssh-keygen -t ed25519 -C "$1" -f "$HOME/.ssh/id_ed25519"

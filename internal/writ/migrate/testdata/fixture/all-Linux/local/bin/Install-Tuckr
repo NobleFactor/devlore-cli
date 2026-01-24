@@ -1,0 +1,7 @@
+#!/bin/bash
+# Install tuckr via cargo (Linux)
+set -euo pipefail
+
+require_linux
+
+cargo install tuckr

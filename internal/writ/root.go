@@ -69,6 +69,7 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.AddCommand(newSecretsCmd())
 	rootCmd.AddCommand(newReceiptCmd())
 	rootCmd.AddCommand(newInspectCmd())
+	rootCmd.AddCommand(newMigrateCmd())
 
 	// Shared metadata
 	manHeader := cli.ManHeader{

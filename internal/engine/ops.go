@@ -126,12 +126,24 @@ func (o *DecryptOp) Execute(ctx *Context, node *Node, state *PipelineState) erro
 	// This allows tools to provide their own decryption implementation
 	// (SOPS, age, or any other backend) without the engine depending on
 	// specific crypto libraries.
-	decrypt, ok := decryptor.(func([]byte) ([]byte, error))
-	if !ok {
-		return fmt.Errorf("decryptor is not func([]byte) ([]byte, error)")
+	//
+	// Two signatures are supported:
+	//   func(source string, data []byte) ([]byte, error) — preferred, includes source path
+	//   func(data []byte) ([]byte, error) — legacy, data only
+
+	var plaintext []byte
+	var err error
+
+	// Try new signature first (includes source path for format detection)
+	if decrypt, ok := decryptor.(func(string, []byte) ([]byte, error)); ok {
+		plaintext, err = decrypt(node.Source, state.Content)
+	} else if decrypt, ok := decryptor.(func([]byte) ([]byte, error)); ok {
+		// Fall back to legacy signature
+		plaintext, err = decrypt(state.Content)
+	} else {
+		return fmt.Errorf("decryptor must be func(string, []byte) ([]byte, error) or func([]byte) ([]byte, error)")
 	}
 
-	plaintext, err := decrypt(state.Content)
 	if err != nil {
 		return err
 	}
