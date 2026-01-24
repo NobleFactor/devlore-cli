@@ -27,21 +27,14 @@ type Signature struct {
 	Recipient string `json:"recipient" yaml:"recipient"`
 }
 
-// SignatureVersion is the receipt version that includes signatures.
-const SignatureVersion = "3"
-
 // Sign signs the receipt using the provided age identity.
 // The signature is computed by:
-// 1. Updating the version to v3 (signature version)
-// 2. Serializing the receipt (without signature) to canonical YAML
-// 3. Computing SHA256 of the serialized content
-// 4. Encrypting the hash with age to the identity's public key
-// 5. Storing the encrypted hash as the signature
+// 1. Serializing the receipt nodes+edges to canonical YAML
+// 2. Computing SHA256 of the serialized content
+// 3. Encrypting the hash with age to the identity's public key
+// 4. Storing the encrypted hash as the signature
 func (r *Receipt) Sign(identity *age.X25519Identity) error {
-	// Update version first (before computing hash)
-	r.Version = SignatureVersion
-
-	// Get canonical content (receipt without signature)
+	// Get canonical content (nodes + edges, without signature)
 	content, err := r.canonicalContent()
 	if err != nil {
 		return fmt.Errorf("serialize receipt: %w", err)
@@ -78,7 +71,7 @@ func (r *Receipt) Sign(identity *age.X25519Identity) error {
 // Returns nil if the signature is valid, an error otherwise.
 func (r *Receipt) Verify(identities []age.Identity) error {
 	if r.Signature == nil {
-		// Unsigned receipt - check if it's a legacy v2
+		// Unsigned receipt - check if it was loaded from legacy
 		if r.Version == "2" || r.Version == "1" {
 			return nil // Legacy receipts allowed during migration
 		}
@@ -132,38 +125,34 @@ func (r *Receipt) IsLegacy() bool {
 }
 
 // canonicalContent returns the receipt serialized without the signature field.
+// For v4: serializes version, format, timestamp, tool, platform, context, roots, nodes, edges.
 // This ensures consistent content for signing and verification.
 func (r *Receipt) canonicalContent() ([]byte, error) {
-	// Create a copy without signature for serialization
-	type ReceiptNoSig struct {
-		Version    string            `yaml:"version"`
-		Timestamp  string            `yaml:"timestamp"`
-		SourceRoot string            `yaml:"source_root"`
-		TargetRoot string            `yaml:"target_root"`
-		Projects   []string          `yaml:"projects"`
-		Segments   map[string]string `yaml:"segments"`
-		Entries    []Entry           `yaml:"entries"`
-		Backups    []Backup          `yaml:"backups,omitempty"`
-		Skipped    []string          `yaml:"skipped,omitempty"`
-		Delegated  []string          `yaml:"delegated,omitempty"`
-		Summary    Summary           `yaml:"summary"`
+	type CanonicalReceipt struct {
+		Version   string      `yaml:"version"`
+		Format    string      `yaml:"format"`
+		Timestamp string      `yaml:"timestamp"`
+		Tool      string      `yaml:"tool"`
+		Platform  Platform    `yaml:"platform"`
+		Context   WritContext `yaml:"context"`
+		Roots     []string    `yaml:"roots"`
+		Nodes     []Node      `yaml:"nodes"`
+		Edges     []Edge      `yaml:"edges,omitempty"`
 	}
 
-	nosig := ReceiptNoSig{
-		Version:    r.Version,
-		Timestamp:  r.Timestamp.Format("2006-01-02T15:04:05.999999999Z07:00"),
-		SourceRoot: r.SourceRoot,
-		TargetRoot: r.TargetRoot,
-		Projects:   r.Projects,
-		Segments:   r.Segments,
-		Entries:    r.Entries,
-		Backups:    r.Backups,
-		Skipped:    r.Skipped,
-		Delegated:  r.Delegated,
-		Summary:    r.Summary,
+	canonical := CanonicalReceipt{
+		Version:   r.Version,
+		Format:    r.Format,
+		Timestamp: r.Timestamp.Format("2006-01-02T15:04:05.999999999Z07:00"),
+		Tool:      r.Tool,
+		Platform:  r.Platform,
+		Context:   r.Context,
+		Roots:     r.Roots,
+		Nodes:     r.Nodes,
+		Edges:     r.Edges,
 	}
 
-	return yaml.Marshal(nosig)
+	return yaml.Marshal(canonical)
 }
 
 // VerifyResult represents the result of signature verification.

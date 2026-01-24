@@ -229,7 +229,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			}
 
 			if r.Node.IsDelegate() {
-				rcpt.AddDelegated(r.Node.Source)
+				rcpt.AddDelegated(r.Node)
 				continue
 			}
 
@@ -243,9 +243,9 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 			// Use checksums for copied files (templates, secrets)
 			if r.SourceChecksum != "" || r.TargetChecksum != "" {
-				rcpt.AddEntryWithChecksums(r.Node, alreadyDeployed, r.SourceChecksum, r.TargetChecksum)
+				rcpt.AddNodeWithChecksums(r.Node, alreadyDeployed, r.SourceChecksum, r.TargetChecksum)
 			} else {
-				rcpt.AddEntry(r.Node, alreadyDeployed)
+				rcpt.AddNode(r.Node, alreadyDeployed)
 			}
 		}
 
@@ -1067,33 +1067,37 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	return outputStatusText(report)
 }
 
-// addCopiedFilesFromReceipt adds copied file entries from a receipt to the report.
+// addCopiedFilesFromReceipt adds copied file nodes from a receipt to the report.
 func addCopiedFilesFromReceipt(report *status.Report, rcpt *receipt.Receipt, checkDrift bool) {
 	report.FromReceipt = true
 	report.ReceiptPath = receipt.LatestReceiptPath()
 
-	for _, e := range rcpt.Entries {
-		if !e.IsCopied() {
-			continue // Skip symlinks, they're found by scanning
+	for _, n := range rcpt.Nodes {
+		// Skip non-file nodes and symlinks
+		if n.Status == "skipped" || n.Operation == "delegate" || n.Operation == "backup" {
+			continue
+		}
+		if n.Operation == "link" {
+			continue // Symlinks are found by scanning
 		}
 
 		var entry status.Entry
-		if checkDrift && e.SourceChecksum != "" {
+		if checkDrift && n.SourceChecksum != "" {
 			entry = status.Entry{
-				RelTarget:      e.RelTarget,
-				Source:         e.Source,
-				Target:         e.Target,
-				Project:        e.Project,
-				Operations:     e.Operations,
-				SourceChecksum: e.SourceChecksum,
-				TargetChecksum: e.TargetChecksum,
+				RelTarget:      n.ID,
+				Source:         n.Source,
+				Target:         n.Target,
+				Project:        n.Project,
+				Operations:     []string{n.Operation},
+				SourceChecksum: n.SourceChecksum,
+				TargetChecksum: n.TargetChecksum,
 			}
 			// Check drift
-			currentSourceChecksum := receipt.ChecksumFile(e.Source)
-			currentTargetChecksum := receipt.ChecksumFile(e.Target)
+			currentSourceChecksum := receipt.ChecksumFile(n.Source)
+			currentTargetChecksum := receipt.ChecksumFile(n.Target)
 
-			sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != e.SourceChecksum
-			targetChanged := currentTargetChecksum != "" && currentTargetChecksum != e.TargetChecksum
+			sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != n.SourceChecksum
+			targetChanged := currentTargetChecksum != "" && currentTargetChecksum != n.TargetChecksum
 
 			switch {
 			case sourceChanged && targetChanged:
@@ -1111,13 +1115,13 @@ func addCopiedFilesFromReceipt(report *status.Report, rcpt *receipt.Receipt, che
 		} else {
 			// Just check if file exists
 			entry = status.Entry{
-				RelTarget:  e.RelTarget,
-				Source:     e.Source,
-				Target:     e.Target,
-				Project:    e.Project,
-				Operations: e.Operations,
+				RelTarget:  n.ID,
+				Source:     n.Source,
+				Target:     n.Target,
+				Project:    n.Project,
+				Operations: []string{n.Operation},
 			}
-			if _, err := os.Stat(e.Target); os.IsNotExist(err) {
+			if _, err := os.Stat(n.Target); os.IsNotExist(err) {
 				entry.State = status.StateMissing
 				entry.Message = "file not deployed"
 			} else {

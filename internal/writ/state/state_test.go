@@ -167,32 +167,53 @@ func TestStateUpdateFromReceipt(t *testing.T) {
 	s := New("/home/user/dotfiles", "/home/user")
 
 	rcpt := &receipt.Receipt{
-		Timestamp:  time.Now(),
-		SourceRoot: "/home/user/dotfiles",
-		TargetRoot: "/home/user",
-		Projects:   []string{"all", "noblefactor"},
-		Entries: []receipt.Entry{
+		Version:   "4",
+		Format:    "graph",
+		Timestamp: time.Now(),
+		Tool:      "writ",
+		Context: receipt.WritContext{
+			SourceRoot: "/home/user/dotfiles",
+			TargetRoot: "/home/user",
+			Projects:   []string{"all", "noblefactor"},
+		},
+		Roots: []string{"all", "noblefactor"},
+		Nodes: []receipt.Node{
 			{
-				Source:     "/home/user/dotfiles/all/.bashrc",
-				Target:     "/home/user/.bashrc",
-				RelTarget:  ".bashrc",
-				Operations: []string{"link"},
-				Project:    "all",
+				ID:        ".bashrc",
+				Operation: "link",
+				Status:    "completed",
+				Source:    "/home/user/dotfiles/all/.bashrc",
+				Target:    "/home/user/.bashrc",
+				Project:   "all",
 			},
 			{
+				ID:             ".gitconfig",
+				Operation:      "expand",
+				Status:         "completed",
 				Source:         "/home/user/dotfiles/noblefactor/.gitconfig.template",
 				Target:         "/home/user/.gitconfig",
-				RelTarget:      ".gitconfig",
-				Operations:     []string{"expand", "copy"},
 				Project:        "noblefactor",
 				SourceChecksum: "sha256:abc123",
 				TargetChecksum: "sha256:def456",
+			},
+			{
+				ID:         ".config/packages.manifest",
+				Operation:  "delegate",
+				Status:     "completed",
+				DelegateTo: "lore",
+				Project:    "noblefactor",
+			},
+			{
+				ID:     ".conflicted",
+				Status: "skipped",
 			},
 		},
 	}
 
 	s.UpdateFromReceipt(rcpt, "2026-01-21T10-30-00.yaml")
 
+	// Should have 2 files: .bashrc and .gitconfig
+	// delegate and skipped nodes should be excluded
 	if len(s.Files) != 2 {
 		t.Errorf("expected 2 files, got %d", len(s.Files))
 	}
@@ -204,6 +225,9 @@ func TestStateUpdateFromReceipt(t *testing.T) {
 	if bashrc.Project != "all" {
 		t.Errorf("expected project 'all', got %q", bashrc.Project)
 	}
+	if len(bashrc.Operations) != 1 || bashrc.Operations[0] != "link" {
+		t.Errorf("expected operations ['link'], got %v", bashrc.Operations)
+	}
 
 	gitconfig := s.GetEntry(".gitconfig")
 	if gitconfig == nil {
@@ -211,6 +235,14 @@ func TestStateUpdateFromReceipt(t *testing.T) {
 	}
 	if gitconfig.SourceChecksum != "sha256:abc123" {
 		t.Errorf("expected source checksum 'sha256:abc123', got %q", gitconfig.SourceChecksum)
+	}
+
+	// Delegate and skipped should not be in state
+	if s.GetEntry(".config/packages.manifest") != nil {
+		t.Error("expected delegate node to be excluded from state")
+	}
+	if s.GetEntry(".conflicted") != nil {
+		t.Error("expected skipped node to be excluded from state")
 	}
 }
 
