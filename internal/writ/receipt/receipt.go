@@ -2,6 +2,8 @@
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
 // Package receipt provides deployment receipt tracking for writ.
+// Receipts are v4 graph-format: nodes represent file operations,
+// edges represent relationships (delegation, dependency).
 package receipt
 
 import (
@@ -11,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -19,141 +22,277 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
-// Receipt records a writ deployment operation.
+// CurrentVersion is the receipt format version.
+// v1: Initial format (flat entries)
+// v2: Added SourceChecksum, TargetChecksum for copied files
+// v3: Added age-encrypted signature
+// v4: Graph format (nodes + edges)
+const CurrentVersion = "4"
+
+// Receipt records a writ deployment operation as an execution graph.
 type Receipt struct {
 	// Version is the receipt format version.
 	Version string `json:"version" yaml:"version"`
 
-	// Timestamp is when the deployment occurred.
+	// Format identifies the serialization structure (always "graph" for v4).
+	Format string `json:"format" yaml:"format"`
+
+	// Timestamp is when the deployment completed.
 	Timestamp time.Time `json:"timestamp" yaml:"timestamp"`
 
-	// SourceRoot is the dotfiles repository path.
-	SourceRoot string `json:"source_root" yaml:"source_root"`
+	// Tool identifies which tool produced this receipt.
+	Tool string `json:"tool" yaml:"tool"`
 
-	// TargetRoot is the deployment target (e.g., $HOME).
-	TargetRoot string `json:"target_root" yaml:"target_root"`
+	// Platform records the OS and architecture.
+	Platform Platform `json:"platform" yaml:"platform"`
 
-	// Projects deployed.
-	Projects []string `json:"projects" yaml:"projects"`
+	// Context contains writ-specific deployment metadata.
+	Context WritContext `json:"context" yaml:"context"`
 
-	// Segments used for matching.
-	Segments map[string]string `json:"segments" yaml:"segments"`
+	// Roots are the entry points into the graph (project names).
+	Roots []string `json:"roots" yaml:"roots"`
 
-	// Entries are the individual deployed items.
-	Entries []Entry `json:"entries" yaml:"entries"`
+	// Nodes are the operations performed.
+	Nodes []Node `json:"nodes" yaml:"nodes"`
 
-	// Backups created during deployment.
-	Backups []Backup `json:"backups,omitempty" yaml:"backups,omitempty"`
+	// Edges are the relationships between nodes.
+	Edges []Edge `json:"edges,omitempty" yaml:"edges,omitempty"`
 
-	// Skipped files (due to conflicts with --skip).
-	Skipped []string `json:"skipped,omitempty" yaml:"skipped,omitempty"`
+	// Summary contains deployment statistics.
+	Summary Summary `json:"summary,omitempty" yaml:"summary,omitempty"`
 
-	// Delegated manifests (passed to lore).
-	Delegated []string `json:"delegated,omitempty" yaml:"delegated,omitempty"`
-
-	// Summary statistics.
-	Summary Summary `json:"summary" yaml:"summary"`
-
-	// Signature contains the cryptographic signature (v3+).
+	// Signature contains the cryptographic signature.
 	Signature *Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
 }
 
-// Entry records a single deployed file.
-type Entry struct {
-	// Source is the absolute path in the dotfiles repo.
-	Source string `json:"source" yaml:"source"`
+// Platform records the OS and architecture.
+type Platform struct {
+	OS   string `json:"os" yaml:"os"`
+	Arch string `json:"arch" yaml:"arch"`
+}
 
-	// Target is the absolute path in the target location.
-	Target string `json:"target" yaml:"target"`
+// WritContext contains writ-specific deployment metadata.
+type WritContext struct {
+	SourceRoot string            `json:"source_root" yaml:"source_root"`
+	TargetRoot string            `json:"target_root" yaml:"target_root"`
+	Projects   []string          `json:"projects" yaml:"projects"`
+	Segments   map[string]string `json:"segments" yaml:"segments"`
+}
 
-	// RelTarget is the relative path from target root.
-	RelTarget string `json:"rel_target" yaml:"rel_target"`
+// Node represents a single operation in the execution graph.
+type Node struct {
+	// ID is the unique identifier (relative target path for writ).
+	ID string `json:"id" yaml:"id"`
 
-	// Operation performed: link, copy, expand, decrypt.
-	Operations []string `json:"operations" yaml:"operations"`
+	// Operation performed: link, expand, decrypt, copy, delegate.
+	Operation string `json:"operation" yaml:"operation"`
+
+	// Status of the operation: completed, skipped.
+	Status string `json:"status" yaml:"status"`
+
+	// Timestamp is when this operation completed.
+	Timestamp string `json:"timestamp,omitempty" yaml:"timestamp,omitempty"`
+
+	// Source is the absolute path to the source file.
+	Source string `json:"source,omitempty" yaml:"source,omitempty"`
+
+	// Target is the absolute path to the target file.
+	Target string `json:"target,omitempty" yaml:"target,omitempty"`
 
 	// Project this file belongs to.
-	Project string `json:"project" yaml:"project"`
-
-	// AlreadyDeployed indicates the symlink already existed correctly.
-	AlreadyDeployed bool `json:"already_deployed,omitempty" yaml:"already_deployed,omitempty"`
+	Project string `json:"project,omitempty" yaml:"project,omitempty"`
 
 	// SourceChecksum is the SHA256 of the source file at deploy time.
-	// Only set for copied files (expand, decrypt, copy operations).
-	// Format: "sha256:<hex>"
 	SourceChecksum string `json:"source_checksum,omitempty" yaml:"source_checksum,omitempty"`
 
 	// TargetChecksum is the SHA256 of the target file after deployment.
-	// Only set for copied files (expand, decrypt, copy operations).
-	// Format: "sha256:<hex>"
 	TargetChecksum string `json:"target_checksum,omitempty" yaml:"target_checksum,omitempty"`
+
+	// DelegateTo names the tool to delegate to (e.g., "lore").
+	DelegateTo string `json:"delegate_to,omitempty" yaml:"delegate_to,omitempty"`
+
+	// Annotations holds extensible metadata (backup paths, etc.).
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+// Edge represents a relationship between two nodes.
+type Edge struct {
+	From     string `json:"from" yaml:"from"`
+	To       string `json:"to" yaml:"to"`
+	Relation string `json:"relation" yaml:"relation"`
+	Artifact string `json:"artifact,omitempty" yaml:"artifact,omitempty"`
 }
 
 // Backup records a backed-up file.
 type Backup struct {
-	// Original is the path that was backed up.
-	Original string `json:"original" yaml:"original"`
-
-	// BackupPath is where it was moved to.
+	Original   string `json:"original" yaml:"original"`
 	BackupPath string `json:"backup_path" yaml:"backup_path"`
 }
 
 // Summary contains deployment statistics.
 type Summary struct {
-	TotalFiles      int `json:"total_files" yaml:"total_files"`
-	Links           int `json:"links" yaml:"links"`
-	Copies          int `json:"copies" yaml:"copies"`
-	Templates       int `json:"templates" yaml:"templates"`
-	Secrets         int `json:"secrets" yaml:"secrets"`
-	AlreadyDeployed int `json:"already_deployed" yaml:"already_deployed"`
-	Skipped         int `json:"skipped" yaml:"skipped"`
-	BackedUp        int `json:"backed_up" yaml:"backed_up"`
-	Delegated       int `json:"delegated" yaml:"delegated"`
+	TotalFiles int `json:"total_files" yaml:"total_files"`
+	Links      int `json:"links" yaml:"links"`
+	Copies     int `json:"copies,omitempty" yaml:"copies,omitempty"`
+	Templates  int `json:"templates" yaml:"templates"`
+	Secrets    int `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+	Skipped    int `json:"skipped,omitempty" yaml:"skipped,omitempty"`
+	BackedUp   int `json:"backed_up,omitempty" yaml:"backed_up,omitempty"`
+	Delegated  int `json:"delegated,omitempty" yaml:"delegated,omitempty"`
 }
 
-// CurrentVersion is the receipt format version.
-// v1: Initial format
-// v2: Added SourceChecksum, TargetChecksum for copied files
-const CurrentVersion = "2"
-
-// New creates a new receipt with the given configuration.
+// New creates a new v4 graph-format receipt.
 func New(sourceRoot, targetRoot string, projects []string, segments map[string]string) *Receipt {
 	return &Receipt{
-		Version:    CurrentVersion,
-		Timestamp:  time.Now(),
-		SourceRoot: sourceRoot,
-		TargetRoot: targetRoot,
-		Projects:   projects,
-		Segments:   segments,
-		Entries:    make([]Entry, 0),
+		Version:   CurrentVersion,
+		Format:    "graph",
+		Timestamp: time.Now(),
+		Tool:      "writ",
+		Platform:  detectPlatform(),
+		Context: WritContext{
+			SourceRoot: sourceRoot,
+			TargetRoot: targetRoot,
+			Projects:   projects,
+			Segments:   segments,
+		},
+		Roots: projects,
+		Nodes: make([]Node, 0),
 	}
 }
 
-// AddEntry adds a deployed file entry to the receipt.
-func (r *Receipt) AddEntry(node *tree.Node, alreadyDeployed bool) {
-	r.Entries = append(r.Entries, Entry{
-		Source:          node.Source,
-		Target:          node.Target,
-		RelTarget:       node.RelTarget,
-		Operations:      node.Operations.Strings(),
-		Project:         node.Project,
-		AlreadyDeployed: alreadyDeployed,
+// AddNode adds a deployed file node to the receipt.
+func (r *Receipt) AddNode(node *tree.Node, alreadyDeployed bool) {
+	n := Node{
+		ID:        node.RelTarget,
+		Operation: primaryOperation(node.Operations.Strings()),
+		Status:    "completed",
+		Timestamp: time.Now().Format(time.RFC3339),
+		Source:    node.Source,
+		Target:    node.Target,
+		Project:   node.Project,
+	}
+
+	if alreadyDeployed {
+		if n.Annotations == nil {
+			n.Annotations = make(map[string]string)
+		}
+		n.Annotations["already_deployed"] = "true"
+	}
+
+	r.Nodes = append(r.Nodes, n)
+}
+
+// AddNodeWithChecksums adds a deployed file node with content checksums.
+func (r *Receipt) AddNodeWithChecksums(node *tree.Node, alreadyDeployed bool, sourceChecksum, targetChecksum string) {
+	n := Node{
+		ID:             node.RelTarget,
+		Operation:      primaryOperation(node.Operations.Strings()),
+		Status:         "completed",
+		Timestamp:      time.Now().Format(time.RFC3339),
+		Source:         node.Source,
+		Target:         node.Target,
+		Project:        node.Project,
+		SourceChecksum: sourceChecksum,
+		TargetChecksum: targetChecksum,
+	}
+
+	if alreadyDeployed {
+		if n.Annotations == nil {
+			n.Annotations = make(map[string]string)
+		}
+		n.Annotations["already_deployed"] = "true"
+	}
+
+	r.Nodes = append(r.Nodes, n)
+}
+
+// AddDelegated records a delegated manifest as a delegate node.
+func (r *Receipt) AddDelegated(node *tree.Node) {
+	n := Node{
+		ID:         node.RelTarget,
+		Operation:  "delegate",
+		Status:     "completed",
+		Timestamp:  time.Now().Format(time.RFC3339),
+		Source:     node.Source,
+		Target:     node.Target,
+		Project:    node.Project,
+		DelegateTo: "lore",
+	}
+	r.Nodes = append(r.Nodes, n)
+}
+
+// AddBackup records a backup as an annotation on the affected node.
+func (r *Receipt) AddBackup(original, backupPath string) {
+	// Find the node for this file and annotate it
+	for i := range r.Nodes {
+		if r.Nodes[i].Target == original {
+			if r.Nodes[i].Annotations == nil {
+				r.Nodes[i].Annotations = make(map[string]string)
+			}
+			r.Nodes[i].Annotations["backup"] = backupPath
+			return
+		}
+	}
+	// If no matching node found, create a standalone annotation node
+	r.Nodes = append(r.Nodes, Node{
+		ID:        original,
+		Operation: "backup",
+		Status:    "completed",
+		Target:    original,
+		Annotations: map[string]string{
+			"backup_path": backupPath,
+		},
 	})
 }
 
-// AddEntryWithChecksums adds a deployed file entry with content checksums.
-// Use this for copied files (expand, decrypt, copy operations).
-func (r *Receipt) AddEntryWithChecksums(node *tree.Node, alreadyDeployed bool, sourceChecksum, targetChecksum string) {
-	r.Entries = append(r.Entries, Entry{
-		Source:          node.Source,
-		Target:          node.Target,
-		RelTarget:       node.RelTarget,
-		Operations:      node.Operations.Strings(),
-		Project:         node.Project,
-		AlreadyDeployed: alreadyDeployed,
-		SourceChecksum:  sourceChecksum,
-		TargetChecksum:  targetChecksum,
+// AddSkipped records a skipped file as a node with status "skipped".
+func (r *Receipt) AddSkipped(relTarget string) {
+	r.Nodes = append(r.Nodes, Node{
+		ID:     relTarget,
+		Status: "skipped",
 	})
+}
+
+// AddEdge adds a relationship edge between two nodes.
+func (r *Receipt) AddEdge(from, to, relation string) {
+	r.Edges = append(r.Edges, Edge{
+		From:     from,
+		To:       to,
+		Relation: relation,
+	})
+}
+
+// ComputeSummary calculates summary statistics from nodes.
+func (r *Receipt) ComputeSummary() {
+	r.Summary = Summary{}
+
+	for _, n := range r.Nodes {
+		if n.Status == "skipped" {
+			r.Summary.Skipped++
+			continue
+		}
+		if n.Operation == "delegate" {
+			r.Summary.Delegated++
+			continue
+		}
+		if n.Operation == "backup" {
+			r.Summary.BackedUp++
+			continue
+		}
+
+		r.Summary.TotalFiles++
+
+		switch n.Operation {
+		case "link":
+			r.Summary.Links++
+		case "expand":
+			r.Summary.Templates++
+		case "decrypt":
+			r.Summary.Secrets++
+		case "copy":
+			r.Summary.Copies++
+		}
+	}
 }
 
 // Checksum computes a SHA256 checksum of the given content.
@@ -171,69 +310,6 @@ func ChecksumFile(path string) string {
 		return ""
 	}
 	return Checksum(content)
-}
-
-// IsCopied returns true if this entry was copied (not symlinked).
-func (e *Entry) IsCopied() bool {
-	for _, op := range e.Operations {
-		if op == "expand" || op == "decrypt" || op == "copy" {
-			return true
-		}
-	}
-	return false
-}
-
-// IsLinked returns true if this entry is a symlink.
-func (e *Entry) IsLinked() bool {
-	return len(e.Operations) == 1 && e.Operations[0] == "link"
-}
-
-// AddBackup records a backup that was created.
-func (r *Receipt) AddBackup(original, backupPath string) {
-	r.Backups = append(r.Backups, Backup{
-		Original:   original,
-		BackupPath: backupPath,
-	})
-}
-
-// AddSkipped records a skipped file.
-func (r *Receipt) AddSkipped(relTarget string) {
-	r.Skipped = append(r.Skipped, relTarget)
-}
-
-// AddDelegated records a delegated manifest.
-func (r *Receipt) AddDelegated(source string) {
-	r.Delegated = append(r.Delegated, source)
-}
-
-// ComputeSummary calculates summary statistics from entries.
-func (r *Receipt) ComputeSummary() {
-	r.Summary = Summary{
-		TotalFiles: len(r.Entries),
-		BackedUp:   len(r.Backups),
-		Skipped:    len(r.Skipped),
-		Delegated:  len(r.Delegated),
-	}
-
-	for _, e := range r.Entries {
-		if e.AlreadyDeployed {
-			r.Summary.AlreadyDeployed++
-			continue
-		}
-
-		for _, op := range e.Operations {
-			switch op {
-			case "link":
-				r.Summary.Links++
-			case "copy":
-				r.Summary.Copies++
-			case "expand":
-				r.Summary.Templates++
-			case "decrypt":
-				r.Summary.Secrets++
-			}
-		}
-	}
 }
 
 // StateDir returns the writ state directory.
@@ -288,19 +364,36 @@ func LoadLatest() (*Receipt, error) {
 	return Load(LatestReceiptPath())
 }
 
-// Load reads a receipt from a file.
+// Load reads a receipt from a file, detecting version and converting
+// legacy formats to the v4 graph representation.
 func Load(path string) (*Receipt, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var r Receipt
-	if err := yaml.Unmarshal(data, &r); err != nil {
-		return nil, fmt.Errorf("parse receipt: %w", err)
+	// Peek at version field to determine format
+	var peek struct {
+		Version string `yaml:"version"`
+	}
+	if err := yaml.Unmarshal(data, &peek); err != nil {
+		return nil, fmt.Errorf("parse receipt version: %w", err)
 	}
 
-	return &r, nil
+	switch peek.Version {
+	case "4":
+		var r Receipt
+		if err := yaml.Unmarshal(data, &r); err != nil {
+			return nil, fmt.Errorf("parse v4 receipt: %w", err)
+		}
+		return &r, nil
+	default: // "1", "2", "3" — legacy formats
+		var lr LegacyReceipt
+		if err := yaml.Unmarshal(data, &lr); err != nil {
+			return nil, fmt.Errorf("parse legacy receipt: %w", err)
+		}
+		return lr.ToGraph(), nil
+	}
 }
 
 // JSON returns the receipt as JSON.
@@ -316,13 +409,93 @@ func (r *Receipt) YAML() ([]byte, error) {
 // String returns a human-readable summary of the receipt.
 func (r *Receipt) String() string {
 	r.ComputeSummary()
-	return fmt.Sprintf("%d files (%d links, %d templates, %d secrets), %d already deployed, %d skipped, %d backed up",
+	return fmt.Sprintf("%d files (%d links, %d templates, %d secrets), %d skipped, %d delegated",
 		r.Summary.TotalFiles,
 		r.Summary.Links,
 		r.Summary.Templates,
 		r.Summary.Secrets,
-		r.Summary.AlreadyDeployed,
 		r.Summary.Skipped,
-		r.Summary.BackedUp,
+		r.Summary.Delegated,
 	)
+}
+
+// detectPlatform returns the current OS and architecture.
+func detectPlatform() Platform {
+	return Platform{
+		OS:   runtime.GOOS,
+		Arch: runtime.GOARCH,
+	}
+}
+
+// DependencyGraph represents the coarse-grained dependency view
+// projected from the execution graph.
+type DependencyGraph struct {
+	Nodes []DependencyNode `json:"nodes" yaml:"nodes"`
+	Edges []DependencyEdge `json:"edges" yaml:"edges"`
+}
+
+// DependencyNode represents a project (writ) or package (lore).
+type DependencyNode struct {
+	ID   string `json:"id" yaml:"id"`
+	Tool string `json:"tool" yaml:"tool"`
+}
+
+// DependencyEdge represents a structural relationship between projects/packages.
+type DependencyEdge struct {
+	From     string `json:"from" yaml:"from"`
+	To       string `json:"to" yaml:"to"`
+	Relation string `json:"relation" yaml:"relation"`
+	Artifact string `json:"artifact,omitempty" yaml:"artifact,omitempty"`
+}
+
+// ToDependencyGraph projects the execution graph to a dependency graph.
+// For writ: collapses file nodes into project nodes, preserves delegate edges.
+func (r *Receipt) ToDependencyGraph() *DependencyGraph {
+	dg := &DependencyGraph{}
+
+	// Collect unique projects as dependency nodes
+	projectSeen := make(map[string]bool)
+	for _, n := range r.Nodes {
+		if n.Project != "" && !projectSeen[n.Project] {
+			projectSeen[n.Project] = true
+			dg.Nodes = append(dg.Nodes, DependencyNode{
+				ID:   n.Project,
+				Tool: r.Tool,
+			})
+		}
+		// Delegate nodes create cross-tool dependency nodes
+		if n.Operation == "delegate" && n.DelegateTo != "" {
+			delegateID := n.DelegateTo + ":" + n.ID
+			if !projectSeen[delegateID] {
+				projectSeen[delegateID] = true
+				dg.Nodes = append(dg.Nodes, DependencyNode{
+					ID:   delegateID,
+					Tool: n.DelegateTo,
+				})
+			}
+		}
+	}
+
+	// Promote edges: keep only inter-project and cross-tool edges
+	for _, e := range r.Edges {
+		dg.Edges = append(dg.Edges, DependencyEdge{
+			From:     e.From,
+			To:       e.To,
+			Relation: e.Relation,
+			Artifact: e.Artifact,
+		})
+	}
+
+	// Add implicit delegate edges from project to delegate target
+	for _, n := range r.Nodes {
+		if n.Operation == "delegate" && n.DelegateTo != "" {
+			dg.Edges = append(dg.Edges, DependencyEdge{
+				From:     n.Project,
+				To:       n.DelegateTo + ":" + n.ID,
+				Relation: "delegates",
+			})
+		}
+	}
+
+	return dg
 }

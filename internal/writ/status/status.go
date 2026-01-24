@@ -163,19 +163,25 @@ func FromReceipt(rcpt *receipt.Receipt, receiptPath string) *Report {
 // When checkDrift is true, checksums are compared to detect source/target changes.
 func FromReceiptWithDrift(rcpt *receipt.Receipt, receiptPath string, checkDrift bool) *Report {
 	report := &Report{
-		TargetRoot:  rcpt.TargetRoot,
-		SourceRoot:  rcpt.SourceRoot,
-		Projects:    rcpt.Projects,
+		TargetRoot:  rcpt.Context.TargetRoot,
+		SourceRoot:  rcpt.Context.SourceRoot,
+		Projects:    rcpt.Context.Projects,
 		FromReceipt: true,
 		ReceiptPath: receiptPath,
 	}
 
-	for _, e := range rcpt.Entries {
+	for _, n := range rcpt.Nodes {
+		if n.Status == "skipped" || n.Operation == "delegate" || n.Operation == "backup" {
+			continue
+		}
+
 		var entry Entry
-		if checkDrift && e.IsCopied() && e.SourceChecksum != "" {
-			entry = checkEntryWithDrift(e.Source, e.Target, e.RelTarget, e.Project, e.Operations, e.SourceChecksum, e.TargetChecksum)
+		ops := []string{n.Operation}
+		isCopied := n.Operation != "link"
+		if checkDrift && isCopied && n.SourceChecksum != "" {
+			entry = checkEntryWithDrift(n.Source, n.Target, n.ID, n.Project, ops, n.SourceChecksum, n.TargetChecksum)
 		} else {
-			entry = checkEntry(e.Source, e.Target, e.RelTarget, e.Project, e.Operations)
+			entry = checkEntry(n.Source, n.Target, n.ID, n.Project, ops)
 		}
 		report.Entries = append(report.Entries, entry)
 	}

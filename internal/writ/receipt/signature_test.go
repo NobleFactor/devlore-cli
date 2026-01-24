@@ -17,27 +17,35 @@ func TestSignAndVerify(t *testing.T) {
 		t.Fatalf("generate identity: %v", err)
 	}
 
-	// Create a test receipt
+	// Create a test v4 receipt
 	rcpt := &Receipt{
-		Version:    "2",
-		Timestamp:  time.Now(),
-		SourceRoot: "/home/user/dotfiles",
-		TargetRoot: "/home/user",
-		Projects:   []string{"all", "noblefactor"},
-		Segments:   map[string]string{"OS": "Darwin", "ARCH": "arm64"},
-		Entries: []Entry{
+		Version:   CurrentVersion,
+		Format:    "graph",
+		Timestamp: time.Now(),
+		Tool:      "writ",
+		Platform:  Platform{OS: "darwin", Arch: "arm64"},
+		Context: WritContext{
+			SourceRoot: "/home/user/dotfiles",
+			TargetRoot: "/home/user",
+			Projects:   []string{"all", "noblefactor"},
+			Segments:   map[string]string{"OS": "Darwin", "ARCH": "arm64"},
+		},
+		Roots: []string{"all", "noblefactor"},
+		Nodes: []Node{
 			{
-				Source:     "/home/user/dotfiles/all/.bashrc",
-				Target:     "/home/user/.bashrc",
-				RelTarget:  ".bashrc",
-				Operations: []string{"link"},
-				Project:    "all",
+				ID:        ".bashrc",
+				Operation: "link",
+				Status:    "completed",
+				Source:    "/home/user/dotfiles/all/.bashrc",
+				Target:    "/home/user/.bashrc",
+				Project:   "all",
 			},
 			{
+				ID:             ".gitconfig",
+				Operation:      "expand",
+				Status:         "completed",
 				Source:         "/home/user/dotfiles/noblefactor/.gitconfig.template",
 				Target:         "/home/user/.gitconfig",
-				RelTarget:      ".gitconfig",
-				Operations:     []string{"expand", "copy"},
 				Project:        "noblefactor",
 				SourceChecksum: "sha256:abc123",
 				TargetChecksum: "sha256:def456",
@@ -60,9 +68,6 @@ func TestSignAndVerify(t *testing.T) {
 	}
 	if rcpt.Signature.Recipient != identity.Recipient().String() {
 		t.Errorf("expected recipient %q, got %q", identity.Recipient().String(), rcpt.Signature.Recipient)
-	}
-	if rcpt.Version != SignatureVersion {
-		t.Errorf("expected version %q, got %q", SignatureVersion, rcpt.Version)
 	}
 
 	// Verify the signature
@@ -89,19 +94,26 @@ func TestVerifyTamperedReceipt(t *testing.T) {
 
 	// Create and sign a test receipt
 	rcpt := &Receipt{
-		Version:    "2",
-		Timestamp:  time.Now(),
-		SourceRoot: "/home/user/dotfiles",
-		TargetRoot: "/home/user",
-		Projects:   []string{"all"},
-		Segments:   map[string]string{},
-		Entries: []Entry{
+		Version:   CurrentVersion,
+		Format:    "graph",
+		Timestamp: time.Now(),
+		Tool:      "writ",
+		Platform:  Platform{OS: "darwin", Arch: "arm64"},
+		Context: WritContext{
+			SourceRoot: "/home/user/dotfiles",
+			TargetRoot: "/home/user",
+			Projects:   []string{"all"},
+			Segments:   map[string]string{},
+		},
+		Roots: []string{"all"},
+		Nodes: []Node{
 			{
-				Source:     "/home/user/dotfiles/all/.bashrc",
-				Target:     "/home/user/.bashrc",
-				RelTarget:  ".bashrc",
-				Operations: []string{"link"},
-				Project:    "all",
+				ID:        ".bashrc",
+				Operation: "link",
+				Status:    "completed",
+				Source:    "/home/user/dotfiles/all/.bashrc",
+				Target:    "/home/user/.bashrc",
+				Project:   "all",
 			},
 		},
 	}
@@ -112,7 +124,7 @@ func TestVerifyTamperedReceipt(t *testing.T) {
 	}
 
 	// Tamper with the receipt
-	rcpt.Projects = append(rcpt.Projects, "tampered")
+	rcpt.Roots = append(rcpt.Roots, "tampered")
 
 	// Verification should fail
 	if err := rcpt.Verify([]age.Identity{identity}); err == nil {
@@ -127,15 +139,10 @@ func TestVerifyTamperedReceipt(t *testing.T) {
 }
 
 func TestVerifyLegacyReceipt(t *testing.T) {
-	// Create a legacy v2 receipt (unsigned)
+	// A legacy receipt loaded and converted still has Version "4"
+	// but if it had no signature originally, IsLegacy tests against v1/v2
 	rcpt := &Receipt{
-		Version:    "2",
-		Timestamp:  time.Now(),
-		SourceRoot: "/home/user/dotfiles",
-		TargetRoot: "/home/user",
-		Projects:   []string{"all"},
-		Segments:   map[string]string{},
-		Entries:    []Entry{},
+		Version: "2", // Simulating a pre-conversion check
 	}
 
 	// Legacy receipts should be allowed
@@ -162,13 +169,19 @@ func TestVerifyWrongIdentity(t *testing.T) {
 
 	// Create and sign with first identity
 	rcpt := &Receipt{
-		Version:    "2",
-		Timestamp:  time.Now(),
-		SourceRoot: "/home/user/dotfiles",
-		TargetRoot: "/home/user",
-		Projects:   []string{"all"},
-		Segments:   map[string]string{},
-		Entries:    []Entry{},
+		Version:   CurrentVersion,
+		Format:    "graph",
+		Timestamp: time.Now(),
+		Tool:      "writ",
+		Platform:  Platform{OS: "linux", Arch: "amd64"},
+		Context: WritContext{
+			SourceRoot: "/home/user/dotfiles",
+			TargetRoot: "/home/user",
+			Projects:   []string{"all"},
+			Segments:   map[string]string{},
+		},
+		Roots: []string{"all"},
+		Nodes: []Node{},
 	}
 
 	if err := rcpt.Sign(signingIdentity); err != nil {
@@ -182,7 +195,7 @@ func TestVerifyWrongIdentity(t *testing.T) {
 }
 
 func TestIsSigned(t *testing.T) {
-	rcpt := &Receipt{Version: "2"}
+	rcpt := &Receipt{Version: CurrentVersion}
 
 	if rcpt.IsSigned() {
 		t.Error("expected unsigned receipt to return false")

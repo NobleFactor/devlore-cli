@@ -249,19 +249,24 @@ func (s *State) Summary() (links, copied int) {
 	return
 }
 
-// UpdateFromReceipt merges entries from a receipt into the state.
+// UpdateFromReceipt merges nodes from a v4 graph-format receipt into the state.
 func (s *State) UpdateFromReceipt(rcpt *receipt.Receipt, receiptFilename string) {
-	for _, e := range rcpt.Entries {
+	for _, n := range rcpt.Nodes {
+		// Skip non-file nodes
+		if n.Status == "skipped" || n.Operation == "delegate" || n.Operation == "backup" {
+			continue
+		}
+
 		entry := &FileEntry{
-			Source:         e.Source,
-			Project:        e.Project,
-			Operations:     e.Operations,
+			Source:         n.Source,
+			Project:        n.Project,
+			Operations:     []string{n.Operation},
 			DeployedAt:     rcpt.Timestamp,
 			Receipt:        receiptFilename,
-			SourceChecksum: e.SourceChecksum,
-			TargetChecksum: e.TargetChecksum,
+			SourceChecksum: n.SourceChecksum,
+			TargetChecksum: n.TargetChecksum,
 		}
-		s.AddEntry(e.RelTarget, entry)
+		s.AddEntry(n.ID, entry) // ID = rel_target
 	}
 }
 
