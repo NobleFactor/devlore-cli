@@ -59,11 +59,12 @@ jobs:
           fi
           git commit -m "Update docs from devlore-cli@${GITHUB_SHA::7}"
           git push origin "$BRANCH"
+          BODY="Automated update from [devlore-cli@\`${GITHUB_SHA::7}\`](https://github.com/NobleFactor/devlore-cli/commit/${GITHUB_SHA}).
+
+          Triggered by push to \`${GITHUB_REF_NAME}\` branch.
+
+          Includes CLI reference (generated) and guides (hand-written)."
           gh pr create \
             --title "Update CLI documentation" \
-            --body "Automated update from [devlore-cli@\`${GITHUB_SHA::7}\`](https://github.com/NobleFactor/devlore-cli/commit/${GITHUB_SHA}).
-
-Triggered by push to \`${GITHUB_REF_NAME}\` branch.
-
-Includes CLI reference (generated) and guides (hand-written)." \
+            --body "$BODY" \
             --base develop
