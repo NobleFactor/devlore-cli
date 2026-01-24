@@ -3,7 +3,10 @@ name: Publish CLI Docs
 
 on:
   push:
-    branches: [develop, 'release*', main]
+    branches: [develop, "release*", main]
+
+permissions:
+  contents: read
 
 jobs:
   generate-and-pr:
