@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025 Noble Factor. All rights reserved.
+#
+# Release workflow: builds binaries with GoReleaser and syncs install.sh to website
+
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'release/*'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # Build and release binaries (only on tags)
+  goreleaser:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Sync install.sh to website repo (on any push to main/develop/release/*)
+  sync-install-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout devlore-cli
+        uses: actions/checkout@v4
+
+      - name: Checkout website repo
+        uses: actions/checkout@v4
+        with:
+          repository: NobleFactor/devlore.noblefactor.com
+          token: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}
+          path: website
+
+      - name: Sync install.sh
+        run: |
+          cp install.sh website/public/install.sh
+          cd website
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check if there are changes
+          if git diff --quiet public/install.sh; then
+            echo "No changes to install.sh"
+            exit 0
+          fi
+
+          # Determine target branch based on source
+          TARGET_BRANCH="develop"
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TARGET_BRANCH="main"
+          fi
+
+          git checkout "$TARGET_BRANCH" || git checkout -b "$TARGET_BRANCH"
+          git add public/install.sh
+          git commit -m "Sync install.sh from devlore-cli
+
+          Source: ${{ github.repository }}@${{ github.sha }}
+          Ref: ${{ github.ref }}"
+          git push origin "$TARGET_BRANCH"
+
+      - name: Summary
+        run: |
+          echo "## Install Script Synced" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Source: \`${{ github.repository }}@${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Target: \`devlore.noblefactor.com/public/install.sh\`" >> $GITHUB_STEP_SUMMARY
