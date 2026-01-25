@@ -404,8 +404,12 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 	source2 := filepath.Join(tmpDir, "src2.txt")
 	target2 := filepath.Join(tmpDir, "sub", "tgt2.txt")
 
-	os.WriteFile(source1, []byte("file1"), 0644)
-	os.WriteFile(source2, []byte("file2"), 0644)
+	if err := os.WriteFile(source1, []byte("file1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source2, []byte("file2"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	reg := NewRegistry()
 	reg.Register(&LinkOp{})
@@ -455,9 +459,15 @@ func TestEngineTopologicalSort(t *testing.T) {
 	srcA := filepath.Join(tmpDir, "a.txt")
 	srcB := filepath.Join(tmpDir, "b.txt")
 	srcC := filepath.Join(tmpDir, "c.txt")
-	os.WriteFile(srcA, []byte("a"), 0644)
-	os.WriteFile(srcB, []byte("b"), 0644)
-	os.WriteFile(srcC, []byte("c"), 0644)
+	if err := os.WriteFile(srcA, []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(srcB, []byte("b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(srcC, []byte("c"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	reg := NewRegistry()
 	reg.Register(&LinkOp{})
@@ -498,7 +508,9 @@ func TestEngineDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	os.WriteFile(source, []byte("hello"), 0644)
+	if err := os.WriteFile(source, []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	reg := NewRegistry()
 	reg.Register(&LinkOp{})
@@ -529,7 +541,9 @@ func TestPreflightNoConflict(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt") // Doesn't exist
-	os.WriteFile(source, []byte("x"), 0644)
+	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	reg := NewRegistry()
 	engine := New(reg, Options{})
@@ -552,8 +566,12 @@ func TestPreflightConflictRegularFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	os.WriteFile(source, []byte("x"), 0644)
-	os.WriteFile(target, []byte("existing"), 0644) // Conflict!
+	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("existing"), 0644); err != nil { // Conflict!
+		t.Fatal(err)
+	}
 
 	reg := NewRegistry()
 	engine := New(reg, Options{})
@@ -640,7 +658,9 @@ func TestFileOpsCount(t *testing.T) {
 func TestBackupOperation(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "file.txt")
-	os.WriteFile(target, []byte("original"), 0644)
+	if err := os.WriteFile(target, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	op := &BackupOp{}
 	ctx := &Context{Context: context.Background(), Data: map[string]any{}}
