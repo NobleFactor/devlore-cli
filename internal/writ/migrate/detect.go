@@ -162,3 +162,97 @@ func parseProjectPlatform(name string) (project, platform string) {
 	}
 	return name, ""
 }
+
+// EncryptionSystem identifies the secret encryption tool in use.
+type EncryptionSystem string
+
+const (
+	EncryptGitCrypt     EncryptionSystem = "git-crypt"
+	EncryptBlackbox     EncryptionSystem = "blackbox"
+	EncryptTranscrypt   EncryptionSystem = "transcrypt"
+	EncryptGPG          EncryptionSystem = "gpg"
+	EncryptAge          EncryptionSystem = "age"
+	EncryptAnsibleVault EncryptionSystem = "ansible-vault"
+	EncryptSOPS         EncryptionSystem = "sops"
+	EncryptNone         EncryptionSystem = "none"
+)
+
+// DetectEncryption identifies encryption systems in use in the repository.
+// Returns a list of detected systems (there may be multiple).
+func DetectEncryption(root string) []EncryptionSystem {
+	var systems []EncryptionSystem
+
+	// git-crypt: check .gitattributes for filter=git-crypt
+	if hasGitCrypt(root) {
+		systems = append(systems, EncryptGitCrypt)
+	}
+
+	// Blackbox: .blackbox directory
+	if exists(filepath.Join(root, ".blackbox")) {
+		systems = append(systems, EncryptBlackbox)
+	}
+
+	// transcrypt: .transcrypt directory
+	if exists(filepath.Join(root, ".transcrypt")) {
+		systems = append(systems, EncryptTranscrypt)
+	}
+
+	// SOPS: .sops.yaml
+	if exists(filepath.Join(root, ".sops.yaml")) {
+		systems = append(systems, EncryptSOPS)
+	}
+
+	if len(systems) == 0 {
+		systems = append(systems, EncryptNone)
+	}
+
+	return systems
+}
+
+// hasGitCrypt checks for git-crypt configuration in .gitattributes.
+func hasGitCrypt(root string) bool {
+	data, err := os.ReadFile(filepath.Join(root, ".gitattributes"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "filter=git-crypt")
+}
+
+// DetectEncryptedFile checks a single file's content for encryption signatures.
+func DetectEncryptedFile(path string) EncryptionSystem {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return EncryptNone
+	}
+
+	content := string(data)
+
+	// Check for various encryption signatures
+	if strings.HasPrefix(content, "-----BEGIN AGE ENCRYPTED FILE-----") ||
+		strings.HasPrefix(content, "age-encryption.org") {
+		return EncryptAge
+	}
+
+	if strings.HasPrefix(content, "-----BEGIN PGP MESSAGE-----") ||
+		strings.HasPrefix(content, "-----BEGIN PGP ENCRYPTED MESSAGE-----") {
+		return EncryptGPG
+	}
+
+	if strings.HasPrefix(content, "$ANSIBLE_VAULT;") {
+		return EncryptAnsibleVault
+	}
+
+	// SOPS JSON/YAML has a "sops" key with metadata
+	if strings.Contains(content, `"sops":`) || strings.Contains(content, "sops:") {
+		if strings.Contains(content, "lastmodified") && strings.Contains(content, "mac") {
+			return EncryptSOPS
+		}
+	}
+
+	// git-crypt files start with \x00GITCRYPT
+	if len(data) >= 9 && data[0] == 0x00 && string(data[1:9]) == "GITCRYPT" {
+		return EncryptGitCrypt
+	}
+
+	return EncryptNone
+}

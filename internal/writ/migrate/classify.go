@@ -144,3 +144,11 @@ func isBinary(ext string) bool {
 	}
 	return false
 }
+
+// SecretFinding represents a detected secret file.
+type SecretFinding struct {
+	RelPath          string           // Relative path from source root
+	Encryption       EncryptionSystem // Current encryption (or EncryptNone)
+	Reason           string           // Why we think it's a secret
+	SuggestedPattern string           // Suggested .sops.yaml path_regex (for AI)
+}

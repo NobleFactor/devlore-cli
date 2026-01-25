@@ -5,6 +5,7 @@ package migrate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -279,7 +280,7 @@ func TestPlanGeneration(t *testing.T) {
 		Format:     "text",
 	}
 
-	plan, err := BuildPlan(opts)
+	plan, err := BuildPlan(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +307,7 @@ func TestExecution(t *testing.T) {
 	opts := Options{
 		SourceRoot: tmpDir,
 	}
-	plan, err := BuildPlan(opts)
+	plan, err := BuildPlan(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +365,7 @@ func TestExecutionConflict(t *testing.T) {
 	os.Mkdir(filepath.Join(tmpDir, "all.Darwin"), 0755)
 
 	opts := Options{SourceRoot: tmpDir}
-	plan, err := BuildPlan(opts)
+	plan, err := BuildPlan(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +388,7 @@ func TestAlreadyMigrated(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, ".writ-migrated"), []byte("timestamp: now\n"), 0644)
 
 	opts := Options{SourceRoot: tmpDir}
-	_, err := BuildPlan(opts)
+	_, err := BuildPlan(context.Background(), opts)
 	if err == nil {
 		t.Fatal("BuildPlan should fail when already migrated")
 	}
@@ -399,7 +400,7 @@ func TestAlreadyMigrated(t *testing.T) {
 func TestFormatText(t *testing.T) {
 	root := fixtureRoot(t)
 	opts := Options{SourceRoot: root}
-	plan, err := BuildPlan(opts)
+	plan, err := BuildPlan(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +435,7 @@ func TestFormatText(t *testing.T) {
 func TestFormatYAML(t *testing.T) {
 	root := fixtureRoot(t)
 	opts := Options{SourceRoot: root}
-	plan, err := BuildPlan(opts)
+	plan, err := BuildPlan(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +461,7 @@ func TestFormatYAML(t *testing.T) {
 func TestFormatJSON(t *testing.T) {
 	root := fixtureRoot(t)
 	opts := Options{SourceRoot: root}
-	plan, err := BuildPlan(opts)
+	plan, err := BuildPlan(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
