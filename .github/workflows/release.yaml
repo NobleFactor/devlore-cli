@@ -80,11 +80,15 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           # Determine target branch based on source
-          # main, release/*, tags → production (main)
+          # main, tags → production (main)
+          # release/* → release preview (same branch name)
           # develop → preview (develop)
           TARGET_BRANCH="develop"
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == refs/heads/release/* ]] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TARGET_BRANCH="main"
+          elif [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
+            # Preserve release branch name for preview environment
+            TARGET_BRANCH="${{ github.ref_name }}"
           fi
 
           git checkout "$TARGET_BRANCH" || git checkout -b "$TARGET_BRANCH"
