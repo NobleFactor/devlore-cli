@@ -39,7 +39,9 @@ func TestDetect(t *testing.T) {
 
 func TestDetectTuckr(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "Hooks.toml"), []byte("[hooks]"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "Hooks.toml"), []byte("[hooks]"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	system, err := Detect(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +53,9 @@ func TestDetectTuckr(t *testing.T) {
 
 func TestDetectStow(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, ".stow-local-ignore"), []byte(""), 0644)
+	if err := os.WriteFile(filepath.Join(dir, ".stow-local-ignore"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
 	system, err := Detect(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +81,9 @@ func TestDetectChezmoi(t *testing.T) {
 
 func TestDetectYadm(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, ".bashrc##os.Linux"), []byte(""), 0644)
+	if err := os.WriteFile(filepath.Join(dir, ".bashrc##os.Linux"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
 	system, err := Detect(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +401,9 @@ func TestAlreadyMigrated(t *testing.T) {
 	copyDir(t, fixtureRoot(t), tmpDir)
 
 	// Write a marker to simulate prior migration
-	os.WriteFile(filepath.Join(tmpDir, ".writ-migrated"), []byte("timestamp: now\n"), 0644)
+	if err := os.WriteFile(filepath.Join(tmpDir, ".writ-migrated"), []byte("timestamp: now\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	opts := Options{SourceRoot: tmpDir}
 	_, err := BuildPlan(context.Background(), opts)
