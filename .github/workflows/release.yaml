@@ -53,7 +53,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: NobleFactor/devlore.noblefactor.com
-          token: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}
+          token: ${{ secrets.SITE_DEPLOY_TOKEN }}
           path: website
 
       - name: Sync install.sh
