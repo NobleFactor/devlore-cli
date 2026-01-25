@@ -4,7 +4,6 @@
 package writ
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,7 +19,6 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"filippo.io/age/armor"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -28,6 +26,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/engine"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/receipt"
+	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/state"
 	"github.com/NobleFactor/devlore-cli/internal/writ/status"
@@ -179,10 +178,10 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		engineData[k] = v
 	}
 
-	// Set up decryptor if identities available
-	if identityErr == nil && len(identities) > 0 {
-		engineData["decryptor"] = makeDecryptor(identities)
-	}
+	// Set up SOPS decryptor for encrypted files (.age, .sops)
+	// SOPS handles key resolution via .sops.yaml + environment variables
+	secretsMgr, _ := secrets.NewManager(sourceRoot)
+	engineData["decryptor"] = secretsMgr.Decryptor()
 
 	// Dry-run: output plan and return
 	if dryRun {
@@ -312,10 +311,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Record backups in receipt
-	if backupPaths != nil {
-		for target, backupPath := range backupPaths {
-			rcpt.AddBackup(target, backupPath)
-		}
+	for target, backupPath := range backupPaths {
+		rcpt.AddBackup(target, backupPath)
 	}
 
 	// Handle delegated nodes (packages.manifest files)
@@ -860,9 +857,10 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	for k, v := range templateData {
 		engineData[k] = v
 	}
-	if identityErr == nil && len(identities) > 0 {
-		engineData["decryptor"] = makeDecryptor(identities)
-	}
+	// Set up SOPS decryptor for encrypted files (.age, .sops)
+	// SOPS handles key resolution via .sops.yaml + environment variables
+	upgradeSecretsMgr, _ := secrets.NewManager(deployState.SourceRoot)
+	engineData["decryptor"] = upgradeSecretsMgr.Decryptor()
 
 	// Track results
 	var regenerated, skipped int
@@ -2595,32 +2593,6 @@ func xdgPath(envVar, defaultPath string) string {
 		return v
 	}
 	return defaultPath
-}
-
-// makeDecryptor creates an age decryptor function from loaded identities.
-func makeDecryptor(identities []age.Identity) func([]byte) ([]byte, error) {
-	return func(encrypted []byte) ([]byte, error) {
-		var reader io.Reader
-
-		// Detect if armored
-		if bytes.HasPrefix(encrypted, []byte("-----BEGIN AGE ENCRYPTED FILE-----")) {
-			reader = armor.NewReader(bytes.NewReader(encrypted))
-		} else {
-			reader = bytes.NewReader(encrypted)
-		}
-
-		decrypted, err := age.Decrypt(reader, identities...)
-		if err != nil {
-			return nil, fmt.Errorf("age decrypt: %w", err)
-		}
-
-		plaintext, err := io.ReadAll(decrypted)
-		if err != nil {
-			return nil, fmt.Errorf("read decrypted: %w", err)
-		}
-
-		return plaintext, nil
-	}
 }
 
 // isDelegate returns true if the node is a delegate operation.

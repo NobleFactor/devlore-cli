@@ -1,0 +1,10 @@
+#!/bin/bash
+# Install tuckr via cargo
+set -euo pipefail
+
+if ! command -v cargo &>/dev/null; then
+    echo "Error: cargo not found. Install Rust first." >&2
+    exit 1
+fi
+
+cargo install tuckr

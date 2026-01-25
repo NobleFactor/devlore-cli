@@ -134,7 +134,9 @@ kubectl
 
 gh
 `
-	os.WriteFile(manifest, []byte(content), 0644)
+	if err := os.WriteFile(manifest, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	entries, err := loadManifest(manifest)
 	if err != nil {
