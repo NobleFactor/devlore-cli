@@ -86,8 +86,10 @@ jobs:
           fi
 
           # Determine target branch based on source
+          # main, release/*, tags → production (main)
+          # develop → preview (develop)
           TARGET_BRANCH="develop"
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == refs/heads/release/* ]] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TARGET_BRANCH="main"
           fi
 
