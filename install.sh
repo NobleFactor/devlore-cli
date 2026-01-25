@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # Configuration
-GITHUB_REPO="NobleFactor/devlore-cli"
+DOWNLOAD_BASE="${DEVLORE_DOWNLOAD_BASE:-https://devlore.noblefactor.com/releases}"
 INSTALL_DIR="${DEVLORE_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${DEVLORE_VERSION:-latest}"
 TOOLS="${DEVLORE_TOOLS:-all}"
@@ -58,16 +58,19 @@ detect_arch() {
     esac
 }
 
-# Get latest version from GitHub API
+# Get latest version from the website
 get_latest_version() {
-    local url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    local url="${DOWNLOAD_BASE}/latest.txt"
+    local version
     if command -v curl &>/dev/null; then
-        curl -sSL "$url" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
+        version=$(curl -sSL "$url" 2>/dev/null)
     elif command -v wget &>/dev/null; then
-        wget -qO- "$url" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
+        version=$(wget -qO- "$url" 2>/dev/null)
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
+    # Trim whitespace
+    echo "$version" | tr -d '[:space:]'
 }
 
 # Download file
@@ -134,9 +137,8 @@ main() {
     local version_num="${VERSION#v}"  # Strip leading 'v' if present
     local archive_name="devlore-cli_${version_num}_${os}_${arch}.${ext}"
     local checksums_name="devlore-cli_${version_num}_checksums.txt"
-    local base_url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}"
-    local archive_url="${base_url}/${archive_name}"
-    local checksums_url="${base_url}/${checksums_name}"
+    local archive_url="${DOWNLOAD_BASE}/${archive_name}"
+    local checksums_url="${DOWNLOAD_BASE}/${checksums_name}"
 
     # Create temp directory
     local tmp_dir
