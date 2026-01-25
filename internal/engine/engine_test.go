@@ -311,7 +311,9 @@ func TestEngineRunExpandCopyPipeline(t *testing.T) {
 	source := filepath.Join(tmpDir, "template.txt")
 	target := filepath.Join(tmpDir, "output.txt")
 
-	os.WriteFile(source, []byte("Hello {{.Username}}!"), 0644)
+	if err := os.WriteFile(source, []byte("Hello {{.Username}}!"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	reg := NewRegistry()
 	reg.Register(&ExpandOp{})
@@ -353,7 +355,9 @@ func TestEngineRunDecryptExpandCopyPipeline(t *testing.T) {
 	source := filepath.Join(tmpDir, "secret.txt.sops")
 	target := filepath.Join(tmpDir, "secret.txt")
 
-	os.WriteFile(source, []byte("encrypted:token={{.Token}}"), 0644)
+	if err := os.WriteFile(source, []byte("encrypted:token={{.Token}}"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	mockDecrypt := func(ciphertext []byte) ([]byte, error) {
 		// Strip "encrypted:" prefix

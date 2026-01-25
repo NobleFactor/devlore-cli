@@ -370,7 +370,9 @@ func TestExecutionConflict(t *testing.T) {
 	copyDir(t, fixtureRoot(t), tmpDir)
 
 	// Create a conflicting target directory
-	os.Mkdir(filepath.Join(tmpDir, "all.Darwin"), 0755)
+	if err := os.Mkdir(filepath.Join(tmpDir, "all.Darwin"), 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	opts := Options{SourceRoot: tmpDir}
 	plan, err := BuildPlan(context.Background(), opts)
