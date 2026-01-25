@@ -133,10 +133,9 @@ main() {
         ext="zip"
     fi
 
-    # Build download URL
-    local version_num="${VERSION#v}"  # Strip leading 'v' if present
-    local archive_name="devlore-cli_${version_num}_${os}_${arch}.${ext}"
-    local checksums_name="devlore-cli_${version_num}_checksums.txt"
+    # Build download URL (version includes 'v' prefix)
+    local archive_name="devlore-cli_${VERSION}_${os}_${arch}.${ext}"
+    local checksums_name="devlore-cli_${VERSION}_checksums.txt"
     local archive_url="${DOWNLOAD_BASE}/${archive_name}"
     local checksums_url="${DOWNLOAD_BASE}/${checksums_name}"
 
