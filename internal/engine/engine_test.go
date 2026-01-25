@@ -228,8 +228,12 @@ func TestUnlinkOperation(t *testing.T) {
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "link.txt")
 
-	os.WriteFile(source, []byte("x"), 0644)
-	os.Symlink(source, target)
+	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(source, target); err != nil {
+		t.Fatal(err)
+	}
 
 	op := &UnlinkOp{}
 	ctx := &Context{Context: context.Background()}
@@ -248,7 +252,9 @@ func TestUnlinkOperation(t *testing.T) {
 func TestRemoveOperation(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "file.txt")
-	os.WriteFile(target, []byte("data"), 0644)
+	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	op := &RemoveOp{}
 	ctx := &Context{Context: context.Background()}
@@ -268,7 +274,9 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	os.WriteFile(source, []byte("hello"), 0644)
+	if err := os.WriteFile(source, []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	reg := NewRegistry()
 	reg.Register(&LinkOp{})
@@ -564,8 +572,12 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	os.WriteFile(source, []byte("x"), 0644)
-	os.Symlink(source, target) // Already correct
+	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(source, target); err != nil { // Already correct
+		t.Fatal(err)
+	}
 
 	reg := NewRegistry()
 	engine := New(reg, Options{})

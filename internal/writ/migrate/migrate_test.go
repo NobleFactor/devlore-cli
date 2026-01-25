@@ -63,7 +63,9 @@ func TestDetectStow(t *testing.T) {
 
 func TestDetectChezmoi(t *testing.T) {
 	dir := t.TempDir()
-	os.Mkdir(filepath.Join(dir, "dot_config"), 0755)
+	if err := os.Mkdir(filepath.Join(dir, "dot_config"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	system, err := Detect(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -87,9 +89,15 @@ func TestDetectYadm(t *testing.T) {
 
 func TestDetectBareGit(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644)
-	os.Mkdir(filepath.Join(dir, "objects"), 0755)
-	os.Mkdir(filepath.Join(dir, "refs"), 0755)
+	if err := os.WriteFile(filepath.Join(dir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "objects"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "refs"), 0755); err != nil {
+		t.Fatal(err)
+	}
 	system, err := Detect(dir)
 	if err != nil {
 		t.Fatal(err)

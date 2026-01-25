@@ -311,10 +311,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Record backups in receipt
-	if backupPaths != nil {
-		for target, backupPath := range backupPaths {
-			rcpt.AddBackup(target, backupPath)
-		}
+	for target, backupPath := range backupPaths {
+		rcpt.AddBackup(target, backupPath)
 	}
 
 	// Handle delegated nodes (packages.manifest files)
