@@ -79,12 +79,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Check if there are changes
-          if git diff --quiet && git diff --cached --quiet; then
-            echo "No changes to deploy"
-            exit 0
-          fi
-
           # Determine target branch based on source
           # main, release/*, tags → production (main)
           # develop → preview (develop)
@@ -94,7 +88,14 @@ jobs:
           fi
 
           git checkout "$TARGET_BRANCH" || git checkout -b "$TARGET_BRANCH"
+
+          # Stage files first, then check if there are changes
           git add public/install.sh public/releases/
+          if git diff --cached --quiet; then
+            echo "No changes to deploy"
+            exit 0
+          fi
+
           git commit -m "Deploy devlore-cli ${{ steps.version.outputs.version }}
 
           Source: ${{ github.repository }}@${{ github.sha }}
