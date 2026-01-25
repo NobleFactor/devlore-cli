@@ -33,10 +33,21 @@ type Stats struct {
 	Renames          int `json:"renames" yaml:"renames"`
 }
 
+// RepoLayer indicates the precedence layer of a repo.
+// Precedence: base (lowest) → team → personal (highest).
+type RepoLayer string
+
+const (
+	LayerBase     RepoLayer = "base"
+	LayerTeam     RepoLayer = "team"
+	LayerPersonal RepoLayer = "personal"
+)
+
 // MigrationPlan represents the complete analysis of a migration.
 type MigrationPlan struct {
 	SourceRoot        string             `json:"source_root" yaml:"source_root"`
 	System            SourceSystem       `json:"system" yaml:"system"`
+	RepoLayer         RepoLayer          `json:"repo_layer" yaml:"repo_layer"`
 	EncryptionSystems []EncryptionSystem `json:"encryption_systems" yaml:"encryption_systems"`
 	Entries           []InventoryEntry   `json:"entries" yaml:"entries"`
 	Mappings          []DirectoryMapping `json:"mappings" yaml:"mappings"`
@@ -169,6 +180,7 @@ Respond in JSON format per the migration-plan schema.`,
 	return &MigrationPlan{
 		SourceRoot:        root,
 		System:            system,
+		RepoLayer:         aiPlan.RepoLayer,
 		EncryptionSystems: encSystems,
 		Entries:           aiPlan.Entries,
 		Mappings:          mappings,
@@ -214,6 +226,7 @@ func buildPlanBasic(root string, system SourceSystem, entries []InventoryEntry, 
 	return &MigrationPlan{
 		SourceRoot:        root,
 		System:            system,
+		RepoLayer:         LayerPersonal, // Default to personal in basic mode
 		EncryptionSystems: encSystems,
 		Entries:           entries,
 		Mappings:          mappings,
@@ -243,6 +256,7 @@ func detectEncryptedSecrets(entries []InventoryEntry) []SecretFinding {
 
 // aiAnalysisResult holds parsed AI response.
 type aiAnalysisResult struct {
+	RepoLayer      RepoLayer
 	Entries        []InventoryEntry
 	Scripts        []ScriptAnalysis
 	SecretFindings []SecretFinding
@@ -254,6 +268,7 @@ type aiAnalysisResult struct {
 func parseAIResponse(content string, originalEntries []InventoryEntry) (*aiAnalysisResult, error) {
 	// Try to parse as JSON
 	var response struct {
+		RepoLayer       string `json:"repo_layer"`
 		Classifications []struct {
 			Path  string `json:"path"`
 			Class string `json:"class"`
@@ -262,6 +277,12 @@ func parseAIResponse(content string, originalEntries []InventoryEntry) (*aiAnaly
 			Path   string `json:"path"`
 			Reason string `json:"reason"`
 		} `json:"secrets"`
+		UnencryptedSecrets []struct {
+			Path           string `json:"path"`
+			Reason         string `json:"reason"`
+			Recommendation string `json:"recommendation"`
+			Severity       string `json:"severity"`
+		} `json:"unencrypted_secrets"`
 		Scripts []struct {
 			Path           string   `json:"path"`
 			Phase          string   `json:"phase"`
@@ -274,6 +295,15 @@ func parseAIResponse(content string, originalEntries []InventoryEntry) (*aiAnaly
 
 	if err := json.Unmarshal([]byte(content), &response); err != nil {
 		return nil, err
+	}
+
+	// Parse repo layer (default to personal if not specified)
+	repoLayer := LayerPersonal
+	switch response.RepoLayer {
+	case "base":
+		repoLayer = LayerBase
+	case "team":
+		repoLayer = LayerTeam
 	}
 
 	// Build path -> classification map
@@ -291,13 +321,21 @@ func parseAIResponse(content string, originalEntries []InventoryEntry) (*aiAnaly
 		}
 	}
 
-	// Build secret findings
+	// Build secret findings from both encrypted and unencrypted
 	var secretFindings []SecretFinding
 	for _, s := range response.Secrets {
 		secretFindings = append(secretFindings, SecretFinding{
 			RelPath:    s.Path,
 			Encryption: EncryptNone,
 			Reason:     s.Reason,
+		})
+	}
+	// Add unencrypted secrets (these are specifically flagged by AI)
+	for _, s := range response.UnencryptedSecrets {
+		secretFindings = append(secretFindings, SecretFinding{
+			RelPath:    s.Path,
+			Encryption: EncryptNone,
+			Reason:     fmt.Sprintf("%s — %s", s.Reason, s.Recommendation),
 		})
 	}
 
@@ -313,6 +351,7 @@ func parseAIResponse(content string, originalEntries []InventoryEntry) (*aiAnaly
 	}
 
 	return &aiAnalysisResult{
+		RepoLayer:      repoLayer,
 		Entries:        entries,
 		Scripts:        scripts,
 		SecretFindings: secretFindings,

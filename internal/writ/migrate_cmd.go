@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/internal/ai"
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
 )
@@ -109,7 +110,21 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	}
 
 	if execute {
-		return migrate.Execute(os.Stderr, plan)
+		if err := migrate.Execute(os.Stderr, plan); err != nil {
+			return err
+		}
+
+		// Register the repo in config with the determined layer
+		if err := cli.RegisterRepo("writ", cli.RepoEntry{
+			Layer: string(plan.RepoLayer),
+			Path:  sourceRoot,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not register repo in config: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "Registered as %s layer repo in config\n", plan.RepoLayer)
+		}
+
+		return nil
 	}
 
 	return migrate.FormatPlan(os.Stdout, plan, format)
