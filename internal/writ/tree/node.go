@@ -9,8 +9,12 @@ import (
 )
 
 // DelegateFiles are filenames that should be delegated to lore.
+// packages-manifest.{yaml,json} is the canonical format.
+// packages.manifest is supported for backward compatibility.
 var DelegateFiles = []string{
-	"packages.manifest",
+	"packages-manifest.yaml",
+	"packages-manifest.json",
+	"packages.manifest", // legacy
 }
 
 // ProcessingPipeline determines operations from a filename.

@@ -9,106 +9,128 @@ order: 3
 # Platform Awareness
 
 Writ automatically detects your operating system and selects platform-specific
-file variants during deployment. This lets you maintain a single repository
+project variants during deployment. This lets you maintain a single repository
 that works across macOS, Linux, and Windows.
 
 ## How it works
 
-When deploying a project, writ checks each file for platform-specific suffixes.
-If a variant matching your current platform exists, it takes precedence over
-the base file.
-
-Platform suffixes are appended to the filename:
+Platform-awareness uses **directory-level segment matching**. Project directories
+can have suffixes indicating which platforms they apply to:
 
 ```
-.zshrc              # Base file (used when no platform variant matches)
-.zshrc.Darwin       # Used on macOS
-.zshrc.Linux        # Used on Linux
-.zshrc.Windows      # Used on Windows
+Home/
+├── noblefactor/              # Base project (all platforms)
+├── noblefactor.Darwin/       # macOS-specific variant
+├── noblefactor.Linux/        # Linux-specific variant
+└── noblefactor.Linux.Debian/ # Debian/Ubuntu-specific variant
 ```
 
-The deployed symlink always points to the correct variant without the suffix:
+When you run `writ add noblefactor`, writ deploys files from:
+1. The base `noblefactor/` directory (always)
+2. Any variant directories that match your current platform
 
-```bash
-# On macOS:
-~/.zshrc → repos/personal/noblefactor/.zshrc.Darwin
+On macOS, both `noblefactor/` and `noblefactor.Darwin/` are deployed.
+On Debian Linux, `noblefactor/`, `noblefactor.Linux/`, and `noblefactor.Linux.Debian/`
+are all deployed. Files in more specific variants override files from less specific ones.
 
-# On Linux:
-~/.zshrc → repos/personal/noblefactor/.zshrc.Linux
-```
+## Segment detection
 
-## Platform detection
+Writ detects segments automatically in this order:
 
-Writ detects the following platform values automatically:
+| Segment | Detection | Example values |
+|---------|-----------|----------------|
+| OS | `uname -s` | `Darwin`, `Linux`, `Windows` |
+| DISTRO | `/etc/os-release` | `Debian`, `Ubuntu`, `Fedora`, `RHEL` |
+| ARCH | `uname -m` | `amd64`, `arm64` |
 
-| Value | System |
-|-------|--------|
-| `Darwin` | macOS (any architecture) |
-| `Linux` | Linux distributions |
-| `Windows` | Windows (via WSL or native) |
+Segments are matched in order: OS → DISTRO → ARCH → custom. Empty or unset
+segments are skipped during matching.
 
-## Directory variants
+## Directory matching examples
 
-Entire directories can have platform suffixes. All files within a
-platform-specific directory are deployed only on that platform:
+Given these project variants on a macOS ARM machine (OS=Darwin, ARCH=arm64):
 
-```
-noblefactor/
-├── .config/
-│   ├── alacritty/              # Shared config
-│   │   └── alacritty.toml
-│   ├── alacritty.Darwin/       # macOS-specific alacritty config
-│   │   └── alacritty.toml
-│   └── systemd.Linux/          # Linux-only systemd units
-│       └── user/
-│           └── backup.service
-```
+| Directory | Matches | Why |
+|-----------|---------|-----|
+| `noblefactor` | Yes | Base name, no suffixes |
+| `noblefactor.Darwin` | Yes | OS matches |
+| `noblefactor.Darwin.arm64` | Yes | OS + ARCH match (DISTRO skipped) |
+| `noblefactor.Linux` | No | OS doesn't match |
+| `noblefactor.Debian` | No | DISTRO not set on macOS |
+| `noblefactor.arm64` | Yes | ARCH matches |
 
 ## Custom segments
 
-Beyond OS detection, writ supports custom segments for more granular control.
-Define segments at deploy time:
+Beyond automatic detection, writ supports custom segments for more granular control.
+Specify segments at deploy time:
 
 ```bash
 writ add -s ROLE=desktop noblefactor
 writ add -s ROLE=server noblefactor
 ```
 
-Name files with segment suffixes:
+Create directories with custom segment suffixes:
 
 ```
-.config/
-├── polybar/config.ROLE=desktop     # Only on desktop machines
-└── nginx/nginx.conf.ROLE=server    # Only on servers
+Home/
+├── noblefactor/                    # All machines
+├── noblefactor.Darwin/             # macOS only
+├── noblefactor.desktop/            # ROLE=desktop
+├── noblefactor.Darwin.desktop/     # macOS + ROLE=desktop
+└── noblefactor.server/             # ROLE=server
 ```
 
 Multiple segments can be combined:
 
 ```bash
-writ add -s ROLE=desktop -s DISPLAY=hidpi noblefactor
+writ add -s ROLE=desktop -s SITE=aws noblefactor
+```
+
+## File organization
+
+Files within a project directory don't have platform suffixes—the suffixes are
+on the directory name. Place platform-specific files in the appropriate variant
+directory:
+
+```
+Home/
+├── noblefactor/
+│   ├── .zshrc                # Shared shell config
+│   ├── .gitconfig            # Shared git config
+│   └── packages-manifest.yaml   # Common packages
+├── noblefactor.Darwin/
+│   ├── .zshrc                # macOS shell config (overrides base)
+│   └── packages-manifest.yaml   # macOS-only packages (merged with base)
+└── noblefactor.Linux/
+    ├── .zshrc                # Linux shell config (overrides base)
+    └── packages-manifest.yaml   # Linux-only packages (merged with base)
 ```
 
 ## Precedence rules
 
-When multiple variants could apply, writ uses this precedence order:
+When multiple variants provide the same file, writ uses the most specific match:
 
-1. Most specific match (platform + custom segments)
+1. Most specific match (platform + all custom segments)
 2. Platform-only match
-3. Base file (no suffix)
+3. Base project (no suffix)
 
-If no variant matches and no base file exists, the file is skipped.
+For `packages-manifest.yaml` files, variants are **merged** rather than replaced.
+This lets you define common packages in the base and platform-specific packages
+in variants.
 
-## Platform-specific packages
+## The `all` project
 
-The same mechanism works for `packages.manifest` files, allowing
-platform-specific software lists:
+The project name `all` is reserved and has special behavior:
+
+- **Always matched**: `all` and its variants (`all.Darwin`, `all.Linux`, etc.)
+  are included for every `writ add` operation
+- **Implicit inclusion**: Users don't need to specify `all`—it's automatic
+- **Base configuration**: Use `all/` for configuration that applies everywhere
 
 ```
-noblefactor/
-├── packages.manifest           # Common packages (jq, gh, ripgrep)
-├── packages.manifest.Darwin    # macOS packages (brew-only tools)
-└── packages.manifest.Linux     # Linux packages (apt/dnf-only tools)
+Home/
+├── all/                      # Config for all machines (automatic)
+├── all.Darwin/               # macOS additions (automatic on macOS)
+├── noblefactor/              # Personal project (explicit)
+└── microsoft/                # Work project (explicit)
 ```
-
-Writ merges the base manifest with the platform-specific one before
-delegating to lore.

@@ -100,7 +100,7 @@ repos/personal/
 ├── noblefactor/             # Project: personal config
 │   ├── .zshrc
 │   ├── .config/git/config
-│   └── packages.manifest
+│   └── packages-manifest.yaml
 ├── thenobles/               # Project: family-shared config
 │   └── .config/shared/
 └── work/                    # Project: work-specific overrides

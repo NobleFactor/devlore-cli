@@ -30,35 +30,17 @@ What took someone hours to figure out, you get in minutes.
 
 ### Four-phase pipeline
 
-Every package deployment follows a structured pipeline:
+Every package deployment follows a structured pipeline: **prepare → install → provision → verify**.
+This model separates concerns, enables partial re-runs, and makes installation auditable.
 
-```
-prepare → install → provision → verify
-```
-
-| Phase | Purpose | Example |
-|-------|---------|---------|
-| **Prepare** | Pre-install setup | Add APT repositories, import GPG keys |
-| **Install** | Package installation | `brew install`, `apt install`, download binary |
-| **Provision** | Post-install config | Enable systemd services, create config files |
-| **Verify** | Validation | Check binary exists, verify version, test connectivity |
+See [The Pipeline](/guides/lore/pipeline/) for detailed phase documentation.
 
 ### Package manifests
 
-A manifest is a YAML file defining a package's installation lifecycle.
-Each phase can use native package managers or custom Starlark scripts:
+A manifest is a YAML file defining a package's installation lifecycle, including
+metadata, platform support, optional features, and phase scripts (Starlark).
 
-```yaml
-name: docker
-version: "24.0"
-platforms: [darwin, linux]
-features: [rootless, compose, buildx]
-phases:
-  prepare: prepare.star
-  install: install.star
-  provision: provision.star
-  verify: verify.star
-```
+See [Create Manifests](/guides/lore/create-manifests/) for the full specification.
 
 ### Registry
 

@@ -1,0 +1,37 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+PortGroup           golang 1.0
+
+go.setup            github.com/NobleFactor/devlore-cli {{VERSION}} v
+go.offline_build    no
+revision            0
+
+homepage            https://devlore.noblefactor.com
+
+description         DevLore CLI - writ and lore tools
+
+long_description    DevLore CLI provides the writ and lore tools for \
+                    documentation generation and management.
+
+categories          devel
+installs_libs       no
+license             Apache-2
+maintainers         {noblefactor.com:support @NobleFactor} \
+                    openmaintainer
+
+checksums           rmd160  {{RMD160}} \
+                    sha256  {{SHA256}} \
+                    size    {{SIZE}}
+
+build.env-append    CGO_ENABLED=0
+
+build {
+    system -W ${worksrcpath} "go build -ldflags '-s -w -X github.com/NobleFactor/devlore-cli/internal/cli.Version=${version}' -o ${worksrcpath}/writ ./cmd/writ"
+    system -W ${worksrcpath} "go build -ldflags '-s -w -X github.com/NobleFactor/devlore-cli/internal/cli.Version=${version}' -o ${worksrcpath}/lore ./cmd/lore"
+}
+
+destroot {
+    xinstall -m 0755 ${worksrcpath}/writ ${destroot}${prefix}/bin/
+    xinstall -m 0755 ${worksrcpath}/lore ${destroot}${prefix}/bin/
+}

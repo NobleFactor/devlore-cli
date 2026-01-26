@@ -4,12 +4,14 @@
 package tree
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/writ/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 )
 
@@ -194,6 +196,13 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*engine.Node
 
 		if ops.HasDelegate() {
 			node.DelegateTo = "lore"
+
+			// Validate packages-manifest files
+			if manifest.IsManifestFile(d.Name()) {
+				if err := manifest.Validate(path); err != nil {
+					return fmt.Errorf("invalid %s: %w", relPath, err)
+				}
+			}
 		}
 
 		nodes = append(nodes, node)
