@@ -30,10 +30,15 @@ type State struct {
 	LastUpdated time.Time `json:"last_updated" yaml:"last_updated"`
 
 	// SourceRoot is the dotfiles repository path.
+	// For multi-layer deployments, this is the first layer's path.
 	SourceRoot string `json:"source_root" yaml:"source_root"`
 
 	// TargetRoot is the deployment target (e.g., $HOME).
 	TargetRoot string `json:"target_root" yaml:"target_root"`
+
+	// Layers lists the repository layers used in the deployment.
+	// Empty for single-repo deployments.
+	Layers []string `json:"layers,omitempty" yaml:"layers,omitempty"`
 
 	// Files maps relative target paths to their deployment info.
 	Files map[string]*FileEntry `json:"files" yaml:"files"`
@@ -49,6 +54,10 @@ type FileEntry struct {
 
 	// Project this file belongs to.
 	Project string `json:"project" yaml:"project"`
+
+	// Layer is the repository layer this file came from (base, team, personal).
+	// Empty for single-repo deployments.
+	Layer string `json:"layer,omitempty" yaml:"layer,omitempty"`
 
 	// Operations performed: link, expand, copy, decrypt.
 	Operations []string `json:"operations" yaml:"operations"`

@@ -191,6 +191,8 @@ func (o *BackupOp) Execute(ctx *Context, node *Node, state *PipelineState) error
 }
 
 // UnlinkOp removes a symlink at node.Target.
+// If ctx.Data["prune_empty_dirs"] is true and ctx.Data["prune_boundary"] is set,
+// empty parent directories are removed up to the boundary.
 type UnlinkOp struct{}
 
 func (o *UnlinkOp) Name() string { return "unlink" }
@@ -212,10 +214,17 @@ func (o *UnlinkOp) Execute(ctx *Context, node *Node, _ *PipelineState) error {
 		return fmt.Errorf("%s is not a symlink", node.Target)
 	}
 
-	return os.Remove(node.Target)
+	if err := os.Remove(node.Target); err != nil {
+		return err
+	}
+
+	pruneEmptyParents(ctx, node.Target)
+	return nil
 }
 
 // RemoveOp deletes the file at node.Target.
+// If ctx.Data["prune_empty_dirs"] is true and ctx.Data["prune_boundary"] is set,
+// empty parent directories are removed up to the boundary.
 type RemoveOp struct{}
 
 func (o *RemoveOp) Name() string { return "remove" }
@@ -229,7 +238,58 @@ func (o *RemoveOp) Execute(ctx *Context, node *Node, _ *PipelineState) error {
 		return nil // Already gone
 	}
 
-	return os.Remove(node.Target)
+	if err := os.Remove(node.Target); err != nil {
+		return err
+	}
+
+	pruneEmptyParents(ctx, node.Target)
+	return nil
+}
+
+// pruneEmptyParents removes empty parent directories up to the prune boundary.
+// Requires ctx.Data["prune_empty_dirs"] = true and ctx.Data["prune_boundary"] set.
+// Silently stops on any error or non-empty directory.
+func pruneEmptyParents(ctx *Context, path string) {
+	if ctx.Data == nil {
+		return
+	}
+	prune, _ := ctx.Data["prune_empty_dirs"].(bool)
+	if !prune {
+		return
+	}
+	boundary, _ := ctx.Data["prune_boundary"].(string)
+	if boundary == "" {
+		return
+	}
+
+	// Clean paths for consistent comparison
+	boundary = filepath.Clean(boundary)
+	dir := filepath.Dir(path)
+
+	for {
+		// Stop at or above boundary
+		if dir == boundary || !isSubpath(dir, boundary) {
+			return
+		}
+
+		// Try to remove (fails if not empty)
+		if err := os.Remove(dir); err != nil {
+			return // Not empty or permission error
+		}
+
+		// Move up
+		dir = filepath.Dir(dir)
+	}
+}
+
+// isSubpath returns true if path is under parent (not equal to).
+func isSubpath(path, parent string) bool {
+	rel, err := filepath.Rel(parent, path)
+	if err != nil {
+		return false
+	}
+	// Must not start with ".." and must not be "."
+	return rel != "." && !filepath.IsAbs(rel) && (len(rel) < 2 || rel[:2] != "..")
 }
 
 // FileOps returns all built-in file operations for registration.

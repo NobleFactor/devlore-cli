@@ -77,6 +77,7 @@ type WritContext struct {
 	TargetRoot string            `json:"target_root" yaml:"target_root"`
 	Projects   []string          `json:"projects" yaml:"projects"`
 	Segments   map[string]string `json:"segments" yaml:"segments"`
+	Layers     []string          `json:"layers,omitempty" yaml:"layers,omitempty"`
 }
 
 // Node represents a single operation in the execution graph.
@@ -101,6 +102,9 @@ type Node struct {
 
 	// Project this file belongs to.
 	Project string `json:"project,omitempty" yaml:"project,omitempty"`
+
+	// Layer is the repository layer this file came from (base, team, personal).
+	Layer string `json:"layer,omitempty" yaml:"layer,omitempty"`
 
 	// SourceChecksum is the SHA256 of the source file at deploy time.
 	SourceChecksum string `json:"source_checksum,omitempty" yaml:"source_checksum,omitempty"`
@@ -170,6 +174,7 @@ func (r *Receipt) AddNode(node *engine.Node, alreadyDeployed bool) {
 		Source:    node.Source,
 		Target:    node.Target,
 		Project:   node.Project,
+		Layer:     node.Metadata["layer"],
 	}
 
 	if alreadyDeployed {
@@ -192,6 +197,7 @@ func (r *Receipt) AddNodeWithChecksums(node *engine.Node, alreadyDeployed bool, 
 		Source:         node.Source,
 		Target:         node.Target,
 		Project:        node.Project,
+		Layer:          node.Metadata["layer"],
 		SourceChecksum: sourceChecksum,
 		TargetChecksum: targetChecksum,
 	}

@@ -3,6 +3,8 @@
 **Scope:** Implementation gaps, product documentation, code issues
 **Sister file:** [noblefactor/TODO.md](https://github.com/NobleFactor/noblefactor/blob/main/TODO.md) — Design docs, business strategy, process items
 
+> **RULE:** All implementation and documentation work MUST be checked against the design docs in `noblefactor/devlore/`. Goal: Keep implementation and design in sync. Find and resolve inconsistencies, redundancies, and gaps as we progress.
+
 This file tracks documentation gaps, incomplete features, and pending decisions identified during a comprehensive review on 2025-01-25. Each item includes sufficient context for remediation without requiring additional research.
 
 ---
@@ -409,7 +411,7 @@ packages-manifest.yaml
          │
          ▼
 ┌───────────────────┐
-│ Registry Resolver │  ○ NOT STARTED
+│ Registry Resolver │  ⊘ BLOCKED (DESIGN-001)
 │ (find package)    │
 └────────┬──────────┘
          │
@@ -441,16 +443,40 @@ packages-manifest.yaml
 
 ### 5.3 Registry Resolver
 
-**Status:** Not started
+**Status:** Blocked on design
 **Priority:** High
 **Location:** Should be `internal/lore/registry/` or `internal/registry/`
+**Design dependency:** [noblefactor/TODO.md DESIGN-001](https://github.com/NobleFactor/noblefactor/blob/main/TODO.md) — AI-Assisted Manifest Authoring
 
-**Requirements:**
-- Given a package name (e.g., "docker"), find it in the registry
+**Context:**
+The resolver handles exact package lookups with federated resolution through the registry to native package managers.
+
+**Resolution order (federated search):**
+1. **Registry first** (highest priority) — lore packages with cross-platform mappings
+2. **Native PM fallback** — if not in registry, try native PM directly
+
+**Cross-platform mapping:**
+The registry contains lore packages that know their native PM equivalents:
+```yaml
+# docker lore package knows:
+packages:
+  brew: docker
+  apt: docker.io
+  winget: Docker.Desktop
+```
+User says `lore add docker` → resolver finds lore package → uses `apt: docker.io` on Ubuntu.
+
+**Resolver requirements:**
+- Given a package name (e.g., "docker"), find it in registry first
 - Registry location: `$XDG_DATA_HOME/devlore/registry/` or remote
-- Return the package manifest path or error if not found
+- If in registry: use lore package with cross-platform mappings
+- If not in registry: fall back to native PM (exact name match)
 - Handle package versioning (latest, pinned, ranges)
 - Support local registry overrides for development
+
+**Non-match behavior:**
+- No match in registry or native PM: Error with message
+- No fuzzy suggestions — discovery is via AI-assisted authoring (DESIGN-001)
 
 **Interface sketch:**
 ```go
@@ -464,6 +490,7 @@ type Package struct {
     ManifestDir string   // Path to lifecycle.yaml and phase scripts
     Platforms   []string // Supported platforms
     Features    []string // Available features
+    NativeName  string   // Platform-specific name (e.g., "docker.io" on apt)
 }
 ```
 
@@ -573,72 +600,195 @@ Each operation:
 
 This section tracks the implementation work needed for writ to process multiple repository layers (base → team → personal) with proper precedence.
 
-### 6.1 Current State
-
-**What exists:**
-- `writ repo` commands support `--layer` flag with values: base, team, personal
-- `writ repo list` displays repos in precedence order: base, team, personal
-- `getConfiguredRepos()` retrieves all configured repos with their layer info
-- Design docs describe layer merging and collision resolution
-
-**What's missing:**
-- Deploy only processes a single repo (`cli.GetString("writ", "repo", true)`)
-- No code to iterate repos in layer order
-- No cross-layer collision detection during build
-- No layer-aware receipts/state tracking
-
-### 6.2 Required Changes
-
-**Status:** Not started
+**Status:** ✓ COMPLETE (2025-01-25)
 **Priority:** High
-**Location:** `internal/writ/commands.go`, `internal/writ/tree/builder.go`
 
-**Requirements:**
+### 6.1 Commands Requiring Multi-Layer Processing
 
-1. **Collect repos in order:**
-   ```go
-   // commands.go - replace single repo lookup
-   layerOrder := []string{"base", "team", "personal"}
-   var repos []RepoConfig
-   for _, layer := range layerOrder {
-       if repo := getConfiguredRepo(layer); repo != "" {
-           repos = append(repos, RepoConfig{Layer: layer, Path: repo})
-       }
-   }
-   ```
+| Command | Needs Layers | Reason |
+|---------|--------------|--------|
+| `writ add` | Yes | Deploys from all layers, personal overrides team overrides base |
+| `writ remove` | Yes | Must know which layer(s) deployed each file |
+| `writ regenerate` | Yes | Re-processes templates/secrets from all layers |
+| `writ status` | Yes | Shows status across all layers |
+| `writ projects` | Yes | Lists projects from all configured repos |
+| `writ adopt` | Partial | Targets single layer (via `--layer` flag) but must check for conflicts |
 
-2. **Build merged graph:**
-   - Process repos in order: base first, personal last
-   - Later layers override earlier layers for same target path
-   - Track which layer each node came from
+**Commands NOT needing layer processing:**
+- `writ migrate` — single repo migration
+- `writ init` — creates single repo
+- `writ config` — system configuration
+- `writ repo *` — manages repo config itself
+- `writ secrets *` — operates within single repo
+- `writ receipt *` — reads historical data
 
-3. **Update tree.BuildConfig:**
-   ```go
-   type BuildConfig struct {
-       // Current: single SourceRoot
-       // Needed: multiple sources with layer info
-       Sources    []LayerSource  // Ordered: base, team, personal
-       TargetRoot string
-       Projects   []string
-       Segments   segment.Segments
-   }
+### 6.2 Processing Order
 
-   type LayerSource struct {
-       Layer string  // "base", "team", or "personal"
-       Path  string  // Repo path
-   }
-   ```
+**Layer order:** base → team → personal (personal wins conflicts)
 
-4. **Layer-aware collision detection:**
-   - Current: specificity-based (segment suffix count)
-   - Needed: layer takes precedence over specificity
-   - personal > team > base, regardless of segment specificity
+**Within each repo:** System → Home
+- `<repo>/System/` → target `/` (if exists)
+- `<repo>/Home/` → target `$HOME` (if exists)
 
-5. **Update receipts and state:**
-   - Track which layer each deployed file came from
-   - Enable layer-specific removal (`writ remove --layer=team`)
+### 6.3 Implementation Plan
 
-### 6.3 Design Reference
+#### Phase 1: Data Structures
+
+**6.3.1 LayerSource type** (`internal/writ/layer.go` — NEW)
+```go
+type LayerSource struct {
+    Layer  string // "base", "team", "personal"
+    Path   string // Repo root path
+    Order  int    // 0=base, 1=team, 2=personal (for sorting)
+}
+
+var LayerOrder = []string{"base", "team", "personal"}
+
+type TargetSpec struct {
+    SourceDir  string  // "System" or "Home"
+    TargetRoot string  // "/" or "$HOME"
+}
+
+var TargetOrder = []TargetSpec{
+    {"System", "/"},
+    {"Home", os.Getenv("HOME")},
+}
+```
+
+**6.3.2 Update BuildConfig** (`internal/writ/tree/builder.go`)
+```go
+type BuildConfig struct {
+    Sources    []LayerSource  // Replaces single SourceRoot
+    TargetRoot string         // Default target (for backwards compat)
+    Projects   []string
+    Segments   segment.Segments
+}
+```
+
+**6.3.3 Update BuildResult** (`internal/writ/tree/builder.go`)
+```go
+type BuildResult struct {
+    Graph       *engine.Graph
+    Sources     []LayerSource  // All sources processed
+    TargetRoot  string
+    // ... existing fields ...
+
+    // New: track which layer each node came from
+    NodeLayers  map[string]string  // node.ID → layer name
+}
+```
+
+#### Phase 2: Collection Logic
+
+**6.3.4 collectLayerSources()** (`internal/writ/layer.go`)
+```go
+func collectLayerSources() ([]LayerSource, error) {
+    var sources []LayerSource
+    for i, layer := range LayerOrder {
+        if path := getConfiguredRepo(layer); path != "" {
+            sources = append(sources, LayerSource{
+                Layer: layer,
+                Path:  path,
+                Order: i,
+            })
+        }
+    }
+    return sources, nil
+}
+```
+
+#### Phase 3: Build Graph Updates
+
+**6.3.5 Modify tree.Build()** — Process all layers and targets
+```go
+func Build(cfg BuildConfig) (*BuildResult, error) {
+    result := &BuildResult{
+        Graph:      &engine.Graph{},
+        Sources:    cfg.Sources,
+        NodeLayers: make(map[string]string),
+    }
+
+    nodesByTarget := make(map[string]nodeEntry)
+
+    // Process layers in order: base → team → personal
+    for _, source := range cfg.Sources {
+        // Process targets in order: System → Home
+        for _, target := range TargetOrder {
+            sourceDir := filepath.Join(source.Path, target.SourceDir)
+            if !dirExists(sourceDir) {
+                continue
+            }
+
+            nodes, err := walkDirectoryWithLayer(sourceDir, target.TargetRoot, source)
+            // ... collision detection with layer precedence ...
+        }
+    }
+
+    return result, nil
+}
+```
+
+**6.3.6 Layer-aware collision resolution**
+```go
+// personal > team > base, regardless of specificity
+if newLayer.Order > existing.Layer.Order {
+    // New layer wins (e.g., personal beats team)
+    winner = new
+} else if newLayer.Order == existing.Layer.Order {
+    // Same layer: use specificity (segment suffix count)
+    if newSpecificity > existing.Specificity {
+        winner = new
+    }
+}
+```
+
+#### Phase 4: Command Updates
+
+**6.3.7 writ add** — Use collectLayerSources()
+**6.3.8 writ remove** — Load state to determine which layer deployed each file
+**6.3.9 writ status** — Build graph from all layers, show layer info in output
+**6.3.10 writ projects** — List projects from all configured repos with layer indicator
+**6.3.11 writ regenerate** — Process all layers for templates/secrets
+
+#### Phase 5: State & Receipt Updates
+
+**6.3.12 Track layer in state** (`internal/writ/state/state.go`)
+```go
+type FileEntry struct {
+    // ... existing fields ...
+    Layer string `json:"layer" yaml:"layer"`  // NEW
+}
+```
+
+**6.3.13 Track layer in receipts** (`internal/writ/receipt/receipt.go`)
+```go
+type WritContext struct {
+    // ... existing fields ...
+    Layers []string `json:"layers" yaml:"layers"`  // Layers processed
+}
+```
+
+### 6.4 Files to Modify
+
+| File | Changes |
+|------|---------|
+| `internal/writ/layer.go` | NEW: LayerSource, LayerOrder, TargetOrder, collectLayerSources() |
+| `internal/writ/tree/builder.go` | BuildConfig.Sources, BuildResult.NodeLayers, layer-aware collision |
+| `internal/writ/commands.go` | runAdd, runRemove, runStatus, runProjects, runRegenerate |
+| `internal/writ/state/state.go` | FileEntry.Layer field |
+| `internal/writ/receipt/receipt.go` | WritContext.Layers field |
+| `internal/writ/status/status.go` | Layer-aware status reporting |
+
+### 6.5 Test Cases
+
+1. **Single layer** — backwards compatible, works like today
+2. **Two layers, no conflict** — base + personal, disjoint files
+3. **Two layers, conflict** — personal overrides base for same target
+4. **Three layers** — base → team → personal cascade
+5. **System + Home** — System files deployed before Home files
+6. **Layer + specificity** — personal/all beats team/project.Darwin
+
+### 6.6 Design Reference
 
 From `02-writ-prd.md`:
 > Writ supports layered repositories with precedence: base → team → personal.
@@ -649,8 +799,6 @@ From `commands.go:1807-1808`:
 Writ supports layered repositories with precedence: base → team → personal.
 When files conflict, the higher-precedence layer wins (personal > team > base).
 ```
-
-The help text documents the feature, but the implementation is incomplete.
 
 ---
 
@@ -744,3 +892,8 @@ internal/bindgen/cobra/
 | 2025-01-25 | Updated | Added Section 5: Engine Development Roadmap |
 | 2025-01-25 | Updated | Added Section 6: Multi-Layer Repository Processing |
 | 2025-01-25 | Updated | Added Section 7: Bindgen Tool (consolidated from READMEs) |
+| 2025-01-25 | Completed | Section 6: Multi-layer processing implemented (layer.go, builder.go, commands.go, state.go, receipt.go) |
+| 2025-01-25 | Updated | Added prune empty dirs to remove/unlink operations (engine/ops.go, writ/commands.go) |
+| 2025-01-25 | Updated | Added design sync rule at top of file |
+| 2025-01-25 | Synced | Updated ADR-051 with `layer` field for multi-layer support (context.layers, node.layer) |
+| 2025-01-25 | Updated | Registry Resolver (5.3) blocked on DESIGN-001: AI-Assisted Manifest Authoring |
