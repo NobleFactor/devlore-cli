@@ -487,6 +487,9 @@ User says `lore add docker` → resolver finds lore package → uses `apt: docke
 - No match in registry or native PM: Error with message
 - No fuzzy suggestions — discovery is via AI-assisted authoring (DESIGN-001)
 
+**Design rationale (2025-01-25):**
+Fuzzy search was rejected as a solution. Users who don't know package names need AI-assisted conversation to build a manifest, not better string matching. The resolver does exact lookup; discovery is a separate concern handled by the interactive console (5.8).
+
 **Interface sketch:**
 ```go
 type Resolver interface {
