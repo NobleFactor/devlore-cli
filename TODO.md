@@ -1,4 +1,7 @@
-# DevLore CLI Documentation TODO
+# Implementation TODO
+
+**Scope:** Implementation gaps, product documentation, code issues
+**Sister file:** [noblefactor/TODO.md](https://github.com/NobleFactor/noblefactor/blob/main/TODO.md) — Design docs, business strategy, process items
 
 This file tracks documentation gaps, incomplete features, and pending decisions identified during a comprehensive review on 2025-01-25. Each item includes sufficient context for remediation without requiring additional research.
 
@@ -566,10 +569,178 @@ Each operation:
 
 ---
 
-## 6. Change Log
+## 6. Multi-Layer Repository Processing
+
+This section tracks the implementation work needed for writ to process multiple repository layers (base → team → personal) with proper precedence.
+
+### 6.1 Current State
+
+**What exists:**
+- `writ repo` commands support `--layer` flag with values: base, team, personal
+- `writ repo list` displays repos in precedence order: base, team, personal
+- `getConfiguredRepos()` retrieves all configured repos with their layer info
+- Design docs describe layer merging and collision resolution
+
+**What's missing:**
+- Deploy only processes a single repo (`cli.GetString("writ", "repo", true)`)
+- No code to iterate repos in layer order
+- No cross-layer collision detection during build
+- No layer-aware receipts/state tracking
+
+### 6.2 Required Changes
+
+**Status:** Not started
+**Priority:** High
+**Location:** `internal/writ/commands.go`, `internal/writ/tree/builder.go`
+
+**Requirements:**
+
+1. **Collect repos in order:**
+   ```go
+   // commands.go - replace single repo lookup
+   layerOrder := []string{"base", "team", "personal"}
+   var repos []RepoConfig
+   for _, layer := range layerOrder {
+       if repo := getConfiguredRepo(layer); repo != "" {
+           repos = append(repos, RepoConfig{Layer: layer, Path: repo})
+       }
+   }
+   ```
+
+2. **Build merged graph:**
+   - Process repos in order: base first, personal last
+   - Later layers override earlier layers for same target path
+   - Track which layer each node came from
+
+3. **Update tree.BuildConfig:**
+   ```go
+   type BuildConfig struct {
+       // Current: single SourceRoot
+       // Needed: multiple sources with layer info
+       Sources    []LayerSource  // Ordered: base, team, personal
+       TargetRoot string
+       Projects   []string
+       Segments   segment.Segments
+   }
+
+   type LayerSource struct {
+       Layer string  // "base", "team", or "personal"
+       Path  string  // Repo path
+   }
+   ```
+
+4. **Layer-aware collision detection:**
+   - Current: specificity-based (segment suffix count)
+   - Needed: layer takes precedence over specificity
+   - personal > team > base, regardless of segment specificity
+
+5. **Update receipts and state:**
+   - Track which layer each deployed file came from
+   - Enable layer-specific removal (`writ remove --layer=team`)
+
+### 6.3 Design Reference
+
+From `02-writ-prd.md`:
+> Writ supports layered repositories with precedence: base → team → personal.
+> When files conflict, the higher-precedence layer wins (personal > team > base).
+
+From `commands.go:1807-1808`:
+```go
+Writ supports layered repositories with precedence: base → team → personal.
+When files conflict, the higher-precedence layer wins (personal > team > base).
+```
+
+The help text documents the feature, but the implementation is incomplete.
+
+---
+
+## 7. Bindgen Tool
+
+This section consolidates all bindgen-related issues from `cmd/bindgen/README.md` and `internal/bindgen/cobra/README.md`. Bindgen is a proof-of-concept tool for generating Starlark bindings from CLI metadata.
+
+### 7.1 Current Status
+
+**Status:** Proof of concept (not production-ready)
+**Decision needed:** Promote to user-facing tool, keep internal, or remove? (See Section 3.3)
+
+**What works:**
+- Package discovery and AST loading via `golang.org/x/tools/go/packages`
+- Extracts `cobra.Command` struct literals (Use, Short, Long, Deprecated, Hidden)
+- Extracts flag definitions from `flags.StringVarP()`, `BoolVar()`, etc.
+- Type inference from method names (StringSlice → string_list)
+- Qualified command names using package directory prefixes
+
+**Test results (docker-cli v27.4.1):**
+- Extracted: 144 commands, 272 flags
+- Missing: ~60% of flags due to receiver detection limitations
+
+### 7.2 Extractor Issues
+
+| Issue | Severity | Status | Location |
+|-------|----------|--------|----------|
+| Limited receiver detection | Medium | Open | `extractor.go:373-384` |
+| Helper function flags missed | Medium | Open | N/A |
+| No subcommand hierarchy tree | Low | Open | N/A |
+| Silent unquote failures | Low | Open | `extractor.go:332, 455` |
+| Dead `fset` parameter | Low | Open | `extractor.go:168` |
+
+**Limited receiver detection:** `isFlagReceiver()` only matches `flags` or `f` as variable names. Misses `opts.Flags()`, `copts.AddFlags()`, `fs`, `flagSet`, etc.
+
+**Helper function flags:** Flags added via `addFlags(cmd)` or `addCommonFlags(cmd)` helper functions are not captured.
+
+### 7.3 Generator Issues
+
+| Issue | Severity | Status | Location |
+|-------|----------|--------|----------|
+| Command name not split | Critical | Open | `codegen.go` template |
+| No positional args | Critical | Open | `codegen.go` template |
+| Stub template broken | Medium | Open | `stubgen.go:9` |
+
+**Command name not split:** Emits `container_run` as single arg instead of `container`, `run` as separate args. Commands don't execute.
+
+**No positional args:** Generated code can't pass image names, container IDs, file paths, etc.
+
+**Stub template broken:** `title` function undefined, IDE stubs don't generate.
+
+### 7.4 Next Steps (Priority Order)
+
+1. **Improve receiver detection** — Track variable assignments or match more patterns (`fs`, `flagSet`, `opts.Flags()`)
+2. **Handle helper functions** — Track flags added via helper functions like `addFlags()`
+3. **Fix command name splitting** — Split `container_run` → `["container", "run"]`
+4. **Add positional argument support** — Generate code to handle required positional args
+5. **Fix stub template** — Define or import `title` function
+6. **Add tests** — Unit tests for extraction logic
+
+### 7.5 Future Directions
+
+From `cmd/bindgen/README.md`:
+- Parse fish/zsh completions for better flag enumeration
+- Support OpenAPI specs where CLI wraps an API (e.g., gh, kubectl)
+- Man page parsing for richer documentation
+- Integration with existing binding definitions (merge parsed + manual)
+
+### 7.6 Files
+
+```
+cmd/bindgen/
+├── main.go              # CLI with extract-cobra subcommand
+└── README.md            # Usage documentation
+
+internal/bindgen/cobra/
+├── extractor.go         # Main extraction logic (~430 lines)
+├── codegen.go           # Go binding generation
+├── stubgen.go           # Starlark stub generation
+└── README.md            # Detailed technical notes
+```
+
+---
+
+## 8. Change Log
 
 | Date | Action | Details |
 |------|--------|---------|
 | 2025-01-25 | Created | Initial documentation review findings |
 | 2025-01-25 | Updated | Added packages-manifest format, schema, validation |
 | 2025-01-25 | Updated | Added Section 5: Engine Development Roadmap |
+| 2025-01-25 | Updated | Added Section 6: Multi-Layer Repository Processing |
+| 2025-01-25 | Updated | Added Section 7: Bindgen Tool (consolidated from READMEs) |

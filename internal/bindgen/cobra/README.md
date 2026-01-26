@@ -16,10 +16,9 @@ Extracts Starlark binding metadata from Go source files that use [spf13/cobra](h
 - Function-level scope for command/flag association
 - **Qualified command names** - Uses package directory for prefixes (`container_create`, `config_create`)
 
-### What Doesn't Work
-- **No subcommand hierarchy tree** - We flatten with prefixes, don't build parent-child tree
-- **Limited receiver detection** - Only detects `flags` or `f` variable names
-- **Helper function flags** - Flags added via `addFlags(flags)` helper functions are missed
+### Known Limitations
+
+See [TODO.md Section 7: Bindgen Tool](../../../TODO.md#7-bindgen-tool) for tracked issues and roadmap.
 
 ## Test Results
 
@@ -35,92 +34,7 @@ All 10 "create" commands now captured:
   service_create, volume_create
 ```
 
-## Honest Assessment
-
-### Extractor Issues
-
-| Issue | Severity | Status | Impact | Location |
-|-------|----------|--------|--------|----------|
-| Command name collision | Critical | **FIXED** | Was losing ~20% of commands | `extractor.go:237-253` |
-| Limited receiver detection | Medium | Open | Missing ~60% of flags | `extractor.go:373-384` |
-| Helper function flags missed | Medium | Open | Flags added via `addFlags()` not captured | N/A |
-| No subcommand hierarchy tree | Low | Open | We flatten with prefixes, don't build tree | N/A |
-| Silent unquote failures | Low | Open | Malformed strings silently dropped | `extractor.go:332, 455` |
-
-### Generator Issues
-
-| Issue | Severity | Status | Impact | Location |
-|-------|----------|--------|--------|----------|
-| Command name not split | Critical | Open | `container_run` → should be `container run` | `codegen.go` template |
-| No positional args | Critical | Open | Can't pass image names, container IDs, etc. | `codegen.go` template |
-| Stub template broken | Medium | Open | `title` function undefined | `stubgen.go:9` |
-
-**Bottom line:** Extractor captures all 144 commands but misses ~60% of flags. Generator produces scaffolding with critical bugs. **Not production-ready** — use as development accelerator with manual refinement.
-
-## Known Issues
-
-### FIXED: Command Name Collision
-
-**Status:** Fixed on 2026-01-11
-
-**Solution:** Use package directory as command prefix. Commands in `cli/command/container/` get prefixed with `container_`.
-
-**Location:** `extractor.go:178-200` (`calculatePrefix`) and `extractor.go:237-253` (key generation)
-
-```go
-// Generate qualified key to avoid collisions
-// e.g., "container" + "create" -> "container_create"
-key := currentCmd.Name
-if prefix != "" && prefix != currentCmd.Name {
-    key = prefix + "_" + currentCmd.Name
-}
-```
-
-### Low: No Subcommand Hierarchy Tree
-
-**Problem:** We flatten the command tree using prefixes rather than building a true hierarchy.
-
-**Impact:** Minor - the prefixed names work well for binding generation. A true tree would only be needed for generating CLI help text or command groupings.
-
-**Not blocking for current use case.**
-
-### Medium: Limited Receiver Detection
-
-**Problem:** `isFlagReceiver()` only matches `flags` or `f` as variable names.
-
-**Location:** `extractor.go:329-340`
-
-```go
-case *ast.Ident:
-    return v.Name == "flags" || v.Name == "f"  // Misses "fs", "flagSet", etc.
-```
-
-**Fix:** Be more permissive or track actual variable assignments.
-
-### Low: Dead Parameter
-
-**Problem:** `fset` parameter passed to `extractFromFunction` but never used.
-
-**Location:** `extractor.go:168`
-
-```go
-func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, fset *token.FileSet) {
-    // fset is never used
-```
-
-**Fix:** Remove parameter or use it for position information in error messages.
-
-### Low: Silent Unquote Failures
-
-**Problem:** `strconv.Unquote` errors are silently ignored.
-
-**Location:** `extractor.go:289, 411`
-
-```go
-s, _ := strconv.Unquote(v.Value)  // Error ignored
-```
-
-**Fix:** Log warnings in verbose mode.
+See [TODO.md Section 7](../../../TODO.md#7-bindgen-tool) for detailed issue tracking.
 
 ## Architecture
 
@@ -169,14 +83,6 @@ cd ~/Workspace/OSS/docker-cli
 ln -sf vendor.mod go.mod
 ln -sf vendor.sum go.sum
 ```
-
-## Next Steps (Priority Order)
-
-1. ~~**Fix command collision**~~ - DONE: Using package directory prefixes
-2. **Improve receiver detection** - Track variable assignments or match more patterns
-3. **Handle helper functions** - Track flags added via helper functions like `addFlags()`
-4. **Add tests** - Unit tests for extraction logic
-5. **Build hierarchy tree** (optional) - Parse `AddCommand()` calls if tree structure needed
 
 ## Files
 
@@ -264,16 +170,6 @@ func (b *CommandBindings) containerRun(...) (starlark.Value, error) {
 | Code size | 634 lines | 4,124 lines |
 | Production ready | Yes | No |
 
-### Why Generated Bindings Are Incomplete
-
-1. **Missing flags (~60%)** — Extractor only recognizes `flags` or `f` receivers. Docker-cli uses `opts.Flags()`, `copts.AddFlags()`, etc.
-
-2. **Broken command invocation** — Generator emits `container_run` as a single arg. Should be `container`, `run` as separate args.
-
-3. **No positional args** — Generator doesn't emit code to handle positional arguments (e.g., image name for `docker run`).
-
-4. **No helper patterns** — Flags added via `addCommonFlags(cmd)` helpers aren't captured.
-
 ### Intended Workflow
 
 The generator is a **development accelerator**, not a production-ready solution:
@@ -295,25 +191,8 @@ The generator is a **development accelerator**, not a production-ready solution:
 - Documents all available commands and their descriptions
 - Identifies which flags exist (even if not all captured)
 
-**What humans must still do:**
-- Fix command invocation (`container_run` → `container run`)
-- Add missing flags (check `docker <cmd> --help`)
-- Add positional argument handling
-- Add return value parsing where useful (e.g., `docker ps --format json`)
-
-### Generator Bugs to Fix
-
-| Bug | Location | Impact |
-|-----|----------|--------|
-| Command name splitting | `codegen.go` template | Commands don't execute |
-| Missing positional args | `codegen.go` template | Can't pass image names, etc. |
-| Stub template broken | `stubgen.go:9` | IDE stubs don't generate |
-
 ### Conclusion
 
 **The extractor works. The generator produces scaffolding. Human refinement is required.**
 
-For now, the practical approach is:
-1. Use generated code as reference (what commands exist, what flags are documented)
-2. Hand-write high-value bindings (as done in `docker.go`)
-3. Use extraction diff to detect new commands/flags on version bumps
+See [TODO.md Section 7](../../../TODO.md#7-bindgen-tool) for known issues and roadmap.
