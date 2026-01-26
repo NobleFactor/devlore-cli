@@ -415,6 +415,15 @@ packages-manifest.yaml
 │ (find package)    │
 └────────┬──────────┘
          │
+    ┌────┴────┐
+    │ OR      │
+    ▼         ▼
+┌───────────────────┐
+│Interactive Console│  ○ NOT STARTED (5.8)
+│ (AI-assisted      │
+│  manifest author) │
+└────────┬──────────┘
+         │
          ▼
 ┌───────────────────┐
 │ Pipeline Loader   │  ○ NOT STARTED
@@ -593,6 +602,61 @@ Each operation:
 - Store in `~/.local/state/lore/receipts/`
 - Enable `lore upgrade`, `lore reconcile`, `lore decommission`
 - Include: package name, version, timestamp, platform, features enabled, phase results
+
+### 5.8 Interactive Console (Bubble Tea)
+
+**Status:** Not started
+**Priority:** High (enables AI-assisted manifest authoring)
+**Location:** `internal/console/` or `internal/tui/`
+**Design dependency:** [noblefactor/TODO.md DESIGN-001](https://github.com/NobleFactor/noblefactor/blob/main/TODO.md) — AI-Assisted Manifest Authoring
+
+**Context:**
+AI-assisted manifest authoring requires a Claude Code-style interactive console: streaming AI responses, scrollable conversation history, multi-line user input. This is the UX layer for DESIGN-001's stepwise refinement workflow.
+
+**Stack:**
+```
+charmbracelet/bubbletea   — Core TUI framework (Elm architecture)
+charmbracelet/bubbles     — Components: viewport (scroll), textarea (input)
+charmbracelet/glamour     — Markdown rendering in terminal
+charmbracelet/lipgloss    — Styling (colors, borders, layout)
+```
+
+**Requirements:**
+- Streaming text display (AI responses appear incrementally)
+- Scrollable conversation history (viewport)
+- Multi-line user input (textarea)
+- Markdown rendering (code blocks, lists, emphasis)
+- Mode switching: flip into interactive console when `lore init --assist` or similar
+
+**Interface sketch:**
+```go
+// Console is the interactive conversation interface
+type Console struct {
+    viewport viewport.Model  // Scrollable history
+    textarea textarea.Model  // User input
+    history  []Message       // Conversation log
+    // ...
+}
+
+// Run enters interactive mode, returns when user exits
+func (c *Console) Run(ctx context.Context) (*Result, error)
+
+// Result contains the outcome of the conversation
+type Result struct {
+    Manifest *manifest.Manifest  // Generated packages-manifest
+    Aborted  bool                // User cancelled
+}
+```
+
+**Commands that use the console:**
+- `lore init --assist` — AI-assisted manifest creation
+- `lore manifest create` — Interactive manifest authoring
+- Future: `lore add --assist` — AI help finding packages
+
+**References:**
+- [Chat-TUI](https://www.nickhedberg.com/blog/projects/chat-tui.md) — Example chat interface with Bubble Tea
+- [Bubble Tea docs](https://github.com/charmbracelet/bubbletea)
+- [Glamour](https://github.com/charmbracelet/glamour) — Terminal markdown rendering
 
 ---
 
@@ -897,3 +961,4 @@ internal/bindgen/cobra/
 | 2025-01-25 | Updated | Added design sync rule at top of file |
 | 2025-01-25 | Synced | Updated ADR-051 with `layer` field for multi-layer support (context.layers, node.layer) |
 | 2025-01-25 | Updated | Registry Resolver (5.3) blocked on DESIGN-001: AI-Assisted Manifest Authoring |
+| 2025-01-25 | Added | Section 5.8: Interactive Console (Bubble Tea) for AI-assisted manifest authoring |
