@@ -17,6 +17,12 @@ var DevloreSchema []byte
 //go:embed defaults/devlore-config.yaml
 var DevloreDefaultConfig []byte
 
+// PackagesManifestSchema is the JSON schema for packages-manifest.{json,yaml} files.
+// These files declare software dependencies for writ projects.
+//
+//go:embed packages-manifest.json
+var PackagesManifestSchema []byte
+
 // Legacy aliases for backward compatibility.
 // These point to the shared devlore schema and config.
 var (

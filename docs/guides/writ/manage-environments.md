@@ -48,12 +48,8 @@ writ add --conflict=skip noblefactor
 
 ### Custom segments
 
-Override platform detection with custom segment values:
-
-```bash
-writ add -s ROLE=desktop noblefactor
-writ add -s ROLE=server -s DISPLAY=headless noblefactor
-```
+Override platform detection with custom segment values (e.g., `-s ROLE=desktop`).
+See [Platform Awareness](/guides/writ/platform-awareness/#custom-segments) for details.
 
 ### Dry run
 
@@ -175,7 +171,7 @@ writ remove --decommission noblefactor
 ```
 
 This delegates to `lore decommission --orphans-only` to remove packages
-that were installed via the project's `packages.manifest` and are no longer
+that were installed via the project's `packages-manifest.yaml` and are no longer
 referenced by any other project.
 
 ## Inspect details

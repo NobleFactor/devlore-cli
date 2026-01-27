@@ -86,6 +86,54 @@ The `release.yaml` workflow handles deployments automatically:
 3. **On push to `main`**: Builds binaries, deploys to website's `main` branch (production)
 4. **On push of `v*` tag**: Creates GitHub Release with binaries
 
+## Release Artifacts
+
+Each release includes binaries and package manager assets for multiple platforms:
+
+### Binaries
+
+| Platform | Architecture | Format |
+|----------|--------------|--------|
+| Darwin (macOS) | amd64, arm64 | `.tar.gz` |
+| Linux | amd64, arm64 | `.tar.gz` |
+| Windows | amd64, arm64 | `.zip` |
+
+### Package Manager Assets
+
+| Platform | Format | File | Publishing |
+|----------|--------|------|------------|
+| macOS | Homebrew formula | `dist/homebrew/...` | Manual (to homebrew-tap repo) |
+| macOS | MacPorts Portfile | `Portfile` | Manual (PR to macports-ports) |
+| Debian/Ubuntu | `.deb` | `devlore-cli_*_amd64.deb` | Manual (to apt repo) |
+| RHEL/Fedora | `.rpm` | `devlore-cli-*.x86_64.rpm` | Manual (to yum repo) |
+| Windows | Winget manifest | `dist/winget/...` | Manual (PR to winget-pkgs) |
+
+All assets are generated but **not auto-published** to package repositories. This allows review before submission.
+
+### MacPorts Portfile Generation
+
+The Portfile is generated from a template during the release:
+
+1. `packaging/macports/Portfile.template` - Template with placeholders
+2. `packaging/macports/generate-portfile.sh` - Substitutes version and checksums
+3. GoReleaser runs the script as a post-hook and includes the result via `extra_files`
+
+To submit to MacPorts after a release:
+
+```bash
+# Fork https://github.com/macports/macports-ports
+# Copy the Portfile to devel/devlore-cli/Portfile
+# Submit PR
+```
+
+### Future Publishing
+
+When ready to auto-publish, enable by removing `skip_upload: true` from:
+- `brews:` in `.goreleaser.yaml` (requires homebrew-tap repo)
+- `winget:` in `.goreleaser.yaml` (requires winget-pkgs PR approval)
+
+For apt/yum repos, consider services like Gemfury or Packagecloud.
+
 ## Version Numbering
 
 - **Draft/testing**: `v0.1.0-draft`

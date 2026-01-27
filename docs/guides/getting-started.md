@@ -100,16 +100,17 @@ noblefactor (personal)
 
 ## Add software with lore
 
-If your project includes a `packages.manifest` file, writ automatically
+If your project includes a `packages-manifest.yaml` file, writ automatically
 delegates to lore for software installation:
 
 ```yaml
-# noblefactor/packages.manifest
+# noblefactor/packages-manifest.yaml
 packages:
   - gh
   - jq
   - ripgrep
-  - neovim
+  - neovim:
+      with: [lsp]
 ```
 
 ```bash
@@ -117,6 +118,8 @@ writ add noblefactor
 # → symlinks configuration files
 # → calls lore to install gh, jq, ripgrep, neovim
 ```
+
+See [Packages Manifest](/guides/writ/packages-manifest/) for the full format reference.
 
 Or install packages directly with lore:
 

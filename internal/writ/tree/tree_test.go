@@ -253,3 +253,285 @@ func TestOperationHelpers(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildMultiSource(t *testing.T) {
+	// Create base and personal layer directories
+	baseDir := t.TempDir()
+	personalDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	// Create project in base layer
+	if err := os.MkdirAll(filepath.Join(baseDir, "all"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "all", ".bashrc"), []byte("base bashrc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create project in personal layer with different file
+	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(personalDir, "all", ".zshrc"), []byte("personal zshrc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	segs := segment.Segments{
+		{Name: "OS", Value: "Darwin"},
+	}
+
+	sources := []LayerSource{
+		{Layer: "base", Path: baseDir, Order: 0, SourceRoot: baseDir, TargetRoot: targetDir},
+		{Layer: "personal", Path: personalDir, Order: 2, SourceRoot: personalDir, TargetRoot: targetDir},
+	}
+
+	result, err := Build(BuildConfig{
+		Sources:  sources,
+		Projects: []string{"all"},
+		Segments: segs,
+	})
+
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Should have 2 nodes (one from each layer)
+	if len(result.Graph.Nodes) != 2 {
+		t.Errorf("got %d nodes, want 2", len(result.Graph.Nodes))
+		for _, n := range result.Graph.Nodes {
+			t.Logf("  node: %s layer=%s", n.ID, n.Metadata["layer"])
+		}
+	}
+
+	// Verify layer metadata is set
+	for _, n := range result.Graph.Nodes {
+		layer := n.Metadata["layer"]
+		if layer == "" {
+			t.Errorf("node %s missing layer metadata", n.ID)
+		}
+		// Verify NodeLayers map
+		if result.NodeLayers[n.ID] != layer {
+			t.Errorf("NodeLayers[%s] = %s, want %s", n.ID, result.NodeLayers[n.ID], layer)
+		}
+	}
+
+	// No collisions (different files)
+	if len(result.Collisions) != 0 {
+		t.Errorf("got %d collisions, want 0", len(result.Collisions))
+	}
+}
+
+func TestBuildMultiSourceLayerPrecedence(t *testing.T) {
+	// Create base and personal layer directories
+	baseDir := t.TempDir()
+	personalDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	// Create same file in both layers
+	if err := os.MkdirAll(filepath.Join(baseDir, "all"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "all", ".bashrc"), []byte("base bashrc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(personalDir, "all", ".bashrc"), []byte("personal bashrc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	segs := segment.Segments{
+		{Name: "OS", Value: "Darwin"},
+	}
+
+	sources := []LayerSource{
+		{Layer: "base", Path: baseDir, Order: 0, SourceRoot: baseDir, TargetRoot: targetDir},
+		{Layer: "personal", Path: personalDir, Order: 2, SourceRoot: personalDir, TargetRoot: targetDir},
+	}
+
+	result, err := Build(BuildConfig{
+		Sources:  sources,
+		Projects: []string{"all"},
+		Segments: segs,
+	})
+
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Should have 1 node (collision resolved)
+	if len(result.Graph.Nodes) != 1 {
+		t.Errorf("got %d nodes, want 1", len(result.Graph.Nodes))
+	}
+
+	// Should have 1 collision
+	if len(result.Collisions) != 1 {
+		t.Errorf("got %d collisions, want 1", len(result.Collisions))
+	}
+
+	// Personal layer should win
+	if len(result.Graph.Nodes) > 0 {
+		node := result.Graph.Nodes[0]
+		if node.Metadata["layer"] != "personal" {
+			t.Errorf("winner layer = %s, want personal", node.Metadata["layer"])
+		}
+		if !strings.Contains(node.Source, personalDir) {
+			t.Errorf("winner source should be from personal layer, got %s", node.Source)
+		}
+	}
+
+	// Verify collision details
+	if len(result.Collisions) > 0 {
+		c := result.Collisions[0]
+		if c.WinnerLayer != "personal" {
+			t.Errorf("collision winner layer = %s, want personal", c.WinnerLayer)
+		}
+		if c.LoserLayer != "base" {
+			t.Errorf("collision loser layer = %s, want base", c.LoserLayer)
+		}
+	}
+}
+
+func TestBuildMultiSourceSpecificityWithinLayer(t *testing.T) {
+	// Create single layer with different specificities
+	layerDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	// Create all (specificity 0) and all.Darwin (specificity 1)
+	if err := os.MkdirAll(filepath.Join(layerDir, "all"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(layerDir, "all.Darwin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same file in both
+	if err := os.WriteFile(filepath.Join(layerDir, "all", ".bashrc"), []byte("generic"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(layerDir, "all.Darwin", ".bashrc"), []byte("darwin"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	segs := segment.Segments{
+		{Name: "OS", Value: "Darwin"},
+	}
+
+	sources := []LayerSource{
+		{Layer: "personal", Path: layerDir, Order: 2, SourceRoot: layerDir, TargetRoot: targetDir},
+	}
+
+	result, err := Build(BuildConfig{
+		Sources:  sources,
+		Projects: []string{"all"},
+		Segments: segs,
+	})
+
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Should have 1 node (collision resolved)
+	if len(result.Graph.Nodes) != 1 {
+		t.Errorf("got %d nodes, want 1", len(result.Graph.Nodes))
+	}
+
+	// More specific (all.Darwin) should win
+	if len(result.Graph.Nodes) > 0 {
+		node := result.Graph.Nodes[0]
+		if !strings.Contains(node.Source, "all.Darwin") {
+			t.Errorf("winner should be from all.Darwin, got %s", node.Source)
+		}
+	}
+
+	// Verify collision details
+	if len(result.Collisions) != 1 {
+		t.Errorf("got %d collisions, want 1", len(result.Collisions))
+	} else {
+		c := result.Collisions[0]
+		if c.WinnerSpecificity != 1 {
+			t.Errorf("winner specificity = %d, want 1", c.WinnerSpecificity)
+		}
+		if c.LoserSpecificity != 0 {
+			t.Errorf("loser specificity = %d, want 0", c.LoserSpecificity)
+		}
+	}
+}
+
+func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
+	// Layer precedence should beat specificity
+	baseDir := t.TempDir()
+	personalDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	// Base layer with high specificity (all.Darwin)
+	if err := os.MkdirAll(filepath.Join(baseDir, "all.Darwin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "all.Darwin", ".bashrc"), []byte("base darwin"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Personal layer with low specificity (all)
+	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(personalDir, "all", ".bashrc"), []byte("personal generic"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	segs := segment.Segments{
+		{Name: "OS", Value: "Darwin"},
+	}
+
+	sources := []LayerSource{
+		{Layer: "base", Path: baseDir, Order: 0, SourceRoot: baseDir, TargetRoot: targetDir},
+		{Layer: "personal", Path: personalDir, Order: 2, SourceRoot: personalDir, TargetRoot: targetDir},
+	}
+
+	result, err := Build(BuildConfig{
+		Sources:  sources,
+		Projects: []string{"all"},
+		Segments: segs,
+	})
+
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Should have 1 node
+	if len(result.Graph.Nodes) != 1 {
+		t.Errorf("got %d nodes, want 1", len(result.Graph.Nodes))
+	}
+
+	// Personal layer should win despite lower specificity
+	if len(result.Graph.Nodes) > 0 {
+		node := result.Graph.Nodes[0]
+		if node.Metadata["layer"] != "personal" {
+			t.Errorf("winner layer = %s, want personal (layer beats specificity)", node.Metadata["layer"])
+		}
+	}
+
+	// Verify collision
+	if len(result.Collisions) != 1 {
+		t.Errorf("got %d collisions, want 1", len(result.Collisions))
+	} else {
+		c := result.Collisions[0]
+		// Personal wins with specificity 0
+		if c.WinnerSpecificity != 0 {
+			t.Errorf("winner specificity = %d, want 0 (personal/all)", c.WinnerSpecificity)
+		}
+		// Base loses with specificity 1
+		if c.LoserSpecificity != 1 {
+			t.Errorf("loser specificity = %d, want 1 (base/all.Darwin)", c.LoserSpecificity)
+		}
+		if c.WinnerLayer != "personal" {
+			t.Errorf("winner layer = %s, want personal", c.WinnerLayer)
+		}
+		if c.LoserLayer != "base" {
+			t.Errorf("loser layer = %s, want base", c.LoserLayer)
+		}
+	}
+}

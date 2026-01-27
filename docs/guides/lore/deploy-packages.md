@@ -30,27 +30,27 @@ Packages can offer optional features. Enable them with `--with`:
 lore deploy docker --with rootless --with compose --with buildx
 ```
 
-Features control which steps run during installation. A package's available
-features are listed in its manifest.
+Features control which steps run during installation. See [The Pipeline](/guides/lore/pipeline/#features-in-the-pipeline)
+for how features interact with phase scripts.
 
 ## Deploy from manifests
 
 Use `@` to deploy from a manifest file:
 
 ```bash
-lore deploy @packages.manifest
+lore deploy @packages-manifest.yaml
 ```
 
 Deploy from multiple manifests:
 
 ```bash
-lore deploy @base.manifest @team.manifest
+lore deploy @base-packages.yaml @team-packages.yaml
 ```
 
 Mix manifests with direct packages:
 
 ```bash
-lore deploy @team.manifest neovim --with lsp
+lore deploy @team-packages.yaml neovim --with lsp
 ```
 
 ## Confidence levels
@@ -141,13 +141,13 @@ lore decommission --orphans-only
 
 ## Integration with writ
 
-When writ deploys a project containing `packages.manifest`, it automatically
+When writ deploys a project containing `packages-manifest.yaml`, it automatically
 calls lore:
 
 ```bash
 writ add noblefactor
 # → Symlinks config files
-# → Calls: lore deploy @packages.manifest
+# → Calls: lore deploy @packages-manifest.yaml
 ```
 
 When writ removes a project:

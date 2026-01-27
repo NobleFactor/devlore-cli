@@ -107,9 +107,6 @@ The input is `--help` output, not reflection or OpenAPI specs.
 - Generated code needs manual review before production use
 - No automated testing of generated bindings
 
-## Future Directions
+## Issues and Roadmap
 
-- Parse fish/zsh completions for better flag enumeration
-- Support OpenAPI specs where CLI wraps an API (e.g., gh, kubectl)
-- Man page parsing for richer documentation
-- Integration with existing binding definitions (merge parsed + manual)
+See [TODO.md Section 7: Bindgen Tool](../../TODO.md#7-bindgen-tool) for tracked issues, next steps, and future directions.

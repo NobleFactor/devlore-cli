@@ -86,14 +86,23 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --conflict value %q: must be stop, backup, overwrite, or skip", conflictFlag)
 	}
 
-	// Resolve source root from config
-	sourceRoot := cli.GetString("writ", "repo", true)
-	if sourceRoot == "" {
-		return fmt.Errorf("no repo configured; set writ.repo in config or use WRIT_REPO env var")
+	// Collect layer sources (base → team → personal, each with System → Home)
+	layerSources, err := CollectLayerSources()
+	if err != nil {
+		return fmt.Errorf("collect layer sources: %w", err)
 	}
-	sourceRoot = expandPath(sourceRoot)
 
-	// Resolve target root (default: $HOME)
+	// Fall back to legacy single-repo mode if no layers configured
+	var sourceRoot string
+	if len(layerSources) == 0 {
+		sourceRoot = cli.GetString("writ", "repo", true)
+		if sourceRoot == "" {
+			return fmt.Errorf("no repo configured; use 'writ repo init' or 'writ repo add' to configure a repository")
+		}
+		sourceRoot = expandPath(sourceRoot)
+	}
+
+	// Resolve target root (default: $HOME) - used for single-repo mode
 	targetRoot := os.Getenv("HOME")
 	if targetRoot == "" {
 		return fmt.Errorf("HOME environment variable not set")
@@ -121,29 +130,56 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "Source: %s\n", sourceRoot)
-		fmt.Fprintf(os.Stderr, "Target: %s\n", targetRoot)
+		if len(layerSources) > 0 {
+			fmt.Fprintf(os.Stderr, "Layers: %d sources\n", len(layerSources))
+			for _, src := range layerSources {
+				fmt.Fprintf(os.Stderr, "  %s/%s: %s → %s\n", src.Layer, src.TargetName, src.SourceRoot, src.TargetRoot)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Source: %s\n", sourceRoot)
+			fmt.Fprintf(os.Stderr, "Target: %s\n", targetRoot)
+		}
 		fmt.Fprintf(os.Stderr, "Projects: %v\n", args)
 		fmt.Fprintf(os.Stderr, "Segments: %s\n", segs.String())
 	}
 
 	// Build deployment tree
-	deployTree, err := tree.Build(tree.BuildConfig{
-		SourceRoot: sourceRoot,
-		TargetRoot: targetRoot,
-		Projects:   args,
-		Segments:   segs,
-	})
+	var deployTree *tree.BuildResult
+	if len(layerSources) > 0 {
+		// Multi-layer mode
+		deployTree, err = tree.Build(tree.BuildConfig{
+			Sources:    layerSources,
+			TargetRoot: targetRoot,
+			Projects:   args,
+			Segments:   segs,
+		})
+	} else {
+		// Single-repo mode (backwards compatible)
+		deployTree, err = tree.Build(tree.BuildConfig{
+			SourceRoot: sourceRoot,
+			TargetRoot: targetRoot,
+			Projects:   args,
+			Segments:   segs,
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("build tree: %w", err)
 	}
 
-	// Warn about source collisions (same target from different source dirs)
+	// Warn about source collisions (same target from different source dirs or layers)
 	if deployTree.HasCollisions() {
-		fmt.Fprintf(os.Stderr, "Warning: %d source collision(s) resolved by specificity:\n", len(deployTree.Collisions))
-		for _, c := range deployTree.Collisions {
-			fmt.Fprintf(os.Stderr, "  %s: using %s (specificity %d) over %s (specificity %d)\n",
-				c.Target, c.Winner, c.WinnerSpecificity, c.Loser, c.LoserSpecificity)
+		if len(layerSources) > 0 {
+			fmt.Fprintf(os.Stderr, "Warning: %d source collision(s) resolved by layer/specificity:\n", len(deployTree.Collisions))
+			for _, c := range deployTree.Collisions {
+				fmt.Fprintf(os.Stderr, "  %s: using %s [%s] over %s [%s]\n",
+					c.Target, c.Winner, c.WinnerLayer, c.Loser, c.LoserLayer)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: %d source collision(s) resolved by specificity:\n", len(deployTree.Collisions))
+			for _, c := range deployTree.Collisions {
+				fmt.Fprintf(os.Stderr, "  %s: using %s (specificity %d) over %s (specificity %d)\n",
+					c.Target, c.Winner, c.WinnerSpecificity, c.Loser, c.LoserSpecificity)
+			}
 		}
 	}
 
@@ -482,6 +518,14 @@ func runRemove(cmd *cobra.Command, args []string) error {
 		projectSet[p] = true
 	}
 
+	// Determine prune boundary (for removing empty parent directories)
+	var pruneRoot string
+	if deployState != nil {
+		pruneRoot = deployState.TargetRoot
+	} else {
+		pruneRoot = os.Getenv("HOME")
+	}
+
 	// Collect files to remove
 	type removeEntry struct {
 		RelTarget      string
@@ -693,6 +737,9 @@ func runRemove(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "  error removing %s: %v\n", re.RelTarget, err)
 			continue
 		}
+
+		// Prune empty parent directories up to the target root
+		pruneEmptyParentDirs(re.Target, pruneRoot)
 
 		removed++
 		if verbose {
@@ -2608,6 +2655,38 @@ func hasDecryptOp(ops []string) bool {
 		}
 	}
 	return false
+}
+
+// pruneEmptyParentDirs removes empty parent directories up to (but not including) boundary.
+// Stops at non-empty directories or on any error.
+func pruneEmptyParentDirs(target, boundary string) {
+	if boundary == "" {
+		return
+	}
+
+	boundary = filepath.Clean(boundary)
+	dir := filepath.Dir(target)
+
+	for {
+		// Stop at or above boundary
+		if dir == boundary || dir == "/" || dir == "." {
+			return
+		}
+
+		// Check if dir is under boundary
+		rel, err := filepath.Rel(boundary, dir)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			return
+		}
+
+		// Try to remove (fails if not empty)
+		if err := os.Remove(dir); err != nil {
+			return // Not empty or permission error
+		}
+
+		// Move up
+		dir = filepath.Dir(dir)
+	}
 }
 
 // DryRunOutput represents the dry-run output format.

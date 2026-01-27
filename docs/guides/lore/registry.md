@@ -162,11 +162,11 @@ Lore uses AI to:
 1. Parse installation steps from the document
 2. Match them to known registry packages
 3. Flag organization-specific items for review
-4. Generate a `packages.manifest` and config files
+4. Generate a `packages-manifest.yaml` and config files
 
 Then deploy the result:
 
 ```bash
-lore deploy @packages.manifest
+lore deploy @packages-manifest.yaml
 writ adopt --from-receipt
 ```

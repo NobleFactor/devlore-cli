@@ -43,34 +43,28 @@ repos/personal/noblefactor/
 
 ### Layered repositories
 
-Writ supports multiple repositories with defined precedence:
+Writ supports multiple repositories with defined precedence (`personal > team > base`).
+When files from different layers target the same path, the higher-precedence layer wins.
+This lets organizations provide shared defaults that individuals can override.
 
-```
-personal > team > base
-```
-
-When files from different layers target the same path, the higher-precedence
-layer wins. This lets organizations provide shared defaults that individuals
-can override:
-
-```bash
-writ repo init --layer=base        # Company-wide defaults
-writ repo init --layer=team        # Team-specific config
-writ repo init --layer=personal    # Your personal preferences
-```
+See [Repositories](/guides/writ/repositories/) for setup and configuration.
 
 ### Platform awareness
 
-Projects can include platform-specific variants. Writ detects your OS
-and selects the right files automatically:
+Projects can have platform-specific variants using directory suffixes.
+Writ detects your OS and deploys matching directories automatically:
 
 ```
-noblefactor/
-├── .zshrc                    # Shared across all platforms
-├── .zshrc.Darwin             # macOS override
-├── .zshrc.Linux              # Linux override
-└── .config/
-    └── alacritty.toml.Darwin # macOS-only file
+noblefactor/           # Base project (all platforms)
+├── .zshrc
+└── .config/nvim/
+
+noblefactor.Darwin/    # macOS-specific additions
+├── .zshrc             # Overrides base .zshrc on macOS
+└── .config/alacritty/
+
+noblefactor.Linux/     # Linux-specific additions
+└── .config/systemd/
 ```
 
 ### Templates
@@ -108,5 +102,6 @@ tamper detection.
 
 - [Manage environments](/guides/writ/manage-environments/) — Deploy, update, and remove projects
 - [Platform awareness](/guides/writ/platform-awareness/) — Configure platform-specific variants
+- [Packages manifest](/guides/writ/packages-manifest/) — Declare software dependencies
 - [Secrets management](/guides/writ/secrets/) — Encrypt sensitive files with age
 - [Repositories](/guides/writ/repositories/) — Manage layered repositories

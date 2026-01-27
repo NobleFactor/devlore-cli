@@ -735,3 +735,166 @@ func TestStatusString(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoveOperationPrunesEmptyDirs(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create nested structure: tmpDir/a/b/c/file.txt
+	nested := filepath.Join(tmpDir, "a", "b", "c")
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(nested, "file.txt")
+	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	op := &RemoveOp{}
+	ctx := &Context{
+		Context: context.Background(),
+		Data: map[string]any{
+			"prune_empty_dirs": true,
+			"prune_boundary":   tmpDir,
+		},
+	}
+	node := &Node{ID: "test", Target: target}
+	state := &PipelineState{Metadata: make(map[string]string)}
+
+	if err := op.Execute(ctx, node, state); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	// File should be gone
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Error("expected file to be removed")
+	}
+
+	// All empty parent dirs up to boundary should be gone
+	if _, err := os.Stat(filepath.Join(tmpDir, "a")); !os.IsNotExist(err) {
+		t.Error("expected a/ to be pruned")
+	}
+
+	// Boundary dir should still exist
+	if _, err := os.Stat(tmpDir); err != nil {
+		t.Errorf("boundary dir should still exist: %v", err)
+	}
+}
+
+func TestRemoveOperationPruneStopsAtNonEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create nested structure: tmpDir/a/b/file.txt and tmpDir/a/other.txt
+	nested := filepath.Join(tmpDir, "a", "b")
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(nested, "file.txt")
+	other := filepath.Join(tmpDir, "a", "other.txt")
+	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	op := &RemoveOp{}
+	ctx := &Context{
+		Context: context.Background(),
+		Data: map[string]any{
+			"prune_empty_dirs": true,
+			"prune_boundary":   tmpDir,
+		},
+	}
+	node := &Node{ID: "test", Target: target}
+	state := &PipelineState{Metadata: make(map[string]string)}
+
+	if err := op.Execute(ctx, node, state); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	// File and b/ should be gone
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Error("expected file to be removed")
+	}
+	if _, err := os.Stat(nested); !os.IsNotExist(err) {
+		t.Error("expected b/ to be pruned")
+	}
+
+	// a/ should still exist (has other.txt)
+	if _, err := os.Stat(filepath.Join(tmpDir, "a")); err != nil {
+		t.Error("expected a/ to remain (not empty)")
+	}
+	// other.txt should still exist
+	if _, err := os.Stat(other); err != nil {
+		t.Error("expected other.txt to remain")
+	}
+}
+
+func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "source.txt")
+	nested := filepath.Join(tmpDir, "a", "b")
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(nested, "link.txt")
+	if err := os.Symlink(source, target); err != nil {
+		t.Fatal(err)
+	}
+
+	op := &UnlinkOp{}
+	ctx := &Context{
+		Context: context.Background(),
+		Data: map[string]any{
+			"prune_empty_dirs": true,
+			"prune_boundary":   tmpDir,
+		},
+	}
+	node := &Node{ID: "test", Target: target}
+	state := &PipelineState{Metadata: make(map[string]string)}
+
+	if err := op.Execute(ctx, node, state); err != nil {
+		t.Fatalf("unlink: %v", err)
+	}
+
+	// Symlink and parent dirs should be gone
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Error("expected symlink to be removed")
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "a")); !os.IsNotExist(err) {
+		t.Error("expected a/ to be pruned")
+	}
+}
+
+func TestRemoveNoPruneWithoutFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	nested := filepath.Join(tmpDir, "a", "b")
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(nested, "file.txt")
+	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	op := &RemoveOp{}
+	// No prune flags set
+	ctx := &Context{Context: context.Background()}
+	node := &Node{ID: "test", Target: target}
+	state := &PipelineState{Metadata: make(map[string]string)}
+
+	if err := op.Execute(ctx, node, state); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	// File should be gone
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Error("expected file to be removed")
+	}
+
+	// Parent dirs should remain (no pruning without flag)
+	if _, err := os.Stat(nested); err != nil {
+		t.Error("expected b/ to remain (no prune flag)")
+	}
+}

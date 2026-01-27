@@ -12,6 +12,10 @@ before:
   hooks:
     - go mod tidy
 
+after:
+  hooks:
+    - ./packaging/macports/generate-portfile.sh {{ .Version }}
+
 builds:
   - id: writ
     binary: writ
@@ -94,24 +98,50 @@ release:
     ```
 
     Or download the appropriate archive below.
+  extra_files:
+    - glob: ./dist/Portfile
+      name_template: Portfile
 
-# Homebrew tap (future)
-# brews:
-#   - repository:
-#       owner: NobleFactor
-#       name: homebrew-tap
-#     homepage: https://devlore.noblefactor.com
-#     description: DevLore CLI - writ and lore tools
-#     license: Apache-2.0
-#     install: |
-#       bin.install "writ"
-#       bin.install "lore"
+# Linux packages (deb/rpm)
+nfpms:
+  - id: devlore-cli
+    package_name: devlore-cli
+    vendor: NobleFactor
+    homepage: https://devlore.noblefactor.com
+    maintainer: NobleFactor <support@noblefactor.com>
+    description: DevLore CLI - writ and lore tools for documentation generation
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/devlore-cli/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/devlore-cli/README.md
 
-# Winget (future)
-# winget:
-#   - publisher: NobleFactor
-#     short_description: DevLore CLI tools
-#     license: Apache-2.0
-#     repository:
-#       owner: microsoft
-#       name: winget-pkgs
+# Homebrew formula (generates but does not publish)
+brews:
+  - repository:
+      owner: NobleFactor
+      name: homebrew-tap
+    skip_upload: true
+    directory: Formula
+    homepage: https://devlore.noblefactor.com
+    description: DevLore CLI - writ and lore tools
+    license: Apache-2.0
+    install: |
+      bin.install "writ"
+      bin.install "lore"
+
+# Winget manifest (generates but does not publish)
+winget:
+  - publisher: NobleFactor
+    publisher_url: https://noblefactor.com
+    short_description: DevLore CLI tools
+    license: Apache-2.0
+    skip_upload: true
+    repository:
+      owner: NobleFactor
+      name: winget-pkgs

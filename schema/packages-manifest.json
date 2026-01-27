@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://noblefactor.com/schemas/packages-manifest.json",
+  "title": "Packages Manifest",
+  "description": "Declares software dependencies for a writ project. Writ delegates to lore for installation.",
+  "type": "object",
+  "properties": {
+    "packages": {
+      "type": "array",
+      "description": "List of packages to install via lore",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Package name (simple form)",
+            "minLength": 1,
+            "examples": ["gh", "jq", "ripgrep"]
+          },
+          {
+            "type": "object",
+            "description": "Package with options (single-key map where key is package name)",
+            "minProperties": 1,
+            "maxProperties": 1,
+            "additionalProperties": {
+              "type": "object",
+              "description": "Package options",
+              "properties": {
+                "with": {
+                  "type": "array",
+                  "description": "Features to enable for this package",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "examples": [["lsp", "treesitter"], ["rootless", "compose"]]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    }
+  },
+  "required": ["packages"],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "packages": [
+        "gh",
+        "jq",
+        "ripgrep",
+        {"neovim": {"with": ["lsp", "treesitter"]}},
+        {"docker": {"with": ["rootless", "compose"]}}
+      ]
+    }
+  ]
+}
