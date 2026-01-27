@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Noble Factor. All rights reserved.
 #
 # DevLore CLI Installer
