@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2025 Noble Factor. All rights reserved.
 #
-# Release workflow: builds binaries and syncs to website
+# Release workflow: builds binaries and creates GitHub releases
 
 name: Release
 
@@ -22,7 +22,7 @@ env:
   DEVLORE_VERSION: v0.1.0-draft
 
 jobs:
-  build-and-deploy:
+  build-and-release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout devlore-cli
@@ -35,27 +35,91 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: Determine version
+      - name: Determine version and release type
         id: version
         run: |
+          # Per https://docs.github.com/en/rest/releases/releases:
+          # - Full releases: visible via /releases/latest, install with default "latest"
+          # - Prereleases: NOT in /releases/latest, requires explicit DEVLORE_VERSION
+          # - Drafts: require push (write) access, not suitable for distribution
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION="${{ github.ref_name }}"
+            PRERELEASE="false"
           elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            VERSION="v0.1.0-rc"
+            VERSION="v0.1.0-rc.$(date +%Y%m%d%H%M%S)"
+            PRERELEASE="true"
+          elif [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
+            BRANCH_NAME="${{ github.ref_name }}"
+            VERSION="v${BRANCH_NAME#release/}-rc.$(date +%Y%m%d%H%M%S)"
+            PRERELEASE="true"
           else
-            VERSION="${{ env.DEVLORE_VERSION }}"
+            # develop and other branches
+            VERSION="v0.1.0-dev.$(date +%Y%m%d%H%M%S)"
+            PRERELEASE="true"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
+          echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION (prerelease: $PRERELEASE)"
 
       - name: Build distribution
         run: make dist DEVLORE_VERSION=${{ steps.version.outputs.version }}
 
-      - name: Create latest.txt
-        run: echo "${{ steps.version.outputs.version }}" > dist/latest.txt
-
       - name: List artifacts
         run: ls -la dist/
+
+      - name: Create GitHub Release
+        # Per https://cli.github.com/manual/gh_release_create
+        run: |
+          RELEASE_ARGS=""
+          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+            RELEASE_ARGS="--prerelease"
+          fi
+
+          gh release create "${{ steps.version.outputs.version }}" \
+            --title "${{ steps.version.outputs.version }}" \
+            --notes "Release ${{ steps.version.outputs.version }}
+
+          Source: ${{ github.repository }}@${{ github.sha }}
+          Ref: ${{ github.ref }}" \
+            $RELEASE_ARGS \
+            dist/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## GitHub Release Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: \`${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Prerelease: \`${{ steps.version.outputs.prerelease }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Source: \`${{ github.repository }}@${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Install" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+            echo "Prerelease requires explicit version:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "curl -sSL https://devlore.noblefactor.com/install.sh | GITHUB_TOKEN=<token> DEVLORE_VERSION=${{ steps.version.outputs.version }} bash" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Full release (default latest):" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "curl -sSL https://devlore.noblefactor.com/install.sh | GITHUB_TOKEN=<token> bash" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ls -la dist/ >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # Sync install script to website (keep website as distribution point for script only)
+  sync-install-script:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout devlore-cli
+        uses: actions/checkout@v4
 
       - name: Checkout website repo
         uses: actions/checkout@v4
@@ -64,82 +128,33 @@ jobs:
           token: ${{ secrets.SITE_DEPLOY_TOKEN }}
           path: website
 
-      - name: Sync to website
+      - name: Sync install script to website
         run: |
-          # Create releases directory
-          mkdir -p website/public/releases
-
-          # Copy install script
+          # Copy install script only (binaries come from GitHub releases)
           cp install.sh website/public/install.sh
-
-          # Copy distribution files
-          cp dist/* website/public/releases/
 
           cd website
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Determine target branch based on source
-          # main, tags → production (main)
-          # release/* → release preview (same branch name)
-          # develop → preview (develop)
+          # Determine target branch
           TARGET_BRANCH="develop"
           if [[ "${{ github.ref }}" == "refs/heads/main" ]] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TARGET_BRANCH="main"
           elif [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
-            # Preserve release branch name for preview environment
             TARGET_BRANCH="${{ github.ref_name }}"
           fi
 
           git checkout "$TARGET_BRANCH" || git checkout -b "$TARGET_BRANCH"
 
-          # Stage files first, then check if there are changes
-          git add public/install.sh public/releases/
+          git add public/install.sh
           if git diff --cached --quiet; then
-            echo "No changes to deploy"
+            echo "No changes to install script"
             exit 0
           fi
 
-          git commit -m "Deploy devlore-cli ${{ steps.version.outputs.version }}
+          git commit -m "Update install script
 
           Source: ${{ github.repository }}@${{ github.sha }}
           Ref: ${{ github.ref }}"
           git push origin "$TARGET_BRANCH"
-
-      - name: Summary
-        run: |
-          echo "## Release Deployed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- Version: \`${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Source: \`${{ github.repository }}@${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          ls -la dist/ >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-
-  # Create GitHub Release (only on tags, for future public releases)
-  github-release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-and-deploy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
