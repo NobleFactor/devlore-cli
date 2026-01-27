@@ -1,19 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-// Package pipeline provides the lore four-phase execution pipeline.
-// Phases: prepare → install → provision → verify
-//
-// Phase scripts are discovered from the directory structure:
-//
-//	<package>/<platform>/<operation>/<phase>.star
-//
-// Platform resolution order (most specific first):
-//   - Linux.Debian, Linux.Fedora (distro-specific)
-//   - Linux, Darwin, Windows (OS-level)
-//   - Unix (Darwin + Linux + BSD)
-//   - Common (all platforms)
-package pipeline
+package registry
 
 import (
 	"fmt"
@@ -62,8 +50,24 @@ type Lifecycle struct {
 	// HardwareProvisions defines hardware-specific configuration requirements.
 	HardwareProvisions map[string]HardwareProvision `yaml:"hardware_provisions,omitempty"`
 
-	// PackageDir is the directory containing this lifecycle (set by loader).
-	PackageDir string `yaml:"-"`
+	// synthetic is true for packages from native PMs (not lifecycle.yaml)
+	synthetic bool
+}
+
+// Feature represents a package feature definition.
+type Feature struct {
+	Description string   `yaml:"description"`
+	Default     bool     `yaml:"default"`
+	Platforms   []string `yaml:"platforms,omitempty"`
+}
+
+// Setting represents a package setting definition.
+type Setting struct {
+	Description string   `yaml:"description"`
+	Type        string   `yaml:"type"`
+	Default     string   `yaml:"default"`
+	Values      []string `yaml:"values,omitempty"`
+	Platforms   []string `yaml:"platforms,omitempty"`
 }
 
 // HardwareProvision defines hardware-specific configuration.
@@ -73,28 +77,36 @@ type HardwareProvision struct {
 	BootArg     string `yaml:"boot_arg,omitempty"`
 }
 
-// Feature represents a package feature definition.
-type Feature struct {
-	Description string `yaml:"description"`
-	Default     bool   `yaml:"default"`
-}
-
-// Setting represents a package setting definition.
-type Setting struct {
-	Description string   `yaml:"description"`
-	Type        string   `yaml:"type"`
-	Default     string   `yaml:"default"`
-	Values      []string `yaml:"values,omitempty"`
-}
-
 // DeployPhaseOrder is the standard order of deploy pipeline phases.
 var DeployPhaseOrder = []string{"prepare", "install", "provision", "verify"}
 
 // UpgradePhaseOrder is the order for upgrade operations.
-var UpgradePhaseOrder = []string{"prepare", "install", "verify"}
+// The "migrate" phase handles version-specific migrations (config format changes,
+// data migrations, etc.) that may be needed between versions.
+var UpgradePhaseOrder = []string{"prepare", "upgrade", "migrate", "verify"}
 
 // DecommissionPhaseOrder is the order for decommission operations.
 var DecommissionPhaseOrder = []string{"unprovision", "uninstall", "cleanup"}
+
+// RequiredPhase returns the required phase for an operation.
+// Each operation has exactly one required phase that must be implemented.
+// Native PM packages implement only this phase; lore packages may add others.
+//
+//   - Deploy requires "install"
+//   - Upgrade requires "upgrade"
+//   - Decommission requires "uninstall"
+func RequiredPhase(op Operation) string {
+	switch op {
+	case OpDeploy:
+		return "install"
+	case OpUpgrade:
+		return "upgrade"
+	case OpDecommission:
+		return "uninstall"
+	default:
+		return "install"
+	}
+}
 
 // PhaseOrder returns the phase order for an operation.
 func PhaseOrder(op Operation) []string {
@@ -156,32 +168,7 @@ func LoadLifecycle(packageDir string) (*Lifecycle, error) {
 		return nil, fmt.Errorf("parsing lifecycle.yaml: %w", err)
 	}
 
-	lifecycle.PackageDir = packageDir
 	return &lifecycle, nil
-}
-
-// LoadLifecycleFromRegistry loads a lifecycle from a registry directory.
-func LoadLifecycleFromRegistry(registryDir, packageName string) (*Lifecycle, error) {
-	packageDir := filepath.Join(registryDir, packageName)
-	return LoadLifecycle(packageDir)
-}
-
-// GetPhaseScript returns the path to a single phase script for the given
-// platform and operation. This finds the MOST SPECIFIC script only.
-// For chained execution, use DiscoverPhaseScripts instead.
-//
-// Returns empty string if no script exists for this phase.
-func (l *Lifecycle) GetPhaseScript(platform string, op Operation, phase string) string {
-	// Check platforms from most specific to least specific (reverse order)
-	platforms := PlatformResolutionOrder(platform)
-	for i := len(platforms) - 1; i >= 0; i-- {
-		p := platforms[i]
-		path := filepath.Join(l.PackageDir, p, string(op), phase+".star")
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
 }
 
 // DiscoverPhaseScripts returns all phase scripts for a phase, ordered from
@@ -193,10 +180,14 @@ func (l *Lifecycle) GetPhaseScript(platform string, op Operation, phase string) 
 //	 "Linux/Deploy/install.star", "Linux.Debian/Deploy/install.star"]
 //
 // Only scripts that exist are included.
-func (l *Lifecycle) DiscoverPhaseScripts(platform string, op Operation, phase string) []string {
+func (l *Lifecycle) DiscoverPhaseScripts(packageDir, platform string, op Operation, phase string) []string {
+	if l.synthetic {
+		return nil // Synthetic lifecycles have no scripts
+	}
+
 	var scripts []string
 	for _, p := range PlatformResolutionOrder(platform) {
-		path := filepath.Join(l.PackageDir, p, string(op), phase+".star")
+		path := filepath.Join(packageDir, p, string(op), phase+".star")
 		if _, err := os.Stat(path); err == nil {
 			scripts = append(scripts, path)
 		}
@@ -204,18 +195,40 @@ func (l *Lifecycle) DiscoverPhaseScripts(platform string, op Operation, phase st
 	return scripts
 }
 
+// GetPhaseScript returns the path to a single phase script for the given
+// platform and operation. This finds the MOST SPECIFIC script only.
+// For chained execution, use DiscoverPhaseScripts instead.
+//
+// Returns empty string if no script exists for this phase.
+func (l *Lifecycle) GetPhaseScript(packageDir, platform string, op Operation, phase string) string {
+	if l.synthetic {
+		return ""
+	}
+
+	// Check platforms from most specific to least specific (reverse order)
+	platforms := PlatformResolutionOrder(platform)
+	for i := len(platforms) - 1; i >= 0; i-- {
+		p := platforms[i]
+		path := filepath.Join(packageDir, p, string(op), phase+".star")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
 // HasPhase returns true if at least one phase script exists for this phase
 // on the given platform and operation.
-func (l *Lifecycle) HasPhase(platform string, op Operation, phase string) bool {
-	return len(l.DiscoverPhaseScripts(platform, op, phase)) > 0
+func (l *Lifecycle) HasPhase(packageDir, platform string, op Operation, phase string) bool {
+	return len(l.DiscoverPhaseScripts(packageDir, platform, op, phase)) > 0
 }
 
 // DiscoverAllPhases returns a map of phase name to script paths for all
 // phases in an operation on the given platform.
-func (l *Lifecycle) DiscoverAllPhases(platform string, op Operation) map[string][]string {
+func (l *Lifecycle) DiscoverAllPhases(packageDir, platform string, op Operation) map[string][]string {
 	phases := make(map[string][]string)
 	for _, phase := range PhaseOrder(op) {
-		scripts := l.DiscoverPhaseScripts(platform, op, phase)
+		scripts := l.DiscoverPhaseScripts(packageDir, platform, op, phase)
 		if len(scripts) > 0 {
 			phases[phase] = scripts
 		}
@@ -286,6 +299,15 @@ func (l *Lifecycle) SupportsPlatform(platform string) bool {
 		if p == platform {
 			return true
 		}
+		// Check for distro match (e.g., "Linux" matches "Linux.Debian")
+		if strings.HasPrefix(platform, p+".") {
+			return true
+		}
 	}
 	return false
+}
+
+// IsSynthetic returns true if this lifecycle was synthesized for a native PM package.
+func (l *Lifecycle) IsSynthetic() bool {
+	return l.synthetic
 }

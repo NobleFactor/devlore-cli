@@ -142,7 +142,13 @@ func New(registry *Registry, opts Options) *Engine {
 // Run executes all nodes in the graph, respecting ordering constraints.
 // Nodes are processed in topological order when edges define dependencies.
 // Returns results for each node.
+//
+// TODO: Add graph optimization pass before execution. Native PM operations
+// (e.g., multiple "install" nodes with the same package manager) should be
+// batched into a single operation to reduce PM invocations. See
+// docs/plans/uniform-pipeline-interface.md for design details.
 func (e *Engine) Run(ctx context.Context, graph *Graph) ([]*Result, error) {
+	// TODO: graph = e.optimize(graph)
 	ordered := e.orderNodes(graph)
 
 	execCtx := &Context{

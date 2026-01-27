@@ -4,11 +4,16 @@
 package lore
 
 import (
+	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/internal/lore/pipeline"
+	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -27,10 +32,7 @@ Packages can be specified directly or via manifest files (prefixed with @).`,
   lore deploy @team.manifest
   lore deploy @base.manifest @team.manifest neovim --with lsp`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("deploy: not yet implemented")
-			return nil
-		},
+		RunE: runDeploy,
 	}
 
 	cmd.Flags().Bool("known-only", false, "Skip LOW CONFIDENCE items")
@@ -40,6 +42,70 @@ Packages can be specified directly or via manifest files (prefixed with @).`,
 	cmd.Flags().Int("parallel", 1, "Install n packages concurrently")
 
 	return cmd
+}
+
+func runDeploy(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Get flags
+	features, _ := cmd.Flags().GetStringArray("with")
+	dryRun := viper.GetBool("lore.dry-run")
+	verbose := viper.GetBool("lore.verbose")
+
+	// Create registry client
+	regClient, err := registry.NewDefault()
+	if err != nil {
+		return fmt.Errorf("creating registry client: %w", err)
+	}
+
+	// Create executor config
+	cfg := pipeline.ExecutorConfig{
+		Features: features,
+		DryRun:   dryRun,
+		Verbose:  verbose,
+		Output:   os.Stdout,
+	}
+
+	executor := pipeline.NewExecutor(cfg)
+
+	// Detect platform for package resolution
+	platform := pipeline.DetectPlatform()
+
+	// Process each package argument
+	var lastErr error
+	for _, arg := range args {
+		// TODO: Handle @manifest syntax
+		if len(arg) > 0 && arg[0] == '@' {
+			fmt.Fprintf(os.Stderr, "Manifest files not yet supported: %s\n", arg)
+			continue
+		}
+
+		// Resolve package from registry
+		pkg, err := regClient.Resolve(arg, platform)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error resolving package %q: %v\n", arg, err)
+			lastErr = err
+			continue
+		}
+
+		// Execute the deploy pipeline
+		result, err := executor.ExecutePackage(ctx, pkg, pipeline.OpDeploy)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error deploying %q: %v\n", arg, err)
+			lastErr = err
+			continue
+		}
+
+		if !result.Success {
+			fmt.Fprintf(os.Stderr, "Deployment failed for %q\n", arg)
+			lastErr = fmt.Errorf("deployment failed for %s", arg)
+		}
+	}
+
+	return lastErr
 }
 
 func newUpgradeCmd() *cobra.Command {
