@@ -111,9 +111,9 @@ func (a *NativePMAction) Phase() string {
 }
 
 // Batchable returns true if this action can be batched with others.
-// Native PM install/upgrade/remove operations are batchable; update (index refresh) is not.
+// Native PM install/remove operations are batchable; update is not.
 func (a *NativePMAction) Batchable() bool {
-	return a.Operation == PMInstall || a.Operation == PMUpgrade || a.Operation == PMRemove
+	return a.Operation == PMInstall || a.Operation == PMRemove
 }
 
 // CanBatchWith returns true if this action can be batched with another.
