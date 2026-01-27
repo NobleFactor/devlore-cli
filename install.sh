@@ -32,11 +32,12 @@ TOOLS="${DEVLORE_TOOLS:-all}"
 
 # GitHub authentication (required for private repo)
 # Per https://docs.github.com/en/rest/releases/assets - requires "Contents" read permission
+# Note: Use "token" not "Bearer" for OAuth tokens from gh auth
 AUTH_HEADER=""
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    AUTH_HEADER="Authorization: Bearer ${GITHUB_TOKEN}"
+    AUTH_HEADER="Authorization: token ${GITHUB_TOKEN}"
 elif [[ -n "${GH_TOKEN:-}" ]]; then
-    AUTH_HEADER="Authorization: Bearer ${GH_TOKEN}"
+    AUTH_HEADER="Authorization: token ${GH_TOKEN}"
 fi
 
 # Colors (disabled if not a terminal)
