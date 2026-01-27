@@ -6,11 +6,11 @@
 # Usage: curl -sSL https://devlore.noblefactor.com/install.sh | bash
 #
 # For private repo (requires GitHub token):
-#   curl -sSL https://devlore.noblefactor.com/install.sh | GITHUB_TOKEN=<token> bash
+#   curl -sSL https://devlore.noblefactor.com/install.sh | GH_TOKEN=$(gh auth token) bash
 #
 # Options (via environment variables):
-#   GITHUB_TOKEN         - GitHub token for private repo access (or GH_TOKEN)
-#                          Use: GITHUB_TOKEN=$(gh auth token) for OAuth token
+#   GH_TOKEN             - GitHub token for private repo access
+#                          Use: GH_TOKEN=$(gh auth token) for OAuth token
 #   DEVLORE_INSTALL_DIR  - Installation directory (default: ~/.local/bin)
 #   DEVLORE_VERSION      - Version to install (default: latest)
 #                          "latest" installs the most recent release (including prereleases)
@@ -34,9 +34,7 @@ TOOLS="${DEVLORE_TOOLS:-all}"
 # Per https://docs.github.com/en/rest/releases/assets - requires "Contents" read permission
 # Note: Use "token" not "Bearer" for OAuth tokens from gh auth
 AUTH_HEADER=""
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    AUTH_HEADER="Authorization: token ${GITHUB_TOKEN}"
-elif [[ -n "${GH_TOKEN:-}" ]]; then
+if [[ -n "${GH_TOKEN:-}" ]]; then
     AUTH_HEADER="Authorization: token ${GH_TOKEN}"
 fi
 
@@ -182,8 +180,8 @@ main() {
 
     # Check for auth token (required for private repo)
     if [[ -z "$AUTH_HEADER" ]]; then
-        warn "No GITHUB_TOKEN set. This will fail for private repositories."
-        warn "Set GITHUB_TOKEN with a token that has 'Contents' read permission."
+        warn "No GH_TOKEN set. This will fail for private repositories."
+        warn "Set GH_TOKEN with a token that has 'Contents' read permission."
     fi
 
     # Detect platform
@@ -196,7 +194,7 @@ main() {
         info "Fetching latest version..."
         VERSION=$(get_latest_version)
         if [[ -z "$VERSION" ]]; then
-            error "Could not determine latest version. Check GITHUB_TOKEN has correct permissions.\nFor private repos, token needs 'Contents' read permission."
+            error "Could not determine latest version. Check GH_TOKEN has correct permissions.\nFor private repos, token needs 'Contents' read permission."
         fi
     fi
     info "Version: $VERSION"
@@ -208,12 +206,12 @@ main() {
     # Check for any API error - GitHub API returns "message" field on errors
     # Per https://docs.github.com/en/rest/releases/releases
     if [[ -z "$release_json" ]]; then
-        error "Empty response from GitHub API. Check GITHUB_TOKEN is set and valid."
+        error "Empty response from GitHub API. Check GH_TOKEN is set and valid."
     fi
     if echo "$release_json" | grep -q '"message"'; then
         local api_error
         api_error=$(echo "$release_json" | grep -o '"message"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*:\s*"\([^"]*\)".*/\1/')
-        error "GitHub API error: $api_error\nCheck GITHUB_TOKEN has Contents read permission."
+        error "GitHub API error: $api_error\nCheck GH_TOKEN has Contents read permission."
     fi
 
     # Determine archive extension
