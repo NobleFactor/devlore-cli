@@ -5,18 +5,36 @@
 # DevLore CLI Installer
 # Usage: curl -sSL https://devlore.noblefactor.com/install.sh | bash
 #
+# For private repo (requires GitHub token):
+#   curl -sSL https://devlore.noblefactor.com/install.sh | GITHUB_TOKEN=<token> bash
+#
 # Options (via environment variables):
+#   GITHUB_TOKEN         - GitHub token for private repo access (or GH_TOKEN)
 #   DEVLORE_INSTALL_DIR  - Installation directory (default: ~/.local/bin)
 #   DEVLORE_VERSION      - Specific version to install (default: latest)
 #   DEVLORE_TOOLS        - Tools to install: "all", "writ", "lore" (default: all)
+#
+# Documentation references:
+#   - GitHub Releases API: https://docs.github.com/en/rest/releases/releases
+#   - GitHub Release Assets API: https://docs.github.com/en/rest/releases/assets
 
 set -euo pipefail
 
 # Configuration
-DOWNLOAD_BASE="${DEVLORE_DOWNLOAD_BASE:-https://devlore.noblefactor.com/releases}"
+GITHUB_REPO="NobleFactor/devlore-cli"
+GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}"
 INSTALL_DIR="${DEVLORE_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${DEVLORE_VERSION:-latest}"
 TOOLS="${DEVLORE_TOOLS:-all}"
+
+# GitHub authentication (required for private repo)
+# Per https://docs.github.com/en/rest/releases/assets - requires "Contents" read permission
+AUTH_HEADER=""
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    AUTH_HEADER="Authorization: Bearer ${GITHUB_TOKEN}"
+elif [[ -n "${GH_TOKEN:-}" ]]; then
+    AUTH_HEADER="Authorization: Bearer ${GH_TOKEN}"
+fi
 
 # Colors (disabled if not a terminal)
 if [[ -t 1 ]]; then
@@ -58,30 +76,74 @@ detect_arch() {
     esac
 }
 
-# Get latest version from the website
-get_latest_version() {
-    local url="${DOWNLOAD_BASE}/latest.txt"
-    local version
+# Make authenticated API request
+# Per https://docs.github.com/en/rest/releases/releases
+api_get() {
+    local url="$1"
     if command -v curl &>/dev/null; then
-        version=$(curl -sSL "$url" 2>/dev/null)
+        if [[ -n "$AUTH_HEADER" ]]; then
+            curl -sSL -H "Accept: application/vnd.github+json" -H "$AUTH_HEADER" "$url"
+        else
+            curl -sSL -H "Accept: application/vnd.github+json" "$url"
+        fi
     elif command -v wget &>/dev/null; then
-        version=$(wget -qO- "$url" 2>/dev/null)
+        if [[ -n "$AUTH_HEADER" ]]; then
+            wget -qO- --header="Accept: application/vnd.github+json" --header="$AUTH_HEADER" "$url"
+        else
+            wget -qO- --header="Accept: application/vnd.github+json" "$url"
+        fi
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
-    # Trim whitespace
-    echo "$version" | tr -d '[:space:]'
 }
 
-# Download file
-download() {
-    local url="$1"
+# Get latest release version from GitHub API
+# Per https://docs.github.com/en/rest/releases/releases#get-the-latest-release
+get_latest_version() {
+    local url="${GITHUB_API}/releases/latest"
+    local response
+    response=$(api_get "$url")
+    # Extract tag_name from JSON response
+    echo "$response" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+}
+
+# Get release by tag
+# Per https://docs.github.com/en/rest/releases/releases#get-a-release-by-tag-name
+get_release_by_tag() {
+    local tag="$1"
+    local url="${GITHUB_API}/releases/tags/${tag}"
+    api_get "$url"
+}
+
+# Extract asset ID from release JSON by filename
+# The release response contains an "assets" array with id, name, browser_download_url
+get_asset_id() {
+    local release_json="$1"
+    local asset_name="$2"
+    # Extract asset id where name matches
+    echo "$release_json" | grep -B5 "\"name\"[[:space:]]*:[[:space:]]*\"${asset_name}\"" | grep -o '"id"[[:space:]]*:[[:space:]]*[0-9]*' | head -1 | sed 's/.*:[[:space:]]*//'
+}
+
+# Download release asset by ID
+# Per https://docs.github.com/en/rest/releases/assets#get-a-release-asset
+# Must use Accept: application/octet-stream to get binary content
+download_asset() {
+    local asset_id="$1"
     local dest="$2"
+    local url="${GITHUB_API}/releases/assets/${asset_id}"
 
     if command -v curl &>/dev/null; then
-        curl -sSL "$url" -o "$dest"
+        if [[ -n "$AUTH_HEADER" ]]; then
+            curl -sSL -H "Accept: application/octet-stream" -H "$AUTH_HEADER" "$url" -o "$dest"
+        else
+            curl -sSL -H "Accept: application/octet-stream" "$url" -o "$dest"
+        fi
     elif command -v wget &>/dev/null; then
-        wget -q "$url" -O "$dest"
+        if [[ -n "$AUTH_HEADER" ]]; then
+            wget -q --header="Accept: application/octet-stream" --header="$AUTH_HEADER" "$url" -O "$dest"
+        else
+            wget -q --header="Accept: application/octet-stream" "$url" -O "$dest"
+        fi
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
@@ -112,6 +174,12 @@ main() {
     info "DevLore CLI Installer"
     echo
 
+    # Check for auth token (required for private repo)
+    if [[ -z "$AUTH_HEADER" ]]; then
+        warn "No GITHUB_TOKEN set. This will fail for private repositories."
+        warn "Set GITHUB_TOKEN with a token that has 'Contents' read permission."
+    fi
+
     # Detect platform
     local os=$(detect_os)
     local arch=$(detect_arch)
@@ -122,10 +190,18 @@ main() {
         info "Fetching latest version..."
         VERSION=$(get_latest_version)
         if [[ -z "$VERSION" ]]; then
-            error "Could not determine latest version. GitHub API may be rate-limited.\nTry setting DEVLORE_VERSION explicitly."
+            error "Could not determine latest version. Check GITHUB_TOKEN has correct permissions.\nFor private repos, token needs 'Contents' read permission."
         fi
     fi
     info "Version: $VERSION"
+
+    # Get release info
+    info "Fetching release info..."
+    local release_json
+    release_json=$(get_release_by_tag "$VERSION")
+    if [[ -z "$release_json" ]] || echo "$release_json" | grep -q '"message"[[:space:]]*:[[:space:]]*"Not Found"'; then
+        error "Release $VERSION not found. Check the version exists and GITHUB_TOKEN has correct permissions."
+    fi
 
     # Determine archive extension
     local ext="tar.gz"
@@ -133,31 +209,43 @@ main() {
         ext="zip"
     fi
 
-    # Build download URL (version includes 'v' prefix)
+    # Build asset names
     local archive_name="devlore-cli_${VERSION}_${os}_${arch}.${ext}"
     local checksums_name="devlore-cli_${VERSION}_checksums.txt"
-    local archive_url="${DOWNLOAD_BASE}/${archive_name}"
-    local checksums_url="${DOWNLOAD_BASE}/${checksums_name}"
+
+    # Get asset IDs
+    local archive_id
+    archive_id=$(get_asset_id "$release_json" "$archive_name")
+    if [[ -z "$archive_id" ]]; then
+        error "Asset $archive_name not found in release $VERSION"
+    fi
+
+    local checksums_id
+    checksums_id=$(get_asset_id "$release_json" "$checksums_name")
 
     # Create temp directory
     local tmp_dir
     tmp_dir=$(mktemp -d)
     trap "rm -rf '$tmp_dir'" EXIT
 
-    # Download archive
+    # Download archive via GitHub API
     info "Downloading ${archive_name}..."
-    download "$archive_url" "${tmp_dir}/${archive_name}"
+    download_asset "$archive_id" "${tmp_dir}/${archive_name}"
 
     # Download and verify checksum
-    info "Verifying checksum..."
-    download "$checksums_url" "${tmp_dir}/checksums.txt"
-    local expected_checksum
-    expected_checksum=$(grep "${archive_name}" "${tmp_dir}/checksums.txt" | awk '{print $1}')
-    if [[ -n "$expected_checksum" ]]; then
-        verify_checksum "${tmp_dir}/${archive_name}" "$expected_checksum"
-        success "Checksum verified"
+    if [[ -n "$checksums_id" ]]; then
+        info "Verifying checksum..."
+        download_asset "$checksums_id" "${tmp_dir}/checksums.txt"
+        local expected_checksum
+        expected_checksum=$(grep "${archive_name}" "${tmp_dir}/checksums.txt" | awk '{print $1}')
+        if [[ -n "$expected_checksum" ]]; then
+            verify_checksum "${tmp_dir}/${archive_name}" "$expected_checksum"
+            success "Checksum verified"
+        else
+            warn "Checksum not found for ${archive_name}, skipping verification"
+        fi
     else
-        warn "Checksum not found for ${archive_name}, skipping verification"
+        warn "Checksums file not found, skipping verification"
     fi
 
     # Extract archive
