@@ -86,6 +86,10 @@ The `release.yaml` workflow handles deployments automatically:
 3. **On push to `main`**: Builds binaries, deploys to website's `main` branch (production)
 4. **On push of `v*` tag**: Creates GitHub Release with binaries
 
+### Required Secrets
+
+See [devlore.noblefactor.com/DEPLOYMENT.md#github-secrets](https://github.com/NobleFactor/devlore.noblefactor.com/blob/develop/DEPLOYMENT.md#github-secrets) for full documentation of deployment secrets across both repositories.
+
 ## Release Artifacts
 
 Each release includes binaries and package manager assets for multiple platforms:
