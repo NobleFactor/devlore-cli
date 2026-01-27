@@ -6,7 +6,7 @@
 # Usage: curl -sSL https://devlore.noblefactor.com/install.sh | bash
 #
 # For private repo (requires GitHub token):
-#   curl -sSL https://devlore.noblefactor.com/install.sh | GH_TOKEN=$(gh auth token) bash
+#   curl -sSL https://devlore.noblefactor.com/install.sh | GH_TOKEN=$(unset GITHUB_TOKEN GH_TOKEN; gh auth token) bash
 #
 # Options (via environment variables):
 #   GH_TOKEN             - GitHub token for private repo access
