@@ -426,15 +426,15 @@ packages-manifest.yaml
          │
          ▼
 ┌───────────────────┐
-│ Pipeline Loader   │  ○ NOT STARTED
+│ Pipeline Loader   │  ⚠️ PARTIAL (lifecycle loading works)
 │ (deploy/upgrade/  │
 │  decommission)    │
 └────────┬──────────┘
          │
          ▼
 ┌───────────────────┐
-│ Starlark Executor │  ○ PARTIAL (internal/starlark/ exists)
-│ (run phase code)  │
+│ Starlark Bindings │  ⚠️ NEEDS REDESIGN (ADR-051 graph model)
+│ (build exec graph)│
 └────────┬──────────┘
          │
          ▼
@@ -508,72 +508,112 @@ type Package struct {
 
 ### 5.4 Pipeline Loader
 
-**Status:** Not started
+**Status:** ✓ PARTIAL — Lifecycle loading works, but executor needs graph-building integration
 **Priority:** High
-**Location:** Should be `internal/lore/pipeline/`
+**Location:** `internal/lore/pipeline/lifecycle.go`, `internal/lore/pipeline/executor.go`
 
-**Requirements:**
-- Load `lifecycle.yaml` from package manifest directory
-- Select correct pipeline based on operation:
-  - `deploy`: prepare → install → provision → verify
-  - `upgrade`: prepare → install → provision → verify (with version diff)
-  - `decommission`: unprovision → uninstall → cleanup
-- Load Starlark phase scripts (`prepare.star`, `install.star`, etc.)
-- Validate phase scripts exist and parse correctly
+**What's implemented:**
+- `Lifecycle` type loads and parses `lifecycle.yaml`
+- `LoadLifecycle(packageDir)` loads from package directory
+- `LoadLifecycleFromRegistry(registryDir, pkgName)` loads from registry
+- Operations defined: `OpDeploy`, `OpUpgrade`, `OpDecommission`
+- Phase order: `PhaseOrder = []string{"prepare", "install", "provision", "verify"}`
+- Decommission order: `DecommissionPhaseOrder = []string{"unprovision", "uninstall", "cleanup"}`
+- Features: `EnabledFeatures(explicit)` merges explicit enables with defaults
+- Settings: `ResolvedSettings(explicit)` merges explicit settings with defaults
 
-**Interface sketch:**
-```go
-type Loader interface {
-    LoadPipeline(ctx context.Context, pkg *Package, operation Operation) (*Pipeline, error)
-}
+**What's missing (per ADR-051):**
+- Executor should collect graph from Starlark scripts, not execute immediately
+- Graph should be passed to `Engine.Run()` for execution
+- Receipt should be the completed execution graph
 
-type Operation int
-const (
-    OpDeploy Operation = iota
-    OpUpgrade
-    OpDecommission
-)
+### 5.5 Starlark Bindings — Analysis Then Execute Model
 
-type Pipeline struct {
-    Phases []Phase
-}
-
-type Phase struct {
-    Name   string           // "prepare", "install", "provision", "verify"
-    Script string           // Path to .star file
-    Code   *starlark.Program // Parsed Starlark
-}
-```
-
-### 5.5 Starlark Executor
-
-**Status:** Partial (`internal/starlark/` exists but needs work)
+**Status:** ⚠️ NEEDS REDESIGN — Current implementation executes immediately; ADR-051 requires graph building
 **Priority:** High
-**Location:** `internal/starlark/`
+**Location:** `internal/starlark/bindings.go` (needs rewrite)
+**Design reference:** [ADR-051 Section 11.2](https://github.com/NobleFactor/noblefactor/blob/main/devlore/design/adr/051-receipt-as-execution-graph.md)
 
-**Requirements:**
-- Execute phase scripts with `ctx` object providing:
-  - `ctx.run(cmd)` — run shell commands
-  - `ctx.pmm.install(packages)` — install via package manager
-  - `ctx.pmm.remove(packages)` — remove via package manager
-  - `ctx.feature(name)` — check if feature is enabled
-  - `ctx.os`, `ctx.arch`, `ctx.distro` — platform info
-  - `ctx.user`, `ctx.home` — user info
-- Capture stdout/stderr for audit logging
-- Handle errors and return structured results
-- Support dry-run mode (no side effects)
+**Problem:** Current bindings execute side effects immediately (`package.install()` runs `apt install`). ADR-051 specifies a two-phase model where Starlark builds a graph, then the engine executes it.
 
-**Context object (Starlark builtins):**
+#### Phase Function Signature
+
+Each pipeline phase receives three inputs representing distinct concerns:
+
 ```python
-# prepare.star example
-def main(ctx):
-    if ctx.os == "linux":
-        ctx.run("curl -fsSL https://example.com/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/example.gpg")
-        ctx.run("sudo apt-get update")
-
-    if ctx.feature("compose"):
-        ctx.log("Compose feature enabled")
+def install(system, package, plan):
+    #        ↓        ↓       ↓
+    #      where    what     how
 ```
+
+| Input | Purpose | Access |
+|-------|---------|--------|
+| `system` | Query target environment | Read-only (immediate) |
+| `package` | Package metadata and features | Read-only (immediate) |
+| `plan` | Build execution graph | Write (deferred execution) |
+
+#### Binding Methods
+
+| Input | Methods | Description |
+|-------|---------|-------------|
+| `system` | `has(pm)`, `installed(pkg)`, `version(pkg)`, `path(p)`, `which(cmd)`, `platform()` | Query environment |
+| `package` | `name`, `version`, `feature(name)`, `setting(name, default)` | Package metadata |
+| `plan` | `install()`, `remove()`, `download()`, `extract()`, `write_file()`, `configure()`, `verify()` | Add operations to graph |
+
+#### Scripts Express Intent, Not Commands
+
+**CRITICAL:** Phase scripts NEVER invoke package managers or shell commands directly.
+
+```python
+# CORRECT: Express intent
+plan.install("docker-ce")
+plan.remove("docker.io")
+
+# WRONG: Never shell out to package managers
+plan.run("apt install docker-ce")      # ❌
+plan.run("brew install docker")        # ❌
+```
+
+The host binding layer maps intent to platform-specific commands. The engine
+batches operations (one `apt install` for all packages). Platform selection
+happens via writ segments (`install.star.Debian` vs `install.star.Fedora`),
+not conditionals in scripts.
+
+#### Example
+
+```python
+def install(system, package, plan):
+    # Query system state
+    if system.has("apt"):
+        plan.install("docker.io")
+    elif system.has("brew"):
+        plan.install("docker", cask=True)
+
+    # Check package features (enabled via --with)
+    if package.feature("rootless"):
+        plan.install("uidmap")
+        plan.run("dockerd-rootless-setuptool.sh --install")
+
+    # Promise-based data flow
+    tarball = plan.download(url="https://example.com/app.tar.gz")
+    plan.extract(tarball, dest="/usr/local")  # depends on tarball
+```
+
+#### Implementation Tasks
+
+1. Create `SystemBindings` struct — read-only environment queries
+2. Create `PackageBindings` struct — package metadata and feature checks
+3. Create `PlanBindings` struct — graph-building operations that return promises
+4. Update executor to pass three inputs to phase functions
+5. Collect graph from `plan` after Starlark completes
+6. Pass graph to `Engine.Run()` for execution
+
+**What exists today (needs rework):**
+- `internal/starlark/bindings.go` — Immediate execution model (wrong)
+- `internal/lore/pipeline/executor.go` — Runs scripts but doesn't collect graph
+- `cmd/pipeline/main.go` — Standalone PoC with immediate execution
+
+**Open design item:** Phase-to-phase transitions (state passing between prepare → install → provision → verify)
 
 ### 5.6 Lore Operations
 
@@ -950,7 +990,65 @@ internal/bindgen/cobra/
 
 ---
 
-## 8. Change Log
+## 8. Package Directory Structure Migration
+
+**Status:** Not started
+**Priority:** High
+**Blocking:** Pipeline loader, registry packages
+
+The package directory structure was formalized in RFC Section 9.3 (2025-01-26). Existing code and packages use the old flat structure and must be migrated.
+
+### 8.1 Formal Structure (ABNF)
+
+```abnf
+package         = "lifecycle.yaml" 1*platform-dir
+platform-dir    = platform "/" 1*pipeline-dir
+platform        = "Common" / "Darwin" / "Linux" / "Unix" / "Windows" / "Linux.Debian" / "Linux.Fedora"
+pipeline-dir    = pipeline "/" 1*phase-script
+pipeline        = "Deploy" / "Upgrade" / "Decommission"
+phase-script    = phase ".star"
+deploy-phase    = "prepare" / "install" / "provision" / "verify"
+decom-phase     = "unprovision" / "uninstall" / "cleanup"
+```
+
+### 8.2 Migration Tasks
+
+| Task | Location | Status |
+|------|----------|--------|
+| Remove `Phases map[string]string` from Lifecycle struct | `internal/lore/pipeline/lifecycle.go` | Not started |
+| Add phase discovery from directory structure | `internal/lore/pipeline/lifecycle.go` | Not started |
+| Update `GetPhaseScript()` to use platform/pipeline path | `internal/lore/pipeline/lifecycle.go` | Not started |
+| Migrate docker package to `Linux.Debian/Deploy/` structure | `devlore-registry/packages/docker/` | Not started |
+| Migrate kubectl package to `all/Deploy/` structure | `devlore-registry/packages/kubectl/` | Not started |
+| Migrate remaining 8 packages | `devlore-registry/packages/*/` | Not started |
+| Remove `phases:` from lifecycle.yaml files | `devlore-registry/packages/*/lifecycle.yaml` | Not started |
+| Update platform names to capitalized | `devlore-registry/packages/*/lifecycle.yaml` | Not started |
+
+### 8.3 Documents Updated (2025-01-26)
+
+| Document | Section | Change |
+|----------|---------|--------|
+| RFC (02-devlore-rfc.md) | 9.2 | Removed `phases:` from example, capitalized platforms |
+| RFC (02-devlore-rfc.md) | 9.3 | NEW: ABNF grammar, platform/pipeline directories, examples |
+| RFC (02-devlore-rfc.md) | 17.2 | Updated Fetch paths for nested structure |
+| RFC (02-devlore-rfc.md) | 18.1 | Updated registry structure examples |
+| ADR-051 | 11.2 | Three-input API, segment directory syntax (not suffix) |
+| lifecycle.json | NEW | JSON Schema for lifecycle.yaml (no `phases:` field) |
+| schema.go | | Added `LifecycleSchema` embed |
+| AUTHORING.md | 3.1-3.5 | Complete rewrite for new structure and three-input API |
+
+### 8.4 Documents NOT YET Updated
+
+| Document | Issue |
+|----------|-------|
+| Lore PRD (02-lore-prd.md) | May have old package structure references |
+| Existing lifecycle.yaml files | Still have `phases:` section and lowercase platforms |
+
+**Note:** ADR-051 Section 11.2 updated (2025-01-26) — fixed segment directory syntax.
+
+---
+
+## 9. Change Log
 
 | Date | Action | Details |
 |------|--------|---------|
@@ -965,3 +1063,5 @@ internal/bindgen/cobra/
 | 2025-01-25 | Synced | Updated ADR-051 with `layer` field for multi-layer support (context.layers, node.layer) |
 | 2025-01-25 | Updated | Registry Resolver (5.3) blocked on DESIGN-001: AI-Assisted Manifest Authoring |
 | 2025-01-25 | Added | Section 5.8: Interactive Console (Bubble Tea) for AI-assisted manifest authoring |
+| 2025-01-25 | Partial | Sections 5.4-5.5: Lifecycle loading implemented, but bindings need redesign per ADR-051 (graph-building model) |
+| 2025-01-25 | Design | Refined Starlark API: `def install(system, package, plan)` — three inputs for read/read/write concerns. Updated ADR-051 Section 11.2 |
