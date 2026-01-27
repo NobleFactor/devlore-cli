@@ -10,8 +10,11 @@
 #
 # Options (via environment variables):
 #   GITHUB_TOKEN         - GitHub token for private repo access (or GH_TOKEN)
+#                          Use: GITHUB_TOKEN=$(gh auth token) for OAuth token
 #   DEVLORE_INSTALL_DIR  - Installation directory (default: ~/.local/bin)
-#   DEVLORE_VERSION      - Specific version to install (default: latest)
+#   DEVLORE_VERSION      - Version to install (default: latest)
+#                          "latest" installs the most recent release (including prereleases)
+#                          Set explicitly (e.g., "v1.0.0") for a specific version
 #   DEVLORE_TOOLS        - Tools to install: "all", "writ", "lore" (default: all)
 #
 # Documentation references:
