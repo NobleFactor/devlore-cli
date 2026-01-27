@@ -199,8 +199,15 @@ main() {
     info "Fetching release info..."
     local release_json
     release_json=$(get_release_by_tag "$VERSION")
-    if [[ -z "$release_json" ]] || echo "$release_json" | grep -q '"message"[[:space:]]*:[[:space:]]*"Not Found"'; then
-        error "Release $VERSION not found. Check the version exists and GITHUB_TOKEN has correct permissions."
+    # Check for any API error - GitHub API returns "message" field on errors
+    # Per https://docs.github.com/en/rest/releases/releases
+    if [[ -z "$release_json" ]]; then
+        error "Empty response from GitHub API. Check GITHUB_TOKEN is set and valid."
+    fi
+    if echo "$release_json" | grep -q '"message"'; then
+        local api_error
+        api_error=$(echo "$release_json" | grep -o '"message"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*:\s*"\([^"]*\)".*/\1/')
+        error "GitHub API error: $api_error\nCheck GITHUB_TOKEN has Contents read permission."
     fi
 
     # Determine archive extension

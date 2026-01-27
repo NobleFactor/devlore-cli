@@ -114,6 +114,7 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   # Sync install script to website (keep website as distribution point for script only)
+  # Creates a PR instead of pushing directly to respect branch protection rules
   sync-install-script:
     needs: build-and-release
     runs-on: ubuntu-latest
@@ -147,14 +148,33 @@ jobs:
 
           git checkout "$TARGET_BRANCH" || git checkout -b "$TARGET_BRANCH"
 
+          # Check if there are changes
           git add public/install.sh
           if git diff --cached --quiet; then
             echo "No changes to install script"
             exit 0
           fi
 
+          # Create a PR branch instead of pushing directly (respects branch protection)
+          PR_BRANCH="sync-install-script-${{ github.sha }}"
+          git checkout -b "$PR_BRANCH"
+
           git commit -m "Update install script
 
           Source: ${{ github.repository }}@${{ github.sha }}
           Ref: ${{ github.ref }}"
-          git push origin "$TARGET_BRANCH"
+          git push origin "$PR_BRANCH"
+
+          # Create PR using gh CLI
+          # Per https://cli.github.com/manual/gh_pr_create
+          gh pr create \
+            --repo NobleFactor/devlore.noblefactor.com \
+            --base "$TARGET_BRANCH" \
+            --head "$PR_BRANCH" \
+            --title "Update install script from devlore-cli" \
+            --body "Automated sync of install.sh from devlore-cli.
+
+          Source: ${{ github.repository }}@${{ github.sha }}
+          Ref: ${{ github.ref }}"
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
