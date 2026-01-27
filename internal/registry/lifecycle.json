@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://noblefactor.com/schemas/lifecycle.json",
+  "title": "Lore Package Lifecycle",
+  "description": "Metadata for a lore package. Phase scripts are discovered from the directory structure (see RFC Section 9.3).",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Package name (must match directory name)",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "minLength": 1,
+      "examples": ["docker", "kubectl", "aws-cli"]
+    },
+    "version": {
+      "type": "string",
+      "description": "Package version or 'latest'",
+      "minLength": 1,
+      "examples": ["latest", "1.2.3", "27.5.1"]
+    },
+    "description": {
+      "type": "string",
+      "description": "One-line description of the package",
+      "minLength": 1
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri",
+      "description": "Official homepage URL"
+    },
+    "repository": {
+      "type": "string",
+      "format": "uri",
+      "description": "Source repository URL"
+    },
+    "license": {
+      "type": "string",
+      "description": "SPDX license identifier",
+      "examples": ["MIT", "Apache-2.0", "GPL-3.0-only"]
+    },
+    "maintainer": {
+      "type": "string",
+      "description": "Package maintainer name or organization"
+    },
+    "aliases": {
+      "type": "array",
+      "description": "Alternative names for AI-assisted search and validation",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "examples": [["docker ce", "docker engine", "container runtime"]]
+    },
+    "platforms": {
+      "type": "array",
+      "description": "Supported platforms (must have matching platform directories)",
+      "items": {
+        "type": "string",
+        "enum": ["Darwin", "Linux", "Windows"]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "features": {
+      "type": "object",
+      "description": "Optional features enabled via --with <feature>",
+      "additionalProperties": {
+        "$ref": "#/$defs/feature"
+      }
+    },
+    "settings": {
+      "type": "object",
+      "description": "Configurable settings via --with <setting>=<value>",
+      "additionalProperties": {
+        "$ref": "#/$defs/setting"
+      }
+    },
+    "provides": {
+      "type": "array",
+      "description": "Commands or capabilities this package provides",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "description": "Packages that conflict and must be removed first",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "sources": {
+      "type": "array",
+      "description": "Upstream release artifacts for verification and direct download",
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "verification": {
+      "type": "object",
+      "description": "How to verify successful installation",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Command to run for verification",
+          "examples": ["docker --version", "kubectl version --client"]
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern to match in command output",
+          "examples": ["Docker version \\d+\\.\\d+", "Client Version"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "hardware_provisions": {
+      "type": "object",
+      "description": "Hardware-specific configuration requirements",
+      "additionalProperties": {
+        "$ref": "#/$defs/hardware_provision"
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Tribal knowledge and important notes for maintainers"
+    },
+    "tags": {
+      "type": "array",
+      "description": "Categorization tags for search and filtering",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": ["name", "version", "description", "platforms"],
+  "additionalProperties": false,
+  "$defs": {
+    "feature": {
+      "type": "object",
+      "description": "Feature definition",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What this feature enables"
+        },
+        "default": {
+          "type": "boolean",
+          "description": "Whether enabled by default",
+          "default": false
+        },
+        "platforms": {
+          "type": "array",
+          "description": "Platforms where this feature is available (omit for all)",
+          "items": {
+            "type": "string",
+            "enum": ["Darwin", "Linux", "Windows"]
+          }
+        }
+      },
+      "required": ["description"],
+      "additionalProperties": false
+    },
+    "setting": {
+      "type": "object",
+      "description": "Setting definition",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "What this setting configures"
+        },
+        "type": {
+          "type": "string",
+          "description": "Value type",
+          "enum": ["string", "number", "boolean"],
+          "default": "string"
+        },
+        "default": {
+          "type": "string",
+          "description": "Default value"
+        },
+        "values": {
+          "type": "array",
+          "description": "Allowed values (if enumerated)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "description": "Platforms where this setting applies (omit for all)",
+          "items": {
+            "type": "string",
+            "enum": ["Darwin", "Linux", "Windows"]
+          }
+        }
+      },
+      "required": ["description"],
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "description": "Upstream release artifact",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Download URL"
+        },
+        "sha256": {
+          "type": "string",
+          "description": "SHA256 checksum",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["Darwin", "Linux", "Windows"]
+        },
+        "arch": {
+          "type": "string",
+          "enum": ["amd64", "arm64"],
+          "description": "CPU architecture"
+        }
+      },
+      "required": ["url", "sha256", "platform", "arch"],
+      "additionalProperties": false
+    },
+    "hardware_provision": {
+      "type": "object",
+      "description": "Hardware-specific configuration",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Why this hardware needs special handling"
+        },
+        "reference": {
+          "type": "string",
+          "format": "uri",
+          "description": "Documentation reference URL"
+        },
+        "boot_arg": {
+          "type": "string",
+          "description": "Kernel boot argument required"
+        }
+      },
+      "required": ["description"],
+      "additionalProperties": false
+    }
+  }
+}

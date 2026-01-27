@@ -23,6 +23,13 @@ var DevloreDefaultConfig []byte
 //go:embed packages-manifest.json
 var PackagesManifestSchema []byte
 
+// LifecycleSchema is provided by internal/registry for backward compatibility.
+// Prefer using registry.LifecycleSchema directly.
+// TODO: Remove this re-export once callers are updated.
+//
+//go:embed lifecycle.json
+var LifecycleSchema []byte
+
 // Legacy aliases for backward compatibility.
 // These point to the shared devlore schema and config.
 var (
