@@ -1825,26 +1825,6 @@ func newListCmd() *cobra.Command {
 	return cmd
 }
 
-func newInitCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Initialize a new dotfiles repository in the current directory",
-		Long: `Initialize a new dotfiles repository in the current directory.
-
-DEPRECATED: Use 'writ repo init' instead. This command is provided for
-backward compatibility and will be removed in a future release.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(os.Stderr, "Deprecated: use 'writ repo init' instead\n\n")
-			return runRepoInit(cmd, args)
-		},
-	}
-
-	cmd.Flags().String("layer", "personal", "Layer for the repository: personal or team")
-	cmd.Flags().Bool("force", false, "Overwrite existing structure")
-
-	return cmd
-}
-
 func newRepoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repo <subcommand>",

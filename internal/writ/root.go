@@ -64,7 +64,7 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.AddCommand(newAdoptCmd())
 	rootCmd.AddCommand(newListCmd())
 	rootCmd.AddCommand(newRepoCmd())
-	rootCmd.AddCommand(newInitCmd()) // Deprecated: use 'writ repo init'
+	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newSecretsCmd())
 	rootCmd.AddCommand(newReceiptCmd())
