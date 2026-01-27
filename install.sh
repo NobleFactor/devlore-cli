@@ -296,6 +296,16 @@ main() {
         error "No binaries found in archive"
     fi
 
+    # Run self-install for each tool to install man pages and completions
+    # self-install expects the root directory (e.g., ~/.local), not bin
+    local install_root="${INSTALL_DIR%/bin}"
+    [[ "$install_root" == "$INSTALL_DIR" ]] && install_root="$INSTALL_DIR"
+
+    for tool in "${installed[@]}"; do
+        info "Running ${tool} self-install..."
+        "${INSTALL_DIR}/${tool}" self-install "$install_root" --unattended || warn "${tool} self-install failed"
+    done
+
     echo
     success "Installed: ${installed[*]}"
     success "Location: ${INSTALL_DIR}"
