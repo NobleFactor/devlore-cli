@@ -8,13 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/internal/registry"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 )
 
@@ -44,20 +41,6 @@ func (o Operation) String() string {
 	}
 }
 
-// toRegistryOp converts pipeline.Operation to registry.Operation.
-func (o Operation) toRegistryOp() registry.Operation {
-	switch o {
-	case OpDeploy:
-		return registry.OpDeploy
-	case OpUpgrade:
-		return registry.OpUpgrade
-	case OpDecommission:
-		return registry.OpDecommission
-	default:
-		return registry.OpDeploy
-	}
-}
-
 // ExecutorConfig configures the pipeline executor.
 type ExecutorConfig struct {
 	// Features to enable for this execution.
@@ -77,9 +60,6 @@ type ExecutorConfig struct {
 
 	// SinglePhase runs only this phase (empty = all phases).
 	SinglePhase string
-
-	// Platform override (empty = auto-detect).
-	Platform string
 }
 
 // PhaseResult captures the result of executing a single phase.
@@ -91,14 +71,12 @@ type PhaseResult struct {
 	Success   bool
 	Error     error
 	Skipped   bool
-	Scripts   []string // Scripts that were executed for this phase
 }
 
 // ExecutionResult captures the result of a full pipeline execution.
 type ExecutionResult struct {
 	Package   string
 	Operation Operation
-	Platform  string
 	Started   time.Time
 	Completed time.Time
 	Duration  time.Duration
@@ -111,7 +89,6 @@ type ExecutionResult struct {
 type Executor struct {
 	config   ExecutorConfig
 	bindings *loreStar.Bindings
-	platform string // Resolved platform string for registry
 }
 
 // NewExecutor creates a new pipeline executor.
@@ -125,60 +102,17 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 
 	bindings := loreStar.NewBindings(cfg.Features, cfg.Settings, cfg.Output)
 
-	// Resolve platform
-	platform := cfg.Platform
-	if platform == "" {
-		platform = DetectPlatform()
-	}
-
 	return &Executor{
 		config:   cfg,
 		bindings: bindings,
-		platform: platform,
 	}
 }
 
-// DetectPlatform converts host.Platform to registry platform string.
-// Examples: "Darwin", "Linux", "Linux.Debian", "Linux.Fedora", "Windows"
-func DetectPlatform() string {
-	p := host.DetectPlatform()
-	switch p.OS {
-	case "darwin":
-		return "Darwin"
-	case "windows":
-		return "Windows"
-	case "linux":
-		// Qualify with distro if available
-		switch strings.ToLower(p.Distro) {
-		case "debian", "ubuntu":
-			return "Linux.Debian"
-		case "fedora", "rhel", "centos", "rocky", "alma":
-			return "Linux.Fedora"
-		default:
-			return "Linux"
-		}
-	default:
-		return "Linux"
-	}
-}
-
-// ExecutePackage runs the pipeline for a LorePackage.
-func (e *Executor) ExecutePackage(ctx context.Context, pkg *registry.LorePackage, op Operation) (*ExecutionResult, error) {
-	lifecycle := pkg.Lifecycle()
-	return e.execute(ctx, lifecycle, pkg.Dir, op)
-}
-
-// Execute runs the pipeline for a package lifecycle.
-// Deprecated: Use ExecutePackage with a LorePackage for proper directory resolution.
-func (e *Executor) Execute(ctx context.Context, lifecycle *registry.Lifecycle, packageDir string, op Operation) (*ExecutionResult, error) {
-	return e.execute(ctx, lifecycle, packageDir, op)
-}
-
-func (e *Executor) execute(ctx context.Context, lifecycle *registry.Lifecycle, packageDir string, op Operation) (*ExecutionResult, error) {
+// Execute runs the pipeline for a package.
+func (e *Executor) Execute(ctx context.Context, lifecycle *Lifecycle, op Operation) (*ExecutionResult, error) {
 	result := &ExecutionResult{
 		Package:   lifecycle.Name,
 		Operation: op,
-		Platform:  e.platform,
 		Started:   time.Now(),
 	}
 
@@ -197,7 +131,7 @@ func (e *Executor) execute(ctx context.Context, lifecycle *registry.Lifecycle, p
 	phases := e.phasesToRun(op)
 
 	if e.config.DryRun {
-		e.printDryRun(lifecycle, packageDir, op, phases)
+		e.printDryRun(lifecycle, phases)
 		result.Success = true
 		result.Completed = time.Now()
 		result.Duration = result.Completed.Sub(result.Started)
@@ -205,7 +139,6 @@ func (e *Executor) execute(ctx context.Context, lifecycle *registry.Lifecycle, p
 	}
 
 	// Run each phase
-	regOp := op.toRegistryOp()
 	for _, phaseName := range phases {
 		select {
 		case <-ctx.Done():
@@ -216,7 +149,7 @@ func (e *Executor) execute(ctx context.Context, lifecycle *registry.Lifecycle, p
 		default:
 		}
 
-		phaseResult := e.executePhase(lifecycle, packageDir, regOp, phaseName)
+		phaseResult := e.executePhase(lifecycle, phaseName)
 		result.Phases = append(result.Phases, phaseResult)
 
 		if !phaseResult.Success && !phaseResult.Skipped {
@@ -242,27 +175,22 @@ func (e *Executor) phasesToRun(op Operation) []string {
 
 	switch op {
 	case OpDecommission:
-		return registry.DecommissionPhaseOrder
-	case OpUpgrade:
-		return registry.UpgradePhaseOrder
+		return DecommissionPhaseOrder
 	default:
-		return registry.DeployPhaseOrder
+		return PhaseOrder
 	}
 }
 
-func (e *Executor) executePhase(lifecycle *registry.Lifecycle, packageDir string, op registry.Operation, phaseName string) PhaseResult {
+func (e *Executor) executePhase(lifecycle *Lifecycle, phaseName string) PhaseResult {
 	result := PhaseResult{
 		Name:    phaseName,
 		Started: time.Now(),
 	}
 
-	// Discover all scripts for this phase (chained execution)
-	scripts := lifecycle.DiscoverPhaseScripts(packageDir, e.platform, op, phaseName)
-	result.Scripts = scripts
-
-	if len(scripts) == 0 {
+	scriptPath := lifecycle.GetPhaseScript(phaseName)
+	if scriptPath == "" {
 		if e.config.Verbose {
-			fmt.Fprintf(e.config.Output, "Skipping phase %q (no scripts found)\n", phaseName)
+			fmt.Fprintf(e.config.Output, "Skipping phase %q (not defined)\n", phaseName)
 		}
 		result.Skipped = true
 		result.Success = true
@@ -271,25 +199,20 @@ func (e *Executor) executePhase(lifecycle *registry.Lifecycle, packageDir string
 		return result
 	}
 
-	e.printPhaseStart(phaseName, scripts)
+	e.printPhaseStart(phaseName)
 
-	// Execute scripts in order (general → specific)
-	for _, scriptPath := range scripts {
-		err := e.runPhaseScript(scriptPath, phaseName)
-		if err != nil {
-			result.Error = err
-			result.Success = false
-			result.Completed = time.Now()
-			result.Duration = result.Completed.Sub(result.Started)
-			fmt.Fprintf(e.config.Output, "\n✗ Phase %q failed in %s: %v\n", phaseName, scriptPath, err)
-			return result
-		}
-	}
-
-	result.Success = true
+	err := e.runPhaseScript(scriptPath, phaseName)
 	result.Completed = time.Now()
 	result.Duration = result.Completed.Sub(result.Started)
-	fmt.Fprintf(e.config.Output, "✓ Phase %q completed\n\n", phaseName)
+
+	if err != nil {
+		result.Error = err
+		result.Success = false
+		fmt.Fprintf(e.config.Output, "\n✗ Phase %q failed: %v\n", phaseName, err)
+	} else {
+		result.Success = true
+		fmt.Fprintf(e.config.Output, "✓ Phase %q completed\n\n", phaseName)
+	}
 
 	return result
 }
@@ -332,13 +255,12 @@ func (e *Executor) runPhaseScript(scriptPath, phaseName string) error {
 	return nil
 }
 
-func (e *Executor) printHeader(lifecycle *registry.Lifecycle, features []string, settings map[string]string) {
+func (e *Executor) printHeader(lifecycle *Lifecycle, features []string, settings map[string]string) {
 	fmt.Fprintln(e.config.Output, "╔════════════════════════════════════════════════════════════════╗")
 	fmt.Fprintf(e.config.Output, "║  Lore Pipeline: %s\n", lifecycle.Name)
 	fmt.Fprintln(e.config.Output, "╚════════════════════════════════════════════════════════════════╝")
 	fmt.Fprintln(e.config.Output)
 	fmt.Fprintf(e.config.Output, "Package:  %s v%s\n", lifecycle.Name, lifecycle.Version)
-	fmt.Fprintf(e.config.Output, "Platform: %s\n", e.platform)
 	fmt.Fprintf(e.config.Output, "Features: %v\n", features)
 	if len(settings) > 0 {
 		fmt.Fprintf(e.config.Output, "Settings: %v\n", settings)
@@ -346,32 +268,24 @@ func (e *Executor) printHeader(lifecycle *registry.Lifecycle, features []string,
 	fmt.Fprintln(e.config.Output)
 }
 
-func (e *Executor) printDryRun(lifecycle *registry.Lifecycle, packageDir string, op Operation, phases []string) {
-	regOp := op.toRegistryOp()
+func (e *Executor) printDryRun(lifecycle *Lifecycle, phases []string) {
 	fmt.Fprintln(e.config.Output, "[DRY RUN] Would execute the following phases:")
 	for _, phaseName := range phases {
-		scripts := lifecycle.DiscoverPhaseScripts(packageDir, e.platform, regOp, phaseName)
-		if len(scripts) > 0 {
-			fmt.Fprintf(e.config.Output, "  - %s:\n", phaseName)
-			for _, s := range scripts {
-				fmt.Fprintf(e.config.Output, "      %s\n", s)
-			}
+		if script, ok := lifecycle.Phases[phaseName]; ok {
+			fmt.Fprintf(e.config.Output, "  - %s: %s\n", phaseName, script)
 		} else {
-			fmt.Fprintf(e.config.Output, "  - %s: (no scripts, would skip)\n", phaseName)
+			fmt.Fprintf(e.config.Output, "  - %s: (not defined, would skip)\n", phaseName)
 		}
 	}
 }
 
-func (e *Executor) printPhaseStart(phaseName string, scripts []string) {
+func (e *Executor) printPhaseStart(phaseName string) {
 	fmt.Fprintln(e.config.Output, "────────────────────────────────────────────────────────────────")
 	fmt.Fprintf(e.config.Output, "Phase: %s\n", phaseName)
-	if len(scripts) > 1 {
-		fmt.Fprintf(e.config.Output, "Scripts: %d (chained)\n", len(scripts))
-	}
 	fmt.Fprintln(e.config.Output, "────────────────────────────────────────────────────────────────")
 }
 
-func (e *Executor) printSuccess(lifecycle *registry.Lifecycle) {
+func (e *Executor) printSuccess(lifecycle *Lifecycle) {
 	fmt.Fprintln(e.config.Output, "════════════════════════════════════════════════════════════════")
 	fmt.Fprintf(e.config.Output, "✓ Pipeline completed successfully for %s\n", lifecycle.Name)
 	fmt.Fprintln(e.config.Output, "════════════════════════════════════════════════════════════════")

@@ -9,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
 
 func TestLoadLifecycle(t *testing.T) {
@@ -25,8 +23,8 @@ func TestLoadLifecycle(t *testing.T) {
 version: "1.0.0"
 description: "Test package"
 platforms:
-  - Darwin
-  - Linux
+  - darwin
+  - linux
 features:
   completions:
     description: "Install shell completions"
@@ -39,12 +37,16 @@ settings:
     description: "Shell to configure"
     type: string
     default: zsh
+phases:
+  prepare: prepare.star
+  install: install.star
+  verify: verify.star
 `
 	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	lifecycle, err := registry.LoadLifecycle(pkgDir)
+	lifecycle, err := LoadLifecycle(pkgDir)
 	if err != nil {
 		t.Fatalf("LoadLifecycle failed: %v", err)
 	}
@@ -59,11 +61,14 @@ settings:
 	if len(lifecycle.Platforms) != 2 {
 		t.Errorf("len(Platforms) = %d, want 2", len(lifecycle.Platforms))
 	}
+	if lifecycle.PackageDir != pkgDir {
+		t.Errorf("PackageDir = %q, want %q", lifecycle.PackageDir, pkgDir)
+	}
 }
 
 func TestLifecycleEnabledFeatures(t *testing.T) {
-	lifecycle := &registry.Lifecycle{
-		Features: map[string]registry.Feature{
+	lifecycle := &Lifecycle{
+		Features: map[string]Feature{
 			"completions": {Default: true},
 			"debug":       {Default: false},
 			"telemetry":   {Default: true},
@@ -126,8 +131,8 @@ func TestLifecycleEnabledFeatures(t *testing.T) {
 }
 
 func TestLifecycleResolvedSettings(t *testing.T) {
-	lifecycle := &registry.Lifecycle{
-		Settings: map[string]registry.Setting{
+	lifecycle := &Lifecycle{
+		Settings: map[string]Setting{
 			"shell":  {Default: "zsh"},
 			"editor": {Default: "vim"},
 		},
@@ -148,132 +153,51 @@ func TestLifecycleResolvedSettings(t *testing.T) {
 }
 
 func TestLifecycleHasPhase(t *testing.T) {
-	// Create a temporary package with phase scripts
-	tmpDir := t.TempDir()
-	pkgDir := filepath.Join(tmpDir, "testpkg")
-
-	// Create directory structure: Common/Deploy/prepare.star, Common/Deploy/install.star
-	deployDir := filepath.Join(pkgDir, "Common", "Deploy")
-	if err := os.MkdirAll(deployDir, 0755); err != nil {
-		t.Fatal(err)
+	lifecycle := &Lifecycle{
+		Phases: map[string]string{
+			"prepare": "prepare.star",
+			"install": "install.star",
+		},
 	}
 
-	if err := os.WriteFile(filepath.Join(deployDir, "prepare.star"), []byte("def prepare(): pass"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(deployDir, "install.star"), []byte("def install(): pass"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create lifecycle.yaml
-	lifecycleYAML := `name: testpkg
-version: "1.0"
-description: "Test"
-platforms:
-  - Darwin
-  - Linux
-`
-	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	lifecycle, err := registry.LoadLifecycle(pkgDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !lifecycle.HasPhase(pkgDir, "Darwin", registry.OpDeploy, "prepare") {
+	if !lifecycle.HasPhase("prepare") {
 		t.Error("HasPhase(prepare) = false, want true")
 	}
-	if !lifecycle.HasPhase(pkgDir, "Darwin", registry.OpDeploy, "install") {
-		t.Error("HasPhase(install) = false, want true")
-	}
-	if lifecycle.HasPhase(pkgDir, "Darwin", registry.OpDeploy, "provision") {
+	if lifecycle.HasPhase("provision") {
 		t.Error("HasPhase(provision) = true, want false")
 	}
 }
 
-func TestLifecycleDiscoverPhaseScripts(t *testing.T) {
-	// Create a temporary package with chained phase scripts
-	tmpDir := t.TempDir()
-	pkgDir := filepath.Join(tmpDir, "testpkg")
-
-	// Create Common/Deploy/install.star
-	commonDeployDir := filepath.Join(pkgDir, "Common", "Deploy")
-	if err := os.MkdirAll(commonDeployDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(commonDeployDir, "install.star"), []byte("def install(): pass"), 0644); err != nil {
-		t.Fatal(err)
+func TestLifecycleGetPhaseScript(t *testing.T) {
+	lifecycle := &Lifecycle{
+		PackageDir: "/registry/testpkg",
+		Phases: map[string]string{
+			"install": "install.star",
+		},
 	}
 
-	// Create Unix/Deploy/install.star
-	unixDeployDir := filepath.Join(pkgDir, "Unix", "Deploy")
-	if err := os.MkdirAll(unixDeployDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(unixDeployDir, "install.star"), []byte("def install(): pass"), 0644); err != nil {
-		t.Fatal(err)
+	got := lifecycle.GetPhaseScript("install")
+	want := "/registry/testpkg/install.star"
+	if got != want {
+		t.Errorf("GetPhaseScript(install) = %q, want %q", got, want)
 	}
 
-	// Create Darwin/Deploy/install.star
-	darwinDeployDir := filepath.Join(pkgDir, "Darwin", "Deploy")
-	if err := os.MkdirAll(darwinDeployDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(darwinDeployDir, "install.star"), []byte("def install(): pass"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create lifecycle.yaml
-	lifecycleYAML := `name: testpkg
-version: "1.0"
-description: "Test"
-platforms:
-  - Darwin
-`
-	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	lifecycle, err := registry.LoadLifecycle(pkgDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Should discover all three scripts in order: Common → Unix → Darwin
-	scripts := lifecycle.DiscoverPhaseScripts(pkgDir, "Darwin", registry.OpDeploy, "install")
-	if len(scripts) != 3 {
-		t.Errorf("len(scripts) = %d, want 3", len(scripts))
-	}
-
-	// Verify order: Common first, Unix second, Darwin last
-	if len(scripts) >= 1 && filepath.Base(filepath.Dir(filepath.Dir(scripts[0]))) != "Common" {
-		t.Errorf("first script should be from Common, got %s", scripts[0])
-	}
-	if len(scripts) >= 2 && filepath.Base(filepath.Dir(filepath.Dir(scripts[1]))) != "Unix" {
-		t.Errorf("second script should be from Unix, got %s", scripts[1])
-	}
-	if len(scripts) >= 3 && filepath.Base(filepath.Dir(filepath.Dir(scripts[2]))) != "Darwin" {
-		t.Errorf("third script should be from Darwin, got %s", scripts[2])
+	got = lifecycle.GetPhaseScript("provision")
+	if got != "" {
+		t.Errorf("GetPhaseScript(provision) = %q, want empty", got)
 	}
 }
 
 func TestLifecycleSupportsPlatform(t *testing.T) {
-	lifecycle := &registry.Lifecycle{
-		Platforms: []string{"Darwin", "Linux"},
+	lifecycle := &Lifecycle{
+		Platforms: []string{"darwin", "linux"},
 	}
 
-	if !lifecycle.SupportsPlatform("Darwin") {
-		t.Error("SupportsPlatform(Darwin) = false, want true")
+	if !lifecycle.SupportsPlatform("darwin") {
+		t.Error("SupportsPlatform(darwin) = false, want true")
 	}
-	if lifecycle.SupportsPlatform("Windows") {
-		t.Error("SupportsPlatform(Windows) = true, want false")
-	}
-	// Test distro matching
-	lifecycle.Platforms = []string{"Linux"}
-	if !lifecycle.SupportsPlatform("Linux.Debian") {
-		t.Error("SupportsPlatform(Linux.Debian) = false, want true (matches Linux)")
+	if lifecycle.SupportsPlatform("windows") {
+		t.Error("SupportsPlatform(windows) = true, want false")
 	}
 }
 
@@ -281,43 +205,35 @@ func TestExecutorDryRun(t *testing.T) {
 	// Create a temporary package
 	tmpDir := t.TempDir()
 	pkgDir := filepath.Join(tmpDir, "dryrunpkg")
-
-	// Create Common/Deploy/prepare.star and Common/Deploy/install.star
-	deployDir := filepath.Join(pkgDir, "Common", "Deploy")
-	if err := os.MkdirAll(deployDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(deployDir, "prepare.star"), []byte("def prepare(): pass"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(deployDir, "install.star"), []byte("def install(): pass"), 0644); err != nil {
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
 	lifecycleYAML := `name: dryrunpkg
 version: "1.0"
-description: "Dry run test"
 platforms:
-  - Darwin
-  - Linux
+  - darwin
+  - linux
+phases:
+  prepare: prepare.star
+  install: install.star
 `
 	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	lifecycle, err := registry.LoadLifecycle(pkgDir)
+	lifecycle, err := LoadLifecycle(pkgDir)
 	if err != nil {
 		t.Fatalf("LoadLifecycle failed: %v", err)
 	}
 
 	var buf bytes.Buffer
 	executor := NewExecutor(ExecutorConfig{
-		DryRun:   true,
-		Output:   &buf,
-		Platform: "Darwin",
+		DryRun: true,
+		Output: &buf,
 	})
 
-	result, err := executor.Execute(context.Background(), lifecycle, pkgDir, OpDeploy)
+	result, err := executor.Execute(context.Background(), lifecycle, OpDeploy)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -336,19 +252,18 @@ func TestExecutorWithPhaseScripts(t *testing.T) {
 	// Create a temporary package with real Starlark scripts
 	tmpDir := t.TempDir()
 	pkgDir := filepath.Join(tmpDir, "realpkg")
-
-	// Create Common/Deploy/ directory
-	deployDir := filepath.Join(pkgDir, "Common", "Deploy")
-	if err := os.MkdirAll(deployDir, 0755); err != nil {
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
 	lifecycleYAML := `name: realpkg
 version: "1.0"
-description: "Real package test"
 platforms:
-  - Darwin
-  - Linux
+  - darwin
+  - linux
+phases:
+  install: install.star
+  verify: verify.star
 `
 	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -358,7 +273,7 @@ platforms:
 	installStar := `def install():
     note("Installing realpkg")
 `
-	if err := os.WriteFile(filepath.Join(deployDir, "install.star"), []byte(installStar), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "install.star"), []byte(installStar), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -366,23 +281,22 @@ platforms:
 	verifyStar := `def verify():
     note("Verifying realpkg")
 `
-	if err := os.WriteFile(filepath.Join(deployDir, "verify.star"), []byte(verifyStar), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "verify.star"), []byte(verifyStar), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	lifecycle, err := registry.LoadLifecycle(pkgDir)
+	lifecycle, err := LoadLifecycle(pkgDir)
 	if err != nil {
 		t.Fatalf("LoadLifecycle failed: %v", err)
 	}
 
 	var buf bytes.Buffer
 	executor := NewExecutor(ExecutorConfig{
-		Output:   &buf,
-		Verbose:  true,
-		Platform: "Darwin",
+		Output:  &buf,
+		Verbose: true,
 	})
 
-	result, err := executor.Execute(context.Background(), lifecycle, pkgDir, OpDeploy)
+	result, err := executor.Execute(context.Background(), lifecycle, OpDeploy)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -419,33 +333,5 @@ func TestOperationString(t *testing.T) {
 		if got := tt.op.String(); got != tt.want {
 			t.Errorf("%d.String() = %q, want %q", tt.op, got, tt.want)
 		}
-	}
-}
-
-func TestPlatformResolutionOrder(t *testing.T) {
-	tests := []struct {
-		platform string
-		want     []string
-	}{
-		{"Darwin", []string{"Common", "Unix", "Darwin"}},
-		{"Linux", []string{"Common", "Unix", "Linux"}},
-		{"Linux.Debian", []string{"Common", "Unix", "Linux", "Linux.Debian"}},
-		{"Linux.Fedora", []string{"Common", "Unix", "Linux", "Linux.Fedora"}},
-		{"Windows", []string{"Common", "Windows"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.platform, func(t *testing.T) {
-			got := registry.PlatformResolutionOrder(tt.platform)
-			if len(got) != len(tt.want) {
-				t.Errorf("len = %d, want %d; got %v", len(got), len(tt.want), got)
-				return
-			}
-			for i, p := range tt.want {
-				if got[i] != p {
-					t.Errorf("order[%d] = %q, want %q", i, got[i], p)
-				}
-			}
-		})
 	}
 }
