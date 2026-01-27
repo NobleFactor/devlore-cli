@@ -10,8 +10,11 @@
 #
 # Options (via environment variables):
 #   GITHUB_TOKEN         - GitHub token for private repo access (or GH_TOKEN)
+#                          Use: GITHUB_TOKEN=$(gh auth token) for OAuth token
 #   DEVLORE_INSTALL_DIR  - Installation directory (default: ~/.local/bin)
-#   DEVLORE_VERSION      - Specific version to install (default: latest)
+#   DEVLORE_VERSION      - Version to install (default: latest)
+#                          "latest" installs the most recent release (including prereleases)
+#                          Set explicitly (e.g., "v1.0.0") for a specific version
 #   DEVLORE_TOOLS        - Tools to install: "all", "writ", "lore" (default: all)
 #
 # Documentation references:
@@ -98,12 +101,14 @@ api_get() {
 }
 
 # Get latest release version from GitHub API
-# Per https://docs.github.com/en/rest/releases/releases#get-the-latest-release
+# Per https://docs.github.com/en/rest/releases/releases#list-releases
+# Uses /releases?per_page=1 to get the most recent release (including prereleases)
+# Note: /releases/latest excludes prereleases, so we use the list endpoint instead
 get_latest_version() {
-    local url="${GITHUB_API}/releases/latest"
+    local url="${GITHUB_API}/releases?per_page=1"
     local response
     response=$(api_get "$url")
-    # Extract tag_name from JSON response
+    # Extract tag_name from JSON response (first item in array)
     echo "$response" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
 }
 
