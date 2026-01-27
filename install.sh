@@ -4,14 +4,18 @@
 #
 # DevLore CLI Installer
 # Usage: curl -sSL https://devlore.noblefactor.com/install.sh | bash
+#        curl -sSL https://devlore.noblefactor.com/install.sh | bash -s -- --prefix=/opt/devlore
 #
 # For private repo (requires GitHub token):
 #   curl -sSL https://devlore.noblefactor.com/install.sh | GH_TOKEN=$(unset GITHUB_TOKEN GH_TOKEN; gh auth token) bash
 #
-# Options (via environment variables):
+# Arguments:
+#   --prefix=<dir>       - Installation prefix (default: ~/.local per XDG)
+#                          Binaries go to <prefix>/bin, man pages to <prefix>/share/man, etc.
+#
+# Environment variables:
 #   GH_TOKEN             - GitHub token for private repo access
 #                          Use: GH_TOKEN=$(gh auth token) for OAuth token
-#   DEVLORE_INSTALL_DIR  - Installation directory (default: ~/.local/bin)
 #   DEVLORE_VERSION      - Version to install (default: latest)
 #                          "latest" installs the most recent release (including prereleases)
 #                          Set explicitly (e.g., "v1.0.0") for a specific version
@@ -23,10 +27,24 @@
 
 set -euo pipefail
 
+# Parse arguments
+PREFIX=""
+for arg in "$@"; do
+    case "$arg" in
+        --prefix=*) PREFIX="${arg#*=}" ;;
+        --help|-h)
+            echo "Usage: install.sh [--prefix=<dir>]"
+            echo "  --prefix=<dir>  Installation prefix (default: ~/.local)"
+            exit 0
+            ;;
+    esac
+done
+
 # Configuration
 GITHUB_REPO="NobleFactor/devlore-cli"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}"
-INSTALL_DIR="${DEVLORE_INSTALL_DIR:-$HOME/.local/bin}"
+PREFIX="${PREFIX:-$HOME/.local}"
+INSTALL_DIR="${PREFIX}/bin"
 VERSION="${DEVLORE_VERSION:-latest}"
 TOOLS="${DEVLORE_TOOLS:-all}"
 
@@ -297,13 +315,9 @@ main() {
     fi
 
     # Run self-install for each tool to install man pages and completions
-    # self-install expects the root directory (e.g., ~/.local), not bin
-    local install_root="${INSTALL_DIR%/bin}"
-    [[ "$install_root" == "$INSTALL_DIR" ]] && install_root="$INSTALL_DIR"
-
     for tool in "${installed[@]}"; do
         info "Running ${tool} self-install..."
-        "${INSTALL_DIR}/${tool}" self-install "$install_root" --unattended || warn "${tool} self-install failed"
+        "${INSTALL_DIR}/${tool}" self-install "$PREFIX" --unattended || warn "${tool} self-install failed"
     done
 
     echo
