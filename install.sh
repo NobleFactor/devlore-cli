@@ -98,12 +98,14 @@ api_get() {
 }
 
 # Get latest release version from GitHub API
-# Per https://docs.github.com/en/rest/releases/releases#get-the-latest-release
+# Per https://docs.github.com/en/rest/releases/releases#list-releases
+# Uses /releases?per_page=1 to get the most recent release (including prereleases)
+# Note: /releases/latest excludes prereleases, so we use the list endpoint instead
 get_latest_version() {
-    local url="${GITHUB_API}/releases/latest"
+    local url="${GITHUB_API}/releases?per_page=1"
     local response
     response=$(api_get "$url")
-    # Extract tag_name from JSON response
+    # Extract tag_name from JSON response (first item in array)
     echo "$response" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
 }
 
