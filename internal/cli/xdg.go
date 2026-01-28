@@ -65,3 +65,29 @@ func ZshCompletionPath() string {
 func FishCompletionPath() string {
 	return filepath.Join(ConfigHome(), "fish", "completions")
 }
+
+// Unified devlore paths for shared configuration across writ and lore.
+
+// DevloreConfigHome returns the unified devlore config directory.
+// XDG_CONFIG_HOME/devlore
+func DevloreConfigHome() string {
+	return filepath.Join(ConfigHome(), "devlore")
+}
+
+// DevloreCacheHome returns the unified devlore cache directory.
+// XDG_CACHE_HOME/devlore
+func DevloreCacheHome() string {
+	return filepath.Join(CacheHome(), "devlore")
+}
+
+// DevloreDataHome returns the unified devlore data directory.
+// XDG_DATA_HOME/devlore
+func DevloreDataHome() string {
+	return filepath.Join(DataHome(), "devlore")
+}
+
+// DevloreStateHome returns the unified devlore state directory.
+// XDG_STATE_HOME/devlore
+func DevloreStateHome() string {
+	return filepath.Join(StateHome(), "devlore")
+}

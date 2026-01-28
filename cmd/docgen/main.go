@@ -50,7 +50,7 @@ func run(outputDir, version string) error {
 func countCommands(cmd *cobra.Command) int {
 	count := 0
 	for _, c := range cmd.Commands() {
-		if !c.Hidden && c.Name() != "help" && c.Name() != "completion" && c.Name() != "man" && c.Name() != "version" {
+		if !c.Hidden && c.Name() != "help" && c.Name() != "man" && c.Name() != "version" {
 			count++
 			count += countCommands(c)
 		}

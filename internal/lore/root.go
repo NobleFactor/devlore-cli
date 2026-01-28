@@ -29,6 +29,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:                   "lore",
 		Short:                 "The tribal knowledge package deployer",
+		CompletionOptions:     cobra.CompletionOptions{DisableDefaultCmd: true},
 		DisableAutoGenTag:     true,
 		Long: `Lore is a cross-platform package deployment tool that captures tribal
 knowledge about installing software.
@@ -93,7 +94,6 @@ What took someone hours to figure out, you get in minutes.`,
 	// Add shared commands from cli
 	// Replace Cobra's built-in help with git-style help (prefers man pages)
 	rootCmd.SetHelpCommand(cli.NewHelpCmd(rootCmd, manHeader))
-	rootCmd.AddCommand(cli.NewCompletionCmd(rootCmd))
 	rootCmd.AddCommand(cli.NewVersionCmd(cli.VersionInfo{
 		Version:   version,
 		Commit:    commit,

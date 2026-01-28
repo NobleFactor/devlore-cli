@@ -20,24 +20,21 @@ make install        # Install binaries to ~/.local/bin (or GOBIN)
 make install-all    # Install binaries, completions, and man pages
 ```
 
-## On-Demand Generation
+## Self-Install
 
-Both tools generate shell completions and man pages on demand:
+Use `self-install` to install binaries, man pages, and shell completions:
 
 ```bash
-# Shell completions
-lore completion bash              # Output to stdout
-lore completion bash --install    # Install to XDG_DATA_HOME
+# Install to ~/.local (default)
+writ self-install ~/.local
+lore self-install ~/.local
 
-writ completion zsh               # Output to stdout
-writ completion zsh --install     # Install to XDG_DATA_HOME
+# Specify shells explicitly (auto-detects by default)
+writ self-install ~/.local --shell bash --shell zsh
 
 # Man pages
 lore man                          # Display with pager
-lore man --install                # Install to XDG_DATA_HOME/man/man1
-
 writ man deploy                   # Display man page for subcommand
-writ man --install                # Install all man pages
 ```
 
 ## XDG Compliance
@@ -46,14 +43,15 @@ All paths follow the [XDG Base Directory Specification](https://specifications.f
 
 | Artifact | Default Path |
 |----------|--------------|
-| Config | `$XDG_CONFIG_HOME/lore/` (~/.config/lore/) |
-| Data | `$XDG_DATA_HOME/lore/` (~/.local/share/lore/) |
-| Cache | `$XDG_CACHE_HOME/lore/` (~/.cache/lore/) |
-| State | `$XDG_STATE_HOME/lore/` (~/.local/state/lore/) |
-| Man pages | `$XDG_DATA_HOME/man/man1/` |
-| Bash completions | `$XDG_DATA_HOME/bash-completion/completions/` |
-| Zsh completions | `$XDG_DATA_HOME/zsh/site-functions/` |
-| Fish completions | `$XDG_CONFIG_HOME/fish/completions/` |
+| Shared config | `$XDG_CONFIG_HOME/devlore/config.yaml` |
+| Tool configs | `$XDG_CONFIG_HOME/devlore/config.d/{writ,lore}.yaml` |
+| Cache | `$XDG_CACHE_HOME/devlore/{writ,lore}/` |
+| Data | `$XDG_DATA_HOME/devlore/{writ,lore}/` |
+| State | `$XDG_STATE_HOME/devlore/{writ,lore}/` |
+| Man pages | `<prefix>/share/man/man1/` |
+| Bash completions | `<prefix>/share/bash-completion/completions/` |
+| Zsh completions | `<prefix>/share/zsh/site-functions/` |
+| Fish completions | `<prefix>/share/fish/vendor_completions.d/` |
 
 ## Project Structure
 
@@ -64,8 +62,8 @@ devlore-cli/
 │   └── writ/main.go           # writ entry point
 ├── internal/
 │   ├── cli/                   # Shared CLI infrastructure
-│   │   ├── completion.go      # completion command
 │   │   ├── man.go             # man command
+│   │   ├── selfinstall.go     # self-install command
 │   │   ├── version.go         # version command
 │   │   └── xdg.go             # XDG path helpers
 │   ├── lore/                  # Lore-specific commands

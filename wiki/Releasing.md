@@ -2,14 +2,53 @@
 
 DevLore CLI uses a branch-based release workflow with automated deployments to the documentation website.
 
+## GitHub Actions Workflows
+
+All CI/CD automation lives in `.github/workflows/`:
+
+| Workflow | File | Triggers | What It Does |
+|----------|------|----------|--------------|
+| **CI** | `ci.yaml` | Push to `develop`, PRs to `develop` | Build, vet, lint, test, shell lint |
+| **Docs Publish** | `docs-publish.yaml` | Push to `develop`, `main`, `release/*` | Generates CLI docs, copies guides, creates PR to website |
+| **Release** | `release.yaml` | Push to `develop`, `main`, `release/*`, tags `v*` | Builds binaries, creates GitHub release, syncs `install.sh` to website |
+
+### Workflow Details
+
+**ci.yaml** - Quality gate for development:
+- Runs on every push to `develop` and every PR
+- Steps: `go build`, `go vet`, `golangci-lint`, `go test`, shell lint
+- Must pass before merge
+
+**docs-publish.yaml** - Documentation sync:
+- Generates CLI reference docs via `cmd/docgen`
+- Copies `docs/guides/` (hand-written guides)
+- Creates PR to `devlore.noblefactor.com` with content in `src/content/cli/` and `src/content/guides/`
+- Uses `SITE_DEPLOY_TOKEN` secret
+
+**release.yaml** - Binary releases and install script sync:
+- Builds cross-platform binaries via `make dist`
+- Creates GitHub Release (prerelease for develop/release/*, full release for tags)
+- Syncs `install.sh` to website via PR
+- Uses `SITE_DEPLOY_TOKEN` secret for website access, `GITHUB_TOKEN` for releases
+
+### What Happens on Push
+
+| Push to... | ci.yaml | docs-publish.yaml | release.yaml |
+|------------|---------|-------------------|--------------|
+| `develop` | Runs | Creates docs PR | Creates prerelease, syncs install.sh |
+| `main` | — | Creates docs PR | Creates RC release, syncs install.sh |
+| `release/*` | — | Creates docs PR | Creates RC release, syncs install.sh |
+| `v*` tag | — | — | Creates full release |
+| PR to `develop` | Runs | — | — |
+
 ## Branch Strategy
 
-| Branch | Purpose | Website Deployment |
-|--------|---------|-------------------|
-| `develop` | Active development | Preview environment |
-| `release/*` | Release candidates | Preview environment |
-| `main` | Production releases | Production |
-| `v*` tags | Version releases | Production |
+| Branch | Purpose |
+|--------|---------|
+| `develop` | Active development |
+| `release/*` | Release candidates |
+| `main` | Production releases |
+| `v*` tags | Version releases |
 
 ## Development Flow
 
@@ -60,9 +99,7 @@ git tag -a v1.0.0 -m "Release v1.0.0"
 git push origin v1.0.0
 ```
 
-The tag triggers:
-- Production website deployment
-- GitHub Release creation (via GoReleaser)
+See [What Happens on Push](#what-happens-on-push) for what the tag triggers.
 
 ### 5. Clean up
 
@@ -79,16 +116,16 @@ git push origin develop
 
 ## Automated Deployments
 
-The `release.yaml` workflow handles deployments automatically:
-
-1. **On push to `develop`**: Builds binaries, deploys to website's `develop` branch (preview)
-2. **On push to `release/*`**: Builds binaries, deploys to website's `release/*` branch (preview)
-3. **On push to `main`**: Builds binaries, deploys to website's `main` branch (production)
-4. **On push of `v*` tag**: Creates GitHub Release with binaries
+See [GitHub Actions Workflows](#github-actions-workflows) above for the full picture.
 
 ### Required Secrets
 
-See [devlore.noblefactor.com/DEPLOYMENT.md#github-secrets](https://github.com/NobleFactor/devlore.noblefactor.com/blob/develop/DEPLOYMENT.md#github-secrets) for full documentation of deployment secrets across both repositories.
+| Secret | Used By | Purpose |
+|--------|---------|---------|
+| `SITE_DEPLOY_TOKEN` | `docs-publish.yaml`, `release.yaml` | PAT with write access to `devlore.noblefactor.com` repo |
+| `GITHUB_TOKEN` | `release.yaml` | Auto-provided, creates GitHub releases |
+
+See [devlore.noblefactor.com/DEPLOYMENT.md](https://github.com/NobleFactor/devlore.noblefactor.com/blob/develop/DEPLOYMENT.md) for full secrets documentation.
 
 ## Release Artifacts
 
