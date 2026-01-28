@@ -343,21 +343,27 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 
 ### 3.4 XDG Path Naming Convention
 
-**Status:** Decision needed (see Inconsistencies section)
-**Location:** Multiple files
+**Status:** ✓ RESOLVED (2025-01-27)
+**Location:** `internal/cli/xdg.go`, `internal/cli/selfinstall.go`
 
-**Context:** Documentation uses both:
-- `~/.local/share/lore/` and `$XDG_DATA_HOME/lore/`
-- `~/.local/share/devlore/` and `~/.config/devlore/`
+**Decision:** Unified `devlore` namespace with config.d model.
 
-**Question:** Should paths use `lore`, `devlore`, or `devlore-cli`?
+**Structure:**
+```
+~/.config/devlore/           # XDG_CONFIG_HOME
+├── config.yaml              # Shared settings
+└── config.d/
+    ├── writ.yaml            # Writ-specific settings
+    └── lore.yaml            # Lore-specific settings
 
-**Considerations:**
-- `lore` is shorter but may conflict with other tools
-- `devlore` matches project name
-- Changing now may break existing users (if any)
+~/.cache/devlore/{writ,lore}/  # XDG_CACHE_HOME
+~/.local/share/devlore/{writ,lore}/  # XDG_DATA_HOME
+~/.local/state/devlore/{writ,lore}/  # XDG_STATE_HOME
+```
 
-**Action needed:** Choose one convention and update all documentation.
+**Rationale:** `devlore` matches project name, provides shared config location for both tools, config.d model allows tool-specific overrides.
+
+**Implementation:** PR #36 - Added `DevloreConfigHome()`, `DevloreCacheHome()`, `DevloreDataHome()`, `DevloreStateHome()` to xdg.go.
 
 ---
 
@@ -366,12 +372,12 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 The following inconsistencies were identified and should be addressed one at a time after deduplication is complete:
 
 1. **Installation methods**: README vs getting-started use different approaches
-2. **XDG paths**: `lore/` vs `devlore/` naming
-3. **Config paths**: `$XDG_CONFIG_HOME/lore/` vs `~/.config/devlore/`
+2. ~~**XDG paths**: `lore/` vs `devlore/` naming~~ ✓ RESOLVED (PR #36 - unified `devlore` namespace)
+3. ~~**Config paths**: `$XDG_CONFIG_HOME/lore/` vs `~/.config/devlore/`~~ ✓ RESOLVED (PR #36 - unified `~/.config/devlore/`)
 4. **Windows support**: mentioned inconsistently across docs
 5. **Auth requirement**: "Currently yes, later no" needs timeline
 6. **Command naming**: `lore manifest create` vs potential `lore create`
-7. **XDG variables**: mentioned but not used consistently
+7. ~~**XDG variables**: mentioned but not used consistently~~ ✓ RESOLVED (PR #36 - consistent devlore namespace)
 
 These are documented here for reference. Address after deduplication work is complete.
 
@@ -1065,3 +1071,6 @@ decom-phase     = "unprovision" / "uninstall" / "cleanup"
 | 2025-01-25 | Added | Section 5.8: Interactive Console (Bubble Tea) for AI-assisted manifest authoring |
 | 2025-01-25 | Partial | Sections 5.4-5.5: Lifecycle loading implemented, but bindings need redesign per ADR-051 (graph-building model) |
 | 2025-01-25 | Design | Refined Starlark API: `def install(system, package, plan)` — three inputs for read/read/write concerns. Updated ADR-051 Section 11.2 |
+| 2025-01-27 | Resolved | Section 3.4: XDG Path Naming Convention — unified `devlore` namespace with config.d model (PR #36) |
+| 2025-01-27 | Resolved | Section 4 items 2, 3, 7: XDG inconsistencies resolved via unified devlore namespace (PR #36) |
+| 2025-01-27 | Removed | Standalone `completion` command removed — `self-install` is single entry point (PR #36) |
