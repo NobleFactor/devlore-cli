@@ -1,0 +1,22 @@
+# Writ Configuration
+# Location: ~/.config/devlore/config.d/writ.yaml
+# Shared config: ~/.config/devlore/config.yaml
+# See: writ config --schema
+
+writ:
+  # Custom segments (beyond built-in OS, DISTRO, ARCH)
+  # segments:
+  #   - ROLE
+  #   - SITE
+
+  # Template variables and segment value overrides
+  # vars:
+  #   USER_NAME: "Your Name"
+  #   USER_EMAIL: "you@example.com"
+  #   ROLE: desktop
+
+# Layers are directories at ~/.local/share/devlore/writ/layers/
+#   base/
+#   team/
+#   personal/
+# Replace any directory with a symlink to use a different location.

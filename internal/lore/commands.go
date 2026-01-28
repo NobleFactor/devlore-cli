@@ -38,7 +38,6 @@ Packages can be specified directly or via manifest files (prefixed with @).`,
 	cmd.Flags().Bool("known-only", false, "Skip LOW CONFIDENCE items")
 	cmd.Flags().Bool("force", false, "Proceed with LOW CONFIDENCE items without prompting")
 	cmd.Flags().StringArray("with", nil, "Enable feature (can be repeated)")
-	cmd.Flags().String("receipt", "", "Save receipt to specific path")
 	cmd.Flags().Int("parallel", 1, "Install n packages concurrently")
 
 	return cmd

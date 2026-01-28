@@ -1,0 +1,44 @@
+# Lore Configuration
+# Location: ~/.config/devlore/config.d/lore.yaml
+# Shared config: ~/.config/devlore/config.yaml
+# See: lore config --schema
+
+lore:
+  # registry: ~/.local/share/lore/registry
+  # verbose: false
+  # quiet: false
+  # dry_run: false
+
+  ai_provider:
+    model:
+      name: llama3.1:8b
+      provider: ollama
+
+    preferences:
+      consult_user_before_changes: true
+      validate_existing_packages: true
+      search_internet: always
+
+  sources:
+    corporate: []  # None embedded; user adds their own
+
+    trusted_domains:
+      # Primary sources (official vendor documentation)
+      - developer.apple.com
+      - docs.microsoft.com
+      - learn.microsoft.com
+      - cloud.google.com
+      - docs.aws.amazon.com
+      - docs.github.com
+      # Tier-1 reputable sources
+      - wiki.archlinux.org
+      - docs.docker.com
+      - kubernetes.io
+      - helm.sh
+      - terraform.io
+      - brew.sh
+      - formulae.brew.sh
+      - chocolatey.org
+      - winget.run
+
+    blocked_domains: []  # None embedded; user adds their own

@@ -27,9 +27,8 @@ func NewRootCmd() *cobra.Command {
 	cli.SetProgramName("writ")
 
 	rootCmd := &cobra.Command{
-		Use:                   "writ",
-		Short:                 "Environment manager with platform-aware symlinks",
-		CompletionOptions:     cobra.CompletionOptions{DisableDefaultCmd: true},
+		Use:   "writ",
+		Short: "Environment manager with platform-aware symlinks",
 		Long: `Writ orchestrates your portable environment—configuration, scripts, utilities,
 templates, and software manifests. Lore is a component that writ delegates to
 for software installation.
@@ -40,6 +39,9 @@ automatically. Templates handle machine-specific values.
 Writ exists because environment management shouldn't require manual symlink
 creation, platform-specific scripts, or secret leakage into git.
 Declare your environment once — writ deploys it everywhere you work.`,
+		CompletionOptions: cobra.CompletionOptions{
+			HiddenDefaultCmd: true, // Hide from help, but still available (like Docker)
+		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return initConfig(cmd)
 		},
@@ -64,7 +66,6 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.AddCommand(newUpgradeCmd())
 	rootCmd.AddCommand(newAdoptCmd())
 	rootCmd.AddCommand(newListCmd())
-	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newSecretsCmd())
 	rootCmd.AddCommand(newReceiptCmd())

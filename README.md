@@ -3,7 +3,7 @@
 Monorepo for the **lore** and **writ** command-line tools.
 
 - **lore** — The tribal knowledge package deployer
-- **writ** — Dotfiles manager with platform-aware symlinks
+- **writ** — Portable environment orchestrator
 
 ## Building
 
@@ -45,13 +45,16 @@ All paths follow the [XDG Base Directory Specification](https://specifications.f
 |----------|--------------|
 | Shared config | `$XDG_CONFIG_HOME/devlore/config.yaml` |
 | Tool configs | `$XDG_CONFIG_HOME/devlore/config.d/{writ,lore}.yaml` |
-| Cache | `$XDG_CACHE_HOME/devlore/{writ,lore}/` |
-| Data | `$XDG_DATA_HOME/devlore/{writ,lore}/` |
-| State | `$XDG_STATE_HOME/devlore/{writ,lore}/` |
+| Registry cache | `$XDG_CACHE_HOME/devlore/registry/` |
+| Downloads cache | `$XDG_CACHE_HOME/devlore/downloads/` |
+| Writ layers | `$XDG_DATA_HOME/devlore/writ/layers/` |
+| Writ receipts | `$XDG_STATE_HOME/devlore/writ/receipts/` |
+| Lore receipts | `$XDG_STATE_HOME/devlore/lore/receipts/` |
 | Man pages | `<prefix>/share/man/man1/` |
 | Bash completions | `<prefix>/share/bash-completion/completions/` |
 | Zsh completions | `<prefix>/share/zsh/site-functions/` |
 | Fish completions | `<prefix>/share/fish/vendor_completions.d/` |
+| PowerShell completions | `<prefix>/share/powershell/completions/` |
 
 ## Project Structure
 

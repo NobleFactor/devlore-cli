@@ -19,31 +19,47 @@ import (
 
 func newMigrateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "migrate [flags] <source-root>",
-		Short: "Analyze and migrate an existing environment repository to writ conventions",
-		Long: `Analyze an existing environment repository and produce a migration plan.
+		Use:   "migrate [flags] <source-directory>",
+		Short: "Migrate an existing environment to a writ layer",
+		Long: `Migrate an existing environment repository to a writ layer.
 
 Writ auto-detects the source system (Tuckr, Stow, chezmoi, yadm, bare git,
-or script-based setups using <project>-<Platform> directories) and generates
-a plan showing what would change.
+or script-based setups) and restructures content to writ conventions (Home/,
+System/, projects).
+
+After restructuring, the source is registered as a layer:
+  --link (default): Layer directory becomes a symlink to source location
+  --move: Content is moved into the layer directory, source is deleted
 
 By default, AI-assisted analysis provides file classification, secret detection,
 and contextual recommendations. Use --no-ai for basic structural analysis only.
 
-Use --execute to perform the migration (directory renames from dash to dot
-convention). Supported output formats: text (default), yaml, json.`,
-		Example: `  writ migrate ~/my-env/Configs
-  writ migrate ~/my-env/Configs --format yaml
-  writ migrate ~/my-env/Configs --no-ai
-  writ migrate ~/my-env/Configs --execute`,
+Use --dry-run to preview without making changes.`,
+		Example: `  # Migrate and link to source location (default)
+  writ migrate ~/my-environment
+
+  # Preview without making changes
+  writ migrate --dry-run ~/my-environment
+
+  # Move content to layer directory instead of linking
+  writ migrate --move ~/my-environment
+
+  # Migrate as team layer instead of personal
+  writ migrate --layer team ~/team-environment
+
+  # Skip AI analysis
+  writ migrate --no-ai ~/my-environment`,
 		Args: cobra.ExactArgs(1),
 		RunE: runMigrate,
 	}
 
-	cmd.Flags().Bool("execute", false, "Perform the migration (rename directories)")
+	cmd.Flags().Bool("link", true, "Create symlink from layer to source (default)")
+	cmd.Flags().Bool("move", false, "Move content to layer directory, delete source")
+	cmd.Flags().String("layer", "personal", "Target layer: personal, team, or base")
 	cmd.Flags().Bool("no-ai", false, "Skip AI-assisted analysis (basic mode)")
-	cmd.Flags().String("format", "text", "Output format: text, yaml, json")
+	cmd.Flags().String("format", "text", "Output format: text, yaml, json (for --dry-run)")
 	cmd.Flags().String("system", "", "Override auto-detection with a specific source system")
+	cmd.MarkFlagsMutuallyExclusive("link", "move")
 
 	return cmd
 }
@@ -64,10 +80,17 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("source root %s is not a directory", sourceRoot)
 	}
 
-	execute, _ := cmd.Flags().GetBool("execute")
+	dryRun, _ := cmd.Root().Flags().GetBool("dry-run")
+	useMove, _ := cmd.Flags().GetBool("move")
+	layer, _ := cmd.Flags().GetString("layer")
 	noAI, _ := cmd.Flags().GetBool("no-ai")
 	format, _ := cmd.Flags().GetString("format")
 	verbose, _ := cmd.Root().Flags().GetBool("verbose")
+
+	// Validate layer
+	if layer != "personal" && layer != "team" && layer != "base" {
+		return fmt.Errorf("invalid --layer %q: must be personal, team, or base", layer)
+	}
 
 	// Initialize registry client
 	regClient, err := registry.NewDefault()
@@ -97,7 +120,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 
 	opts := migrate.Options{
 		SourceRoot: sourceRoot,
-		Execute:    execute,
+		Execute:    !dryRun,
 		Verbose:    verbose,
 		Format:     format,
 		AIProvider: aiProvider,
@@ -109,23 +132,119 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if execute {
-		if err := migrate.Execute(os.Stderr, plan); err != nil {
-			return err
-		}
-
-		// Register the repo in config with the determined layer
-		if err := cli.RegisterRepo("writ", cli.RepoEntry{
-			Layer: string(plan.RepoLayer),
-			Path:  sourceRoot,
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not register repo in config: %v\n", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "Registered as %s layer repo in config\n", plan.RepoLayer)
-		}
-
-		return nil
+	if dryRun {
+		return migrate.FormatPlan(os.Stdout, plan, format)
 	}
 
-	return migrate.FormatPlan(os.Stdout, plan, format)
+	// Restructure content to writ conventions
+	if err := migrate.Execute(os.Stderr, plan); err != nil {
+		return err
+	}
+
+	// Register layer via link or move
+	layerDir := filepath.Join(cli.WritLayersDir(), layer)
+
+	if useMove {
+		// Move: relocate content to layer directory
+		if err := moveToLayer(sourceRoot, layerDir, verbose); err != nil {
+			return fmt.Errorf("move to layer: %w", err)
+		}
+		cli.Success("Moved %s to %s layer", sourceRoot, layer)
+	} else {
+		// Link: create symlink from layer directory to source
+		if err := linkToLayer(sourceRoot, layerDir, verbose); err != nil {
+			return fmt.Errorf("link to layer: %w", err)
+		}
+		cli.Success("Linked %s layer to %s", layer, sourceRoot)
+	}
+
+	return nil
+}
+
+// linkToLayer creates a symlink from layerDir to sourceRoot.
+// If layerDir exists, it is removed first (must be empty or a symlink).
+func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(layerDir), 0755); err != nil {
+		return err
+	}
+
+	// Check if layer directory exists
+	if info, err := os.Lstat(layerDir); err == nil {
+		// If it's a symlink, remove it
+		if info.Mode()&os.ModeSymlink != 0 {
+			if verbose {
+				cli.Note("Removing existing symlink: %s", layerDir)
+			}
+			if err := os.Remove(layerDir); err != nil {
+				return fmt.Errorf("remove existing symlink: %w", err)
+			}
+		} else if info.IsDir() {
+			// If it's a directory, check if empty
+			entries, err := os.ReadDir(layerDir)
+			if err != nil {
+				return err
+			}
+			if len(entries) > 0 {
+				return fmt.Errorf("layer directory %s is not empty; remove or move contents first", layerDir)
+			}
+			if verbose {
+				cli.Note("Removing empty directory: %s", layerDir)
+			}
+			if err := os.Remove(layerDir); err != nil {
+				return fmt.Errorf("remove empty directory: %w", err)
+			}
+		} else {
+			return fmt.Errorf("layer path %s exists and is not a directory or symlink", layerDir)
+		}
+	}
+
+	// Create symlink
+	if verbose {
+		cli.Note("Creating symlink: %s -> %s", layerDir, sourceRoot)
+	}
+	return os.Symlink(sourceRoot, layerDir)
+}
+
+// moveToLayer moves content from sourceRoot to layerDir.
+func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(layerDir), 0755); err != nil {
+		return err
+	}
+
+	// Check if layer directory exists
+	if info, err := os.Lstat(layerDir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			// Remove existing symlink
+			if verbose {
+				cli.Note("Removing existing symlink: %s", layerDir)
+			}
+			if err := os.Remove(layerDir); err != nil {
+				return fmt.Errorf("remove existing symlink: %w", err)
+			}
+		} else if info.IsDir() {
+			entries, err := os.ReadDir(layerDir)
+			if err != nil {
+				return err
+			}
+			if len(entries) > 0 {
+				return fmt.Errorf("layer directory %s is not empty; remove or move contents first", layerDir)
+			}
+			if verbose {
+				cli.Note("Removing empty directory: %s", layerDir)
+			}
+			if err := os.Remove(layerDir); err != nil {
+				return fmt.Errorf("remove empty directory: %w", err)
+			}
+		} else {
+			return fmt.Errorf("layer path %s exists and is not a directory or symlink", layerDir)
+		}
+	}
+
+	// Move (rename) source to layer directory
+	if verbose {
+		cli.Note("Moving: %s -> %s", sourceRoot, layerDir)
+	}
+	return os.Rename(sourceRoot, layerDir)
 }

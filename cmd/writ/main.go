@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-// Command writ is the dotfiles manager with platform-aware symlinks.
+// Command writ is the portable environment orchestrator.
 package main
 
 import (

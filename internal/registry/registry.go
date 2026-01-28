@@ -83,16 +83,16 @@ func NewDefault() (*Client, error) {
 
 // defaultCacheDir returns the default cache directory.
 func defaultCacheDir() (string, error) {
-	// XDG_DATA_HOME or ~/.local/share
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome == "" {
+	// XDG_CACHE_HOME or ~/.cache
+	cacheHome := os.Getenv("XDG_CACHE_HOME")
+	if cacheHome == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("cannot determine home directory: %w", err)
 		}
-		dataHome = filepath.Join(home, ".local", "share")
+		cacheHome = filepath.Join(home, ".cache")
 	}
-	return filepath.Join(dataHome, "lore", "cache"), nil
+	return filepath.Join(cacheHome, "devlore", "registry"), nil
 }
 
 // Sync updates the local cache from the remote registry.

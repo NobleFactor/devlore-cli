@@ -15,13 +15,13 @@ import (
 )
 
 func TestNewState(t *testing.T) {
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 
 	if s.Version != CurrentVersion {
 		t.Errorf("expected version %q, got %q", CurrentVersion, s.Version)
 	}
-	if s.SourceRoot != "/home/user/dotfiles" {
-		t.Errorf("expected source root %q, got %q", "/home/user/dotfiles", s.SourceRoot)
+	if s.SourceRoot != "/home/user/environment" {
+		t.Errorf("expected source root %q, got %q", "/home/user/environment", s.SourceRoot)
 	}
 	if s.TargetRoot != "/home/user" {
 		t.Errorf("expected target root %q, got %q", "/home/user", s.TargetRoot)
@@ -32,10 +32,10 @@ func TestNewState(t *testing.T) {
 }
 
 func TestStateAddRemoveEntry(t *testing.T) {
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 
 	entry := &FileEntry{
-		Source:     "/home/user/dotfiles/all/.bashrc",
+		Source:     "/home/user/environment/all/.bashrc",
 		Project:    "all",
 		Operations: []string{"link"},
 		DeployedAt: time.Now(),
@@ -56,7 +56,7 @@ func TestStateAddRemoveEntry(t *testing.T) {
 }
 
 func TestStateRemoveProject(t *testing.T) {
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 
 	// Add entries for two projects
 	s.AddEntry(".bashrc", &FileEntry{Project: "all", Operations: []string{"link"}})
@@ -79,7 +79,7 @@ func TestStateRemoveProject(t *testing.T) {
 }
 
 func TestStateCopiedFiles(t *testing.T) {
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 
 	s.AddEntry(".bashrc", &FileEntry{Operations: []string{"link"}})
 	s.AddEntry(".gitconfig", &FileEntry{Operations: []string{"expand", "copy"}})
@@ -97,7 +97,7 @@ func TestStateCopiedFiles(t *testing.T) {
 }
 
 func TestStateProjects(t *testing.T) {
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 
 	s.AddEntry(".bashrc", &FileEntry{Project: "all"})
 	s.AddEntry(".zshrc", &FileEntry{Project: "all"})
@@ -111,7 +111,7 @@ func TestStateProjects(t *testing.T) {
 }
 
 func TestStateSummary(t *testing.T) {
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 
 	s.AddEntry(".bashrc", &FileEntry{Operations: []string{"link"}})
 	s.AddEntry(".zshrc", &FileEntry{Operations: []string{"link"}})
@@ -131,9 +131,9 @@ func TestStateWriteAndLoad(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "state.yaml")
 
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 	s.AddEntry(".bashrc", &FileEntry{
-		Source:     "/home/user/dotfiles/all/.bashrc",
+		Source:     "/home/user/environment/all/.bashrc",
 		Project:    "all",
 		Operations: []string{"link"},
 		DeployedAt: time.Now(),
@@ -152,8 +152,8 @@ func TestStateWriteAndLoad(t *testing.T) {
 	if loaded.Version != CurrentVersion {
 		t.Errorf("expected version %q, got %q", CurrentVersion, loaded.Version)
 	}
-	if loaded.SourceRoot != "/home/user/dotfiles" {
-		t.Errorf("expected source root %q, got %q", "/home/user/dotfiles", loaded.SourceRoot)
+	if loaded.SourceRoot != "/home/user/environment" {
+		t.Errorf("expected source root %q, got %q", "/home/user/environment", loaded.SourceRoot)
 	}
 	if len(loaded.Files) != 1 {
 		t.Errorf("expected 1 file, got %d", len(loaded.Files))
@@ -164,7 +164,7 @@ func TestStateWriteAndLoad(t *testing.T) {
 }
 
 func TestStateUpdateFromReceipt(t *testing.T) {
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 
 	rcpt := &receipt.Receipt{
 		Version:   "4",
@@ -172,7 +172,7 @@ func TestStateUpdateFromReceipt(t *testing.T) {
 		Timestamp: time.Now(),
 		Tool:      "writ",
 		Context: receipt.WritContext{
-			SourceRoot: "/home/user/dotfiles",
+			SourceRoot: "/home/user/environment",
 			TargetRoot: "/home/user",
 			Projects:   []string{"all", "noblefactor"},
 		},
@@ -182,7 +182,7 @@ func TestStateUpdateFromReceipt(t *testing.T) {
 				ID:        ".bashrc",
 				Operation: "link",
 				Status:    "completed",
-				Source:    "/home/user/dotfiles/all/.bashrc",
+				Source:    "/home/user/environment/all/.bashrc",
 				Target:    "/home/user/.bashrc",
 				Project:   "all",
 			},
@@ -190,7 +190,7 @@ func TestStateUpdateFromReceipt(t *testing.T) {
 				ID:             ".gitconfig",
 				Operation:      "expand",
 				Status:         "completed",
-				Source:         "/home/user/dotfiles/noblefactor/.gitconfig.template",
+				Source:         "/home/user/environment/noblefactor/.gitconfig.template",
 				Target:         "/home/user/.gitconfig",
 				Project:        "noblefactor",
 				SourceChecksum: "sha256:abc123",
@@ -272,9 +272,9 @@ func TestStateSignAndVerify(t *testing.T) {
 		t.Fatalf("generate identity: %v", err)
 	}
 
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 	s.AddEntry(".bashrc", &FileEntry{
-		Source:     "/home/user/dotfiles/all/.bashrc",
+		Source:     "/home/user/environment/all/.bashrc",
 		Project:    "all",
 		Operations: []string{"link"},
 		DeployedAt: time.Now(),
@@ -299,9 +299,9 @@ func TestStateVerifyTampered(t *testing.T) {
 		t.Fatalf("generate identity: %v", err)
 	}
 
-	s := New("/home/user/dotfiles", "/home/user")
+	s := New("/home/user/environment", "/home/user")
 	s.AddEntry(".bashrc", &FileEntry{
-		Source:  "/home/user/dotfiles/all/.bashrc",
+		Source:  "/home/user/environment/all/.bashrc",
 		Project: "all",
 	})
 
@@ -326,12 +326,12 @@ func TestLoadOrCreate(t *testing.T) {
 	os.Setenv("XDG_STATE_HOME", tmpDir)
 	defer os.Setenv("XDG_STATE_HOME", origStateDir)
 
-	s, err := LoadOrCreate("/home/user/dotfiles", "/home/user")
+	s, err := LoadOrCreate("/home/user/environment", "/home/user")
 	if err != nil {
 		t.Fatalf("LoadOrCreate: %v", err)
 	}
 
-	if s.SourceRoot != "/home/user/dotfiles" {
-		t.Errorf("expected source root %q, got %q", "/home/user/dotfiles", s.SourceRoot)
+	if s.SourceRoot != "/home/user/environment" {
+		t.Errorf("expected source root %q, got %q", "/home/user/environment", s.SourceRoot)
 	}
 }

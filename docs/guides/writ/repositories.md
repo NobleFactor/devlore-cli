@@ -27,65 +27,62 @@ layer wins:
 | `team` | Team-specific config | Backend team's database tools, frontend linting |
 | `personal` | Individual preferences | Editor config, shell aliases, custom scripts |
 
-## Initialize a repository
+## Setting up a repository
 
-Create a new empty repository:
+Writ is VCS-agnostic. Use your preferred version control system to manage
+repositories, then register them with writ.
 
-```bash
-# Personal layer (default location: ~/.local/share/devlore/repos/personal/)
-writ repo init --layer=personal
-
-# Team layer
-writ repo init --layer=team
-```
-
-Clone an existing repository:
+### Clone an existing repository
 
 ```bash
-writ repo init --layer=personal git@github.com:me/dotfiles.git
-writ repo init --layer=team git@github.com:company/team-configs.git
+# Clone with git
+git clone git@github.com:me/environment.git ~/environment
+
+# Register with writ
+writ config set writ.repos.personal ~/environment
 ```
 
-For advanced git options, clone manually then register:
+### Create a new repository
 
 ```bash
-git clone --branch main --depth 1 git@github.com:co/repo.git ~/repo
-writ repo add --layer=team ~/repo
+# Create directory structure
+mkdir -p ~/environment/myproject/Home/.config
+
+# Initialize git (optional)
+cd ~/environment
+git init
+
+# Register with writ
+writ config set writ.repos.personal ~/environment
 ```
 
-## Register an existing repository
+### Register an existing directory
 
-If you already have a dotfiles directory, register it without cloning:
+If you already have a configuration directory:
 
 ```bash
-writ repo add --layer=personal ~/Workspace/Personal/Home/Configs
+writ config set writ.repos.personal ~/Workspace/Personal/Configs
 ```
 
-## List repositories
+## List registered repositories
 
 ```bash
-writ repo list
+writ config get writ.repos
 ```
 
-```
-Layer      Path                                          Status
-personal   ~/.local/share/devlore/repos/personal/       ok
-team       ~/.local/share/devlore/repos/team/           ok
-```
-
-## Remove a repository
+## Remove a repository registration
 
 Unregister a repository from writ (does not delete files):
 
 ```bash
-writ repo remove --layer=team
+writ config unset writ.repos.team
 ```
 
 To also clean up deployed files, remove projects first:
 
 ```bash
 writ remove all --layer=team
-writ repo remove --layer=team
+writ config unset writ.repos.team
 ```
 
 ## Repository structure
@@ -94,18 +91,21 @@ A repository contains one or more projects (subdirectories), plus optional
 metadata files:
 
 ```
-repos/personal/
+environment/
 ├── .age-recipients          # Encryption recipients
 ├── .gitignore
 ├── noblefactor/             # Project: personal config
-│   ├── .zshrc
-│   ├── .config/git/config
+│   ├── Home/
+│   │   ├── .zshrc
+│   │   └── .config/git/config
 │   └── packages-manifest.yaml
 ├── thenobles/               # Project: family-shared config
-│   └── .config/shared/
+│   └── Home/
+│       └── .config/shared/
 └── work/                    # Project: work-specific overrides
-    ├── .config/git/config   # Overrides noblefactor's git config
-    └── .npmrc
+    └── Home/
+        ├── .config/git/config   # Overrides noblefactor's git config
+        └── .npmrc
 ```
 
 ## Multi-layer deployment
@@ -128,14 +128,13 @@ writ inspect ~/.config/git/config
 
 ## Configuration storage
 
-Repository registrations are stored in `~/.config/devlore/config.yaml`:
+Repository registrations are stored in `~/.config/devlore/config.d/writ.yaml`:
 
 ```yaml
 writ:
   repos:
-    personal: ~/.local/share/devlore/repos/personal
-    team: ~/.local/share/devlore/repos/team
-  target: Home
+    personal: ~/environment
+    team: /path/to/team-repo
 ```
 
 Edit directly or use:

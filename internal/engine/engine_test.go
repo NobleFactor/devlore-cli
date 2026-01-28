@@ -154,7 +154,7 @@ func TestExpandOperation(t *testing.T) {
 		Context: context.Background(),
 		Data:    map[string]any{"Username": "testuser", "Shell": "/bin/zsh"},
 	}
-	node := &Node{ID: ".bashrc", Source: "/dotfiles/all/.bashrc", Project: "all"}
+	node := &Node{ID: ".bashrc", Source: "/environment/all/.bashrc", Project: "all"}
 	state := &PipelineState{
 		Content:  []byte("# Shell: {{.Shell}}\n# User: {{.Username}}\n# Project: {{.Project}}"),
 		Metadata: make(map[string]string),

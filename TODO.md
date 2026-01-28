@@ -68,7 +68,7 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 
 **Should cover:**
 - Conceptual mapping: how stow concepts map to writ concepts
-- Import procedures: how to convert existing dotfiles repo to writ structure
+- Import procedures: how to convert existing configuration repo to writ structure
 - Coexistence: can writ manage some files while stow manages others?
 - One-time migration scripts or commands if applicable
 
@@ -351,19 +351,32 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 **Structure:**
 ```
 ~/.config/devlore/           # XDG_CONFIG_HOME
-├── config.yaml              # Shared settings
+├── config.yaml              # Shared settings (secrets)
 └── config.d/
-    ├── writ.yaml            # Writ-specific settings
-    └── lore.yaml            # Lore-specific settings
+    ├── writ.yaml            # Writ: segments, vars
+    └── lore.yaml            # Lore settings
 
-~/.cache/devlore/{writ,lore}/  # XDG_CACHE_HOME
-~/.local/share/devlore/{writ,lore}/  # XDG_DATA_HOME
-~/.local/state/devlore/{writ,lore}/  # XDG_STATE_HOME
+~/.cache/devlore/            # XDG_CACHE_HOME
+├── registry/                # Lore package registry (git clone)
+└── downloads/               # Downloaded installers, tarballs
+
+~/.local/share/devlore/      # XDG_DATA_HOME
+└── writ/
+    └── layers/              # Environment trees (directories)
+        ├── base/            #   base layer (org-wide)
+        ├── team/            #   team layer
+        └── personal/        #   personal layer
+
+~/.local/state/devlore/      # XDG_STATE_HOME
+├── writ/
+│   └── receipts/            # Deployment receipts
+└── lore/
+    └── receipts/            # Installation receipts
 ```
 
-**Rationale:** `devlore` matches project name, provides shared config location for both tools, config.d model allows tool-specific overrides.
+**Rationale:** `devlore` matches project name, provides shared config location for both tools, config.d model allows tool-specific overrides. Layers are directories by default in XDG_DATA_HOME; users can replace any layer directory with a symlink to use a different location.
 
-**Implementation:** PR #36 - Added `DevloreConfigHome()`, `DevloreCacheHome()`, `DevloreDataHome()`, `DevloreStateHome()` to xdg.go.
+**Implementation:** PR #36 - Added `DevloreConfigHome()`, `DevloreCacheHome()`, `DevloreDataHome()`, `DevloreStateHome()`, `WritLayersDir()` to xdg.go.
 
 ---
 
@@ -483,7 +496,7 @@ User says `lore add docker` → resolver finds lore package → uses `apt: docke
 
 **Resolver requirements:**
 - Given a package name (e.g., "docker"), find it in registry first
-- Registry location: `$XDG_DATA_HOME/devlore/registry/` or remote
+- Registry location: `$XDG_CACHE_HOME/devlore/registry/` or remote
 - If in registry: use lore package with cross-platform mappings
 - If not in registry: fall back to native PM (exact name match)
 - Handle package versioning (latest, pinned, ranges)
@@ -729,9 +742,7 @@ This section tracks the implementation work needed for writ to process multiple 
 
 **Commands NOT needing layer processing:**
 - `writ migrate` — single repo migration
-- `writ init` — creates single repo
 - `writ config` — system configuration
-- `writ repo *` — manages repo config itself
 - `writ secrets *` — operates within single repo
 - `writ receipt *` — reads historical data
 

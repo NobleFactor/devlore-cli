@@ -319,9 +319,9 @@ func ChecksumFile(path string) string {
 }
 
 // StateDir returns the writ state directory.
-// Default: ~/.local/state/writ
+// Default: ~/.local/state/devlore/writ
 func StateDir() string {
-	return filepath.Join(cli.StateHome(), "writ")
+	return filepath.Join(cli.DevloreStateHome(), "writ")
 }
 
 // ReceiptsDir returns the receipts directory.

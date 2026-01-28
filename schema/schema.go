@@ -12,10 +12,23 @@ import _ "embed"
 //go:embed devlore-config.json
 var DevloreSchema []byte
 
-// DevloreDefaultConfig is the shared default configuration.
+// SharedDefaultConfig is the default shared configuration (secrets, etc.).
+// Installed to ~/.config/devlore/config.yaml
 //
-//go:embed defaults/devlore-config.yaml
-var DevloreDefaultConfig []byte
+//go:embed defaults/devlore-shared.yaml
+var SharedDefaultConfig []byte
+
+// LoreDefaultConfig is the default lore-specific configuration.
+// Installed to ~/.config/devlore/config.d/lore.yaml
+//
+//go:embed defaults/lore.yaml
+var LoreDefaultConfig []byte
+
+// WritDefaultConfig is the default writ-specific configuration.
+// Installed to ~/.config/devlore/config.d/writ.yaml
+//
+//go:embed defaults/writ.yaml
+var WritDefaultConfig []byte
 
 // PackagesManifestSchema is the JSON schema for packages-manifest.{json,yaml} files.
 // These files declare software dependencies for writ projects.
@@ -31,10 +44,7 @@ var PackagesManifestSchema []byte
 var LifecycleSchema []byte
 
 // Legacy aliases for backward compatibility.
-// These point to the shared devlore schema and config.
 var (
-	LoreSchema        = DevloreSchema
-	LoreDefaultConfig = DevloreDefaultConfig
-	WritSchema        = DevloreSchema
-	WritDefaultConfig = DevloreDefaultConfig
+	LoreSchema = DevloreSchema
+	WritSchema = DevloreSchema
 )

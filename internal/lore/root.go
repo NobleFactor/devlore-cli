@@ -27,10 +27,9 @@ func NewRootCmd() *cobra.Command {
 	cli.SetProgramName("lore")
 
 	rootCmd := &cobra.Command{
-		Use:                   "lore",
-		Short:                 "The tribal knowledge package deployer",
-		CompletionOptions:     cobra.CompletionOptions{DisableDefaultCmd: true},
-		DisableAutoGenTag:     true,
+		Use:               "lore",
+		Short:             "The tribal knowledge package deployer",
+		DisableAutoGenTag: true,
 		Long: `Lore is a cross-platform package deployment tool that captures tribal
 knowledge about installing software.
 
@@ -45,6 +44,9 @@ anywhere.
 
 Lore captures this knowledge once and shares it forever.
 What took someone hours to figure out, you get in minutes.`,
+		CompletionOptions: cobra.CompletionOptions{
+			HiddenDefaultCmd: true, // Hide from help, but still available (like Docker)
+		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return initConfig(cmd)
 		},
