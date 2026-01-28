@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -25,16 +26,19 @@ type SelfInstallInfo struct {
 // Usage:
 //
 //	./tool self-install ~/.local
+//	./tool self-install ~/.local --shell bash --shell zsh
 //	./tool self-install ~/.local --personal-repo=~/dotfiles
 //
 // This performs complete installation:
 //   - Copies binary to <root>/bin/
-//   - Installs man pages to <root>/share/man/man1/
-//   - Installs completions for bash, zsh, fish
-//   - Initializes config in XDG_CONFIG_HOME
-//   - Initializes cache in XDG_CACHE_HOME
+//   - Installs man pages to <root>/share/man/man1/ (if man command exists)
+//   - Installs completions for detected shells (or specified via --shell)
+//   - Initializes config in XDG_CONFIG_HOME/devlore/
+//   - Initializes cache in XDG_CACHE_HOME/devlore/
 //   - Scans and registers repos (if --personal-repo or --team-repo provided)
 func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
+	var shells []string
+
 	cmd := &cobra.Command{
 		Use:   "self-install <root-directory>",
 		Short: "Complete installation to specified directory",
@@ -42,19 +46,23 @@ func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Comm
 
 This command:
   1. Copies the binary to <root>/bin/` + info.Name + `
-  2. Installs man pages to <root>/share/man/man1/
-  3. Installs shell completions for bash, zsh, and fish
-  4. Creates default config at $XDG_CONFIG_HOME/` + info.Name + `/config.yaml
-  5. Initializes cache directory at $XDG_CACHE_HOME/` + info.Name + `/
-  6. Scans and registers repositories (if --personal-repo or --team-repo provided)
+  2. Installs man pages to <root>/share/man/man1/ (if man command exists)
+  3. Installs shell completions (auto-detects bash, zsh, fish or use --shell)
+  4. Creates shared config at $XDG_CONFIG_HOME/devlore/config.yaml
+  5. Creates tool config at $XDG_CONFIG_HOME/devlore/config.d/` + info.Name + `.yaml
+  6. Initializes cache directory at $XDG_CACHE_HOME/devlore/` + info.Name + `/
+  7. Scans and registers repositories (if --personal-repo or --team-repo provided)
+
+Shell completions are auto-detected by default. Use --shell to override:
+  ./` + info.Name + ` self-install ~/.local --shell bash --shell zsh
 
 Repository flags accept a local path. The repo is scanned for writ compatibility
 and migration guidance is provided if the structure doesn't match.
 
 Example:
   ./` + info.Name + ` self-install ~/.local
+  ./` + info.Name + ` self-install ~/.local --shell bash --shell zsh
   ./` + info.Name + ` self-install ~/.local --personal-repo=~/dotfiles
-  ./` + info.Name + ` self-install ~/.local --personal-repo=~/dotfiles --team-repo=~/work/configs
 
 After installation, ensure <root>/bin is in your PATH.
 `,
@@ -66,23 +74,43 @@ After installation, ensure <root>/bin is in your PATH.
 			personalRepo, _ := cmd.Flags().GetString("personal-repo")
 			teamRepo, _ := cmd.Flags().GetString("team-repo")
 
-			return runSelfInstall(rootCmd, root, info, repoFlags{
+			return runSelfInstall(rootCmd, root, info, installFlags{
 				Personal: expandTilde(personalRepo),
 				Team:     expandTilde(teamRepo),
+				Shells:   shells,
 			})
 		},
 	}
 
 	cmd.Flags().String("personal-repo", "", "Path to personal environment repository")
 	cmd.Flags().String("team-repo", "", "Path to team environment repository")
+	cmd.Flags().StringArrayVar(&shells, "shell", nil, "Shell to install completions for (repeatable, e.g., --shell bash --shell zsh)")
 
 	return cmd
 }
 
-// repoFlags holds the --personal-repo and --team-repo flag values.
-type repoFlags struct {
-	Personal string
-	Team     string
+// installFlags holds the flag values for self-install.
+type installFlags struct {
+	Personal string   // --personal-repo
+	Team     string   // --team-repo
+	Shells   []string // --shell (repeatable)
+}
+
+// detectShells returns a list of shells available on the system.
+func detectShells() []string {
+	var shells []string
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		if _, err := exec.LookPath(shell); err == nil {
+			shells = append(shells, shell)
+		}
+	}
+	return shells
+}
+
+// hasMan returns true if the man command is available.
+func hasMan() bool {
+	_, err := exec.LookPath("man")
+	return err == nil
 }
 
 // expandTilde expands ~ to $HOME in a path.
@@ -100,8 +128,9 @@ func expandTilde(path string) string {
 }
 
 // runSelfInstall performs the complete installation.
-func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, repos repoFlags) error {
+func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, flags installFlags) error {
 	var installed []string
+	var installedShells []string
 
 	// 1. Install binary
 	binPath, err := installBinary(root, info.Name)
@@ -110,34 +139,53 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, r
 	}
 	installed = append(installed, fmt.Sprintf("Binary:      %s", binPath))
 
-	// 2. Install man pages
-	manPath := filepath.Join(root, "share", "man", "man1")
-	manFiles, err := installManPagesTo(rootCmd, manPath, info.ManHeader)
-	if err != nil {
-		return fmt.Errorf("failed to install man pages: %w", err)
-	}
-	for _, f := range manFiles {
-		installed = append(installed, fmt.Sprintf("Man page:    %s", f))
-	}
-
-	// 3. Install completions (all three shells)
-	completionPaths, err := installAllCompletions(rootCmd, root)
-	if err != nil {
-		return fmt.Errorf("failed to install completions: %w", err)
-	}
-	for _, p := range completionPaths {
-		installed = append(installed, fmt.Sprintf("Completion:  %s", p))
+	// 2. Install man pages (if man command exists)
+	if hasMan() {
+		manPath := filepath.Join(root, "share", "man", "man1")
+		manFiles, err := installManPagesTo(rootCmd, manPath, info.ManHeader)
+		if err != nil {
+			return fmt.Errorf("failed to install man pages: %w", err)
+		}
+		for _, f := range manFiles {
+			installed = append(installed, fmt.Sprintf("Man page:    %s", f))
+		}
+	} else {
+		Note("Skipping man pages (man command not found)")
 	}
 
-	// 4. Initialize config
-	configPath, err := initConfig(info)
+	// 3. Determine which shells to install completions for
+	shells := flags.Shells
+	if len(shells) == 0 {
+		// Auto-detect available shells
+		shells = detectShells()
+		if len(shells) == 0 {
+			Note("No shells detected for completions")
+		}
+	}
+
+	// 4. Install completions for selected shells
+	if len(shells) > 0 {
+		completionPaths, err := installCompletionsForShells(rootCmd, root, shells)
+		if err != nil {
+			return fmt.Errorf("failed to install completions: %w", err)
+		}
+		for _, p := range completionPaths {
+			installed = append(installed, fmt.Sprintf("Completion:  %s", p))
+		}
+		installedShells = shells
+	}
+
+	// 5. Initialize config (unified devlore namespace)
+	configPaths, err := initDevloreConfig(info)
 	if err != nil {
 		return fmt.Errorf("failed to initialize config: %w", err)
 	}
-	installed = append(installed, fmt.Sprintf("Config:      %s", configPath))
+	for _, p := range configPaths {
+		installed = append(installed, fmt.Sprintf("Config:      %s", p))
+	}
 
-	// 5. Initialize cache
-	cachePath, err := initCache(info.Name)
+	// 6. Initialize cache (unified devlore namespace)
+	cachePath, err := initDevloreCache(info.Name)
 	if err != nil {
 		return fmt.Errorf("failed to initialize cache: %w", err)
 	}
@@ -154,14 +202,17 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, r
 	binDir := filepath.Join(root, "bin")
 	Note("Add %s to your PATH if not already present.", binDir)
 
-	// 6. Scan and register repos
-	if repos.Personal != "" {
+	// Print shell completion setup instructions for installed shells
+	printShellSetupInstructions(installedShells)
+
+	// 7. Scan and register repos
+	if flags.Personal != "" {
 		fmt.Fprintf(os.Stderr, "\n")
-		scanAndRegisterRepo(repos.Personal, "personal", info.Name)
+		scanAndRegisterRepo(flags.Personal, "personal", info.Name)
 	}
-	if repos.Team != "" {
+	if flags.Team != "" {
 		fmt.Fprintf(os.Stderr, "\n")
-		scanAndRegisterRepo(repos.Team, "team", info.Name)
+		scanAndRegisterRepo(flags.Team, "team", info.Name)
 	}
 
 	return nil
@@ -290,37 +341,50 @@ func installManPagesTo(rootCmd *cobra.Command, path string, header ManHeader) ([
 	return files, nil
 }
 
-// installAllCompletions installs completions for bash, zsh, and fish.
-func installAllCompletions(rootCmd *cobra.Command, root string) ([]string, error) {
-	var paths []string
+// shellConfig defines how to install completions for each shell.
+type shellConfig struct {
+	name     string
+	relPath  string
+	filename string
+	genFunc  func(*cobra.Command, *os.File) error
+}
 
-	shells := []struct {
-		name     string
-		relPath  string
-		filename string
-		genFunc  func(*cobra.Command, *os.File) error
-	}{
-		{
+// getShellConfigs returns the configuration for all supported shells.
+func getShellConfigs(cmdName string) map[string]shellConfig {
+	return map[string]shellConfig{
+		"bash": {
 			name:     "bash",
 			relPath:  filepath.Join("share", "bash-completion", "completions"),
-			filename: rootCmd.Name(),
+			filename: cmdName,
 			genFunc:  func(cmd *cobra.Command, f *os.File) error { return cmd.GenBashCompletion(f) },
 		},
-		{
+		"zsh": {
 			name:     "zsh",
 			relPath:  filepath.Join("share", "zsh", "site-functions"),
-			filename: "_" + rootCmd.Name(),
+			filename: "_" + cmdName,
 			genFunc:  func(cmd *cobra.Command, f *os.File) error { return cmd.GenZshCompletion(f) },
 		},
-		{
+		"fish": {
 			name:     "fish",
 			relPath:  filepath.Join("share", "fish", "vendor_completions.d"),
-			filename: rootCmd.Name() + ".fish",
+			filename: cmdName + ".fish",
 			genFunc:  func(cmd *cobra.Command, f *os.File) error { return cmd.GenFishCompletion(f, true) },
 		},
 	}
+}
 
-	for _, shell := range shells {
+// installCompletionsForShells installs completions for the specified shells.
+func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []string) ([]string, error) {
+	var paths []string
+	configs := getShellConfigs(rootCmd.Name())
+
+	for _, shellName := range shells {
+		shell, ok := configs[shellName]
+		if !ok {
+			Warn("Unknown shell: %s (skipping)", shellName)
+			continue
+		}
+
 		dir := filepath.Join(root, shell.relPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return paths, fmt.Errorf("failed to create %s completion directory: %w", shell.name, err)
@@ -344,29 +408,72 @@ func installAllCompletions(rootCmd *cobra.Command, root string) ([]string, error
 	return paths, nil
 }
 
-// initConfig creates the default config file if it doesn't exist.
-func initConfig(info SelfInstallInfo) (string, error) {
-	configDir := filepath.Join(ConfigHome(), info.Name)
-	configPath := filepath.Join(configDir, "config.yaml")
-
-	// Create directory
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create config directory: %w", err)
+// printShellSetupInstructions prints setup instructions for installed shells.
+func printShellSetupInstructions(shells []string) {
+	if len(shells) == 0 {
+		return
 	}
 
-	// Only create if doesn't exist
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if err := os.WriteFile(configPath, info.ConfigInfo.DefaultConfig, 0644); err != nil {
-			return "", fmt.Errorf("failed to write config: %w", err)
+	fmt.Fprintf(os.Stderr, "\n")
+	Note("Shell completion setup:")
+
+	for _, shell := range shells {
+		switch shell {
+		case "zsh":
+			fmt.Fprintf(os.Stderr, "\n  For zsh, add to ~/.zshrc:\n")
+			fmt.Fprintf(os.Stderr, "    fpath=(~/.local/share/zsh/site-functions $fpath)\n")
+			fmt.Fprintf(os.Stderr, "    autoload -Uz compinit && compinit\n")
+		case "bash":
+			fmt.Fprintf(os.Stderr, "\n  For bash, ensure bash-completion is installed.\n")
+		case "fish":
+			fmt.Fprintf(os.Stderr, "\n  For fish, completions work automatically.\n")
 		}
 	}
-
-	return configPath, nil
 }
 
-// initCache creates the cache directory.
-func initCache(name string) (string, error) {
-	cacheDir := filepath.Join(CacheHome(), name)
+// initDevloreConfig creates the unified devlore config structure.
+// Returns paths to created config files.
+func initDevloreConfig(info SelfInstallInfo) ([]string, error) {
+	var paths []string
+
+	// Create unified devlore config directory
+	configDir := DevloreConfigHome()
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Create config.d directory for tool-specific configs
+	configDDir := filepath.Join(configDir, "config.d")
+	if err := os.MkdirAll(configDDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create config.d directory: %w", err)
+	}
+
+	// Create shared config.yaml if it doesn't exist
+	sharedConfigPath := filepath.Join(configDir, "config.yaml")
+	if _, err := os.Stat(sharedConfigPath); os.IsNotExist(err) {
+		sharedConfig := []byte("# DevLore shared configuration\n# Shared settings for writ and lore\n")
+		if err := os.WriteFile(sharedConfigPath, sharedConfig, 0644); err != nil {
+			return nil, fmt.Errorf("failed to write shared config: %w", err)
+		}
+	}
+	paths = append(paths, sharedConfigPath)
+
+	// Create tool-specific config in config.d/ if it doesn't exist
+	toolConfigPath := filepath.Join(configDDir, info.Name+".yaml")
+	if _, err := os.Stat(toolConfigPath); os.IsNotExist(err) {
+		if err := os.WriteFile(toolConfigPath, info.ConfigInfo.DefaultConfig, 0644); err != nil {
+			return nil, fmt.Errorf("failed to write %s config: %w", info.Name, err)
+		}
+	}
+	paths = append(paths, toolConfigPath)
+
+	return paths, nil
+}
+
+// initDevloreCache creates the unified devlore cache structure.
+func initDevloreCache(toolName string) (string, error) {
+	// Create unified devlore cache directory with tool subdirectory
+	cacheDir := filepath.Join(DevloreCacheHome(), toolName)
 
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create cache directory: %w", err)

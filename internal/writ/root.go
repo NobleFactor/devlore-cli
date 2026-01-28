@@ -27,8 +27,9 @@ func NewRootCmd() *cobra.Command {
 	cli.SetProgramName("writ")
 
 	rootCmd := &cobra.Command{
-		Use:   "writ",
-		Short: "Environment manager with platform-aware symlinks",
+		Use:                   "writ",
+		Short:                 "Environment manager with platform-aware symlinks",
+		CompletionOptions:     cobra.CompletionOptions{DisableDefaultCmd: true},
 		Long: `Writ orchestrates your portable environment—configuration, scripts, utilities,
 templates, and software manifests. Lore is a component that writ delegates to
 for software installation.
@@ -86,7 +87,6 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	// Add shared commands from cli
 	// Replace Cobra's built-in help with git-style help (prefers man pages)
 	rootCmd.SetHelpCommand(cli.NewHelpCmd(rootCmd, manHeader))
-	rootCmd.AddCommand(cli.NewCompletionCmd(rootCmd))
 	rootCmd.AddCommand(cli.NewVersionCmd(cli.VersionInfo{
 		Version:   version,
 		Commit:    commit,
