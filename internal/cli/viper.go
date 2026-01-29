@@ -5,7 +5,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -220,9 +219,9 @@ func AllSettings() map[string]interface{} {
 
 // Debug prints current Viper state for debugging.
 func Debug() {
-	fmt.Fprintf(os.Stderr, "Config file: %s\n", viper.ConfigFileUsed())
-	fmt.Fprintf(os.Stderr, "Settings:\n")
+	Note("Config file: %s", viper.ConfigFileUsed())
+	Note("Settings:")
 	for k, v := range viper.AllSettings() {
-		fmt.Fprintf(os.Stderr, "  %s = %v\n", k, v)
+		Note("  %s = %v", k, v)
 	}
 }

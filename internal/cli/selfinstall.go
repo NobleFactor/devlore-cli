@@ -194,7 +194,7 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, f
 
 	// Print summary
 	Success("Installed %s to %s", info.Name, root)
-	fmt.Fprintf(os.Stderr, "\n")
+	Note("")
 	for _, line := range installed {
 		Note("  %s", line)
 	}
@@ -213,7 +213,7 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, f
 			return fmt.Errorf("failed to create layer directories: %w", err)
 		}
 		if len(layerPaths) > 0 {
-			fmt.Fprintf(os.Stderr, "\n")
+			Note("")
 			Note("Layer directories:")
 			for _, p := range layerPaths {
 				Note("  %s", p)
@@ -414,22 +414,26 @@ func printShellSetupInstructions(shells []string, toolName string) {
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "\n")
+	Note("")
 	Note("Shell completion setup:")
 
 	for _, shell := range shells {
 		switch shell {
 		case "bash":
-			fmt.Fprintf(os.Stderr, "\n  For bash, ensure bash-completion is installed.\n")
+			Note("")
+			Note("  For bash, ensure bash-completion is installed.")
 		case "fish":
-			fmt.Fprintf(os.Stderr, "\n  For fish, completions work automatically.\n")
+			Note("")
+			Note("  For fish, completions work automatically.")
 		case "powershell":
-			fmt.Fprintf(os.Stderr, "\n  For PowerShell, add to your $PROFILE:\n")
-			fmt.Fprintf(os.Stderr, "    . ~/.local/share/powershell/completions/%s.ps1\n", toolName)
+			Note("")
+			Note("  For PowerShell, add to your $PROFILE:")
+			Note("    . ~/.local/share/powershell/completions/%s.ps1", toolName)
 		case "zsh":
-			fmt.Fprintf(os.Stderr, "\n  For zsh, add to ~/.zshrc:\n")
-			fmt.Fprintf(os.Stderr, "    fpath=(~/.local/share/zsh/site-functions $fpath)\n")
-			fmt.Fprintf(os.Stderr, "    autoload -Uz compinit && compinit\n")
+			Note("")
+			Note("  For zsh, add to ~/.zshrc:")
+			Note("    fpath=(~/.local/share/zsh/site-functions $fpath)")
+			Note("    autoload -Uz compinit && compinit")
 		}
 	}
 }

@@ -78,14 +78,14 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	for _, arg := range args {
 		// TODO: Handle @manifest syntax
 		if len(arg) > 0 && arg[0] == '@' {
-			fmt.Fprintf(os.Stderr, "Manifest files not yet supported: %s\n", arg)
+			cli.Warn("Manifest files not yet supported: %s", arg)
 			continue
 		}
 
 		// Resolve package from registry
 		pkg, err := regClient.Resolve(arg, platform)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving package %q: %v\n", arg, err)
+			cli.Error("Error resolving package %q: %v", arg, err)
 			lastErr = err
 			continue
 		}
@@ -93,13 +93,13 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		// Execute the deploy pipeline
 		result, err := executor.ExecutePackage(ctx, pkg, pipeline.OpDeploy)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error deploying %q: %v\n", arg, err)
+			cli.Error("Error deploying %q: %v", arg, err)
 			lastErr = err
 			continue
 		}
 
 		if !result.Success {
-			fmt.Fprintf(os.Stderr, "Deployment failed for %q\n", arg)
+			cli.Error("Deployment failed for %q", arg)
 			lastErr = fmt.Errorf("deployment failed for %s", arg)
 		}
 	}
@@ -112,7 +112,7 @@ func newUpgradeCmd() *cobra.Command {
 		Use:   "upgrade [@<receipt>]",
 		Short: "Upgrade previously deployed packages to newer versions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("upgrade: not yet implemented")
+			cli.Note("upgrade: not yet implemented")
 			return nil
 		},
 	}
@@ -127,7 +127,7 @@ func newDecommissionCmd() *cobra.Command {
 		Example: `  lore decommission @workstation
   lore decommission docker kubectl`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("decommission: not yet implemented")
+			cli.Note("decommission: not yet implemented")
 			return nil
 		},
 	}
@@ -144,7 +144,7 @@ func newReconcileCmd() *cobra.Command {
 Use this to verify that your system matches what was deployed, detect
 configuration changes, or audit compliance.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("reconcile: not yet implemented")
+			cli.Note("reconcile: not yet implemented")
 			return nil
 		},
 	}
@@ -156,7 +156,7 @@ func newBundleCmd() *cobra.Command {
 		Use:   "bundle @<manifest> -o <output>",
 		Short: "Create self-extracting deployment bundles for air-gapped environments",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("bundle: not yet implemented")
+			cli.Note("bundle: not yet implemented")
 			return nil
 		},
 	}
@@ -187,7 +187,7 @@ Use --from-url to import from upstream documentation.`,
   lore manifest create pandoc --from ~/scripts/install-pandoc/`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("manifest create %s: not yet implemented\n", args[0])
+			cli.Note("manifest create %s: not yet implemented", args[0])
 			return nil
 		},
 	}
@@ -211,7 +211,7 @@ Checks:
   - Platform coverage (conditionals cover declared platforms)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("manifest validate %s: not yet implemented\n", args[0])
+			cli.Note("manifest validate %s: not yet implemented", args[0])
 			return nil
 		},
 	})
@@ -228,7 +228,7 @@ Use --set to test with specific settings. Use --debug for verbose output.`,
   lore manifest test mypackage --set shell=zsh`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("manifest test %s: not yet implemented\n", args[0])
+			cli.Note("manifest test %s: not yet implemented", args[0])
 			return nil
 		},
 	}
@@ -243,7 +243,7 @@ Use --set to test with specific settings. Use --debug for verbose output.`,
 		Short: "Display package manifest details",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("manifest show %s: not yet implemented\n", args[0])
+			cli.Note("manifest show %s: not yet implemented", args[0])
 			return nil
 		},
 	})
@@ -259,7 +259,7 @@ Add new features, platform support, or import updates from documentation.`,
   lore manifest update docker --from-url https://docs.docker.com/engine/install/`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("manifest update %s: not yet implemented\n", args[0])
+			cli.Note("manifest update %s: not yet implemented", args[0])
 			return nil
 		},
 	}
@@ -277,7 +277,7 @@ func newSearchCmd() *cobra.Command {
 		Short: "Search available packages in the registry",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("search %s: not yet implemented\n", args[0])
+			cli.Note("search %s: not yet implemented", args[0])
 			return nil
 		},
 	}
@@ -292,7 +292,7 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List deployed packages from pipeline receipts",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("list: not yet implemented")
+			cli.Note("list: not yet implemented")
 			return nil
 		},
 	}
@@ -308,7 +308,7 @@ func newResolveCmd() *cobra.Command {
 		Short: "Show how a package would be installed on this platform",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("resolve %s: not yet implemented\n", args[0])
+			cli.Note("resolve %s: not yet implemented", args[0])
 			return nil
 		},
 	}
@@ -320,7 +320,7 @@ func newUpdateCmd() *cobra.Command {
 		Use:   "update",
 		Short: "Synchronize the local registry cache from the central registry",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("update: not yet implemented")
+			cli.Note("update: not yet implemented")
 			return nil
 		},
 	}
@@ -348,7 +348,7 @@ environment repository.`,
   lore deploy @packages.manifest
   writ adopt --from-receipt`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("onboard: not yet implemented")
+			cli.Note("onboard: not yet implemented")
 			return nil
 		},
 	}
@@ -381,7 +381,7 @@ Output is JSON by default for scripting. Use --format for alternatives.`,
   lore inspect docker --format '{{.Name}}\t{{.Version}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("inspect %s: not yet implemented\n", args[0])
+			cli.Note("inspect %s: not yet implemented", args[0])
 			return nil
 		},
 	}
@@ -402,7 +402,7 @@ and triggers automated testing on macOS, Linux, and Windows.`,
 		Example: `  lore publish mypackage`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("publish %s: not yet implemented\n", args[0])
+			cli.Note("publish %s: not yet implemented", args[0])
 			return nil
 		},
 	}
@@ -429,7 +429,7 @@ Log location: ~/.local/share/lore/audit.log`,
   lore audit --package kubectl
   lore audit --event privilege`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("audit: not yet implemented")
+			cli.Note("audit: not yet implemented")
 			return nil
 		},
 	}

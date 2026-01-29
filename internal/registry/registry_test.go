@@ -97,18 +97,18 @@ func TestClient_SyncIntegration(t *testing.T) {
 		t.Error("expected cache to exist after sync")
 	}
 
-	// Verify we can read files (if AI prompts exist in registry)
+	// Verify we can read knowledge assets (if they exist in registry)
 	if client.FileExists("knowledge/migration/prompts/migrate-to-writ.txt") {
-		// Read AI prompt
-		prompt, err := client.AIPrompt("migrate-to-writ.txt")
+		// Read prompt via Knowledge domain API
+		prompt, err := client.Knowledge("migration").Prompt("migrate-to-writ.txt")
 		if err != nil {
-			t.Errorf("AIPrompt() error: %v", err)
+			t.Errorf("Knowledge(migration).Prompt() error: %v", err)
 		}
 		if prompt == "" {
 			t.Error("expected non-empty prompt")
 		}
 	} else {
-		t.Log("knowledge/migration/prompts/migrate-to-writ.txt not yet in registry, skipping AI prompt check")
+		t.Log("knowledge/migration/prompts/migrate-to-writ.txt not yet in registry, skipping prompt check")
 	}
 
 	// Second sync (pull)

@@ -155,93 +155,120 @@ func (c *Client) FilePath(relPath string) string {
 	return filepath.Join(c.cacheDir, relPath)
 }
 
-// AIPrompt reads an AI prompt file from the knowledge base.
-// The path is: knowledge/{domain}/prompts/{name}
-func (c *Client) AIPrompt(name string) (string, error) {
-	// Map known prompts to their domains
-	domain := domainForPrompt(name)
-	data, err := c.ReadFile(filepath.Join("knowledge", domain, "prompts", name))
+// Knowledge returns a domain accessor for reading knowledge assets.
+// The registry organizes knowledge by domain:
+//
+//	knowledge/migration/   - writ migrate prompts, transforms, signatures
+//	knowledge/onboarding/  - environment initialization
+//	knowledge/package-authoring/ - lore package creation
+//	knowledge/shared/      - common assets inherited by all domains
+//
+// Usage:
+//
+//	client.Knowledge("migration").Prompt("migrate-to-writ.txt")
+//	client.Knowledge("migration").Transform("from-stow.yaml")
+func (c *Client) Knowledge(domain string) *KnowledgeDomain {
+	return &KnowledgeDomain{
+		client: c,
+		domain: domain,
+	}
+}
+
+// KnowledgeDomain provides access to knowledge assets within a domain.
+// Methods correspond to subdirectories in the knowledge/{domain}/ structure.
+// Assets are resolved with fallback to the "shared" domain.
+type KnowledgeDomain struct {
+	client *Client
+	domain string
+}
+
+// read attempts to read from the domain, falling back to shared.
+func (k *KnowledgeDomain) read(subdir, name string) ([]byte, error) {
+	// Try domain-specific first
+	path := filepath.Join("knowledge", k.domain, subdir, name)
+	data, err := k.client.ReadFile(path)
+	if err == nil {
+		return data, nil
+	}
+
+	// Fall back to shared (unless we're already in shared)
+	if k.domain != "shared" {
+		sharedPath := filepath.Join("knowledge", "shared", subdir, name)
+		data, sharedErr := k.client.ReadFile(sharedPath)
+		if sharedErr == nil {
+			return data, nil
+		}
+	}
+
+	// Return original error (more specific)
+	return nil, fmt.Errorf("reading %s/%s/%s: %w", k.domain, subdir, name, err)
+}
+
+// Prompt reads a prompt file from knowledge/{domain}/prompts/{name}.
+// Falls back to knowledge/shared/prompts/{name} if not found in domain.
+func (k *KnowledgeDomain) Prompt(name string) (string, error) {
+	data, err := k.read("prompts", name)
 	if err != nil {
-		return "", fmt.Errorf("reading AI prompt %s: %w", name, err)
+		return "", err
 	}
 	return string(data), nil
 }
 
-// AISchema reads an AI JSON schema file from the knowledge base.
-// The path is: knowledge/{domain}/schemas/{name}
-func (c *Client) AISchema(name string) ([]byte, error) {
-	domain := domainForSchema(name)
-	data, err := c.ReadFile(filepath.Join("knowledge", domain, "schemas", name))
+// Schema reads a JSON schema file from knowledge/{domain}/schemas/{name}.
+// Falls back to knowledge/shared/schemas/{name} if not found in domain.
+func (k *KnowledgeDomain) Schema(name string) ([]byte, error) {
+	return k.read("schemas", name)
+}
+
+// Examples reads an examples file from knowledge/{domain}/examples/{name}.
+// Falls back to knowledge/shared/examples/{name} if not found in domain.
+func (k *KnowledgeDomain) Examples(name string) ([]byte, error) {
+	return k.read("examples", name)
+}
+
+// Transform reads a transform file from knowledge/{domain}/transforms/{name}.
+// Falls back to knowledge/shared/transforms/{name} if not found in domain.
+func (k *KnowledgeDomain) Transform(name string) ([]byte, error) {
+	return k.read("transforms", name)
+}
+
+// Signature reads a signature file from knowledge/{domain}/signatures/{name}.
+// Falls back to knowledge/shared/signatures/{name} if not found in domain.
+func (k *KnowledgeDomain) Signature(name string) ([]byte, error) {
+	return k.read("signatures", name)
+}
+
+// Slots reads a slots definition file from knowledge/{domain}/slots/{name}.
+// Falls back to knowledge/shared/slots/{name} if not found in domain.
+func (k *KnowledgeDomain) Slots(name string) ([]byte, error) {
+	return k.read("slots", name)
+}
+
+// KnowledgeIndex represents the index.yaml manifest for a knowledge domain.
+// It lists all available assets by type, enabling discovery without hardcoding.
+type KnowledgeIndex struct {
+	Domain     string   `yaml:"domain"`
+	Prompts    []string `yaml:"prompts,omitempty"`
+	Schemas    []string `yaml:"schemas,omitempty"`
+	Examples   []string `yaml:"examples,omitempty"`
+	Transforms []string `yaml:"transforms,omitempty"`
+	Signatures []string `yaml:"signatures,omitempty"`
+	Slots      []string `yaml:"slots,omitempty"`
+}
+
+// Index loads the index.yaml manifest for this knowledge domain.
+// Returns nil if the index doesn't exist (domain may have no indexed assets).
+func (k *KnowledgeDomain) Index() (*KnowledgeIndex, error) {
+	path := filepath.Join("knowledge", k.domain, "index.yaml")
+	data, err := k.client.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading AI schema %s: %w", name, err)
+		return nil, err
 	}
-	return data, nil
-}
 
-// AIExamples reads an AI examples file from the knowledge base.
-// The path is: knowledge/{domain}/examples/{name}
-func (c *Client) AIExamples(name string) ([]byte, error) {
-	domain := domainForExamples(name)
-	data, err := c.ReadFile(filepath.Join("knowledge", domain, "examples", name))
-	if err != nil {
-		return nil, fmt.Errorf("reading AI examples %s: %w", name, err)
+	var index KnowledgeIndex
+	if err := yaml.Unmarshal(data, &index); err != nil {
+		return nil, fmt.Errorf("parsing index.yaml: %w", err)
 	}
-	return data, nil
-}
 
-// MigrationGuide reads a migration transform guide from the knowledge base.
-// The path is: knowledge/migration/transforms/from-{system}.yaml
-func (c *Client) MigrationGuide(system string) ([]byte, error) {
-	filename := fmt.Sprintf("from-%s.yaml", system)
-	data, err := c.ReadFile(filepath.Join("knowledge", "migration", "transforms", filename))
-	if err != nil {
-		return nil, fmt.Errorf("reading migration guide for %s: %w", system, err)
-	}
-	return data, nil
-}
-
-// domainForPrompt returns the knowledge domain for a prompt file.
-func domainForPrompt(name string) string {
-	switch name {
-	case "migrate-to-writ.txt":
-		return "migration"
-	case "init-environment.txt":
-		return "onboarding"
-	case "generate-package.txt", "parse-document.txt":
-		return "package-authoring"
-	case "clarify.txt":
-		return "shared"
-	default:
-		return "shared"
-	}
-}
-
-// domainForSchema returns the knowledge domain for a schema file.
-func domainForSchema(name string) string {
-	switch name {
-	case "migration-plan.json", "engine-graph.json":
-		return "migration"
-	case "init-plan.json":
-		return "onboarding"
-	case "parse-output.json", "package-output.json":
-		return "package-authoring"
-	case "clarification.json":
-		return "shared"
-	default:
-		return "shared"
-	}
-}
-
-// domainForExamples returns the knowledge domain for an examples file.
-func domainForExamples(name string) string {
-	switch name {
-	case "migration-examples.yaml":
-		return "migration"
-	case "parse-examples.yaml", "generate-examples.yaml":
-		return "package-authoring"
-	case "edge-cases.yaml":
-		return "shared"
-	default:
-		return "shared"
-	}
+	return &index, nil
 }
