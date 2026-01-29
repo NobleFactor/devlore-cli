@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2025 Noble Factor. All rights reserved.
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 #
 # DevLore CLI Installer
 # Usage: curl -sSL https://devlore.noblefactor.com/install.sh | bash
