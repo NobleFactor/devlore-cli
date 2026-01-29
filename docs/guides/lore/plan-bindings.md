@@ -1,3 +1,11 @@
+---
+title: "Plan Bindings Reference"
+description: "Reference documentation for plan bindings in lore phase scripts"
+tool: "lore"
+category: "reference"
+order: 6
+---
+
 # Plan Bindings Reference
 
 This document describes the `plan` object available in lore phase scripts. Use these functions to declare what actions should be taken during package deployment.

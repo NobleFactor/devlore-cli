@@ -33,19 +33,19 @@ func linuxGenerateNodeID(prefix string, components ...string) string {
 type packageManagerType int
 
 const (
-	pmAPT packageManagerType = iota // Debian, Ubuntu
-	pmDNF                           // Fedora, RHEL, CentOS, Rocky, Alma
-	pmPacman                        // Arch, Manjaro
-	pmZypper                        // openSUSE
+	pmAPT    packageManagerType = iota // Debian, Ubuntu
+	pmDNF                              // Fedora, RHEL, CentOS, Rocky, Alma
+	pmPacman                           // Arch, Manjaro
+	pmZypper                           // openSUSE
 )
 
 // LinuxPlanBindings provides Linux-specific plan bindings.
 // Uses runtime distro detection to select the appropriate package manager.
 type LinuxPlanBindings struct {
 	*basePlanBindings
-	pmType  packageManagerType
-	pmName  string
-	distro  string
+	pmType packageManagerType
+	pmName string
+	distro string
 }
 
 // NewPlanBindings creates a new Linux-specific PlanBindings.

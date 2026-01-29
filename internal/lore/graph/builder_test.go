@@ -13,42 +13,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
 
-// setupTestPackage creates a temporary lore package for testing.
-func setupTestPackage(t *testing.T, name, installScript string) (string, *registry.Client) {
-	t.Helper()
-	tmpDir := t.TempDir()
-	pkgDir := filepath.Join(tmpDir, "packages", name)
-
-	// Create Common/Deploy directory
-	deployDir := filepath.Join(pkgDir, "Common", "Deploy")
-	if err := os.MkdirAll(deployDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create lifecycle.yaml
-	lifecycleYAML := `name: ` + name + `
-version: "1.0"
-description: "Test package"
-platforms:
-  - Darwin
-  - Linux
-`
-	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create install.star
-	if installScript != "" {
-		if err := os.WriteFile(filepath.Join(deployDir, "install.star"), []byte(installScript), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Create a mock registry client pointing to the temp dir
-	client := registry.New("test", nil, tmpDir)
-	return pkgDir, client
-}
-
 func TestBuild_WithNativePMPackage(t *testing.T) {
 	// Test that Build creates correct nodes for native PM packages.
 	// Native PM packages use the namespaced "pkg-install" operation that works

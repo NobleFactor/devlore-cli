@@ -137,7 +137,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			fmt.Printf("\nProceed anyway? [y/N]: ")
 
 			var response string
-			fmt.Scanln(&response)
+			_, _ = fmt.Scanln(&response)
 			if strings.ToLower(response) != "y" {
 				return fmt.Errorf("deployment cancelled by user")
 			}
