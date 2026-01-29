@@ -98,7 +98,7 @@ func (n *NpmBindings) execCmd(thread *starlark.Thread, fn *starlark.Builtin, arg
 		cmdArgs = append(cmdArgs, argToString(arg))
 	}
 
-	fmt.Fprintf(n.bindings.output, "  [npx] %s\n", strings.Join(cmdArgs, " "))
+	_, _ = fmt.Fprintf(n.bindings.output, "  [npx] %s\n", strings.Join(cmdArgs, " "))
 
 	return n.runNpx(cmdArgs)
 }
@@ -159,12 +159,12 @@ func (n *NpmBindings) config(thread *starlark.Thread, fn *starlark.Builtin, args
 // npm.installed("astro") -> True/False
 func (n *NpmBindings) installed(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name string
-	var global bool = true
+	var global = true
 
 	if len(args) >= 1 {
 		s, ok := starlark.AsString(args[0])
 		if !ok {
-			return nil, fmt.Errorf("npm.installed: package name must be a string")
+			return nil, fmt.Errorf("npm.installed: package name must be a string") //nolint:staticcheck // error from API context
 		}
 		name = s
 	}
@@ -179,7 +179,7 @@ func (n *NpmBindings) installed(thread *starlark.Thread, fn *starlark.Builtin, a
 	}
 
 	if name == "" {
-		return nil, fmt.Errorf("npm.installed: package name required")
+		return nil, fmt.Errorf("npm.installed: package name required") //nolint:staticcheck // error from API context
 	}
 
 	cmdArgs := []string{"list", "--depth=0", "--json"}
@@ -205,12 +205,12 @@ func (n *NpmBindings) installed(thread *starlark.Thread, fn *starlark.Builtin, a
 // npm.version("astro") -> "5.1.3" or ""
 func (n *NpmBindings) version(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name string
-	var global bool = true
+	var global = true
 
 	if len(args) >= 1 {
 		s, ok := starlark.AsString(args[0])
 		if !ok {
-			return nil, fmt.Errorf("npm.version: package name must be a string")
+			return nil, fmt.Errorf("npm.version: package name must be a string") //nolint:staticcheck // error from API context
 		}
 		name = s
 	}
@@ -225,7 +225,7 @@ func (n *NpmBindings) version(thread *starlark.Thread, fn *starlark.Builtin, arg
 	}
 
 	if name == "" {
-		return nil, fmt.Errorf("npm.version: package name required")
+		return nil, fmt.Errorf("npm.version: package name required") //nolint:staticcheck // error from API context
 	}
 
 	cmdArgs := []string{"list", "--depth=0", "--json"}
@@ -299,7 +299,7 @@ func (n *NpmBindings) passThrough(subcommand string, args starlark.Tuple, kwargs
 		cmdArgs = append(cmdArgs, argToString(arg))
 	}
 
-	fmt.Fprintf(n.bindings.output, "  [npm] %s\n", strings.Join(cmdArgs, " "))
+	_, _ = fmt.Fprintf(n.bindings.output, "  [npm] %s\n", strings.Join(cmdArgs, " "))
 
 	return n.runNpm(cmdArgs)
 }

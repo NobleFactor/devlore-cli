@@ -67,7 +67,6 @@ Dot-paths match the file structure exactly:
 	return cmd
 }
 
-
 // configKeyCompletion returns a ValidArgsFunction for config key completion.
 // Completions include full dot-paths matching the file structure.
 func configKeyCompletion(info ConfigInfo) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
@@ -321,7 +320,6 @@ func configFormat(path string) string {
 	}
 	return "yaml"
 }
-
 
 // configEdit opens the config file in the user's editor.
 func configEdit(path string, defaultConfig []byte) error {

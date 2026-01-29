@@ -11,59 +11,73 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/internal/engine"
 )
 
 // MigratedMarker records what was done during execution.
 type MigratedMarker struct {
-	Timestamp string             `yaml:"timestamp"`
-	System    SourceSystem       `yaml:"system"`
-	Mappings  []DirectoryMapping `yaml:"mappings"`
+	Timestamp string   `yaml:"timestamp"`
+	System    string   `yaml:"system"`
+	Renames   []Rename `yaml:"renames"`
 }
 
-// Execute performs the directory renames specified in the migration plan.
-// It writes progress to the given writer (typically os.Stderr).
-func Execute(w io.Writer, plan *MigrationPlan) error {
-	if len(plan.Mappings) == 0 {
-		fmt.Fprintf(w, "No renames needed.\n")
+// Rename records a single directory rename.
+type Rename struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
+}
+
+// Execute performs the directory renames specified in the execution graph.
+// It writes progress to stderr using standard cli output functions.
+// The w parameter is kept for API compatibility but is not used.
+func Execute(w io.Writer, graph *engine.Graph, analysis *MigrationAnalysis) error {
+	_ = w // kept for API compatibility
+
+	// Find rename nodes in the graph
+	var renameNodes []*engine.Node
+	for _, node := range graph.Nodes {
+		for _, op := range node.Operations {
+			if op == "rename" {
+				renameNodes = append(renameNodes, node)
+				break
+			}
+		}
+	}
+
+	if len(renameNodes) == 0 {
+		cli.Note("No renames needed.")
 		return nil
 	}
 
-	fmt.Fprintf(w, "Migrating: %s → writ (%d directory renames)\n", plan.System, len(plan.Mappings))
+	cli.Note("Migrating: %s -> writ (%d directory renames)", analysis.System, len(renameNodes))
 
 	// Verify no target conflicts before starting
-	for _, m := range plan.Mappings {
-		targetPath := filepath.Join(plan.SourceRoot, m.TargetDir)
-		if exists(targetPath) {
-			return fmt.Errorf("target directory %q already exists; aborting", m.TargetDir)
+	for _, node := range renameNodes {
+		if exists(node.Target) {
+			return fmt.Errorf("target directory %q already exists; aborting", node.Target)
 		}
 	}
 
 	// Perform renames
-	maxLen := 0
-	for _, m := range plan.Mappings {
-		if len(m.SourceDir) > maxLen {
-			maxLen = len(m.SourceDir)
+	var renames []Rename
+	for _, node := range renameNodes {
+		if err := os.Rename(node.Source, node.Target); err != nil {
+			cli.Error("  %s -> %s", filepath.Base(node.Source), filepath.Base(node.Target))
+			return fmt.Errorf("rename %s -> %s: %w", node.Source, node.Target, err)
 		}
-	}
-
-	for _, m := range plan.Mappings {
-		srcPath := filepath.Join(plan.SourceRoot, m.SourceDir)
-		dstPath := filepath.Join(plan.SourceRoot, m.TargetDir)
-
-		if err := os.Rename(srcPath, dstPath); err != nil {
-			fmt.Fprintf(w, "  %-*s  →  %-*s  ✗\n", maxLen, m.SourceDir, maxLen, m.TargetDir)
-			return fmt.Errorf("rename %s → %s: %w", m.SourceDir, m.TargetDir, err)
-		}
-		fmt.Fprintf(w, "  %-*s  →  %-*s  ✓\n", maxLen, m.SourceDir, maxLen, m.TargetDir)
+		cli.Success("  %s -> %s", filepath.Base(node.Source), filepath.Base(node.Target))
+		renames = append(renames, Rename{From: node.Source, To: node.Target})
 	}
 
 	// Write marker file
 	marker := MigratedMarker{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		System:    plan.System,
-		Mappings:  plan.Mappings,
+		System:    string(analysis.System),
+		Renames:   renames,
 	}
-	markerPath := filepath.Join(plan.SourceRoot, ".writ-migrated")
+	markerPath := filepath.Join(analysis.SourceRoot, ".writ-migrated")
 	data, err := yaml.Marshal(&marker)
 	if err != nil {
 		return fmt.Errorf("marshal marker: %w", err)
@@ -72,12 +86,12 @@ func Execute(w io.Writer, plan *MigrationPlan) error {
 		return fmt.Errorf("write marker: %w", err)
 	}
 
-	fmt.Fprintf(w, "\nWrote .writ-migrated marker.\n")
-	fmt.Fprintf(w, "Migration complete. Next steps:\n")
-
-	projects := UniqueProjects(plan.Entries)
-	fmt.Fprintf(w, "  git add -A && git commit -m \"Migrate to writ naming conventions\"\n")
-	fmt.Fprintf(w, "  writ deploy %s\n", joinWords(projects))
+	cli.Success("Wrote .writ-migrated marker.")
+	cli.Note("Migration complete. Next steps:")
+	cli.Note("  git add -A && git commit -m \"Migrate to writ naming conventions\"")
+	if len(analysis.Projects) > 0 {
+		cli.Note("  writ deploy %s", joinWords(analysis.Projects))
+	}
 
 	return nil
 }

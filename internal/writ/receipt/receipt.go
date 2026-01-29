@@ -139,13 +139,13 @@ type Backup struct {
 
 // Summary contains deployment statistics.
 type Summary struct {
-	TotalFiles int `json:"total_files" yaml:"total_files"`
-	Links      int `json:"links" yaml:"links"`
-	Copies     int `json:"copies,omitempty" yaml:"copies,omitempty"`
-	Templates  int `json:"templates" yaml:"templates"`
-	Secrets    int `json:"secrets,omitempty" yaml:"secrets,omitempty"`
-	Skipped    int `json:"skipped,omitempty" yaml:"skipped,omitempty"`
-	BackedUp   int `json:"backed_up,omitempty" yaml:"backed_up,omitempty"`
+	TotalFiles        int `json:"total_files" yaml:"total_files"`
+	Links             int `json:"links" yaml:"links"`
+	Copies            int `json:"copies,omitempty" yaml:"copies,omitempty"`
+	Templates         int `json:"templates" yaml:"templates"`
+	Secrets           int `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+	Skipped           int `json:"skipped,omitempty" yaml:"skipped,omitempty"`
+	BackedUp          int `json:"backed_up,omitempty" yaml:"backed_up,omitempty"`
 	PackagesManifests int `json:"packages_manifests,omitempty" yaml:"packages_manifests,omitempty"`
 }
 

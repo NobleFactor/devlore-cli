@@ -21,8 +21,8 @@ import (
 type Plan struct {
 	mu      sync.Mutex
 	graph   *Graph
-	project string   // default project for new nodes
-	nodeID  int      // auto-incrementing node ID
+	project string // default project for new nodes
+	nodeID  int    // auto-incrementing node ID
 }
 
 // NewPlan creates a new plan for building an execution graph.

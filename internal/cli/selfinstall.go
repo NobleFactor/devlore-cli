@@ -19,9 +19,9 @@ import (
 
 // SelfInstallInfo contains metadata needed for self-installation.
 type SelfInstallInfo struct {
-	Name          string     // Tool name (e.g., "lore", "writ")
-	ManHeader     ManHeader  // Man page header metadata
-	ConfigInfo    ConfigInfo // Config schema and defaults
+	Name       string     // Tool name (e.g., "lore", "writ")
+	ManHeader  ManHeader  // Man page header metadata
+	ConfigInfo ConfigInfo // Config schema and defaults
 }
 
 // NewSelfInstallCmd creates the self-install command.
@@ -194,7 +194,7 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, f
 
 	// Print summary
 	Success("Installed %s to %s", info.Name, root)
-	fmt.Fprintf(os.Stderr, "\n")
+	Note("")
 	for _, line := range installed {
 		Note("  %s", line)
 	}
@@ -213,7 +213,7 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, f
 			return fmt.Errorf("failed to create layer directories: %w", err)
 		}
 		if len(layerPaths) > 0 {
-			fmt.Fprintf(os.Stderr, "\n")
+			Note("")
 			Note("Layer directories:")
 			for _, p := range layerPaths {
 				Note("  %s", p)
@@ -289,13 +289,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source: %w", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 
 	dest, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("failed to create destination: %w", err)
 	}
-	defer dest.Close()
+	defer func() { _ = dest.Close() }()
 
 	if _, err := io.Copy(dest, source); err != nil {
 		return fmt.Errorf("failed to copy: %w", err)
@@ -392,11 +392,11 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 		case "zsh":
 			genErr = rootCmd.GenZshCompletion(f)
 		default:
-			f.Close()
+			_ = f.Close()
 			Warn("Unknown shell: %s (skipping)", shellName)
 			continue
 		}
-		f.Close()
+		_ = f.Close()
 
 		if genErr != nil {
 			return paths, fmt.Errorf("failed to generate %s completion: %w", shellName, genErr)
@@ -414,22 +414,26 @@ func printShellSetupInstructions(shells []string, toolName string) {
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "\n")
+	Note("")
 	Note("Shell completion setup:")
 
 	for _, shell := range shells {
 		switch shell {
 		case "bash":
-			fmt.Fprintf(os.Stderr, "\n  For bash, ensure bash-completion is installed.\n")
+			Note("")
+			Note("  For bash, ensure bash-completion is installed.")
 		case "fish":
-			fmt.Fprintf(os.Stderr, "\n  For fish, completions work automatically.\n")
+			Note("")
+			Note("  For fish, completions work automatically.")
 		case "powershell":
-			fmt.Fprintf(os.Stderr, "\n  For PowerShell, add to your $PROFILE:\n")
-			fmt.Fprintf(os.Stderr, "    . ~/.local/share/powershell/completions/%s.ps1\n", toolName)
+			Note("")
+			Note("  For PowerShell, add to your $PROFILE:")
+			Note("    . ~/.local/share/powershell/completions/%s.ps1", toolName)
 		case "zsh":
-			fmt.Fprintf(os.Stderr, "\n  For zsh, add to ~/.zshrc:\n")
-			fmt.Fprintf(os.Stderr, "    fpath=(~/.local/share/zsh/site-functions $fpath)\n")
-			fmt.Fprintf(os.Stderr, "    autoload -Uz compinit && compinit\n")
+			Note("")
+			Note("  For zsh, add to ~/.zshrc:")
+			Note("    fpath=(~/.local/share/zsh/site-functions $fpath)")
+			Note("    autoload -Uz compinit && compinit")
 		}
 	}
 }

@@ -611,13 +611,13 @@ def install(system, package, plan):
 **CRITICAL:** Phase scripts NEVER invoke package managers or shell commands directly.
 
 ```python
-# CORRECT: Express intent
-plan.install("docker-ce")
-plan.remove("docker.io")
+# CORRECT: Express intent via namespaced operations
+plan.package.install("docker-ce")
+plan.package.remove("docker.io")
 
 # WRONG: Never shell out to package managers
-plan.run("apt install docker-ce")      # ❌
-plan.run("brew install docker")        # ❌
+plan.shell("apt install docker-ce")    # ❌
+plan.shell("brew install docker")      # ❌
 ```
 
 The host binding layer maps intent to platform-specific commands. The engine
@@ -628,21 +628,21 @@ not conditionals in scripts.
 #### Example
 
 ```python
-def install(system, package, plan):
-    # Query system state
-    if system.has("apt"):
-        plan.install("docker.io")
-    elif system.has("brew"):
-        plan.install("docker", cask=True)
+def install(package, system, plan):
+    # Install packages (platform auto-detected)
+    plan.package.install("docker-ce", "containerd.io")
 
     # Check package features (enabled via --with)
-    if package.feature("rootless"):
-        plan.install("uidmap")
-        plan.run("dockerd-rootless-setuptool.sh --install")
+    if package.has_feature("rootless"):
+        plan.package.install("uidmap")
+        plan.shell("dockerd-rootless-setuptool.sh --install")
 
-    # Promise-based data flow
-    tarball = plan.download(url="https://example.com/app.tar.gz")
-    plan.extract(tarball, dest="/usr/local")  # depends on tarball
+    # File operations
+    plan.file.configure(source="daemon.json.tmpl", target="/etc/docker/daemon.json")
+
+    # Service management
+    plan.service(name="docker", action="enable")
+    plan.service(name="docker", action="start")
 ```
 
 #### Implementation Tasks

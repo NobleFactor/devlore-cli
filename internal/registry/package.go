@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
 // PackageSource indicates where a package was resolved from.
@@ -19,7 +21,6 @@ const (
 	SourceBrew   PackageSource = "brew"   // macOS Homebrew
 	SourcePort   PackageSource = "port"   // macOS MacPorts
 	SourceWinget PackageSource = "winget" // Windows winget
-	SourceChoco  PackageSource = "choco"  // Windows Chocolatey
 )
 
 // LorePackage provides a uniform view over any package, whether from
@@ -195,6 +196,7 @@ func (c *Client) Resolve(name string, platform string) (*LorePackage, error) {
 }
 
 // resolveNative creates a synthetic LorePackage for a native PM package.
+// It uses the synthetic cache to avoid repeated lookups and store verification results.
 func (c *Client) resolveNative(name string, platform string) (*LorePackage, error) {
 	var source PackageSource
 	switch {
@@ -210,16 +212,103 @@ func (c *Client) resolveNative(name string, platform string) (*LorePackage, erro
 		source = SourceApt // Default fallback
 	}
 
-	return &LorePackage{
+	// Check synthetic cache first
+	cache := NewSyntheticCache(c.cacheDir)
+	if cached := cache.Get(source, name); cached != nil {
+		return &LorePackage{
+			Name:        cached.Name,
+			Version:     cached.Version,
+			Description: cached.Description,
+			Source:      cached.Source,
+			NativeName:  cached.NativeName,
+		}, nil
+	}
+
+	// Create new synthetic package
+	pkg := &LorePackage{
 		Name:       name,
 		Version:    "latest",
 		Source:     source,
 		NativeName: name, // Same name; could be mapped differently
-	}, nil
+	}
+
+	// Cache the synthetic package (unverified initially)
+	info := &SyntheticPackageInfo{
+		Name:       name,
+		Source:     source,
+		NativeName: name,
+		Version:    "latest",
+		Verified:   false,
+	}
+	_ = cache.Put(info) // Ignore cache errors; they're non-fatal
+
+	return pkg, nil
+}
+
+// VerifySyntheticPackage checks if a synthetic package is available and updates the cache.
+func (c *Client) VerifySyntheticPackage(pkg *LorePackage) bool {
+	if pkg.Source == SourceLore {
+		return true // Lore packages are always "verified"
+	}
+
+	cache := NewSyntheticCache(c.cacheDir)
+
+	// Check if already verified in cache
+	if cached := cache.Get(pkg.Source, pkg.Name); cached != nil && cached.Verified {
+		return true
+	}
+
+	// Verify with the package manager
+	h := host.NewHost()
+	pm := h.PackageManager()
+	if pm == nil {
+		return false
+	}
+
+	available := pm.Available(pkg.Name)
+
+	// Update cache with verification result
+	info := &SyntheticPackageInfo{
+		Name:       pkg.Name,
+		Source:     pkg.Source,
+		NativeName: pkg.NativeName,
+		Version:    pkg.Version,
+		Verified:   available,
+	}
+	_ = cache.Put(info)
+
+	return available
+}
+
+// SyntheticCache returns the synthetic package cache for this client.
+func (c *Client) SyntheticCache() *SyntheticCache {
+	return NewSyntheticCache(c.cacheDir)
 }
 
 // dirExists checks if a directory exists.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// ParsePackagePrefix extracts the package manager prefix from a package name.
+// On Darwin, packages can be prefixed with "brew:" or "port:" to explicitly
+// select the package manager. Without a prefix, auto-detection is used
+// (port if installed, else brew).
+//
+// Examples:
+//
+//	"brew:wget" → ("wget", "brew")
+//	"port:wget" → ("wget", "port")
+//	"wget"      → ("wget", "")
+//
+// Returns (packageName, prefix) where prefix is "brew", "port", or "" for auto-detect.
+func ParsePackagePrefix(name string) (string, string) {
+	if strings.HasPrefix(name, "brew:") {
+		return strings.TrimPrefix(name, "brew:"), "brew"
+	}
+	if strings.HasPrefix(name, "port:") {
+		return strings.TrimPrefix(name, "port:"), "port"
+	}
+	return name, ""
 }

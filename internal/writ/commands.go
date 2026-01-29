@@ -25,10 +25,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/engine"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/receipt"
+	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/state"
-	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
@@ -131,16 +131,16 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	if verbose {
 		if len(layerSources) > 0 {
-			fmt.Fprintf(os.Stderr, "Layers: %d sources\n", len(layerSources))
+			cli.Note("Layers: %d sources", len(layerSources))
 			for _, src := range layerSources {
-				fmt.Fprintf(os.Stderr, "  %s/%s: %s → %s\n", src.Layer, src.TargetName, src.SourceRoot, src.TargetRoot)
+				cli.Note("  %s/%s: %s → %s", src.Layer, src.TargetName, src.SourceRoot, src.TargetRoot)
 			}
 		} else {
-			fmt.Fprintf(os.Stderr, "Source: %s\n", sourceRoot)
-			fmt.Fprintf(os.Stderr, "Target: %s\n", targetRoot)
+			cli.Note("Source: %s", sourceRoot)
+			cli.Note("Target: %s", targetRoot)
 		}
-		fmt.Fprintf(os.Stderr, "Projects: %v\n", args)
-		fmt.Fprintf(os.Stderr, "Segments: %s\n", segs.String())
+		cli.Note("Projects: %v", args)
+		cli.Note("Segments: %s", segs.String())
 	}
 
 	// Build deployment tree
@@ -169,15 +169,15 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	// Warn about source collisions (same target from different source dirs or layers)
 	if deployTree.HasCollisions() {
 		if len(layerSources) > 0 {
-			fmt.Fprintf(os.Stderr, "Warning: %d source collision(s) resolved by layer/specificity:\n", len(deployTree.Collisions))
+			cli.Warn("%d source collision(s) resolved by layer/specificity:", len(deployTree.Collisions))
 			for _, c := range deployTree.Collisions {
-				fmt.Fprintf(os.Stderr, "  %s: using %s [%s] over %s [%s]\n",
+				cli.Warn("  %s: using %s [%s] over %s [%s]",
 					c.Target, c.Winner, c.WinnerLayer, c.Loser, c.LoserLayer)
 			}
 		} else {
-			fmt.Fprintf(os.Stderr, "Warning: %d source collision(s) resolved by specificity:\n", len(deployTree.Collisions))
+			cli.Warn("%d source collision(s) resolved by specificity:", len(deployTree.Collisions))
 			for _, c := range deployTree.Collisions {
-				fmt.Fprintf(os.Stderr, "  %s: using %s (specificity %d) over %s (specificity %d)\n",
+				cli.Warn("  %s: using %s (specificity %d) over %s (specificity %d)",
 					c.Target, c.Winner, c.WinnerSpecificity, c.Loser, c.LoserSpecificity)
 			}
 		}
@@ -224,9 +224,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return outputDryRun(deployTree)
 	}
 
-	// Create engine
+	// Create engine with all operations (file + package)
 	registry := engine.NewRegistry()
-	for _, op := range engine.FileOps() {
+	for _, op := range engine.AllOps() {
 		registry.Register(op)
 	}
 	eng := engine.New(registry, engine.Options{
@@ -240,32 +240,32 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// Report conflicts upfront
 	if preflight.HasConflicts() {
-		fmt.Fprintf(os.Stderr, "\nConflicts detected (%d):\n", len(preflight.Conflicts))
+		cli.Warn("Conflicts detected (%d):", len(preflight.Conflicts))
 		for _, c := range preflight.Conflicts {
-			fmt.Fprintf(os.Stderr, "  %s: %s\n", c.Node.ID, c.Message)
+			cli.Warn("  %s: %s", c.Node.ID, c.Message)
 		}
 
 		if resolution == engine.ResolutionStop {
-			fmt.Fprintf(os.Stderr, "\nUse --conflict=backup, --conflict=overwrite, or --conflict=skip to resolve.\n")
+			cli.Warn("Use --conflict=backup, --conflict=overwrite, or --conflict=skip to resolve.")
 			return fmt.Errorf("%d conflict(s) detected", len(preflight.Conflicts))
 		}
 
 		// Show what will happen
 		switch resolution {
 		case engine.ResolutionBackup:
-			fmt.Fprintf(os.Stderr, "\nBacking up conflicting files...\n")
+			cli.Note("Backing up conflicting files...")
 		case engine.ResolutionOverwrite:
-			fmt.Fprintf(os.Stderr, "\nOverwriting conflicting files...\n")
+			cli.Note("Overwriting conflicting files...")
 		case engine.ResolutionSkip:
-			fmt.Fprintf(os.Stderr, "\nSkipping conflicting files...\n")
+			cli.Note("Skipping conflicting files...")
 		}
 	}
 
 	// Report already deployed (verbose only)
 	if verbose && len(preflight.AlreadyDone) > 0 {
-		fmt.Fprintf(os.Stderr, "\nAlready deployed (%d):\n", len(preflight.AlreadyDone))
+		cli.Note("Already deployed (%d):", len(preflight.AlreadyDone))
 		for _, c := range preflight.AlreadyDone {
-			fmt.Fprintf(os.Stderr, "  %s\n", c.Node.ID)
+			cli.Note("  %s", c.Node.ID)
 		}
 	}
 
@@ -359,34 +359,34 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if len(packagesManifests) > 0 {
-		fmt.Fprintf(os.Stderr, "\nPackages manifests found (%d):\n", len(packagesManifests))
+		cli.Note("Packages manifests found (%d):", len(packagesManifests))
 		for _, node := range packagesManifests {
-			fmt.Fprintf(os.Stderr, "  %s\n", node.Source)
+			cli.Note("  %s", node.Source)
 		}
-		fmt.Fprintf(os.Stderr, "NOTE: Package installation NOT YET IMPLEMENTED.\n")
-		fmt.Fprintf(os.Stderr, "      The Package Graph Builder (internal/lore/graph) must be implemented\n")
-		fmt.Fprintf(os.Stderr, "      to process these manifests and add package nodes to the execution graph.\n")
+		cli.Warn("Package installation NOT YET IMPLEMENTED.")
+		cli.Warn("The Package Graph Builder (internal/lore/graph) must be implemented")
+		cli.Warn("to process these manifests and add package nodes to the execution graph.")
 	}
 
 	// Sign and write receipt
 	var receiptFilename string
 	if signingIdentity != nil {
 		if err := rcpt.Sign(signingIdentity); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to sign receipt: %v\n", err)
+			cli.Warn("failed to sign receipt: %v", err)
 		} else if verbose {
-			fmt.Fprintf(os.Stderr, "Receipt signed with: %s\n", signingIdentity.Recipient().String())
+			cli.Note("Receipt signed with: %s", signingIdentity.Recipient().String())
 		}
 	} else if verbose {
-		fmt.Fprintf(os.Stderr, "Warning: no age identity found, receipt will be unsigned\n")
+		cli.Warn("no age identity found, receipt will be unsigned")
 	}
 
 	receiptPath, err := rcpt.Write()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to write receipt: %v\n", err)
+		cli.Warn("failed to write receipt: %v", err)
 	} else {
 		receiptFilename = filepath.Base(receiptPath)
 		if verbose {
-			fmt.Fprintf(os.Stderr, "Receipt: %s\n", receiptPath)
+			cli.Note("Receipt: %s", receiptPath)
 		}
 	}
 
@@ -394,20 +394,20 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	if receiptFilename != "" {
 		deployState, err := state.LoadOrCreate(sourceRoot, targetRoot)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to load state: %v\n", err)
+			cli.Warn("failed to load state: %v", err)
 		} else {
 			deployState.UpdateFromReceipt(rcpt, receiptFilename)
 
 			if signingIdentity != nil {
 				if err := deployState.Sign(signingIdentity); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to sign state: %v\n", err)
+					cli.Warn("failed to sign state: %v", err)
 				}
 			}
 
 			if err := deployState.Write(); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to write state: %v\n", err)
+				cli.Warn("failed to write state: %v", err)
 			} else if verbose {
-				fmt.Fprintf(os.Stderr, "State: %s\n", state.StatePath())
+				cli.Note("State: %s", state.StatePath())
 			}
 		}
 	}
@@ -421,7 +421,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	if backed > 0 {
 		summaryStr += fmt.Sprintf(", %d backed up", backed)
 	}
-	fmt.Printf("\nDeployed %s\n", summaryStr)
+	cli.Success("Deployed %s", summaryStr)
 
 	return nil
 }
@@ -475,8 +475,8 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	if stateErr != nil {
 		if os.IsNotExist(stateErr) {
 			if force {
-				fmt.Fprintf(os.Stderr, "Warning: no state file found, proceeding with --force\n")
-				fmt.Fprintf(os.Stderr, "Cannot track what was deployed; only scanning for symlinks.\n")
+				cli.Warn("no state file found, proceeding with --force")
+				cli.Note("Cannot track what was deployed; only scanning for symlinks.")
 			} else {
 				return fmt.Errorf("no state file found; cannot safely remove without deployment state\nUse --force to proceed without state tracking (may leave orphaned files)")
 			}
@@ -498,15 +498,15 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("state signature invalid, redeploy to regenerate: %v", err)
 			}
 			if verbose {
-				fmt.Fprintf(os.Stderr, "State signature valid\n")
+				cli.Success("State signature valid")
 			}
 		} else {
 			// Unsigned state - warn and require --force
 			if !force {
-				fmt.Fprintf(os.Stderr, "Warning: state file is unsigned (legacy or tampered)\n")
+				cli.Warn("state file is unsigned (legacy or tampered)")
 				return fmt.Errorf("unsigned state file; use --force to proceed or redeploy to regenerate signed state")
 			}
-			fmt.Fprintf(os.Stderr, "Warning: proceeding with unsigned state (--force)\n")
+			cli.Warn("proceeding with unsigned state (--force)")
 		}
 	}
 
@@ -631,7 +631,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(toRemove) == 0 {
-		fmt.Println("No files found for specified projects.")
+		cli.Note("No files found for specified projects.")
 		return nil
 	}
 
@@ -653,36 +653,36 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Files to remove for %v:\n", args)
-	fmt.Printf("  %d symlinks\n", symlinks)
+	cli.Note("Files to remove for %v:", args)
+	cli.Note("  %d symlinks", symlinks)
 	if copied > 0 {
-		fmt.Printf("  %d copied files", copied)
 		if modified > 0 {
-			fmt.Printf(" (%d locally modified)", modified)
+			cli.Note("  %d copied files (%d locally modified)", copied, modified)
+		} else {
+			cli.Note("  %d copied files", copied)
 		}
-		fmt.Println()
 	}
 
 	// Show modified files that need attention
 	if modified > 0 && !force {
-		fmt.Fprintf(os.Stderr, "\nLocally modified files (will be preserved unless --force):\n")
+		cli.Warn("Locally modified files (will be preserved unless --force):")
 		for _, re := range toRemove {
 			if re.TargetModified {
-				fmt.Fprintf(os.Stderr, "  M %s\n", re.RelTarget)
+				cli.Warn("  M %s", re.RelTarget)
 			}
 		}
 	}
 
 	// Dry-run: show what would happen
 	if dryRun {
-		fmt.Println("\nDry-run: would remove:")
+		cli.Note("Dry-run: would remove:")
 		for _, re := range toRemove {
 			if re.TargetModified && !force {
-				fmt.Printf("  skip %s (locally modified)\n", re.RelTarget)
+				cli.Note("  skip %s (locally modified)", re.RelTarget)
 			} else if re.IsSymlink {
-				fmt.Printf("  unlink %s\n", re.RelTarget)
+				cli.Note("  unlink %s", re.RelTarget)
 			} else {
-				fmt.Printf("  remove %s\n", re.RelTarget)
+				cli.Note("  remove %s", re.RelTarget)
 			}
 		}
 		return nil
@@ -705,7 +705,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		if re.TargetModified && !force {
 			skipped++
 			if verbose {
-				fmt.Fprintf(os.Stderr, "  skip %s (locally modified)\n", re.RelTarget)
+				cli.Note("  skip %s (locally modified)", re.RelTarget)
 			}
 			continue
 		}
@@ -713,14 +713,14 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		// Check if target exists
 		if _, err := os.Lstat(re.Target); os.IsNotExist(err) {
 			if verbose {
-				fmt.Fprintf(os.Stderr, "  skip %s (already removed)\n", re.RelTarget)
+				cli.Note("  skip %s (already removed)", re.RelTarget)
 			}
 			continue
 		}
 
 		// Remove the file/symlink
 		if err := os.Remove(re.Target); err != nil {
-			fmt.Fprintf(os.Stderr, "  error removing %s: %v\n", re.RelTarget, err)
+			cli.Error("  error removing %s: %v", re.RelTarget, err)
 			continue
 		}
 
@@ -730,9 +730,9 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		removed++
 		if verbose {
 			if re.IsSymlink {
-				fmt.Fprintf(os.Stderr, "  unlinked %s\n", re.RelTarget)
+				cli.Success("  unlinked %s", re.RelTarget)
 			} else {
-				fmt.Fprintf(os.Stderr, "  removed %s\n", re.RelTarget)
+				cli.Success("  removed %s", re.RelTarget)
 			}
 		}
 
@@ -746,25 +746,24 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	if deployState != nil && removed > 0 {
 		if signingIdentity != nil {
 			if err := deployState.Sign(signingIdentity); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to sign state: %v\n", err)
+				cli.Warn("failed to sign state: %v", err)
 			}
 		}
 		if err := deployState.Write(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to write state: %v\n", err)
+			cli.Warn("failed to write state: %v", err)
 		} else if verbose {
-			fmt.Fprintf(os.Stderr, "State updated: %s\n", state.StatePath())
+			cli.Success("State updated: %s", state.StatePath())
 		}
 	}
 
 	// Summary
-	fmt.Printf("\nRemoved %d files", removed)
 	if skipped > 0 {
-		fmt.Printf(", %d skipped (locally modified)", skipped)
-	}
-	fmt.Println()
-
-	if skipped > 0 && !force {
-		fmt.Println("Use --force to remove locally modified files.")
+		cli.Success("Removed %d files, %d skipped (locally modified)", removed, skipped)
+		if !force {
+			cli.Note("Use --force to remove locally modified files.")
+		}
+	} else {
+		cli.Success("Removed %d files", removed)
 	}
 
 	return nil
@@ -867,12 +866,12 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(copied) == 0 {
-		fmt.Println("No copied files to upgrade.")
+		cli.Note("No copied files to upgrade.")
 		return nil
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "Upgrading %d copied file(s)...\n", len(copied))
+		cli.Note("Upgrading %d copied file(s)...", len(copied))
 	}
 
 	// Build engine data (template vars + builtins + decryptor)
@@ -903,9 +902,9 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			skippedFiles = append(skippedFiles, relTarget)
 			if verbose {
 				if sourceChanged {
-					fmt.Fprintf(os.Stderr, "  ⚠ %s (skipped: both source and target changed)\n", relTarget)
+					cli.Warn("%s (skipped: both source and target changed)", relTarget)
 				} else {
-					fmt.Fprintf(os.Stderr, "  ⚠ %s (skipped: locally modified)\n", relTarget)
+					cli.Warn("%s (skipped: locally modified)", relTarget)
 				}
 			}
 			continue
@@ -935,9 +934,9 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			node.Mode = 0600
 		}
 
-		// Execute via single-node graph
+		// Execute via single-node graph with all operations
 		registry := engine.NewRegistry()
-		for _, op := range engine.FileOps() {
+		for _, op := range engine.AllOps() {
 			registry.Register(op)
 		}
 		eng := engine.New(registry, engine.Options{
@@ -949,20 +948,20 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		graph := &engine.Graph{Nodes: []*engine.Node{node}}
 		results, runErr := eng.Run(context.Background(), graph)
 		if runErr != nil {
-			fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", relTarget, runErr)
+			cli.Error("%s: %v", relTarget, runErr)
 			continue
 		}
 		if len(results) > 0 && results[0].Status == engine.StatusFailed {
-			fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", relTarget, results[0].Error)
+			cli.Error("%s: %v", relTarget, results[0].Error)
 			continue
 		}
 
 		regenerated++
 		if verbose {
 			if targetChanged && force {
-				fmt.Fprintf(os.Stderr, "  ✓ %s (regenerated, local changes overwritten)\n", relTarget)
+				cli.Success("%s (regenerated, local changes overwritten)", relTarget)
 			} else {
-				fmt.Fprintf(os.Stderr, "  ✓ %s (regenerated)\n", relTarget)
+				cli.Success("%s (regenerated)", relTarget)
 			}
 		}
 
@@ -978,26 +977,26 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	if !dryRun && regenerated > 0 {
 		if signingIdentity != nil {
 			if err := deployState.Sign(signingIdentity); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to sign state: %v\n", err)
+				cli.Warn("failed to sign state: %v", err)
 			}
 		}
 		if err := deployState.Write(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to write state: %v\n", err)
+			cli.Warn("failed to write state: %v", err)
 		}
 	}
 
 	// Summary
 	if skipped > 0 {
-		fmt.Printf("\n%d file(s) regenerated, %d skipped\n", regenerated, skipped)
+		cli.Success("%d file(s) regenerated, %d skipped", regenerated, skipped)
 		if !verbose {
-			fmt.Println("Skipped files (locally modified):")
+			cli.Note("Skipped files (locally modified):")
 			for _, f := range skippedFiles {
-				fmt.Printf("  %s\n", f)
+				cli.Note("  %s", f)
 			}
 		}
-		fmt.Println("\nUse --force to overwrite locally modified files.")
+		cli.Note("Use --force to overwrite locally modified files.")
 	} else {
-		fmt.Printf("\n%d file(s) regenerated\n", regenerated)
+		cli.Success("%d file(s) regenerated", regenerated)
 	}
 
 	return nil
@@ -1079,7 +1078,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		deployState, stateErr := state.Load()
 		if stateErr == nil {
 			if verbose {
-				fmt.Fprintf(os.Stderr, "Using state file: %s\n", state.StatePath())
+				cli.Note("Using state file: %s", state.StatePath())
 			}
 
 			// Verify signature if drift checking is enabled
@@ -1093,7 +1092,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 					return fmt.Errorf("state signature invalid, redeploy to regenerate: %v", err)
 				}
 				if verbose && deployState.IsSigned() {
-					fmt.Fprintf(os.Stderr, "State signature valid\n")
+					cli.Success("State signature valid")
 				}
 			}
 
@@ -1107,7 +1106,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 			rcpt, err := receipt.LoadLatest()
 			if err == nil {
 				if verbose {
-					fmt.Fprintf(os.Stderr, "Using receipt for copied files: %s\n", receipt.LatestReceiptPath())
+					cli.Note("Using receipt for copied files: %s", receipt.LatestReceiptPath())
 				}
 
 				// Verify signature if drift checking is enabled
@@ -1122,11 +1121,11 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 					switch verifyResult {
 					case receipt.VerifyOK:
 						if verbose {
-							fmt.Fprintf(os.Stderr, "Receipt signature valid\n")
+							cli.Success("Receipt signature valid")
 						}
 					case receipt.VerifyLegacy:
 						if verbose {
-							fmt.Fprintf(os.Stderr, "Receipt unsigned (legacy v%s), skipping verification\n", rcpt.Version)
+							cli.Note("Receipt unsigned (legacy v%s), skipping verification", rcpt.Version)
 						}
 					case receipt.VerifyInvalid, receipt.VerifyMissing:
 						return fmt.Errorf("receipt signature invalid, redeploy to regenerate: %v", verifyErr)
@@ -1138,7 +1137,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 			} else if checkDrift {
 				return fmt.Errorf("--drift requires state file or receipt; none found")
 			} else if verbose {
-				fmt.Fprintf(os.Stderr, "No state file or receipt found, showing symlinks only\n")
+				cli.Note("No state file or receipt found, showing symlinks only")
 			}
 		}
 	}
@@ -1768,13 +1767,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	defer func() { _ = dstFile.Close() }()
 
 	buf := make([]byte, 32*1024)
 	for {
@@ -1813,7 +1812,7 @@ Output is JSON by default for scripting. Use --format for alternatives.`,
   writ inspect noblefactor --format '{{.Name}}\t{{.Source}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("inspect: not yet implemented")
+			cli.Note("inspect: not yet implemented")
 			return nil
 		},
 	}
@@ -1828,7 +1827,7 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List available projects for the current target",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("list: not yet implemented")
+			cli.Note("list: not yet implemented")
 			return nil
 		},
 	}
@@ -1890,9 +1889,9 @@ of your environment state.`,
 			}
 			unified, _ := cmd.Flags().GetBool("unified")
 			if unified {
-				fmt.Printf("receipt show %s --unified: not yet implemented\n", name)
+				cli.Note("receipt show %s --unified: not yet implemented", name)
 			} else {
-				fmt.Printf("receipt show %s: not yet implemented\n", name)
+				cli.Note("receipt show %s: not yet implemented", name)
 			}
 			return nil
 		},
@@ -1904,7 +1903,7 @@ of your environment state.`,
 		Use:   "list",
 		Short: "List available receipts",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("receipt list: not yet implemented")
+			cli.Note("receipt list: not yet implemented")
 			return nil
 		},
 	})

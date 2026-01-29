@@ -155,39 +155,202 @@ func (c *Client) FilePath(relPath string) string {
 	return filepath.Join(c.cacheDir, relPath)
 }
 
-// AIPrompt reads an AI prompt file from the cache.
-func (c *Client) AIPrompt(name string) (string, error) {
-	data, err := c.ReadFile(filepath.Join("ai", "prompts", name))
+// Knowledge returns a domain accessor for reading knowledge assets.
+// The registry organizes knowledge by domain:
+//
+//	knowledge/migration/   - writ migrate prompts, transforms, signatures
+//	knowledge/onboarding/  - environment initialization
+//	knowledge/package-authoring/ - lore package creation
+//	knowledge/shared/      - common assets inherited by all domains
+//
+// Usage:
+//
+//	client.Knowledge("migration").Prompt("migrate-to-writ.txt")
+//	client.Knowledge("migration").Transform("from-stow.yaml")
+func (c *Client) Knowledge(domain string) *KnowledgeDomain {
+	return &KnowledgeDomain{
+		client: c,
+		domain: domain,
+	}
+}
+
+// KnowledgeDomain provides access to knowledge assets within a domain.
+// Methods correspond to subdirectories in the knowledge/{domain}/ structure.
+// Assets are resolved with fallback to the "shared" domain.
+type KnowledgeDomain struct {
+	client *Client
+	domain string
+}
+
+// read attempts to read from the domain, falling back to shared.
+func (k *KnowledgeDomain) read(subdir, name string) ([]byte, error) {
+	// Try domain-specific first
+	path := filepath.Join("knowledge", k.domain, subdir, name)
+	data, err := k.client.ReadFile(path)
+	if err == nil {
+		return data, nil
+	}
+
+	// Fall back to shared (unless we're already in shared)
+	if k.domain != "shared" {
+		sharedPath := filepath.Join("knowledge", "shared", subdir, name)
+		data, sharedErr := k.client.ReadFile(sharedPath)
+		if sharedErr == nil {
+			return data, nil
+		}
+	}
+
+	// Return original error (more specific)
+	return nil, fmt.Errorf("reading %s/%s/%s: %w", k.domain, subdir, name, err)
+}
+
+// Prompt reads a prompt file from knowledge/{domain}/prompts/{name}.
+// Falls back to knowledge/shared/prompts/{name} if not found in domain.
+func (k *KnowledgeDomain) Prompt(name string) (string, error) {
+	data, err := k.read("prompts", name)
 	if err != nil {
-		return "", fmt.Errorf("reading AI prompt %s: %w", name, err)
+		return "", err
 	}
 	return string(data), nil
 }
 
-// AISchema reads an AI JSON schema file from the cache.
-func (c *Client) AISchema(name string) ([]byte, error) {
-	data, err := c.ReadFile(filepath.Join("ai", "schemas", name))
-	if err != nil {
-		return nil, fmt.Errorf("reading AI schema %s: %w", name, err)
-	}
-	return data, nil
+// Schema reads a JSON schema file from knowledge/{domain}/schemas/{name}.
+// Falls back to knowledge/shared/schemas/{name} if not found in domain.
+func (k *KnowledgeDomain) Schema(name string) ([]byte, error) {
+	return k.read("schemas", name)
 }
 
-// AIExamples reads an AI examples file from the cache.
-func (c *Client) AIExamples(name string) ([]byte, error) {
-	data, err := c.ReadFile(filepath.Join("ai", "examples", name))
-	if err != nil {
-		return nil, fmt.Errorf("reading AI examples %s: %w", name, err)
-	}
-	return data, nil
+// Examples reads an examples file from knowledge/{domain}/examples/{name}.
+// Falls back to knowledge/shared/examples/{name} if not found in domain.
+func (k *KnowledgeDomain) Examples(name string) ([]byte, error) {
+	return k.read("examples", name)
 }
 
-// MigrationGuide reads a migration guide from the cache.
-func (c *Client) MigrationGuide(system string) ([]byte, error) {
-	filename := fmt.Sprintf("from-%s.yaml", system)
-	data, err := c.ReadFile(filepath.Join("ai", "migrations", filename))
-	if err != nil {
-		return nil, fmt.Errorf("reading migration guide for %s: %w", system, err)
+// Transform reads a transform file from knowledge/{domain}/transforms/{name}.
+// Falls back to knowledge/shared/transforms/{name} if not found in domain.
+func (k *KnowledgeDomain) Transform(name string) ([]byte, error) {
+	return k.read("transforms", name)
+}
+
+// Signature reads a signature file from knowledge/{domain}/signatures/{name}.
+// Falls back to knowledge/shared/signatures/{name} if not found in domain.
+func (k *KnowledgeDomain) Signature(name string) ([]byte, error) {
+	return k.read("signatures", name)
+}
+
+// Slots reads a slots definition file from knowledge/{domain}/slots/{name}.
+// Falls back to knowledge/shared/slots/{name} if not found in domain.
+func (k *KnowledgeDomain) Slots(name string) ([]byte, error) {
+	return k.read("slots", name)
+}
+
+// KnowledgeIndex represents the index.yaml manifest for a knowledge domain.
+// It lists all available assets by type with metadata for discovery.
+type KnowledgeIndex struct {
+	Domain     string           `yaml:"domain"`
+	Prompts    []PromptEntry    `yaml:"prompts,omitempty"`
+	Schemas    []SchemaEntry    `yaml:"schemas,omitempty"`
+	Examples   []ExampleEntry   `yaml:"examples,omitempty"`
+	Transforms []TransformEntry `yaml:"transforms,omitempty"`
+	Signatures []SignatureEntry `yaml:"signatures,omitempty"`
+	Slots      []SlotEntry      `yaml:"slots,omitempty"`
+}
+
+// PromptEntry describes a prompt asset with discovery metadata.
+type PromptEntry struct {
+	Name        string `yaml:"name"`
+	Purpose     string `yaml:"purpose,omitempty"`     // semantic key for discovery
+	Description string `yaml:"description,omitempty"` // human-readable description
+}
+
+// SchemaEntry describes a JSON schema asset with discovery metadata.
+type SchemaEntry struct {
+	Name        string `yaml:"name"`
+	Purpose     string `yaml:"purpose,omitempty"`
+	Description string `yaml:"description,omitempty"`
+}
+
+// ExampleEntry describes an examples asset with discovery metadata.
+type ExampleEntry struct {
+	Name        string `yaml:"name"`
+	Purpose     string `yaml:"purpose,omitempty"`
+	Description string `yaml:"description,omitempty"`
+}
+
+// TransformEntry describes a transform asset with discovery metadata.
+type TransformEntry struct {
+	Name         string `yaml:"name"`
+	SourceSystem string `yaml:"source_system,omitempty"` // source system this transform handles
+	Description  string `yaml:"description,omitempty"`
+}
+
+// SignatureEntry describes a signature asset with discovery metadata.
+type SignatureEntry struct {
+	Name        string `yaml:"name"`
+	System      string `yaml:"system,omitempty"` // system this signature detects
+	Description string `yaml:"description,omitempty"`
+}
+
+// SlotEntry describes a slots asset with discovery metadata.
+type SlotEntry struct {
+	Name        string `yaml:"name"`
+	Purpose     string `yaml:"purpose,omitempty"`
+	Description string `yaml:"description,omitempty"`
+}
+
+// PromptByPurpose finds a prompt by its semantic purpose key.
+// Returns empty string if not found.
+func (idx *KnowledgeIndex) PromptByPurpose(purpose string) string {
+	for _, p := range idx.Prompts {
+		if p.Purpose == purpose {
+			return p.Name
+		}
 	}
-	return data, nil
+	return ""
+}
+
+// SchemaByPurpose finds a schema by its semantic purpose key.
+func (idx *KnowledgeIndex) SchemaByPurpose(purpose string) string {
+	for _, s := range idx.Schemas {
+		if s.Purpose == purpose {
+			return s.Name
+		}
+	}
+	return ""
+}
+
+// TransformBySourceSystem finds a transform by the source system it handles.
+func (idx *KnowledgeIndex) TransformBySourceSystem(system string) string {
+	for _, t := range idx.Transforms {
+		if t.SourceSystem == system {
+			return t.Name
+		}
+	}
+	return ""
+}
+
+// SignatureNames returns just the filenames for iteration.
+func (idx *KnowledgeIndex) SignatureNames() []string {
+	names := make([]string, len(idx.Signatures))
+	for i, s := range idx.Signatures {
+		names[i] = s.Name
+	}
+	return names
+}
+
+// Index loads the index.yaml manifest for this knowledge domain.
+// Returns nil if the index doesn't exist (domain may have no indexed assets).
+func (k *KnowledgeDomain) Index() (*KnowledgeIndex, error) {
+	path := filepath.Join("knowledge", k.domain, "index.yaml")
+	data, err := k.client.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var index KnowledgeIndex
+	if err := yaml.Unmarshal(data, &index); err != nil {
+		return nil, fmt.Errorf("parsing index.yaml: %w", err)
+	}
+
+	return &index, nil
 }

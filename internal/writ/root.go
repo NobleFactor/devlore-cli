@@ -6,7 +6,6 @@ package writ
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -138,7 +137,7 @@ func initConfig(cmd *cobra.Command) error {
 
 	// Debug output if verbose
 	if viper.GetBool("writ.verbose") {
-		fmt.Fprintf(os.Stderr, "Using config: %s\n", viper.ConfigFileUsed())
+		cli.Note("Using config: %s", viper.ConfigFileUsed())
 	}
 
 	return nil

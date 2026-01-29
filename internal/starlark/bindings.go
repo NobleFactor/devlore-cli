@@ -126,14 +126,14 @@ func (b *Bindings) packageInstall(thread *starlark.Thread, fn *starlark.Builtin,
 		return nil, err
 	}
 
-	fmt.Fprintf(b.output, "  [package] Installing %s", name)
+	_, _ = fmt.Fprintf(b.output, "  [package] Installing %s", name)
 	if manager != "" {
-		fmt.Fprintf(b.output, " via %s", manager)
+		_, _ = fmt.Fprintf(b.output, " via %s", manager)
 	}
 	if cask {
-		fmt.Fprintf(b.output, " (cask)")
+		_, _ = fmt.Fprintf(b.output, " (cask)")
 	}
-	fmt.Fprintln(b.output)
+	_, _ = fmt.Fprintln(b.output)
 
 	result := b.host.PackageManager().Install(name)
 	return b.resultToStarlark(result), nil
@@ -145,13 +145,13 @@ func (b *Bindings) packageRemove(thread *starlark.Thread, fn *starlark.Builtin, 
 		return nil, err
 	}
 
-	fmt.Fprintf(b.output, "  [package] Removing %s\n", name)
+	_, _ = fmt.Fprintf(b.output, "  [package] Removing %s\n", name)
 	result := b.host.PackageManager().Remove(name)
 	return b.resultToStarlark(result), nil
 }
 
 func (b *Bindings) packageUpdate(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	fmt.Fprintln(b.output, "  [package] Updating package index")
+	_, _ = fmt.Fprintln(b.output, "  [package] Updating package index")
 	result := b.host.PackageManager().Update()
 	return b.resultToStarlark(result), nil
 }
@@ -245,20 +245,20 @@ func (b *Bindings) fsRead(thread *starlark.Thread, fn *starlark.Builtin, args st
 
 func (b *Bindings) fsWrite(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, content string
-	var mode int = 0o644
+	var mode = 0o644
 	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "path", &path, "content", &content, "mode?", &mode); err != nil {
 		return nil, err
 	}
 	path = b.host.ExpandPath(path)
 
-	fmt.Fprintf(b.output, "  [fs] Writing %s\n", path)
+	_, _ = fmt.Fprintf(b.output, "  [fs] Writing %s\n", path)
 	err := os.WriteFile(path, []byte(content), os.FileMode(mode))
 	return starlark.Bool(err == nil), nil
 }
 
 func (b *Bindings) fsMkdir(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
-	var parents bool = true
+	var parents = true
 	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "path", &path, "parents?", &parents); err != nil {
 		return nil, err
 	}
@@ -405,7 +405,7 @@ func (b *Bindings) shellExec(thread *starlark.Thread, fn *starlark.Builtin, args
 		return nil, err
 	}
 
-	fmt.Fprintf(b.output, "  [shell] %s\n", command)
+	_, _ = fmt.Fprintf(b.output, "  [shell] %s\n", command)
 	result := b.host.RunCommand(command, false)
 	return b.resultToStarlark(result), nil
 }
@@ -422,7 +422,7 @@ func (b *Bindings) shellRun(thread *starlark.Thread, fn *starlark.Builtin, args 
 		}
 	}
 
-	fmt.Fprintf(b.output, "  [shell] %s\n", command)
+	_, _ = fmt.Fprintf(b.output, "  [shell] %s\n", command)
 	result := b.host.RunCommand(command, false)
 	return b.resultToStarlark(result), nil
 }
@@ -463,19 +463,19 @@ func (b *Bindings) httpDownload(thread *starlark.Thread, fn *starlark.Builtin, a
 	}
 	dest = b.host.ExpandPath(dest)
 
-	fmt.Fprintf(b.output, "  [http] Downloading %s -> %s\n", url, dest)
+	_, _ = fmt.Fprintf(b.output, "  [http] Downloading %s -> %s\n", url, dest)
 
 	resp, err := http.Get(url)
 	if err != nil {
 		return b.resultToStarlark(host.Result{OK: false, Stderr: err.Error()}), nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	out, err := os.Create(dest)
 	if err != nil {
 		return b.resultToStarlark(host.Result{OK: false, Stderr: err.Error()}), nil
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
@@ -495,7 +495,7 @@ func (b *Bindings) httpGet(thread *starlark.Thread, fn *starlark.Builtin, args s
 	if err != nil {
 		return starlark.String(""), nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -523,7 +523,7 @@ func (b *Bindings) archiveExtract(thread *starlark.Thread, fn *starlark.Builtin,
 	path = b.host.ExpandPath(path)
 	dest = b.host.ExpandPath(dest)
 
-	fmt.Fprintf(b.output, "  [archive] Extracting %s -> %s\n", path, dest)
+	_, _ = fmt.Fprintf(b.output, "  [archive] Extracting %s -> %s\n", path, dest)
 
 	// Use tar for extraction
 	cmd := fmt.Sprintf("mkdir -p %s && tar -xf %s -C %s", dest, path, dest)
@@ -566,7 +566,7 @@ func (b *Bindings) envSet(thread *starlark.Thread, fn *starlark.Builtin, args st
 		return nil, err
 	}
 
-	os.Setenv(name, value)
+	_ = os.Setenv(name, value)
 	return starlark.None, nil
 }
 
@@ -668,7 +668,7 @@ func (b *Bindings) noteFunc(thread *starlark.Thread, fn *starlark.Builtin, args 
 			}
 		}
 	}
-	fmt.Fprintf(b.output, "  [note] %s\n", msg)
+	_, _ = fmt.Fprintf(b.output, "  [note] %s\n", msg)
 	return starlark.None, nil
 }
 
@@ -681,7 +681,7 @@ func (b *Bindings) warnFunc(thread *starlark.Thread, fn *starlark.Builtin, args 
 			}
 		}
 	}
-	fmt.Fprintf(b.output, "  [warn] %s\n", msg)
+	_, _ = fmt.Fprintf(b.output, "  [warn] %s\n", msg)
 	return starlark.None, nil
 }
 
@@ -694,7 +694,7 @@ func (b *Bindings) errorFunc(thread *starlark.Thread, fn *starlark.Builtin, args
 			}
 		}
 	}
-	fmt.Fprintf(b.output, "  [ERROR] %s\n", msg)
+	_, _ = fmt.Fprintf(b.output, "  [ERROR] %s\n", msg)
 	return nil, fmt.Errorf("phase error: %s", msg)
 }
 
@@ -705,7 +705,7 @@ func (b *Bindings) failFunc(thread *starlark.Thread, fn *starlark.Builtin, args 
 			msg = s
 		}
 	}
-	fmt.Fprintf(b.output, "  [FAIL] %s\n", msg)
+	_, _ = fmt.Fprintf(b.output, "  [FAIL] %s\n", msg)
 	return nil, fmt.Errorf("phase failed: %s", msg)
 }
 
@@ -716,7 +716,7 @@ func (b *Bindings) successFunc(thread *starlark.Thread, fn *starlark.Builtin, ar
 			msg = s
 		}
 	}
-	fmt.Fprintf(b.output, "  [SUCCESS] %s\n", msg)
+	_, _ = fmt.Fprintf(b.output, "  [SUCCESS] %s\n", msg)
 	return starlark.None, nil
 }
 

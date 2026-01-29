@@ -15,7 +15,7 @@ import (
 // LinkOp creates a symlink from node.Target pointing to node.Source.
 type LinkOp struct{}
 
-func (o *LinkOp) Name() string     { return "link" }
+func (o *LinkOp) Name() string         { return "link" }
 func (o *LinkOp) Category() OpCategory { return OpDirect }
 
 func (o *LinkOp) Execute(ctx *Context, node *Node) error {
@@ -47,7 +47,7 @@ func (o *LinkOp) Execute(ctx *Context, node *Node) error {
 // CopyOp writes content to node.Target and returns the target checksum.
 type CopyOp struct{}
 
-func (o *CopyOp) Name() string     { return "copy" }
+func (o *CopyOp) Name() string         { return "copy" }
 func (o *CopyOp) Category() OpCategory { return OpWriter }
 
 func (o *CopyOp) Write(ctx *Context, node *Node, content []byte) (string, error) {
@@ -82,7 +82,7 @@ func (o *CopyOp) Write(ctx *Context, node *Node, content []byte) (string, error)
 // the template data. Returns the expanded content.
 type ExpandOp struct{}
 
-func (o *ExpandOp) Name() string     { return "expand" }
+func (o *ExpandOp) Name() string         { return "expand" }
 func (o *ExpandOp) Category() OpCategory { return OpTransform }
 
 func (o *ExpandOp) Transform(ctx *Context, node *Node, content []byte) ([]byte, error) {
@@ -113,7 +113,7 @@ func (o *ExpandOp) Transform(ctx *Context, node *Node, content []byte) ([]byte, 
 // configuration is expected in ctx.Data. Returns the decrypted content.
 type DecryptOp struct{}
 
-func (o *DecryptOp) Name() string     { return "decrypt" }
+func (o *DecryptOp) Name() string         { return "decrypt" }
 func (o *DecryptOp) Category() OpCategory { return OpTransform }
 
 func (o *DecryptOp) Transform(ctx *Context, node *Node, content []byte) ([]byte, error) {
@@ -154,7 +154,7 @@ func (o *DecryptOp) Transform(ctx *Context, node *Node, content []byte) ([]byte,
 // The backup path is stored in node.Metadata["backup_path"] after execution.
 type BackupOp struct{}
 
-func (o *BackupOp) Name() string     { return "backup" }
+func (o *BackupOp) Name() string         { return "backup" }
 func (o *BackupOp) Category() OpCategory { return OpDirect }
 
 func (o *BackupOp) Execute(ctx *Context, node *Node) error {
@@ -189,7 +189,7 @@ func (o *BackupOp) Execute(ctx *Context, node *Node) error {
 // empty parent directories are removed up to the boundary.
 type UnlinkOp struct{}
 
-func (o *UnlinkOp) Name() string     { return "unlink" }
+func (o *UnlinkOp) Name() string         { return "unlink" }
 func (o *UnlinkOp) Category() OpCategory { return OpDirect }
 
 func (o *UnlinkOp) Execute(ctx *Context, node *Node) error {
@@ -222,7 +222,7 @@ func (o *UnlinkOp) Execute(ctx *Context, node *Node) error {
 // empty parent directories are removed up to the boundary.
 type RemoveOp struct{}
 
-func (o *RemoveOp) Name() string     { return "remove" }
+func (o *RemoveOp) Name() string         { return "remove" }
 func (o *RemoveOp) Category() OpCategory { return OpDirect }
 
 func (o *RemoveOp) Execute(ctx *Context, node *Node) error {
@@ -291,7 +291,7 @@ func isSubpath(path, parent string) bool {
 // MkdirOp creates a directory at node.Target.
 type MkdirOp struct{}
 
-func (o *MkdirOp) Name() string     { return "mkdir" }
+func (o *MkdirOp) Name() string         { return "mkdir" }
 func (o *MkdirOp) Category() OpCategory { return OpDirect }
 
 func (o *MkdirOp) Execute(ctx *Context, node *Node) error {
@@ -319,7 +319,7 @@ func (o *MkdirOp) Execute(ctx *Context, node *Node) error {
 // The check function is retrieved from ctx.Data["validators"][node.Metadata["check"]].
 type ValidateOp struct{}
 
-func (o *ValidateOp) Name() string     { return "validate" }
+func (o *ValidateOp) Name() string         { return "validate" }
 func (o *ValidateOp) Category() OpCategory { return OpDirect }
 
 func (o *ValidateOp) Execute(ctx *Context, node *Node) error {
@@ -353,7 +353,7 @@ func (o *ValidateOp) Execute(ctx *Context, node *Node) error {
 // git mv when inside a git repository, falling back to os.Rename otherwise.
 type RenameOp struct{}
 
-func (o *RenameOp) Name() string     { return "rename" }
+func (o *RenameOp) Name() string         { return "rename" }
 func (o *RenameOp) Category() OpCategory { return OpDirect }
 
 func (o *RenameOp) Execute(ctx *Context, node *Node) error {
@@ -401,8 +401,8 @@ func (o *RenameOp) Execute(ctx *Context, node *Node) error {
 //   - validate: checks precondition from ctx.Data["validators"]
 //   - rename: moves node.Source → node.Target (git mv when possible)
 //
-// NOTE: Package operations (install, configure, verify) are provided by the
-// Package Graph Builder (internal/lore/graph) - NOT YET IMPLEMENTED.
+// NOTE: Package operations (package-install, package-upgrade, package-remove,
+// package-update) are provided by ops_package.go.
 func FileOps() []Operation {
 	return []Operation{
 		&LinkOp{},
@@ -416,4 +416,12 @@ func FileOps() []Operation {
 		&ValidateOp{},
 		&RenameOp{},
 	}
+}
+
+// AllOps returns all operations (file + package) for registration.
+// Both writ and lore should use this to ensure the same operations are available.
+func AllOps() []Operation {
+	ops := FileOps()
+	ops = append(ops, PackageOps()...)
+	return ops
 }

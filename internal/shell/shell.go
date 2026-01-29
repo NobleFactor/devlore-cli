@@ -168,7 +168,7 @@ func (s *Session) RunContext(ctx context.Context, command string) *Result {
 	s.history = append(s.history, result)
 
 	if s.audit != nil {
-		fmt.Fprintln(s.audit, result.JSON())
+		_, _ = fmt.Fprintln(s.audit, result.JSON())
 	}
 
 	return result

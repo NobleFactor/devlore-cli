@@ -52,6 +52,115 @@ func TestGitProvider_Name(t *testing.T) {
 	}
 }
 
+func TestKnowledgeIndex_PromptByPurpose(t *testing.T) {
+	index := &KnowledgeIndex{
+		Domain: "migration",
+		Prompts: []PromptEntry{
+			{Name: "migrate-to-writ.txt", Purpose: "writ-migration", Description: "Migration prompt"},
+			{Name: "clarify.txt", Purpose: "clarification", Description: "Clarification prompt"},
+		},
+	}
+
+	tests := []struct {
+		purpose  string
+		expected string
+	}{
+		{"writ-migration", "migrate-to-writ.txt"},
+		{"clarification", "clarify.txt"},
+		{"nonexistent", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.purpose, func(t *testing.T) {
+			got := index.PromptByPurpose(tt.purpose)
+			if got != tt.expected {
+				t.Errorf("PromptByPurpose(%q) = %q, want %q", tt.purpose, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestKnowledgeIndex_TransformBySourceSystem(t *testing.T) {
+	index := &KnowledgeIndex{
+		Domain: "migration",
+		Transforms: []TransformEntry{
+			{Name: "from-stow.yaml", SourceSystem: "stow", Description: "Stow transform"},
+			{Name: "from-chezmoi.yaml", SourceSystem: "chezmoi", Description: "Chezmoi transform"},
+			{Name: "from-tuckr.yaml", SourceSystem: "tuckr", Description: "Tuckr transform"},
+		},
+	}
+
+	tests := []struct {
+		system   string
+		expected string
+	}{
+		{"stow", "from-stow.yaml"},
+		{"chezmoi", "from-chezmoi.yaml"},
+		{"tuckr", "from-tuckr.yaml"},
+		{"yadm", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.system, func(t *testing.T) {
+			got := index.TransformBySourceSystem(tt.system)
+			if got != tt.expected {
+				t.Errorf("TransformBySourceSystem(%q) = %q, want %q", tt.system, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestKnowledgeIndex_SignatureNames(t *testing.T) {
+	index := &KnowledgeIndex{
+		Domain: "migration",
+		Signatures: []SignatureEntry{
+			{Name: "stow.yaml", System: "stow"},
+			{Name: "chezmoi.yaml", System: "chezmoi"},
+			{Name: "tuckr.yaml", System: "tuckr"},
+		},
+	}
+
+	names := index.SignatureNames()
+	if len(names) != 3 {
+		t.Fatalf("SignatureNames() returned %d names, want 3", len(names))
+	}
+
+	expected := []string{"stow.yaml", "chezmoi.yaml", "tuckr.yaml"}
+	for i, name := range names {
+		if name != expected[i] {
+			t.Errorf("SignatureNames()[%d] = %q, want %q", i, name, expected[i])
+		}
+	}
+}
+
+func TestKnowledgeIndex_SchemaByPurpose(t *testing.T) {
+	index := &KnowledgeIndex{
+		Domain: "migration",
+		Schemas: []SchemaEntry{
+			{Name: "migration-plan.json", Purpose: "migration-plan"},
+			{Name: "engine-graph.json", Purpose: "execution-graph"},
+		},
+	}
+
+	tests := []struct {
+		purpose  string
+		expected string
+	}{
+		{"migration-plan", "migration-plan.json"},
+		{"execution-graph", "engine-graph.json"},
+		{"nonexistent", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.purpose, func(t *testing.T) {
+			got := index.SchemaByPurpose(tt.purpose)
+			if got != tt.expected {
+				t.Errorf("SchemaByPurpose(%q) = %q, want %q", tt.purpose, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestClient_SyncIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -67,7 +176,7 @@ func TestClient_SyncIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	provider := NewGitProvider(
 		"https://github.com/NobleFactor/devlore-registry.git",
@@ -97,18 +206,65 @@ func TestClient_SyncIntegration(t *testing.T) {
 		t.Error("expected cache to exist after sync")
 	}
 
-	// Verify we can read files (if AI prompts exist in registry)
-	if client.FileExists("ai/prompts/migrate-to-writ.txt") {
-		// Read AI prompt
-		prompt, err := client.AIPrompt("migrate-to-writ.txt")
+	// Verify we can read knowledge assets (if they exist in registry)
+	if client.FileExists("knowledge/migration/prompts/migrate-to-writ.txt") {
+		// Read prompt via Knowledge domain API
+		prompt, err := client.Knowledge("migration").Prompt("migrate-to-writ.txt")
 		if err != nil {
-			t.Errorf("AIPrompt() error: %v", err)
+			t.Errorf("Knowledge(migration).Prompt() error: %v", err)
 		}
 		if prompt == "" {
 			t.Error("expected non-empty prompt")
 		}
 	} else {
-		t.Log("ai/prompts/migrate-to-writ.txt not yet in registry, skipping AI prompt check")
+		t.Log("knowledge/migration/prompts/migrate-to-writ.txt not yet in registry, skipping prompt check")
+	}
+
+	// Verify Knowledge().Index() can load and parse index.yaml with metadata
+	if client.FileExists("knowledge/migration/index.yaml") {
+		index, err := client.Knowledge("migration").Index()
+		if err != nil {
+			t.Errorf("Knowledge(migration).Index() error: %v", err)
+		}
+		if index == nil {
+			t.Fatal("expected non-nil index")
+		}
+		if index.Domain != "migration" {
+			t.Errorf("index.Domain = %q, want 'migration'", index.Domain)
+		}
+		// Verify index lists expected asset types
+		if len(index.Prompts) == 0 {
+			t.Error("expected index.Prompts to be non-empty")
+		}
+		if len(index.Signatures) == 0 {
+			t.Error("expected index.Signatures to be non-empty")
+		}
+		t.Logf("migration index: %d prompts, %d schemas, %d signatures",
+			len(index.Prompts), len(index.Schemas), len(index.Signatures))
+
+		// Test discovery methods
+		promptName := index.PromptByPurpose("writ-migration")
+		if promptName == "" {
+			t.Error("PromptByPurpose('writ-migration') returned empty string")
+		} else {
+			t.Logf("PromptByPurpose('writ-migration') = %q", promptName)
+		}
+
+		transformName := index.TransformBySourceSystem("stow")
+		if transformName == "" {
+			t.Error("TransformBySourceSystem('stow') returned empty string")
+		} else {
+			t.Logf("TransformBySourceSystem('stow') = %q", transformName)
+		}
+
+		sigNames := index.SignatureNames()
+		if len(sigNames) == 0 {
+			t.Error("SignatureNames() returned empty slice")
+		} else {
+			t.Logf("SignatureNames() = %v", sigNames)
+		}
+	} else {
+		t.Log("knowledge/migration/index.yaml not yet in registry, skipping index check")
 	}
 
 	// Second sync (pull)

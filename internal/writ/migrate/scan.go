@@ -42,11 +42,11 @@ type ScanResult struct {
 type SourceStructure int
 
 const (
-	StructureUnknown     SourceStructure = iota
-	StructureCompatible                  // Home/<project>/ with "." segments
-	StructurePartial                     // Has Home/ but needs migration
-	StructureFlat                        // Dot-prefixed files at root (e.g., .bashrc, .vimrc)
-	StructureStow                        // GNU Stow directory with packages
+	StructureUnknown    SourceStructure = iota
+	StructureCompatible                 // Home/<project>/ with "." segments
+	StructurePartial                    // Has Home/ but needs migration
+	StructureFlat                       // Dot-prefixed files at root (e.g., .bashrc, .vimrc)
+	StructureStow                       // GNU Stow directory with packages
 )
 
 // String returns a human-readable label for the structure type.

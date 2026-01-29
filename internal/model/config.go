@@ -13,10 +13,10 @@ config file, or native keystore (for API keys only).
 
 For each field, the first source with a value wins:
 
-  1. CLI flags (highest priority)
-  2. Environment variables
-  3. Config file (~/.config/devlore/config.yaml)
-  4. Native keystore (API key only, lowest priority)
+ 1. CLI flags (highest priority)
+ 2. Environment variables
+ 3. Config file (~/.config/devlore/config.yaml)
+ 4. Native keystore (API key only, lowest priority)
 
 ## Configuration Fields
 
@@ -83,6 +83,7 @@ import (
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/credentials"
 )
 
@@ -217,7 +218,7 @@ func SaveConfig(cfg *Config) error {
 	// Store API key in native keystore (if provided and not Ollama)
 	if cfg.APIKey != "" && cfg.Provider != "ollama" {
 		if err := credentials.Set(credentialKey(cfg.Provider), cfg.APIKey); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not store API key in keystore: %v\n", err)
+			cli.Warn("could not store API key in keystore: %v", err)
 		}
 	}
 
@@ -295,12 +296,12 @@ func EnsureProvider(ctx context.Context, noAI bool, cliFlags CLIFlags) (Provider
 		}
 
 		// Provider configured but not available
-		fmt.Fprintf(os.Stderr, "AI provider %q configured but not available.\n", cfg.Provider)
+		cli.Error("AI provider %q configured but not available.", cfg.Provider)
 		if cfg.Provider == "ollama" {
-			fmt.Fprintf(os.Stderr, "Is Ollama running? Start with: ollama serve\n")
-			fmt.Fprintf(os.Stderr, "Is model pulled? Run: ollama pull %s\n\n", cfg.Model)
+			cli.Note("Is Ollama running? Start with: ollama serve")
+			cli.Note("Is model pulled? Run: ollama pull %s", cfg.Model)
 		} else if cfg.APIKey == "" {
-			fmt.Fprintf(os.Stderr, "No API key found. Set DEVLORE_AI_API_KEY or store in keystore.\n\n")
+			cli.Note("No API key found. Set DEVLORE_AI_API_KEY or store in keystore.")
 		}
 	}
 
@@ -308,7 +309,7 @@ func EnsureProvider(ctx context.Context, noAI bool, cliFlags CLIFlags) (Provider
 	ollamaCfg := DefaultConfig()
 	ollamaProvider := NewOllamaProvider(ollamaCfg.Endpoint, ollamaCfg.Model)
 	if ollamaProvider.Available(ctx) {
-		fmt.Fprintln(os.Stderr, "Using Ollama (detected locally)")
+		cli.Note("Using Ollama (detected locally)")
 		return ollamaProvider, nil
 	}
 
@@ -321,31 +322,30 @@ func EnsureProvider(ctx context.Context, noAI bool, cliFlags CLIFlags) (Provider
 func promptForProvider(ctx context.Context) (Provider, error) {
 	// Non-interactive: default to Ollama
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Fprintln(os.Stderr, "No AI provider configured. Defaulting to Ollama.")
+		cli.Note("No AI provider configured. Defaulting to Ollama.")
 		cfg := DefaultConfig()
 		provider := NewOllamaProvider(cfg.Endpoint, cfg.Model)
 		if !provider.Available(ctx) {
-			return nil, fmt.Errorf("Ollama not available; install from https://ollama.ai, run 'ollama serve', then 'ollama pull %s'", cfg.Model)
+			return nil, fmt.Errorf("ollama not available; install from https://ollama.ai, run 'ollama serve', then 'ollama pull %s'", cfg.Model)
 		}
 		if err := SaveConfig(&cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not save config: %v\n", err)
+			cli.Warn("could not save config: %v", err)
 		}
 		return provider, nil
 	}
 
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "AI features require a provider. Options:")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  [1] Ollama (local, free, private) ← Recommended")
-	fmt.Fprintln(os.Stderr, "      Install: https://ollama.ai")
-	fmt.Fprintln(os.Stderr, "      Then: ollama pull llama3.1:8b")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  [2] Anthropic Claude (cloud, requires API key)")
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  [3] OpenAI (cloud, requires API key)")
-	fmt.Fprintln(os.Stderr, "")
+	cli.Note("AI features require a provider. Options:")
+	cli.Note("")
+	cli.Note("  [1] Ollama (local, free, private) <- Recommended")
+	cli.Note("      Install: https://ollama.ai")
+	cli.Note("      Then: ollama pull llama3.1:8b")
+	cli.Note("")
+	cli.Note("  [2] Anthropic Claude (cloud, requires API key)")
+	cli.Note("")
+	cli.Note("  [3] OpenAI (cloud, requires API key)")
+	cli.Note("")
 	fmt.Fprint(os.Stderr, "Choice [1/2/3]: ")
 
 	input, err := reader.ReadString('\n')
@@ -363,19 +363,17 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 		// Check if Ollama is available
 		provider := NewOllamaProvider(cfg.Endpoint, cfg.Model)
 		if !provider.Available(ctx) {
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Ollama not detected. Please:")
-			fmt.Fprintln(os.Stderr, "  1. Install Ollama: https://ollama.ai")
-			fmt.Fprintln(os.Stderr, "  2. Start Ollama: ollama serve")
-			fmt.Fprintln(os.Stderr, "  3. Pull model: ollama pull llama3.1:8b")
-			fmt.Fprintln(os.Stderr, "  4. Re-run this command")
-			fmt.Fprintln(os.Stderr, "")
+			cli.Error("Ollama not detected. Please:")
+			cli.Note("  1. Install Ollama: https://ollama.ai")
+			cli.Note("  2. Start Ollama: ollama serve")
+			cli.Note("  3. Pull model: ollama pull llama3.1:8b")
+			cli.Note("  4. Re-run this command")
 			return nil, fmt.Errorf("ollama not available")
 		}
 
 		// Save config
 		if err := SaveConfig(&cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not save config: %v\n", err)
+			cli.Warn("could not save config: %v", err)
 		}
 		return provider, nil
 
@@ -394,7 +392,7 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 		}
 
 		if err := SaveConfig(&cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not save config: %v\n", err)
+			cli.Warn("could not save config: %v", err)
 		}
 
 		provider, err := NewProvider(cfg)
@@ -418,7 +416,7 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 		}
 
 		if err := SaveConfig(&cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not save config: %v\n", err)
+			cli.Warn("could not save config: %v", err)
 		}
 
 		provider, err := NewProvider(cfg)
@@ -428,9 +426,8 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 		return provider, nil
 
 	case "4":
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Skipping AI setup.")
-		fmt.Fprintln(os.Stderr, "Run 'lore config ai' later to configure a provider.")
+		cli.Note("Skipping AI setup.")
+		cli.Note("Run 'lore config ai' later to configure a provider.")
 		return nil, nil
 
 	default:

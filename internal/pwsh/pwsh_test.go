@@ -39,7 +39,7 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	result := s.Run("Write-Output 'hello'")
 
@@ -60,7 +60,7 @@ func TestVariablePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	// Set a variable
 	s.Run("$greeting = 'Hello, World'")
@@ -85,7 +85,7 @@ func TestSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	s.Set("MY_VAR", "my_value")
 	result := s.Run("Write-Output $MY_VAR")
@@ -108,7 +108,7 @@ func TestAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	s.Audit(&buf)
 	s.Run("Write-Output 'test'")
@@ -130,7 +130,7 @@ func TestHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	s.Run("Write-Output 'one'")
 	s.Run("Write-Output 'two'")
@@ -150,7 +150,7 @@ func TestFailingCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	result := s.Run("exit 42")
 
@@ -171,7 +171,7 @@ func TestScript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	result := s.Script(
 		"Write-Output 'one'",
@@ -196,7 +196,7 @@ func TestScriptStopsOnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	result := s.Script(
 		"Write-Output 'one'",

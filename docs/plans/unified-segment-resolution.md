@@ -28,9 +28,9 @@ Linux.Debian/Deploy/*  → runs last   (distro-specific)
 For each phase (e.g., `install`), scripts from all matching directories execute in order:
 
 ```
-all/Deploy/install.star        → plan.install("common-tool")
-Linux/Deploy/install.star      → plan.install("linux-tool")
-Linux.Debian/Deploy/install.star → plan.install("debian-tool")
+all/Deploy/install.star        → plan.package.install("common-tool")
+Linux/Deploy/install.star      → plan.package.install("linux-tool")
+Linux.Debian/Deploy/install.star → plan.package.install("debian-tool")
 ```
 
 Result: All three packages queued. The plan builder deduplicates and batches.
@@ -244,8 +244,8 @@ type Builder struct {
 
 // Optimize deduplicates and batches package operations.
 func (b *Builder) Optimize() *Plan {
-    // Deduplicate: plan.install("docker-ce") twice → one install
-    // Batch: multiple plan.install() → single apt install docker-ce pkg2 pkg3
+    // Deduplicate: plan.package.install("docker-ce") twice → one install
+    // Batch: multiple plan.package.install() → single apt install docker-ce pkg2 pkg3
 }
 ```
 

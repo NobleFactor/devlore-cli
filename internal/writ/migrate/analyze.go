@@ -12,14 +12,14 @@ import (
 
 // ScriptAnalysis captures information extracted from a lifecycle script.
 type ScriptAnalysis struct {
-	RelPath        string   // Relative path from source root
-	Name           string   // Base filename
-	Phase          string   // "install" or "initialize"
-	PackageNames   []string // Extracted package names
-	PackageManager string   // Detected package manager
-	PlatformGuard  string   // Platform guard if detected
-	LineCount      int
-	Observations   []string // Grounded observations about what the script does
+	RelPath        string   `json:"rel_path" yaml:"rel_path"`
+	Name           string   `json:"name" yaml:"name"`
+	Phase          string   `json:"phase" yaml:"phase"`
+	PackageNames   []string `json:"package_names,omitempty" yaml:"package_names,omitempty"`
+	PackageManager string   `json:"package_manager,omitempty" yaml:"package_manager,omitempty"`
+	PlatformGuard  string   `json:"platform_guard,omitempty" yaml:"platform_guard,omitempty"`
+	LineCount      int      `json:"line_count" yaml:"line_count"`
+	Observations   []string `json:"observations,omitempty" yaml:"observations,omitempty"`
 }
 
 var (
@@ -71,7 +71,7 @@ func analyzeScript(e InventoryEntry) ScriptAnalysis {
 		analysis.Observations = append(analysis.Observations, "Could not read script: "+err.Error())
 		return analysis
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var (
 		packages  []string

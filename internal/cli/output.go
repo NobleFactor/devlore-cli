@@ -150,12 +150,12 @@ func Render(w io.Writer, data interface{}, flags OutputFlags) error {
 	// Apply filter first
 	filtered := applyFilter(data, flags.Filter)
 
-	switch {
-	case flags.Format == "json":
+	switch flags.Format {
+	case "json":
 		return renderJSON(w, filtered)
-	case flags.Format == "yaml":
+	case "yaml":
 		return renderYAML(w, filtered)
-	case flags.Format == "table":
+	case "table":
 		return renderTable(w, filtered)
 	default:
 		// Treat as Go template
@@ -179,7 +179,7 @@ func renderJSON(w io.Writer, data interface{}) error {
 func renderYAML(w io.Writer, data interface{}) error {
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
-	defer enc.Close()
+	defer func() { _ = enc.Close() }()
 	return enc.Encode(data)
 }
 
@@ -202,7 +202,7 @@ func renderTable(w io.Writer, data interface{}) error {
 	for i, f := range fields {
 		headers[i] = strings.ToUpper(f)
 	}
-	fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t"))
 
 	// Rows
 	for _, item := range items {
@@ -210,7 +210,7 @@ func renderTable(w io.Writer, data interface{}) error {
 		for i, f := range fields {
 			values[i] = formatFieldValue(getFieldValue(item, f))
 		}
-		fmt.Fprintln(tw, strings.Join(values, "\t"))
+		_, _ = fmt.Fprintln(tw, strings.Join(values, "\t"))
 	}
 
 	return tw.Flush()
@@ -228,7 +228,7 @@ func renderTemplate(w io.Writer, data interface{}, tmplStr string) error {
 		if err := tmpl.Execute(w, item); err != nil {
 			return fmt.Errorf("template execution: %w", err)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 	return nil
 }
