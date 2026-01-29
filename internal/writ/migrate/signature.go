@@ -270,7 +270,7 @@ func evaluateFileContainsMarker(root string, marker Marker) (MarkerMatch, bool) 
 func evaluateFileMagicMarker(root string, marker Marker) (MarkerMatch, bool) {
 	// Walk directory looking for files with matching magic bytes
 	var found string
-	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -347,7 +347,7 @@ func patternToRegex(pattern string) string {
 // findFileRecursive searches for a file by name recursively.
 func findFileRecursive(root, name string) (bool, string) {
 	var found string
-	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}

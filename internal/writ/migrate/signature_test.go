@@ -89,19 +89,33 @@ func TestDetectWithSignatures(t *testing.T) {
 
 	// Create a stow-like structure with .stow-local-ignore
 	stowDir := filepath.Join(tmpDir, "stow-repo")
-	os.MkdirAll(filepath.Join(stowDir, "bash"), 0755)
-	os.WriteFile(filepath.Join(stowDir, ".stow-local-ignore"), []byte("*.bak\n"), 0644)
-	os.WriteFile(filepath.Join(stowDir, "bash", ".bashrc"), []byte("# bashrc"), 0644)
+	if err := os.MkdirAll(filepath.Join(stowDir, "bash"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stowDir, ".stow-local-ignore"), []byte("*.bak\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stowDir, "bash", ".bashrc"), []byte("# bashrc"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Create a chezmoi-like structure
 	chezmoiDir := filepath.Join(tmpDir, "chezmoi-repo")
-	os.MkdirAll(chezmoiDir, 0755)
-	os.WriteFile(filepath.Join(chezmoiDir, ".chezmoiroot"), []byte("home"), 0644)
+	if err := os.MkdirAll(chezmoiDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chezmoiDir, ".chezmoiroot"), []byte("home"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Create a tuckr-like structure
 	tuckrDir := filepath.Join(tmpDir, "tuckr-repo")
-	os.MkdirAll(filepath.Join(tuckrDir, "Configs"), 0755)
-	os.WriteFile(filepath.Join(tuckrDir, "Hooks.toml"), []byte("[hooks]\n"), 0644)
+	if err := os.MkdirAll(filepath.Join(tuckrDir, "Configs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tuckrDir, "Hooks.toml"), []byte("[hooks]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Define test signatures matching actual registry format
 	signatures := []Signature{
