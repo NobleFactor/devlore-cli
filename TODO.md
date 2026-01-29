@@ -88,7 +88,7 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 **Should cover:**
 - YAML schema for receipt files
 - Fields: package name, version, timestamp, phase results, platform, features enabled
-- How receipts interact with `lore reconcile`, `lore upgrade`, `lore decommission`
+- How receipts interact with `lore upgrade`, `lore reconcile`, `lore decommission`
 - Backup and archiving guidance
 - Machine portability: can receipts be shared across machines?
 
