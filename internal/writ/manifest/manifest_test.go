@@ -4,6 +4,7 @@
 package manifest
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -304,7 +305,7 @@ func TestBuilder_BuildGraphFromManifest(t *testing.T) {
 		},
 	}
 
-	graph, err := builder.BuildGraphFromManifest(nil, manifest, defaultBuildOpts())
+	graph, err := builder.BuildGraphFromManifest(context.TODO(), manifest, defaultBuildOpts())
 	if err != nil {
 		t.Fatalf("BuildGraphFromManifest failed: %v", err)
 	}
@@ -360,7 +361,7 @@ func TestBuilder_BuildGraph_FromFile(t *testing.T) {
 	}
 
 	builder := NewBuilder()
-	graph, err := builder.BuildGraph(nil, path, defaultBuildOpts())
+	graph, err := builder.BuildGraph(context.TODO(), path, defaultBuildOpts())
 	if err != nil {
 		t.Fatalf("BuildGraph failed: %v", err)
 	}
@@ -388,7 +389,7 @@ func TestBuilder_BuildGraph_InvalidManifest(t *testing.T) {
 	}
 
 	builder := NewBuilder()
-	_, err := builder.BuildGraph(nil, path, defaultBuildOpts())
+	_, err := builder.BuildGraph(context.TODO(), path, defaultBuildOpts())
 	if err == nil {
 		t.Error("expected error for invalid manifest")
 	}
