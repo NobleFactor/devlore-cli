@@ -111,6 +111,53 @@ func TestClient_SyncIntegration(t *testing.T) {
 		t.Log("knowledge/migration/prompts/migrate-to-writ.txt not yet in registry, skipping prompt check")
 	}
 
+	// Verify Knowledge().Index() can load and parse index.yaml with metadata
+	if client.FileExists("knowledge/migration/index.yaml") {
+		index, err := client.Knowledge("migration").Index()
+		if err != nil {
+			t.Errorf("Knowledge(migration).Index() error: %v", err)
+		}
+		if index == nil {
+			t.Fatal("expected non-nil index")
+		}
+		if index.Domain != "migration" {
+			t.Errorf("index.Domain = %q, want 'migration'", index.Domain)
+		}
+		// Verify index lists expected asset types
+		if len(index.Prompts) == 0 {
+			t.Error("expected index.Prompts to be non-empty")
+		}
+		if len(index.Signatures) == 0 {
+			t.Error("expected index.Signatures to be non-empty")
+		}
+		t.Logf("migration index: %d prompts, %d schemas, %d signatures",
+			len(index.Prompts), len(index.Schemas), len(index.Signatures))
+
+		// Test discovery methods
+		promptName := index.PromptByPurpose("writ-migration")
+		if promptName == "" {
+			t.Error("PromptByPurpose('writ-migration') returned empty string")
+		} else {
+			t.Logf("PromptByPurpose('writ-migration') = %q", promptName)
+		}
+
+		transformName := index.TransformBySourceSystem("stow")
+		if transformName == "" {
+			t.Error("TransformBySourceSystem('stow') returned empty string")
+		} else {
+			t.Logf("TransformBySourceSystem('stow') = %q", transformName)
+		}
+
+		sigNames := index.SignatureNames()
+		if len(sigNames) == 0 {
+			t.Error("SignatureNames() returned empty slice")
+		} else {
+			t.Logf("SignatureNames() = %v", sigNames)
+		}
+	} else {
+		t.Log("knowledge/migration/index.yaml not yet in registry, skipping index check")
+	}
+
 	// Second sync (pull)
 	result2, err := client.Sync(ctx, SyncOptions{})
 	if err != nil {

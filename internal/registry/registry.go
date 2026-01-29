@@ -245,15 +245,97 @@ func (k *KnowledgeDomain) Slots(name string) ([]byte, error) {
 }
 
 // KnowledgeIndex represents the index.yaml manifest for a knowledge domain.
-// It lists all available assets by type, enabling discovery without hardcoding.
+// It lists all available assets by type with metadata for discovery.
 type KnowledgeIndex struct {
-	Domain     string   `yaml:"domain"`
-	Prompts    []string `yaml:"prompts,omitempty"`
-	Schemas    []string `yaml:"schemas,omitempty"`
-	Examples   []string `yaml:"examples,omitempty"`
-	Transforms []string `yaml:"transforms,omitempty"`
-	Signatures []string `yaml:"signatures,omitempty"`
-	Slots      []string `yaml:"slots,omitempty"`
+	Domain     string           `yaml:"domain"`
+	Prompts    []PromptEntry    `yaml:"prompts,omitempty"`
+	Schemas    []SchemaEntry    `yaml:"schemas,omitempty"`
+	Examples   []ExampleEntry   `yaml:"examples,omitempty"`
+	Transforms []TransformEntry `yaml:"transforms,omitempty"`
+	Signatures []SignatureEntry `yaml:"signatures,omitempty"`
+	Slots      []SlotEntry      `yaml:"slots,omitempty"`
+}
+
+// PromptEntry describes a prompt asset with discovery metadata.
+type PromptEntry struct {
+	Name        string `yaml:"name"`
+	Purpose     string `yaml:"purpose,omitempty"`     // semantic key for discovery
+	Description string `yaml:"description,omitempty"` // human-readable description
+}
+
+// SchemaEntry describes a JSON schema asset with discovery metadata.
+type SchemaEntry struct {
+	Name        string `yaml:"name"`
+	Purpose     string `yaml:"purpose,omitempty"`
+	Description string `yaml:"description,omitempty"`
+}
+
+// ExampleEntry describes an examples asset with discovery metadata.
+type ExampleEntry struct {
+	Name        string `yaml:"name"`
+	Purpose     string `yaml:"purpose,omitempty"`
+	Description string `yaml:"description,omitempty"`
+}
+
+// TransformEntry describes a transform asset with discovery metadata.
+type TransformEntry struct {
+	Name         string `yaml:"name"`
+	SourceSystem string `yaml:"source_system,omitempty"` // source system this transform handles
+	Description  string `yaml:"description,omitempty"`
+}
+
+// SignatureEntry describes a signature asset with discovery metadata.
+type SignatureEntry struct {
+	Name        string `yaml:"name"`
+	System      string `yaml:"system,omitempty"` // system this signature detects
+	Description string `yaml:"description,omitempty"`
+}
+
+// SlotEntry describes a slots asset with discovery metadata.
+type SlotEntry struct {
+	Name        string `yaml:"name"`
+	Purpose     string `yaml:"purpose,omitempty"`
+	Description string `yaml:"description,omitempty"`
+}
+
+// PromptByPurpose finds a prompt by its semantic purpose key.
+// Returns empty string if not found.
+func (idx *KnowledgeIndex) PromptByPurpose(purpose string) string {
+	for _, p := range idx.Prompts {
+		if p.Purpose == purpose {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+// SchemaByPurpose finds a schema by its semantic purpose key.
+func (idx *KnowledgeIndex) SchemaByPurpose(purpose string) string {
+	for _, s := range idx.Schemas {
+		if s.Purpose == purpose {
+			return s.Name
+		}
+	}
+	return ""
+}
+
+// TransformBySourceSystem finds a transform by the source system it handles.
+func (idx *KnowledgeIndex) TransformBySourceSystem(system string) string {
+	for _, t := range idx.Transforms {
+		if t.SourceSystem == system {
+			return t.Name
+		}
+	}
+	return ""
+}
+
+// SignatureNames returns just the filenames for iteration.
+func (idx *KnowledgeIndex) SignatureNames() []string {
+	names := make([]string, len(idx.Signatures))
+	for i, s := range idx.Signatures {
+		names[i] = s.Name
+	}
+	return names
 }
 
 // Index loads the index.yaml manifest for this knowledge domain.

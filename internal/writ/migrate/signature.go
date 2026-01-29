@@ -59,7 +59,7 @@ func LoadSignatures(client *registry.Client) ([]Signature, error) {
 	}
 
 	var signatures []Signature
-	for _, name := range index.Signatures {
+	for _, name := range index.SignatureNames() {
 		data, err := knowledge.Signature(name)
 		if err != nil {
 			continue // skip missing signatures

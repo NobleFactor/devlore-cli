@@ -100,8 +100,26 @@ func detectSourceSystem(root string, regClient *registry.Client) (SourceSystem, 
 // enhanceAnalysisWithAI uses AI to improve the analysis with better
 // classifications, secret detection, and observations.
 func enhanceAnalysisWithAI(ctx context.Context, opts Options, analysis *MigrationAnalysis, entries []InventoryEntry) {
-	// Load AI prompt
-	prompt, err := opts.RegClient.Knowledge("migration").Prompt("migrate-to-writ.txt")
+	knowledge := opts.RegClient.Knowledge("migration")
+
+	// Load index for discovery
+	index, err := knowledge.Index()
+	if err != nil {
+		if opts.Verbose {
+			cli.Error("migration index load failed: %v", err)
+		}
+		return
+	}
+
+	// Discover and load prompt by purpose
+	promptName := index.PromptByPurpose("writ-migration")
+	if promptName == "" {
+		if opts.Verbose {
+			cli.Error("no prompt with purpose 'writ-migration' in migration index")
+		}
+		return
+	}
+	prompt, err := knowledge.Prompt(promptName)
 	if err != nil {
 		if opts.Verbose {
 			cli.Error("AI prompt load failed: %v", err)
@@ -109,9 +127,12 @@ func enhanceAnalysisWithAI(ctx context.Context, opts Options, analysis *Migratio
 		return
 	}
 
-	// Load migration transform for this source system
-	transformFile := fmt.Sprintf("from-%s.yaml", analysis.System)
-	guide, _ := opts.RegClient.Knowledge("migration").Transform(transformFile)
+	// Discover and load transform by source system
+	var guide []byte
+	transformName := index.TransformBySourceSystem(string(analysis.System))
+	if transformName != "" {
+		guide, _ = knowledge.Transform(transformName)
+	}
 
 	// Build summarized inventory for AI
 	fileList := buildAIInventory(entries)
