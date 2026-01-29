@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 // Package cobra extracts command metadata from Go source files using Cobra.
 // Uses golang.org/x/tools for proper package loading and efficient AST traversal.

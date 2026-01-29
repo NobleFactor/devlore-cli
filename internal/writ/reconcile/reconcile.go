@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 // Package reconcile provides full-stack drift detection and repair for writ deployments.
 package reconcile

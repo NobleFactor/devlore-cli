@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 // Package secrets handles encryption/decryption operations via SOPS.
 // It implements the design from ADR-050: Writ Encrypted Files via SOPS.
