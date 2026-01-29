@@ -10,8 +10,8 @@ set -euo pipefail
 
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
-    echo "Usage: generate-portfile.sh <version>" >&2
-    exit 1
+	echo "Usage: generate-portfile.sh <version>" >&2
+	exit 1
 fi
 
 # Remove 'v' prefix if present
@@ -40,9 +40,9 @@ echo "  SIZE:   $SIZE"
 # Generate Portfile from template
 mkdir -p "$(dirname "$OUTPUT")"
 sed -e "s/{{VERSION}}/$VERSION/g" \
-    -e "s/{{SHA256}}/$SHA256/g" \
-    -e "s/{{RMD160}}/$RMD160/g" \
-    -e "s/{{SIZE}}/$SIZE/g" \
-    "$TEMPLATE" > "$OUTPUT"
+	-e "s/{{SHA256}}/$SHA256/g" \
+	-e "s/{{RMD160}}/$RMD160/g" \
+	-e "s/{{SIZE}}/$SIZE/g" \
+	"$TEMPLATE" >"$OUTPUT"
 
 echo "Generated: $OUTPUT"
