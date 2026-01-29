@@ -620,7 +620,7 @@ func parseSecretFindings(secrets, unencrypted json.RawMessage) []SecretFinding {
 
 	// Parse secrets array
 	parseSecretArray := func(raw json.RawMessage) {
-		if raw == nil || len(raw) == 0 {
+		if len(raw) == 0 {
 			return
 		}
 		var arr []map[string]interface{}
@@ -671,7 +671,7 @@ func extractString(obj map[string]interface{}, keys ...string) string {
 // parseFlexibleStrings parses a JSON field that could be []string or []object.
 // If objects, it tries to extract a "text", "message", or "description" field.
 func parseFlexibleStrings(raw json.RawMessage) []string {
-	if raw == nil || len(raw) == 0 {
+	if len(raw) == 0 {
 		return nil
 	}
 

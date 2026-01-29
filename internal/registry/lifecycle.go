@@ -261,13 +261,11 @@ func (l *Lifecycle) EnabledFeatures(explicit []string) []string {
 	// Add defaults that weren't explicitly disabled
 	for name, feat := range l.Features {
 		if feat.Default {
-			if enabled, mentioned := explicitSet[name]; !mentioned {
+			if _, mentioned := explicitSet[name]; !mentioned {
 				// Default is on and not mentioned: enable
 				result = append(result, name)
-			} else if !enabled {
-				// Explicitly disabled: don't add
-				continue
 			}
+			// If explicitly mentioned (enabled or disabled), the loop above already handled it
 		}
 	}
 

@@ -77,7 +77,9 @@ type Node struct {
 	// Mode is the target file permissions (0 means use default 0644).
 	Mode os.FileMode
 
-	// DelegateTo names the tool to delegate to (for delegate operations).
+	// DelegateTo is DEPRECATED - there is no delegation between tools.
+	// writ and lore share the same execution engine. Retained for backwards
+	// compatibility with old receipts.
 	DelegateTo string
 
 	// Metadata holds tool-specific extensions.
@@ -88,7 +90,7 @@ type Node struct {
 type Edge struct {
 	From     string // Source node ID
 	To       string // Target node ID
-	Relation string // "depends_on", "delegates", "orders"
+	Relation string // "depends_on", "orders"
 }
 
 // Result represents the outcome of executing a single node.
@@ -173,13 +175,13 @@ func (e *Engine) Run(ctx context.Context, graph *Graph) ([]*Result, error) {
 
 // executeNode processes a single node through its operation pipeline.
 func (e *Engine) executeNode(ctx *Context, node *Node) *Result {
-	state := &PipelineState{
-		Metadata: make(map[string]string),
-	}
+	var content []byte
+	var sourceChecksum, targetChecksum string
 
 	// Pre-read source content if pipeline needs it
 	if node.Source != "" && e.needsContent(node) {
-		content, err := os.ReadFile(node.Source)
+		var err error
+		content, err = os.ReadFile(node.Source)
 		if err != nil {
 			return &Result{
 				NodeID: node.ID,
@@ -187,8 +189,7 @@ func (e *Engine) executeNode(ctx *Context, node *Node) *Result {
 				Error:  fmt.Errorf("read source %s: %w", node.Source, err),
 			}
 		}
-		state.Content = content
-		state.SourceChecksum = checksumBytes(content)
+		sourceChecksum = checksumBytes(content)
 	}
 
 	// Execute operation pipeline
@@ -201,7 +202,20 @@ func (e *Engine) executeNode(ctx *Context, node *Node) *Result {
 				Error:  fmt.Errorf("unknown operation: %s", opName),
 			}
 		}
-		if err := op.Execute(ctx, node, state); err != nil {
+
+		var err error
+		switch typed := op.(type) {
+		case Transform:
+			content, err = typed.Transform(ctx, node, content)
+		case Writer:
+			targetChecksum, err = typed.Write(ctx, node, content)
+		case Direct:
+			err = typed.Execute(ctx, node)
+		default:
+			err = fmt.Errorf("operation %s does not implement Transform, Writer, or Direct", opName)
+		}
+
+		if err != nil {
 			return &Result{
 				NodeID: node.ID,
 				Status: StatusFailed,
@@ -213,8 +227,8 @@ func (e *Engine) executeNode(ctx *Context, node *Node) *Result {
 	return &Result{
 		NodeID:         node.ID,
 		Status:         StatusCompleted,
-		SourceChecksum: state.SourceChecksum,
-		TargetChecksum: state.TargetChecksum,
+		SourceChecksum: sourceChecksum,
+		TargetChecksum: targetChecksum,
 	}
 }
 
@@ -225,13 +239,12 @@ func (e *Engine) needsContent(node *Node) bool {
 		return false
 	}
 	first := node.Operations[0]
-	// Direct operations that don't need content pre-read
-	switch first {
-	case "link", "delegate", "unlink", "remove", "install", "verify", "fetch", "configure", "build":
+	op, ok := e.registry.Get(first)
+	if !ok {
 		return false
 	}
-	// Transforms and writers need content
-	return true
+	// Direct operations don't need content pre-read; transforms and writers do
+	return op.Category() != OpDirect
 }
 
 // orderNodes returns nodes in execution order. When edges define ordering

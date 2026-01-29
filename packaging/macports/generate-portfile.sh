@@ -43,6 +43,6 @@ sed -e "s/{{VERSION}}/$VERSION/g" \
     -e "s/{{SHA256}}/$SHA256/g" \
     -e "s/{{RMD160}}/$RMD160/g" \
     -e "s/{{SIZE}}/$SIZE/g" \
-    "$TEMPLATE" > "$OUTPUT"
+    "$TEMPLATE" >"$OUTPUT"
 
 echo "Generated: $OUTPUT"

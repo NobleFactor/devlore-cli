@@ -40,7 +40,8 @@ func newDeployCmd() *cobra.Command {
 
 Files inside each project directory are symlinked to the target (default: ~).
 Platform-specific variants (e.g., project.Darwin) are selected automatically.
-If a project contains packages.manifest, writ delegates to lore for software installation.
+If a project contains packages-manifest.yaml, the Package Graph Builder adds
+package installation nodes to the execution graph (NOT YET IMPLEMENTED).
 
 Conflict handling (--conflict):
   stop      Stop on first conflict (default)
@@ -324,9 +325,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Handle delegate nodes
-		if isDelegate(node) {
-			rcpt.AddDelegated(node)
+		// Handle packages-manifest nodes (NOT YET IMPLEMENTED)
+		if isPackagesManifest(node) {
+			rcpt.AddPackagesManifest(node)
 			continue
 		}
 
@@ -350,19 +351,21 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		rcpt.AddBackup(target, backupPath)
 	}
 
-	// Handle delegated nodes (packages.manifest files)
-	var delegatedNodes []*engine.Node
+	// Report packages-manifest files (Package Graph Builder NOT YET IMPLEMENTED)
+	var packagesManifests []*engine.Node
 	for _, n := range deployTree.Graph.Nodes {
-		if isDelegate(n) {
-			delegatedNodes = append(delegatedNodes, n)
+		if isPackagesManifest(n) {
+			packagesManifests = append(packagesManifests, n)
 		}
 	}
-	if len(delegatedNodes) > 0 {
-		fmt.Fprintf(os.Stderr, "\nDelegated to lore (%d manifests):\n", len(delegatedNodes))
-		for _, node := range delegatedNodes {
+	if len(packagesManifests) > 0 {
+		fmt.Fprintf(os.Stderr, "\nPackages manifests found (%d):\n", len(packagesManifests))
+		for _, node := range packagesManifests {
 			fmt.Fprintf(os.Stderr, "  %s\n", node.Source)
 		}
-		fmt.Fprintf(os.Stderr, "Run 'lore apply' to install packages.\n")
+		fmt.Fprintf(os.Stderr, "NOTE: Package installation NOT YET IMPLEMENTED.\n")
+		fmt.Fprintf(os.Stderr, "      The Package Graph Builder (internal/lore/graph) must be implemented\n")
+		fmt.Fprintf(os.Stderr, "      to process these manifests and add package nodes to the execution graph.\n")
 	}
 
 	// Sign and write receipt
@@ -1953,9 +1956,10 @@ func xdgPath(envVar, defaultPath string) string {
 	return defaultPath
 }
 
-// isDelegate returns true if the node is a delegate operation.
-func isDelegate(node *engine.Node) bool {
-	return len(node.Operations) == 1 && node.Operations[0] == "delegate"
+// isPackagesManifest returns true if the node is a packages-manifest file.
+// These files require the Package Graph Builder (NOT YET IMPLEMENTED).
+func isPackagesManifest(node *engine.Node) bool {
+	return len(node.Operations) == 1 && node.Operations[0] == "packages"
 }
 
 // hasDecryptOp returns true if the operations include decrypt.

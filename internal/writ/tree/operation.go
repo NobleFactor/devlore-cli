@@ -20,8 +20,15 @@ const (
 	// OpDecrypt decrypts a .age file using age encryption.
 	OpDecrypt
 
-	// OpDelegate passes the file to another tool (e.g., lore for packages.manifest).
-	OpDelegate
+	// OpPackages marks a packages-manifest.yaml file that requires processing
+	// by the Package Graph Builder to add package installation nodes to the
+	// execution graph. This is NOT a delegation to another tool—writ and lore
+	// share the same execution engine.
+	//
+	// NOT YET IMPLEMENTED: The Package Graph Builder (internal/lore/graph) does
+	// not exist yet. When implemented, it will parse the manifest and produce
+	// install/configure/verify nodes that the shared engine executes.
+	OpPackages
 )
 
 // String returns the operation name.
@@ -35,8 +42,8 @@ func (o Operation) String() string {
 		return "copy"
 	case OpDecrypt:
 		return "decrypt"
-	case OpDelegate:
-		return "delegate"
+	case OpPackages:
+		return "packages"
 	default:
 		return "unknown"
 	}
@@ -65,10 +72,12 @@ func (ops Operations) HasCopy() bool {
 	return false
 }
 
-// HasDelegate returns true if the operations include a delegate operation.
-func (ops Operations) HasDelegate() bool {
+// HasPackages returns true if the operations include a packages operation.
+// This indicates a packages-manifest.yaml file that needs processing by the
+// Package Graph Builder (NOT YET IMPLEMENTED).
+func (ops Operations) HasPackages() bool {
 	for _, op := range ops {
-		if op == OpDelegate {
+		if op == OpPackages {
 			return true
 		}
 	}

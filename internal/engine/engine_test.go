@@ -37,8 +37,8 @@ func TestRegistryNames(t *testing.T) {
 	}
 
 	names := reg.Names()
-	if len(names) != 8 {
-		t.Errorf("expected 8 operations, got %d", len(names))
+	if len(names) != 10 {
+		t.Errorf("expected 10 operations, got %d", len(names))
 	}
 }
 
@@ -54,9 +54,8 @@ func TestLinkOperation(t *testing.T) {
 	op := &LinkOp{}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test", Source: source, Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("link: %v", err)
 	}
 
@@ -84,9 +83,8 @@ func TestLinkOperationIdempotent(t *testing.T) {
 	op := &LinkOp{}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test", Source: source, Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("idempotent link: %v", err)
 	}
 }
@@ -98,12 +96,10 @@ func TestCopyOperation(t *testing.T) {
 	op := &CopyOp{}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{
-		Content:  []byte("file content"),
-		Metadata: make(map[string]string),
-	}
+	inputContent := []byte("file content")
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	checksum, err := op.Write(ctx, node, inputContent)
+	if err != nil {
 		t.Fatalf("copy: %v", err)
 	}
 
@@ -115,11 +111,11 @@ func TestCopyOperation(t *testing.T) {
 		t.Errorf("expected 'file content', got %q", string(content))
 	}
 
-	if state.TargetChecksum == "" {
+	if checksum == "" {
 		t.Error("expected target checksum to be set")
 	}
-	if !strings.HasPrefix(state.TargetChecksum, "sha256:") {
-		t.Errorf("expected sha256: prefix, got %q", state.TargetChecksum)
+	if !strings.HasPrefix(checksum, "sha256:") {
+		t.Errorf("expected sha256: prefix, got %q", checksum)
 	}
 }
 
@@ -130,12 +126,9 @@ func TestCopyOperationCreatesParentDirs(t *testing.T) {
 	op := &CopyOp{}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{
-		Content:  []byte("nested content"),
-		Metadata: make(map[string]string),
-	}
+	inputContent := []byte("nested content")
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if _, err := op.Write(ctx, node, inputContent); err != nil {
 		t.Fatalf("copy with nested dirs: %v", err)
 	}
 
@@ -155,18 +148,16 @@ func TestExpandOperation(t *testing.T) {
 		Data:    map[string]any{"Username": "testuser", "Shell": "/bin/zsh"},
 	}
 	node := &Node{ID: ".bashrc", Source: "/environment/all/.bashrc", Project: "all"}
-	state := &PipelineState{
-		Content:  []byte("# Shell: {{.Shell}}\n# User: {{.Username}}\n# Project: {{.Project}}"),
-		Metadata: make(map[string]string),
-	}
+	inputContent := []byte("# Shell: {{.Shell}}\n# User: {{.Username}}\n# Project: {{.Project}}")
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	result, err := op.Transform(ctx, node, inputContent)
+	if err != nil {
 		t.Fatalf("expand: %v", err)
 	}
 
 	expected := "# Shell: /bin/zsh\n# User: testuser\n# Project: all"
-	if string(state.Content) != expected {
-		t.Errorf("expected %q, got %q", expected, string(state.Content))
+	if string(result) != expected {
+		t.Errorf("expected %q, got %q", expected, string(result))
 	}
 }
 
@@ -183,17 +174,15 @@ func TestDecryptOperation(t *testing.T) {
 		Data:    map[string]any{"decryptor": mockDecrypt},
 	}
 	node := &Node{ID: "secret.txt"}
-	state := &PipelineState{
-		Content:  []byte("encrypted-data"),
-		Metadata: make(map[string]string),
-	}
+	inputContent := []byte("encrypted-data")
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	result, err := op.Transform(ctx, node, inputContent)
+	if err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
 
-	if string(state.Content) != "decrypted:encrypted-data" {
-		t.Errorf("unexpected content: %q", string(state.Content))
+	if string(result) != "decrypted:encrypted-data" {
+		t.Errorf("unexpected content: %q", string(result))
 	}
 }
 
@@ -201,27 +190,17 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 	op := &DecryptOp{}
 	ctx := &Context{Context: context.Background(), Data: map[string]any{}}
 	node := &Node{ID: "secret.txt"}
-	state := &PipelineState{Content: []byte("data"), Metadata: make(map[string]string)}
+	inputContent := []byte("data")
 
-	if err := op.Execute(ctx, node, state); err == nil {
+	if _, err := op.Transform(ctx, node, inputContent); err == nil {
 		t.Error("expected error when no decryptor configured")
 	}
 }
 
-func TestDelegateOperation(t *testing.T) {
-	op := &DelegateOp{}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: ".config/packages.manifest", DelegateTo: "lore"}
-	state := &PipelineState{Metadata: make(map[string]string)}
-
-	if err := op.Execute(ctx, node, state); err != nil {
-		t.Fatalf("delegate: %v", err)
-	}
-
-	if state.Metadata["delegate_to"] != "lore" {
-		t.Errorf("expected delegate_to 'lore', got %q", state.Metadata["delegate_to"])
-	}
-}
+// NOTE: TestDelegateOperation removed - there is no delegation between tools.
+// writ and lore share the same execution engine. When writ encounters a
+// packages-manifest.yaml, the Package Graph Builder adds package nodes to
+// the execution graph (NOT YET IMPLEMENTED).
 
 func TestUnlinkOperation(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -238,9 +217,8 @@ func TestUnlinkOperation(t *testing.T) {
 	op := &UnlinkOp{}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("unlink: %v", err)
 	}
 
@@ -259,9 +237,8 @@ func TestRemoveOperation(t *testing.T) {
 	op := &RemoveOp{}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -618,18 +595,20 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 	}
 }
 
-func TestPreflightDelegateSkipped(t *testing.T) {
+func TestPreflightPackagesManifest(t *testing.T) {
+	// packages-manifest nodes use the "packages" operation (NOT YET IMPLEMENTED)
+	// The preflight should treat them as ready since there's no filesystem conflict
 	reg := NewRegistry()
 	engine := New(reg, Options{})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "manifest", Operations: []string{"delegate"}, DelegateTo: "lore"},
+			{ID: "manifest", Operations: []string{"packages"}},
 		},
 	}
 
 	result := engine.Preflight(graph)
 	if result.HasConflicts() {
-		t.Error("expected no conflicts for delegate node")
+		t.Error("expected no conflicts for packages-manifest node")
 	}
 	if len(result.Ready) != 1 {
 		t.Errorf("expected 1 ready node, got %d", len(result.Ready))
@@ -638,8 +617,8 @@ func TestPreflightDelegateSkipped(t *testing.T) {
 
 func TestFileOpsCount(t *testing.T) {
 	ops := FileOps()
-	if len(ops) != 8 {
-		t.Errorf("expected 8 file ops, got %d", len(ops))
+	if len(ops) != 10 {
+		t.Errorf("expected 10 file ops, got %d", len(ops))
 	}
 
 	names := make(map[string]bool)
@@ -647,7 +626,9 @@ func TestFileOpsCount(t *testing.T) {
 		names[op.Name()] = true
 	}
 
-	expected := []string{"link", "copy", "expand", "decrypt", "delegate", "backup", "unlink", "remove"}
+	// NOTE: No "delegate" operation - writ and lore share the same engine.
+	// Package operations (install, configure, verify) are NOT YET IMPLEMENTED.
+	expected := []string{"link", "copy", "expand", "decrypt", "backup", "unlink", "remove", "mkdir", "validate", "rename"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("expected operation %q in FileOps()", name)
@@ -665,9 +646,8 @@ func TestBackupOperation(t *testing.T) {
 	op := &BackupOp{}
 	ctx := &Context{Context: context.Background(), Data: map[string]any{}}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("backup: %v", err)
 	}
 
@@ -676,10 +656,10 @@ func TestBackupOperation(t *testing.T) {
 		t.Error("expected original file to be moved")
 	}
 
-	// Backup path should be recorded in metadata
-	backupPath := state.Metadata["backup_path"]
+	// Backup path should be recorded in node metadata
+	backupPath := node.Metadata["backup_path"]
 	if backupPath == "" {
-		t.Fatal("expected backup_path in metadata")
+		t.Fatal("expected backup_path in node metadata")
 	}
 
 	// Backup should exist with original content
@@ -699,12 +679,9 @@ func TestCopyOperationWithMode(t *testing.T) {
 	op := &CopyOp{}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test", Target: target, Mode: 0755}
-	state := &PipelineState{
-		Content:  []byte("#!/bin/sh\necho hello"),
-		Metadata: make(map[string]string),
-	}
+	inputContent := []byte("#!/bin/sh\necho hello")
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if _, err := op.Write(ctx, node, inputContent); err != nil {
 		t.Fatalf("copy with mode: %v", err)
 	}
 
@@ -757,9 +734,8 @@ func TestRemoveOperationPrunesEmptyDirs(t *testing.T) {
 		},
 	}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -804,9 +780,8 @@ func TestRemoveOperationPruneStopsAtNonEmpty(t *testing.T) {
 		},
 	}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -852,9 +827,8 @@ func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
 		},
 	}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("unlink: %v", err)
 	}
 
@@ -882,9 +856,8 @@ func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 	// No prune flags set
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test", Target: target}
-	state := &PipelineState{Metadata: make(map[string]string)}
 
-	if err := op.Execute(ctx, node, state); err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 

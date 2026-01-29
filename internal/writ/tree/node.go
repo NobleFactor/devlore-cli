@@ -8,10 +8,13 @@ import (
 	"strings"
 )
 
-// DelegateFiles are filenames that should be delegated to lore.
+// PackagesManifestFiles are filenames that contain package specifications.
+// These files are processed by the Package Graph Builder to produce package
+// installation nodes in the execution graph.
+//
 // packages-manifest.{yaml,json} is the canonical format.
 // packages.manifest is supported for backward compatibility.
-var DelegateFiles = []string{
+var PackagesManifestFiles = []string{
 	"packages-manifest.yaml",
 	"packages-manifest.json",
 	"packages.manifest", // legacy
@@ -22,19 +25,19 @@ var DelegateFiles = []string{
 //
 // Examples:
 //
-//	"foo"                → "foo",              [link]
-//	"foo.template"       → "foo",              [expand, copy]
-//	"foo.age"            → "foo",              [decrypt, copy]
-//	"foo.template.age"   → "foo",              [decrypt, expand, copy]
-//	"packages.manifest"  → "packages.manifest" [delegate]
+//	"foo"                     → "foo",                     [link]
+//	"foo.template"            → "foo",                     [expand, copy]
+//	"foo.age"                 → "foo",                     [decrypt, copy]
+//	"foo.template.age"        → "foo",                     [decrypt, expand, copy]
+//	"packages-manifest.yaml"  → "packages-manifest.yaml",  [packages]
 func ProcessingPipeline(filename string) (targetName string, ops Operations) {
 	name := filename
 	baseName := filepath.Base(name)
 
-	// Check for delegate files (e.g., packages.manifest → lore)
-	for _, df := range DelegateFiles {
-		if baseName == df {
-			return name, Operations{OpDelegate}
+	// Check for packages-manifest files (processed by Package Graph Builder)
+	for _, pf := range PackagesManifestFiles {
+		if baseName == pf {
+			return name, Operations{OpPackages}
 		}
 	}
 
