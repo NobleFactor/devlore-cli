@@ -44,7 +44,7 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 - `docs/guides/lore/deploy-packages.md` (lines 142-159): shows same flow from lore's perspective
 
 **Should cover:**
-- Complete end-to-end workflow: writ add → lore deploy → verify → writ status
+- Complete end-to-end workflow: writ add → lore deploy → verify → writ reconcile
 - When to use lore standalone vs integrated with writ
 - Error propagation: what happens if lore fails during writ add?
 - Partial success handling: some packages deployed, some failed
@@ -763,7 +763,7 @@ This section tracks the implementation work needed for writ to process multiple 
 | `writ add` | Yes | Deploys from all layers, personal overrides team overrides base |
 | `writ remove` | Yes | Must know which layer(s) deployed each file |
 | `writ regenerate` | Yes | Re-processes templates/secrets from all layers |
-| `writ status` | Yes | Shows status across all layers |
+| `writ reconcile` | Yes | Shows status across all layers |
 | `writ projects` | Yes | Lists projects from all configured repos |
 | `writ adopt` | Partial | Targets single layer (via `--layer` flag) but must check for conflicts |
 
@@ -897,7 +897,7 @@ if newLayer.Order > existing.Layer.Order {
 
 **6.3.7 writ add** — Use collectLayerSources()
 **6.3.8 writ remove** — Load state to determine which layer deployed each file
-**6.3.9 writ status** — Build graph from all layers, show layer info in output
+**6.3.9 writ reconcile** — Build graph from all layers, show layer info in output
 **6.3.10 writ projects** — List projects from all configured repos with layer indicator
 **6.3.11 writ regenerate** — Process all layers for templates/secrets
 

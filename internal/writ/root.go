@@ -70,7 +70,7 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	// Add subcommands
 	rootCmd.AddCommand(newAddCmd())
 	rootCmd.AddCommand(newRemoveCmd())
-	rootCmd.AddCommand(newStatusCmd())
+	rootCmd.AddCommand(newReconcileCmd())
 	rootCmd.AddCommand(newUpgradeCmd())
 	rootCmd.AddCommand(newAdoptCmd())
 	rootCmd.AddCommand(newListCmd())

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-// Package status provides symlink status checking for writ deployments.
-package status
+// Package reconcile provides full-stack drift detection and repair for writ deployments.
+package reconcile
 
 import (
 	"os"
