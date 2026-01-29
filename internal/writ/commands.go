@@ -28,7 +28,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/state"
-	"github.com/NobleFactor/devlore-cli/internal/writ/status"
+	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
@@ -1026,16 +1026,17 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func newStatusCmd() *cobra.Command {
+func newReconcileCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "status [<project>...]",
-		Short: "Show symlink status for projects",
-		Long: `Show symlink status for projects.
+		Use:   "reconcile [<project>...]",
+		Short: "Full-stack drift detection and repair",
+		Long: `Full-stack drift detection and repair.
 
-Without arguments, scans target directory for writ-managed symlinks and uses
-the receipt to check copied files (templates, secrets).
+Checks symlinks, copied files (templates/secrets), and optionally installed
+packages against the state file. Can automatically repair detected issues.
 
-With project arguments, builds a fresh tree and checks status against expected state.
+Without arguments, scans target directory for writ-managed files.
+With project arguments, builds a fresh tree and checks against expected state.
 
 Status indicators:
   ✓ Linked   — Symlink exists and points to project
@@ -1043,25 +1044,24 @@ Status indicators:
   ⚠ Conflict — File exists but isn't our symlink
   ✗ Missing  — Project file has no corresponding symlink
   ? Orphan   — Symlink points to nonexistent file
-
-With --drift (requires receipt):
   ↑ Stale    — Source changed since deployment, redeploy needed
   M Modified — Target file was edited locally
   ! Conflict — Both source and target changed`,
-		Example: `  writ status                    # Scan for deployed files
-  writ status noblefactor        # Check specific project
-  writ status --drift            # Check for drift in copied files`,
-		RunE: runStatus,
+		Example: `  writ reconcile                    # Scan for deployed files
+  writ reconcile noblefactor        # Check specific project
+  writ reconcile --fix              # Automatically repair issues`,
+		RunE: runReconcile,
 	}
 
-	cmd.Flags().Bool("drift", false, "Check for drift in copied files using receipt checksums")
+	cmd.Flags().Bool("drift", false, "Check for drift in copied files (default: true)")
+	cmd.Flags().Bool("fix", false, "Automatically repair detected issues")
 	cmd.Flags().Bool("json", false, "Output as JSON")
 
 	return cmd
 }
 
-// runStatus implements the status command.
-func runStatus(cmd *cobra.Command, args []string) error {
+// runReconcile implements the reconcile command.
+func runReconcile(cmd *cobra.Command, args []string) error {
 	verbose := viper.GetBool("writ.verbose")
 	checkDrift, _ := cmd.Flags().GetBool("drift")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
@@ -1079,7 +1079,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("HOME environment variable not set")
 	}
 
-	var report *status.Report
+	var report *reconcile.Report
 
 	if len(args) > 0 {
 		// Projects specified: build tree and check status
@@ -1096,7 +1096,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("build tree: %w", err)
 		}
 
-		report = status.FromBuildResult(deployTree)
+		report = reconcile.FromBuildResult(deployTree)
 	} else {
 		// No projects: prefer state file, fall back to scanning + receipt
 		deployState, stateErr := state.Load()
@@ -1121,10 +1121,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			}
 
 			// Build report from state
-			report = statusFromState(deployState, checkDrift)
+			report = reconcileFromState(deployState, checkDrift)
 		} else {
 			// Fall back to scanning + receipt
-			report = status.ScanTarget(targetRoot, sourceRoot)
+			report = reconcile.ScanTarget(targetRoot, sourceRoot)
 
 			// Load receipt to check copied files (templates, secrets)
 			rcpt, err := receipt.LoadLatest()
@@ -1168,15 +1168,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	// JSON output
 	if jsonOutput {
-		return outputStatusJSON(report)
+		return outputReconcileJSON(report)
 	}
 
 	// Human-readable output
-	return outputStatusText(report)
+	return outputReconcileText(report)
 }
 
 // addCopiedFilesFromReceipt adds copied file nodes from a receipt to the report.
-func addCopiedFilesFromReceipt(report *status.Report, rcpt *receipt.Receipt, checkDrift bool) {
+func addCopiedFilesFromReceipt(report *reconcile.Report, rcpt *receipt.Receipt, checkDrift bool) {
 	report.FromReceipt = true
 	report.ReceiptPath = receipt.LatestReceiptPath()
 
@@ -1189,9 +1189,9 @@ func addCopiedFilesFromReceipt(report *status.Report, rcpt *receipt.Receipt, che
 			continue // Symlinks are found by scanning
 		}
 
-		var entry status.Entry
+		var entry reconcile.Entry
 		if checkDrift && n.SourceChecksum != "" {
-			entry = status.Entry{
+			entry = reconcile.Entry{
 				RelTarget:      n.ID,
 				Source:         n.Source,
 				Target:         n.Target,
@@ -1209,20 +1209,20 @@ func addCopiedFilesFromReceipt(report *status.Report, rcpt *receipt.Receipt, che
 
 			switch {
 			case sourceChanged && targetChanged:
-				entry.State = status.StateDriftConflict
+				entry.State = reconcile.StateDriftConflict
 				entry.Message = "both source and target changed"
 			case sourceChanged:
-				entry.State = status.StateStale
+				entry.State = reconcile.StateStale
 				entry.Message = "source changed, redeploy needed"
 			case targetChanged:
-				entry.State = status.StateModified
+				entry.State = reconcile.StateModified
 				entry.Message = "target modified locally"
 			default:
-				entry.State = status.StateCopied
+				entry.State = reconcile.StateCopied
 			}
 		} else {
 			// Just check if file exists
-			entry = status.Entry{
+			entry = reconcile.Entry{
 				RelTarget:  n.ID,
 				Source:     n.Source,
 				Target:     n.Target,
@@ -1230,10 +1230,10 @@ func addCopiedFilesFromReceipt(report *status.Report, rcpt *receipt.Receipt, che
 				Operations: []string{n.Operation},
 			}
 			if _, err := os.Stat(n.Target); os.IsNotExist(err) {
-				entry.State = status.StateMissing
+				entry.State = reconcile.StateMissing
 				entry.Message = "file not deployed"
 			} else {
-				entry.State = status.StateCopied
+				entry.State = reconcile.StateCopied
 			}
 		}
 
@@ -1242,8 +1242,8 @@ func addCopiedFilesFromReceipt(report *status.Report, rcpt *receipt.Receipt, che
 }
 
 // statusFromState builds a status report from the state file.
-func statusFromState(s *state.State, checkDrift bool) *status.Report {
-	report := &status.Report{
+func reconcileFromState(s *state.State, checkDrift bool) *reconcile.Report {
+	report := &reconcile.Report{
 		TargetRoot:  s.TargetRoot,
 		SourceRoot:  s.SourceRoot,
 		Projects:    s.Projects(),
@@ -1254,7 +1254,7 @@ func statusFromState(s *state.State, checkDrift bool) *status.Report {
 	for relTarget, entry := range s.Files {
 		target := filepath.Join(s.TargetRoot, relTarget)
 
-		statusEntry := status.Entry{
+		statusEntry := reconcile.Entry{
 			RelTarget:      relTarget,
 			Source:         entry.Source,
 			Target:         target,
@@ -1267,7 +1267,7 @@ func statusFromState(s *state.State, checkDrift bool) *status.Report {
 		if entry.IsCopied() {
 			// Copied file - check existence and optionally drift
 			if _, err := os.Stat(target); os.IsNotExist(err) {
-				statusEntry.State = status.StateMissing
+				statusEntry.State = reconcile.StateMissing
 				statusEntry.Message = "file not deployed"
 			} else if checkDrift && entry.SourceChecksum != "" {
 				// Check drift
@@ -1279,37 +1279,37 @@ func statusFromState(s *state.State, checkDrift bool) *status.Report {
 
 				switch {
 				case sourceChanged && targetChanged:
-					statusEntry.State = status.StateDriftConflict
+					statusEntry.State = reconcile.StateDriftConflict
 					statusEntry.Message = "both source and target changed"
 				case sourceChanged:
-					statusEntry.State = status.StateStale
+					statusEntry.State = reconcile.StateStale
 					statusEntry.Message = "source changed, redeploy needed"
 				case targetChanged:
-					statusEntry.State = status.StateModified
+					statusEntry.State = reconcile.StateModified
 					statusEntry.Message = "target modified locally"
 				default:
-					statusEntry.State = status.StateCopied
+					statusEntry.State = reconcile.StateCopied
 				}
 			} else {
-				statusEntry.State = status.StateCopied
+				statusEntry.State = reconcile.StateCopied
 			}
 		} else {
 			// Symlink - check if it exists and points correctly
 			info, err := os.Lstat(target)
 			if os.IsNotExist(err) {
-				statusEntry.State = status.StateMissing
+				statusEntry.State = reconcile.StateMissing
 				statusEntry.Message = "symlink not created"
 			} else if err != nil {
-				statusEntry.State = status.StateConflict
+				statusEntry.State = reconcile.StateConflict
 				statusEntry.Message = err.Error()
 			} else if info.Mode()&os.ModeSymlink == 0 {
-				statusEntry.State = status.StateConflict
+				statusEntry.State = reconcile.StateConflict
 				statusEntry.Message = "file exists, not a symlink"
 			} else {
 				// Check symlink target
 				linkTarget, err := os.Readlink(target)
 				if err != nil {
-					statusEntry.State = status.StateConflict
+					statusEntry.State = reconcile.StateConflict
 					statusEntry.Message = "cannot read symlink"
 				} else {
 					// Resolve relative symlinks
@@ -1320,13 +1320,13 @@ func statusFromState(s *state.State, checkDrift bool) *status.Report {
 
 					if linkTarget == entry.Source {
 						if _, err := os.Stat(entry.Source); os.IsNotExist(err) {
-							statusEntry.State = status.StateOrphan
+							statusEntry.State = reconcile.StateOrphan
 							statusEntry.Message = "source file deleted"
 						} else {
-							statusEntry.State = status.StateLinked
+							statusEntry.State = reconcile.StateLinked
 						}
 					} else {
-						statusEntry.State = status.StateConflict
+						statusEntry.State = reconcile.StateConflict
 						statusEntry.Message = "symlink points to " + linkTarget
 					}
 				}
@@ -1339,8 +1339,8 @@ func statusFromState(s *state.State, checkDrift bool) *status.Report {
 	return report
 }
 
-// outputStatusJSON outputs the status report as JSON.
-func outputStatusJSON(report *status.Report) error {
+// outputReconcileJSON outputs the reconcile report as JSON.
+func outputReconcileJSON(report *reconcile.Report) error {
 	type jsonEntry struct {
 		RelTarget  string   `json:"rel_target"`
 		Source     string   `json:"source"`
@@ -1391,14 +1391,14 @@ func outputStatusJSON(report *status.Report) error {
 	}
 
 	summary := report.Summary()
-	jr.Summary.Linked = summary[status.StateLinked]
-	jr.Summary.Copied = summary[status.StateCopied]
-	jr.Summary.Conflict = summary[status.StateConflict]
-	jr.Summary.Missing = summary[status.StateMissing]
-	jr.Summary.Orphan = summary[status.StateOrphan]
-	jr.Summary.Stale = summary[status.StateStale]
-	jr.Summary.Modified = summary[status.StateModified]
-	jr.Summary.DriftConflict = summary[status.StateDriftConflict]
+	jr.Summary.Linked = summary[reconcile.StateLinked]
+	jr.Summary.Copied = summary[reconcile.StateCopied]
+	jr.Summary.Conflict = summary[reconcile.StateConflict]
+	jr.Summary.Missing = summary[reconcile.StateMissing]
+	jr.Summary.Orphan = summary[reconcile.StateOrphan]
+	jr.Summary.Stale = summary[reconcile.StateStale]
+	jr.Summary.Modified = summary[reconcile.StateModified]
+	jr.Summary.DriftConflict = summary[reconcile.StateDriftConflict]
 
 	data, err := json.MarshalIndent(jr, "", "  ")
 	if err != nil {
@@ -1408,8 +1408,8 @@ func outputStatusJSON(report *status.Report) error {
 	return nil
 }
 
-// outputStatusText outputs the status report as human-readable text.
-func outputStatusText(report *status.Report) error {
+// outputReconcileText outputs the reconcile report as human-readable text.
+func outputReconcileText(report *reconcile.Report) error {
 	if len(report.Entries) == 0 {
 		fmt.Println("No deployed files found.")
 		if report.FromReceipt {
@@ -1419,7 +1419,7 @@ func outputStatusText(report *status.Report) error {
 	}
 
 	// Group entries by project
-	byProject := make(map[string][]status.Entry)
+	byProject := make(map[string][]reconcile.Entry)
 	for _, e := range report.Entries {
 		project := e.Project
 		if project == "" {
@@ -1460,29 +1460,29 @@ func outputStatusText(report *status.Report) error {
 	// Summary
 	summary := report.Summary()
 	total := len(report.Entries)
-	linked := summary[status.StateLinked] + summary[status.StateCopied]
+	linked := summary[reconcile.StateLinked] + summary[reconcile.StateCopied]
 	issues := total - linked
 
 	if issues == 0 {
 		fmt.Printf("%d files, all deployed correctly\n", total)
 	} else {
 		fmt.Printf("%d files: %d ok", total, linked)
-		if n := summary[status.StateConflict]; n > 0 {
+		if n := summary[reconcile.StateConflict]; n > 0 {
 			fmt.Printf(", %d conflict", n)
 		}
-		if n := summary[status.StateMissing]; n > 0 {
+		if n := summary[reconcile.StateMissing]; n > 0 {
 			fmt.Printf(", %d missing", n)
 		}
-		if n := summary[status.StateOrphan]; n > 0 {
+		if n := summary[reconcile.StateOrphan]; n > 0 {
 			fmt.Printf(", %d orphan", n)
 		}
-		if n := summary[status.StateStale]; n > 0 {
+		if n := summary[reconcile.StateStale]; n > 0 {
 			fmt.Printf(", %d stale", n)
 		}
-		if n := summary[status.StateModified]; n > 0 {
+		if n := summary[reconcile.StateModified]; n > 0 {
 			fmt.Printf(", %d modified", n)
 		}
-		if n := summary[status.StateDriftConflict]; n > 0 {
+		if n := summary[reconcile.StateDriftConflict]; n > 0 {
 			fmt.Printf(", %d drift-conflict", n)
 		}
 		fmt.Println()
