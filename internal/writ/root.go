@@ -68,14 +68,13 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.PersistentFlags().String("model-provider", "", "Model provider: anthropic, openai, azure-openai, ollama, github")
 
 	// Add subcommands
-	rootCmd.AddCommand(newAddCmd())
-	rootCmd.AddCommand(newRemoveCmd())
+	rootCmd.AddCommand(newDeployCmd())
+	rootCmd.AddCommand(newDecommissionCmd())
 	rootCmd.AddCommand(newReconcileCmd())
 	rootCmd.AddCommand(newUpgradeCmd())
 	rootCmd.AddCommand(newAdoptCmd())
 	rootCmd.AddCommand(newListCmd())
 	rootCmd.AddCommand(newConfigureCmd())
-	rootCmd.AddCommand(newSecretsCmd())
 	rootCmd.AddCommand(newReceiptCmd())
 	rootCmd.AddCommand(newInspectCmd())
 	rootCmd.AddCommand(newMigrateCmd())

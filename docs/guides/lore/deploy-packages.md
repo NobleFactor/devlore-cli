@@ -134,29 +134,22 @@ lore decommission docker kubectl
 
 # Remove from receipt
 lore decommission @workstation
-
-# Remove only orphaned packages (not referenced by any manifest)
-lore decommission --orphans-only
 ```
 
 ## Integration with writ
 
-When writ deploys a project containing `packages-manifest.yaml`, it automatically
-calls lore:
+When a writ project contains `packages-manifest.yaml`, writ builds an execution
+graph that includes both configuration deployment and package installation:
 
 ```bash
-writ add noblefactor
-# → Symlinks config files
-# → Calls: lore deploy @packages-manifest.yaml
+writ deploy noblefactor
+# → Builds execution graph for symlinks + packages
+# → Executes graph (symlinks, then package installation)
 ```
 
-When writ removes a project:
-
-```bash
-writ remove --decommission noblefactor
-# → Removes symlinks
-# → Calls: lore decommission --orphans-only
-```
+Both writ and lore use the same execution graph model and graph executor.
+For a project containing only `packages-manifest.yaml`, running either
+`writ deploy` or `lore deploy @packages-manifest.yaml` produces identical results.
 
 ## Inspect packages
 

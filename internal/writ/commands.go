@@ -32,9 +32,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
-func newAddCmd() *cobra.Command {
+func newDeployCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add [flags] <project>...",
+		Use:   "deploy [flags] <project>...",
 		Short: "Deploy projects by creating symlinks in the target location",
 		Long: `Deploy projects by creating symlinks in the target location.
 
@@ -47,13 +47,13 @@ Conflict handling (--conflict):
   backup    Move conflicting files to timestamped backups
   overwrite Remove conflicting files without backup
   skip      Skip conflicting files and continue`,
-		Example: `  writ add noblefactor
-  writ add all noblefactor thenobles
-  writ add --conflict=backup noblefactor
-  writ add --conflict=overwrite noblefactor
-  writ add -s ROLE=desktop noblefactor`,
+		Example: `  writ deploy noblefactor
+  writ deploy all noblefactor thenobles
+  writ deploy --conflict=backup noblefactor
+  writ deploy --conflict=overwrite noblefactor
+  writ deploy -s ROLE=desktop noblefactor`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: runAdd,
+		RunE: runDeploy,
 	}
 
 	cmd.Flags().StringP("conflict", "c", "stop", "Conflict resolution: stop, backup, overwrite, skip")
@@ -62,8 +62,8 @@ Conflict handling (--conflict):
 	return cmd
 }
 
-// runAdd implements the add command.
-func runAdd(cmd *cobra.Command, args []string) error {
+// runDeploy implements the deploy command.
+func runDeploy(cmd *cobra.Command, args []string) error {
 	// Get config values
 	dryRun := viper.GetBool("writ.dry-run")
 	verbose := viper.GetBool("writ.verbose")
@@ -434,11 +434,11 @@ func expandPath(path string) string {
 	return path
 }
 
-func newRemoveCmd() *cobra.Command {
+func newDecommissionCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "remove [flags] <project>...",
-		Short: "Remove deployed files for the specified projects",
-		Long: `Remove deployed files for the specified projects.
+		Use:   "decommission [flags] <project>...",
+		Short: "Remove deployed files and clean up resources for specified projects",
+		Long: `Remove deployed files and clean up resources for specified projects.
 
 Symlinks are removed directly. Copied files (templates, secrets) are removed
 only after drift detection confirms they haven't been locally modified.
@@ -448,28 +448,24 @@ Safety behavior depends on state file:
   Unsigned state  → Warning, requires --force to proceed
   No state        → Error: cannot safely remove without state
 
-With --decommission, delegates to lore to remove orphaned software packages
-that were installed via packages.manifest files in the removed projects.`,
-		Example: `  writ remove noblefactor              # Remove project files
-  writ remove all noblefactor          # Remove multiple projects
-  writ remove --force noblefactor      # Skip confirmation prompts
-  writ remove --decommission noblefactor  # Also remove installed software`,
+`,
+		Example: `  writ decommission noblefactor              # Remove project files
+  writ decommission all noblefactor          # Remove multiple projects
+  writ decommission --force noblefactor      # Skip confirmation prompts`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: runRemove,
+		RunE: runDecommission,
 	}
 
-	cmd.Flags().Bool("decommission", false, "Delegate to lore to decommission orphaned software")
 	cmd.Flags().Bool("force", false, "Skip confirmation and proceed with unsigned state")
 
 	return cmd
 }
 
-// runRemove implements the remove command.
-func runRemove(cmd *cobra.Command, args []string) error {
+// runDecommission implements the decommission command.
+func runDecommission(cmd *cobra.Command, args []string) error {
 	dryRun := viper.GetBool("writ.dry-run")
 	verbose := viper.GetBool("writ.verbose")
 	force, _ := cmd.Flags().GetBool("force")
-	decommission, _ := cmd.Flags().GetBool("decommission")
 
 	// Load state file
 	deployState, stateErr := state.Load()
@@ -538,7 +534,6 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	var toRemove []removeEntry
-	var manifestPaths []string // For decommission delegation
 
 	if deployState != nil {
 		// Use state file for accurate removal
@@ -567,11 +562,6 @@ func runRemove(cmd *cobra.Command, args []string) error {
 			}
 
 			toRemove = append(toRemove, re)
-
-			// Track manifest paths for decommission
-			if decommission && strings.HasSuffix(entry.Source, "packages.manifest") {
-				manifestPaths = append(manifestPaths, entry.Source)
-			}
 		}
 	} else {
 		// No state - scan target for symlinks only (--force mode)
@@ -692,12 +682,6 @@ func runRemove(cmd *cobra.Command, args []string) error {
 				fmt.Printf("  remove %s\n", re.RelTarget)
 			}
 		}
-		if decommission && len(manifestPaths) > 0 {
-			fmt.Println("\nWould delegate to lore decommission:")
-			for _, p := range manifestPaths {
-				fmt.Printf("  %s\n", p)
-			}
-		}
 		return nil
 	}
 
@@ -769,16 +753,6 @@ func runRemove(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Handle decommission delegation
-	if decommission && len(manifestPaths) > 0 {
-		fmt.Fprintf(os.Stderr, "\nDelegating to lore for decommission:\n")
-		for _, p := range manifestPaths {
-			fmt.Fprintf(os.Stderr, "  %s\n", p)
-		}
-		fmt.Fprintf(os.Stderr, "Run: lore decommission --manifests %s\n", strings.Join(manifestPaths, ","))
-		// TODO: Actually invoke lore when available
-	}
-
 	// Summary
 	fmt.Printf("\nRemoved %d files", removed)
 	if skipped > 0 {
@@ -829,7 +803,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Load state file
 	deployState, err := state.Load()
 	if err != nil {
-		return fmt.Errorf("load state: %w (run 'writ add' first to create state)", err)
+		return fmt.Errorf("load state: %w (run 'writ deploy' first to create state)", err)
 	}
 
 	// Resolve source root from config
@@ -1901,82 +1875,6 @@ Use --unattended (global flag) to auto-detect only and fail on missing values.`,
 			return nil
 		},
 	}
-
-	return cmd
-}
-
-func newSecretsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "secrets <subcommand>",
-		Short: "Manage age-encrypted secrets",
-		Long: `Manage age-encrypted secrets in your environment repository.
-
-Secrets are encrypted with age using recipients listed in .age-recipients.
-Your identity (private key) is resolved from SSH keys or config.`,
-	}
-
-	rekeyCmd := &cobra.Command{
-		Use:   "rekey",
-		Short: "Re-encrypt all .age files to current .age-recipients",
-		Long: `Re-encrypt all .age files to the current .age-recipients list.
-
-Use this when:
-  - Adding a new machine (new recipient needs access)
-  - Revoking access (removed recipient should no longer decrypt)
-  - Rotating keys
-
-The operation is idempotent and can be safely re-run.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("secrets rekey: not yet implemented")
-			return nil
-		},
-	}
-	cmd.AddCommand(rekeyCmd)
-
-	encryptCmd := &cobra.Command{
-		Use:   "encrypt <file>",
-		Short: "Encrypt a file with age",
-		Long: `Encrypt a file using recipients from .age-recipients.
-
-The encrypted file is written to <file>.age and the original is removed.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("secrets encrypt %s: not yet implemented\n", args[0])
-			return nil
-		},
-	}
-	encryptCmd.Flags().Bool("keep", false, "Keep the original file after encryption")
-	cmd.AddCommand(encryptCmd)
-
-	decryptCmd := &cobra.Command{
-		Use:   "decrypt <file.age>",
-		Short: "Decrypt an age-encrypted file",
-		Long: `Decrypt an age-encrypted file using your identity.
-
-By default outputs to stdout. Use -o to write to a file.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("secrets decrypt %s: not yet implemented\n", args[0])
-			return nil
-		},
-	}
-	decryptCmd.Flags().StringP("output", "o", "", "Output file path (default: stdout)")
-	cmd.AddCommand(decryptCmd)
-
-	editCmd := &cobra.Command{
-		Use:   "edit <file.age>",
-		Short: "Edit an encrypted file in place",
-		Long: `Decrypt a file, open in $EDITOR, re-encrypt on save.
-
-The file is decrypted to a temporary location, opened in your editor,
-and re-encrypted when the editor exits.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("secrets edit %s: not yet implemented\n", args[0])
-			return nil
-		},
-	}
-	cmd.AddCommand(editCmd)
 
 	return cmd
 }

@@ -81,7 +81,7 @@ writ config unset writ.repos.team
 To also clean up deployed files, remove projects first:
 
 ```bash
-writ remove all --layer=team
+writ decommission all --layer=team
 writ config unset writ.repos.team
 ```
 
@@ -113,7 +113,7 @@ environment/
 Deploy from multiple layers simultaneously:
 
 ```bash
-writ add all
+writ deploy all
 ```
 
 Writ scans all registered repositories and deploys projects from each.

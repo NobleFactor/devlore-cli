@@ -17,14 +17,14 @@ and removing deployments.
 Deploy one or more projects from your repository:
 
 ```bash
-writ add noblefactor
-writ add noblefactor thenobles
+writ deploy noblefactor
+writ deploy noblefactor thenobles
 ```
 
 Use `all` to deploy every project in the repository:
 
 ```bash
-writ add all
+writ deploy all
 ```
 
 ### Conflict resolution
@@ -34,16 +34,16 @@ four strategies:
 
 ```bash
 # Stop on first conflict (default)
-writ add noblefactor
+writ deploy noblefactor
 
 # Back up conflicting files with timestamps
-writ add --conflict=backup noblefactor
+writ deploy --conflict=backup noblefactor
 
 # Overwrite without backup
-writ add --conflict=overwrite noblefactor
+writ deploy --conflict=overwrite noblefactor
 
 # Skip conflicting files and continue
-writ add --conflict=skip noblefactor
+writ deploy --conflict=skip noblefactor
 ```
 
 ### Custom segments
@@ -56,7 +56,7 @@ See [Platform Awareness](/guides/writ/platform-awareness/#custom-segments) for d
 Preview what writ would do without making changes:
 
 ```bash
-writ add --dry-run noblefactor
+writ deploy --dry-run noblefactor
 ```
 
 ## Check status
@@ -191,7 +191,7 @@ into your environment repository.
 Remove deployed files for a project:
 
 ```bash
-writ remove noblefactor
+writ decommission noblefactor
 ```
 
 Safety behavior depends on state tracking:
@@ -201,18 +201,6 @@ Safety behavior depends on state tracking:
 | Signed state file | Safe removal with drift detection |
 | Unsigned state file | Warning, requires `--force` |
 | No state file | Error: cannot safely remove |
-
-### Decommission software
-
-Remove both configuration and associated software:
-
-```bash
-writ remove --decommission noblefactor
-```
-
-This delegates to `lore decommission --orphans-only` to remove packages
-that were installed via the project's `packages-manifest.yaml` and are no longer
-referenced by any other project.
 
 ## Inspect details
 
