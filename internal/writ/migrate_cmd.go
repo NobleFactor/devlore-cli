@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/NobleFactor/devlore-cli/internal/ai"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
 )
@@ -24,15 +24,19 @@ func newMigrateCmd() *cobra.Command {
 		Long: `Migrate an existing environment repository to a writ layer.
 
 Writ auto-detects the source system (Tuckr, Stow, chezmoi, yadm, bare git,
-or script-based setups) and restructures content to writ conventions (Home/,
-System/, projects).
+or script-based setups) and uses AI to analyze and restructure content to
+writ conventions (Home/, System/, projects).
 
-After restructuring, the source is registered as a layer:
+AI-assisted migration provides:
+  - Intelligent file classification (configs, scripts, secrets)
+  - Content-aware secret detection (unencrypted credentials, API keys)
+  - Package manifest generation from setup scripts
+  - Recommendations (e.g., migrating from git-crypt to SOPS)
+  - Structure validation for already writ-compatible layouts
+
+After analysis and any restructuring, the source is registered as a layer:
   --link (default): Layer directory becomes a symlink to source location
   --move: Content is moved into the layer directory, source is deleted
-
-By default, AI-assisted analysis provides file classification, secret detection,
-and contextual recommendations. Use --no-ai for basic structural analysis only.
 
 Use --dry-run to preview without making changes.`,
 		Example: `  # Migrate and link to source location (default)
@@ -45,10 +49,7 @@ Use --dry-run to preview without making changes.`,
   writ migrate --move ~/my-environment
 
   # Migrate as team layer instead of personal
-  writ migrate --layer team ~/team-environment
-
-  # Skip AI analysis
-  writ migrate --no-ai ~/my-environment`,
+  writ migrate --layer team ~/team-environment`,
 		Args: cobra.ExactArgs(1),
 		RunE: runMigrate,
 	}
@@ -56,7 +57,6 @@ Use --dry-run to preview without making changes.`,
 	cmd.Flags().Bool("link", true, "Create symlink from layer to source (default)")
 	cmd.Flags().Bool("move", false, "Move content to layer directory, delete source")
 	cmd.Flags().String("layer", "personal", "Target layer: personal, team, or base")
-	cmd.Flags().Bool("no-ai", false, "Skip AI-assisted analysis (basic mode)")
 	cmd.Flags().String("format", "text", "Output format: text, yaml, json (for --dry-run)")
 	cmd.Flags().String("system", "", "Override auto-detection with a specific source system")
 	cmd.MarkFlagsMutuallyExclusive("link", "move")
@@ -83,7 +83,6 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	dryRun, _ := cmd.Root().Flags().GetBool("dry-run")
 	useMove, _ := cmd.Flags().GetBool("move")
 	layer, _ := cmd.Flags().GetString("layer")
-	noAI, _ := cmd.Flags().GetBool("no-ai")
 	format, _ := cmd.Flags().GetString("format")
 	verbose, _ := cmd.Root().Flags().GetBool("verbose")
 
@@ -92,30 +91,33 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --layer %q: must be personal, team, or base", layer)
 	}
 
-	// Initialize registry client
+	// All structures go through AI for analysis, validation, and secret detection
 	regClient, err := registry.NewDefault()
 	if err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
 
-	// Sync registry if not cached (or stale)
 	if !regClient.Exists() {
 		fmt.Fprintln(os.Stderr, "Syncing registry...")
 		if _, err := regClient.Sync(ctx, registry.SyncOptions{}); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not sync registry: %v\n", err)
-			fmt.Fprintln(os.Stderr, "Continuing with basic analysis...")
-			noAI = true
+			return fmt.Errorf("registry sync failed: %w", err)
 		}
 	}
 
-	// Get AI provider (prompts for configuration if needed)
-	var aiProvider ai.Provider
-	if !noAI {
-		aiProvider, err = ai.EnsureProvider(ctx, noAI)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: AI not available: %v\n", err)
-			fmt.Fprintln(os.Stderr, "Continuing with basic analysis...")
-		}
+	// Read model flags from root command
+	modelFlags := model.CLIFlags{
+		Model:    mustGetString(cmd.Root(), "model"),
+		APIKey:   mustGetString(cmd.Root(), "model-api-key"),
+		Endpoint: mustGetString(cmd.Root(), "model-endpoint"),
+		Provider: mustGetString(cmd.Root(), "model-provider"),
+	}
+
+	provider, err := model.EnsureProvider(ctx, false, modelFlags)
+	if err != nil {
+		return fmt.Errorf("model provider required: %w", err)
+	}
+	if provider == nil {
+		return fmt.Errorf("model provider required for migration analysis; configure with 'lore config model'")
 	}
 
 	opts := migrate.Options{
@@ -123,7 +125,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		Execute:    !dryRun,
 		Verbose:    verbose,
 		Format:     format,
-		AIProvider: aiProvider,
+		Provider:   provider,
 		RegClient:  regClient,
 	}
 
@@ -247,4 +249,10 @@ func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 		cli.Note("Moving: %s -> %s", sourceRoot, layerDir)
 	}
 	return os.Rename(sourceRoot, layerDir)
+}
+
+// mustGetString gets a string flag value, returning empty string on error.
+func mustGetString(cmd *cobra.Command, name string) string {
+	val, _ := cmd.Flags().GetString(name)
+	return val
 }

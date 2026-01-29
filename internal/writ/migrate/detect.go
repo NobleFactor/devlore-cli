@@ -13,6 +13,7 @@ import (
 type SourceSystem string
 
 const (
+	SystemNative      SourceSystem = "native"       // Already writ-compatible (Home/ or System/)
 	SystemTuckr       SourceSystem = "tuckr"
 	SystemStow        SourceSystem = "stow"
 	SystemChezmoi     SourceSystem = "chezmoi"
@@ -23,7 +24,7 @@ const (
 )
 
 // Detect identifies the source system used in the given directory.
-// It checks filesystem signals in priority order and returns the first match.
+// It checks for tool-specific markers first, then falls back to native/unknown.
 func Detect(root string) (SourceSystem, error) {
 	// 1. Hooks.toml anywhere → tuckr
 	if found, _ := findFile(root, "Hooks.toml"); found {
@@ -53,6 +54,11 @@ func Detect(root string) (SourceSystem, error) {
 	// 6. <project>-<Platform> directory pattern with known platforms → script-based
 	if hasProjectPlatformDirs(root) {
 		return SystemScriptBased, nil
+	}
+
+	// 7. Home/ or System/ at root with no other tool markers → native writ
+	if isNativeWrit(root) {
+		return SystemNative, nil
 	}
 
 	return SystemUnknown, nil
@@ -124,6 +130,11 @@ func isBareGit(root string) bool {
 	return exists(filepath.Join(root, "HEAD")) &&
 		exists(filepath.Join(root, "objects")) &&
 		exists(filepath.Join(root, "refs"))
+}
+
+// isNativeWrit checks if the root is already writ-compatible (has Home/ or System/ directories).
+func isNativeWrit(root string) bool {
+	return exists(filepath.Join(root, "Home")) || exists(filepath.Join(root, "System"))
 }
 
 // hasProjectPlatformDirs checks for <project>-<Platform> directory naming.

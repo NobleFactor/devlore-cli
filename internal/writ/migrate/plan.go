@@ -8,11 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/ai"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
 
@@ -51,6 +52,7 @@ type MigrationPlan struct {
 	EncryptionSystems []EncryptionSystem `json:"encryption_systems" yaml:"encryption_systems"`
 	Entries           []InventoryEntry   `json:"entries" yaml:"entries"`
 	Mappings          []DirectoryMapping `json:"mappings" yaml:"mappings"`
+	Projects          []string           `json:"projects" yaml:"projects"`
 	Scripts           []ScriptAnalysis   `json:"scripts" yaml:"scripts"`
 	SecretFindings    []SecretFinding    `json:"secret_findings" yaml:"secret_findings"`
 	Stats             Stats              `json:"stats" yaml:"stats"`
@@ -65,7 +67,7 @@ type Options struct {
 	Execute    bool
 	Verbose    bool
 	Format     string // "text", "yaml", "json"
-	AIProvider ai.Provider
+	Provider   model.Provider
 	RegClient  *registry.Client
 }
 
@@ -103,8 +105,8 @@ func BuildPlan(ctx context.Context, opts Options) (*MigrationPlan, error) {
 	// Detect encryption systems (structural)
 	encSystems := DetectEncryption(root)
 
-	// Use AI-assisted analysis if available
-	if opts.AIProvider != nil && opts.RegClient != nil {
+	// Use model-assisted analysis if available
+	if opts.Provider != nil && opts.RegClient != nil {
 		return buildPlanWithAI(ctx, opts, root, system, entries, mappings, encSystems)
 	}
 
@@ -114,28 +116,20 @@ func BuildPlan(ctx context.Context, opts Options) (*MigrationPlan, error) {
 
 // buildPlanWithAI uses AI for classification, secret detection, and recommendations.
 func buildPlanWithAI(ctx context.Context, opts Options, root string, system SourceSystem, entries []InventoryEntry, mappings []DirectoryMapping, encSystems []EncryptionSystem) (*MigrationPlan, error) {
-	// Load migration guide for this source system
-	guide, err := opts.RegClient.MigrationGuide(string(system))
-	if err != nil {
-		// Fall back to basic if no guide
-		return buildPlanBasic(root, system, entries, mappings, encSystems)
-	}
-
-	// Load AI prompt
+	// Load AI prompt (required)
 	prompt, err := opts.RegClient.AIPrompt("migrate-to-writ.txt")
 	if err != nil {
+		if opts.Verbose {
+			fmt.Fprintf(os.Stderr, "AI prompt load failed: %v\n", err)
+		}
 		return buildPlanBasic(root, system, entries, mappings, encSystems)
 	}
 
-	// Build file inventory for AI
-	var fileList strings.Builder
-	for _, e := range entries {
-		fileList.WriteString(e.RelPath)
-		if e.IsExecutable {
-			fileList.WriteString(" [executable]")
-		}
-		fileList.WriteString("\n")
-	}
+	// Load migration guide for this source system (optional - native structures don't have one)
+	guide, _ := opts.RegClient.MigrationGuide(string(system))
+
+	// Build summarized inventory for AI (avoid token limit issues)
+	fileList := buildAIInventory(entries)
 
 	// Call AI for analysis
 	userMessage := fmt.Sprintf(`Source system: %s
@@ -154,17 +148,20 @@ Analyze this environment repository and provide:
 5. Post-migration recommendations
 
 Respond in JSON format per the migration-plan schema.`,
-		system, string(guide), fileList.String())
+		system, string(guide), fileList)
 
-	resp, err := opts.AIProvider.Chat(ctx, ai.ChatRequest{
+	resp, err := opts.Provider.Chat(ctx, model.ChatRequest{
 		SystemPrompt: prompt,
-		Messages: []ai.Message{
-			{Role: ai.RoleUser, Content: userMessage},
+		Messages: []model.Message{
+			{Role: model.RoleUser, Content: userMessage},
 		},
 		Temperature: 0, // Deterministic
 		JSONMode:    true,
 	})
 	if err != nil {
+		if opts.Verbose {
+			fmt.Fprintf(os.Stderr, "AI chat failed: %v\n", err)
+		}
 		// AI failed, fall back to basic
 		return buildPlanBasic(root, system, entries, mappings, encSystems)
 	}
@@ -172,27 +169,43 @@ Respond in JSON format per the migration-plan schema.`,
 	// Parse AI response
 	aiPlan, err := parseAIResponse(resp.Content, entries)
 	if err != nil {
+		if opts.Verbose {
+			fmt.Fprintf(os.Stderr, "AI response parse failed: %v\n", err)
+		}
 		// Parse failed, fall back to basic
 		return buildPlanBasic(root, system, entries, mappings, encSystems)
 	}
 
-	// Merge AI analysis with structural data
+	// Always run structural classification and script analysis
+	// (AI provides high-level insights but not per-file classifications)
+	Classify(entries)
+	scripts := AnalyzeScripts(entries)
+
+	// Merge structural and AI script analyses if AI provided any
+	if len(aiPlan.Scripts) > 0 {
+		scripts = aiPlan.Scripts
+	}
+
+	// Prepend system detection to AI observations
+	observations := append([]string{fmt.Sprintf("Detected source system: %s", system)}, aiPlan.Observations...)
+
 	return &MigrationPlan{
 		SourceRoot:        root,
 		System:            system,
 		RepoLayer:         aiPlan.RepoLayer,
 		EncryptionSystems: encSystems,
-		Entries:           aiPlan.Entries,
+		Entries:           entries,
 		Mappings:          mappings,
-		Scripts:           aiPlan.Scripts,
+		Projects:          UniqueProjects(entries),
+		Scripts:           scripts,
 		SecretFindings:    aiPlan.SecretFindings,
-		Stats:             computeStats(aiPlan.Entries, mappings),
-		Observations:      aiPlan.Observations,
+		Stats:             computeStats(entries, mappings),
+		Observations:      observations,
 		Warnings:          aiPlan.Warnings,
 	}, nil
 }
 
-// buildPlanBasic uses structural analysis only (no AI).
+// buildPlanBasic uses structural analysis only (fallback when AI fails).
 func buildPlanBasic(root string, system SourceSystem, entries []InventoryEntry, mappings []DirectoryMapping, encSystems []EncryptionSystem) (*MigrationPlan, error) {
 	// Basic classification based on file attributes
 	Classify(entries)
@@ -213,7 +226,7 @@ func buildPlanBasic(root string, system SourceSystem, entries []InventoryEntry, 
 	if len(mappings) > 0 {
 		observations = append(observations, fmt.Sprintf("%d directories will be renamed", len(mappings)))
 	}
-	observations = append(observations, "Run with AI enabled for detailed analysis: remove --no-ai flag")
+	observations = append(observations, "AI analysis unavailable; using basic structural analysis")
 
 	// Basic warnings
 	var warnings []string
@@ -230,6 +243,7 @@ func buildPlanBasic(root string, system SourceSystem, entries []InventoryEntry, 
 		EncryptionSystems: encSystems,
 		Entries:           entries,
 		Mappings:          mappings,
+		Projects:          UniqueProjects(entries),
 		Scripts:           scripts,
 		SecretFindings:    secretFindings,
 		Stats:             stats,
@@ -266,36 +280,32 @@ type aiAnalysisResult struct {
 
 // parseAIResponse parses the AI JSON response and updates entries.
 func parseAIResponse(content string, originalEntries []InventoryEntry) (*aiAnalysisResult, error) {
-	// Try to parse as JSON
+	// Try to parse as JSON with flexible observation/warning types
 	var response struct {
 		RepoLayer       string `json:"repo_layer"`
 		Classifications []struct {
 			Path  string `json:"path"`
 			Class string `json:"class"`
 		} `json:"classifications"`
-		Secrets []struct {
-			Path   string `json:"path"`
-			Reason string `json:"reason"`
-		} `json:"secrets"`
-		UnencryptedSecrets []struct {
-			Path           string `json:"path"`
-			Reason         string `json:"reason"`
-			Recommendation string `json:"recommendation"`
-			Severity       string `json:"severity"`
-		} `json:"unencrypted_secrets"`
+		Secrets            json.RawMessage `json:"secrets"`
+		UnencryptedSecrets json.RawMessage `json:"unencrypted_secrets"`
 		Scripts []struct {
 			Path           string   `json:"path"`
 			Phase          string   `json:"phase"`
 			PackageManager string   `json:"package_manager"`
 			Packages       []string `json:"packages"`
 		} `json:"scripts"`
-		Observations []string `json:"observations"`
-		Warnings     []string `json:"warnings"`
+		Observations json.RawMessage `json:"observations"`
+		Warnings     json.RawMessage `json:"warnings"`
 	}
 
 	if err := json.Unmarshal([]byte(content), &response); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing AI response: %w (content: %.500s...)", err, content)
 	}
+
+	// Parse observations flexibly (can be []string or []object)
+	observations := parseFlexibleStrings(response.Observations)
+	warnings := parseFlexibleStrings(response.Warnings)
 
 	// Parse repo layer (default to personal if not specified)
 	repoLayer := LayerPersonal
@@ -321,23 +331,8 @@ func parseAIResponse(content string, originalEntries []InventoryEntry) (*aiAnaly
 		}
 	}
 
-	// Build secret findings from both encrypted and unencrypted
-	var secretFindings []SecretFinding
-	for _, s := range response.Secrets {
-		secretFindings = append(secretFindings, SecretFinding{
-			RelPath:    s.Path,
-			Encryption: EncryptNone,
-			Reason:     s.Reason,
-		})
-	}
-	// Add unencrypted secrets (these are specifically flagged by AI)
-	for _, s := range response.UnencryptedSecrets {
-		secretFindings = append(secretFindings, SecretFinding{
-			RelPath:    s.Path,
-			Encryption: EncryptNone,
-			Reason:     fmt.Sprintf("%s — %s", s.Reason, s.Recommendation),
-		})
-	}
+	// Build secret findings from AI response (flexible field names)
+	secretFindings := parseSecretFindings(response.Secrets, response.UnencryptedSecrets)
 
 	// Build script analyses
 	var scripts []ScriptAnalysis
@@ -355,8 +350,8 @@ func parseAIResponse(content string, originalEntries []InventoryEntry) (*aiAnaly
 		Entries:        entries,
 		Scripts:        scripts,
 		SecretFindings: secretFindings,
-		Observations:   response.Observations,
-		Warnings:       response.Warnings,
+		Observations:   observations,
+		Warnings:       warnings,
 	}, nil
 }
 
@@ -541,7 +536,10 @@ func formatText(w io.Writer, plan *MigrationPlan) error {
 	}
 
 	// TODOs
-	projects := UniqueProjects(plan.Entries)
+	projects := plan.Projects
+	if len(projects) == 0 {
+		projects = UniqueProjects(plan.Entries)
+	}
 	fmt.Fprintf(w, "TODOs after migration:\n")
 	todoNum := 1
 	fmt.Fprintf(w, "  %d. Run: writ add %s\n", todoNum, strings.Join(projects, " "))
@@ -614,4 +612,167 @@ func applyMappingToPath(relPath string, mappings []DirectoryMapping) string {
 		}
 	}
 	return relPath
+}
+
+// parseSecretFindings parses AI secret responses with flexible field names.
+func parseSecretFindings(secrets, unencrypted json.RawMessage) []SecretFinding {
+	var findings []SecretFinding
+
+	// Parse secrets array
+	parseSecretArray := func(raw json.RawMessage) {
+		if raw == nil || len(raw) == 0 {
+			return
+		}
+		var arr []map[string]interface{}
+		if err := json.Unmarshal(raw, &arr); err != nil {
+			return
+		}
+		for _, obj := range arr {
+			path := extractString(obj, "path", "file", "file_path", "filepath", "name")
+			reason := extractString(obj, "reason", "description", "message", "why", "signal")
+			recommendation := extractString(obj, "recommendation", "action", "fix", "suggestion")
+
+			if path == "" && reason == "" {
+				continue // Skip empty entries
+			}
+
+			fullReason := reason
+			if recommendation != "" && reason != "" {
+				fullReason = reason + " — " + recommendation
+			} else if recommendation != "" {
+				fullReason = recommendation
+			}
+
+			findings = append(findings, SecretFinding{
+				RelPath:    path,
+				Encryption: EncryptNone,
+				Reason:     fullReason,
+			})
+		}
+	}
+
+	parseSecretArray(secrets)
+	parseSecretArray(unencrypted)
+	return findings
+}
+
+// extractString tries multiple keys to extract a string value from a map.
+func extractString(obj map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if v, ok := obj[key]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// parseFlexibleStrings parses a JSON field that could be []string or []object.
+// If objects, it tries to extract a "text", "message", or "description" field.
+func parseFlexibleStrings(raw json.RawMessage) []string {
+	if raw == nil || len(raw) == 0 {
+		return nil
+	}
+
+	// First try as []string
+	var strings []string
+	if err := json.Unmarshal(raw, &strings); err == nil {
+		return strings
+	}
+
+	// Try as []object with text fields
+	var objects []map[string]interface{}
+	if err := json.Unmarshal(raw, &objects); err == nil {
+		var result []string
+		for _, obj := range objects {
+			// Try common text field names
+			for _, key := range []string{"text", "message", "description", "content", "summary"} {
+				if v, ok := obj[key]; ok {
+					if s, ok := v.(string); ok && s != "" {
+						result = append(result, s)
+						break
+					}
+				}
+			}
+		}
+		return result
+	}
+
+	return nil
+}
+
+// buildAIInventory creates a summarized file inventory for AI analysis.
+// Instead of listing every file (which can exceed token limits), it provides:
+// - Directory structure overview
+// - Executable/lifecycle scripts (explicitly listed)
+// - Potential secret paths (explicitly listed)
+// - File count summary by extension
+func buildAIInventory(entries []InventoryEntry) string {
+	var sb strings.Builder
+
+	// Group by top-level directory
+	dirFiles := make(map[string]int)
+	var executables []string
+	var potentialSecrets []string
+	extCounts := make(map[string]int)
+
+	for _, e := range entries {
+		// Count by top-level dir
+		parts := strings.SplitN(e.RelPath, "/", 2)
+		if len(parts) > 0 {
+			dirFiles[parts[0]]++
+		}
+
+		// Track executables (lifecycle scripts)
+		if e.IsExecutable {
+			executables = append(executables, e.RelPath)
+		}
+
+		// Track potential secrets (by path patterns)
+		lowerPath := strings.ToLower(e.RelPath)
+		if strings.Contains(lowerPath, "secret") ||
+			strings.Contains(lowerPath, "private") ||
+			strings.Contains(lowerPath, ".ssh/") ||
+			strings.Contains(lowerPath, ".gnupg/") ||
+			strings.Contains(lowerPath, "credential") ||
+			strings.Contains(lowerPath, "token") ||
+			strings.HasSuffix(lowerPath, ".key") ||
+			strings.HasSuffix(lowerPath, ".pem") {
+			potentialSecrets = append(potentialSecrets, e.RelPath)
+		}
+
+		// Count by extension
+		if idx := strings.LastIndex(e.RelPath, "."); idx >= 0 {
+			ext := e.RelPath[idx:]
+			extCounts[ext]++
+		}
+	}
+
+	// Structure overview
+	sb.WriteString("Directory structure:\n")
+	for dir, count := range dirFiles {
+		sb.WriteString(fmt.Sprintf("  %s/ (%d files)\n", dir, count))
+	}
+
+	// Executables (important for lifecycle script detection)
+	if len(executables) > 0 {
+		sb.WriteString("\nExecutable scripts:\n")
+		for _, path := range executables {
+			sb.WriteString(fmt.Sprintf("  %s\n", path))
+		}
+	}
+
+	// Potential secrets (important for security analysis)
+	if len(potentialSecrets) > 0 {
+		sb.WriteString("\nPotential secret paths:\n")
+		for _, path := range potentialSecrets {
+			sb.WriteString(fmt.Sprintf("  %s\n", path))
+		}
+	}
+
+	// File type summary
+	sb.WriteString(fmt.Sprintf("\nTotal files: %d\n", len(entries)))
+
+	return sb.String()
 }

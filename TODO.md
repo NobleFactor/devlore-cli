@@ -275,6 +275,33 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 
 ---
 
+### 2.5 Migration Detection Improvements
+
+**Status:** Not started
+**Priority:** Medium
+**Location:** `internal/writ/migrate/`
+
+**Context:** During smoke testing of `writ migrate`, two detection gaps were identified:
+
+**2.5.1 Git-crypt encrypted files not detected**
+
+Files encrypted via git-crypt clean/smudge filters are flagged as unencrypted secrets. The detection logic (`DetectEncryptedFile`) only checks file signatures (magic bytes), not `.gitattributes` patterns.
+
+**Should add:**
+- Parse `.gitattributes` for `filter=git-crypt` patterns
+- Check `.git-crypt/` directory existence
+- Mark matching files as encrypted with `git-crypt` system
+
+**2.5.2 Tuckr structure not detected**
+
+The `Home/Configs/` directory structure with platform suffixes (`all-Darwin`, `all-Linux`, `thenobles-Darwin`) is Tuckr's convention, but detection returns `native` instead of `tuckr`.
+
+**Should add:**
+- Detect `Configs/` subdirectories with platform suffixes as Tuckr indicator
+- Pattern: `Configs/*-{Darwin,Linux,Windows}` or `Configs/all-*`
+
+---
+
 ## 3. Pending Decisions
 
 ### 3.1 apt/yum Repository Service

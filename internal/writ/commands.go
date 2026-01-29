@@ -96,7 +96,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if len(layerSources) == 0 {
 		sourceRoot = cli.GetString("writ", "repo", true)
 		if sourceRoot == "" {
-			return fmt.Errorf("no repo configured; use 'writ repo init' or 'writ repo add' to configure a repository")
+			return fmt.Errorf("no layer configured; use 'writ migrate <source>' to migrate your environment to a writ layer")
 		}
 		sourceRoot = expandPath(sourceRoot)
 	}
