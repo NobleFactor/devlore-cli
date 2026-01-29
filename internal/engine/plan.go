@@ -208,22 +208,12 @@ func (p *Plan) Rename(source, target string) *Node {
 	return node
 }
 
-// Delegate adds a delegation marker for cross-tool handoff.
-func (p *Plan) Delegate(source, target, delegateTo string) *Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := &Node{
-		ID:         p.nextID("delegate"),
-		Operations: []string{"delegate"},
-		Source:     source,
-		Target:     target,
-		Project:    p.project,
-		DelegateTo: delegateTo,
-	}
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return node
-}
+// NOTE: There is no Delegate function. writ and lore share the same execution
+// engine. When writ encounters a packages-manifest.yaml, the Package Graph
+// Builder (internal/lore/graph) adds package installation nodes to the
+// execution graph. There is no delegation or handoff between tools.
+//
+// The Package Graph Builder is NOT YET IMPLEMENTED.
 
 // DependsOn adds an ordering edge: from must complete before to begins.
 func (p *Plan) DependsOn(from, to *Node) {
@@ -249,14 +239,4 @@ func (p *Plan) Orders(from, to *Node) {
 	})
 }
 
-// Delegates adds a delegation edge for cross-tool handoff.
-func (p *Plan) Delegates(from, to *Node) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.graph.Edges = append(p.graph.Edges, Edge{
-		From:     from.ID,
-		To:       to.ID,
-		Relation: "delegates",
-	})
-}
+// NOTE: There is no Delegates edge function. See comment above Delegate.

@@ -143,16 +143,12 @@ func (o *DecryptOp) Transform(ctx *Context, node *Node, content []byte) ([]byte,
 	return nil, fmt.Errorf("decryptor must be func(string, []byte) ([]byte, error) or func([]byte) ([]byte, error)")
 }
 
-// DelegateOp is a no-op that marks a node for cross-tool handoff.
-// The engine detects delegate nodes by checking node.DelegateTo.
-type DelegateOp struct{}
-
-func (o *DelegateOp) Name() string     { return "delegate" }
-func (o *DelegateOp) Category() OpCategory { return OpDirect }
-
-func (o *DelegateOp) Execute(_ *Context, _ *Node) error {
-	return nil
-}
+// NOTE: There is no DelegateOp. writ and lore share the same execution engine.
+// When writ encounters a packages-manifest.yaml, the Package Graph Builder
+// (internal/lore/graph) adds package installation nodes to the execution graph.
+// There is no delegation or handoff between tools.
+//
+// The Package Graph Builder is NOT YET IMPLEMENTED.
 
 // BackupOp moves the existing file at node.Target to a timestamped backup.
 // The backup path is stored in node.Metadata["backup_path"] after execution.
@@ -404,14 +400,15 @@ func (o *RenameOp) Execute(ctx *Context, node *Node) error {
 //   - remove: deletes file at node.Target
 //   - validate: checks precondition from ctx.Data["validators"]
 //   - rename: moves node.Source → node.Target (git mv when possible)
-//   - delegate: no-op marker for cross-tool handoff
+//
+// NOTE: Package operations (install, configure, verify) are provided by the
+// Package Graph Builder (internal/lore/graph) - NOT YET IMPLEMENTED.
 func FileOps() []Operation {
 	return []Operation{
 		&LinkOp{},
 		&CopyOp{},
 		&ExpandOp{},
 		&DecryptOp{},
-		&DelegateOp{},
 		&BackupOp{},
 		&UnlinkOp{},
 		&RemoveOp{},

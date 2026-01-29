@@ -42,7 +42,7 @@ func TestComputeSummary(t *testing.T) {
 			{ID: ".bashrc", Operation: "link", Status: "completed"},
 			{ID: ".gitconfig", Operation: "expand", Status: "completed"},
 			{ID: ".npmrc", Operation: "decrypt", Status: "completed"},
-			{ID: ".config/packages.manifest", Operation: "delegate", Status: "completed"},
+			{ID: ".config/packages.manifest", Operation: "packages", Status: "pending"},
 			{ID: ".conflicted", Status: "skipped"},
 		},
 	}
@@ -61,8 +61,8 @@ func TestComputeSummary(t *testing.T) {
 	if rcpt.Summary.Secrets != 1 {
 		t.Errorf("expected 1 secret, got %d", rcpt.Summary.Secrets)
 	}
-	if rcpt.Summary.Delegated != 1 {
-		t.Errorf("expected 1 delegated, got %d", rcpt.Summary.Delegated)
+	if rcpt.Summary.PackagesManifests != 1 {
+		t.Errorf("expected 1 packages-manifest, got %d", rcpt.Summary.PackagesManifests)
 	}
 	if rcpt.Summary.Skipped != 1 {
 		t.Errorf("expected 1 skipped, got %d", rcpt.Summary.Skipped)
@@ -290,6 +290,9 @@ func TestPrimaryOperation(t *testing.T) {
 }
 
 func TestToDependencyGraph(t *testing.T) {
+	// NOTE: There is no delegation in the current architecture. writ and lore
+	// share the same execution engine. The Package Graph Builder (NOT YET
+	// IMPLEMENTED) will add package nodes directly to the execution graph.
 	rcpt := &Receipt{
 		Tool: "writ",
 		Nodes: []Node{
@@ -297,38 +300,42 @@ func TestToDependencyGraph(t *testing.T) {
 			{ID: ".zshrc", Operation: "link", Project: "all"},
 			{ID: ".gitconfig", Operation: "expand", Project: "noblefactor"},
 			{
-				ID:         ".config/packages.manifest",
-				Operation:  "delegate",
-				Project:    "noblefactor",
-				DelegateTo: "lore",
+				ID:        ".config/packages-manifest.yaml",
+				Operation: "packages",
+				Project:   "noblefactor",
+				Status:    "pending",
 			},
 		},
 		Edges: []Edge{
-			{From: ".config/packages.manifest", To: "lore:docker", Relation: "delegates"},
+			// Inter-project edges would be added here when relevant
 		},
 	}
 
 	dg := rcpt.ToDependencyGraph()
 
-	// Should have: all, noblefactor (writ), lore:.config/packages.manifest
-	if len(dg.Nodes) != 3 {
-		t.Errorf("expected 3 dependency nodes, got %d", len(dg.Nodes))
+	// Should have: all, noblefactor (project nodes only)
+	if len(dg.Nodes) != 2 {
+		t.Errorf("expected 2 dependency nodes, got %d", len(dg.Nodes))
 	}
 
-	// Should have explicit edge + implicit delegate edge
-	if len(dg.Edges) != 2 {
-		t.Errorf("expected 2 dependency edges, got %d", len(dg.Edges))
-	}
-
-	// Check the implicit delegate edge
-	foundDelegate := false
-	for _, e := range dg.Edges {
-		if e.From == "noblefactor" && e.Relation == "delegates" {
-			foundDelegate = true
+	// Verify project nodes exist
+	projectsSeen := make(map[string]bool)
+	for _, n := range dg.Nodes {
+		projectsSeen[n.ID] = true
+		if n.Tool != "writ" {
+			t.Errorf("expected tool 'writ', got %q", n.Tool)
 		}
 	}
-	if !foundDelegate {
-		t.Error("expected implicit delegate edge from noblefactor")
+	if !projectsSeen["all"] {
+		t.Error("expected 'all' project node")
+	}
+	if !projectsSeen["noblefactor"] {
+		t.Error("expected 'noblefactor' project node")
+	}
+
+	// No edges in this test case
+	if len(dg.Edges) != 0 {
+		t.Errorf("expected 0 dependency edges, got %d", len(dg.Edges))
 	}
 }
 

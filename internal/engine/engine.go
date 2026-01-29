@@ -77,7 +77,9 @@ type Node struct {
 	// Mode is the target file permissions (0 means use default 0644).
 	Mode os.FileMode
 
-	// DelegateTo names the tool to delegate to (for delegate operations).
+	// DelegateTo is DEPRECATED - there is no delegation between tools.
+	// writ and lore share the same execution engine. Retained for backwards
+	// compatibility with old receipts.
 	DelegateTo string
 
 	// Metadata holds tool-specific extensions.
@@ -88,7 +90,7 @@ type Node struct {
 type Edge struct {
 	From     string // Source node ID
 	To       string // Target node ID
-	Relation string // "depends_on", "delegates", "orders"
+	Relation string // "depends_on", "orders"
 }
 
 // Result represents the outcome of executing a single node.

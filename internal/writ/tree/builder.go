@@ -344,10 +344,8 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*engine.Node
 			Metadata:   make(map[string]string),
 		}
 
-		if ops.HasDelegate() {
-			node.DelegateTo = "lore"
-
-			// Validate packages-manifest files
+		// Validate packages-manifest files (package processing NOT YET IMPLEMENTED)
+		if ops.HasPackages() {
 			if manifest.IsManifestFile(d.Name()) {
 				if err := manifest.Validate(path); err != nil {
 					return fmt.Errorf("invalid %s: %w", relPath, err)
@@ -411,12 +409,16 @@ func (r *BuildResult) LinkCount() int {
 	return count
 }
 
-// DelegateCount returns the number of delegate nodes.
-func (r *BuildResult) DelegateCount() int {
+// PackagesCount returns the number of packages-manifest nodes.
+// These require the Package Graph Builder (NOT YET IMPLEMENTED).
+func (r *BuildResult) PackagesCount() int {
 	count := 0
 	for _, n := range r.Graph.Nodes {
-		if n.DelegateTo != "" {
-			count++
+		for _, op := range n.Operations {
+			if op == "packages" {
+				count++
+				break
+			}
 		}
 	}
 	return count

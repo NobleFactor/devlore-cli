@@ -112,7 +112,11 @@ type Node struct {
 	// TargetChecksum is the SHA256 of the target file after deployment.
 	TargetChecksum string `json:"target_checksum,omitempty" yaml:"target_checksum,omitempty"`
 
-	// DelegateTo names the tool to delegate to (e.g., "lore").
+	// DelegateTo is DEPRECATED - there is no delegation between tools.
+	// writ and lore share the same execution engine. When writ encounters
+	// a packages-manifest.yaml, the Package Graph Builder adds package nodes
+	// to the execution graph (NOT YET IMPLEMENTED).
+	// This field is retained for backwards compatibility with old receipts.
 	DelegateTo string `json:"delegate_to,omitempty" yaml:"delegate_to,omitempty"`
 
 	// Annotations holds extensible metadata (backup paths, etc.).
@@ -142,7 +146,7 @@ type Summary struct {
 	Secrets    int `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	Skipped    int `json:"skipped,omitempty" yaml:"skipped,omitempty"`
 	BackedUp   int `json:"backed_up,omitempty" yaml:"backed_up,omitempty"`
-	Delegated  int `json:"delegated,omitempty" yaml:"delegated,omitempty"`
+	PackagesManifests int `json:"packages_manifests,omitempty" yaml:"packages_manifests,omitempty"`
 }
 
 // New creates a new v4 graph-format receipt.
@@ -212,17 +216,21 @@ func (r *Receipt) AddNodeWithChecksums(node *engine.Node, alreadyDeployed bool, 
 	r.Nodes = append(r.Nodes, n)
 }
 
-// AddDelegated records a delegated manifest as a delegate node.
-func (r *Receipt) AddDelegated(node *engine.Node) {
+// AddPackagesManifest records a packages-manifest file as a node.
+// Package installation is NOT YET IMPLEMENTED - the Package Graph Builder
+// (internal/lore/graph) must be implemented to process these manifests.
+func (r *Receipt) AddPackagesManifest(node *engine.Node) {
 	n := Node{
-		ID:         node.ID,
-		Operation:  "delegate",
-		Status:     "completed",
-		Timestamp:  time.Now().Format(time.RFC3339),
-		Source:     node.Source,
-		Target:     node.Target,
-		Project:    node.Project,
-		DelegateTo: node.DelegateTo,
+		ID:        node.ID,
+		Operation: "packages",
+		Status:    "pending", // NOT YET IMPLEMENTED
+		Timestamp: time.Now().Format(time.RFC3339),
+		Source:    node.Source,
+		Target:    node.Target,
+		Project:   node.Project,
+		Annotations: map[string]string{
+			"note": "Package Graph Builder NOT YET IMPLEMENTED",
+		},
 	}
 	r.Nodes = append(r.Nodes, n)
 }
@@ -277,8 +285,9 @@ func (r *Receipt) ComputeSummary() {
 			r.Summary.Skipped++
 			continue
 		}
-		if n.Operation == "delegate" {
-			r.Summary.Delegated++
+		// Count both "packages" (new) and "delegate" (legacy) as packages manifests
+		if n.Operation == "packages" || n.Operation == "delegate" {
+			r.Summary.PackagesManifests++
 			continue
 		}
 		if n.Operation == "backup" {
@@ -415,14 +424,17 @@ func (r *Receipt) YAML() ([]byte, error) {
 // String returns a human-readable summary of the receipt.
 func (r *Receipt) String() string {
 	r.ComputeSummary()
-	return fmt.Sprintf("%d files (%d links, %d templates, %d secrets), %d skipped, %d delegated",
+	s := fmt.Sprintf("%d files (%d links, %d templates, %d secrets), %d skipped",
 		r.Summary.TotalFiles,
 		r.Summary.Links,
 		r.Summary.Templates,
 		r.Summary.Secrets,
 		r.Summary.Skipped,
-		r.Summary.Delegated,
 	)
+	if r.Summary.PackagesManifests > 0 {
+		s += fmt.Sprintf(", %d packages-manifests (NOT YET IMPLEMENTED)", r.Summary.PackagesManifests)
+	}
+	return s
 }
 
 // detectPlatform returns the current OS and architecture.
@@ -455,7 +467,11 @@ type DependencyEdge struct {
 }
 
 // ToDependencyGraph projects the execution graph to a dependency graph.
-// For writ: collapses file nodes into project nodes, preserves delegate edges.
+// For writ: collapses file nodes into project nodes.
+//
+// NOTE: When the Package Graph Builder is implemented, package nodes will be
+// added to the execution graph alongside file nodes. This function will need
+// to be updated to handle package dependencies.
 func (r *Receipt) ToDependencyGraph() *DependencyGraph {
 	dg := &DependencyGraph{}
 
@@ -469,33 +485,13 @@ func (r *Receipt) ToDependencyGraph() *DependencyGraph {
 				Tool: r.Tool,
 			})
 		}
-		// Delegate nodes create cross-tool dependency nodes
-		if n.Operation == "delegate" && n.DelegateTo != "" {
-			delegateID := n.DelegateTo + ":" + n.ID
-			if !projectSeen[delegateID] {
-				projectSeen[delegateID] = true
-				dg.Nodes = append(dg.Nodes, DependencyNode{
-					ID:   delegateID,
-					Tool: n.DelegateTo,
-				})
-			}
-		}
+		// NOTE: packages-manifest nodes will add package dependency nodes
+		// when the Package Graph Builder is implemented.
 	}
 
-	// Promote edges: keep only inter-project and cross-tool edges
+	// Promote edges: keep only inter-project edges
 	for _, e := range r.Edges {
 		dg.Edges = append(dg.Edges, DependencyEdge(e))
-	}
-
-	// Add implicit delegate edges from project to delegate target
-	for _, n := range r.Nodes {
-		if n.Operation == "delegate" && n.DelegateTo != "" {
-			dg.Edges = append(dg.Edges, DependencyEdge{
-				From:     n.Project,
-				To:       n.DelegateTo + ":" + n.ID,
-				Relation: "delegates",
-			})
-		}
 	}
 
 	return dg

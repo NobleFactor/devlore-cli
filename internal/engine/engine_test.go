@@ -37,8 +37,8 @@ func TestRegistryNames(t *testing.T) {
 	}
 
 	names := reg.Names()
-	if len(names) != 11 {
-		t.Errorf("expected 11 operations, got %d", len(names))
+	if len(names) != 10 {
+		t.Errorf("expected 10 operations, got %d", len(names))
 	}
 }
 
@@ -197,20 +197,10 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 	}
 }
 
-func TestDelegateOperation(t *testing.T) {
-	op := &DelegateOp{}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: ".config/packages.manifest", DelegateTo: "lore"}
-
-	if err := op.Execute(ctx, node); err != nil {
-		t.Fatalf("delegate: %v", err)
-	}
-
-	// DelegateOp is a no-op; the engine detects delegation via node.DelegateTo
-	if node.DelegateTo != "lore" {
-		t.Errorf("expected DelegateTo 'lore', got %q", node.DelegateTo)
-	}
-}
+// NOTE: TestDelegateOperation removed - there is no delegation between tools.
+// writ and lore share the same execution engine. When writ encounters a
+// packages-manifest.yaml, the Package Graph Builder adds package nodes to
+// the execution graph (NOT YET IMPLEMENTED).
 
 func TestUnlinkOperation(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -605,18 +595,20 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 	}
 }
 
-func TestPreflightDelegateSkipped(t *testing.T) {
+func TestPreflightPackagesManifest(t *testing.T) {
+	// packages-manifest nodes use the "packages" operation (NOT YET IMPLEMENTED)
+	// The preflight should treat them as ready since there's no filesystem conflict
 	reg := NewRegistry()
 	engine := New(reg, Options{})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "manifest", Operations: []string{"delegate"}, DelegateTo: "lore"},
+			{ID: "manifest", Operations: []string{"packages"}},
 		},
 	}
 
 	result := engine.Preflight(graph)
 	if result.HasConflicts() {
-		t.Error("expected no conflicts for delegate node")
+		t.Error("expected no conflicts for packages-manifest node")
 	}
 	if len(result.Ready) != 1 {
 		t.Errorf("expected 1 ready node, got %d", len(result.Ready))
@@ -625,8 +617,8 @@ func TestPreflightDelegateSkipped(t *testing.T) {
 
 func TestFileOpsCount(t *testing.T) {
 	ops := FileOps()
-	if len(ops) != 11 {
-		t.Errorf("expected 11 file ops, got %d", len(ops))
+	if len(ops) != 10 {
+		t.Errorf("expected 10 file ops, got %d", len(ops))
 	}
 
 	names := make(map[string]bool)
@@ -634,7 +626,9 @@ func TestFileOpsCount(t *testing.T) {
 		names[op.Name()] = true
 	}
 
-	expected := []string{"link", "copy", "expand", "decrypt", "delegate", "backup", "unlink", "remove", "mkdir", "validate", "rename"}
+	// NOTE: No "delegate" operation - writ and lore share the same engine.
+	// Package operations (install, configure, verify) are NOT YET IMPLEMENTED.
+	expected := []string{"link", "copy", "expand", "decrypt", "backup", "unlink", "remove", "mkdir", "validate", "rename"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("expected operation %q in FileOps()", name)

@@ -1,10 +1,66 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package engine provides a common execution engine for graph-based operations.
-// Both writ and lore build execution graphs and hand them to this engine for
-// processing. The engine dispatches operations to registered handlers, threads
-// content through transform pipelines, and produces receipts.
+// Package engine provides a shared execution engine for graph-based operations.
+//
+// # Architecture
+//
+// The engine is shared by both writ (configuration deployment) and lore (package
+// management). Each tool builds an execution graph containing nodes that represent
+// operations to perform. The engine processes these graphs uniformly:
+//
+//	┌─────────────────┐     ┌─────────────────┐
+//	│   writ deploy   │     │   lore deploy   │
+//	│  (config files) │     │   (packages)    │
+//	└────────┬────────┘     └────────┬────────┘
+//	         │                       │
+//	         ▼                       ▼
+//	┌─────────────────┐     ┌─────────────────┐
+//	│  File Tree      │     │  Package Graph  │
+//	│  Builder        │     │  Builder        │
+//	└────────┬────────┘     └────────┬────────┘
+//	         │                       │
+//	         └───────────┬───────────┘
+//	                     ▼
+//	          ┌─────────────────────┐
+//	          │   Execution Graph   │
+//	          │   (unified nodes)   │
+//	          └──────────┬──────────┘
+//	                     ▼
+//	          ┌─────────────────────┐
+//	          │   Engine.Run()      │
+//	          │   (shared runner)   │
+//	          └──────────┬──────────┘
+//	                     ▼
+//	          ┌─────────────────────┐
+//	          │      Receipt        │
+//	          └─────────────────────┘
+//
+// # Graph Builders
+//
+// Different graph builders produce nodes for different operation types:
+//
+//   - File Tree Builder (writ): Walks environment repositories, produces nodes
+//     for link, copy, expand, decrypt operations on configuration files.
+//
+//   - Package Graph Builder (lore): Resolves package specifications, produces
+//     nodes for install, configure, verify operations on software packages.
+//     NOT YET IMPLEMENTED - see internal/lore/graph package.
+//
+// When writ encounters a packages-manifest.yaml file, it should use the Package
+// Graph Builder to add package nodes to the same execution graph. There is no
+// delegation or handoff between tools—both use the same engine.
+//
+// # Operation Categories
+//
+// Operations are classified by their data flow behavior:
+//
+//   - Transform: Read content, produce transformed content (decrypt, expand)
+//   - Writer: Read content, write to filesystem (copy)
+//   - Direct: Manage own I/O, no content flow (link, mkdir, install, verify)
+//
+// The engine threads content through Transform operations, passes it to Writer
+// operations, and executes Direct operations independently.
 package engine
 
 import (

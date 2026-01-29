@@ -27,7 +27,7 @@ func TestProcessingPipeline(t *testing.T) {
 		{".bashrc", ".bashrc", []Operation{OpLink}},
 		{".bashrc.template", ".bashrc", []Operation{OpExpand, OpCopy}},
 		{"config.yaml.template.age", "config.yaml", []Operation{OpDecrypt, OpExpand, OpCopy}},
-		{"packages.manifest", "packages.manifest", []Operation{OpDelegate}},
+		{"packages.manifest", "packages.manifest", []Operation{OpPackages}},
 	}
 
 	for _, tt := range tests {
@@ -235,21 +235,21 @@ func TestOperationHelpers(t *testing.T) {
 	tests := []struct {
 		ops         Operations
 		hasCopy     bool
-		hasDelegate bool
+		hasPackages bool
 	}{
 		{Operations{OpLink}, false, false},
 		{Operations{OpExpand, OpCopy}, true, false},
 		{Operations{OpDecrypt, OpCopy}, true, false},
 		{Operations{OpDecrypt, OpExpand, OpCopy}, true, false},
-		{Operations{OpDelegate}, false, true},
+		{Operations{OpPackages}, false, true},
 	}
 
 	for _, tt := range tests {
 		if got := tt.ops.HasCopy(); got != tt.hasCopy {
 			t.Errorf("HasCopy() with %v = %v, want %v", tt.ops.Strings(), got, tt.hasCopy)
 		}
-		if got := tt.ops.HasDelegate(); got != tt.hasDelegate {
-			t.Errorf("HasDelegate() with %v = %v, want %v", tt.ops.Strings(), got, tt.hasDelegate)
+		if got := tt.ops.HasPackages(); got != tt.hasPackages {
+			t.Errorf("HasPackages() with %v = %v, want %v", tt.ops.Strings(), got, tt.hasPackages)
 		}
 	}
 }
