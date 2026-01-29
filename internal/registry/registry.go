@@ -155,39 +155,93 @@ func (c *Client) FilePath(relPath string) string {
 	return filepath.Join(c.cacheDir, relPath)
 }
 
-// AIPrompt reads an AI prompt file from the cache.
+// AIPrompt reads an AI prompt file from the knowledge base.
+// The path is: knowledge/{domain}/prompts/{name}
 func (c *Client) AIPrompt(name string) (string, error) {
-	data, err := c.ReadFile(filepath.Join("ai", "prompts", name))
+	// Map known prompts to their domains
+	domain := domainForPrompt(name)
+	data, err := c.ReadFile(filepath.Join("knowledge", domain, "prompts", name))
 	if err != nil {
 		return "", fmt.Errorf("reading AI prompt %s: %w", name, err)
 	}
 	return string(data), nil
 }
 
-// AISchema reads an AI JSON schema file from the cache.
+// AISchema reads an AI JSON schema file from the knowledge base.
+// The path is: knowledge/{domain}/schemas/{name}
 func (c *Client) AISchema(name string) ([]byte, error) {
-	data, err := c.ReadFile(filepath.Join("ai", "schemas", name))
+	domain := domainForSchema(name)
+	data, err := c.ReadFile(filepath.Join("knowledge", domain, "schemas", name))
 	if err != nil {
 		return nil, fmt.Errorf("reading AI schema %s: %w", name, err)
 	}
 	return data, nil
 }
 
-// AIExamples reads an AI examples file from the cache.
+// AIExamples reads an AI examples file from the knowledge base.
+// The path is: knowledge/{domain}/examples/{name}
 func (c *Client) AIExamples(name string) ([]byte, error) {
-	data, err := c.ReadFile(filepath.Join("ai", "examples", name))
+	domain := domainForExamples(name)
+	data, err := c.ReadFile(filepath.Join("knowledge", domain, "examples", name))
 	if err != nil {
 		return nil, fmt.Errorf("reading AI examples %s: %w", name, err)
 	}
 	return data, nil
 }
 
-// MigrationGuide reads a migration guide from the cache.
+// MigrationGuide reads a migration transform guide from the knowledge base.
+// The path is: knowledge/migration/transforms/from-{system}.yaml
 func (c *Client) MigrationGuide(system string) ([]byte, error) {
 	filename := fmt.Sprintf("from-%s.yaml", system)
-	data, err := c.ReadFile(filepath.Join("ai", "migrations", filename))
+	data, err := c.ReadFile(filepath.Join("knowledge", "migration", "transforms", filename))
 	if err != nil {
 		return nil, fmt.Errorf("reading migration guide for %s: %w", system, err)
 	}
 	return data, nil
+}
+
+// domainForPrompt returns the knowledge domain for a prompt file.
+func domainForPrompt(name string) string {
+	switch name {
+	case "migrate-to-writ.txt":
+		return "migration"
+	case "init-environment.txt":
+		return "onboarding"
+	case "generate-package.txt", "parse-document.txt":
+		return "package-authoring"
+	case "clarify.txt":
+		return "shared"
+	default:
+		return "shared"
+	}
+}
+
+// domainForSchema returns the knowledge domain for a schema file.
+func domainForSchema(name string) string {
+	switch name {
+	case "migration-plan.json", "engine-graph.json":
+		return "migration"
+	case "init-plan.json":
+		return "onboarding"
+	case "parse-output.json", "package-output.json":
+		return "package-authoring"
+	case "clarification.json":
+		return "shared"
+	default:
+		return "shared"
+	}
+}
+
+// domainForExamples returns the knowledge domain for an examples file.
+func domainForExamples(name string) string {
+	switch name {
+	case "migration-examples.yaml":
+		return "migration"
+	case "parse-examples.yaml", "generate-examples.yaml":
+		return "package-authoring"
+	case "edge-cases.yaml":
+		return "shared"
+	default:
+		return "shared"
+	}
 }

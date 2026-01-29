@@ -98,7 +98,7 @@ func TestClient_SyncIntegration(t *testing.T) {
 	}
 
 	// Verify we can read files (if AI prompts exist in registry)
-	if client.FileExists("ai/prompts/migrate-to-writ.txt") {
+	if client.FileExists("knowledge/migration/prompts/migrate-to-writ.txt") {
 		// Read AI prompt
 		prompt, err := client.AIPrompt("migrate-to-writ.txt")
 		if err != nil {
@@ -108,7 +108,7 @@ func TestClient_SyncIntegration(t *testing.T) {
 			t.Error("expected non-empty prompt")
 		}
 	} else {
-		t.Log("ai/prompts/migrate-to-writ.txt not yet in registry, skipping AI prompt check")
+		t.Log("knowledge/migration/prompts/migrate-to-writ.txt not yet in registry, skipping AI prompt check")
 	}
 
 	// Second sync (pull)
