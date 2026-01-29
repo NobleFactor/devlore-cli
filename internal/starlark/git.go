@@ -252,7 +252,7 @@ func (g *GitBindings) configSet(thread *starlark.Thread, fn *starlark.Builtin, a
 	}
 	cmdArgs = append(cmdArgs, key, value)
 
-	fmt.Fprintf(g.bindings.output, "  [git] config %s = %s\n", key, value)
+	_, _ = fmt.Fprintf(g.bindings.output, "  [git] config %s = %s\n", key, value)
 
 	return g.runGit(cmdArgs)
 }
@@ -393,7 +393,7 @@ func (g *GitBindings) passThrough(subcommand string, args starlark.Tuple, kwargs
 		cmdArgs = append(cmdArgs, argToString(arg))
 	}
 
-	fmt.Fprintf(g.bindings.output, "  [git] %s\n", strings.Join(cmdArgs, " "))
+	_, _ = fmt.Fprintf(g.bindings.output, "  [git] %s\n", strings.Join(cmdArgs, " "))
 
 	return g.runGit(cmdArgs)
 }

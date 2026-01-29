@@ -181,7 +181,7 @@ func findPowerShell() (string, error) {
 // init drains any startup output from the PowerShell process.
 func (s *Session) init() {
 	// Emit a ready marker to consume any startup ANSI sequences or banners.
-	fmt.Fprintf(s.stdin, "Write-Output '%sREADY'\n", s.marker)
+	_, _ = fmt.Fprintf(s.stdin, "Write-Output '%sREADY'\n", s.marker)
 
 	for s.scanner.Scan() {
 		line := stripANSI(s.scanner.Text())
@@ -239,8 +239,8 @@ func (s *Session) Run(command string) *Result {
 	// Send command directly in session scope, then emit a marker with the
 	// exit code. Using $global:LASTEXITCODE preserves native command exit
 	// codes; $? reflects PowerShell command success.
-	fmt.Fprintf(s.stdin, "%s\n", command)
-	fmt.Fprintf(s.stdin, "Write-Output '%s'$(if ($?) { $global:LASTEXITCODE } else { if ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 } })\n", s.marker)
+	_, _ = fmt.Fprintf(s.stdin, "%s\n", command)
+	_, _ = fmt.Fprintf(s.stdin, "Write-Output '%s'$(if ($?) { $global:LASTEXITCODE } else { if ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 } })\n", s.marker)
 
 	// Read output until we see the marker, stripping ANSI escape sequences.
 	// If the scanner hits EOF (process exited), capture exit from process state.
@@ -280,7 +280,7 @@ func (s *Session) Run(command string) *Result {
 	s.history = append(s.history, result)
 
 	if s.audit != nil {
-		fmt.Fprintln(s.audit, result.JSON())
+		_, _ = fmt.Fprintln(s.audit, result.JSON())
 	}
 
 	return result
@@ -315,7 +315,7 @@ func (s *Session) Script(commands ...string) *Result {
 
 // Close terminates the PowerShell session.
 func (s *Session) Close() error {
-	s.stdin.Close()
+	_ = s.stdin.Close()
 	if s.dead {
 		return nil
 	}

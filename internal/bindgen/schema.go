@@ -23,20 +23,20 @@ type Command struct {
 // Arg defines a positional argument.
 type Arg struct {
 	Name        string `yaml:"name"`
-	Type        string `yaml:"type"`        // string, int, bool, string_list
+	Type        string `yaml:"type"` // string, int, bool, string_list
 	Required    bool   `yaml:"required"`
-	Position    int    `yaml:"position"`    // 0-indexed
+	Position    int    `yaml:"position"` // 0-indexed
 	Description string `yaml:"description"`
 }
 
 // Flag defines a named flag/option.
 type Flag struct {
-	Name        string   `yaml:"name"`        // Long name without --
-	Short       string   `yaml:"short"`       // Single char without -
-	Type        string   `yaml:"type"`        // string, int, bool, string_list, string_map
-	Default     string   `yaml:"default"`     // Default value as string
+	Name        string   `yaml:"name"`    // Long name without --
+	Short       string   `yaml:"short"`   // Single char without -
+	Type        string   `yaml:"type"`    // string, int, bool, string_list, string_map
+	Default     string   `yaml:"default"` // Default value as string
 	Description string   `yaml:"description"`
-	Values      []string `yaml:"values"`      // Enum values if applicable
+	Values      []string `yaml:"values"` // Enum values if applicable
 }
 
 // Return defines what a command returns.

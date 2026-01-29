@@ -254,8 +254,8 @@ func TestSetValues(t *testing.T) {
 		{Name: "OS", Value: "Darwin"},
 		{Name: "DISTRO", Value: ""},
 		{Name: "ARCH", Value: "arm64"},
-		{Name: "ROLE", Value: ""},  // defined in config, no value yet
-		{Name: "SITE", Value: ""},  // defined in config, no value yet
+		{Name: "ROLE", Value: ""}, // defined in config, no value yet
+		{Name: "SITE", Value: ""}, // defined in config, no value yet
 	}
 
 	// Set value for ROLE via CLI --segment ROLE=server
@@ -293,9 +293,9 @@ func TestUnassignedSegmentMatching(t *testing.T) {
 	// Segments with ROLE defined but unassigned (empty value)
 	segs := Segments{
 		{Name: "OS", Value: "Darwin"},
-		{Name: "DISTRO", Value: ""},  // empty on macOS
+		{Name: "DISTRO", Value: ""}, // empty on macOS
 		{Name: "ARCH", Value: "arm64"},
-		{Name: "ROLE", Value: ""},    // defined but unassigned
+		{Name: "ROLE", Value: ""}, // defined but unassigned
 	}
 
 	// Directory with ROLE suffix should NOT match (ROLE is empty)

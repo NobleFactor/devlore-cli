@@ -16,11 +16,10 @@ import (
 //
 // Design decisions:
 //   - ADR-005: Windows Package Manager Choice
-//     winget is preferred over Chocolatey because:
-//     - Ships with Windows 11 and recent Windows 10
-//     - Microsoft-backed, long-term viability
-//     - Store integration
-//     - Chocolatey remains as legacy fallback
+//     winget is the only supported package manager because:
+//   - Ships with Windows 11 and recent Windows 10
+//   - Microsoft-backed, long-term viability
+//   - Store integration
 type windowsHost struct {
 	platform Platform
 	pkgMgr   PackageManager
@@ -58,14 +57,8 @@ func (h *windowsHost) detectPlatform() Platform {
 }
 
 func (h *windowsHost) detectPackageManager() PackageManager {
-	// ADR-005: Prefer winget (modern) over choco (legacy)
-	if _, err := exec.LookPath("winget"); err == nil {
-		return &wingetManager{}
-	}
-	if _, err := exec.LookPath("choco"); err == nil {
-		return &chocoManager{}
-	}
-	return &wingetManager{} // Default, will fail gracefully
+	// ADR-005: winget is the only supported package manager
+	return &wingetManager{}
 }
 
 func (h *windowsHost) PackageManager() PackageManager {
@@ -147,6 +140,47 @@ func (m *wingetManager) Installed(name string) bool {
 	return result.OK && strings.Contains(result.Stdout, name)
 }
 
+func (m *wingetManager) Available(name string) bool {
+	result := runWindowsCommand("winget show --id "+name, false)
+	return result.OK
+}
+
+func (m *wingetManager) Search(query string, limit int) []SearchResult {
+	result := runWindowsCommand("winget search "+query, false)
+	if !result.OK {
+		return nil
+	}
+
+	var results []SearchResult
+	lines := strings.Split(result.Stdout, "\n")
+	inTable := false
+	for _, line := range lines {
+		// Skip header separator
+		if strings.HasPrefix(line, "-") {
+			inTable = true
+			continue
+		}
+		if !inTable || line == "" {
+			continue
+		}
+		// winget search output is columnar: Name  Id  Version  Source
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			sr := SearchResult{
+				Name: fields[0],
+			}
+			if len(fields) >= 3 {
+				sr.Version = fields[2]
+			}
+			results = append(results, sr)
+			if limit > 0 && len(results) >= limit {
+				return results
+			}
+		}
+	}
+	return results
+}
+
 func (m *wingetManager) Version(name string) string {
 	result := runWindowsCommand("winget list --id "+name, false)
 	if !result.OK {
@@ -188,55 +222,6 @@ func (m *wingetManager) AddRepo(url, keyURL, name string) Result {
 }
 
 func (m *wingetManager) NeedsSudo() bool { return false }
-
-// =============================================================================
-// Chocolatey Package Manager (Legacy)
-// =============================================================================
-
-type chocoManager struct{}
-
-func (m *chocoManager) Name() string { return "choco" }
-
-func (m *chocoManager) Installed(name string) bool {
-	result := runWindowsCommand("choco list --local-only "+name, false)
-	return result.OK && strings.Contains(result.Stdout, name)
-}
-
-func (m *chocoManager) Version(name string) string {
-	result := runWindowsCommand("choco list --local-only "+name, false)
-	if !result.OK {
-		return ""
-	}
-	// Parse version from choco list output: "package version"
-	lines := strings.Split(result.Stdout, "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, name+" ") {
-			parts := strings.Fields(line)
-			if len(parts) >= 2 {
-				return parts[1]
-			}
-		}
-	}
-	return ""
-}
-
-func (m *chocoManager) Install(packages ...string) Result {
-	return runWindowsCommand("choco install -y "+strings.Join(packages, " "), false)
-}
-
-func (m *chocoManager) Remove(name string) Result {
-	return runWindowsCommand("choco uninstall -y "+name, false)
-}
-
-func (m *chocoManager) Update() Result {
-	return runWindowsCommand("choco outdated", false)
-}
-
-func (m *chocoManager) AddRepo(url, keyURL, name string) Result {
-	return runWindowsCommand("choco source add --name="+name+" --source="+url, false)
-}
-
-func (m *chocoManager) NeedsSudo() bool { return false }
 
 // =============================================================================
 // Windows Service Manager (sc.exe)

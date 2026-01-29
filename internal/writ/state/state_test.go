@@ -323,8 +323,8 @@ func TestLoadOrCreate(t *testing.T) {
 
 	// Temporarily override StateDir
 	origStateDir := os.Getenv("XDG_STATE_HOME")
-	os.Setenv("XDG_STATE_HOME", tmpDir)
-	defer os.Setenv("XDG_STATE_HOME", origStateDir)
+	_ = os.Setenv("XDG_STATE_HOME", tmpDir)
+	defer func() { _ = os.Setenv("XDG_STATE_HOME", origStateDir) }()
 
 	s, err := LoadOrCreate("/home/user/environment", "/home/user")
 	if err != nil {

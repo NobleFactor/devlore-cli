@@ -71,7 +71,7 @@ func analyzeScript(e InventoryEntry) ScriptAnalysis {
 		analysis.Observations = append(analysis.Observations, "Could not read script: "+err.Error())
 		return analysis
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var (
 		packages  []string

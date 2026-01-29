@@ -95,7 +95,7 @@ func loadIdentityFile(path string) ([]age.Identity, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	return age.ParseIdentities(file)
 }
@@ -189,7 +189,7 @@ func loadRecipientsFile(path string) ([]age.Recipient, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var recipients []age.Recipient
 	scanner := bufio.NewScanner(file)

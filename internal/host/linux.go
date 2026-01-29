@@ -73,15 +73,12 @@ func detectLinuxDistro() (distro, version string) {
 
 func (h *linuxHost) detectPackageManager() PackageManager {
 	// Detect based on distro or binary availability
+	// Supported: apt (Debian/Ubuntu) and dnf (Fedora/RHEL)
 	switch h.platform.Distro {
 	case "debian", "ubuntu", "linuxmint", "pop", "elementary":
 		return &aptManager{}
 	case "fedora", "rhel", "centos", "rocky", "alma":
 		return &dnfManager{}
-	case "arch", "manjaro", "endeavouros":
-		return &pacmanManager{}
-	case "opensuse", "suse":
-		return &zypperManager{}
 	}
 
 	// Fallback: detect by binary
@@ -90,9 +87,6 @@ func (h *linuxHost) detectPackageManager() PackageManager {
 	}
 	if _, err := exec.LookPath("dnf"); err == nil {
 		return &dnfManager{}
-	}
-	if _, err := exec.LookPath("pacman"); err == nil {
-		return &pacmanManager{}
 	}
 	return &aptManager{} // Default
 }
@@ -134,6 +128,36 @@ func (m *aptManager) Name() string { return "apt" }
 func (m *aptManager) Installed(name string) bool {
 	result := runShellCommand("dpkg-query -W "+name, false)
 	return result.OK
+}
+
+func (m *aptManager) Available(name string) bool {
+	result := runShellCommand("apt-cache show "+name, false)
+	return result.OK
+}
+
+func (m *aptManager) Search(query string, limit int) []SearchResult {
+	result := runShellCommand("apt-cache search "+query, false)
+	if !result.OK {
+		return nil
+	}
+
+	var results []SearchResult
+	lines := strings.Split(result.Stdout, "\n")
+	for _, line := range lines {
+		// apt-cache search output: "package - description"
+		parts := strings.SplitN(line, " - ", 2)
+		if len(parts) >= 1 && parts[0] != "" {
+			sr := SearchResult{Name: strings.TrimSpace(parts[0])}
+			if len(parts) >= 2 {
+				sr.Description = strings.TrimSpace(parts[1])
+			}
+			results = append(results, sr)
+			if limit > 0 && len(results) >= limit {
+				return results
+			}
+		}
+	}
+	return results
 }
 
 func (m *aptManager) Version(name string) string {
@@ -185,6 +209,48 @@ func (m *dnfManager) Installed(name string) bool {
 	return result.OK
 }
 
+func (m *dnfManager) Available(name string) bool {
+	result := runShellCommand("dnf info "+name, false)
+	return result.OK
+}
+
+func (m *dnfManager) Search(query string, limit int) []SearchResult {
+	result := runShellCommand("dnf search "+query, false)
+	if !result.OK {
+		return nil
+	}
+
+	var results []SearchResult
+	lines := strings.Split(result.Stdout, "\n")
+	for _, line := range lines {
+		// Skip header lines
+		if strings.HasPrefix(line, "=") || strings.HasPrefix(line, "Last metadata") || line == "" {
+			continue
+		}
+		// dnf search output: "name.arch : description"
+		parts := strings.SplitN(line, " : ", 2)
+		if len(parts) >= 1 {
+			namePart := strings.TrimSpace(parts[0])
+			// Remove .arch suffix
+			if idx := strings.LastIndex(namePart, "."); idx > 0 {
+				namePart = namePart[:idx]
+			}
+			if namePart == "" {
+				continue
+			}
+			sr := SearchResult{Name: namePart}
+			if len(parts) >= 2 {
+				sr.Description = strings.TrimSpace(parts[1])
+			}
+			results = append(results, sr)
+			if limit > 0 && len(results) >= limit {
+				return results
+			}
+		}
+	}
+	return results
+}
+
 func (m *dnfManager) Version(name string) string {
 	result := runShellCommand("rpm -q --queryformat '%{VERSION}' "+name, false)
 	if !result.OK {
@@ -219,89 +285,6 @@ func (m *dnfManager) AddRepo(url, keyURL, name string) Result {
 }
 
 func (m *dnfManager) NeedsSudo() bool { return true }
-
-// =============================================================================
-// Pacman Package Manager (Arch Linux)
-// =============================================================================
-
-type pacmanManager struct{}
-
-func (m *pacmanManager) Name() string { return "pacman" }
-
-func (m *pacmanManager) Installed(name string) bool {
-	result := runShellCommand("pacman -Q "+name, false)
-	return result.OK
-}
-
-func (m *pacmanManager) Version(name string) string {
-	result := runShellCommand("pacman -Q "+name, false)
-	if !result.OK {
-		return ""
-	}
-	parts := strings.Fields(result.Stdout)
-	if len(parts) >= 2 {
-		return parts[1]
-	}
-	return ""
-}
-
-func (m *pacmanManager) Install(packages ...string) Result {
-	return runShellCommand("pacman -S --noconfirm "+strings.Join(packages, " "), true)
-}
-
-func (m *pacmanManager) Remove(name string) Result {
-	return runShellCommand("pacman -R --noconfirm "+name, true)
-}
-
-func (m *pacmanManager) Update() Result {
-	return runShellCommand("pacman -Sy", true)
-}
-
-func (m *pacmanManager) AddRepo(url, keyURL, name string) Result {
-	// Pacman repos are typically added via /etc/pacman.conf
-	return Result{OK: false, Stderr: "Use /etc/pacman.conf for custom repositories"}
-}
-
-func (m *pacmanManager) NeedsSudo() bool { return true }
-
-// =============================================================================
-// Zypper Package Manager (openSUSE)
-// =============================================================================
-
-type zypperManager struct{}
-
-func (m *zypperManager) Name() string { return "zypper" }
-
-func (m *zypperManager) Installed(name string) bool {
-	result := runShellCommand("rpm -q "+name, false)
-	return result.OK
-}
-
-func (m *zypperManager) Version(name string) string {
-	result := runShellCommand("rpm -q --queryformat '%{VERSION}' "+name, false)
-	if !result.OK {
-		return ""
-	}
-	return strings.TrimSpace(result.Stdout)
-}
-
-func (m *zypperManager) Install(packages ...string) Result {
-	return runShellCommand("zypper --non-interactive install "+strings.Join(packages, " "), true)
-}
-
-func (m *zypperManager) Remove(name string) Result {
-	return runShellCommand("zypper --non-interactive remove "+name, true)
-}
-
-func (m *zypperManager) Update() Result {
-	return runShellCommand("zypper refresh", true)
-}
-
-func (m *zypperManager) AddRepo(url, keyURL, name string) Result {
-	return runShellCommand("zypper addrepo "+url+" "+name, true)
-}
-
-func (m *zypperManager) NeedsSudo() bool { return true }
 
 // =============================================================================
 // systemd Service Manager

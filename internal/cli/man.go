@@ -105,13 +105,13 @@ func DisplayManPage(cmd *cobra.Command, header *doc.GenManHeader) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	// Generate man page to temp file
 	if err := doc.GenMan(cmd, header, tmpFile); err != nil {
 		return fmt.Errorf("failed to generate man page: %w", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Display with man command
 	manCmd := exec.Command("man", tmpFile.Name())

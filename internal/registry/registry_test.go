@@ -176,7 +176,7 @@ func TestClient_SyncIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	provider := NewGitProvider(
 		"https://github.com/NobleFactor/devlore-registry.git",

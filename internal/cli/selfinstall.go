@@ -19,9 +19,9 @@ import (
 
 // SelfInstallInfo contains metadata needed for self-installation.
 type SelfInstallInfo struct {
-	Name          string     // Tool name (e.g., "lore", "writ")
-	ManHeader     ManHeader  // Man page header metadata
-	ConfigInfo    ConfigInfo // Config schema and defaults
+	Name       string     // Tool name (e.g., "lore", "writ")
+	ManHeader  ManHeader  // Man page header metadata
+	ConfigInfo ConfigInfo // Config schema and defaults
 }
 
 // NewSelfInstallCmd creates the self-install command.
@@ -289,13 +289,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source: %w", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 
 	dest, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("failed to create destination: %w", err)
 	}
-	defer dest.Close()
+	defer func() { _ = dest.Close() }()
 
 	if _, err := io.Copy(dest, source); err != nil {
 		return fmt.Errorf("failed to copy: %w", err)
@@ -392,11 +392,11 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 		case "zsh":
 			genErr = rootCmd.GenZshCompletion(f)
 		default:
-			f.Close()
+			_ = f.Close()
 			Warn("Unknown shell: %s (skipping)", shellName)
 			continue
 		}
-		f.Close()
+		_ = f.Close()
 
 		if genErr != nil {
 			return paths, fmt.Errorf("failed to generate %s completion: %w", shellName, genErr)

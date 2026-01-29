@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: SSPL-1.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+#
+# Pre-commit hooks for devlore-cli
+#
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+#
+# Requires: go, golangci-lint
+
+repos:
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: Format Go code
+        entry: go fmt ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: go-vet
+        name: Vet Go code
+        entry: go vet ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: golangci-lint
+        name: Lint Go code
+        entry: golangci-lint run
+        language: system
+        pass_filenames: false
+        types: [go]

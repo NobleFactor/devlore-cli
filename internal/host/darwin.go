@@ -50,14 +50,14 @@ func (h *darwinHost) detectPlatform() Platform {
 }
 
 func (h *darwinHost) detectPackageManager() PackageManager {
-	// Prefer Homebrew (more common) over MacPorts
-	if _, err := exec.LookPath("brew"); err == nil {
-		return &brewManager{}
-	}
+	// MacPorts has priority over Homebrew
 	if _, err := exec.LookPath("port"); err == nil {
 		return &portManager{}
 	}
-	return &brewManager{} // Default, will fail gracefully
+	if _, err := exec.LookPath("brew"); err == nil {
+		return &brewManager{}
+	}
+	return nil // No package manager installed
 }
 
 func (h *darwinHost) PackageManager() PackageManager {
@@ -97,6 +97,38 @@ func (m *brewManager) Name() string { return "brew" }
 func (m *brewManager) Installed(name string) bool {
 	result := runShellCommand("brew list "+name, false)
 	return result.OK
+}
+
+func (m *brewManager) Available(name string) bool {
+	result := runShellCommand("brew info "+name, false)
+	return result.OK
+}
+
+func (m *brewManager) Search(query string, limit int) []SearchResult {
+	result := runShellCommand("brew search "+query, false)
+	if !result.OK {
+		return nil
+	}
+
+	var results []SearchResult
+	lines := strings.Split(result.Stdout, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "==>") {
+			continue
+		}
+		// brew search returns package names, one per line (or space-separated)
+		for _, pkg := range strings.Fields(line) {
+			if pkg == "" {
+				continue
+			}
+			results = append(results, SearchResult{Name: pkg})
+			if limit > 0 && len(results) >= limit {
+				return results
+			}
+		}
+	}
+	return results
 }
 
 func (m *brewManager) Version(name string) string {
@@ -142,6 +174,39 @@ func (m *portManager) Name() string { return "port" }
 func (m *portManager) Installed(name string) bool {
 	result := runShellCommand("port installed "+name+" | grep -q "+name, false)
 	return result.OK
+}
+
+func (m *portManager) Available(name string) bool {
+	result := runShellCommand("port info "+name, false)
+	return result.OK
+}
+
+func (m *portManager) Search(query string, limit int) []SearchResult {
+	result := runShellCommand("port search --name "+query, false)
+	if !result.OK {
+		return nil
+	}
+
+	var results []SearchResult
+	lines := strings.Split(result.Stdout, "\n")
+	for _, line := range lines {
+		// port search output: "name @version (category)\n    description"
+		if strings.HasPrefix(line, " ") || line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 1 {
+			sr := SearchResult{Name: fields[0]}
+			if len(fields) >= 2 {
+				sr.Version = strings.Trim(fields[1], "@")
+			}
+			results = append(results, sr)
+			if limit > 0 && len(results) >= limit {
+				return results
+			}
+		}
+	}
+	return results
 }
 
 func (m *portManager) Version(name string) string {

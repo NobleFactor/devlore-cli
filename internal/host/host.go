@@ -37,6 +37,13 @@ type Result struct {
 	Code   int
 }
 
+// SearchResult represents a package found by search.
+type SearchResult struct {
+	Name        string // Package name
+	Version     string // Available version (may be empty)
+	Description string // Package description
+}
+
 // PackageManager abstracts package manager operations.
 // Each platform provides its own implementation.
 type PackageManager interface {
@@ -48,6 +55,14 @@ type PackageManager interface {
 
 	// Version returns the installed version of a package.
 	Version(name string) string
+
+	// Available checks if a package exists in the package manager's repositories.
+	// This verifies the package can be installed, not that it is installed.
+	Available(name string) bool
+
+	// Search finds packages matching a query string.
+	// Returns up to limit results (0 = no limit).
+	Search(query string, limit int) []SearchResult
 
 	// Install installs one or more packages.
 	Install(packages ...string) Result

@@ -13,10 +13,10 @@ config file, or native keystore (for API keys only).
 
 For each field, the first source with a value wins:
 
-  1. CLI flags (highest priority)
-  2. Environment variables
-  3. Config file (~/.config/devlore/config.yaml)
-  4. Native keystore (API key only, lowest priority)
+ 1. CLI flags (highest priority)
+ 2. Environment variables
+ 3. Config file (~/.config/devlore/config.yaml)
+ 4. Native keystore (API key only, lowest priority)
 
 ## Configuration Fields
 
@@ -326,7 +326,7 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 		cfg := DefaultConfig()
 		provider := NewOllamaProvider(cfg.Endpoint, cfg.Model)
 		if !provider.Available(ctx) {
-			return nil, fmt.Errorf("Ollama not available; install from https://ollama.ai, run 'ollama serve', then 'ollama pull %s'", cfg.Model)
+			return nil, fmt.Errorf("ollama not available; install from https://ollama.ai, run 'ollama serve', then 'ollama pull %s'", cfg.Model)
 		}
 		if err := SaveConfig(&cfg); err != nil {
 			cli.Warn("could not save config: %v", err)

@@ -279,7 +279,7 @@ func evaluateFileMagicMarker(root string, marker Marker) (MarkerMatch, bool) {
 		if err != nil {
 			return nil
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		buf := make([]byte, len(marker.Bytes))
 		n, err := f.Read(buf)

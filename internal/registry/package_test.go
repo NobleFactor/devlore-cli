@@ -31,10 +31,10 @@ func TestRequiredPhase(t *testing.T) {
 
 func TestPhaseToNativePMOp(t *testing.T) {
 	tests := []struct {
-		op      Operation
-		phase   string
-		wantPM  PMOperation
-		wantOK  bool
+		op     Operation
+		phase  string
+		wantPM PMOperation
+		wantOK bool
 	}{
 		// Required phases should map
 		{OpDeploy, "install", PMInstall, true},

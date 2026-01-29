@@ -25,7 +25,7 @@ func TestLoadSignatures_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	provider := registry.NewGitProvider(
 		"https://github.com/NobleFactor/devlore-registry.git",
@@ -85,7 +85,7 @@ func TestDetectWithSignatures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create a stow-like structure with .stow-local-ignore
 	stowDir := filepath.Join(tmpDir, "stow-repo")
@@ -114,6 +114,12 @@ func TestDetectWithSignatures(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(tuckrDir, "Hooks.toml"), []byte("[hooks]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create empty directory for no-match test
+	emptyDir := filepath.Join(tmpDir, "empty")
+	if err := os.MkdirAll(emptyDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -169,8 +175,6 @@ func TestDetectWithSignatures(t *testing.T) {
 	}
 
 	// Test no match
-	emptyDir := filepath.Join(tmpDir, "empty")
-	os.MkdirAll(emptyDir, 0755)
 	results = DetectWithSignatures(emptyDir, signatures)
 	if len(results) != 0 {
 		t.Errorf("expected no matches for empty dir, got %d", len(results))
@@ -182,12 +186,18 @@ func TestEvaluateMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create test files
-	os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("key: value"), 0644)
-	os.MkdirAll(filepath.Join(tmpDir, "subdir"), 0755)
-	os.WriteFile(filepath.Join(tmpDir, "marker.txt"), []byte("MAGIC_STRING_HERE"), 0644)
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("key: value"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "subdir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "marker.txt"), []byte("MAGIC_STRING_HERE"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name     string

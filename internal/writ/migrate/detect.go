@@ -13,7 +13,7 @@ import (
 type SourceSystem string
 
 const (
-	SystemNative      SourceSystem = "native"       // Already writ-compatible (Home/ or System/)
+	SystemNative      SourceSystem = "native" // Already writ-compatible (Home/ or System/)
 	SystemTuckr       SourceSystem = "tuckr"
 	SystemStow        SourceSystem = "stow"
 	SystemChezmoi     SourceSystem = "chezmoi"

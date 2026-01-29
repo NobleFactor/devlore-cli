@@ -349,7 +349,7 @@ func (d *DockerBindings) passThrough(subcommand string, args starlark.Tuple, kwa
 		cmdArgs = append(cmdArgs, argToString(arg))
 	}
 
-	fmt.Fprintf(d.bindings.output, "  [docker] %s\n", strings.Join(cmdArgs, " "))
+	_, _ = fmt.Fprintf(d.bindings.output, "  [docker] %s\n", strings.Join(cmdArgs, " "))
 
 	return d.runDocker(cmdArgs)
 }
@@ -366,7 +366,7 @@ func (d *DockerBindings) passThroughCompose(subcommand string, args starlark.Tup
 		cmdArgs = append(cmdArgs, argToString(arg))
 	}
 
-	fmt.Fprintf(d.bindings.output, "  [docker] %s\n", strings.Join(cmdArgs, " "))
+	_, _ = fmt.Fprintf(d.bindings.output, "  [docker] %s\n", strings.Join(cmdArgs, " "))
 
 	return d.runDocker(cmdArgs)
 }

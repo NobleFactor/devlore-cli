@@ -25,10 +25,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/engine"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/receipt"
+	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/state"
-	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
@@ -224,9 +224,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return outputDryRun(deployTree)
 	}
 
-	// Create engine
+	// Create engine with all operations (file + package)
 	registry := engine.NewRegistry()
-	for _, op := range engine.FileOps() {
+	for _, op := range engine.AllOps() {
 		registry.Register(op)
 	}
 	eng := engine.New(registry, engine.Options{
@@ -934,9 +934,9 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			node.Mode = 0600
 		}
 
-		// Execute via single-node graph
+		// Execute via single-node graph with all operations
 		registry := engine.NewRegistry()
-		for _, op := range engine.FileOps() {
+		for _, op := range engine.AllOps() {
 			registry.Register(op)
 		}
 		eng := engine.New(registry, engine.Options{
@@ -1767,13 +1767,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	defer func() { _ = dstFile.Close() }()
 
 	buf := make([]byte, 32*1024)
 	for {

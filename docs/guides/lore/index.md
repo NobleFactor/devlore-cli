@@ -70,4 +70,5 @@ to handle multiple installation variants.
 - [Deploy packages](/guides/lore/deploy-packages/) — Install software using lore
 - [The pipeline](/guides/lore/pipeline/) — Understand the four-phase deployment model
 - [Create manifests](/guides/lore/create-manifests/) — Write and publish package manifests
+- [Plan bindings reference](/guides/lore/plan-bindings/) — Starlark API for phase scripts
 - [Work with the registry](/guides/lore/registry/) — Search, inspect, and contribute packages

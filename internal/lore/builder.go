@@ -70,7 +70,7 @@ func loadManifest(path string) ([]manifestEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var entries []manifestEntry
 	scanner := bufio.NewScanner(f)

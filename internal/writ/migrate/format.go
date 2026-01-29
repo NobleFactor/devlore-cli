@@ -38,11 +38,11 @@ type migrationView struct {
 
 // operationView represents a single operation for serialization.
 type operationView struct {
-	ID         string `json:"id" yaml:"id"`
-	Type       string `json:"type" yaml:"type"`
-	Source     string `json:"source,omitempty" yaml:"source,omitempty"`
-	Target     string `json:"target,omitempty" yaml:"target,omitempty"`
-	DependsOn  string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	ID        string `json:"id" yaml:"id"`
+	Type      string `json:"type" yaml:"type"`
+	Source    string `json:"source,omitempty" yaml:"source,omitempty"`
+	Target    string `json:"target,omitempty" yaml:"target,omitempty"`
+	DependsOn string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 }
 
 func formatMigrationYAML(w io.Writer, graph *engine.Graph, analysis *MigrationAnalysis) error {
@@ -90,21 +90,21 @@ func buildMigrationView(graph *engine.Graph, analysis *MigrationAnalysis) *migra
 }
 
 func formatMigrationText(w io.Writer, graph *engine.Graph, analysis *MigrationAnalysis) error {
-	fmt.Fprintf(w, "Migration Plan\n")
-	fmt.Fprintf(w, "Source: %s\n", analysis.SourceRoot)
-	fmt.Fprintf(w, "System: %s", analysis.System)
+	_, _ = fmt.Fprintf(w, "Migration Plan\n")
+	_, _ = fmt.Fprintf(w, "Source: %s\n", analysis.SourceRoot)
+	_, _ = fmt.Fprintf(w, "System: %s", analysis.System)
 	if analysis.SystemConfidence > 0 {
-		fmt.Fprintf(w, " (confidence: %.0f%%)", analysis.SystemConfidence*100)
+		_, _ = fmt.Fprintf(w, " (confidence: %.0f%%)", analysis.SystemConfidence*100)
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 
 	// Summary
 	s := analysis.Stats
-	fmt.Fprintf(w, "Summary:\n")
-	fmt.Fprintf(w, "  Files: %d | Projects: %d | Platforms: %d\n",
+	_, _ = fmt.Fprintf(w, "Summary:\n")
+	_, _ = fmt.Fprintf(w, "  Files: %d | Projects: %d | Platforms: %d\n",
 		s.TotalFiles, s.Projects, s.Platforms)
-	fmt.Fprintf(w, "  Configs: %d | Scripts: %d | Lifecycle: %d\n",
+	_, _ = fmt.Fprintf(w, "  Configs: %d | Scripts: %d | Lifecycle: %d\n",
 		s.StaticConfigs, s.Scripts, s.LifecycleScripts)
 
 	extras := []string{}
@@ -121,14 +121,14 @@ func formatMigrationText(w io.Writer, graph *engine.Graph, analysis *MigrationAn
 		extras = append(extras, fmt.Sprintf("Templates: %d", s.Templates))
 	}
 	if len(extras) > 0 {
-		fmt.Fprintf(w, "  %s\n", strings.Join(extras, " | "))
+		_, _ = fmt.Fprintf(w, "  %s\n", strings.Join(extras, " | "))
 	}
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 
 	// Operations from Graph (directory renames)
 	renameNodes := filterNodesByOp(graph, "rename")
 	if len(renameNodes) > 0 {
-		fmt.Fprintf(w, "Directory renames (%d):\n", len(renameNodes))
+		_, _ = fmt.Fprintf(w, "Directory renames (%d):\n", len(renameNodes))
 		maxLen := 0
 		for _, node := range renameNodes {
 			if len(node.Source) > maxLen {
@@ -139,16 +139,16 @@ func formatMigrationText(w io.Writer, graph *engine.Graph, analysis *MigrationAn
 			// Show relative paths for readability
 			source := shortenPath(node.Source, analysis.SourceRoot)
 			target := shortenPath(node.Target, analysis.SourceRoot)
-			fmt.Fprintf(w, "  %-*s  →  %s\n", maxLen-len(analysis.SourceRoot), source, target)
+			_, _ = fmt.Fprintf(w, "  %-*s  →  %s\n", maxLen-len(analysis.SourceRoot), source, target)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 
 	// Lifecycle scripts from Analysis
 	if len(analysis.Scripts) > 0 {
-		fmt.Fprintf(w, "Lifecycle scripts (%d):\n", len(analysis.Scripts))
+		_, _ = fmt.Fprintf(w, "Lifecycle scripts (%d):\n", len(analysis.Scripts))
 		for _, script := range analysis.Scripts {
-			fmt.Fprintf(w, "  %s\n", script.RelPath)
+			_, _ = fmt.Fprintf(w, "  %s\n", script.RelPath)
 
 			details := []string{script.Phase}
 			if script.PackageManager != "" {
@@ -163,36 +163,36 @@ func formatMigrationText(w io.Writer, graph *engine.Graph, analysis *MigrationAn
 				}
 			}
 			details = append(details, fmt.Sprintf("%d lines", script.LineCount))
-			fmt.Fprintf(w, "    %s\n", strings.Join(details, " | "))
+			_, _ = fmt.Fprintf(w, "    %s\n", strings.Join(details, " | "))
 
 			for _, obs := range script.Observations {
-				fmt.Fprintf(w, "    %s\n", obs)
+				_, _ = fmt.Fprintf(w, "    %s\n", obs)
 			}
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 
 	// Observations
 	if len(analysis.Observations) > 0 {
-		fmt.Fprintf(w, "Observations:\n")
+		_, _ = fmt.Fprintf(w, "Observations:\n")
 		for _, obs := range analysis.Observations {
-			fmt.Fprintf(w, "  - %s\n", obs)
+			_, _ = fmt.Fprintf(w, "  - %s\n", obs)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 
 	// Warnings
 	if len(analysis.Warnings) > 0 {
-		fmt.Fprintf(w, "Warnings:\n")
+		_, _ = fmt.Fprintf(w, "Warnings:\n")
 		for _, warn := range analysis.Warnings {
-			fmt.Fprintf(w, "  - %s\n", warn)
+			_, _ = fmt.Fprintf(w, "  - %s\n", warn)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 
 	// Secrets
 	if len(analysis.SecretFindings) > 0 {
-		fmt.Fprintf(w, "Secrets detected (%d):\n", len(analysis.SecretFindings))
+		_, _ = fmt.Fprintf(w, "Secrets detected (%d):\n", len(analysis.SecretFindings))
 		for _, secret := range analysis.SecretFindings {
 			icon := "🔓" // unlocked
 			if secret.Encryption != EncryptNone {
@@ -202,10 +202,10 @@ func formatMigrationText(w io.Writer, graph *engine.Graph, analysis *MigrationAn
 			if secret.Encryption != EncryptNone {
 				encLabel = fmt.Sprintf(" (%s)", secret.Encryption)
 			}
-			fmt.Fprintf(w, "  %s %s%s\n", icon, secret.RelPath, encLabel)
-			fmt.Fprintf(w, "      %s\n", secret.Reason)
+			_, _ = fmt.Fprintf(w, "  %s %s%s\n", icon, secret.RelPath, encLabel)
+			_, _ = fmt.Fprintf(w, "      %s\n", secret.Reason)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 
 		// SOPS recommendation if unencrypted secrets exist
 		hasUnencrypted := false
@@ -222,9 +222,9 @@ func formatMigrationText(w io.Writer, graph *engine.Graph, analysis *MigrationAn
 
 	// Recommendations (TODOs)
 	if len(analysis.Recommendations) > 0 {
-		fmt.Fprintf(w, "TODOs after migration:\n")
+		_, _ = fmt.Fprintf(w, "TODOs after migration:\n")
 		for i, rec := range analysis.Recommendations {
-			fmt.Fprintf(w, "  %d. %s\n", i+1, rec)
+			_, _ = fmt.Fprintf(w, "  %d. %s\n", i+1, rec)
 		}
 	}
 
@@ -260,13 +260,13 @@ func shortenPath(path, prefix string) string {
 
 // formatSOPSRecommendation outputs a suggested .sops.yaml configuration.
 func formatSOPSRecommendation(w io.Writer, secrets []SecretFinding) {
-	fmt.Fprintf(w, "SOPS Setup Recommendation:\n")
-	fmt.Fprintf(w, "  1. Install SOPS: brew install sops  # or: go install github.com/getsops/sops/v3/cmd/sops@latest\n")
-	fmt.Fprintf(w, "  2. Create age key: age-keygen -o ~/.config/sops/age/keys.txt\n")
-	fmt.Fprintf(w, "  3. Create .sops.yaml with your public key:\n")
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "     # .sops.yaml\n")
-	fmt.Fprintf(w, "     creation_rules:\n")
+	_, _ = fmt.Fprintf(w, "SOPS Setup Recommendation:\n")
+	_, _ = fmt.Fprintf(w, "  1. Install SOPS: brew install sops  # or: go install github.com/getsops/sops/v3/cmd/sops@latest\n")
+	_, _ = fmt.Fprintf(w, "  2. Create age key: age-keygen -o ~/.config/sops/age/keys.txt\n")
+	_, _ = fmt.Fprintf(w, "  3. Create .sops.yaml with your public key:\n")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintf(w, "     # .sops.yaml\n")
+	_, _ = fmt.Fprintf(w, "     creation_rules:\n")
 
 	// Collect unique patterns
 	patterns := make(map[string]bool)
@@ -277,12 +277,12 @@ func formatSOPSRecommendation(w io.Writer, secrets []SecretFinding) {
 	}
 
 	for pattern := range patterns {
-		fmt.Fprintf(w, "       - path_regex: %s\n", pattern)
-		fmt.Fprintf(w, "         age: \"<your-age-public-key>\"\n")
+		_, _ = fmt.Fprintf(w, "       - path_regex: %s\n", pattern)
+		_, _ = fmt.Fprintf(w, "         age: \"<your-age-public-key>\"\n")
 	}
 
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "  4. Encrypt each secret: sops encrypt --in-place <file>\n")
-	fmt.Fprintf(w, "  5. Commit .sops.yaml and encrypted files\n")
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintf(w, "  4. Encrypt each secret: sops encrypt --in-place <file>\n")
+	_, _ = fmt.Fprintf(w, "  5. Commit .sops.yaml and encrypted files\n")
+	_, _ = fmt.Fprintln(w)
 }

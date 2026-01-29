@@ -13,9 +13,11 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/NobleFactor/devlore-cli/internal/engine"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
+	"github.com/NobleFactor/devlore-cli/internal/starlark/platform"
 )
 
 // Operation represents the type of pipeline operation.
@@ -111,7 +113,12 @@ type ExecutionResult struct {
 type Executor struct {
 	config   ExecutorConfig
 	bindings *loreStar.Bindings
+	host     host.Host
 	platform string // Resolved platform string for registry
+
+	// Per-execution state (set during execute)
+	currentLifecycle *registry.Lifecycle
+	currentGraph     *engine.Graph
 }
 
 // NewExecutor creates a new pipeline executor.
@@ -124,17 +131,19 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	}
 
 	bindings := loreStar.NewBindings(cfg.Features, cfg.Settings, cfg.Output)
+	h := host.NewHost()
 
 	// Resolve platform
-	platform := cfg.Platform
-	if platform == "" {
-		platform = DetectPlatform()
+	plat := cfg.Platform
+	if plat == "" {
+		plat = DetectPlatform()
 	}
 
 	return &Executor{
 		config:   cfg,
 		bindings: bindings,
-		platform: platform,
+		host:     h,
+		platform: plat,
 	}
 }
 
@@ -181,6 +190,10 @@ func (e *Executor) execute(ctx context.Context, lifecycle *registry.Lifecycle, p
 		Platform:  e.platform,
 		Started:   time.Now(),
 	}
+
+	// Store execution state
+	e.currentLifecycle = lifecycle
+	e.currentGraph = &engine.Graph{}
 
 	// Resolve features and settings
 	features := lifecycle.EnabledFeatures(e.config.Features)
@@ -262,7 +275,7 @@ func (e *Executor) executePhase(lifecycle *registry.Lifecycle, packageDir string
 
 	if len(scripts) == 0 {
 		if e.config.Verbose {
-			fmt.Fprintf(e.config.Output, "Skipping phase %q (no scripts found)\n", phaseName)
+			_, _ = fmt.Fprintf(e.config.Output, "Skipping phase %q (no scripts found)\n", phaseName)
 		}
 		result.Skipped = true
 		result.Success = true
@@ -281,7 +294,7 @@ func (e *Executor) executePhase(lifecycle *registry.Lifecycle, packageDir string
 			result.Success = false
 			result.Completed = time.Now()
 			result.Duration = result.Completed.Sub(result.Started)
-			fmt.Fprintf(e.config.Output, "\n✗ Phase %q failed in %s: %v\n", phaseName, scriptPath, err)
+			_, _ = fmt.Fprintf(e.config.Output, "\n✗ Phase %q failed in %s: %v\n", phaseName, scriptPath, err)
 			return result
 		}
 	}
@@ -289,7 +302,7 @@ func (e *Executor) executePhase(lifecycle *registry.Lifecycle, packageDir string
 	result.Success = true
 	result.Completed = time.Now()
 	result.Duration = result.Completed.Sub(result.Started)
-	fmt.Fprintf(e.config.Output, "✓ Phase %q completed\n\n", phaseName)
+	_, _ = fmt.Fprintf(e.config.Output, "✓ Phase %q completed\n\n", phaseName)
 
 	return result
 }
@@ -303,18 +316,42 @@ func (e *Executor) runPhaseScript(scriptPath, phaseName string) error {
 	thread := &starlark.Thread{
 		Name: phaseName,
 		Print: func(_ *starlark.Thread, msg string) {
-			fmt.Fprintf(e.config.Output, "  [print] %s\n", msg)
+			_, _ = fmt.Fprintf(e.config.Output, "  [print] %s\n", msg)
 		},
 	}
 
+	// Create the three binding arguments
+	systemBindings := loreStar.NewSystemBindings(e.host)
+	planBindings := platform.NewPlanBindings(e.currentGraph, e.host, e.currentLifecycle.Name)
+
+	// Create package context
+	features := e.currentLifecycle.EnabledFeatures(e.config.Features)
+	settings := e.currentLifecycle.ResolvedSettings(e.config.Settings)
+
+	pkgContext := &loreStar.PackageContext{
+		Name:       e.currentLifecycle.Name,
+		Version:    e.currentLifecycle.Version,
+		Features:   features,
+		Settings:   settings,
+		DryRun:     e.config.DryRun,
+		SourceRoot: "", // Set by caller if needed
+		TargetRoot: e.host.HomeDir(),
+	}
+
+	// Build globals with legacy bindings plus new three-argument bindings
+	globals := e.bindings.Globals()
+	globals["system"] = systemBindings.ToStarlark()
+	globals["package"] = pkgContext.ToStarlark()
+	globals["plan"] = planBindings.ToStarlark()
+
 	// Execute the script
-	globals, err := starlark.ExecFile(thread, scriptPath, data, e.bindings.Globals())
+	scriptGlobals, err := starlark.ExecFile(thread, scriptPath, data, globals)
 	if err != nil {
 		return fmt.Errorf("executing script: %w", err)
 	}
 
 	// Call the phase function
-	fn, ok := globals[phaseName]
+	fn, ok := scriptGlobals[phaseName]
 	if !ok {
 		return fmt.Errorf("function %q not found in script", phaseName)
 	}
@@ -324,8 +361,34 @@ func (e *Executor) runPhaseScript(scriptPath, phaseName string) error {
 		return fmt.Errorf("%q is not callable", phaseName)
 	}
 
-	_, err = starlark.Call(thread, callable, nil, nil)
+	// Determine if this is a new-style script (accepts 3 args) or legacy (accepts 0 args)
+	// by checking the function signature
+	// Argument order: package, system, plan
+	args := starlark.Tuple{
+		pkgContext.ToStarlark(),
+		systemBindings.ToStarlark(),
+		planBindings.ToStarlark(),
+	}
+
+	// Try calling with three arguments first (new style)
+	_, err = starlark.Call(thread, callable, args, nil)
 	if err != nil {
+		errStr := err.Error()
+		// Check if the error is about wrong number of arguments
+		// Starlark error messages include patterns like:
+		// - "accepts no arguments"
+		// - "missing 1 required positional argument"
+		// - "accepts 1 positional argument"
+		if strings.Contains(errStr, "accepts no argument") ||
+			strings.Contains(errStr, "takes no argument") ||
+			strings.Contains(errStr, "expected 0 argument") {
+			// Legacy script: call with no arguments
+			_, err = starlark.Call(thread, callable, nil, nil)
+			if err != nil {
+				return fmt.Errorf("calling %s(): %w", phaseName, err)
+			}
+			return nil
+		}
 		return fmt.Errorf("calling %s(): %w", phaseName, err)
 	}
 
@@ -333,46 +396,46 @@ func (e *Executor) runPhaseScript(scriptPath, phaseName string) error {
 }
 
 func (e *Executor) printHeader(lifecycle *registry.Lifecycle, features []string, settings map[string]string) {
-	fmt.Fprintln(e.config.Output, "╔════════════════════════════════════════════════════════════════╗")
-	fmt.Fprintf(e.config.Output, "║  Lore Pipeline: %s\n", lifecycle.Name)
-	fmt.Fprintln(e.config.Output, "╚════════════════════════════════════════════════════════════════╝")
-	fmt.Fprintln(e.config.Output)
-	fmt.Fprintf(e.config.Output, "Package:  %s v%s\n", lifecycle.Name, lifecycle.Version)
-	fmt.Fprintf(e.config.Output, "Platform: %s\n", e.platform)
-	fmt.Fprintf(e.config.Output, "Features: %v\n", features)
+	_, _ = fmt.Fprintln(e.config.Output, "╔════════════════════════════════════════════════════════════════╗")
+	_, _ = fmt.Fprintf(e.config.Output, "║  Lore Pipeline: %s\n", lifecycle.Name)
+	_, _ = fmt.Fprintln(e.config.Output, "╚════════════════════════════════════════════════════════════════╝")
+	_, _ = fmt.Fprintln(e.config.Output)
+	_, _ = fmt.Fprintf(e.config.Output, "Package:  %s v%s\n", lifecycle.Name, lifecycle.Version)
+	_, _ = fmt.Fprintf(e.config.Output, "Platform: %s\n", e.platform)
+	_, _ = fmt.Fprintf(e.config.Output, "Features: %v\n", features)
 	if len(settings) > 0 {
-		fmt.Fprintf(e.config.Output, "Settings: %v\n", settings)
+		_, _ = fmt.Fprintf(e.config.Output, "Settings: %v\n", settings)
 	}
-	fmt.Fprintln(e.config.Output)
+	_, _ = fmt.Fprintln(e.config.Output)
 }
 
 func (e *Executor) printDryRun(lifecycle *registry.Lifecycle, packageDir string, op Operation, phases []string) {
 	regOp := op.toRegistryOp()
-	fmt.Fprintln(e.config.Output, "[DRY RUN] Would execute the following phases:")
+	_, _ = fmt.Fprintln(e.config.Output, "[DRY RUN] Would execute the following phases:")
 	for _, phaseName := range phases {
 		scripts := lifecycle.DiscoverPhaseScripts(packageDir, e.platform, regOp, phaseName)
 		if len(scripts) > 0 {
-			fmt.Fprintf(e.config.Output, "  - %s:\n", phaseName)
+			_, _ = fmt.Fprintf(e.config.Output, "  - %s:\n", phaseName)
 			for _, s := range scripts {
-				fmt.Fprintf(e.config.Output, "      %s\n", s)
+				_, _ = fmt.Fprintf(e.config.Output, "      %s\n", s)
 			}
 		} else {
-			fmt.Fprintf(e.config.Output, "  - %s: (no scripts, would skip)\n", phaseName)
+			_, _ = fmt.Fprintf(e.config.Output, "  - %s: (no scripts, would skip)\n", phaseName)
 		}
 	}
 }
 
 func (e *Executor) printPhaseStart(phaseName string, scripts []string) {
-	fmt.Fprintln(e.config.Output, "────────────────────────────────────────────────────────────────")
-	fmt.Fprintf(e.config.Output, "Phase: %s\n", phaseName)
+	_, _ = fmt.Fprintln(e.config.Output, "────────────────────────────────────────────────────────────────")
+	_, _ = fmt.Fprintf(e.config.Output, "Phase: %s\n", phaseName)
 	if len(scripts) > 1 {
-		fmt.Fprintf(e.config.Output, "Scripts: %d (chained)\n", len(scripts))
+		_, _ = fmt.Fprintf(e.config.Output, "Scripts: %d (chained)\n", len(scripts))
 	}
-	fmt.Fprintln(e.config.Output, "────────────────────────────────────────────────────────────────")
+	_, _ = fmt.Fprintln(e.config.Output, "────────────────────────────────────────────────────────────────")
 }
 
 func (e *Executor) printSuccess(lifecycle *registry.Lifecycle) {
-	fmt.Fprintln(e.config.Output, "════════════════════════════════════════════════════════════════")
-	fmt.Fprintf(e.config.Output, "✓ Pipeline completed successfully for %s\n", lifecycle.Name)
-	fmt.Fprintln(e.config.Output, "════════════════════════════════════════════════════════════════")
+	_, _ = fmt.Fprintln(e.config.Output, "════════════════════════════════════════════════════════════════")
+	_, _ = fmt.Fprintf(e.config.Output, "✓ Pipeline completed successfully for %s\n", lifecycle.Name)
+	_, _ = fmt.Fprintln(e.config.Output, "════════════════════════════════════════════════════════════════")
 }
