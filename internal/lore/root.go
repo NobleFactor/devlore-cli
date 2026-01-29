@@ -64,6 +64,14 @@ What took someone hours to figure out, you get in minutes.`,
 	rootCmd.PersistentFlags().Bool("unattended", false, "Force unattended mode (no prompts, sensible defaults)")
 	rootCmd.MarkFlagsMutuallyExclusive("interactive", "unattended")
 
+	// Model configuration flags (override env/config)
+	// Resolution order: CLI flags → Environment → Config file → Keystore (api-key only)
+	// See internal/model/config.go for full documentation.
+	rootCmd.PersistentFlags().String("model", "", "Model name (e.g., claude-sonnet-4-20250514, gpt-4o)")
+	rootCmd.PersistentFlags().String("model-api-key", "", "Model provider API key")
+	rootCmd.PersistentFlags().String("model-endpoint", "", "Model provider endpoint URL")
+	rootCmd.PersistentFlags().String("model-provider", "", "Model provider: anthropic, openai, azure-openai, ollama, github")
+
 	// Add subcommands
 	rootCmd.AddCommand(newDeployCmd())
 	rootCmd.AddCommand(newUpgradeCmd())
