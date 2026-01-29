@@ -327,22 +327,36 @@ func TestPlanGeneration(t *testing.T) {
 		Format:     "text",
 	}
 
-	plan, err := BuildPlan(context.Background(), opts)
+	graph, analysis, err := BuildMigration(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if plan.System != SystemScriptBased {
-		t.Errorf("plan.System = %q, want %q", plan.System, SystemScriptBased)
+	if analysis.System != SystemScriptBased {
+		t.Errorf("analysis.System = %q, want %q", analysis.System, SystemScriptBased)
 	}
-	if plan.Stats.TotalFiles == 0 {
-		t.Error("plan.Stats.TotalFiles = 0, want > 0")
+	if analysis.Stats.TotalFiles == 0 {
+		t.Error("analysis.Stats.TotalFiles = 0, want > 0")
 	}
-	if plan.Stats.Renames != 5 {
-		t.Errorf("plan.Stats.Renames = %d, want 5", plan.Stats.Renames)
+	if analysis.Stats.Renames != 5 {
+		t.Errorf("analysis.Stats.Renames = %d, want 5", analysis.Stats.Renames)
 	}
-	if plan.Stats.Projects < 3 {
-		t.Errorf("plan.Stats.Projects = %d, want >= 3", plan.Stats.Projects)
+	if analysis.Stats.Projects < 3 {
+		t.Errorf("analysis.Stats.Projects = %d, want >= 3", analysis.Stats.Projects)
+	}
+
+	// Verify graph has rename nodes
+	renameCount := 0
+	for _, node := range graph.Nodes {
+		for _, op := range node.Operations {
+			if op == "rename" {
+				renameCount++
+				break
+			}
+		}
+	}
+	if renameCount != 5 {
+		t.Errorf("graph has %d rename nodes, want 5", renameCount)
 	}
 }
 
@@ -354,26 +368,28 @@ func TestExecution(t *testing.T) {
 	opts := Options{
 		SourceRoot: tmpDir,
 	}
-	plan, err := BuildPlan(context.Background(), opts)
+	graph, analysis, err := BuildMigration(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	if err := Execute(&buf, plan); err != nil {
+	if err := Execute(&buf, graph, analysis); err != nil {
 		t.Fatalf("Execute failed: %v\nOutput: %s", err, buf.String())
 	}
 
-	// Verify renames happened
-	for _, m := range plan.Mappings {
-		srcPath := filepath.Join(tmpDir, m.SourceDir)
-		dstPath := filepath.Join(tmpDir, m.TargetDir)
-
-		if exists(srcPath) {
-			t.Errorf("source dir still exists after rename: %s", m.SourceDir)
-		}
-		if !exists(dstPath) {
-			t.Errorf("target dir does not exist after rename: %s", m.TargetDir)
+	// Verify renames happened by checking graph nodes
+	for _, node := range graph.Nodes {
+		for _, op := range node.Operations {
+			if op == "rename" {
+				if exists(node.Source) {
+					t.Errorf("source dir still exists after rename: %s", node.Source)
+				}
+				if !exists(node.Target) {
+					t.Errorf("target dir does not exist after rename: %s", node.Target)
+				}
+				break
+			}
 		}
 	}
 
@@ -396,11 +412,11 @@ func TestExecution(t *testing.T) {
 	if err := yaml.Unmarshal(data, &marker); err != nil {
 		t.Fatalf("marker YAML parse: %v", err)
 	}
-	if marker.System != SystemScriptBased {
+	if marker.System != string(SystemScriptBased) {
 		t.Errorf("marker.System = %q, want %q", marker.System, SystemScriptBased)
 	}
-	if len(marker.Mappings) != 5 {
-		t.Errorf("marker.Mappings has %d entries, want 5", len(marker.Mappings))
+	if len(marker.Renames) != 5 {
+		t.Errorf("marker.Renames has %d entries, want 5", len(marker.Renames))
 	}
 }
 
@@ -414,13 +430,13 @@ func TestExecutionConflict(t *testing.T) {
 	}
 
 	opts := Options{SourceRoot: tmpDir}
-	plan, err := BuildPlan(context.Background(), opts)
+	graph, analysis, err := BuildMigration(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	err = Execute(&buf, plan)
+	err = Execute(&buf, graph, analysis)
 	if err == nil {
 		t.Fatal("Execute should fail when target exists")
 	}
@@ -439,9 +455,9 @@ func TestAlreadyMigrated(t *testing.T) {
 	}
 
 	opts := Options{SourceRoot: tmpDir}
-	_, err := BuildPlan(context.Background(), opts)
+	_, _, err := BuildMigration(context.Background(), opts)
 	if err == nil {
-		t.Fatal("BuildPlan should fail when already migrated")
+		t.Fatal("BuildMigration should fail when already migrated")
 	}
 	if !strings.Contains(err.Error(), "already migrated") {
 		t.Errorf("error = %q, want to contain 'already migrated'", err.Error())
@@ -451,13 +467,13 @@ func TestAlreadyMigrated(t *testing.T) {
 func TestFormatText(t *testing.T) {
 	root := fixtureRoot(t)
 	opts := Options{SourceRoot: root}
-	plan, err := BuildPlan(context.Background(), opts)
+	graph, analysis, err := BuildMigration(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	if err := FormatPlan(&buf, plan, "text"); err != nil {
+	if err := FormatMigrationPlan(&buf, graph, analysis, "text"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -486,49 +502,75 @@ func TestFormatText(t *testing.T) {
 func TestFormatYAML(t *testing.T) {
 	root := fixtureRoot(t)
 	opts := Options{SourceRoot: root}
-	plan, err := BuildPlan(context.Background(), opts)
+	graph, analysis, err := BuildMigration(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	if err := FormatPlan(&buf, plan, "yaml"); err != nil {
+	if err := FormatMigrationPlan(&buf, graph, analysis, "yaml"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify round-trip
-	var parsed MigrationPlan
+	// Verify round-trip parses as valid YAML with expected structure
+	// The format uses migrationView which wraps analysis in an "analysis" field
+	var parsed struct {
+		Analysis struct {
+			System SourceSystem   `yaml:"system"`
+			Stats  MigrationStats `yaml:"stats"`
+		} `yaml:"analysis"`
+		Operations []struct {
+			ID   string `yaml:"id"`
+			Type string `yaml:"type"`
+		} `yaml:"operations"`
+	}
 	if err := yaml.Unmarshal(buf.Bytes(), &parsed); err != nil {
 		t.Fatalf("YAML round-trip failed: %v", err)
 	}
-	if parsed.System != plan.System {
-		t.Errorf("YAML round-trip: system = %q, want %q", parsed.System, plan.System)
+	if parsed.Analysis.System != analysis.System {
+		t.Errorf("YAML round-trip: system = %q, want %q", parsed.Analysis.System, analysis.System)
 	}
-	if parsed.Stats.TotalFiles != plan.Stats.TotalFiles {
-		t.Errorf("YAML round-trip: total_files = %d, want %d", parsed.Stats.TotalFiles, plan.Stats.TotalFiles)
+	if parsed.Analysis.Stats.TotalFiles != analysis.Stats.TotalFiles {
+		t.Errorf("YAML round-trip: total_files = %d, want %d", parsed.Analysis.Stats.TotalFiles, analysis.Stats.TotalFiles)
+	}
+	if len(parsed.Operations) == 0 {
+		t.Error("YAML output has no operations")
 	}
 }
 
 func TestFormatJSON(t *testing.T) {
 	root := fixtureRoot(t)
 	opts := Options{SourceRoot: root}
-	plan, err := BuildPlan(context.Background(), opts)
+	graph, analysis, err := BuildMigration(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	if err := FormatPlan(&buf, plan, "json"); err != nil {
+	if err := FormatMigrationPlan(&buf, graph, analysis, "json"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify it's valid JSON
-	var parsed MigrationPlan
+	// Verify it's valid JSON with expected structure
+	// The format uses migrationView which wraps analysis in an "analysis" field
+	var parsed struct {
+		Analysis struct {
+			System SourceSystem   `json:"system"`
+			Stats  MigrationStats `json:"stats"`
+		} `json:"analysis"`
+		Operations []struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+		} `json:"operations"`
+	}
 	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
 		t.Fatalf("JSON round-trip failed: %v", err)
 	}
-	if parsed.System != plan.System {
-		t.Errorf("JSON round-trip: system = %q, want %q", parsed.System, plan.System)
+	if parsed.Analysis.System != analysis.System {
+		t.Errorf("JSON round-trip: system = %q, want %q", parsed.Analysis.System, analysis.System)
+	}
+	if len(parsed.Operations) == 0 {
+		t.Error("JSON output has no operations")
 	}
 }
 

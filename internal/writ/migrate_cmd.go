@@ -98,7 +98,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	}
 
 	if !regClient.Exists() {
-		fmt.Fprintln(os.Stderr, "Syncing registry...")
+		cli.Note("Syncing registry...")
 		if _, err := regClient.Sync(ctx, registry.SyncOptions{}); err != nil {
 			return fmt.Errorf("registry sync failed: %w", err)
 		}
@@ -129,17 +129,17 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		RegClient:  regClient,
 	}
 
-	plan, err := migrate.BuildPlan(ctx, opts)
+	graph, analysis, err := migrate.BuildMigration(ctx, opts)
 	if err != nil {
 		return err
 	}
 
 	if dryRun {
-		return migrate.FormatPlan(os.Stdout, plan, format)
+		return migrate.FormatMigrationPlan(os.Stdout, graph, analysis, format)
 	}
 
 	// Restructure content to writ conventions
-	if err := migrate.Execute(os.Stderr, plan); err != nil {
+	if err := migrate.Execute(os.Stderr, graph, analysis); err != nil {
 		return err
 	}
 
