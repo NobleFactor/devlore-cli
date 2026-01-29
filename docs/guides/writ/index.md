@@ -79,7 +79,7 @@ The rendered output is copied (not symlinked) to the target:
     email = {{.UserEmail}}
 ```
 
-Template variables come from `writ configure` or the config file.
+Template variables come from the config file (`writ config set`).
 
 ### Secrets
 

@@ -1860,25 +1860,6 @@ func getConfiguredRepo(layer string) string {
 	return ""
 }
 
-func newConfigureCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "configure",
-		Short: "Discover system info and configure template variables",
-		Long: `Discover system info and configure template variables.
-
-Auto-detects user name, email, editor, and platform. Prompts for values
-that cannot be determined automatically.
-
-Use --unattended (global flag) to auto-detect only and fail on missing values.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("configure: not yet implemented")
-			return nil
-		},
-	}
-
-	return cmd
-}
-
 func newReceiptCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "receipt <subcommand>",

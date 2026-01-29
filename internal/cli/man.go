@@ -86,6 +86,9 @@ Examples:
 	cmd.Flags().BoolVar(&install, "install", false, "Install man pages to directory")
 	cmd.Flags().StringVar(&installPath, "path", defaultPath, "Installation directory for man pages")
 
+	// Hide from help output (like Cobra's built-in completion command)
+	cmd.Hidden = true
+
 	return cmd
 }
 
