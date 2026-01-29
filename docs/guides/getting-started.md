@@ -90,7 +90,7 @@ Writ creates symlinks from your home directory to the project files:
 ## Check status
 
 ```bash
-writ status noblefactor
+writ reconcile noblefactor
 ```
 
 ```

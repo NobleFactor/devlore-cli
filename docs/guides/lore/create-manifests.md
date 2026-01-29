@@ -45,6 +45,26 @@ Or from an existing setup script:
 lore manifest create pandoc --from ~/scripts/install-pandoc/
 ```
 
+#### Configuring AI providers
+
+By default, lore uses [Ollama](https://ollama.ai) for local inference. To use a cloud provider:
+
+```bash
+# GitHub Models (free with GitHub account)
+DEVLORE_MODEL_PROVIDER=github DEVLORE_MODEL_API_KEY=$(gh auth token) \
+  lore manifest create postgresql --ai
+
+# Anthropic Claude
+lore --model-provider=anthropic --model-api-key=sk-... \
+  manifest create postgresql --ai
+
+# Or configure in ~/.config/devlore/config.yaml
+```
+
+**Available providers:** `ollama` (default), `anthropic`, `openai`, `azure-openai`, `github`
+
+See the [configuration reference](/cli/lore/) for all model options (`--model`, `--model-provider`, `--model-api-key`, `--model-endpoint`).
+
 ## The lifecycle file
 
 `lifecycle.yaml` defines package metadata and declares which phases exist:
