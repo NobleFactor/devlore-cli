@@ -352,10 +352,8 @@ main() {
 
     echo
     info "Next steps:"
-    echo "  Start fresh:      writ init [--layer <personal|team|base>] [<directory>]"
-    echo "  Migrate existing: writ migrate [--layer <personal|team|base>] [<directory>]"
-    echo
-    echo "  Both commands provide AI-assisted guidance for setting up your environment."
+    echo "  Adopt files:      writ adopt --project <name> <file>..."
+    echo "  Migrate existing: writ migrate <directory>"
     echo
     info "Documentation: https://devlore.noblefactor.com"
 }

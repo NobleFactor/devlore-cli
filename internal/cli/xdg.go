@@ -91,3 +91,9 @@ func DevloreDataHome() string {
 func DevloreStateHome() string {
 	return filepath.Join(StateHome(), "devlore")
 }
+
+// WritLayersDir returns the writ layers directory.
+// XDG_DATA_HOME/devlore/writ/layers
+func WritLayersDir() string {
+	return filepath.Join(DevloreDataHome(), "writ", "layers")
+}

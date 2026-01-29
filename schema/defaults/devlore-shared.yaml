@@ -1,0 +1,12 @@
+# DevLore Shared Configuration
+# Location: ~/.config/devlore/config.yaml
+# See: lore config --schema  OR  writ config --schema
+
+# Shared secrets configuration (ADR-050)
+# secrets:
+#   identity_file: ~/.ssh/id_ed25519
+#   # OR use external source:
+#   # identity_command: "op read op://Personal/age-key/private"
+#   recipients_file: .age-recipients
+#   mode: "0600"
+#   on_error: error

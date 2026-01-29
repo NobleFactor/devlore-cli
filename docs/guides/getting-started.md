@@ -9,7 +9,7 @@ order: 1
 # Getting Started with DevLore
 
 DevLore is a two-tool suite for managing portable development environments.
-**Writ** manages your dotfiles and configuration through platform-aware symlinks.
+**Writ** orchestrates your portable environment through platform-aware symlinks, decryption, and template expansion.
 **Lore** handles software installation by capturing tribal knowledge about packages.
 
 Together, they let you declare your environment once and deploy it everywhere you work.
@@ -47,15 +47,16 @@ lore self-install --prefix=~/.local
 
 ## Initialize a repository
 
-A writ repository is a directory containing your dotfiles organized into projects.
-Each project is a subdirectory whose files get symlinked to your home directory.
+A writ repository is a directory containing your environment organized into projects.
+Each project is a subdirectory whose files get deployed to your home directory.
 
 ```bash
-writ repo init --layer=personal
-```
+# Create your environment directory
+mkdir -p ~/my-environment
 
-This creates a new git repository at `~/.local/share/devlore/repos/personal/` with
-the standard directory structure.
+# Register it with writ
+writ config set writ.repos.personal ~/my-environment
+```
 
 ## Create your first project
 
@@ -63,8 +64,8 @@ A project is simply a directory in your repository. Files inside it mirror
 the structure of your home directory:
 
 ```bash
-cd ~/.local/share/devlore/repos/personal/
-mkdir -p noblefactor/.config/git
+cd ~/my-environment
+mkdir -p noblefactor/Home/.config/git
 
 # Move your existing gitconfig into the project
 mv ~/.config/git/config noblefactor/.config/git/config
@@ -89,7 +90,7 @@ Writ creates symlinks from your home directory to the project files:
 ## Check status
 
 ```bash
-writ status noblefactor
+writ reconcile noblefactor
 ```
 
 ```

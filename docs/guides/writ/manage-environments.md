@@ -61,14 +61,17 @@ writ add --dry-run noblefactor
 
 ## Check status
 
-View the state of deployed projects:
+Perform full-stack drift detection across symlinks, copied files, and packages:
 
 ```bash
 # Scan all deployed files
-writ status
+writ reconcile
 
 # Check specific project
-writ status noblefactor
+writ reconcile noblefactor
+
+# Also check package installation status
+writ reconcile --packages
 ```
 
 Status indicators:
@@ -77,25 +80,21 @@ Status indicators:
 |--------|---------|
 | `✓ Linked` | Symlink exists and points to project |
 | `✓ Copied` | Template/secret was copied and exists |
+| `✓ Installed` | Package is installed and verified (with `--packages`) |
 | `⚠ Conflict` | File exists but isn't a writ symlink |
 | `✗ Missing` | Project file has no corresponding symlink |
 | `? Orphan` | Symlink points to nonexistent source |
-
-### Drift detection
-
-Check whether templates or secrets have been modified since deployment:
-
-```bash
-writ status --drift
-```
-
-Drift indicators:
-
-| Symbol | Meaning |
-|--------|---------|
 | `↑ Stale` | Source changed since deployment |
 | `M Modified` | Target was edited locally |
 | `! Conflict` | Both source and target changed |
+
+### Automatic repair
+
+Fix detected issues automatically:
+
+```bash
+writ reconcile --fix
+```
 
 ## Upgrade templates and secrets
 
@@ -114,6 +113,47 @@ writ upgrade --force
 
 Upgrade only affects copied files (templates and decrypted secrets).
 Symlinks always point to the source and don't need upgrading.
+
+## Migrate existing dotfiles
+
+The `writ migrate` command uses AI to analyze your existing dotfiles repository
+and create a migration plan to writ's layered structure:
+
+```bash
+writ migrate ~/dotfiles
+```
+
+This analyzes your dotfiles, detects the current structure (GNU Stow, chezmoi,
+custom scripts, etc.), and generates a migration plan.
+
+### Configuring the AI provider
+
+By default, writ uses [Ollama](https://ollama.ai) for local inference. To use
+a cloud provider:
+
+```bash
+# GitHub Models (free with GitHub account)
+DEVLORE_MODEL_PROVIDER=github DEVLORE_MODEL_API_KEY=$(gh auth token) \
+  writ migrate ~/dotfiles
+
+# Anthropic Claude
+writ --model-provider=anthropic --model-api-key=sk-... migrate ~/dotfiles
+```
+
+### Migration workflow
+
+```bash
+# 1. Generate migration plan (dry run)
+writ migrate --dry-run ~/dotfiles
+
+# 2. Review the plan, then execute
+writ migrate ~/dotfiles
+
+# 3. Link the migrated directory as a layer
+writ migrate --link ~/dotfiles
+```
+
+See [writ migrate](/cli/writ/migrate/) for all options.
 
 ## Adopt existing files
 

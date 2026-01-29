@@ -13,6 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
+
+	"github.com/NobleFactor/devlore-cli/schema"
 )
 
 // SelfInstallInfo contains metadata needed for self-installation.
@@ -26,8 +28,7 @@ type SelfInstallInfo struct {
 // Usage:
 //
 //	./tool self-install ~/.local
-//	./tool self-install ~/.local --shell bash --shell zsh
-//	./tool self-install ~/.local --personal-repo=~/dotfiles
+//	./tool self-install --shell bash --shell zsh ~/.local
 //
 // This performs complete installation:
 //   - Copies binary to <root>/bin/
@@ -35,7 +36,7 @@ type SelfInstallInfo struct {
 //   - Installs completions for detected shells (or specified via --shell)
 //   - Initializes config in XDG_CONFIG_HOME/devlore/
 //   - Initializes cache in XDG_CACHE_HOME/devlore/
-//   - Scans and registers repos (if --personal-repo or --team-repo provided)
+//   - Creates layer directories in XDG_DATA_HOME/devlore/writ/layers/
 func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
 	var shells []string
 
@@ -47,22 +48,18 @@ func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Comm
 This command:
   1. Copies the binary to <root>/bin/` + info.Name + `
   2. Installs man pages to <root>/share/man/man1/ (if man command exists)
-  3. Installs shell completions (auto-detects bash, zsh, fish or use --shell)
+  3. Installs shell completions (auto-detects bash, fish, powershell, zsh or use --shell)
   4. Creates shared config at $XDG_CONFIG_HOME/devlore/config.yaml
   5. Creates tool config at $XDG_CONFIG_HOME/devlore/config.d/` + info.Name + `.yaml
-  6. Initializes cache directory at $XDG_CACHE_HOME/devlore/` + info.Name + `/
-  7. Scans and registers repositories (if --personal-repo or --team-repo provided)
+  6. Initializes cache directory at $XDG_CACHE_HOME/devlore/
+  7. Creates layer directories at $XDG_DATA_HOME/devlore/writ/layers/
 
 Shell completions are auto-detected by default. Use --shell to override:
-  ./` + info.Name + ` self-install ~/.local --shell bash --shell zsh
-
-Repository flags accept a local path. The repo is scanned for writ compatibility
-and migration guidance is provided if the structure doesn't match.
+  ` + info.Name + ` self-install --shell bash --shell zsh ~/.local
 
 Example:
-  ./` + info.Name + ` self-install ~/.local
-  ./` + info.Name + ` self-install ~/.local --shell bash --shell zsh
-  ./` + info.Name + ` self-install ~/.local --personal-repo=~/dotfiles
+  ` + info.Name + ` self-install ~/.local
+  ` + info.Name + ` self-install --shell bash --shell zsh ~/.local
 
 After installation, ensure <root>/bin is in your PATH.
 `,
@@ -71,19 +68,12 @@ After installation, ensure <root>/bin is in your PATH.
 			root := args[0]
 			root = expandTilde(root)
 
-			personalRepo, _ := cmd.Flags().GetString("personal-repo")
-			teamRepo, _ := cmd.Flags().GetString("team-repo")
-
 			return runSelfInstall(rootCmd, root, info, installFlags{
-				Personal: expandTilde(personalRepo),
-				Team:     expandTilde(teamRepo),
-				Shells:   shells,
+				Shells: shells,
 			})
 		},
 	}
 
-	cmd.Flags().String("personal-repo", "", "Path to personal environment repository")
-	cmd.Flags().String("team-repo", "", "Path to team environment repository")
 	cmd.Flags().StringArrayVar(&shells, "shell", nil, "Shell to install completions for (repeatable, e.g., --shell bash --shell zsh)")
 
 	return cmd
@@ -91,19 +81,30 @@ After installation, ensure <root>/bin is in your PATH.
 
 // installFlags holds the flag values for self-install.
 type installFlags struct {
-	Personal string   // --personal-repo
-	Team     string   // --team-repo
-	Shells   []string // --shell (repeatable)
+	Shells []string // --shell (repeatable)
 }
 
-// detectShells returns a list of shells available on the system.
+// detectShells returns a list of shells available on the system (alphabetically sorted).
 func detectShells() []string {
 	var shells []string
-	for _, shell := range []string{"bash", "zsh", "fish"} {
-		if _, err := exec.LookPath(shell); err == nil {
-			shells = append(shells, shell)
-		}
+
+	// Check shells in alphabetical order
+	if _, err := exec.LookPath("bash"); err == nil {
+		shells = append(shells, "bash")
 	}
+	if _, err := exec.LookPath("fish"); err == nil {
+		shells = append(shells, "fish")
+	}
+	// PowerShell: check for pwsh (cross-platform) or powershell (Windows)
+	if _, err := exec.LookPath("pwsh"); err == nil {
+		shells = append(shells, "powershell")
+	} else if _, err := exec.LookPath("powershell"); err == nil {
+		shells = append(shells, "powershell")
+	}
+	if _, err := exec.LookPath("zsh"); err == nil {
+		shells = append(shells, "zsh")
+	}
+
 	return shells
 }
 
@@ -203,43 +204,42 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, f
 	Note("Add %s to your PATH if not already present.", binDir)
 
 	// Print shell completion setup instructions for installed shells
-	printShellSetupInstructions(installedShells)
+	printShellSetupInstructions(installedShells, info.Name)
 
-	// 7. Scan and register repos
-	if flags.Personal != "" {
-		fmt.Fprintf(os.Stderr, "\n")
-		scanAndRegisterRepo(flags.Personal, "personal", info.Name)
-	}
-	if flags.Team != "" {
-		fmt.Fprintf(os.Stderr, "\n")
-		scanAndRegisterRepo(flags.Team, "team", info.Name)
+	// 7. Create layer directories (writ only)
+	if info.Name == "writ" {
+		layerPaths, err := initWritLayers()
+		if err != nil {
+			return fmt.Errorf("failed to create layer directories: %w", err)
+		}
+		if len(layerPaths) > 0 {
+			fmt.Fprintf(os.Stderr, "\n")
+			Note("Layer directories:")
+			for _, p := range layerPaths {
+				Note("  %s", p)
+			}
+		}
 	}
 
 	return nil
 }
 
-// scanAndRegisterRepo scans a repository path, reports results, and registers
-// it in the shared config. If migration is needed, guidance is printed but the
-// repo is still registered so the user can migrate and re-run self-install to verify.
-func scanAndRegisterRepo(path, layer, tool string) {
-	result := ScanRepo(path)
-	result.PrintReport()
+// initWritLayers creates the writ layer directories if they don't exist.
+func initWritLayers() ([]string, error) {
+	layersDir := WritLayersDir()
+	var created []string
 
-	// Register the repo regardless of migration status
-	if err := RegisterRepo(tool, RepoEntry{
-		Layer: layer,
-		Path:  path,
-		URL:   result.Remote,
-	}); err != nil {
-		Error("Failed to register %s repo: %v", layer, err)
-		return
+	for _, layer := range []string{"base", "team", "personal"} {
+		layerPath := filepath.Join(layersDir, layer)
+		if _, err := os.Stat(layerPath); os.IsNotExist(err) {
+			if err := os.MkdirAll(layerPath, 0755); err != nil {
+				return created, err
+			}
+			created = append(created, layerPath)
+		}
 	}
 
-	if result.NeedsMigration() {
-		Warn("Registered %s repo despite migration needs — fix and re-run self-install to verify", layer)
-	} else {
-		Success("Registered %s repo: %s", layer, path)
-	}
+	return created, nil
 }
 
 // installBinary copies the current executable to the target location.
@@ -341,66 +341,66 @@ func installManPagesTo(rootCmd *cobra.Command, path string, header ManHeader) ([
 	return files, nil
 }
 
-// shellConfig defines how to install completions for each shell.
-type shellConfig struct {
-	name     string
-	relPath  string
-	filename string
-	genFunc  func(*cobra.Command, *os.File) error
-}
-
-// getShellConfigs returns the configuration for all supported shells.
-func getShellConfigs(cmdName string) map[string]shellConfig {
-	return map[string]shellConfig{
-		"bash": {
-			name:     "bash",
-			relPath:  filepath.Join("share", "bash-completion", "completions"),
-			filename: cmdName,
-			genFunc:  func(cmd *cobra.Command, f *os.File) error { return cmd.GenBashCompletion(f) },
-		},
-		"zsh": {
-			name:     "zsh",
-			relPath:  filepath.Join("share", "zsh", "site-functions"),
-			filename: "_" + cmdName,
-			genFunc:  func(cmd *cobra.Command, f *os.File) error { return cmd.GenZshCompletion(f) },
-		},
-		"fish": {
-			name:     "fish",
-			relPath:  filepath.Join("share", "fish", "vendor_completions.d"),
-			filename: cmdName + ".fish",
-			genFunc:  func(cmd *cobra.Command, f *os.File) error { return cmd.GenFishCompletion(f, true) },
-		},
+// shellCompletionPath returns the installation path and filename for a shell's completion file.
+func shellCompletionPath(shell, cmdName string) (relPath, filename string) {
+	switch shell {
+	case "bash":
+		return filepath.Join("share", "bash-completion", "completions"), cmdName
+	case "fish":
+		return filepath.Join("share", "fish", "vendor_completions.d"), cmdName + ".fish"
+	case "powershell":
+		return filepath.Join("share", "powershell", "completions"), cmdName + ".ps1"
+	case "zsh":
+		return filepath.Join("share", "zsh", "site-functions"), "_" + cmdName
+	default:
+		return "", ""
 	}
 }
 
 // installCompletionsForShells installs completions for the specified shells.
+// Uses the same Gen* functions that Cobra's completion commands use internally.
 func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []string) ([]string, error) {
 	var paths []string
-	configs := getShellConfigs(rootCmd.Name())
 
 	for _, shellName := range shells {
-		shell, ok := configs[shellName]
-		if !ok {
+		relPath, filename := shellCompletionPath(shellName, rootCmd.Name())
+		if relPath == "" {
 			Warn("Unknown shell: %s (skipping)", shellName)
 			continue
 		}
 
-		dir := filepath.Join(root, shell.relPath)
+		dir := filepath.Join(root, relPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return paths, fmt.Errorf("failed to create %s completion directory: %w", shell.name, err)
+			return paths, fmt.Errorf("failed to create %s completion directory: %w", shellName, err)
 		}
 
-		fullPath := filepath.Join(dir, shell.filename)
+		fullPath := filepath.Join(dir, filename)
 		f, err := os.Create(fullPath)
 		if err != nil {
-			return paths, fmt.Errorf("failed to create %s completion file: %w", shell.name, err)
+			return paths, fmt.Errorf("failed to create %s completion file: %w", shellName, err)
 		}
 
-		if err := shell.genFunc(rootCmd, f); err != nil {
+		// Generate completions using the same functions Cobra's completion commands use
+		var genErr error
+		switch shellName {
+		case "bash":
+			genErr = rootCmd.GenBashCompletionV2(f, true) // true = include descriptions
+		case "fish":
+			genErr = rootCmd.GenFishCompletion(f, true)
+		case "powershell":
+			genErr = rootCmd.GenPowerShellCompletionWithDesc(f)
+		case "zsh":
+			genErr = rootCmd.GenZshCompletion(f)
+		default:
 			f.Close()
-			return paths, fmt.Errorf("failed to generate %s completion: %w", shell.name, err)
+			Warn("Unknown shell: %s (skipping)", shellName)
+			continue
 		}
 		f.Close()
+
+		if genErr != nil {
+			return paths, fmt.Errorf("failed to generate %s completion: %w", shellName, genErr)
+		}
 
 		paths = append(paths, fullPath)
 	}
@@ -409,7 +409,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 }
 
 // printShellSetupInstructions prints setup instructions for installed shells.
-func printShellSetupInstructions(shells []string) {
+func printShellSetupInstructions(shells []string, toolName string) {
 	if len(shells) == 0 {
 		return
 	}
@@ -419,14 +419,17 @@ func printShellSetupInstructions(shells []string) {
 
 	for _, shell := range shells {
 		switch shell {
-		case "zsh":
-			fmt.Fprintf(os.Stderr, "\n  For zsh, add to ~/.zshrc:\n")
-			fmt.Fprintf(os.Stderr, "    fpath=(~/.local/share/zsh/site-functions $fpath)\n")
-			fmt.Fprintf(os.Stderr, "    autoload -Uz compinit && compinit\n")
 		case "bash":
 			fmt.Fprintf(os.Stderr, "\n  For bash, ensure bash-completion is installed.\n")
 		case "fish":
 			fmt.Fprintf(os.Stderr, "\n  For fish, completions work automatically.\n")
+		case "powershell":
+			fmt.Fprintf(os.Stderr, "\n  For PowerShell, add to your $PROFILE:\n")
+			fmt.Fprintf(os.Stderr, "    . ~/.local/share/powershell/completions/%s.ps1\n", toolName)
+		case "zsh":
+			fmt.Fprintf(os.Stderr, "\n  For zsh, add to ~/.zshrc:\n")
+			fmt.Fprintf(os.Stderr, "    fpath=(~/.local/share/zsh/site-functions $fpath)\n")
+			fmt.Fprintf(os.Stderr, "    autoload -Uz compinit && compinit\n")
 		}
 	}
 }
@@ -451,8 +454,7 @@ func initDevloreConfig(info SelfInstallInfo) ([]string, error) {
 	// Create shared config.yaml if it doesn't exist
 	sharedConfigPath := filepath.Join(configDir, "config.yaml")
 	if _, err := os.Stat(sharedConfigPath); os.IsNotExist(err) {
-		sharedConfig := []byte("# DevLore shared configuration\n# Shared settings for writ and lore\n")
-		if err := os.WriteFile(sharedConfigPath, sharedConfig, 0644); err != nil {
+		if err := os.WriteFile(sharedConfigPath, schema.SharedDefaultConfig, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write shared config: %w", err)
 		}
 	}

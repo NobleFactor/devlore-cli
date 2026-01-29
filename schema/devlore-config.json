@@ -143,48 +143,20 @@
     },
     "writ": {
       "type": "object",
-      "description": "Writ-specific configuration",
+      "description": "Writ-specific configuration. Layers are directories at ~/.local/share/devlore/writ/layers/",
       "properties": {
-        "repo": {
-          "type": "string",
-          "description": "Path to a single environment repo (shorthand for personal layer)",
-          "default": "~/.local/share/dotfiles"
-        },
-        "repos": {
+        "segments": {
           "type": "array",
-          "description": "Environment repos with layer precedence: base → team → personal",
+          "description": "Custom segment names (beyond built-in OS, DISTRO, ARCH)",
           "items": {
-            "type": "object",
-            "description": "A writ-managed environment repo",
-            "properties": {
-              "name": {
-                "type": "string",
-                "description": "Display name for the repo"
-              },
-              "path": {
-                "type": "string",
-                "description": "Local path to the repo (mutually exclusive with url)"
-              },
-              "url": {
-                "type": "string",
-                "description": "Remote URL to clone (mutually exclusive with path)"
-              },
-              "layer": {
-                "type": "string",
-                "description": "Layer determines precedence: base (lowest) → team → personal (highest)",
-                "enum": ["base", "team", "personal"],
-                "default": "personal"
-              }
-            },
-            "oneOf": [
-              { "required": ["path", "layer"] },
-              { "required": ["url", "layer"] }
-            ]
-          }
+            "type": "string",
+            "description": "Segment name in UPPERCASE (e.g., ROLE, SITE)"
+          },
+          "examples": [["ROLE", "SITE"]]
         },
         "vars": {
           "type": "object",
-          "description": "Template variables for dotfile processing",
+          "description": "Template variables and segment value overrides",
           "properties": {
             "USER_NAME": {
               "type": "string",
@@ -201,54 +173,8 @@
           },
           "additionalProperties": {
             "type": "string",
-            "description": "Custom template variable"
+            "description": "Custom template variable or segment value override"
           }
-        },
-        "targets": {
-          "type": "object",
-          "description": "Segment values per target",
-          "additionalProperties": {
-            "type": "object",
-            "description": "Target-specific segment values",
-            "properties": {
-              "DISTRO": {
-                "type": "string",
-                "description": "Linux distribution (debian, ubuntu, fedora, etc.)"
-              },
-              "ROLE": {
-                "type": "string",
-                "description": "Machine role (desktop, server, workstation, etc.)"
-              },
-              "SITE": {
-                "type": "string",
-                "description": "Site or location identifier"
-              }
-            },
-            "additionalProperties": {
-              "type": "string",
-              "description": "Custom segment value"
-            }
-          }
-        },
-        "backup_suffix": {
-          "type": "string",
-          "description": "Suffix for backup files when overwriting",
-          "default": ".writ-backup"
-        },
-        "verbose": {
-          "type": "boolean",
-          "description": "Enable verbose output",
-          "default": false
-        },
-        "quiet": {
-          "type": "boolean",
-          "description": "Suppress non-error output",
-          "default": false
-        },
-        "dry_run": {
-          "type": "boolean",
-          "description": "Show what would be done without making changes",
-          "default": false
         }
       }
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-package ai
+package model
 
 import (
 	"bytes"
@@ -43,6 +43,16 @@ func NewOpenAIProvider(apiKey, model, endpoint string) *OpenAIProvider {
 // Name returns "openai".
 func (o *OpenAIProvider) Name() string {
 	return "openai"
+}
+
+// Model returns the model identifier (e.g., "gpt-4-turbo").
+func (o *OpenAIProvider) Model() string {
+	return o.model
+}
+
+// Endpoint returns the API endpoint URL.
+func (o *OpenAIProvider) Endpoint() string {
+	return o.endpoint
 }
 
 // Available checks if the API key is set.

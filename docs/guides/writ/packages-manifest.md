@@ -17,10 +17,10 @@ packages from the manifest.
 Place the manifest in your project directory:
 
 ```
-$XDG_DATA_HOME/devlore/repos/personal/
-└── Home/
-    └── noblefactor/
-        ├── packages-manifest.yaml
+my-environment/              # Your environment repo (wherever you keep it)
+└── noblefactor/             # Project
+    ├── packages-manifest.yaml
+    └── Home/                # Target
         ├── .zshrc
         └── .config/
             └── nvim/

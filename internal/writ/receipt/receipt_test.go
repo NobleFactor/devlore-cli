@@ -14,7 +14,7 @@ import (
 
 func TestNewReceipt(t *testing.T) {
 	segments := map[string]string{"OS": "Darwin", "ARCH": "arm64"}
-	rcpt := New("/home/user/dotfiles", "/home/user", []string{"all", "noblefactor"}, segments)
+	rcpt := New("/home/user/environment", "/home/user", []string{"all", "noblefactor"}, segments)
 
 	if rcpt.Version != CurrentVersion {
 		t.Errorf("expected version %q, got %q", CurrentVersion, rcpt.Version)
@@ -25,8 +25,8 @@ func TestNewReceipt(t *testing.T) {
 	if rcpt.Tool != "writ" {
 		t.Errorf("expected tool 'writ', got %q", rcpt.Tool)
 	}
-	if rcpt.Context.SourceRoot != "/home/user/dotfiles" {
-		t.Errorf("expected source_root '/home/user/dotfiles', got %q", rcpt.Context.SourceRoot)
+	if rcpt.Context.SourceRoot != "/home/user/environment" {
+		t.Errorf("expected source_root '/home/user/environment', got %q", rcpt.Context.SourceRoot)
 	}
 	if len(rcpt.Roots) != 2 {
 		t.Errorf("expected 2 roots, got %d", len(rcpt.Roots))
@@ -73,20 +73,20 @@ func TestLegacyToGraph(t *testing.T) {
 	lr := &LegacyReceipt{
 		Version:    "2",
 		Timestamp:  time.Date(2026, 1, 21, 10, 30, 0, 0, time.UTC),
-		SourceRoot: "/home/user/dotfiles",
+		SourceRoot: "/home/user/environment",
 		TargetRoot: "/home/user",
 		Projects:   []string{"all", "noblefactor"},
 		Segments:   map[string]string{"OS": "Darwin"},
 		Entries: []LegacyEntry{
 			{
-				Source:     "/home/user/dotfiles/all/.bashrc",
+				Source:     "/home/user/environment/all/.bashrc",
 				Target:     "/home/user/.bashrc",
 				RelTarget:  ".bashrc",
 				Operations: []string{"link"},
 				Project:    "all",
 			},
 			{
-				Source:          "/home/user/dotfiles/noblefactor/.gitconfig.template",
+				Source:          "/home/user/environment/noblefactor/.gitconfig.template",
 				Target:          "/home/user/.gitconfig",
 				RelTarget:       ".gitconfig",
 				Operations:      []string{"expand", "copy"},
@@ -96,7 +96,7 @@ func TestLegacyToGraph(t *testing.T) {
 				TargetChecksum:  "sha256:def456",
 			},
 			{
-				Source:          "/home/user/dotfiles/all/.zshrc",
+				Source:          "/home/user/environment/all/.zshrc",
 				Target:          "/home/user/.zshrc",
 				RelTarget:       ".zshrc",
 				Operations:      []string{"link"},
@@ -104,7 +104,7 @@ func TestLegacyToGraph(t *testing.T) {
 				AlreadyDeployed: true,
 			},
 		},
-		Delegated: []string{"/home/user/dotfiles/noblefactor/.config/packages.manifest"},
+		Delegated: []string{"/home/user/environment/noblefactor/.config/packages.manifest"},
 		Skipped:   []string{".conflicted"},
 	}
 
@@ -119,7 +119,7 @@ func TestLegacyToGraph(t *testing.T) {
 	if rcpt.Tool != "writ" {
 		t.Errorf("expected tool 'writ', got %q", rcpt.Tool)
 	}
-	if rcpt.Context.SourceRoot != "/home/user/dotfiles" {
+	if rcpt.Context.SourceRoot != "/home/user/environment" {
 		t.Errorf("expected source root, got %q", rcpt.Context.SourceRoot)
 	}
 
@@ -170,13 +170,13 @@ func TestLoadLegacyReceipt(t *testing.T) {
 	legacy := LegacyReceipt{
 		Version:    "2",
 		Timestamp:  time.Date(2026, 1, 21, 10, 30, 0, 0, time.UTC),
-		SourceRoot: "/home/user/dotfiles",
+		SourceRoot: "/home/user/environment",
 		TargetRoot: "/home/user",
 		Projects:   []string{"all"},
 		Segments:   map[string]string{},
 		Entries: []LegacyEntry{
 			{
-				Source:     "/home/user/dotfiles/all/.bashrc",
+				Source:     "/home/user/environment/all/.bashrc",
 				Target:     "/home/user/.bashrc",
 				RelTarget:  ".bashrc",
 				Operations: []string{"link"},
@@ -223,7 +223,7 @@ func TestLoadV4Receipt(t *testing.T) {
 		Tool:      "writ",
 		Platform:  Platform{OS: "darwin", Arch: "arm64"},
 		Context: WritContext{
-			SourceRoot: "/home/user/dotfiles",
+			SourceRoot: "/home/user/environment",
 			TargetRoot: "/home/user",
 			Projects:   []string{"all"},
 			Segments:   map[string]string{},
@@ -234,7 +234,7 @@ func TestLoadV4Receipt(t *testing.T) {
 				ID:        ".bashrc",
 				Operation: "link",
 				Status:    "completed",
-				Source:    "/home/user/dotfiles/all/.bashrc",
+				Source:    "/home/user/environment/all/.bashrc",
 				Target:    "/home/user/.bashrc",
 				Project:   "all",
 			},

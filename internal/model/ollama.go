@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-package ai
+package model
 
 import (
 	"bytes"
@@ -40,6 +40,16 @@ func NewOllamaProvider(endpoint, model string) *OllamaProvider {
 // Name returns "ollama".
 func (o *OllamaProvider) Name() string {
 	return "ollama"
+}
+
+// Model returns the model identifier (e.g., "llama3.1:8b").
+func (o *OllamaProvider) Model() string {
+	return o.model
+}
+
+// Endpoint returns the Ollama API endpoint URL.
+func (o *OllamaProvider) Endpoint() string {
+	return o.endpoint
 }
 
 // Available checks if Ollama is running and the model is available.

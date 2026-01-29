@@ -27,10 +27,9 @@ func NewRootCmd() *cobra.Command {
 	cli.SetProgramName("lore")
 
 	rootCmd := &cobra.Command{
-		Use:                   "lore",
-		Short:                 "The tribal knowledge package deployer",
-		CompletionOptions:     cobra.CompletionOptions{DisableDefaultCmd: true},
-		DisableAutoGenTag:     true,
+		Use:               "lore",
+		Short:             "The tribal knowledge package deployer",
+		DisableAutoGenTag: true,
 		Long: `Lore is a cross-platform package deployment tool that captures tribal
 knowledge about installing software.
 
@@ -45,6 +44,9 @@ anywhere.
 
 Lore captures this knowledge once and shares it forever.
 What took someone hours to figure out, you get in minutes.`,
+		CompletionOptions: cobra.CompletionOptions{
+			HiddenDefaultCmd: true, // Hide from help, but still available (like Docker)
+		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return initConfig(cmd)
 		},
@@ -61,6 +63,14 @@ What took someone hours to figure out, you get in minutes.`,
 	rootCmd.PersistentFlags().Bool("interactive", false, "Force interactive mode (prompts, rich output)")
 	rootCmd.PersistentFlags().Bool("unattended", false, "Force unattended mode (no prompts, sensible defaults)")
 	rootCmd.MarkFlagsMutuallyExclusive("interactive", "unattended")
+
+	// Model configuration flags (override env/config)
+	// Resolution order: CLI flags → Environment → Config file → Keystore (api-key only)
+	// See internal/model/config.go for full documentation.
+	rootCmd.PersistentFlags().String("model", "", "Model name (e.g., claude-sonnet-4-20250514, gpt-4o)")
+	rootCmd.PersistentFlags().String("model-api-key", "", "Model provider API key")
+	rootCmd.PersistentFlags().String("model-endpoint", "", "Model provider endpoint URL")
+	rootCmd.PersistentFlags().String("model-provider", "", "Model provider: anthropic, openai, azure-openai, ollama, github")
 
 	// Add subcommands
 	rootCmd.AddCommand(newDeployCmd())

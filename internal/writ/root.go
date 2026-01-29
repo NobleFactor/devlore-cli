@@ -27,9 +27,8 @@ func NewRootCmd() *cobra.Command {
 	cli.SetProgramName("writ")
 
 	rootCmd := &cobra.Command{
-		Use:                   "writ",
-		Short:                 "Environment manager with platform-aware symlinks",
-		CompletionOptions:     cobra.CompletionOptions{DisableDefaultCmd: true},
+		Use:   "writ",
+		Short: "Environment manager with platform-aware symlinks",
 		Long: `Writ orchestrates your portable environment—configuration, scripts, utilities,
 templates, and software manifests. Lore is a component that writ delegates to
 for software installation.
@@ -40,6 +39,9 @@ automatically. Templates handle machine-specific values.
 Writ exists because environment management shouldn't require manual symlink
 creation, platform-specific scripts, or secret leakage into git.
 Declare your environment once — writ deploys it everywhere you work.`,
+		CompletionOptions: cobra.CompletionOptions{
+			HiddenDefaultCmd: true, // Hide from help, but still available (like Docker)
+		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return initConfig(cmd)
 		},
@@ -57,6 +59,14 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.PersistentFlags().Bool("unattended", false, "Force unattended mode (no prompts, sensible defaults)")
 	rootCmd.MarkFlagsMutuallyExclusive("interactive", "unattended")
 
+	// Model configuration flags (override env/config)
+	// Resolution order: CLI flags → Environment → Config file → Keystore (api-key only)
+	// See internal/ai/config.go for full documentation.
+	rootCmd.PersistentFlags().String("model", "", "Model name (e.g., claude-sonnet-4-20250514, gpt-4o)")
+	rootCmd.PersistentFlags().String("model-api-key", "", "Model provider API key")
+	rootCmd.PersistentFlags().String("model-endpoint", "", "Model provider endpoint URL")
+	rootCmd.PersistentFlags().String("model-provider", "", "Model provider: anthropic, openai, azure-openai, ollama, github")
+
 	// Add subcommands
 	rootCmd.AddCommand(newAddCmd())
 	rootCmd.AddCommand(newRemoveCmd())
@@ -64,7 +74,6 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.AddCommand(newUpgradeCmd())
 	rootCmd.AddCommand(newAdoptCmd())
 	rootCmd.AddCommand(newListCmd())
-	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newSecretsCmd())
 	rootCmd.AddCommand(newReceiptCmd())

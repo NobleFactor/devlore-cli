@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-package ai
+package model
 
 import (
 	"bytes"
@@ -37,6 +37,16 @@ func NewAnthropicProvider(apiKey, model string) *AnthropicProvider {
 // Name returns "anthropic".
 func (a *AnthropicProvider) Name() string {
 	return "anthropic"
+}
+
+// Model returns the model identifier (e.g., "claude-sonnet-4-20250514").
+func (a *AnthropicProvider) Model() string {
+	return a.model
+}
+
+// Endpoint returns empty string (Anthropic uses fixed endpoint).
+func (a *AnthropicProvider) Endpoint() string {
+	return "" // Fixed: https://api.anthropic.com/v1/messages
 }
 
 // Available checks if the API key is valid.

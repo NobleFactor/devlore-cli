@@ -29,7 +29,7 @@ type State struct {
 	// LastUpdated is when the state was last modified.
 	LastUpdated time.Time `json:"last_updated" yaml:"last_updated"`
 
-	// SourceRoot is the dotfiles repository path.
+	// SourceRoot is the environment layer path.
 	// For multi-layer deployments, this is the first layer's path.
 	SourceRoot string `json:"source_root" yaml:"source_root"`
 
@@ -49,7 +49,7 @@ type State struct {
 
 // FileEntry represents a single deployed file in the state.
 type FileEntry struct {
-	// Source is the absolute path in the dotfiles repo.
+	// Source is the absolute path in the layer.
 	Source string `json:"source" yaml:"source"`
 
 	// Project this file belongs to.
@@ -104,8 +104,9 @@ func New(sourceRoot, targetRoot string) *State {
 }
 
 // StateDir returns the writ state directory.
+// Default: ~/.local/state/devlore/writ
 func StateDir() string {
-	return filepath.Join(cli.StateHome(), "writ")
+	return filepath.Join(cli.DevloreStateHome(), "writ")
 }
 
 // StatePath returns the path to the state file.

@@ -96,7 +96,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if len(layerSources) == 0 {
 		sourceRoot = cli.GetString("writ", "repo", true)
 		if sourceRoot == "" {
-			return fmt.Errorf("no repo configured; use 'writ repo init' or 'writ repo add' to configure a repository")
+			return fmt.Errorf("no layer configured; use 'writ migrate <source>' to migrate your environment to a writ layer")
 		}
 		sourceRoot = expandPath(sourceRoot)
 	}
@@ -1497,13 +1497,17 @@ func outputStatusText(report *status.Report) error {
 
 func newAdoptCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "adopt [flags] <project> <file|dir>...",
+		Use:   "adopt [flags] <item>...",
 		Short: "Move files from target location into a project and create symlinks",
 		Long: `Move files from target location into a project and create symlinks.
 
 Use this to bring existing configuration files under version control.
-Files are moved to <repo>/<source>/<project>/ preserving their relative path,
+Files are moved to <layer>/<scope>/<project>/ preserving their relative path,
 then symlinked back to the original location.
+
+Scope (Home or System) is inferred from the item's location:
+  - Items under $HOME are adopted into Home/
+  - Items under / (Unix) or %SystemRoot% (Windows) are adopted into System/
 
 Directories are adopted recursively—all files within are moved and symlinked.
 Existing symlinks within directories are skipped.
@@ -1511,26 +1515,29 @@ Existing symlinks within directories are skipped.
 With --from-receipt, reads a lore receipt and adopts packages.manifest and
 config files into the environment repository.`,
 		Example: `  # Adopt a single file into personal layer
-  writ adopt noblefactor .zshrc
+  writ adopt --project noblefactor ~/.zshrc
 
   # Adopt multiple files
-  writ adopt noblefactor .zshrc .bashrc .config/nvim/init.lua
+  writ adopt --project noblefactor ~/.zshrc ~/.bashrc ~/.config/nvim/init.lua
 
   # Adopt an entire directory recursively
-  writ adopt noblefactor .config/nvim
+  writ adopt --project noblefactor ~/.config/nvim
 
   # Adopt into team layer
-  writ adopt --layer=team shared .editorconfig
+  writ adopt --layer team --project shared ~/.editorconfig
+
+  # Adopt system file (inferred as System scope)
+  writ adopt --project noblefactor /etc/myapp/config.yaml
 
   # Adopt from lore receipt
   writ adopt --from-receipt
   writ adopt --from-receipt ~/.local/state/lore/receipts/2026-01-19T14:32:07.yaml`,
-		Args: cobra.MinimumNArgs(1),
+		Args: cobra.MinimumNArgs(0),
 		RunE: runAdopt,
 	}
 
 	cmd.Flags().String("layer", "personal", "Layer to adopt into: personal, team, or base")
-	cmd.Flags().String("source", "Home", "Source directory within the repo (e.g., Home, System)")
+	cmd.Flags().String("project", "", "Project name within the layer (required)")
 	cmd.Flags().Bool("from-receipt", false, "Adopt packages.manifest and config from lore receipt")
 
 	return cmd
@@ -1541,7 +1548,7 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 	verbose := viper.GetBool("writ.verbose")
 	dryRun := viper.GetBool("writ.dry-run")
 	layer, _ := cmd.Flags().GetString("layer")
-	source, _ := cmd.Flags().GetString("source")
+	project, _ := cmd.Flags().GetString("project")
 	fromReceipt, _ := cmd.Flags().GetBool("from-receipt")
 
 	// Handle --from-receipt mode
@@ -1550,44 +1557,40 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 		if len(args) > 0 {
 			receiptPath = args[0]
 		}
-		return runAdoptFromReceipt(receiptPath, layer, source, verbose, dryRun)
+		return runAdoptFromReceipt(receiptPath, layer, project, verbose, dryRun)
 	}
 
-	// Normal mode: adopt <project> <file>...
-	if len(args) < 2 {
-		return fmt.Errorf("requires at least 2 arguments: <project> <file>...")
+	// Normal mode: adopt --project=<project> <item>...
+	if project == "" {
+		return fmt.Errorf("--project is required")
+	}
+	if len(args) < 1 {
+		return fmt.Errorf("requires at least 1 item to adopt")
 	}
 
-	project := args[0]
-	files := args[1:]
+	files := args
 
 	// Validate layer
 	if layer != "personal" && layer != "team" && layer != "base" {
 		return fmt.Errorf("invalid --layer %q: must be personal, team, or base", layer)
 	}
 
-	// Get repo path for layer
-	repoPath := getConfiguredRepo(layer)
-	if repoPath == "" {
-		return fmt.Errorf("no repository configured for layer %q\nUse 'writ repo init --layer=%s' or 'writ repo add --layer=%s <path>'", layer, layer, layer)
+	// Get layer path
+	layerPath := filepath.Join(cli.WritLayersDir(), layer)
+	if _, err := os.Stat(layerPath); os.IsNotExist(err) {
+		return fmt.Errorf("layer %q does not exist at %s\nRun 'writ self-install' to create layers", layer, layerPath)
 	}
 
-	// Determine target root (where files currently live)
-	targetRoot := os.Getenv("HOME")
-	if targetRoot == "" {
+	// Determine HOME for scoping
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
 		return fmt.Errorf("HOME environment variable not set")
 	}
 
-	// Project directory in repo
-	projectDir := filepath.Join(repoPath, source, project)
-
 	if verbose {
 		cli.Note("Layer: %s", layer)
-		cli.Note("Repo: %s", repoPath)
-		cli.Note("Source: %s", source)
+		cli.Note("Layer path: %s", layerPath)
 		cli.Note("Project: %s", project)
-		cli.Note("Project dir: %s", projectDir)
-		cli.Note("Target root: %s", targetRoot)
 	}
 
 	// Process each file
@@ -1598,7 +1601,15 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 
 		// Make absolute if relative
 		if !filepath.IsAbs(filePath) {
-			filePath = filepath.Join(targetRoot, filePath)
+			filePath = filepath.Join(homeDir, filePath)
+		}
+
+		// Determine scope based on file location
+		scope := inferScope(filePath, homeDir)
+		projectDir := filepath.Join(layerPath, scope, project)
+
+		if verbose {
+			cli.Note("File: %s -> scope: %s", filePath, scope)
 		}
 
 		// Verify file exists and is not a symlink
@@ -1615,6 +1626,12 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			cli.Warn("%s: already a symlink (skip)", file)
 			continue
+		}
+
+		// Determine target root for this scope
+		targetRoot := homeDir
+		if scope == "System" {
+			targetRoot = "/"
 		}
 
 		// Handle directories recursively
@@ -1668,17 +1685,34 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 	if dryRun {
 		cli.Note("Dry-run: would adopt %d file(s)", adopted)
 	} else {
-		cli.Success("Adopted %d file(s) into %s/%s", adopted, source, project)
+		cli.Success("Adopted %d file(s) into %s/%s", adopted, layer, project)
 		if adopted > 0 {
-			cli.Note("Remember to commit: cd %s && git add -A && git commit", repoPath)
+			cli.Note("Remember to commit: cd %s && git add -A && git commit", layerPath)
 		}
 	}
 
 	return nil
 }
 
+// inferScope determines whether a file path belongs to Home or System scope.
+// Unix: paths under $HOME are Home, paths under / are System
+// Windows: paths under %USERPROFILE% are Home, paths under %SystemRoot% are System
+func inferScope(filePath, homeDir string) string {
+	// Normalize paths for comparison
+	filePath = filepath.Clean(filePath)
+	homeDir = filepath.Clean(homeDir)
+
+	// If path is under home directory, it's Home scope
+	if strings.HasPrefix(filePath, homeDir+string(filepath.Separator)) || filePath == homeDir {
+		return "Home"
+	}
+
+	// Otherwise it's System scope
+	return "System"
+}
+
 // runAdoptFromReceipt adopts files from a lore receipt.
-func runAdoptFromReceipt(receiptPath, layer, source string, verbose, dryRun bool) error {
+func runAdoptFromReceipt(receiptPath, layer, project string, verbose, dryRun bool) error {
 	// TODO: Implement reading lore receipt and adopting packages.manifest + config
 	if receiptPath == "" {
 		cli.Warn("adopt --from-receipt: not yet implemented (would use most recent receipt)")
@@ -1824,27 +1858,29 @@ func newListCmd() *cobra.Command {
 	return cmd
 }
 
-// getConfiguredRepo returns the path for a configured layer, or empty string.
+// getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.
+// Layers are directories (or symlinks) at ~/.local/share/devlore/writ/layers/{layer}/
 func getConfiguredRepo(layer string) string {
-	// Check writ.repos array
-	repos := viper.Get("writ.repos")
-	if repoSlice, ok := repos.([]interface{}); ok {
-		for _, r := range repoSlice {
-			if repoMap, ok := r.(map[string]interface{}); ok {
-				if repoMap["layer"] == layer {
-					if path, ok := repoMap["path"].(string); ok {
-						return expandPath(path)
-					}
-				}
-			}
-		}
+	layerPath := filepath.Join(cli.WritLayersDir(), layer)
+
+	// Check if layer exists (directory or symlink)
+	info, err := os.Lstat(layerPath)
+	if err != nil {
+		return ""
 	}
 
-	// Fallback: check legacy writ.repo for personal layer
-	if layer == "personal" {
-		if legacyRepo := viper.GetString("writ.repo"); legacyRepo != "" {
-			return expandPath(legacyRepo)
+	// If it's a symlink, resolve it to get the actual path
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(layerPath)
+		if err != nil {
+			return "" // Broken symlink
 		}
+		return target
+	}
+
+	// It's a directory
+	if info.IsDir() {
+		return layerPath
 	}
 
 	return ""

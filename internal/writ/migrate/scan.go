@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-package cli
+package migrate
 
 import (
 	"fmt"
@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 )
 
-// RepoScanResult holds the results of scanning a potential writ repository.
-type RepoScanResult struct {
+// ScanResult holds the results of scanning a source directory for migration.
+type ScanResult struct {
 	Path string
 
 	// Git information
@@ -24,7 +26,7 @@ type RepoScanResult struct {
 	GitError string
 
 	// Structure detection
-	Structure     RepoStructure
+	Structure     SourceStructure
 	HomePath      string // path to detected Home-equivalent directory
 	Projects      []ProjectInfo
 	NestedUnder   string // non-empty if projects are nested (e.g., "Configs")
@@ -36,28 +38,28 @@ type RepoScanResult struct {
 	Migrations []Migration
 }
 
-// RepoStructure describes the detected repository layout.
-type RepoStructure int
+// SourceStructure describes the detected source directory layout.
+type SourceStructure int
 
 const (
-	StructureUnknown     RepoStructure = iota
-	StructureCompatible                // Home/<project>/ with "." segments
-	StructurePartial                   // Has Home/ but needs migration
-	StructureTraditional               // Dotfiles at root
-	StructureStow                      // Stow-like packages at root
+	StructureUnknown     SourceStructure = iota
+	StructureCompatible                  // Home/<project>/ with "." segments
+	StructurePartial                     // Has Home/ but needs migration
+	StructureFlat                        // Dot-prefixed files at root (e.g., .bashrc, .vimrc)
+	StructureStow                        // GNU Stow directory with packages
 )
 
 // String returns a human-readable label for the structure type.
-func (s RepoStructure) String() string {
+func (s SourceStructure) String() string {
 	switch s {
 	case StructureCompatible:
 		return "writ-compatible"
 	case StructurePartial:
 		return "partial match"
-	case StructureTraditional:
-		return "traditional dotfiles"
+	case StructureFlat:
+		return "flat layout"
 	case StructureStow:
-		return "stow-like"
+		return "stow directory"
 	default:
 		return "unknown"
 	}
@@ -79,9 +81,9 @@ type Migration struct {
 	Commands []string // suggested git commands to fix it
 }
 
-// ScanRepo inspects a directory and reports on its suitability as a writ repository.
-func ScanRepo(path string) *RepoScanResult {
-	result := &RepoScanResult{Path: path}
+// ScanSource inspects a directory and reports on its suitability for writ migration.
+func ScanSource(path string) *ScanResult {
+	result := &ScanResult{Path: path}
 
 	// Check path exists
 	info, err := os.Stat(path)
@@ -115,7 +117,7 @@ func ScanRepo(path string) *RepoScanResult {
 }
 
 // scanGit checks git repository status.
-func scanGit(result *RepoScanResult) {
+func scanGit(result *ScanResult) {
 	gitDir := filepath.Join(result.Path, ".git")
 	if !dirExists(gitDir) {
 		return
@@ -142,7 +144,7 @@ func scanGit(result *RepoScanResult) {
 }
 
 // scanHomeDir scans the Home/ directory for projects and structure.
-func scanHomeDir(result *RepoScanResult, homePath string) {
+func scanHomeDir(result *ScanResult, homePath string) {
 	entries, err := os.ReadDir(homePath)
 	if err != nil {
 		return
@@ -178,7 +180,7 @@ func scanHomeDir(result *RepoScanResult, homePath string) {
 }
 
 // scanProjects scans project directories and checks segment conventions.
-func scanProjects(result *RepoScanResult, projectsPath string) {
+func scanProjects(result *ScanResult, projectsPath string) {
 	entries, err := os.ReadDir(projectsPath)
 	if err != nil {
 		return
@@ -245,7 +247,7 @@ func scanProjects(result *RepoScanResult, projectsPath string) {
 		return result.Projects[i].Name < result.Projects[j].Name
 	})
 
-	// Determine the relative path from repo root to the projects directory
+	// Determine the relative path from source root to the projects directory
 	relProjects, _ := filepath.Rel(result.Path, projectsPath)
 
 	// Determine structure compatibility
@@ -272,15 +274,15 @@ func scanProjects(result *RepoScanResult, projectsPath string) {
 	}
 }
 
-// scanAlternativeStructures checks for traditional or stow-like repos.
-func scanAlternativeStructures(result *RepoScanResult) {
+// scanAlternativeStructures checks for flat layout or GNU Stow directories.
+func scanAlternativeStructures(result *ScanResult) {
 	entries, err := os.ReadDir(result.Path)
 	if err != nil {
 		return
 	}
 
-	var dotfiles []string
-	var stowDirs []string
+	var dotPrefixedFiles []string
+	var stowPackages []string
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -288,17 +290,18 @@ func scanAlternativeStructures(result *RepoScanResult) {
 			continue
 		}
 
+		// Dot-prefixed files at root (flat layout)
 		if strings.HasPrefix(name, ".") && !entry.IsDir() {
-			dotfiles = append(dotfiles, name)
+			dotPrefixedFiles = append(dotPrefixedFiles, name)
 		}
 
+		// Directories that contain dot-prefixed files (GNU Stow packages)
 		if entry.IsDir() && !strings.HasPrefix(name, ".") {
-			// Check if this dir contains dotfiles (stow pattern)
 			subEntries, err := os.ReadDir(filepath.Join(result.Path, name))
 			if err == nil {
 				for _, se := range subEntries {
 					if strings.HasPrefix(se.Name(), ".") {
-						stowDirs = append(stowDirs, name)
+						stowPackages = append(stowPackages, name)
 						break
 					}
 				}
@@ -306,23 +309,23 @@ func scanAlternativeStructures(result *RepoScanResult) {
 		}
 	}
 
-	if len(dotfiles) > 2 {
-		result.Structure = StructureTraditional
+	if len(dotPrefixedFiles) > 2 {
+		result.Structure = StructureFlat
 		result.Migrations = append(result.Migrations, Migration{
-			Issue: fmt.Sprintf("Traditional dotfiles repo (found %s at root)", strings.Join(dotfiles, ", ")),
+			Issue: fmt.Sprintf("Flat layout: dot-prefixed files at root (%s)", strings.Join(dotPrefixedFiles, ", ")),
 			Commands: []string{
 				"mkdir -p Home/all",
-				fmt.Sprintf("git mv %s Home/all/", strings.Join(dotfiles, " ")),
+				fmt.Sprintf("git mv %s Home/all/", strings.Join(dotPrefixedFiles, " ")),
 			},
 		})
-	} else if len(stowDirs) > 1 {
+	} else if len(stowPackages) > 1 {
 		result.Structure = StructureStow
 		result.Migrations = append(result.Migrations, Migration{
-			Issue: fmt.Sprintf("Stow-like repo (directories with dotfiles: %s)", strings.Join(stowDirs, ", ")),
+			Issue: fmt.Sprintf("GNU Stow directory with packages: %s", strings.Join(stowPackages, ", ")),
 			Commands: []string{
 				"mkdir Home",
-				fmt.Sprintf("git mv %s Home/", strings.Join(stowDirs, " ")),
-				"# Rename if desired: git mv Home/zsh Home/all",
+				fmt.Sprintf("git mv %s Home/", strings.Join(stowPackages, " ")),
+				"# Rename packages if desired: git mv Home/zsh Home/all",
 			},
 		})
 	} else {
@@ -331,15 +334,15 @@ func scanAlternativeStructures(result *RepoScanResult) {
 			Issue: "No Home/ directory found and structure not recognized",
 			Commands: []string{
 				"mkdir -p Home/all",
-				"# Move your dotfiles into Home/all/",
+				"# Move your configuration files into Home/all/",
 			},
 		})
 	}
 }
 
 // PrintReport outputs the scan result to stderr.
-func (r *RepoScanResult) PrintReport() {
-	Note("Scanning repo: %s", r.Path)
+func (r *ScanResult) PrintReport() {
+	cli.Note("Scanning source: %s", r.Path)
 
 	// Git info
 	if r.IsGit {
@@ -348,21 +351,21 @@ func (r *RepoScanResult) PrintReport() {
 			gitInfo += fmt.Sprintf(", %d uncommitted", r.Dirty)
 		}
 		gitInfo += ")"
-		Note("%s", gitInfo)
+		cli.Note("%s", gitInfo)
 		if r.Remote != "" {
-			Note("  origin: %s", r.Remote)
+			cli.Note("  origin: %s", r.Remote)
 		}
 	} else {
-		Warn("Git: no (not a git repository)")
+		cli.Warn("Git: no (not a git repository)")
 	}
 
 	// Structure
-	Note("Structure: %s", r.Structure)
+	cli.Note("Structure: %s", r.Structure)
 
 	// Projects
 	if len(r.Projects) > 0 {
 		fmt.Fprintf(os.Stderr, "\n")
-		Note("Projects:")
+		cli.Note("Projects:")
 		for _, p := range r.Projects {
 			suffix := ""
 			if p.Segment != "" {
@@ -375,41 +378,41 @@ func (r *RepoScanResult) PrintReport() {
 			if p.Secrets > 0 {
 				details += fmt.Sprintf(", %d secrets", p.Secrets)
 			}
-			Note("  %-24s %s%s", p.Name, details, suffix)
+			cli.Note("  %-24s %s%s", p.Name, details, suffix)
 		}
 	}
 
 	// Features
 	fmt.Fprintf(os.Stderr, "\n")
 	if r.TemplateCount > 0 {
-		Note("Templates: %d (.template)", r.TemplateCount)
+		cli.Note("Templates: %d (.template)", r.TemplateCount)
 	}
 	if r.SecretCount > 0 {
-		Note("Secrets: %d (.age)", r.SecretCount)
+		cli.Note("Secrets: %d (.age)", r.SecretCount)
 	}
 	if r.HasRecipients {
-		Note("Recipients: .age-recipients found")
+		cli.Note("Recipients: .age-recipients found")
 	}
 
 	// Migrations
 	if len(r.Migrations) > 0 {
 		fmt.Fprintf(os.Stderr, "\n")
-		Warn("Migration needed:")
+		cli.Warn("Migration needed:")
 		for i, m := range r.Migrations {
 			fmt.Fprintf(os.Stderr, "\n")
-			Warn("  %d. %s", i+1, m.Issue)
+			cli.Warn("  %d. %s", i+1, m.Issue)
 			for _, cmd := range m.Commands {
-				Note("     %s", cmd)
+				cli.Note("     %s", cmd)
 			}
 		}
 	} else {
 		fmt.Fprintf(os.Stderr, "\n")
-		Success("No migration needed")
+		cli.Success("No migration needed")
 	}
 }
 
 // NeedsMigration returns true if the scan found issues that require migration.
-func (r *RepoScanResult) NeedsMigration() bool {
+func (r *ScanResult) NeedsMigration() bool {
 	return len(r.Migrations) > 0
 }
 

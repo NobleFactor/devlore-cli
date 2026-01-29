@@ -123,7 +123,7 @@ type Report struct {
 	// TargetRoot is the deployment target (e.g., $HOME)
 	TargetRoot string
 
-	// SourceRoot is the dotfiles repository path
+	// SourceRoot is the environment layer path
 	SourceRoot string
 
 	// Projects checked

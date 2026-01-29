@@ -113,6 +113,39 @@ func TestDetectBareGit(t *testing.T) {
 	}
 }
 
+func TestDetectNative(t *testing.T) {
+	dir := t.TempDir()
+	// Create Home/<project> structure
+	if err := os.MkdirAll(filepath.Join(dir, "Home", "all"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Home", "all", ".bashrc"), []byte("# bashrc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	system, err := Detect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if system != SystemNative {
+		t.Errorf("Detect() = %q, want %q", system, SystemNative)
+	}
+}
+
+func TestDetectNativeSystem(t *testing.T) {
+	dir := t.TempDir()
+	// Create System/<project> structure (no Home)
+	if err := os.MkdirAll(filepath.Join(dir, "System", "base", "etc"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	system, err := Detect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if system != SystemNative {
+		t.Errorf("Detect() = %q, want %q", system, SystemNative)
+	}
+}
+
 func TestInventory(t *testing.T) {
 	root := fixtureRoot(t)
 	entries, err := Inventory(root)
