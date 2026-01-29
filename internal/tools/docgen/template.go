@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 // Package docgen generates Docker-style CLI reference documentation
 // in Markdown with Astro frontmatter from Cobra command trees.
