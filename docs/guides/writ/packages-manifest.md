@@ -9,7 +9,7 @@ order: 4
 # Packages Manifest
 
 A `packages-manifest.yaml` (or `.json`) file declares software dependencies for
-a writ project. When you run `writ add`, writ delegates to lore to install
+a writ project. When you run `writ deploy`, writ delegates to lore to install
 packages from the manifest.
 
 ## Location
@@ -75,7 +75,7 @@ package are defined in the lore registry.
 ## How it works
 
 ```
-writ add noblefactor
+writ deploy noblefactor
   │
   ├── Create symlinks for configuration files
   │

@@ -542,7 +542,7 @@ func formatText(w io.Writer, plan *MigrationPlan) error {
 	}
 	fmt.Fprintf(w, "TODOs after migration:\n")
 	todoNum := 1
-	fmt.Fprintf(w, "  %d. Run: writ add %s\n", todoNum, strings.Join(projects, " "))
+	fmt.Fprintf(w, "  %d. Run: writ deploy %s\n", todoNum, strings.Join(projects, " "))
 	todoNum++
 
 	// Check for unencrypted secrets

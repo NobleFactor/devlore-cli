@@ -123,21 +123,14 @@ func newDecommissionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "decommission [@<receipt>] [<package>...]",
 		Short: "Remove packages and clean up their resources",
-		Long: `Remove packages and clean up their resources.
-
-With --orphans-only, only removes packages that are no longer referenced
-by any packages.manifest in the environment repository. This is used by
-writ when removing a project to clean up software that's no longer needed.`,
+		Long:  `Remove packages and clean up their resources.`,
 		Example: `  lore decommission @workstation
-  lore decommission docker kubectl
-  lore decommission --orphans-only  # Remove unreferenced packages`,
+  lore decommission docker kubectl`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("decommission: not yet implemented")
 			return nil
 		},
 	}
-
-	cmd.Flags().Bool("orphans-only", false, "Only remove packages not referenced by any manifest")
 
 	return cmd
 }

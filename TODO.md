@@ -21,7 +21,7 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 
 **Should cover:**
 - `lore deploy` failures: permission errors, network failures, package not found
-- `writ add` conflicts: symlink already exists, file conflicts between layers
+- `writ deploy` conflicts: symlink already exists, file conflicts between layers
 - Broken symlinks: detection and repair
 - Rollback procedures: how to undo a bad deployment
 - State file corruption: detection and recovery
@@ -40,13 +40,13 @@ This file tracks documentation gaps, incomplete features, and pending decisions 
 **Location:** Should be created at `docs/guides/integration.md` or added to getting-started.md
 
 **Context:** Both tools document their side of the integration separately:
-- `docs/guides/writ/manage-environments.md` (lines 142-159): shows `writ add` calling `lore deploy`
+- `docs/guides/writ/manage-environments.md` (lines 142-159): shows `writ deploy` calling `lore deploy`
 - `docs/guides/lore/deploy-packages.md` (lines 142-159): shows same flow from lore's perspective
 
 **Should cover:**
-- Complete end-to-end workflow: writ add → lore deploy → verify → writ reconcile
+- Complete end-to-end workflow: writ deploy → lore deploy → verify → writ reconcile
 - When to use lore standalone vs integrated with writ
-- Error propagation: what happens if lore fails during writ add?
+- Error propagation: what happens if lore fails during writ deploy?
 - Partial success handling: some packages deployed, some failed
 - Manual intervention points
 
@@ -760,8 +760,8 @@ This section tracks the implementation work needed for writ to process multiple 
 
 | Command | Needs Layers | Reason |
 |---------|--------------|--------|
-| `writ add` | Yes | Deploys from all layers, personal overrides team overrides base |
-| `writ remove` | Yes | Must know which layer(s) deployed each file |
+| `writ deploy` | Yes | Deploys from all layers, personal overrides team overrides base |
+| `writ decommission` | Yes | Must know which layer(s) deployed each file |
 | `writ regenerate` | Yes | Re-processes templates/secrets from all layers |
 | `writ reconcile` | Yes | Shows status across all layers |
 | `writ projects` | Yes | Lists projects from all configured repos |
@@ -770,7 +770,6 @@ This section tracks the implementation work needed for writ to process multiple 
 **Commands NOT needing layer processing:**
 - `writ migrate` — single repo migration
 - `writ config` — system configuration
-- `writ secrets *` — operates within single repo
 - `writ receipt *` — reads historical data
 
 ### 6.2 Processing Order
@@ -895,8 +894,8 @@ if newLayer.Order > existing.Layer.Order {
 
 #### Phase 4: Command Updates
 
-**6.3.7 writ add** — Use collectLayerSources()
-**6.3.8 writ remove** — Load state to determine which layer deployed each file
+**6.3.7 writ deploy** — Use collectLayerSources()
+**6.3.8 writ decommission** — Load state to determine which layer deployed each file
 **6.3.9 writ reconcile** — Build graph from all layers, show layer info in output
 **6.3.10 writ projects** — List projects from all configured repos with layer indicator
 **6.3.11 writ regenerate** — Process all layers for templates/secrets
@@ -925,10 +924,10 @@ type WritContext struct {
 |------|---------|
 | `internal/writ/layer.go` | NEW: LayerSource, LayerOrder, TargetOrder, collectLayerSources() |
 | `internal/writ/tree/builder.go` | BuildConfig.Sources, BuildResult.NodeLayers, layer-aware collision |
-| `internal/writ/commands.go` | runAdd, runRemove, runStatus, runProjects, runRegenerate |
+| `internal/writ/commands.go` | runDeploy, runDecommission, runReconcile, runProjects, runRegenerate |
 | `internal/writ/state/state.go` | FileEntry.Layer field |
 | `internal/writ/receipt/receipt.go` | WritContext.Layers field |
-| `internal/writ/status/status.go` | Layer-aware status reporting |
+| `internal/writ/reconcile/reconcile.go` | Layer-aware reconcile reporting |
 
 ### 6.5 Test Cases
 

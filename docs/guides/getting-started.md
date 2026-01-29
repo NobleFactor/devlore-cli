@@ -77,7 +77,7 @@ cp ~/.zshrc noblefactor/.zshrc
 ## Deploy the project
 
 ```bash
-writ add noblefactor
+writ deploy noblefactor
 ```
 
 Writ creates symlinks from your home directory to the project files:
@@ -115,7 +115,7 @@ packages:
 ```
 
 ```bash
-writ add noblefactor
+writ deploy noblefactor
 # → symlinks configuration files
 # → calls lore to install gh, jq, ripgrep, neovim
 ```

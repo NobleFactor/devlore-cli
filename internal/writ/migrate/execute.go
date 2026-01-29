@@ -77,7 +77,7 @@ func Execute(w io.Writer, plan *MigrationPlan) error {
 
 	projects := UniqueProjects(plan.Entries)
 	fmt.Fprintf(w, "  git add -A && git commit -m \"Migrate to writ naming conventions\"\n")
-	fmt.Fprintf(w, "  writ add %s\n", joinWords(projects))
+	fmt.Fprintf(w, "  writ deploy %s\n", joinWords(projects))
 
 	return nil
 }

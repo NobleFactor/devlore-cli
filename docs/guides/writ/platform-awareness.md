@@ -25,7 +25,7 @@ Home/
 └── noblefactor.Linux.Debian/ # Debian/Ubuntu-specific variant
 ```
 
-When you run `writ add noblefactor`, writ deploys files from:
+When you run `writ deploy noblefactor`, writ deploys files from:
 1. The base `noblefactor/` directory (always)
 2. Any variant directories that match your current platform
 
@@ -65,8 +65,8 @@ Beyond automatic detection, writ supports custom segments for more granular cont
 Specify segments at deploy time:
 
 ```bash
-writ add -s ROLE=desktop noblefactor
-writ add -s ROLE=server noblefactor
+writ deploy -s ROLE=desktop noblefactor
+writ deploy -s ROLE=server noblefactor
 ```
 
 Create directories with custom segment suffixes:
@@ -83,7 +83,7 @@ Home/
 Multiple segments can be combined:
 
 ```bash
-writ add -s ROLE=desktop -s SITE=aws noblefactor
+writ deploy -s ROLE=desktop -s SITE=aws noblefactor
 ```
 
 ## File organization
@@ -123,7 +123,7 @@ in variants.
 The project name `all` is reserved and has special behavior:
 
 - **Always matched**: `all` and its variants (`all.Darwin`, `all.Linux`, etc.)
-  are included for every `writ add` operation
+  are included for every `writ deploy` operation
 - **Implicit inclusion**: Users don't need to specify `all`—it's automatic
 - **Base configuration**: Use `all/` for configuration that applies everywhere
 
