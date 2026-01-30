@@ -4,130 +4,295 @@
 package lore
 
 import (
-	"bufio"
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/internal/manifest"
+	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
+	"github.com/NobleFactor/devlore-cli/internal/starlark/platform"
 )
 
-// Builder implements engine.GraphBuilder for lore package manifests.
-// It loads a packages.manifest file and builds an execution graph
-// that the common engine can process.
-type Builder struct{}
+// BuildResult contains the built execution graph and metadata for packages.
+type BuildResult struct {
+	// Graph is the execution graph ready for the execution.
+	Graph *execution.Graph
 
-// BuildGraph loads a packages.manifest file and returns an execution graph.
-// The manifest is a line-delimited list of package names, optionally with
-// features specified after the package name.
-func (b *Builder) BuildGraph(ctx context.Context, manifestPath string, opts engine.BuildOptions) (*engine.Graph, error) {
-	packages, err := loadManifest(manifestPath)
-	if err != nil {
-		return nil, fmt.Errorf("load manifest %s: %w", manifestPath, err)
-	}
+	// Packages lists the resolved package names.
+	Packages []string
 
-	graph := &engine.Graph{}
-
-	for _, pkg := range packages {
-		// Merge per-package features with global features
-		features := mergeFeatures(pkg.Features, opts.Features)
-
-		node := &engine.Node{
-			ID:         pkg.Name,
-			Operations: []string{"install"},
-			Project:    pkg.Name,
-			Metadata: map[string]string{
-				"tool":     "lore",
-				"manifest": manifestPath,
-			},
-		}
-		if len(features) > 0 {
-			node.Metadata["features"] = strings.Join(features, ",")
-		}
-
-		graph.Nodes = append(graph.Nodes, node)
-	}
-
-	return graph, nil
+	// Platform is the detected or specified platform.
+	Platform string
 }
 
-// manifestEntry represents a single package entry in a manifest file.
-type manifestEntry struct {
-	Name     string
+// BuildConfig holds configuration for building a package graph.
+type BuildConfig struct {
+	// ManifestPath is the path to a packages-manifest.yaml file.
+	// Mutually exclusive with Packages.
+	ManifestPath string
+
+	// Packages is a list of package names to install.
+	// Mutually exclusive with ManifestPath.
+	Packages []string
+
+	// Platform is the target platform (e.g., "Darwin", "Linux.Debian").
+	// If empty, auto-detected.
+	Platform string
+
+	// Features are optional feature flags to enable.
 	Features []string
+
+	// Settings are key-value configuration settings.
+	Settings map[string]string
+
+	// DryRun prevents actual installation when true.
+	DryRun bool
+
+	// RegistryClient provides access to the package lorepackage.
+	// If nil, a default client is created.
+	RegistryClient *lorepackage.Registry
 }
 
-// loadManifest parses a packages.manifest file into a list of entries.
-// Format: one package per line; features follow the package name.
-//
-//	docker --with rootless --with compose
-//	kubectl
-//	gh
-//	# comments and blank lines are ignored
-func loadManifest(path string) ([]manifestEntry, error) {
-	f, err := os.Open(path)
+// Build creates an execution graph from the given configuration.
+func Build(cfg BuildConfig) (*BuildResult, error) {
+	// Validate configuration
+	if cfg.ManifestPath != "" && len(cfg.Packages) > 0 {
+		return nil, fmt.Errorf("cannot specify both ManifestPath and Packages")
+	}
+	if cfg.ManifestPath == "" && len(cfg.Packages) == 0 {
+		return nil, fmt.Errorf("must specify either ManifestPath or Packages")
+	}
+
+	// Resolve platform
+	plat := cfg.Platform
+	if plat == "" {
+		plat = detectPlatform()
+	}
+
+	// Initialize registry client if not provided
+	regClient := cfg.RegistryClient
+	if regClient == nil {
+		var err error
+		regClient, err = lorepackage.NewDefault()
+		if err != nil {
+			return nil, fmt.Errorf("creating registry client: %w", err)
+		}
+	}
+
+	// Create the execution graph
+	graph := &execution.Graph{}
+
+	// Resolve packages
+	var packages []string
+	if cfg.ManifestPath != "" {
+		// Parse manifest using shared manifest package
+		m, err := manifest.Load(cfg.ManifestPath)
+		if err != nil {
+			return nil, fmt.Errorf("parsing manifest: %w", err)
+		}
+		packages = m.PackageNames()
+	} else {
+		packages = cfg.Packages
+	}
+
+	// Create host for bindings
+	h := host.NewHost()
+
+	// Process each package
+	for _, pkgName := range packages {
+		// Resolve package from registry
+		pkg, err := regClient.Resolve(pkgName, plat)
+		if err != nil {
+			return nil, fmt.Errorf("resolving package %q: %w", pkgName, err)
+		}
+
+		// Build graph nodes for this package
+		if err := buildPackageNodes(graph, pkg, h, plat, cfg); err != nil {
+			return nil, fmt.Errorf("building nodes for %q: %w", pkgName, err)
+		}
+	}
+
+	return &BuildResult{
+		Graph:    graph,
+		Packages: packages,
+		Platform: plat,
+	}, nil
+}
+
+// BuildFromManifest creates an execution graph from a packages-manifest.yaml file.
+func BuildFromManifest(manifestPath, plat string) (*BuildResult, error) {
+	return Build(BuildConfig{
+		ManifestPath: manifestPath,
+		Platform:     plat,
+	})
+}
+
+// BuildFromPackages creates an execution graph from a list of package names.
+func BuildFromPackages(packages []string, plat string) (*BuildResult, error) {
+	return Build(BuildConfig{
+		Packages: packages,
+		Platform: plat,
+	})
+}
+
+// buildPackageNodes adds execution nodes for a package to the graph.
+func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig) error {
+	// Get phase actions for the install phase
+	op := lorepackage.OpDeploy
+	phases := lorepackage.PhaseOrder(op)
+
+	for _, phase := range phases {
+		actions := pkg.PhaseActions(plat, op, phase)
+		for _, action := range actions {
+			if err := buildActionNodes(graph, pkg, h, plat, action, cfg); err != nil {
+				return fmt.Errorf("phase %q: %w", phase, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// buildActionNodes adds nodes for a single phase action.
+func buildActionNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, action lorepackage.PhaseAction, cfg BuildConfig) error {
+	switch a := action.(type) {
+	case *lorepackage.ScriptAction:
+		return executeScriptAction(graph, pkg, h, plat, a, cfg)
+	case *lorepackage.NativePMAction:
+		return addNativePMNodes(graph, pkg, a)
+	default:
+		return fmt.Errorf("unknown action type: %T", action)
+	}
+}
+
+// executeScriptAction runs a Starlark script to populate the graph.
+func executeScriptAction(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, action *lorepackage.ScriptAction, cfg BuildConfig) error {
+	// Read the script
+	data, err := os.ReadFile(action.Path)
 	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	var entries []manifestEntry
-	scanner := bufio.NewScanner(f)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		entry := parseLine(line)
-		entries = append(entries, entry)
+		return fmt.Errorf("reading script %s: %w", action.Path, err)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, err
+	// Create bindings
+	systemBindings := loreStar.NewSystemBindings(h)
+	planBindings := platform.NewPlanBindings(graph, h, pkg.Name)
+
+	// Create package context
+	lifecycle := pkg.Lifecycle()
+	features := lifecycle.EnabledFeatures(cfg.Features)
+	settings := lifecycle.ResolvedSettings(cfg.Settings)
+
+	pkgContext := &loreStar.PackageContext{
+		Name:       pkg.Name,
+		Version:    pkg.Version,
+		Features:   features,
+		Settings:   settings,
+		DryRun:     cfg.DryRun,
+		SourceRoot: pkg.Dir,
+		TargetRoot: h.HomeDir(),
 	}
 
-	return entries, nil
+	// Create Starlark thread
+	thread := &starlark.Thread{
+		Name: action.PhaseName,
+		Print: func(_ *starlark.Thread, msg string) {
+			fmt.Printf("  [print] %s\n", msg)
+		},
+	}
+
+	// Build globals with the three bindings
+	globals := starlark.StringDict{
+		"system":  systemBindings.ToStarlark(),
+		"package": pkgContext.ToStarlark(),
+		"plan":    planBindings.ToStarlark(),
+	}
+
+	// Execute the script
+	scriptGlobals, err := starlark.ExecFile(thread, action.Path, data, globals)
+	if err != nil {
+		return fmt.Errorf("executing script: %w", err)
+	}
+
+	// Call the phase function with arguments (package, system, plan)
+	fn, ok := scriptGlobals[action.PhaseName]
+	if !ok {
+		return fmt.Errorf("function %q not found in script", action.PhaseName)
+	}
+
+	callable, ok := fn.(starlark.Callable)
+	if !ok {
+		return fmt.Errorf("%q is not callable", action.PhaseName)
+	}
+
+	// Call with three arguments: package, system, plan
+	args := starlark.Tuple{
+		pkgContext.ToStarlark(),
+		systemBindings.ToStarlark(),
+		planBindings.ToStarlark(),
+	}
+	_, err = starlark.Call(thread, callable, args, nil)
+	if err != nil {
+		return fmt.Errorf("calling %s(): %w", action.PhaseName, err)
+	}
+
+	return nil
 }
 
-// parseLine extracts a package name and optional features from a manifest line.
-func parseLine(line string) manifestEntry {
-	fields := strings.Fields(line)
-	entry := manifestEntry{Name: fields[0]}
-
-	// Parse --with flags
-	for i := 1; i < len(fields); i++ {
-		if fields[i] == "--with" && i+1 < len(fields) {
-			entry.Features = append(entry.Features, fields[i+1])
-			i++ // skip the feature value
-		}
+// addNativePMNodes adds nodes for a native package manager operation.
+// Uses namespaced operation names (package-install, package-upgrade, package-remove) that work on all platforms.
+// The actual package manager is determined at execution time by host.PackageManager().
+func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction) error {
+	// Determine the namespaced operation name
+	var opName string
+	switch action.Operation {
+	case lorepackage.PMInstall:
+		opName = "package-install"
+	case lorepackage.PMRemove:
+		opName = "package-remove"
+	case lorepackage.PMUpgrade:
+		opName = "package-upgrade"
+	default:
+		opName = "package-install"
 	}
 
-	return entry
+	// Create the node with namespaced operation
+	node := &execution.Node{
+		ID:         fmt.Sprintf("%s-%s-%s", opName, pkg.Name, action.PhaseName),
+		Operations: []string{opName},
+		Project:    pkg.Name,
+		Metadata: map[string]string{
+			"packages": strings.Join(action.Packages, ","),
+			"phase":    action.PhaseName,
+		},
+	}
+
+	graph.Nodes = append(graph.Nodes, node)
+	return nil
 }
 
-// mergeFeatures combines per-package features with global features,
-// deduplicating.
-func mergeFeatures(pkg, global []string) []string {
-	seen := make(map[string]bool)
-	var merged []string
-
-	for _, f := range pkg {
-		if !seen[f] {
-			seen[f] = true
-			merged = append(merged, f)
+// detectPlatform converts host.Platform to registry platform string.
+func detectPlatform() string {
+	p := host.DetectPlatform()
+	switch p.OS {
+	case "darwin":
+		return "Darwin"
+	case "windows":
+		return "Windows"
+	case "linux":
+		switch strings.ToLower(p.Distro) {
+		case "debian", "ubuntu":
+			return "Linux.Debian"
+		case "fedora", "rhel", "centos", "rocky", "alma":
+			return "Linux.Fedora"
+		default:
+			return "Linux"
 		}
+	default:
+		return "Linux"
 	}
-	for _, f := range global {
-		if !seen[f] {
-			seen[f] = true
-			merged = append(merged, f)
-		}
-	}
-
-	return merged
 }

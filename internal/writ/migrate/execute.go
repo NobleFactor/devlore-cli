@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
 // MigratedMarker records what was done during execution.
@@ -32,11 +32,11 @@ type Rename struct {
 // Execute performs the directory renames specified in the execution graph.
 // It writes progress to stderr using standard cli output functions.
 // The w parameter is kept for API compatibility but is not used.
-func Execute(w io.Writer, graph *engine.Graph, analysis *MigrationAnalysis) error {
+func Execute(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
 	_ = w // kept for API compatibility
 
 	// Find rename nodes in the graph
-	var renameNodes []*engine.Node
+	var renameNodes []*execution.Node
 	for _, node := range graph.Nodes {
 		for _, op := range node.Operations {
 			if op == "rename" {

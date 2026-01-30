@@ -12,8 +12,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/internal/registry"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
 )
 
@@ -59,6 +60,7 @@ Use --dry-run to preview without making changes.`,
 	cmd.Flags().String("layer", "personal", "Target layer: personal, team, or base")
 	cmd.Flags().String("format", "text", "Output format: text, yaml, json (for --dry-run)")
 	cmd.Flags().String("system", "", "Override auto-detection with a specific source system")
+	cmd.Flags().Bool("non-interactive", false, "Migrate without interactive prompts")
 	cmd.MarkFlagsMutuallyExclusive("link", "move")
 
 	return cmd
@@ -81,6 +83,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	}
 
 	dryRun, _ := cmd.Root().Flags().GetBool("dry-run")
+	nonInteractive, _ := cmd.Flags().GetBool("non-interactive")
 	useMove, _ := cmd.Flags().GetBool("move")
 	layer, _ := cmd.Flags().GetString("layer")
 	format, _ := cmd.Flags().GetString("format")
@@ -92,14 +95,14 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	}
 
 	// All structures go through AI for analysis, validation, and secret detection
-	regClient, err := registry.NewDefault()
+	regClient, err := lorepackage.NewDefault()
 	if err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
 
 	if !regClient.Exists() {
-		cli.Note("Syncing registry...")
-		if _, err := regClient.Sync(ctx, registry.SyncOptions{}); err != nil {
+		cli.Note("Syncing lorepackage...")
+		if _, err := regClient.Sync(ctx, lorepackage.SyncOptions{}); err != nil {
 			return fmt.Errorf("registry sync failed: %w", err)
 		}
 	}
@@ -129,6 +132,66 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		RegClient:  regClient,
 	}
 
+	if isInteractive(nonInteractive) {
+		return runMigrateInteractive(opts, layer, useMove, verbose)
+	}
+
+	return runMigrateBatch(ctx, opts, layer, useMove, verbose, dryRun, format)
+}
+
+// isInteractive returns true if the session should be interactive.
+// Returns false if --non-interactive was specified or stdout is not a TTY.
+func isInteractive(nonInteractive bool) bool {
+	if nonInteractive {
+		return false
+	}
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// runMigrateInteractive runs migration with step-by-step user confirmation.
+func runMigrateInteractive(opts migrate.Options, layer string, useMove, verbose bool) error {
+	session := migrate.NewSessionWithProvider(opts, opts.Provider, opts.RegClient)
+	con := console.New()
+
+	result, err := con.Run(session)
+	if err != nil {
+		return err
+	}
+
+	sessionResult, ok := result.(*migrate.SessionResult)
+	if !ok || sessionResult == nil {
+		return fmt.Errorf("migration cancelled")
+	}
+
+	if !sessionResult.Executed {
+		cli.Note("Migration plan exported (dry run)")
+		return nil
+	}
+
+	// Register layer via link or move
+	layerDir := filepath.Join(cli.WritLayersDir(), layer)
+
+	if useMove {
+		if err := moveToLayer(opts.SourceRoot, layerDir, verbose); err != nil {
+			return fmt.Errorf("move to layer: %w", err)
+		}
+		cli.Success("Moved %s to %s layer", opts.SourceRoot, layer)
+	} else {
+		if err := linkToLayer(opts.SourceRoot, layerDir, verbose); err != nil {
+			return fmt.Errorf("link to layer: %w", err)
+		}
+		cli.Success("Linked %s layer to %s", layer, opts.SourceRoot)
+	}
+
+	return nil
+}
+
+// runMigrateBatch runs migration without interactive prompts (for CI/automation).
+func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, useMove, verbose, dryRun bool, format string) error {
 	graph, analysis, err := migrate.BuildMigration(ctx, opts)
 	if err != nil {
 		return err
@@ -147,17 +210,15 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	layerDir := filepath.Join(cli.WritLayersDir(), layer)
 
 	if useMove {
-		// Move: relocate content to layer directory
-		if err := moveToLayer(sourceRoot, layerDir, verbose); err != nil {
+		if err := moveToLayer(opts.SourceRoot, layerDir, verbose); err != nil {
 			return fmt.Errorf("move to layer: %w", err)
 		}
-		cli.Success("Moved %s to %s layer", sourceRoot, layer)
+		cli.Success("Moved %s to %s layer", opts.SourceRoot, layer)
 	} else {
-		// Link: create symlink from layer directory to source
-		if err := linkToLayer(sourceRoot, layerDir, verbose); err != nil {
+		if err := linkToLayer(opts.SourceRoot, layerDir, verbose); err != nil {
 			return fmt.Errorf("link to layer: %w", err)
 		}
-		cli.Success("Linked %s layer to %s", layer, sourceRoot)
+		cli.Success("Linked %s layer to %s", layer, opts.SourceRoot)
 	}
 
 	return nil

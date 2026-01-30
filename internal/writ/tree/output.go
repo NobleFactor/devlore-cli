@@ -45,9 +45,9 @@ func (r *BuildResult) String() string {
 	sb.WriteString(fmt.Sprintf("  Links: %d, Templates: %d, Secrets: %d\n\n",
 		r.LinkCount(), r.TemplateCount(), r.SecretCount()))
 
-	for _, n := range r.Graph.Nodes {
-		ops := "[" + strings.Join(n.Operations, ", ") + "]"
-		sb.WriteString(fmt.Sprintf("  %-40s %s\n", n.ID, ops))
+	for _, f := range r.Files {
+		ops := "[" + strings.Join(f.Operations, ", ") + "]"
+		sb.WriteString(fmt.Sprintf("  %-40s %s\n", f.ID, ops))
 	}
 
 	return sb.String()

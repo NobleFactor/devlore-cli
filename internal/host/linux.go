@@ -117,6 +117,34 @@ func (h *linuxHost) HomeDir() string {
 	return "/home/" + os.Getenv("USER")
 }
 
+// InstalledBy returns the package manager if the package is installed.
+// Linux has a single PM per distribution, so this is trivial.
+func (h *linuxHost) InstalledBy(name string) PackageManager {
+	if h.pkgMgr != nil && h.pkgMgr.Installed(name) {
+		return h.pkgMgr
+	}
+	return nil
+}
+
+// AllInstalledBy returns all package managers that have the package installed.
+// Linux has a single PM per distribution, so this returns 0 or 1 items.
+func (h *linuxHost) AllInstalledBy(name string) []PackageManager {
+	if h.pkgMgr != nil && h.pkgMgr.Installed(name) {
+		return []PackageManager{h.pkgMgr}
+	}
+	return nil
+}
+
+// GetPackageManager returns a specific package manager by name.
+// Linux has a single PM per distribution, so this only returns the detected PM
+// if the name matches (e.g., "apt" on Debian, "dnf" on Fedora).
+func (h *linuxHost) GetPackageManager(name string) PackageManager {
+	if h.pkgMgr != nil && h.pkgMgr.Name() == name {
+		return h.pkgMgr
+	}
+	return nil
+}
+
 // =============================================================================
 // APT Package Manager (Debian, Ubuntu)
 // =============================================================================

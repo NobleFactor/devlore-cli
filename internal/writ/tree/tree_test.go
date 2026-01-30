@@ -119,9 +119,9 @@ func TestBuild(t *testing.T) {
 
 	// Verify files were found
 	expectedFiles := 6 // all the files we created
-	if len(result.Graph.Nodes) != expectedFiles {
-		t.Errorf("got %d nodes, want %d", len(result.Graph.Nodes), expectedFiles)
-		for _, n := range result.Graph.Nodes {
+	if len(result.Files) != expectedFiles {
+		t.Errorf("got %d nodes, want %d", len(result.Files), expectedFiles)
+		for _, n := range result.Files {
 			t.Logf("  node: %s ops=%v", n.ID, n.Operations)
 		}
 	}
@@ -190,8 +190,8 @@ func TestBuildWithCollisions(t *testing.T) {
 	}
 
 	// Should have exactly 1 node (collision resolved)
-	if len(result.Graph.Nodes) != 1 {
-		t.Errorf("got %d nodes, want 1 (collision should resolve to single node)", len(result.Graph.Nodes))
+	if len(result.Files) != 1 {
+		t.Errorf("got %d nodes, want 1 (collision should resolve to single node)", len(result.Files))
 	}
 
 	// Should have 1 collision recorded
@@ -200,8 +200,8 @@ func TestBuildWithCollisions(t *testing.T) {
 	}
 
 	// The winner should be the more specific one (all.Darwin)
-	if len(result.Graph.Nodes) > 0 {
-		node := result.Graph.Nodes[0]
+	if len(result.Files) > 0 {
+		node := result.Files[0]
 		// The winner source should contain "all.Darwin"
 		if !strings.Contains(node.Source, "all.Darwin") {
 			t.Errorf("winner should be from all.Darwin, got source %s", node.Source)
@@ -296,22 +296,17 @@ func TestBuildMultiSource(t *testing.T) {
 	}
 
 	// Should have 2 nodes (one from each layer)
-	if len(result.Graph.Nodes) != 2 {
-		t.Errorf("got %d nodes, want 2", len(result.Graph.Nodes))
-		for _, n := range result.Graph.Nodes {
-			t.Logf("  node: %s layer=%s", n.ID, n.Metadata["layer"])
+	if len(result.Files) != 2 {
+		t.Errorf("got %d nodes, want 2", len(result.Files))
+		for _, f := range result.Files {
+			t.Logf("  file: %s layer=%s", f.ID, f.Layer)
 		}
 	}
 
-	// Verify layer metadata is set
-	for _, n := range result.Graph.Nodes {
-		layer := n.Metadata["layer"]
-		if layer == "" {
-			t.Errorf("node %s missing layer metadata", n.ID)
-		}
-		// Verify NodeLayers map
-		if result.NodeLayers[n.ID] != layer {
-			t.Errorf("NodeLayers[%s] = %s, want %s", n.ID, result.NodeLayers[n.ID], layer)
+	// Verify layer is set
+	for _, f := range result.Files {
+		if f.Layer == "" {
+			t.Errorf("file %s missing layer", f.ID)
 		}
 	}
 
@@ -362,8 +357,8 @@ func TestBuildMultiSourceLayerPrecedence(t *testing.T) {
 	}
 
 	// Should have 1 node (collision resolved)
-	if len(result.Graph.Nodes) != 1 {
-		t.Errorf("got %d nodes, want 1", len(result.Graph.Nodes))
+	if len(result.Files) != 1 {
+		t.Errorf("got %d nodes, want 1", len(result.Files))
 	}
 
 	// Should have 1 collision
@@ -372,13 +367,13 @@ func TestBuildMultiSourceLayerPrecedence(t *testing.T) {
 	}
 
 	// Personal layer should win
-	if len(result.Graph.Nodes) > 0 {
-		node := result.Graph.Nodes[0]
-		if node.Metadata["layer"] != "personal" {
-			t.Errorf("winner layer = %s, want personal", node.Metadata["layer"])
+	if len(result.Files) > 0 {
+		f := result.Files[0]
+		if f.Layer != "personal" {
+			t.Errorf("winner layer = %s, want personal", f.Layer)
 		}
-		if !strings.Contains(node.Source, personalDir) {
-			t.Errorf("winner source should be from personal layer, got %s", node.Source)
+		if !strings.Contains(f.Source, personalDir) {
+			t.Errorf("winner source should be from personal layer, got %s", f.Source)
 		}
 	}
 
@@ -434,13 +429,13 @@ func TestBuildMultiSourceSpecificityWithinLayer(t *testing.T) {
 	}
 
 	// Should have 1 node (collision resolved)
-	if len(result.Graph.Nodes) != 1 {
-		t.Errorf("got %d nodes, want 1", len(result.Graph.Nodes))
+	if len(result.Files) != 1 {
+		t.Errorf("got %d nodes, want 1", len(result.Files))
 	}
 
 	// More specific (all.Darwin) should win
-	if len(result.Graph.Nodes) > 0 {
-		node := result.Graph.Nodes[0]
+	if len(result.Files) > 0 {
+		node := result.Files[0]
 		if !strings.Contains(node.Source, "all.Darwin") {
 			t.Errorf("winner should be from all.Darwin, got %s", node.Source)
 		}
@@ -502,15 +497,15 @@ func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
 	}
 
 	// Should have 1 node
-	if len(result.Graph.Nodes) != 1 {
-		t.Errorf("got %d nodes, want 1", len(result.Graph.Nodes))
+	if len(result.Files) != 1 {
+		t.Errorf("got %d nodes, want 1", len(result.Files))
 	}
 
 	// Personal layer should win despite lower specificity
-	if len(result.Graph.Nodes) > 0 {
-		node := result.Graph.Nodes[0]
-		if node.Metadata["layer"] != "personal" {
-			t.Errorf("winner layer = %s, want personal (layer beats specificity)", node.Metadata["layer"])
+	if len(result.Files) > 0 {
+		f := result.Files[0]
+		if f.Layer != "personal" {
+			t.Errorf("winner layer = %s, want personal (layer beats specificity)", f.Layer)
 		}
 	}
 

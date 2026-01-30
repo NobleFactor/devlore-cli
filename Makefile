@@ -17,7 +17,7 @@ LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/internal/cli.Version=
 # Platforms for cross-compilation
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 
-.PHONY: all build clean test vet lint shell-lint check dev docs dist dist-all
+.PHONY: all build clean test vet lint shell-lint complexity check dev docs dist dist-all
 
 all: build
 
@@ -40,7 +40,17 @@ lint:
 shell-lint:
 	.github/scripts/shell-lint.sh
 
-check: vet lint shell-lint test
+complexity:
+	@echo "Checking cyclomatic complexity (max 20)..."
+	@go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+	@if gocyclo -over 20 . | grep -v '_test.go' | head -1 | grep -q .; then \
+		echo "ERROR: Functions with complexity > 20:"; \
+		gocyclo -over 20 . | grep -v '_test.go'; \
+		exit 1; \
+	fi
+	@echo "All functions below complexity threshold."
+
+check: vet lint shell-lint complexity test
 
 dev:
 	git config core.hooksPath .githooks

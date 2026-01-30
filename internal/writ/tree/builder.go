@@ -10,8 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
-	"github.com/NobleFactor/devlore-cli/internal/writ/manifest"
+	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 )
 
@@ -25,10 +24,36 @@ type LayerSource struct {
 	TargetName string // "System" or "Home"
 }
 
-// BuildResult contains the built execution graph and build-time metadata.
+// FileEntry represents a file discovered during tree walking.
+// This is pure file metadata - no execution state.
+type FileEntry struct {
+	// ID is the relative target path (unique identifier).
+	ID string
+
+	// Operations is the pipeline of operations to perform.
+	// Examples: ["link"], ["decrypt", "expand", "copy"].
+	Operations []string
+
+	// Source is the absolute path to the source file.
+	Source string
+
+	// Target is the absolute path to the target file.
+	Target string
+
+	// Project this file belongs to.
+	Project string
+
+	// Layer is the repository layer (base, team, personal).
+	Layer string
+
+	// Mode is the file permissions to set (0 means default 0644).
+	Mode os.FileMode
+}
+
+// BuildResult contains the built file entries and build-time metadata.
 type BuildResult struct {
-	// Graph is the execution graph ready for the engine.
-	Graph *engine.Graph
+	// Files are the file entries discovered.
+	Files []*FileEntry
 
 	// SourceRoot is the source root directory (for single-source mode).
 	SourceRoot string
@@ -47,9 +72,6 @@ type BuildResult struct {
 
 	// Collisions are files where a more specific source overrode a less specific one.
 	Collisions []Collision
-
-	// NodeLayers tracks which layer each node came from (node.ID → layer name).
-	NodeLayers map[string]string
 }
 
 // Collision records when a more specific file overrides a less specific one.
@@ -97,9 +119,9 @@ type BuildConfig struct {
 	Segments segment.Segments
 }
 
-// nodeEntry tracks a node with its layer and specificity for collision detection.
-type nodeEntry struct {
-	node        *engine.Node
+// fileEntryWithMeta tracks a file entry with its layer and specificity for collision detection.
+type fileEntryWithMeta struct {
+	entry       *FileEntry
 	specificity int
 	layerOrder  int    // 0=base, 1=team, 2=personal
 	layer       string // "base", "team", "personal", or "" for single-source mode
@@ -125,68 +147,66 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 	}
 
 	result := &BuildResult{
-		Graph:       &engine.Graph{},
 		SourceRoot:  cfg.SourceRoot,
 		TargetRoot:  cfg.TargetRoot,
 		Projects:    cfg.Projects,
 		MatchedDirs: matches,
-		NodeLayers:  make(map[string]string),
 	}
 
-	nodesByTarget := make(map[string]nodeEntry)
+	entriesByTarget := make(map[string]fileEntryWithMeta)
 
 	for _, match := range matches {
-		nodes, err := walkDirectory(match, cfg.TargetRoot)
+		entries, err := walkDirectory(match, cfg.TargetRoot)
 		if err != nil {
 			return nil, err
 		}
 
 		specificity := len(match.Suffixes)
-		for _, node := range nodes {
-			existing, exists := nodesByTarget[node.ID]
+		for _, entry := range entries {
+			existing, exists := entriesByTarget[entry.ID]
 			if !exists {
-				nodesByTarget[node.ID] = nodeEntry{node: node, specificity: specificity}
+				entriesByTarget[entry.ID] = fileEntryWithMeta{entry: entry, specificity: specificity}
 				continue
 			}
 
 			// Collision: more specific wins
 			if specificity > existing.specificity {
 				result.Collisions = append(result.Collisions, Collision{
-					Target:            node.ID,
-					Winner:            node.Source,
+					Target:            entry.ID,
+					Winner:            entry.Source,
 					WinnerSpecificity: specificity,
-					Loser:             existing.node.Source,
+					Loser:             existing.entry.Source,
 					LoserSpecificity:  existing.specificity,
 				})
-				nodesByTarget[node.ID] = nodeEntry{node: node, specificity: specificity}
+				entriesByTarget[entry.ID] = fileEntryWithMeta{entry: entry, specificity: specificity}
 			} else if specificity < existing.specificity {
 				result.Collisions = append(result.Collisions, Collision{
-					Target:            node.ID,
-					Winner:            existing.node.Source,
+					Target:            entry.ID,
+					Winner:            existing.entry.Source,
 					WinnerSpecificity: existing.specificity,
-					Loser:             node.Source,
+					Loser:             entry.Source,
 					LoserSpecificity:  specificity,
 				})
 			} else {
 				// Same specificity — last wins
 				result.Collisions = append(result.Collisions, Collision{
-					Target:            node.ID,
-					Winner:            node.Source,
+					Target:            entry.ID,
+					Winner:            entry.Source,
 					WinnerSpecificity: specificity,
-					Loser:             existing.node.Source,
+					Loser:             existing.entry.Source,
 					LoserSpecificity:  existing.specificity,
 				})
-				nodesByTarget[node.ID] = nodeEntry{node: node, specificity: specificity}
+				entriesByTarget[entry.ID] = fileEntryWithMeta{entry: entry, specificity: specificity}
 			}
 		}
 	}
 
 	// Convert map to sorted slice
-	for _, entry := range nodesByTarget {
-		result.Graph.Nodes = append(result.Graph.Nodes, entry.node)
+	for _, meta := range entriesByTarget {
+		result.Files = append(result.Files, meta.entry)
 	}
-	sort.Slice(result.Graph.Nodes, func(i, j int) bool {
-		return result.Graph.Nodes[i].ID < result.Graph.Nodes[j].ID
+	sort.Slice(result.Files, func(i, j int) bool {
+		return result.Files[i].ID < result.Files[j].ID
 	})
 
 	return result, nil
@@ -197,11 +217,9 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 // Higher-order layers override lower-order layers for the same target.
 func buildMultiSource(cfg BuildConfig) (*BuildResult, error) {
 	result := &BuildResult{
-		Graph:      &engine.Graph{},
 		Sources:    cfg.Sources,
 		TargetRoot: cfg.TargetRoot,
 		Projects:   cfg.Projects,
-		NodeLayers: make(map[string]string),
 	}
 
 	// Set SourceRoot to first source for backwards compatibility
@@ -209,7 +227,7 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) {
 		result.SourceRoot = cfg.Sources[0].SourceRoot
 	}
 
-	nodesByTarget := make(map[string]nodeEntry)
+	entriesByTarget := make(map[string]fileEntryWithMeta)
 
 	// Process sources in order (base → team → personal)
 	for _, source := range cfg.Sources {
@@ -221,25 +239,24 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) {
 		result.MatchedDirs = append(result.MatchedDirs, matches...)
 
 		for _, match := range matches {
-			nodes, err := walkDirectory(match, source.TargetRoot)
+			entries, err := walkDirectory(match, source.TargetRoot)
 			if err != nil {
 				return nil, fmt.Errorf("layer %s: %w", source.Layer, err)
 			}
 
 			specificity := len(match.Suffixes)
-			for _, node := range nodes {
-				// Store layer in node metadata
-				node.Metadata["layer"] = source.Layer
+			for _, entry := range entries {
+				// Store layer in entry
+				entry.Layer = source.Layer
 
-				existing, exists := nodesByTarget[node.ID]
+				existing, exists := entriesByTarget[entry.ID]
 				if !exists {
-					nodesByTarget[node.ID] = nodeEntry{
-						node:        node,
+					entriesByTarget[entry.ID] = fileEntryWithMeta{
+						entry:       entry,
 						specificity: specificity,
 						layerOrder:  source.Order,
 						layer:       source.Layer,
 					}
-					result.NodeLayers[node.ID] = source.Layer
 					continue
 				}
 
@@ -257,28 +274,27 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) {
 
 				if newWins {
 					result.Collisions = append(result.Collisions, Collision{
-						Target:            node.ID,
-						Winner:            node.Source,
+						Target:            entry.ID,
+						Winner:            entry.Source,
 						WinnerSpecificity: specificity,
 						WinnerLayer:       source.Layer,
-						Loser:             existing.node.Source,
+						Loser:             existing.entry.Source,
 						LoserSpecificity:  existing.specificity,
 						LoserLayer:        existing.layer,
 					})
-					nodesByTarget[node.ID] = nodeEntry{
-						node:        node,
+					entriesByTarget[entry.ID] = fileEntryWithMeta{
+						entry:       entry,
 						specificity: specificity,
 						layerOrder:  source.Order,
 						layer:       source.Layer,
 					}
-					result.NodeLayers[node.ID] = source.Layer
 				} else {
 					result.Collisions = append(result.Collisions, Collision{
-						Target:            node.ID,
-						Winner:            existing.node.Source,
+						Target:            entry.ID,
+						Winner:            existing.entry.Source,
 						WinnerSpecificity: existing.specificity,
 						WinnerLayer:       existing.layer,
-						Loser:             node.Source,
+						Loser:             entry.Source,
 						LoserSpecificity:  specificity,
 						LoserLayer:        source.Layer,
 					})
@@ -288,19 +304,19 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) {
 	}
 
 	// Convert map to sorted slice
-	for _, entry := range nodesByTarget {
-		result.Graph.Nodes = append(result.Graph.Nodes, entry.node)
+	for _, meta := range entriesByTarget {
+		result.Files = append(result.Files, meta.entry)
 	}
-	sort.Slice(result.Graph.Nodes, func(i, j int) bool {
-		return result.Graph.Nodes[i].ID < result.Graph.Nodes[j].ID
+	sort.Slice(result.Files, func(i, j int) bool {
+		return result.Files[i].ID < result.Files[j].ID
 	})
 
 	return result, nil
 }
 
-// walkDirectory walks a matched directory and returns engine nodes for all files.
-func walkDirectory(match segment.MatchResult, targetRoot string) ([]*engine.Node, error) {
-	var nodes []*engine.Node
+// walkDirectory walks a matched directory and returns file entries for all files.
+func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, error) {
+	var entries []*FileEntry
 
 	err := filepath.WalkDir(match.Path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -334,14 +350,13 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*engine.Node
 			}
 		}
 
-		node := &engine.Node{
+		entry := &FileEntry{
 			ID:         relTarget,
 			Operations: ops.Strings(),
 			Source:     path,
 			Target:     filepath.Join(targetRoot, relTarget),
 			Project:    match.Project,
 			Mode:       mode,
-			Metadata:   make(map[string]string),
 		}
 
 		// Validate packages-manifest files (package processing NOT YET IMPLEMENTED)
@@ -353,11 +368,11 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*engine.Node
 			}
 		}
 
-		nodes = append(nodes, node)
+		entries = append(entries, entry)
 		return nil
 	})
 
-	return nodes, err
+	return entries, err
 }
 
 // HasCollisions returns true if there were file collisions during build.
@@ -365,16 +380,16 @@ func (r *BuildResult) HasCollisions() bool {
 	return len(r.Collisions) > 0
 }
 
-// FileCount returns the number of files in the graph.
+// FileCount returns the number of files discovered.
 func (r *BuildResult) FileCount() int {
-	return len(r.Graph.Nodes)
+	return len(r.Files)
 }
 
 // SecretCount returns the number of encrypted files.
 func (r *BuildResult) SecretCount() int {
 	count := 0
-	for _, n := range r.Graph.Nodes {
-		for _, op := range n.Operations {
+	for _, f := range r.Files {
+		for _, op := range f.Operations {
 			if op == "decrypt" {
 				count++
 				break
@@ -387,8 +402,8 @@ func (r *BuildResult) SecretCount() int {
 // TemplateCount returns the number of template files.
 func (r *BuildResult) TemplateCount() int {
 	count := 0
-	for _, n := range r.Graph.Nodes {
-		for _, op := range n.Operations {
+	for _, f := range r.Files {
+		for _, op := range f.Operations {
 			if op == "expand" {
 				count++
 				break
@@ -401,20 +416,20 @@ func (r *BuildResult) TemplateCount() int {
 // LinkCount returns the number of simple symlink files.
 func (r *BuildResult) LinkCount() int {
 	count := 0
-	for _, n := range r.Graph.Nodes {
-		if len(n.Operations) == 1 && n.Operations[0] == "link" {
+	for _, f := range r.Files {
+		if len(f.Operations) == 1 && f.Operations[0] == "link" {
 			count++
 		}
 	}
 	return count
 }
 
-// PackagesCount returns the number of packages-manifest nodes.
+// PackagesCount returns the number of packages-manifest entries.
 // These require the Package Graph Builder (NOT YET IMPLEMENTED).
 func (r *BuildResult) PackagesCount() int {
 	count := 0
-	for _, n := range r.Graph.Nodes {
-		for _, op := range n.Operations {
+	for _, f := range r.Files {
+		for _, op := range f.Operations {
 			if op == "packages" {
 				count++
 				break

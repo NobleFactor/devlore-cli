@@ -6,15 +6,15 @@ package lore
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/lore/pipeline"
-	"github.com/NobleFactor/devlore-cli/internal/registry"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/internal/manifest"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -44,136 +44,270 @@ Packages can be specified directly or via manifest files (prefixed with @).`,
 	return cmd
 }
 
-// resolvedPackage holds a package with its resolution confidence.
+// resolvedPackage holds a package with its resolution confidence and features.
 type resolvedPackage struct {
-	pkg        *registry.LorePackage
-	confidence registry.Confidence
+	pkg        *lorepackage.Release
+	confidence lorepackage.Confidence
+	features   []string
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
+	// 1. Parse config
+	cfg, err := parseLoreDeployConfig(cmd, args)
+	if err != nil {
+		return err
 	}
 
-	// Get flags
+	// 2. Resolve packages and check confidence
+	resolved, err := resolvePackages(cfg)
+	if err != nil {
+		return err
+	}
+
+	// 3. Handle low confidence packages
+	resolved, err = filterLowConfidence(resolved, cfg)
+	if err != nil {
+		return err
+	}
+
+	if len(resolved) == 0 {
+		return fmt.Errorf("no packages to deploy")
+	}
+
+	// 4. Execute deployments
+	return executeDeployments(cmd.Context(), resolved, cfg)
+}
+
+// parseLoreDeployConfig parses flags and arguments into a deploy config.
+func parseLoreDeployConfig(cmd *cobra.Command, args []string) (*loreDeployConfig, error) {
 	features, _ := cmd.Flags().GetStringArray("with")
-	dryRun := viper.GetBool("lore.dry-run")
-	verbose := viper.GetBool("lore.verbose")
 	knownOnly, _ := cmd.Flags().GetBool("known-only")
 	force, _ := cmd.Flags().GetBool("force")
+	parallel, _ := cmd.Flags().GetInt("parallel")
 
-	// Create registry client
-	regClient, err := registry.NewDefault()
-	if err != nil {
-		return fmt.Errorf("creating registry client: %w", err)
+	cfg := &loreDeployConfig{
+		GlobalFeatures: features,
+		DryRun:         viper.GetBool("lore.dry-run"),
+		Verbose:        viper.GetBool("lore.verbose"),
+		KnownOnly:      knownOnly,
+		Force:          force,
+		Parallel:       parallel,
 	}
 
-	// Detect platform for package resolution
-	platform := pipeline.DetectPlatform()
+	// Parse args into package requests
+	for _, arg := range args {
+		if len(arg) > 0 && arg[0] == '@' {
+			// Manifest file - use shared manifest package
+			m, err := manifest.Load(arg[1:])
+			if err != nil {
+				cli.Error("Error reading manifest %q: %v", arg[1:], err)
+				continue
+			}
+			cli.Note("Loaded %d packages from %s", len(m.Packages), arg[1:])
+			for _, entry := range m.Packages {
+				cfg.Packages = append(cfg.Packages, packageRequest{
+					Name:     entry.Name,
+					Features: entry.With,
+				})
+			}
+		} else {
+			// Direct package name
+			cfg.Packages = append(cfg.Packages, packageRequest{Name: arg})
+		}
+	}
 
-	// Phase 1: Resolve all packages and show confidence
-	var resolved []resolvedPackage
-	var hasLowConfidence bool
+	return cfg, nil
+}
+
+// loreDeployConfig holds parsed configuration for lore deploy.
+type loreDeployConfig struct {
+	Packages       []packageRequest
+	GlobalFeatures []string
+	DryRun         bool
+	Verbose        bool
+	KnownOnly      bool
+	Force          bool
+	Parallel       int
+}
+
+// packageRequest represents a package to deploy with its features.
+type packageRequest struct {
+	Name     string
+	Features []string
+}
+
+// resolvePackages resolves all packages and reports their confidence.
+func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
+	regClient, err := lorepackage.NewDefault()
+	if err != nil {
+		return nil, fmt.Errorf("creating registry client: %w", err)
+	}
+
+	platform := detectPlatform()
 
 	fmt.Println("\nResolving packages...")
 	fmt.Printf("%-30s %-10s %-8s %s\n", "PACKAGE", "SOURCE", "CONF", "STATUS")
 	fmt.Printf("%s\n", strings.Repeat("-", 70))
 
-	for _, arg := range args {
-		// TODO: Handle @manifest syntax
-		if len(arg) > 0 && arg[0] == '@' {
-			cli.Warn("Manifest files not yet supported: %s", arg)
-			continue
-		}
-
-		// Resolve package with confidence
-		pkg, confidence, err := regClient.ResolveWithConfidence(arg, platform)
+	var resolved []resolvedPackage
+	for _, req := range cfg.Packages {
+		pkg, confidence, err := regClient.ResolveWithConfidence(req.Name, platform)
 		if err != nil {
-			cli.Error("Error resolving package %q: %v", arg, err)
+			cli.Error("Error resolving package %q: %v", req.Name, err)
 			continue
 		}
 
-		// Show resolution result
-		confStr := confidence.String()
-		sourceStr := string(pkg.Source)
 		status := "ready"
-
-		if confidence == registry.ConfidenceLow {
-			hasLowConfidence = true
+		if confidence == lorepackage.ConfidenceLow {
 			status = "unverified"
 		}
 
-		fmt.Printf("%-30s %-10s %-8s %s\n", pkg.Name, sourceStr, confStr, status)
+		featStr := ""
+		if len(req.Features) > 0 {
+			featStr = " [" + strings.Join(req.Features, ", ") + "]"
+		}
 
-		resolved = append(resolved, resolvedPackage{pkg: pkg, confidence: confidence})
+		fmt.Printf("%-30s %-10s %-8s %s%s\n", pkg.Name, pkg.Source, confidence, status, featStr)
+
+		resolved = append(resolved, resolvedPackage{
+			pkg:        pkg,
+			confidence: confidence,
+			features:   req.Features,
+		})
 	}
 
-	if len(resolved) == 0 {
-		return fmt.Errorf("no packages resolved")
-	}
+	return resolved, nil
+}
 
-	// Phase 2: Handle low confidence packages
-	if hasLowConfidence && !force {
-		if knownOnly {
-			// Filter out low confidence packages
-			var filtered []resolvedPackage
-			for _, rp := range resolved {
-				if rp.confidence != registry.ConfidenceLow {
-					filtered = append(filtered, rp)
-				} else {
-					cli.Warn("Skipping %s (LOW confidence, --known-only specified)", rp.pkg.Name)
-				}
-			}
-			resolved = filtered
-
-			if len(resolved) == 0 {
-				return fmt.Errorf("no packages remaining after filtering low confidence")
-			}
-		} else {
-			// Prompt user
-			fmt.Printf("\n⚠️  Some packages have LOW confidence (not verified to exist).\n")
-			fmt.Printf("Use --force to proceed or --known-only to skip them.\n")
-			fmt.Printf("\nProceed anyway? [y/N]: ")
-
-			var response string
-			_, _ = fmt.Scanln(&response)
-			if strings.ToLower(response) != "y" {
-				return fmt.Errorf("deployment cancelled by user")
-			}
+// filterLowConfidence handles low confidence packages based on config.
+func filterLowConfidence(resolved []resolvedPackage, cfg *loreDeployConfig) ([]resolvedPackage, error) {
+	var hasLow bool
+	for _, rp := range resolved {
+		if rp.confidence == lorepackage.ConfidenceLow {
+			hasLow = true
+			break
 		}
 	}
 
-	// Phase 3: Execute deployment
-	fmt.Println("\nDeploying packages...")
-
-	// Create executor config
-	cfg := pipeline.ExecutorConfig{
-		Features: features,
-		DryRun:   dryRun,
-		Verbose:  verbose,
-		Output:   os.Stdout,
+	if !hasLow || cfg.Force {
+		return resolved, nil
 	}
 
-	executor := pipeline.NewExecutor(cfg)
+	if cfg.KnownOnly {
+		var filtered []resolvedPackage
+		for _, rp := range resolved {
+			if rp.confidence != lorepackage.ConfidenceLow {
+				filtered = append(filtered, rp)
+			} else {
+				cli.Warn("Skipping %s (LOW confidence, --known-only specified)", rp.pkg.Name)
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, fmt.Errorf("no packages remaining after filtering low confidence")
+		}
+		return filtered, nil
+	}
+
+	// Prompt user
+	fmt.Printf("\n⚠️  Some packages have LOW confidence (not verified to exist).\n")
+	fmt.Printf("Use --force to proceed or --known-only to skip them.\n")
+	fmt.Printf("\nProceed anyway? [y/N]: ")
+
+	var response string
+	_, _ = fmt.Scanln(&response)
+	if strings.ToLower(response) != "y" {
+		return nil, fmt.Errorf("deployment cancelled by user")
+	}
+	return resolved, nil
+}
+
+// executeDeployments builds and runs the execution graph for each resolved package.
+func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *loreDeployConfig) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	fmt.Println("\nDeploying packages...")
+
+	// Create operation registry and executor
+	registry := execution.NewOperationRegistry()
+	for _, op := range execution.AllOps() {
+		registry.Register(op)
+	}
+	executor := execution.NewGraphExecutor(registry, execution.ExecutorOptions{
+		DryRun: cfg.DryRun,
+	})
 
 	var lastErr error
 	for _, rp := range resolved {
-		// Execute the deploy pipeline
-		result, err := executor.ExecutePackage(ctx, rp.pkg, pipeline.OpDeploy)
+		// Merge global and package-specific features
+		features := mergeFeatures(rp.features, cfg.GlobalFeatures)
+
+		// Build the execution graph for this package
+		buildResult, err := Build(BuildConfig{
+			Packages: []string{rp.pkg.Name},
+			Platform: detectPlatform(),
+			Features: features,
+			DryRun:   cfg.DryRun,
+		})
+		if err != nil {
+			cli.Error("Error building graph for %q: %v", rp.pkg.Name, err)
+			lastErr = err
+			continue
+		}
+
+		if len(buildResult.Graph.Nodes) == 0 {
+			if cfg.Verbose {
+				cli.Note("No operations for %q", rp.pkg.Name)
+			}
+			continue
+		}
+
+		// Convert nodes to executables and run
+		executables := make([]execution.Executable, len(buildResult.Graph.Nodes))
+		for i, n := range buildResult.Graph.Nodes {
+			executables[i] = n
+		}
+
+		results, err := executor.RunNodes(ctx, executables, buildResult.Graph.Edges)
 		if err != nil {
 			cli.Error("Error deploying %q: %v", rp.pkg.Name, err)
 			lastErr = err
 			continue
 		}
 
-		if !result.Success {
-			cli.Error("Deployment failed for %q", rp.pkg.Name)
-			lastErr = fmt.Errorf("deployment failed for %s", rp.pkg.Name)
+		// Check for failures
+		for _, r := range results {
+			if r.Status == execution.ResultFailed {
+				cli.Error("Deployment failed for %q: %v", rp.pkg.Name, r.Error)
+				lastErr = fmt.Errorf("deployment failed for %s", rp.pkg.Name)
+				break
+			}
 		}
 	}
 
 	return lastErr
+}
+
+// mergeFeatures combines per-package features with global features, deduplicating.
+func mergeFeatures(pkg, global []string) []string {
+	seen := make(map[string]bool)
+	var merged []string
+
+	for _, f := range pkg {
+		if !seen[f] {
+			seen[f] = true
+			merged = append(merged, f)
+		}
+	}
+	for _, f := range global {
+		if !seen[f] {
+			seen[f] = true
+			merged = append(merged, f)
+		}
+	}
+
+	return merged
 }
 
 func newUpgradeCmd() *cobra.Command {
@@ -351,7 +485,7 @@ Results show the package source and confidence level:
   MEDIUM - Package found in native PM and verified to exist
   LOW    - Package synthesized but not verified
 
-Use --lore-only to search only the lore registry.
+Use --lore-only to search only the lore lorepackage.
 Use --native-only to search only the native package manager.`,
 		Example: `  lore search docker
   lore search kubectl --lore-only
@@ -376,13 +510,13 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	limit, _ := cmd.Flags().GetInt("limit")
 
 	// Create registry client
-	regClient, err := registry.NewDefault()
+	regClient, err := lorepackage.NewDefault()
 	if err != nil {
 		return fmt.Errorf("creating registry client: %w", err)
 	}
 
 	// Build search options
-	opts := registry.SearchOptions{
+	opts := lorepackage.SearchOptions{
 		IncludeLore:   !nativeOnly,
 		IncludeNative: !loreOnly,
 		Limit:         limit,
@@ -541,7 +675,7 @@ func newPublishCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "publish <name>",
 		Short: "Submit a package manifest to the registry",
-		Long: `Submit a validated package manifest to the registry.
+		Long: `Submit a validated package manifest to the lorepackage.
 
 Runs final validation, creates a pull request for community review,
 and triggers automated testing on macOS, Linux, and Windows.`,

@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
 // FormatMigrationPlan renders the execution Graph and MigrationAnalysis as
@@ -19,7 +19,7 @@ import (
 // MigrationPlan struct.
 //
 // Supported formats: "text" (default), "yaml", "json"
-func FormatMigrationPlan(w io.Writer, graph *engine.Graph, analysis *MigrationAnalysis, format string) error {
+func FormatMigrationPlan(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis, format string) error {
 	switch format {
 	case "yaml":
 		return formatMigrationYAML(w, graph, analysis)
@@ -45,21 +45,21 @@ type operationView struct {
 	DependsOn string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 }
 
-func formatMigrationYAML(w io.Writer, graph *engine.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationYAML(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
 	view := buildMigrationView(graph, analysis)
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
 	return enc.Encode(view)
 }
 
-func formatMigrationJSON(w io.Writer, graph *engine.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationJSON(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
 	view := buildMigrationView(graph, analysis)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(view)
 }
 
-func buildMigrationView(graph *engine.Graph, analysis *MigrationAnalysis) *migrationView {
+func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *migrationView {
 	// Build dependency map from edges
 	dependsOn := make(map[string]string)
 	for _, edge := range graph.Edges {
@@ -89,7 +89,7 @@ func buildMigrationView(graph *engine.Graph, analysis *MigrationAnalysis) *migra
 	}
 }
 
-func formatMigrationText(w io.Writer, graph *engine.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationText(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
 	_, _ = fmt.Fprintf(w, "Migration Plan\n")
 	_, _ = fmt.Fprintf(w, "Source: %s\n", analysis.SourceRoot)
 	_, _ = fmt.Fprintf(w, "System: %s", analysis.System)
@@ -232,8 +232,8 @@ func formatMigrationText(w io.Writer, graph *engine.Graph, analysis *MigrationAn
 }
 
 // filterNodesByOp returns nodes that have the specified operation.
-func filterNodesByOp(graph *engine.Graph, opName string) []*engine.Node {
-	var nodes []*engine.Node
+func filterNodesByOp(graph *execution.Graph, opName string) []*execution.Node {
+	var nodes []*execution.Node
 	for _, node := range graph.Nodes {
 		for _, op := range node.Operations {
 			if op == opName {

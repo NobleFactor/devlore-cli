@@ -6,7 +6,7 @@ package migrate
 import (
 	"path/filepath"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
 // BuildMigrationGraph constructs an execution graph from directory mappings.
@@ -15,12 +15,12 @@ import (
 //
 // The graph is the executable artifact; MigrationAnalysis provides the
 // non-executable understanding. Together they replace the legacy MigrationPlan.
-func BuildMigrationGraph(sourceRoot string, mappings []DirectoryMapping) *engine.Graph {
-	plan := engine.NewPlan("migrate")
+func BuildMigrationGraph(sourceRoot string, mappings []DirectoryMapping) *execution.Graph {
+	plan := execution.NewPlan("migrate")
 
 	// Create rename nodes for each directory mapping.
 	// These use git mv when available to preserve history.
-	var prevNode *engine.Node
+	var prevNode *execution.Node
 	for _, m := range mappings {
 		source := filepath.Join(sourceRoot, m.SourceDir)
 		target := filepath.Join(sourceRoot, m.TargetDir)

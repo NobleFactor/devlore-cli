@@ -13,9 +13,9 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/internal/registry"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 )
 
@@ -37,7 +37,7 @@ type DarwinPlanBindings struct {
 }
 
 // NewPlanBindings creates a new Darwin-specific PlanBindings.
-func NewPlanBindings(graph *engine.Graph, h host.Host, project string) PlatformPlanBindings {
+func NewPlanBindings(graph *execution.Graph, h host.Host, project string) PlatformPlanBindings {
 	return &DarwinPlanBindings{
 		basePlanBindings: newBasePlanBindings(graph, h, project),
 	}
@@ -54,10 +54,10 @@ func (d *DarwinPlanBindings) PackageManagerName() string {
 }
 
 // PackageInstall adds a package installation node using the platform's package manager.
-// Supports brew:pkg and port:pkg prefixes to override auto-detection.
-func (d *DarwinPlanBindings) PackageInstall(packages ...string) *engine.Node {
-	cleanPkgs, manager := parsePackagesWithPrefix(packages)
-	node := &engine.Node{
+// Supports brew:, cask:, and port: prefixes to override auto-detection.
+func (d *DarwinPlanBindings) PackageInstall(packages ...string) *execution.Node {
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-install", cleanPkgs...),
 		Operations: []string{"package-install"},
 		Project:    d.project,
@@ -68,32 +68,18 @@ func (d *DarwinPlanBindings) PackageInstall(packages ...string) *engine.Node {
 	if manager != "" {
 		node.Metadata["manager"] = manager
 	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// PackageInstallCask adds a Homebrew Cask installation node for GUI applications.
-// Note: Cask is Homebrew-specific, so this always uses brew.
-func (d *DarwinPlanBindings) PackageInstallCask(packages ...string) *engine.Node {
-	node := &engine.Node{
-		ID:         darwinGenerateNodeID("package-install-cask", packages...),
-		Operations: []string{"package-install"},
-		Project:    d.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(packages, ","),
-			"manager":  "brew",
-			"cask":     "true",
-		},
+	if isCask {
+		node.Metadata["cask"] = "true"
 	}
 	d.graph.Nodes = append(d.graph.Nodes, node)
 	return node
 }
 
 // PackageUpgrade adds a package upgrade node using the platform's package manager.
-// Supports brew:pkg and port:pkg prefixes to override auto-detection.
-func (d *DarwinPlanBindings) PackageUpgrade(packages ...string) *engine.Node {
-	cleanPkgs, manager := parsePackagesWithPrefix(packages)
-	node := &engine.Node{
+// Supports brew:, cask:, and port: prefixes to override auto-detection.
+func (d *DarwinPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-upgrade", cleanPkgs...),
 		Operations: []string{"package-upgrade"},
 		Project:    d.project,
@@ -104,15 +90,18 @@ func (d *DarwinPlanBindings) PackageUpgrade(packages ...string) *engine.Node {
 	if manager != "" {
 		node.Metadata["manager"] = manager
 	}
+	if isCask {
+		node.Metadata["cask"] = "true"
+	}
 	d.graph.Nodes = append(d.graph.Nodes, node)
 	return node
 }
 
 // PackageRemove adds a package removal node using the platform's package manager.
-// Supports brew:pkg and port:pkg prefixes to override auto-detection.
-func (d *DarwinPlanBindings) PackageRemove(packages ...string) *engine.Node {
-	cleanPkgs, manager := parsePackagesWithPrefix(packages)
-	node := &engine.Node{
+// Supports brew:, cask:, and port: prefixes to override auto-detection.
+func (d *DarwinPlanBindings) PackageRemove(packages ...string) *execution.Node {
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-remove", cleanPkgs...),
 		Operations: []string{"package-remove"},
 		Project:    d.project,
@@ -123,13 +112,16 @@ func (d *DarwinPlanBindings) PackageRemove(packages ...string) *engine.Node {
 	if manager != "" {
 		node.Metadata["manager"] = manager
 	}
+	if isCask {
+		node.Metadata["cask"] = "true"
+	}
 	d.graph.Nodes = append(d.graph.Nodes, node)
 	return node
 }
 
 // PackageUpdate adds a package index update node using the platform's package manager.
-func (d *DarwinPlanBindings) PackageUpdate() *engine.Node {
-	node := &engine.Node{
+func (d *DarwinPlanBindings) PackageUpdate() *execution.Node {
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-update"),
 		Operations: []string{"package-update"},
 		Project:    d.project,
@@ -139,24 +131,29 @@ func (d *DarwinPlanBindings) PackageUpdate() *engine.Node {
 	return node
 }
 
-// parsePackagesWithPrefix extracts manager override from brew:pkg or port:pkg prefixes.
-// Returns clean package names and the manager override (if any).
-func parsePackagesWithPrefix(packages []string) ([]string, string) {
-	clean := make([]string, len(packages))
-	var manager string
+// parsePackagesWithPrefix extracts manager override from brew:, cask:, or port: prefixes.
+// Returns clean package names, the manager override, and whether cask mode is enabled.
+// For cask: prefix, manager is set to "brew" and isCask is true.
+func parsePackagesWithPrefix(packages []string) (cleanPkgs []string, manager string, isCask bool) {
+	cleanPkgs = make([]string, len(packages))
 	for i, p := range packages {
-		pkg, prefix := registry.ParsePackagePrefix(p)
-		clean[i] = pkg
+		pkg, prefix := lorepackage.ParsePackagePrefix(p)
+		cleanPkgs[i] = pkg
 		if prefix != "" {
-			manager = prefix // Last prefix wins if mixed (shouldn't happen)
+			if prefix == "cask" {
+				manager = "brew" // Cask requires Homebrew
+				isCask = true
+			} else {
+				manager = prefix
+			}
 		}
 	}
-	return clean, manager
+	return cleanPkgs, manager, isCask
 }
 
 // Configure adds a configuration file node.
-func (d *DarwinPlanBindings) Configure(source, target string) *engine.Node {
-	node := &engine.Node{
+func (d *DarwinPlanBindings) Configure(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("configure"),
 		Operations: []string{"expand", "copy"},
 		Source:     source,
@@ -168,8 +165,8 @@ func (d *DarwinPlanBindings) Configure(source, target string) *engine.Node {
 }
 
 // Link adds a symlink creation node.
-func (d *DarwinPlanBindings) Link(source, target string) *engine.Node {
-	node := &engine.Node{
+func (d *DarwinPlanBindings) Link(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("link"),
 		Operations: []string{"link"},
 		Source:     source,
@@ -181,8 +178,8 @@ func (d *DarwinPlanBindings) Link(source, target string) *engine.Node {
 }
 
 // Copy adds a file copy node.
-func (d *DarwinPlanBindings) Copy(source, target string) *engine.Node {
-	node := &engine.Node{
+func (d *DarwinPlanBindings) Copy(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("copy"),
 		Operations: []string{"copy"},
 		Source:     source,
@@ -194,8 +191,8 @@ func (d *DarwinPlanBindings) Copy(source, target string) *engine.Node {
 }
 
 // Mkdir adds a directory creation node.
-func (d *DarwinPlanBindings) Mkdir(target string) *engine.Node {
-	node := &engine.Node{
+func (d *DarwinPlanBindings) Mkdir(target string) *execution.Node {
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("mkdir"),
 		Operations: []string{"mkdir"},
 		Target:     d.host.ExpandPath(target),
@@ -205,9 +202,24 @@ func (d *DarwinPlanBindings) Mkdir(target string) *engine.Node {
 	return node
 }
 
+// Write adds a file write node (write content directly to target).
+func (d *DarwinPlanBindings) Write(target, content string) *execution.Node {
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("write"),
+		Operations: []string{"file-write"},
+		Target:     d.host.ExpandPath(target),
+		Project:    d.project,
+		Metadata: map[string]string{
+			"content": content,
+		},
+	}
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
 // Service adds a launchd service management node.
-func (d *DarwinPlanBindings) Service(name string, action loreStar.ServiceAction) *engine.Node {
-	node := &engine.Node{
+func (d *DarwinPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("launchd", name, action.String()),
 		Operations: []string{"launchd-" + action.String()},
 		Project:    d.project,
@@ -221,8 +233,8 @@ func (d *DarwinPlanBindings) Service(name string, action loreStar.ServiceAction)
 }
 
 // Shell adds a shell command execution node.
-func (d *DarwinPlanBindings) Shell(command string) *engine.Node {
-	node := &engine.Node{
+func (d *DarwinPlanBindings) Shell(command string) *execution.Node {
+	node := &execution.Node{
 		ID:         darwinGenerateNodeID("shell"),
 		Operations: []string{"shell"},
 		Project:    d.project,
@@ -235,8 +247,8 @@ func (d *DarwinPlanBindings) Shell(command string) *engine.Node {
 }
 
 // DependsOn creates a dependency edge between nodes.
-func (d *DarwinPlanBindings) DependsOn(from, to *engine.Node) {
-	d.graph.Edges = append(d.graph.Edges, engine.Edge{
+func (d *DarwinPlanBindings) DependsOn(from, to *execution.Node) {
+	d.graph.Edges = append(d.graph.Edges, execution.Edge{
 		From:     to.ID,
 		To:       from.ID,
 		Relation: "depends_on",
@@ -248,27 +260,29 @@ func (d *DarwinPlanBindings) DependsOn(from, to *engine.Node) {
 func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
 	// Package operations namespace: plan.package.*
 	packageOps := starlarkstruct.FromStringDict(starlark.String("package"), starlark.StringDict{
-		"install":      starlark.NewBuiltin("install", d.packageInstallBuiltin),
-		"install_cask": starlark.NewBuiltin("install_cask", d.packageInstallCaskBuiltin),
-		"upgrade":      starlark.NewBuiltin("upgrade", d.packageUpgradeBuiltin),
-		"remove":       starlark.NewBuiltin("remove", d.packageRemoveBuiltin),
-		"update":       starlark.NewBuiltin("update", d.packageUpdateBuiltin),
+		"install": starlark.NewBuiltin("install", d.packageInstallBuiltin),
+		"remove":  starlark.NewBuiltin("remove", d.packageRemoveBuiltin),
+		"update":  starlark.NewBuiltin("update", d.packageUpdateBuiltin),
+		"upgrade": starlark.NewBuiltin("upgrade", d.packageUpgradeBuiltin),
 	})
 
 	// File operations namespace: plan.file.*
 	fileOps := starlarkstruct.FromStringDict(starlark.String("file"), starlark.StringDict{
 		"configure": starlark.NewBuiltin("configure", d.configureBuiltin),
-		"link":      starlark.NewBuiltin("link", d.linkBuiltin),
 		"copy":      starlark.NewBuiltin("copy", d.copyBuiltin),
+		"link":      starlark.NewBuiltin("link", d.linkBuiltin),
 		"mkdir":     starlark.NewBuiltin("mkdir", d.mkdirBuiltin),
+		"write":     starlark.NewBuiltin("write", d.writeBuiltin),
 	})
 
 	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-		"package":    packageOps,
-		"file":       fileOps,
+		// Namespaces
+		"file":    fileOps,
+		"package": packageOps,
+		// Global functions (at root of plan)
+		"depends_on": starlark.NewBuiltin("depends_on", d.dependsOnBuiltin),
 		"service":    starlark.NewBuiltin("service", d.serviceBuiltin),
 		"shell":      starlark.NewBuiltin("shell", d.shellBuiltin),
-		"depends_on": starlark.NewBuiltin("depends_on", d.dependsOnBuiltin),
 	})
 }
 
@@ -285,22 +299,6 @@ func (d *DarwinPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starla
 		return nil, fmt.Errorf("install: at least one package required")
 	}
 	node := d.PackageInstall(packages...)
-	return nodeToStarlark(node), nil
-}
-
-func (d *DarwinPlanBindings) packageInstallCaskBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-	packages := make([]string, len(args))
-	for i, arg := range args {
-		str, ok := starlark.AsString(arg)
-		if !ok {
-			return nil, fmt.Errorf("install_cask: argument %d is not a string", i)
-		}
-		packages[i] = str
-	}
-	if len(packages) == 0 {
-		return nil, fmt.Errorf("install_cask: at least one package required")
-	}
-	node := d.PackageInstallCask(packages...)
 	return nodeToStarlark(node), nil
 }
 
@@ -377,6 +375,15 @@ func (d *DarwinPlanBindings) mkdirBuiltin(_ *starlark.Thread, _ *starlark.Builti
 	return nodeToStarlark(node), nil
 }
 
+func (d *DarwinPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var target, content string
+	if err := starlark.UnpackArgs("write", args, kwargs, "target", &target, "content", &content); err != nil {
+		return nil, err
+	}
+	node := d.Write(target, content)
+	return nodeToStarlark(node), nil
+}
+
 func (d *DarwinPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name, action string
 	if err := starlark.UnpackArgs("service", args, kwargs, "name", &name, "action", &action); err != nil {
@@ -438,7 +445,7 @@ func (d *DarwinPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Bu
 	fromIDStr, _ := starlark.AsString(fromID)
 	toIDStr, _ := starlark.AsString(toID)
 
-	d.graph.Edges = append(d.graph.Edges, engine.Edge{
+	d.graph.Edges = append(d.graph.Edges, execution.Edge{
 		From:     toIDStr,
 		To:       fromIDStr,
 		Relation: "depends_on",
@@ -447,8 +454,8 @@ func (d *DarwinPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Bu
 	return starlark.None, nil
 }
 
-// nodeToStarlark converts an engine.Node to a Starlark struct.
-func nodeToStarlark(node *engine.Node) starlark.Value {
+// nodeToStarlark converts an execution.Node to a Starlark struct.
+func nodeToStarlark(node *execution.Node) starlark.Value {
 	ops := make([]starlark.Value, len(node.Operations))
 	for i, op := range node.Operations {
 		ops[i] = starlark.String(op)

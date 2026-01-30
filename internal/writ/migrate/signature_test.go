@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/internal/registry"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 )
 
 func TestLoadSignatures_Integration(t *testing.T) {
@@ -27,15 +27,15 @@ func TestLoadSignatures_Integration(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	provider := registry.NewGitProvider(
-		"https://github.com/NobleFactor/devlore-registry.git",
+	provider := lorepackage.NewGitProvider(
+		"https://github.com/NobleFactor/devlore-lorepackage.git",
 		"develop",
 	)
-	client := registry.New("test", provider, filepath.Join(tmpDir, "central"))
+	client := lorepackage.New("test", provider, filepath.Join(tmpDir, "central"))
 
 	// Sync registry
 	ctx := context.Background()
-	_, err = client.Sync(ctx, registry.SyncOptions{})
+	_, err = client.Sync(ctx, lorepackage.SyncOptions{})
 	if err != nil {
 		t.Fatalf("Sync() error: %v", err)
 	}

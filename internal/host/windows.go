@@ -93,6 +93,33 @@ func (h *windowsHost) HomeDir() string {
 	return "C:\\Users\\" + os.Getenv("USERNAME")
 }
 
+// InstalledBy returns the package manager if the package is installed.
+// Windows uses only winget, so this is trivial.
+func (h *windowsHost) InstalledBy(name string) PackageManager {
+	if h.pkgMgr != nil && h.pkgMgr.Installed(name) {
+		return h.pkgMgr
+	}
+	return nil
+}
+
+// AllInstalledBy returns all package managers that have the package installed.
+// Windows uses only winget, so this returns 0 or 1 items.
+func (h *windowsHost) AllInstalledBy(name string) []PackageManager {
+	if h.pkgMgr != nil && h.pkgMgr.Installed(name) {
+		return []PackageManager{h.pkgMgr}
+	}
+	return nil
+}
+
+// GetPackageManager returns a specific package manager by name.
+// Windows uses only winget, so this only returns the PM if name is "winget".
+func (h *windowsHost) GetPackageManager(name string) PackageManager {
+	if h.pkgMgr != nil && name == "winget" {
+		return h.pkgMgr
+	}
+	return nil
+}
+
 // runWindowsCommand executes a command via PowerShell or cmd.
 func runWindowsCommand(command string, elevated bool) Result {
 	var cmd *exec.Cmd

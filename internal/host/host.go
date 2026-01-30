@@ -112,7 +112,23 @@ type Host interface {
 	Platform() Platform
 
 	// PackageManager returns the preferred package manager for this platform.
+	// On Darwin, this is port if installed, otherwise brew.
 	PackageManager() PackageManager
+
+	// InstalledBy returns the package manager that installed the named package.
+	// On platforms with multiple PMs (Darwin), returns the preferred PM if the
+	// package is installed by multiple managers. Returns nil if not installed.
+	InstalledBy(name string) PackageManager
+
+	// AllInstalledBy returns all package managers that have the package installed.
+	// On Darwin, a package may be installed by both Homebrew and MacPorts.
+	// Used for warnings and comprehensive cleanup (decommission).
+	AllInstalledBy(name string) []PackageManager
+
+	// GetPackageManager returns a specific package manager by name.
+	// On Darwin: "brew" or "port". Returns nil if not available.
+	// Used to honor explicit prefixes like brew:pkg or port:pkg.
+	GetPackageManager(name string) PackageManager
 
 	// ServiceManager returns the service manager for this platform.
 	ServiceManager() ServiceManager

@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/registry"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 )
 
 // Signature defines detection markers for a source system.
@@ -46,10 +46,10 @@ type MarkerMatch struct {
 	Confidence float64
 }
 
-// LoadSignatures loads all detection signatures from the registry.
+// LoadSignatures loads all detection signatures from the lorepackage.
 // It reads the index.yaml manifest to discover available signature files,
 // then loads and parses each one.
-func LoadSignatures(client *registry.Client) ([]Signature, error) {
+func LoadSignatures(client *lorepackage.Registry) ([]Signature, error) {
 	knowledge := client.Knowledge("migration")
 
 	// Load the index to discover available signatures

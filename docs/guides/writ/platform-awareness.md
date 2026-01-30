@@ -46,6 +46,32 @@ Writ detects segments automatically in this order:
 Segments are matched in order: OS → DISTRO → ARCH → custom. Empty or unset
 segments are skipped during matching.
 
+### OS family matching
+
+The special `Unix` segment matches both `Darwin` and `Linux`:
+
+```
+Home/
+├── noblefactor.Unix/     # Matches macOS AND Linux
+├── noblefactor.Darwin/   # Matches macOS only
+└── noblefactor.Windows/  # Matches Windows only
+```
+
+This is useful for shell configurations that work on any Unix-like system.
+
+### Segment naming rules
+
+Segment names in directory suffixes are case-sensitive and must exactly match
+the detected values. Common patterns:
+
+| Use | Don't use | Reason |
+|-----|-----------|--------|
+| `Darwin` | `darwin`, `macos` | Matches `uname -s` output |
+| `Linux` | `linux` | Matches `uname -s` output |
+| `arm64` | `aarch64` | Normalized architecture |
+| `amd64` | `x86_64` | Normalized architecture |
+| `Ubuntu` | `ubuntu` | Matches distro ID |
+
 ## Directory matching examples
 
 Given these project variants on a macOS ARM machine (OS=Darwin, ARCH=arm64):

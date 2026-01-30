@@ -13,7 +13,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 )
@@ -50,7 +50,7 @@ type LinuxPlanBindings struct {
 
 // NewPlanBindings creates a new Linux-specific PlanBindings.
 // The appropriate package manager is selected based on the detected distro.
-func NewPlanBindings(graph *engine.Graph, h host.Host, project string) PlatformPlanBindings {
+func NewPlanBindings(graph *execution.Graph, h host.Host, project string) PlatformPlanBindings {
 	p := h.Platform()
 	distro := strings.ToLower(p.Distro)
 
@@ -95,8 +95,8 @@ func (l *LinuxPlanBindings) PackageManagerName() string {
 }
 
 // PackageInstall adds a package installation node using the platform's package manager.
-func (l *LinuxPlanBindings) PackageInstall(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) PackageInstall(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-install", packages...),
 		Operations: []string{"package-install"},
 		Project:    l.project,
@@ -109,8 +109,8 @@ func (l *LinuxPlanBindings) PackageInstall(packages ...string) *engine.Node {
 }
 
 // PackageUpgrade adds a package upgrade node using the platform's package manager.
-func (l *LinuxPlanBindings) PackageUpgrade(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-upgrade", packages...),
 		Operations: []string{"package-upgrade"},
 		Project:    l.project,
@@ -123,8 +123,8 @@ func (l *LinuxPlanBindings) PackageUpgrade(packages ...string) *engine.Node {
 }
 
 // PackageRemove adds a package removal node using the platform's package manager.
-func (l *LinuxPlanBindings) PackageRemove(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) PackageRemove(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-remove", packages...),
 		Operations: []string{"package-remove"},
 		Project:    l.project,
@@ -137,8 +137,8 @@ func (l *LinuxPlanBindings) PackageRemove(packages ...string) *engine.Node {
 }
 
 // PackageUpdate adds a package index update node using the platform's package manager.
-func (l *LinuxPlanBindings) PackageUpdate() *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) PackageUpdate() *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-update"),
 		Operations: []string{"package-update"},
 		Project:    l.project,
@@ -149,8 +149,8 @@ func (l *LinuxPlanBindings) PackageUpdate() *engine.Node {
 }
 
 // Configure adds a configuration file node.
-func (l *LinuxPlanBindings) Configure(source, target string) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) Configure(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("configure"),
 		Operations: []string{"expand", "copy"},
 		Source:     source,
@@ -162,8 +162,8 @@ func (l *LinuxPlanBindings) Configure(source, target string) *engine.Node {
 }
 
 // Link adds a symlink creation node.
-func (l *LinuxPlanBindings) Link(source, target string) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) Link(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("link"),
 		Operations: []string{"link"},
 		Source:     source,
@@ -175,8 +175,8 @@ func (l *LinuxPlanBindings) Link(source, target string) *engine.Node {
 }
 
 // Copy adds a file copy node.
-func (l *LinuxPlanBindings) Copy(source, target string) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) Copy(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("copy"),
 		Operations: []string{"copy"},
 		Source:     source,
@@ -188,8 +188,8 @@ func (l *LinuxPlanBindings) Copy(source, target string) *engine.Node {
 }
 
 // Mkdir adds a directory creation node.
-func (l *LinuxPlanBindings) Mkdir(target string) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) Mkdir(target string) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("mkdir"),
 		Operations: []string{"mkdir"},
 		Target:     l.host.ExpandPath(target),
@@ -199,9 +199,24 @@ func (l *LinuxPlanBindings) Mkdir(target string) *engine.Node {
 	return node
 }
 
+// Write adds a file write node (write content directly to target).
+func (l *LinuxPlanBindings) Write(target, content string) *execution.Node {
+	node := &execution.Node{
+		ID:         linuxGenerateNodeID("write"),
+		Operations: []string{"file-write"},
+		Target:     l.host.ExpandPath(target),
+		Project:    l.project,
+		Metadata: map[string]string{
+			"content": content,
+		},
+	}
+	l.graph.Nodes = append(l.graph.Nodes, node)
+	return node
+}
+
 // Service adds a systemd service management node.
-func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("systemd", name, action.String()),
 		Operations: []string{"systemd-" + action.String()},
 		Project:    l.project,
@@ -215,8 +230,8 @@ func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) 
 }
 
 // Shell adds a shell command execution node.
-func (l *LinuxPlanBindings) Shell(command string) *engine.Node {
-	node := &engine.Node{
+func (l *LinuxPlanBindings) Shell(command string) *execution.Node {
+	node := &execution.Node{
 		ID:         linuxGenerateNodeID("shell"),
 		Operations: []string{"shell"},
 		Project:    l.project,
@@ -229,8 +244,8 @@ func (l *LinuxPlanBindings) Shell(command string) *engine.Node {
 }
 
 // DependsOn creates a dependency edge between nodes.
-func (l *LinuxPlanBindings) DependsOn(from, to *engine.Node) {
-	l.graph.Edges = append(l.graph.Edges, engine.Edge{
+func (l *LinuxPlanBindings) DependsOn(from, to *execution.Node) {
+	l.graph.Edges = append(l.graph.Edges, execution.Edge{
 		From:     to.ID,
 		To:       from.ID,
 		Relation: "depends_on",
@@ -253,17 +268,20 @@ func (l *LinuxPlanBindings) ToStarlark() starlark.Value {
 	// File operations namespace: plan.file.*
 	fileOps := starlarkstruct.FromStringDict(starlark.String("file"), starlark.StringDict{
 		"configure": starlark.NewBuiltin("configure", l.configureBuiltin),
-		"link":      starlark.NewBuiltin("link", l.linkBuiltin),
 		"copy":      starlark.NewBuiltin("copy", l.copyBuiltin),
+		"link":      starlark.NewBuiltin("link", l.linkBuiltin),
 		"mkdir":     starlark.NewBuiltin("mkdir", l.mkdirBuiltin),
+		"write":     starlark.NewBuiltin("write", l.writeBuiltin),
 	})
 
 	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-		"package":    packageOps,
-		"file":       fileOps,
+		// Namespaces
+		"file":    fileOps,
+		"package": packageOps,
+		// Global functions (at root of plan)
+		"depends_on": starlark.NewBuiltin("depends_on", l.dependsOnBuiltin),
 		"service":    starlark.NewBuiltin("service", l.serviceBuiltin),
 		"shell":      starlark.NewBuiltin("shell", l.shellBuiltin),
-		"depends_on": starlark.NewBuiltin("depends_on", l.dependsOnBuiltin),
 		// Linux-specific: expose distro info at top level
 		"distro": starlark.String(l.distro),
 	})
@@ -358,6 +376,15 @@ func (l *LinuxPlanBindings) mkdirBuiltin(_ *starlark.Thread, _ *starlark.Builtin
 	return linuxNodeToStarlark(node), nil
 }
 
+func (l *LinuxPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var target, content string
+	if err := starlark.UnpackArgs("write", args, kwargs, "target", &target, "content", &content); err != nil {
+		return nil, err
+	}
+	node := l.Write(target, content)
+	return linuxNodeToStarlark(node), nil
+}
+
 func (l *LinuxPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name, action string
 	if err := starlark.UnpackArgs("service", args, kwargs, "name", &name, "action", &action); err != nil {
@@ -419,7 +446,7 @@ func (l *LinuxPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Bui
 	fromIDStr, _ := starlark.AsString(fromID)
 	toIDStr, _ := starlark.AsString(toID)
 
-	l.graph.Edges = append(l.graph.Edges, engine.Edge{
+	l.graph.Edges = append(l.graph.Edges, execution.Edge{
 		From:     toIDStr,
 		To:       fromIDStr,
 		Relation: "depends_on",
@@ -428,8 +455,8 @@ func (l *LinuxPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Bui
 	return starlark.None, nil
 }
 
-// linuxNodeToStarlark converts an engine.Node to a Starlark struct.
-func linuxNodeToStarlark(node *engine.Node) starlark.Value {
+// linuxNodeToStarlark converts an execution.Node to a Starlark struct.
+func linuxNodeToStarlark(node *execution.Node) starlark.Value {
 	ops := make([]starlark.Value, len(node.Operations))
 	for i, op := range node.Operations {
 		ops[i] = starlark.String(op)
