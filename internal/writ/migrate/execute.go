@@ -72,12 +72,38 @@ func Execute(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) e
 	}
 
 	// Write marker file
+	if err := WriteMigratedMarker(analysis.SourceRoot, graph, analysis); err != nil {
+		return err
+	}
+
+	cli.Success("Wrote .writ-migrated marker.")
+	cli.Note("Migration complete. Next steps:")
+	cli.Note("  git add -A && git commit -m \"Migrate to writ naming conventions\"")
+	if analysis.Structure != nil && len(analysis.Structure.Groups) > 0 {
+		cli.Note("  writ deploy %s", joinWords(analysis.Structure.Groups))
+	}
+
+	return nil
+}
+
+// WriteMigratedMarker writes the .writ-migrated marker file.
+func WriteMigratedMarker(sourceRoot string, graph *execution.Graph, analysis *MigrationAnalysis) error {
+	var renames []Rename
+	for _, node := range graph.Nodes {
+		for _, op := range node.Operations {
+			if op == "rename" {
+				renames = append(renames, Rename{From: node.Source, To: node.Target})
+				break
+			}
+		}
+	}
+
 	marker := MigratedMarker{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		System:    string(analysis.System),
 		Renames:   renames,
 	}
-	markerPath := filepath.Join(analysis.SourceRoot, ".writ-migrated")
+	markerPath := filepath.Join(sourceRoot, ".writ-migrated")
 	data, err := yaml.Marshal(&marker)
 	if err != nil {
 		return fmt.Errorf("marshal marker: %w", err)
@@ -85,14 +111,6 @@ func Execute(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) e
 	if err := os.WriteFile(markerPath, data, 0644); err != nil {
 		return fmt.Errorf("write marker: %w", err)
 	}
-
-	cli.Success("Wrote .writ-migrated marker.")
-	cli.Note("Migration complete. Next steps:")
-	cli.Note("  git add -A && git commit -m \"Migrate to writ naming conventions\"")
-	if len(analysis.Projects) > 0 {
-		cli.Note("  writ deploy %s", joinWords(analysis.Projects))
-	}
-
 	return nil
 }
 

@@ -3,6 +3,57 @@
 
 package migrate
 
+// SourceSystem identifies the dotfile management approach used in the source repository.
+type SourceSystem string
+
+const (
+	SystemNative      SourceSystem = "native"       // Already writ-compatible (Home/ or System/)
+	SystemTuckr       SourceSystem = "tuckr"        // Tuckr dotfile manager
+	SystemStow        SourceSystem = "stow"         // GNU Stow
+	SystemChezmoi     SourceSystem = "chezmoi"      // chezmoi
+	SystemYadm        SourceSystem = "yadm"         // yadm
+	SystemBareGit     SourceSystem = "bare-git"     // Bare git repo as home
+	SystemScriptBased SourceSystem = "script-based" // Custom install scripts
+	SystemUnknown     SourceSystem = "unknown"
+)
+
+// EncryptionSystem identifies the secret encryption tool in use.
+type EncryptionSystem string
+
+const (
+	EncryptGitCrypt     EncryptionSystem = "git-crypt"
+	EncryptBlackbox     EncryptionSystem = "blackbox"
+	EncryptTranscrypt   EncryptionSystem = "transcrypt"
+	EncryptGPG          EncryptionSystem = "gpg"
+	EncryptAge          EncryptionSystem = "age"
+	EncryptAnsibleVault EncryptionSystem = "ansible-vault"
+	EncryptSOPS         EncryptionSystem = "sops"
+	EncryptNone         EncryptionSystem = "none"
+)
+
+// SecretFinding represents a detected secret file.
+type SecretFinding struct {
+	RelPath          string           `json:"rel_path" yaml:"rel_path"`
+	Encryption       EncryptionSystem `json:"encryption" yaml:"encryption"`
+	Reason           string           `json:"reason" yaml:"reason"`
+	SuggestedPattern string           `json:"suggested_pattern,omitempty" yaml:"suggested_pattern,omitempty"`
+}
+
+// StructureInfo describes the detected repository structure.
+type StructureInfo struct {
+	// GroupsPath is where groups live (e.g., "Home/Configs").
+	GroupsPath string `json:"groups_path" yaml:"groups_path"`
+
+	// NamingConvention is the current naming pattern (e.g., "<group>-<Platform>").
+	NamingConvention string `json:"naming_convention" yaml:"naming_convention"`
+
+	// Groups is the list of group names found.
+	Groups []string `json:"groups" yaml:"groups"`
+
+	// Platforms is the list of platform names found.
+	Platforms []string `json:"platforms" yaml:"platforms"`
+}
+
 // MigrationAnalysis holds non-executable understanding of a source repository.
 // This is the "why" and "what to watch out for" — separate from the execution
 // Graph which specifies "what to do".
@@ -16,21 +67,26 @@ type MigrationAnalysis struct {
 	// System is the detected source system (tuckr, stow, chezmoi, etc.).
 	System SourceSystem `json:"system" yaml:"system"`
 
-	// SystemConfidence is the detection confidence (0.0-1.0) when using
-	// signature-based detection. Zero for heuristic detection.
+	// SystemConfidence is the detection confidence (0.0-1.0).
 	SystemConfidence float64 `json:"system_confidence,omitempty" yaml:"system_confidence,omitempty"`
+
+	// InputSummary describes what the LLM saw in the inputs.
+	InputSummary string `json:"input_summary,omitempty" yaml:"input_summary,omitempty"`
+
+	// Structure describes the detected repository structure.
+	Structure *StructureInfo `json:"structure,omitempty" yaml:"structure,omitempty"`
 
 	// RepoLayer indicates the precedence layer (base, team, personal).
 	RepoLayer RepoLayer `json:"repo_layer" yaml:"repo_layer"`
 
 	// EncryptionSystems lists detected encryption tools (git-crypt, sops, etc.).
-	EncryptionSystems []EncryptionSystem `json:"encryption_systems" yaml:"encryption_systems"`
+	EncryptionSystems []EncryptionSystem `json:"encryption_systems,omitempty" yaml:"encryption_systems,omitempty"`
 
 	// Projects lists unique project names found in the repository.
-	Projects []string `json:"projects" yaml:"projects"`
+	Projects []string `json:"projects,omitempty" yaml:"projects,omitempty"`
 
 	// Platforms lists unique platform names found in the repository.
-	Platforms []string `json:"platforms" yaml:"platforms"`
+	Platforms []string `json:"platforms,omitempty" yaml:"platforms,omitempty"`
 
 	// Scripts contains analysis of lifecycle scripts.
 	Scripts []ScriptAnalysis `json:"scripts,omitempty" yaml:"scripts,omitempty"`
@@ -48,7 +104,7 @@ type MigrationAnalysis struct {
 	Recommendations []string `json:"recommendations,omitempty" yaml:"recommendations,omitempty"`
 
 	// Stats provides summary counts derived from the inventory.
-	Stats MigrationStats `json:"stats" yaml:"stats"`
+	Stats MigrationStats `json:"stats,omitempty" yaml:"stats,omitempty"`
 }
 
 // MigrationStats summarizes the migration numerically.
