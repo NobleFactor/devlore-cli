@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/signing"
 )
 
 // ReceiptsDir returns the directory where receipts are stored.
@@ -53,9 +54,18 @@ func LoadLatestReceipt(producer string) (*execution.Graph, error) {
 // writ: Migrate, Adopt, Deploy, Upgrade, Reconcile, Decommission
 // lore: Onboard
 //
-// The receipt is checksummed before writing. Signing is performed if
-// age identities are available.
+// The receipt is checksummed before writing. Signing is performed using
+// the first available backend from .sops.yaml (GPG, AWS KMS, GCP KMS, or Azure Key Vault).
+// The .sops.yaml is expected at ${XDG_STATE_HOME}/devlore/.sops.yaml.
 func WriteReceipt(g *execution.Graph, producer string) (string, error) {
+	// Search for .sops.yaml from the devlore state directory
+	// Expected location: ${XDG_STATE_HOME}/devlore/.sops.yaml
+	return WriteReceiptWithSigningDir(g, producer, DevloreStateHome())
+}
+
+// WriteReceiptWithSigningDir writes the graph as a receipt, searching for
+// .sops.yaml starting from signingDir to configure signing backends.
+func WriteReceiptWithSigningDir(g *execution.Graph, producer, signingDir string) (string, error) {
 	dir := ReceiptsDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create receipts dir: %w", err)
@@ -71,7 +81,8 @@ func WriteReceipt(g *execution.Graph, producer string) (string, error) {
 	}
 	g.Checksum = execution.GitStyleChecksum("graph", filename, canonical)
 
-	// TODO: Sign receipt if age identities are configured
+	// Sign receipt using backends from .sops.yaml
+	signGraph(g, canonical, signingDir)
 
 	// Write receipt
 	f, err := os.Create(path)
@@ -94,4 +105,24 @@ func WriteReceipt(g *execution.Graph, producer string) (string, error) {
 	_ = os.Symlink(filename, latestPath)
 
 	return path, nil
+}
+
+// signGraph signs the graph using the first available signing backend.
+// Searches for .sops.yaml starting from searchDir.
+// If no backends are available, signing is skipped (g.Signature remains nil).
+func signGraph(g *execution.Graph, canonical []byte, searchDir string) {
+	chain := signing.BuildSignerChain(searchDir)
+
+	sig, err := chain.Sign(canonical)
+	if err != nil || sig == nil {
+		// No signing backend available - that's OK
+		return
+	}
+
+	// Convert signing.Signature to execution.Signature
+	g.Signature = &execution.Signature{
+		Method: sig.Method,
+		Value:  sig.Value,
+		KeyID:  sig.KeyID,
+	}
 }

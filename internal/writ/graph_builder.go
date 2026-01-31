@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/writ/deploystate"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
@@ -169,15 +168,15 @@ func (b *DeployGraphBuilder) Build() (*execution.Graph, error) {
 // DecommissionGraphBuilder builds execution graphs for decommission operations.
 type DecommissionGraphBuilder struct {
 	config *Config
-	state  *deploystate.State
+	view   *execution.StateView
 	force  bool
 }
 
 // NewDecommissionGraphBuilder creates a new decommission graph builder.
-func NewDecommissionGraphBuilder(cfg *DecommissionConfig, s *deploystate.State) *DecommissionGraphBuilder {
+func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateView) *DecommissionGraphBuilder {
 	return &DecommissionGraphBuilder{
 		config: &cfg.Config,
-		state:  s,
+		view:   view,
 		force:  cfg.Force,
 	}
 }
@@ -186,14 +185,13 @@ func NewDecommissionGraphBuilder(cfg *DecommissionConfig, s *deploystate.State) 
 func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 	// Create the graph
 	g := NewGraph(b.config)
-	g.Context.SourceRoot = b.state.SourceRoot
-	g.Context.TargetRoot = b.state.TargetRoot
+	g.Context.TargetRoot = b.view.Files.Root
 
 	// Build project set for filtering
 	projects := projectSet(b.config.Projects)
 
 	// Convert state entries to removal nodes
-	for relTarget, entry := range b.state.Files {
+	for relTarget, entry := range b.view.Files.Entries {
 		// Filter by project if specified
 		if len(projects) > 0 && !projects[entry.Project] {
 			continue
@@ -211,9 +209,10 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 		}
 
 		// Check for local modifications on copied files
-		if entry.IsCopied() && entry.TargetChecksum != "" {
-			currentChecksum := execution.ChecksumFile(filepath.Join(b.state.TargetRoot, relTarget))
-			if currentChecksum != "" && currentChecksum != entry.TargetChecksum {
+		targetChecksum := entry.TargetChecksum()
+		if entry.IsCopied() && targetChecksum != "" {
+			currentChecksum := execution.ChecksumFile(filepath.Join(b.view.Files.Root, relTarget))
+			if currentChecksum != "" && currentChecksum != targetChecksum {
 				metadata["locally_modified"] = "true"
 				if !b.force {
 					// Skip modified files unless --force
@@ -227,7 +226,7 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 			Operations: []string{op},
 			Status:     execution.StatusPending,
 			Source:     entry.Source,
-			Target:     filepath.Join(b.state.TargetRoot, relTarget),
+			Target:     filepath.Join(b.view.Files.Root, relTarget),
 			Project:    entry.Project,
 			Layer:      entry.Layer,
 			Metadata:   metadata,
@@ -246,15 +245,15 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 // UpgradeGraphBuilder builds execution graphs for upgrade operations.
 type UpgradeGraphBuilder struct {
 	config *Config
-	state  *deploystate.State
+	view   *execution.StateView
 	force  bool
 }
 
 // NewUpgradeGraphBuilder creates a new upgrade graph builder.
-func NewUpgradeGraphBuilder(cfg *UpgradeConfig, s *deploystate.State) *UpgradeGraphBuilder {
+func NewUpgradeGraphBuilder(cfg *UpgradeConfig, view *execution.StateView) *UpgradeGraphBuilder {
 	return &UpgradeGraphBuilder{
 		config: &cfg.Config,
-		state:  s,
+		view:   view,
 		force:  cfg.Force,
 	}
 }

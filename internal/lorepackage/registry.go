@@ -14,14 +14,57 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
 // Registry provides access to a devlore registry.
 type Registry struct {
-	name     string   // Registry name (e.g., "central")
-	provider Provider // Transport provider (git, oci, etc.)
-	cacheDir string   // Local cache directory
+	name      string   // Registry name (e.g., "central")
+	provider  Provider // Transport provider (git, oci, etc.)
+	cacheDir  string   // Local cache directory
+	forceTags bool     // Force tag resolution even on non-main branches
+}
+
+// RegistryConfig holds optional configuration for registry access.
+// These values can be set in ~/.config/devlore/config.yaml under lore.registry.
+//
+// Example config:
+//
+//	lore:
+//	  registry:
+//	    url: https://github.com/MyOrg/my-registry.git
+//	    branch: main
+//	    force_tags: true
+type RegistryConfig struct {
+	// URL overrides the default registry URL.
+	// Default: https://github.com/NobleFactor/devlore-registry.git
+	URL string `yaml:"url" mapstructure:"url"`
+
+	// Branch overrides the default branch.
+	// Default: develop (for demo phase; main for releases)
+	Branch string `yaml:"branch" mapstructure:"branch"`
+
+	// ForceTags forces tag resolution even on non-main branches.
+	// When true, "latest" always resolves to the "latest" tag.
+	// Default: false
+	ForceTags bool `yaml:"force_tags" mapstructure:"force_tags"`
+}
+
+// LoadRegistryConfig loads registry configuration from viper.
+// Reads from lore.registry.* keys in the config file.
+func LoadRegistryConfig() RegistryConfig {
+	return RegistryConfig{
+		URL:       viper.GetString("lore.registry.url"),
+		Branch:    viper.GetString("lore.registry.branch"),
+		ForceTags: viper.GetBool("lore.registry.force_tags"),
+	}
+}
+
+// NewWithConfig creates a registry using configuration from viper.
+// This is the preferred way to create a registry in lore commands.
+func NewWithConfig() (*Registry, error) {
+	return NewFromConfig(LoadRegistryConfig())
 }
 
 // Provider abstracts the transport mechanism for registry access.
@@ -65,20 +108,61 @@ func New(name string, provider Provider, cacheDir string) *Registry {
 	}
 }
 
+// Default registry settings.
+const (
+	DefaultRegistryURL    = "https://github.com/NobleFactor/devlore-registry.git"
+	DefaultRegistryBranch = "develop" // develop branch has AI assets; main is release-only
+)
+
 // NewDefault creates a registry with default settings for the central registry.
 // Uses the develop branch during demo phase (AI assets and latest packages).
+//
+// To customize registry settings, use NewFromConfig with values from
+// ~/.config/devlore/config.yaml:
+//
+//	lore:
+//	  registry:
+//	    url: https://github.com/MyOrg/my-registry.git
+//	    branch: main
+//	    force_tags: true
 func NewDefault() (*Registry, error) {
+	return NewFromConfig(RegistryConfig{})
+}
+
+// NewFromConfig creates a registry with the given configuration.
+// Empty config values use defaults.
+func NewFromConfig(cfg RegistryConfig) (*Registry, error) {
 	cacheDir, err := defaultCacheDir()
 	if err != nil {
 		return nil, err
 	}
 
-	provider := NewGitProvider(
-		"https://github.com/NobleFactor/devlore-registry.git",
-		"develop", // develop branch has AI assets; main is release-only
-	)
+	// Apply defaults
+	url := cfg.URL
+	if url == "" {
+		url = DefaultRegistryURL
+	}
 
-	return New("central", provider, filepath.Join(cacheDir, "central")), nil
+	branch := cfg.Branch
+	if branch == "" {
+		branch = DefaultRegistryBranch
+	}
+
+	provider := NewGitProvider(url, branch)
+
+	reg := &Registry{
+		name:      "central",
+		provider:  provider,
+		cacheDir:  filepath.Join(cacheDir, "central"),
+		forceTags: cfg.ForceTags,
+	}
+
+	return reg, nil
+}
+
+// ForceTags returns whether tag resolution is forced (even on non-main branches).
+func (r *Registry) ForceTags() bool {
+	return r.forceTags
 }
 
 // defaultCacheDir returns the default cache directory.
@@ -153,6 +237,72 @@ func (r *Registry) ReadDir(relPath string) ([]os.DirEntry, error) {
 // FilePath returns the absolute path to a file in the cache.
 func (r *Registry) FilePath(relPath string) string {
 	return filepath.Join(r.cacheDir, relPath)
+}
+
+// =============================================================================
+// Version Operations
+// =============================================================================
+
+// ListVersions returns all available version tags.
+// Tags are returned in descending semver order (newest first).
+func (r *Registry) ListVersions(ctx context.Context) ([]string, error) {
+	gp, ok := r.provider.(*GitProvider)
+	if !ok {
+		return nil, fmt.Errorf("version listing requires git provider")
+	}
+	return gp.ListVersions(ctx, r.cacheDir)
+}
+
+// ResolveVersion resolves a version string to a git ref.
+// Uses ForceTags setting to determine behavior on non-main branches.
+func (r *Registry) ResolveVersion(ctx context.Context, version string) (string, error) {
+	gp, ok := r.provider.(*GitProvider)
+	if !ok {
+		return "", fmt.Errorf("version resolution requires git provider")
+	}
+
+	// If ForceTags is set, always resolve via tags (even on non-main)
+	if r.forceTags && (version == "" || version == "latest") {
+		return gp.resolveTag(ctx, r.cacheDir, "latest")
+	}
+
+	return gp.ResolveVersion(ctx, r.cacheDir, version)
+}
+
+// CheckoutVersion checks out a specific version in the cache.
+func (r *Registry) CheckoutVersion(ctx context.Context, version string) error {
+	gp, ok := r.provider.(*GitProvider)
+	if !ok {
+		return fmt.Errorf("version checkout requires git provider")
+	}
+
+	// If ForceTags is set and version is "latest", use tag even on non-main
+	if r.forceTags && (version == "" || version == "latest") {
+		if err := gp.fetchTags(ctx, r.cacheDir); err != nil {
+			return err
+		}
+		return gp.runGit(ctx, r.cacheDir, "checkout", "latest")
+	}
+
+	return gp.CheckoutVersion(ctx, r.cacheDir, version)
+}
+
+// CurrentVersion returns the version tag at HEAD, or "" if HEAD is not tagged.
+func (r *Registry) CurrentVersion(ctx context.Context) (string, error) {
+	gp, ok := r.provider.(*GitProvider)
+	if !ok {
+		return "", fmt.Errorf("version query requires git provider")
+	}
+	return gp.CurrentVersion(ctx, r.cacheDir)
+}
+
+// Branch returns the configured branch name.
+func (r *Registry) Branch() string {
+	gp, ok := r.provider.(*GitProvider)
+	if !ok {
+		return ""
+	}
+	return gp.Branch()
 }
 
 // Knowledge returns a domain accessor for reading knowledge assets.

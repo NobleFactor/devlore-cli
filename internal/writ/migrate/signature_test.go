@@ -28,7 +28,7 @@ func TestLoadSignatures_Integration(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	provider := lorepackage.NewGitProvider(
-		"https://github.com/NobleFactor/devlore-lorepackage.git",
+		"https://github.com/NobleFactor/devlore-registry.git",
 		"develop",
 	)
 	client := lorepackage.New("test", provider, filepath.Join(tmpDir, "central"))

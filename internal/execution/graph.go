@@ -112,14 +112,15 @@ type Summary struct {
 
 // Signature contains the cryptographic signature of a graph.
 type Signature struct {
-	// Method is the signing method used (always "age" for now).
+	// Method is the signing method used (gpg, aws_kms, gcp_kms, azure_kv).
 	Method string `json:"method" yaml:"method"`
 
-	// Value is the age-encrypted hash of the graph content (base64-encoded).
+	// Value is the signature data (base64-encoded).
 	Value string `json:"value" yaml:"value"`
 
-	// Recipient is the age public key that can verify the signature.
-	Recipient string `json:"recipient" yaml:"recipient"`
+	// KeyID identifies the key used for signing.
+	// For GPG: fingerprint, for KMS: key ARN/ID/URL.
+	KeyID string `json:"key_id" yaml:"key_id"`
 }
 
 // Collision records a source conflict resolved during tree building (writ-specific).

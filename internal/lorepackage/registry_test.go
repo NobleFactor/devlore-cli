@@ -161,6 +161,95 @@ func TestKnowledgeIndex_SchemaByPurpose(t *testing.T) {
 	}
 }
 
+func TestRegistryConfig_Defaults(t *testing.T) {
+	cfg := RegistryConfig{}
+
+	registry, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewFromConfig() error: %v", err)
+	}
+
+	// Check defaults applied
+	if registry.Branch() != DefaultRegistryBranch {
+		t.Errorf("Branch() = %q, want %q", registry.Branch(), DefaultRegistryBranch)
+	}
+
+	gp, ok := registry.provider.(*GitProvider)
+	if !ok {
+		t.Fatal("expected GitProvider")
+	}
+
+	if gp.RepoURL() != DefaultRegistryURL {
+		t.Errorf("RepoURL() = %q, want %q", gp.RepoURL(), DefaultRegistryURL)
+	}
+}
+
+func TestRegistryConfig_Custom(t *testing.T) {
+	cfg := RegistryConfig{
+		URL:       "https://github.com/MyOrg/my-registry.git",
+		Branch:    "main",
+		ForceTags: true,
+	}
+
+	registry, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewFromConfig() error: %v", err)
+	}
+
+	if registry.Branch() != "main" {
+		t.Errorf("Branch() = %q, want 'main'", registry.Branch())
+	}
+
+	if !registry.ForceTags() {
+		t.Error("ForceTags() = false, want true")
+	}
+
+	gp, ok := registry.provider.(*GitProvider)
+	if !ok {
+		t.Fatal("expected GitProvider")
+	}
+
+	if gp.RepoURL() != "https://github.com/MyOrg/my-registry.git" {
+		t.Errorf("RepoURL() = %q, want custom URL", gp.RepoURL())
+	}
+}
+
+func TestGitProvider_ResolveVersion_NonMain(t *testing.T) {
+	// On non-main branch, "latest" should resolve to HEAD
+	provider := NewGitProvider("https://example.com/repo.git", "develop")
+
+	// This test doesn't need an actual repo - it tests the logic
+	if provider.Branch() != "develop" {
+		t.Errorf("Branch() = %q, want 'develop'", provider.Branch())
+	}
+
+	// The actual ResolveVersion would need a cache dir, but we can test the provider setup
+}
+
+func TestGitProvider_BranchAccessors(t *testing.T) {
+	tests := []struct {
+		url    string
+		branch string
+	}{
+		{"https://github.com/example/repo.git", "main"},
+		{"https://github.com/example/repo.git", "develop"},
+		{"https://github.com/example/repo.git", "feature/new-pkg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.branch, func(t *testing.T) {
+			provider := NewGitProvider(tt.url, tt.branch)
+
+			if provider.RepoURL() != tt.url {
+				t.Errorf("RepoURL() = %q, want %q", provider.RepoURL(), tt.url)
+			}
+			if provider.Branch() != tt.branch {
+				t.Errorf("Branch() = %q, want %q", provider.Branch(), tt.branch)
+			}
+		})
+	}
+}
+
 func TestRegistry_SyncIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

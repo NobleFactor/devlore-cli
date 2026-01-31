@@ -23,7 +23,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/writ/deploystate"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
@@ -196,14 +195,18 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. Load and verify state
-	deployState, identities, err := loadDecommissionState(cfg)
+	// 2. Load state view from receipts
+	view, err := loadStateView(cfg.Verbose)
 	if err != nil {
 		return err
 	}
 
+	if len(view.Files.Entries) == 0 {
+		return fmt.Errorf("no deployment receipts found; cannot decommission without deployment history\nRun 'writ deploy' first")
+	}
+
 	// 3. Build execution graph
-	g, err := NewDecommissionGraphBuilder(cfg, deployState).Build()
+	g, err := NewDecommissionGraphBuilder(cfg, view).Build()
 	if err != nil {
 		return err
 	}
@@ -235,69 +238,36 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 6. Update and persist state
-	updateDecommissionState(cfg, deployState, g, identities)
+	// 6. Write receipt (the receipt IS the state record)
+	path, err := cli.WriteReceipt(g, "writ")
+	if err != nil {
+		cli.Warn("failed to write receipt: %v", err)
+	} else if cfg.Verbose {
+		cli.Note("Receipt: %s", path)
+	}
 
 	// 7. Summary
 	cli.Success("Decommissioned %s", g.Summary.String())
 	return nil
 }
 
-// loadDecommissionState loads the state file and verifies its signature.
-func loadDecommissionState(cfg *DecommissionConfig) (*deploystate.State, []age.Identity, error) {
-	deployState, err := deploystate.Load()
+// loadStateView builds a StateView from writ receipts.
+func loadStateView(verbose bool) (*execution.StateView, error) {
+	receiptsDir := cli.ReceiptsDir()
+	builder := execution.NewStateViewBuilder(execution.ViewOptions{
+		Tools: []string{"writ"},
+	})
+
+	view, err := builder.Build(receiptsDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("no state file found; cannot decommission without deployment state\nRun 'writ deploy' first to create state")
-		}
-		return nil, nil, fmt.Errorf("load state: %w", err)
+		return nil, fmt.Errorf("build state view: %w", err)
 	}
 
-	identities, _ := identity.LoadIdentities()
-
-	if deployState.IsSigned() {
-		if len(identities) == 0 {
-			return nil, nil, fmt.Errorf("load identities for signature verification: no identities found")
-		}
-		if err := deployState.Verify(identities); err != nil {
-			return nil, nil, fmt.Errorf("state signature invalid, redeploy to regenerate: %v", err)
-		}
-		if cfg.Verbose {
-			cli.Success("State signature valid")
-		}
-	} else if !cfg.Force {
-		cli.Warn("state file is unsigned (legacy or tampered)")
-		return nil, nil, fmt.Errorf("unsigned state file; use --force to proceed or redeploy to regenerate signed state")
+	if verbose {
+		cli.Note("Loaded %d receipts", view.ReceiptCount)
 	}
 
-	return deployState, identities, nil
-}
-
-// updateDecommissionState removes completed entries from state and persists it.
-func updateDecommissionState(cfg *DecommissionConfig, deployState *deploystate.State, g *execution.Graph, identities []age.Identity) {
-	var removed int
-	for _, node := range g.Nodes {
-		if node.Status == execution.StatusCompleted {
-			deployState.RemoveEntry(node.ID)
-			removed++
-		}
-	}
-
-	if removed == 0 {
-		return
-	}
-
-	if signingKey := findSigningKey(identities); signingKey != nil {
-		if err := deployState.Sign(signingKey); err != nil {
-			cli.Warn("failed to sign state: %v", err)
-		}
-	}
-
-	if err := deployState.Write(); err != nil {
-		cli.Warn("failed to write state: %v", err)
-	} else if cfg.Verbose {
-		cli.Success("State updated: %s", deploystate.StatePath())
-	}
+	return view, nil
 }
 
 // projectSet converts a slice of projects to a map for quick lookup.
@@ -344,8 +314,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. Load state and get copied files
-	deployState, copied, err := loadStateAndCopiedFiles(cfg)
+	// 2. Load state view and get copied files
+	view, copied, err := loadViewAndCopiedFiles(cfg)
 	if err != nil {
 		return err
 	}
@@ -360,31 +330,35 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Prepare engine data
-	engineData, identities, err := prepareUpgradeEngine(deployState)
+	engineData, identities, err := prepareUpgradeEngine(cfg)
 	if err != nil {
 		return err
 	}
 
 	// 4. Execute upgrades
-	return executeUpgrades(cfg, deployState, copied, engineData, identities)
+	return executeUpgrades(cfg, view, copied, engineData, identities)
 }
 
-// loadStateAndCopiedFiles loads state and filters copied files by project.
-func loadStateAndCopiedFiles(cfg *UpgradeConfig) (*deploystate.State, map[string]*deploystate.FileEntry, error) {
-	deployState, err := deploystate.Load()
+// loadViewAndCopiedFiles loads state view and filters copied files by project.
+func loadViewAndCopiedFiles(cfg *UpgradeConfig) (*execution.StateView, map[string]*execution.FileEntry, error) {
+	view, err := loadStateView(cfg.Verbose)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load state: %w (run 'writ deploy' first to create state)", err)
+		return nil, nil, fmt.Errorf("load state: %w (run 'writ deploy' first)", err)
+	}
+
+	if view.ReceiptCount == 0 {
+		return nil, nil, fmt.Errorf("no deployment receipts found; run 'writ deploy' first")
 	}
 
 	if cli.GetString("writ", "repo", true) == "" {
 		return nil, nil, fmt.Errorf("no repo configured; set writ.repo in config or use WRIT_REPO env var")
 	}
 
-	copied := deployState.CopiedFiles()
+	copied := view.Files.CopiedFiles()
 
 	if len(cfg.Projects) > 0 {
 		projects := projectSet(cfg.Projects)
-		filtered := make(map[string]*deploystate.FileEntry)
+		filtered := make(map[string]*execution.FileEntry)
 		for relTarget, entry := range copied {
 			if projects[entry.Project] {
 				filtered[relTarget] = entry
@@ -393,11 +367,11 @@ func loadStateAndCopiedFiles(cfg *UpgradeConfig) (*deploystate.State, map[string
 		copied = filtered
 	}
 
-	return deployState, copied, nil
+	return view, copied, nil
 }
 
 // prepareUpgradeEngine prepares the engine data and loads identities.
-func prepareUpgradeEngine(deployState *deploystate.State) (map[string]any, []age.Identity, error) {
+func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, []age.Identity, error) {
 	segs := segment.DetectSegments().LoadFromEnv()
 
 	segMap := make(map[string]string)
@@ -419,7 +393,8 @@ func prepareUpgradeEngine(deployState *deploystate.State) (map[string]any, []age
 		engineData[k] = v
 	}
 
-	upgradeSecretsMgr, _ := secrets.NewManager(deployState.SourceRoot)
+	// Use the configured source root for secrets
+	upgradeSecretsMgr, _ := secrets.NewManager(cfg.SourceRoot)
 	engineData["decryptor"] = upgradeSecretsMgr.Decryptor()
 
 	identities, _ := identity.LoadIdentities()
@@ -427,20 +402,12 @@ func prepareUpgradeEngine(deployState *deploystate.State) (map[string]any, []age
 }
 
 // executeUpgrades regenerates copied files.
-func executeUpgrades(cfg *UpgradeConfig, deployState *deploystate.State, copied map[string]*deploystate.FileEntry, engineData map[string]any, identities []age.Identity) error {
+func executeUpgrades(cfg *UpgradeConfig, view *execution.StateView, copied map[string]*execution.FileEntry, engineData map[string]any, identities []age.Identity) error {
 	var regenerated, skipped int
 	var skippedFiles []string
 
-	var signingIdentity *age.X25519Identity
-	for _, id := range identities {
-		if x, ok := id.(*age.X25519Identity); ok {
-			signingIdentity = x
-			break
-		}
-	}
-
 	for relTarget, entry := range copied {
-		result := upgradeFile(cfg, deployState, relTarget, entry, engineData, identities)
+		result := upgradeFile(cfg, view, relTarget, entry, engineData, identities)
 		switch result {
 		case upgradeResultRegenerated:
 			regenerated++
@@ -450,16 +417,8 @@ func executeUpgrades(cfg *UpgradeConfig, deployState *deploystate.State, copied 
 		}
 	}
 
-	if !cfg.DryRun && regenerated > 0 {
-		if signingIdentity != nil {
-			if err := deployState.Sign(signingIdentity); err != nil {
-				cli.Warn("failed to sign state: %v", err)
-			}
-		}
-		if err := deployState.Write(); err != nil {
-			cli.Warn("failed to write state: %v", err)
-		}
-	}
+	// Note: receipts are written per-deployment, not for individual upgrades
+	// The upgrade operation doesn't currently write a receipt, but could in the future
 
 	if skipped > 0 {
 		cli.Success("%d file(s) regenerated, %d skipped", regenerated, skipped)
@@ -486,12 +445,16 @@ const (
 )
 
 // upgradeFile regenerates a single copied file.
-func upgradeFile(cfg *UpgradeConfig, deployState *deploystate.State, relTarget string, entry *deploystate.FileEntry, engineData map[string]any, identities []age.Identity) upgradeResult {
-	currentSourceChecksum := execution.ChecksumFile(entry.Source)
-	currentTargetChecksum := execution.ChecksumFile(filepath.Join(deployState.TargetRoot, relTarget))
+func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string, entry *execution.FileEntry, engineData map[string]any, identities []age.Identity) upgradeResult {
+	targetRoot := view.Files.Root
+	entrySourceChecksum := entry.SourceChecksum()
+	entryTargetChecksum := entry.TargetChecksum()
 
-	sourceChanged := currentSourceChecksum != "" && entry.SourceChecksum != "" && currentSourceChecksum != entry.SourceChecksum
-	targetChanged := currentTargetChecksum != "" && entry.TargetChecksum != "" && currentTargetChecksum != entry.TargetChecksum
+	currentSourceChecksum := execution.ChecksumFile(entry.Source)
+	currentTargetChecksum := execution.ChecksumFile(filepath.Join(targetRoot, relTarget))
+
+	sourceChanged := currentSourceChecksum != "" && entrySourceChecksum != "" && currentSourceChecksum != entrySourceChecksum
+	targetChanged := currentTargetChecksum != "" && entryTargetChecksum != "" && currentTargetChecksum != entryTargetChecksum
 
 	if targetChanged && !cfg.Force {
 		if cfg.Verbose {
@@ -512,7 +475,7 @@ func upgradeFile(cfg *UpgradeConfig, deployState *deploystate.State, relTarget s
 		return upgradeResultError
 	}
 
-	target := filepath.Join(deployState.TargetRoot, relTarget)
+	target := filepath.Join(targetRoot, relTarget)
 	node := &execution.Node{
 		ID:         relTarget,
 		Operations: opStrings,
@@ -551,12 +514,6 @@ func upgradeFile(cfg *UpgradeConfig, deployState *deploystate.State, relTarget s
 		} else {
 			cli.Success("%s (regenerated)", relTarget)
 		}
-	}
-
-	if !cfg.DryRun {
-		newSourceChecksum := execution.ChecksumFile(entry.Source)
-		newTargetChecksum := execution.ChecksumFile(target)
-		deployState.UpdateChecksum(relTarget, newSourceChecksum, newTargetChecksum)
 	}
 
 	return upgradeResultRegenerated
@@ -621,45 +578,22 @@ func buildReportFromTree(cfg *ReconcileConfig) (*reconcile.Report, error) {
 	return reconcile.FromBuildResult(deployTree), nil
 }
 
-// buildReportFromStateOrScan builds a report from state file or scan.
+// buildReportFromStateOrScan builds a report from receipts or scan.
 func buildReportFromStateOrScan(cfg *ReconcileConfig) (*reconcile.Report, error) {
-	deployState, stateErr := deploystate.Load()
-	if stateErr == nil {
-		return buildReportFromState(cfg, deployState)
+	view, err := loadStateView(cfg.Verbose)
+	if err == nil && view.ReceiptCount > 0 {
+		return buildReportFromView(cfg, view)
 	}
 	return buildReportFromScan(cfg)
 }
 
-// buildReportFromState builds a report from the state file.
-func buildReportFromState(cfg *ReconcileConfig, deployState *deploystate.State) (*reconcile.Report, error) {
+// buildReportFromView builds a report from the StateView (derived from receipts).
+func buildReportFromView(cfg *ReconcileConfig, view *execution.StateView) (*reconcile.Report, error) {
 	if cfg.Verbose {
-		cli.Note("Using state file: %s", deploystate.StatePath())
+		cli.Note("Using %d receipts from: %s", view.ReceiptCount, cli.ReceiptsDir())
 	}
 
-	if cfg.CheckDrift {
-		if err := verifyStateSignature(cfg, deployState); err != nil {
-			return nil, err
-		}
-	}
-
-	return reconcileFromState(deployState, cfg.CheckDrift), nil
-}
-
-// verifyStateSignature verifies the state file signature.
-func verifyStateSignature(cfg *ReconcileConfig, deployState *deploystate.State) error {
-	identities, err := identity.LoadIdentities()
-	if err != nil {
-		return fmt.Errorf("load identities for signature verification: %w", err)
-	}
-
-	if err := deployState.Verify(identities); err != nil {
-		return fmt.Errorf("state signature invalid, redeploy to regenerate: %v", err)
-	}
-
-	if cfg.Verbose && deployState.IsSigned() {
-		cli.Success("State signature valid")
-	}
-	return nil
+	return reconcileFromView(view, cfg.CheckDrift), nil
 }
 
 // buildReportFromScan builds a report by scanning the target directory.
@@ -803,27 +737,28 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 	}
 }
 
-// statusFromState builds a status report from the state file.
-func reconcileFromState(s *deploystate.State, checkDrift bool) *reconcile.Report {
+// reconcileFromView builds a status report from the StateView.
+func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Report {
 	report := &reconcile.Report{
-		TargetRoot:  s.TargetRoot,
-		SourceRoot:  s.SourceRoot,
-		Projects:    s.Projects(),
-		FromReceipt: true, // State file is the source
-		ReceiptPath: deploystate.StatePath(),
+		TargetRoot:  view.Files.Root,
+		Projects:    view.Files.Projects(),
+		FromReceipt: true,
+		ReceiptPath: cli.ReceiptsDir(),
 	}
 
-	for relTarget, entry := range s.Files {
-		target := filepath.Join(s.TargetRoot, relTarget)
+	for relTarget, entry := range view.Files.Entries {
+		target := filepath.Join(view.Files.Root, relTarget)
+		entrySourceChecksum := entry.SourceChecksum()
+		entryTargetChecksum := entry.TargetChecksum()
 
 		statusEntry := reconcile.Entry{
 			RelTarget:      relTarget,
 			Source:         entry.Source,
 			Target:         target,
 			Project:        entry.Project,
-			Operations:     entry.Operations,
-			SourceChecksum: entry.SourceChecksum,
-			TargetChecksum: entry.TargetChecksum,
+			Operations:     entry.Operations(),
+			SourceChecksum: entrySourceChecksum,
+			TargetChecksum: entryTargetChecksum,
 		}
 
 		if entry.IsCopied() {
@@ -831,13 +766,13 @@ func reconcileFromState(s *deploystate.State, checkDrift bool) *reconcile.Report
 			if _, err := os.Stat(target); os.IsNotExist(err) {
 				statusEntry.State = reconcile.StateMissing
 				statusEntry.Message = "file not deployed"
-			} else if checkDrift && entry.SourceChecksum != "" {
+			} else if checkDrift && entrySourceChecksum != "" {
 				// Check drift
 				currentSourceChecksum := execution.ChecksumFile(entry.Source)
 				currentTargetChecksum := execution.ChecksumFile(target)
 
-				sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != entry.SourceChecksum
-				targetChanged := currentTargetChecksum != "" && currentTargetChecksum != entry.TargetChecksum
+				sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != entrySourceChecksum
+				targetChanged := currentTargetChecksum != "" && currentTargetChecksum != entryTargetChecksum
 
 				switch {
 				case sourceChanged && targetChanged:

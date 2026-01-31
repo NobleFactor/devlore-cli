@@ -193,16 +193,19 @@ func TestSummaryString(t *testing.T) {
 
 func TestSignature(t *testing.T) {
 	sig := &execution.Signature{
-		Method:    "age",
-		Value:     "base64-encoded-signature",
-		Recipient: "age1xxxxxxxxx",
+		Method: "gpg",
+		Value:  "base64-encoded-signature",
+		KeyID:  "ABC123DEF456",
 	}
 
-	if sig.Method != "age" {
-		t.Errorf("expected Method 'age', got %q", sig.Method)
+	if sig.Method != "gpg" {
+		t.Errorf("expected Method 'gpg', got %q", sig.Method)
 	}
 	if sig.Value == "" {
 		t.Error("expected Value to be non-empty")
+	}
+	if sig.KeyID == "" {
+		t.Error("expected KeyID to be non-empty")
 	}
 }
 
