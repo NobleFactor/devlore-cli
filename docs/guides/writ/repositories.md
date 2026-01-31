@@ -78,10 +78,13 @@ Unregister a repository from writ (does not delete files):
 writ config unset writ.repos.team
 ```
 
-To also clean up deployed files, remove projects first:
+To also clean up deployed files, decommission projects first:
 
 ```bash
-writ decommission all --layer=team
+# Decommission specific projects from the team layer
+writ decommission shared-tools backend-config
+
+# Then unregister the repository
 writ config unset writ.repos.team
 ```
 

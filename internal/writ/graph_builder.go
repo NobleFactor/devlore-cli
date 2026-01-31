@@ -203,17 +203,11 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 			op = "remove"
 		}
 
-		// Build metadata
-		metadata := map[string]string{
-			"prune_empty_dirs": "true",
-		}
-
 		// Check for local modifications on copied files
 		targetChecksum := entry.TargetChecksum()
 		if entry.IsCopied() && targetChecksum != "" {
 			currentChecksum := execution.ChecksumFile(filepath.Join(b.view.Files.Root, relTarget))
 			if currentChecksum != "" && currentChecksum != targetChecksum {
-				metadata["locally_modified"] = "true"
 				if !b.force {
 					// Skip modified files unless --force
 					continue
@@ -221,15 +215,15 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 			}
 		}
 
+		target := filepath.Join(b.view.Files.Root, relTarget)
 		node := &execution.Node{
 			ID:         relTarget,
 			Operations: []string{op},
 			Status:     execution.StatusPending,
 			Source:     entry.Source,
-			Target:     filepath.Join(b.view.Files.Root, relTarget),
+			Target:     target,
 			Project:    entry.Project,
 			Layer:      entry.Layer,
-			Metadata:   metadata,
 		}
 
 		g.Nodes = append(g.Nodes, node)

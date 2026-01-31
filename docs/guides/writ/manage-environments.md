@@ -194,6 +194,12 @@ Remove deployed files for a project:
 writ decommission noblefactor
 ```
 
+By default, only files are removed. To also clean up empty parent directories:
+
+```bash
+writ decommission --prune noblefactor
+```
+
 Safety behavior depends on state tracking:
 
 | State | Behavior |
@@ -201,6 +207,13 @@ Safety behavior depends on state tracking:
 | Signed state file | Safe removal with drift detection |
 | Unsigned state file | Warning, requires `--force` |
 | No state file | Error: cannot safely remove |
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Skip confirmation and proceed with unsigned state |
+| `--prune` | Remove empty parent directories after file removal |
 
 ## Inspect details
 

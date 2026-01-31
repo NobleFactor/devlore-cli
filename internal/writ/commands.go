@@ -177,12 +177,14 @@ Safety behavior depends on state file:
 `,
 		Example: `  writ decommission noblefactor              # Remove project files
   writ decommission all noblefactor          # Remove multiple projects
+  writ decommission --prune noblefactor      # Also remove empty parent directories
   writ decommission --force noblefactor      # Skip confirmation prompts`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runDecommission,
 	}
 
 	cmd.Flags().Bool("force", false, "Skip confirmation and proceed with unsigned state")
+	cmd.Flags().Bool("prune", false, "Remove empty parent directories after file removal")
 
 	return cmd
 }
@@ -229,6 +231,13 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	// 5. Configure engine and execute
+	// If --prune is set, enable directory cleanup: after each file removal,
+	// empty parent directories are removed up to the target root boundary.
+	if cfg.Prune {
+		cfg.TemplateData["prune_empty_dirs"] = true
+		cfg.TemplateData["prune_boundary"] = view.Files.Root
+	}
+
 	engine, err := ConfigureEngine(&cfg.Config)
 	if err != nil {
 		return fmt.Errorf("configure engine: %w", err)
@@ -1456,12 +1465,6 @@ func xdgPath(envVar, defaultPath string) string {
 	return defaultPath
 }
 
-// isPackagesManifest returns true if the node is a packages-manifest file.
-// These files require the Package Graph Builder (NOT YET IMPLEMENTED).
-func isPackagesManifest(node *execution.Node) bool {
-	return len(node.Operations) == 1 && node.Operations[0] == "packages"
-}
-
 // hasDecryptOp returns true if the operations include decrypt.
 func hasDecryptOp(ops []string) bool {
 	for _, op := range ops {
@@ -1472,77 +1475,3 @@ func hasDecryptOp(ops []string) bool {
 	return false
 }
 
-// pruneEmptyParentDirs removes empty parent directories up to (but not including) boundary.
-// Stops at non-empty directories or on any error.
-func pruneEmptyParentDirs(target, boundary string) {
-	if boundary == "" {
-		return
-	}
-
-	boundary = filepath.Clean(boundary)
-	dir := filepath.Dir(target)
-
-	for {
-		// Stop at or above boundary
-		if dir == boundary || dir == "/" || dir == "." {
-			return
-		}
-
-		// Check if dir is under boundary
-		rel, err := filepath.Rel(boundary, dir)
-		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-			return
-		}
-
-		// Try to remove (fails if not empty)
-		if err := os.Remove(dir); err != nil {
-			return // Not empty or permission error
-		}
-
-		// Move up
-		dir = filepath.Dir(dir)
-	}
-}
-
-// DryRunOutput represents the dry-run output format.
-type DryRunOutput struct {
-	SourceRoot string       `json:"source_root"`
-	TargetRoot string       `json:"target_root"`
-	Projects   []string     `json:"projects"`
-	Nodes      []DryRunNode `json:"nodes"`
-}
-
-// DryRunNode represents a node in the dry-run output.
-type DryRunNode struct {
-	ID         string   `json:"id"`
-	Operations []string `json:"operations"`
-	Source     string   `json:"source"`
-	Target     string   `json:"target"`
-	Project    string   `json:"project"`
-}
-
-// outputDryRun outputs the deployment plan as JSON.
-func outputDryRun(br *tree.BuildResult) error {
-	output := DryRunOutput{
-		SourceRoot: br.SourceRoot,
-		TargetRoot: br.TargetRoot,
-		Projects:   br.Projects,
-	}
-
-	for _, f := range br.Files {
-		output.Nodes = append(output.Nodes, DryRunNode{
-			ID:         f.ID,
-			Operations: f.Operations,
-			Source:     f.Source,
-			Target:     f.Target,
-			Project:    f.Project,
-		})
-	}
-
-	data, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		return err
-	}
-	fmt.Println(string(data))
-	return nil
-}

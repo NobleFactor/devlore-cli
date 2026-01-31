@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
@@ -265,54 +264,6 @@ func checkEntry(source, target, relTarget, project string, operations []string) 
 
 	// File exists, was copied
 	entry.State = StateCopied
-	return entry
-}
-
-// checkEntryWithDrift checks status of a copied file using checksums.
-func checkEntryWithDrift(source, target, relTarget, project string, operations []string, expectedSourceChecksum, expectedTargetChecksum string) Entry {
-	entry := Entry{
-		RelTarget:      relTarget,
-		Source:         source,
-		Target:         target,
-		Project:        project,
-		Operations:     operations,
-		SourceChecksum: expectedSourceChecksum,
-		TargetChecksum: expectedTargetChecksum,
-	}
-
-	// Check if target exists
-	if _, err := os.Stat(target); os.IsNotExist(err) {
-		if _, srcErr := os.Stat(source); srcErr == nil {
-			entry.State = StateMissing
-			entry.Message = "file not deployed"
-		} else {
-			entry.State = StateOrphan
-			entry.Message = "source file deleted"
-		}
-		return entry
-	}
-
-	// Compute current checksums
-	currentSourceChecksum := execution.ChecksumFile(source)
-	currentTargetChecksum := execution.ChecksumFile(target)
-
-	sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != expectedSourceChecksum
-	targetChanged := currentTargetChecksum != "" && currentTargetChecksum != expectedTargetChecksum
-
-	switch {
-	case sourceChanged && targetChanged:
-		entry.State = StateDriftConflict
-		entry.Message = "both source and target changed"
-	case sourceChanged:
-		entry.State = StateStale
-		entry.Message = "source changed, redeploy needed"
-	case targetChanged:
-		entry.State = StateModified
-		entry.Message = "target modified locally"
-	default:
-		entry.State = StateCopied
-	}
-
 	return entry
 }
 

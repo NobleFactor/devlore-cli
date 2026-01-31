@@ -422,7 +422,7 @@ func (m *Model) BorderedBox(title, content string) string {
 		BorderForeground(m.styles.theme.Primary).
 		Padding(1, 2)
 
-	titleStyle := m.styles.Title.Copy().MarginBottom(1)
+	titleStyle := m.styles.Title.MarginBottom(1)
 
 	return box.Render(titleStyle.Render(title) + "\n" + content)
 }
