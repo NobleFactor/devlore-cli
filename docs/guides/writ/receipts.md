@@ -1,3 +1,11 @@
+---
+title: "Deployment Receipts"
+description: "Understand writ deployment receipts for auditing and verification"
+tool: "writ"
+category: "reference"
+order: 4
+---
+
 # Deployment Receipts
 
 Every time `writ deploy` runs, it creates a **receipt** recording exactly what was deployed. Receipts are essential for:

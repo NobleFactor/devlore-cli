@@ -71,6 +71,9 @@ type DecommissionConfig struct {
 
 	// Force decommission even with unsigned state.
 	Force bool
+
+	// Prune empty parent directories after file removal.
+	Prune bool
 }
 
 // AdoptConfig contains all settings for an adopt operation.

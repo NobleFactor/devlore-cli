@@ -47,12 +47,13 @@ func BuildMigrationAnalysis(
 	entries []InventoryEntry,
 	mappings []DirectoryMapping,
 	encSystems []EncryptionSystem,
+	sigIdx SignatureIndex,
 ) *MigrationAnalysis {
 	// Classify entries
 	Classify(entries)
 
 	// Analyze lifecycle scripts
-	scripts := AnalyzeScripts(entries)
+	scripts := AnalyzeScripts(entries, sigIdx)
 
 	// Detect encrypted secrets
 	secretFindings := detectEncryptedSecrets(entries)

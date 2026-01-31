@@ -31,6 +31,16 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Cyclomatic complexity
+        run: |
+          go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+          VIOLATIONS=$(gocyclo -over 19 ./... | grep -v '_test\.go' || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "$VIOLATIONS"
+            echo "::error::Functions with cyclomatic complexity > 19 detected (excluding tests)"
+            exit 1
+          fi
+
       - name: Lint Go
         uses: golangci/golangci-lint-action@v6
         with:

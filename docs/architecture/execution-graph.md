@@ -132,6 +132,7 @@ type DecommissionConfig struct {
     Projects   []string
     TargetRoot string
     Force      bool
+    Prune      bool   // Remove empty parent directories
     DryRun     bool
     Verbose    bool
     // ...

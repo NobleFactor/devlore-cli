@@ -21,7 +21,7 @@ type Options struct {
 	TargetRoot string // empty = rename in place
 	Execute    bool
 	Verbose    bool
-	Format     string // "text", "yaml", "json"
+	Format     string // "json" (default), "yaml", "text"
 	Provider   model.Provider
 	RegClient  *lorepackage.Registry
 }
@@ -64,11 +64,20 @@ func BuildMigration(ctx context.Context, opts Options) (*execution.Graph, *Migra
 	// Detect encryption systems (structural)
 	encSystems := DetectEncryption(root)
 
+	// Load signature index for package resolution (from registry if available)
+	var sigIdx SignatureIndex
+	if opts.RegClient != nil {
+		sigIdx = opts.RegClient.SignatureIndex()
+	}
+	if sigIdx == nil {
+		sigIdx = make(SignatureIndex)
+	}
+
 	// Build execution graph
 	graph := BuildMigrationGraph(root, mappings)
 
 	// Build analysis (with AI enhancement if available)
-	analysis := BuildMigrationAnalysis(root, system, confidence, entries, mappings, encSystems)
+	analysis := BuildMigrationAnalysis(root, system, confidence, entries, mappings, encSystems, sigIdx)
 
 	// Enhance analysis with AI if provider is available
 	if opts.Provider != nil && opts.RegClient != nil {

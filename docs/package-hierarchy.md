@@ -236,7 +236,7 @@ Writ CLI commands for configuration deployment.
 **Types:**
 - `Config` - Base settings for lifecycle operations
 - `DeployConfig` - Settings for deploy operation
-- `DecommissionConfig` - Settings for decommission operation (+ Force)
+- `DecommissionConfig` - Settings for decommission operation (+ Force, Prune)
 - `UpgradeConfig` - Settings for upgrade operation (+ Force)
 - `ReconcileConfig` - Settings for reconcile operation (+ CheckDrift, JSONOutput)
 - `AdoptConfig` - Settings for adopt operation (+ Files, Layer, Project, etc.)
@@ -248,8 +248,6 @@ Writ CLI commands for configuration deployment.
 - `AdoptGraphBuilder` - Builds adopt graphs
 - `MigrateGraphBuilder` - Builds migrate graphs
 - `TargetSpec` - Source directory and deployment target
-- `DryRunOutput` - Dry-run output format
-- `DryRunNode` - Node in dry-run output
 - `VerifyResult` - Signature verification outcome
 
 **Functions:**

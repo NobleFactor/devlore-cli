@@ -177,12 +177,16 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) (*DecommissionCo
 	cfg.DryRun = viper.GetBool("writ.dry-run")
 	cfg.Verbose = viper.GetBool("writ.verbose")
 	cfg.Force, _ = cmd.Flags().GetBool("force")
+	cfg.Prune, _ = cmd.Flags().GetBool("prune")
 
 	// Target root
 	cfg.TargetRoot = os.Getenv("HOME")
 	if cfg.TargetRoot == "" {
 		return nil, fmt.Errorf("HOME environment variable not set")
 	}
+
+	// Initialize template data (prune settings added in runDecommission if --prune)
+	cfg.TemplateData = make(map[string]any)
 
 	return cfg, nil
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
 func TestNewSession(t *testing.T) {
@@ -26,8 +27,8 @@ func TestNewSession(t *testing.T) {
 	if session.opts.SourceRoot != "/tmp/test" {
 		t.Errorf("expected source root '/tmp/test', got %q", session.opts.SourceRoot)
 	}
-	if session.state != StateWelcome {
-		t.Errorf("expected initial state StateWelcome, got %v", session.state)
+	if session.state != StateAnalyzing {
+		t.Errorf("expected initial state StateAnalyzing, got %v", session.state)
 	}
 }
 
@@ -37,48 +38,6 @@ func TestSessionImplementsInterface(t *testing.T) {
 
 	// Verify Session implements console.Session
 	var _ console.Session = session
-}
-
-func TestSessionWelcomeStep(t *testing.T) {
-	opts := Options{SourceRoot: "/tmp/test"}
-	session := NewSession(opts)
-
-	step := session.Next()
-	if step == nil {
-		t.Fatal("expected welcome step")
-	}
-	if step.Type != console.StepInfo {
-		t.Errorf("expected StepInfo, got %v", step.Type)
-	}
-	if step.Title != "Welcome" {
-		t.Errorf("expected title 'Welcome', got %q", step.Title)
-	}
-	if step.Content == "" {
-		t.Error("expected content to be non-empty")
-	}
-}
-
-func TestSessionStateTransitions(t *testing.T) {
-	opts := Options{SourceRoot: "/tmp/test"}
-	session := NewSession(opts)
-
-	// Initial state
-	if session.state != StateWelcome {
-		t.Errorf("expected StateWelcome, got %v", session.state)
-	}
-
-	// Get welcome step
-	_ = session.Next()
-
-	// Respond to advance
-	if err := session.Respond(""); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	// Should advance to detecting
-	if session.state != StateDetecting {
-		t.Errorf("expected StateDetecting, got %v", session.state)
-	}
 }
 
 func TestSessionComplete(t *testing.T) {
@@ -152,7 +111,10 @@ func TestSessionCurrent(t *testing.T) {
 		t.Error("expected no current step before Next()")
 	}
 
-	// Get a step
+	// Manually set up to avoid running actual analysis
+	session.state = StateConversing
+	session.aiResponse = "Test response"
+
 	step := session.Next()
 	current := session.Current()
 	if current != step {
@@ -160,11 +122,158 @@ func TestSessionCurrent(t *testing.T) {
 	}
 }
 
+func TestSessionSlashCommands(t *testing.T) {
+	opts := Options{SourceRoot: "/tmp/test"}
+	session := NewSession(opts)
+
+	// Set up state for slash commands
+	session.state = StateConversing
+	session.analysis = &MigrationAnalysis{SourceRoot: "/tmp/test"}
+	session.graph = &execution.Graph{}
+
+	tests := []struct {
+		cmd           string
+		expectedState SessionState
+	}{
+		{"/help", StateConversing},
+		{"/explain", StateConversing},
+		{"/exit", StateComplete},
+	}
+
+	for _, tc := range tests {
+		session.state = StateConversing // Reset state
+		err := session.Respond(tc.cmd)
+		if err != nil {
+			t.Errorf("unexpected error for %s: %v", tc.cmd, err)
+		}
+		if session.state != tc.expectedState {
+			t.Errorf("expected state %v after %s, got %v", tc.expectedState, tc.cmd, session.state)
+		}
+	}
+}
+
+func TestSessionSlashAnalyze(t *testing.T) {
+	opts := Options{SourceRoot: "/tmp/test"}
+	session := NewSession(opts)
+
+	// Set up as if we already analyzed
+	session.state = StateConversing
+	session.analysis = &MigrationAnalysis{SourceRoot: "/tmp/test"}
+	session.history = []model.Message{{Role: model.RoleUser, Content: "test"}}
+
+	err := session.Respond("/analyze")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if session.state != StateAnalyzing {
+		t.Errorf("expected StateAnalyzing, got %v", session.state)
+	}
+}
+
+func TestSessionSlashHelp(t *testing.T) {
+	help := slashCommandHelp()
+	if help == "" {
+		t.Error("expected help text")
+	}
+	if !contains(help, "/analyze") {
+		t.Error("expected /analyze in help")
+	}
+	if !contains(help, "/explain") {
+		t.Error("expected /explain in help")
+	}
+	if !contains(help, "/help") {
+		t.Error("expected /help in help")
+	}
+	if !contains(help, "/exit") {
+		t.Error("expected /exit in help")
+	}
+}
+
+func TestSessionConversationStep(t *testing.T) {
+	opts := Options{SourceRoot: "/tmp/test"}
+	session := NewSession(opts)
+
+	session.state = StateConversing
+	session.aiResponse = "This is the AI response"
+
+	step := session.conversationStep()
+	if step.Type != console.StepInput {
+		t.Errorf("expected StepInput, got %v", step.Type)
+	}
+	if step.Content != "This is the AI response" {
+		t.Errorf("unexpected content: %s", step.Content)
+	}
+}
+
+func TestSessionPlanProposal(t *testing.T) {
+	session := &Session{}
+
+	// Test detection of plan proposals
+	tests := []struct {
+		content  string
+		expected bool
+	}{
+		{"Here's what I found", false},
+		{"**Proposed Plan:**\nDo something", true},
+		{"Proposed plan:\nActions:\n1. First\nType approve to proceed", true},
+		{"Let me help you", false},
+	}
+
+	for _, tc := range tests {
+		result := session.detectPlanProposal(tc.content)
+		if result != tc.expected {
+			t.Errorf("detectPlanProposal(%q) = %v, want %v", tc.content, result, tc.expected)
+		}
+	}
+}
+
+func TestSessionExtractPlan(t *testing.T) {
+	session := &Session{}
+
+	content := `**Proposed Plan:**
+I'll migrate your environment to writ.
+
+**Actions:**
+1. Rename directories to match writ conventions
+2. Register as a personal layer
+3. Generate package manifest
+
+Type "approve" to proceed.`
+
+	plan := session.extractPlan(content)
+	if plan == nil {
+		t.Fatal("expected plan")
+	}
+	if len(plan.Actions) != 3 {
+		t.Errorf("expected 3 actions, got %d", len(plan.Actions))
+	}
+}
+
+func TestSessionProcessPlanResponse(t *testing.T) {
+	opts := Options{SourceRoot: "/tmp/test"}
+	session := NewSession(opts)
+
+	session.state = StatePlanProposed
+	session.pendingPlan = &ExecutionPlan{Description: "test"}
+
+	// Approve
+	err := session.processPlanResponse("approve")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if session.state != StateExecuting {
+		t.Errorf("expected StateExecuting, got %v", session.state)
+	}
+	if !session.pendingPlan.Approved {
+		t.Error("expected plan to be approved")
+	}
+}
+
 func TestSessionWithRealDirectory(t *testing.T) {
 	// Create a temp directory with some files
 	tmpDir := t.TempDir()
 
-	// Create a simple dotfiles structure
+	// Create a simple structure
 	projectDir := filepath.Join(tmpDir, "shell")
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		t.Fatalf("failed to create project dir: %v", err)
@@ -184,48 +293,34 @@ func TestSessionWithRealDirectory(t *testing.T) {
 
 	session := NewSession(opts)
 
-	// Should be able to get welcome step
+	// Initial state is analyzing
+	if session.state != StateAnalyzing {
+		t.Errorf("expected StateAnalyzing, got %v", session.state)
+	}
+
+	// Next() runs analysis
 	step := session.Next()
 	if step == nil {
-		t.Fatal("expected welcome step")
-	}
-	if step.Title != "Welcome" {
-		t.Errorf("expected 'Welcome', got %q", step.Title)
+		t.Fatal("expected step after analysis")
 	}
 
-	// Respond and move to detection
-	if err := session.Respond(""); err != nil {
-		t.Fatalf("respond error: %v", err)
-	}
-
-	// Get detection step - this will actually run BuildMigration
-	// which may fail without AI provider, so we just check it doesn't panic
-	step = session.Next()
-	if step == nil {
-		t.Fatal("expected step after detection")
-	}
-
-	// Either we got an error step (no AI provider) or we're in analysis
+	// Either we got an error step or we're in conversing
 	if step.Type == console.StepError {
-		// Expected without AI provider configured
-		t.Log("Detection failed (expected without AI provider):", session.err)
+		t.Log("Analysis failed:", session.err)
 	} else if step.Type == console.StepProgress {
-		t.Log("Detection in progress")
+		// Analysis completed, next call should return conversation step
+		t.Log("Analysis in progress")
 	}
 }
 
 func TestSessionErrorState(t *testing.T) {
-	opts := Options{SourceRoot: "/nonexistent/path"}
+	opts := Options{SourceRoot: "/nonexistent/path/that/does/not/exist"}
 	session := NewSession(opts)
 
-	// Get welcome
-	_ = session.Next()
-	_ = session.Respond("")
-
-	// Detection should fail on nonexistent path
+	// Run analysis on nonexistent path
 	step := session.Next()
 
-	// Should either error or be in error state
+	// Should be in error state
 	if session.state == StateError {
 		if step.Type != console.StepError {
 			t.Errorf("expected StepError, got %v", step.Type)
@@ -236,58 +331,12 @@ func TestSessionErrorState(t *testing.T) {
 	}
 }
 
-func TestConfirmRenamesSkipsWhenNoRenames(t *testing.T) {
-	opts := Options{SourceRoot: "/tmp/test"}
-	session := NewSession(opts)
-
-	// Manually set up state with no renames
-	session.state = StateConfirmRenames
-	session.graph = &execution.Graph{Nodes: []*execution.Node{}}
-	session.analysis = &MigrationAnalysis{SourceRoot: "/tmp/test"}
-
-	step := session.Next()
-
-	// Should skip to secrets since no renames, or return a confirm step
-	if step.Type == console.StepConfirm {
-		t.Log("Got confirm step for renames (no nodes to rename)")
-	} else {
-		// Check we advanced past renames
-		if session.state != StateConfirmSecrets && session.state != StateConfirmRenames {
-			t.Logf("State after confirm renames: %v", session.state)
-		}
-	}
-}
-
-func TestConfirmSecretsSkipsWhenNoSecrets(t *testing.T) {
-	opts := Options{SourceRoot: "/tmp/test"}
-	session := NewSession(opts)
-
-	// Manually set up state with no secrets - need graph for preview step
-	session.state = StateConfirmSecrets
-	session.graph = &execution.Graph{Nodes: []*execution.Node{}}
-	session.analysis = &MigrationAnalysis{
-		SourceRoot:     "/tmp/test",
-		SecretFindings: []SecretFinding{},
-	}
-
-	step := session.Next()
-
-	// Should skip to preview since no secrets, or return a confirm step
-	if step.Type == console.StepConfirm {
-		t.Log("Got confirm step for secrets")
-	} else {
-		// Check we advanced past secrets
-		if session.state != StatePreview && session.state != StateConfirmSecrets {
-			t.Logf("State after confirm secrets: %v", session.state)
-		}
-	}
-}
-
 func TestSessionResultType(t *testing.T) {
 	result := &SessionResult{
-		Graph:    &execution.Graph{},
-		Analysis: &MigrationAnalysis{SourceRoot: "/test"},
-		Executed: true,
+		Graph:       &execution.Graph{},
+		Analysis:    &MigrationAnalysis{SourceRoot: "/test"},
+		Executed:    true,
+		ReceiptPath: "/path/to/receipt.yaml",
 	}
 
 	if result.Graph == nil {
@@ -302,4 +351,49 @@ func TestSessionResultType(t *testing.T) {
 	if !result.Executed {
 		t.Error("expected Executed to be true")
 	}
+	if result.ReceiptPath != "/path/to/receipt.yaml" {
+		t.Errorf("expected ReceiptPath, got %q", result.ReceiptPath)
+	}
+}
+
+func TestGenerateStaticInitialResponse(t *testing.T) {
+	opts := Options{SourceRoot: "/tmp/test"}
+	session := NewSession(opts)
+
+	session.analysis = &MigrationAnalysis{
+		SourceRoot: "/tmp/test",
+		System:     SystemUnknown,
+		Stats: MigrationStats{
+			TotalFiles: 10,
+			Projects:   2,
+			Platforms:  1,
+		},
+		Observations:    []string{"Found shell configs"},
+		Warnings:        []string{"No encryption detected"},
+		Recommendations: []string{"Consider using SOPS"},
+	}
+
+	response := session.generateStaticInitialResponse()
+	if response == "" {
+		t.Error("expected non-empty response")
+	}
+	if !contains(response, "/tmp/test") {
+		t.Error("expected source root in response")
+	}
+	if !contains(response, "Files:") {
+		t.Error("expected file count in response")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
