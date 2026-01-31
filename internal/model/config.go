@@ -255,7 +255,7 @@ func SaveConfig(cfg *Config) error {
 }
 
 // EnsureProvider returns a configured AI provider, prompting the user if needed.
-// If noAI is true, returns nil without prompting.
+// If interactive is false, fails immediately if no provider is configured.
 //
 // Lookup priority:
 //   - CLI flags (passed via cliFlags parameter)
@@ -263,11 +263,8 @@ func SaveConfig(cfg *Config) error {
 //   - Config file: ~/.config/devlore/config.yaml
 //   - API key from native keystore
 //   - Fallback to Ollama if available locally
-//   - Interactive prompt
-func EnsureProvider(ctx context.Context, noAI bool, cliFlags CLIFlags) (Provider, error) {
-	if noAI {
-		return nil, nil
-	}
+//   - Interactive prompt (only if interactive=true)
+func EnsureProvider(ctx context.Context, interactive bool, cliFlags CLIFlags) (Provider, error) {
 
 	// 1. Try loading config (env > config file, API key from env > config > keystore)
 	cfg, err := LoadConfig()
@@ -313,7 +310,10 @@ func EnsureProvider(ctx context.Context, noAI bool, cliFlags CLIFlags) (Provider
 		return ollamaProvider, nil
 	}
 
-	// 4. No provider available - prompt user or fail
+	// 4. No provider available - fail in non-interactive mode, prompt otherwise
+	if !interactive {
+		return nil, fmt.Errorf("no AI provider configured; set DEVLORE_MODEL_PROVIDER and DEVLORE_MODEL_API_KEY, or use --model-provider and --model-api-key flags")
+	}
 	return promptForProvider(ctx)
 }
 
