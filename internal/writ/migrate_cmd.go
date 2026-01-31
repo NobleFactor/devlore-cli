@@ -115,7 +115,8 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		Provider: mustGetString(cmd.Root(), "model-provider"),
 	}
 
-	provider, err := model.EnsureProvider(ctx, false, modelFlags)
+	interactive := isInteractive(nonInteractive)
+	provider, err := model.EnsureProvider(ctx, interactive, modelFlags)
 	if err != nil {
 		return fmt.Errorf("model provider required: %w", err)
 	}
@@ -132,7 +133,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		RegClient:  regClient,
 	}
 
-	if isInteractive(nonInteractive) {
+	if interactive {
 		return runMigrateInteractive(opts, layer, useMove, verbose)
 	}
 
