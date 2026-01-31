@@ -58,7 +58,7 @@ Use --dry-run to preview without making changes.`,
 	cmd.Flags().Bool("link", true, "Create symlink from layer to source (default)")
 	cmd.Flags().Bool("move", false, "Move content to layer directory, delete source")
 	cmd.Flags().String("layer", "personal", "Target layer: personal, team, or base")
-	cmd.Flags().String("format", "text", "Output format: text, yaml, json (for --dry-run)")
+	cmd.Flags().String("format", "json", "Output format: json (default), yaml, text (for --dry-run)")
 	cmd.Flags().String("system", "", "Override auto-detection with a specific source system")
 	cmd.Flags().Bool("non-interactive", false, "Migrate without interactive prompts")
 	cmd.MarkFlagsMutuallyExclusive("link", "move")
@@ -204,6 +204,14 @@ func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, us
 	// Restructure content to writ conventions
 	if err := migrate.Execute(os.Stderr, graph, analysis); err != nil {
 		return err
+	}
+
+	// Save receipt
+	receiptPath, err := cli.WriteReceipt(graph, "writ-migrate")
+	if err != nil {
+		cli.Note("Failed to save receipt: %v", err)
+	} else if verbose {
+		cli.Note("Receipt saved to %s", receiptPath)
 	}
 
 	// Register layer via link or move

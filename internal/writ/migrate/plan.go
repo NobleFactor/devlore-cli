@@ -21,7 +21,7 @@ type Options struct {
 	TargetRoot string // empty = rename in place
 	Execute    bool
 	Verbose    bool
-	Format     string // "text", "yaml", "json"
+	Format     string // "json" (default), "yaml", "text"
 	Provider   model.Provider
 	RegClient  *lorepackage.Registry
 }

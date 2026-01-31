@@ -4,6 +4,7 @@
 package migrate
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
 // FormatMigrationPlan renders the execution Graph and MigrationAnalysis as
@@ -19,6 +21,7 @@ import (
 // MigrationPlan struct.
 //
 // Supported formats: "text" (default), "yaml", "json"
+// For "explain" format, use FormatMigrationExplain which requires an AI provider.
 func FormatMigrationPlan(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis, format string) error {
 	switch format {
 	case "yaml":
@@ -90,6 +93,18 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 }
 
 func formatMigrationText(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
+	formatHeader(w, analysis)
+	formatSummary(w, analysis.Stats)
+	formatRenames(w, graph, analysis.SourceRoot)
+	formatScripts(w, analysis.Scripts)
+	formatStringList(w, "Observations", analysis.Observations)
+	formatStringList(w, "Warnings", analysis.Warnings)
+	formatSecrets(w, analysis.SecretFindings)
+	formatRecommendations(w, analysis.Recommendations)
+	return nil
+}
+
+func formatHeader(w io.Writer, analysis *MigrationAnalysis) {
 	_, _ = fmt.Fprintf(w, "Migration Plan\n")
 	_, _ = fmt.Fprintf(w, "Source: %s\n", analysis.SourceRoot)
 	_, _ = fmt.Fprintf(w, "System: %s", analysis.System)
@@ -98,16 +113,24 @@ func formatMigrationText(w io.Writer, graph *execution.Graph, analysis *Migratio
 	}
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w)
+}
 
-	// Summary
-	s := analysis.Stats
+func formatSummary(w io.Writer, s MigrationStats) {
 	_, _ = fmt.Fprintf(w, "Summary:\n")
 	_, _ = fmt.Fprintf(w, "  Files: %d | Projects: %d | Platforms: %d\n",
 		s.TotalFiles, s.Projects, s.Platforms)
 	_, _ = fmt.Fprintf(w, "  Configs: %d | Scripts: %d | Lifecycle: %d\n",
 		s.StaticConfigs, s.Scripts, s.LifecycleScripts)
 
-	extras := []string{}
+	extras := collectExtraStats(s)
+	if len(extras) > 0 {
+		_, _ = fmt.Fprintf(w, "  %s\n", strings.Join(extras, " | "))
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
+func collectExtraStats(s MigrationStats) []string {
+	var extras []string
 	if s.Secrets > 0 {
 		extras = append(extras, fmt.Sprintf("Secrets: %d", s.Secrets))
 	}
@@ -120,122 +143,117 @@ func formatMigrationText(w io.Writer, graph *execution.Graph, analysis *Migratio
 	if s.Templates > 0 {
 		extras = append(extras, fmt.Sprintf("Templates: %d", s.Templates))
 	}
-	if len(extras) > 0 {
-		_, _ = fmt.Fprintf(w, "  %s\n", strings.Join(extras, " | "))
+	return extras
+}
+
+func formatRenames(w io.Writer, graph *execution.Graph, sourceRoot string) {
+	renameNodes := filterNodesByOp(graph, "rename")
+	if len(renameNodes) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintf(w, "Directory renames (%d):\n", len(renameNodes))
+	maxLen := 0
+	for _, node := range renameNodes {
+		if len(node.Source) > maxLen {
+			maxLen = len(node.Source)
+		}
+	}
+	for _, node := range renameNodes {
+		source := shortenPath(node.Source, sourceRoot)
+		target := shortenPath(node.Target, sourceRoot)
+		_, _ = fmt.Fprintf(w, "  %-*s  →  %s\n", maxLen-len(sourceRoot), source, target)
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
+func formatScripts(w io.Writer, scripts []ScriptAnalysis) {
+	if len(scripts) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintf(w, "Lifecycle scripts (%d):\n", len(scripts))
+	for _, script := range scripts {
+		formatScript(w, script)
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
+func formatScript(w io.Writer, script ScriptAnalysis) {
+	_, _ = fmt.Fprintf(w, "  %s\n", script.RelPath)
+	_, _ = fmt.Fprintf(w, "    %s | %d lines\n", script.Phase, script.LineCount)
+
+	if len(script.Resolved) > 0 {
+		var names []string
+		for _, r := range script.Resolved {
+			names = append(names, r.LorePackage)
+		}
+		_, _ = fmt.Fprintf(w, "    Lore packages: %s\n", strings.Join(names, ", "))
+	}
+
+	if len(script.Unresolved) > 0 {
+		var installs []string
+		for _, u := range script.Unresolved {
+			installs = append(installs, fmt.Sprintf("%s:%s", u.Manager, u.Name))
+		}
+		_, _ = fmt.Fprintf(w, "    Unknown: %s\n", strings.Join(installs, ", "))
+	}
+
+	for _, obs := range script.Observations {
+		_, _ = fmt.Fprintf(w, "    %s\n", obs)
+	}
+}
+
+func formatStringList(w io.Writer, title string, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%s:\n", title)
+	for _, item := range items {
+		_, _ = fmt.Fprintf(w, "  - %s\n", item)
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
+func formatSecrets(w io.Writer, secrets []SecretFinding) {
+	if len(secrets) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintf(w, "Secrets detected (%d):\n", len(secrets))
+	hasUnencrypted := false
+	for _, secret := range secrets {
+		formatSecret(w, secret)
+		if secret.Encryption == EncryptNone {
+			hasUnencrypted = true
+		}
 	}
 	_, _ = fmt.Fprintln(w)
 
-	// Operations from Graph (directory renames)
-	renameNodes := filterNodesByOp(graph, "rename")
-	if len(renameNodes) > 0 {
-		_, _ = fmt.Fprintf(w, "Directory renames (%d):\n", len(renameNodes))
-		maxLen := 0
-		for _, node := range renameNodes {
-			if len(node.Source) > maxLen {
-				maxLen = len(node.Source)
-			}
-		}
-		for _, node := range renameNodes {
-			// Show relative paths for readability
-			source := shortenPath(node.Source, analysis.SourceRoot)
-			target := shortenPath(node.Target, analysis.SourceRoot)
-			_, _ = fmt.Fprintf(w, "  %-*s  →  %s\n", maxLen-len(analysis.SourceRoot), source, target)
-		}
-		_, _ = fmt.Fprintln(w)
+	if hasUnencrypted {
+		formatSOPSRecommendation(w, secrets)
 	}
+}
 
-	// Lifecycle scripts from Analysis
-	if len(analysis.Scripts) > 0 {
-		_, _ = fmt.Fprintf(w, "Lifecycle scripts (%d):\n", len(analysis.Scripts))
-		for _, script := range analysis.Scripts {
-			_, _ = fmt.Fprintf(w, "  %s\n", script.RelPath)
-
-			details := []string{script.Phase}
-			details = append(details, fmt.Sprintf("%d lines", script.LineCount))
-			_, _ = fmt.Fprintf(w, "    %s\n", strings.Join(details, " | "))
-
-			// Show resolved packages (matched to lore packages)
-			if len(script.Resolved) > 0 {
-				var names []string
-				for _, r := range script.Resolved {
-					names = append(names, r.LorePackage)
-				}
-				_, _ = fmt.Fprintf(w, "    Lore packages: %s\n", strings.Join(names, ", "))
-			}
-
-			// Show unresolved packages (detected but no lore match)
-			if len(script.Unresolved) > 0 {
-				var installs []string
-				for _, u := range script.Unresolved {
-					installs = append(installs, fmt.Sprintf("%s:%s", u.Manager, u.Name))
-				}
-				_, _ = fmt.Fprintf(w, "    Unknown: %s\n", strings.Join(installs, ", "))
-			}
-
-			for _, obs := range script.Observations {
-				_, _ = fmt.Fprintf(w, "    %s\n", obs)
-			}
-		}
-		_, _ = fmt.Fprintln(w)
+func formatSecret(w io.Writer, secret SecretFinding) {
+	icon := "🔓"
+	encLabel := ""
+	if secret.Encryption != EncryptNone {
+		icon = "🔐"
+		encLabel = fmt.Sprintf(" (%s)", secret.Encryption)
 	}
+	_, _ = fmt.Fprintf(w, "  %s %s%s\n", icon, secret.RelPath, encLabel)
+	_, _ = fmt.Fprintf(w, "      %s\n", secret.Reason)
+}
 
-	// Observations
-	if len(analysis.Observations) > 0 {
-		_, _ = fmt.Fprintf(w, "Observations:\n")
-		for _, obs := range analysis.Observations {
-			_, _ = fmt.Fprintf(w, "  - %s\n", obs)
-		}
-		_, _ = fmt.Fprintln(w)
+func formatRecommendations(w io.Writer, recommendations []string) {
+	if len(recommendations) == 0 {
+		return
 	}
-
-	// Warnings
-	if len(analysis.Warnings) > 0 {
-		_, _ = fmt.Fprintf(w, "Warnings:\n")
-		for _, warn := range analysis.Warnings {
-			_, _ = fmt.Fprintf(w, "  - %s\n", warn)
-		}
-		_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintf(w, "TODOs after migration:\n")
+	for i, rec := range recommendations {
+		_, _ = fmt.Fprintf(w, "  %d. %s\n", i+1, rec)
 	}
-
-	// Secrets
-	if len(analysis.SecretFindings) > 0 {
-		_, _ = fmt.Fprintf(w, "Secrets detected (%d):\n", len(analysis.SecretFindings))
-		for _, secret := range analysis.SecretFindings {
-			icon := "🔓" // unlocked
-			if secret.Encryption != EncryptNone {
-				icon = "🔐" // locked
-			}
-			encLabel := ""
-			if secret.Encryption != EncryptNone {
-				encLabel = fmt.Sprintf(" (%s)", secret.Encryption)
-			}
-			_, _ = fmt.Fprintf(w, "  %s %s%s\n", icon, secret.RelPath, encLabel)
-			_, _ = fmt.Fprintf(w, "      %s\n", secret.Reason)
-		}
-		_, _ = fmt.Fprintln(w)
-
-		// SOPS recommendation if unencrypted secrets exist
-		hasUnencrypted := false
-		for _, secret := range analysis.SecretFindings {
-			if secret.Encryption == EncryptNone {
-				hasUnencrypted = true
-				break
-			}
-		}
-		if hasUnencrypted {
-			formatSOPSRecommendation(w, analysis.SecretFindings)
-		}
-	}
-
-	// Recommendations (TODOs)
-	if len(analysis.Recommendations) > 0 {
-		_, _ = fmt.Fprintf(w, "TODOs after migration:\n")
-		for i, rec := range analysis.Recommendations {
-			_, _ = fmt.Fprintf(w, "  %d. %s\n", i+1, rec)
-		}
-	}
-
-	return nil
 }
 
 // filterNodesByOp returns nodes that have the specified operation.
@@ -292,4 +310,45 @@ func formatSOPSRecommendation(w io.Writer, secrets []SecretFinding) {
 	_, _ = fmt.Fprintf(w, "  4. Encrypt each secret: sops encrypt --in-place <file>\n")
 	_, _ = fmt.Fprintf(w, "  5. Commit .sops.yaml and encrypted files\n")
 	_, _ = fmt.Fprintln(w)
+}
+
+// FormatMigrationExplain uses AI to generate a natural language explanation
+// of the migration analysis. This provides a conversational summary that
+// highlights key findings and actionable recommendations.
+func FormatMigrationExplain(ctx context.Context, w io.Writer, analysis *MigrationAnalysis, provider model.Provider) error {
+	if provider == nil {
+		return fmt.Errorf("AI provider required for explain format")
+	}
+
+	// Serialize analysis to JSON for the AI
+	analysisJSON, err := json.MarshalIndent(analysis, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal analysis: %w", err)
+	}
+
+	prompt := `You are a helpful assistant explaining a dotfiles migration analysis.
+Given the structured analysis below, provide a clear, conversational summary that:
+1. Describes what kind of repository this is and its structure
+2. Highlights key findings (projects, platforms, scripts, secrets)
+3. Points out any concerns or warnings
+4. Summarizes recommended next steps
+
+Be concise but informative. Use a friendly, helpful tone. Format with markdown.
+Do not repeat the raw data - synthesize and explain it.`
+
+	userMessage := fmt.Sprintf("Please explain this migration analysis:\n\n```json\n%s\n```", string(analysisJSON))
+
+	resp, err := provider.Chat(ctx, model.ChatRequest{
+		SystemPrompt: prompt,
+		Messages: []model.Message{
+			{Role: model.RoleUser, Content: userMessage},
+		},
+		Temperature: 0.3,
+	})
+	if err != nil {
+		return fmt.Errorf("AI explanation failed: %w", err)
+	}
+
+	_, _ = fmt.Fprintln(w, resp.Content)
+	return nil
 }
