@@ -293,7 +293,9 @@ func TestScriptAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	Classify(entries)
-	scripts := AnalyzeScripts(entries)
+
+	// Use empty signature index - all detected packages will be unresolved
+	scripts := AnalyzeScripts(entries, make(SignatureIndex))
 
 	// Find Install-Tuckr analysis (the Darwin one)
 	var tuckrAnalysis *ScriptAnalysis
@@ -312,11 +314,18 @@ func TestScriptAnalysis(t *testing.T) {
 	if tuckrAnalysis.Phase != "install" {
 		t.Errorf("Install-Tuckr phase: got %q, want %q", tuckrAnalysis.Phase, "install")
 	}
-	if tuckrAnalysis.PackageManager != "cargo" {
-		t.Errorf("Install-Tuckr manager: got %q, want %q", tuckrAnalysis.PackageManager, "cargo")
+
+	// With empty SignatureIndex, detected installs go to Unresolved
+	var foundTuckr bool
+	for _, install := range tuckrAnalysis.Unresolved {
+		if install.Manager == "cargo" && install.Name == "tuckr" {
+			foundTuckr = true
+			break
+		}
 	}
-	if len(tuckrAnalysis.PackageNames) != 1 || tuckrAnalysis.PackageNames[0] != "tuckr" {
-		t.Errorf("Install-Tuckr packages: got %v, want [tuckr]", tuckrAnalysis.PackageNames)
+	if !foundTuckr {
+		t.Errorf("Install-Tuckr: expected cargo install tuckr in Unresolved, got Resolved=%v Unresolved=%v",
+			tuckrAnalysis.Resolved, tuckrAnalysis.Unresolved)
 	}
 }
 

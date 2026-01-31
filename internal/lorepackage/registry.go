@@ -324,6 +324,24 @@ func (r *Registry) Knowledge(domain string) *KnowledgeDomain {
 	}
 }
 
+// SignatureIndex returns the package signature index from signatures.yaml.
+// The index maps manager → native_name → lore_package for detecting
+// native package installations and resolving them to lore packages.
+// Returns an empty map if the file doesn't exist or is invalid.
+func (r *Registry) SignatureIndex() map[string]map[string]string {
+	data, err := r.ReadFile("signatures.yaml")
+	if err != nil {
+		return make(map[string]map[string]string)
+	}
+
+	var idx map[string]map[string]string
+	if err := yaml.Unmarshal(data, &idx); err != nil {
+		return make(map[string]map[string]string)
+	}
+
+	return idx
+}
+
 // KnowledgeDomain provides access to knowledge assets within a domain.
 // Methods correspond to subdirectories in the knowledge/{domain}/ structure.
 // Assets are resolved with fallback to the "shared" domain.

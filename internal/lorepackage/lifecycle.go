@@ -21,6 +21,20 @@ const (
 	OpDecommission Operation = "Decommission"
 )
 
+// Signatures maps package managers to the names this package is known by.
+// Keys are package manager names (brew, apt, dnf, pacman, winget, choco,
+// cargo, pip, npm, go). Special key "urls" contains regex patterns for
+// detecting URL-based installations (curl|bash, wget, etc.).
+//
+// Example:
+//
+//	signatures:
+//	  brew: [ripgrep, rg]
+//	  apt: [ripgrep]
+//	  cargo: [ripgrep]
+//	  urls: ['github\.com/BurntSushi/ripgrep']
+type Signatures map[string][]string
+
 // Lifecycle represents a lore package's lifecycle manifest.
 // This is loaded from lifecycle.yaml in the package directory.
 // Phase scripts are discovered from the directory structure, not from YAML.
@@ -33,6 +47,7 @@ type Lifecycle struct {
 	License     string             `yaml:"license,omitempty"`
 	Maintainer  string             `yaml:"maintainer,omitempty"`
 	Aliases     []string           `yaml:"aliases,omitempty"`
+	Signatures  Signatures         `yaml:"signatures,omitempty"`
 	Platforms   []string           `yaml:"platforms"`
 	Provides    []string           `yaml:"provides,omitempty"`
 	Conflicts   []string           `yaml:"conflicts,omitempty"`

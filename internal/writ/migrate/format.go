@@ -151,19 +151,26 @@ func formatMigrationText(w io.Writer, graph *execution.Graph, analysis *Migratio
 			_, _ = fmt.Fprintf(w, "  %s\n", script.RelPath)
 
 			details := []string{script.Phase}
-			if script.PackageManager != "" {
-				details = append(details, "manager: "+script.PackageManager)
-			}
-			if len(script.PackageNames) > 0 {
-				if len(script.PackageNames) <= 3 {
-					details = append(details, "packages: ["+strings.Join(script.PackageNames, ", ")+"]")
-				} else {
-					details = append(details, fmt.Sprintf("packages: [%s, ...] (%d total)",
-						strings.Join(script.PackageNames[:3], ", "), len(script.PackageNames)))
-				}
-			}
 			details = append(details, fmt.Sprintf("%d lines", script.LineCount))
 			_, _ = fmt.Fprintf(w, "    %s\n", strings.Join(details, " | "))
+
+			// Show resolved packages (matched to lore packages)
+			if len(script.Resolved) > 0 {
+				var names []string
+				for _, r := range script.Resolved {
+					names = append(names, r.LorePackage)
+				}
+				_, _ = fmt.Fprintf(w, "    Lore packages: %s\n", strings.Join(names, ", "))
+			}
+
+			// Show unresolved packages (detected but no lore match)
+			if len(script.Unresolved) > 0 {
+				var installs []string
+				for _, u := range script.Unresolved {
+					installs = append(installs, fmt.Sprintf("%s:%s", u.Manager, u.Name))
+				}
+				_, _ = fmt.Fprintf(w, "    Unknown: %s\n", strings.Join(installs, ", "))
+			}
 
 			for _, obs := range script.Observations {
 				_, _ = fmt.Fprintf(w, "    %s\n", obs)
