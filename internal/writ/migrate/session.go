@@ -8,13 +8,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
 // SessionState represents a state in the migration session.
@@ -43,16 +44,8 @@ type Session struct {
 	analysis *MigrationAnalysis
 
 	// Conversation state
-	history     []model.Message
-	pendingPlan *ExecutionPlan
-	aiResponse  string
-}
-
-// ExecutionPlan represents a plan proposed by the AI for user approval.
-type ExecutionPlan struct {
-	Description string   `json:"description"`
-	Actions     []string `json:"actions"`
-	Approved    bool     `json:"-"`
+	history    []model.Message
+	aiResponse string
 }
 
 // SessionResult is the final output of a migration session.
@@ -268,39 +261,48 @@ func (s *Session) processConversation(input string) error {
 		Content: input,
 	})
 
-	// Build context for AI
+	// Build context for AI including both analysis and current execution graph
 	ctx := context.Background()
 	analysisJSON, _ := json.MarshalIndent(s.analysis, "", "  ")
+	graphJSON := s.formatGraphForPrompt()
 
 	systemPrompt := fmt.Sprintf(`You are helping the user migrate their environment to writ.
 
-Current analysis:
+## Current Analysis
 %s
 
-Your role:
-1. Answer questions about the analysis
-2. When the user indicates what they want to do, propose a clear plan
-3. When proposing a plan, format it as:
+## Current Execution Graph
+%s
 
-   **Proposed Plan:**
-   [description]
+## Your Role
+1. Answer questions about the analysis and planned operations
+2. Help the user refine the execution graph through conversation
+3. When the user wants to modify the graph, respond with changes in this format:
 
-   **Actions:**
-   1. [action]
-   2. [action]
-   ...
+   **Graph Modifications:**
+   - ADD_RENAME: source_path -> target_path
+   - REMOVE_RENAME: source_path
 
-   Type "approve" to proceed or tell me what you'd like to change.
+   [Your explanation of the changes]
 
-4. Only propose plans when the user has expressed clear intent
-5. Be conversational and helpful
+4. When the user is satisfied and wants to proceed, include:
 
-Available operations:
-- Rename directories to match writ conventions
-- Register as a writ layer (personal, team, or base)
-- Generate package manifests from detected installs
+   **Ready to Execute**
 
-Do not output raw JSON. Be conversational.`, string(analysisJSON))
+   The migration will perform the following renames:
+   [list the renames]
+
+   Type "approve" to execute or continue refining.
+
+## Available Modifications
+- ADD_RENAME: Add a directory rename (source -> target)
+- REMOVE_RENAME: Remove a planned rename by source path
+
+## Writ Conventions
+- Directory naming: <group>.<Platform> (e.g., all.Darwin, noblefactor.Unix)
+- Groups typically live in Home/Configs/ or Home/<project>/
+
+Be conversational and helpful. Explain your reasoning.`, string(analysisJSON), graphJSON)
 
 	// Call AI
 	resp, err := s.opts.Provider.Chat(ctx, model.ChatRequest{
@@ -313,6 +315,9 @@ Do not output raw JSON. Be conversational.`, string(analysisJSON))
 		return nil
 	}
 
+	// Parse and apply any graph modifications from the response
+	s.applyGraphModifications(resp.Content)
+
 	s.aiResponse = resp.Content
 
 	// Add assistant response to history
@@ -321,57 +326,136 @@ Do not output raw JSON. Be conversational.`, string(analysisJSON))
 		Content: resp.Content,
 	})
 
-	// Check if this looks like a plan proposal
-	if s.detectPlanProposal(resp.Content) {
-		s.pendingPlan = s.extractPlan(resp.Content)
+	// Check if this looks like ready-to-execute
+	if s.detectReadyToExecute(resp.Content) {
 		s.state = StatePlanProposed
 	}
 
 	return nil
 }
 
-// detectPlanProposal checks if the AI response contains a plan.
-func (s *Session) detectPlanProposal(content string) bool {
-	lower := strings.ToLower(content)
-	return strings.Contains(lower, "proposed plan:") ||
-		strings.Contains(lower, "**proposed plan:**") ||
-		(strings.Contains(lower, "actions:") && strings.Contains(lower, "approve"))
-}
-
-// extractPlan parses a plan from the AI response.
-func (s *Session) extractPlan(content string) *ExecutionPlan {
-	plan := &ExecutionPlan{
-		Description: content,
-		Actions:     []string{},
+// formatGraphForPrompt formats the execution graph for the AI prompt.
+func (s *Session) formatGraphForPrompt() string {
+	if s.graph == nil || len(s.graph.Nodes) == 0 {
+		return "No operations planned (repository may already be writ-compatible)"
 	}
 
-	// Simple extraction - the full content is the plan description
-	// Actions are parsed from numbered lists
-	lines := strings.Split(content, "\n")
-	inActions := false
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.Contains(strings.ToLower(line), "actions:") {
-			inActions = true
-			continue
-		}
-		if inActions && len(line) > 2 {
-			// Look for numbered items: "1. ", "2. ", etc.
-			if len(line) > 3 && line[0] >= '1' && line[0] <= '9' && line[1] == '.' {
-				plan.Actions = append(plan.Actions, strings.TrimSpace(line[2:]))
+	var sb strings.Builder
+	sb.WriteString("Planned renames:\n")
+	for _, node := range s.graph.Nodes {
+		for _, op := range node.Operations {
+			if op == "rename" {
+				// Show relative paths for readability
+				source := strings.TrimPrefix(node.Source, s.opts.SourceRoot+"/")
+				target := strings.TrimPrefix(node.Target, s.opts.SourceRoot+"/")
+				sb.WriteString(fmt.Sprintf("  %s -> %s\n", source, target))
 			}
 		}
 	}
+	return sb.String()
+}
 
-	return plan
+// applyGraphModifications parses AI response for graph modifications and applies them.
+func (s *Session) applyGraphModifications(content string) {
+	lines := strings.Split(content, "\n")
+	inModifications := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if strings.Contains(strings.ToLower(line), "graph modifications:") {
+			inModifications = true
+			continue
+		}
+
+		// Stop parsing modifications when we hit another section
+		if inModifications && strings.HasPrefix(line, "**") && !strings.Contains(strings.ToLower(line), "graph") {
+			inModifications = false
+			continue
+		}
+
+		if !inModifications {
+			continue
+		}
+
+		// Parse ADD_RENAME: source -> target
+		if strings.HasPrefix(line, "- ADD_RENAME:") || strings.HasPrefix(line, "ADD_RENAME:") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				pathParts := strings.Split(parts[1], "->")
+				if len(pathParts) == 2 {
+					source := strings.TrimSpace(pathParts[0])
+					target := strings.TrimSpace(pathParts[1])
+					s.addRenameToGraph(source, target)
+				}
+			}
+		}
+
+		// Parse REMOVE_RENAME: source
+		if strings.HasPrefix(line, "- REMOVE_RENAME:") || strings.HasPrefix(line, "REMOVE_RENAME:") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				source := strings.TrimSpace(parts[1])
+				s.removeRenameFromGraph(source)
+			}
+		}
+	}
+}
+
+// addRenameToGraph adds a rename operation to the execution graph.
+func (s *Session) addRenameToGraph(source, target string) {
+	// Make paths absolute if they're relative
+	if !strings.HasPrefix(source, "/") {
+		source = s.opts.SourceRoot + "/" + source
+	}
+	if !strings.HasPrefix(target, "/") {
+		target = s.opts.SourceRoot + "/" + target
+	}
+
+	// Check if this rename already exists
+	for _, node := range s.graph.Nodes {
+		if node.Source == source {
+			// Update existing rename
+			node.Target = target
+			return
+		}
+	}
+
+	// Add new rename node
+	plan := execution.NewPlan("migrate")
+	newNode := plan.Rename(source, target)
+	s.graph.Nodes = append(s.graph.Nodes, newNode)
+}
+
+// removeRenameFromGraph removes a rename operation from the execution graph.
+func (s *Session) removeRenameFromGraph(source string) {
+	// Make path absolute if relative
+	if !strings.HasPrefix(source, "/") {
+		source = s.opts.SourceRoot + "/" + source
+	}
+
+	// Find and remove the node
+	for i, node := range s.graph.Nodes {
+		if node.Source == source {
+			s.graph.Nodes = append(s.graph.Nodes[:i], s.graph.Nodes[i+1:]...)
+			return
+		}
+	}
+}
+
+// detectReadyToExecute checks if the AI response indicates ready to execute.
+func (s *Session) detectReadyToExecute(content string) bool {
+	lower := strings.ToLower(content)
+	return strings.Contains(lower, "ready to execute") ||
+		(strings.Contains(lower, "approve") && strings.Contains(lower, "execute"))
 }
 
 // planConfirmStep shows the plan confirmation prompt.
 func (s *Session) planConfirmStep() *console.Step {
 	return &console.Step{
 		Type:    console.StepInput,
-		Title:   "Plan Proposed",
-		Content: s.aiResponse + "\n\n_Type **approve** to execute, or describe changes you'd like._",
+		Title:   "Ready to Execute",
+		Content: s.aiResponse + "\n\n_Type **approve** to execute the migration, or describe changes you'd like._",
 		Default: "",
 	}
 }
@@ -380,8 +464,7 @@ func (s *Session) planConfirmStep() *console.Step {
 func (s *Session) processPlanResponse(input string) error {
 	lower := strings.ToLower(strings.TrimSpace(input))
 
-	if lower == "approve" || lower == "yes" || lower == "ok" || lower == "proceed" {
-		s.pendingPlan.Approved = true
+	if lower == "approve" || lower == "yes" || lower == "ok" || lower == "proceed" || lower == "👍" {
 		s.state = StateExecuting
 		return nil
 	}
@@ -406,6 +489,11 @@ func (s *Session) executeStep() *console.Step {
 		return s.Next()
 	}
 
+	// Write the migration marker
+	if err := WriteMigratedMarker(s.opts.SourceRoot, s.graph, s.analysis); err != nil {
+		cli.Warn("Failed to write migration marker: %v", err)
+	}
+
 	// Save receipt
 	receiptPath, err := cli.WriteReceipt(s.graph, "writ-migrate")
 	if err != nil {
@@ -414,6 +502,9 @@ func (s *Session) executeStep() *console.Step {
 	} else {
 		s.aiResponse = fmt.Sprintf("Migration complete. Receipt saved to:\n`%s`", receiptPath)
 	}
+
+	// Output analysis + execution_graph JSON to stdout
+	s.outputJSON()
 
 	s.result = &SessionResult{
 		Graph:       s.graph,
@@ -429,6 +520,17 @@ func (s *Session) executeStep() *console.Step {
 		Content:  "Executing migration...",
 		Progress: 100,
 	}
+}
+
+// outputJSON writes the analysis and execution graph to stdout in JSON format.
+func (s *Session) outputJSON() {
+	// Use the same format as FormatMigrationPlan with "json"
+	var buf bytes.Buffer
+	if err := FormatMigrationPlan(&buf, s.graph, s.analysis, "json"); err != nil {
+		cli.Warn("Failed to format JSON output: %v", err)
+		return
+	}
+	fmt.Fprintln(os.Stdout, buf.String())
 }
 
 // completeStep shows the completion message.
@@ -466,7 +568,6 @@ func (s *Session) handleSlashCommand(cmd string) error {
 	case "/analyze":
 		s.state = StateAnalyzing
 		s.history = []model.Message{} // Reset conversation
-		s.pendingPlan = nil
 
 	case "/explain":
 		s.aiResponse = s.generateExplanation()

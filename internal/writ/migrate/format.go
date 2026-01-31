@@ -34,18 +34,40 @@ func FormatMigrationPlan(w io.Writer, graph *execution.Graph, analysis *Migratio
 }
 
 // migrationView is the combined view for YAML/JSON serialization.
+// Outputs both analysis and execution_graph at the top level as per the plan.
 type migrationView struct {
-	Analysis   *MigrationAnalysis `json:"analysis" yaml:"analysis"`
-	Operations []operationView    `json:"operations" yaml:"operations"`
+	Analysis       *MigrationAnalysis     `json:"analysis" yaml:"analysis"`
+	ExecutionGraph *executionGraphView    `json:"execution_graph" yaml:"execution_graph"`
 }
 
-// operationView represents a single operation for serialization.
-type operationView struct {
-	ID        string `json:"id" yaml:"id"`
-	Type      string `json:"type" yaml:"type"`
-	Source    string `json:"source,omitempty" yaml:"source,omitempty"`
-	Target    string `json:"target,omitempty" yaml:"target,omitempty"`
-	DependsOn string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+// executionGraphView represents the execution graph for serialization.
+type executionGraphView struct {
+	Version string          `json:"version" yaml:"version"`
+	Tool    string          `json:"tool" yaml:"tool"`
+	State   string          `json:"state" yaml:"state"`
+	Context graphContext    `json:"context,omitempty" yaml:"context,omitempty"`
+	Nodes   []nodeView      `json:"nodes" yaml:"nodes"`
+	Edges   []edgeView      `json:"edges" yaml:"edges"`
+}
+
+type graphContext struct {
+	SourceRoot string `json:"source_root,omitempty" yaml:"source_root,omitempty"`
+}
+
+// nodeView represents a single node in the execution graph.
+type nodeView struct {
+	ID         string   `json:"id" yaml:"id"`
+	Operations []string `json:"operations" yaml:"operations"`
+	Source     string   `json:"source,omitempty" yaml:"source,omitempty"`
+	Target     string   `json:"target,omitempty" yaml:"target,omitempty"`
+	Status     string   `json:"status" yaml:"status"`
+}
+
+// edgeView represents a dependency between nodes.
+type edgeView struct {
+	From     string `json:"from" yaml:"from"`
+	To       string `json:"to" yaml:"to"`
+	Relation string `json:"relation" yaml:"relation"`
 }
 
 func formatMigrationYAML(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
@@ -63,32 +85,40 @@ func formatMigrationJSON(w io.Writer, graph *execution.Graph, analysis *Migratio
 }
 
 func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *migrationView {
-	// Build dependency map from edges
-	dependsOn := make(map[string]string)
-	for _, edge := range graph.Edges {
-		if edge.Relation == "depends_on" {
-			dependsOn[edge.To] = edge.From
-		}
+	// Build nodes
+	var nodes []nodeView
+	for _, node := range graph.Nodes {
+		nodes = append(nodes, nodeView{
+			ID:         node.ID,
+			Operations: node.Operations,
+			Source:     node.Source,
+			Target:     node.Target,
+			Status:     string(node.Status),
+		})
 	}
 
-	var ops []operationView
-	for _, node := range graph.Nodes {
-		opType := "unknown"
-		if len(node.Operations) > 0 {
-			opType = node.Operations[0]
-		}
-		ops = append(ops, operationView{
-			ID:        node.ID,
-			Type:      opType,
-			Source:    node.Source,
-			Target:    node.Target,
-			DependsOn: dependsOn[node.ID],
+	// Build edges
+	var edges []edgeView
+	for _, edge := range graph.Edges {
+		edges = append(edges, edgeView{
+			From:     edge.From,
+			To:       edge.To,
+			Relation: edge.Relation,
 		})
 	}
 
 	return &migrationView{
-		Analysis:   analysis,
-		Operations: ops,
+		Analysis: analysis,
+		ExecutionGraph: &executionGraphView{
+			Version: "1.0",
+			Tool:    "writ",
+			State:   "pending",
+			Context: graphContext{
+				SourceRoot: analysis.SourceRoot,
+			},
+			Nodes: nodes,
+			Edges: edges,
+		},
 	}
 }
 

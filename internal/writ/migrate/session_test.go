@@ -205,47 +205,26 @@ func TestSessionConversationStep(t *testing.T) {
 	}
 }
 
-func TestSessionPlanProposal(t *testing.T) {
+func TestSessionDetectReadyToExecute(t *testing.T) {
 	session := &Session{}
 
-	// Test detection of plan proposals
+	// Test detection of ready-to-execute responses
 	tests := []struct {
 		content  string
 		expected bool
 	}{
 		{"Here's what I found", false},
-		{"**Proposed Plan:**\nDo something", true},
-		{"Proposed plan:\nActions:\n1. First\nType approve to proceed", true},
+		{"**Ready to Execute**\nThe migration will perform the following...", true},
+		{"Ready to execute. Type approve to proceed.", true},
 		{"Let me help you", false},
+		{"Type approve to execute the changes", true},
 	}
 
 	for _, tc := range tests {
-		result := session.detectPlanProposal(tc.content)
+		result := session.detectReadyToExecute(tc.content)
 		if result != tc.expected {
-			t.Errorf("detectPlanProposal(%q) = %v, want %v", tc.content, result, tc.expected)
+			t.Errorf("detectReadyToExecute(%q) = %v, want %v", tc.content, result, tc.expected)
 		}
-	}
-}
-
-func TestSessionExtractPlan(t *testing.T) {
-	session := &Session{}
-
-	content := `**Proposed Plan:**
-I'll migrate your environment to writ.
-
-**Actions:**
-1. Rename directories to match writ conventions
-2. Register as a personal layer
-3. Generate package manifest
-
-Type "approve" to proceed.`
-
-	plan := session.extractPlan(content)
-	if plan == nil {
-		t.Fatal("expected plan")
-	}
-	if len(plan.Actions) != 3 {
-		t.Errorf("expected 3 actions, got %d", len(plan.Actions))
 	}
 }
 
@@ -254,7 +233,6 @@ func TestSessionProcessPlanResponse(t *testing.T) {
 	session := NewSession(opts)
 
 	session.state = StatePlanProposed
-	session.pendingPlan = &ExecutionPlan{Description: "test"}
 
 	// Approve
 	err := session.processPlanResponse("approve")
@@ -264,8 +242,25 @@ func TestSessionProcessPlanResponse(t *testing.T) {
 	if session.state != StateExecuting {
 		t.Errorf("expected StateExecuting, got %v", session.state)
 	}
-	if !session.pendingPlan.Approved {
-		t.Error("expected plan to be approved")
+}
+
+func TestSessionProcessPlanResponseVariants(t *testing.T) {
+	approvals := []string{"approve", "yes", "ok", "proceed", "👍"}
+
+	for _, approval := range approvals {
+		t.Run(approval, func(t *testing.T) {
+			opts := Options{SourceRoot: "/tmp/test"}
+			session := NewSession(opts)
+			session.state = StatePlanProposed
+
+			err := session.processPlanResponse(approval)
+			if err != nil {
+				t.Errorf("unexpected error for %q: %v", approval, err)
+			}
+			if session.state != StateExecuting {
+				t.Errorf("expected StateExecuting for %q, got %v", approval, session.state)
+			}
+		})
 	}
 }
 

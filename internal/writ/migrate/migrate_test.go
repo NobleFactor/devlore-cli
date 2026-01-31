@@ -5,7 +5,6 @@ package migrate
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -26,426 +25,400 @@ func fixtureRoot(t *testing.T) string {
 	return abs
 }
 
-func TestDetect(t *testing.T) {
+// TestGatherInputs tests the input gathering functionality.
+func TestGatherInputs(t *testing.T) {
 	root := fixtureRoot(t)
-	system, err := Detect(root)
+	input, err := GatherInputs(root, 10, 100*1024)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if system != SystemScriptBased {
-		t.Errorf("Detect() = %q, want %q", system, SystemScriptBased)
+
+	if input.Root != root {
+		t.Errorf("GatherInputs: root = %q, want %q", input.Root, root)
 	}
+
+	if input.Tree == nil {
+		t.Fatal("GatherInputs: tree is nil")
+	}
+
+	if input.Tree.Type != "directory" {
+		t.Errorf("GatherInputs: tree.Type = %q, want %q", input.Tree.Type, "directory")
+	}
+
+	// Check that we found some contents
+	if len(input.Tree.Contents) == 0 {
+		t.Error("GatherInputs: tree has no contents")
+	}
+
+	// The fixture should have some executable scripts
+	// (though permission bits may not be preserved in all test environments)
+	t.Logf("Found %d executable files", len(input.Executables))
 }
 
-func TestDetectTuckr(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "Hooks.toml"), []byte("[hooks]"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	system, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if system != SystemTuckr {
-		t.Errorf("Detect() = %q, want %q", system, SystemTuckr)
-	}
-}
-
-func TestDetectStow(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".stow-local-ignore"), []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-	system, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if system != SystemStow {
-		t.Errorf("Detect() = %q, want %q", system, SystemStow)
-	}
-}
-
-func TestDetectChezmoi(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, "dot_config"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	system, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if system != SystemChezmoi {
-		t.Errorf("Detect() = %q, want %q", system, SystemChezmoi)
-	}
-}
-
-func TestDetectYadm(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".bashrc##os.Linux"), []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-	system, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if system != SystemYadm {
-		t.Errorf("Detect() = %q, want %q", system, SystemYadm)
-	}
-}
-
-func TestDetectBareGit(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "objects"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "refs"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	system, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if system != SystemBareGit {
-		t.Errorf("Detect() = %q, want %q", system, SystemBareGit)
-	}
-}
-
-func TestDetectNative(t *testing.T) {
-	dir := t.TempDir()
-	// Create Home/<project> structure
-	if err := os.MkdirAll(filepath.Join(dir, "Home", "all"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "Home", "all", ".bashrc"), []byte("# bashrc"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	system, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if system != SystemNative {
-		t.Errorf("Detect() = %q, want %q", system, SystemNative)
-	}
-}
-
-func TestDetectNativeSystem(t *testing.T) {
-	dir := t.TempDir()
-	// Create System/<project> structure (no Home)
-	if err := os.MkdirAll(filepath.Join(dir, "System", "base", "etc"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	system, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if system != SystemNative {
-		t.Errorf("Detect() = %q, want %q", system, SystemNative)
-	}
-}
-
-func TestInventory(t *testing.T) {
+// TestGatherInputsDepthLimit tests that depth limit works.
+func TestGatherInputsDepthLimit(t *testing.T) {
 	root := fixtureRoot(t)
-	entries, err := Inventory(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	inputDeep, _ := GatherInputs(root, 10, 0)
+	inputShallow, _ := GatherInputs(root, 1, 0)
 
-	if len(entries) == 0 {
-		t.Fatal("Inventory returned no entries")
-	}
+	// Count nodes at each level
+	deepCount := countNodes(inputDeep.Tree)
+	shallowCount := countNodes(inputShallow.Tree)
 
-	// Verify project/platform parsing
-	projectPlatformCases := map[string]struct{ project, platform string }{
-		"all-Darwin":        {"all", "Darwin"},
-		"all-Unix":          {"all", "Unix"},
-		"all-Linux":         {"all", "Linux"},
-		"noblefactor-Unix":  {"noblefactor", "Unix"},
-		"microsoft-Windows": {"microsoft", "Windows"},
-	}
-
-	for _, e := range entries {
-		// Extract the top-level directory from the relative path
-		topDir := strings.SplitN(e.RelPath, string(filepath.Separator), 2)[0]
-		if expected, ok := projectPlatformCases[topDir]; ok {
-			if e.Project != expected.project {
-				t.Errorf("entry %s: project = %q, want %q", e.RelPath, e.Project, expected.project)
-			}
-			if e.Platform != expected.platform {
-				t.Errorf("entry %s: platform = %q, want %q", e.RelPath, e.Platform, expected.platform)
-			}
-			delete(projectPlatformCases, topDir) // only check once per dir
-		}
-	}
-
-	// Verify base projects (no platform)
-	for _, e := range entries {
-		if strings.HasPrefix(e.RelPath, "all/") || strings.HasPrefix(e.RelPath, "noblefactor/") {
-			if e.Platform != "" {
-				t.Errorf("entry %s: platform = %q, want empty", e.RelPath, e.Platform)
-			}
-		}
+	if shallowCount >= deepCount && deepCount > 10 {
+		t.Errorf("depth limit not working: shallow=%d >= deep=%d", shallowCount, deepCount)
 	}
 }
 
-func TestClassify(t *testing.T) {
+func countNodes(n *TreeNode) int {
+	if n == nil {
+		return 0
+	}
+	count := 1
+	for _, child := range n.Contents {
+		count += countNodes(child)
+	}
+	return count
+}
+
+// TestFormatForPrompt tests the prompt formatting.
+func TestFormatForPrompt(t *testing.T) {
 	root := fixtureRoot(t)
-	entries, err := Inventory(root)
+	input, err := GatherInputs(root, 5, 50*1024)
 	if err != nil {
 		t.Fatal(err)
 	}
-	Classify(entries)
 
-	expectations := map[string]FileClass{
-		"all/.config/git/config.all":                             ClassStaticConfig,
-		"all-Darwin/.zprofile":                                   ClassStaticConfig,
-		"all-Darwin/Library/Fonts/SFMono-Regular.otf":            ClassFont,
-		"all-Unix/.bashrc":                                       ClassStaticConfig,
-		"all-Unix/.Personal-secrets/gnupg/key.txt":               ClassSecret,
-		"noblefactor/.ssh/config":                                ClassStaticConfig,
-		"microsoft-Windows/local/bin/Initialize-SshIdentity.ps1": ClassStaticConfig,
+	prompt := input.FormatForPrompt()
+
+	if !strings.Contains(prompt, "Directory Structure") {
+		t.Error("prompt missing Directory Structure section")
 	}
 
-	// Scripts (require executable bit)
-	execExpectations := map[string]FileClass{
-		"all/local/bin/git-new-workspace":                  ClassScript,
-		"all-Darwin/local/bin/Install-Tuckr":               ClassLifecycleScript,
-		"all-Unix/local/bin/New-SshAuthenticationKey":      ClassScript,
-		"all-Linux/local/bin/Install-Rust":                 ClassLifecycleScript,
-		"all-Linux/local/bin/Install-Tuckr":                ClassLifecycleScript,
-		"noblefactor-Unix/.local/bin/Install-Docker":       ClassLifecycleScript,
-		"noblefactor-Unix/.local/bin/Install-Dependencies": ClassLifecycleScript,
+	if !strings.Contains(prompt, "```json") {
+		t.Error("prompt missing JSON code block")
 	}
 
-	for relPath, expected := range expectations {
-		found := false
-		for _, e := range entries {
-			if e.RelPath == relPath {
-				found = true
-				if e.Class != expected {
-					t.Errorf("classify %s: got %q, want %q", relPath, e.Class, expected)
-				}
-				break
+	// If we have executables, check they're listed
+	if len(input.Executables) > 0 && !strings.Contains(prompt, "Executable Scripts") {
+		t.Error("prompt missing Executable Scripts section")
+	}
+}
+
+// TestParseLLMResponse tests parsing of LLM responses.
+func TestParseLLMResponse(t *testing.T) {
+	sourceRoot := "/test/root"
+
+	// Minimal valid response
+	response := `{
+		"analysis": {
+			"system": "tuckr",
+			"system_confidence": 0.95,
+			"input_summary": "Test repository",
+			"structure": {
+				"groups_path": "Home/Configs",
+				"naming_convention": "<group>-<Platform>",
+				"groups": ["all", "noblefactor"],
+				"platforms": ["Darwin", "Unix"]
+			},
+			"repo_layer": "personal",
+			"encryption_systems": ["git-crypt"],
+			"scripts": [],
+			"secret_findings": [],
+			"observations": ["Test observation"],
+			"warnings": ["Test warning"],
+			"recommendations": ["Test recommendation"]
+		},
+		"execution_graph": {
+			"nodes": [
+				{"id": "rename-1", "operations": ["rename"], "source": "Home/Configs/all-Darwin", "target": "Home/Configs/all.Darwin", "status": "pending"}
+			],
+			"edges": []
+		}
+	}`
+
+	result, err := parseLLMResponse(response, sourceRoot)
+	if err != nil {
+		t.Fatalf("parseLLMResponse failed: %v", err)
+	}
+
+	// Check analysis
+	if result.Analysis.System != SystemTuckr {
+		t.Errorf("system = %q, want %q", result.Analysis.System, SystemTuckr)
+	}
+	if result.Analysis.SystemConfidence != 0.95 {
+		t.Errorf("confidence = %f, want 0.95", result.Analysis.SystemConfidence)
+	}
+	if result.Analysis.Structure == nil {
+		t.Fatal("structure is nil")
+	}
+	if result.Analysis.Structure.GroupsPath != "Home/Configs" {
+		t.Errorf("groups_path = %q, want %q", result.Analysis.Structure.GroupsPath, "Home/Configs")
+	}
+	if len(result.Analysis.Observations) != 1 {
+		t.Errorf("observations count = %d, want 1", len(result.Analysis.Observations))
+	}
+	if len(result.Analysis.EncryptionSystems) != 1 || result.Analysis.EncryptionSystems[0] != EncryptGitCrypt {
+		t.Errorf("encryption_systems = %v, want [git-crypt]", result.Analysis.EncryptionSystems)
+	}
+
+	// Check graph
+	if len(result.Graph.Nodes) != 1 {
+		t.Errorf("graph nodes = %d, want 1", len(result.Graph.Nodes))
+	}
+	if len(result.Graph.Nodes) > 0 {
+		node := result.Graph.Nodes[0]
+		expectedSource := sourceRoot + "/Home/Configs/all-Darwin"
+		if node.Source != expectedSource {
+			t.Errorf("node source = %q, want %q", node.Source, expectedSource)
+		}
+	}
+}
+
+// TestParseSourceSystem tests source system string parsing.
+func TestParseSourceSystem(t *testing.T) {
+	cases := []struct {
+		input string
+		want  SourceSystem
+	}{
+		{"tuckr", SystemTuckr},
+		{"Tuckr", SystemTuckr},
+		{"TUCKR", SystemTuckr},
+		{"stow", SystemStow},
+		{"chezmoi", SystemChezmoi},
+		{"yadm", SystemYadm},
+		{"bare-git", SystemBareGit},
+		{"script-based", SystemScriptBased},
+		{"native", SystemNative},
+		{"unknown", SystemUnknown},
+		{"garbage", SystemUnknown},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			got := parseSourceSystem(tc.input)
+			if got != tc.want {
+				t.Errorf("parseSourceSystem(%q) = %q, want %q", tc.input, got, tc.want)
 			}
-		}
-		if !found {
-			t.Errorf("classify: entry %s not found in inventory", relPath)
-		}
+		})
+	}
+}
+
+// TestParseEncryptionSystem tests encryption system string parsing.
+func TestParseEncryptionSystem(t *testing.T) {
+	cases := []struct {
+		input string
+		want  EncryptionSystem
+	}{
+		{"git-crypt", EncryptGitCrypt},
+		{"sops", EncryptSOPS},
+		{"age", EncryptAge},
+		{"gpg", EncryptGPG},
+		{"none", EncryptNone},
+		{"unknown", EncryptNone},
 	}
 
-	for relPath, expected := range execExpectations {
-		found := false
-		for _, e := range entries {
-			if e.RelPath == relPath {
-				found = true
-				if !e.IsExecutable {
-					t.Skipf("classify %s: not executable (test environment may not preserve permissions)", relPath)
-				}
-				if e.Class != expected {
-					t.Errorf("classify %s: got %q, want %q", relPath, e.Class, expected)
-				}
-				break
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			got := parseEncryptionSystem(tc.input)
+			if got != tc.want {
+				t.Errorf("parseEncryptionSystem(%q) = %q, want %q", tc.input, got, tc.want)
 			}
-		}
-		if !found {
-			t.Errorf("classify: entry %s not found in inventory", relPath)
-		}
+		})
 	}
 }
 
-func TestMapping(t *testing.T) {
-	root := fixtureRoot(t)
-	mappings, err := BuildMappings(root)
-	if err != nil {
+// TestFormatMigrationViewJSON tests the JSON output format.
+func TestFormatMigrationViewJSON(t *testing.T) {
+	analysis := &MigrationAnalysis{
+		SourceRoot:       "/test/root",
+		System:           SystemTuckr,
+		SystemConfidence: 0.9,
+		RepoLayer:        LayerPersonal,
+		Observations:     []string{"obs1"},
+		Stats: MigrationStats{
+			Renames:   2,
+			Projects:  3,
+			Platforms: 2,
+		},
+	}
+
+	// Create a mock graph
+	graph := buildGraphFromLLM("/test/root", &llmExecutionGraph{
+		Nodes: []llmNode{
+			{ID: "r1", Operations: []string{"rename"}, Source: "all-Darwin", Target: "all.Darwin", Status: "pending"},
+			{ID: "r2", Operations: []string{"rename"}, Source: "all-Unix", Target: "all.Unix", Status: "pending"},
+		},
+		Edges: []llmEdge{
+			{From: "r1", To: "r2", Relation: "orders"},
+		},
+	})
+
+	var buf bytes.Buffer
+	if err := FormatMigrationPlan(&buf, graph, analysis, "json"); err != nil {
 		t.Fatal(err)
 	}
 
-	expected := map[string]string{
-		"all-Darwin":        "all.Darwin",
-		"all-Linux":         "all.Linux",
-		"all-Unix":          "all.Unix",
-		"microsoft-Windows": "microsoft.Windows",
-		"noblefactor-Unix":  "noblefactor.Unix",
+	// Parse and verify structure
+	var parsed struct {
+		Analysis struct {
+			System     SourceSystem `json:"system"`
+			SourceRoot string       `json:"source_root"`
+		} `json:"analysis"`
+		ExecutionGraph struct {
+			Version string `json:"version"`
+			Tool    string `json:"tool"`
+			State   string `json:"state"`
+			Nodes   []struct {
+				ID         string   `json:"id"`
+				Operations []string `json:"operations"`
+				Source     string   `json:"source"`
+				Target     string   `json:"target"`
+			} `json:"nodes"`
+			Edges []struct {
+				From     string `json:"from"`
+				To       string `json:"to"`
+				Relation string `json:"relation"`
+			} `json:"edges"`
+		} `json:"execution_graph"`
 	}
 
-	if len(mappings) != len(expected) {
-		t.Errorf("BuildMappings: got %d mappings, want %d", len(mappings), len(expected))
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("JSON parse failed: %v\nOutput: %s", err, buf.String())
 	}
 
-	for _, m := range mappings {
-		want, ok := expected[m.SourceDir]
-		if !ok {
-			t.Errorf("unexpected mapping: %s → %s", m.SourceDir, m.TargetDir)
-			continue
-		}
-		if m.TargetDir != want {
-			t.Errorf("mapping %s: got %q, want %q", m.SourceDir, m.TargetDir, want)
-		}
+	if parsed.Analysis.System != SystemTuckr {
+		t.Errorf("analysis.system = %q, want %q", parsed.Analysis.System, SystemTuckr)
 	}
-}
-
-func TestScriptAnalysis(t *testing.T) {
-	root := fixtureRoot(t)
-	entries, err := Inventory(root)
-	if err != nil {
-		t.Fatal(err)
+	if parsed.ExecutionGraph.Version != "1.0" {
+		t.Errorf("execution_graph.version = %q, want %q", parsed.ExecutionGraph.Version, "1.0")
 	}
-	Classify(entries)
-
-	// Use empty signature index - all detected packages will be unresolved
-	scripts := AnalyzeScripts(entries, make(SignatureIndex))
-
-	// Find Install-Tuckr analysis (the Darwin one)
-	var tuckrAnalysis *ScriptAnalysis
-	for i, s := range scripts {
-		if s.Name == "Install-Tuckr" && strings.Contains(s.RelPath, "Darwin") {
-			tuckrAnalysis = &scripts[i]
-			break
-		}
+	if parsed.ExecutionGraph.Tool != "writ" {
+		t.Errorf("execution_graph.tool = %q, want %q", parsed.ExecutionGraph.Tool, "writ")
 	}
-
-	if tuckrAnalysis == nil {
-		// Might not have executable bit in test env
-		t.Skip("Install-Tuckr not found in script analyses (may lack executable bit)")
-	}
-
-	if tuckrAnalysis.Phase != "install" {
-		t.Errorf("Install-Tuckr phase: got %q, want %q", tuckrAnalysis.Phase, "install")
-	}
-
-	// With empty SignatureIndex, detected installs go to Unresolved
-	var foundTuckr bool
-	for _, install := range tuckrAnalysis.Unresolved {
-		if install.Manager == "cargo" && install.Name == "tuckr" {
-			foundTuckr = true
-			break
-		}
-	}
-	if !foundTuckr {
-		t.Errorf("Install-Tuckr: expected cargo install tuckr in Unresolved, got Resolved=%v Unresolved=%v",
-			tuckrAnalysis.Resolved, tuckrAnalysis.Unresolved)
+	if len(parsed.ExecutionGraph.Nodes) != 2 {
+		t.Errorf("execution_graph.nodes count = %d, want 2", len(parsed.ExecutionGraph.Nodes))
 	}
 }
 
-func TestPlanGeneration(t *testing.T) {
-	root := fixtureRoot(t)
-	opts := Options{
-		SourceRoot: root,
-		Format:     "text",
+// TestFormatMigrationViewYAML tests the YAML output format.
+func TestFormatMigrationViewYAML(t *testing.T) {
+	analysis := &MigrationAnalysis{
+		SourceRoot: "/test/root",
+		System:     SystemStow,
+		RepoLayer:  LayerTeam,
 	}
 
-	graph, analysis, err := BuildMigration(context.Background(), opts)
-	if err != nil {
+	graph := buildGraphFromLLM("/test/root", &llmExecutionGraph{
+		Nodes: []llmNode{
+			{ID: "r1", Operations: []string{"rename"}, Source: "pkg-Darwin", Target: "pkg.Darwin", Status: "pending"},
+		},
+		Edges: []llmEdge{},
+	})
+
+	var buf bytes.Buffer
+	if err := FormatMigrationPlan(&buf, graph, analysis, "yaml"); err != nil {
 		t.Fatal(err)
 	}
 
-	if analysis.System != SystemScriptBased {
-		t.Errorf("analysis.System = %q, want %q", analysis.System, SystemScriptBased)
-	}
-	if analysis.Stats.TotalFiles == 0 {
-		t.Error("analysis.Stats.TotalFiles = 0, want > 0")
-	}
-	if analysis.Stats.Renames != 5 {
-		t.Errorf("analysis.Stats.Renames = %d, want 5", analysis.Stats.Renames)
-	}
-	if analysis.Stats.Projects < 3 {
-		t.Errorf("analysis.Stats.Projects = %d, want >= 3", analysis.Stats.Projects)
+	var parsed struct {
+		Analysis struct {
+			System SourceSystem `yaml:"system"`
+		} `yaml:"analysis"`
+		ExecutionGraph struct {
+			Version string `yaml:"version"`
+			Nodes   []struct {
+				ID string `yaml:"id"`
+			} `yaml:"nodes"`
+		} `yaml:"execution_graph"`
 	}
 
-	// Verify graph has rename nodes
-	renameCount := 0
-	for _, node := range graph.Nodes {
-		for _, op := range node.Operations {
-			if op == "rename" {
-				renameCount++
-				break
-			}
-		}
+	if err := yaml.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("YAML parse failed: %v\nOutput: %s", err, buf.String())
 	}
-	if renameCount != 5 {
-		t.Errorf("graph has %d rename nodes, want 5", renameCount)
+
+	if parsed.Analysis.System != SystemStow {
+		t.Errorf("analysis.system = %q, want %q", parsed.Analysis.System, SystemStow)
+	}
+	if len(parsed.ExecutionGraph.Nodes) != 1 {
+		t.Errorf("execution_graph.nodes count = %d, want 1", len(parsed.ExecutionGraph.Nodes))
 	}
 }
 
-func TestExecution(t *testing.T) {
-	// Copy fixture to a temp directory for destructive testing
+// TestExecuteWithMockGraph tests the execution with a manually created graph.
+func TestExecuteWithMockGraph(t *testing.T) {
 	tmpDir := t.TempDir()
-	copyDir(t, fixtureRoot(t), tmpDir)
 
-	opts := Options{
-		SourceRoot: tmpDir,
-	}
-	graph, analysis, err := BuildMigration(context.Background(), opts)
-	if err != nil {
+	// Create source directories
+	srcDir := filepath.Join(tmpDir, "all-Darwin")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(srcDir, "test.txt"), []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	analysis := &MigrationAnalysis{
+		SourceRoot: tmpDir,
+		System:     SystemScriptBased,
+		RepoLayer:  LayerPersonal,
+	}
+
+	graph := buildGraphFromLLM(tmpDir, &llmExecutionGraph{
+		Nodes: []llmNode{
+			{ID: "r1", Operations: []string{"rename"}, Source: "all-Darwin", Target: "all.Darwin", Status: "pending"},
+		},
+		Edges: []llmEdge{},
+	})
 
 	var buf bytes.Buffer
 	if err := Execute(&buf, graph, analysis); err != nil {
-		t.Fatalf("Execute failed: %v\nOutput: %s", err, buf.String())
+		t.Fatalf("Execute failed: %v", err)
 	}
 
-	// Verify renames happened by checking graph nodes
-	for _, node := range graph.Nodes {
-		for _, op := range node.Operations {
-			if op == "rename" {
-				if exists(node.Source) {
-					t.Errorf("source dir still exists after rename: %s", node.Source)
-				}
-				if !exists(node.Target) {
-					t.Errorf("target dir does not exist after rename: %s", node.Target)
-				}
-				break
-			}
-		}
+	// Verify rename happened
+	if exists(filepath.Join(tmpDir, "all-Darwin")) {
+		t.Error("source dir still exists after rename")
 	}
-
-	// Verify files preserved
-	if !exists(filepath.Join(tmpDir, "all.Darwin", "Library", "Fonts", "SFMono-Regular.otf")) {
-		t.Error("font file not preserved after rename")
+	if !exists(filepath.Join(tmpDir, "all.Darwin")) {
+		t.Error("target dir does not exist after rename")
+	}
+	if !exists(filepath.Join(tmpDir, "all.Darwin", "test.txt")) {
+		t.Error("file not preserved after rename")
 	}
 
 	// Verify marker written
-	markerPath := filepath.Join(tmpDir, ".writ-migrated")
-	if !exists(markerPath) {
-		t.Fatal(".writ-migrated marker not written")
-	}
-
-	data, err := os.ReadFile(markerPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var marker MigratedMarker
-	if err := yaml.Unmarshal(data, &marker); err != nil {
-		t.Fatalf("marker YAML parse: %v", err)
-	}
-	if marker.System != string(SystemScriptBased) {
-		t.Errorf("marker.System = %q, want %q", marker.System, SystemScriptBased)
-	}
-	if len(marker.Renames) != 5 {
-		t.Errorf("marker.Renames has %d entries, want 5", len(marker.Renames))
+	if !exists(filepath.Join(tmpDir, ".writ-migrated")) {
+		t.Error(".writ-migrated marker not written")
 	}
 }
 
-func TestExecutionConflict(t *testing.T) {
+// TestExecuteConflict tests that execution fails when target exists.
+func TestExecuteConflict(t *testing.T) {
 	tmpDir := t.TempDir()
-	copyDir(t, fixtureRoot(t), tmpDir)
 
-	// Create a conflicting target directory
-	if err := os.Mkdir(filepath.Join(tmpDir, "all.Darwin"), 0755); err != nil {
+	// Create both source and target directories
+	if err := os.MkdirAll(filepath.Join(tmpDir, "all-Darwin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "all.Darwin"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	opts := Options{SourceRoot: tmpDir}
-	graph, analysis, err := BuildMigration(context.Background(), opts)
-	if err != nil {
-		t.Fatal(err)
+	analysis := &MigrationAnalysis{
+		SourceRoot: tmpDir,
+		System:     SystemScriptBased,
 	}
+
+	graph := buildGraphFromLLM(tmpDir, &llmExecutionGraph{
+		Nodes: []llmNode{
+			{ID: "r1", Operations: []string{"rename"}, Source: "all-Darwin", Target: "all.Darwin", Status: "pending"},
+		},
+		Edges: []llmEdge{},
+	})
 
 	var buf bytes.Buffer
-	err = Execute(&buf, graph, analysis)
+	err := Execute(&buf, graph, analysis)
 	if err == nil {
 		t.Fatal("Execute should fail when target exists")
 	}
@@ -454,9 +427,9 @@ func TestExecutionConflict(t *testing.T) {
 	}
 }
 
+// TestAlreadyMigrated tests that BuildMigration fails when already migrated.
 func TestAlreadyMigrated(t *testing.T) {
 	tmpDir := t.TempDir()
-	copyDir(t, fixtureRoot(t), tmpDir)
 
 	// Write a marker to simulate prior migration
 	if err := os.WriteFile(filepath.Join(tmpDir, ".writ-migrated"), []byte("timestamp: now\n"), 0644); err != nil {
@@ -464,7 +437,7 @@ func TestAlreadyMigrated(t *testing.T) {
 	}
 
 	opts := Options{SourceRoot: tmpDir}
-	_, _, err := BuildMigration(context.Background(), opts)
+	_, _, err := BuildMigration(nil, opts)
 	if err == nil {
 		t.Fatal("BuildMigration should fail when already migrated")
 	}
@@ -473,176 +446,16 @@ func TestAlreadyMigrated(t *testing.T) {
 	}
 }
 
-func TestFormatText(t *testing.T) {
-	root := fixtureRoot(t)
-	opts := Options{SourceRoot: root}
-	graph, analysis, err := BuildMigration(context.Background(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
+// TestBuildMigrationRequiresProvider tests that BuildMigration requires an AI provider.
+func TestBuildMigrationRequiresProvider(t *testing.T) {
+	tmpDir := t.TempDir()
 
-	var buf bytes.Buffer
-	if err := FormatMigrationPlan(&buf, graph, analysis, "text"); err != nil {
-		t.Fatal(err)
+	opts := Options{SourceRoot: tmpDir}
+	_, _, err := BuildMigration(nil, opts)
+	if err == nil {
+		t.Fatal("BuildMigration should fail without provider")
 	}
-
-	output := buf.String()
-
-	requiredSections := []string{
-		"Migration Plan",
-		"Source:",
-		"System: script-based",
-		"Summary:",
-		"Directory renames",
-		"TODOs after migration",
-	}
-	for _, section := range requiredSections {
-		if !strings.Contains(output, section) {
-			t.Errorf("text output missing section %q", section)
-		}
-	}
-
-	// Verify mapping display
-	if !strings.Contains(output, "all-Darwin") || !strings.Contains(output, "all.Darwin") {
-		t.Error("text output missing mapping display")
-	}
-}
-
-func TestFormatYAML(t *testing.T) {
-	root := fixtureRoot(t)
-	opts := Options{SourceRoot: root}
-	graph, analysis, err := BuildMigration(context.Background(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var buf bytes.Buffer
-	if err := FormatMigrationPlan(&buf, graph, analysis, "yaml"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify round-trip parses as valid YAML with expected structure
-	// The format uses migrationView which wraps analysis in an "analysis" field
-	var parsed struct {
-		Analysis struct {
-			System SourceSystem   `yaml:"system"`
-			Stats  MigrationStats `yaml:"stats"`
-		} `yaml:"analysis"`
-		Operations []struct {
-			ID   string `yaml:"id"`
-			Type string `yaml:"type"`
-		} `yaml:"operations"`
-	}
-	if err := yaml.Unmarshal(buf.Bytes(), &parsed); err != nil {
-		t.Fatalf("YAML round-trip failed: %v", err)
-	}
-	if parsed.Analysis.System != analysis.System {
-		t.Errorf("YAML round-trip: system = %q, want %q", parsed.Analysis.System, analysis.System)
-	}
-	if parsed.Analysis.Stats.TotalFiles != analysis.Stats.TotalFiles {
-		t.Errorf("YAML round-trip: total_files = %d, want %d", parsed.Analysis.Stats.TotalFiles, analysis.Stats.TotalFiles)
-	}
-	if len(parsed.Operations) == 0 {
-		t.Error("YAML output has no operations")
-	}
-}
-
-func TestFormatJSON(t *testing.T) {
-	root := fixtureRoot(t)
-	opts := Options{SourceRoot: root}
-	graph, analysis, err := BuildMigration(context.Background(), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var buf bytes.Buffer
-	if err := FormatMigrationPlan(&buf, graph, analysis, "json"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify it's valid JSON with expected structure
-	// The format uses migrationView which wraps analysis in an "analysis" field
-	var parsed struct {
-		Analysis struct {
-			System SourceSystem   `json:"system"`
-			Stats  MigrationStats `json:"stats"`
-		} `json:"analysis"`
-		Operations []struct {
-			ID   string `json:"id"`
-			Type string `json:"type"`
-		} `json:"operations"`
-	}
-	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
-		t.Fatalf("JSON round-trip failed: %v", err)
-	}
-	if parsed.Analysis.System != analysis.System {
-		t.Errorf("JSON round-trip: system = %q, want %q", parsed.Analysis.System, analysis.System)
-	}
-	if len(parsed.Operations) == 0 {
-		t.Error("JSON output has no operations")
-	}
-}
-
-func TestParseProjectPlatform(t *testing.T) {
-	cases := []struct {
-		name     string
-		project  string
-		platform string
-	}{
-		{"all", "all", ""},
-		{"all-Darwin", "all", "Darwin"},
-		{"all-Linux", "all", "Linux"},
-		{"all-Unix", "all", "Unix"},
-		{"all-Windows", "all", "Windows"},
-		{"all-Debian", "all", "Debian"},
-		{"noblefactor", "noblefactor", ""},
-		{"noblefactor-Unix", "noblefactor", "Unix"},
-		{"microsoft-Windows", "microsoft", "Windows"},
-		{"thenobles-Darwin", "thenobles", "Darwin"},
-		{"my-project-Darwin", "my-project", "Darwin"},
-		{"no-match-here", "no-match-here", ""},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			project, platform := parseProjectPlatform(tc.name)
-			if project != tc.project {
-				t.Errorf("parseProjectPlatform(%q): project = %q, want %q", tc.name, project, tc.project)
-			}
-			if platform != tc.platform {
-				t.Errorf("parseProjectPlatform(%q): platform = %q, want %q", tc.name, platform, tc.platform)
-			}
-		})
-	}
-}
-
-// copyDir recursively copies src to dst.
-func copyDir(t *testing.T, src, dst string) {
-	t.Helper()
-	err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, _ := filepath.Rel(src, path)
-		targetPath := filepath.Join(dst, relPath)
-
-		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-
-		return os.WriteFile(targetPath, data, info.Mode())
-	})
-	if err != nil {
-		t.Fatalf("copyDir %s → %s: %v", src, dst, err)
+	if !strings.Contains(err.Error(), "AI provider required") {
+		t.Errorf("error = %q, want to contain 'AI provider required'", err.Error())
 	}
 }

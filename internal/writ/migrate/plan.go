@@ -7,12 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
 // Options controls migration behavior.
@@ -26,146 +26,57 @@ type Options struct {
 	RegClient  *lorepackage.Registry
 }
 
-// BuildMigration performs detection, inventory, and analysis, returning an
-// execution Graph and MigrationAnalysis. This is the primary API that separates
-// executable operations from non-executable understanding.
+// BuildMigration performs LLM-based analysis, returning an execution Graph and
+// MigrationAnalysis. This is the primary API that separates executable operations
+// from non-executable understanding.
 //
-// The Graph contains rename operations for directory structure changes.
-// The Analysis contains observations, warnings, and recommendations.
+// The LLM receives:
+//   - Directory tree structure (built with Go, cross-platform)
+//   - Contents of all executable scripts
+//
+// The LLM returns:
+//   - Analysis: system detection, structure, observations, warnings, recommendations
+//   - Execution Graph: rename operations for directory structure changes
 func BuildMigration(ctx context.Context, opts Options) (*execution.Graph, *MigrationAnalysis, error) {
 	root := opts.SourceRoot
-
-	// Detect source system (signature-based if registry available, fallback to heuristics)
-	system, confidence, err := detectSourceSystem(root, opts.RegClient)
-	if err != nil {
-		return nil, nil, fmt.Errorf("detection failed: %w", err)
-	}
-	if system == SystemUnknown {
-		return nil, nil, fmt.Errorf("could not detect source system in %s; specify with --system", root)
-	}
 
 	// Check for prior migration
 	if exists(root + "/.writ-migrated") {
 		return nil, nil, fmt.Errorf("already migrated (found .writ-migrated); remove it to re-run")
 	}
 
-	// Inventory
-	entries, err := Inventory(root)
+	// Require AI provider for LLM-first analysis
+	if opts.Provider == nil {
+		return nil, nil, fmt.Errorf("AI provider required for migration analysis; configure with 'lore config model'")
+	}
+
+	// Gather inputs: tree structure + executable script contents
+	input, err := GatherInputs(root, 10, 500*1024) // 10 levels deep, 500KB script budget
 	if err != nil {
-		return nil, nil, fmt.Errorf("inventory failed: %w", err)
+		return nil, nil, fmt.Errorf("gather inputs: %w", err)
 	}
 
-	// Build mappings (structural, no AI needed)
-	mappings, err := BuildMappings(root)
+	// LLM analysis
+	result, err := AnalyzeWithLLM(ctx, opts.Provider, input)
 	if err != nil {
-		return nil, nil, fmt.Errorf("mapping failed: %w", err)
+		return nil, nil, fmt.Errorf("LLM analysis: %w", err)
 	}
 
-	// Detect encryption systems (structural)
-	encSystems := DetectEncryption(root)
-
-	// Load signature index for package resolution (from registry if available)
-	var sigIdx SignatureIndex
-	if opts.RegClient != nil {
-		sigIdx = opts.RegClient.SignatureIndex()
-	}
-	if sigIdx == nil {
-		sigIdx = make(SignatureIndex)
-	}
-
-	// Build execution graph
-	graph := BuildMigrationGraph(root, mappings)
-
-	// Build analysis (with AI enhancement if available)
-	analysis := BuildMigrationAnalysis(root, system, confidence, entries, mappings, encSystems, sigIdx)
-
-	// Enhance analysis with AI if provider is available
-	if opts.Provider != nil && opts.RegClient != nil {
-		enhanceAnalysisWithAI(ctx, opts, analysis, entries)
-	}
-
-	return graph, analysis, nil
+	return result.Graph, result.Analysis, nil
 }
 
-// detectSourceSystem detects the source system, using signature-based detection
-// if a registry client is available, falling back to heuristics otherwise.
-func detectSourceSystem(root string, regClient *lorepackage.Registry) (SourceSystem, float64, error) {
-	// Try signature-based detection if registry is available
-	if regClient != nil {
-		signatures, err := LoadSignatures(regClient)
-		if err == nil && len(signatures) > 0 {
-			results := DetectWithSignatures(root, signatures)
-			if len(results) > 0 && results[0].Confidence > 0.5 {
-				return results[0].System, results[0].Confidence, nil
-			}
-		}
-	}
-
-	// Fall back to heuristic detection
-	system, err := Detect(root)
-	return system, 0, err
+// LLMResult holds the parsed response from LLM analysis.
+type LLMResult struct {
+	Analysis *MigrationAnalysis
+	Graph    *execution.Graph
 }
 
-// enhanceAnalysisWithAI uses AI to improve the analysis with better
-// classifications, secret detection, and observations.
-func enhanceAnalysisWithAI(ctx context.Context, opts Options, analysis *MigrationAnalysis, entries []InventoryEntry) {
-	knowledge := opts.RegClient.Knowledge("migration")
+// AnalyzeWithLLM sends gathered inputs to the LLM and parses the structured response.
+func AnalyzeWithLLM(ctx context.Context, provider model.Provider, input *GatherInput) (*LLMResult, error) {
+	prompt := buildSystemPrompt()
+	userMessage := buildUserMessage(input)
 
-	// Load index for discovery
-	index, err := knowledge.Index()
-	if err != nil {
-		if opts.Verbose {
-			cli.Error("migration index load failed: %v", err)
-		}
-		return
-	}
-
-	// Discover and load prompt by purpose
-	promptName := index.PromptByPurpose("writ-migration")
-	if promptName == "" {
-		if opts.Verbose {
-			cli.Error("no prompt with purpose 'writ-migration' in migration index")
-		}
-		return
-	}
-	prompt, err := knowledge.Prompt(promptName)
-	if err != nil {
-		if opts.Verbose {
-			cli.Error("AI prompt load failed: %v", err)
-		}
-		return
-	}
-
-	// Discover and load transform by source system
-	var guide []byte
-	transformName := index.TransformBySourceSystem(string(analysis.System))
-	if transformName != "" {
-		guide, _ = knowledge.Transform(transformName)
-	}
-
-	// Build summarized inventory for AI
-	fileList := buildAIInventory(entries)
-
-	// Call AI for analysis
-	userMessage := fmt.Sprintf(`Source system: %s
-
-Migration guide:
-%s
-
-File inventory:
-%s
-
-Analyze this environment repository and provide:
-1. Classification of each file (config, script, secret, etc.)
-2. Detection of sensitive files needing encryption
-3. Observations about the structure
-4. Warnings about potential issues
-5. Post-migration recommendations
-
-Respond in JSON format per the migration-plan schema.`,
-		analysis.System, string(guide), fileList)
-
-	resp, err := opts.Provider.Chat(ctx, model.ChatRequest{
+	resp, err := provider.Chat(ctx, model.ChatRequest{
 		SystemPrompt: prompt,
 		Messages: []model.Message{
 			{Role: model.RoleUser, Content: userMessage},
@@ -174,191 +85,364 @@ Respond in JSON format per the migration-plan schema.`,
 		JSONMode:    true,
 	})
 	if err != nil {
-		if opts.Verbose {
-			cli.Error("AI chat failed: %v", err)
-		}
-		return
+		return nil, fmt.Errorf("LLM chat failed: %w", err)
 	}
 
-	// Parse and merge AI response into analysis
-	mergeAIResponseIntoAnalysis(resp.Content, analysis)
+	return parseLLMResponse(resp.Content, input.Root)
 }
 
-// mergeAIResponseIntoAnalysis parses AI response and updates analysis fields.
-func mergeAIResponseIntoAnalysis(content string, analysis *MigrationAnalysis) {
-	var response struct {
-		RepoLayer    string          `json:"repo_layer"`
-		Secrets      json.RawMessage `json:"secrets"`
-		Observations json.RawMessage `json:"observations"`
-		Warnings     json.RawMessage `json:"warnings"`
-	}
+// buildSystemPrompt creates the system prompt for LLM analysis.
+func buildSystemPrompt() string {
+	return `You are analyzing a dotfiles repository for migration to writ conventions.
 
-	if err := json.Unmarshal([]byte(content), &response); err != nil {
-		return
-	}
+## Writ Conventions
+- Groups live in Home/Configs/ or Home/<project>/
+- Naming: <group>.<Platform> (e.g., all.Darwin, noblefactor.Unix)
+- NOT: <group>-<Platform> (this is the legacy convention to migrate FROM)
+- Known platforms: Darwin, Linux, Unix, Windows, Debian, Ubuntu, RHEL, Fedora, Arch
 
-	// Update repo layer
-	switch response.RepoLayer {
-	case "base":
-		analysis.RepoLayer = LayerBase
-	case "team":
-		analysis.RepoLayer = LayerTeam
-	case "personal":
-		analysis.RepoLayer = LayerPersonal
-	}
+## Known Dotfile Systems
+- tuckr: Groups in Configs/, scripts call "tuckr add", "tuckr rm", may have Hooks.toml
+- stow: .stow-local-ignore file, GNU Stow symlink farm structure
+- chezmoi: dot_ prefix directories, .chezmoiignore, chezmoi commands in scripts
+- yadm: ## in filenames for templates, .yadm directory
+- bare-git: HEAD/objects/refs at root (bare git repo as home)
+- native: Already has Home/ with <group>.<Platform> naming
+- script-based: Custom install scripts, no standard tool
 
-	// Merge observations
-	aiObs := parseFlexibleStrings(response.Observations)
-	analysis.Observations = append(analysis.Observations, aiObs...)
+## Your Task
 
-	// Merge warnings
-	aiWarnings := parseFlexibleStrings(response.Warnings)
-	analysis.Warnings = append(analysis.Warnings, aiWarnings...)
+Analyze the inputs in this order:
 
-	// Merge secret findings
-	aiSecrets := parseAISecretFindings(response.Secrets)
-	analysis.SecretFindings = append(analysis.SecretFindings, aiSecrets...)
+1. **Summarize what you see**: Describe the tree structure, what scripts are present,
+   what the scripts do (based on reading their contents)
+
+2. **Identify the dotfile system**: Based on evidence in the tree and scripts,
+   determine which system is in use (tuckr, stow, chezmoi, etc.)
+
+3. **Analyze the structure**: Where do groups live? What naming convention is used?
+   What platforms are targeted?
+
+4. **Make observations**: What's notable about this repository?
+
+5. **Identify warnings**: What might cause problems? (encryption, unusual patterns)
+
+6. **Make recommendations**: What should the user do after migration?
+
+7. **Generate execution graph**: Produce the concrete rename operations needed
+   to convert from legacy naming (<group>-<Platform>) to writ naming (<group>.<Platform>)
+
+## Required Output
+
+Return valid JSON matching this schema:
+{
+  "analysis": {
+    "system": "<tuckr|stow|chezmoi|yadm|bare-git|script-based|native|unknown>",
+    "system_confidence": <0.0-1.0>,
+    "input_summary": "<what you see in the inputs>",
+    "structure": {
+      "groups_path": "<where groups live, e.g., Home/Configs>",
+      "naming_convention": "<current convention, e.g., <group>-<Platform>>",
+      "groups": ["<list of group names without platform suffix>"],
+      "platforms": ["<list of platforms detected>"]
+    },
+    "repo_layer": "<base|team|personal>",
+    "encryption_systems": ["<git-crypt|sops|age|gpg|none>"],
+    "scripts": [
+      {
+        "rel_path": "<path to script>",
+        "name": "<script name>",
+        "phase": "<install|initialize|other>",
+        "platform_guard": "<platform if guarded>",
+        "line_count": <number>,
+        "observations": ["<what the script does>"]
+      }
+    ],
+    "secret_findings": [
+      {
+        "rel_path": "<path to secret>",
+        "encryption": "<encryption system or none>",
+        "reason": "<why it's a secret>",
+        "suggested_pattern": "<glob pattern for .sops.yaml>"
+      }
+    ],
+    "observations": ["<insights about the repository>"],
+    "warnings": ["<potential issues>"],
+    "recommendations": ["<suggested actions after migration>"]
+  },
+  "execution_graph": {
+    "nodes": [
+      {"id": "<unique-id>", "operations": ["rename"], "source": "<from-path>", "target": "<to-path>", "status": "pending"}
+    ],
+    "edges": [
+      {"from": "<node-id>", "to": "<node-id>", "relation": "orders"}
+    ]
+  }
 }
 
-// parseAISecretFindings parses AI secret detection response.
-func parseAISecretFindings(raw json.RawMessage) []SecretFinding {
-	if len(raw) == 0 {
-		return nil
-	}
-
-	var arr []map[string]interface{}
-	if err := json.Unmarshal(raw, &arr); err != nil {
-		return nil
-	}
-
-	var findings []SecretFinding
-	for _, obj := range arr {
-		path := extractString(obj, "path", "file", "file_path", "filepath", "name")
-		reason := extractString(obj, "reason", "description", "message", "why", "signal")
-
-		if path == "" {
-			continue
-		}
-
-		findings = append(findings, SecretFinding{
-			RelPath:    path,
-			Encryption: EncryptNone,
-			Reason:     reason,
-		})
-	}
-	return findings
+Important:
+- Only include rename operations for directories that need to change (e.g., dash to dot separator)
+- If the repository is already writ-compatible (uses dot separators), the execution_graph should have empty nodes/edges
+- The source and target paths in nodes should be relative to the source root
+- Chain renames with edges to ensure proper ordering (parent before child)`
 }
 
-// extractString tries multiple keys to extract a string value from a map.
-func extractString(obj map[string]interface{}, keys ...string) string {
-	for _, key := range keys {
-		if v, ok := obj[key]; ok {
-			if s, ok := v.(string); ok && s != "" {
-				return s
-			}
-		}
-	}
-	return ""
-}
-
-// parseFlexibleStrings parses a JSON field that could be []string or []object.
-// If objects, it tries to extract a "text", "message", or "description" field.
-func parseFlexibleStrings(raw json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-
-	// First try as []string
-	var strs []string
-	if err := json.Unmarshal(raw, &strs); err == nil {
-		return strs
-	}
-
-	// Try as []object with text fields
-	var objects []map[string]interface{}
-	if err := json.Unmarshal(raw, &objects); err == nil {
-		var result []string
-		for _, obj := range objects {
-			// Try common text field names
-			for _, key := range []string{"text", "message", "description", "content", "summary"} {
-				if v, ok := obj[key]; ok {
-					if s, ok := v.(string); ok && s != "" {
-						result = append(result, s)
-						break
-					}
-				}
-			}
-		}
-		return result
-	}
-
-	return nil
-}
-
-// buildAIInventory creates a summarized file inventory for AI analysis.
-// Instead of listing every file (which can exceed token limits), it provides:
-// - Directory structure overview
-// - Executable/lifecycle scripts (explicitly listed)
-// - Potential secret paths (explicitly listed)
-// - File count summary by extension
-func buildAIInventory(entries []InventoryEntry) string {
+// buildUserMessage creates the user message with gathered inputs.
+func buildUserMessage(input *GatherInput) string {
 	var sb strings.Builder
 
-	// Group by top-level directory
-	dirFiles := make(map[string]int)
-	var executables []string
-	var potentialSecrets []string
+	sb.WriteString("Please analyze this dotfiles repository:\n\n")
+	sb.WriteString("## Source Root\n")
+	sb.WriteString(input.Root)
+	sb.WriteString("\n\n")
 
-	for _, e := range entries {
-		// Count by top-level dir
-		parts := strings.SplitN(e.RelPath, "/", 2)
-		if len(parts) > 0 {
-			dirFiles[parts[0]]++
-		}
-
-		// Track executables (lifecycle scripts)
-		if e.IsExecutable {
-			executables = append(executables, e.RelPath)
-		}
-
-		// Track potential secrets (by path patterns)
-		lowerPath := strings.ToLower(e.RelPath)
-		if strings.Contains(lowerPath, "secret") ||
-			strings.Contains(lowerPath, "private") ||
-			strings.Contains(lowerPath, ".ssh/") ||
-			strings.Contains(lowerPath, ".gnupg/") ||
-			strings.Contains(lowerPath, "credential") ||
-			strings.Contains(lowerPath, "token") ||
-			strings.HasSuffix(lowerPath, ".key") ||
-			strings.HasSuffix(lowerPath, ".pem") {
-			potentialSecrets = append(potentialSecrets, e.RelPath)
-		}
-	}
-
-	// Structure overview
-	sb.WriteString("Directory structure:\n")
-	for dir, count := range dirFiles {
-		sb.WriteString(fmt.Sprintf("  %s/ (%d files)\n", dir, count))
-	}
-
-	// Executables (important for lifecycle script detection)
-	if len(executables) > 0 {
-		sb.WriteString("\nExecutable scripts:\n")
-		for _, path := range executables {
-			sb.WriteString(fmt.Sprintf("  %s\n", path))
-		}
-	}
-
-	// Potential secrets (important for security analysis)
-	if len(potentialSecrets) > 0 {
-		sb.WriteString("\nPotential secret paths:\n")
-		for _, path := range potentialSecrets {
-			sb.WriteString(fmt.Sprintf("  %s\n", path))
-		}
-	}
-
-	// File type summary
-	sb.WriteString(fmt.Sprintf("\nTotal files: %d\n", len(entries)))
+	sb.WriteString("## Directory Structure\n")
+	sb.WriteString(input.FormatForPrompt())
 
 	return sb.String()
+}
+
+// llmResponse is the raw JSON structure from the LLM.
+type llmResponse struct {
+	Analysis       llmAnalysis       `json:"analysis"`
+	ExecutionGraph llmExecutionGraph `json:"execution_graph"`
+}
+
+type llmAnalysis struct {
+	System            string            `json:"system"`
+	SystemConfidence  float64           `json:"system_confidence"`
+	InputSummary      string            `json:"input_summary"`
+	Structure         *StructureInfo    `json:"structure"`
+	RepoLayer         string            `json:"repo_layer"`
+	EncryptionSystems []string          `json:"encryption_systems"`
+	Scripts           []llmScript       `json:"scripts"`
+	SecretFindings    []llmSecret       `json:"secret_findings"`
+	Observations      []string          `json:"observations"`
+	Warnings          []string          `json:"warnings"`
+	Recommendations   []string          `json:"recommendations"`
+}
+
+type llmScript struct {
+	RelPath       string   `json:"rel_path"`
+	Name          string   `json:"name"`
+	Phase         string   `json:"phase"`
+	PlatformGuard string   `json:"platform_guard"`
+	LineCount     int      `json:"line_count"`
+	Observations  []string `json:"observations"`
+}
+
+type llmSecret struct {
+	RelPath          string `json:"rel_path"`
+	Encryption       string `json:"encryption"`
+	Reason           string `json:"reason"`
+	SuggestedPattern string `json:"suggested_pattern"`
+}
+
+type llmExecutionGraph struct {
+	Nodes []llmNode `json:"nodes"`
+	Edges []llmEdge `json:"edges"`
+}
+
+type llmNode struct {
+	ID         string   `json:"id"`
+	Operations []string `json:"operations"`
+	Source     string   `json:"source"`
+	Target     string   `json:"target"`
+	Status     string   `json:"status"`
+}
+
+type llmEdge struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Relation string `json:"relation"`
+}
+
+// parseLLMResponse parses the LLM JSON response into our domain types.
+func parseLLMResponse(content, sourceRoot string) (*LLMResult, error) {
+	var resp llmResponse
+	if err := json.Unmarshal([]byte(content), &resp); err != nil {
+		return nil, fmt.Errorf("parse LLM response: %w\nResponse: %s", err, content)
+	}
+
+	// Convert analysis
+	analysis := &MigrationAnalysis{
+		SourceRoot:       sourceRoot,
+		System:           parseSourceSystem(resp.Analysis.System),
+		SystemConfidence: resp.Analysis.SystemConfidence,
+		InputSummary:     resp.Analysis.InputSummary,
+		Structure:        resp.Analysis.Structure,
+		RepoLayer:        parseRepoLayer(resp.Analysis.RepoLayer),
+		Observations:     resp.Analysis.Observations,
+		Warnings:         resp.Analysis.Warnings,
+		Recommendations:  resp.Analysis.Recommendations,
+	}
+
+	// Convert encryption systems
+	for _, enc := range resp.Analysis.EncryptionSystems {
+		analysis.EncryptionSystems = append(analysis.EncryptionSystems, parseEncryptionSystem(enc))
+	}
+
+	// Convert scripts
+	for _, s := range resp.Analysis.Scripts {
+		analysis.Scripts = append(analysis.Scripts, ScriptAnalysis{
+			RelPath:       s.RelPath,
+			Name:          s.Name,
+			Phase:         s.Phase,
+			PlatformGuard: s.PlatformGuard,
+			LineCount:     s.LineCount,
+			Observations:  s.Observations,
+		})
+	}
+
+	// Convert secret findings
+	for _, sf := range resp.Analysis.SecretFindings {
+		analysis.SecretFindings = append(analysis.SecretFindings, SecretFinding{
+			RelPath:          sf.RelPath,
+			Encryption:       parseEncryptionSystem(sf.Encryption),
+			Reason:           sf.Reason,
+			SuggestedPattern: sf.SuggestedPattern,
+		})
+	}
+
+	// Build execution graph
+	graph := buildGraphFromLLM(sourceRoot, &resp.ExecutionGraph)
+
+	// Compute stats from graph
+	analysis.Stats = computeStatsFromGraph(graph, analysis)
+
+	return &LLMResult{
+		Analysis: analysis,
+		Graph:    graph,
+	}, nil
+}
+
+// parseSourceSystem converts a string to SourceSystem.
+func parseSourceSystem(s string) SourceSystem {
+	switch strings.ToLower(s) {
+	case "tuckr":
+		return SystemTuckr
+	case "stow":
+		return SystemStow
+	case "chezmoi":
+		return SystemChezmoi
+	case "yadm":
+		return SystemYadm
+	case "bare-git":
+		return SystemBareGit
+	case "script-based":
+		return SystemScriptBased
+	case "native":
+		return SystemNative
+	default:
+		return SystemUnknown
+	}
+}
+
+// parseRepoLayer converts a string to RepoLayer.
+func parseRepoLayer(s string) RepoLayer {
+	switch strings.ToLower(s) {
+	case "base":
+		return LayerBase
+	case "team":
+		return LayerTeam
+	default:
+		return LayerPersonal
+	}
+}
+
+// parseEncryptionSystem converts a string to EncryptionSystem.
+func parseEncryptionSystem(s string) EncryptionSystem {
+	switch strings.ToLower(s) {
+	case "git-crypt":
+		return EncryptGitCrypt
+	case "blackbox":
+		return EncryptBlackbox
+	case "transcrypt":
+		return EncryptTranscrypt
+	case "gpg":
+		return EncryptGPG
+	case "age":
+		return EncryptAge
+	case "ansible-vault":
+		return EncryptAnsibleVault
+	case "sops":
+		return EncryptSOPS
+	default:
+		return EncryptNone
+	}
+}
+
+// buildGraphFromLLM constructs an execution.Graph from LLM output.
+func buildGraphFromLLM(sourceRoot string, llmGraph *llmExecutionGraph) *execution.Graph {
+	plan := execution.NewPlan("migrate")
+
+	// Build node ID map for edge lookup
+	nodeMap := make(map[string]*execution.Node)
+
+	for _, n := range llmGraph.Nodes {
+		// Join source root with relative paths
+		source := n.Source
+		target := n.Target
+		if sourceRoot != "" && !strings.HasPrefix(source, "/") {
+			source = sourceRoot + "/" + source
+			target = sourceRoot + "/" + target
+		}
+
+		var node *execution.Node
+		for _, op := range n.Operations {
+			switch op {
+			case "rename":
+				node = plan.Rename(source, target)
+			}
+		}
+		if node != nil {
+			nodeMap[n.ID] = node
+		}
+	}
+
+	// Apply edges
+	for _, e := range llmGraph.Edges {
+		from := nodeMap[e.From]
+		to := nodeMap[e.To]
+		if from != nil && to != nil && e.Relation == "orders" {
+			plan.DependsOn(from, to)
+		}
+	}
+
+	return plan.Graph()
+}
+
+// computeStatsFromGraph computes summary statistics from the graph and analysis.
+func computeStatsFromGraph(graph *execution.Graph, analysis *MigrationAnalysis) MigrationStats {
+	stats := MigrationStats{
+		Renames:          len(graph.Nodes),
+		Scripts:          len(analysis.Scripts),
+		LifecycleScripts: countLifecycleScripts(analysis.Scripts),
+		Secrets:          len(analysis.SecretFindings),
+	}
+
+	// Count groups and platforms from structure
+	if analysis.Structure != nil {
+		stats.Projects = len(analysis.Structure.Groups)
+		stats.Platforms = len(analysis.Structure.Platforms)
+	}
+
+	return stats
+}
+
+// countLifecycleScripts counts scripts with install/initialize phases.
+func countLifecycleScripts(scripts []ScriptAnalysis) int {
+	count := 0
+	for _, s := range scripts {
+		if s.Phase == "install" || s.Phase == "initialize" {
+			count++
+		}
+	}
+	return count
+}
+
+// exists checks if a path exists.
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
