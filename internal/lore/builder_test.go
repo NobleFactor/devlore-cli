@@ -9,183 +9,317 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 )
 
-func TestBuilderBuildGraph(t *testing.T) {
-	tmpDir := t.TempDir()
-	manifest := filepath.Join(tmpDir, "packages.manifest")
-
-	content := `# Development tools
-docker --with rootless --with compose
-kubectl
-gh
-neovim --with lsp
-`
-	if err := os.WriteFile(manifest, []byte(content), 0644); err != nil {
-		t.Fatal(err)
+// runGraph is a test helper that converts an execution.Graph to Executable slice and calls RunNodes.
+func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *execution.Graph) ([]*execution.Result, error) {
+	executables := make([]execution.Executable, len(g.Nodes))
+	for i, n := range g.Nodes {
+		executables[i] = n
 	}
-
-	builder := &Builder{}
-	graph, err := builder.BuildGraph(context.Background(), manifest, engine.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildGraph: %v", err)
-	}
-
-	if len(graph.Nodes) != 4 {
-		t.Fatalf("expected 4 nodes, got %d", len(graph.Nodes))
-	}
-
-	// Check docker node
-	docker := graph.Nodes[0]
-	if docker.ID != "docker" {
-		t.Errorf("expected ID 'docker', got %q", docker.ID)
-	}
-	if docker.Operations[0] != "install" {
-		t.Errorf("expected operation 'install', got %q", docker.Operations[0])
-	}
-	if docker.Metadata["features"] != "rootless,compose" {
-		t.Errorf("expected features 'rootless,compose', got %q", docker.Metadata["features"])
-	}
-	if docker.Metadata["tool"] != "lore" {
-		t.Errorf("expected tool 'lore', got %q", docker.Metadata["tool"])
-	}
-
-	// Check kubectl node (no features)
-	kubectl := graph.Nodes[1]
-	if kubectl.ID != "kubectl" {
-		t.Errorf("expected ID 'kubectl', got %q", kubectl.ID)
-	}
-	if _, ok := kubectl.Metadata["features"]; ok {
-		t.Error("expected no features on kubectl")
-	}
+	return eng.RunNodes(ctx, executables, g.Edges)
 }
 
-func TestBuilderBuildGraphWithGlobalFeatures(t *testing.T) {
+func TestBuild_WithNativePMPackage(t *testing.T) {
+	// Test that Build creates correct nodes for native PM packages.
+	// Native PM packages use the namespaced "pkg-install" operation that works
+	// on all platforms. The actual PM is determined at execution time.
+
 	tmpDir := t.TempDir()
-	manifest := filepath.Join(tmpDir, "packages.manifest")
+	client := lorepackage.New("test", nil, tmpDir)
 
-	content := `docker --with compose
-kubectl
-`
-	if err := os.WriteFile(manifest, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	builder := &Builder{}
-	graph, err := builder.BuildGraph(context.Background(), manifest, engine.BuildOptions{
-		Features: []string{"debug"},
+	// Build with a package name that won't exist in the cache,
+	// so it falls back to native PM resolution
+	result, err := Build(BuildConfig{
+		Packages:       []string{"curl"},
+		Platform:       "Linux.Debian",
+		RegistryClient: client,
 	})
 	if err != nil {
-		t.Fatalf("BuildGraph: %v", err)
+		t.Fatalf("Build failed: %v", err)
 	}
 
-	// Docker should have both package-level and global features
-	docker := graph.Nodes[0]
-	if docker.Metadata["features"] != "compose,debug" {
-		t.Errorf("expected features 'compose,debug', got %q", docker.Metadata["features"])
+	// Should have at least one node for the install phase
+	if len(result.Graph.Nodes) == 0 {
+		t.Error("expected at least 1 node, got 0")
 	}
 
-	// kubectl should have only global features
-	kubectl := graph.Nodes[1]
-	if kubectl.Metadata["features"] != "debug" {
-		t.Errorf("expected features 'debug', got %q", kubectl.Metadata["features"])
+	// The first node should be a namespaced package-install operation
+	found := false
+	for _, node := range result.Graph.Nodes {
+		if len(node.Operations) > 0 && node.Operations[0] == "package-install" {
+			found = true
+			// Verify metadata
+			if node.Metadata["packages"] != "curl" {
+				t.Errorf("expected packages 'curl', got %q", node.Metadata["packages"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find package-install operation")
 	}
 }
 
-func TestBuilderBuildGraphEmptyManifest(t *testing.T) {
+func TestBuild_PlatformDetection(t *testing.T) {
+	// Test that platform is correctly resolved and stored in result.
+	// All platforms use the namespaced "package-install" operation - the actual PM
+	// is determined at execution time by host.PackageManager().
 	tmpDir := t.TempDir()
-	manifest := filepath.Join(tmpDir, "packages.manifest")
+	client := lorepackage.New("test", nil, tmpDir)
 
-	content := `# Only comments
-# and blank lines
-
-`
-	if err := os.WriteFile(manifest, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	builder := &Builder{}
-	graph, err := builder.BuildGraph(context.Background(), manifest, engine.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildGraph: %v", err)
-	}
-
-	if len(graph.Nodes) != 0 {
-		t.Errorf("expected 0 nodes for empty manifest, got %d", len(graph.Nodes))
-	}
-}
-
-func TestBuilderBuildGraphMissingFile(t *testing.T) {
-	builder := &Builder{}
-	_, err := builder.BuildGraph(context.Background(), "/nonexistent/packages.manifest", engine.BuildOptions{})
-	if err == nil {
-		t.Error("expected error for missing manifest")
-	}
-}
-
-func TestLoadManifest(t *testing.T) {
-	tmpDir := t.TempDir()
-	manifest := filepath.Join(tmpDir, "test.manifest")
-
-	content := `# comment
-docker --with rootless
-kubectl
-
-gh
-`
-	if err := os.WriteFile(manifest, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	entries, err := loadManifest(manifest)
-	if err != nil {
-		t.Fatalf("loadManifest: %v", err)
-	}
-
-	if len(entries) != 3 {
-		t.Fatalf("expected 3 entries, got %d", len(entries))
-	}
-
-	if entries[0].Name != "docker" {
-		t.Errorf("expected 'docker', got %q", entries[0].Name)
-	}
-	if len(entries[0].Features) != 1 || entries[0].Features[0] != "rootless" {
-		t.Errorf("expected features ['rootless'], got %v", entries[0].Features)
-	}
-	if entries[1].Name != "kubectl" {
-		t.Errorf("expected 'kubectl', got %q", entries[1].Name)
-	}
-}
-
-func TestParseLine(t *testing.T) {
 	tests := []struct {
-		line     string
-		name     string
-		features []string
+		platform string
 	}{
-		{"docker", "docker", nil},
-		{"docker --with rootless", "docker", []string{"rootless"}},
-		{"docker --with rootless --with compose", "docker", []string{"rootless", "compose"}},
-		{"neovim --with lsp --with treesitter", "neovim", []string{"lsp", "treesitter"}},
+		{"Darwin"},
+		{"Linux.Debian"},
+		{"Linux.Fedora"},
+		{"Windows"},
 	}
 
 	for _, tt := range tests {
-		entry := parseLine(tt.line)
-		if entry.Name != tt.name {
-			t.Errorf("parseLine(%q): name = %q, want %q", tt.line, entry.Name, tt.name)
-		}
-		if len(entry.Features) != len(tt.features) {
-			t.Errorf("parseLine(%q): features = %v, want %v", tt.line, entry.Features, tt.features)
-			continue
-		}
-		for i, f := range entry.Features {
-			if f != tt.features[i] {
-				t.Errorf("parseLine(%q): feature[%d] = %q, want %q", tt.line, i, f, tt.features[i])
+		t.Run(tt.platform, func(t *testing.T) {
+			result, err := Build(BuildConfig{
+				Packages:       []string{"testpkg"},
+				Platform:       tt.platform,
+				RegistryClient: client,
+			})
+			if err != nil {
+				t.Fatalf("Build failed: %v", err)
 			}
-		}
+
+			if result.Platform != tt.platform {
+				t.Errorf("Platform = %q, want %q", result.Platform, tt.platform)
+			}
+
+			// All platforms use the namespaced "package-install" operation
+			found := false
+			for _, node := range result.Graph.Nodes {
+				if len(node.Operations) > 0 && node.Operations[0] == "package-install" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected to find package-install operation")
+			}
+		})
 	}
 }
 
-// Verify Builder implements engine.GraphBuilder interface.
-var _ engine.GraphBuilder = (*Builder)(nil)
+func TestBuildFromManifest(t *testing.T) {
+	// Test building from a packages-manifest.yaml file
+	tmpDir := t.TempDir()
+	manifestPath := filepath.Join(tmpDir, "packages-manifest.yaml")
+
+	manifest := `packages:
+  - curl
+  - jq
+`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := BuildFromManifest(manifestPath, "Linux.Debian")
+	if err != nil {
+		t.Fatalf("BuildFromManifest failed: %v", err)
+	}
+
+	if len(result.Packages) != 2 {
+		t.Errorf("expected 2 packages, got %d", len(result.Packages))
+	}
+
+	if result.Packages[0] != "curl" || result.Packages[1] != "jq" {
+		t.Errorf("packages = %v, want [curl, jq]", result.Packages)
+	}
+}
+
+func TestBuildFromPackages(t *testing.T) {
+	// Test the BuildFromPackages helper
+	result, err := BuildFromPackages([]string{"git", "vim"}, "Darwin")
+	if err != nil {
+		t.Fatalf("BuildFromPackages failed: %v", err)
+	}
+
+	if len(result.Packages) != 2 {
+		t.Errorf("expected 2 packages, got %d", len(result.Packages))
+	}
+
+	if result.Platform != "Darwin" {
+		t.Errorf("Platform = %q, want Darwin", result.Platform)
+	}
+}
+
+func TestBuild_EmptyPackageList(t *testing.T) {
+	// Test that empty package list returns error
+	_, err := Build(BuildConfig{
+		Packages: []string{},
+		Platform: "Darwin",
+	})
+	if err == nil {
+		t.Error("expected error for empty package list")
+	}
+}
+
+func TestBuild_MutuallyExclusiveConfig(t *testing.T) {
+	// Test that specifying both ManifestPath and Packages returns error
+	_, err := Build(BuildConfig{
+		ManifestPath: "/some/path.yaml",
+		Packages:     []string{"pkg"},
+		Platform:     "Darwin",
+	})
+	if err == nil {
+		t.Error("expected error when both ManifestPath and Packages specified")
+	}
+}
+
+func TestEngineRunsPackageInstallOperations(t *testing.T) {
+	// Integration test: build graph and run through engine with DryRun
+	reg := execution.NewOperationRegistry()
+
+	// Register all operations (file + package)
+	for _, op := range execution.AllOps() {
+		reg.Register(op)
+	}
+
+	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
+
+	// Create a graph with a namespaced package-install node
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
+			{
+				ID:         "package-install-testpkg",
+				Operations: []string{"package-install"},
+				Metadata: map[string]string{
+					"packages": "testpkg",
+				},
+			},
+		},
+	}
+
+	results, err := runGraph(context.Background(), eng, graph)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Status != execution.ResultCompleted {
+		t.Errorf("expected status completed, got %s (error: %v)", results[0].Status, results[0].Error)
+	}
+}
+
+func TestEngineRunsNamespacedPackageOps(t *testing.T) {
+	// Test that all namespaced package operations can execute in dry-run mode
+	reg := execution.NewOperationRegistry()
+	for _, op := range execution.AllOps() {
+		reg.Register(op)
+	}
+
+	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
+
+	// All platforms use these four namespaced package operations
+	ops := []string{
+		"package-install", "package-upgrade", "package-remove", "package-update",
+	}
+
+	for _, opName := range ops {
+		t.Run(opName, func(t *testing.T) {
+			metadata := map[string]string{}
+			if opName != "package-update" {
+				metadata["packages"] = "testpkg"
+			}
+
+			graph := &execution.Graph{
+				Nodes: []*execution.Node{
+					{
+						ID:         "test-" + opName,
+						Operations: []string{opName},
+						Metadata:   metadata,
+					},
+				},
+			}
+
+			results, err := runGraph(context.Background(), eng, graph)
+			if err != nil {
+				t.Fatalf("Run failed: %v", err)
+			}
+
+			if results[0].Status != execution.ResultCompleted {
+				t.Errorf("expected completed, got %s", results[0].Status)
+			}
+		})
+	}
+}
+
+func TestNativePMNodeMetadata(t *testing.T) {
+	// Test that native PM nodes have correct metadata.
+	// With namespaced operations, manager is NOT set in metadata - it's determined
+	// at execution time by host.PackageManager(). Only packages and phase are set.
+	tmpDir := t.TempDir()
+	client := lorepackage.New("test", nil, tmpDir)
+
+	result, err := Build(BuildConfig{
+		Packages:       []string{"nginx"},
+		Platform:       "Linux.Debian",
+		RegistryClient: client,
+	})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Find the install node (uses namespaced "package-install" operation)
+	var installNode *execution.Node
+	for _, node := range result.Graph.Nodes {
+		if len(node.Operations) > 0 && node.Operations[0] == "package-install" {
+			installNode = node
+			break
+		}
+	}
+
+	if installNode == nil {
+		t.Fatal("no package-install node found")
+	}
+
+	// Verify required metadata
+	if installNode.Metadata["packages"] == "" {
+		t.Error("expected packages metadata to be set")
+	}
+	if installNode.Metadata["phase"] == "" {
+		t.Error("expected phase metadata to be set")
+	}
+	// Note: manager is NOT set in metadata for namespaced operations
+	// The PM is determined at execution time by host.PackageManager()
+}
+
+func TestDarwinPackageManagerPrefix(t *testing.T) {
+	// Test that brew:, cask:, and port: prefixes are correctly parsed
+	// This tests the prefix parsing logic for macOS package managers
+
+	tests := []struct {
+		input      string
+		wantPkg    string
+		wantPrefix string
+	}{
+		{"brew:wget", "wget", "brew"},
+		{"cask:iterm2", "iterm2", "cask"},
+		{"port:wget", "wget", "port"},
+		{"wget", "wget", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			pkg, prefix := lorepackage.ParsePackagePrefix(tt.input)
+			if pkg != tt.wantPkg {
+				t.Errorf("ParsePackagePrefix(%q) pkg = %q, want %q", tt.input, pkg, tt.wantPkg)
+			}
+			if prefix != tt.wantPrefix {
+				t.Errorf("ParsePackagePrefix(%q) prefix = %q, want %q", tt.input, prefix, tt.wantPrefix)
+			}
+		})
+	}
+}

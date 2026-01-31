@@ -36,8 +36,8 @@ var WritDefaultConfig []byte
 //go:embed packages-manifest.json
 var PackagesManifestSchema []byte
 
-// LifecycleSchema is provided by internal/registry for backward compatibility.
-// Prefer using registry.LifecycleSchema directly.
+// LifecycleSchema is provided by internal/lorepackage for backward compatibility.
+// Prefer using lorepackage.LifecycleSchema directly.
 // TODO: Remove this re-export once callers are updated.
 //
 //go:embed lifecycle.json

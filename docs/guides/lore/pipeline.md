@@ -38,19 +38,19 @@ Common prepare actions:
 - Create required users or groups
 - Download and cache large files
 
-```python
+```starlark
 # prepare.star — Docker on Ubuntu
-def main(ctx):
-    # Add Docker's official GPG key
-    ctx.run("curl -fsSL https://download.docker.com/linux/ubuntu/gpg | "
-            "sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg")
+def prepare(package, system, plan):
+    # Add Docker's official GPG key and repository
+    plan.shell("curl -fsSL https://download.docker.com/linux/ubuntu/gpg | "
+               "sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg")
 
-    # Add repository
-    ctx.run("echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] "
-            "https://download.docker.com/linux/ubuntu {} stable' | "
-            "sudo tee /etc/apt/sources.list.d/docker.list".format(ctx.codename))
+    # Add repository (using system.platform for codename)
+    plan.shell("echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] "
+               "https://download.docker.com/linux/ubuntu {} stable' | "
+               "sudo tee /etc/apt/sources.list.d/docker.list".format(system.platform.distro))
 
-    ctx.run("sudo apt-get update")
+    plan.package.update()
 ```
 
 ## Phase 2: Install
@@ -64,9 +64,9 @@ Installation methods (in order of preference):
 3. **Build from source** — Clone and compile
 4. **Custom script** — Arbitrary installation logic
 
-```python
+```starlark
 # install.star — Docker on Ubuntu
-def main(ctx):
+def install(package, system, plan):
     packages = [
         "docker-ce",
         "docker-ce-cli",
@@ -74,10 +74,10 @@ def main(ctx):
         "docker-buildx-plugin",
     ]
 
-    if ctx.feature("compose"):
+    if package.has_feature("compose"):
         packages.append("docker-compose-plugin")
 
-    ctx.pmm.install(packages)
+    plan.package.install(*packages)
 ```
 
 ## Phase 3: Provision
@@ -92,18 +92,15 @@ Common provision actions:
 - Add user to required groups
 - Create data directories
 
-```python
+```starlark
 # provision.star — Docker on Ubuntu
-def main(ctx):
-    # Add user to docker group
-    ctx.run("sudo usermod -aG docker {}".format(ctx.user))
-
+def provision(package, system, plan):
     # Enable and start service
-    ctx.run("sudo systemctl enable docker")
-    ctx.run("sudo systemctl start docker")
+    plan.service("docker", "enable")
+    plan.service("docker", "start")
 
-    if ctx.feature("rootless"):
-        ctx.run("dockerd-rootless-setuptool.sh install")
+    if package.has_feature("rootless"):
+        plan.shell("dockerd-rootless-setuptool.sh install")
 ```
 
 ## Phase 4: Verify
@@ -118,21 +115,19 @@ Common verification checks:
 - Network connectivity works
 - Configuration is valid
 
-```python
+```starlark
 # verify.star — Docker
-def main(ctx):
+def verify(package, system, plan):
     # Check binary exists
-    result = ctx.run("docker --version")
-    ctx.assert_contains(result.stdout, "Docker version")
+    plan.shell("docker --version")
 
     # Check service is running
-    result = ctx.run("docker info")
-    ctx.assert_success(result)
+    if not system.service.running("docker"):
+        fail("Docker service is not running")
 
     # Check compose if enabled
-    if ctx.feature("compose"):
-        result = ctx.run("docker compose version")
-        ctx.assert_success(result)
+    if package.has_feature("compose"):
+        plan.shell("docker compose version")
 ```
 
 ## Features in the pipeline
@@ -146,17 +141,17 @@ lore deploy docker --with rootless --with compose
 
 Inside phase scripts, check for enabled features:
 
-```python
-def main(ctx):
+```starlark
+def install(package, system, plan):
     # Always install core
-    ctx.pmm.install(["docker-ce", "docker-ce-cli", "containerd.io"])
+    plan.package.install("docker-ce", "docker-ce-cli", "containerd.io")
 
     # Conditional on feature
-    if ctx.feature("compose"):
-        ctx.pmm.install(["docker-compose-plugin"])
+    if package.has_feature("compose"):
+        plan.package.install("docker-compose-plugin")
 
-    if ctx.feature("buildx"):
-        ctx.pmm.install(["docker-buildx-plugin"])
+    if package.has_feature("buildx"):
+        plan.package.install("docker-buildx-plugin")
 ```
 
 ## Testing the pipeline

@@ -432,8 +432,8 @@ This section tracks the implementation work needed for the lore execution engine
 **Packages Manifest Foundation:**
 - `packages-manifest.{yaml,json}` format defined and documented
 - Schema embedded in writ (`schema/packages-manifest.json`)
-- Manifest loading and validation (`internal/writ/manifest/manifest.go`)
-- Graph builder implements `engine.GraphBuilder` interface (`internal/writ/manifest/builder.go`)
+- Manifest loading and validation (`internal/manifest/manifest.go`)
+- Graph builder implements `engine.GraphBuilder` interface (`internal/manifest/builder.go`)
 - Two entry points:
   - `BuildGraph(ctx, manifestPath, opts)` — load, validate, build from file
   - `BuildGraphFromManifest(ctx, manifest, opts)` — build from pre-parsed manifest
@@ -442,7 +442,7 @@ This section tracks the implementation work needed for the lore execution engine
 - `engine.GraphBuilder` interface defined (`internal/engine/builder.go`)
 - `engine.ExpandDelegates()` replaces delegate nodes with subgraphs (`internal/engine/compose.go`)
 - Basic operation registry and pipeline execution (`internal/engine/`)
-- Writ receipt and state management (`internal/writ/receipt/`, `internal/writ/state/`)
+- Writ receipt and state management (`internal/writ/receipt/`, `internal/writ/deploystate/`)
 
 ### 5.2 Engine Pipeline (To Implement)
 
@@ -500,7 +500,7 @@ packages-manifest.yaml
 
 **Status:** Blocked on design
 **Priority:** High
-**Location:** Should be `internal/lore/registry/` or `internal/registry/`
+**Location:** `internal/lorepackage/`
 **Design dependency:** [noblefactor/TODO.md DESIGN-001](https://github.com/NobleFactor/noblefactor/blob/main/TODO.md) — AI-Assisted Manifest Authoring
 
 **Context:**
@@ -902,7 +902,7 @@ if newLayer.Order > existing.Layer.Order {
 
 #### Phase 5: State & Receipt Updates
 
-**6.3.12 Track layer in state** (`internal/writ/state/state.go`)
+**6.3.12 Track layer in state** (`internal/writ/deploystate/state.go`)
 ```go
 type FileEntry struct {
     // ... existing fields ...
@@ -925,7 +925,7 @@ type WritContext struct {
 | `internal/writ/layer.go` | NEW: LayerSource, LayerOrder, TargetOrder, collectLayerSources() |
 | `internal/writ/tree/builder.go` | BuildConfig.Sources, BuildResult.NodeLayers, layer-aware collision |
 | `internal/writ/commands.go` | runDeploy, runDecommission, runReconcile, runProjects, runRegenerate |
-| `internal/writ/state/state.go` | FileEntry.Layer field |
+| `internal/writ/deploystate/state.go` | FileEntry.Layer field |
 | `internal/writ/receipt/receipt.go` | WritContext.Layers field |
 | `internal/writ/reconcile/reconcile.go` | Layer-aware reconcile reporting |
 

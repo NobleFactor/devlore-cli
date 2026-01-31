@@ -92,55 +92,87 @@ phases:
 ## Writing phase scripts
 
 Phase scripts are written in [Starlark](https://github.com/bazelbuild/starlark),
-a Python-like language designed for configuration. Each script must define
-a `main(ctx)` function.
+a Python-like language designed for configuration. Each phase script must define
+a function with the phase name that receives three arguments:
 
-### The context object
+```starlark
+def install(package, system, plan):
+    # package: information about the package being deployed
+    # system:  read-only queries about the current platform
+    # plan:    graph-building operations to schedule work
+```
 
-The `ctx` argument provides:
+### The three arguments
+
+#### `package` — Package context
+
+| Property/Method | Description |
+|-----------------|-------------|
+| `package.name` | Package name being deployed |
+| `package.version` | Version being deployed |
+| `package.has_feature(name)` | Check if a feature is enabled |
+| `package.setting(key)` | Get a setting value |
+| `package.source_root` | Package source directory |
+| `package.target_root` | Deployment target (usually `$HOME`) |
+
+#### `system` — Platform queries (read-only)
+
+| Property/Method | Description |
+|-----------------|-------------|
+| `system.platform.os` | Operating system (`darwin`, `linux`, `windows`) |
+| `system.platform.arch` | Architecture (`amd64`, `arm64`) |
+| `system.platform.distro` | Distribution codename (e.g., `jammy`) |
+| `system.package.installed(name)` | Check if package is installed |
+| `system.package.version(name)` | Get installed package version |
+| `system.service.running(name)` | Check if service is running |
+| `system.service.enabled(name)` | Check if service is enabled at boot |
+
+#### `plan` — Graph operations
 
 | Method | Description |
 |--------|-------------|
-| `ctx.run(cmd)` | Execute a shell command |
-| `ctx.pmm.install(pkgs)` | Install via native package manager |
-| `ctx.pmm.remove(pkgs)` | Remove via native package manager |
-| `ctx.feature(name)` | Check if a feature is enabled |
-| `ctx.platform` | Current platform (`darwin`, `linux`) |
-| `ctx.arch` | Architecture (`amd64`, `arm64`) |
-| `ctx.user` | Current username |
-| `ctx.home` | Home directory path |
-| `ctx.codename` | OS codename (e.g., `jammy`) |
-| `ctx.assert_success(r)` | Assert command succeeded |
-| `ctx.assert_contains(s, sub)` | Assert string contains substring |
+| `plan.package.install(*pkgs)` | Install packages via native PM |
+| `plan.package.upgrade(*pkgs)` | Upgrade packages via native PM |
+| `plan.package.remove(*pkgs)` | Remove packages via native PM |
+| `plan.package.update()` | Update package index |
+| `plan.file.copy(src, dst)` | Copy a file |
+| `plan.file.link(src, dst)` | Create a symlink |
+| `plan.file.configure(src, dst)` | Template expansion + copy |
+| `plan.file.mkdir(path)` | Create a directory |
+| `plan.file.write(path, content)` | Write content directly to file |
+| `plan.service(name, action)` | Manage a service (start/stop/enable/disable) |
+| `plan.shell(command)` | Execute a shell command |
+| `plan.depends_on(node1, node2)` | node1 runs after node2 |
 
 ### Example: complete manifest
 
-```python
+```starlark
 # install.star
-def main(ctx):
-    if ctx.platform == "darwin":
-        ctx.pmm.install(["mypackage"])
-    elif ctx.platform == "linux":
+def install(package, system, plan):
+    if system.platform.os == "darwin":
+        plan.package.install("mypackage")
+    elif system.platform.os == "linux":
         # Download binary for Linux
         url = "https://github.com/example/releases/download/v1.0/mypackage-{}-{}".format(
-            ctx.platform, ctx.arch)
-        ctx.run("curl -L {} -o /tmp/mypackage".format(url))
-        ctx.run("sudo install /tmp/mypackage /usr/local/bin/mypackage")
+            system.platform.os, system.platform.arch)
+        plan.shell("curl -L {} -o /tmp/mypackage".format(url))
+        plan.shell("sudo install /tmp/mypackage /usr/local/bin/mypackage")
 ```
 
-```python
+```starlark
 # provision.star
-def main(ctx):
-    if ctx.feature("completions"):
-        ctx.run("mypackage completion zsh > ~/.local/share/zsh/completions/_mypackage")
+def provision(package, system, plan):
+    if package.has_feature("completions"):
+        plan.shell("mypackage completion zsh > ~/.local/share/zsh/completions/_mypackage")
 ```
 
-```python
+```starlark
 # verify.star
-def main(ctx):
-    result = ctx.run("mypackage --version")
-    ctx.assert_success(result)
-    ctx.assert_contains(result.stdout, "1.0")
+def verify(package, system, plan):
+    plan.shell("mypackage --version")
+
+    if not system.service.running("mypackage"):
+        fail("mypackage service is not running")
 ```
 
 ## Validate a manifest

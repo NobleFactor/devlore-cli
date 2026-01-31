@@ -11,7 +11,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
@@ -33,13 +33,13 @@ func generateNodeID(prefix string, components ...string) string {
 
 // planBindings implements PlanBindings by building graph nodes.
 type planBindings struct {
-	graph   *engine.Graph
+	graph   *execution.Graph
 	host    host.Host
 	project string // Package name for grouping
 }
 
 // NewPlanBindings creates a new PlanBindings for the given graph and host.
-func NewPlanBindings(graph *engine.Graph, h host.Host, project string) PlanBindings {
+func NewPlanBindings(graph *execution.Graph, h host.Host, project string) PlanBindings {
 	return &planBindings{
 		graph:   graph,
 		host:    h,
@@ -48,13 +48,13 @@ func NewPlanBindings(graph *engine.Graph, h host.Host, project string) PlanBindi
 }
 
 // Graph returns the underlying execution graph.
-func (p *planBindings) Graph() *engine.Graph {
+func (p *planBindings) Graph() *execution.Graph {
 	return p.graph
 }
 
 // PackageInstall adds a package installation node.
-func (p *planBindings) PackageInstall(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) PackageInstall(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("package-install", packages...),
 		Operations: []string{"package-install"},
 		Project:    p.project,
@@ -67,8 +67,8 @@ func (p *planBindings) PackageInstall(packages ...string) *engine.Node {
 }
 
 // PackageUpgrade adds a package upgrade node.
-func (p *planBindings) PackageUpgrade(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) PackageUpgrade(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("package-upgrade", packages...),
 		Operations: []string{"package-upgrade"},
 		Project:    p.project,
@@ -81,8 +81,8 @@ func (p *planBindings) PackageUpgrade(packages ...string) *engine.Node {
 }
 
 // PackageRemove adds a package removal node.
-func (p *planBindings) PackageRemove(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) PackageRemove(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("package-remove", packages...),
 		Operations: []string{"package-remove"},
 		Project:    p.project,
@@ -95,8 +95,8 @@ func (p *planBindings) PackageRemove(packages ...string) *engine.Node {
 }
 
 // PackageUpdate adds a package index update node.
-func (p *planBindings) PackageUpdate() *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) PackageUpdate() *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("package-update"),
 		Operations: []string{"package-update"},
 		Project:    p.project,
@@ -107,8 +107,8 @@ func (p *planBindings) PackageUpdate() *engine.Node {
 }
 
 // Configure adds a configuration file node (template expansion + copy).
-func (p *planBindings) Configure(source, target string) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) Configure(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("configure"),
 		Operations: []string{"expand", "copy"},
 		Source:     source,
@@ -120,8 +120,8 @@ func (p *planBindings) Configure(source, target string) *engine.Node {
 }
 
 // Link adds a symlink creation node.
-func (p *planBindings) Link(source, target string) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) Link(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("link"),
 		Operations: []string{"link"},
 		Source:     source,
@@ -133,8 +133,8 @@ func (p *planBindings) Link(source, target string) *engine.Node {
 }
 
 // Copy adds a file copy node.
-func (p *planBindings) Copy(source, target string) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) Copy(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("copy"),
 		Operations: []string{"copy"},
 		Source:     source,
@@ -146,8 +146,8 @@ func (p *planBindings) Copy(source, target string) *engine.Node {
 }
 
 // Mkdir adds a directory creation node.
-func (p *planBindings) Mkdir(target string) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) Mkdir(target string) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("mkdir"),
 		Operations: []string{"mkdir"},
 		Target:     p.host.ExpandPath(target),
@@ -157,9 +157,24 @@ func (p *planBindings) Mkdir(target string) *engine.Node {
 	return node
 }
 
+// Write adds a file write node (write content directly to target).
+func (p *planBindings) Write(target, content string) *execution.Node {
+	node := &execution.Node{
+		ID:         generateNodeID("write"),
+		Operations: []string{"file-write"},
+		Target:     p.host.ExpandPath(target),
+		Project:    p.project,
+		Metadata: map[string]string{
+			"content": content,
+		},
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
+
 // Service adds a service management node.
-func (p *planBindings) Service(name string, action ServiceAction) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) Service(name string, action ServiceAction) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("service", name, action.String()),
 		Operations: []string{"service-" + action.String()},
 		Project:    p.project,
@@ -173,8 +188,8 @@ func (p *planBindings) Service(name string, action ServiceAction) *engine.Node {
 }
 
 // Shell adds a shell command execution node.
-func (p *planBindings) Shell(command string) *engine.Node {
-	node := &engine.Node{
+func (p *planBindings) Shell(command string) *execution.Node {
+	node := &execution.Node{
 		ID:         generateNodeID("shell"),
 		Operations: []string{"shell"},
 		Project:    p.project,
@@ -187,8 +202,8 @@ func (p *planBindings) Shell(command string) *engine.Node {
 }
 
 // DependsOn creates a dependency edge between nodes.
-func (p *planBindings) DependsOn(from, to *engine.Node) {
-	p.graph.Edges = append(p.graph.Edges, engine.Edge{
+func (p *planBindings) DependsOn(from, to *execution.Node) {
+	p.graph.Edges = append(p.graph.Edges, execution.Edge{
 		From:     to.ID,
 		To:       from.ID,
 		Relation: "depends_on",
@@ -217,6 +232,7 @@ type StarlarkPlanBindings struct {
 //	plan.file.link(source, target)             # Create symlink
 //	plan.file.copy(source, target)             # Copy file
 //	plan.file.mkdir(target)                    # Create directory
+//	plan.file.write(target, content)           # Write content to file
 //	plan.service(name, action)                 # Manage service
 //	plan.shell(command)                        # Run shell command
 //	plan.depends_on(from, to)                  # Create dependency
@@ -235,6 +251,7 @@ func (s *StarlarkPlanBindings) ToStarlark() starlark.Value {
 		"link":      starlark.NewBuiltin("link", s.linkBuiltin),
 		"copy":      starlark.NewBuiltin("copy", s.copyBuiltin),
 		"mkdir":     starlark.NewBuiltin("mkdir", s.mkdirBuiltin),
+		"write":     starlark.NewBuiltin("write", s.writeBuiltin),
 	})
 
 	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
@@ -335,6 +352,15 @@ func (s *StarlarkPlanBindings) mkdirBuiltin(_ *starlark.Thread, _ *starlark.Buil
 	return nodeToStarlark(node), nil
 }
 
+func (s *StarlarkPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var target, content string
+	if err := starlark.UnpackArgs("write", args, kwargs, "target", &target, "content", &content); err != nil {
+		return nil, err
+	}
+	node := s.Write(target, content)
+	return nodeToStarlark(node), nil
+}
+
 func (s *StarlarkPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name, action string
 	if err := starlark.UnpackArgs("service", args, kwargs, "name", &name, "action", &action); err != nil {
@@ -398,7 +424,7 @@ func (s *StarlarkPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.
 
 	// Create edge in the graph
 	graph := s.Graph()
-	graph.Edges = append(graph.Edges, engine.Edge{
+	graph.Edges = append(graph.Edges, execution.Edge{
 		From:     toIDStr,
 		To:       fromIDStr,
 		Relation: "depends_on",
@@ -407,8 +433,8 @@ func (s *StarlarkPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.
 	return starlark.None, nil
 }
 
-// nodeToStarlark converts an engine.Node to a Starlark struct.
-func nodeToStarlark(node *engine.Node) starlark.Value {
+// nodeToStarlark converts a execution.Node to a Starlark struct.
+func nodeToStarlark(node *execution.Node) starlark.Value {
 	ops := make([]starlark.Value, len(node.Operations))
 	for i, op := range node.Operations {
 		ops[i] = starlark.String(op)

@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/internal/registry"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 )
 
 // Options controls migration behavior.
@@ -23,7 +23,7 @@ type Options struct {
 	Verbose    bool
 	Format     string // "text", "yaml", "json"
 	Provider   model.Provider
-	RegClient  *registry.Client
+	RegClient  *lorepackage.Registry
 }
 
 // BuildMigration performs detection, inventory, and analysis, returning an
@@ -32,7 +32,7 @@ type Options struct {
 //
 // The Graph contains rename operations for directory structure changes.
 // The Analysis contains observations, warnings, and recommendations.
-func BuildMigration(ctx context.Context, opts Options) (*engine.Graph, *MigrationAnalysis, error) {
+func BuildMigration(ctx context.Context, opts Options) (*execution.Graph, *MigrationAnalysis, error) {
 	root := opts.SourceRoot
 
 	// Detect source system (signature-based if registry available, fallback to heuristics)
@@ -80,7 +80,7 @@ func BuildMigration(ctx context.Context, opts Options) (*engine.Graph, *Migratio
 
 // detectSourceSystem detects the source system, using signature-based detection
 // if a registry client is available, falling back to heuristics otherwise.
-func detectSourceSystem(root string, regClient *registry.Client) (SourceSystem, float64, error) {
+func detectSourceSystem(root string, regClient *lorepackage.Registry) (SourceSystem, float64, error) {
 	// Try signature-based detection if registry is available
 	if regClient != nil {
 		signatures, err := LoadSignatures(regClient)

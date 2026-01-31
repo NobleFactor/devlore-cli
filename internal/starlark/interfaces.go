@@ -6,7 +6,7 @@ package starlark
 import (
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
@@ -125,48 +125,51 @@ func (p *PackageContext) Setting(key string) string {
 // operations use namespaced names (package-install, package-remove).
 type PlanBindings interface {
 	// Graph returns the underlying execution graph being built.
-	Graph() *engine.Graph
+	Graph() *execution.Graph
 
 	// Package operations - use platform's auto-detected package manager.
 	// On Darwin, supports brew:pkg and port:pkg prefixes for manager override.
 
 	// PackageInstall adds a package installation node.
-	PackageInstall(packages ...string) *engine.Node
+	PackageInstall(packages ...string) *execution.Node
 
 	// PackageUpgrade adds a package upgrade node.
-	PackageUpgrade(packages ...string) *engine.Node
+	PackageUpgrade(packages ...string) *execution.Node
 
 	// PackageRemove adds a package removal node.
-	PackageRemove(packages ...string) *engine.Node
+	PackageRemove(packages ...string) *execution.Node
 
 	// PackageUpdate adds a package index update node.
-	PackageUpdate() *engine.Node
+	PackageUpdate() *execution.Node
 
 	// File operations
 
 	// Configure adds a configuration file node (template expansion + copy).
-	Configure(source, target string) *engine.Node
+	Configure(source, target string) *execution.Node
 
 	// Link adds a symlink creation node.
-	Link(source, target string) *engine.Node
+	Link(source, target string) *execution.Node
 
 	// Copy adds a file copy node.
-	Copy(source, target string) *engine.Node
+	Copy(source, target string) *execution.Node
 
 	// Mkdir adds a directory creation node.
-	Mkdir(target string) *engine.Node
+	Mkdir(target string) *execution.Node
+
+	// Write adds a file write node (write content directly to target).
+	Write(target, content string) *execution.Node
 
 	// System operations
 
 	// Service adds a service management node.
-	Service(name string, action ServiceAction) *engine.Node
+	Service(name string, action ServiceAction) *execution.Node
 
 	// Shell adds a shell command execution node.
-	Shell(command string) *engine.Node
+	Shell(command string) *execution.Node
 
 	// DependsOn creates a dependency edge between nodes.
 	// The 'from' node will execute after the 'to' node completes.
-	DependsOn(from, to *engine.Node)
+	DependsOn(from, to *execution.Node)
 }
 
 // ServiceAction represents a service management action.

@@ -19,7 +19,7 @@ package platform
 import (
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 )
@@ -41,18 +41,18 @@ type PlatformPlanBindings interface {
 
 // basePlanBindings provides common functionality for all platform implementations.
 type basePlanBindings struct {
-	graph   *engine.Graph
+	graph   *execution.Graph
 	host    host.Host
 	project string
 }
 
 // Graph returns the underlying execution graph.
-func (b *basePlanBindings) Graph() *engine.Graph {
+func (b *basePlanBindings) Graph() *execution.Graph {
 	return b.graph
 }
 
 // newBasePlanBindings creates a new base plan bindings.
-func newBasePlanBindings(graph *engine.Graph, h host.Host, project string) *basePlanBindings {
+func newBasePlanBindings(graph *execution.Graph, h host.Host, project string) *basePlanBindings {
 	return &basePlanBindings{
 		graph:   graph,
 		host:    h,

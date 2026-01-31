@@ -13,7 +13,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/internal/engine"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 )
@@ -36,7 +36,7 @@ type WindowsPlanBindings struct {
 }
 
 // NewPlanBindings creates a new Windows-specific PlanBindings.
-func NewPlanBindings(graph *engine.Graph, h host.Host, project string) PlatformPlanBindings {
+func NewPlanBindings(graph *execution.Graph, h host.Host, project string) PlatformPlanBindings {
 	return &WindowsPlanBindings{
 		basePlanBindings: newBasePlanBindings(graph, h, project),
 	}
@@ -53,8 +53,8 @@ func (w *WindowsPlanBindings) PackageManagerName() string {
 }
 
 // PackageInstall adds a package installation node using the platform's package manager.
-func (w *WindowsPlanBindings) PackageInstall(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) PackageInstall(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("package-install", packages...),
 		Operations: []string{"package-install"},
 		Project:    w.project,
@@ -67,8 +67,8 @@ func (w *WindowsPlanBindings) PackageInstall(packages ...string) *engine.Node {
 }
 
 // PackageUpgrade adds a package upgrade node using the platform's package manager.
-func (w *WindowsPlanBindings) PackageUpgrade(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("package-upgrade", packages...),
 		Operations: []string{"package-upgrade"},
 		Project:    w.project,
@@ -81,8 +81,8 @@ func (w *WindowsPlanBindings) PackageUpgrade(packages ...string) *engine.Node {
 }
 
 // PackageRemove adds a package removal node using the platform's package manager.
-func (w *WindowsPlanBindings) PackageRemove(packages ...string) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) PackageRemove(packages ...string) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("package-remove", packages...),
 		Operations: []string{"package-remove"},
 		Project:    w.project,
@@ -95,8 +95,8 @@ func (w *WindowsPlanBindings) PackageRemove(packages ...string) *engine.Node {
 }
 
 // PackageUpdate adds a package index update node using the platform's package manager.
-func (w *WindowsPlanBindings) PackageUpdate() *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) PackageUpdate() *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("package-update"),
 		Operations: []string{"package-update"},
 		Project:    w.project,
@@ -107,8 +107,8 @@ func (w *WindowsPlanBindings) PackageUpdate() *engine.Node {
 }
 
 // Configure adds a configuration file node.
-func (w *WindowsPlanBindings) Configure(source, target string) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) Configure(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("configure"),
 		Operations: []string{"expand", "copy"},
 		Source:     source,
@@ -120,8 +120,8 @@ func (w *WindowsPlanBindings) Configure(source, target string) *engine.Node {
 }
 
 // Link adds a symlink creation node (requires admin on Windows).
-func (w *WindowsPlanBindings) Link(source, target string) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) Link(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("link"),
 		Operations: []string{"link"},
 		Source:     source,
@@ -136,8 +136,8 @@ func (w *WindowsPlanBindings) Link(source, target string) *engine.Node {
 }
 
 // Copy adds a file copy node.
-func (w *WindowsPlanBindings) Copy(source, target string) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) Copy(source, target string) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("copy"),
 		Operations: []string{"copy"},
 		Source:     source,
@@ -149,8 +149,8 @@ func (w *WindowsPlanBindings) Copy(source, target string) *engine.Node {
 }
 
 // Mkdir adds a directory creation node.
-func (w *WindowsPlanBindings) Mkdir(target string) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) Mkdir(target string) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("mkdir"),
 		Operations: []string{"mkdir"},
 		Target:     w.host.ExpandPath(target),
@@ -160,9 +160,24 @@ func (w *WindowsPlanBindings) Mkdir(target string) *engine.Node {
 	return node
 }
 
+// Write adds a file write node (write content directly to target).
+func (w *WindowsPlanBindings) Write(target, content string) *execution.Node {
+	node := &execution.Node{
+		ID:         windowsGenerateNodeID("write"),
+		Operations: []string{"file-write"},
+		Target:     w.host.ExpandPath(target),
+		Project:    w.project,
+		Metadata: map[string]string{
+			"content": content,
+		},
+	}
+	w.graph.Nodes = append(w.graph.Nodes, node)
+	return node
+}
+
 // Service adds a Windows Service management node.
-func (w *WindowsPlanBindings) Service(name string, action loreStar.ServiceAction) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("winservice", name, action.String()),
 		Operations: []string{"winservice-" + action.String()},
 		Project:    w.project,
@@ -176,8 +191,8 @@ func (w *WindowsPlanBindings) Service(name string, action loreStar.ServiceAction
 }
 
 // Shell adds a shell command execution node (PowerShell on Windows).
-func (w *WindowsPlanBindings) Shell(command string) *engine.Node {
-	node := &engine.Node{
+func (w *WindowsPlanBindings) Shell(command string) *execution.Node {
+	node := &execution.Node{
 		ID:         windowsGenerateNodeID("shell"),
 		Operations: []string{"powershell"},
 		Project:    w.project,
@@ -190,8 +205,8 @@ func (w *WindowsPlanBindings) Shell(command string) *engine.Node {
 }
 
 // DependsOn creates a dependency edge between nodes.
-func (w *WindowsPlanBindings) DependsOn(from, to *engine.Node) {
-	w.graph.Edges = append(w.graph.Edges, engine.Edge{
+func (w *WindowsPlanBindings) DependsOn(from, to *execution.Node) {
+	w.graph.Edges = append(w.graph.Edges, execution.Edge{
 		From:     to.ID,
 		To:       from.ID,
 		Relation: "depends_on",
@@ -212,17 +227,20 @@ func (w *WindowsPlanBindings) ToStarlark() starlark.Value {
 	// File operations namespace: plan.file.*
 	fileOps := starlarkstruct.FromStringDict(starlark.String("file"), starlark.StringDict{
 		"configure": starlark.NewBuiltin("configure", w.configureBuiltin),
-		"link":      starlark.NewBuiltin("link", w.linkBuiltin),
 		"copy":      starlark.NewBuiltin("copy", w.copyBuiltin),
+		"link":      starlark.NewBuiltin("link", w.linkBuiltin),
 		"mkdir":     starlark.NewBuiltin("mkdir", w.mkdirBuiltin),
+		"write":     starlark.NewBuiltin("write", w.writeBuiltin),
 	})
 
 	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-		"package":    packageOps,
-		"file":       fileOps,
+		// Namespaces
+		"file":    fileOps,
+		"package": packageOps,
+		// Global functions (at root of plan)
+		"depends_on": starlark.NewBuiltin("depends_on", w.dependsOnBuiltin),
 		"service":    starlark.NewBuiltin("service", w.serviceBuiltin),
 		"shell":      starlark.NewBuiltin("shell", w.shellBuiltin),
-		"depends_on": starlark.NewBuiltin("depends_on", w.dependsOnBuiltin),
 	})
 }
 
@@ -315,6 +333,15 @@ func (w *WindowsPlanBindings) mkdirBuiltin(_ *starlark.Thread, _ *starlark.Built
 	return windowsNodeToStarlark(node), nil
 }
 
+func (w *WindowsPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var target, content string
+	if err := starlark.UnpackArgs("write", args, kwargs, "target", &target, "content", &content); err != nil {
+		return nil, err
+	}
+	node := w.Write(target, content)
+	return windowsNodeToStarlark(node), nil
+}
+
 func (w *WindowsPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name, action string
 	if err := starlark.UnpackArgs("service", args, kwargs, "name", &name, "action", &action); err != nil {
@@ -376,7 +403,7 @@ func (w *WindowsPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.B
 	fromIDStr, _ := starlark.AsString(fromID)
 	toIDStr, _ := starlark.AsString(toID)
 
-	w.graph.Edges = append(w.graph.Edges, engine.Edge{
+	w.graph.Edges = append(w.graph.Edges, execution.Edge{
 		From:     toIDStr,
 		To:       fromIDStr,
 		Relation: "depends_on",
@@ -385,8 +412,8 @@ func (w *WindowsPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.B
 	return starlark.None, nil
 }
 
-// windowsNodeToStarlark converts an engine.Node to a Starlark struct.
-func windowsNodeToStarlark(node *engine.Node) starlark.Value {
+// windowsNodeToStarlark converts an execution.Node to a Starlark struct.
+func windowsNodeToStarlark(node *execution.Node) starlark.Value {
 	ops := make([]starlark.Value, len(node.Operations))
 	for i, op := range node.Operations {
 		ops[i] = starlark.String(op)

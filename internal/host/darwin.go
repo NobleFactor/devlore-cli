@@ -15,13 +15,25 @@ import (
 // darwinHost implements Host for macOS.
 type darwinHost struct {
 	platform Platform
-	pkgMgr   PackageManager
+	pkgMgr   PackageManager // Preferred PM for new installs (port > brew)
+	brewMgr  *brewManager   // Non-nil if Homebrew is installed
+	portMgr  *portManager   // Non-nil if MacPorts is installed
 	svcMgr   ServiceManager
 }
 
 func newDarwinHost() Host {
 	h := &darwinHost{}
 	h.platform = h.detectPlatform()
+
+	// Detect all available package managers
+	if _, err := exec.LookPath("brew"); err == nil {
+		h.brewMgr = &brewManager{}
+	}
+	if _, err := exec.LookPath("port"); err == nil {
+		h.portMgr = &portManager{}
+	}
+
+	// Set preferred PM (port > brew)
 	h.pkgMgr = h.detectPackageManager()
 	h.svcMgr = &launchdManager{}
 	return h
@@ -86,6 +98,46 @@ func (h *darwinHost) HomeDir() string {
 	return "/Users/" + os.Getenv("USER")
 }
 
+// InstalledBy returns the package manager that installed the named package.
+// If the package is installed by multiple PMs, returns the preferred one (port > brew).
+func (h *darwinHost) InstalledBy(name string) PackageManager {
+	// Check preferred PM first (port > brew)
+	if h.portMgr != nil && h.portMgr.Installed(name) {
+		return h.portMgr
+	}
+	if h.brewMgr != nil && h.brewMgr.Installed(name) {
+		return h.brewMgr
+	}
+	return nil
+}
+
+// AllInstalledBy returns all package managers that have the package installed.
+// On Darwin, a package may be installed by both Homebrew and MacPorts.
+func (h *darwinHost) AllInstalledBy(name string) []PackageManager {
+	var pms []PackageManager
+	// Check in preference order for consistent ordering
+	if h.portMgr != nil && h.portMgr.Installed(name) {
+		pms = append(pms, h.portMgr)
+	}
+	if h.brewMgr != nil && h.brewMgr.Installed(name) {
+		pms = append(pms, h.brewMgr)
+	}
+	return pms
+}
+
+// GetPackageManager returns a specific package manager by name.
+// Supports "brew" and "port" on Darwin.
+func (h *darwinHost) GetPackageManager(name string) PackageManager {
+	switch name {
+	case "brew":
+		return h.brewMgr // May be nil if not installed
+	case "port":
+		return h.portMgr // May be nil if not installed
+	default:
+		return nil
+	}
+}
+
 // =============================================================================
 // Homebrew Package Manager
 // =============================================================================
@@ -95,8 +147,12 @@ type brewManager struct{}
 func (m *brewManager) Name() string { return "brew" }
 
 func (m *brewManager) Installed(name string) bool {
-	result := runShellCommand("brew list "+name, false)
-	return result.OK
+	// Check formula first
+	if runShellCommand("brew list --formula "+name, false).OK {
+		return true
+	}
+	// Check cask (GUI applications)
+	return runShellCommand("brew list --cask "+name, false).OK
 }
 
 func (m *brewManager) Available(name string) bool {

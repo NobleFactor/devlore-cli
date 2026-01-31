@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/writ/receipt"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
@@ -158,42 +158,6 @@ func (r *Report) HasIssues() bool {
 	return false
 }
 
-// FromReceipt generates status by checking entries in a receipt.
-// For copied files without drift detection, use this function.
-func FromReceipt(rcpt *receipt.Receipt, receiptPath string) *Report {
-	return FromReceiptWithDrift(rcpt, receiptPath, false)
-}
-
-// FromReceiptWithDrift generates status from a receipt with optional drift detection.
-// When checkDrift is true, checksums are compared to detect source/target changes.
-func FromReceiptWithDrift(rcpt *receipt.Receipt, receiptPath string, checkDrift bool) *Report {
-	report := &Report{
-		TargetRoot:  rcpt.Context.TargetRoot,
-		SourceRoot:  rcpt.Context.SourceRoot,
-		Projects:    rcpt.Context.Projects,
-		FromReceipt: true,
-		ReceiptPath: receiptPath,
-	}
-
-	for _, n := range rcpt.Nodes {
-		if n.Status == "skipped" || n.Operation == "delegate" || n.Operation == "backup" {
-			continue
-		}
-
-		var entry Entry
-		ops := []string{n.Operation}
-		isCopied := n.Operation != "link"
-		if checkDrift && isCopied && n.SourceChecksum != "" {
-			entry = checkEntryWithDrift(n.Source, n.Target, n.ID, n.Project, ops, n.SourceChecksum, n.TargetChecksum)
-		} else {
-			entry = checkEntry(n.Source, n.Target, n.ID, n.Project, ops)
-		}
-		report.Entries = append(report.Entries, entry)
-	}
-
-	return report
-}
-
 // FromBuildResult generates status by checking entries in a build result.
 func FromBuildResult(br *tree.BuildResult) *Report {
 	report := &Report{
@@ -203,11 +167,11 @@ func FromBuildResult(br *tree.BuildResult) *Report {
 		FromReceipt: false,
 	}
 
-	for _, node := range br.Graph.Nodes {
-		if nodeIsDelegate(node.Operations) {
+	for _, f := range br.Files {
+		if nodeIsDelegate(f.Operations) {
 			continue // Skip delegate nodes
 		}
-		entry := checkEntry(node.Source, node.Target, node.ID, node.Project, node.Operations)
+		entry := checkEntry(f.Source, f.Target, f.ID, f.Project, f.Operations)
 		report.Entries = append(report.Entries, entry)
 	}
 
@@ -329,8 +293,8 @@ func checkEntryWithDrift(source, target, relTarget, project string, operations [
 	}
 
 	// Compute current checksums
-	currentSourceChecksum := receipt.ChecksumFile(source)
-	currentTargetChecksum := receipt.ChecksumFile(target)
+	currentSourceChecksum := execution.ChecksumFile(source)
+	currentTargetChecksum := execution.ChecksumFile(target)
 
 	sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != expectedSourceChecksum
 	targetChanged := currentTargetChecksum != "" && currentTargetChecksum != expectedTargetChecksum

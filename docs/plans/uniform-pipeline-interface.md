@@ -156,7 +156,7 @@ Constraints:
 
 ## Implementation Plan
 
-1. Define `PhaseAction` interface and concrete types in `internal/registry/`
+1. Define `PhaseAction` interface and concrete types in `internal/lorepackage/`
 2. Add `PhaseActions(platform, op, phase)` method to `Lifecycle`
 3. Update `LorePackage` to delegate to `Lifecycle.PhaseActions()`
 4. For synthetic lifecycles, return `NativePMAction` for install phase
