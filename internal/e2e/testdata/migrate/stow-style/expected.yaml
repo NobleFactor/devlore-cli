@@ -1,0 +1,14 @@
+# Expected analysis output for stow-style fixture
+system: stow
+groups:
+  - bash
+  - vim
+  - tmux
+  - git
+platforms: []
+expected_renames: []
+notes: |
+  Stow uses package directories at root level, each containing dotfiles
+  that mirror the home directory structure. The .stow-local-ignore file
+  and install.sh calling stow commands are key indicators.
+  No platform-specific renames needed since Stow doesn't use platform suffixes.

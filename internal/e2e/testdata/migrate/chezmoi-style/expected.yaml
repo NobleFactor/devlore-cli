@@ -1,0 +1,10 @@
+# Expected analysis output for chezmoi-style fixture
+system: chezmoi
+groups: []
+platforms: []
+expected_renames: []
+notes: |
+  Chezmoi uses special prefixes (dot_, private_, executable_, run_once_) and
+  suffixes (.tmpl) to encode file attributes. The .chezmoi.toml.tmpl and
+  .chezmoiignore files are key indicators.
+  Chezmoi doesn't use the group concept that writ expects, so no renames needed.

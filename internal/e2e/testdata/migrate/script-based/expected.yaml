@@ -1,0 +1,12 @@
+# Expected analysis output for script-based fixture
+system: script-based
+groups:
+  - bash
+  - vim
+platforms: []
+expected_renames: []
+notes: |
+  Script-based dotfiles use custom installation scripts that manually
+  create symlinks. No standard tool is used. The scripts/install.sh
+  and scripts/uninstall.sh with manual ln -sf calls are key indicators.
+  No platform-specific renames needed.

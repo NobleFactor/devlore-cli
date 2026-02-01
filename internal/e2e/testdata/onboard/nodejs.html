@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Node.js - Download</title>
+</head>
+<body>
+    <h1>Node.js</h1>
+    <p>Node.js is a JavaScript runtime built on Chrome's V8 JavaScript engine.
+    Node.js uses an event-driven, non-blocking I/O model that makes it
+    lightweight and efficient.</p>
+
+    <h2>Downloads</h2>
+    <p>Current LTS Version: <strong>22.13.0</strong> (includes npm 10.9.2)</p>
+
+    <h3>Package Manager Installation</h3>
+
+    <h4>macOS</h4>
+    <pre><code>brew install node</code></pre>
+    <p>Note: For version management, consider using nvm:</p>
+    <pre><code>brew install nvm
+nvm install --lts</code></pre>
+
+    <h4>Linux (Ubuntu/Debian)</h4>
+    <p>Using NodeSource repository:</p>
+    <pre><code>curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs</code></pre>
+
+    <p>Or using nvm (recommended for developers):</p>
+    <pre><code>curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+nvm install --lts</code></pre>
+
+    <h4>Windows</h4>
+    <p>Download the Windows Installer (.msi) from nodejs.org, or use:</p>
+    <pre><code>choco install nodejs-lts</code></pre>
+    <p>Or with fnm (Fast Node Manager):</p>
+    <pre><code>winget install Schniz.fnm
+fnm install --lts</code></pre>
+
+    <h3>Pre-built Binaries</h3>
+    <p>Download pre-built binaries for your platform:</p>
+    <ul>
+        <li><a href="https://nodejs.org/dist/v22.13.0/node-v22.13.0-darwin-arm64.tar.gz">macOS ARM64 (Apple Silicon)</a></li>
+        <li><a href="https://nodejs.org/dist/v22.13.0/node-v22.13.0-darwin-x64.tar.gz">macOS x64 (Intel)</a></li>
+        <li><a href="https://nodejs.org/dist/v22.13.0/node-v22.13.0-linux-x64.tar.xz">Linux x64</a></li>
+        <li><a href="https://nodejs.org/dist/v22.13.0/node-v22.13.0-linux-arm64.tar.xz">Linux ARM64</a></li>
+        <li><a href="https://nodejs.org/dist/v22.13.0/node-v22.13.0-win-x64.zip">Windows x64</a></li>
+    </ul>
+
+    <h2>Verification</h2>
+    <p>After installation, verify:</p>
+    <pre><code>node --version
+npm --version</code></pre>
+
+    <h2>Links</h2>
+    <ul>
+        <li><a href="https://nodejs.org">Official Website</a></li>
+        <li><a href="https://github.com/nodejs/node">GitHub Repository</a></li>
+        <li><a href="https://nodejs.org/en/download/">All Downloads</a></li>
+        <li><a href="https://nodejs.org/en/docs/">Documentation</a></li>
+    </ul>
+
+    <p>License: MIT</p>
+</body>
+</html>

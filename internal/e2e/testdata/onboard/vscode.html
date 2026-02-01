@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Visual Studio Code - Download</title>
+</head>
+<body>
+    <h1>Visual Studio Code</h1>
+    <p>Visual Studio Code is a lightweight but powerful source code editor which
+    runs on your desktop and is available for Windows, macOS and Linux. It comes
+    with built-in support for JavaScript, TypeScript and Node.js and has a rich
+    ecosystem of extensions.</p>
+
+    <h2>Download</h2>
+    <p>Current Version: <strong>1.96.4</strong></p>
+
+    <h3>macOS</h3>
+    <ul>
+        <li><a href="https://update.code.visualstudio.com/latest/darwin-universal/stable">Universal (Intel + Apple Silicon)</a></li>
+        <li><a href="https://update.code.visualstudio.com/latest/darwin-arm64/stable">Apple Silicon</a></li>
+        <li><a href="https://update.code.visualstudio.com/latest/darwin/stable">Intel Chip</a></li>
+    </ul>
+    <p>Or install via Homebrew:</p>
+    <pre><code>brew install --cask visual-studio-code</code></pre>
+
+    <h3>Linux</h3>
+    <p>Debian/Ubuntu (.deb):</p>
+    <pre><code>sudo apt-get install wget gpg
+wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
+sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
+rm -f packages.microsoft.gpg
+sudo apt update
+sudo apt install code</code></pre>
+
+    <p>Snap package:</p>
+    <pre><code>sudo snap install code --classic</code></pre>
+
+    <p>Fedora/RHEL:</p>
+    <pre><code>sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" | sudo tee /etc/yum.repos.d/vscode.repo > /dev/null
+dnf check-update
+sudo dnf install code</code></pre>
+
+    <h3>Windows</h3>
+    <ul>
+        <li><a href="https://update.code.visualstudio.com/latest/win32-x64-user/stable">User Installer x64</a></li>
+        <li><a href="https://update.code.visualstudio.com/latest/win32-arm64-user/stable">User Installer ARM64</a></li>
+        <li><a href="https://update.code.visualstudio.com/latest/win32-x64/stable">System Installer x64</a></li>
+    </ul>
+    <p>Or via Chocolatey:</p>
+    <pre><code>choco install vscode</code></pre>
+    <p>Or via winget:</p>
+    <pre><code>winget install Microsoft.VisualStudioCode</code></pre>
+
+    <h2>Post-Installation</h2>
+    <p>Launch VS Code from the terminal:</p>
+    <pre><code>code .</code></pre>
+
+    <h2>Links</h2>
+    <ul>
+        <li><a href="https://code.visualstudio.com">Official Website</a></li>
+        <li><a href="https://github.com/microsoft/vscode">GitHub Repository</a></li>
+        <li><a href="https://code.visualstudio.com/docs">Documentation</a></li>
+        <li><a href="https://marketplace.visualstudio.com/VSCode">Extension Marketplace</a></li>
+    </ul>
+
+    <p>License: MIT (open source core), Microsoft License (pre-built binaries)</p>
+</body>
+</html>

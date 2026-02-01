@@ -6,6 +6,7 @@ package lore
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,8 +14,10 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -627,21 +630,124 @@ environment repository.`,
   lore onboard --from https://wiki.acme.com/setup
   lore deploy @packages.manifest
   writ adopt --from-receipt`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cli.Note("onboard: not yet implemented")
-			return nil
-		},
+		RunE: runOnboard,
 	}
 
 	cmd.Flags().String("from", "", "Source URL or file path")
 	cmd.Flags().String("output", "", "Output directory path (default: current directory)")
 	cmd.Flags().String("format", "plain", "Manifest format (plain, yaml)")
-	cmd.Flags().String("registry", "", "Registry to match against")
 	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
+	cmd.Flags().Int("max-fetches", 5, "Maximum additional URLs to fetch")
 	_ = cmd.MarkFlagRequired("from")
 
 	return cmd
+}
+
+func runOnboard(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+
+	source, _ := cmd.Flags().GetString("from")
+	outputDir, _ := cmd.Flags().GetString("output")
+	format, _ := cmd.Flags().GetString("format")
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	explain, _ := cmd.Flags().GetBool("explain")
+	maxFetches, _ := cmd.Flags().GetInt("max-fetches")
+
+	if outputDir == "" {
+		outputDir = "."
+	}
+
+	// Get AI provider
+	providerName := viper.GetString("lore.model.provider")
+	if providerName == "" {
+		return fmt.Errorf("AI provider required; configure with 'lore config model'")
+	}
+
+	provider, err := model.NewProvider(model.Config{
+		Provider: providerName,
+		Model:    viper.GetString("lore.model.model"),
+		Endpoint: viper.GetString("lore.model.endpoint"),
+		APIKey:   viper.GetString("lore.model.api_key"),
+	})
+	if err != nil {
+		return fmt.Errorf("creating AI provider: %w", err)
+	}
+
+	// Get registry
+	reg, err := lorepackage.NewWithConfig()
+	if err != nil {
+		return fmt.Errorf("creating registry: %w", err)
+	}
+
+	// Ensure registry is synced
+	if !reg.Exists() {
+		cli.Note("Syncing registry...")
+		if _, err := reg.Sync(ctx, lorepackage.SyncOptions{}); err != nil {
+			return fmt.Errorf("syncing registry: %w", err)
+		}
+	}
+
+	cli.Note("Analyzing %s...", source)
+
+	opts := onboard.Options{
+		Source:     source,
+		OutputDir:  outputDir,
+		Format:     format,
+		Verbose:    verbose,
+		Explain:    explain,
+		Provider:   provider,
+		RegClient:  reg,
+		MaxFetches: maxFetches,
+	}
+
+	result, err := onboard.Run(ctx, opts)
+	if err != nil {
+		return err
+	}
+
+	// Display results
+	if result.Product != nil {
+		cli.Success("Discovered: %s (%s)", result.Product.Name, result.Product.Category)
+		if result.Product.Vendor != "" {
+			cli.Note("  Vendor: %s", result.Product.Vendor)
+		}
+		if result.Product.Version != "" {
+			cli.Note("  Version: %s", result.Product.Version)
+		}
+	}
+
+	if result.Complexity != nil {
+		switch result.Complexity.Rating {
+		case "simple":
+			cli.Note("Complexity: simple")
+		case "moderate":
+			cli.Note("Complexity: moderate")
+		case "complex":
+			cli.Warn("Complexity: complex")
+			for _, concern := range result.Complexity.Concerns {
+				cli.Warn("  - %s", concern)
+			}
+		}
+	}
+
+	if len(result.Slots) > 0 {
+		cli.Note("Extracted %d configuration slots", len(result.Slots))
+	}
+
+	// Write manifest
+	manifestPath := outputDir + "/packages.manifest"
+	if err := os.WriteFile(manifestPath, []byte(result.Manifest), 0644); err != nil {
+		return fmt.Errorf("writing manifest: %w", err)
+	}
+
+	cli.Success("Wrote %s", manifestPath)
+	cli.Note("")
+	cli.Note("Next steps:")
+	cli.Note("  1. Review the generated manifest")
+	cli.Note("  2. lore deploy @packages.manifest")
+
+	return nil
 }
 
 func newInspectCmd() *cobra.Command {

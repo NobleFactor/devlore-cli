@@ -1,0 +1,21 @@
+# Expected analysis output for tuckr-style fixture
+system: tuckr
+groups:
+  - all
+  - all_linux
+  - all_macos
+  - nvim
+  - zsh
+platforms:
+  - linux
+  - macos
+expected_renames:
+  - source: Configs/all_linux
+    target: Configs/all.Linux
+  - source: Configs/all_macos
+    target: Configs/all.Darwin
+notes: |
+  Tuckr uses underscore convention (_linux, _macos) which should be
+  converted to writ's dot convention (.Linux, .Darwin).
+  The Hooks/ directory and install.sh script calling tuckr commands
+  are key indicators of the Tuckr system.
