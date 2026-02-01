@@ -49,20 +49,13 @@ jobs:
         working-directory: noblefactor-ops
         run: go build -o star ./cmd/star
 
-      - name: Sync Starlark bindings
+      - name: Build knowledge base
         working-directory: noblefactor-ops
         run: |
-          ./star devlore refresh-bindings \
-            --cli_path ${{ github.workspace }}/devlore-cli \
+          ./star devlore build-knowledge \
+            --target all \
+            --source_path ${{ github.workspace }}/devlore-cli \
             --registry_path ${{ github.workspace }}/devlore-registry
-
-      # TODO: Implement refresh-writ-knowledge command
-      # - name: Sync writ migrate knowledge
-      #   working-directory: noblefactor-ops
-      #   run: |
-      #     ./star devlore refresh-writ-knowledge \
-      #       --cli_path ${{ github.workspace }}/devlore-cli \
-      #       --registry_path ${{ github.workspace }}/devlore-registry
 
       - name: Commit and push to devlore-registry
         working-directory: devlore-registry
