@@ -61,6 +61,8 @@ Use --dry-run to preview without making changes.`,
 	cmd.Flags().String("format", "json", "Output format: json (default), yaml, text (for --dry-run)")
 	cmd.Flags().String("system", "", "Override auto-detection with a specific source system")
 	cmd.Flags().Bool("non-interactive", false, "Migrate without interactive prompts")
+	cmd.Flags().Int("tree-depth", 0, "Max directory depth to scan (default: 10, use lower values for smaller context)")
+	cmd.Flags().Int("script-budget", 0, "Max bytes of script content to include (default: 500KB, use lower values for smaller context)")
 	cmd.MarkFlagsMutuallyExclusive("link", "move")
 
 	return cmd
@@ -88,6 +90,8 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	layer, _ := cmd.Flags().GetString("layer")
 	format, _ := cmd.Flags().GetString("format")
 	verbose, _ := cmd.Root().Flags().GetBool("verbose")
+	treeDepth, _ := cmd.Flags().GetInt("tree-depth")
+	scriptBudget, _ := cmd.Flags().GetInt("script-budget")
 
 	// Validate layer
 	if layer != "personal" && layer != "team" && layer != "base" {
@@ -125,12 +129,14 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := migrate.Options{
-		SourceRoot: sourceRoot,
-		Execute:    !dryRun,
-		Verbose:    verbose,
-		Format:     format,
-		Provider:   provider,
-		RegClient:  regClient,
+		SourceRoot:   sourceRoot,
+		Execute:      !dryRun,
+		Verbose:      verbose,
+		Format:       format,
+		Provider:     provider,
+		RegClient:    regClient,
+		TreeDepth:    treeDepth,
+		ScriptBudget: scriptBudget,
 	}
 
 	if interactive {

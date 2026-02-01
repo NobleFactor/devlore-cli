@@ -159,6 +159,28 @@ type PlanBindings interface {
 	// Write adds a file write node (write content directly to target).
 	Write(target, content string) *execution.Node
 
+	// Remove adds a file/directory removal node.
+	Remove(target string) *execution.Node
+
+	// Download adds a file download node.
+	Download(url, target string) *execution.Node
+
+	// Archive operations
+
+	// ArchiveExtract adds an archive extraction node.
+	ArchiveExtract(archive, target string) *execution.Node
+
+	// Git operations
+
+	// GitClone adds a git clone node.
+	GitClone(url, target string) *execution.Node
+
+	// GitCheckout adds a git checkout node.
+	GitCheckout(ref string) *execution.Node
+
+	// GitPull adds a git pull node.
+	GitPull() *execution.Node
+
 	// System operations
 
 	// Service adds a service management node.

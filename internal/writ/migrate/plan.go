@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
@@ -17,13 +19,155 @@ import (
 
 // Options controls migration behavior.
 type Options struct {
-	SourceRoot string
-	TargetRoot string // empty = rename in place
-	Execute    bool
-	Verbose    bool
-	Format     string // "json" (default), "yaml", "text"
-	Provider   model.Provider
-	RegClient  *lorepackage.Registry
+	SourceRoot   string
+	TargetRoot   string // empty = rename in place
+	Execute      bool
+	Verbose      bool
+	Format       string // "json" (default), "yaml", "text"
+	Provider     model.Provider
+	RegClient    *lorepackage.Registry
+	TreeDepth    int // max directory depth to scan (0 = auto based on provider)
+	ScriptBudget int // max bytes of script content to include (0 = auto based on provider)
+}
+
+// InputLimits holds computed limits for input gathering.
+type InputLimits struct {
+	TreeDepth    int `yaml:"tree_depth" json:"tree_depth"`
+	ScriptBudget int `yaml:"script_budget" json:"script_budget"`
+}
+
+// ProviderConfig represents the providers.yaml structure from devlore-registry.
+type ProviderConfig struct {
+	ModelCache string                  `yaml:"model_cache"` // Path to litellm-cache.json
+	Providers  map[string]ProviderInfo `yaml:"providers"`
+}
+
+// ProviderInfo holds configuration for a specific provider.
+type ProviderInfo struct {
+	Description      string      `yaml:"description"`
+	LiteLLMProvider  string      `yaml:"litellm_provider"`   // Maps to litellm_provider in cache
+	MaxInputOverride int         `yaml:"max_input_override"` // Provider-enforced limit (e.g., GitHub)
+	MaxOutputOverride int        `yaml:"max_output_override"`
+	InputLimits      InputLimits `yaml:"input_limits"` // Default limits if model not in cache
+}
+
+// ModelCache represents the litellm-cache.json structure.
+type ModelCache struct {
+	Meta   ModelCacheMeta          `json:"_meta"`
+	Models map[string]ModelLimits  `json:"models"`
+}
+
+// ModelCacheMeta contains metadata about the cache.
+type ModelCacheMeta struct {
+	Source     string `json:"source"`
+	SourceFile string `json:"source_file"`
+	FetchedAt  string `json:"fetched_at"`
+}
+
+// ModelLimits holds limits for a specific model from LiteLLM.
+type ModelLimits struct {
+	MaxInputTokens  int    `json:"max_input_tokens"`
+	MaxOutputTokens int    `json:"max_output_tokens"`
+	LiteLLMProvider string `json:"litellm_provider"`
+}
+
+// LoadInputLimits reads provider and model limits from the registry.
+//
+// Resolution order:
+// 1. Look up model in litellm-cache.json, compute limits from max_input_tokens
+// 2. Apply provider overrides (e.g., GitHub's rate limits)
+// 3. Fall back to provider's default input_limits if model not found
+func LoadInputLimits(reg *lorepackage.Registry, provider model.Provider) (InputLimits, error) {
+	if reg == nil {
+		return InputLimits{}, fmt.Errorf("registry required for provider limits")
+	}
+	if provider == nil {
+		return InputLimits{}, fmt.Errorf("provider required for input limits")
+	}
+
+	providerName := strings.ToLower(provider.Name())
+	modelName := provider.Model()
+
+	// Load provider config
+	configData, err := reg.Knowledge("shared").Providers("providers.yaml")
+	if err != nil {
+		return InputLimits{}, fmt.Errorf("reading providers.yaml: %w", err)
+	}
+
+	var config ProviderConfig
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		return InputLimits{}, fmt.Errorf("parsing providers.yaml: %w", err)
+	}
+
+	providerInfo, ok := config.Providers[providerName]
+	if !ok {
+		return InputLimits{}, fmt.Errorf("provider %q not defined in providers.yaml; add it to devlore-registry", providerName)
+	}
+
+	// Try to load model-specific limits from cache
+	if config.ModelCache != "" {
+		cacheData, err := reg.Knowledge("shared").Providers(config.ModelCache)
+		if err == nil {
+			var cache ModelCache
+			if err := json.Unmarshal(cacheData, &cache); err == nil {
+				if limits, ok := computeLimitsFromCache(&cache, &providerInfo, modelName); ok {
+					return limits, nil
+				}
+			}
+		}
+	}
+
+	// Fall back to provider defaults
+	if providerInfo.InputLimits.TreeDepth <= 0 || providerInfo.InputLimits.ScriptBudget <= 0 {
+		return InputLimits{}, fmt.Errorf("provider %q has invalid input_limits in providers.yaml", providerName)
+	}
+
+	return providerInfo.InputLimits, nil
+}
+
+// computeLimitsFromCache looks up the model and computes input limits.
+func computeLimitsFromCache(cache *ModelCache, providerInfo *ProviderInfo, modelName string) (InputLimits, bool) {
+	modelLimits, ok := cache.Models[modelName]
+	if !ok {
+		return InputLimits{}, false
+	}
+
+	maxInput := modelLimits.MaxInputTokens
+
+	// Apply provider override if set (e.g., GitHub enforces lower limits)
+	if providerInfo.MaxInputOverride > 0 && providerInfo.MaxInputOverride < maxInput {
+		maxInput = providerInfo.MaxInputOverride
+	}
+
+	if maxInput <= 0 {
+		return InputLimits{}, false
+	}
+
+	// Compute limits from token budget
+	// Reserve ~50% for system prompt + response
+	usableTokens := maxInput / 2
+
+	// tree_depth scales logarithmically with context
+	// 4K tokens -> depth 4, 16K -> 5, 64K -> 6, 128K -> 8, 200K -> 10
+	treeDepth := 4
+	switch {
+	case usableTokens >= 100000:
+		treeDepth = 10
+	case usableTokens >= 64000:
+		treeDepth = 8
+	case usableTokens >= 32000:
+		treeDepth = 6
+	case usableTokens >= 8000:
+		treeDepth = 5
+	}
+
+	// script_budget: ~25% of usable tokens, converted to bytes (4 chars/token)
+	scriptBudget := (usableTokens / 4) * 4 // 25% of tokens * 4 chars/token
+
+	return InputLimits{
+		TreeDepth:    treeDepth,
+		ScriptBudget: scriptBudget,
+	}, true
 }
 
 // BuildMigration performs LLM-based analysis, returning an execution Graph and
@@ -50,8 +194,24 @@ func BuildMigration(ctx context.Context, opts Options) (*execution.Graph, *Migra
 		return nil, nil, fmt.Errorf("AI provider required for migration analysis; configure with 'lore config model'")
 	}
 
+	// Compute input limits: use explicit CLI values if provided, otherwise load from registry
+	treeDepth := opts.TreeDepth
+	scriptBudget := opts.ScriptBudget
+	if treeDepth <= 0 || scriptBudget <= 0 {
+		limits, err := LoadInputLimits(opts.RegClient, opts.Provider)
+		if err != nil {
+			return nil, nil, fmt.Errorf("loading input limits: %w", err)
+		}
+		if treeDepth <= 0 {
+			treeDepth = limits.TreeDepth
+		}
+		if scriptBudget <= 0 {
+			scriptBudget = limits.ScriptBudget
+		}
+	}
+
 	// Gather inputs: tree structure + executable script contents
-	input, err := GatherInputs(root, 10, 500*1024) // 10 levels deep, 500KB script budget
+	input, err := GatherInputs(root, treeDepth, scriptBudget)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gather inputs: %w", err)
 	}
@@ -99,7 +259,14 @@ func buildSystemPrompt() string {
 - Groups live in Home/Configs/ or Home/<project>/
 - Naming: <group>.<Platform> (e.g., all.Darwin, noblefactor.Unix)
 - NOT: <group>-<Platform> (this is the legacy convention to migrate FROM)
-- Known platforms: Darwin, Linux, Unix, Windows, Debian, Ubuntu, RHEL, Fedora, Arch
+- Known platforms:
+  - Darwin (macOS)
+  - Linux (generic fallback)
+  - Linux.Debian (Debian, Ubuntu, Mint - uses apt)
+  - Linux.Fedora (Fedora, RHEL, CentOS - uses dnf)
+  - Linux.Arch (Arch, Manjaro, EndeavourOS - uses pacman)
+  - Windows
+  - Unix (meta-platform: matches Darwin + Linux)
 
 ## Known Dotfile Systems
 - tuckr: Groups in Configs/, scripts call "tuckr add", "tuckr rm", may have Hooks.toml

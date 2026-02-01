@@ -412,6 +412,13 @@ func (k *KnowledgeDomain) Slots(name string) ([]byte, error) {
 	return k.read("slots", name)
 }
 
+// Providers reads a providers reference file from knowledge/{domain}/providers/{name}.
+// Falls back to knowledge/shared/providers/{name} if not found in domain.
+// This is typically used for model context limits and configuration.
+func (k *KnowledgeDomain) Providers(name string) ([]byte, error) {
+	return k.read("providers", name)
+}
+
 // KnowledgeIndex represents the index.yaml manifest for a knowledge domain.
 // It lists all available assets by type with metadata for discovery.
 type KnowledgeIndex struct {

@@ -43,8 +43,8 @@ func (p *PackageContext) ToStarlark() starlark.Value {
 		"dry_run":     starlark.Bool(p.DryRun),
 		"source_root": starlark.String(p.SourceRoot),
 		"target_root": starlark.String(p.TargetRoot),
-		"has_feature": starlark.NewBuiltin("has_feature", p.hasFeatureBuiltin),
-		"setting":     starlark.NewBuiltin("setting", p.settingBuiltin),
+		"has_feature": starlark.NewBuiltin("package.has_feature", p.hasFeatureBuiltin),
+		"setting":     starlark.NewBuiltin("package.setting", p.settingBuiltin),
 	})
 }
 

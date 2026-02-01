@@ -172,6 +172,82 @@ func (p *planBindings) Write(target, content string) *execution.Node {
 	return node
 }
 
+// Remove adds a file/directory removal node.
+func (p *planBindings) Remove(target string) *execution.Node {
+	node := &execution.Node{
+		ID:         generateNodeID("remove"),
+		Operations: []string{"file-remove"},
+		Target:     p.host.ExpandPath(target),
+		Project:    p.project,
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
+
+// Download adds a file download node.
+func (p *planBindings) Download(url, target string) *execution.Node {
+	node := &execution.Node{
+		ID:         generateNodeID("download"),
+		Operations: []string{"download"},
+		Source:     url,
+		Target:     p.host.ExpandPath(target),
+		Project:    p.project,
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
+
+// ArchiveExtract adds an archive extraction node.
+func (p *planBindings) ArchiveExtract(archive, target string) *execution.Node {
+	node := &execution.Node{
+		ID:         generateNodeID("archive-extract"),
+		Operations: []string{"archive-extract"},
+		Source:     p.host.ExpandPath(archive),
+		Target:     p.host.ExpandPath(target),
+		Project:    p.project,
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
+
+// GitClone adds a git clone node.
+func (p *planBindings) GitClone(url, target string) *execution.Node {
+	node := &execution.Node{
+		ID:         generateNodeID("git-clone"),
+		Operations: []string{"git-clone"},
+		Source:     url,
+		Target:     p.host.ExpandPath(target),
+		Project:    p.project,
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
+
+// GitCheckout adds a git checkout node.
+func (p *planBindings) GitCheckout(ref string) *execution.Node {
+	node := &execution.Node{
+		ID:         generateNodeID("git-checkout"),
+		Operations: []string{"git-checkout"},
+		Project:    p.project,
+		Metadata: map[string]string{
+			"ref": ref,
+		},
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
+
+// GitPull adds a git pull node.
+func (p *planBindings) GitPull() *execution.Node {
+	node := &execution.Node{
+		ID:         generateNodeID("git-pull"),
+		Operations: []string{"git-pull"},
+		Project:    p.project,
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
+
 // Service adds a service management node.
 func (p *planBindings) Service(name string, action ServiceAction) *execution.Node {
 	node := &execution.Node{
@@ -239,27 +315,43 @@ type StarlarkPlanBindings struct {
 func (s *StarlarkPlanBindings) ToStarlark() starlark.Value {
 	// Package operations namespace: plan.package.*
 	packageOps := starlarkstruct.FromStringDict(starlark.String("package"), starlark.StringDict{
-		"install": starlark.NewBuiltin("install", s.packageInstallBuiltin),
-		"upgrade": starlark.NewBuiltin("upgrade", s.packageUpgradeBuiltin),
-		"remove":  starlark.NewBuiltin("remove", s.packageRemoveBuiltin),
-		"update":  starlark.NewBuiltin("update", s.packageUpdateBuiltin),
+		"install": starlark.NewBuiltin("plan.package.install", s.packageInstallBuiltin),
+		"upgrade": starlark.NewBuiltin("plan.package.upgrade", s.packageUpgradeBuiltin),
+		"remove":  starlark.NewBuiltin("plan.package.remove", s.packageRemoveBuiltin),
+		"update":  starlark.NewBuiltin("plan.package.update", s.packageUpdateBuiltin),
 	})
 
 	// File operations namespace: plan.file.*
 	fileOps := starlarkstruct.FromStringDict(starlark.String("file"), starlark.StringDict{
-		"configure": starlark.NewBuiltin("configure", s.configureBuiltin),
-		"link":      starlark.NewBuiltin("link", s.linkBuiltin),
-		"copy":      starlark.NewBuiltin("copy", s.copyBuiltin),
-		"mkdir":     starlark.NewBuiltin("mkdir", s.mkdirBuiltin),
-		"write":     starlark.NewBuiltin("write", s.writeBuiltin),
+		"configure": starlark.NewBuiltin("plan.file.configure", s.configureBuiltin),
+		"link":      starlark.NewBuiltin("plan.file.link", s.linkBuiltin),
+		"copy":      starlark.NewBuiltin("plan.file.copy", s.copyBuiltin),
+		"mkdir":     starlark.NewBuiltin("plan.file.mkdir", s.mkdirBuiltin),
+		"write":     starlark.NewBuiltin("plan.file.write", s.writeBuiltin),
+		"remove":    starlark.NewBuiltin("plan.file.remove", s.removeBuiltin),
+	})
+
+	// Archive operations namespace: plan.archive.*
+	archiveOps := starlarkstruct.FromStringDict(starlark.String("archive"), starlark.StringDict{
+		"extract": starlark.NewBuiltin("plan.archive.extract", s.archiveExtractBuiltin),
+	})
+
+	// Git operations namespace: plan.git.*
+	gitOps := starlarkstruct.FromStringDict(starlark.String("git"), starlark.StringDict{
+		"clone":    starlark.NewBuiltin("plan.git.clone", s.gitCloneBuiltin),
+		"checkout": starlark.NewBuiltin("plan.git.checkout", s.gitCheckoutBuiltin),
+		"pull":     starlark.NewBuiltin("plan.git.pull", s.gitPullBuiltin),
 	})
 
 	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
 		"package":    packageOps,
 		"file":       fileOps,
-		"service":    starlark.NewBuiltin("service", s.serviceBuiltin),
-		"shell":      starlark.NewBuiltin("shell", s.shellBuiltin),
-		"depends_on": starlark.NewBuiltin("depends_on", s.dependsOnBuiltin),
+		"archive":    archiveOps,
+		"git":        gitOps,
+		"download":   starlark.NewBuiltin("plan.download", s.downloadBuiltin),
+		"service":    starlark.NewBuiltin("plan.service", s.serviceBuiltin),
+		"shell":      starlark.NewBuiltin("plan.shell", s.shellBuiltin),
+		"depends_on": starlark.NewBuiltin("plan.depends_on", s.dependsOnBuiltin),
 	})
 }
 
@@ -358,6 +450,56 @@ func (s *StarlarkPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Buil
 		return nil, err
 	}
 	node := s.Write(target, content)
+	return nodeToStarlark(node), nil
+}
+
+func (s *StarlarkPlanBindings) removeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var target string
+	if err := starlark.UnpackArgs("remove", args, kwargs, "target", &target); err != nil {
+		return nil, err
+	}
+	node := s.Remove(target)
+	return nodeToStarlark(node), nil
+}
+
+func (s *StarlarkPlanBindings) downloadBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var url, target string
+	if err := starlark.UnpackArgs("download", args, kwargs, "url", &url, "target", &target); err != nil {
+		return nil, err
+	}
+	node := s.Download(url, target)
+	return nodeToStarlark(node), nil
+}
+
+func (s *StarlarkPlanBindings) archiveExtractBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var archive, target string
+	if err := starlark.UnpackArgs("extract", args, kwargs, "archive", &archive, "target", &target); err != nil {
+		return nil, err
+	}
+	node := s.ArchiveExtract(archive, target)
+	return nodeToStarlark(node), nil
+}
+
+func (s *StarlarkPlanBindings) gitCloneBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var url, target string
+	if err := starlark.UnpackArgs("clone", args, kwargs, "url", &url, "target", &target); err != nil {
+		return nil, err
+	}
+	node := s.GitClone(url, target)
+	return nodeToStarlark(node), nil
+}
+
+func (s *StarlarkPlanBindings) gitCheckoutBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var ref string
+	if err := starlark.UnpackArgs("checkout", args, kwargs, "ref", &ref); err != nil {
+		return nil, err
+	}
+	node := s.GitCheckout(ref)
+	return nodeToStarlark(node), nil
+}
+
+func (s *StarlarkPlanBindings) gitPullBuiltin(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+	node := s.GitPull()
 	return nodeToStarlark(node), nil
 }
 

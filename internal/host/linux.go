@@ -73,15 +73,20 @@ func detectLinuxDistro() (distro, version string) {
 
 func (h *linuxHost) detectPackageManager() PackageManager {
 	// Detect based on distro or binary availability
-	// Supported: apt (Debian/Ubuntu) and dnf (Fedora/RHEL)
+	// Supported: apt (Debian/Ubuntu), dnf (Fedora/RHEL), pacman (Arch)
 	switch h.platform.Distro {
 	case "debian", "ubuntu", "linuxmint", "pop", "elementary":
 		return &aptManager{}
 	case "fedora", "rhel", "centos", "rocky", "alma":
 		return &dnfManager{}
+	case "arch", "manjaro", "endeavouros", "garuda", "artix":
+		return &pacmanManager{}
 	}
 
 	// Fallback: detect by binary
+	if _, err := exec.LookPath("pacman"); err == nil {
+		return &pacmanManager{}
+	}
 	if _, err := exec.LookPath("apt"); err == nil {
 		return &aptManager{}
 	}
@@ -313,6 +318,113 @@ func (m *dnfManager) AddRepo(url, keyURL, name string) Result {
 }
 
 func (m *dnfManager) NeedsSudo() bool { return true }
+
+// =============================================================================
+// Pacman Package Manager (Arch, Manjaro, EndeavourOS)
+// =============================================================================
+
+type pacmanManager struct{}
+
+func (m *pacmanManager) Name() string { return "pacman" }
+
+func (m *pacmanManager) Installed(name string) bool {
+	result := runShellCommand("pacman -Q "+name, false)
+	return result.OK
+}
+
+func (m *pacmanManager) Available(name string) bool {
+	result := runShellCommand("pacman -Si "+name, false)
+	return result.OK
+}
+
+func (m *pacmanManager) Search(query string, limit int) []SearchResult {
+	result := runShellCommand("pacman -Ss "+query, false)
+	if !result.OK {
+		return nil
+	}
+
+	var results []SearchResult
+	lines := strings.Split(result.Stdout, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		// pacman -Ss output format:
+		// repo/package version
+		//     Description text
+		if strings.HasPrefix(line, " ") {
+			// This is a description line, skip
+			continue
+		}
+		// Parse "repo/package version" line
+		parts := strings.Fields(line)
+		if len(parts) >= 1 {
+			repoAndName := parts[0]
+			// Extract package name from "repo/name"
+			if idx := strings.Index(repoAndName, "/"); idx >= 0 {
+				pkgName := repoAndName[idx+1:]
+				sr := SearchResult{Name: pkgName}
+				// Get description from next line if available
+				if i+1 < len(lines) && strings.HasPrefix(lines[i+1], " ") {
+					sr.Description = strings.TrimSpace(lines[i+1])
+				}
+				results = append(results, sr)
+				if limit > 0 && len(results) >= limit {
+					return results
+				}
+			}
+		}
+	}
+	return results
+}
+
+func (m *pacmanManager) Version(name string) string {
+	result := runShellCommand("pacman -Q "+name, false)
+	if !result.OK {
+		return ""
+	}
+	// Output format: "package version"
+	parts := strings.Fields(result.Stdout)
+	if len(parts) >= 2 {
+		return parts[1]
+	}
+	return ""
+}
+
+func (m *pacmanManager) Install(packages ...string) Result {
+	// --noconfirm for non-interactive install, --needed to skip already installed
+	return runShellCommand("pacman -S --noconfirm --needed "+strings.Join(packages, " "), true)
+}
+
+func (m *pacmanManager) Remove(name string) Result {
+	// --noconfirm for non-interactive removal
+	return runShellCommand("pacman -R --noconfirm "+name, true)
+}
+
+func (m *pacmanManager) Update() Result {
+	// -Sy syncs package database
+	return runShellCommand("pacman -Sy", true)
+}
+
+func (m *pacmanManager) AddRepo(url, keyURL, name string) Result {
+	// Arch uses /etc/pacman.conf for repository configuration
+	// Adding a repo involves:
+	// 1. Optionally import GPG key
+	// 2. Add [repo] section to /etc/pacman.conf
+
+	// Import GPG key if provided
+	if keyURL != "" {
+		keyResult := runShellCommand("pacman-key --recv-keys "+keyURL+" && pacman-key --lsign-key "+keyURL, true)
+		if !keyResult.OK {
+			return keyResult
+		}
+	}
+
+	// Add repository to pacman.conf
+	// Note: This is a simplified implementation. Real repos may need more config.
+	repoEntry := "\n[" + name + "]\nServer = " + url + "\n"
+	return runShellCommand("echo '"+repoEntry+"' >> /etc/pacman.conf", true)
+}
+
+func (m *pacmanManager) NeedsSudo() bool { return true }
 
 // =============================================================================
 // systemd Service Manager
