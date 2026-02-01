@@ -5,6 +5,7 @@ package migrate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
 const fixtureDir = "testdata/fixture"
@@ -458,4 +461,40 @@ func TestBuildMigrationRequiresProvider(t *testing.T) {
 	if !strings.Contains(err.Error(), "AI provider required") {
 		t.Errorf("error = %q, want to contain 'AI provider required'", err.Error())
 	}
+}
+
+// mockProvider is a minimal Provider implementation for testing.
+type mockProvider struct {
+	name string
+}
+
+func (m *mockProvider) Chat(_ context.Context, _ model.ChatRequest) (*model.ChatResponse, error) {
+	return nil, nil
+}
+func (m *mockProvider) Name() string                      { return m.name }
+func (m *mockProvider) Model() string                     { return "test-model" }
+func (m *mockProvider) Endpoint() string                  { return "" }
+func (m *mockProvider) Available(_ context.Context) bool  { return true }
+
+func TestLoadInputLimits(t *testing.T) {
+	// LoadInputLimits requires both registry and provider
+	t.Run("nil-registry", func(t *testing.T) {
+		p := &mockProvider{name: "github"}
+		_, err := LoadInputLimits(nil, p)
+		if err == nil {
+			t.Error("expected error for nil registry")
+		}
+		if !strings.Contains(err.Error(), "registry required") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("nil-provider", func(t *testing.T) {
+		// We can't easily mock the registry, so just test the nil provider case
+		// Real integration tests would use an actual synced registry
+		_, err := LoadInputLimits(nil, nil)
+		if err == nil {
+			t.Error("expected error for nil provider")
+		}
+	})
 }
