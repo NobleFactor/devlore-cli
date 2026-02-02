@@ -37,7 +37,7 @@ The provider field determines:
   - Keystore account: API keys are stored under Service=com.noblefactor.DevLore, Account=<provider>
   - Client implementation: Which Provider implementation to instantiate
 
-Supported providers: anthropic, azure-openai, github, ollama, openai
+Supported providers: anthropic, gemini, github, groq, ollama, openai
 
 ## Native Keystore
 
@@ -254,16 +254,62 @@ func SaveConfig(cfg *Config) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// autoDetectProvider checks for common API key environment variables and keystore entries.
+// Returns the first available provider, prioritizing by cost (cheapest first).
+func autoDetectProvider(ctx context.Context) Provider {
+	// Check providers in order of preference (cost/speed)
+	providerChecks := []struct {
+		name   string
+		envVar string
+		model  string
+	}{
+		{"groq", "GROQ_API_KEY", "llama-3.3-70b-versatile"},
+		{"gemini", "GEMINI_API_KEY", "gemini-2.5-flash"},
+		{"openai", "OPENAI_API_KEY", "gpt-4o-mini"},
+		{"anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"},
+	}
+
+	for _, check := range providerChecks {
+		// Check environment variable first
+		apiKey := os.Getenv(check.envVar)
+
+		// Fall back to keystore
+		if apiKey == "" {
+			apiKey, _ = credentials.Get(check.name)
+		}
+
+		if apiKey != "" {
+			cfg := Config{
+				Provider: check.name,
+				Model:    check.model,
+				APIKey:   apiKey,
+			}
+			provider, err := NewProvider(cfg)
+			if err != nil {
+				continue
+			}
+			if provider.Available(ctx) {
+				cli.Note("Using %s (auto-detected from %s)", check.name, check.envVar)
+				return provider
+			}
+		}
+	}
+
+	return nil
+}
+
 // EnsureProvider returns a configured AI provider, prompting the user if needed.
 // If interactive is false, fails immediately if no provider is configured.
 //
 // Lookup priority:
-//   - CLI flags (passed via cliFlags parameter)
-//   - Environment: DEVLORE_AI_PROVIDER, DEVLORE_AI_API_KEY, etc.
-//   - Config file: ~/.config/devlore/config.yaml
-//   - API key from native keystore
-//   - Fallback to Ollama if available locally
-//   - Interactive prompt (only if interactive=true)
+//  1. CLI flags (passed via cliFlags parameter)
+//  2. Environment: DEVLORE_MODEL_PROVIDER, DEVLORE_MODEL_API_KEY, etc.
+//  3. Config file: ~/.config/devlore/config.yaml
+//  4. API key from native keystore (for configured provider)
+//  5. Auto-detect from common API key env vars (GROQ_API_KEY, GEMINI_API_KEY, etc.)
+//  6. Auto-detect from native keystore entries
+//  7. Fallback to Ollama if available locally
+//  8. Interactive prompt (only if interactive=true)
 func EnsureProvider(ctx context.Context, interactive bool, cliFlags CLIFlags) (Provider, error) {
 
 	// 1. Try loading config (env > config file, API key from env > config > keystore)
@@ -302,7 +348,12 @@ func EnsureProvider(ctx context.Context, interactive bool, cliFlags CLIFlags) (P
 		}
 	}
 
-	// 3. Fallback: Check if Ollama is available locally
+	// 3. Auto-detect from common environment variables
+	if provider := autoDetectProvider(ctx); provider != nil {
+		return provider, nil
+	}
+
+	// 4. Fallback: Check if Ollama is available locally
 	ollamaCfg := DefaultConfig()
 	ollamaProvider := NewOllamaProvider(ollamaCfg.Endpoint, ollamaCfg.Model)
 	if ollamaProvider.Available(ctx) {
@@ -338,15 +389,19 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 
 	cli.Note("AI features require a provider. Options:")
 	cli.Note("")
-	cli.Note("  [1] Ollama (local, free, private) <- Recommended")
-	cli.Note("      Install: https://ollama.ai")
-	cli.Note("      Then: ollama pull llama3.1:8b")
+	cli.Note("  [1] Groq (cloud, fast, free tier) <- Recommended")
+	cli.Note("      Get API key: https://console.groq.com")
 	cli.Note("")
-	cli.Note("  [2] Anthropic Claude (cloud, requires API key)")
+	cli.Note("  [2] Gemini (cloud, cheap)")
+	cli.Note("      Get API key: https://aistudio.google.com/apikey")
 	cli.Note("")
-	cli.Note("  [3] OpenAI (cloud, requires API key)")
+	cli.Note("  [3] Anthropic Claude (cloud, high quality)")
+	cli.Note("      Get API key: https://console.anthropic.com")
 	cli.Note("")
-	fmt.Fprint(os.Stderr, "Choice [1/2/3]: ")
+	cli.Note("  [4] OpenAI (cloud, GPT models)")
+	cli.Note("      Get API key: https://platform.openai.com")
+	cli.Note("")
+	fmt.Fprint(os.Stderr, "Choice [1/2/3/4]: ")
 
 	input, err := reader.ReadString('\n')
 	if err != nil {
@@ -358,26 +413,54 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 
 	switch choice {
 	case "1", "":
-		cfg = DefaultConfig() // Ollama
+		fmt.Fprint(os.Stderr, "Groq API key: ")
+		apiKey, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		apiKey = strings.TrimSpace(apiKey)
 
-		// Check if Ollama is available
-		provider := NewOllamaProvider(cfg.Endpoint, cfg.Model)
-		if !provider.Available(ctx) {
-			cli.Error("Ollama not detected. Please:")
-			cli.Note("  1. Install Ollama: https://ollama.ai")
-			cli.Note("  2. Start Ollama: ollama serve")
-			cli.Note("  3. Pull model: ollama pull llama3.1:8b")
-			cli.Note("  4. Re-run this command")
-			return nil, fmt.Errorf("ollama not available")
+		cfg = Config{
+			Provider: "groq",
+			Model:    "llama-3.3-70b-versatile",
+			APIKey:   apiKey,
 		}
 
-		// Save config
 		if err := SaveConfig(&cfg); err != nil {
 			cli.Warn("could not save config: %v", err)
+		}
+
+		provider, err := NewProvider(cfg)
+		if err != nil {
+			return nil, err
 		}
 		return provider, nil
 
 	case "2":
+		fmt.Fprint(os.Stderr, "Gemini API key: ")
+		apiKey, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		apiKey = strings.TrimSpace(apiKey)
+
+		cfg = Config{
+			Provider: "gemini",
+			Model:    "gemini-2.5-flash",
+			APIKey:   apiKey,
+		}
+
+		if err := SaveConfig(&cfg); err != nil {
+			cli.Warn("could not save config: %v", err)
+		}
+
+		provider, err := NewProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return provider, nil
+
+	case "3":
 		fmt.Fprint(os.Stderr, "Anthropic API key: ")
 		apiKey, err := reader.ReadString('\n')
 		if err != nil {
@@ -401,7 +484,7 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 		}
 		return provider, nil
 
-	case "3":
+	case "4":
 		fmt.Fprint(os.Stderr, "OpenAI API key: ")
 		apiKey, err := reader.ReadString('\n')
 		if err != nil {
@@ -411,7 +494,7 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 
 		cfg = Config{
 			Provider: "openai",
-			Model:    "gpt-4-turbo",
+			Model:    "gpt-4o-mini",
 			APIKey:   apiKey,
 		}
 
@@ -425,9 +508,10 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 		}
 		return provider, nil
 
-	case "4":
+	case "5":
 		cli.Note("Skipping AI setup.")
 		cli.Note("Run 'lore config ai' later to configure a provider.")
+		cli.Note("For local inference, install Ollama: https://ollama.ai")
 		return nil, nil
 
 	default:
