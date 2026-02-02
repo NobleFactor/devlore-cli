@@ -126,7 +126,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: NobleFactor/devlore.noblefactor.com
-          token: ${{ secrets.SITE_DEPLOY_TOKEN }}
+          token: ${{ secrets.NOBLEFACTOR_CONTENT_ACCESS }}
           path: website
 
       - name: Sync install script to website
@@ -177,4 +177,4 @@ jobs:
           Source: ${{ github.repository }}@${{ github.sha }}
           Ref: ${{ github.ref }}"
         env:
-          GH_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
+          GH_TOKEN: ${{ secrets.NOBLEFACTOR_CONTENT_ACCESS }}
