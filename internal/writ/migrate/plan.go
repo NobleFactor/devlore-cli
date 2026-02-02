@@ -216,8 +216,8 @@ func BuildMigration(ctx context.Context, opts Options) (*execution.Graph, *Migra
 		return nil, nil, fmt.Errorf("gather inputs: %w", err)
 	}
 
-	// LLM analysis
-	result, err := AnalyzeWithLLM(ctx, opts.Provider, input)
+	// LLM analysis using registry prompt
+	result, err := AnalyzeWithLLMFromRegistry(ctx, opts.Provider, opts.RegClient, input)
 	if err != nil {
 		return nil, nil, fmt.Errorf("LLM analysis: %w", err)
 	}
@@ -231,9 +231,13 @@ type LLMResult struct {
 	Graph    *execution.Graph
 }
 
-// AnalyzeWithLLM sends gathered inputs to the LLM and parses the structured response.
-func AnalyzeWithLLM(ctx context.Context, provider model.Provider, input *GatherInput) (*LLMResult, error) {
-	prompt := buildSystemPrompt()
+// AnalyzeWithLLMFromRegistry sends gathered inputs to the LLM using registry-loaded prompt.
+func AnalyzeWithLLMFromRegistry(ctx context.Context, provider model.Provider, reg *lorepackage.Registry, input *GatherInput) (*LLMResult, error) {
+	prompt, err := loadMigrationPrompt(reg)
+	if err != nil {
+		return nil, fmt.Errorf("loading migration prompt: %w", err)
+	}
+
 	userMessage := buildUserMessage(input)
 
 	resp, err := provider.Chat(ctx, model.ChatRequest{
@@ -248,110 +252,15 @@ func AnalyzeWithLLM(ctx context.Context, provider model.Provider, input *GatherI
 		return nil, fmt.Errorf("LLM chat failed: %w", err)
 	}
 
-	return parseLLMResponse(resp.Content, input.Root)
+	return parseRegistryLLMResponse(resp.Content, input.Root)
 }
 
-// buildSystemPrompt creates the system prompt for LLM analysis.
-func buildSystemPrompt() string {
-	return `You are analyzing a dotfiles repository for migration to writ conventions.
-
-## Writ Conventions
-- Groups live in Home/Configs/ or Home/<project>/
-- Naming: <group>.<Platform> (e.g., all.Darwin, noblefactor.Unix)
-- NOT: <group>-<Platform> (this is the legacy convention to migrate FROM)
-- Known platforms:
-  - Darwin (macOS)
-  - Linux (generic fallback)
-  - Linux.Debian (Debian, Ubuntu, Mint - uses apt)
-  - Linux.Fedora (Fedora, RHEL, CentOS - uses dnf)
-  - Linux.Arch (Arch, Manjaro, EndeavourOS - uses pacman)
-  - Windows
-  - Unix (meta-platform: matches Darwin + Linux)
-
-## Known Dotfile Systems
-- tuckr: Groups in Configs/, scripts call "tuckr add", "tuckr rm", may have Hooks.toml
-- stow: .stow-local-ignore file, GNU Stow symlink farm structure
-- chezmoi: dot_ prefix directories, .chezmoiignore, chezmoi commands in scripts
-- yadm: ## in filenames for templates, .yadm directory
-- bare-git: HEAD/objects/refs at root (bare git repo as home)
-- native: Already has Home/ with <group>.<Platform> naming
-- script-based: Custom install scripts, no standard tool
-
-## Your Task
-
-Analyze the inputs in this order:
-
-1. **Summarize what you see**: Describe the tree structure, what scripts are present,
-   what the scripts do (based on reading their contents)
-
-2. **Identify the dotfile system**: Based on evidence in the tree and scripts,
-   determine which system is in use (tuckr, stow, chezmoi, etc.)
-
-3. **Analyze the structure**: Where do groups live? What naming convention is used?
-   What platforms are targeted?
-
-4. **Make observations**: What's notable about this repository?
-
-5. **Identify warnings**: What might cause problems? (encryption, unusual patterns)
-
-6. **Make recommendations**: What should the user do after migration?
-
-7. **Generate execution graph**: Produce the concrete rename operations needed
-   to convert from legacy naming (<group>-<Platform>) to writ naming (<group>.<Platform>)
-
-## Required Output
-
-Return valid JSON matching this schema:
-{
-  "analysis": {
-    "system": "<tuckr|stow|chezmoi|yadm|bare-git|script-based|native|unknown>",
-    "system_confidence": <0.0-1.0>,
-    "input_summary": "<what you see in the inputs>",
-    "structure": {
-      "groups_path": "<where groups live, e.g., Home/Configs>",
-      "naming_convention": "<current convention, e.g., <group>-<Platform>>",
-      "groups": ["<list of group names without platform suffix>"],
-      "platforms": ["<list of platforms detected>"]
-    },
-    "repo_layer": "<base|team|personal>",
-    "encryption_systems": ["<git-crypt|sops|age|gpg|none>"],
-    "scripts": [
-      {
-        "rel_path": "<path to script>",
-        "name": "<script name>",
-        "phase": "<install|initialize|other>",
-        "platform_guard": "<platform if guarded>",
-        "line_count": <number>,
-        "observations": ["<what the script does>"]
-      }
-    ],
-    "secret_findings": [
-      {
-        "rel_path": "<path to secret>",
-        "encryption": "<encryption system or none>",
-        "reason": "<why it's a secret>",
-        "suggested_pattern": "<glob pattern for .sops.yaml>"
-      }
-    ],
-    "observations": ["<insights about the repository>"],
-    "warnings": ["<potential issues>"],
-    "recommendations": ["<suggested actions after migration>"]
-  },
-  "execution_graph": {
-    "nodes": [
-      {"id": "<unique-id>", "operations": ["rename"], "source": "<from-path>", "target": "<to-path>", "status": "pending"}
-    ],
-    "edges": [
-      {"from": "<node-id>", "to": "<node-id>", "relation": "orders"}
-    ]
-  }
-}
-
-Important:
-- Only include rename operations for directories that need to change (e.g., dash to dot separator)
-- If the repository is already writ-compatible (uses dot separators), the execution_graph should have empty nodes/edges
-- The source and target paths in nodes should be relative to the source root
-- Chain renames with edges to ensure proper ordering (parent before child)`
+// loadMigrationPrompt loads the migration prompt from the registry.
+func loadMigrationPrompt(reg *lorepackage.Registry) (string, error) {
+	if reg == nil {
+		return "", fmt.Errorf("registry required for prompt loading")
+	}
+	return reg.Knowledge("migration").Prompt("migrate-to-writ.txt")
 }
 
 // buildUserMessage creates the user message with gathered inputs.
@@ -369,112 +278,85 @@ func buildUserMessage(input *GatherInput) string {
 	return sb.String()
 }
 
-// llmResponse is the raw JSON structure from the LLM.
-type llmResponse struct {
-	Analysis       llmAnalysis       `json:"analysis"`
-	ExecutionGraph llmExecutionGraph `json:"execution_graph"`
+// =============================================================================
+// LLM Response Parsing (Registry Prompt Format)
+// =============================================================================
+
+// registryResponse is the JSON structure from the registry migration prompt.
+type registryResponse struct {
+	SourceSystem   string                `json:"source_system"`
+	RepoLayer      string                `json:"repo_layer"`
+	Projects       []registryProject     `json:"projects"`
+	ExecutionGraph registryExecutionGraph `json:"execution_graph"`
+	// Optional fields that may be included
+	Warnings              []string              `json:"warnings,omitempty"`
+	UnencryptedSecrets    []registrySecret      `json:"unencrypted_secrets,omitempty"`
 }
 
-type llmAnalysis struct {
-	System            string            `json:"system"`
-	SystemConfidence  float64           `json:"system_confidence"`
-	InputSummary      string            `json:"input_summary"`
-	Structure         *StructureInfo    `json:"structure"`
-	RepoLayer         string            `json:"repo_layer"`
-	EncryptionSystems []string          `json:"encryption_systems"`
-	Scripts           []llmScript       `json:"scripts"`
-	SecretFindings    []llmSecret       `json:"secret_findings"`
-	Observations      []string          `json:"observations"`
-	Warnings          []string          `json:"warnings"`
-	Recommendations   []string          `json:"recommendations"`
+type registryProject struct {
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	SourceGroups []string `json:"source_groups,omitempty"`
 }
 
-type llmScript struct {
-	RelPath       string   `json:"rel_path"`
-	Name          string   `json:"name"`
-	Phase         string   `json:"phase"`
-	PlatformGuard string   `json:"platform_guard"`
-	LineCount     int      `json:"line_count"`
-	Observations  []string `json:"observations"`
+type registrySecret struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+	Action string `json:"action,omitempty"`
 }
 
-type llmSecret struct {
-	RelPath          string `json:"rel_path"`
-	Encryption       string `json:"encryption"`
-	Reason           string `json:"reason"`
-	SuggestedPattern string `json:"suggested_pattern"`
+type registryExecutionGraph struct {
+	Nodes []registryNode `json:"nodes"`
+	Edges []registryEdge `json:"edges"`
 }
 
-type llmExecutionGraph struct {
-	Nodes []llmNode `json:"nodes"`
-	Edges []llmEdge `json:"edges"`
+type registryNode struct {
+	ID      string `json:"id"`
+	Op      string `json:"op"`
+	Source  string `json:"source"`
+	Target  string `json:"target"`
+	Project string `json:"project,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
-type llmNode struct {
-	ID         string   `json:"id"`
-	Operations []string `json:"operations"`
-	Source     string   `json:"source"`
-	Target     string   `json:"target"`
-	Status     string   `json:"status"`
+type registryEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
-type llmEdge struct {
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Relation string `json:"relation"`
-}
-
-// parseLLMResponse parses the LLM JSON response into our domain types.
-func parseLLMResponse(content, sourceRoot string) (*LLMResult, error) {
-	var resp llmResponse
+// parseRegistryLLMResponse parses LLM output from the registry migration prompt.
+func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
+	var resp registryResponse
 	if err := json.Unmarshal([]byte(content), &resp); err != nil {
-		return nil, fmt.Errorf("parse LLM response: %w\nResponse: %s", err, content)
+		return nil, fmt.Errorf("parse registry LLM response: %w\nResponse: %s", err, content)
 	}
 
-	// Convert analysis
+	// Convert to MigrationAnalysis
 	analysis := &MigrationAnalysis{
-		SourceRoot:       sourceRoot,
-		System:           parseSourceSystem(resp.Analysis.System),
-		SystemConfidence: resp.Analysis.SystemConfidence,
-		InputSummary:     resp.Analysis.InputSummary,
-		Structure:        resp.Analysis.Structure,
-		RepoLayer:        parseRepoLayer(resp.Analysis.RepoLayer),
-		Observations:     resp.Analysis.Observations,
-		Warnings:         resp.Analysis.Warnings,
-		Recommendations:  resp.Analysis.Recommendations,
+		SourceRoot: sourceRoot,
+		System:     parseSourceSystem(resp.SourceSystem),
+		RepoLayer:  parseRepoLayer(resp.RepoLayer),
+		Warnings:   resp.Warnings,
 	}
 
-	// Convert encryption systems
-	for _, enc := range resp.Analysis.EncryptionSystems {
-		analysis.EncryptionSystems = append(analysis.EncryptionSystems, parseEncryptionSystem(enc))
+	// Extract project names
+	for _, p := range resp.Projects {
+		analysis.Projects = append(analysis.Projects, p.Name)
 	}
 
-	// Convert scripts
-	for _, s := range resp.Analysis.Scripts {
-		analysis.Scripts = append(analysis.Scripts, ScriptAnalysis{
-			RelPath:       s.RelPath,
-			Name:          s.Name,
-			Phase:         s.Phase,
-			PlatformGuard: s.PlatformGuard,
-			LineCount:     s.LineCount,
-			Observations:  s.Observations,
-		})
-	}
-
-	// Convert secret findings
-	for _, sf := range resp.Analysis.SecretFindings {
+	// Convert unencrypted secrets to secret findings
+	for _, s := range resp.UnencryptedSecrets {
 		analysis.SecretFindings = append(analysis.SecretFindings, SecretFinding{
-			RelPath:          sf.RelPath,
-			Encryption:       parseEncryptionSystem(sf.Encryption),
-			Reason:           sf.Reason,
-			SuggestedPattern: sf.SuggestedPattern,
+			RelPath:    s.Path,
+			Encryption: EncryptNone,
+			Reason:     s.Reason,
 		})
 	}
 
-	// Build execution graph
-	graph := buildGraphFromLLM(sourceRoot, &resp.ExecutionGraph)
+	// Build execution graph from registry format
+	graph := buildGraphFromRegistry(sourceRoot, &resp.ExecutionGraph)
 
-	// Compute stats from graph
+	// Compute stats
 	analysis.Stats = computeStatsFromGraph(graph, analysis)
 
 	return &LLMResult{
@@ -482,6 +364,51 @@ func parseLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 		Graph:    graph,
 	}, nil
 }
+
+// buildGraphFromRegistry constructs an execution.Graph from registry prompt output.
+func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *execution.Graph {
+	plan := execution.NewPlan("migrate")
+	nodeMap := make(map[string]*execution.Node)
+
+	for _, n := range regGraph.Nodes {
+		source := n.Source
+		target := n.Target
+		if sourceRoot != "" && !strings.HasPrefix(source, "/") {
+			source = sourceRoot + "/" + source
+			target = sourceRoot + "/" + target
+		}
+
+		var node *execution.Node
+		switch n.Op {
+		case "rename":
+			node = plan.Rename(source, target)
+		case "mkdir":
+			node = plan.Mkdir(target)
+		case "copy":
+			node = plan.Copy(source, target)
+		case "remove":
+			node = plan.Remove(source)
+		}
+		if node != nil {
+			nodeMap[n.ID] = node
+		}
+	}
+
+	// Apply edges
+	for _, e := range regGraph.Edges {
+		from := nodeMap[e.From]
+		to := nodeMap[e.To]
+		if from != nil && to != nil {
+			plan.DependsOn(from, to)
+		}
+	}
+
+	return plan.Graph()
+}
+
+// =============================================================================
+// String Parsing Helpers
+// =============================================================================
 
 // parseSourceSystem converts a string to SourceSystem.
 func parseSourceSystem(s string) SourceSystem {
@@ -537,46 +464,6 @@ func parseEncryptionSystem(s string) EncryptionSystem {
 	default:
 		return EncryptNone
 	}
-}
-
-// buildGraphFromLLM constructs an execution.Graph from LLM output.
-func buildGraphFromLLM(sourceRoot string, llmGraph *llmExecutionGraph) *execution.Graph {
-	plan := execution.NewPlan("migrate")
-
-	// Build node ID map for edge lookup
-	nodeMap := make(map[string]*execution.Node)
-
-	for _, n := range llmGraph.Nodes {
-		// Join source root with relative paths
-		source := n.Source
-		target := n.Target
-		if sourceRoot != "" && !strings.HasPrefix(source, "/") {
-			source = sourceRoot + "/" + source
-			target = sourceRoot + "/" + target
-		}
-
-		var node *execution.Node
-		for _, op := range n.Operations {
-			switch op {
-			case "rename":
-				node = plan.Rename(source, target)
-			}
-		}
-		if node != nil {
-			nodeMap[n.ID] = node
-		}
-	}
-
-	// Apply edges
-	for _, e := range llmGraph.Edges {
-		from := nodeMap[e.From]
-		to := nodeMap[e.To]
-		if from != nil && to != nil && e.Relation == "orders" {
-			plan.DependsOn(from, to)
-		}
-	}
-
-	return plan.Graph()
 }
 
 // computeStatsFromGraph computes summary statistics from the graph and analysis.

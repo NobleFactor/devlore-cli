@@ -1,0 +1,51 @@
+# Expected onboarding output for ripgrep
+product:
+  name: ripgrep
+  canonical_name: ripgrep
+  category: cli-tool
+  vendor: BurntSushi
+  license: MIT OR Unlicense
+
+sources:
+  homepage: https://github.com/BurntSushi/ripgrep
+  repository: https://github.com/BurntSushi/ripgrep
+  releases: https://github.com/BurntSushi/ripgrep/releases
+
+platforms:
+  darwin:
+    supported: true
+    install_methods:
+      - brew install ripgrep
+      - sudo port install ripgrep
+  linux:
+    supported: true
+    distributions:
+      - debian
+      - ubuntu
+      - fedora
+      - arch
+    install_methods:
+      - apt-get install ripgrep
+      - dnf install ripgrep
+      - pacman -S ripgrep
+  windows:
+    supported: true
+    install_methods:
+      - choco install ripgrep
+      - scoop install ripgrep
+      - winget install BurntSushi.ripgrep.MSVC
+
+complexity:
+  rating: simple
+  concerns: []
+
+expected_slots:
+  - name: install_command
+    platform: darwin
+    value: brew install ripgrep
+  - name: install_command
+    platform: linux-debian
+    value: sudo apt-get install ripgrep
+  - name: install_command
+    platform: windows
+    value: choco install ripgrep

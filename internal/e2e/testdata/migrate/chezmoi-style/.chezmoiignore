@@ -1,0 +1,4 @@
+# Files to ignore
+README.md
+LICENSE
+*.bak

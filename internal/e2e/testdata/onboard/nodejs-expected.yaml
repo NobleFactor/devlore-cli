@@ -1,0 +1,62 @@
+# Expected onboarding output for Node.js
+product:
+  name: Node.js
+  canonical_name: nodejs
+  category: runtime
+  vendor: OpenJS Foundation
+  version: "22.13.0"
+  license: MIT
+
+sources:
+  homepage: https://nodejs.org
+  repository: https://github.com/nodejs/node
+  installation:
+    - https://nodejs.org/en/download/
+
+platforms:
+  darwin:
+    supported: true
+    architectures:
+      - arm64
+      - x64
+    install_methods:
+      - brew install node
+      - nvm install --lts
+  linux:
+    supported: true
+    architectures:
+      - x64
+      - arm64
+    distributions:
+      - ubuntu
+      - debian
+    install_methods:
+      - apt-get install nodejs (via NodeSource)
+      - nvm install --lts
+  windows:
+    supported: true
+    architectures:
+      - x64
+    install_methods:
+      - choco install nodejs-lts
+      - winget install Schniz.fnm
+
+complexity:
+  rating: moderate
+  concerns:
+    - Multiple version managers available (nvm, fnm)
+    - NodeSource repository setup required for apt
+
+expected_slots:
+  - name: install_command
+    platform: darwin
+    value: brew install node
+  - name: install_command
+    platform: linux-debian
+    value: sudo apt-get install -y nodejs
+  - name: install_command
+    platform: windows
+    value: choco install nodejs-lts
+  - name: verification
+    platform: all
+    value: node --version && npm --version

@@ -108,61 +108,49 @@ func TestFormatForPrompt(t *testing.T) {
 	}
 }
 
-// TestParseLLMResponse tests parsing of LLM responses.
-func TestParseLLMResponse(t *testing.T) {
+// TestParseRegistryLLMResponse tests parsing of LLM responses in registry format.
+func TestParseRegistryLLMResponse(t *testing.T) {
 	sourceRoot := "/test/root"
 
-	// Minimal valid response
+	// Minimal valid response in registry format
 	response := `{
-		"analysis": {
-			"system": "tuckr",
-			"system_confidence": 0.95,
-			"input_summary": "Test repository",
-			"structure": {
-				"groups_path": "Home/Configs",
-				"naming_convention": "<group>-<Platform>",
-				"groups": ["all", "noblefactor"],
-				"platforms": ["Darwin", "Unix"]
-			},
-			"repo_layer": "personal",
-			"encryption_systems": ["git-crypt"],
-			"scripts": [],
-			"secret_findings": [],
-			"observations": ["Test observation"],
-			"warnings": ["Test warning"],
-			"recommendations": ["Test recommendation"]
-		},
+		"source_system": "tuckr",
+		"repo_layer": "personal",
+		"projects": [
+			{"name": "all", "description": "Core configs", "source_groups": ["all"]}
+		],
+		"warnings": ["Test warning"],
+		"unencrypted_secrets": [
+			{"path": "secrets/api-key.txt", "reason": "Contains API key", "action": "encrypt"}
+		],
 		"execution_graph": {
 			"nodes": [
-				{"id": "rename-1", "operations": ["rename"], "source": "Home/Configs/all-Darwin", "target": "Home/Configs/all.Darwin", "status": "pending"}
+				{"id": "rename-1", "op": "rename", "source": "Home/Configs/all-Darwin", "target": "Home/Configs/all.Darwin", "project": "all"}
 			],
 			"edges": []
 		}
 	}`
 
-	result, err := parseLLMResponse(response, sourceRoot)
+	result, err := parseRegistryLLMResponse(response, sourceRoot)
 	if err != nil {
-		t.Fatalf("parseLLMResponse failed: %v", err)
+		t.Fatalf("parseRegistryLLMResponse failed: %v", err)
 	}
 
 	// Check analysis
 	if result.Analysis.System != SystemTuckr {
 		t.Errorf("system = %q, want %q", result.Analysis.System, SystemTuckr)
 	}
-	if result.Analysis.SystemConfidence != 0.95 {
-		t.Errorf("confidence = %f, want 0.95", result.Analysis.SystemConfidence)
+	if result.Analysis.RepoLayer != LayerPersonal {
+		t.Errorf("repo_layer = %q, want %q", result.Analysis.RepoLayer, LayerPersonal)
 	}
-	if result.Analysis.Structure == nil {
-		t.Fatal("structure is nil")
+	if len(result.Analysis.Projects) != 1 || result.Analysis.Projects[0] != "all" {
+		t.Errorf("projects = %v, want [all]", result.Analysis.Projects)
 	}
-	if result.Analysis.Structure.GroupsPath != "Home/Configs" {
-		t.Errorf("groups_path = %q, want %q", result.Analysis.Structure.GroupsPath, "Home/Configs")
+	if len(result.Analysis.Warnings) != 1 {
+		t.Errorf("warnings count = %d, want 1", len(result.Analysis.Warnings))
 	}
-	if len(result.Analysis.Observations) != 1 {
-		t.Errorf("observations count = %d, want 1", len(result.Analysis.Observations))
-	}
-	if len(result.Analysis.EncryptionSystems) != 1 || result.Analysis.EncryptionSystems[0] != EncryptGitCrypt {
-		t.Errorf("encryption_systems = %v, want [git-crypt]", result.Analysis.EncryptionSystems)
+	if len(result.Analysis.SecretFindings) != 1 {
+		t.Errorf("secret_findings count = %d, want 1", len(result.Analysis.SecretFindings))
 	}
 
 	// Check graph
@@ -246,14 +234,14 @@ func TestFormatMigrationViewJSON(t *testing.T) {
 		},
 	}
 
-	// Create a mock graph
-	graph := buildGraphFromLLM("/test/root", &llmExecutionGraph{
-		Nodes: []llmNode{
-			{ID: "r1", Operations: []string{"rename"}, Source: "all-Darwin", Target: "all.Darwin", Status: "pending"},
-			{ID: "r2", Operations: []string{"rename"}, Source: "all-Unix", Target: "all.Unix", Status: "pending"},
+	// Create a mock graph using registry format
+	graph := buildGraphFromRegistry("/test/root", &registryExecutionGraph{
+		Nodes: []registryNode{
+			{ID: "r1", Op: "rename", Source: "all-Darwin", Target: "all.Darwin"},
+			{ID: "r2", Op: "rename", Source: "all-Unix", Target: "all.Unix"},
 		},
-		Edges: []llmEdge{
-			{From: "r1", To: "r2", Relation: "orders"},
+		Edges: []registryEdge{
+			{From: "r1", To: "r2"},
 		},
 	})
 
@@ -312,11 +300,11 @@ func TestFormatMigrationViewYAML(t *testing.T) {
 		RepoLayer:  LayerTeam,
 	}
 
-	graph := buildGraphFromLLM("/test/root", &llmExecutionGraph{
-		Nodes: []llmNode{
-			{ID: "r1", Operations: []string{"rename"}, Source: "pkg-Darwin", Target: "pkg.Darwin", Status: "pending"},
+	graph := buildGraphFromRegistry("/test/root", &registryExecutionGraph{
+		Nodes: []registryNode{
+			{ID: "r1", Op: "rename", Source: "pkg-Darwin", Target: "pkg.Darwin"},
 		},
-		Edges: []llmEdge{},
+		Edges: []registryEdge{},
 	})
 
 	var buf bytes.Buffer
@@ -367,11 +355,11 @@ func TestExecuteWithMockGraph(t *testing.T) {
 		RepoLayer:  LayerPersonal,
 	}
 
-	graph := buildGraphFromLLM(tmpDir, &llmExecutionGraph{
-		Nodes: []llmNode{
-			{ID: "r1", Operations: []string{"rename"}, Source: "all-Darwin", Target: "all.Darwin", Status: "pending"},
+	graph := buildGraphFromRegistry(tmpDir, &registryExecutionGraph{
+		Nodes: []registryNode{
+			{ID: "r1", Op: "rename", Source: "all-Darwin", Target: "all.Darwin"},
 		},
-		Edges: []llmEdge{},
+		Edges: []registryEdge{},
 	})
 
 	var buf bytes.Buffer
@@ -413,11 +401,11 @@ func TestExecuteConflict(t *testing.T) {
 		System:     SystemScriptBased,
 	}
 
-	graph := buildGraphFromLLM(tmpDir, &llmExecutionGraph{
-		Nodes: []llmNode{
-			{ID: "r1", Operations: []string{"rename"}, Source: "all-Darwin", Target: "all.Darwin", Status: "pending"},
+	graph := buildGraphFromRegistry(tmpDir, &registryExecutionGraph{
+		Nodes: []registryNode{
+			{ID: "r1", Op: "rename", Source: "all-Darwin", Target: "all.Darwin"},
 		},
-		Edges: []llmEdge{},
+		Edges: []registryEdge{},
 	})
 
 	var buf bytes.Buffer

@@ -1,0 +1,6 @@
+# Stow ignore patterns
+\.git
+\.gitignore
+README\.md
+LICENSE
+\.stow-local-ignore

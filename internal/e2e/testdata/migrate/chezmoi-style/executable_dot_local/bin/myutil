@@ -1,0 +1,3 @@
+#!/bin/bash
+# A custom utility script
+echo "Running myutil..."

@@ -33,13 +33,14 @@ The provider field in configuration determines:
 
 # Supported Providers
 
-	| Provider     | Default Endpoint                           | Auth Header               |
-	|--------------|--------------------------------------------|---------------------------|
-	| anthropic    | https://api.anthropic.com/v1/messages      | x-api-key                 |
-	| azure-openai | (requires endpoint)                        | api-key                   |
-	| github       | https://models.inference.ai.azure.com      | Authorization: Bearer     |
-	| ollama       | http://localhost:11434                     | (none)                    |
-	| openai       | https://api.openai.com/v1                  | Authorization: Bearer     |
+	| Provider     | Default Endpoint                                | Auth Header               |
+	|--------------|------------------------------------------------|---------------------------|
+	| anthropic    | https://api.anthropic.com/v1/messages          | x-api-key                 |
+	| gemini       | https://generativelanguage.googleapis.com/v1beta| ?key= query param        |
+	| github       | https://models.inference.ai.azure.com          | Authorization: Bearer     |
+	| groq         | https://api.groq.com/openai/v1                 | Authorization: Bearer     |
+	| ollama       | http://localhost:11434                         | (none)                    |
+	| openai       | https://api.openai.com/v1                      | Authorization: Bearer     |
 
 See config.go for full configuration reference including CLI flags,
 environment variables, config file format, and resolution order.
@@ -143,15 +144,6 @@ func NewProvider(cfg Config) (Provider, error) {
 		}
 		return NewOpenAIProvider(cfg.APIKey, cfg.Model, cfg.Endpoint), nil
 
-	case "azure-openai":
-		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("azure-openai provider requires api_key")
-		}
-		if cfg.Endpoint == "" {
-			return nil, fmt.Errorf("azure-openai provider requires endpoint")
-		}
-		return NewAzureOpenAIProvider(cfg.APIKey, cfg.Endpoint, cfg.Model), nil
-
 	case "github":
 		// GitHub Models uses OpenAI-compatible API
 		if cfg.APIKey == "" {
@@ -166,6 +158,18 @@ func NewProvider(cfg Config) (Provider, error) {
 			model = "gpt-4o"
 		}
 		return NewOpenAIProvider(cfg.APIKey, model, endpoint), nil
+
+	case "groq":
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("groq provider requires api_key")
+		}
+		return NewGroqProvider(cfg.APIKey, cfg.Model), nil
+
+	case "gemini":
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("gemini provider requires api_key")
+		}
+		return NewGeminiProvider(cfg.APIKey, cfg.Model), nil
 
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)

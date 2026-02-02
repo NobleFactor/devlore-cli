@@ -1,0 +1,67 @@
+# Expected onboarding output for VS Code
+product:
+  name: Visual Studio Code
+  canonical_name: vscode
+  category: editor
+  vendor: Microsoft
+  version: "1.96.4"
+  license: MIT (core) / Microsoft License (binaries)
+
+sources:
+  homepage: https://code.visualstudio.com
+  repository: https://github.com/microsoft/vscode
+
+platforms:
+  darwin:
+    supported: true
+    architectures:
+      - arm64
+      - x64
+      - universal
+    install_methods:
+      - brew install --cask visual-studio-code
+      - download .dmg
+  linux:
+    supported: true
+    architectures:
+      - amd64
+      - arm64
+      - armhf
+    distributions:
+      - debian
+      - ubuntu
+      - fedora
+      - rhel
+    install_methods:
+      - apt install code (via Microsoft repo)
+      - snap install code --classic
+      - dnf install code (via Microsoft repo)
+  windows:
+    supported: true
+    architectures:
+      - x64
+      - arm64
+    install_methods:
+      - choco install vscode
+      - winget install Microsoft.VisualStudioCode
+      - download installer
+
+complexity:
+  rating: moderate
+  concerns:
+    - Microsoft repository setup required on Linux
+    - GPG key import needed for apt
+
+expected_slots:
+  - name: install_command
+    platform: darwin
+    value: brew install --cask visual-studio-code
+  - name: install_command
+    platform: linux-debian
+    value: sudo apt install code
+  - name: install_command
+    platform: linux-fedora
+    value: sudo dnf install code
+  - name: install_command
+    platform: windows
+    value: winget install Microsoft.VisualStudioCode
