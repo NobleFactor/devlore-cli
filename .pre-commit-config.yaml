@@ -6,11 +6,16 @@
 # Install: pre-commit install
 # Run manually: pre-commit run --all-files
 #
-# Requires: go, golangci-lint
+# Requires: go, golangci-lint, shfmt, shellcheck
+#
+# Quality objectives:
+#   Go:    Low complexity, no dead code, clean formatting (.golangci.yaml)
+#   Shell: shfmt formatting, shellcheck static analysis
 
 repos:
   - repo: local
     hooks:
+      # === Go hooks ===
       - id: go-mod-tidy
         name: Tidy Go modules
         entry: bash -c 'go mod tidy && git diff --exit-code go.mod go.sum'
@@ -20,7 +25,7 @@ repos:
 
       - id: go-fmt
         name: Format Go code
-        entry: go fmt ./...
+        entry: gofmt -l -w .
         language: system
         pass_filenames: false
         types: [go]
@@ -33,19 +38,26 @@ repos:
         types: [go]
 
       - id: golangci-lint
-        name: Lint Go code
-        entry: golangci-lint run
+        name: Lint Go code (complexity, dead code, style)
+        entry: golangci-lint run --config .golangci.yaml
         language: system
         pass_filenames: false
         types: [go]
 
-      - id: gocyclo
-        name: Check cyclomatic complexity
-        entry: bash -c 'go install github.com/fzipp/gocyclo/cmd/gocyclo@latest && VIOLATIONS=$(gocyclo -over 19 . | grep -v "_test.go" || true); if [ -n "$VIOLATIONS" ]; then echo "ERROR: Functions with complexity > 19:"; echo "$VIOLATIONS"; exit 1; fi'
+      # === Shell hooks ===
+      - id: shfmt
+        name: Format shell scripts (shfmt)
+        entry: shfmt -d -i 4 -ci
         language: system
-        pass_filenames: false
-        types: [go]
+        types: [shell]
 
+      - id: shellcheck
+        name: Lint shell scripts (shellcheck)
+        entry: shellcheck -x --severity=warning
+        language: system
+        types: [shell]
+
+      # === Other hooks ===
       - id: guide-frontmatter
         name: Validate guide frontmatter
         entry: scripts/Test-GuideFrontmatter.sh
