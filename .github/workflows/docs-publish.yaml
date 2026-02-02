@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: NobleFactor/devlore.noblefactor.com
-          token: ${{ secrets.SITE_DEPLOY_TOKEN }}
+          token: ${{ secrets.NOBLEFACTOR_REPOSITORY_ACCESS }}
           path: site
 
       - name: Update site content
@@ -43,10 +43,10 @@ jobs:
           rm -rf site/src/content/guides/
           cp -r docs/guides/ site/src/content/guides/
 
-      - name: Create PR on site repo
+      - name: Create and merge PR on site repo
         working-directory: site
         env:
-          GH_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
+          GH_TOKEN: ${{ secrets.NOBLEFACTOR_REPOSITORY_ACCESS }}
         run: |
           BRANCH="cli-docs/update-$(date -u +%Y%m%d-%H%M%S)"
           git config user.name "github-actions[bot]"
@@ -64,7 +64,9 @@ jobs:
           Triggered by push to \`${GITHUB_REF_NAME}\` branch.
 
           Includes CLI reference (generated) and guides (hand-written)."
-          gh pr create \
+          PR_URL=$(gh pr create \
             --title "Update CLI documentation" \
             --body "$BODY" \
-            --base develop
+            --base develop)
+          echo "Created PR: $PR_URL"
+          gh pr merge "$PR_URL" --squash --auto --delete-branch
