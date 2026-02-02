@@ -123,11 +123,11 @@ See [GitHub Actions Workflows](#github-actions-workflows) above for the full pic
 
 | Secret | Scope | Used By | Purpose |
 |--------|-------|---------|---------|
-| `SITE_DEPLOY_TOKEN` | Repo | `release.yaml` | PAT with write access to `devlore.noblefactor.com` only |
-| `NOBLEFACTOR_AUTOMATION` | Org | `docs-publish.yaml`, `sync-knowledge.yaml` | PAT for cross-repo automation (website, registry, ops) |
+| `NOBLEFACTOR_AUTOMATION` | Org | `docs-publish.yaml`, `sync-knowledge.yaml` | Write access for cross-repo automation (website, registry, ops) |
+| `NOBLEFACTOR_CONTENT_ACCESS` | Org | `release.yaml` | Read access to all NobleFactor repos for releases |
 | `GITHUB_TOKEN` | Auto | `release.yaml` | Auto-provided, creates GitHub releases |
 
-**Token separation rationale**: `release.yaml` runs frequently (every push to develop/release/*), so it uses `SITE_DEPLOY_TOKEN` scoped only to the website. This limits blast radius if compromised. `NOBLEFACTOR_AUTOMATION` has broader cross-repo access for less frequent automation tasks.
+**Token separation rationale**: `NOBLEFACTOR_CONTENT_ACCESS` has read-only access to repo contents, limiting blast radius for the frequently-running release workflow. `NOBLEFACTOR_AUTOMATION` has write access for cross-repo automation tasks. Use `scripts/Update-NFSecrets` to rotate both tokens.
 
 See [devlore.noblefactor.com/DEPLOYMENT.md](https://github.com/NobleFactor/devlore.noblefactor.com/blob/develop/DEPLOYMENT.md) for full secrets documentation.
 
