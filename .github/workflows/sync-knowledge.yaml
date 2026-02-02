@@ -28,14 +28,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: NobleFactor/noblefactor-ops
-          token: ${{ secrets.NOBLEFACTOR_REPOSITORY_ACCESS }}
+          token: ${{ secrets.NOBLEFACTOR_AUTOMATION }}
           path: noblefactor-ops
 
       - name: Checkout devlore-registry
         uses: actions/checkout@v4
         with:
           repository: NobleFactor/devlore-registry
-          token: ${{ secrets.NOBLEFACTOR_REPOSITORY_ACCESS }}
+          token: ${{ secrets.NOBLEFACTOR_AUTOMATION }}
           ref: ${{ github.ref_name }}
           path: devlore-registry
 
