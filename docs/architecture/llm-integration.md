@@ -1,0 +1,358 @@
+# LLM Integration Architecture
+
+This document describes how devlore-cli integrates with Large Language Models (LLMs)
+for intelligent analysis tasks in `writ migrate` and `lore onboard`.
+
+## Design Principles
+
+1. **Provider Agnostic**: Support multiple LLM providers through a common interface
+2. **Local-First**: Default to local inference (Ollama) for privacy and cost
+3. **Registry-Driven Prompts**: Load prompts from the devlore-registry knowledge base
+4. **Structured Output**: Parse LLM responses into typed Go structures
+5. **Graceful Degradation**: Commands should work (with reduced capability) if LLM unavailable
+
+## Provider Abstraction
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Command Layer                               │
+│              (writ migrate, lore onboard)                        │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Load prompt from registry knowledge base                     │
+│  2. Gather context (tree structure, scripts, URLs)              │
+│  3. Call provider.Complete(prompt, context)                      │
+│  4. Parse structured response                                    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     model.Provider Interface                     │
+│                   (internal/model/provider.go)                   │
+├─────────────────────────────────────────────────────────────────┤
+│  Complete(ctx, prompt, options) → (response, error)              │
+│  Name() → string                                                 │
+│  Models() → []string                                             │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+        ┌──────────┐   ┌──────────┐   ┌──────────┐
+        │  Ollama  │   │ Anthropic│   │  GitHub  │
+        │ (local)  │   │ (Claude) │   │ (Models) │
+        └──────────┘   └──────────┘   └──────────┘
+```
+
+### Supported Providers
+
+| Provider | Model Examples | Authentication | Notes |
+|----------|---------------|----------------|-------|
+| `ollama` | llama3.2, mistral, qwen2.5 | None (local) | Default, requires Ollama running |
+| `anthropic` | claude-3-5-sonnet, claude-3-haiku | `ANTHROPIC_API_KEY` | Best quality, usage costs |
+| `github` | gpt-4o, claude-3.5-sonnet | `gh auth token` | Free with GitHub account |
+| `openai` | gpt-4o, gpt-4o-mini | `OPENAI_API_KEY` | Usage costs |
+
+### Provider Selection
+
+```go
+// Environment-based selection (precedence order)
+// 1. --model-provider flag
+// 2. DEVLORE_MODEL_PROVIDER environment variable
+// 3. Default: "ollama"
+
+provider := model.NewProvider(model.Config{
+    Provider: os.Getenv("DEVLORE_MODEL_PROVIDER"),
+    APIKey:   os.Getenv("DEVLORE_MODEL_API_KEY"),
+    Model:    os.Getenv("DEVLORE_MODEL"),
+})
+```
+
+## Integration Points
+
+### writ migrate
+
+Uses LLM to analyze existing dotfiles repositories and generate migration plans.
+
+**Input Gathering:**
+```go
+type GatherInput struct {
+    Tree        *TreeNode        // Directory structure (built with filepath.WalkDir)
+    Executables []ExecutableFile // Install scripts with contents
+}
+```
+
+**Prompt Loading:**
+```go
+prompt, err := registry.LoadPrompt("migration", "migrate-to-writ.txt")
+```
+
+**LLM Request:**
+```go
+response, err := provider.Complete(ctx, prompt, model.Options{
+    SystemPrompt: migrationSystemPrompt,
+    UserContent:  formatInput(gatherInput),
+    Temperature:  0.1, // Low temperature for structured output
+})
+```
+
+**Response Parsing:**
+```go
+type LLMAnalysisResult struct {
+    Analysis       MigrationAnalysis `json:"analysis"`
+    ExecutionGraph execution.Graph   `json:"execution_graph"`
+}
+
+var result LLMAnalysisResult
+err := json.Unmarshal([]byte(response.Content), &result)
+```
+
+### lore onboard
+
+Uses LLM to extract software installation requirements from documentation.
+
+**Input Sources:**
+- Product landing pages (e.g., https://ripgrep.dev)
+- Internal wiki pages
+- README files
+- Installation guides
+
+**Prompt Loading:**
+```go
+prompt, err := registry.LoadPrompt("onboarding", "discover-product.txt")
+```
+
+**Response Schema:**
+```go
+type OnboardResult struct {
+    Product      string            `json:"product"`
+    Description  string            `json:"description"`
+    Installation InstallationPlan  `json:"installation"`
+    Configs      []ConfigFile      `json:"configs"`
+}
+```
+
+## Prompt Design
+
+Prompts are stored in the devlore-registry under `knowledge/<domain>/prompts/`.
+
+### Structure
+
+```
+knowledge/
+├── migration/
+│   ├── prompts/
+│   │   └── migrate-to-writ.txt      # Main migration prompt
+│   ├── signatures/
+│   │   ├── dotfile-systems.yaml     # Detection patterns
+│   │   ├── tuckr.yaml
+│   │   ├── stow.yaml
+│   │   └── chezmoi.yaml
+│   └── examples/
+│       └── tuckr-to-writ.yaml       # Example transformation
+└── onboarding/
+    ├── prompts/
+    │   ├── discover-product.txt     # Product analysis prompt
+    │   └── init-environment.txt     # Environment setup prompt
+    └── schemas/
+        ├── init-plan.json           # Output schema
+        └── installation-patterns.yaml
+```
+
+### Prompt Template Variables
+
+Prompts support Go template syntax for dynamic content:
+
+```
+You are analyzing a dotfiles repository for migration to writ conventions.
+
+## Detected Platform
+OS: {{.Platform.OS}}
+Arch: {{.Platform.Arch}}
+
+## Repository Structure
+{{.TreeJSON}}
+
+## Executable Scripts
+{{range .Executables}}
+### {{.Path}}
+```
+{{.Contents}}
+```
+{{end}}
+```
+
+## Structured Output Parsing
+
+LLM responses are expected to be valid JSON matching defined schemas.
+
+### Validation
+
+```go
+func ParseMigrationResponse(content string) (*LLMAnalysisResult, error) {
+    // 1. Extract JSON from response (may have markdown fences)
+    jsonContent := extractJSON(content)
+
+    // 2. Unmarshal into struct
+    var result LLMAnalysisResult
+    if err := json.Unmarshal([]byte(jsonContent), &result); err != nil {
+        return nil, fmt.Errorf("parse LLM response: %w", err)
+    }
+
+    // 3. Validate required fields
+    if result.Analysis.System == "" {
+        return nil, fmt.Errorf("missing required field: analysis.system")
+    }
+
+    return &result, nil
+}
+```
+
+### Retry Logic
+
+```go
+func CompleteWithRetry(ctx context.Context, provider model.Provider,
+    prompt string, maxRetries int) (string, error) {
+
+    var lastErr error
+    for i := 0; i < maxRetries; i++ {
+        response, err := provider.Complete(ctx, prompt, model.Options{})
+        if err != nil {
+            lastErr = err
+            continue
+        }
+
+        // Validate response parses correctly
+        if _, err := ParseMigrationResponse(response.Content); err != nil {
+            lastErr = err
+            continue
+        }
+
+        return response.Content, nil
+    }
+    return "", fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+}
+```
+
+## Token Management
+
+### Budget Allocation
+
+For migration analysis:
+- Tree structure: ~2000 tokens (depending on repo size)
+- Script contents: ~4000 tokens (prioritized by relevance)
+- Prompt template: ~1500 tokens
+- Response: ~2000 tokens
+- **Total budget**: ~10000 tokens
+
+### Content Prioritization
+
+When script contents exceed the token budget:
+
+1. Prioritize by filename pattern:
+   - `Install-*`, `Initialize-*`, `setup*` → highest priority
+   - `*.ps1`, `*.sh` at root → high priority
+   - Scripts in `Hooks/` → medium priority
+   - Other executables → lower priority
+
+2. Truncate large files (> 50KB)
+
+3. Skip binary files
+
+```go
+func prioritizeExecutables(execs []ExecutableFile, budget int) []ExecutableFile {
+    sort.Slice(execs, func(i, j int) bool {
+        return scriptPriority(execs[i].Path) > scriptPriority(execs[j].Path)
+    })
+
+    var result []ExecutableFile
+    used := 0
+    for _, exec := range execs {
+        tokens := estimateTokens(exec.Contents)
+        if used+tokens > budget {
+            break
+        }
+        result = append(result, exec)
+        used += tokens
+    }
+    return result
+}
+```
+
+## Error Handling
+
+### Provider Errors
+
+| Error Type | Handling |
+|------------|----------|
+| Connection refused (Ollama not running) | Suggest: `ollama serve` |
+| Rate limited (cloud providers) | Retry with exponential backoff |
+| Invalid API key | Clear error message with setup instructions |
+| Model not found | List available models |
+
+### Parse Errors
+
+| Error Type | Handling |
+|------------|----------|
+| Invalid JSON | Retry with explicit JSON instruction |
+| Missing required fields | Retry with schema reminder |
+| Unexpected format | Fall back to heuristic analysis |
+
+## Testing
+
+See [E2E Testing Architecture](e2e-testing.md) for multi-provider testing strategy.
+
+### Unit Testing
+
+```go
+func TestMigrationPrompt(t *testing.T) {
+    // Use a mock provider
+    provider := &MockProvider{
+        Response: `{"analysis": {...}, "execution_graph": {...}}`,
+    }
+
+    result, err := AnalyzeWithLLM(context.Background(), provider, testInput)
+    require.NoError(t, err)
+    assert.Equal(t, "tuckr", result.Analysis.System)
+}
+```
+
+### Integration Testing
+
+```go
+func TestMigrationWithOllama(t *testing.T) {
+    if testing.Short() {
+        t.Skip("skipping integration test")
+    }
+
+    provider, err := model.NewProvider(model.Config{Provider: "ollama"})
+    require.NoError(t, err)
+
+    // Test with real fixture
+    input := loadFixture(t, "testdata/migrate/tuckr-style")
+    result, err := AnalyzeWithLLM(context.Background(), provider, input)
+    require.NoError(t, err)
+
+    assert.Equal(t, "tuckr", result.Analysis.System)
+    assert.Greater(t, len(result.ExecutionGraph.Nodes), 0)
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `DEVLORE_MODEL_PROVIDER` | Provider selection | `ollama` |
+| `DEVLORE_MODEL_API_KEY` | API key for cloud providers | (none) |
+| `DEVLORE_MODEL` | Model name override | Provider-specific |
+| `DEVLORE_MODEL_TIMEOUT` | Request timeout | `120s` |
+
+### Config File
+
+```yaml
+# ~/.config/devlore/config.yaml
+model:
+  provider: anthropic
+  model: claude-3-5-sonnet-20241022
+  # api_key loaded from keychain or environment
+```
