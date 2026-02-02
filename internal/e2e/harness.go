@@ -3,8 +3,33 @@
 
 // Package e2e provides end-to-end testing infrastructure for LLM-based operations.
 //
+// # Provider Configuration
+//
+// E2E tests use devlore's standard provider resolution chain:
+//
+//  1. CLI flags (not applicable in tests)
+//  2. Environment variables: DEVLORE_MODEL_PROVIDER, DEVLORE_MODEL_API_KEY, etc.
+//  3. Config file: ~/.config/devlore/config.yaml
+//  4. Native keystore (API keys stored via 'lore config model')
+//  5. Auto-detect from common env vars: GROQ_API_KEY, GEMINI_API_KEY, etc.
+//  6. Ollama fallback if running locally
+//
+// To run E2E tests:
+//
+//	# Using devlore config (recommended)
+//	lore config model   # one-time setup
+//	E2E_TEST=1 go test ./internal/e2e/...
+//
+//	# Using environment variables
+//	E2E_TEST=1 DEVLORE_MODEL_PROVIDER=groq DEVLORE_MODEL_API_KEY=... go test ./internal/e2e/...
+//
+//	# Auto-detect from existing API keys
+//	E2E_TEST=1 go test ./internal/e2e/...  # picks up GROQ_API_KEY, ANTHROPIC_API_KEY, etc.
+//
+// # Package Contents
+//
 // This package includes:
-//   - Provider abstraction for testing across multiple LLM backends
+//   - GetTestProvider: Returns a provider using devlore's standard resolution
 //   - Metrics collection (latency, tokens, correctness)
 //   - Test fixtures for migration and onboarding scenarios
 //   - Result comparison and reporting
@@ -22,6 +47,20 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/model"
 )
+
+// GetTestProvider returns a provider using devlore's standard configuration.
+// Uses the full resolution chain: CLI flags → env vars → config → keystore → auto-detect → Ollama.
+// Returns nil and an error message if no provider is available (tests should skip).
+func GetTestProvider(ctx context.Context) (model.Provider, string) {
+	provider, err := model.EnsureProvider(ctx, false, model.CLIFlags{})
+	if err != nil {
+		return nil, fmt.Sprintf("no provider available: %v", err)
+	}
+	if provider == nil {
+		return nil, "no provider configured; run 'lore config model' or set DEVLORE_MODEL_PROVIDER"
+	}
+	return provider, ""
+}
 
 // ProviderConfig defines configuration for a test provider.
 type ProviderConfig struct {

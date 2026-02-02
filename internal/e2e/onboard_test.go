@@ -17,6 +17,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
 // OnboardExpected represents the expected output for an onboarding test.
@@ -124,37 +125,45 @@ func loadOnboardFixtures(t *testing.T) []OnboardFixture {
 	return fixtures
 }
 
-// TestOnboard_E2E runs end-to-end tests for lore onboard across providers.
+// TestOnboard_E2E runs end-to-end tests for lore onboard.
 // This test is skipped unless E2E_TEST=1 is set, as it requires LLM providers.
+// Provider configuration uses devlore's standard resolution chain:
+// CLI flags → DEVLORE_MODEL_* env → config file → keystore → auto-detect → Ollama
 func TestOnboard_E2E(t *testing.T) {
 	if os.Getenv("E2E_TEST") != "1" {
 		t.Skip("E2E_TEST=1 not set, skipping E2E tests")
 	}
 
-	// Load test configuration
-	cfg := loadE2EConfig(t)
-	fixtures := loadOnboardFixtures(t)
+	ctx := context.Background()
 
+	// Get provider using devlore's standard configuration
+	provider, skipReason := GetTestProvider(ctx)
+	if provider == nil {
+		t.Skipf("skipping E2E tests: %s", skipReason)
+	}
+	t.Logf("Using provider: %s (%s)", provider.Name(), provider.Model())
+
+	fixtures := loadOnboardFixtures(t)
 	if len(fixtures) == 0 {
 		t.Fatal("no onboarding fixtures found")
 	}
+
+	timeout := 5 * time.Minute
 
 	// Create report
 	report := &TestReport{
 		GeneratedAt: time.Now(),
 	}
 
-	// Run tests for each fixture and provider combination
+	// Run tests for each fixture
 	for _, fixture := range fixtures {
 		suite := TestSuite{
 			Name:  "onboard/" + fixture.Name,
 			RunAt: time.Now(),
 		}
 
-		for _, provCfg := range cfg.Providers {
-			result := runOnboardTest(t, fixture, provCfg, cfg.Timeout)
-			suite.Results = append(suite.Results, result)
-		}
+		result := runOnboardTestWithProvider(t, fixture, provider, timeout)
+		suite.Results = append(suite.Results, result)
 
 		report.Suites = append(report.Suites, suite)
 	}
@@ -170,32 +179,18 @@ func TestOnboard_E2E(t *testing.T) {
 	t.Log(report.GenerateSummary())
 }
 
-// runOnboardTest runs a single onboarding test with a specific provider.
-func runOnboardTest(t *testing.T, fixture OnboardFixture, provCfg ProviderConfig, timeout time.Duration) TestResult {
+// runOnboardTestWithProvider runs a single onboarding test with a provider.
+func runOnboardTestWithProvider(t *testing.T, fixture OnboardFixture, provider model.Provider, timeout time.Duration) TestResult {
 	t.Helper()
 
 	result := TestResult{
 		TestName:  fixture.Name,
-		Provider:  provCfg.Name,
-		Model:     provCfg.Model,
+		Provider:  provider.Name(),
+		Model:     provider.Model(),
 		StartTime: time.Now(),
 	}
 
-	// Create provider
-	provider, err := CreateProvider(provCfg)
-	if err != nil {
-		result.Error = err.Error()
-		result.EndTime = time.Now()
-		return result
-	}
-
-	// Check availability
 	ctx := context.Background()
-	if !provider.Available(ctx) {
-		result.Error = "provider not available"
-		result.EndTime = time.Now()
-		return result
-	}
 
 	// Load registry (required for prompts)
 	regPath := os.Getenv("DEVLORE_REGISTRY_PATH")
@@ -206,7 +201,6 @@ func runOnboardTest(t *testing.T, fixture OnboardFixture, provCfg ProviderConfig
 	}
 
 	// Create a registry pointing to the local path
-	// For testing, we use the local path directly as the cache directory
 	reg := lorepackage.New("test", nil, regPath)
 
 	// Start a local test server to serve the HTML
@@ -222,7 +216,7 @@ func runOnboardTest(t *testing.T, fixture OnboardFixture, provCfg ProviderConfig
 	var onboardResult *onboard.Result
 	var onboardErr error
 
-	err = RunWithTimeout(ctx, timeout, func(ctx context.Context) error {
+	err := RunWithTimeout(ctx, timeout, func(ctx context.Context) error {
 		onboardResult, onboardErr = onboard.Run(ctx, onboard.Options{
 			Source:    server.URL,
 			Provider:  provider,
