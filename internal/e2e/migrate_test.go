@@ -15,6 +15,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
 )
 
@@ -85,37 +86,45 @@ func loadMigrateFixtures(t *testing.T) []MigrateFixture {
 	return fixtures
 }
 
-// TestMigrate_E2E runs end-to-end tests for writ migrate across providers.
+// TestMigrate_E2E runs end-to-end tests for writ migrate.
 // This test is skipped unless E2E_TEST=1 is set, as it requires LLM providers.
+// Provider configuration uses devlore's standard resolution chain:
+// CLI flags → DEVLORE_MODEL_* env → config file → keystore → auto-detect → Ollama
 func TestMigrate_E2E(t *testing.T) {
 	if os.Getenv("E2E_TEST") != "1" {
 		t.Skip("E2E_TEST=1 not set, skipping E2E tests")
 	}
 
-	// Load test configuration
-	cfg := loadE2EConfig(t)
-	fixtures := loadMigrateFixtures(t)
+	ctx := context.Background()
 
+	// Get provider using devlore's standard configuration
+	provider, skipReason := GetTestProvider(ctx)
+	if provider == nil {
+		t.Skipf("skipping E2E tests: %s", skipReason)
+	}
+	t.Logf("Using provider: %s (%s)", provider.Name(), provider.Model())
+
+	fixtures := loadMigrateFixtures(t)
 	if len(fixtures) == 0 {
 		t.Fatal("no migration fixtures found")
 	}
+
+	timeout := 5 * time.Minute
 
 	// Create report
 	report := &TestReport{
 		GeneratedAt: time.Now(),
 	}
 
-	// Run tests for each fixture and provider combination
+	// Run tests for each fixture
 	for _, fixture := range fixtures {
 		suite := TestSuite{
 			Name:  "migrate/" + fixture.Name,
 			RunAt: time.Now(),
 		}
 
-		for _, provCfg := range cfg.Providers {
-			result := runMigrateTest(t, fixture, provCfg, cfg.Timeout)
-			suite.Results = append(suite.Results, result)
-		}
+		result := runMigrateTestWithProvider(t, fixture, provider, timeout)
+		suite.Results = append(suite.Results, result)
 
 		report.Suites = append(report.Suites, suite)
 	}
@@ -131,32 +140,18 @@ func TestMigrate_E2E(t *testing.T) {
 	t.Log(report.GenerateSummary())
 }
 
-// runMigrateTest runs a single migration test with a specific provider.
-func runMigrateTest(t *testing.T, fixture MigrateFixture, provCfg ProviderConfig, timeout time.Duration) TestResult {
+// runMigrateTestWithProvider runs a single migration test with a provider.
+func runMigrateTestWithProvider(t *testing.T, fixture MigrateFixture, provider model.Provider, timeout time.Duration) TestResult {
 	t.Helper()
 
 	result := TestResult{
 		TestName:  fixture.Name,
-		Provider:  provCfg.Name,
-		Model:     provCfg.Model,
+		Provider:  provider.Name(),
+		Model:     provider.Model(),
 		StartTime: time.Now(),
 	}
 
-	// Create provider
-	provider, err := CreateProvider(provCfg)
-	if err != nil {
-		result.Error = err.Error()
-		result.EndTime = time.Now()
-		return result
-	}
-
-	// Check availability
 	ctx := context.Background()
-	if !provider.Available(ctx) {
-		result.Error = "provider not available"
-		result.EndTime = time.Now()
-		return result
-	}
 
 	// Load registry (required for prompts)
 	regPath := os.Getenv("DEVLORE_REGISTRY_PATH")
@@ -167,7 +162,6 @@ func runMigrateTest(t *testing.T, fixture MigrateFixture, provCfg ProviderConfig
 	}
 
 	// Create a registry pointing to the local path
-	// For testing, we use the local path directly as the cache directory
 	reg := lorepackage.New("test", nil, regPath)
 
 	// Run migration analysis with timeout
@@ -176,7 +170,7 @@ func runMigrateTest(t *testing.T, fixture MigrateFixture, provCfg ProviderConfig
 	var graph *migrate.LLMResult
 	var analysisErr error
 
-	err = RunWithTimeout(ctx, timeout, func(ctx context.Context) error {
+	err := RunWithTimeout(ctx, timeout, func(ctx context.Context) error {
 		// Gather inputs
 		input, err := migrate.GatherInputs(fixture.Path, 10, 100*1024)
 		if err != nil {
@@ -281,49 +275,3 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *exec
 	return metrics
 }
 
-// loadE2EConfig loads the E2E test configuration.
-func loadE2EConfig(t *testing.T) TestConfig {
-	t.Helper()
-
-	configPath := os.Getenv("E2E_CONFIG")
-	if configPath != "" {
-		cfg, err := LoadTestConfig(configPath)
-		if err != nil {
-			t.Fatalf("loading E2E config: %v", err)
-		}
-		return cfg
-	}
-
-	// Build config from environment variables
-	cfg := DefaultTestConfig()
-
-	// Check for provider-specific env vars
-	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		cfg.Providers = append(cfg.Providers, ProviderConfig{
-			Name:     "anthropic-claude-sonnet",
-			Provider: "anthropic",
-			Model:    "claude-sonnet-4-20250514",
-			EnvKey:   "ANTHROPIC_API_KEY",
-		})
-	}
-
-	if apiKey := os.Getenv("GITHUB_TOKEN"); apiKey != "" {
-		cfg.Providers = append(cfg.Providers, ProviderConfig{
-			Name:     "github-gpt4o",
-			Provider: "github",
-			Model:    "gpt-4o",
-			EnvKey:   "GITHUB_TOKEN",
-		})
-	}
-
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		cfg.Providers = append(cfg.Providers, ProviderConfig{
-			Name:     "openai-gpt4o",
-			Provider: "openai",
-			Model:    "gpt-4o",
-			EnvKey:   "OPENAI_API_KEY",
-		})
-	}
-
-	return cfg
-}
