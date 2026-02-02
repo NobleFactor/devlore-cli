@@ -11,6 +11,7 @@ All CI/CD automation lives in `.github/workflows/`:
 | **CI** | `ci.yaml` | Push to `develop`, PRs to `develop` | Build, vet, lint, test, shell lint |
 | **Docs Publish** | `docs-publish.yaml` | Push to `develop`, `main`, `release/*` | Generates CLI docs, copies guides, creates PR to website |
 | **Release** | `release.yaml` | Push to `develop`, `main`, `release/*`, tags `v*` | Builds binaries, creates GitHub release, syncs `install.sh` to website |
+| **Sync Knowledge** | `sync-knowledge.yaml` | Push to `develop`, `main`, `release/*` (paths: `internal/starlark/**`, `internal/writ/migrate/**`) | Syncs Starlark bindings and migration knowledge to devlore-registry |
 
 ### Workflow Details
 
@@ -23,7 +24,7 @@ All CI/CD automation lives in `.github/workflows/`:
 - Generates CLI reference docs via `cmd/docgen`
 - Copies `docs/guides/` (hand-written guides)
 - Creates PR to `devlore.noblefactor.com` with content in `src/content/cli/` and `src/content/guides/`
-- Uses `SITE_DEPLOY_TOKEN` secret
+- Uses `NOBLEFACTOR_AUTOMATION` org secret
 
 **release.yaml** - Binary releases and install script sync:
 - Builds cross-platform binaries via `make dist`
@@ -120,10 +121,13 @@ See [GitHub Actions Workflows](#github-actions-workflows) above for the full pic
 
 ### Required Secrets
 
-| Secret | Used By | Purpose |
-|--------|---------|---------|
-| `SITE_DEPLOY_TOKEN` | `docs-publish.yaml`, `release.yaml` | PAT with write access to `devlore.noblefactor.com` repo |
-| `GITHUB_TOKEN` | `release.yaml` | Auto-provided, creates GitHub releases |
+| Secret | Scope | Used By | Purpose |
+|--------|-------|---------|---------|
+| `SITE_DEPLOY_TOKEN` | Repo | `release.yaml` | PAT with write access to `devlore.noblefactor.com` only |
+| `NOBLEFACTOR_AUTOMATION` | Org | `docs-publish.yaml`, `sync-knowledge.yaml` | PAT for cross-repo automation (website, registry, ops) |
+| `GITHUB_TOKEN` | Auto | `release.yaml` | Auto-provided, creates GitHub releases |
+
+**Token separation rationale**: `release.yaml` runs frequently (every push to develop/release/*), so it uses `SITE_DEPLOY_TOKEN` scoped only to the website. This limits blast radius if compromised. `NOBLEFACTOR_AUTOMATION` has broader cross-repo access for less frequent automation tasks.
 
 See [devlore.noblefactor.com/DEPLOYMENT.md](https://github.com/NobleFactor/devlore.noblefactor.com/blob/develop/DEPLOYMENT.md) for full secrets documentation.
 
