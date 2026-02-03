@@ -229,7 +229,7 @@ func (w *WindowsPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starl
 	}
 	node := w.PackageInstall(packages...)
 	packagesStr := strings.Join(packages, ",")
-	return loreStar.NewOutput(node, w.graph, packagesStr, loreStar.OutputPackage), nil
+	return loreStar.NewOutput(node, w.graph, packagesStr), nil
 }
 
 func (w *WindowsPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -246,7 +246,7 @@ func (w *WindowsPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starl
 	}
 	node := w.PackageUpgrade(packages...)
 	packagesStr := strings.Join(packages, ",")
-	return loreStar.NewOutput(node, w.graph, packagesStr, loreStar.OutputPackage), nil
+	return loreStar.NewOutput(node, w.graph, packagesStr), nil
 }
 
 func (w *WindowsPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -268,7 +268,7 @@ func (w *WindowsPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starla
 
 func (w *WindowsPlanBindings) packageUpdateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	node := w.PackageUpdate()
-	return loreStar.NewOutput(node, w.graph, "<index>", loreStar.OutputPackage), nil
+	return loreStar.NewOutput(node, w.graph, "<index>"), nil
 }
 
 func (w *WindowsPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -285,7 +285,7 @@ func (w *WindowsPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.B
 
 	node := w.Configure(input.Path(), out)
 	input.DependOn(node)
-	return loreStar.NewOutput(node, w.graph, node.GetSlot("path"), loreStar.OutputFile), nil
+	return loreStar.NewOutput(node, w.graph, node.GetSlot("path")), nil
 }
 
 func (w *WindowsPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -302,7 +302,7 @@ func (w *WindowsPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builti
 
 	node := w.Link(input.Path(), out)
 	input.DependOn(node)
-	return loreStar.NewOutput(node, w.graph, node.GetSlot("path"), loreStar.OutputSymlink), nil
+	return loreStar.NewOutput(node, w.graph, node.GetSlot("path")), nil
 }
 
 func (w *WindowsPlanBindings) copyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -319,7 +319,7 @@ func (w *WindowsPlanBindings) copyBuiltin(_ *starlark.Thread, _ *starlark.Builti
 
 	node := w.Copy(input.Path(), out)
 	input.DependOn(node)
-	return loreStar.NewOutput(node, w.graph, node.GetSlot("path"), loreStar.OutputFile), nil
+	return loreStar.NewOutput(node, w.graph, node.GetSlot("path")), nil
 }
 
 func (w *WindowsPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -344,7 +344,7 @@ func (w *WindowsPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Built
 	node.SetSlotImmediate("path", expandedOut)
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	input.DependOn(node)
-	return loreStar.NewOutput(node, w.graph, expandedOut, loreStar.OutputFile), nil
+	return loreStar.NewOutput(node, w.graph, expandedOut), nil
 }
 
 func (w *WindowsPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -370,7 +370,7 @@ func (w *WindowsPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Bui
 	}
 
 	node := w.Service(name, serviceAction)
-	return loreStar.NewOutput(node, w.graph, name, loreStar.OutputService), nil
+	return loreStar.NewOutput(node, w.graph, name), nil
 }
 
 func (w *WindowsPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -379,7 +379,7 @@ func (w *WindowsPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Built
 		return nil, err
 	}
 	node := w.Shell(command)
-	return loreStar.NewOutput(node, w.graph, command, loreStar.OutputCommand), nil
+	return loreStar.NewOutput(node, w.graph, command), nil
 }
 
 func (w *WindowsPlanBindings) gatherBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {

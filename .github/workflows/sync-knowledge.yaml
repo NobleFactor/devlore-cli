@@ -46,7 +46,7 @@ jobs:
         with:
           repository: NobleFactor/devlore-registry
           token: ${{ secrets.NOBLEFACTOR_AUTOMATION }}
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
           path: devlore-registry
 
       - name: Setup Go
