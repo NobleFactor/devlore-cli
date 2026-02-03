@@ -36,6 +36,7 @@ jobs:
         with:
           repository: NobleFactor/noblefactor-ops
           path: noblefactor-ops
+          token: ${{ secrets.NOBLEFACTOR_AUTOMATION }}
 
       - name: Install lint tools
         run: |
