@@ -65,9 +65,8 @@ type nodeView struct {
 
 // edgeView represents a dependency between nodes.
 type edgeView struct {
-	From     string `json:"from" yaml:"from"`
-	To       string `json:"to" yaml:"to"`
-	Relation string `json:"relation" yaml:"relation"`
+	From string `json:"from" yaml:"from"`
+	To   string `json:"to" yaml:"to"`
 }
 
 func formatMigrationYAML(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
@@ -101,9 +100,8 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 	var edges []edgeView
 	for _, edge := range graph.Edges {
 		edges = append(edges, edgeView{
-			From:     edge.From,
-			To:       edge.To,
-			Relation: edge.Relation,
+			From: edge.From,
+			To:   edge.To,
 		})
 	}
 

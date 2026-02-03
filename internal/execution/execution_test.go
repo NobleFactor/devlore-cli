@@ -571,8 +571,8 @@ func TestEngineTopologicalSort(t *testing.T) {
 			testNode("b", []string{"link"}, srcB, filepath.Join(tmpDir, "out_b")),
 		},
 		Edges: []Edge{
-			{From: "a", To: "b", Relation: "orders"},
-			{From: "b", To: "c", Relation: "orders"},
+			{From: "a", To: "b"},
+			{From: "b", To: "c"},
 		},
 	}
 

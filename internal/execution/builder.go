@@ -65,12 +65,11 @@ func ExpandDelegates(ctx context.Context, graph *Graph, builder SubgraphBuilder,
 		// Append subgraph edges
 		expandedEdges = append(expandedEdges, sub.Edges...)
 
-		// Add delegation edges: delegate node → each subgraph node
+		// Add edges: delegate node → each subgraph node
 		for _, subNode := range sub.Nodes {
 			expandedEdges = append(expandedEdges, Edge{
-				From:     node.ID,
-				To:       subNode.ID,
-				Relation: "delegates",
+				From: node.ID,
+				To:   subNode.ID,
 			})
 		}
 	}

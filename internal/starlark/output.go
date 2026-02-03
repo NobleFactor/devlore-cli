@@ -91,23 +91,29 @@ func (o *Output) FillSlot(consumer *execution.Node, slotName string) {
 	// Set the slot to reference this output's node
 	consumer.SetSlotPromise(slotName, o.node.ID, o.slot)
 
-	// Create edge: consumer depends_on producer
+	// Create edge: producer must complete before consumer
 	o.graph.Edges = append(o.graph.Edges, execution.Edge{
-		From:     o.node.ID, // producer
-		To:       consumer.ID,
-		Relation: "depends_on",
+		From: o.node.ID,
+		To:   consumer.ID,
 	})
 }
 
 // FillSlot fills a slot in a node from a Starlark value.
 //
-// Any slot accepts either:
+// Any slot accepts:
 //   - A promise (Output): creates an edge, value flows at runtime
+//   - A gather (Gather): creates edges from all members (parallel execution)
 //   - An immediate value: stored directly, known at analysis time
 func FillSlot(node *execution.Node, graph *execution.Graph, slotName string, value starlark.Value) error {
 	// Promise: create edge, value flows at runtime
 	if output, ok := value.(*Output); ok {
 		output.FillSlot(node, slotName)
+		return nil
+	}
+
+	// Gather: create edges from all members (parallel execution)
+	if gather, ok := value.(*Gather); ok {
+		gather.FillSlot(node, slotName)
 		return nil
 	}
 
@@ -157,4 +163,64 @@ func FillSlot(node *execution.Node, graph *execution.Graph, slotName string, val
 // Path returns a path from the node's slots.
 func (o *Output) Path() string {
 	return o.node.GetSlot("path")
+}
+
+// Gather represents a collection of outputs that can run in parallel.
+// When used as a slot input, it creates edges from ALL members to the consumer,
+// enabling parallel execution of the gathered nodes.
+//
+// Usage in Starlark:
+//
+//	a = plan.file.copy(src1, dst1)
+//	b = plan.file.copy(src2, dst2)
+//	c = plan.file.copy(src3, dst3)
+//	group = plan.gather(a, b, c)
+//	d = plan.whatever(group)  # d waits for a, b, c (which run in parallel)
+type Gather struct {
+	outputs []*Output
+	graph   *execution.Graph
+}
+
+// NewGather creates a new Gather from multiple outputs.
+func NewGather(graph *execution.Graph, outputs ...*Output) *Gather {
+	return &Gather{
+		outputs: outputs,
+		graph:   graph,
+	}
+}
+
+// Starlark Value interface
+func (g *Gather) String() string {
+	ids := make([]string, len(g.outputs))
+	for i, o := range g.outputs {
+		ids[i] = o.node.ID
+	}
+	return fmt.Sprintf("Gather(%v)", ids)
+}
+func (g *Gather) Type() string          { return "Gather" }
+func (g *Gather) Freeze()               {}
+func (g *Gather) Truth() starlark.Bool  { return len(g.outputs) > 0 }
+func (g *Gather) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: Gather") }
+
+// Outputs returns the gathered outputs.
+func (g *Gather) Outputs() []*Output {
+	return g.outputs
+}
+
+// FillSlot fills a slot in the consumer node with all gathered promises,
+// creating edges from each member. This enables parallel execution.
+func (g *Gather) FillSlot(consumer *execution.Node, slotName string) {
+	for i, output := range g.outputs {
+		// Set slot reference for each output
+		subSlot := fmt.Sprintf("%s[%d]", slotName, i)
+		consumer.SetSlotPromise(subSlot, output.node.ID, output.slot)
+
+		// Create edge: producer must complete before consumer
+		g.graph.Edges = append(g.graph.Edges, execution.Edge{
+			From: output.node.ID,
+			To:   consumer.ID,
+		})
+	}
+	// Store count for runtime
+	consumer.SetSlotImmediate(slotName+".len", fmt.Sprintf("%d", len(g.outputs)))
 }

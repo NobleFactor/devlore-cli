@@ -263,9 +263,8 @@ func (p *planBindings) Shell(command string) *execution.Node {
 // DependsOn creates a dependency edge between nodes.
 func (p *planBindings) DependsOn(from, to *execution.Node) {
 	p.graph.Edges = append(p.graph.Edges, execution.Edge{
-		From:     to.ID,
-		To:       from.ID,
-		Relation: "depends_on",
+		From: to.ID,
+		To:   from.ID,
 	})
 }
 

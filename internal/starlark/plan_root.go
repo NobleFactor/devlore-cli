@@ -70,8 +70,8 @@ func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 		return starlark.NewBuiltin("plan.service", p.service), nil
 	case "shell":
 		return starlark.NewBuiltin("plan.shell", p.shell), nil
-	case "depends_on":
-		return starlark.NewBuiltin("plan.depends_on", p.dependsOn), nil
+	case "gather":
+		return starlark.NewBuiltin("plan.gather", p.gather), nil
 	default:
 		return nil, starlark.NoSuchAttrError(fmt.Sprintf("plan has no attribute %q", name))
 	}
@@ -79,7 +79,7 @@ func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 
 func (p *PlanRoot) AttrNames() []string {
 	return []string{
-		"archive", "depends_on", "download", "file", "git",
+		"archive", "download", "file", "gather", "git",
 		"literal", "package", "service", "shell", "source",
 	}
 }
@@ -235,41 +235,38 @@ func (p *PlanRoot) shell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// dependsOn creates an explicit dependency between two nodes.
-// Usage: plan.depends_on(consumer, producer)
+// gather creates a handle for parallel execution of multiple nodes.
+// Usage: plan.gather(promise1, promise2, ...)
 //
-// This is a graph-wiring primitive for explicit ordering when there's no
-// data flow between nodes. The consumer will not execute until the producer
-// completes.
+// This collects multiple promises into a single handle. When the handle is
+// passed to another operation, it creates edges from ALL gathered nodes to
+// the consumer, enabling parallel execution.
 //
 // Arguments:
-//   - consumer: Node that depends on the producer (Output)
-//   - producer: Node that must complete first (Output)
+//   - promises: Two or more Output values to gather
 //
-// Returns: None
-func (p *PlanRoot) dependsOn(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("depends_on: expected 2 arguments, got %d", len(args))
+// Returns: Gather handle that can be passed to other operations
+//
+// Example:
+//
+//	a = plan.file.copy(src1, dst1)
+//	b = plan.file.copy(src2, dst2)
+//	c = plan.file.copy(src3, dst3)
+//	group = plan.gather(a, b, c)
+//	d = plan.whatever(group)  # d waits for a, b, c (which run in parallel)
+func (p *PlanRoot) gather(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
 	}
 
-	// Extract node ID from first argument (consumer - depends ON the second)
-	consumerID, err := extractNodeID(args[0], "first")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: %w", err)
+	outputs := make([]*Output, 0, len(args))
+	for i, arg := range args {
+		output, ok := arg.(*Output)
+		if !ok {
+			return nil, fmt.Errorf("gather: argument %d must be an Output, got %s", i+1, arg.Type())
+		}
+		outputs = append(outputs, output)
 	}
 
-	// Extract node ID from second argument (producer - depended upon)
-	producerID, err := extractNodeID(args[1], "second")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: %w", err)
-	}
-
-	// Create edge in the graph: consumer depends_on producer
-	p.graph.Edges = append(p.graph.Edges, execution.Edge{
-		From:     producerID,
-		To:       consumerID,
-		Relation: "depends_on",
-	})
-
-	return starlark.None, nil
+	return NewGather(p.graph, outputs...), nil
 }

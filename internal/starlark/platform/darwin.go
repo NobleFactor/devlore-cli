@@ -88,11 +88,11 @@ func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
 	})
 
 	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-		"file":       fileOps,
-		"package":    packageOps,
-		"depends_on": starlark.NewBuiltin("depends_on", d.dependsOnBuiltin),
-		"service":    starlark.NewBuiltin("service", d.serviceBuiltin),
-		"shell":      starlark.NewBuiltin("shell", d.shellBuiltin),
+		"file":    fileOps,
+		"package": packageOps,
+		"gather":  starlark.NewBuiltin("gather", d.gatherBuiltin),
+		"service": starlark.NewBuiltin("service", d.serviceBuiltin),
+		"shell":   starlark.NewBuiltin("shell", d.shellBuiltin),
 	})
 }
 
@@ -346,48 +346,21 @@ func (d *DarwinPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Builti
 	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
-func (d *DarwinPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("depends_on: expected 2 arguments, got %d", len(args))
+func (d *DarwinPlanBindings) gatherBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
 	}
 
-	fromIDStr, err := extractNodeID(args[0], "first")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: %w", err)
-	}
-
-	toIDStr, err := extractNodeID(args[1], "second")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: %w", err)
-	}
-
-	d.graph.Edges = append(d.graph.Edges, execution.Edge{
-		From:     toIDStr,
-		To:       fromIDStr,
-		Relation: "depends_on",
-	})
-
-	return starlark.None, nil
-}
-
-func extractNodeID(arg starlark.Value, position string) (string, error) {
-	if output, ok := arg.(*loreStar.Output); ok {
-		return output.Node().ID, nil
-	}
-
-	if st, ok := arg.(*starlarkstruct.Struct); ok {
-		idVal, err := st.Attr("id")
-		if err != nil {
-			return "", fmt.Errorf("%s argument has no id", position)
-		}
-		idStr, ok := starlark.AsString(idVal)
+	outputs := make([]*loreStar.Output, 0, len(args))
+	for i, arg := range args {
+		output, ok := arg.(*loreStar.Output)
 		if !ok {
-			return "", fmt.Errorf("%s argument id is not a string", position)
+			return nil, fmt.Errorf("gather: argument %d must be an Output, got %s", i+1, arg.Type())
 		}
-		return idStr, nil
+		outputs = append(outputs, output)
 	}
 
-	return "", fmt.Errorf("%s argument must be an Output or node struct", position)
+	return loreStar.NewGather(d.graph, outputs...), nil
 }
 
 // Legacy Go API methods - still use old fields for backward compatibility
@@ -530,8 +503,7 @@ func (d *DarwinPlanBindings) Shell(command string) *execution.Node {
 
 func (d *DarwinPlanBindings) DependsOn(from, to *execution.Node) {
 	d.graph.Edges = append(d.graph.Edges, execution.Edge{
-		From:     to.ID,
-		To:       from.ID,
-		Relation: "depends_on",
+		From: to.ID,
+		To:   from.ID,
 	})
 }

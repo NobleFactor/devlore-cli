@@ -99,9 +99,8 @@ func TestNode(t *testing.T) {
 
 func TestEdge(t *testing.T) {
 	edge := execution.Edge{
-		From:     "nodeA",
-		To:       "nodeB",
-		Relation: "depends-on",
+		From: "nodeA",
+		To:   "nodeB",
 	}
 
 	if edge.From != "nodeA" {
@@ -109,9 +108,6 @@ func TestEdge(t *testing.T) {
 	}
 	if edge.To != "nodeB" {
 		t.Errorf("expected To 'nodeB', got %q", edge.To)
-	}
-	if edge.Relation != "depends-on" {
-		t.Errorf("expected Relation 'depends-on', got %q", edge.Relation)
 	}
 }
 

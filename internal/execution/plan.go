@@ -219,21 +219,19 @@ func (p *Plan) DependsOn(from, to *Node) {
 	defer p.mu.Unlock()
 
 	p.graph.Edges = append(p.graph.Edges, Edge{
-		From:     from.ID,
-		To:       to.ID,
-		Relation: "depends_on",
+		From: from.ID,
+		To:   to.ID,
 	})
 }
 
-// Orders adds an ordering constraint without implying dependency.
+// Orders adds an ordering constraint between nodes.
 func (p *Plan) Orders(from, to *Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.graph.Edges = append(p.graph.Edges, Edge{
-		From:     from.ID,
-		To:       to.ID,
-		Relation: "orders",
+		From: from.ID,
+		To:   to.ID,
 	})
 }
 

@@ -221,9 +221,8 @@ func (l *LinuxPlanBindings) Shell(command string) *execution.Node {
 // DependsOn creates a dependency edge between nodes.
 func (l *LinuxPlanBindings) DependsOn(from, to *execution.Node) {
 	l.graph.Edges = append(l.graph.Edges, execution.Edge{
-		From:     to.ID,
-		To:       from.ID,
-		Relation: "depends_on",
+		From: to.ID,
+		To:   from.ID,
 	})
 }
 
@@ -253,9 +252,9 @@ func (l *LinuxPlanBindings) ToStarlark() starlark.Value {
 		"file":    fileOps,
 		"package": packageOps,
 		// Global functions (at root of plan)
-		"depends_on": starlark.NewBuiltin("depends_on", l.dependsOnBuiltin),
-		"service":    starlark.NewBuiltin("service", l.serviceBuiltin),
-		"shell":      starlark.NewBuiltin("shell", l.shellBuiltin),
+		"gather":  starlark.NewBuiltin("gather", l.gatherBuiltin),
+		"service": starlark.NewBuiltin("service", l.serviceBuiltin),
+		"shell":   starlark.NewBuiltin("shell", l.shellBuiltin),
 		// Linux-specific: expose distro info at top level
 		"distro": starlark.String(l.distro),
 	})
@@ -421,52 +420,19 @@ func (l *LinuxPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Builtin
 	return loreStar.NewOutput(node, l.graph, command, loreStar.OutputCommand), nil
 }
 
-func (l *LinuxPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("depends_on: expected 2 arguments, got %d", len(args))
+func (l *LinuxPlanBindings) gatherBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
 	}
 
-	// Extract node ID from first argument (consumer - depends ON the second)
-	fromIDStr, err := linuxExtractNodeID(args[0], "first")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: %w", err)
-	}
-
-	// Extract node ID from second argument (producer - depended upon)
-	toIDStr, err := linuxExtractNodeID(args[1], "second")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: %w", err)
-	}
-
-	// Create edge in the graph: consumer depends_on producer
-	l.graph.Edges = append(l.graph.Edges, execution.Edge{
-		From:     toIDStr,
-		To:       fromIDStr,
-		Relation: "depends_on",
-	})
-
-	return starlark.None, nil
-}
-
-// linuxExtractNodeID extracts the node ID from an argument that may be Output or struct.
-func linuxExtractNodeID(arg starlark.Value, position string) (string, error) {
-	// Check if it's an Output
-	if output, ok := arg.(*loreStar.Output); ok {
-		return output.Node().ID, nil
-	}
-
-	// Check if it's a struct with an id attribute
-	if st, ok := arg.(*starlarkstruct.Struct); ok {
-		idVal, err := st.Attr("id")
-		if err != nil {
-			return "", fmt.Errorf("%s argument has no id", position)
-		}
-		idStr, ok := starlark.AsString(idVal)
+	outputs := make([]*loreStar.Output, 0, len(args))
+	for i, arg := range args {
+		output, ok := arg.(*loreStar.Output)
 		if !ok {
-			return "", fmt.Errorf("%s argument id is not a string", position)
+			return nil, fmt.Errorf("gather: argument %d must be an Output, got %s", i+1, arg.Type())
 		}
-		return idStr, nil
+		outputs = append(outputs, output)
 	}
 
-	return "", fmt.Errorf("%s argument must be an Output or node struct", position)
+	return loreStar.NewGather(l.graph, outputs...), nil
 }

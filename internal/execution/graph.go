@@ -217,10 +217,10 @@ func (n *Node) GetProject() string { return n.Project }
 func (n *Node) GetMode() os.FileMode { return n.Mode }
 
 // Edge represents a dependency relationship between two nodes.
+// From must complete before To can begin execution.
 type Edge struct {
-	From     string `json:"from" yaml:"from"`
-	To       string `json:"to" yaml:"to"`
-	Relation string `json:"relation" yaml:"relation"`
+	From string `json:"from" yaml:"from"`
+	To   string `json:"to" yaml:"to"`
 }
 
 // SlotValue represents a value that fills a slot in a node.
