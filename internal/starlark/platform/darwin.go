@@ -30,7 +30,7 @@ func darwinGenerateNodeID(prefix string, components ...string) string {
 	return fmt.Sprintf("%s-%d", prefix, id)
 }
 
-// DarwinPlanBindings provides macOS-specific plan bindings.
+// DarwinPlanBindings provides macOS-specific plan bindings using the slot-based model.
 // Uses Homebrew for package management and launchd for services.
 type DarwinPlanBindings struct {
 	*basePlanBindings
@@ -53,87 +53,7 @@ func (d *DarwinPlanBindings) PackageManagerName() string {
 	return d.host.PackageManager().Name()
 }
 
-// PackageInstall adds a package installation node using the platform's package manager.
-// Supports brew:, cask:, and port: prefixes to override auto-detection.
-func (d *DarwinPlanBindings) PackageInstall(packages ...string) *execution.Node {
-	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("package-install", cleanPkgs...),
-		Operations: []string{"package-install"},
-		Project:    d.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(cleanPkgs, ","),
-		},
-	}
-	if manager != "" {
-		node.Metadata["manager"] = manager
-	}
-	if isCask {
-		node.Metadata["cask"] = "true"
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// PackageUpgrade adds a package upgrade node using the platform's package manager.
-// Supports brew:, cask:, and port: prefixes to override auto-detection.
-func (d *DarwinPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
-	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("package-upgrade", cleanPkgs...),
-		Operations: []string{"package-upgrade"},
-		Project:    d.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(cleanPkgs, ","),
-		},
-	}
-	if manager != "" {
-		node.Metadata["manager"] = manager
-	}
-	if isCask {
-		node.Metadata["cask"] = "true"
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// PackageRemove adds a package removal node using the platform's package manager.
-// Supports brew:, cask:, and port: prefixes to override auto-detection.
-func (d *DarwinPlanBindings) PackageRemove(packages ...string) *execution.Node {
-	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("package-remove", cleanPkgs...),
-		Operations: []string{"package-remove"},
-		Project:    d.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(cleanPkgs, ","),
-		},
-	}
-	if manager != "" {
-		node.Metadata["manager"] = manager
-	}
-	if isCask {
-		node.Metadata["cask"] = "true"
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// PackageUpdate adds a package index update node using the platform's package manager.
-func (d *DarwinPlanBindings) PackageUpdate() *execution.Node {
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("package-update"),
-		Operations: []string{"package-update"},
-		Project:    d.project,
-		Metadata:   map[string]string{},
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
 // parsePackagesWithPrefix extracts manager override from brew:, cask:, or port: prefixes.
-// Returns clean package names, the manager override, and whether cask mode is enabled.
-// For cask: prefix, manager is set to "brew" and isCask is true.
 func parsePackagesWithPrefix(packages []string) (cleanPkgs []string, manager string, isCask bool) {
 	cleanPkgs = make([]string, len(packages))
 	for i, p := range packages {
@@ -141,7 +61,7 @@ func parsePackagesWithPrefix(packages []string) (cleanPkgs []string, manager str
 		cleanPkgs[i] = pkg
 		if prefix != "" {
 			if prefix == "cask" {
-				manager = "brew" // Cask requires Homebrew
+				manager = "brew"
 				isCask = true
 			} else {
 				manager = prefix
@@ -151,114 +71,8 @@ func parsePackagesWithPrefix(packages []string) (cleanPkgs []string, manager str
 	return cleanPkgs, manager, isCask
 }
 
-// Configure adds a configuration file node.
-func (d *DarwinPlanBindings) Configure(source, target string) *execution.Node {
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("configure"),
-		Operations: []string{"expand", "copy"},
-		Source:     source,
-		Target:     d.host.ExpandPath(target),
-		Project:    d.project,
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// Link adds a symlink creation node.
-func (d *DarwinPlanBindings) Link(source, target string) *execution.Node {
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("link"),
-		Operations: []string{"link"},
-		Source:     source,
-		Target:     d.host.ExpandPath(target),
-		Project:    d.project,
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// Copy adds a file copy node.
-func (d *DarwinPlanBindings) Copy(source, target string) *execution.Node {
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("copy"),
-		Operations: []string{"copy"},
-		Source:     source,
-		Target:     d.host.ExpandPath(target),
-		Project:    d.project,
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// Mkdir adds a directory creation node.
-func (d *DarwinPlanBindings) Mkdir(target string) *execution.Node {
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("mkdir"),
-		Operations: []string{"mkdir"},
-		Target:     d.host.ExpandPath(target),
-		Project:    d.project,
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// Write adds a file write node (write content directly to target).
-func (d *DarwinPlanBindings) Write(target, content string) *execution.Node {
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("write"),
-		Operations: []string{"file-write"},
-		Target:     d.host.ExpandPath(target),
-		Project:    d.project,
-		Metadata: map[string]string{
-			"content": content,
-		},
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// Service adds a launchd service management node.
-func (d *DarwinPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("launchd", name, action.String()),
-		Operations: []string{"launchd-" + action.String()},
-		Project:    d.project,
-		Metadata: map[string]string{
-			"service": name,
-			"action":  action.String(),
-		},
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// Shell adds a shell command execution node.
-func (d *DarwinPlanBindings) Shell(command string) *execution.Node {
-	node := &execution.Node{
-		ID:         darwinGenerateNodeID("shell"),
-		Operations: []string{"shell"},
-		Project:    d.project,
-		Metadata: map[string]string{
-			"command": command,
-		},
-	}
-	d.graph.Nodes = append(d.graph.Nodes, node)
-	return node
-}
-
-// DependsOn creates a dependency edge between nodes.
-func (d *DarwinPlanBindings) DependsOn(from, to *execution.Node) {
-	d.graph.Edges = append(d.graph.Edges, execution.Edge{
-		From:     to.ID,
-		To:       from.ID,
-		Relation: "depends_on",
-	})
-}
-
 // ToStarlark converts the plan bindings to a Starlark struct.
-// Uses nested structs: plan.package.install(), plan.file.copy(), etc.
 func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
-	// Package operations namespace: plan.package.*
 	packageOps := starlarkstruct.FromStringDict(starlark.String("package"), starlark.StringDict{
 		"install": starlark.NewBuiltin("install", d.packageInstallBuiltin),
 		"remove":  starlark.NewBuiltin("remove", d.packageRemoveBuiltin),
@@ -266,23 +80,19 @@ func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
 		"upgrade": starlark.NewBuiltin("upgrade", d.packageUpgradeBuiltin),
 	})
 
-	// File operations namespace: plan.file.*
 	fileOps := starlarkstruct.FromStringDict(starlark.String("file"), starlark.StringDict{
 		"configure": starlark.NewBuiltin("configure", d.configureBuiltin),
 		"copy":      starlark.NewBuiltin("copy", d.copyBuiltin),
 		"link":      starlark.NewBuiltin("link", d.linkBuiltin),
-		"mkdir":     starlark.NewBuiltin("mkdir", d.mkdirBuiltin),
 		"write":     starlark.NewBuiltin("write", d.writeBuiltin),
 	})
 
 	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-		// Namespaces
 		"file":    fileOps,
 		"package": packageOps,
-		// Global functions (at root of plan)
-		"depends_on": starlark.NewBuiltin("depends_on", d.dependsOnBuiltin),
-		"service":    starlark.NewBuiltin("service", d.serviceBuiltin),
-		"shell":      starlark.NewBuiltin("shell", d.shellBuiltin),
+		"gather":  starlark.NewBuiltin("gather", d.gatherBuiltin),
+		"service": starlark.NewBuiltin("service", d.serviceBuiltin),
+		"shell":   starlark.NewBuiltin("shell", d.shellBuiltin),
 	})
 }
 
@@ -298,8 +108,23 @@ func (d *DarwinPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starla
 	if len(packages) == 0 {
 		return nil, fmt.Errorf("install: at least one package required")
 	}
-	node := d.PackageInstall(packages...)
-	return nodeToStarlark(node), nil
+
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("package-install", cleanPkgs...),
+		Operations: []string{"package-install"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -314,8 +139,23 @@ func (d *DarwinPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starla
 	if len(packages) == 0 {
 		return nil, fmt.Errorf("upgrade: at least one package required")
 	}
-	node := d.PackageUpgrade(packages...)
-	return nodeToStarlark(node), nil
+
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("package-upgrade", cleanPkgs...),
+		Operations: []string{"package-upgrade"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -330,148 +170,340 @@ func (d *DarwinPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlar
 	if len(packages) == 0 {
 		return nil, fmt.Errorf("remove: at least one package required")
 	}
-	node := d.PackageRemove(packages...)
-	return nodeToStarlark(node), nil
+
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("package-remove", cleanPkgs...),
+		Operations: []string{"package-remove"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return starlark.None, nil
 }
 
 func (d *DarwinPlanBindings) packageUpdateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-	node := d.PackageUpdate()
-	return nodeToStarlark(node), nil
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("package-update"),
+		Operations: []string{"package-update"},
+		Project:    d.project,
+	}
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("configure", args, kwargs, "source", &source, "target", &target); err != nil {
+	var source, path starlark.Value
+	if err := starlark.UnpackArgs("configure", args, kwargs, "source", &source, "path", &path); err != nil {
 		return nil, err
 	}
-	node := d.Configure(source, target)
-	return nodeToStarlark(node), nil
+
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("configure"),
+		Operations: []string{"render", "copy"},
+		Project:    d.project,
+	}
+
+	if err := loreStar.FillSlot(node, d.graph, "source", source); err != nil {
+		return nil, fmt.Errorf("configure: source: %w", err)
+	}
+	if err := loreStar.FillSlot(node, d.graph, "path", path); err != nil {
+		return nil, fmt.Errorf("configure: path: %w", err)
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("link", args, kwargs, "source", &source, "target", &target); err != nil {
+	var source, path starlark.Value
+	if err := starlark.UnpackArgs("link", args, kwargs, "source", &source, "path", &path); err != nil {
 		return nil, err
 	}
-	node := d.Link(source, target)
-	return nodeToStarlark(node), nil
+
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("link"),
+		Operations: []string{"link"},
+		Project:    d.project,
+	}
+
+	if err := loreStar.FillSlot(node, d.graph, "source", source); err != nil {
+		return nil, fmt.Errorf("link: source: %w", err)
+	}
+	if err := loreStar.FillSlot(node, d.graph, "path", path); err != nil {
+		return nil, fmt.Errorf("link: path: %w", err)
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) copyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("copy", args, kwargs, "source", &source, "target", &target); err != nil {
+	var source, path starlark.Value
+	if err := starlark.UnpackArgs("copy", args, kwargs, "source", &source, "path", &path); err != nil {
 		return nil, err
 	}
-	node := d.Copy(source, target)
-	return nodeToStarlark(node), nil
-}
 
-func (d *DarwinPlanBindings) mkdirBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var target string
-	if err := starlark.UnpackArgs("mkdir", args, kwargs, "target", &target); err != nil {
-		return nil, err
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("copy"),
+		Operations: []string{"copy"},
+		Project:    d.project,
 	}
-	node := d.Mkdir(target)
-	return nodeToStarlark(node), nil
+
+	if err := loreStar.FillSlot(node, d.graph, "source", source); err != nil {
+		return nil, fmt.Errorf("copy: source: %w", err)
+	}
+	if err := loreStar.FillSlot(node, d.graph, "path", path); err != nil {
+		return nil, fmt.Errorf("copy: path: %w", err)
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var target, content string
-	if err := starlark.UnpackArgs("write", args, kwargs, "target", &target, "content", &content); err != nil {
+	var content, path starlark.Value
+	if err := starlark.UnpackArgs("write", args, kwargs, "content", &content, "path", &path); err != nil {
 		return nil, err
 	}
-	node := d.Write(target, content)
-	return nodeToStarlark(node), nil
+
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("write"),
+		Operations: []string{"write"},
+		Project:    d.project,
+	}
+
+	if err := loreStar.FillSlot(node, d.graph, "content", content); err != nil {
+		return nil, fmt.Errorf("write: content: %w", err)
+	}
+	if err := loreStar.FillSlot(node, d.graph, "path", path); err != nil {
+		return nil, fmt.Errorf("write: path: %w", err)
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var name, action string
+	var name, action starlark.Value
 	if err := starlark.UnpackArgs("service", args, kwargs, "name", &name, "action", &action); err != nil {
 		return nil, err
 	}
 
-	var serviceAction loreStar.ServiceAction
-	switch action {
-	case "start":
-		serviceAction = loreStar.ServiceStart
-	case "stop":
-		serviceAction = loreStar.ServiceStop
-	case "restart":
-		serviceAction = loreStar.ServiceRestart
-	case "enable":
-		serviceAction = loreStar.ServiceEnable
-	case "disable":
-		serviceAction = loreStar.ServiceDisable
+	// Validate action
+	actionStr, ok := starlark.AsString(action)
+	if !ok {
+		return nil, fmt.Errorf("service: action must be a string, got %s", action.Type())
+	}
+	switch actionStr {
+	case "start", "stop", "restart", "enable", "disable":
+		// Valid
 	default:
-		return nil, fmt.Errorf("service: unknown action %q", action)
+		return nil, fmt.Errorf("service: unknown action %q", actionStr)
 	}
 
-	node := d.Service(name, serviceAction)
-	return nodeToStarlark(node), nil
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("launchd"),
+		Operations: []string{"launchd-" + actionStr},
+		Project:    d.project,
+	}
+
+	if err := loreStar.FillSlot(node, d.graph, "name", name); err != nil {
+		return nil, fmt.Errorf("service: name: %w", err)
+	}
+	if err := loreStar.FillSlot(node, d.graph, "action", action); err != nil {
+		return nil, fmt.Errorf("service: action: %w", err)
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var command string
+	var command starlark.Value
 	if err := starlark.UnpackArgs("shell", args, kwargs, "command", &command); err != nil {
 		return nil, err
 	}
-	node := d.Shell(command)
-	return nodeToStarlark(node), nil
+
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("shell"),
+		Operations: []string{"shell"},
+		Project:    d.project,
+	}
+
+	if err := loreStar.FillSlot(node, d.graph, "command", command); err != nil {
+		return nil, fmt.Errorf("shell: command: %w", err)
+	}
+
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return loreStar.NewOutput(node, d.graph, ""), nil
 }
 
-func (d *DarwinPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("depends_on: expected 2 arguments, got %d", len(args))
+func (d *DarwinPlanBindings) gatherBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
 	}
 
-	fromStruct, ok := args[0].(*starlarkstruct.Struct)
-	if !ok {
-		return nil, fmt.Errorf("depends_on: first argument must be a node")
-	}
-	toStruct, ok := args[1].(*starlarkstruct.Struct)
-	if !ok {
-		return nil, fmt.Errorf("depends_on: second argument must be a node")
-	}
-
-	fromID, err := fromStruct.Attr("id")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: first argument has no id")
-	}
-	toID, err := toStruct.Attr("id")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: second argument has no id")
+	outputs := make([]*loreStar.Output, 0, len(args))
+	for i, arg := range args {
+		output, ok := arg.(*loreStar.Output)
+		if !ok {
+			return nil, fmt.Errorf("gather: argument %d must be an Output, got %s", i+1, arg.Type())
+		}
+		outputs = append(outputs, output)
 	}
 
-	fromIDStr, _ := starlark.AsString(fromID)
-	toIDStr, _ := starlark.AsString(toID)
+	return loreStar.NewGather(d.graph, outputs...), nil
+}
 
+// Legacy Go API methods - still use old fields for backward compatibility
+// These are used by internal Go code, not Starlark scripts
+
+func (d *DarwinPlanBindings) PackageInstall(packages ...string) *execution.Node {
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("package-install", cleanPkgs...),
+		Operations: []string{"package-install"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("package-upgrade", cleanPkgs...),
+		Operations: []string{"package-upgrade"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) PackageRemove(packages ...string) *execution.Node {
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("package-remove", cleanPkgs...),
+		Operations: []string{"package-remove"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) PackageUpdate() *execution.Node {
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("package-update"),
+		Operations: []string{"package-update"},
+		Project:    d.project,
+	}
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) Configure(source, target string) *execution.Node {
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("configure"),
+		Operations: []string{"render", "copy"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", d.host.ExpandPath(target))
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) Link(source, target string) *execution.Node {
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("link"),
+		Operations: []string{"link"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", d.host.ExpandPath(target))
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) Copy(source, target string) *execution.Node {
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("copy"),
+		Operations: []string{"copy"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", d.host.ExpandPath(target))
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) Write(target, content string) *execution.Node {
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("write"),
+		Operations: []string{"write"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("content", content)
+	node.SetSlotImmediate("path", d.host.ExpandPath(target))
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("launchd", name, action.String()),
+		Operations: []string{"launchd-" + action.String()},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("name", name)
+	node.SetSlotImmediate("action", action.String())
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) Shell(command string) *execution.Node {
+	node := &execution.Node{
+		ID:         darwinGenerateNodeID("shell"),
+		Operations: []string{"shell"},
+		Project:    d.project,
+	}
+	node.SetSlotImmediate("command", command)
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
+
+func (d *DarwinPlanBindings) DependsOn(from, to *execution.Node) {
 	d.graph.Edges = append(d.graph.Edges, execution.Edge{
-		From:     toIDStr,
-		To:       fromIDStr,
-		Relation: "depends_on",
-	})
-
-	return starlark.None, nil
-}
-
-// nodeToStarlark converts an execution.Node to a Starlark struct.
-func nodeToStarlark(node *execution.Node) starlark.Value {
-	ops := make([]starlark.Value, len(node.Operations))
-	for i, op := range node.Operations {
-		ops[i] = starlark.String(op)
-	}
-
-	metadata := starlark.NewDict(len(node.Metadata))
-	for k, v := range node.Metadata {
-		_ = metadata.SetKey(starlark.String(k), starlark.String(v))
-	}
-
-	return starlarkstruct.FromStringDict(starlark.String("node"), starlark.StringDict{
-		"id":         starlark.String(node.ID),
-		"operations": starlark.NewList(ops),
-		"source":     starlark.String(node.Source),
-		"target":     starlark.String(node.Target),
-		"project":    starlark.String(node.Project),
-		"metadata":   metadata,
+		From: to.ID,
+		To:   from.ID,
 	})
 }

@@ -150,7 +150,7 @@ func TestCheckEntry_CopiedFile(t *testing.T) {
 	}
 
 	// Check entry with copy operation
-	entry := checkEntry(sourceFile, targetFile, "config", "testproject", []string{"expand", "copy"})
+	entry := checkEntry(sourceFile, targetFile, "config", "testproject", []string{"render", "copy"})
 
 	if entry.State != StateCopied {
 		t.Errorf("expected StateCopied, got %s (%s)", entry.State.Label(), entry.Message)

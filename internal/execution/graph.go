@@ -148,11 +148,10 @@ type Node struct {
 	// Timestamp is when this operation completed.
 	Timestamp string `json:"timestamp,omitempty" yaml:"timestamp,omitempty"`
 
-	// Source is the absolute path to the source file.
-	Source string `json:"source,omitempty" yaml:"source,omitempty"`
-
-	// Target is the absolute path to the target file.
-	Target string `json:"target,omitempty" yaml:"target,omitempty"`
+	// Slots holds input values for this node. Each slot can be:
+	// - Immediate: value known at analysis time
+	// - Promise: reference to another node's output (creates edge)
+	Slots map[string]SlotValue `json:"slots,omitempty" yaml:"slots,omitempty"`
 
 	// Project this node belongs to.
 	Project string `json:"project,omitempty" yaml:"project,omitempty"`
@@ -174,9 +173,35 @@ type Node struct {
 
 	// Annotations holds extensible metadata (serialized to receipts).
 	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
 
-	// Metadata holds operation-specific data (not serialized).
-	Metadata map[string]string `json:"-" yaml:"-"`
+// GetSlot returns the resolved value of a slot.
+// If the slot is a promise, returns empty string (must be resolved by executor).
+func (n *Node) GetSlot(name string) string {
+	if n.Slots != nil {
+		if sv, ok := n.Slots[name]; ok {
+			if sv.IsImmediate() {
+				return sv.Immediate
+			}
+		}
+	}
+	return ""
+}
+
+// SetSlotImmediate sets a slot to an immediate value.
+func (n *Node) SetSlotImmediate(name, value string) {
+	if n.Slots == nil {
+		n.Slots = make(map[string]SlotValue)
+	}
+	n.Slots[name] = SlotValue{Immediate: value}
+}
+
+// SetSlotPromise sets a slot to a promise (reference to another node).
+func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
+	if n.Slots == nil {
+		n.Slots = make(map[string]SlotValue)
+	}
+	n.Slots[name] = SlotValue{NodeRef: nodeRef, Slot: slot}
 }
 
 // GetID returns the node's unique identifier.
@@ -185,26 +210,40 @@ func (n *Node) GetID() string { return n.ID }
 // GetOperations returns the list of operations to perform.
 func (n *Node) GetOperations() []string { return n.Operations }
 
-// GetSource returns the source path.
-func (n *Node) GetSource() string { return n.Source }
-
-// GetTarget returns the target path.
-func (n *Node) GetTarget() string { return n.Target }
-
 // GetProject returns the project name.
 func (n *Node) GetProject() string { return n.Project }
 
 // GetMode returns the file mode.
 func (n *Node) GetMode() os.FileMode { return n.Mode }
 
-// GetMetadata returns operation-specific metadata.
-func (n *Node) GetMetadata() map[string]string { return n.Metadata }
-
 // Edge represents a dependency relationship between two nodes.
+// From must complete before To can begin execution.
 type Edge struct {
-	From     string `json:"from" yaml:"from"`
-	To       string `json:"to" yaml:"to"`
-	Relation string `json:"relation" yaml:"relation"`
+	From string `json:"from" yaml:"from"`
+	To   string `json:"to" yaml:"to"`
+}
+
+// SlotValue represents a value that fills a slot in a node.
+// Either Immediate is set (direct value) or NodeRef is set (promise from upstream node).
+type SlotValue struct {
+	// Immediate is the direct value (string, used when known at analysis time).
+	Immediate string `json:"immediate,omitempty" yaml:"immediate,omitempty"`
+
+	// NodeRef is the ID of the node that produces this value (promise).
+	NodeRef string `json:"node_ref,omitempty" yaml:"node_ref,omitempty"`
+
+	// Slot is which output slot of the referenced node (empty = default output).
+	Slot string `json:"slot,omitempty" yaml:"slot,omitempty"`
+}
+
+// IsPromise returns true if this slot value is a promise (reference to another node).
+func (s SlotValue) IsPromise() bool {
+	return s.NodeRef != ""
+}
+
+// IsImmediate returns true if this slot value is an immediate value.
+func (s SlotValue) IsImmediate() bool {
+	return s.NodeRef == "" && s.Immediate != ""
 }
 
 // Graph represents an execution graph containing nodes and edges.
@@ -255,11 +294,9 @@ type Graph struct {
 type Executable interface {
 	GetID() string
 	GetOperations() []string
-	GetSource() string
-	GetTarget() string
+	GetSlot(name string) string
 	GetProject() string
 	GetMode() os.FileMode
-	GetMetadata() map[string]string
 }
 
 // Ensure Node implements Executable.
@@ -423,7 +460,7 @@ func (g *Graph) ComputeSummary() {
 			case "link":
 				g.Summary.TotalFiles++
 				g.Summary.Links++
-			case "expand":
+			case "render":
 				g.Summary.TotalFiles++
 				g.Summary.Templates++
 			case "decrypt":

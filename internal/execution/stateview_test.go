@@ -70,7 +70,7 @@ func TestFileEntryLastOperation(t *testing.T) {
 			Target: ".bashrc",
 			History: []HistoryRecord{
 				{Receipt: "old.yaml", Operations: []string{"link"}},
-				{Receipt: "new.yaml", Operations: []string{"expand", "copy"}},
+				{Receipt: "new.yaml", Operations: []string{"render", "copy"}},
 			},
 		}
 		last := e.LastOperation()
@@ -93,10 +93,10 @@ func TestFileEntryIsCopied(t *testing.T) {
 		{"no history", nil, false},
 		{"link only", []string{"link"}, false},
 		{"copy operation", []string{"copy"}, true},
-		{"expand operation", []string{"expand"}, true},
+		{"render operation", []string{"render"}, true},
 		{"decrypt operation", []string{"decrypt"}, true},
-		{"expand+copy", []string{"expand", "copy"}, true},
-		{"decrypt+expand+copy", []string{"decrypt", "expand", "copy"}, true},
+		{"render+copy", []string{"render", "copy"}, true},
+		{"decrypt+render+copy", []string{"decrypt", "render", "copy"}, true},
 	}
 
 	for _, tt := range tests {
@@ -124,7 +124,7 @@ func TestFileEntryIsLinked(t *testing.T) {
 		{"no history", nil, false},
 		{"link only", []string{"link"}, true},
 		{"copy operation", []string{"copy"}, false},
-		{"expand+copy", []string{"expand", "copy"}, false},
+		{"render+copy", []string{"render", "copy"}, false},
 		{"link with extra ops", []string{"link", "something"}, false},
 	}
 
@@ -195,7 +195,7 @@ func TestFileTreeCopiedLinkedFiles(t *testing.T) {
 			},
 			".gitconfig": {
 				Target:  ".gitconfig",
-				History: []HistoryRecord{{Operations: []string{"expand", "copy"}}},
+				History: []HistoryRecord{{Operations: []string{"render", "copy"}}},
 			},
 			".ssh/config": {
 				Target:  ".ssh/config",
@@ -317,7 +317,7 @@ func TestStateViewSummary(t *testing.T) {
 				},
 				".gitconfig": {
 					Target:  ".gitconfig",
-					History: []HistoryRecord{{Operations: []string{"expand", "copy"}}},
+					History: []HistoryRecord{{Operations: []string{"render", "copy"}}},
 				},
 			},
 		},
@@ -340,20 +340,26 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 	now := time.Now()
 	earlier := now.Add(-time.Hour)
 
+	// Helper to create nodes with source slot
+	makeNode := func(id string, ops []string, source, project, layer string) *Node {
+		n := &Node{
+			ID:         id,
+			Operations: ops,
+			Project:    project,
+			Layer:      layer,
+			Status:     StatusCompleted,
+		}
+		n.SetSlotImmediate("source", source)
+		return n
+	}
+
 	graphs := []*Graph{
 		{
 			Tool:      "writ",
 			Timestamp: earlier,
 			Context:   GraphContext{TargetRoot: "/home/user"},
 			Nodes: []*Node{
-				{
-					ID:         ".bashrc",
-					Operations: []string{"link"},
-					Source:     "/repo/.bashrc",
-					Project:    "shell",
-					Layer:      "base",
-					Status:     StatusCompleted,
-				},
+				makeNode(".bashrc", []string{"link"}, "/repo/.bashrc", "shell", "base"),
 			},
 		},
 		{
@@ -361,21 +367,8 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 			Timestamp: now,
 			Context:   GraphContext{TargetRoot: "/home/user"},
 			Nodes: []*Node{
-				{
-					ID:         ".bashrc",
-					Operations: []string{"expand", "copy"},
-					Source:     "/repo/.bashrc",
-					Project:    "shell",
-					Layer:      "personal",
-					Status:     StatusCompleted,
-				},
-				{
-					ID:         ".gitconfig",
-					Operations: []string{"link"},
-					Source:     "/repo/.gitconfig",
-					Project:    "git",
-					Status:     StatusCompleted,
-				},
+				makeNode(".bashrc", []string{"render", "copy"}, "/repo/.bashrc", "shell", "personal"),
+				makeNode(".gitconfig", []string{"link"}, "/repo/.gitconfig", "git", ""),
 			},
 		},
 	}
@@ -400,7 +393,7 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 	if len(bashrc.History) != 2 {
 		t.Errorf("expected 2 history records for .bashrc, got %d", len(bashrc.History))
 	}
-	// Latest record should be personal layer with expand+copy
+	// Latest record should be personal layer with render+copy
 	if bashrc.Layer != "personal" {
 		t.Errorf("expected layer 'personal', got %q", bashrc.Layer)
 	}
@@ -701,8 +694,8 @@ func TestIsPackageNode(t *testing.T) {
 	}{
 		{[]string{"link"}, false},
 		{[]string{"copy"}, false},
-		{[]string{"expand", "copy"}, false},
-		{[]string{"decrypt", "expand", "copy"}, false},
+		{[]string{"render", "copy"}, false},
+		{[]string{"decrypt", "render", "copy"}, false},
 		{[]string{"install"}, true},
 		{[]string{"prepare"}, true},
 		{[]string{"verify"}, true},

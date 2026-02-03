@@ -65,9 +65,8 @@ type nodeView struct {
 
 // edgeView represents a dependency between nodes.
 type edgeView struct {
-	From     string `json:"from" yaml:"from"`
-	To       string `json:"to" yaml:"to"`
-	Relation string `json:"relation" yaml:"relation"`
+	From string `json:"from" yaml:"from"`
+	To   string `json:"to" yaml:"to"`
 }
 
 func formatMigrationYAML(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
@@ -91,8 +90,8 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 		nodes = append(nodes, nodeView{
 			ID:         node.ID,
 			Operations: node.Operations,
-			Source:     node.Source,
-			Target:     node.Target,
+			Source:     node.GetSlot("source"),
+			Target:     node.GetSlot("path"),
 			Status:     string(node.Status),
 		})
 	}
@@ -101,9 +100,8 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 	var edges []edgeView
 	for _, edge := range graph.Edges {
 		edges = append(edges, edgeView{
-			From:     edge.From,
-			To:       edge.To,
-			Relation: edge.Relation,
+			From: edge.From,
+			To:   edge.To,
 		})
 	}
 
@@ -177,7 +175,7 @@ func collectExtraStats(s MigrationStats) []string {
 }
 
 func formatRenames(w io.Writer, graph *execution.Graph, sourceRoot string) {
-	renameNodes := filterNodesByOp(graph, "rename")
+	renameNodes := filterNodesByOp(graph, "move")
 	if len(renameNodes) == 0 {
 		return
 	}
@@ -185,13 +183,14 @@ func formatRenames(w io.Writer, graph *execution.Graph, sourceRoot string) {
 	_, _ = fmt.Fprintf(w, "Directory renames (%d):\n", len(renameNodes))
 	maxLen := 0
 	for _, node := range renameNodes {
-		if len(node.Source) > maxLen {
-			maxLen = len(node.Source)
+		source := node.GetSlot("source")
+		if len(source) > maxLen {
+			maxLen = len(source)
 		}
 	}
 	for _, node := range renameNodes {
-		source := shortenPath(node.Source, sourceRoot)
-		target := shortenPath(node.Target, sourceRoot)
+		source := shortenPath(node.GetSlot("source"), sourceRoot)
+		target := shortenPath(node.GetSlot("path"), sourceRoot)
 		_, _ = fmt.Fprintf(w, "  %-*s  →  %s\n", maxLen-len(sourceRoot), source, target)
 	}
 	_, _ = fmt.Fprintln(w)

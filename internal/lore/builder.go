@@ -265,11 +265,9 @@ func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *
 		ID:         fmt.Sprintf("%s-%s-%s", opName, pkg.Name, action.PhaseName),
 		Operations: []string{opName},
 		Project:    pkg.Name,
-		Metadata: map[string]string{
-			"packages": strings.Join(action.Packages, ","),
-			"phase":    action.PhaseName,
-		},
 	}
+	node.SetSlotImmediate("packages", strings.Join(action.Packages, ","))
+	node.SetSlotImmediate("phase", action.PhaseName)
 
 	graph.Nodes = append(graph.Nodes, node)
 	return nil

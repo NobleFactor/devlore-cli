@@ -71,9 +71,9 @@ func Preflight(graph *Graph) *PreflightResult {
 }
 
 // nodeWritesToTarget returns true if the node's operations produce a file at
-// node.Target (link, copy, or any pipeline ending in copy).
+// node's "path" slot (link, copy, or any pipeline ending in copy).
 func nodeWritesToTarget(node *Node) bool {
-	if node.Target == "" {
+	if node.GetSlot("path") == "" {
 		return false
 	}
 	for _, op := range node.Operations {
@@ -87,11 +87,12 @@ func nodeWritesToTarget(node *Node) bool {
 
 // detectConflict checks if a target path has a conflict.
 func detectConflict(node *Node) Conflict {
-	if node.Target == "" {
+	path := node.GetSlot("path")
+	if path == "" {
 		return Conflict{Node: node, Type: ConflictNone}
 	}
 
-	info, err := os.Lstat(node.Target)
+	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return Conflict{Node: node, Type: ConflictNone}
 	}
@@ -107,12 +108,12 @@ func detectConflict(node *Node) Conflict {
 		return Conflict{
 			Node:    node,
 			Type:    ConflictDirectory,
-			Message: fmt.Sprintf("directory exists at %s", node.Target),
+			Message: fmt.Sprintf("directory exists at %s", path),
 		}
 	}
 
 	if info.Mode()&os.ModeSymlink != 0 {
-		linkTarget, err := os.Readlink(node.Target)
+		linkTarget, err := os.Readlink(path)
 		if err != nil {
 			return Conflict{
 				Node:    node,
@@ -121,7 +122,8 @@ func detectConflict(node *Node) Conflict {
 			}
 		}
 
-		if linkTarget == node.Source {
+		source := node.GetSlot("source")
+		if linkTarget == source {
 			return Conflict{
 				Node:         node,
 				Type:         ConflictOurSymlink,
@@ -141,6 +143,6 @@ func detectConflict(node *Node) Conflict {
 	return Conflict{
 		Node:    node,
 		Type:    ConflictRegularFile,
-		Message: fmt.Sprintf("file exists at %s (%d bytes)", node.Target, info.Size()),
+		Message: fmt.Sprintf("file exists at %s (%d bytes)", path, info.Size()),
 	}
 }

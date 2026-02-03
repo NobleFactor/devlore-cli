@@ -61,40 +61,40 @@ func itoa(i int) string {
 }
 
 // Mkdir adds a directory creation operation.
-func (p *Plan) Mkdir(target string) *Node {
+func (p *Plan) Mkdir(path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	node := &Node{
 		ID:         p.nextID("mkdir"),
 		Operations: []string{"mkdir"},
-		Target:     target,
 		Project:    p.project,
 		Mode:       0755,
 	}
+	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
 
 // Link adds a symlink creation operation.
-func (p *Plan) Link(source, target string) *Node {
+func (p *Plan) Link(source, path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	node := &Node{
 		ID:         p.nextID("link"),
 		Operations: []string{"link"},
-		Source:     source,
-		Target:     target,
 		Project:    p.project,
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
 
 // Copy adds a file copy operation. Transforms (decrypt, expand) can be
 // prepended to the pipeline.
-func (p *Plan) Copy(source, target string, transforms ...string) *Node {
+func (p *Plan) Copy(source, path string, transforms ...string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -102,17 +102,17 @@ func (p *Plan) Copy(source, target string, transforms ...string) *Node {
 	node := &Node{
 		ID:         p.nextID("copy"),
 		Operations: ops,
-		Source:     source,
-		Target:     target,
 		Project:    p.project,
 		Mode:       0644,
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
 
 // CopyWithMode adds a file copy operation with explicit permissions.
-func (p *Plan) CopyWithMode(source, target string, mode os.FileMode, transforms ...string) *Node {
+func (p *Plan) CopyWithMode(source, path string, mode os.FileMode, transforms ...string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -120,56 +120,56 @@ func (p *Plan) CopyWithMode(source, target string, mode os.FileMode, transforms 
 	node := &Node{
 		ID:         p.nextID("copy"),
 		Operations: ops,
-		Source:     source,
-		Target:     target,
 		Project:    p.project,
 		Mode:       mode,
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
 
 // Remove adds a file/directory removal operation.
-func (p *Plan) Remove(target string) *Node {
+func (p *Plan) Remove(path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	node := &Node{
 		ID:         p.nextID("remove"),
 		Operations: []string{"remove"},
-		Target:     target,
 		Project:    p.project,
 	}
+	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
 
 // Unlink adds a symlink removal operation.
-func (p *Plan) Unlink(target string) *Node {
+func (p *Plan) Unlink(path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	node := &Node{
 		ID:         p.nextID("unlink"),
 		Operations: []string{"unlink"},
-		Target:     target,
 		Project:    p.project,
 	}
+	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
 
 // Backup adds a backup operation for an existing file.
-func (p *Plan) Backup(target string) *Node {
+func (p *Plan) Backup(path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	node := &Node{
 		ID:         p.nextID("backup"),
 		Operations: []string{"backup"},
-		Target:     target,
 		Project:    p.project,
 	}
+	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
@@ -183,27 +183,25 @@ func (p *Plan) Validate(check, message string) *Node {
 		ID:         p.nextID("validate"),
 		Operations: []string{"validate"},
 		Project:    p.project,
-		Metadata: map[string]string{
-			"check":   check,
-			"message": message,
-		},
 	}
+	node.SetSlotImmediate("check", check)
+	node.SetSlotImmediate("message", message)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
 
-// Rename adds a file/directory rename operation (git mv when possible).
-func (p *Plan) Rename(source, target string) *Node {
+// Rename adds a file/directory move operation (git mv when possible).
+func (p *Plan) Rename(source, path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:         p.nextID("rename"),
-		Operations: []string{"rename"},
-		Source:     source,
-		Target:     target,
+		ID:         p.nextID("move"),
+		Operations: []string{"move"},
 		Project:    p.project,
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
@@ -221,21 +219,19 @@ func (p *Plan) DependsOn(from, to *Node) {
 	defer p.mu.Unlock()
 
 	p.graph.Edges = append(p.graph.Edges, Edge{
-		From:     from.ID,
-		To:       to.ID,
-		Relation: "depends_on",
+		From: from.ID,
+		To:   to.ID,
 	})
 }
 
-// Orders adds an ordering constraint without implying dependency.
+// Orders adds an ordering constraint between nodes.
 func (p *Plan) Orders(from, to *Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.graph.Edges = append(p.graph.Edges, Edge{
-		From:     from.ID,
-		To:       to.ID,
-		Relation: "orders",
+		From: from.ID,
+		To:   to.ID,
 	})
 }
 

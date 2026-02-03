@@ -226,9 +226,9 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *exec
 	actualRenames := make(map[string]string)
 	if graph != nil {
 		for _, node := range graph.Nodes {
-			// Extract relative paths from source/target
-			source := filepath.Base(node.Source)
-			target := filepath.Base(node.Target)
+			// Extract relative paths from source/target slots
+			source := filepath.Base(node.GetSlot("source"))
+			target := filepath.Base(node.GetSlot("target"))
 			actualRenames[source] = target
 		}
 	}

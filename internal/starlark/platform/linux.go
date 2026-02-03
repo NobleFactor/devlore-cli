@@ -100,10 +100,8 @@ func (l *LinuxPlanBindings) PackageInstall(packages ...string) *execution.Node {
 		ID:         linuxGenerateNodeID("package-install", packages...),
 		Operations: []string{"package-install"},
 		Project:    l.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(packages, ","),
-		},
 	}
+	node.SetSlotImmediate("packages", strings.Join(packages, ","))
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -114,10 +112,8 @@ func (l *LinuxPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
 		ID:         linuxGenerateNodeID("package-upgrade", packages...),
 		Operations: []string{"package-upgrade"},
 		Project:    l.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(packages, ","),
-		},
 	}
+	node.SetSlotImmediate("packages", strings.Join(packages, ","))
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -128,10 +124,8 @@ func (l *LinuxPlanBindings) PackageRemove(packages ...string) *execution.Node {
 		ID:         linuxGenerateNodeID("package-remove", packages...),
 		Operations: []string{"package-remove"},
 		Project:    l.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(packages, ","),
-		},
 	}
+	node.SetSlotImmediate("packages", strings.Join(packages, ","))
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -142,7 +136,6 @@ func (l *LinuxPlanBindings) PackageUpdate() *execution.Node {
 		ID:         linuxGenerateNodeID("package-update"),
 		Operations: []string{"package-update"},
 		Project:    l.project,
-		Metadata:   map[string]string{},
 	}
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
@@ -152,11 +145,11 @@ func (l *LinuxPlanBindings) PackageUpdate() *execution.Node {
 func (l *LinuxPlanBindings) Configure(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("configure"),
-		Operations: []string{"expand", "copy"},
-		Source:     source,
-		Target:     l.host.ExpandPath(target),
+		Operations: []string{"render", "copy"},
 		Project:    l.project,
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", l.host.ExpandPath(target))
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -166,10 +159,10 @@ func (l *LinuxPlanBindings) Link(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("link"),
 		Operations: []string{"link"},
-		Source:     source,
-		Target:     l.host.ExpandPath(target),
 		Project:    l.project,
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", l.host.ExpandPath(target))
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -179,22 +172,10 @@ func (l *LinuxPlanBindings) Copy(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("copy"),
 		Operations: []string{"copy"},
-		Source:     source,
-		Target:     l.host.ExpandPath(target),
 		Project:    l.project,
 	}
-	l.graph.Nodes = append(l.graph.Nodes, node)
-	return node
-}
-
-// Mkdir adds a directory creation node.
-func (l *LinuxPlanBindings) Mkdir(target string) *execution.Node {
-	node := &execution.Node{
-		ID:         linuxGenerateNodeID("mkdir"),
-		Operations: []string{"mkdir"},
-		Target:     l.host.ExpandPath(target),
-		Project:    l.project,
-	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", l.host.ExpandPath(target))
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -203,13 +184,11 @@ func (l *LinuxPlanBindings) Mkdir(target string) *execution.Node {
 func (l *LinuxPlanBindings) Write(target, content string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("write"),
-		Operations: []string{"file-write"},
-		Target:     l.host.ExpandPath(target),
+		Operations: []string{"write"},
 		Project:    l.project,
-		Metadata: map[string]string{
-			"content": content,
-		},
 	}
+	node.SetSlotImmediate("content", content)
+	node.SetSlotImmediate("path", l.host.ExpandPath(target))
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -220,11 +199,9 @@ func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) 
 		ID:         linuxGenerateNodeID("systemd", name, action.String()),
 		Operations: []string{"systemd-" + action.String()},
 		Project:    l.project,
-		Metadata: map[string]string{
-			"service": name,
-			"action":  action.String(),
-		},
 	}
+	node.SetSlotImmediate("name", name)
+	node.SetSlotImmediate("action", action.String())
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -235,10 +212,8 @@ func (l *LinuxPlanBindings) Shell(command string) *execution.Node {
 		ID:         linuxGenerateNodeID("shell"),
 		Operations: []string{"shell"},
 		Project:    l.project,
-		Metadata: map[string]string{
-			"command": command,
-		},
 	}
+	node.SetSlotImmediate("command", command)
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
@@ -246,9 +221,8 @@ func (l *LinuxPlanBindings) Shell(command string) *execution.Node {
 // DependsOn creates a dependency edge between nodes.
 func (l *LinuxPlanBindings) DependsOn(from, to *execution.Node) {
 	l.graph.Edges = append(l.graph.Edges, execution.Edge{
-		From:     to.ID,
-		To:       from.ID,
-		Relation: "depends_on",
+		From: to.ID,
+		To:   from.ID,
 	})
 }
 
@@ -270,7 +244,6 @@ func (l *LinuxPlanBindings) ToStarlark() starlark.Value {
 		"configure": starlark.NewBuiltin("configure", l.configureBuiltin),
 		"copy":      starlark.NewBuiltin("copy", l.copyBuiltin),
 		"link":      starlark.NewBuiltin("link", l.linkBuiltin),
-		"mkdir":     starlark.NewBuiltin("mkdir", l.mkdirBuiltin),
 		"write":     starlark.NewBuiltin("write", l.writeBuiltin),
 	})
 
@@ -279,9 +252,9 @@ func (l *LinuxPlanBindings) ToStarlark() starlark.Value {
 		"file":    fileOps,
 		"package": packageOps,
 		// Global functions (at root of plan)
-		"depends_on": starlark.NewBuiltin("depends_on", l.dependsOnBuiltin),
-		"service":    starlark.NewBuiltin("service", l.serviceBuiltin),
-		"shell":      starlark.NewBuiltin("shell", l.shellBuiltin),
+		"gather":  starlark.NewBuiltin("gather", l.gatherBuiltin),
+		"service": starlark.NewBuiltin("service", l.serviceBuiltin),
+		"shell":   starlark.NewBuiltin("shell", l.shellBuiltin),
 		// Linux-specific: expose distro info at top level
 		"distro": starlark.String(l.distro),
 	})
@@ -300,7 +273,8 @@ func (l *LinuxPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starlar
 		return nil, fmt.Errorf("install: at least one package required")
 	}
 	node := l.PackageInstall(packages...)
-	return linuxNodeToStarlark(node), nil
+	packagesStr := strings.Join(packages, ",")
+	return loreStar.NewOutput(node, l.graph, packagesStr, loreStar.OutputPackage), nil
 }
 
 func (l *LinuxPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -316,7 +290,8 @@ func (l *LinuxPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starlar
 		return nil, fmt.Errorf("upgrade: at least one package required")
 	}
 	node := l.PackageUpgrade(packages...)
-	return linuxNodeToStarlark(node), nil
+	packagesStr := strings.Join(packages, ",")
+	return loreStar.NewOutput(node, l.graph, packagesStr, loreStar.OutputPackage), nil
 }
 
 func (l *LinuxPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -331,58 +306,83 @@ func (l *LinuxPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlark
 	if len(packages) == 0 {
 		return nil, fmt.Errorf("remove: at least one package required")
 	}
-	node := l.PackageRemove(packages...)
-	return linuxNodeToStarlark(node), nil
+	_ = l.PackageRemove(packages...)
+	// Remove produces no output
+	return starlark.None, nil
 }
 
 func (l *LinuxPlanBindings) packageUpdateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	node := l.PackageUpdate()
-	return linuxNodeToStarlark(node), nil
+	return loreStar.NewOutput(node, l.graph, "<index>", loreStar.OutputPackage), nil
 }
 
 func (l *LinuxPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("configure", args, kwargs, "source", &source, "target", &target); err != nil {
+	var inputArg starlark.Value
+	var out string
+	if err := starlark.UnpackArgs("configure", args, kwargs, "input", &inputArg, "out", &out); err != nil {
 		return nil, err
 	}
-	node := l.Configure(source, target)
-	return linuxNodeToStarlark(node), nil
+	input, err := loreStar.ResolveInput(inputArg)
+	if err != nil {
+		return nil, fmt.Errorf("configure: input: %w", err)
+	}
+	node := l.Configure(input.Path(), out)
+	input.DependOn(node)
+	return loreStar.NewOutput(node, l.graph, node.GetSlot("path"), loreStar.OutputFile), nil
 }
 
 func (l *LinuxPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("link", args, kwargs, "source", &source, "target", &target); err != nil {
+	var inputArg starlark.Value
+	var out string
+	if err := starlark.UnpackArgs("link", args, kwargs, "input", &inputArg, "out", &out); err != nil {
 		return nil, err
 	}
-	node := l.Link(source, target)
-	return linuxNodeToStarlark(node), nil
+	input, err := loreStar.ResolveInput(inputArg)
+	if err != nil {
+		return nil, fmt.Errorf("link: input: %w", err)
+	}
+	node := l.Link(input.Path(), out)
+	input.DependOn(node)
+	return loreStar.NewOutput(node, l.graph, node.GetSlot("path"), loreStar.OutputSymlink), nil
 }
 
 func (l *LinuxPlanBindings) copyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("copy", args, kwargs, "source", &source, "target", &target); err != nil {
+	var inputArg starlark.Value
+	var out string
+	if err := starlark.UnpackArgs("copy", args, kwargs, "input", &inputArg, "out", &out); err != nil {
 		return nil, err
 	}
-	node := l.Copy(source, target)
-	return linuxNodeToStarlark(node), nil
-}
-
-func (l *LinuxPlanBindings) mkdirBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var target string
-	if err := starlark.UnpackArgs("mkdir", args, kwargs, "target", &target); err != nil {
-		return nil, err
+	input, err := loreStar.ResolveInput(inputArg)
+	if err != nil {
+		return nil, fmt.Errorf("copy: input: %w", err)
 	}
-	node := l.Mkdir(target)
-	return linuxNodeToStarlark(node), nil
+	node := l.Copy(input.Path(), out)
+	input.DependOn(node)
+	return loreStar.NewOutput(node, l.graph, node.GetSlot("path"), loreStar.OutputFile), nil
 }
 
 func (l *LinuxPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var target, content string
-	if err := starlark.UnpackArgs("write", args, kwargs, "target", &target, "content", &content); err != nil {
+	var inputArg starlark.Value
+	var out string
+	if err := starlark.UnpackArgs("write", args, kwargs, "input", &inputArg, "out", &out); err != nil {
 		return nil, err
 	}
-	node := l.Write(target, content)
-	return linuxNodeToStarlark(node), nil
+	input, err := loreStar.ResolveInput(inputArg)
+	if err != nil {
+		return nil, fmt.Errorf("write: input: %w", err)
+	}
+	// Create write node directly - content comes from input artifact via edge
+	expandedOut := l.host.ExpandPath(out)
+	node := &execution.Node{
+		ID:         linuxGenerateNodeID("write"),
+		Operations: []string{"write"},
+		Project:    l.project,
+	}
+	node.SetSlotImmediate("source", input.Path())
+	node.SetSlotImmediate("path", expandedOut)
+	l.graph.Nodes = append(l.graph.Nodes, node)
+	input.DependOn(node)
+	return loreStar.NewOutput(node, l.graph, expandedOut, loreStar.OutputFile), nil
 }
 
 func (l *LinuxPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -408,7 +408,7 @@ func (l *LinuxPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Built
 	}
 
 	node := l.Service(name, serviceAction)
-	return linuxNodeToStarlark(node), nil
+	return loreStar.NewOutput(node, l.graph, name, loreStar.OutputService), nil
 }
 
 func (l *LinuxPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -417,62 +417,22 @@ func (l *LinuxPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Builtin
 		return nil, err
 	}
 	node := l.Shell(command)
-	return linuxNodeToStarlark(node), nil
+	return loreStar.NewOutput(node, l.graph, command, loreStar.OutputCommand), nil
 }
 
-func (l *LinuxPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("depends_on: expected 2 arguments, got %d", len(args))
+func (l *LinuxPlanBindings) gatherBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
 	}
 
-	fromStruct, ok := args[0].(*starlarkstruct.Struct)
-	if !ok {
-		return nil, fmt.Errorf("depends_on: first argument must be a node")
-	}
-	toStruct, ok := args[1].(*starlarkstruct.Struct)
-	if !ok {
-		return nil, fmt.Errorf("depends_on: second argument must be a node")
-	}
-
-	fromID, err := fromStruct.Attr("id")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: first argument has no id")
-	}
-	toID, err := toStruct.Attr("id")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: second argument has no id")
+	outputs := make([]*loreStar.Output, 0, len(args))
+	for i, arg := range args {
+		output, ok := arg.(*loreStar.Output)
+		if !ok {
+			return nil, fmt.Errorf("gather: argument %d must be an Output, got %s", i+1, arg.Type())
+		}
+		outputs = append(outputs, output)
 	}
 
-	fromIDStr, _ := starlark.AsString(fromID)
-	toIDStr, _ := starlark.AsString(toID)
-
-	l.graph.Edges = append(l.graph.Edges, execution.Edge{
-		From:     toIDStr,
-		To:       fromIDStr,
-		Relation: "depends_on",
-	})
-
-	return starlark.None, nil
-}
-
-// linuxNodeToStarlark converts an execution.Node to a Starlark struct.
-func linuxNodeToStarlark(node *execution.Node) starlark.Value {
-	ops := make([]starlark.Value, len(node.Operations))
-	for i, op := range node.Operations {
-		ops[i] = starlark.String(op)
-	}
-
-	metadata := starlark.NewDict(len(node.Metadata))
-	for k, v := range node.Metadata {
-		_ = metadata.SetKey(starlark.String(k), starlark.String(v))
-	}
-
-	return starlarkstruct.FromStringDict(starlark.String("node"), starlark.StringDict{
-		"id":         starlark.String(node.ID),
-		"operations": starlark.NewList(ops),
-		"source":     starlark.String(node.Source),
-		"target":     starlark.String(node.Target),
-		"project":    starlark.String(node.Project),
-		"metadata":   metadata,
-	})
+	return loreStar.NewGather(l.graph, outputs...), nil
 }

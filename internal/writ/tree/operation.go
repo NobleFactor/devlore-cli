@@ -11,8 +11,8 @@ const (
 	// OpLink creates a symlink from target to source.
 	OpLink Operation = iota
 
-	// OpExpand processes a .template file with Go text/template.
-	OpExpand
+	// OpRender processes a .template file with Go text/template.
+	OpRender
 
 	// OpCopy writes content to target (used after expand or decrypt).
 	OpCopy
@@ -36,8 +36,8 @@ func (o Operation) String() string {
 	switch o {
 	case OpLink:
 		return "link"
-	case OpExpand:
-		return "expand"
+	case OpRender:
+		return "render"
 	case OpCopy:
 		return "copy"
 	case OpDecrypt:

@@ -58,10 +58,8 @@ func (w *WindowsPlanBindings) PackageInstall(packages ...string) *execution.Node
 		ID:         windowsGenerateNodeID("package-install", packages...),
 		Operations: []string{"package-install"},
 		Project:    w.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(packages, ","),
-		},
 	}
+	node.SetSlotImmediate("packages", strings.Join(packages, ","))
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -72,10 +70,8 @@ func (w *WindowsPlanBindings) PackageUpgrade(packages ...string) *execution.Node
 		ID:         windowsGenerateNodeID("package-upgrade", packages...),
 		Operations: []string{"package-upgrade"},
 		Project:    w.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(packages, ","),
-		},
 	}
+	node.SetSlotImmediate("packages", strings.Join(packages, ","))
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -86,10 +82,8 @@ func (w *WindowsPlanBindings) PackageRemove(packages ...string) *execution.Node 
 		ID:         windowsGenerateNodeID("package-remove", packages...),
 		Operations: []string{"package-remove"},
 		Project:    w.project,
-		Metadata: map[string]string{
-			"packages": strings.Join(packages, ","),
-		},
 	}
+	node.SetSlotImmediate("packages", strings.Join(packages, ","))
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -100,7 +94,6 @@ func (w *WindowsPlanBindings) PackageUpdate() *execution.Node {
 		ID:         windowsGenerateNodeID("package-update"),
 		Operations: []string{"package-update"},
 		Project:    w.project,
-		Metadata:   map[string]string{},
 	}
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
@@ -110,11 +103,11 @@ func (w *WindowsPlanBindings) PackageUpdate() *execution.Node {
 func (w *WindowsPlanBindings) Configure(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("configure"),
-		Operations: []string{"expand", "copy"},
-		Source:     source,
-		Target:     w.host.ExpandPath(target),
+		Operations: []string{"render", "copy"},
 		Project:    w.project,
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", w.host.ExpandPath(target))
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -124,13 +117,11 @@ func (w *WindowsPlanBindings) Link(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("link"),
 		Operations: []string{"link"},
-		Source:     source,
-		Target:     w.host.ExpandPath(target),
 		Project:    w.project,
-		Metadata: map[string]string{
-			"requires_admin": "true",
-		},
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", w.host.ExpandPath(target))
+	node.SetSlotImmediate("requires_admin", "true")
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -140,22 +131,10 @@ func (w *WindowsPlanBindings) Copy(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("copy"),
 		Operations: []string{"copy"},
-		Source:     source,
-		Target:     w.host.ExpandPath(target),
 		Project:    w.project,
 	}
-	w.graph.Nodes = append(w.graph.Nodes, node)
-	return node
-}
-
-// Mkdir adds a directory creation node.
-func (w *WindowsPlanBindings) Mkdir(target string) *execution.Node {
-	node := &execution.Node{
-		ID:         windowsGenerateNodeID("mkdir"),
-		Operations: []string{"mkdir"},
-		Target:     w.host.ExpandPath(target),
-		Project:    w.project,
-	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", w.host.ExpandPath(target))
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -164,13 +143,11 @@ func (w *WindowsPlanBindings) Mkdir(target string) *execution.Node {
 func (w *WindowsPlanBindings) Write(target, content string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("write"),
-		Operations: []string{"file-write"},
-		Target:     w.host.ExpandPath(target),
+		Operations: []string{"write"},
 		Project:    w.project,
-		Metadata: map[string]string{
-			"content": content,
-		},
 	}
+	node.SetSlotImmediate("content", content)
+	node.SetSlotImmediate("path", w.host.ExpandPath(target))
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -181,11 +158,9 @@ func (w *WindowsPlanBindings) Service(name string, action loreStar.ServiceAction
 		ID:         windowsGenerateNodeID("winservice", name, action.String()),
 		Operations: []string{"winservice-" + action.String()},
 		Project:    w.project,
-		Metadata: map[string]string{
-			"service": name,
-			"action":  action.String(),
-		},
 	}
+	node.SetSlotImmediate("name", name)
+	node.SetSlotImmediate("action", action.String())
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -196,10 +171,8 @@ func (w *WindowsPlanBindings) Shell(command string) *execution.Node {
 		ID:         windowsGenerateNodeID("shell"),
 		Operations: []string{"powershell"},
 		Project:    w.project,
-		Metadata: map[string]string{
-			"command": command,
-		},
 	}
+	node.SetSlotImmediate("command", command)
 	w.graph.Nodes = append(w.graph.Nodes, node)
 	return node
 }
@@ -207,9 +180,8 @@ func (w *WindowsPlanBindings) Shell(command string) *execution.Node {
 // DependsOn creates a dependency edge between nodes.
 func (w *WindowsPlanBindings) DependsOn(from, to *execution.Node) {
 	w.graph.Edges = append(w.graph.Edges, execution.Edge{
-		From:     to.ID,
-		To:       from.ID,
-		Relation: "depends_on",
+		From: to.ID,
+		To:   from.ID,
 	})
 }
 
@@ -229,7 +201,6 @@ func (w *WindowsPlanBindings) ToStarlark() starlark.Value {
 		"configure": starlark.NewBuiltin("configure", w.configureBuiltin),
 		"copy":      starlark.NewBuiltin("copy", w.copyBuiltin),
 		"link":      starlark.NewBuiltin("link", w.linkBuiltin),
-		"mkdir":     starlark.NewBuiltin("mkdir", w.mkdirBuiltin),
 		"write":     starlark.NewBuiltin("write", w.writeBuiltin),
 	})
 
@@ -238,9 +209,9 @@ func (w *WindowsPlanBindings) ToStarlark() starlark.Value {
 		"file":    fileOps,
 		"package": packageOps,
 		// Global functions (at root of plan)
-		"depends_on": starlark.NewBuiltin("depends_on", w.dependsOnBuiltin),
-		"service":    starlark.NewBuiltin("service", w.serviceBuiltin),
-		"shell":      starlark.NewBuiltin("shell", w.shellBuiltin),
+		"gather":  starlark.NewBuiltin("gather", w.gatherBuiltin),
+		"service": starlark.NewBuiltin("service", w.serviceBuiltin),
+		"shell":   starlark.NewBuiltin("shell", w.shellBuiltin),
 	})
 }
 
@@ -257,7 +228,8 @@ func (w *WindowsPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starl
 		return nil, fmt.Errorf("install: at least one package required")
 	}
 	node := w.PackageInstall(packages...)
-	return windowsNodeToStarlark(node), nil
+	packagesStr := strings.Join(packages, ",")
+	return loreStar.NewOutput(node, w.graph, packagesStr, loreStar.OutputPackage), nil
 }
 
 func (w *WindowsPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -273,7 +245,8 @@ func (w *WindowsPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starl
 		return nil, fmt.Errorf("upgrade: at least one package required")
 	}
 	node := w.PackageUpgrade(packages...)
-	return windowsNodeToStarlark(node), nil
+	packagesStr := strings.Join(packages, ",")
+	return loreStar.NewOutput(node, w.graph, packagesStr, loreStar.OutputPackage), nil
 }
 
 func (w *WindowsPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -288,58 +261,90 @@ func (w *WindowsPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starla
 	if len(packages) == 0 {
 		return nil, fmt.Errorf("remove: at least one package required")
 	}
-	node := w.PackageRemove(packages...)
-	return windowsNodeToStarlark(node), nil
+	_ = w.PackageRemove(packages...)
+	// Remove produces no output
+	return starlark.None, nil
 }
 
 func (w *WindowsPlanBindings) packageUpdateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	node := w.PackageUpdate()
-	return windowsNodeToStarlark(node), nil
+	return loreStar.NewOutput(node, w.graph, "<index>", loreStar.OutputPackage), nil
 }
 
 func (w *WindowsPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("configure", args, kwargs, "source", &source, "target", &target); err != nil {
+	var inputArg starlark.Value
+	var out string
+	if err := starlark.UnpackArgs("configure", args, kwargs, "input", &inputArg, "out", &out); err != nil {
 		return nil, err
 	}
-	node := w.Configure(source, target)
-	return windowsNodeToStarlark(node), nil
+
+	input, err := loreStar.ResolveInput(inputArg)
+	if err != nil {
+		return nil, fmt.Errorf("configure: input: %w", err)
+	}
+
+	node := w.Configure(input.Path(), out)
+	input.DependOn(node)
+	return loreStar.NewOutput(node, w.graph, node.GetSlot("path"), loreStar.OutputFile), nil
 }
 
 func (w *WindowsPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("link", args, kwargs, "source", &source, "target", &target); err != nil {
+	var inputArg starlark.Value
+	var out string
+	if err := starlark.UnpackArgs("link", args, kwargs, "input", &inputArg, "out", &out); err != nil {
 		return nil, err
 	}
-	node := w.Link(source, target)
-	return windowsNodeToStarlark(node), nil
+
+	input, err := loreStar.ResolveInput(inputArg)
+	if err != nil {
+		return nil, fmt.Errorf("link: input: %w", err)
+	}
+
+	node := w.Link(input.Path(), out)
+	input.DependOn(node)
+	return loreStar.NewOutput(node, w.graph, node.GetSlot("path"), loreStar.OutputSymlink), nil
 }
 
 func (w *WindowsPlanBindings) copyBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, target string
-	if err := starlark.UnpackArgs("copy", args, kwargs, "source", &source, "target", &target); err != nil {
+	var inputArg starlark.Value
+	var out string
+	if err := starlark.UnpackArgs("copy", args, kwargs, "input", &inputArg, "out", &out); err != nil {
 		return nil, err
 	}
-	node := w.Copy(source, target)
-	return windowsNodeToStarlark(node), nil
-}
 
-func (w *WindowsPlanBindings) mkdirBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var target string
-	if err := starlark.UnpackArgs("mkdir", args, kwargs, "target", &target); err != nil {
-		return nil, err
+	input, err := loreStar.ResolveInput(inputArg)
+	if err != nil {
+		return nil, fmt.Errorf("copy: input: %w", err)
 	}
-	node := w.Mkdir(target)
-	return windowsNodeToStarlark(node), nil
+
+	node := w.Copy(input.Path(), out)
+	input.DependOn(node)
+	return loreStar.NewOutput(node, w.graph, node.GetSlot("path"), loreStar.OutputFile), nil
 }
 
 func (w *WindowsPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var target, content string
-	if err := starlark.UnpackArgs("write", args, kwargs, "target", &target, "content", &content); err != nil {
+	var inputArg starlark.Value
+	var out string
+	if err := starlark.UnpackArgs("write", args, kwargs, "input", &inputArg, "out", &out); err != nil {
 		return nil, err
 	}
-	node := w.Write(target, content)
-	return windowsNodeToStarlark(node), nil
+
+	input, err := loreStar.ResolveInput(inputArg)
+	if err != nil {
+		return nil, fmt.Errorf("write: input: %w", err)
+	}
+
+	expandedOut := w.host.ExpandPath(out)
+	node := &execution.Node{
+		ID:         windowsGenerateNodeID("write"),
+		Operations: []string{"write"},
+		Project:    w.project,
+	}
+	node.SetSlotImmediate("source", input.Path())
+	node.SetSlotImmediate("path", expandedOut)
+	w.graph.Nodes = append(w.graph.Nodes, node)
+	input.DependOn(node)
+	return loreStar.NewOutput(node, w.graph, expandedOut, loreStar.OutputFile), nil
 }
 
 func (w *WindowsPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -365,7 +370,7 @@ func (w *WindowsPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Bui
 	}
 
 	node := w.Service(name, serviceAction)
-	return windowsNodeToStarlark(node), nil
+	return loreStar.NewOutput(node, w.graph, name, loreStar.OutputService), nil
 }
 
 func (w *WindowsPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -374,62 +379,22 @@ func (w *WindowsPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Built
 		return nil, err
 	}
 	node := w.Shell(command)
-	return windowsNodeToStarlark(node), nil
+	return loreStar.NewOutput(node, w.graph, command, loreStar.OutputCommand), nil
 }
 
-func (w *WindowsPlanBindings) dependsOnBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("depends_on: expected 2 arguments, got %d", len(args))
+func (w *WindowsPlanBindings) gatherBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
 	}
 
-	fromStruct, ok := args[0].(*starlarkstruct.Struct)
-	if !ok {
-		return nil, fmt.Errorf("depends_on: first argument must be a node")
-	}
-	toStruct, ok := args[1].(*starlarkstruct.Struct)
-	if !ok {
-		return nil, fmt.Errorf("depends_on: second argument must be a node")
-	}
-
-	fromID, err := fromStruct.Attr("id")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: first argument has no id")
-	}
-	toID, err := toStruct.Attr("id")
-	if err != nil {
-		return nil, fmt.Errorf("depends_on: second argument has no id")
+	outputs := make([]*loreStar.Output, 0, len(args))
+	for i, arg := range args {
+		output, ok := arg.(*loreStar.Output)
+		if !ok {
+			return nil, fmt.Errorf("gather: argument %d must be an Output, got %s", i+1, arg.Type())
+		}
+		outputs = append(outputs, output)
 	}
 
-	fromIDStr, _ := starlark.AsString(fromID)
-	toIDStr, _ := starlark.AsString(toID)
-
-	w.graph.Edges = append(w.graph.Edges, execution.Edge{
-		From:     toIDStr,
-		To:       fromIDStr,
-		Relation: "depends_on",
-	})
-
-	return starlark.None, nil
-}
-
-// windowsNodeToStarlark converts an execution.Node to a Starlark struct.
-func windowsNodeToStarlark(node *execution.Node) starlark.Value {
-	ops := make([]starlark.Value, len(node.Operations))
-	for i, op := range node.Operations {
-		ops[i] = starlark.String(op)
-	}
-
-	metadata := starlark.NewDict(len(node.Metadata))
-	for k, v := range node.Metadata {
-		_ = metadata.SetKey(starlark.String(k), starlark.String(v))
-	}
-
-	return starlarkstruct.FromStringDict(starlark.String("node"), starlark.StringDict{
-		"id":         starlark.String(node.ID),
-		"operations": starlark.NewList(ops),
-		"source":     starlark.String(node.Source),
-		"target":     starlark.String(node.Target),
-		"project":    starlark.String(node.Project),
-		"metadata":   metadata,
-	})
+	return loreStar.NewGather(w.graph, outputs...), nil
 }

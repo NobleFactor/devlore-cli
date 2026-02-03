@@ -66,6 +66,16 @@ func (b *basePlanBindings) Graph() *execution.Graph {
 	return b.graph
 }
 
+// Host returns the host abstraction.
+func (b *basePlanBindings) Host() host.Host {
+	return b.host
+}
+
+// Project returns the project name for grouping nodes.
+func (b *basePlanBindings) Project() string {
+	return b.project
+}
+
 // newBasePlanBindings creates a new base plan bindings.
 func newBasePlanBindings(graph *execution.Graph, h host.Host, project string) *basePlanBindings {
 	return &basePlanBindings{
@@ -79,10 +89,10 @@ func newBasePlanBindings(graph *execution.Graph, h host.Host, project string) *b
 func (b *basePlanBindings) Remove(target string) *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("remove"),
-		Operations: []string{"file-remove"},
-		Target:     b.host.ExpandPath(target),
+		Operations: []string{"remove"},
 		Project:    b.project,
 	}
+	node.SetSlotImmediate("path", b.host.ExpandPath(target))
 	b.graph.Nodes = append(b.graph.Nodes, node)
 	return node
 }
@@ -92,10 +102,10 @@ func (b *basePlanBindings) Download(url, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("download"),
 		Operations: []string{"download"},
-		Source:     url,
-		Target:     b.host.ExpandPath(target),
 		Project:    b.project,
 	}
+	node.SetSlotImmediate("url", url)
+	node.SetSlotImmediate("path", b.host.ExpandPath(target))
 	b.graph.Nodes = append(b.graph.Nodes, node)
 	return node
 }
@@ -105,10 +115,10 @@ func (b *basePlanBindings) ArchiveExtract(archive, target string) *execution.Nod
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("archive-extract"),
 		Operations: []string{"archive-extract"},
-		Source:     b.host.ExpandPath(archive),
-		Target:     b.host.ExpandPath(target),
 		Project:    b.project,
 	}
+	node.SetSlotImmediate("source", b.host.ExpandPath(archive))
+	node.SetSlotImmediate("path", b.host.ExpandPath(target))
 	b.graph.Nodes = append(b.graph.Nodes, node)
 	return node
 }
@@ -118,10 +128,10 @@ func (b *basePlanBindings) GitClone(url, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("git-clone"),
 		Operations: []string{"git-clone"},
-		Source:     url,
-		Target:     b.host.ExpandPath(target),
 		Project:    b.project,
 	}
+	node.SetSlotImmediate("url", url)
+	node.SetSlotImmediate("path", b.host.ExpandPath(target))
 	b.graph.Nodes = append(b.graph.Nodes, node)
 	return node
 }
@@ -132,10 +142,8 @@ func (b *basePlanBindings) GitCheckout(ref string) *execution.Node {
 		ID:         baseGenerateNodeID("git-checkout"),
 		Operations: []string{"git-checkout"},
 		Project:    b.project,
-		Metadata: map[string]string{
-			"ref": ref,
-		},
 	}
+	node.SetSlotImmediate("ref", ref)
 	b.graph.Nodes = append(b.graph.Nodes, node)
 	return node
 }

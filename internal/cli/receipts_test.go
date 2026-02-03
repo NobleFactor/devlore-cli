@@ -15,6 +15,14 @@ import (
 
 // createTestGraph creates a minimal test graph for receipt testing.
 func createTestGraph() *execution.Graph {
+	node := &execution.Node{
+		ID:         ".bashrc",
+		Operations: []string{"link"},
+		Status:     execution.StatusCompleted,
+	}
+	node.SetSlotImmediate("source", "/home/user/env/.bashrc")
+	node.SetSlotImmediate("path", "/home/user/.bashrc")
+
 	return &execution.Graph{
 		Version:   "5",
 		Tool:      "test",
@@ -24,15 +32,7 @@ func createTestGraph() *execution.Graph {
 			OS:   "darwin",
 			Arch: "arm64",
 		},
-		Nodes: []*execution.Node{
-			{
-				ID:         ".bashrc",
-				Operations: []string{"link"},
-				Status:     execution.StatusCompleted,
-				Source:     "/home/user/env/.bashrc",
-				Target:     "/home/user/.bashrc",
-			},
-		},
+		Nodes: []*execution.Node{node},
 	}
 }
 

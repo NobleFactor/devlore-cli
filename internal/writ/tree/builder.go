@@ -31,7 +31,7 @@ type FileEntry struct {
 	ID string
 
 	// Operations is the pipeline of operations to perform.
-	// Examples: ["link"], ["decrypt", "expand", "copy"].
+	// Examples: ["link"], ["decrypt", "render", "copy"].
 	Operations []string
 
 	// Source is the absolute path to the source file.
@@ -404,7 +404,7 @@ func (r *BuildResult) TemplateCount() int {
 	count := 0
 	for _, f := range r.Files {
 		for _, op := range f.Operations {
-			if op == "expand" {
+			if op == "render" {
 				count++
 				break
 			}

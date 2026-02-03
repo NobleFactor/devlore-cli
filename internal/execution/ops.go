@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// LinkOp creates a symlink from node.Target pointing to node.Source.
+// LinkOp creates a symlink from node's "path" slot pointing to "source" slot.
 type LinkOp struct{}
 
 func (o *LinkOp) Name() string         { return "link" }
@@ -23,8 +23,8 @@ func (o *LinkOp) Execute(ctx *Context, node Executable) error {
 		return nil
 	}
 
-	target := node.GetTarget()
-	source := node.GetSource()
+	target := node.GetSlot("path")
+	source := node.GetSlot("source")
 
 	// Idempotent: check if symlink already points correctly
 	if info, err := os.Lstat(target); err == nil {
@@ -47,7 +47,7 @@ func (o *LinkOp) Execute(ctx *Context, node Executable) error {
 	return os.Symlink(source, target)
 }
 
-// CopyOp writes content to node.Target and returns the target checksum.
+// CopyOp writes content to node's "path" slot and returns the target checksum.
 type CopyOp struct{}
 
 func (o *CopyOp) Name() string         { return "copy" }
@@ -58,7 +58,7 @@ func (o *CopyOp) Write(ctx *Context, node Executable, content []byte) (string, e
 		return ChecksumBytes(content), nil
 	}
 
-	target := node.GetTarget()
+	target := node.GetSlot("path")
 
 	// Remove existing file/symlink if present
 	if _, err := os.Lstat(target); err == nil {
@@ -83,14 +83,14 @@ func (o *CopyOp) Write(ctx *Context, node Executable, content []byte) (string, e
 	return ChecksumBytes(content), nil
 }
 
-// ExpandOp processes content as a Go text/template with ctx.Data as
-// the template data. Returns the expanded content.
-type ExpandOp struct{}
+// RenderOp processes content as a Go text/template with ctx.Data as
+// the template data. Returns the rendered content.
+type RenderOp struct{}
 
-func (o *ExpandOp) Name() string         { return "expand" }
-func (o *ExpandOp) Category() OpCategory { return OpTransform }
+func (o *RenderOp) Name() string         { return "render" }
+func (o *RenderOp) Category() OpCategory { return OpTransform }
 
-func (o *ExpandOp) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
+func (o *RenderOp) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
 	tmpl, err := template.New(node.GetID()).Parse(string(content))
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
@@ -102,8 +102,8 @@ func (o *ExpandOp) Transform(ctx *Context, node Executable, content []byte) ([]b
 		data[k] = v
 	}
 	// Add node-specific data
-	data["Source"] = node.GetSource()
-	data["Target"] = node.GetTarget()
+	data["Source"] = node.GetSlot("source")
+	data["Target"] = node.GetSlot("path")
 	data["Project"] = node.GetProject()
 
 	var buf bytes.Buffer
@@ -138,7 +138,7 @@ func (o *DecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]
 
 	// Try new signature first (includes source path for format detection)
 	if decrypt, ok := decryptor.(func(string, []byte) ([]byte, error)); ok {
-		return decrypt(node.GetSource(), content)
+		return decrypt(node.GetSlot("source"), content)
 	}
 	if decrypt, ok := decryptor.(func([]byte) ([]byte, error)); ok {
 		// Fall back to legacy signature
@@ -155,8 +155,8 @@ func (o *DecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]
 //
 // The Package Graph Builder is NOT YET IMPLEMENTED.
 
-// BackupOp moves the existing file at node.Target to a timestamped backup.
-// The backup path is stored in node.Metadata["backup_path"] after execution.
+// BackupOp moves the existing file at node's "path" slot to a timestamped backup.
+// The backup path is stored in node.Annotations["backup_path"] after execution.
 type BackupOp struct{}
 
 func (o *BackupOp) Name() string         { return "backup" }
@@ -174,7 +174,7 @@ func (o *BackupOp) Execute(ctx *Context, node Executable) error {
 		}
 	}
 
-	target := node.GetTarget()
+	target := node.GetSlot("path")
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := target + suffix + "." + timestamp
 
@@ -182,15 +182,17 @@ func (o *BackupOp) Execute(ctx *Context, node Executable) error {
 		return fmt.Errorf("backup %s → %s: %w", target, backupPath, err)
 	}
 
-	// Store backup path in node metadata for receipt generation
-	metadata := node.GetMetadata()
-	if metadata != nil {
-		metadata["backup_path"] = backupPath
+	// Store backup path in node annotations for receipt generation
+	if n, ok := node.(*Node); ok && n.Annotations == nil {
+		n.Annotations = make(map[string]string)
+	}
+	if n, ok := node.(*Node); ok {
+		n.Annotations["backup_path"] = backupPath
 	}
 	return nil
 }
 
-// UnlinkOp removes a symlink at node.Target.
+// UnlinkOp removes a symlink at node's "path" slot.
 // If ctx.Data["prune_empty_dirs"] is true and ctx.Data["prune_boundary"] is set,
 // empty parent directories are removed up to the boundary.
 type UnlinkOp struct{}
@@ -203,7 +205,7 @@ func (o *UnlinkOp) Execute(ctx *Context, node Executable) error {
 		return nil
 	}
 
-	target := node.GetTarget()
+	target := node.GetSlot("path")
 
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
@@ -225,7 +227,7 @@ func (o *UnlinkOp) Execute(ctx *Context, node Executable) error {
 	return nil
 }
 
-// RemoveOp deletes the file at node.Target.
+// RemoveOp deletes the file at node.GetSlot("path").
 // If ctx.Data["prune_empty_dirs"] is true and ctx.Data["prune_boundary"] is set,
 // empty parent directories are removed up to the boundary.
 type RemoveOp struct{}
@@ -238,7 +240,7 @@ func (o *RemoveOp) Execute(ctx *Context, node Executable) error {
 		return nil
 	}
 
-	target := node.GetTarget()
+	target := node.GetSlot("path")
 
 	if _, err := os.Lstat(target); os.IsNotExist(err) {
 		return nil // Already gone
@@ -298,57 +300,24 @@ func isSubpath(path, parent string) bool {
 	return rel != "." && !filepath.IsAbs(rel) && (len(rel) < 2 || rel[:2] != "..")
 }
 
-// MkdirOp creates a directory at node.Target.
-type MkdirOp struct{}
-
-func (o *MkdirOp) Name() string         { return "mkdir" }
-func (o *MkdirOp) Category() OpCategory { return OpDirect }
-
-func (o *MkdirOp) Execute(ctx *Context, node Executable) error {
-	if ctx.DryRun {
-		return nil
-	}
-
-	target := node.GetTarget()
-
-	// Idempotent: check if directory already exists
-	if info, err := os.Stat(target); err == nil {
-		if info.IsDir() {
-			return nil // Already exists
-		}
-		return fmt.Errorf("%s exists but is not a directory", target)
-	}
-
-	mode := node.GetMode()
-	if mode == 0 {
-		mode = 0755
-	}
-
-	return os.Mkdir(target, mode)
-}
-
-// FileWriteOp writes content from node.Metadata["content"] to node.Target.
+// WriteOp writes content from node's "content" slot to node's "path" slot.
 // Used by plan.file.write() for writing inline content directly.
-type FileWriteOp struct{}
+type WriteOp struct{}
 
-func (o *FileWriteOp) Name() string         { return "file-write" }
-func (o *FileWriteOp) Category() OpCategory { return OpDirect }
+func (o *WriteOp) Name() string         { return "write" }
+func (o *WriteOp) Category() OpCategory { return OpDirect }
 
-func (o *FileWriteOp) Execute(ctx *Context, node Executable) error {
-	metadata := node.GetMetadata()
-	content := ""
-	if metadata != nil {
-		content = metadata["content"]
-	}
+func (o *WriteOp) Execute(ctx *Context, node Executable) error {
+	content := node.GetSlot("content")
 	if content == "" {
-		return fmt.Errorf("file-write: no content specified in node metadata")
+		return fmt.Errorf("write: no content specified in node slots")
 	}
 
 	if ctx.DryRun {
 		return nil
 	}
 
-	target := node.GetTarget()
+	target := node.GetSlot("path")
 
 	// Ensure parent directory exists
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
@@ -364,20 +333,16 @@ func (o *FileWriteOp) Execute(ctx *Context, node Executable) error {
 }
 
 // ValidateOp checks a precondition and fails with a message if unmet.
-// The check function is retrieved from ctx.Data["validators"][node.Metadata["check"]].
+// The check function is retrieved from ctx.Data["validators"][node.GetSlot("check")].
 type ValidateOp struct{}
 
 func (o *ValidateOp) Name() string         { return "validate" }
 func (o *ValidateOp) Category() OpCategory { return OpDirect }
 
 func (o *ValidateOp) Execute(ctx *Context, node Executable) error {
-	metadata := node.GetMetadata()
-	checkName := ""
-	if metadata != nil {
-		checkName = metadata["check"]
-	}
+	checkName := node.GetSlot("check")
 	if checkName == "" {
-		return fmt.Errorf("validate: no check specified in node metadata")
+		return fmt.Errorf("validate: no check specified in node slots")
 	}
 
 	validators, ok := ctx.Data["validators"].(map[string]func() error)
@@ -391,10 +356,7 @@ func (o *ValidateOp) Execute(ctx *Context, node Executable) error {
 	}
 
 	if err := validator(); err != nil {
-		message := ""
-		if metadata != nil {
-			message = metadata["message"]
-		}
+		message := node.GetSlot("message")
 		if message != "" {
 			return fmt.Errorf("%s: %w", message, err)
 		}
@@ -404,20 +366,20 @@ func (o *ValidateOp) Execute(ctx *Context, node Executable) error {
 	return nil
 }
 
-// RenameOp moves a file or directory from node.Source to node.Target using
+// MoveOp moves a file or directory from node's "source" slot to "path" slot using
 // git mv when inside a git repository, falling back to os.Rename otherwise.
-type RenameOp struct{}
+type MoveOp struct{}
 
-func (o *RenameOp) Name() string         { return "rename" }
-func (o *RenameOp) Category() OpCategory { return OpDirect }
+func (o *MoveOp) Name() string         { return "move" }
+func (o *MoveOp) Category() OpCategory { return OpDirect }
 
-func (o *RenameOp) Execute(ctx *Context, node Executable) error {
+func (o *MoveOp) Execute(ctx *Context, node Executable) error {
 	if ctx.DryRun {
 		return nil
 	}
 
-	source := node.GetSource()
-	target := node.GetTarget()
+	source := node.GetSlot("source")
+	target := node.GetSlot("path")
 
 	// Check if source exists
 	if _, err := os.Stat(source); err != nil {
@@ -445,20 +407,19 @@ func (o *RenameOp) Execute(ctx *Context, node Executable) error {
 //
 // Transform operations (content in → content out):
 //   - decrypt: decrypts encrypted content via ctx.Data["decryptor"]
-//   - expand: expands Go text/template content with ctx.Data
+//   - render: renders Go text/template content with ctx.Data
 //
 // Writer operations (content in → checksum out):
-//   - copy: writes content to node.Target
+//   - copy: writes content to node's "path" slot
 //
 // Direct operations (no content flow):
-//   - link: creates symlink from node.Target → node.Source
-//   - mkdir: creates directory at node.Target
-//   - file-write: writes node.Metadata["content"] to node.Target
-//   - backup: moves node.Target to timestamped backup
-//   - unlink: removes symlink at node.Target
-//   - remove: deletes file at node.Target
+//   - link: creates symlink from "path" → "source" slots
+//   - write: writes "content" slot to "path" slot
+//   - backup: moves "path" slot to timestamped backup
+//   - unlink: removes symlink at "path" slot
+//   - remove: deletes file at "path" slot
 //   - validate: checks precondition from ctx.Data["validators"]
-//   - rename: moves node.Source → node.Target (git mv when possible)
+//   - move: moves "source" → "path" slots (git mv when possible)
 //
 // NOTE: Package operations (package-install, package-upgrade, package-remove,
 // package-update) are provided by ops_package.go.
@@ -466,15 +427,14 @@ func FileOps() []Operation {
 	return []Operation{
 		&LinkOp{},
 		&CopyOp{},
-		&ExpandOp{},
+		&RenderOp{},
 		&DecryptOp{},
 		&BackupOp{},
 		&UnlinkOp{},
 		&RemoveOp{},
-		&MkdirOp{},
-		&FileWriteOp{},
+		&WriteOp{},
 		&ValidateOp{},
-		&RenameOp{},
+		&MoveOp{},
 	}
 }
 

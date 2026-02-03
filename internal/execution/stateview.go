@@ -97,7 +97,7 @@ func (e *FileEntry) IsCopied() bool {
 		return false
 	}
 	for _, op := range last.Operations {
-		if op == "expand" || op == "decrypt" || op == "copy" {
+		if op == "render" || op == "decrypt" || op == "copy" {
 			return true
 		}
 	}
@@ -503,7 +503,7 @@ func (b *StateViewBuilder) addFileRecord(view *StateView, node *Node, record His
 	if !ok {
 		entry = &FileEntry{
 			Target:  relTarget,
-			Source:  node.Source,
+			Source:  node.GetSlot("source"),
 			Project: node.Project,
 			Layer:   node.Layer,
 			History: make([]HistoryRecord, 0),
@@ -511,8 +511,8 @@ func (b *StateViewBuilder) addFileRecord(view *StateView, node *Node, record His
 		view.Files.Entries[relTarget] = entry
 	} else {
 		// Update source/project/layer from latest record
-		if node.Source != "" {
-			entry.Source = node.Source
+		if source := node.GetSlot("source"); source != "" {
+			entry.Source = source
 		}
 		if node.Project != "" {
 			entry.Project = node.Project

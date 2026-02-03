@@ -127,6 +127,12 @@ type PlanBindings interface {
 	// Graph returns the underlying execution graph being built.
 	Graph() *execution.Graph
 
+	// Host returns the host abstraction for path expansion, etc.
+	Host() host.Host
+
+	// Project returns the project name for grouping nodes.
+	Project() string
+
 	// Package operations - use platform's auto-detected package manager.
 	// On Darwin, supports brew:pkg and port:pkg prefixes for manager override.
 
@@ -152,9 +158,6 @@ type PlanBindings interface {
 
 	// Copy adds a file copy node.
 	Copy(source, target string) *execution.Node
-
-	// Mkdir adds a directory creation node.
-	Mkdir(target string) *execution.Node
 
 	// Write adds a file write node (write content directly to target).
 	Write(target, content string) *execution.Node

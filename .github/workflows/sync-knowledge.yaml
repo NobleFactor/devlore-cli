@@ -14,6 +14,16 @@ on:
       - 'internal/starlark/**'
       # Writ migrate code
       - 'internal/writ/migrate/**'
+  pull_request:
+    branches:
+      - develop
+      - main
+      - 'release/*'
+    paths:
+      # Starlark binding code
+      - 'internal/starlark/**'
+      # Writ migrate code
+      - 'internal/writ/migrate/**'
 
 jobs:
   sync-knowledge:
@@ -57,7 +67,22 @@ jobs:
             --source_path ${{ github.workspace }}/devlore-cli \
             --registry_path ${{ github.workspace }}/devlore-registry
 
-      - name: Commit and push to devlore-registry
+      - name: Validate knowledge (PR only)
+        if: github.event_name == 'pull_request'
+        working-directory: devlore-registry
+        run: |
+          # On PRs, just validate - don't push
+          if git diff --quiet; then
+            echo "No knowledge changes detected"
+          else
+            echo "Knowledge changes detected:"
+            git diff --stat
+            echo ""
+            echo "These changes will be pushed when the PR is merged."
+          fi
+
+      - name: Commit and push to devlore-registry (push only)
+        if: github.event_name == 'push'
         working-directory: devlore-registry
         run: |
           git config user.name "github-actions[bot]"

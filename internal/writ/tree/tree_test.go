@@ -19,14 +19,14 @@ func TestProcessingPipeline(t *testing.T) {
 		ops        []Operation
 	}{
 		{"foo", "foo", []Operation{OpLink}},
-		{"foo.template", "foo", []Operation{OpExpand, OpCopy}},
+		{"foo.template", "foo", []Operation{OpRender, OpCopy}},
 		{"foo.age", "foo", []Operation{OpDecrypt, OpCopy}},
 		{"foo.sops", "foo", []Operation{OpDecrypt, OpCopy}},
-		{"foo.template.age", "foo", []Operation{OpDecrypt, OpExpand, OpCopy}},
-		{"foo.template.sops", "foo", []Operation{OpDecrypt, OpExpand, OpCopy}},
+		{"foo.template.age", "foo", []Operation{OpDecrypt, OpRender, OpCopy}},
+		{"foo.template.sops", "foo", []Operation{OpDecrypt, OpRender, OpCopy}},
 		{".bashrc", ".bashrc", []Operation{OpLink}},
-		{".bashrc.template", ".bashrc", []Operation{OpExpand, OpCopy}},
-		{"config.yaml.template.age", "config.yaml", []Operation{OpDecrypt, OpExpand, OpCopy}},
+		{".bashrc.template", ".bashrc", []Operation{OpRender, OpCopy}},
+		{"config.yaml.template.age", "config.yaml", []Operation{OpDecrypt, OpRender, OpCopy}},
 		{"packages.manifest", "packages.manifest", []Operation{OpPackages}},
 	}
 
@@ -238,9 +238,9 @@ func TestOperationHelpers(t *testing.T) {
 		hasPackages bool
 	}{
 		{Operations{OpLink}, false, false},
-		{Operations{OpExpand, OpCopy}, true, false},
+		{Operations{OpRender, OpCopy}, true, false},
 		{Operations{OpDecrypt, OpCopy}, true, false},
-		{Operations{OpDecrypt, OpExpand, OpCopy}, true, false},
+		{Operations{OpDecrypt, OpRender, OpCopy}, true, false},
 		{Operations{OpPackages}, false, true},
 	}
 

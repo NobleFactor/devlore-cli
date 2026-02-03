@@ -165,12 +165,12 @@ Core execution graph primitives and executor shared by writ and lore.
 - `BackupOp` - Move file to timestamped backup
 - `CopyOp` - Write content to target
 - `DecryptOp` - Decrypt content using SOPS
-- `ExpandOp` - Process content as Go template
-- `FileWriteOp` - Write inline content to target
+- `RenderOp` - Process content as Go template
+- `WriteOp` - Write inline content to target
 - `LinkOp` - Create symlink
 - `MkdirOp` - Create directory
 - `RemoveOp` - Delete file
-- `RenameOp` - Move file (git mv when possible)
+- `MoveOp` - Move file (git mv when possible)
 - `UnlinkOp` - Remove symlink
 - `ValidateOp` - Check precondition
 - `ShellOp` - Execute shell command

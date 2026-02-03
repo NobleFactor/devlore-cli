@@ -81,10 +81,10 @@ func TestNode(t *testing.T) {
 		ID:         ".bashrc",
 		Operations: []string{"link"},
 		Status:     execution.StatusPending,
-		Source:     "/home/user/env/all/.bashrc",
-		Target:     "/home/user/.bashrc",
 		Project:    "all",
 	}
+	node.SetSlotImmediate("source", "/home/user/env/all/.bashrc")
+	node.SetSlotImmediate("path", "/home/user/.bashrc")
 
 	if node.ID != ".bashrc" {
 		t.Errorf("expected ID '.bashrc', got %q", node.ID)
@@ -99,9 +99,8 @@ func TestNode(t *testing.T) {
 
 func TestEdge(t *testing.T) {
 	edge := execution.Edge{
-		From:     "nodeA",
-		To:       "nodeB",
-		Relation: "depends-on",
+		From: "nodeA",
+		To:   "nodeB",
 	}
 
 	if edge.From != "nodeA" {
@@ -109,9 +108,6 @@ func TestEdge(t *testing.T) {
 	}
 	if edge.To != "nodeB" {
 		t.Errorf("expected To 'nodeB', got %q", edge.To)
-	}
-	if edge.Relation != "depends-on" {
-		t.Errorf("expected Relation 'depends-on', got %q", edge.Relation)
 	}
 }
 
@@ -359,7 +355,7 @@ func TestComputeSummary(t *testing.T) {
 		Nodes: []*execution.Node{
 			{ID: "1", Operations: []string{"link"}, Status: execution.StatusCompleted},
 			{ID: "2", Operations: []string{"link"}, Status: execution.StatusCompleted},
-			{ID: "3", Operations: []string{"expand"}, Status: execution.StatusCompleted},
+			{ID: "3", Operations: []string{"render"}, Status: execution.StatusCompleted},
 			{ID: "4", Operations: []string{"decrypt"}, Status: execution.StatusCompleted},
 			{ID: "5", Operations: []string{"copy"}, Status: execution.StatusCompleted},
 			{ID: "6", Status: execution.StatusSkipped},
@@ -407,17 +403,18 @@ func TestNodeAnnotations(t *testing.T) {
 	}
 }
 
-func TestNodeMetadata(t *testing.T) {
+func TestNodeSlots(t *testing.T) {
 	node := &execution.Node{
-		ID:       "install-curl",
-		Metadata: map[string]string{"packages": "curl,wget", "manager": "brew"},
+		ID: "install-curl",
 	}
+	node.SetSlotImmediate("packages", "curl,wget")
+	node.SetSlotImmediate("manager", "brew")
 
-	if node.Metadata["packages"] != "curl,wget" {
-		t.Errorf("expected packages metadata, got %v", node.Metadata)
+	if node.GetSlot("packages") != "curl,wget" {
+		t.Errorf("expected packages slot, got %v", node.GetSlot("packages"))
 	}
-	if node.Metadata["manager"] != "brew" {
-		t.Errorf("expected manager metadata, got %v", node.Metadata)
+	if node.GetSlot("manager") != "brew" {
+		t.Errorf("expected manager slot, got %v", node.GetSlot("manager"))
 	}
 }
 

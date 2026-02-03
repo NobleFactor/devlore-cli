@@ -59,7 +59,7 @@ func ProcessingPipeline(filename string) (targetName string, ops Operations) {
 	// .template is inner (expand after decrypt)
 	if strings.HasSuffix(name, ".template") {
 		name = strings.TrimSuffix(name, ".template")
-		pipeline = append(pipeline, OpExpand)
+		pipeline = append(pipeline, OpRender)
 	}
 
 	// Determine final operation

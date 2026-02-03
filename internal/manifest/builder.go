@@ -67,18 +67,17 @@ func (b *Builder) buildPackageNode(pkg PackageEntry, opts execution.BuildOptions
 	node := &execution.Node{
 		ID:         pkg.Name,
 		Operations: operations,
-		Metadata:   make(map[string]string),
 	}
 
 	// Store package name for registry lookup
-	node.Metadata["package"] = pkg.Name
+	node.SetSlotImmediate("package", pkg.Name)
 
 	// Store enabled features
 	if len(pkg.With) > 0 {
 		for i, feature := range pkg.With {
-			node.Metadata[fmt.Sprintf("feature.%d", i)] = feature
+			node.SetSlotImmediate(fmt.Sprintf("feature.%d", i), feature)
 		}
-		node.Metadata["feature_count"] = fmt.Sprintf("%d", len(pkg.With))
+		node.SetSlotImmediate("feature_count", fmt.Sprintf("%d", len(pkg.With)))
 	}
 
 	return node

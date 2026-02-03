@@ -63,12 +63,12 @@ func BuildTree(g *execution.Graph, cfg *Config) error {
 			ID:         f.ID,
 			Operations: f.Operations,
 			Status:     execution.StatusPending,
-			Source:     f.Source,
-			Target:     f.Target,
 			Project:    f.Project,
 			Layer:      f.Layer,
 			Mode:       f.Mode,
 		}
+		node.SetSlotImmediate("source", f.Source)
+		node.SetSlotImmediate("path", f.Target)
 		g.Nodes = append(g.Nodes, node)
 	}
 
@@ -220,11 +220,11 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 			ID:         relTarget,
 			Operations: []string{op},
 			Status:     execution.StatusPending,
-			Source:     entry.Source,
-			Target:     target,
 			Project:    entry.Project,
 			Layer:      entry.Layer,
 		}
+		node.SetSlotImmediate("source", entry.Source)
+		node.SetSlotImmediate("path", target)
 
 		g.Nodes = append(g.Nodes, node)
 	}
