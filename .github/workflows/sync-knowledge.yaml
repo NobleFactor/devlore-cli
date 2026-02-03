@@ -62,8 +62,8 @@ jobs:
       - name: Build knowledge base
         working-directory: noblefactor-ops
         run: |
-          ./star devlore build-knowledge \
-            --target all \
+          ./star devlore-registry build knowledge \
+            --domain all \
             --source_path ${{ github.workspace }}/devlore-cli \
             --registry_path ${{ github.workspace }}/devlore-registry
 
