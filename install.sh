@@ -32,7 +32,7 @@ PREFIX=""
 for arg in "$@"; do
     case "$arg" in
         --prefix=*) PREFIX="${arg#*=}" ;;
-        --help|-h)
+        --help | -h)
             echo "Usage: install.sh [--prefix=<dir>]"
             echo "  --prefix=<dir>  Installation prefix (default: ~/.local)"
             exit 0
@@ -74,14 +74,17 @@ fi
 info() { echo -e "${BLUE}info:${NC} $*"; }
 success() { echo -e "${GREEN}success:${NC} $*"; }
 warn() { echo -e "${YELLOW}warning:${NC} $*"; }
-error() { echo -e "${RED}error:${NC} $*" >&2; exit 1; }
+error() {
+    echo -e "${RED}error:${NC} $*" >&2
+    exit 1
+}
 
 # Detect OS
 detect_os() {
     case "$(uname -s)" in
-        Linux*)  echo "linux" ;;
+        Linux*) echo "linux" ;;
         Darwin*) echo "darwin" ;;
-        MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+        MINGW* | MSYS* | CYGWIN*) echo "windows" ;;
         *) error "Unsupported operating system: $(uname -s)" ;;
     esac
 }
@@ -89,8 +92,8 @@ detect_os() {
 # Detect architecture
 detect_arch() {
     case "$(uname -m)" in
-        x86_64|amd64) echo "amd64" ;;
-        arm64|aarch64) echo "arm64" ;;
+        x86_64 | amd64) echo "amd64" ;;
+        arm64 | aarch64) echo "arm64" ;;
         armv7l) echo "armv7" ;;
         *) error "Unsupported architecture: $(uname -m)" ;;
     esac
@@ -203,8 +206,10 @@ main() {
     fi
 
     # Detect platform
-    local os=$(detect_os)
-    local arch=$(detect_arch)
+    local os
+    local arch
+    os=$(detect_os)
+    arch=$(detect_arch)
     info "Detected platform: ${os}/${arch}"
 
     # Resolve version
@@ -255,7 +260,7 @@ main() {
     # Create temp directory
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    trap "rm -rf '$tmp_dir'" EXIT
+    trap 'rm -rf "$tmp_dir"' EXIT
 
     # Download archive via GitHub API
     info "Downloading ${archive_name}..."

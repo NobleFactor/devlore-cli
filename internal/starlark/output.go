@@ -165,6 +165,23 @@ func (o *Output) Path() string {
 	return o.node.GetSlot("path")
 }
 
+// DependOn creates an edge making the given node depend on this output's node.
+func (o *Output) DependOn(consumer *execution.Node) {
+	o.graph.Edges = append(o.graph.Edges, execution.Edge{
+		From: o.node.ID,
+		To:   consumer.ID,
+	})
+}
+
+// ResolveInput extracts an *Output from a Starlark value.
+// Returns an error if the value is not an Output.
+func ResolveInput(value starlark.Value) (*Output, error) {
+	if output, ok := value.(*Output); ok {
+		return output, nil
+	}
+	return nil, fmt.Errorf("expected Output, got %s", value.Type())
+}
+
 // Gather represents a collection of outputs that can run in parallel.
 // When used as a slot input, it creates edges from ALL members to the consumer,
 // enabling parallel execution of the gathered nodes.
