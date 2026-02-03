@@ -190,14 +190,15 @@ func (e *GraphExecutor) executeExecutable(ctx *Context, node Executable) *Result
 	var sourceChecksum, targetChecksum string
 
 	// Pre-read source content if pipeline needs it
-	if node.GetSource() != "" && e.needsContent(node) {
+	source := node.GetSlot("source")
+	if source != "" && e.needsContent(node) {
 		var err error
-		content, err = os.ReadFile(node.GetSource())
+		content, err = os.ReadFile(source)
 		if err != nil {
 			return &Result{
 				NodeID: node.GetID(),
 				Status: ResultFailed,
-				Error:  fmt.Errorf("read source %s: %w", node.GetSource(), err),
+				Error:  fmt.Errorf("read source %s: %w", source, err),
 			}
 		}
 		sourceChecksum = ChecksumBytes(content)
@@ -397,8 +398,8 @@ func (e *GraphExecutor) sortNodesByDepth(nodes []*Node) []*Node {
 
 	for i := 0; i < len(sorted)-1; i++ {
 		for j := i + 1; j < len(sorted); j++ {
-			depthI := pathDepth(sorted[i].Target)
-			depthJ := pathDepth(sorted[j].Target)
+			depthI := pathDepth(sorted[i].GetSlot("path"))
+			depthJ := pathDepth(sorted[j].GetSlot("path"))
 			if depthI > depthJ {
 				sorted[i], sorted[j] = sorted[j], sorted[i]
 			}
@@ -415,8 +416,8 @@ func (e *GraphExecutor) sortByDepth(nodes []Executable) []Executable {
 
 	for i := 0; i < len(sorted)-1; i++ {
 		for j := i + 1; j < len(sorted); j++ {
-			depthI := pathDepth(sorted[i].GetTarget())
-			depthJ := pathDepth(sorted[j].GetTarget())
+			depthI := pathDepth(sorted[i].GetSlot("path"))
+			depthJ := pathDepth(sorted[j].GetSlot("path"))
 			if depthI > depthJ {
 				sorted[i], sorted[j] = sorted[j], sorted[i]
 			}

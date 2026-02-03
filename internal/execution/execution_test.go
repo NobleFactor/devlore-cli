@@ -20,6 +20,18 @@ func runGraph(ctx context.Context, e *GraphExecutor, g *Graph) ([]*Result, error
 	return e.RunNodes(ctx, executables, g.Edges)
 }
 
+// testNode creates a node with source and path slots for testing.
+func testNode(id string, ops []string, source, path string) *Node {
+	node := &Node{ID: id, Operations: ops}
+	if source != "" {
+		node.SetSlotImmediate("source", source)
+	}
+	if path != "" {
+		node.SetSlotImmediate("path", path)
+	}
+	return node
+}
+
 func TestRegistryRegisterAndGet(t *testing.T) {
 	reg := NewOperationRegistry()
 	reg.Register(&LinkOp{})
@@ -46,8 +58,8 @@ func TestRegistryNames(t *testing.T) {
 	}
 
 	names := reg.Names()
-	if len(names) != 11 {
-		t.Errorf("expected 11 operations, got %d", len(names))
+	if len(names) != 10 {
+		t.Errorf("expected 10 operations, got %d", len(names))
 	}
 }
 
@@ -62,7 +74,9 @@ func TestLinkOperation(t *testing.T) {
 
 	op := &LinkOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Source: source, Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("link: %v", err)
@@ -91,7 +105,9 @@ func TestLinkOperationIdempotent(t *testing.T) {
 
 	op := &LinkOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Source: source, Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("idempotent link: %v", err)
@@ -104,7 +120,8 @@ func TestCopyOperation(t *testing.T) {
 
 	op := &CopyOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 	inputContent := []byte("file content")
 
 	checksum, err := op.Write(ctx, node, inputContent)
@@ -134,7 +151,8 @@ func TestCopyOperationCreatesParentDirs(t *testing.T) {
 
 	op := &CopyOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 	inputContent := []byte("nested content")
 
 	if _, err := op.Write(ctx, node, inputContent); err != nil {
@@ -150,13 +168,14 @@ func TestCopyOperationCreatesParentDirs(t *testing.T) {
 	}
 }
 
-func TestExpandOperation(t *testing.T) {
-	op := &ExpandOp{}
+func TestRenderOperation(t *testing.T) {
+	op := &RenderOp{}
 	ctx := &Context{
 		Context: context.Background(),
 		Data:    map[string]any{"Username": "testuser", "Shell": "/bin/zsh"},
 	}
-	node := &Node{ID: ".bashrc", Source: "/environment/all/.bashrc", Project: "all"}
+	node := &Node{ID: ".bashrc", Project: "all"}
+	node.SetSlotImmediate("source", "/environment/all/.bashrc")
 	inputContent := []byte("# Shell: {{.Shell}}\n# User: {{.Username}}\n# Project: {{.Project}}")
 
 	result, err := op.Transform(ctx, node, inputContent)
@@ -225,7 +244,8 @@ func TestUnlinkOperation(t *testing.T) {
 
 	op := &UnlinkOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("unlink: %v", err)
@@ -245,7 +265,8 @@ func TestRemoveOperation(t *testing.T) {
 
 	op := &RemoveOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -256,21 +277,19 @@ func TestRemoveOperation(t *testing.T) {
 	}
 }
 
-func TestFileWriteOperation(t *testing.T) {
+func TestWriteOperation(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "output.txt")
 	content := "hello world"
 
-	op := &FileWriteOp{}
+	op := &WriteOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{
-		ID:       "test",
-		Target:   target,
-		Metadata: map[string]string{"content": content},
-	}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
+	node.SetSlotImmediate("content", content)
 
 	if err := op.Execute(ctx, node); err != nil {
-		t.Fatalf("file-write: %v", err)
+		t.Fatalf("write: %v", err)
 	}
 
 	data, err := os.ReadFile(target)
@@ -282,21 +301,19 @@ func TestFileWriteOperation(t *testing.T) {
 	}
 }
 
-func TestFileWriteCreatesParentDirs(t *testing.T) {
+func TestWriteCreatesParentDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "a", "b", "c", "output.txt")
 	content := "nested content"
 
-	op := &FileWriteOp{}
+	op := &WriteOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{
-		ID:       "test",
-		Target:   target,
-		Metadata: map[string]string{"content": content},
-	}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
+	node.SetSlotImmediate("content", content)
 
 	if err := op.Execute(ctx, node); err != nil {
-		t.Fatalf("file-write: %v", err)
+		t.Fatalf("write: %v", err)
 	}
 
 	data, err := os.ReadFile(target)
@@ -308,14 +325,11 @@ func TestFileWriteCreatesParentDirs(t *testing.T) {
 	}
 }
 
-func TestFileWriteRequiresContent(t *testing.T) {
-	op := &FileWriteOp{}
+func TestWriteRequiresContent(t *testing.T) {
+	op := &WriteOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{
-		ID:       "test",
-		Target:   "/tmp/test.txt",
-		Metadata: map[string]string{},
-	}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", "/tmp/test.txt")
 
 	err := op.Execute(ctx, node)
 	if err == nil {
@@ -326,20 +340,18 @@ func TestFileWriteRequiresContent(t *testing.T) {
 	}
 }
 
-func TestFileWriteDryRun(t *testing.T) {
+func TestWriteDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "should-not-exist.txt")
 
-	op := &FileWriteOp{}
+	op := &WriteOp{}
 	ctx := &Context{Context: context.Background(), DryRun: true}
-	node := &Node{
-		ID:       "test",
-		Target:   target,
-		Metadata: map[string]string{"content": "test"},
-	}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
+	node.SetSlotImmediate("content", "test")
 
 	if err := op.Execute(ctx, node); err != nil {
-		t.Fatalf("file-write dry-run: %v", err)
+		t.Fatalf("write dry-run: %v", err)
 	}
 
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
@@ -361,7 +373,7 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: ".bashrc", Operations: []string{"link"}, Source: source, Target: target},
+			testNode(".bashrc", []string{"link"}, source, target),
 		},
 	}
 
@@ -383,7 +395,7 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 	}
 }
 
-func TestEngineRunExpandCopyPipeline(t *testing.T) {
+func TestEngineRunRenderCopyPipeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "template.txt")
 	target := filepath.Join(tmpDir, "output.txt")
@@ -393,7 +405,7 @@ func TestEngineRunExpandCopyPipeline(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&ExpandOp{})
+	reg.Register(&RenderOp{})
 	reg.Register(&CopyOp{})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{
@@ -401,7 +413,7 @@ func TestEngineRunExpandCopyPipeline(t *testing.T) {
 	})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: ".greeting", Operations: []string{"expand", "copy"}, Source: source, Target: target},
+			testNode(".greeting", []string{"render", "copy"}, source, target),
 		},
 	}
 
@@ -427,7 +439,7 @@ func TestEngineRunExpandCopyPipeline(t *testing.T) {
 	}
 }
 
-func TestEngineRunDecryptExpandCopyPipeline(t *testing.T) {
+func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "secret.txt.sops")
 	target := filepath.Join(tmpDir, "secret.txt")
@@ -443,7 +455,7 @@ func TestEngineRunDecryptExpandCopyPipeline(t *testing.T) {
 
 	reg := NewOperationRegistry()
 	reg.Register(&DecryptOp{})
-	reg.Register(&ExpandOp{})
+	reg.Register(&RenderOp{})
 	reg.Register(&CopyOp{})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{
@@ -454,7 +466,7 @@ func TestEngineRunDecryptExpandCopyPipeline(t *testing.T) {
 	})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: ".secret", Operations: []string{"decrypt", "expand", "copy"}, Source: source, Target: target},
+			testNode(".secret", []string{"decrypt", "render", "copy"}, source, target),
 		},
 	}
 
@@ -494,8 +506,8 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "tgt1.txt", Operations: []string{"link"}, Source: source1, Target: target1},
-			{ID: "sub/tgt2.txt", Operations: []string{"link"}, Source: source2, Target: target2},
+			testNode("tgt1.txt", []string{"link"}, source1, target1),
+			testNode("sub/tgt2.txt", []string{"link"}, source2, target2),
 		},
 	}
 
@@ -554,9 +566,9 @@ func TestEngineTopologicalSort(t *testing.T) {
 	// B depends on A, C depends on B
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "c", Operations: []string{"link"}, Source: srcC, Target: filepath.Join(tmpDir, "out_c")},
-			{ID: "a", Operations: []string{"link"}, Source: srcA, Target: filepath.Join(tmpDir, "out_a")},
-			{ID: "b", Operations: []string{"link"}, Source: srcB, Target: filepath.Join(tmpDir, "out_b")},
+			testNode("c", []string{"link"}, srcC, filepath.Join(tmpDir, "out_c")),
+			testNode("a", []string{"link"}, srcA, filepath.Join(tmpDir, "out_a")),
+			testNode("b", []string{"link"}, srcB, filepath.Join(tmpDir, "out_b")),
 		},
 		Edges: []Edge{
 			{From: "a", To: "b", Relation: "orders"},
@@ -595,7 +607,7 @@ func TestEngineDryRun(t *testing.T) {
 	engine := NewGraphExecutor(reg, ExecutorOptions{DryRun: true})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: ".bashrc", Operations: []string{"link"}, Source: source, Target: target},
+			testNode(".bashrc", []string{"link"}, source, target),
 		},
 	}
 
@@ -624,7 +636,7 @@ func TestPreflightNoConflict(t *testing.T) {
 
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "test", Operations: []string{"link"}, Source: source, Target: target},
+			testNode("test", []string{"link"}, source, target),
 		},
 	}
 
@@ -650,7 +662,7 @@ func TestPreflightConflictRegularFile(t *testing.T) {
 
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "test", Operations: []string{"link"}, Source: source, Target: target},
+			testNode("test", []string{"link"}, source, target),
 		},
 	}
 
@@ -676,7 +688,7 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "test", Operations: []string{"link"}, Source: source, Target: target},
+			testNode("test", []string{"link"}, source, target),
 		},
 	}
 
@@ -709,8 +721,8 @@ func TestPreflightPackagesManifest(t *testing.T) {
 
 func TestFileOpsCount(t *testing.T) {
 	ops := FileOps()
-	if len(ops) != 11 {
-		t.Errorf("expected 11 file ops, got %d", len(ops))
+	if len(ops) != 10 {
+		t.Errorf("expected 10 file ops, got %d", len(ops))
 	}
 
 	names := make(map[string]bool)
@@ -720,7 +732,8 @@ func TestFileOpsCount(t *testing.T) {
 
 	// NOTE: No "delegate" operation - writ and lore share the same execution.
 	// Package operations (install, configure, verify) are NOT YET IMPLEMENTED.
-	expected := []string{"link", "copy", "expand", "decrypt", "backup", "unlink", "remove", "mkdir", "file-write", "validate", "rename"}
+	// mkdir removed - all file operations implicitly create directories.
+	expected := []string{"link", "copy", "render", "decrypt", "backup", "unlink", "remove", "write", "validate", "move"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("expected operation %q in FileOps()", name)
@@ -737,7 +750,8 @@ func TestBackupOperation(t *testing.T) {
 
 	op := &BackupOp{}
 	ctx := &Context{Context: context.Background(), Data: map[string]any{}}
-	node := &Node{ID: "test", Target: target, Metadata: make(map[string]string)}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("backup: %v", err)
@@ -748,10 +762,10 @@ func TestBackupOperation(t *testing.T) {
 		t.Error("expected original file to be moved")
 	}
 
-	// Backup path should be recorded in node metadata
-	backupPath := node.Metadata["backup_path"]
+	// Backup path should be recorded in node annotations
+	backupPath := node.Annotations["backup_path"]
 	if backupPath == "" {
-		t.Fatal("expected backup_path in node metadata")
+		t.Fatal("expected backup_path in node annotations")
 	}
 
 	// Backup should exist with original content
@@ -770,7 +784,8 @@ func TestCopyOperationWithMode(t *testing.T) {
 
 	op := &CopyOp{}
 	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Target: target, Mode: 0755}
+	node := &Node{ID: "test", Mode: 0755}
+	node.SetSlotImmediate("path", target)
 	inputContent := []byte("#!/bin/sh\necho hello")
 
 	if _, err := op.Write(ctx, node, inputContent); err != nil {
@@ -825,7 +840,8 @@ func TestRemoveOperationPrunesEmptyDirs(t *testing.T) {
 			"prune_boundary":   tmpDir,
 		},
 	}
-	node := &Node{ID: "test", Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -871,7 +887,8 @@ func TestRemoveOperationPruneStopsAtNonEmpty(t *testing.T) {
 			"prune_boundary":   tmpDir,
 		},
 	}
-	node := &Node{ID: "test", Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -918,7 +935,8 @@ func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
 			"prune_boundary":   tmpDir,
 		},
 	}
-	node := &Node{ID: "test", Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("unlink: %v", err)
@@ -947,7 +965,8 @@ func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 	op := &RemoveOp{}
 	// No prune flags set
 	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Target: target}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)

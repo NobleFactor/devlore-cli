@@ -18,11 +18,11 @@ import (
 // These four operations work on ALL platforms. The package manager is determined
 // at execution time by host.PackageManager().
 //
-// On Darwin, the optional node.Metadata["manager"] can override the auto-detected
+// On Darwin, the optional node "manager" slot can override the auto-detected
 // package manager ("brew" or "port"). This supports the brew:pkg and port:pkg
 // prefix syntax in plan.install().
 //
-// Package names are read from node.Metadata["packages"] (comma-separated).
+// Package names are read from node's "packages" slot (comma-separated).
 
 // PackageInstallOp installs packages using the platform's package manager.
 type PackageInstallOp struct{}
@@ -31,19 +31,18 @@ func (o *PackageInstallOp) Name() string         { return "package-install" }
 func (o *PackageInstallOp) Category() OpCategory { return OpDirect }
 
 func (o *PackageInstallOp) Execute(ctx *Context, node Executable) error {
-	metadata := node.GetMetadata()
-	packages := parsePackages(metadata["packages"])
+	packages := parsePackages(node.GetSlot("packages"))
 	if len(packages) == 0 {
 		return fmt.Errorf("package-install: no packages specified")
 	}
 
-	pm := resolvePMForInstall(metadata["manager"])
+	pm := resolvePMForInstall(node.GetSlot("manager"))
 	if pm == nil {
 		return fmt.Errorf("package-install: no package manager available")
 	}
 
 	// Check if cask mode is enabled (for Homebrew Cask)
-	isCask := metadata["cask"] == "true"
+	isCask := node.GetSlot("cask") == "true"
 
 	if ctx.DryRun {
 		if isCask {
@@ -78,20 +77,19 @@ func (o *PackageUpgradeOp) Name() string         { return "package-upgrade" }
 func (o *PackageUpgradeOp) Category() OpCategory { return OpDirect }
 
 func (o *PackageUpgradeOp) Execute(ctx *Context, node Executable) error {
-	metadata := node.GetMetadata()
-	packages := parsePackages(metadata["packages"])
+	packages := parsePackages(node.GetSlot("packages"))
 	if len(packages) == 0 {
 		return fmt.Errorf("package-upgrade: no packages specified")
 	}
 
 	// Use InstalledBy to determine which PM to upgrade with
-	pm := resolvePMForUpgrade(metadata["manager"], packages)
+	pm := resolvePMForUpgrade(node.GetSlot("manager"), packages)
 	if pm == nil {
 		return fmt.Errorf("package-upgrade: no package manager available")
 	}
 
 	// Check if cask mode is enabled (for Homebrew Cask)
-	isCask := metadata["cask"] == "true"
+	isCask := node.GetSlot("cask") == "true"
 
 	if ctx.DryRun {
 		if isCask {
@@ -128,18 +126,18 @@ func (o *PackageRemoveOp) Name() string         { return "package-remove" }
 func (o *PackageRemoveOp) Category() OpCategory { return OpDirect }
 
 func (o *PackageRemoveOp) Execute(ctx *Context, node Executable) error {
-	metadata := node.GetMetadata()
-	packages := parsePackages(metadata["packages"])
+	packages := parsePackages(node.GetSlot("packages"))
 	if len(packages) == 0 {
 		return fmt.Errorf("package-remove: no packages specified")
 	}
 
 	// Check if cask mode is enabled (for Homebrew Cask)
-	isCask := metadata["cask"] == "true"
+	isCask := node.GetSlot("cask") == "true"
+	manager := node.GetSlot("manager")
 
 	for _, pkg := range packages {
 		// Use InstalledBy to determine which PM to remove with
-		pm, otherPMs := resolvePMForRemove(metadata["manager"], pkg)
+		pm, otherPMs := resolvePMForRemove(manager, pkg)
 		if pm == nil {
 			return fmt.Errorf("package-remove: no package manager available")
 		}
@@ -187,9 +185,8 @@ func (o *PackageUpdateOp) Name() string         { return "package-update" }
 func (o *PackageUpdateOp) Category() OpCategory { return OpDirect }
 
 func (o *PackageUpdateOp) Execute(ctx *Context, node Executable) error {
-	metadata := node.GetMetadata()
 	// Update uses preferred PM (not InstalledBy - we're updating the index, not a package)
-	pm := resolvePMForInstall(metadata["manager"])
+	pm := resolvePMForInstall(node.GetSlot("manager"))
 	if pm == nil {
 		return fmt.Errorf("package-update: no package manager available")
 	}
@@ -356,15 +353,14 @@ func runBrewCaskRemove(pkg string) host.Result {
 // Shell Operations
 // =============================================================================
 
-// ShellOp executes a shell command from node.Metadata["command"].
+// ShellOp executes a shell command from node's "command" slot.
 type ShellOp struct{}
 
 func (o *ShellOp) Name() string         { return "shell" }
 func (o *ShellOp) Category() OpCategory { return OpDirect }
 
 func (o *ShellOp) Execute(ctx *Context, node Executable) error {
-	metadata := node.GetMetadata()
-	command := metadata["command"]
+	command := node.GetSlot("command")
 	if command == "" {
 		return fmt.Errorf("shell: no command specified")
 	}
@@ -381,15 +377,14 @@ func (o *ShellOp) Execute(ctx *Context, node Executable) error {
 	return cmd.Run()
 }
 
-// PowerShellOp executes a PowerShell command from node.Metadata["command"] (Windows).
+// PowerShellOp executes a PowerShell command from node's "command" slot (Windows).
 type PowerShellOp struct{}
 
 func (o *PowerShellOp) Name() string         { return "powershell" }
 func (o *PowerShellOp) Category() OpCategory { return OpDirect }
 
 func (o *PowerShellOp) Execute(ctx *Context, node Executable) error {
-	metadata := node.GetMetadata()
-	command := metadata["command"]
+	command := node.GetSlot("command")
 	if command == "" {
 		return fmt.Errorf("powershell: no command specified")
 	}

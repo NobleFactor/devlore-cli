@@ -12,10 +12,10 @@ import (
 // Service Manager Operations
 // =============================================================================
 //
-// These operations manage system services. The appropriate operation is selected
-// based on the detected platform during graph building (internal/starlark/platform).
-//
-// Each operation reads the service name from node.Metadata["service"].
+// Platform-specific service operations. The platform bindings (darwin.go,
+// linux.go, windows.go) create nodes with the appropriate operation name
+// (e.g., launchd-start, systemd-start, winservice-start). No runtime
+// platform detection is needed - the binding layer handles platform selection.
 
 // =============================================================================
 // launchd (macOS)
@@ -28,7 +28,7 @@ func (o *LaunchdStartOp) Name() string         { return "launchd-start" }
 func (o *LaunchdStartOp) Category() OpCategory { return OpDirect }
 
 func (o *LaunchdStartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("launchd-start: no service specified")
 	}
@@ -52,7 +52,7 @@ func (o *LaunchdStopOp) Name() string         { return "launchd-stop" }
 func (o *LaunchdStopOp) Category() OpCategory { return OpDirect }
 
 func (o *LaunchdStopOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("launchd-stop: no service specified")
 	}
@@ -76,7 +76,7 @@ func (o *LaunchdRestartOp) Name() string         { return "launchd-restart" }
 func (o *LaunchdRestartOp) Category() OpCategory { return OpDirect }
 
 func (o *LaunchdRestartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("launchd-restart: no service specified")
 	}
@@ -101,7 +101,7 @@ func (o *LaunchdEnableOp) Name() string         { return "launchd-enable" }
 func (o *LaunchdEnableOp) Category() OpCategory { return OpDirect }
 
 func (o *LaunchdEnableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("launchd-enable: no service specified")
 	}
@@ -125,7 +125,7 @@ func (o *LaunchdDisableOp) Name() string         { return "launchd-disable" }
 func (o *LaunchdDisableOp) Category() OpCategory { return OpDirect }
 
 func (o *LaunchdDisableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("launchd-disable: no service specified")
 	}
@@ -153,7 +153,7 @@ func (o *SystemdStartOp) Name() string         { return "systemd-start" }
 func (o *SystemdStartOp) Category() OpCategory { return OpDirect }
 
 func (o *SystemdStartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("systemd-start: no service specified")
 	}
@@ -177,7 +177,7 @@ func (o *SystemdStopOp) Name() string         { return "systemd-stop" }
 func (o *SystemdStopOp) Category() OpCategory { return OpDirect }
 
 func (o *SystemdStopOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("systemd-stop: no service specified")
 	}
@@ -201,7 +201,7 @@ func (o *SystemdRestartOp) Name() string         { return "systemd-restart" }
 func (o *SystemdRestartOp) Category() OpCategory { return OpDirect }
 
 func (o *SystemdRestartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("systemd-restart: no service specified")
 	}
@@ -225,7 +225,7 @@ func (o *SystemdEnableOp) Name() string         { return "systemd-enable" }
 func (o *SystemdEnableOp) Category() OpCategory { return OpDirect }
 
 func (o *SystemdEnableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("systemd-enable: no service specified")
 	}
@@ -249,7 +249,7 @@ func (o *SystemdDisableOp) Name() string         { return "systemd-disable" }
 func (o *SystemdDisableOp) Category() OpCategory { return OpDirect }
 
 func (o *SystemdDisableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("systemd-disable: no service specified")
 	}
@@ -277,7 +277,7 @@ func (o *WinServiceStartOp) Name() string         { return "winservice-start" }
 func (o *WinServiceStartOp) Category() OpCategory { return OpDirect }
 
 func (o *WinServiceStartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("winservice-start: no service specified")
 	}
@@ -301,7 +301,7 @@ func (o *WinServiceStopOp) Name() string         { return "winservice-stop" }
 func (o *WinServiceStopOp) Category() OpCategory { return OpDirect }
 
 func (o *WinServiceStopOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("winservice-stop: no service specified")
 	}
@@ -325,7 +325,7 @@ func (o *WinServiceRestartOp) Name() string         { return "winservice-restart
 func (o *WinServiceRestartOp) Category() OpCategory { return OpDirect }
 
 func (o *WinServiceRestartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("winservice-restart: no service specified")
 	}
@@ -357,7 +357,7 @@ func (o *WinServiceEnableOp) Name() string         { return "winservice-enable" 
 func (o *WinServiceEnableOp) Category() OpCategory { return OpDirect }
 
 func (o *WinServiceEnableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("winservice-enable: no service specified")
 	}
@@ -381,7 +381,7 @@ func (o *WinServiceDisableOp) Name() string         { return "winservice-disable
 func (o *WinServiceDisableOp) Category() OpCategory { return OpDirect }
 
 func (o *WinServiceDisableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetMetadata()["service"]
+	service := node.GetSlot("name")
 	if service == "" {
 		return fmt.Errorf("winservice-disable: no service specified")
 	}
