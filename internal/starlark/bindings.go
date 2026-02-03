@@ -188,17 +188,13 @@ func (b *Bindings) packageSetting(thread *starlark.Thread, fn *starlark.Builtin,
 // =============================================================================
 
 func (b *Bindings) fsStruct() *starlarkstruct.Struct {
+	// NOTE: fs.* contains ONLY read-only operations.
+	// Mutating operations must use plan.file.* which adds to the execution graph.
+	// This follows the Bazel model: Starlark plans, engine executes.
 	return starlarkstruct.FromStringDict(starlark.String("fs"), starlark.StringDict{
 		"exists":   starlark.NewBuiltin("fs.exists", b.fsExists),
 		"is_dir":   starlark.NewBuiltin("fs.is_dir", b.fsIsDir),
 		"read":     starlark.NewBuiltin("fs.read", b.fsRead),
-		"write":    starlark.NewBuiltin("fs.write", b.fsWrite),
-		"mkdir":    starlark.NewBuiltin("fs.mkdir", b.fsMkdir),
-		"remove":   starlark.NewBuiltin("fs.remove", b.fsRemove),
-		"copy":     starlark.NewBuiltin("fs.copy", b.fsCopy),
-		"move":     starlark.NewBuiltin("fs.move", b.fsMove),
-		"chmod":    starlark.NewBuiltin("fs.chmod", b.fsChmod),
-		"symlink":  starlark.NewBuiltin("fs.symlink", b.fsSymlink),
 		"which":    starlark.NewBuiltin("fs.which", b.fsWhich),
 		"home":     starlark.NewBuiltin("fs.home", b.fsHome),
 		"join":     starlark.NewBuiltin("fs.join", b.fsJoin),
@@ -241,105 +237,6 @@ func (b *Bindings) fsRead(thread *starlark.Thread, fn *starlark.Builtin, args st
 		return starlark.String(""), nil
 	}
 	return starlark.String(data), nil
-}
-
-func (b *Bindings) fsWrite(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var path, content string
-	var mode = 0o644
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "path", &path, "content", &content, "mode?", &mode); err != nil {
-		return nil, err
-	}
-	path = b.host.ExpandPath(path)
-
-	_, _ = fmt.Fprintf(b.output, "  [fs] Writing %s\n", path)
-	err := os.WriteFile(path, []byte(content), os.FileMode(mode))
-	return starlark.Bool(err == nil), nil
-}
-
-func (b *Bindings) fsMkdir(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var path string
-	var parents = true
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "path", &path, "parents?", &parents); err != nil {
-		return nil, err
-	}
-	path = b.host.ExpandPath(path)
-
-	var err error
-	if parents {
-		err = os.MkdirAll(path, 0o755)
-	} else {
-		err = os.Mkdir(path, 0o755)
-	}
-	return starlark.Bool(err == nil), nil
-}
-
-func (b *Bindings) fsRemove(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var path string
-	var recursive bool
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "path", &path, "recursive?", &recursive); err != nil {
-		return nil, err
-	}
-	path = b.host.ExpandPath(path)
-
-	var err error
-	if recursive {
-		err = os.RemoveAll(path)
-	} else {
-		err = os.Remove(path)
-	}
-	return starlark.Bool(err == nil), nil
-}
-
-func (b *Bindings) fsCopy(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var src, dest string
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "src", &src, "dest", &dest); err != nil {
-		return nil, err
-	}
-	src = b.host.ExpandPath(src)
-	dest = b.host.ExpandPath(dest)
-
-	input, err := os.ReadFile(src)
-	if err != nil {
-		return starlark.False, nil
-	}
-	err = os.WriteFile(dest, input, 0o644)
-	return starlark.Bool(err == nil), nil
-}
-
-func (b *Bindings) fsMove(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var src, dest string
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "src", &src, "dest", &dest); err != nil {
-		return nil, err
-	}
-	src = b.host.ExpandPath(src)
-	dest = b.host.ExpandPath(dest)
-
-	err := os.Rename(src, dest)
-	return starlark.Bool(err == nil), nil
-}
-
-func (b *Bindings) fsChmod(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var path string
-	var mode int
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "path", &path, "mode", &mode); err != nil {
-		return nil, err
-	}
-	path = b.host.ExpandPath(path)
-
-	err := os.Chmod(path, os.FileMode(mode))
-	return starlark.Bool(err == nil), nil
-}
-
-func (b *Bindings) fsSymlink(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var src, dest string
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "src", &src, "dest", &dest); err != nil {
-		return nil, err
-	}
-	src = b.host.ExpandPath(src)
-	dest = b.host.ExpandPath(dest)
-
-	err := os.Symlink(src, dest)
-	return starlark.Bool(err == nil), nil
 }
 
 func (b *Bindings) fsWhich(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
