@@ -488,10 +488,10 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	node := &execution.Node{
 		ID:         relTarget,
 		Operations: opStrings,
-		Source:     entry.Source,
-		Target:     target,
 		Project:    entry.Project,
 	}
+	node.SetSlotImmediate("source", entry.Source)
+	node.SetSlotImmediate("path", target)
 
 	if hasDecryptOp(opStrings) {
 		node.Mode = 0600
@@ -695,19 +695,21 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 		}
 
 		var entry reconcile.Entry
+		source := n.GetSlot("source")
+		target := n.GetSlot("path")
 		if checkDrift && n.SourceChecksum != "" {
 			entry = reconcile.Entry{
 				RelTarget:      n.ID,
-				Source:         n.Source,
-				Target:         n.Target,
+				Source:         source,
+				Target:         target,
 				Project:        n.Project,
 				Operations:     n.Operations,
 				SourceChecksum: n.SourceChecksum,
 				TargetChecksum: n.TargetChecksum,
 			}
 			// Check drift
-			currentSourceChecksum := execution.ChecksumFile(n.Source)
-			currentTargetChecksum := execution.ChecksumFile(n.Target)
+			currentSourceChecksum := execution.ChecksumFile(source)
+			currentTargetChecksum := execution.ChecksumFile(target)
 
 			sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != n.SourceChecksum
 			targetChanged := currentTargetChecksum != "" && currentTargetChecksum != n.TargetChecksum
@@ -729,12 +731,12 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 			// Just check if file exists
 			entry = reconcile.Entry{
 				RelTarget:  n.ID,
-				Source:     n.Source,
-				Target:     n.Target,
+				Source:     source,
+				Target:     target,
 				Project:    n.Project,
 				Operations: n.Operations,
 			}
-			if _, err := os.Stat(n.Target); os.IsNotExist(err) {
+			if _, err := os.Stat(target); os.IsNotExist(err) {
 				entry.State = reconcile.StateMissing
 				entry.Message = "file not deployed"
 			} else {

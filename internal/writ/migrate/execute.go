@@ -39,7 +39,7 @@ func Execute(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) e
 	var renameNodes []*execution.Node
 	for _, node := range graph.Nodes {
 		for _, op := range node.Operations {
-			if op == "rename" {
+			if op == "move" {
 				renameNodes = append(renameNodes, node)
 				break
 			}
@@ -55,20 +55,23 @@ func Execute(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) e
 
 	// Verify no target conflicts before starting
 	for _, node := range renameNodes {
-		if exists(node.Target) {
-			return fmt.Errorf("target directory %q already exists; aborting", node.Target)
+		target := node.GetSlot("path")
+		if exists(target) {
+			return fmt.Errorf("target directory %q already exists; aborting", target)
 		}
 	}
 
 	// Perform renames
 	var renames []Rename
 	for _, node := range renameNodes {
-		if err := os.Rename(node.Source, node.Target); err != nil {
-			cli.Error("  %s -> %s", filepath.Base(node.Source), filepath.Base(node.Target))
-			return fmt.Errorf("rename %s -> %s: %w", node.Source, node.Target, err)
+		source := node.GetSlot("source")
+		target := node.GetSlot("path")
+		if err := os.Rename(source, target); err != nil {
+			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
+			return fmt.Errorf("rename %s -> %s: %w", source, target, err)
 		}
-		cli.Success("  %s -> %s", filepath.Base(node.Source), filepath.Base(node.Target))
-		renames = append(renames, Rename{From: node.Source, To: node.Target})
+		cli.Success("  %s -> %s", filepath.Base(source), filepath.Base(target))
+		renames = append(renames, Rename{From: source, To: target})
 	}
 
 	// Write marker file
@@ -91,8 +94,8 @@ func WriteMigratedMarker(sourceRoot string, graph *execution.Graph, analysis *Mi
 	var renames []Rename
 	for _, node := range graph.Nodes {
 		for _, op := range node.Operations {
-			if op == "rename" {
-				renames = append(renames, Rename{From: node.Source, To: node.Target})
+			if op == "move" {
+				renames = append(renames, Rename{From: node.GetSlot("source"), To: node.GetSlot("path")})
 				break
 			}
 		}

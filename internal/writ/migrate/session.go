@@ -344,10 +344,10 @@ func (s *Session) formatGraphForPrompt() string {
 	sb.WriteString("Planned renames:\n")
 	for _, node := range s.graph.Nodes {
 		for _, op := range node.Operations {
-			if op == "rename" {
+			if op == "move" {
 				// Show relative paths for readability
-				source := strings.TrimPrefix(node.Source, s.opts.SourceRoot+"/")
-				target := strings.TrimPrefix(node.Target, s.opts.SourceRoot+"/")
+				source := strings.TrimPrefix(node.GetSlot("source"), s.opts.SourceRoot+"/")
+				target := strings.TrimPrefix(node.GetSlot("path"), s.opts.SourceRoot+"/")
 				sb.WriteString(fmt.Sprintf("  %s -> %s\n", source, target))
 			}
 		}
@@ -414,9 +414,9 @@ func (s *Session) addRenameToGraph(source, target string) {
 
 	// Check if this rename already exists
 	for _, node := range s.graph.Nodes {
-		if node.Source == source {
+		if node.GetSlot("source") == source {
 			// Update existing rename
-			node.Target = target
+			node.SetSlotImmediate("path", target)
 			return
 		}
 	}
@@ -436,7 +436,7 @@ func (s *Session) removeRenameFromGraph(source string) {
 
 	// Find and remove the node
 	for i, node := range s.graph.Nodes {
-		if node.Source == source {
+		if node.GetSlot("source") == source {
 			s.graph.Nodes = append(s.graph.Nodes[:i], s.graph.Nodes[i+1:]...)
 			return
 		}

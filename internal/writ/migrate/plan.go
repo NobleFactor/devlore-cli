@@ -380,7 +380,7 @@ func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph)
 
 		var node *execution.Node
 		switch n.Op {
-		case "rename":
+		case "move":
 			node = plan.Rename(source, target)
 		case "mkdir":
 			node = plan.Mkdir(target)

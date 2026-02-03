@@ -51,9 +51,9 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 	for _, node := range result.Graph.Nodes {
 		if len(node.Operations) > 0 && node.Operations[0] == "package-install" {
 			found = true
-			// Verify metadata
-			if node.Metadata["packages"] != "curl" {
-				t.Errorf("expected packages 'curl', got %q", node.Metadata["packages"])
+			// Verify slot values
+			if node.GetSlot("packages") != "curl" {
+				t.Errorf("expected packages 'curl', got %q", node.GetSlot("packages"))
 			}
 			break
 		}
@@ -187,16 +187,13 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
 
 	// Create a graph with a namespaced package-install node
+	node := &execution.Node{
+		ID:         "package-install-testpkg",
+		Operations: []string{"package-install"},
+	}
+	node.SetSlotImmediate("packages", "testpkg")
 	graph := &execution.Graph{
-		Nodes: []*execution.Node{
-			{
-				ID:         "package-install-testpkg",
-				Operations: []string{"package-install"},
-				Metadata: map[string]string{
-					"packages": "testpkg",
-				},
-			},
-		},
+		Nodes: []*execution.Node{node},
 	}
 
 	results, err := runGraph(context.Background(), eng, graph)
@@ -229,19 +226,16 @@ func TestEngineRunsNamespacedPackageOps(t *testing.T) {
 
 	for _, opName := range ops {
 		t.Run(opName, func(t *testing.T) {
-			metadata := map[string]string{}
+			node := &execution.Node{
+				ID:         "test-" + opName,
+				Operations: []string{opName},
+			}
 			if opName != "package-update" {
-				metadata["packages"] = "testpkg"
+				node.SetSlotImmediate("packages", "testpkg")
 			}
 
 			graph := &execution.Graph{
-				Nodes: []*execution.Node{
-					{
-						ID:         "test-" + opName,
-						Operations: []string{opName},
-						Metadata:   metadata,
-					},
-				},
+				Nodes: []*execution.Node{node},
 			}
 
 			results, err := runGraph(context.Background(), eng, graph)
@@ -285,14 +279,14 @@ func TestNativePMNodeMetadata(t *testing.T) {
 		t.Fatal("no package-install node found")
 	}
 
-	// Verify required metadata
-	if installNode.Metadata["packages"] == "" {
-		t.Error("expected packages metadata to be set")
+	// Verify required slots
+	if installNode.GetSlot("packages") == "" {
+		t.Error("expected packages slot to be set")
 	}
-	if installNode.Metadata["phase"] == "" {
-		t.Error("expected phase metadata to be set")
+	if installNode.GetSlot("phase") == "" {
+		t.Error("expected phase slot to be set")
 	}
-	// Note: manager is NOT set in metadata for namespaced operations
+	// Note: manager is NOT set for namespaced operations
 	// The PM is determined at execution time by host.PackageManager()
 }
 

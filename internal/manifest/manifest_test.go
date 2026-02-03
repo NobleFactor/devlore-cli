@@ -318,19 +318,19 @@ func TestBuilder_BuildGraphFromManifest(t *testing.T) {
 	if graph.Nodes[0].ID != "gh" {
 		t.Errorf("nodes[0].ID: expected 'gh', got %q", graph.Nodes[0].ID)
 	}
-	if graph.Nodes[0].Metadata["package"] != "gh" {
-		t.Errorf("nodes[0].Metadata['package']: expected 'gh', got %q", graph.Nodes[0].Metadata["package"])
+	if graph.Nodes[0].GetSlot("package") != "gh" {
+		t.Errorf("nodes[0] slot 'package': expected 'gh', got %q", graph.Nodes[0].GetSlot("package"))
 	}
 
 	// Check second node (with features)
 	if graph.Nodes[1].ID != "neovim" {
 		t.Errorf("nodes[1].ID: expected 'neovim', got %q", graph.Nodes[1].ID)
 	}
-	if graph.Nodes[1].Metadata["feature_count"] != "2" {
-		t.Errorf("nodes[1].Metadata['feature_count']: expected '2', got %q", graph.Nodes[1].Metadata["feature_count"])
+	if graph.Nodes[1].GetSlot("feature_count") != "2" {
+		t.Errorf("nodes[1] slot 'feature_count': expected '2', got %q", graph.Nodes[1].GetSlot("feature_count"))
 	}
-	if graph.Nodes[1].Metadata["feature.0"] != "lsp" {
-		t.Errorf("nodes[1].Metadata['feature.0']: expected 'lsp', got %q", graph.Nodes[1].Metadata["feature.0"])
+	if graph.Nodes[1].GetSlot("feature.0") != "lsp" {
+		t.Errorf("nodes[1] slot 'feature.0': expected 'lsp', got %q", graph.Nodes[1].GetSlot("feature.0"))
 	}
 
 	// Check operations (four-phase pipeline)
