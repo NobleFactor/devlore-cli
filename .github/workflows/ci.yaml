@@ -31,12 +31,21 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: NobleFactor
+          repositories: noblefactor-ops
+
       - name: Clone noblefactor-ops
         uses: actions/checkout@v4
         with:
           repository: NobleFactor/noblefactor-ops
           path: noblefactor-ops
-          token: ${{ secrets.NOBLEFACTOR_AUTOMATION }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Install lint tools
         run: |
