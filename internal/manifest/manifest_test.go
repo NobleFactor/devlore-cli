@@ -212,7 +212,7 @@ func TestIsManifestFile(t *testing.T) {
 	}{
 		{"packages-manifest.yaml", true},
 		{"packages-manifest.json", true},
-		{"packages.manifest", true},
+		{"packages.manifest", false},
 		{"packages.yaml", false},
 		{"manifest.yaml", false},
 		{".packages-manifest.yaml", false},

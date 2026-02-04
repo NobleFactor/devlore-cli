@@ -63,7 +63,7 @@ func Parse(data []byte, path string) (*PackagesManifest, error) {
 		if err := json.Unmarshal(data, &raw); err != nil {
 			return nil, fmt.Errorf("invalid JSON: %w", err)
 		}
-	default: // .yaml, .yml, or legacy .manifest
+	default: // .yaml, .yml
 		if err := yaml.Unmarshal(data, &raw); err != nil {
 			return nil, fmt.Errorf("invalid YAML: %w", err)
 		}
@@ -270,8 +270,7 @@ func validatePackageEntry(pkg interface{}, index int) error {
 func IsManifestFile(filename string) bool {
 	base := filepath.Base(filename)
 	return base == "packages-manifest.yaml" ||
-		base == "packages-manifest.json" ||
-		base == "packages.manifest" // legacy
+		base == "packages-manifest.json"
 }
 
 // PackageNames returns the list of package names from the manifest.

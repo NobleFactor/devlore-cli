@@ -86,7 +86,7 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	}
 	configInfo := cli.ConfigInfo{
 		Name:          "writ",
-		Schema:        schema.WritSchema,
+		Schema:        schema.DevloreSchema,
 		DefaultConfig: schema.WritDefaultConfig,
 	}
 

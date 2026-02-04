@@ -11,13 +11,9 @@ import (
 // PackagesManifestFiles are filenames that contain package specifications.
 // These files are processed by the Package Graph Builder to produce package
 // installation nodes in the execution graph.
-//
-// packages-manifest.{yaml,json} is the canonical format.
-// packages.manifest is supported for backward compatibility.
 var PackagesManifestFiles = []string{
 	"packages-manifest.yaml",
 	"packages-manifest.json",
-	"packages.manifest", // legacy
 }
 
 // ProcessingPipeline determines operations from a filename.

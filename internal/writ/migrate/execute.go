@@ -5,7 +5,6 @@ package migrate
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -31,10 +30,7 @@ type Rename struct {
 
 // Execute performs the directory renames specified in the execution graph.
 // It writes progress to stderr using standard cli output functions.
-// The w parameter is kept for API compatibility but is not used.
-func Execute(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
-	_ = w // kept for API compatibility
-
+func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
 	// Find rename nodes in the graph
 	var renameNodes []*execution.Node
 	for _, node := range graph.Nodes {

@@ -17,8 +17,7 @@ import (
 )
 
 // FormatMigrationPlan renders the execution Graph and MigrationAnalysis as
-// human-readable output. This is the derived view that replaces the legacy
-// MigrationPlan struct.
+// human-readable output.
 //
 // Supported formats: "text" (default), "yaml", "json"
 // For "explain" format, use FormatMigrationExplain which requires an AI provider.

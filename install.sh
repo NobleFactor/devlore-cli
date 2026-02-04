@@ -322,7 +322,7 @@ main() {
     # Run self-install for each tool to install man pages and completions
     for tool in "${installed[@]}"; do
         info "Running ${tool} self-install..."
-        "${INSTALL_DIR}/${tool}" self-install "$PREFIX" --unattended || warn "${tool} self-install failed"
+        "${INSTALL_DIR}/${tool}" self-install --prefix="$PREFIX" --unattended || warn "${tool} self-install failed"
     done
 
     echo

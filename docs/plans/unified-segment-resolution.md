@@ -308,12 +308,7 @@ func (p Platform) MatchingSegments() []string {
 
 The docker package already uses the directory structure. No migration needed for existing packages using the new structure.
 
-Packages using the old `phases:` field in lifecycle.yaml will continue to work until deprecated. Add:
-
-```yaml
-# DEPRECATED: phases field. Use directory structure instead.
-# See: packages/<name>/<platform>/<pipeline>/<phase>.star
-```
+All packages use the directory structure for phase scripts. There is no `phases:` field in lifecycle.yaml.
 
 ### 3.2. Schema Update
 

@@ -1020,7 +1020,7 @@ Scope (Home or System) is inferred from the item's location:
 Directories are adopted recursively—all files within are moved and symlinked.
 Existing symlinks within directories are skipped.
 
-With --from-receipt, reads a lore receipt and adopts packages.manifest and
+With --from-receipt, reads a lore receipt and adopts packages-manifest.yaml and
 config files into the environment repository.`,
 		Example: `  # Adopt a single file into personal layer
   writ adopt --project noblefactor ~/.zshrc
@@ -1046,7 +1046,7 @@ config files into the environment repository.`,
 
 	cmd.Flags().String("layer", "personal", "Layer to adopt into: personal, team, or base")
 	cmd.Flags().String("project", "", "Project name within the layer (required)")
-	cmd.Flags().Bool("from-receipt", false, "Adopt packages.manifest and config from lore receipt")
+	cmd.Flags().Bool("from-receipt", false, "Adopt packages-manifest.yaml and config from lore receipt")
 
 	return cmd
 }
@@ -1201,7 +1201,7 @@ func inferScope(filePath, homeDir string) string {
 
 // runAdoptFromReceipt adopts files from a lore receipt.
 func runAdoptFromReceipt(receiptPath, layer, project string, verbose, dryRun bool) error {
-	// TODO: Implement reading lore receipt and adopting packages.manifest + config
+	// TODO: Implement reading lore receipt and adopting packages-manifest.yaml + config
 	if receiptPath == "" {
 		cli.Warn("adopt --from-receipt: not yet implemented (would use most recent receipt)")
 	} else {

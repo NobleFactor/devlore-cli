@@ -809,7 +809,7 @@ var TargetOrder = []TargetSpec{
 ```go
 type BuildConfig struct {
     Sources    []LayerSource  // Replaces single SourceRoot
-    TargetRoot string         // Default target (for backwards compat)
+    TargetRoot string         // Default target
     Projects   []string
     Segments   segment.Segments
 }
@@ -931,7 +931,7 @@ type WritContext struct {
 
 ### 6.5 Test Cases
 
-1. **Single layer** — backwards compatible, works like today
+1. **Single layer** — single source root, simple case
 2. **Two layers, no conflict** — base + personal, disjoint files
 3. **Two layers, conflict** — personal overrides base for same target
 4. **Three layers** — base → team → personal cascade

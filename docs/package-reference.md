@@ -490,13 +490,10 @@ Two-tiered list of all Go packages. Public elements (uppercase) listed first, th
 
 ## schema
 - **DevloreSchema** (var): Shared JSON schema for devlore config
-- **LifecycleSchema** (var): JSON schema for lifecycle
 - **LoreDefaultConfig** (var): Default lore configuration
-- **LoreSchema** (var): Legacy alias for DevloreSchema
 - **PackagesManifestSchema** (var): JSON schema for packages manifest
 - **SharedDefaultConfig** (var): Default shared configuration
 - **WritDefaultConfig** (var): Default writ configuration
-- **WritSchema** (var): Legacy alias for DevloreSchema
 
 ---
 

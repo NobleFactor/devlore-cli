@@ -209,7 +209,7 @@ func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, us
 	}
 
 	// Restructure content to writ conventions
-	if err := migrate.Execute(os.Stderr, graph, analysis); err != nil {
+	if err := migrate.Execute(graph, analysis); err != nil {
 		return err
 	}
 

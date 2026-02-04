@@ -25,12 +25,12 @@ make install-all    # Install binaries, completions, and man pages
 Use `self-install` to install binaries, man pages, and shell completions:
 
 ```bash
-# Install to ~/.local (default)
-writ self-install ~/.local
-lore self-install ~/.local
+# Install to ~/.local
+writ self-install --prefix=~/.local
+lore self-install --prefix=~/.local
 
 # Specify shells explicitly (auto-detects by default)
-writ self-install ~/.local --shell bash --shell zsh
+writ self-install --prefix=~/.local --shell bash --shell zsh
 
 # Man pages
 lore man                          # Display with pager

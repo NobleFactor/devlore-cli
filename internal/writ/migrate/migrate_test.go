@@ -362,8 +362,7 @@ func TestExecuteWithMockGraph(t *testing.T) {
 		Edges: []registryEdge{},
 	})
 
-	var buf bytes.Buffer
-	if err := Execute(&buf, graph, analysis); err != nil {
+	if err := Execute(graph, analysis); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
@@ -408,8 +407,7 @@ func TestExecuteConflict(t *testing.T) {
 		Edges: []registryEdge{},
 	})
 
-	var buf bytes.Buffer
-	err := Execute(&buf, graph, analysis)
+	err := Execute(graph, analysis)
 	if err == nil {
 		t.Fatal("Execute should fail when target exists")
 	}

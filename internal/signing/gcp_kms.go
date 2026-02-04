@@ -5,8 +5,14 @@ package signing
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"hash/crc32"
 	"strings"
@@ -188,9 +194,7 @@ func VerifyGCPKMS(data []byte, sig *Signature) error {
 		return &VerifyError{Backend: "gcp_kms", Err: err}
 	}
 
-	hash := sha256.Sum256(data)
-
-	// Get the public key
+	// Get the public key and algorithm info
 	pubKeyResp, err := client.GetPublicKey(ctx, &kmspb.GetPublicKeyRequest{
 		Name: sig.KeyID,
 	})
@@ -198,17 +202,91 @@ func VerifyGCPKMS(data []byte, sig *Signature) error {
 		return &VerifyError{Backend: "gcp_kms", Err: err}
 	}
 
-	// Use AsymmetricVerify (available in some regions) or verify locally
-	// For simplicity, we'll use the Cloud KMS verify if available
-	// Note: Not all key types support server-side verification
+	// Parse the PEM-encoded public key
+	block, _ := pem.Decode([]byte(pubKeyResp.Pem))
+	if block == nil {
+		return &VerifyError{Backend: "gcp_kms", Err: fmt.Errorf("failed to parse PEM public key")}
+	}
 
-	// Fallback: Parse public key and verify locally
-	_ = pubKeyResp // Could parse PEM and verify with crypto/x509
+	pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return &VerifyError{Backend: "gcp_kms", Err: fmt.Errorf("failed to parse public key: %w", err)}
+	}
 
-	// For now, assume signature is valid if we can get the public key
-	// A full implementation would verify cryptographically
-	_ = sigBytes
-	_ = hash
+	// Verify based on algorithm
+	if err := verifyGCPSignature(pubKey, pubKeyResp.Algorithm, data, sigBytes); err != nil {
+		return &VerifyError{Backend: "gcp_kms", Err: err}
+	}
 
 	return nil
+}
+
+// verifyGCPSignature verifies a signature using the appropriate algorithm.
+func verifyGCPSignature(pubKey any, algorithm kmspb.CryptoKeyVersion_CryptoKeyVersionAlgorithm, data, sig []byte) error {
+	switch algorithm {
+	// RSA-PSS algorithms
+	case kmspb.CryptoKeyVersion_RSA_SIGN_PSS_2048_SHA256,
+		kmspb.CryptoKeyVersion_RSA_SIGN_PSS_3072_SHA256,
+		kmspb.CryptoKeyVersion_RSA_SIGN_PSS_4096_SHA256:
+		rsaKey, ok := pubKey.(*rsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("expected RSA public key")
+		}
+		hash := sha256.Sum256(data)
+		return rsa.VerifyPSS(rsaKey, crypto.SHA256, hash[:], sig, nil)
+
+	case kmspb.CryptoKeyVersion_RSA_SIGN_PSS_4096_SHA512:
+		rsaKey, ok := pubKey.(*rsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("expected RSA public key")
+		}
+		hash := sha512.Sum512(data)
+		return rsa.VerifyPSS(rsaKey, crypto.SHA512, hash[:], sig, nil)
+
+	// RSA PKCS1 algorithms
+	case kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_2048_SHA256,
+		kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_3072_SHA256,
+		kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA256:
+		rsaKey, ok := pubKey.(*rsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("expected RSA public key")
+		}
+		hash := sha256.Sum256(data)
+		return rsa.VerifyPKCS1v15(rsaKey, crypto.SHA256, hash[:], sig)
+
+	case kmspb.CryptoKeyVersion_RSA_SIGN_PKCS1_4096_SHA512:
+		rsaKey, ok := pubKey.(*rsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("expected RSA public key")
+		}
+		hash := sha512.Sum512(data)
+		return rsa.VerifyPKCS1v15(rsaKey, crypto.SHA512, hash[:], sig)
+
+	// ECDSA algorithms
+	case kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256,
+		kmspb.CryptoKeyVersion_EC_SIGN_SECP256K1_SHA256:
+		ecKey, ok := pubKey.(*ecdsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("expected ECDSA public key")
+		}
+		hash := sha256.Sum256(data)
+		if !ecdsa.VerifyASN1(ecKey, hash[:], sig) {
+			return fmt.Errorf("ECDSA signature verification failed")
+		}
+		return nil
+
+	case kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384:
+		ecKey, ok := pubKey.(*ecdsa.PublicKey)
+		if !ok {
+			return fmt.Errorf("expected ECDSA public key")
+		}
+		hash := sha512.Sum384(data)
+		if !ecdsa.VerifyASN1(ecKey, hash[:], sig) {
+			return fmt.Errorf("ECDSA signature verification failed")
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported algorithm: %v", algorithm)
+	}
 }

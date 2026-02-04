@@ -167,14 +167,7 @@ writ receipt list --filter target=~/.config/git/config
 
 ## Receipt Versions
 
-| Version | Description |
-|---------|-------------|
-| v1 | Initial format (flat entries) |
-| v2 | Added source/target checksums |
-| v3 | Added age-encrypted signature |
-| v4 | Graph format with git-style checksum |
-
-Legacy receipts (v1-v3) are automatically converted when loaded.
+Receipts use a graph format with git-style checksums and optional age-encrypted signatures.
 
 ## Troubleshooting
 

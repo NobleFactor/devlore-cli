@@ -19,7 +19,17 @@ func (r *BuildResult) CompactString() string {
 func (r *BuildResult) String() string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("Deployment: %s → %s\n\n", r.SourceRoot, r.TargetRoot))
+	// Multi-source mode: show all sources
+	if len(r.Sources) > 0 {
+		sb.WriteString(fmt.Sprintf("Deployment: %d layers → %s\n", len(r.Sources), r.TargetRoot))
+		for _, src := range r.Sources {
+			sb.WriteString(fmt.Sprintf("  %s: %s\n", src.Layer, src.SourceRoot))
+		}
+		sb.WriteString("\n")
+	} else {
+		// Single-source mode
+		sb.WriteString(fmt.Sprintf("Deployment: %s → %s\n\n", r.SourceRoot, r.TargetRoot))
+	}
 	sb.WriteString(fmt.Sprintf("Projects: %s\n\n", strings.Join(r.Projects, ", ")))
 
 	sb.WriteString("Matched directories:\n")

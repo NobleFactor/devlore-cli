@@ -159,9 +159,14 @@ func (r *Report) HasIssues() bool {
 
 // FromBuildResult generates status by checking entries in a build result.
 func FromBuildResult(br *tree.BuildResult) *Report {
+	// For multi-source mode, SourceRoot is empty; use first layer's source
+	sourceRoot := br.SourceRoot
+	if sourceRoot == "" && len(br.Sources) > 0 {
+		sourceRoot = br.Sources[0].SourceRoot
+	}
 	report := &Report{
 		TargetRoot:  br.TargetRoot,
-		SourceRoot:  br.SourceRoot,
+		SourceRoot:  sourceRoot,
 		Projects:    br.Projects,
 		FromReceipt: false,
 	}
