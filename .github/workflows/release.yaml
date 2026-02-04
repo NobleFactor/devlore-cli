@@ -119,6 +119,15 @@ jobs:
     needs: build-and-release
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: NobleFactor
+          repositories: devlore.noblefactor.com
+
       - name: Checkout devlore-cli
         uses: actions/checkout@v4
 
@@ -126,7 +135,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: NobleFactor/devlore.noblefactor.com
-          token: ${{ secrets.NOBLEFACTOR_CONTENT_ACCESS }}
+          token: ${{ steps.app-token.outputs.token }}
           path: website
 
       - name: Sync install script to website
@@ -177,4 +186,4 @@ jobs:
           Source: ${{ github.repository }}@${{ github.sha }}
           Ref: ${{ github.ref }}"
         env:
-          GH_TOKEN: ${{ secrets.NOBLEFACTOR_CONTENT_ACCESS }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
