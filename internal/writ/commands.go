@@ -1202,12 +1202,7 @@ func inferScope(filePath, homeDir string) string {
 // runAdoptFromReceipt adopts files from a lore receipt.
 func runAdoptFromReceipt(receiptPath, layer, project string, verbose, dryRun bool) error {
 	// TODO: Implement reading lore receipt and adopting packages-manifest.yaml + config
-	if receiptPath == "" {
-		cli.Warn("adopt --from-receipt: not yet implemented (would use most recent receipt)")
-	} else {
-		cli.Warn("adopt --from-receipt %s: not yet implemented", receiptPath)
-	}
-	return nil
+	return fmt.Errorf("adopt --from-receipt: not yet implemented")
 }
 
 // adoptFile moves a single file to the project directory and creates a symlink back.
@@ -1324,8 +1319,7 @@ Output is JSON by default for scripting. Use --format for alternatives.`,
   writ inspect noblefactor --format '{{.Name}}\t{{.Source}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cli.Note("inspect: not yet implemented")
-			return nil
+			return fmt.Errorf("inspect: not yet implemented")
 		},
 	}
 
@@ -1339,8 +1333,7 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List available projects for the current target",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cli.Note("list: not yet implemented")
-			return nil
+			return fmt.Errorf("list: not yet implemented")
 		},
 	}
 	return cmd
@@ -1395,17 +1388,7 @@ of your environment deploystate.`,
   writ receipt show workstation --unified # Include lore software receipts`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := "default"
-			if len(args) > 0 {
-				name = args[0]
-			}
-			unified, _ := cmd.Flags().GetBool("unified")
-			if unified {
-				cli.Note("receipt show %s --unified: not yet implemented", name)
-			} else {
-				cli.Note("receipt show %s: not yet implemented", name)
-			}
-			return nil
+			return fmt.Errorf("receipt show: not yet implemented")
 		},
 	}
 	showCmd.Flags().Bool("unified", false, "Include lore receipts (software + configuration)")
@@ -1415,8 +1398,7 @@ of your environment deploystate.`,
 		Use:   "list",
 		Short: "List available receipts",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cli.Note("receipt list: not yet implemented")
-			return nil
+			return fmt.Errorf("receipt list: not yet implemented")
 		},
 	})
 
