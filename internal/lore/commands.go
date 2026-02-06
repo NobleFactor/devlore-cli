@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
@@ -141,7 +142,7 @@ type packageRequest struct {
 
 // resolvePackages resolves all packages and reports their confidence.
 func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
-	regClient, err := lorepackage.NewDefault()
+	regClient, err := lorepackage.NewRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("creating registry client: %w", err)
 	}
@@ -513,7 +514,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	limit, _ := cmd.Flags().GetInt("limit")
 
 	// Create registry client
-	regClient, err := lorepackage.NewDefault()
+	regClient, err := lorepackage.NewRegistry()
 	if err != nil {
 		return fmt.Errorf("creating registry client: %w", err)
 	}
@@ -664,9 +665,9 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("AI provider required; configure with 'lore config model'")
 	}
 
-	provider, err := model.NewProvider(model.Config{
+	provider, err := model.NewProvider(config.ModelConfig{
 		Provider: providerName,
-		Model:    viper.GetString("lore.model.model"),
+		Name:     viper.GetString("lore.model.model"),
 		Endpoint: viper.GetString("lore.model.endpoint"),
 		APIKey:   viper.GetString("lore.model.api_key"),
 	})
@@ -675,7 +676,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get registry
-	reg, err := lorepackage.NewWithConfig()
+	reg, err := lorepackage.NewRegistry()
 	if err != nil {
 		return fmt.Errorf("creating registry: %w", err)
 	}

@@ -6,16 +6,18 @@ package model
 import (
 	"context"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/internal/config"
 )
 
-func TestDefaultConfig(t *testing.T) {
-	cfg := DefaultConfig()
+func TestModelConfigDefaults(t *testing.T) {
+	cfg := config.ModelConfig{}.WithDefaults()
 
 	if cfg.Provider != "ollama" {
 		t.Errorf("expected provider 'ollama', got %q", cfg.Provider)
 	}
-	if cfg.Model != "llama3.1:8b" {
-		t.Errorf("expected model 'llama3.1:8b', got %q", cfg.Model)
+	if cfg.Name != "llama3.1:8b" {
+		t.Errorf("expected model 'llama3.1:8b', got %q", cfg.Name)
 	}
 	if cfg.Endpoint != "http://localhost:11434" {
 		t.Errorf("expected endpoint 'http://localhost:11434', got %q", cfg.Endpoint)
@@ -23,7 +25,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestNewProvider_Ollama(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := config.ModelConfig{}.WithDefaults()
 	provider, err := NewProvider(cfg)
 	if err != nil {
 		t.Fatalf("NewProvider() error: %v", err)
@@ -34,9 +36,9 @@ func TestNewProvider_Ollama(t *testing.T) {
 }
 
 func TestNewProvider_Anthropic(t *testing.T) {
-	cfg := Config{
+	cfg := config.ModelConfig{
 		Provider: "anthropic",
-		Model:    "claude-sonnet-4-20250514",
+		Name:     "claude-sonnet-4-20250514",
 		APIKey:   "test-key",
 	}
 	provider, err := NewProvider(cfg)
@@ -49,9 +51,9 @@ func TestNewProvider_Anthropic(t *testing.T) {
 }
 
 func TestNewProvider_Anthropic_NoKey(t *testing.T) {
-	cfg := Config{
+	cfg := config.ModelConfig{
 		Provider: "anthropic",
-		Model:    "claude-sonnet-4-20250514",
+		Name:     "claude-sonnet-4-20250514",
 	}
 	_, err := NewProvider(cfg)
 	if err == nil {
@@ -60,9 +62,9 @@ func TestNewProvider_Anthropic_NoKey(t *testing.T) {
 }
 
 func TestNewProvider_OpenAI(t *testing.T) {
-	cfg := Config{
+	cfg := config.ModelConfig{
 		Provider: "openai",
-		Model:    "gpt-4-turbo",
+		Name:     "gpt-4-turbo",
 		APIKey:   "test-key",
 	}
 	provider, err := NewProvider(cfg)
@@ -75,7 +77,7 @@ func TestNewProvider_OpenAI(t *testing.T) {
 }
 
 func TestNewProvider_Unknown(t *testing.T) {
-	cfg := Config{
+	cfg := config.ModelConfig{
 		Provider: "unknown",
 	}
 	_, err := NewProvider(cfg)
@@ -91,19 +93,5 @@ func TestOllamaProvider_Available_NotRunning(t *testing.T) {
 
 	if provider.Available(ctx) {
 		t.Error("expected Available() = false when Ollama not running")
-	}
-}
-
-func TestConfigPath(t *testing.T) {
-	path, err := ConfigPath()
-	if err != nil {
-		t.Fatalf("ConfigPath() error: %v", err)
-	}
-	if path == "" {
-		t.Error("expected non-empty path")
-	}
-	// Should end with config.yaml
-	if len(path) < 11 || path[len(path)-11:] != "config.yaml" {
-		t.Errorf("expected path ending in 'config.yaml', got %q", path)
 	}
 }

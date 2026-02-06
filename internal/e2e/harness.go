@@ -45,6 +45,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
@@ -112,9 +113,9 @@ func CreateProvider(cfg ProviderConfig) (model.Provider, error) {
 		}
 	}
 
-	return model.NewProvider(model.Config{
+	return model.NewProvider(config.ModelConfig{
 		Provider: cfg.Provider,
-		Model:    cfg.Model,
+		Name:     cfg.Model,
 		Endpoint: cfg.Endpoint,
 		APIKey:   apiKey,
 	})
