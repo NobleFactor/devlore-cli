@@ -44,17 +44,17 @@ type ProviderConfig struct {
 
 // ProviderInfo holds configuration for a specific provider.
 type ProviderInfo struct {
-	Description      string      `yaml:"description"`
-	LiteLLMProvider  string      `yaml:"litellm_provider"`   // Maps to litellm_provider in cache
-	MaxInputOverride int         `yaml:"max_input_override"` // Provider-enforced limit (e.g., GitHub)
-	MaxOutputOverride int        `yaml:"max_output_override"`
-	InputLimits      InputLimits `yaml:"input_limits"` // Default limits if model not in cache
+	Description       string      `yaml:"description"`
+	LiteLLMProvider   string      `yaml:"litellm_provider"`   // Maps to litellm_provider in cache
+	MaxInputOverride  int         `yaml:"max_input_override"` // Provider-enforced limit (e.g., GitHub)
+	MaxOutputOverride int         `yaml:"max_output_override"`
+	InputLimits       InputLimits `yaml:"input_limits"` // Default limits if model not in cache
 }
 
 // ModelCache represents the litellm-cache.json structure.
 type ModelCache struct {
-	Meta   ModelCacheMeta          `json:"_meta"`
-	Models map[string]ModelLimits  `json:"models"`
+	Meta   ModelCacheMeta         `json:"_meta"`
+	Models map[string]ModelLimits `json:"models"`
 }
 
 // ModelCacheMeta contains metadata about the cache.
@@ -284,13 +284,13 @@ func buildUserMessage(input *GatherInput) string {
 
 // registryResponse is the JSON structure from the registry migration prompt.
 type registryResponse struct {
-	SourceSystem   string                `json:"source_system"`
-	RepoLayer      string                `json:"repo_layer"`
-	Projects       []registryProject     `json:"projects"`
+	SourceSystem   string                 `json:"source_system"`
+	RepoLayer      string                 `json:"repo_layer"`
+	Projects       []registryProject      `json:"projects"`
 	ExecutionGraph registryExecutionGraph `json:"execution_graph"`
 	// Optional fields that may be included
-	Warnings              []string              `json:"warnings,omitempty"`
-	UnencryptedSecrets    []registrySecret      `json:"unencrypted_secrets,omitempty"`
+	Warnings           []string         `json:"warnings,omitempty"`
+	UnencryptedSecrets []registrySecret `json:"unencrypted_secrets,omitempty"`
 }
 
 type registryProject struct {

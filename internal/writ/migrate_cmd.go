@@ -13,8 +13,8 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
-	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
 )
 

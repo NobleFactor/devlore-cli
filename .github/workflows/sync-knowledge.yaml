@@ -9,21 +9,11 @@ on:
       - develop
       - main
       - 'release/*'
-    paths:
-      # Starlark binding code
-      - 'internal/starlark/**'
-      # Writ migrate code
-      - 'internal/writ/migrate/**'
   pull_request:
     branches:
       - develop
       - main
       - 'release/*'
-    paths:
-      # Starlark binding code
-      - 'internal/starlark/**'
-      # Writ migrate code
-      - 'internal/writ/migrate/**'
 
 jobs:
   sync-knowledge:

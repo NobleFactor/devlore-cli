@@ -22,25 +22,25 @@ import (
 
 // Options controls onboarding behavior.
 type Options struct {
-	Source     string              // URL or file path
-	OutputDir  string              // Output directory (default: current)
-	Format     string              // Manifest format: "plain" or "yaml"
-	Verbose    bool                // Show AI reasoning
-	Explain    bool                // Show detailed confidence decisions
-	Provider   model.Provider      // AI provider
+	Source     string                // URL or file path
+	OutputDir  string                // Output directory (default: current)
+	Format     string                // Manifest format: "plain" or "yaml"
+	Verbose    bool                  // Show AI reasoning
+	Explain    bool                  // Show detailed confidence decisions
+	Provider   model.Provider        // AI provider
 	RegClient  *lorepackage.Registry // Registry for prompts and matching
-	MaxFetches int                 // Max additional URLs to fetch (default: 5)
+	MaxFetches int                   // Max additional URLs to fetch (default: 5)
 }
 
 // Result contains the onboarding output.
 type Result struct {
-	Product     *ProductInfo       `json:"product"`
-	Sources     *SourceInfo        `json:"sources"`
-	Platforms   *PlatformInfo      `json:"platforms"`
-	Complexity  *ComplexityInfo    `json:"complexity"`
-	Slots       []ExtractedSlot    `json:"slots"`
-	Manifest    string             `json:"manifest"`      // Generated packages-manifest.yaml content
-	Warnings    []string           `json:"warnings"`
+	Product    *ProductInfo    `json:"product"`
+	Sources    *SourceInfo     `json:"sources"`
+	Platforms  *PlatformInfo   `json:"platforms"`
+	Complexity *ComplexityInfo `json:"complexity"`
+	Slots      []ExtractedSlot `json:"slots"`
+	Manifest   string          `json:"manifest"` // Generated packages-manifest.yaml content
+	Warnings   []string        `json:"warnings"`
 }
 
 // ProductInfo contains identified product information.

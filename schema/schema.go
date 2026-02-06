@@ -35,4 +35,3 @@ var WritDefaultConfig []byte
 //
 //go:embed packages-manifest.json
 var PackagesManifestSchema []byte
-

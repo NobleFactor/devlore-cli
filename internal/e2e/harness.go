@@ -134,18 +134,18 @@ type PerformanceMetrics struct {
 // CorrectnessMetrics captures correctness data for test validation.
 type CorrectnessMetrics struct {
 	// Generic metrics
-	TotalExpected int     `json:"total_expected" yaml:"total_expected"`
-	TotalFound    int     `json:"total_found" yaml:"total_found"`
-	TruePositives int     `json:"true_positives" yaml:"true_positives"`
-	FalsePositives int    `json:"false_positives" yaml:"false_positives"`
-	FalseNegatives int    `json:"false_negatives" yaml:"false_negatives"`
+	TotalExpected  int     `json:"total_expected" yaml:"total_expected"`
+	TotalFound     int     `json:"total_found" yaml:"total_found"`
+	TruePositives  int     `json:"true_positives" yaml:"true_positives"`
+	FalsePositives int     `json:"false_positives" yaml:"false_positives"`
+	FalseNegatives int     `json:"false_negatives" yaml:"false_negatives"`
 	Precision      float64 `json:"precision" yaml:"precision"`
 	Recall         float64 `json:"recall" yaml:"recall"`
 	F1Score        float64 `json:"f1_score" yaml:"f1_score"`
 
 	// Domain-specific flags
-	SystemCorrect   bool `json:"system_correct,omitempty" yaml:"system_correct,omitempty"`
-	ProductCorrect  bool `json:"product_correct,omitempty" yaml:"product_correct,omitempty"`
+	SystemCorrect    bool `json:"system_correct,omitempty" yaml:"system_correct,omitempty"`
+	ProductCorrect   bool `json:"product_correct,omitempty" yaml:"product_correct,omitempty"`
 	PlatformsCorrect bool `json:"platforms_correct,omitempty" yaml:"platforms_correct,omitempty"`
 }
 
@@ -164,23 +164,23 @@ func (c *CorrectnessMetrics) ComputePrecisionRecall() {
 
 // TestResult captures the complete result of a single test run.
 type TestResult struct {
-	TestName    string              `json:"test_name" yaml:"test_name"`
-	Provider    string              `json:"provider" yaml:"provider"`
-	Model       string              `json:"model" yaml:"model"`
-	StartTime   time.Time           `json:"start_time" yaml:"start_time"`
-	EndTime     time.Time           `json:"end_time" yaml:"end_time"`
-	Success     bool                `json:"success" yaml:"success"`
-	Error       string              `json:"error,omitempty" yaml:"error,omitempty"`
-	Performance PerformanceMetrics  `json:"performance" yaml:"performance"`
-	Correctness CorrectnessMetrics  `json:"correctness" yaml:"correctness"`
-	Details     map[string]any      `json:"details,omitempty" yaml:"details,omitempty"`
+	TestName    string             `json:"test_name" yaml:"test_name"`
+	Provider    string             `json:"provider" yaml:"provider"`
+	Model       string             `json:"model" yaml:"model"`
+	StartTime   time.Time          `json:"start_time" yaml:"start_time"`
+	EndTime     time.Time          `json:"end_time" yaml:"end_time"`
+	Success     bool               `json:"success" yaml:"success"`
+	Error       string             `json:"error,omitempty" yaml:"error,omitempty"`
+	Performance PerformanceMetrics `json:"performance" yaml:"performance"`
+	Correctness CorrectnessMetrics `json:"correctness" yaml:"correctness"`
+	Details     map[string]any     `json:"details,omitempty" yaml:"details,omitempty"`
 }
 
 // TestSuite holds results for all providers on a single test.
 type TestSuite struct {
-	Name      string       `json:"name" yaml:"name"`
-	RunAt     time.Time    `json:"run_at" yaml:"run_at"`
-	Results   []TestResult `json:"results" yaml:"results"`
+	Name    string       `json:"name" yaml:"name"`
+	RunAt   time.Time    `json:"run_at" yaml:"run_at"`
+	Results []TestResult `json:"results" yaml:"results"`
 }
 
 // TestReport aggregates results across all tests and providers.

@@ -159,7 +159,6 @@ func FillSlot(node *execution.Node, graph *execution.Graph, slotName string, val
 	return fmt.Errorf("unsupported value type %s for slot %q", value.Type(), slotName)
 }
 
-
 // Path returns a path from the node's slots.
 func (o *Output) Path() string {
 	return o.node.GetSlot("path")

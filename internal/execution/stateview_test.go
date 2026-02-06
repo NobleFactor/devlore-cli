@@ -247,10 +247,10 @@ func TestFileTreeBuildTree(t *testing.T) {
 	tree := &FileTree{
 		Root: "/home/user",
 		Entries: map[string]*FileEntry{
-			".bashrc":             {Target: ".bashrc"},
-			".config/nvim/init.lua": {Target: ".config/nvim/init.lua"},
+			".bashrc":                      {Target: ".bashrc"},
+			".config/nvim/init.lua":        {Target: ".config/nvim/init.lua"},
 			".config/nvim/lua/plugins.lua": {Target: ".config/nvim/lua/plugins.lua"},
-			".ssh/config":         {Target: ".ssh/config"},
+			".ssh/config":                  {Target: ".ssh/config"},
 		},
 	}
 	tree.buildTree()

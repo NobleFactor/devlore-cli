@@ -35,18 +35,18 @@ func FormatMigrationPlan(w io.Writer, graph *execution.Graph, analysis *Migratio
 // migrationView is the combined view for YAML/JSON serialization.
 // Outputs both analysis and execution_graph at the top level as per the plan.
 type migrationView struct {
-	Analysis       *MigrationAnalysis     `json:"analysis" yaml:"analysis"`
-	ExecutionGraph *executionGraphView    `json:"execution_graph" yaml:"execution_graph"`
+	Analysis       *MigrationAnalysis  `json:"analysis" yaml:"analysis"`
+	ExecutionGraph *executionGraphView `json:"execution_graph" yaml:"execution_graph"`
 }
 
 // executionGraphView represents the execution graph for serialization.
 type executionGraphView struct {
-	Version string          `json:"version" yaml:"version"`
-	Tool    string          `json:"tool" yaml:"tool"`
-	State   string          `json:"state" yaml:"state"`
-	Context graphContext    `json:"context,omitempty" yaml:"context,omitempty"`
-	Nodes   []nodeView      `json:"nodes" yaml:"nodes"`
-	Edges   []edgeView      `json:"edges" yaml:"edges"`
+	Version string       `json:"version" yaml:"version"`
+	Tool    string       `json:"tool" yaml:"tool"`
+	State   string       `json:"state" yaml:"state"`
+	Context graphContext `json:"context,omitempty" yaml:"context,omitempty"`
+	Nodes   []nodeView   `json:"nodes" yaml:"nodes"`
+	Edges   []edgeView   `json:"edges" yaml:"edges"`
 }
 
 type graphContext struct {

@@ -34,10 +34,10 @@ const (
 type Session struct {
 	opts Options
 
-	state    SessionState
-	step     *console.Step
-	err      error
-	result   *SessionResult
+	state  SessionState
+	step   *console.Step
+	err    error
+	result *SessionResult
 
 	// Analysis results
 	graph    *execution.Graph

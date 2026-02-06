@@ -1476,4 +1476,3 @@ func hasDecryptOp(ops []string) bool {
 	}
 	return false
 }
-

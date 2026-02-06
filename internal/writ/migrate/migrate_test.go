@@ -457,10 +457,10 @@ type mockProvider struct {
 func (m *mockProvider) Chat(_ context.Context, _ model.ChatRequest) (*model.ChatResponse, error) {
 	return nil, nil
 }
-func (m *mockProvider) Name() string                      { return m.name }
-func (m *mockProvider) Model() string                     { return "test-model" }
-func (m *mockProvider) Endpoint() string                  { return "" }
-func (m *mockProvider) Available(_ context.Context) bool  { return true }
+func (m *mockProvider) Name() string                     { return m.name }
+func (m *mockProvider) Model() string                    { return "test-model" }
+func (m *mockProvider) Endpoint() string                 { return "" }
+func (m *mockProvider) Available(_ context.Context) bool { return true }
 
 func TestLoadInputLimits(t *testing.T) {
 	// LoadInputLimits requires both registry and provider
