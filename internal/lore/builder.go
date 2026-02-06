@@ -78,7 +78,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 	regClient := cfg.RegistryClient
 	if regClient == nil {
 		var err error
-		regClient, err = lorepackage.NewDefault()
+		regClient, err = lorepackage.NewRegistry()
 		if err != nil {
 			return nil, fmt.Errorf("creating registry client: %w", err)
 		}

@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-func TestNewDefault(t *testing.T) {
-	registry, err := NewDefault()
+func TestNewRegistry(t *testing.T) {
+	registry, err := NewRegistry()
 	if err != nil {
-		t.Fatalf("NewDefault() error: %v", err)
+		t.Fatalf("NewRegistry() error: %v", err)
 	}
 
 	if registry.name != "central" {
@@ -158,59 +158,6 @@ func TestKnowledgeIndex_SchemaByPurpose(t *testing.T) {
 				t.Errorf("SchemaByPurpose(%q) = %q, want %q", tt.purpose, got, tt.expected)
 			}
 		})
-	}
-}
-
-func TestRegistryConfig_Defaults(t *testing.T) {
-	cfg := RegistryConfig{}
-
-	registry, err := NewFromConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewFromConfig() error: %v", err)
-	}
-
-	// Check defaults applied
-	if registry.Branch() != DefaultRegistryBranch {
-		t.Errorf("Branch() = %q, want %q", registry.Branch(), DefaultRegistryBranch)
-	}
-
-	gp, ok := registry.provider.(*GitProvider)
-	if !ok {
-		t.Fatal("expected GitProvider")
-	}
-
-	if gp.RepoURL() != DefaultRegistryURL {
-		t.Errorf("RepoURL() = %q, want %q", gp.RepoURL(), DefaultRegistryURL)
-	}
-}
-
-func TestRegistryConfig_Custom(t *testing.T) {
-	cfg := RegistryConfig{
-		URL:       "https://github.com/MyOrg/my-registry.git",
-		Branch:    "main",
-		ForceTags: true,
-	}
-
-	registry, err := NewFromConfig(cfg)
-	if err != nil {
-		t.Fatalf("NewFromConfig() error: %v", err)
-	}
-
-	if registry.Branch() != "main" {
-		t.Errorf("Branch() = %q, want 'main'", registry.Branch())
-	}
-
-	if !registry.ForceTags() {
-		t.Error("ForceTags() = false, want true")
-	}
-
-	gp, ok := registry.provider.(*GitProvider)
-	if !ok {
-		t.Fatal("expected GitProvider")
-	}
-
-	if gp.RepoURL() != "https://github.com/MyOrg/my-registry.git" {
-		t.Errorf("RepoURL() = %q, want custom URL", gp.RepoURL())
 	}
 }
 

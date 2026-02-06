@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
@@ -141,7 +142,7 @@ type packageRequest struct {
 
 // resolvePackages resolves all packages and reports their confidence.
 func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
-	regClient, err := lorepackage.NewDefault()
+	regClient, err := lorepackage.NewRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("creating registry client: %w", err)
 	}
@@ -513,7 +514,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	limit, _ := cmd.Flags().GetInt("limit")
 
 	// Create registry client
-	regClient, err := lorepackage.NewDefault()
+	regClient, err := lorepackage.NewRegistry()
 	if err != nil {
 		return fmt.Errorf("creating registry client: %w", err)
 	}
@@ -613,14 +614,14 @@ func newUpdateCmd() *cobra.Command {
 func newOnboardCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "onboard --from <source>",
-		Short: "Parse wiki or script and generate packages.manifest and config",
+		Short: "Parse wiki or script and generate packages-manifest.yaml and config",
 		Long: `Parse an onboarding wiki page or setup script and generate both a
-packages.manifest file and a config/ directory with configuration files.
+packages-manifest.yaml file and a config/ directory with configuration files.
 
 Lore uses AI to extract installation steps, map them to known registry packages,
 and flag org-specific items for human review.
 
-After onboarding, use 'lore deploy @packages.manifest' to install software,
+After onboarding, use 'lore deploy @packages-manifest.yaml' to install software,
 then 'writ adopt --from-receipt' to bring the generated config into your
 environment repository.`,
 		Example: `  lore onboard --from https://wiki.acme.com/backend-setup
@@ -628,7 +629,7 @@ environment repository.`,
 
   # Full workflow:
   lore onboard --from https://wiki.acme.com/setup
-  lore deploy @packages.manifest
+  lore deploy @packages-manifest.yaml
   writ adopt --from-receipt`,
 		RunE: runOnboard,
 	}
@@ -664,9 +665,9 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("AI provider required; configure with 'lore config model'")
 	}
 
-	provider, err := model.NewProvider(model.Config{
+	provider, err := model.NewProvider(config.ModelConfig{
 		Provider: providerName,
-		Model:    viper.GetString("lore.model.model"),
+		Name:     viper.GetString("lore.model.model"),
 		Endpoint: viper.GetString("lore.model.endpoint"),
 		APIKey:   viper.GetString("lore.model.api_key"),
 	})
@@ -675,7 +676,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get registry
-	reg, err := lorepackage.NewWithConfig()
+	reg, err := lorepackage.NewRegistry()
 	if err != nil {
 		return fmt.Errorf("creating registry: %w", err)
 	}
@@ -736,7 +737,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write manifest
-	manifestPath := outputDir + "/packages.manifest"
+	manifestPath := outputDir + "/packages-manifest.yaml"
 	if err := os.WriteFile(manifestPath, []byte(result.Manifest), 0644); err != nil {
 		return fmt.Errorf("writing manifest: %w", err)
 	}
@@ -745,7 +746,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 	cli.Note("")
 	cli.Note("Next steps:")
 	cli.Note("  1. Review the generated manifest")
-	cli.Note("  2. lore deploy @packages.manifest")
+	cli.Note("  2. lore deploy @packages-manifest.yaml")
 
 	return nil
 }

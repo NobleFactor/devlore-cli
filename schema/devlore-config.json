@@ -5,6 +5,65 @@
   "description": "Shared configuration schema for the devlore ecosystem (lore and writ)",
   "type": "object",
   "properties": {
+    "verbosity": {
+      "type": "string",
+      "enum": ["quiet", "normal", "verbose"],
+      "description": "Output verbosity level (shared across lore and writ)",
+      "default": "normal"
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "Show what would be done without making changes (shared across lore and writ)",
+      "default": false
+    },
+    "model": {
+      "type": "object",
+      "description": "Shared AI/LLM provider configuration (used by both lore and writ)",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["ollama", "anthropic", "openai", "github", "groq", "gemini"],
+          "description": "AI provider backend",
+          "default": "ollama"
+        },
+        "name": {
+          "type": "string",
+          "description": "Model identifier (e.g., 'llama3.1:8b', 'claude-sonnet-4-20250514')",
+          "default": "llama3.1:8b"
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "Custom endpoint URL (for custom providers)"
+        },
+        "api_key": {
+          "type": "string",
+          "description": "API key (prefer native keystore over config file)"
+        }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "description": "Shared package registry configuration (used by both lore and writ)",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Registry repository URL",
+          "default": "https://github.com/NobleFactor/devlore-registry.git"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Git branch to use",
+          "default": "develop"
+        },
+        "force_tags": {
+          "type": "boolean",
+          "description": "Force tag resolution even on non-main branches",
+          "default": false
+        }
+      }
+    },
     "secrets": {
       "type": "object",
       "description": "Shared secrets configuration for age-encrypted files (ADR-050)",
@@ -37,77 +96,68 @@
     },
     "lore": {
       "type": "object",
-      "description": "Lore-specific configuration",
+      "description": "Lore-specific configuration (verbosity and dry_run are shared at root level)",
       "properties": {
-        "registry": {
-          "type": "string",
-          "description": "Path to the package registry"
-        },
-        "verbose": {
-          "type": "boolean",
-          "description": "Enable verbose output",
-          "default": false
-        },
-        "quiet": {
-          "type": "boolean",
-          "description": "Suppress non-error output",
-          "default": false
-        },
-        "dry_run": {
-          "type": "boolean",
-          "description": "Show what would be done without making changes",
-          "default": false
-        },
-        "ai_provider": {
+        "preferences": {
           "type": "object",
-          "description": "AI provider configuration for manifest authoring",
+          "description": "User preferences for lore operations",
           "properties": {
-            "model": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "Model identifier (e.g., 'llama3.1:8b', 'claude-sonnet-4-20250514')",
-                  "default": "llama3.1:8b"
-                },
-                "provider": {
-                  "type": "string",
-                  "enum": ["ollama", "anthropic", "openai", "azure-openai", "groq", "openrouter", "custom"],
-                  "description": "AI provider backend",
-                  "default": "ollama"
-                },
-                "api_key": {
-                  "type": "string",
-                  "description": "API key (supports ${ENV_VAR} expansion)"
-                },
-                "endpoint": {
-                  "type": "string",
-                  "format": "uri",
-                  "description": "Custom endpoint URL (for azure-openai or custom providers)"
-                }
-              },
-              "required": ["name", "provider"]
+            "shell": {
+              "type": "string",
+              "description": "Preferred shell"
             },
-            "preferences": {
-              "type": "object",
-              "properties": {
-                "consult_user_before_changes": {
-                  "type": "boolean",
-                  "description": "Require user approval before modifying existing packages",
-                  "default": true
-                },
-                "validate_existing_packages": {
-                  "type": "boolean",
-                  "description": "Check upstream for updates even if package exists locally",
-                  "default": true
-                },
-                "search_internet": {
-                  "type": "string",
-                  "enum": ["always", "on-demand", "never"],
-                  "description": "When to search internet for installation information",
-                  "default": "always"
-                }
-              }
+            "editor": {
+              "type": "string",
+              "description": "Preferred editor"
+            },
+            "pager": {
+              "type": "string",
+              "description": "Preferred pager"
+            },
+            "auto_confirm": {
+              "type": "boolean",
+              "description": "Skip confirmation prompts",
+              "default": false
+            },
+            "color_output": {
+              "type": "boolean",
+              "description": "Enable colored output",
+              "default": true
+            },
+            "install_path": {
+              "type": "string",
+              "description": "Default installation path"
+            },
+            "backup_path": {
+              "type": "string",
+              "description": "Backup directory for replaced files"
+            },
+            "max_backups": {
+              "type": "integer",
+              "description": "Maximum number of backups to keep",
+              "default": 5
+            },
+            "symlink_strategy": {
+              "type": "string",
+              "enum": ["prefer", "avoid", "always"],
+              "description": "Symlink creation strategy",
+              "default": "prefer"
+            },
+            "conflict_policy": {
+              "type": "string",
+              "enum": ["backup", "overwrite", "skip", "ask"],
+              "description": "How to handle file conflicts",
+              "default": "ask"
+            },
+            "enable_hooks": {
+              "type": "boolean",
+              "description": "Enable pre/post hooks",
+              "default": true
+            },
+            "hooks_timeout": {
+              "type": "integer",
+              "description": "Hook execution timeout in seconds",
+              "default": 300
             }
           }
         },
@@ -122,20 +172,12 @@
                 "type": "object",
                 "properties": {
                   "name": {"type": "string"},
-                  "url": {"type": "string", "format": "uri"}
+                  "url": {"type": "string", "format": "uri"},
+                  "priority": {"type": "integer"},
+                  "enabled": {"type": "boolean", "default": true}
                 },
                 "required": ["name", "url"]
               }
-            },
-            "trusted_domains": {
-              "type": "array",
-              "description": "Additional domains to trust (extends embedded whitelist)",
-              "items": {"type": "string", "format": "hostname"}
-            },
-            "blocked_domains": {
-              "type": "array",
-              "description": "Domains to never consult (overrides embedded whitelist)",
-              "items": {"type": "string", "format": "hostname"}
             }
           }
         }
@@ -143,7 +185,7 @@
     },
     "writ": {
       "type": "object",
-      "description": "Writ-specific configuration. Layers are directories at ~/.local/share/devlore/writ/layers/",
+      "description": "Writ-specific configuration (verbosity and dry_run are shared at root level). Layers are directories at ~/.local/share/devlore/writ/layers/",
       "properties": {
         "segments": {
           "type": "array",

@@ -14,8 +14,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/internal/config"
 )
 
 // Registry provides access to a devlore registry.
@@ -26,45 +27,27 @@ type Registry struct {
 	forceTags bool     // Force tag resolution even on non-main branches
 }
 
-// RegistryConfig holds optional configuration for registry access.
-// These values can be set in ~/.config/devlore/config.yaml under lore.registry.
-//
-// Example config:
-//
-//	lore:
-//	  registry:
-//	    url: https://github.com/MyOrg/my-registry.git
-//	    branch: main
-//	    force_tags: true
-type RegistryConfig struct {
-	// URL overrides the default registry URL.
-	// Default: https://github.com/NobleFactor/devlore-registry.git
-	URL string `yaml:"url" mapstructure:"url"`
-
-	// Branch overrides the default branch.
-	// Default: develop (for demo phase; main for releases)
-	Branch string `yaml:"branch" mapstructure:"branch"`
-
-	// ForceTags forces tag resolution even on non-main branches.
-	// When true, "latest" always resolves to the "latest" tag.
-	// Default: false
-	ForceTags bool `yaml:"force_tags" mapstructure:"force_tags"`
-}
-
-// LoadRegistryConfig loads registry configuration from viper.
-// Reads from lore.registry.* keys in the config file.
-func LoadRegistryConfig() RegistryConfig {
-	return RegistryConfig{
-		URL:       viper.GetString("lore.registry.url"),
-		Branch:    viper.GetString("lore.registry.branch"),
-		ForceTags: viper.GetBool("lore.registry.force_tags"),
+// NewRegistry creates a registry using configuration from ~/.config/devlore/config.yaml.
+// Empty config values use defaults. To override, update your config file.
+func NewRegistry() (*Registry, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
 	}
-}
 
-// NewWithConfig creates a registry using configuration from viper.
-// This is the preferred way to create a registry in lore commands.
-func NewWithConfig() (*Registry, error) {
-	return NewFromConfig(LoadRegistryConfig())
+	cacheDir, err := defaultCacheDir()
+	if err != nil {
+		return nil, err
+	}
+
+	regCfg := cfg.Registry.WithDefaults()
+
+	return &Registry{
+		name:      "central",
+		provider:  NewGitProvider(regCfg.URL, regCfg.Branch),
+		cacheDir:  filepath.Join(cacheDir, "central"),
+		forceTags: regCfg.ForceTags,
+	}, nil
 }
 
 // Provider abstracts the transport mechanism for registry access.
@@ -106,58 +89,6 @@ func New(name string, provider Provider, cacheDir string) *Registry {
 		provider: provider,
 		cacheDir: cacheDir,
 	}
-}
-
-// Default registry settings.
-const (
-	DefaultRegistryURL    = "https://github.com/NobleFactor/devlore-registry.git"
-	DefaultRegistryBranch = "develop" // develop branch has AI assets; main is release-only
-)
-
-// NewDefault creates a registry with default settings for the central registry.
-// Uses the develop branch during demo phase (AI assets and latest packages).
-//
-// To customize registry settings, use NewFromConfig with values from
-// ~/.config/devlore/config.yaml:
-//
-//	lore:
-//	  registry:
-//	    url: https://github.com/MyOrg/my-registry.git
-//	    branch: main
-//	    force_tags: true
-func NewDefault() (*Registry, error) {
-	return NewFromConfig(RegistryConfig{})
-}
-
-// NewFromConfig creates a registry with the given configuration.
-// Empty config values use defaults.
-func NewFromConfig(cfg RegistryConfig) (*Registry, error) {
-	cacheDir, err := defaultCacheDir()
-	if err != nil {
-		return nil, err
-	}
-
-	// Apply defaults
-	url := cfg.URL
-	if url == "" {
-		url = DefaultRegistryURL
-	}
-
-	branch := cfg.Branch
-	if branch == "" {
-		branch = DefaultRegistryBranch
-	}
-
-	provider := NewGitProvider(url, branch)
-
-	reg := &Registry{
-		name:      "central",
-		provider:  provider,
-		cacheDir:  filepath.Join(cacheDir, "central"),
-		forceTags: cfg.ForceTags,
-	}
-
-	return reg, nil
 }
 
 // ForceTags returns whether tag resolution is forced (even on non-main branches).
