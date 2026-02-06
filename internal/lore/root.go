@@ -96,7 +96,7 @@ What took someone hours to figure out, you get in minutes.`,
 	}
 	configInfo := cli.ConfigInfo{
 		Name:          "lore",
-		Schema:        schema.LoreSchema,
+		Schema:        schema.DevloreSchema,
 		DefaultConfig: schema.LoreDefaultConfig,
 	}
 

@@ -27,8 +27,8 @@ type SelfInstallInfo struct {
 // NewSelfInstallCmd creates the self-install command.
 // Usage:
 //
-//	./tool self-install ~/.local
-//	./tool self-install --shell bash --shell zsh ~/.local
+//	./tool self-install --prefix=~/.local
+//	./tool self-install --prefix=~/.local --shell bash --shell zsh
 //
 // This performs complete installation:
 //   - Copies binary to <root>/bin/
@@ -39,15 +39,16 @@ type SelfInstallInfo struct {
 //   - Creates layer directories in XDG_DATA_HOME/devlore/writ/layers/
 func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
 	var shells []string
+	var prefix string
 
 	cmd := &cobra.Command{
-		Use:   "self-install <root-directory>",
+		Use:   "self-install --prefix=<directory>",
 		Short: "Complete installation to specified directory",
-		Long: `Install ` + info.Name + ` and all supporting files to the specified root directory.
+		Long: `Install ` + info.Name + ` and all supporting files to the specified prefix directory.
 
 This command:
-  1. Copies the binary to <root>/bin/` + info.Name + `
-  2. Installs man pages to <root>/share/man/man1/ (if man command exists)
+  1. Copies the binary to <prefix>/bin/` + info.Name + `
+  2. Installs man pages to <prefix>/share/man/man1/ (if man command exists)
   3. Installs shell completions (auto-detects bash, fish, powershell, zsh or use --shell)
   4. Creates shared config at $XDG_CONFIG_HOME/devlore/config.yaml
   5. Creates tool config at $XDG_CONFIG_HOME/devlore/config.d/` + info.Name + `.yaml
@@ -55,18 +56,20 @@ This command:
   7. Creates layer directories at $XDG_DATA_HOME/devlore/writ/layers/
 
 Shell completions are auto-detected by default. Use --shell to override:
-  ` + info.Name + ` self-install --shell bash --shell zsh ~/.local
+  ` + info.Name + ` self-install --prefix=~/.local --shell bash --shell zsh
 
 Example:
-  ` + info.Name + ` self-install ~/.local
-  ` + info.Name + ` self-install --shell bash --shell zsh ~/.local
+  ` + info.Name + ` self-install --prefix=~/.local
+  ` + info.Name + ` self-install --prefix=~/.local --shell bash --shell zsh
 
-After installation, ensure <root>/bin is in your PATH.
+After installation, ensure <prefix>/bin is in your PATH.
 `,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root := args[0]
-			root = expandTilde(root)
+			if prefix == "" {
+				return fmt.Errorf("--prefix is required")
+			}
+			root := expandTilde(prefix)
 
 			return runSelfInstall(rootCmd, root, info, installFlags{
 				Shells: shells,
@@ -74,6 +77,7 @@ After installation, ensure <root>/bin is in your PATH.
 		},
 	}
 
+	cmd.Flags().StringVar(&prefix, "prefix", "", "Installation prefix directory (required, e.g., ~/.local)")
 	cmd.Flags().StringArrayVar(&shells, "shell", nil, "Shell to install completions for (repeatable, e.g., --shell bash --shell zsh)")
 
 	return cmd

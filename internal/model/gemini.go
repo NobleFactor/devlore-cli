@@ -140,9 +140,9 @@ func (g *GeminiProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRespon
 // Gemini API types
 
 type geminiRequest struct {
-	Contents          []geminiContent         `json:"contents"`
-	SystemInstruction *geminiContent          `json:"systemInstruction,omitempty"`
-	GenerationConfig  geminiGenerationConfig  `json:"generationConfig"`
+	Contents          []geminiContent        `json:"contents"`
+	SystemInstruction *geminiContent         `json:"systemInstruction,omitempty"`
+	GenerationConfig  geminiGenerationConfig `json:"generationConfig"`
 }
 
 type geminiContent struct {

@@ -59,10 +59,10 @@ for intelligent analysis tasks in `writ migrate` and `lore onboard`.
 // 2. DEVLORE_MODEL_PROVIDER environment variable
 // 3. Default: "ollama"
 
-provider := model.NewProvider(model.Config{
+provider := model.NewProvider(config.ModelConfig{
     Provider: os.Getenv("DEVLORE_MODEL_PROVIDER"),
     APIKey:   os.Getenv("DEVLORE_MODEL_API_KEY"),
-    Model:    os.Getenv("DEVLORE_MODEL"),
+    Name:     os.Getenv("DEVLORE_MODEL"),
 })
 ```
 
@@ -323,7 +323,7 @@ func TestMigrationWithOllama(t *testing.T) {
         t.Skip("skipping integration test")
     }
 
-    provider, err := model.NewProvider(model.Config{Provider: "ollama"})
+    provider, err := model.NewProvider(config.ModelConfig{Provider: "ollama"})
     require.NoError(t, err)
 
     // Test with real fixture

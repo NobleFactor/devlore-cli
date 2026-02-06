@@ -193,7 +193,7 @@ func TestDecryptOperation(t *testing.T) {
 	op := &DecryptOp{}
 
 	// Provide a mock decryptor
-	mockDecrypt := func(ciphertext []byte) ([]byte, error) {
+	mockDecrypt := func(source string, ciphertext []byte) ([]byte, error) {
 		return []byte("decrypted:" + string(ciphertext)), nil
 	}
 
@@ -222,6 +222,81 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 
 	if _, err := op.Transform(ctx, node, inputContent); err == nil {
 		t.Error("expected error when no decryptor configured")
+	}
+}
+
+// TestDecryptOperationInvalidSignature tests that invalid decryptor signatures are rejected.
+// This is a critical test: we previously had a legacy signature fallback that accepted
+// func([]byte) ([]byte, error) which is a security issue since it doesn't track the source.
+func TestDecryptOperationInvalidSignature(t *testing.T) {
+	op := &DecryptOp{}
+	node := &Node{ID: "secret.txt"}
+	node.SetSlotImmediate("source", "/path/to/secret")
+	inputContent := []byte("encrypted-data")
+
+	tests := []struct {
+		name      string
+		decryptor any
+		wantErr   bool
+		errMsg    string
+	}{
+		{
+			name: "valid signature func(string, []byte) ([]byte, error)",
+			decryptor: func(source string, data []byte) ([]byte, error) {
+				return []byte("decrypted"), nil
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid legacy signature func([]byte) ([]byte, error)",
+			decryptor: func(data []byte) ([]byte, error) {
+				return []byte("decrypted"), nil
+			},
+			wantErr: true,
+			errMsg:  "must be func(string, []byte)",
+		},
+		{
+			name:      "invalid type string",
+			decryptor: "not a function",
+			wantErr:   true,
+			errMsg:    "must be func(string, []byte)",
+		},
+		{
+			name:      "invalid type int",
+			decryptor: 42,
+			wantErr:   true,
+			errMsg:    "must be func(string, []byte)",
+		},
+		{
+			name: "invalid signature wrong return type",
+			decryptor: func(source string, data []byte) string {
+				return "wrong return"
+			},
+			wantErr: true,
+			errMsg:  "must be func(string, []byte)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &Context{
+				Context: context.Background(),
+				Data:    map[string]any{"decryptor": tt.decryptor},
+			}
+
+			_, err := op.Transform(ctx, node, inputContent)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %s, got nil", tt.name)
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got: %v", tt.errMsg, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error for %s: %v", tt.name, err)
+				}
+			}
+		})
 	}
 }
 
@@ -448,7 +523,7 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mockDecrypt := func(ciphertext []byte) ([]byte, error) {
+	mockDecrypt := func(source string, ciphertext []byte) ([]byte, error) {
 		// Strip "encrypted:" prefix
 		return []byte(strings.TrimPrefix(string(ciphertext), "encrypted:")), nil
 	}

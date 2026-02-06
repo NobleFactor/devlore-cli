@@ -13,8 +13,8 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
-	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
 )
 
@@ -209,7 +209,7 @@ func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, us
 	}
 
 	// Restructure content to writ conventions
-	if err := migrate.Execute(os.Stderr, graph, analysis); err != nil {
+	if err := migrate.Execute(graph, analysis); err != nil {
 		return err
 	}
 

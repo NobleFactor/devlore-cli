@@ -132,20 +132,14 @@ func (o *DecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]
 	// (SOPS, age, or any other backend) without the engine depending on
 	// specific crypto libraries.
 	//
-	// Two signatures are supported:
-	//   func(source string, data []byte) ([]byte, error) — preferred, includes source path
-	//   func(data []byte) ([]byte, error) — legacy, data only
+	// Signature: func(source string, data []byte) ([]byte, error)
+	// The source path enables format detection (e.g., .sops vs .age).
 
-	// Try new signature first (includes source path for format detection)
-	if decrypt, ok := decryptor.(func(string, []byte) ([]byte, error)); ok {
-		return decrypt(node.GetSlot("source"), content)
+	decrypt, ok := decryptor.(func(string, []byte) ([]byte, error))
+	if !ok {
+		return nil, fmt.Errorf("decryptor must be func(string, []byte) ([]byte, error)")
 	}
-	if decrypt, ok := decryptor.(func([]byte) ([]byte, error)); ok {
-		// Fall back to legacy signature
-		return decrypt(content)
-	}
-
-	return nil, fmt.Errorf("decryptor must be func(string, []byte) ([]byte, error) or func([]byte) ([]byte, error)")
+	return decrypt(node.GetSlot("source"), content)
 }
 
 // NOTE: There is no DelegateOp. writ and lore share the same execution engine.

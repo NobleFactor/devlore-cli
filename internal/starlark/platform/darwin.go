@@ -363,8 +363,7 @@ func (d *DarwinPlanBindings) gatherBuiltin(_ *starlark.Thread, _ *starlark.Built
 	return loreStar.NewGather(d.graph, outputs...), nil
 }
 
-// Legacy Go API methods - still use old fields for backward compatibility
-// These are used by internal Go code, not Starlark scripts
+// Go API methods for internal use (not exposed to Starlark scripts)
 
 func (d *DarwinPlanBindings) PackageInstall(packages ...string) *execution.Node {
 	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)

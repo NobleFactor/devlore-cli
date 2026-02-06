@@ -27,7 +27,7 @@ func TestProcessingPipeline(t *testing.T) {
 		{".bashrc", ".bashrc", []Operation{OpLink}},
 		{".bashrc.template", ".bashrc", []Operation{OpRender, OpCopy}},
 		{"config.yaml.template.age", "config.yaml", []Operation{OpDecrypt, OpRender, OpCopy}},
-		{"packages.manifest", "packages.manifest", []Operation{OpPackages}},
+		{"packages-manifest.yaml", "packages-manifest.yaml", []Operation{OpPackages}},
 	}
 
 	for _, tt := range tests {
@@ -229,6 +229,71 @@ func TestBuildWithCollisions(t *testing.T) {
 	}
 
 	t.Logf("Tree output:\n%s", output)
+}
+
+// TestPackagesManifestFiles tests that only valid manifest filenames are recognized.
+// This test ensures that legacy filenames like "packages.manifest" are rejected.
+func TestPackagesManifestFiles(t *testing.T) {
+	// Verify the list contains only the expected valid filenames
+	expected := map[string]bool{
+		"packages-manifest.yaml": true,
+		"packages-manifest.json": true,
+	}
+
+	if len(PackagesManifestFiles) != len(expected) {
+		t.Errorf("PackagesManifestFiles has %d entries, want %d", len(PackagesManifestFiles), len(expected))
+	}
+
+	for _, f := range PackagesManifestFiles {
+		if !expected[f] {
+			t.Errorf("unexpected filename in PackagesManifestFiles: %q", f)
+		}
+	}
+
+	// Verify legacy filenames are NOT in the list
+	legacyFiles := []string{
+		"packages.manifest",
+		"packages.yaml",
+		"manifest.yaml",
+		"packages.json",
+	}
+
+	for _, legacy := range legacyFiles {
+		for _, valid := range PackagesManifestFiles {
+			if legacy == valid {
+				t.Errorf("legacy filename %q should NOT be in PackagesManifestFiles", legacy)
+			}
+		}
+	}
+}
+
+// TestProcessingPipeline_ManifestFilenames tests that only valid manifest filenames
+// trigger the OpPackages operation, and legacy filenames are treated as regular files.
+func TestProcessingPipeline_ManifestFilenames(t *testing.T) {
+	tests := []struct {
+		filename    string
+		wantOps     bool // true if should get OpPackages
+		description string
+	}{
+		{"packages-manifest.yaml", true, "valid YAML manifest"},
+		{"packages-manifest.json", true, "valid JSON manifest"},
+		{"packages.manifest", false, "legacy filename must be rejected"},
+		{"packages.yaml", false, "invalid manifest name"},
+		{"manifest.yaml", false, "invalid manifest name"},
+		{"packages-manifest.yml", false, "wrong extension"},
+		{"PACKAGES-MANIFEST.YAML", false, "case-sensitive check"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			_, ops := ProcessingPipeline(tt.filename)
+			hasPackages := ops.HasPackages()
+			if hasPackages != tt.wantOps {
+				t.Errorf("ProcessingPipeline(%q) HasPackages() = %v, want %v (%s)",
+					tt.filename, hasPackages, tt.wantOps, tt.description)
+			}
+		})
+	}
 }
 
 func TestOperationHelpers(t *testing.T) {

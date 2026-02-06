@@ -101,7 +101,7 @@ type Collision struct {
 // BuildConfig holds configuration for building a deployment graph.
 type BuildConfig struct {
 	// SourceRoot is the source directory for single-source mode.
-	// Deprecated: Use Sources for multi-layer support.
+	// For multi-layer support, use Sources instead.
 	SourceRoot string
 
 	// TargetRoot is the target directory (e.g., $HOME).
@@ -135,11 +135,11 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		return buildMultiSource(cfg)
 	}
 
-	// Single-source mode: backwards compatible
+	// Single-source mode
 	return buildSingleSource(cfg)
 }
 
-// buildSingleSource builds from a single source root (backwards compatible).
+// buildSingleSource builds from a single source root.
 func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 	matches, err := segment.MatchDirectories(cfg.SourceRoot, cfg.Projects, cfg.Segments)
 	if err != nil {
@@ -220,11 +220,6 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) {
 		Sources:    cfg.Sources,
 		TargetRoot: cfg.TargetRoot,
 		Projects:   cfg.Projects,
-	}
-
-	// Set SourceRoot to first source for backwards compatibility
-	if len(cfg.Sources) > 0 {
-		result.SourceRoot = cfg.Sources[0].SourceRoot
 	}
 
 	entriesByTarget := make(map[string]fileEntryWithMeta)

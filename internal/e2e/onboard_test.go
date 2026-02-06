@@ -22,10 +22,10 @@ import (
 
 // OnboardExpected represents the expected output for an onboarding test.
 type OnboardExpected struct {
-	Product       OnboardProduct       `yaml:"product"`
-	Sources       OnboardSources       `yaml:"sources,omitempty"`
-	Platforms     OnboardPlatforms     `yaml:"platforms,omitempty"`
-	Complexity    OnboardComplexity    `yaml:"complexity,omitempty"`
+	Product       OnboardProduct        `yaml:"product"`
+	Sources       OnboardSources        `yaml:"sources,omitempty"`
+	Platforms     OnboardPlatforms      `yaml:"platforms,omitempty"`
+	Complexity    OnboardComplexity     `yaml:"complexity,omitempty"`
 	ExpectedSlots []OnboardExpectedSlot `yaml:"expected_slots,omitempty"`
 }
 

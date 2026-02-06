@@ -49,7 +49,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	}
 	cfg.LayerSources = layerSources
 
-	// Legacy single-repo mode
+	// Single-repo mode (when no layers configured)
 	if len(layerSources) == 0 {
 		sourceRoot := cli.GetString("writ", "repo", true)
 		if sourceRoot == "" {

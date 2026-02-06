@@ -2,7 +2,7 @@
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 // Package onboard implements the multi-phase onboarding pipeline for lore.
-// It parses wiki pages or setup scripts and generates packages.manifest files.
+// It parses wiki pages or setup scripts and generates packages-manifest.yaml files.
 package onboard
 
 import (
@@ -22,25 +22,25 @@ import (
 
 // Options controls onboarding behavior.
 type Options struct {
-	Source     string              // URL or file path
-	OutputDir  string              // Output directory (default: current)
-	Format     string              // Manifest format: "plain" or "yaml"
-	Verbose    bool                // Show AI reasoning
-	Explain    bool                // Show detailed confidence decisions
-	Provider   model.Provider      // AI provider
+	Source     string                // URL or file path
+	OutputDir  string                // Output directory (default: current)
+	Format     string                // Manifest format: "plain" or "yaml"
+	Verbose    bool                  // Show AI reasoning
+	Explain    bool                  // Show detailed confidence decisions
+	Provider   model.Provider        // AI provider
 	RegClient  *lorepackage.Registry // Registry for prompts and matching
-	MaxFetches int                 // Max additional URLs to fetch (default: 5)
+	MaxFetches int                   // Max additional URLs to fetch (default: 5)
 }
 
 // Result contains the onboarding output.
 type Result struct {
-	Product     *ProductInfo       `json:"product"`
-	Sources     *SourceInfo        `json:"sources"`
-	Platforms   *PlatformInfo      `json:"platforms"`
-	Complexity  *ComplexityInfo    `json:"complexity"`
-	Slots       []ExtractedSlot    `json:"slots"`
-	Manifest    string             `json:"manifest"`      // Generated packages.manifest content
-	Warnings    []string           `json:"warnings"`
+	Product    *ProductInfo    `json:"product"`
+	Sources    *SourceInfo     `json:"sources"`
+	Platforms  *PlatformInfo   `json:"platforms"`
+	Complexity *ComplexityInfo `json:"complexity"`
+	Slots      []ExtractedSlot `json:"slots"`
+	Manifest   string          `json:"manifest"` // Generated packages-manifest.yaml content
+	Warnings   []string        `json:"warnings"`
 }
 
 // ProductInfo contains identified product information.
@@ -302,7 +302,7 @@ func parseDocuments(ctx context.Context, opts Options, docs []documentContent) (
 	return parseResult.Slots, nil
 }
 
-// generateManifest creates a packages.manifest from discovery and slots.
+// generateManifest creates a packages-manifest.yaml from discovery and slots.
 func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, format string) string {
 	var sb strings.Builder
 
@@ -363,6 +363,6 @@ func truncateContent(content string, maxLen int) string {
 
 // WriteManifest writes the manifest to a file.
 func WriteManifest(result *Result, outputDir string) error {
-	path := filepath.Join(outputDir, "packages.manifest")
+	path := filepath.Join(outputDir, "packages-manifest.yaml")
 	return os.WriteFile(path, []byte(result.Manifest), 0644)
 }

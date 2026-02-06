@@ -362,8 +362,7 @@ func TestExecuteWithMockGraph(t *testing.T) {
 		Edges: []registryEdge{},
 	})
 
-	var buf bytes.Buffer
-	if err := Execute(&buf, graph, analysis); err != nil {
+	if err := Execute(graph, analysis); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
@@ -408,8 +407,7 @@ func TestExecuteConflict(t *testing.T) {
 		Edges: []registryEdge{},
 	})
 
-	var buf bytes.Buffer
-	err := Execute(&buf, graph, analysis)
+	err := Execute(graph, analysis)
 	if err == nil {
 		t.Fatal("Execute should fail when target exists")
 	}
@@ -459,10 +457,10 @@ type mockProvider struct {
 func (m *mockProvider) Chat(_ context.Context, _ model.ChatRequest) (*model.ChatResponse, error) {
 	return nil, nil
 }
-func (m *mockProvider) Name() string                      { return m.name }
-func (m *mockProvider) Model() string                     { return "test-model" }
-func (m *mockProvider) Endpoint() string                  { return "" }
-func (m *mockProvider) Available(_ context.Context) bool  { return true }
+func (m *mockProvider) Name() string                     { return m.name }
+func (m *mockProvider) Model() string                    { return "test-model" }
+func (m *mockProvider) Endpoint() string                 { return "" }
+func (m *mockProvider) Available(_ context.Context) bool { return true }
 
 func TestLoadInputLimits(t *testing.T) {
 	// LoadInputLimits requires both registry and provider

@@ -19,7 +19,7 @@ type Config struct {
 
 	// Sources
 	LayerSources []tree.LayerSource
-	SourceRoot   string // legacy single-repo mode
+	SourceRoot   string // single-repo mode (when no layers configured)
 	TargetRoot   string
 
 	// Selection

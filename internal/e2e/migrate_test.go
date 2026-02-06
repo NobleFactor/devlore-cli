@@ -274,4 +274,3 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *exec
 
 	return metrics
 }
-

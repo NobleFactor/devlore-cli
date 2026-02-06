@@ -328,4 +328,3 @@ func extractNodeID(arg starlark.Value, position string) (string, error) {
 
 	return "", fmt.Errorf("%s argument must be an Output or node struct", position)
 }
-

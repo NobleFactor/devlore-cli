@@ -1020,7 +1020,7 @@ Scope (Home or System) is inferred from the item's location:
 Directories are adopted recursively—all files within are moved and symlinked.
 Existing symlinks within directories are skipped.
 
-With --from-receipt, reads a lore receipt and adopts packages.manifest and
+With --from-receipt, reads a lore receipt and adopts packages-manifest.yaml and
 config files into the environment repository.`,
 		Example: `  # Adopt a single file into personal layer
   writ adopt --project noblefactor ~/.zshrc
@@ -1046,7 +1046,7 @@ config files into the environment repository.`,
 
 	cmd.Flags().String("layer", "personal", "Layer to adopt into: personal, team, or base")
 	cmd.Flags().String("project", "", "Project name within the layer (required)")
-	cmd.Flags().Bool("from-receipt", false, "Adopt packages.manifest and config from lore receipt")
+	cmd.Flags().Bool("from-receipt", false, "Adopt packages-manifest.yaml and config from lore receipt")
 
 	return cmd
 }
@@ -1201,13 +1201,8 @@ func inferScope(filePath, homeDir string) string {
 
 // runAdoptFromReceipt adopts files from a lore receipt.
 func runAdoptFromReceipt(receiptPath, layer, project string, verbose, dryRun bool) error {
-	// TODO: Implement reading lore receipt and adopting packages.manifest + config
-	if receiptPath == "" {
-		cli.Warn("adopt --from-receipt: not yet implemented (would use most recent receipt)")
-	} else {
-		cli.Warn("adopt --from-receipt %s: not yet implemented", receiptPath)
-	}
-	return nil
+	// TODO: Implement reading lore receipt and adopting packages-manifest.yaml + config
+	return fmt.Errorf("adopt --from-receipt: not yet implemented")
 }
 
 // adoptFile moves a single file to the project directory and creates a symlink back.
@@ -1324,8 +1319,7 @@ Output is JSON by default for scripting. Use --format for alternatives.`,
   writ inspect noblefactor --format '{{.Name}}\t{{.Source}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cli.Note("inspect: not yet implemented")
-			return nil
+			return fmt.Errorf("inspect: not yet implemented")
 		},
 	}
 
@@ -1339,8 +1333,7 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List available projects for the current target",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cli.Note("list: not yet implemented")
-			return nil
+			return fmt.Errorf("list: not yet implemented")
 		},
 	}
 	return cmd
@@ -1395,17 +1388,7 @@ of your environment deploystate.`,
   writ receipt show workstation --unified # Include lore software receipts`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := "default"
-			if len(args) > 0 {
-				name = args[0]
-			}
-			unified, _ := cmd.Flags().GetBool("unified")
-			if unified {
-				cli.Note("receipt show %s --unified: not yet implemented", name)
-			} else {
-				cli.Note("receipt show %s: not yet implemented", name)
-			}
-			return nil
+			return fmt.Errorf("receipt show: not yet implemented")
 		},
 	}
 	showCmd.Flags().Bool("unified", false, "Include lore receipts (software + configuration)")
@@ -1415,8 +1398,7 @@ of your environment deploystate.`,
 		Use:   "list",
 		Short: "List available receipts",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cli.Note("receipt list: not yet implemented")
-			return nil
+			return fmt.Errorf("receipt list: not yet implemented")
 		},
 	})
 
@@ -1476,4 +1458,3 @@ func hasDecryptOp(ops []string) bool {
 	}
 	return false
 }
-
