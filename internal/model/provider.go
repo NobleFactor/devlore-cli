@@ -50,6 +50,8 @@ package model
 import (
 	"context"
 	"fmt"
+
+	"github.com/NobleFactor/devlore-cli/internal/config"
 )
 
 // Provider is the opaque interface for AI/LLM backends.
@@ -109,40 +111,23 @@ type ChatResponse struct {
 	TokensUsed   int    // Total tokens consumed
 }
 
-// Config holds AI provider configuration per ADR-017.
-type Config struct {
-	Provider string `yaml:"provider"` // ollama, anthropic, openai, azure-openai
-	Model    string `yaml:"model"`    // Model name (e.g., "llama3.1:8b", "claude-sonnet-4-20250514")
-	Endpoint string `yaml:"endpoint"` // API endpoint (optional, for custom/azure)
-	APIKey   string `yaml:"api_key"`  // API key (for cloud providers)
-}
-
-// DefaultConfig returns the default configuration (Ollama).
-func DefaultConfig() Config {
-	return Config{
-		Provider: "ollama",
-		Model:    "llama3.1:8b",
-		Endpoint: "http://localhost:11434",
-	}
-}
-
 // NewProvider creates a provider from configuration.
-func NewProvider(cfg Config) (Provider, error) {
+func NewProvider(cfg config.ModelConfig) (Provider, error) {
 	switch cfg.Provider {
 	case "ollama":
-		return NewOllamaProvider(cfg.Endpoint, cfg.Model), nil
+		return NewOllamaProvider(cfg.Endpoint, cfg.Name), nil
 
 	case "anthropic":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("anthropic provider requires api_key")
 		}
-		return NewAnthropicProvider(cfg.APIKey, cfg.Model), nil
+		return NewAnthropicProvider(cfg.APIKey, cfg.Name), nil
 
 	case "openai":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("openai provider requires api_key")
 		}
-		return NewOpenAIProvider(cfg.APIKey, cfg.Model, cfg.Endpoint), nil
+		return NewOpenAIProvider(cfg.APIKey, cfg.Name, cfg.Endpoint), nil
 
 	case "github":
 		// GitHub Models uses OpenAI-compatible API
@@ -153,7 +138,7 @@ func NewProvider(cfg Config) (Provider, error) {
 		if endpoint == "" {
 			endpoint = "https://models.inference.ai.azure.com"
 		}
-		model := cfg.Model
+		model := cfg.Name
 		if model == "" {
 			model = "gpt-4o"
 		}
@@ -163,13 +148,13 @@ func NewProvider(cfg Config) (Provider, error) {
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("groq provider requires api_key")
 		}
-		return NewGroqProvider(cfg.APIKey, cfg.Model), nil
+		return NewGroqProvider(cfg.APIKey, cfg.Name), nil
 
 	case "gemini":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("gemini provider requires api_key")
 		}
-		return NewGeminiProvider(cfg.APIKey, cfg.Model), nil
+		return NewGeminiProvider(cfg.APIKey, cfg.Name), nil
 
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)

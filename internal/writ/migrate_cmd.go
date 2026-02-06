@@ -99,7 +99,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	}
 
 	// All structures go through AI for analysis, validation, and secret detection
-	regClient, err := lorepackage.NewDefault()
+	regClient, err := lorepackage.NewRegistry()
 	if err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
