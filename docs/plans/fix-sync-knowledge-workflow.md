@@ -3,157 +3,245 @@
 ---
 title: Fix sync-knowledge Workflow
 issue: https://github.com/NobleFactor/devlore-cli/issues/86
-status: in-progress
+status: blocked
 created: 2026-02-10
 updated: 2026-02-10
+blocked_by: https://github.com/NobleFactor/devlore-cli/issues/84
 ---
 
 ## Summary
 
-Fix the sync-knowledge GitHub Actions workflow that fails after PR #85 introduced the `star/extensions/` directory structure. Two issues must be addressed: binary path conflicts and extension discovery.
+Fix the sync-knowledge GitHub Actions workflow that fails after PR #85 introduced the `star/extensions/` directory structure. Three issues were discovered; two are fixed, one requires implementation work.
 
-## Goals
+## Quick Start for Future Sessions
 
-1. **Restore CI functionality**: sync-knowledge workflow must pass on all branches
-2. **Proper extension discovery**: Star must find devlore-registry extensions
-3. **Path forward**: Establish pattern for workflows using star with project-specific extensions
+**To pick up this work:**
+
+1. Read this plan
+2. Implement Phase 2 (choose Option A, B, or C based on user preference)
+3. If Option B chosen, also implement Phase 3
+
+**Current blocker:** The Starlark script `build-knowledge.star` calls `go.parse_devlore_api()` but no binary has that receiver wired up.
 
 ## Current State
 
 | Component | Status | Notes |
 | --- | --- | --- |
 | Binary path | :white_check_mark: Fixed | Changed to `bin/star` |
-| Extension discovery | :x: Failing | Star can't find devlore-registry extensions |
-| star release | :x: Missing | No downloadable release with extensions |
+| Extension discovery | :white_check_mark: Fixed | Run from devlore-cli directory |
+| Receiver `go.parse_devlore_api` | :x: Blocking | Not wired to any binary |
 
-### Error Progression
+## Error Progression
 
-**Error 1** (run 21889456754):
+**Error 1** - Binary path conflict (FIXED):
 ```
 ./star: Is a directory
-##[error]Process completed with exit code 126.
 ```
-Root cause: `star/` directory conflicts with `./star` binary output.
 
-**Error 2** (run 21889716548):
+**Error 2** - Extension discovery (FIXED):
 ```
 Error: unknown command "devlore-registry" for "star"
 ```
-Root cause: Star built from noblefactor-ops doesn't include devlore-registry extensions. Those extensions now live in `devlore-cli/star/extensions/`.
 
-## Root Cause Analysis
+**Error 3** - Missing receiver (CURRENT BLOCKER):
+```
+Error: go has no .parse_devlore_api attribute
+  build-knowledge.star:79:13: in build_onboarding_knowledge
+```
 
-The workflow architecture has a fundamental issue:
+## Implementation Options
 
-1. **Before PR #85**: `devlore-registry` commands were in `noblefactor-ops/ops/` directory
-2. **After PR #85**: Commands moved to `devlore-cli/star/extensions/` as proper extensions
-3. **Problem**: Workflow builds star from noblefactor-ops but needs extensions from devlore-cli
+### Option A: Disable workflow temporarily
 
-Star discovers extensions from:
-1. `./star/extensions/` (current working directory)
-2. Walk up parent directories
-3. `~/.local/share/star/extensions/` (user-installed)
+**Effort**: 5 minutes
+**Trade-off**: Knowledge sync stops until proper fix
 
-When running from noblefactor-ops directory, star cannot find devlore-cli extensions.
-
-## Solution Options
-
-### Option A: Run from devlore-cli directory (Quick Fix)
-
-Change workflow to run star from devlore-cli directory:
+Edit `.github/workflows/sync-knowledge.yaml`:
 
 ```yaml
+jobs:
+  sync-knowledge:
+    runs-on: ubuntu-latest
+    # Temporarily disabled - requires devlore receiver (#84)
+    if: false
+    steps:
+      # ... rest unchanged
+```
+
+Then commit and push.
+
+---
+
+### Option B: Wire up receiver to lore/writ binary
+
+**Effort**: 30-60 minutes
+**Trade-off**: Proper fix, requires code changes
+
+The `lore` and `writ` binaries already exist in devlore-cli. Wire the receiver into one of them.
+
+#### Step 1: Find the Starlark runtime initialization
+
+Look in `cmd/lore/main.go` or `cmd/writ/main.go` for where Starlark globals are set up. Also check `internal/cli/` for command execution.
+
+```bash
+grep -r "starlark.StringDict\|NewThread\|ExecFile" internal/ cmd/
+```
+
+#### Step 2: Create receiver wrapper
+
+The receiver code already exists. Create a wrapper in `internal/starlark/receivers.go`:
+
+```go
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package starlark
+
+import (
+	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/devlore-cli/internal/starlark/devlore"
+)
+
+// GoReceiver provides Go source parsing operations.
+type GoReceiver struct{}
+
+func (r *GoReceiver) String() string        { return "go" }
+func (r *GoReceiver) Type() string          { return "receiver" }
+func (r *GoReceiver) Freeze()               {}
+func (r *GoReceiver) Truth() starlark.Bool  { return true }
+func (r *GoReceiver) Hash() (uint32, error) { return 0, nil }
+
+func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "parse_devlore_api":
+		return starlark.NewBuiltin("go.parse_devlore_api", devlore.GoParseDevloreAPI), nil
+	default:
+		return nil, starlark.NoSuchAttrError(fmt.Sprintf("go has no .%s attribute", name))
+	}
+}
+
+func (r *GoReceiver) AttrNames() []string {
+	return []string{"parse_devlore_api"}
+}
+```
+
+#### Step 3: Register receiver in globals
+
+Where Starlark scripts are executed, add the receiver to globals:
+
+```go
+globals := starlark.StringDict{
+	"go": &starlark.GoReceiver{},
+	// ... other existing globals
+}
+```
+
+#### Step 4: Update workflow to use lore/writ
+
+Edit `.github/workflows/sync-knowledge.yaml`:
+
+```yaml
+- name: Build devlore tools
+  working-directory: devlore-cli
+  run: go build -o bin/lore ./cmd/lore
+
 - name: Build knowledge base
-  working-directory: devlore-cli  # Changed from noblefactor-ops
+  working-directory: devlore-cli
   run: |
-    ${{ github.workspace }}/noblefactor-ops/bin/star devlore-registry build knowledge \
+    ./bin/lore devlore-registry build knowledge \
       --domain all \
       --source_path ${{ github.workspace }}/devlore-cli \
       --registry_path ${{ github.workspace }}/devlore-registry
 ```
 
-**Pros**: Simple, works immediately
-**Cons**: Requires building star from source every time
+---
 
-### Option B: Use Star Release (Proper Solution)
+### Option C: Stub the receiver in Starlark
 
-Download a star release binary that includes extensions:
+**Effort**: 10 minutes
+**Trade-off**: Partial functionality, knowledge sync runs but skips API parsing
 
-```yaml
-- name: Download star
-  run: |
-    curl -sSL https://github.com/NobleFactor/noblefactor-ops/releases/latest/download/star-linux-amd64.tar.gz | tar xz
-    chmod +x star
+Edit `star/extensions/com.noblefactor.devlore.registry.BuildKnowledge/commands/build-knowledge.star`:
 
-- name: Install devlore extensions
-  run: |
-    cp -r devlore-cli/star/extensions/* ~/.local/share/star/extensions/
+Find line 79 where `go.parse_devlore_api` is called and wrap it:
 
-- name: Build knowledge base
-  run: |
-    ./star devlore-registry build knowledge ...
+```starlark
+def build_onboarding_knowledge(source_path, registry_path):
+    # ... existing code up to the parse call ...
+
+    # Check if receiver is available (may not be when running with generic star)
+    if hasattr(go, "parse_devlore_api"):
+        api_info = go.parse_devlore_api(source_path)
+    else:
+        warn("Skipping API parsing - go.parse_devlore_api not available")
+        warn("Run with devlore-cli binary for full functionality")
+        api_info = {}
+
+    # ... rest of function ...
 ```
 
-**Pros**: Faster CI, uses tested release
-**Cons**: Requires star release infrastructure (not yet implemented)
+Do the same for any other `go.*` calls in the registry extensions.
 
-### Option C: Build devlore-cli's own star
+---
 
-Have devlore-cli build its own star binary with extensions bundled:
+## Recommended Approach
 
-```yaml
-- name: Build devlore star
-  working-directory: devlore-cli
-  run: |
-    # Would require devlore-cli to have star build capability
-    go build -o bin/star ./cmd/star
+1. **Immediate**: Apply Option A or C to unblock PR #85
+2. **Follow-up**: Implement Option B as a separate PR
+
+## Files Reference
+
+| File | Purpose |
+| --- | --- |
+| `internal/starlark/devlore/api.go` | `GoParseDevloreAPI` function - the receiver implementation |
+| `star/extensions/com.noblefactor.devlore.registry.BuildKnowledge/commands/build-knowledge.star:79` | Where receiver is called |
+| `.github/workflows/sync-knowledge.yaml` | The failing workflow |
+| `cmd/lore/main.go` | lore binary entry point |
+| `cmd/writ/main.go` | writ binary entry point |
+
+## GoParseDevloreAPI Signature
+
+For reference, the existing function in `internal/starlark/devlore/api.go`:
+
+```go
+func GoParseDevloreAPI(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error)
 ```
 
-**Pros**: Self-contained
-**Cons**: Duplicates star build logic, harder to maintain
+This parses Go source files in devlore-cli to extract Starlark API binding information. It returns a Starlark dict with the parsed data.
 
-## Implementation
+## Acceptance Criteria
 
-### Phase 1: Quick Fix (This PR)
+- [ ] sync-knowledge workflow passes on PR #85
+- [ ] If Option B: `go.parse_devlore_api()` callable from Starlark
+- [ ] If Option C: Graceful degradation when receiver unavailable
 
-Apply Option A to unblock the PR:
+## Commit Messages
 
-- [x] Fix binary path to `bin/star`
-- [ ] Change working directory to `devlore-cli`
-- [ ] Use absolute path to star binary
-- [ ] Verify PR #85 checks pass
+**For Option A:**
+```
+fix(ci): disable sync-knowledge until receiver wired (#84)
+```
 
-**Files**:
-- `.github/workflows/sync-knowledge.yaml` - Modify
+**For Option B:**
+```
+feat(starlark): wire up devlore receiver to lore binary
 
-### Phase 2: Star Release Infrastructure (Future)
+Closes #84
+```
 
-Implement Option B as the proper long-term solution:
+**For Option C:**
+```
+fix(starlark): gracefully handle missing go receiver
 
-- [ ] Create star release workflow in noblefactor-ops
-- [ ] Publish releases with binaries for linux/darwin x amd64/arm64
-- [ ] Update sync-knowledge to download release instead of building
-- [ ] Consider bundling common extensions in release
-
-**Depends on**: noblefactor-ops release infrastructure
-
-## Files to Create/Modify
-
-| File | Action | Phase | Purpose |
-| --- | --- | --- | --- |
-| `.github/workflows/sync-knowledge.yaml` | Modify | 1 | Fix paths and working directory |
-| `noblefactor-ops/.github/workflows/release.yaml` | Create | 2 | Star release automation |
-
-## Testing
-
-1. Push fix to feat/star-extensions branch
-2. Verify sync-knowledge check passes on PR #85
-3. Merge PR #85 to develop
-4. Verify sync-knowledge runs successfully on develop push
+The build-knowledge extension now checks for receiver availability
+before calling go.parse_devlore_api, allowing it to run with the
+generic star binary from noblefactor-ops.
+```
 
 ## Related Documents
 
-- PR #85 - feat: add star extensions for devlore commands
-- Issue #84 - Wire up devlore Starlark receiver
-- noblefactor-ops Makefile - Reference for `bin/star` convention
-- docs/plans/star-release-install.md (noblefactor-ops) - Star release infrastructure
+- [Issue #86](https://github.com/NobleFactor/devlore-cli/issues/86) - This workflow issue
+- [Issue #84](https://github.com/NobleFactor/devlore-cli/issues/84) - Wire up devlore receiver (BLOCKING)
+- [PR #85](https://github.com/NobleFactor/devlore-cli/pull/85) - Add star extensions
+- [PR #52 noblefactor-ops](https://github.com/NobleFactor/noblefactor-ops/pull/52) - Removed devlore from ops
