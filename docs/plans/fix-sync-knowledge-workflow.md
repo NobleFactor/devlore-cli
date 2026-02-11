@@ -1,123 +1,148 @@
-# Plan: Fix sync-knowledge Workflow Binary Path Conflict
+# Plan: Fix sync-knowledge Workflow
 
 ---
-title: Fix sync-knowledge Workflow Binary Path Conflict
+title: Fix sync-knowledge Workflow
 issue: https://github.com/NobleFactor/devlore-cli/issues/86
-status: draft
+status: in-progress
 created: 2026-02-10
 updated: 2026-02-10
 ---
 
 ## Summary
 
-Fix the sync-knowledge GitHub Actions workflow that fails because the `star` binary name conflicts with the new `star/` directory introduced by PR #85. The workflow builds `./star` but now `./star` resolves to a directory, not the binary.
+Fix the sync-knowledge GitHub Actions workflow that fails after PR #85 introduced the `star/extensions/` directory structure. Two issues must be addressed: binary path conflicts and extension discovery.
 
 ## Goals
 
 1. **Restore CI functionality**: sync-knowledge workflow must pass on all branches
-2. **Align with conventions**: Use `bin/star` path consistent with noblefactor-ops Makefile
-3. **Prevent future conflicts**: Ensure binary output paths don't conflict with project directories
+2. **Proper extension discovery**: Star must find devlore-registry extensions
+3. **Path forward**: Establish pattern for workflows using star with project-specific extensions
 
 ## Current State
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| sync-knowledge workflow | :x: Failing | `./star: Is a directory` (exit code 126) |
-| star/ directory | :white_check_mark: Working | Contains project extensions per new structure |
-| noblefactor-ops build | :white_check_mark: Working | Makefile builds to `bin/star` |
+| Binary path | :white_check_mark: Fixed | Changed to `bin/star` |
+| Extension discovery | :x: Failing | Star can't find devlore-registry extensions |
+| star release | :x: Missing | No downloadable release with extensions |
 
-### Error Details
+### Error Progression
 
-From GitHub Actions run 21889456754:
-
+**Error 1** (run 21889456754):
 ```
-./star devlore-registry build knowledge \
-  --domain all \
-  --source_path /home/runner/work/devlore-cli/devlore-cli/devlore-cli \
-  --registry_path /home/runner/work/devlore-cli/devlore-cli/devlore-registry
-/home/runner/work/_temp/2d655c82-a7bb-424e-8abc-e961b30cbf6d.sh: line 1: ./star: Is a directory
+./star: Is a directory
 ##[error]Process completed with exit code 126.
 ```
+Root cause: `star/` directory conflicts with `./star` binary output.
 
-### Root Cause
+**Error 2** (run 21889716548):
+```
+Error: unknown command "devlore-registry" for "star"
+```
+Root cause: Star built from noblefactor-ops doesn't include devlore-registry extensions. Those extensions now live in `devlore-cli/star/extensions/`.
 
-1. PR #85 introduced `star/extensions/` directory for project-local extensions
-2. Workflow step `go build -o star ./cmd/star` outputs binary as `./star`
-3. When workflow runs `./star devlore-registry build knowledge`, shell interprets `./star` as directory
-4. Exit code 126 = "permission denied" (directory is not executable)
+## Root Cause Analysis
 
-## Requirements
+The workflow architecture has a fundamental issue:
 
-### Workflow Fix
+1. **Before PR #85**: `devlore-registry` commands were in `noblefactor-ops/ops/` directory
+2. **After PR #85**: Commands moved to `devlore-cli/star/extensions/` as proper extensions
+3. **Problem**: Workflow builds star from noblefactor-ops but needs extensions from devlore-cli
 
-Update `.github/workflows/sync-knowledge.yaml` to:
+Star discovers extensions from:
+1. `./star/extensions/` (current working directory)
+2. Walk up parent directories
+3. `~/.local/share/star/extensions/` (user-installed)
 
-1. Build binary to `bin/star` instead of `star`
-2. Run `./bin/star` instead of `./star`
+When running from noblefactor-ops directory, star cannot find devlore-cli extensions.
 
-**Before**:
+## Solution Options
+
+### Option A: Run from devlore-cli directory (Quick Fix)
+
+Change workflow to run star from devlore-cli directory:
 
 ```yaml
-- name: Build star tool
-  working-directory: noblefactor-ops
-  run: go build -o star ./cmd/star
-
 - name: Build knowledge base
-  working-directory: noblefactor-ops
+  working-directory: devlore-cli  # Changed from noblefactor-ops
   run: |
-    ./star devlore-registry build knowledge \
+    ${{ github.workspace }}/noblefactor-ops/bin/star devlore-registry build knowledge \
       --domain all \
-      ...
+      --source_path ${{ github.workspace }}/devlore-cli \
+      --registry_path ${{ github.workspace }}/devlore-registry
 ```
 
-**After**:
+**Pros**: Simple, works immediately
+**Cons**: Requires building star from source every time
+
+### Option B: Use Star Release (Proper Solution)
+
+Download a star release binary that includes extensions:
 
 ```yaml
-- name: Build star tool
-  working-directory: noblefactor-ops
-  run: go build -o bin/star ./cmd/star
+- name: Download star
+  run: |
+    curl -sSL https://github.com/NobleFactor/noblefactor-ops/releases/latest/download/star-linux-amd64.tar.gz | tar xz
+    chmod +x star
+
+- name: Install devlore extensions
+  run: |
+    cp -r devlore-cli/star/extensions/* ~/.local/share/star/extensions/
 
 - name: Build knowledge base
-  working-directory: noblefactor-ops
   run: |
-    ./bin/star devlore-registry build knowledge \
-      --domain all \
-      ...
+    ./star devlore-registry build knowledge ...
 ```
 
-### Consistency Check
+**Pros**: Faster CI, uses tested release
+**Cons**: Requires star release infrastructure (not yet implemented)
 
-Verify no other workflows in devlore-cli or noblefactor-ops use `./star` directly:
+### Option C: Build devlore-cli's own star
 
-| Repository | Workflow | Status |
-| --- | --- | --- |
-| devlore-cli | sync-knowledge.yaml | Needs fix |
-| noblefactor-ops | ci.yaml | Check required |
-| noblefactor-ops | Any others | Check required |
+Have devlore-cli build its own star binary with extensions bundled:
 
-## Implementation Phases
+```yaml
+- name: Build devlore star
+  working-directory: devlore-cli
+  run: |
+    # Would require devlore-cli to have star build capability
+    go build -o bin/star ./cmd/star
+```
 
-### Phase 1: Fix sync-knowledge Workflow
+**Pros**: Self-contained
+**Cons**: Duplicates star build logic, harder to maintain
 
-- [ ] Update build step to output to `bin/star`
-- [ ] Update run step to use `./bin/star`
-- [ ] Commit and push to feat/star-extensions branch
+## Implementation
+
+### Phase 1: Quick Fix (This PR)
+
+Apply Option A to unblock the PR:
+
+- [x] Fix binary path to `bin/star`
+- [ ] Change working directory to `devlore-cli`
+- [ ] Use absolute path to star binary
 - [ ] Verify PR #85 checks pass
 
 **Files**:
-
 - `.github/workflows/sync-knowledge.yaml` - Modify
 
-### Phase 2: Audit Other Workflows (Optional)
+### Phase 2: Star Release Infrastructure (Future)
 
-- [ ] Check noblefactor-ops CI workflow for similar issues
-- [ ] Update any workflows that build `./star` directly
+Implement Option B as the proper long-term solution:
+
+- [ ] Create star release workflow in noblefactor-ops
+- [ ] Publish releases with binaries for linux/darwin x amd64/arm64
+- [ ] Update sync-knowledge to download release instead of building
+- [ ] Consider bundling common extensions in release
+
+**Depends on**: noblefactor-ops release infrastructure
 
 ## Files to Create/Modify
 
-| File | Action | Purpose |
-| --- | --- | --- |
-| `.github/workflows/sync-knowledge.yaml` | Modify | Fix binary path to `bin/star` |
+| File | Action | Phase | Purpose |
+| --- | --- | --- | --- |
+| `.github/workflows/sync-knowledge.yaml` | Modify | 1 | Fix paths and working directory |
+| `noblefactor-ops/.github/workflows/release.yaml` | Create | 2 | Star release automation |
 
 ## Testing
 
@@ -131,3 +156,4 @@ Verify no other workflows in devlore-cli or noblefactor-ops use `./star` directl
 - PR #85 - feat: add star extensions for devlore commands
 - Issue #84 - Wire up devlore Starlark receiver
 - noblefactor-ops Makefile - Reference for `bin/star` convention
+- docs/plans/star-release-install.md (noblefactor-ops) - Star release infrastructure

@@ -59,9 +59,9 @@ jobs:
         run: go build -o bin/star ./cmd/star
 
       - name: Build knowledge base
-        working-directory: noblefactor-ops
+        working-directory: devlore-cli
         run: |
-          ./bin/star devlore-registry build knowledge \
+          ${{ github.workspace }}/noblefactor-ops/bin/star devlore-registry build knowledge \
             --domain all \
             --source_path ${{ github.workspace }}/devlore-cli \
             --registry_path ${{ github.workspace }}/devlore-registry
