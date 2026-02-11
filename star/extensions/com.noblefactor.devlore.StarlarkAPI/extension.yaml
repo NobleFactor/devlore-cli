@@ -6,11 +6,14 @@ description: Validate devlore-cli Starlark API contract and generate documentati
 
 receivers:
   - name: go
-    builtin: true
-    type: GoReceiver
+    wasm: receivers/go.wasm
     description: Go AST parsing primitives
-    functions:
-      parse_devlore_api: Parse devlore-cli Starlark API from Go source
+    capabilities:
+      fs:
+        read:
+          - "/workspace"
+        write: []
+      host_calls: []
 
 commands:
   - name: devlore-cli.starlark-api
