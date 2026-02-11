@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.devlore.registry.SignPackage
+description: Sign a lore package with release key
+
+commands:
+  - name: devlore-registry.sign.package
+    help: Sign a lore package with release key
+    implementation: commands/sign-package.star
+    flags:
+      - name: path
+        type: string
+        default: ""
+        help: Path to lore package
+      - name: env
+        type: string
+        default: "dev"
+        help: "Environment: dev or prod"

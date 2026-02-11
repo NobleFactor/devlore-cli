@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.devlore.StarlarkAPI
+description: Validate devlore-cli Starlark API contract and generate documentation
+
+receivers:
+  - name: go
+    builtin: true
+    type: GoReceiver
+    description: Go AST parsing primitives
+    functions:
+      parse_devlore_api: Parse devlore-cli Starlark API from Go source
+
+commands:
+  - name: devlore-cli.starlark-api
+    help: Validate devlore-cli Starlark API contract and generate documentation
+    implementation: commands/starlark-api.star
+    flags:
+      - name: path
+        type: string
+        required: true
+        help: Path to devlore-cli repository
+      - name: format
+        type: string
+        default: "markdown"
+        help: "Output format: markdown, json, or yaml"

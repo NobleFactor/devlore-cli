@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.devlore.registry.IndexKnowledge
+description: Generate index.yaml for knowledge domains in devlore-registry
+
+commands:
+  - name: devlore-registry.index.knowledge
+    help: Generate index.yaml for knowledge domains in devlore-registry
+    implementation: commands/index-knowledge.star
+    flags:
+      - name: path
+        type: string
+        default: "."
+        help: Path to devlore-registry
+      - name: dry_run
+        type: string
+        default: ""
+        help: Show what would be done without writing files

@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.devlore.registry.BuildKnowledge
+description: Build knowledge artifacts from devlore-cli source
+
+receivers:
+  - name: go
+    builtin: true
+    type: GoReceiver
+    description: Go AST parsing primitives
+    functions:
+      parse_devlore_api: Parse devlore-cli Starlark API from Go source
+      parse_migrate_knowledge: Parse migrate constants from Go source
+      parse_execution_ops: Parse execution operations from ops.go
+      parse_execution_schema: Parse execution schema from Go types
+
+commands:
+  - name: devlore-registry.build.knowledge
+    help: Build knowledge artifacts from devlore-cli source
+    implementation: commands/build-knowledge.star
+    flags:
+      - name: source_path
+        type: string
+        default: ""
+        help: "Path to devlore-cli (default: ../devlore-cli)"
+      - name: registry_path
+        type: string
+        default: ""
+        help: "Path to devlore-registry (default: ../devlore-registry)"
+      - name: domain
+        type: string
+        default: "all"
+        help: "Knowledge domain: all, onboarding, or migration"
