@@ -34,36 +34,44 @@ def parse_lifecycle(content):
 
 def scan_packages(packages_dir):
     """Scan packages directory and collect metadata."""
-    packages = []
+    # Collect package dirs and variant dirs in a single walk.
+    # Depth 1 = package dir, depth 2 = variant dir.
+    pkg_dirs = []     # [(name, abs_path)]
+    variant_map = {}  # pkg_name -> [variant_name]
 
-    for entry in file.list(packages_dir):
+    def collect(entry):
         if not entry.is_dir:
-            continue
+            return
+        depth = entry.path.count("/") + 1
+        if depth == 1:
+            pkg_dirs.append((entry.name, file.join(packages_dir, entry.path)))
+        elif depth == 2 and not entry.name.startswith("."):
+            parent = entry.path.split("/")[0]
+            if parent not in variant_map:
+                variant_map[parent] = []
+            variant_map[parent].append(entry.name)
+            return "skip"
+        elif depth > 2:
+            return "skip"
 
-        lifecycle_path = file.join(entry.path, "lifecycle.yaml")
+    file.walk_tree(root=packages_dir, callback=collect)
+
+    packages = []
+    for pkg_name, pkg_path in pkg_dirs:
+        lifecycle_path = file.join(pkg_path, "lifecycle.yaml")
         if not file.exists(lifecycle_path):
-            warn("Skipping " + entry.name + " (no lifecycle.yaml)")
+            warn("Skipping " + pkg_name + " (no lifecycle.yaml)")
             continue
 
         content = file.read(lifecycle_path)
         pkg = parse_lifecycle(content)
         if pkg == None:
-            warn("Skipping " + entry.name + " (invalid lifecycle.yaml)")
+            warn("Skipping " + pkg_name + " (invalid lifecycle.yaml)")
             continue
 
-        # Add directory name for reference
-        pkg["dir"] = entry.name
-
-        # Check for README
-        readme_path = file.join(entry.path, "README.md")
-        pkg["has_readme"] = file.exists(readme_path)
-
-        # List available platform variants
-        variants = []
-        for subentry in file.list(entry.path):
-            if subentry.is_dir and not subentry.name.startswith("."):
-                variants.append(subentry.name)
-        pkg["variants"] = variants
+        pkg["dir"] = pkg_name
+        pkg["has_readme"] = file.exists(file.join(pkg_path, "README.md"))
+        pkg["variants"] = variant_map.get(pkg_name, [])
 
         packages.append(pkg)
         note("Found: " + pkg["name"] + " v" + pkg["version"])

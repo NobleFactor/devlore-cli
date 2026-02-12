@@ -22,18 +22,17 @@ ASSET_TYPES = ["prompts", "schemas", "examples", "transforms", "signatures", "sl
 
 def list_files(dir_path):
     """List all files in a directory (non-recursive)."""
-    files = []
     if not file.exists(dir_path):
-        return files
+        return []
 
-    for entry in file.list(dir_path):
+    files = []
+    def collect(entry):
         if entry.is_dir:
-            continue
-        # Skip hidden files
+            return "skip"
         if entry.name.startswith("."):
-            continue
+            return
         files.append(entry.name)
-
+    file.walk_tree(root=dir_path, callback=collect)
     return sorted(files)
 
 def build_asset_entries(dir_path):
