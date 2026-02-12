@@ -101,21 +101,21 @@ def _build_section(asset_dir, section_name, extension):
     return "\n".join(lines)
 
 
-def _list_asset_files(dir_path, extension):
-    """List files in directory matching extension."""
-    files = []
+def _list_asset_files(dir_path, extension=""):
+    """List files in directory matching extension (non-recursive)."""
     if not file.exists(dir_path):
-        return files
+        return []
 
-    for entry in file.list(dir_path):
+    files = []
+    def collect(entry):
         if entry.is_dir:
-            continue
+            return "skip"
         if entry.name.startswith("."):
-            continue
+            return
         if extension and not entry.name.endswith(extension):
-            continue
+            return
         files.append(entry.name)
-
+    file.walk_tree(root=dir_path, callback=collect)
     return sorted(files)
 
 

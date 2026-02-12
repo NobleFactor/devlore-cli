@@ -46,33 +46,26 @@ def matches_type_filter(schema_type, type_filter):
 
 def find_files(target, pattern):
     """Find files matching a glob-like pattern."""
-    files = []
-
-    # Handle patterns with wildcards
-    if "*" in pattern:
-        parts = pattern.split("/")
-        base_path = target
-
-        # Find the directory containing the wildcard
-        for i, part in enumerate(parts):
-            if "*" in part:
-                # Scan this directory
-                remaining = "/".join(parts[i+1:])
-                if file.exists(base_path) and file.is_directory(base_path):
-                    for entry in file.list(base_path):
-                        if entry.is_dir and part == "*":
-                            candidate = file.join(entry.path, remaining)
-                            if file.exists(candidate):
-                                files.append(candidate)
-                break
-            else:
-                base_path = file.join(base_path, part)
-    else:
-        # No wildcard - direct file
+    if "*" not in pattern:
         path = file.join(target, pattern)
-        if file.exists(path):
-            files.append(path)
+        return [path] if file.exists(path) else []
 
+    parts = pattern.split("/")
+    filename = parts[-1]
+    search_root = target
+    for part in parts:
+        if "*" in part:
+            break
+        search_root = file.join(search_root, part)
+
+    if not file.exists(search_root) or not file.is_directory(search_root):
+        return []
+
+    files = []
+    def collect(entry):
+        if not entry.is_dir and entry.name == filename:
+            files.append(file.join(search_root, entry.path))
+    file.walk_tree(root=search_root, callback=collect)
     return files
 
 def validate_file(file_path, schema_json):
