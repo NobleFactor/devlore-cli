@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 
 	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
@@ -226,38 +225,94 @@ func (l *LinuxPlanBindings) DependsOn(from, to *execution.Node) {
 	})
 }
 
-// ToStarlark converts the plan bindings to a Starlark struct.
-// Uses nested structs: plan.package.install(), plan.file.copy(), etc.
+// ToStarlark converts the plan bindings to a Starlark receiver.
 func (l *LinuxPlanBindings) ToStarlark() starlark.Value {
-	// Package operations namespace: plan.package.*
-	packageOps := starlarkstruct.FromStringDict(starlark.String("package"), starlark.StringDict{
-		"install": starlark.NewBuiltin("install", l.packageInstallBuiltin),
-		"upgrade": starlark.NewBuiltin("upgrade", l.packageUpgradeBuiltin),
-		"remove":  starlark.NewBuiltin("remove", l.packageRemoveBuiltin),
-		"update":  starlark.NewBuiltin("update", l.packageUpdateBuiltin),
-		// Linux-specific: expose package manager info
-		"manager": starlark.String(l.pmName),
-	})
+	return &linuxPlanReceiver{
+		Receiver: loreStar.NewReceiver("plan"),
+		l:        l,
+		pkg:      &linuxPackageReceiver{Receiver: loreStar.NewReceiver("plan.package"), l: l},
+		file:     &linuxFileReceiver{Receiver: loreStar.NewReceiver("plan.file"), l: l},
+	}
+}
 
-	// File operations namespace: plan.file.*
-	fileOps := starlarkstruct.FromStringDict(starlark.String("file"), starlark.StringDict{
-		"configure": starlark.NewBuiltin("configure", l.configureBuiltin),
-		"copy":      starlark.NewBuiltin("copy", l.copyBuiltin),
-		"link":      starlark.NewBuiltin("link", l.linkBuiltin),
-		"write":     starlark.NewBuiltin("write", l.writeBuiltin),
-	})
+type linuxPlanReceiver struct {
+	loreStar.Receiver
+	l    *LinuxPlanBindings
+	pkg  *linuxPackageReceiver
+	file *linuxFileReceiver
+}
 
-	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-		// Namespaces
-		"file":    fileOps,
-		"package": packageOps,
-		// Global functions (at root of plan)
-		"gather":  starlark.NewBuiltin("gather", l.gatherBuiltin),
-		"service": starlark.NewBuiltin("service", l.serviceBuiltin),
-		"shell":   starlark.NewBuiltin("shell", l.shellBuiltin),
-		// Linux-specific: expose distro info at top level
-		"distro": starlark.String(l.distro),
-	})
+func (r *linuxPlanReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "file":
+		return r.file, nil
+	case "package":
+		return r.pkg, nil
+	case "gather":
+		return loreStar.MakeAttr("plan.gather", r.l.gatherBuiltin), nil
+	case "service":
+		return loreStar.MakeAttr("plan.service", r.l.serviceBuiltin), nil
+	case "shell":
+		return loreStar.MakeAttr("plan.shell", r.l.shellBuiltin), nil
+	case "distro":
+		return starlark.String(r.l.distro), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan", name)
+	}
+}
+
+func (r *linuxPlanReceiver) AttrNames() []string {
+	return []string{"distro", "file", "gather", "package", "service", "shell"}
+}
+
+type linuxPackageReceiver struct {
+	loreStar.Receiver
+	l *LinuxPlanBindings
+}
+
+func (r *linuxPackageReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "install":
+		return loreStar.MakeAttr("plan.package.install", r.l.packageInstallBuiltin), nil
+	case "upgrade":
+		return loreStar.MakeAttr("plan.package.upgrade", r.l.packageUpgradeBuiltin), nil
+	case "remove":
+		return loreStar.MakeAttr("plan.package.remove", r.l.packageRemoveBuiltin), nil
+	case "update":
+		return loreStar.MakeAttr("plan.package.update", r.l.packageUpdateBuiltin), nil
+	case "manager":
+		return starlark.String(r.l.pmName), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan.package", name)
+	}
+}
+
+func (r *linuxPackageReceiver) AttrNames() []string {
+	return []string{"install", "manager", "remove", "update", "upgrade"}
+}
+
+type linuxFileReceiver struct {
+	loreStar.Receiver
+	l *LinuxPlanBindings
+}
+
+func (r *linuxFileReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "configure":
+		return loreStar.MakeAttr("plan.file.configure", r.l.configureBuiltin), nil
+	case "copy":
+		return loreStar.MakeAttr("plan.file.copy", r.l.copyBuiltin), nil
+	case "link":
+		return loreStar.MakeAttr("plan.file.link", r.l.linkBuiltin), nil
+	case "write":
+		return loreStar.MakeAttr("plan.file.write", r.l.writeBuiltin), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan.file", name)
+	}
+}
+
+func (r *linuxFileReceiver) AttrNames() []string {
+	return []string{"configure", "copy", "link", "write"}
 }
 
 func (l *LinuxPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
