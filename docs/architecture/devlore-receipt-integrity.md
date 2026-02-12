@@ -163,5 +163,5 @@ func (r *Receipt) Verify(identities []age.Identity) error {
 
 ## Related Documents
 
-- [Operation Namespaces](operation-namespaces.md) - Engine operations
+- [Operation Namespaces](devlore-operation-namespaces.md) - Engine operations
 - [Receipts User Guide](../guides/writ/receipts.md) - User-facing documentation

@@ -4,12 +4,13 @@ Internal engineering documentation for devlore-cli developers.
 
 ## Documents
 
-- [Execution Graph](execution-graph.md) - Unified graph design for all lifecycle commands
-- [LLM Integration](llm-integration.md) - Provider abstraction and prompt loading for AI-assisted commands
-- [Registry Knowledge Base](registry-knowledge.md) - Knowledge domain structure in devlore-registry
-- [E2E Testing](e2e-testing.md) - Multi-provider testing strategy for LLM commands
-- [Operation Namespaces](operation-namespaces.md) - How to add new operation namespaces to the execution engine
-- [Receipt Integrity](receipt-integrity.md) - Checksum and signature verification for receipts
+- [Execution Graph](devlore-execution-graph.md) - Unified graph design for all lifecycle commands
+- [Graph Operations](devlore-graph-convergence-operations.md) - Convergence, control flow, and system interaction (probe, guard, choose, gather, retry, rollback, elevate)
+- [LLM Integration](devlore-llm-integration.md) - Provider abstraction and prompt loading for AI-assisted commands
+- [Registry Knowledge Base](devlore-registry-knowledge.md) - Knowledge domain structure in devlore-registry
+- [E2E Testing](devlore-e2e-testing.md) - Multi-provider testing strategy for LLM commands
+- [Operation Namespaces](devlore-operation-namespaces.md) - How to add new operation namespaces to the execution engine
+- [Receipt Integrity](devlore-receipt-integrity.md) - Checksum and signature verification for receipts
 
 ## Overview
 

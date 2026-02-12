@@ -2,6 +2,8 @@
 
 This document describes the execution graph design that unifies all lifecycle commands (deploy, upgrade, reconcile, decommission).
 
+See also: [devlore-graph-convergence-operations.md](devlore-graph-convergence-operations.md) — Graph operations: convergence, control flow, and system interaction (probe, guard, choose, gather, retry, rollback, elevate).
+
 ## Design Principles
 
 1. **Single Responsibility**: Commands parse flags, the graph does the work
