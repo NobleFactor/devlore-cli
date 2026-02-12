@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Noble Factor. All rights reserved.
+# Redistribution and use in source and binary forms, with or without modification, are permitted under the terms of the MIT License.
+
+# New-DevloreKeyVaults - Create Azure Key Vaults for devlore environments
+
+source "Declare-BashScript" "$0" "" "" "$@"
+require_nix
+
+command -v az >/dev/null 2>&1 || error $EX_UNAVAILABLE "The 'az' command is required but not found. Please install the Azure CLI."
+
+###########
+# Variables
+###########
+
+organization="nbf"
+location="westus2"
+
+user_id=$(az ad signed-in-user show --query id -o tsv)
+subscription_id=$(az account show --query id -o tsv)
+
+###########
+# Main
+###########
+
+product="devlore"
+
+for environment in dev prd stg; do
+
+    resource_group="rg-$organization-$product-$environment"
+    keyvault="kv-$organization-$product-$environment"
+    keyvault_scope="/subscriptions/$subscription_id/resourceGroups/$resource_group/providers/Microsoft.KeyVault/vaults/$keyvault"
+
+    # Resource group (az group create is idempotent)
+
+    az group create --name "$resource_group" --location "$location" --output none
+    note "Resource group $resource_group exists"
+
+    # Key Vault
+
+    if ! az keyvault show --name "$keyvault" --resource-group "$resource_group" &>/dev/null; then
+        az keyvault create \
+            --name "$keyvault" \
+            --resource-group "$resource_group" \
+            --location "$location" \
+            --enable-rbac-authorization true \
+            --retention-days 90 \
+            --output none
+        note "Created key vault $keyvault"
+    else
+        note "Key vault $keyvault already exists, skipping creation"
+    fi
+
+    # Role assignment
+
+    existing_assignment=$(az role assignment list \
+        --assignee "$user_id" \
+        --role "Key Vault Administrator" \
+        --scope "$keyvault_scope" \
+        --query "[0].id" -o tsv)
+
+    if [[ -z "$existing_assignment" ]]; then
+        az role assignment create \
+            --role "Key Vault Administrator" \
+            --assignee "$user_id" \
+            --scope "$keyvault_scope" \
+            --output none
+        note "Created role assignment for $keyvault"
+    else
+        note "Role assignment already exists for $keyvault, skipping"
+    fi
+
+    success "Vault URI: https://$keyvault.vault.azure.net/"
+
+done
