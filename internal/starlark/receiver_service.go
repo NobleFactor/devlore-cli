@@ -29,6 +29,7 @@ func NewServiceReceiver(sm host.ServiceManager, output io.Writer) *ServiceReceiv
 	}
 }
 
+// Attr implements starlark.HasAttrs.
 func (r *ServiceReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "exists":
@@ -48,6 +49,7 @@ func (r *ServiceReceiver) Attr(name string) (starlark.Value, error) {
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (r *ServiceReceiver) AttrNames() []string {
 	return []string{"disable", "enable", "exists", "start", "status", "stop"}
 }

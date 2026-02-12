@@ -33,6 +33,7 @@ func NewHTTPReceiver(h host.Host, output io.Writer) *HTTPReceiver {
 	}
 }
 
+// Attr implements starlark.HasAttrs.
 func (r *HTTPReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "download":
@@ -44,6 +45,7 @@ func (r *HTTPReceiver) Attr(name string) (starlark.Value, error) {
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (r *HTTPReceiver) AttrNames() []string {
 	return []string{"download", "get"}
 }

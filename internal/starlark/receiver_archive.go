@@ -31,6 +31,7 @@ func NewArchiveReceiver(h host.Host, output io.Writer) *ArchiveReceiver {
 	}
 }
 
+// Attr implements starlark.HasAttrs.
 func (r *ArchiveReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "extract":
@@ -40,6 +41,7 @@ func (r *ArchiveReceiver) Attr(name string) (starlark.Value, error) {
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (r *ArchiveReceiver) AttrNames() []string {
 	return []string{"extract"}
 }

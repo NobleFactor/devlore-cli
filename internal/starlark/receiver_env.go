@@ -22,6 +22,7 @@ func NewEnvReceiver() *EnvReceiver {
 	return &EnvReceiver{Receiver: NewReceiver("env")}
 }
 
+// Attr implements starlark.HasAttrs.
 func (r *EnvReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "get":
@@ -35,6 +36,7 @@ func (r *EnvReceiver) Attr(name string) (starlark.Value, error) {
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (r *EnvReceiver) AttrNames() []string {
 	return []string{"expand", "get", "set"}
 }

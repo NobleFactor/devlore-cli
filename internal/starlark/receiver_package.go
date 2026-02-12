@@ -35,6 +35,7 @@ func NewPackageReceiver(pm host.PackageManager, features []string, settings map[
 	}
 }
 
+// Attr implements starlark.HasAttrs.
 func (r *PackageReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "manager":
@@ -58,6 +59,7 @@ func (r *PackageReceiver) Attr(name string) (starlark.Value, error) {
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (r *PackageReceiver) AttrNames() []string {
 	return []string{"feature", "install", "installed", "manager", "remove", "setting", "update", "version"}
 }

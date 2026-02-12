@@ -32,6 +32,7 @@ func NewShellReceiver(h host.Host, output io.Writer) *ShellReceiver {
 	}
 }
 
+// Attr implements starlark.HasAttrs.
 func (r *ShellReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "exec":
@@ -45,6 +46,7 @@ func (r *ShellReceiver) Attr(name string) (starlark.Value, error) {
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (r *ShellReceiver) AttrNames() []string {
 	return []string{"exec", "run", "which"}
 }

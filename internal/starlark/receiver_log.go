@@ -28,6 +28,7 @@ func NewLogReceiver(output io.Writer) *LogReceiver {
 	}
 }
 
+// Attr implements starlark.HasAttrs.
 func (r *LogReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "info":
@@ -41,6 +42,7 @@ func (r *LogReceiver) Attr(name string) (starlark.Value, error) {
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (r *LogReceiver) AttrNames() []string {
 	return []string{"error", "info", "warn"}
 }
