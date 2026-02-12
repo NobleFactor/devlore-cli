@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 
 	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
@@ -185,34 +184,90 @@ func (w *WindowsPlanBindings) DependsOn(from, to *execution.Node) {
 	})
 }
 
-// ToStarlark converts the plan bindings to a Starlark struct.
-// Uses nested structs: plan.package.install(), plan.file.copy(), etc.
+// ToStarlark converts the plan bindings to a Starlark receiver.
 func (w *WindowsPlanBindings) ToStarlark() starlark.Value {
-	// Package operations namespace: plan.package.*
-	packageOps := starlarkstruct.FromStringDict(starlark.String("package"), starlark.StringDict{
-		"install": starlark.NewBuiltin("install", w.packageInstallBuiltin),
-		"upgrade": starlark.NewBuiltin("upgrade", w.packageUpgradeBuiltin),
-		"remove":  starlark.NewBuiltin("remove", w.packageRemoveBuiltin),
-		"update":  starlark.NewBuiltin("update", w.packageUpdateBuiltin),
-	})
+	return &windowsPlanReceiver{
+		Receiver: loreStar.NewReceiver("plan"),
+		w:        w,
+		pkg:      &windowsPackageReceiver{Receiver: loreStar.NewReceiver("plan.package"), w: w},
+		file:     &windowsFileReceiver{Receiver: loreStar.NewReceiver("plan.file"), w: w},
+	}
+}
 
-	// File operations namespace: plan.file.*
-	fileOps := starlarkstruct.FromStringDict(starlark.String("file"), starlark.StringDict{
-		"configure": starlark.NewBuiltin("configure", w.configureBuiltin),
-		"copy":      starlark.NewBuiltin("copy", w.copyBuiltin),
-		"link":      starlark.NewBuiltin("link", w.linkBuiltin),
-		"write":     starlark.NewBuiltin("write", w.writeBuiltin),
-	})
+type windowsPlanReceiver struct {
+	loreStar.Receiver
+	w    *WindowsPlanBindings
+	pkg  *windowsPackageReceiver
+	file *windowsFileReceiver
+}
 
-	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-		// Namespaces
-		"file":    fileOps,
-		"package": packageOps,
-		// Global functions (at root of plan)
-		"gather":  starlark.NewBuiltin("gather", w.gatherBuiltin),
-		"service": starlark.NewBuiltin("service", w.serviceBuiltin),
-		"shell":   starlark.NewBuiltin("shell", w.shellBuiltin),
-	})
+func (r *windowsPlanReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "file":
+		return r.file, nil
+	case "package":
+		return r.pkg, nil
+	case "gather":
+		return loreStar.MakeAttr("plan.gather", r.w.gatherBuiltin), nil
+	case "service":
+		return loreStar.MakeAttr("plan.service", r.w.serviceBuiltin), nil
+	case "shell":
+		return loreStar.MakeAttr("plan.shell", r.w.shellBuiltin), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan", name)
+	}
+}
+
+func (r *windowsPlanReceiver) AttrNames() []string {
+	return []string{"file", "gather", "package", "service", "shell"}
+}
+
+type windowsPackageReceiver struct {
+	loreStar.Receiver
+	w *WindowsPlanBindings
+}
+
+func (r *windowsPackageReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "install":
+		return loreStar.MakeAttr("plan.package.install", r.w.packageInstallBuiltin), nil
+	case "upgrade":
+		return loreStar.MakeAttr("plan.package.upgrade", r.w.packageUpgradeBuiltin), nil
+	case "remove":
+		return loreStar.MakeAttr("plan.package.remove", r.w.packageRemoveBuiltin), nil
+	case "update":
+		return loreStar.MakeAttr("plan.package.update", r.w.packageUpdateBuiltin), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan.package", name)
+	}
+}
+
+func (r *windowsPackageReceiver) AttrNames() []string {
+	return []string{"install", "remove", "update", "upgrade"}
+}
+
+type windowsFileReceiver struct {
+	loreStar.Receiver
+	w *WindowsPlanBindings
+}
+
+func (r *windowsFileReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "configure":
+		return loreStar.MakeAttr("plan.file.configure", r.w.configureBuiltin), nil
+	case "copy":
+		return loreStar.MakeAttr("plan.file.copy", r.w.copyBuiltin), nil
+	case "link":
+		return loreStar.MakeAttr("plan.file.link", r.w.linkBuiltin), nil
+	case "write":
+		return loreStar.MakeAttr("plan.file.write", r.w.writeBuiltin), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan.file", name)
+	}
+}
+
+func (r *windowsFileReceiver) AttrNames() []string {
+	return []string{"configure", "copy", "link", "write"}
 }
 
 func (w *WindowsPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {

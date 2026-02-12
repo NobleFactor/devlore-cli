@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 
 	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
@@ -71,29 +70,90 @@ func parsePackagesWithPrefix(packages []string) (cleanPkgs []string, manager str
 	return cleanPkgs, manager, isCask
 }
 
-// ToStarlark converts the plan bindings to a Starlark struct.
+// ToStarlark converts the plan bindings to a Starlark receiver.
 func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
-	packageOps := starlarkstruct.FromStringDict(starlark.String("package"), starlark.StringDict{
-		"install": starlark.NewBuiltin("install", d.packageInstallBuiltin),
-		"remove":  starlark.NewBuiltin("remove", d.packageRemoveBuiltin),
-		"update":  starlark.NewBuiltin("update", d.packageUpdateBuiltin),
-		"upgrade": starlark.NewBuiltin("upgrade", d.packageUpgradeBuiltin),
-	})
+	return &darwinPlanReceiver{
+		Receiver: loreStar.NewReceiver("plan"),
+		d:        d,
+		pkg:      &darwinPackageReceiver{Receiver: loreStar.NewReceiver("plan.package"), d: d},
+		file:     &darwinFileReceiver{Receiver: loreStar.NewReceiver("plan.file"), d: d},
+	}
+}
 
-	fileOps := starlarkstruct.FromStringDict(starlark.String("file"), starlark.StringDict{
-		"configure": starlark.NewBuiltin("configure", d.configureBuiltin),
-		"copy":      starlark.NewBuiltin("copy", d.copyBuiltin),
-		"link":      starlark.NewBuiltin("link", d.linkBuiltin),
-		"write":     starlark.NewBuiltin("write", d.writeBuiltin),
-	})
+type darwinPlanReceiver struct {
+	loreStar.Receiver
+	d    *DarwinPlanBindings
+	pkg  *darwinPackageReceiver
+	file *darwinFileReceiver
+}
 
-	return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-		"file":    fileOps,
-		"package": packageOps,
-		"gather":  starlark.NewBuiltin("gather", d.gatherBuiltin),
-		"service": starlark.NewBuiltin("service", d.serviceBuiltin),
-		"shell":   starlark.NewBuiltin("shell", d.shellBuiltin),
-	})
+func (r *darwinPlanReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "file":
+		return r.file, nil
+	case "package":
+		return r.pkg, nil
+	case "gather":
+		return loreStar.MakeAttr("plan.gather", r.d.gatherBuiltin), nil
+	case "service":
+		return loreStar.MakeAttr("plan.service", r.d.serviceBuiltin), nil
+	case "shell":
+		return loreStar.MakeAttr("plan.shell", r.d.shellBuiltin), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan", name)
+	}
+}
+
+func (r *darwinPlanReceiver) AttrNames() []string {
+	return []string{"file", "gather", "package", "service", "shell"}
+}
+
+type darwinPackageReceiver struct {
+	loreStar.Receiver
+	d *DarwinPlanBindings
+}
+
+func (r *darwinPackageReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "install":
+		return loreStar.MakeAttr("plan.package.install", r.d.packageInstallBuiltin), nil
+	case "remove":
+		return loreStar.MakeAttr("plan.package.remove", r.d.packageRemoveBuiltin), nil
+	case "update":
+		return loreStar.MakeAttr("plan.package.update", r.d.packageUpdateBuiltin), nil
+	case "upgrade":
+		return loreStar.MakeAttr("plan.package.upgrade", r.d.packageUpgradeBuiltin), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan.package", name)
+	}
+}
+
+func (r *darwinPackageReceiver) AttrNames() []string {
+	return []string{"install", "remove", "update", "upgrade"}
+}
+
+type darwinFileReceiver struct {
+	loreStar.Receiver
+	d *DarwinPlanBindings
+}
+
+func (r *darwinFileReceiver) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "configure":
+		return loreStar.MakeAttr("plan.file.configure", r.d.configureBuiltin), nil
+	case "copy":
+		return loreStar.MakeAttr("plan.file.copy", r.d.copyBuiltin), nil
+	case "link":
+		return loreStar.MakeAttr("plan.file.link", r.d.linkBuiltin), nil
+	case "write":
+		return loreStar.MakeAttr("plan.file.write", r.d.writeBuiltin), nil
+	default:
+		return nil, loreStar.NoSuchAttrError("plan.file", name)
+	}
+}
+
+func (r *darwinFileReceiver) AttrNames() []string {
+	return []string{"configure", "copy", "link", "write"}
 }
 
 func (d *DarwinPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
