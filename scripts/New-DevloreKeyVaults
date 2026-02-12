@@ -25,55 +25,53 @@ subscription_id=$(az account show --query id -o tsv)
 # Main
 ###########
 
-for product in devlore; do
+product="devlore"
 
-    for environment in dev prd stg; do
+for environment in dev prd stg; do
 
-        resource_group="rg-$organization-$product-$environment"
-        keyvault="kv-$organization-$product-$environment"
-        keyvault_scope="/subscriptions/$subscription_id/resourceGroups/$resource_group/providers/Microsoft.KeyVault/vaults/$keyvault"
+    resource_group="rg-$organization-$product-$environment"
+    keyvault="kv-$organization-$product-$environment"
+    keyvault_scope="/subscriptions/$subscription_id/resourceGroups/$resource_group/providers/Microsoft.KeyVault/vaults/$keyvault"
 
-        # Resource group (az group create is idempotent)
+    # Resource group (az group create is idempotent)
 
-        az group create --name "$resource_group" --location "$location" --output none
-        note "Resource group $resource_group exists"
+    az group create --name "$resource_group" --location "$location" --output none
+    note "Resource group $resource_group exists"
 
-        # Key Vault
+    # Key Vault
 
-        if ! az keyvault show --name "$keyvault" --resource-group "$resource_group" &>/dev/null; then
-            az keyvault create \
-                --name "$keyvault" \
-                --resource-group "$resource_group" \
-                --location "$location" \
-                --enable-rbac-authorization true \
-                --retention-days 90 \
-                --output none
-            note "Created key vault $keyvault"
-        else
-            note "Key vault $keyvault already exists, skipping creation"
-        fi
+    if ! az keyvault show --name "$keyvault" --resource-group "$resource_group" &>/dev/null; then
+        az keyvault create \
+            --name "$keyvault" \
+            --resource-group "$resource_group" \
+            --location "$location" \
+            --enable-rbac-authorization true \
+            --retention-days 90 \
+            --output none
+        note "Created key vault $keyvault"
+    else
+        note "Key vault $keyvault already exists, skipping creation"
+    fi
 
-        # Role assignment
+    # Role assignment
 
-        existing_assignment=$(az role assignment list \
-            --assignee "$user_id" \
+    existing_assignment=$(az role assignment list \
+        --assignee "$user_id" \
+        --role "Key Vault Administrator" \
+        --scope "$keyvault_scope" \
+        --query "[0].id" -o tsv)
+
+    if [[ -z "$existing_assignment" ]]; then
+        az role assignment create \
             --role "Key Vault Administrator" \
+            --assignee "$user_id" \
             --scope "$keyvault_scope" \
-            --query "[0].id" -o tsv)
+            --output none
+        note "Created role assignment for $keyvault"
+    else
+        note "Role assignment already exists for $keyvault, skipping"
+    fi
 
-        if [[ -z "$existing_assignment" ]]; then
-            az role assignment create \
-                --role "Key Vault Administrator" \
-                --assignee "$user_id" \
-                --scope "$keyvault_scope" \
-                --output none
-            note "Created role assignment for $keyvault"
-        else
-            note "Role assignment already exists for $keyvault, skipping"
-        fi
-
-        success "Vault URI: https://$keyvault.vault.azure.net/"
-
-    done
+    success "Vault URI: https://$keyvault.vault.azure.net/"
 
 done
