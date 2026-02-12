@@ -424,7 +424,7 @@ def install(package, system, plan):
 
 | Audience | Location | Content |
 |----------|----------|---------|
-| Engine developers | `docs/architecture/operation-namespaces.md` | How to implement namespaces |
+| Engine developers | `docs/architecture/devlore-operation-namespaces.md` | How to implement namespaces |
 | Package developers | `docs/guides/lore/plan-bindings.md` | How to use plan.* in Starlark |
 | CLI users | `docs/cli/lore/` | Command-line usage |
 
