@@ -61,10 +61,10 @@ jobs:
       - name: Build knowledge base
         working-directory: devlore-cli
         run: |
-          ${{ github.workspace }}/noblefactor-ops/bin/star devlore-registry build knowledge \
+          ${{ github.workspace }}/noblefactor-ops/bin/star devlore knowledge extract \
             --domain all \
-            --source_path ${{ github.workspace }}/devlore-cli \
-            --registry_path ${{ github.workspace }}/devlore-registry
+            --source ${{ github.workspace }}/devlore-cli \
+            --target ${{ github.workspace }}/devlore-registry
 
       - name: Validate knowledge (PR only)
         if: github.event_name == 'pull_request'

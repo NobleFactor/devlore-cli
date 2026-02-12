@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+# sign-index.star - Generate and sign index.yaml
+#
+# This operation generates the package index and signs it with the
+# release signing key (pmm-signing-dev or pmm-signing-prod).
+#
+# The signature proves the index is authentic NobleFactor content,
+# preventing MITM attacks where an attacker substitutes malicious packages.
+#
+# See ADR-040: SSH Key Generation Ceremony for the signing protocol.
+#
+# Usage:
+#   star devlore knowledge sign index
+#   star devlore knowledge sign index --env=prod
+
+
+def _resolve_target(ctx):
+    """Resolve --target flag or auto-detect sibling devlore-registry."""
+    target = ctx.args.get("target", "")
+    if not target:
+        sibling = file.join("..", "devlore-registry")
+        if file.is_directory(sibling):
+            target = sibling
+            note("Using sibling registry: " + target)
+        else:
+            fail("--target required (no ../devlore-registry found)")
+    if not file.is_directory(target):
+        fail("Target path not found: " + target)
+    return target
+
+
+def run(ctx):
+    """Generate and sign index.yaml."""
+    target = _resolve_target(ctx)
+    env = ctx.args.get("env", "dev")
+
+    fail("Index signing not yet implemented")
