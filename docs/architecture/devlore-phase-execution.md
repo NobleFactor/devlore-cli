@@ -401,15 +401,22 @@ Resolution:
   should be replaced with a compensation capability flag on the phase. The
   Starlark `compensate()` function moves to runtime execution during unwind.
 
-### Open Questions
+### Resolved: State Serialization
 
-1. **State serialization**: Node `State` is `map[string]any`, which serializes
-   to YAML/JSON for receipts. Should we constrain the value types (strings,
-   numbers, bools only) or allow arbitrary nesting?
+Node `State` is `map[string]any` with no shape constraints. The implementation
+owns its state and decides what it needs. Implementers are responsible for
+ensuring their state round-trips through JSON and YAML marshalers with full
+fidelity.
 
-2. **Compensation validation**: Should the builder reject phases that require
-   compensation but contain non-compensable operations? Or warn at build time
-   and fail at runtime?
+### Resolved: Non-Compensable Operations
+
+The builder does not reject phases containing non-compensable operations. The
+executor skips non-compensable operations during unwind (logged, not an error).
+Shell operations are the primary example — they are an escape hatch that comes
+with the cost of no automatic undo.
+
+A structured return contract for shell compensation (JSON on stdout conforming
+to a message type) is tracked as a future enhancement: issue #105.
 
 ## Files
 
