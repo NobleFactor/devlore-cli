@@ -66,10 +66,10 @@ func (p *Plan) Mkdir(path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:         p.nextID("mkdir"),
-		Operations: []string{"mkdir"},
-		Project:    p.project,
-		Mode:       0755,
+		ID:        p.nextID("mkdir"),
+		Operation: "mkdir",
+		Project:   p.project,
+		Mode:      0755,
 	}
 	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -82,9 +82,9 @@ func (p *Plan) Link(source, path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:         p.nextID("link"),
-		Operations: []string{"link"},
-		Project:    p.project,
+		ID:        p.nextID("link"),
+		Operation: "link",
+		Project:   p.project,
 	}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", path)
@@ -92,23 +92,51 @@ func (p *Plan) Link(source, path string) *Node {
 	return node
 }
 
-// Copy adds a file copy operation. Transforms (decrypt, expand) can be
-// prepended to the pipeline.
+// Copy adds a file copy operation. Transforms (decrypt, render) create a chain
+// of nodes connected by edges, with content flowing between them.
 func (p *Plan) Copy(source, path string, transforms ...string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	ops := append(transforms, "copy")
-	node := &Node{
-		ID:         p.nextID("copy"),
-		Operations: ops,
-		Project:    p.project,
-		Mode:       0644,
+	if len(transforms) == 0 {
+		node := &Node{
+			ID:        p.nextID("copy"),
+			Operation: "copy",
+			Project:   p.project,
+			Mode:      0644,
+		}
+		node.SetSlotImmediate("source", source)
+		node.SetSlotImmediate("path", path)
+		p.graph.Nodes = append(p.graph.Nodes, node)
+		return node
 	}
-	node.SetSlotImmediate("source", source)
-	node.SetSlotImmediate("path", path)
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return node
+
+	// Chain: transform1 → transform2 → ... → copy
+	allOps := append(transforms, "copy")
+	var prevNode *Node
+	var lastNode *Node
+	for i, op := range allOps {
+		isLast := (i == len(allOps) - 1)
+		node := &Node{
+			ID:        p.nextID(op),
+			Operation: op,
+			Project:   p.project,
+		}
+		if i == 0 {
+			node.SetSlotImmediate("source", source)
+		}
+		if isLast {
+			node.SetSlotImmediate("path", path)
+			node.Mode = 0644
+		}
+		p.graph.Nodes = append(p.graph.Nodes, node)
+		if prevNode != nil {
+			p.graph.Edges = append(p.graph.Edges, Edge{From: prevNode.ID, To: node.ID})
+		}
+		prevNode = node
+		lastNode = node
+	}
+	return lastNode
 }
 
 // CopyWithMode adds a file copy operation with explicit permissions.
@@ -116,17 +144,45 @@ func (p *Plan) CopyWithMode(source, path string, mode os.FileMode, transforms ..
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	ops := append(transforms, "copy")
-	node := &Node{
-		ID:         p.nextID("copy"),
-		Operations: ops,
-		Project:    p.project,
-		Mode:       mode,
+	if len(transforms) == 0 {
+		node := &Node{
+			ID:        p.nextID("copy"),
+			Operation: "copy",
+			Project:   p.project,
+			Mode:      mode,
+		}
+		node.SetSlotImmediate("source", source)
+		node.SetSlotImmediate("path", path)
+		p.graph.Nodes = append(p.graph.Nodes, node)
+		return node
 	}
-	node.SetSlotImmediate("source", source)
-	node.SetSlotImmediate("path", path)
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return node
+
+	// Chain: transform1 → transform2 → ... → copy
+	allOps := append(transforms, "copy")
+	var prevNode *Node
+	var lastNode *Node
+	for i, op := range allOps {
+		isLast := (i == len(allOps) - 1)
+		node := &Node{
+			ID:        p.nextID(op),
+			Operation: op,
+			Project:   p.project,
+		}
+		if i == 0 {
+			node.SetSlotImmediate("source", source)
+		}
+		if isLast {
+			node.SetSlotImmediate("path", path)
+			node.Mode = mode
+		}
+		p.graph.Nodes = append(p.graph.Nodes, node)
+		if prevNode != nil {
+			p.graph.Edges = append(p.graph.Edges, Edge{From: prevNode.ID, To: node.ID})
+		}
+		prevNode = node
+		lastNode = node
+	}
+	return lastNode
 }
 
 // Remove adds a file/directory removal operation.
@@ -135,9 +191,9 @@ func (p *Plan) Remove(path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:         p.nextID("remove"),
-		Operations: []string{"remove"},
-		Project:    p.project,
+		ID:        p.nextID("remove"),
+		Operation: "remove",
+		Project:   p.project,
 	}
 	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -150,9 +206,9 @@ func (p *Plan) Unlink(path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:         p.nextID("unlink"),
-		Operations: []string{"unlink"},
-		Project:    p.project,
+		ID:        p.nextID("unlink"),
+		Operation: "unlink",
+		Project:   p.project,
 	}
 	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -165,9 +221,9 @@ func (p *Plan) Backup(path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:         p.nextID("backup"),
-		Operations: []string{"backup"},
-		Project:    p.project,
+		ID:        p.nextID("backup"),
+		Operation: "backup",
+		Project:   p.project,
 	}
 	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -180,9 +236,9 @@ func (p *Plan) Validate(check, message string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:         p.nextID("validate"),
-		Operations: []string{"validate"},
-		Project:    p.project,
+		ID:        p.nextID("validate"),
+		Operation: "validate",
+		Project:   p.project,
 	}
 	node.SetSlotImmediate("check", check)
 	node.SetSlotImmediate("message", message)
@@ -196,9 +252,9 @@ func (p *Plan) Rename(source, path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:         p.nextID("move"),
-		Operations: []string{"move"},
-		Project:    p.project,
+		ID:        p.nextID("move"),
+		Operation: "move",
+		Project:   p.project,
 	}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", path)

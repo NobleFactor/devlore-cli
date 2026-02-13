@@ -44,12 +44,13 @@ func (b *Builder) BuildSubgraph(ctx context.Context, manifestPath string, opts e
 // Entry point 2: Build from pre-parsed manifest (for callers who already have the data).
 func (b *Builder) BuildGraphFromManifest(ctx context.Context, manifest *PackagesManifest, opts execution.BuildOptions) (*execution.Graph, error) {
 	graph := &execution.Graph{
-		Nodes: make([]*execution.Node, 0, len(manifest.Packages)),
+		Nodes: make([]*execution.Node, 0, len(manifest.Packages)*4),
 	}
 
 	for _, pkg := range manifest.Packages {
-		node := b.buildPackageNode(pkg, opts)
-		graph.Nodes = append(graph.Nodes, node)
+		nodes, edges := b.buildPackageNodes(pkg, opts)
+		graph.Nodes = append(graph.Nodes, nodes...)
+		graph.Edges = append(graph.Edges, edges...)
 	}
 
 	// Add dependency edges between packages if needed
@@ -58,29 +59,50 @@ func (b *Builder) BuildGraphFromManifest(ctx context.Context, manifest *Packages
 	return graph, nil
 }
 
-// buildPackageNode creates an execution.Node for a single package entry.
-func (b *Builder) buildPackageNode(pkg PackageEntry, opts execution.BuildOptions) *execution.Node {
-	// Build the lore pipeline operations
-	// The four-phase lore pipeline: prepare → install → provision → verify
-	operations := []string{"prepare", "install", "provision", "verify"}
+// buildPackageNodes creates a chain of execution.Nodes for a single package entry.
+// The four-phase lore pipeline: prepare → install → provision → verify
+// Returns the nodes and edges for the chain.
+func (b *Builder) buildPackageNodes(pkg PackageEntry, opts execution.BuildOptions) ([]*execution.Node, []execution.Edge) {
+	phases := []string{"prepare", "install", "provision", "verify"}
 
-	node := &execution.Node{
-		ID:         pkg.Name,
-		Operations: operations,
-	}
+	var nodes []*execution.Node
+	var edges []execution.Edge
+	var prevNode *execution.Node
 
-	// Store package name for registry lookup
-	node.SetSlotImmediate("package", pkg.Name)
-
-	// Store enabled features
-	if len(pkg.With) > 0 {
-		for i, feature := range pkg.With {
-			node.SetSlotImmediate(fmt.Sprintf("feature.%d", i), feature)
+	for i, phase := range phases {
+		isLast := (i == len(phases) - 1)
+		nodeID := pkg.Name
+		if !isLast {
+			nodeID = pkg.Name + ":" + phase
 		}
-		node.SetSlotImmediate("feature_count", fmt.Sprintf("%d", len(pkg.With)))
+
+		node := &execution.Node{
+			ID:        nodeID,
+			Operation: phase,
+		}
+
+		// Store package name for registry lookup on all nodes
+		node.SetSlotImmediate("package", pkg.Name)
+
+		// Store enabled features on the first node
+		if i == 0 && len(pkg.With) > 0 {
+			for j, feature := range pkg.With {
+				node.SetSlotImmediate(fmt.Sprintf("feature.%d", j), feature)
+			}
+			node.SetSlotImmediate("feature_count", fmt.Sprintf("%d", len(pkg.With)))
+		}
+
+		nodes = append(nodes, node)
+
+		if prevNode != nil {
+			edges = append(edges, execution.Edge{
+				From: prevNode.ID, To: node.ID,
+			})
+		}
+		prevNode = node
 	}
 
-	return node
+	return nodes, edges
 }
 
 // Ensure Builder implements execution.SubgraphBuilder.

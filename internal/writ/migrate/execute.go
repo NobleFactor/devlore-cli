@@ -34,11 +34,8 @@ func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
 	// Find rename nodes in the graph
 	var renameNodes []*execution.Node
 	for _, node := range graph.Nodes {
-		for _, op := range node.Operations {
-			if op == "move" {
-				renameNodes = append(renameNodes, node)
-				break
-			}
+		if node.Operation == "move" {
+			renameNodes = append(renameNodes, node)
 		}
 	}
 
@@ -89,11 +86,8 @@ func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
 func WriteMigratedMarker(sourceRoot string, graph *execution.Graph, analysis *MigrationAnalysis) error {
 	var renames []Rename
 	for _, node := range graph.Nodes {
-		for _, op := range node.Operations {
-			if op == "move" {
-				renames = append(renames, Rename{From: node.GetSlot("source"), To: node.GetSlot("path")})
-				break
-			}
+		if node.Operation == "move" {
+			renames = append(renames, Rename{From: node.GetSlot("source"), To: node.GetSlot("path")})
 		}
 	}
 

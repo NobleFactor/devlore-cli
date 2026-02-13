@@ -485,16 +485,38 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	}
 
 	target := filepath.Join(targetRoot, relTarget)
-	node := &execution.Node{
-		ID:         relTarget,
-		Operations: opStrings,
-		Project:    entry.Project,
-	}
-	node.SetSlotImmediate("source", entry.Source)
-	node.SetSlotImmediate("path", target)
+	hasDecrypt := hasDecryptOp(opStrings)
 
-	if hasDecryptOp(opStrings) {
-		node.Mode = 0600
+	// Build node chain for multi-op pipelines
+	var nodes []execution.Executable
+	var edges []execution.Edge
+	var prevNodeID string
+	for i, opName := range opStrings {
+		isLast := (i == len(opStrings) - 1)
+		nodeID := relTarget
+		if !isLast {
+			nodeID = relTarget + ":" + opName
+		}
+
+		node := &execution.Node{
+			ID:        nodeID,
+			Operation: opName,
+			Project:   entry.Project,
+		}
+		if i == 0 {
+			node.SetSlotImmediate("source", entry.Source)
+		}
+		if isLast {
+			node.SetSlotImmediate("path", target)
+			if hasDecrypt {
+				node.Mode = 0600
+			}
+		}
+		nodes = append(nodes, node)
+		if prevNodeID != "" {
+			edges = append(edges, execution.Edge{From: prevNodeID, To: nodeID})
+		}
+		prevNodeID = nodeID
 	}
 
 	reg := execution.NewOperationRegistry()
@@ -507,13 +529,13 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 		ConflictResolution: execution.ResolutionOverwrite,
 	})
 
-	results, runErr := eng.RunNodes(context.Background(), []execution.Executable{node}, nil)
+	results, runErr := eng.RunNodes(context.Background(), nodes, edges)
 	if runErr != nil {
 		cli.Error("%s: %v", relTarget, runErr)
 		return upgradeResultError
 	}
-	if len(results) > 0 && results[0].Status == execution.ResultFailed {
-		cli.Error("%s: %v", relTarget, results[0].Error)
+	if len(results) > 0 && results[len(results)-1].Status == execution.ResultFailed {
+		cli.Error("%s: %v", relTarget, results[len(results)-1].Error)
 		return upgradeResultError
 	}
 
@@ -680,18 +702,16 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 	report.ReceiptPath = cli.LatestReceiptPath("writ")
 
 	for _, n := range g.Nodes {
-		// Get primary operation
-		primaryOp := ""
-		if len(n.Operations) > 0 {
-			primaryOp = n.Operations[0]
-		}
-
 		// Skip non-file nodes and symlinks
-		if n.Status == execution.StatusSkipped || primaryOp == "delegate" || primaryOp == "backup" {
+		if n.Status == execution.StatusSkipped || n.Operation == "delegate" || n.Operation == "backup" {
 			continue
 		}
-		if primaryOp == "link" {
+		if n.Operation == "link" {
 			continue // Symlinks are found by scanning
+		}
+		// Skip intermediate transform nodes
+		if n.Operation == "render" || n.Operation == "decrypt" {
+			continue
 		}
 
 		var entry reconcile.Entry
@@ -703,7 +723,7 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 				Source:         source,
 				Target:         target,
 				Project:        n.Project,
-				Operations:     n.Operations,
+				Operation:      n.Operation,
 				SourceChecksum: n.SourceChecksum,
 				TargetChecksum: n.TargetChecksum,
 			}
@@ -730,11 +750,11 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 		} else {
 			// Just check if file exists
 			entry = reconcile.Entry{
-				RelTarget:  n.ID,
-				Source:     source,
-				Target:     target,
-				Project:    n.Project,
-				Operations: n.Operations,
+				RelTarget: n.ID,
+				Source:    source,
+				Target:    target,
+				Project:   n.Project,
+				Operation: n.Operation,
 			}
 			if _, err := os.Stat(target); os.IsNotExist(err) {
 				entry.State = reconcile.StateMissing
@@ -767,7 +787,7 @@ func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Re
 			Source:         entry.Source,
 			Target:         target,
 			Project:        entry.Project,
-			Operations:     entry.Operations(),
+			Operation:      entry.LastOp(),
 			SourceChecksum: entrySourceChecksum,
 			TargetChecksum: entryTargetChecksum,
 		}
@@ -850,13 +870,13 @@ func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Re
 // outputReconcileJSON outputs the reconcile report as JSON.
 func outputReconcileJSON(report *reconcile.Report) error {
 	type jsonEntry struct {
-		RelTarget  string   `json:"rel_target"`
-		Source     string   `json:"source"`
-		Target     string   `json:"target"`
-		State      string   `json:"state"`
-		Project    string   `json:"project"`
-		Operations []string `json:"operations"`
-		Message    string   `json:"message,omitempty"`
+		RelTarget string `json:"rel_target"`
+		Source    string `json:"source"`
+		Target   string `json:"target"`
+		State    string `json:"state"`
+		Project  string `json:"project"`
+		Operation string `json:"operation"`
+		Message  string `json:"message,omitempty"`
 	}
 
 	type jsonReport struct {
@@ -888,13 +908,13 @@ func outputReconcileJSON(report *reconcile.Report) error {
 
 	for _, e := range report.Entries {
 		jr.Entries = append(jr.Entries, jsonEntry{
-			RelTarget:  e.RelTarget,
-			Source:     e.Source,
-			Target:     e.Target,
-			State:      e.State.Label(),
-			Project:    e.Project,
-			Operations: e.Operations,
-			Message:    e.Message,
+			RelTarget: e.RelTarget,
+			Source:    e.Source,
+			Target:    e.Target,
+			State:     e.State.Label(),
+			Project:   e.Project,
+			Operation: e.Operation,
+			Message:   e.Message,
 		})
 	}
 

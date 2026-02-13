@@ -99,7 +99,7 @@ func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 
 	node := &execution.Node{
 		ID:         generateNodeID("source"),
-		Operations: []string{"source"},
+		Operation: "source",
 		Project:    p.project,
 	}
 
@@ -126,7 +126,7 @@ func (p *PlanRoot) literal(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 
 	node := &execution.Node{
 		ID:         generateNodeID("literal"),
-		Operations: []string{"literal"},
+		Operation: "literal",
 		Project:    p.project,
 	}
 
@@ -153,7 +153,7 @@ func (p *PlanRoot) download(_ *starlark.Thread, _ *starlark.Builtin, args starla
 
 	node := &execution.Node{
 		ID:         generateNodeID("download"),
-		Operations: []string{"download"},
+		Operation: "download",
 		Project:    p.project,
 	}
 
@@ -193,7 +193,7 @@ func (p *PlanRoot) service(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 
 	node := &execution.Node{
 		ID:         generateNodeID("service"),
-		Operations: []string{"service-" + actionStr},
+		Operation: "service-" + actionStr,
 		Project:    p.project,
 	}
 
@@ -223,7 +223,7 @@ func (p *PlanRoot) shell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 
 	node := &execution.Node{
 		ID:         generateNodeID("shell"),
-		Operations: []string{"shell"},
+		Operation: "shell",
 		Project:    p.project,
 	}
 

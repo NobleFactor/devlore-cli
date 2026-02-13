@@ -49,7 +49,7 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 	// The first node should be a namespaced package-install operation
 	found := false
 	for _, node := range result.Graph.Nodes {
-		if len(node.Operations) > 0 && node.Operations[0] == "package-install" {
+		if node.Operation == "package-install" {
 			found = true
 			// Verify slot values
 			if node.GetSlot("packages") != "curl" {
@@ -97,7 +97,7 @@ func TestBuild_PlatformDetection(t *testing.T) {
 			// All platforms use the namespaced "package-install" operation
 			found := false
 			for _, node := range result.Graph.Nodes {
-				if len(node.Operations) > 0 && node.Operations[0] == "package-install" {
+				if node.Operation == "package-install" {
 					found = true
 					break
 				}
@@ -189,7 +189,7 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 	// Create a graph with a namespaced package-install node
 	node := &execution.Node{
 		ID:         "package-install-testpkg",
-		Operations: []string{"package-install"},
+		Operation: "package-install",
 	}
 	node.SetSlotImmediate("packages", "testpkg")
 	graph := &execution.Graph{
@@ -228,7 +228,7 @@ func TestEngineRunsNamespacedPackageOps(t *testing.T) {
 		t.Run(opName, func(t *testing.T) {
 			node := &execution.Node{
 				ID:         "test-" + opName,
-				Operations: []string{opName},
+				Operation: opName,
 			}
 			if opName != "package-update" {
 				node.SetSlotImmediate("packages", "testpkg")
@@ -269,7 +269,7 @@ func TestNativePMNodeMetadata(t *testing.T) {
 	// Find the install node (uses namespaced "package-install" operation)
 	var installNode *execution.Node
 	for _, node := range result.Graph.Nodes {
-		if len(node.Operations) > 0 && node.Operations[0] == "package-install" {
+		if node.Operation == "package-install" {
 			installNode = node
 			break
 		}

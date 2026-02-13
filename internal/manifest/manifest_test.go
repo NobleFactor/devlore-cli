@@ -310,40 +310,40 @@ func TestBuilder_BuildGraphFromManifest(t *testing.T) {
 		t.Fatalf("BuildGraphFromManifest failed: %v", err)
 	}
 
-	if len(graph.Nodes) != 3 {
-		t.Fatalf("expected 3 nodes, got %d", len(graph.Nodes))
+	// 3 packages × 4 phases = 12 nodes
+	if len(graph.Nodes) != 12 {
+		t.Fatalf("expected 12 nodes (3 packages × 4 phases), got %d", len(graph.Nodes))
+	}
+	// 3 packages × 3 edges per chain = 9 edges
+	if len(graph.Edges) != 9 {
+		t.Fatalf("expected 9 edges, got %d", len(graph.Edges))
 	}
 
-	// Check first node (simple package)
-	if graph.Nodes[0].ID != "gh" {
-		t.Errorf("nodes[0].ID: expected 'gh', got %q", graph.Nodes[0].ID)
-	}
-	if graph.Nodes[0].GetSlot("package") != "gh" {
-		t.Errorf("nodes[0] slot 'package': expected 'gh', got %q", graph.Nodes[0].GetSlot("package"))
-	}
-
-	// Check second node (with features)
-	if graph.Nodes[1].ID != "neovim" {
-		t.Errorf("nodes[1].ID: expected 'neovim', got %q", graph.Nodes[1].ID)
-	}
-	if graph.Nodes[1].GetSlot("feature_count") != "2" {
-		t.Errorf("nodes[1] slot 'feature_count': expected '2', got %q", graph.Nodes[1].GetSlot("feature_count"))
-	}
-	if graph.Nodes[1].GetSlot("feature.0") != "lsp" {
-		t.Errorf("nodes[1] slot 'feature.0': expected 'lsp', got %q", graph.Nodes[1].GetSlot("feature.0"))
-	}
-
-	// Check operations (four-phase pipeline)
-	expectedOps := []string{"prepare", "install", "provision", "verify"}
-	for i, node := range graph.Nodes {
-		if len(node.Operations) != 4 {
-			t.Errorf("nodes[%d].Operations: expected 4 ops, got %d", i, len(node.Operations))
+	// Check first package chain (gh): gh:prepare → gh:install → gh:provision → gh
+	expectedPhases := []string{"prepare", "install", "provision", "verify"}
+	expectedIDs := []string{"gh:prepare", "gh:install", "gh:provision", "gh"}
+	for i, id := range expectedIDs {
+		if graph.Nodes[i].ID != id {
+			t.Errorf("nodes[%d].ID: expected %q, got %q", i, id, graph.Nodes[i].ID)
 		}
-		for j, op := range node.Operations {
-			if op != expectedOps[j] {
-				t.Errorf("nodes[%d].Operations[%d]: expected %q, got %q", i, j, expectedOps[j], op)
-			}
+		if graph.Nodes[i].Operation != expectedPhases[i] {
+			t.Errorf("nodes[%d].Operation: expected %q, got %q", i, expectedPhases[i], graph.Nodes[i].Operation)
 		}
+		if graph.Nodes[i].GetSlot("package") != "gh" {
+			t.Errorf("nodes[%d] slot 'package': expected 'gh', got %q", i, graph.Nodes[i].GetSlot("package"))
+		}
+	}
+
+	// Check second package chain (neovim) — features on first node
+	neovimStart := 4
+	if graph.Nodes[neovimStart].ID != "neovim:prepare" {
+		t.Errorf("nodes[%d].ID: expected 'neovim:prepare', got %q", neovimStart, graph.Nodes[neovimStart].ID)
+	}
+	if graph.Nodes[neovimStart].GetSlot("feature_count") != "2" {
+		t.Errorf("nodes[%d] slot 'feature_count': expected '2', got %q", neovimStart, graph.Nodes[neovimStart].GetSlot("feature_count"))
+	}
+	if graph.Nodes[neovimStart].GetSlot("feature.0") != "lsp" {
+		t.Errorf("nodes[%d] slot 'feature.0': expected 'lsp', got %q", neovimStart, graph.Nodes[neovimStart].GetSlot("feature.0"))
 	}
 }
 
@@ -366,15 +366,18 @@ func TestBuilder_BuildGraph_FromFile(t *testing.T) {
 		t.Fatalf("BuildSubgraph failed: %v", err)
 	}
 
-	if len(graph.Nodes) != 2 {
-		t.Fatalf("expected 2 nodes, got %d", len(graph.Nodes))
+	// 2 packages × 4 phases = 8 nodes
+	if len(graph.Nodes) != 8 {
+		t.Fatalf("expected 8 nodes (2 packages × 4 phases), got %d", len(graph.Nodes))
 	}
 
-	if graph.Nodes[0].ID != "gh" {
-		t.Errorf("nodes[0].ID: expected 'gh', got %q", graph.Nodes[0].ID)
+	// Final node of first chain is "gh" (the verify phase)
+	if graph.Nodes[3].ID != "gh" {
+		t.Errorf("nodes[3].ID: expected 'gh', got %q", graph.Nodes[3].ID)
 	}
-	if graph.Nodes[1].ID != "neovim" {
-		t.Errorf("nodes[1].ID: expected 'neovim', got %q", graph.Nodes[1].ID)
+	// Final node of second chain is "neovim"
+	if graph.Nodes[7].ID != "neovim" {
+		t.Errorf("nodes[7].ID: expected 'neovim', got %q", graph.Nodes[7].ID)
 	}
 }
 

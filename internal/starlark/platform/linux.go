@@ -97,7 +97,7 @@ func (l *LinuxPlanBindings) PackageManagerName() string {
 func (l *LinuxPlanBindings) PackageInstall(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-install", packages...),
-		Operations: []string{"package-install"},
+		Operation: "package-install",
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -109,7 +109,7 @@ func (l *LinuxPlanBindings) PackageInstall(packages ...string) *execution.Node {
 func (l *LinuxPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-upgrade", packages...),
-		Operations: []string{"package-upgrade"},
+		Operation: "package-upgrade",
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -121,7 +121,7 @@ func (l *LinuxPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
 func (l *LinuxPlanBindings) PackageRemove(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-remove", packages...),
-		Operations: []string{"package-remove"},
+		Operation: "package-remove",
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -133,31 +133,44 @@ func (l *LinuxPlanBindings) PackageRemove(packages ...string) *execution.Node {
 func (l *LinuxPlanBindings) PackageUpdate() *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-update"),
-		Operations: []string{"package-update"},
+		Operation: "package-update",
 		Project:    l.project,
 	}
 	l.graph.Nodes = append(l.graph.Nodes, node)
 	return node
 }
 
-// Configure adds a configuration file node.
+// Configure adds a configuration file node (render→copy chain).
 func (l *LinuxPlanBindings) Configure(source, target string) *execution.Node {
-	node := &execution.Node{
-		ID:         linuxGenerateNodeID("configure"),
-		Operations: []string{"render", "copy"},
-		Project:    l.project,
+	renderNode := &execution.Node{
+		ID:        linuxGenerateNodeID("render"),
+		Operation: "render",
+		Project:   l.project,
 	}
-	node.SetSlotImmediate("source", source)
-	node.SetSlotImmediate("path", l.host.ExpandPath(target))
-	l.graph.Nodes = append(l.graph.Nodes, node)
-	return node
+	renderNode.SetSlotImmediate("source", source)
+	l.graph.Nodes = append(l.graph.Nodes, renderNode)
+
+	copyNode := &execution.Node{
+		ID:        linuxGenerateNodeID("configure"),
+		Operation: "copy",
+		Project:   l.project,
+	}
+	copyNode.SetSlotImmediate("path", l.host.ExpandPath(target))
+	l.graph.Nodes = append(l.graph.Nodes, copyNode)
+
+	l.graph.Edges = append(l.graph.Edges, execution.Edge{
+		From: renderNode.ID,
+		To:   copyNode.ID,
+	})
+
+	return copyNode
 }
 
 // Link adds a symlink creation node.
 func (l *LinuxPlanBindings) Link(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("link"),
-		Operations: []string{"link"},
+		Operation: "link",
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -170,7 +183,7 @@ func (l *LinuxPlanBindings) Link(source, target string) *execution.Node {
 func (l *LinuxPlanBindings) Copy(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("copy"),
-		Operations: []string{"copy"},
+		Operation: "copy",
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -183,7 +196,7 @@ func (l *LinuxPlanBindings) Copy(source, target string) *execution.Node {
 func (l *LinuxPlanBindings) Write(target, content string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("write"),
-		Operations: []string{"write"},
+		Operation: "write",
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("content", content)
@@ -196,7 +209,7 @@ func (l *LinuxPlanBindings) Write(target, content string) *execution.Node {
 func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("systemd", name, action.String()),
-		Operations: []string{"systemd-" + action.String()},
+		Operation: "systemd-" + action.String(),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("name", name)
@@ -209,7 +222,7 @@ func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) 
 func (l *LinuxPlanBindings) Shell(command string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("shell"),
-		Operations: []string{"shell"},
+		Operation: "shell",
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("command", command)
@@ -430,7 +443,7 @@ func (l *LinuxPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin
 	expandedOut := l.host.ExpandPath(out)
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("write"),
-		Operations: []string{"write"},
+		Operation: "write",
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("source", input.Path())

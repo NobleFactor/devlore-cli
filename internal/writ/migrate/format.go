@@ -55,11 +55,11 @@ type graphContext struct {
 
 // nodeView represents a single node in the execution graph.
 type nodeView struct {
-	ID         string   `json:"id" yaml:"id"`
-	Operations []string `json:"operations" yaml:"operations"`
-	Source     string   `json:"source,omitempty" yaml:"source,omitempty"`
-	Target     string   `json:"target,omitempty" yaml:"target,omitempty"`
-	Status     string   `json:"status" yaml:"status"`
+	ID        string `json:"id" yaml:"id"`
+	Operation string `json:"operation" yaml:"operation"`
+	Source    string `json:"source,omitempty" yaml:"source,omitempty"`
+	Target    string `json:"target,omitempty" yaml:"target,omitempty"`
+	Status    string `json:"status" yaml:"status"`
 }
 
 // edgeView represents a dependency between nodes.
@@ -87,11 +87,11 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 	var nodes []nodeView
 	for _, node := range graph.Nodes {
 		nodes = append(nodes, nodeView{
-			ID:         node.ID,
-			Operations: node.Operations,
-			Source:     node.GetSlot("source"),
-			Target:     node.GetSlot("path"),
-			Status:     string(node.Status),
+			ID:        node.ID,
+			Operation: node.Operation,
+			Source:    node.GetSlot("source"),
+			Target:    node.GetSlot("path"),
+			Status:    string(node.Status),
 		})
 	}
 
@@ -288,11 +288,8 @@ func formatRecommendations(w io.Writer, recommendations []string) {
 func filterNodesByOp(graph *execution.Graph, opName string) []*execution.Node {
 	var nodes []*execution.Node
 	for _, node := range graph.Nodes {
-		for _, op := range node.Operations {
-			if op == opName {
-				nodes = append(nodes, node)
-				break
-			}
+		if node.Operation == opName {
+			nodes = append(nodes, node)
 		}
 	}
 	return nodes

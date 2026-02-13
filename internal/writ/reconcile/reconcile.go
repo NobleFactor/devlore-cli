@@ -12,9 +12,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
-// nodeIsDelegate returns true if the node's operations contain only "delegate".
-func nodeIsDelegate(ops []string) bool {
-	return len(ops) == 1 && ops[0] == "delegate"
+// nodeIsDelegate returns true if the node's operation is "delegate".
+func nodeIsDelegate(op string) bool {
+	return op == "delegate"
 }
 
 // State represents the status of a deployed file.
@@ -104,8 +104,8 @@ type Entry struct {
 	// Project is the project this belongs to
 	Project string
 
-	// Operations that were/should be performed
-	Operations []string
+	// Operation that was/should be performed
+	Operation string
 
 	// Message provides additional context (e.g., "points to wrong file")
 	Message string
@@ -172,10 +172,15 @@ func FromBuildResult(br *tree.BuildResult) *Report {
 	}
 
 	for _, f := range br.Files {
-		if nodeIsDelegate(f.Operations) {
+		// Use first operation from tree pipeline as the primary operation
+		op := ""
+		if len(f.Operations) > 0 {
+			op = f.Operations[len(f.Operations)-1] // final op (e.g., "copy" for render+copy)
+		}
+		if nodeIsDelegate(op) {
 			continue // Skip delegate nodes
 		}
-		entry := checkEntry(f.Source, f.Target, f.ID, f.Project, f.Operations)
+		entry := checkEntry(f.Source, f.Target, f.ID, f.Project, op)
 		report.Entries = append(report.Entries, entry)
 	}
 
@@ -183,13 +188,13 @@ func FromBuildResult(br *tree.BuildResult) *Report {
 }
 
 // checkEntry checks the status of a single file.
-func checkEntry(source, target, relTarget, project string, operations []string) Entry {
+func checkEntry(source, target, relTarget, project, operation string) Entry {
 	entry := Entry{
-		RelTarget:  relTarget,
+		RelTarget: relTarget,
 		Source:     source,
 		Target:     target,
 		Project:    project,
-		Operations: operations,
+		Operation:  operation,
 	}
 
 	// Check if target exists
@@ -212,7 +217,7 @@ func checkEntry(source, target, relTarget, project string, operations []string) 
 	}
 
 	// Determine expected operation type
-	isLink := len(operations) == 1 && operations[0] == "link"
+	isLink := operation == "link"
 
 	if isLink {
 		// Should be a symlink
@@ -333,11 +338,11 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 		relTarget, _ := filepath.Rel(targetRoot, path)
 
 		entry := Entry{
-			RelTarget:  relTarget,
-			Source:     linkTarget,
-			Target:     path,
-			Project:    project,
-			Operations: []string{"link"},
+			RelTarget: relTarget,
+			Source:    linkTarget,
+			Target:    path,
+			Project:   project,
+			Operation: "link",
 		}
 
 		// Check if source exists

@@ -50,6 +50,33 @@ This eliminates the implicit `[]byte` accumulator in the executor pipeline loop.
 The plan receiver is responsible for decomposing multi-step workflows into
 individual nodes with edges between them.
 
+### Typed Operation Results
+
+Operations carry their own input/output contracts as typed objects rather than
+relying on generic fields on `Node`. Currently, `Node` has `SourceChecksum` and
+`TargetChecksum` fields — but checksums are only meaningful for specific operations
+(e.g., `copy` produces a target checksum, `render` produces a source checksum,
+`link` produces neither). Generic fields on every node conflate the node's
+structural identity with operation-specific state.
+
+The executor's `Result` type should return a typed result object per operation.
+Each operation defines what data it produces:
+
+| Operation | Result Data |
+|---|---|
+| `copy` | `TargetChecksum string` |
+| `render` | `SourceChecksum string`, rendered content (flows via outputs map) |
+| `link` | (none — symlink has no content checksum) |
+| `package_install` | installed version, package manager used |
+
+The node stores the operation's result object (serialized to the receipt), not
+a fixed set of checksum fields. This generalizes: any operation-specific state
+(checksums, versions, paths created, etc.) lives in the operation's typed result,
+not in generic node fields.
+
+This aligns with the code generator: the generator reads the operation struct's
+return type and produces the correct serialization. No hand-maintained field lists.
+
 ### Implementation-to-Node Mapping
 
 The mapping from Go implementation structs to graph nodes is fully mechanical

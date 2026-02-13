@@ -262,7 +262,7 @@ func TestFormatMigrationViewJSON(t *testing.T) {
 			State   string `json:"state"`
 			Nodes   []struct {
 				ID         string   `json:"id"`
-				Operations []string `json:"operations"`
+				Operation string `json:"operation"`
 				Source     string   `json:"source"`
 				Target     string   `json:"target"`
 			} `json:"nodes"`

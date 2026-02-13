@@ -65,7 +65,7 @@ func (a *ArchivePlan) extract(_ *starlark.Thread, _ *starlark.Builtin, args star
 
 	node := &execution.Node{
 		ID:         generateNodeID("archive-extract"),
-		Operations: []string{"archive-extract"},
+		Operation: "archive-extract",
 		Project:    a.project,
 	}
 

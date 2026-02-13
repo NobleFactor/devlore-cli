@@ -79,9 +79,9 @@ func TestNewGraph(t *testing.T) {
 func TestNode(t *testing.T) {
 	node := &execution.Node{
 		ID:         ".bashrc",
-		Operations: []string{"link"},
-		Status:     execution.StatusPending,
-		Project:    "all",
+		Operation: "link",
+		Status:    execution.StatusPending,
+		Project:   "all",
 	}
 	node.SetSlotImmediate("source", "/home/user/env/all/.bashrc")
 	node.SetSlotImmediate("path", "/home/user/.bashrc")
@@ -89,8 +89,8 @@ func TestNode(t *testing.T) {
 	if node.ID != ".bashrc" {
 		t.Errorf("expected ID '.bashrc', got %q", node.ID)
 	}
-	if len(node.Operations) != 1 || node.Operations[0] != "link" {
-		t.Errorf("expected operations ['link'], got %v", node.Operations)
+	if node.Operation != "link" {
+		t.Errorf("expected operation 'link', got %q", node.Operation)
 	}
 	if node.Status != execution.StatusPending {
 		t.Errorf("expected status 'pending', got %q", node.Status)
@@ -256,7 +256,7 @@ func TestGraphSerialize(t *testing.T) {
 		Nodes: []*execution.Node{
 			{
 				ID:         ".bashrc",
-				Operations: []string{"link"},
+				Operation: "link",
 				Status:     execution.StatusPending,
 			},
 		},
@@ -353,14 +353,14 @@ func TestRunGraphAlreadyExecuted(t *testing.T) {
 func TestComputeSummary(t *testing.T) {
 	g := &execution.Graph{
 		Nodes: []*execution.Node{
-			{ID: "1", Operations: []string{"link"}, Status: execution.StatusCompleted},
-			{ID: "2", Operations: []string{"link"}, Status: execution.StatusCompleted},
-			{ID: "3", Operations: []string{"render"}, Status: execution.StatusCompleted},
-			{ID: "4", Operations: []string{"decrypt"}, Status: execution.StatusCompleted},
-			{ID: "5", Operations: []string{"copy"}, Status: execution.StatusCompleted},
+			{ID: "1", Operation: "link", Status: execution.StatusCompleted},
+			{ID: "2", Operation: "link", Status: execution.StatusCompleted},
+			{ID: "3", Operation: "render", Status: execution.StatusCompleted},
+			{ID: "4", Operation: "decrypt", Status: execution.StatusCompleted},
+			{ID: "5", Operation: "copy", Status: execution.StatusCompleted},
 			{ID: "6", Status: execution.StatusSkipped},
-			{ID: "7", Operations: []string{"link"}, Status: execution.StatusFailed},
-			{ID: "8", Operations: []string{"link"}, Status: execution.StatusCompleted, Annotations: map[string]string{"backup": "/path/to/backup"}},
+			{ID: "7", Operation: "link", Status: execution.StatusFailed},
+			{ID: "8", Operation: "link", Status: execution.StatusCompleted, Annotations: map[string]string{"backup": "/path/to/backup"}},
 		},
 	}
 

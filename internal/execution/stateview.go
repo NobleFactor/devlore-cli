@@ -34,8 +34,8 @@ type HistoryRecord struct {
 	// Tool is which tool created this record ("lore" or "writ").
 	Tool string `json:"tool" yaml:"tool"`
 
-	// Operations performed: link, expand, decrypt, install, verify, etc.
-	Operations []string `json:"operations" yaml:"operations"`
+	// Operation performed: link, copy, render, decrypt, install, etc.
+	Operation string `json:"operation" yaml:"operation"`
 
 	// Status of this operation: completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
@@ -96,12 +96,7 @@ func (e *FileEntry) IsCopied() bool {
 	if last == nil {
 		return false
 	}
-	for _, op := range last.Operations {
-		if op == "render" || op == "decrypt" || op == "copy" {
-			return true
-		}
-	}
-	return false
+	return last.Operation == "copy"
 }
 
 // IsLinked returns true if the latest operation was a symlink.
@@ -110,7 +105,7 @@ func (e *FileEntry) IsLinked() bool {
 	if last == nil {
 		return false
 	}
-	return len(last.Operations) == 1 && last.Operations[0] == "link"
+	return last.Operation == "link"
 }
 
 // SourceChecksum returns the source checksum from the latest operation.
@@ -131,13 +126,13 @@ func (e *FileEntry) TargetChecksum() string {
 	return last.TargetChecksum
 }
 
-// Operations returns the operations from the latest deployment.
-func (e *FileEntry) Operations() []string {
+// LastOp returns the operation from the latest deployment.
+func (e *FileEntry) LastOp() string {
 	last := e.LastOperation()
 	if last == nil {
-		return nil
+		return ""
 	}
-	return last.Operations
+	return last.Operation
 }
 
 // FileTreeNode represents a node in the target filesystem tree.
@@ -438,13 +433,22 @@ func (b *StateViewBuilder) includeGraph(g *Graph) bool {
 	return true
 }
 
+// isTransformOnlyNode returns true if the node is an intermediate transform.
+func isTransformOnlyNode(node *Node) bool {
+	switch node.Operation {
+	case "render", "decrypt":
+		return true
+	}
+	return false
+}
+
 // processGraph adds nodes from a graph to the view.
 func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 	receiptName := g.Filename()
 
 	for _, node := range g.Nodes {
-		// Skip skipped nodes
-		if node.Status == StatusSkipped {
+		// Skip skipped nodes and intermediate transform nodes
+		if node.Status == StatusSkipped || isTransformOnlyNode(node) {
 			continue
 		}
 
@@ -452,7 +456,7 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 			Timestamp:      g.Timestamp,
 			Receipt:        receiptName,
 			Tool:           g.Tool,
-			Operations:     node.Operations,
+			Operation:      node.Operation,
 			Status:         node.Status,
 			SourceChecksum: node.SourceChecksum,
 			TargetChecksum: node.TargetChecksum,
@@ -469,12 +473,10 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 
 // isPackageNode determines if a node represents a package lifecycle operation.
 func (b *StateViewBuilder) isPackageNode(node *Node) bool {
-	// Package nodes have lifecycle operations
-	for _, op := range node.Operations {
-		switch op {
-		case "prepare", "install", "verify", "upgrade", "uninstall", "cleanup":
-			return true
-		}
+	switch node.Operation {
+	case "prepare", "install", "verify", "upgrade", "uninstall", "cleanup",
+		"package-install", "package-upgrade", "package-remove":
+		return true
 	}
 	return false
 }
