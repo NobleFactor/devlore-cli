@@ -86,11 +86,13 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 	// Build nodes
 	var nodes []nodeView
 	for _, node := range graph.Nodes {
+		source, _ := node.GetSlot("source").(string)
+		target, _ := node.GetSlot("path").(string)
 		nodes = append(nodes, nodeView{
 			ID:        node.ID,
 			Operation: node.Operation,
-			Source:    node.GetSlot("source"),
-			Target:    node.GetSlot("path"),
+			Source:    source,
+			Target:    target,
 			Status:    string(node.Status),
 		})
 	}
@@ -182,14 +184,16 @@ func formatRenames(w io.Writer, graph *execution.Graph, sourceRoot string) {
 	_, _ = fmt.Fprintf(w, "Directory renames (%d):\n", len(renameNodes))
 	maxLen := 0
 	for _, node := range renameNodes {
-		source := node.GetSlot("source")
+		source, _ := node.GetSlot("source").(string)
 		if len(source) > maxLen {
 			maxLen = len(source)
 		}
 	}
 	for _, node := range renameNodes {
-		source := shortenPath(node.GetSlot("source"), sourceRoot)
-		target := shortenPath(node.GetSlot("path"), sourceRoot)
+		src, _ := node.GetSlot("source").(string)
+		tgt, _ := node.GetSlot("path").(string)
+		source := shortenPath(src, sourceRoot)
+		target := shortenPath(tgt, sourceRoot)
 		_, _ = fmt.Fprintf(w, "  %-*s  →  %s\n", maxLen-len(sourceRoot), source, target)
 	}
 	_, _ = fmt.Fprintln(w)

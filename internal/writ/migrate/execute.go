@@ -48,7 +48,10 @@ func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
 
 	// Verify no target conflicts before starting
 	for _, node := range renameNodes {
-		target := node.GetSlot("path")
+		target, err := node.RequireStringSlot("path")
+		if err != nil {
+			return fmt.Errorf("rename node %s: %w", node.ID, err)
+		}
 		if exists(target) {
 			return fmt.Errorf("target directory %q already exists; aborting", target)
 		}
@@ -57,8 +60,14 @@ func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
 	// Perform renames
 	var renames []Rename
 	for _, node := range renameNodes {
-		source := node.GetSlot("source")
-		target := node.GetSlot("path")
+		source, err := node.RequireStringSlot("source")
+		if err != nil {
+			return fmt.Errorf("rename node %s: %w", node.ID, err)
+		}
+		target, err := node.RequireStringSlot("path")
+		if err != nil {
+			return fmt.Errorf("rename node %s: %w", node.ID, err)
+		}
 		if err := os.Rename(source, target); err != nil {
 			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
 			return fmt.Errorf("rename %s -> %s: %w", source, target, err)
@@ -87,7 +96,9 @@ func WriteMigratedMarker(sourceRoot string, graph *execution.Graph, analysis *Mi
 	var renames []Rename
 	for _, node := range graph.Nodes {
 		if node.Operation == "move" {
-			renames = append(renames, Rename{From: node.GetSlot("source"), To: node.GetSlot("path")})
+			source, _ := node.GetSlot("source").(string)
+			target, _ := node.GetSlot("path").(string)
+			renames = append(renames, Rename{From: source, To: target})
 		}
 	}
 

@@ -176,8 +176,8 @@ type Node struct {
 }
 
 // GetSlot returns the resolved value of a slot.
-// If the slot is a promise, returns empty string (must be resolved by executor).
-func (n *Node) GetSlot(name string) string {
+// If the slot is a promise, returns nil (must be resolved by executor).
+func (n *Node) GetSlot(name string) any {
 	if n.Slots != nil {
 		if sv, ok := n.Slots[name]; ok {
 			if sv.IsImmediate() {
@@ -185,11 +185,26 @@ func (n *Node) GetSlot(name string) string {
 			}
 		}
 	}
-	return ""
+	return nil
+}
+
+// RequireStringSlot returns the string value of a required slot.
+// Returns an error if the slot is not set, or holds a non-string value.
+// An empty string is valid — use GetSlot for optional slots where zero value is acceptable.
+func (n *Node) RequireStringSlot(name string) (string, error) {
+	v := n.GetSlot(name)
+	if v == nil {
+		return "", fmt.Errorf("slot %q: not set", name)
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("slot %q: expected string, got %T", name, v)
+	}
+	return s, nil
 }
 
 // SetSlotImmediate sets a slot to an immediate value.
-func (n *Node) SetSlotImmediate(name, value string) {
+func (n *Node) SetSlotImmediate(name string, value any) {
 	if n.Slots == nil {
 		n.Slots = make(map[string]SlotValue)
 	}
@@ -226,8 +241,8 @@ type Edge struct {
 // SlotValue represents a value that fills a slot in a node.
 // Either Immediate is set (direct value) or NodeRef is set (promise from upstream node).
 type SlotValue struct {
-	// Immediate is the direct value (string, used when known at analysis time).
-	Immediate string `json:"immediate,omitempty" yaml:"immediate,omitempty"`
+	// Immediate is the direct value (any type, known at analysis time).
+	Immediate any `json:"immediate,omitempty" yaml:"immediate,omitempty"`
 
 	// NodeRef is the ID of the node that produces this value (promise).
 	NodeRef string `json:"node_ref,omitempty" yaml:"node_ref,omitempty"`
@@ -243,7 +258,7 @@ func (s SlotValue) IsPromise() bool {
 
 // IsImmediate returns true if this slot value is an immediate value.
 func (s SlotValue) IsImmediate() bool {
-	return s.NodeRef == "" && s.Immediate != ""
+	return s.NodeRef == "" && s.Immediate != nil
 }
 
 // Graph represents an execution graph containing nodes and edges.
@@ -302,7 +317,8 @@ type Graph struct {
 type Executable interface {
 	GetID() string
 	GetOperation() string
-	GetSlot(name string) string
+	GetSlot(name string) any
+	RequireStringSlot(name string) (string, error)
 	GetProject() string
 	GetMode() os.FileMode
 }

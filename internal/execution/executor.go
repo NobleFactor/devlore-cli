@@ -416,14 +416,17 @@ func (e *GraphExecutor) executeExecutableWithOutputs(ctx *Context, node Executab
 		}
 	}
 
+	// Fill unfilled slots from Context.Data
+	e.fillSlotsFromData(node)
+
 	var content []byte
 	var sourceChecksum, targetChecksum string
 
 	// Resolve input content: check upstream chain first, then read source file
 	if upstream := findContentUpstream(node.GetID(), edges, outputs); upstream != nil {
 		content = upstream
-	} else if op.Category() != OpDirect {
-		source := node.GetSlot("source")
+	} else if isContentOp(op) {
+		source, _ := node.GetSlot("source").(string)
 		if source != "" {
 			var err error
 			content, err = os.ReadFile(source)
@@ -621,8 +624,10 @@ func (e *GraphExecutor) sortNodesByDepth(nodes []*Node) []*Node {
 
 	for i := 0; i < len(sorted)-1; i++ {
 		for j := i + 1; j < len(sorted); j++ {
-			depthI := pathDepth(sorted[i].GetSlot("path"))
-			depthJ := pathDepth(sorted[j].GetSlot("path"))
+			pathI, _ := sorted[i].GetSlot("path").(string)
+			pathJ, _ := sorted[j].GetSlot("path").(string)
+			depthI := pathDepth(pathI)
+			depthJ := pathDepth(pathJ)
 			if depthI > depthJ {
 				sorted[i], sorted[j] = sorted[j], sorted[i]
 			}
@@ -639,8 +644,10 @@ func (e *GraphExecutor) sortByDepth(nodes []Executable) []Executable {
 
 	for i := 0; i < len(sorted)-1; i++ {
 		for j := i + 1; j < len(sorted); j++ {
-			depthI := pathDepth(sorted[i].GetSlot("path"))
-			depthJ := pathDepth(sorted[j].GetSlot("path"))
+			pathI, _ := sorted[i].GetSlot("path").(string)
+			pathJ, _ := sorted[j].GetSlot("path").(string)
+			depthI := pathDepth(pathI)
+			depthJ := pathDepth(pathJ)
 			if depthI > depthJ {
 				sorted[i], sorted[j] = sorted[j], sorted[i]
 			}
@@ -656,6 +663,29 @@ func pathDepth(path string) int {
 		return 0
 	}
 	return strings.Count(path, string(filepath.Separator))
+}
+
+// isContentOp returns true if the operation reads upstream content (Writer or Transform).
+func isContentOp(op Operation) bool {
+	switch op.(type) {
+	case Writer, Transform:
+		return true
+	}
+	return false
+}
+
+// fillSlotsFromData fills unfilled slots on the node from Context.Data.
+// Slots already set by the caller (Starlark plan or upstream node) are not overwritten.
+func (e *GraphExecutor) fillSlotsFromData(node Executable) {
+	n, ok := node.(*Node)
+	if !ok {
+		return
+	}
+	for key, value := range e.options.Data {
+		if _, exists := n.Slots[key]; !exists {
+			n.SetSlotImmediate(key, value)
+		}
+	}
 }
 
 // ChecksumBytes computes SHA256 of content and returns "sha256:<hex>".

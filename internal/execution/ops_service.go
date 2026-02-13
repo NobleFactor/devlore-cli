@@ -24,11 +24,10 @@ import (
 // LaunchdStartOp starts a launchd service (macOS).
 type LaunchdStartOp struct{}
 
-func (o *LaunchdStartOp) Name() string         { return "launchd-start" }
-func (o *LaunchdStartOp) Category() OpCategory { return OpDirect }
+func (o *LaunchdStartOp) Name() string { return "launchd-start" }
 
 func (o *LaunchdStartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("launchd-start: no service specified")
 	}
@@ -48,11 +47,10 @@ func (o *LaunchdStartOp) Execute(ctx *Context, node Executable) error {
 // LaunchdStopOp stops a launchd service (macOS).
 type LaunchdStopOp struct{}
 
-func (o *LaunchdStopOp) Name() string         { return "launchd-stop" }
-func (o *LaunchdStopOp) Category() OpCategory { return OpDirect }
+func (o *LaunchdStopOp) Name() string { return "launchd-stop" }
 
 func (o *LaunchdStopOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("launchd-stop: no service specified")
 	}
@@ -72,11 +70,10 @@ func (o *LaunchdStopOp) Execute(ctx *Context, node Executable) error {
 // LaunchdRestartOp restarts a launchd service (macOS).
 type LaunchdRestartOp struct{}
 
-func (o *LaunchdRestartOp) Name() string         { return "launchd-restart" }
-func (o *LaunchdRestartOp) Category() OpCategory { return OpDirect }
+func (o *LaunchdRestartOp) Name() string { return "launchd-restart" }
 
 func (o *LaunchdRestartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("launchd-restart: no service specified")
 	}
@@ -97,11 +94,10 @@ func (o *LaunchdRestartOp) Execute(ctx *Context, node Executable) error {
 // LaunchdEnableOp enables a launchd service at boot (macOS).
 type LaunchdEnableOp struct{}
 
-func (o *LaunchdEnableOp) Name() string         { return "launchd-enable" }
-func (o *LaunchdEnableOp) Category() OpCategory { return OpDirect }
+func (o *LaunchdEnableOp) Name() string { return "launchd-enable" }
 
 func (o *LaunchdEnableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("launchd-enable: no service specified")
 	}
@@ -121,11 +117,10 @@ func (o *LaunchdEnableOp) Execute(ctx *Context, node Executable) error {
 // LaunchdDisableOp disables a launchd service at boot (macOS).
 type LaunchdDisableOp struct{}
 
-func (o *LaunchdDisableOp) Name() string         { return "launchd-disable" }
-func (o *LaunchdDisableOp) Category() OpCategory { return OpDirect }
+func (o *LaunchdDisableOp) Name() string { return "launchd-disable" }
 
 func (o *LaunchdDisableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("launchd-disable: no service specified")
 	}
@@ -149,11 +144,10 @@ func (o *LaunchdDisableOp) Execute(ctx *Context, node Executable) error {
 // SystemdStartOp starts a systemd service (Linux).
 type SystemdStartOp struct{}
 
-func (o *SystemdStartOp) Name() string         { return "systemd-start" }
-func (o *SystemdStartOp) Category() OpCategory { return OpDirect }
+func (o *SystemdStartOp) Name() string { return "systemd-start" }
 
 func (o *SystemdStartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("systemd-start: no service specified")
 	}
@@ -173,11 +167,10 @@ func (o *SystemdStartOp) Execute(ctx *Context, node Executable) error {
 // SystemdStopOp stops a systemd service (Linux).
 type SystemdStopOp struct{}
 
-func (o *SystemdStopOp) Name() string         { return "systemd-stop" }
-func (o *SystemdStopOp) Category() OpCategory { return OpDirect }
+func (o *SystemdStopOp) Name() string { return "systemd-stop" }
 
 func (o *SystemdStopOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("systemd-stop: no service specified")
 	}
@@ -197,11 +190,10 @@ func (o *SystemdStopOp) Execute(ctx *Context, node Executable) error {
 // SystemdRestartOp restarts a systemd service (Linux).
 type SystemdRestartOp struct{}
 
-func (o *SystemdRestartOp) Name() string         { return "systemd-restart" }
-func (o *SystemdRestartOp) Category() OpCategory { return OpDirect }
+func (o *SystemdRestartOp) Name() string { return "systemd-restart" }
 
 func (o *SystemdRestartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("systemd-restart: no service specified")
 	}
@@ -221,11 +213,10 @@ func (o *SystemdRestartOp) Execute(ctx *Context, node Executable) error {
 // SystemdEnableOp enables a systemd service at boot (Linux).
 type SystemdEnableOp struct{}
 
-func (o *SystemdEnableOp) Name() string         { return "systemd-enable" }
-func (o *SystemdEnableOp) Category() OpCategory { return OpDirect }
+func (o *SystemdEnableOp) Name() string { return "systemd-enable" }
 
 func (o *SystemdEnableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("systemd-enable: no service specified")
 	}
@@ -245,11 +236,10 @@ func (o *SystemdEnableOp) Execute(ctx *Context, node Executable) error {
 // SystemdDisableOp disables a systemd service at boot (Linux).
 type SystemdDisableOp struct{}
 
-func (o *SystemdDisableOp) Name() string         { return "systemd-disable" }
-func (o *SystemdDisableOp) Category() OpCategory { return OpDirect }
+func (o *SystemdDisableOp) Name() string { return "systemd-disable" }
 
 func (o *SystemdDisableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("systemd-disable: no service specified")
 	}
@@ -273,11 +263,10 @@ func (o *SystemdDisableOp) Execute(ctx *Context, node Executable) error {
 // WinServiceStartOp starts a Windows service.
 type WinServiceStartOp struct{}
 
-func (o *WinServiceStartOp) Name() string         { return "winservice-start" }
-func (o *WinServiceStartOp) Category() OpCategory { return OpDirect }
+func (o *WinServiceStartOp) Name() string { return "winservice-start" }
 
 func (o *WinServiceStartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("winservice-start: no service specified")
 	}
@@ -297,11 +286,10 @@ func (o *WinServiceStartOp) Execute(ctx *Context, node Executable) error {
 // WinServiceStopOp stops a Windows service.
 type WinServiceStopOp struct{}
 
-func (o *WinServiceStopOp) Name() string         { return "winservice-stop" }
-func (o *WinServiceStopOp) Category() OpCategory { return OpDirect }
+func (o *WinServiceStopOp) Name() string { return "winservice-stop" }
 
 func (o *WinServiceStopOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("winservice-stop: no service specified")
 	}
@@ -321,11 +309,10 @@ func (o *WinServiceStopOp) Execute(ctx *Context, node Executable) error {
 // WinServiceRestartOp restarts a Windows service (stop + start).
 type WinServiceRestartOp struct{}
 
-func (o *WinServiceRestartOp) Name() string         { return "winservice-restart" }
-func (o *WinServiceRestartOp) Category() OpCategory { return OpDirect }
+func (o *WinServiceRestartOp) Name() string { return "winservice-restart" }
 
 func (o *WinServiceRestartOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("winservice-restart: no service specified")
 	}
@@ -353,11 +340,10 @@ func (o *WinServiceRestartOp) Execute(ctx *Context, node Executable) error {
 // WinServiceEnableOp configures a Windows service to start automatically.
 type WinServiceEnableOp struct{}
 
-func (o *WinServiceEnableOp) Name() string         { return "winservice-enable" }
-func (o *WinServiceEnableOp) Category() OpCategory { return OpDirect }
+func (o *WinServiceEnableOp) Name() string { return "winservice-enable" }
 
 func (o *WinServiceEnableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("winservice-enable: no service specified")
 	}
@@ -377,11 +363,10 @@ func (o *WinServiceEnableOp) Execute(ctx *Context, node Executable) error {
 // WinServiceDisableOp configures a Windows service to be disabled.
 type WinServiceDisableOp struct{}
 
-func (o *WinServiceDisableOp) Name() string         { return "winservice-disable" }
-func (o *WinServiceDisableOp) Category() OpCategory { return OpDirect }
+func (o *WinServiceDisableOp) Name() string { return "winservice-disable" }
 
 func (o *WinServiceDisableOp) Execute(ctx *Context, node Executable) error {
-	service := node.GetSlot("name")
+	service, _ := node.GetSlot("name").(string)
 	if service == "" {
 		return fmt.Errorf("winservice-disable: no service specified")
 	}

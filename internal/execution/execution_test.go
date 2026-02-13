@@ -1043,6 +1043,55 @@ func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
 	}
 }
 
+func TestRequireStringSlot(t *testing.T) {
+	t.Run("correct value", func(t *testing.T) {
+		node := &Node{ID: "test"}
+		node.SetSlotImmediate("path", "hello")
+		val, err := node.RequireStringSlot("path")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val != "hello" {
+			t.Errorf("expected %q, got %q", "hello", val)
+		}
+	})
+
+	t.Run("not set", func(t *testing.T) {
+		node := &Node{ID: "test"}
+		_, err := node.RequireStringSlot("path")
+		if err == nil {
+			t.Fatal("expected error for unset slot")
+		}
+		if !strings.Contains(err.Error(), "not set") {
+			t.Errorf("expected 'not set' in error, got: %v", err)
+		}
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		node := &Node{ID: "test"}
+		node.SetSlotImmediate("count", 42)
+		_, err := node.RequireStringSlot("count")
+		if err == nil {
+			t.Fatal("expected error for wrong type")
+		}
+		if !strings.Contains(err.Error(), "expected string, got int") {
+			t.Errorf("expected 'expected string, got int' in error, got: %v", err)
+		}
+	})
+
+	t.Run("empty string is valid", func(t *testing.T) {
+		node := &Node{ID: "test"}
+		node.SetSlotImmediate("path", "")
+		val, err := node.RequireStringSlot("path")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val != "" {
+			t.Errorf("expected empty string, got %q", val)
+		}
+	})
+}
+
 func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 	tmpDir := t.TempDir()
 	nested := filepath.Join(tmpDir, "a", "b")

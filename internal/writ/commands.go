@@ -715,8 +715,8 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 		}
 
 		var entry reconcile.Entry
-		source := n.GetSlot("source")
-		target := n.GetSlot("path")
+		source, _ := n.GetSlot("source").(string)
+		target, _ := n.GetSlot("path").(string)
 		if checkDrift && n.SourceChecksum != "" {
 			entry = reconcile.Entry{
 				RelTarget:      n.ID,

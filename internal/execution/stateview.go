@@ -500,12 +500,13 @@ func (b *StateViewBuilder) addPackageRecord(view *StateView, node *Node, record 
 // addFileRecord adds a file deployment record to the view.
 func (b *StateViewBuilder) addFileRecord(view *StateView, node *Node, record HistoryRecord, g *Graph) {
 	relTarget := node.ID // Relative target path is the node ID
+	source, _ := node.GetSlot("source").(string)
 
 	entry, ok := view.Files.Entries[relTarget]
 	if !ok {
 		entry = &FileEntry{
 			Target:  relTarget,
-			Source:  node.GetSlot("source"),
+			Source:  source,
 			Project: node.Project,
 			Layer:   node.Layer,
 			History: make([]HistoryRecord, 0),
@@ -513,7 +514,7 @@ func (b *StateViewBuilder) addFileRecord(view *StateView, node *Node, record His
 		view.Files.Entries[relTarget] = entry
 	} else {
 		// Update source/project/layer from latest record
-		if source := node.GetSlot("source"); source != "" {
+		if source != "" {
 			entry.Source = source
 		}
 		if node.Project != "" {

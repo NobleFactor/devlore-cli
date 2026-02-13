@@ -3,7 +3,10 @@
 
 package execution
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // GraphBuilder is the interface for building execution graphs.
 // Implementations are provided by tools (writ, lore) and create graphs
@@ -54,7 +57,11 @@ func ExpandDelegates(ctx context.Context, graph *Graph, builder SubgraphBuilder,
 		}
 
 		// Build subgraph from the manifest file
-		sub, err := builder.BuildSubgraph(ctx, node.GetSlot("source"), opts)
+		source, err := node.RequireStringSlot("source")
+		if err != nil {
+			return fmt.Errorf("delegate node %s: %w", node.ID, err)
+		}
+		sub, err := builder.BuildSubgraph(ctx, source, opts)
 		if err != nil {
 			return err
 		}

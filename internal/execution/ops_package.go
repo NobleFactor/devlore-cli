@@ -27,22 +27,24 @@ import (
 // PackageInstallOp installs packages using the platform's package manager.
 type PackageInstallOp struct{}
 
-func (o *PackageInstallOp) Name() string         { return "package-install" }
-func (o *PackageInstallOp) Category() OpCategory { return OpDirect }
+func (o *PackageInstallOp) Name() string { return "package-install" }
 
 func (o *PackageInstallOp) Execute(ctx *Context, node Executable) error {
-	packages := parsePackages(node.GetSlot("packages"))
+	pkgList, _ := node.GetSlot("packages").(string)
+	packages := parsePackages(pkgList)
 	if len(packages) == 0 {
 		return fmt.Errorf("package-install: no packages specified")
 	}
 
-	pm := resolvePMForInstall(node.GetSlot("manager"))
+	manager, _ := node.GetSlot("manager").(string)
+	pm := resolvePMForInstall(manager)
 	if pm == nil {
 		return fmt.Errorf("package-install: no package manager available")
 	}
 
 	// Check if cask mode is enabled (for Homebrew Cask)
-	isCask := node.GetSlot("cask") == "true"
+	cask, _ := node.GetSlot("cask").(string)
+	isCask := cask == "true"
 
 	if ctx.DryRun {
 		if isCask {
@@ -73,23 +75,25 @@ func (o *PackageInstallOp) Execute(ctx *Context, node Executable) error {
 // PackageUpgradeOp upgrades packages using the platform's package manager.
 type PackageUpgradeOp struct{}
 
-func (o *PackageUpgradeOp) Name() string         { return "package-upgrade" }
-func (o *PackageUpgradeOp) Category() OpCategory { return OpDirect }
+func (o *PackageUpgradeOp) Name() string { return "package-upgrade" }
 
 func (o *PackageUpgradeOp) Execute(ctx *Context, node Executable) error {
-	packages := parsePackages(node.GetSlot("packages"))
+	pkgList, _ := node.GetSlot("packages").(string)
+	packages := parsePackages(pkgList)
 	if len(packages) == 0 {
 		return fmt.Errorf("package-upgrade: no packages specified")
 	}
 
 	// Use InstalledBy to determine which PM to upgrade with
-	pm := resolvePMForUpgrade(node.GetSlot("manager"), packages)
+	manager, _ := node.GetSlot("manager").(string)
+	pm := resolvePMForUpgrade(manager, packages)
 	if pm == nil {
 		return fmt.Errorf("package-upgrade: no package manager available")
 	}
 
 	// Check if cask mode is enabled (for Homebrew Cask)
-	isCask := node.GetSlot("cask") == "true"
+	cask, _ := node.GetSlot("cask").(string)
+	isCask := cask == "true"
 
 	if ctx.DryRun {
 		if isCask {
@@ -122,18 +126,19 @@ func (o *PackageUpgradeOp) Execute(ctx *Context, node Executable) error {
 // PackageRemoveOp removes packages using the platform's package manager.
 type PackageRemoveOp struct{}
 
-func (o *PackageRemoveOp) Name() string         { return "package-remove" }
-func (o *PackageRemoveOp) Category() OpCategory { return OpDirect }
+func (o *PackageRemoveOp) Name() string { return "package-remove" }
 
 func (o *PackageRemoveOp) Execute(ctx *Context, node Executable) error {
-	packages := parsePackages(node.GetSlot("packages"))
+	pkgList, _ := node.GetSlot("packages").(string)
+	packages := parsePackages(pkgList)
 	if len(packages) == 0 {
 		return fmt.Errorf("package-remove: no packages specified")
 	}
 
 	// Check if cask mode is enabled (for Homebrew Cask)
-	isCask := node.GetSlot("cask") == "true"
-	manager := node.GetSlot("manager")
+	cask, _ := node.GetSlot("cask").(string)
+	isCask := cask == "true"
+	manager, _ := node.GetSlot("manager").(string)
 
 	for _, pkg := range packages {
 		// Use InstalledBy to determine which PM to remove with
@@ -181,12 +186,12 @@ func (o *PackageRemoveOp) Execute(ctx *Context, node Executable) error {
 // PackageUpdateOp refreshes the package manager index.
 type PackageUpdateOp struct{}
 
-func (o *PackageUpdateOp) Name() string         { return "package-update" }
-func (o *PackageUpdateOp) Category() OpCategory { return OpDirect }
+func (o *PackageUpdateOp) Name() string { return "package-update" }
 
 func (o *PackageUpdateOp) Execute(ctx *Context, node Executable) error {
 	// Update uses preferred PM (not InstalledBy - we're updating the index, not a package)
-	pm := resolvePMForInstall(node.GetSlot("manager"))
+	manager, _ := node.GetSlot("manager").(string)
+	pm := resolvePMForInstall(manager)
 	if pm == nil {
 		return fmt.Errorf("package-update: no package manager available")
 	}
@@ -356,11 +361,10 @@ func runBrewCaskRemove(pkg string) host.Result {
 // ShellOp executes a shell command from node's "command" slot.
 type ShellOp struct{}
 
-func (o *ShellOp) Name() string         { return "shell" }
-func (o *ShellOp) Category() OpCategory { return OpDirect }
+func (o *ShellOp) Name() string { return "shell" }
 
 func (o *ShellOp) Execute(ctx *Context, node Executable) error {
-	command := node.GetSlot("command")
+	command, _ := node.GetSlot("command").(string)
 	if command == "" {
 		return fmt.Errorf("shell: no command specified")
 	}
@@ -380,11 +384,10 @@ func (o *ShellOp) Execute(ctx *Context, node Executable) error {
 // PowerShellOp executes a PowerShell command from node's "command" slot (Windows).
 type PowerShellOp struct{}
 
-func (o *PowerShellOp) Name() string         { return "powershell" }
-func (o *PowerShellOp) Category() OpCategory { return OpDirect }
+func (o *PowerShellOp) Name() string { return "powershell" }
 
 func (o *PowerShellOp) Execute(ctx *Context, node Executable) error {
-	command := node.GetSlot("command")
+	command, _ := node.GetSlot("command").(string)
 	if command == "" {
 		return fmt.Errorf("powershell: no command specified")
 	}
