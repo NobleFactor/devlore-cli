@@ -17,7 +17,7 @@ type LinkOp struct{}
 
 func (o *LinkOp) Name() string { return "link" }
 
-func (o *LinkOp) Execute(ctx *Context, node Executable) error {
+func (o *LinkOp) Execute(ctx *Context, node *Node) error {
 	if ctx.DryRun {
 		return nil
 	}
@@ -46,27 +46,34 @@ func (o *LinkOp) Execute(ctx *Context, node Executable) error {
 	return os.Symlink(source, target)
 }
 
-// CopyOp writes content to node's "path" slot and returns the target checksum.
+// CopyOp writes content to node's "path" slot. Content is resolved via
+// ctx.ContentFor (upstream chain or source file).
 type CopyOp struct{}
 
 func (o *CopyOp) Name() string { return "copy" }
 
-func (o *CopyOp) Write(ctx *Context, node Executable, content []byte) (string, error) {
-	if ctx.DryRun {
-		return ChecksumBytes(content), nil
+func (o *CopyOp) Execute(ctx *Context, node *Node) error {
+	content, err := ctx.ContentFor(node)
+	if err != nil {
+		return err
 	}
 
 	target, _ := node.GetSlot("path").(string)
 
+	if ctx.DryRun {
+		ctx.TargetChecksum = ChecksumBytes(content)
+		return nil
+	}
+
 	// Remove existing file/symlink if present
 	if _, err := os.Lstat(target); err == nil {
 		if err := os.Remove(target); err != nil {
-			return "", fmt.Errorf("remove existing: %w", err)
+			return fmt.Errorf("remove existing: %w", err)
 		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		return "", fmt.Errorf("create parent dirs: %w", err)
+		return fmt.Errorf("create parent dirs: %w", err)
 	}
 
 	mode := node.GetMode()
@@ -75,22 +82,28 @@ func (o *CopyOp) Write(ctx *Context, node Executable, content []byte) (string, e
 	}
 
 	if err := os.WriteFile(target, content, mode); err != nil {
-		return "", err
+		return err
 	}
 
-	return ChecksumBytes(content), nil
+	ctx.TargetChecksum = ChecksumBytes(content)
+	return nil
 }
 
 // RenderOp processes content as a Go text/template with ctx.Data as
-// the template data. Returns the rendered content.
+// the template data. Stores the rendered content for downstream ops.
 type RenderOp struct{}
 
 func (o *RenderOp) Name() string { return "render" }
 
-func (o *RenderOp) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
-	tmpl, err := template.New(node.GetID()).Parse(string(content))
+func (o *RenderOp) Execute(ctx *Context, node *Node) error {
+	content, err := ctx.ContentFor(node)
 	if err != nil {
-		return nil, fmt.Errorf("parse template: %w", err)
+		return err
+	}
+
+	tmpl, err := template.New(node.ID).Parse(string(content))
+	if err != nil {
+		return fmt.Errorf("parse template: %w", err)
 	}
 
 	// Build template data from context
@@ -105,22 +118,29 @@ func (o *RenderOp) Transform(ctx *Context, node Executable, content []byte) ([]b
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return nil, fmt.Errorf("execute template: %w", err)
+		return fmt.Errorf("execute template: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	ctx.StoreContent(node, buf.Bytes())
+	return nil
 }
 
 // DecryptOp decrypts content using the SOPS API. The decryption
-// configuration is expected in ctx.Data. Returns the decrypted content.
+// configuration is expected in ctx.Data. Stores the decrypted content
+// for downstream ops.
 type DecryptOp struct{}
 
 func (o *DecryptOp) Name() string { return "decrypt" }
 
-func (o *DecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
+func (o *DecryptOp) Execute(ctx *Context, node *Node) error {
+	content, err := ctx.ContentFor(node)
+	if err != nil {
+		return err
+	}
+
 	decryptor, ok := ctx.Data["decryptor"]
 	if !ok {
-		return nil, fmt.Errorf("no decryptor configured in context")
+		return fmt.Errorf("no decryptor configured in context")
 	}
 
 	// The decryptor is a function that takes encrypted bytes and returns plaintext.
@@ -133,10 +153,16 @@ func (o *DecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]
 
 	decrypt, ok := decryptor.(func(string, []byte) ([]byte, error))
 	if !ok {
-		return nil, fmt.Errorf("decryptor must be func(string, []byte) ([]byte, error)")
+		return fmt.Errorf("decryptor must be func(string, []byte) ([]byte, error)")
 	}
 	source, _ := node.GetSlot("source").(string)
-	return decrypt(source, content)
+	result, err := decrypt(source, content)
+	if err != nil {
+		return err
+	}
+
+	ctx.StoreContent(node, result)
+	return nil
 }
 
 // NOTE: There is no DelegateOp. writ and lore share the same execution engine.
@@ -152,7 +178,7 @@ type BackupOp struct{}
 
 func (o *BackupOp) Name() string { return "backup" }
 
-func (o *BackupOp) Execute(ctx *Context, node Executable) error {
+func (o *BackupOp) Execute(ctx *Context, node *Node) error {
 	if ctx.DryRun {
 		return nil
 	}
@@ -173,12 +199,10 @@ func (o *BackupOp) Execute(ctx *Context, node Executable) error {
 	}
 
 	// Store backup path in node annotations for receipt generation
-	if n, ok := node.(*Node); ok && n.Annotations == nil {
-		n.Annotations = make(map[string]string)
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
 	}
-	if n, ok := node.(*Node); ok {
-		n.Annotations["backup_path"] = backupPath
-	}
+	node.Annotations["backup_path"] = backupPath
 	return nil
 }
 
@@ -189,7 +213,7 @@ type UnlinkOp struct{}
 
 func (o *UnlinkOp) Name() string { return "unlink" }
 
-func (o *UnlinkOp) Execute(ctx *Context, node Executable) error {
+func (o *UnlinkOp) Execute(ctx *Context, node *Node) error {
 	if ctx.DryRun {
 		return nil
 	}
@@ -223,7 +247,7 @@ type RemoveOp struct{}
 
 func (o *RemoveOp) Name() string { return "remove" }
 
-func (o *RemoveOp) Execute(ctx *Context, node Executable) error {
+func (o *RemoveOp) Execute(ctx *Context, node *Node) error {
 	if ctx.DryRun {
 		return nil
 	}
@@ -294,7 +318,7 @@ type WriteOp struct{}
 
 func (o *WriteOp) Name() string { return "write" }
 
-func (o *WriteOp) Execute(ctx *Context, node Executable) error {
+func (o *WriteOp) Execute(ctx *Context, node *Node) error {
 	content, _ := node.GetSlot("content").(string)
 	if content == "" {
 		return fmt.Errorf("write: no content specified in node slots")
@@ -325,7 +349,7 @@ type ValidateOp struct{}
 
 func (o *ValidateOp) Name() string { return "validate" }
 
-func (o *ValidateOp) Execute(ctx *Context, node Executable) error {
+func (o *ValidateOp) Execute(ctx *Context, node *Node) error {
 	checkName, _ := node.GetSlot("check").(string)
 	if checkName == "" {
 		return fmt.Errorf("validate: no check specified in node slots")
@@ -358,7 +382,7 @@ type MoveOp struct{}
 
 func (o *MoveOp) Name() string { return "move" }
 
-func (o *MoveOp) Execute(ctx *Context, node Executable) error {
+func (o *MoveOp) Execute(ctx *Context, node *Node) error {
 	if ctx.DryRun {
 		return nil
 	}
@@ -389,25 +413,6 @@ func (o *MoveOp) Execute(ctx *Context, node Executable) error {
 }
 
 // FileOps returns all built-in file operations for registration.
-//
-// Transform operations (content in → content out):
-//   - decrypt: decrypts encrypted content via ctx.Data["decryptor"]
-//   - render: renders Go text/template content with ctx.Data
-//
-// Writer operations (content in → checksum out):
-//   - copy: writes content to node's "path" slot
-//
-// Direct operations (no content flow):
-//   - link: creates symlink from "path" → "source" slots
-//   - write: writes "content" slot to "path" slot
-//   - backup: moves "path" slot to timestamped backup
-//   - unlink: removes symlink at "path" slot
-//   - remove: deletes file at "path" slot
-//   - validate: checks precondition from ctx.Data["validators"]
-//   - move: moves "source" → "path" slots (git mv when possible)
-//
-// NOTE: Package operations (package-install, package-upgrade, package-remove,
-// package-update) are provided by ops_package.go.
 func FileOps() []Operation {
 	return []Operation{
 		&LinkOp{},

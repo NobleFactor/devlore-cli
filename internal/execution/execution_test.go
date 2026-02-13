@@ -11,13 +11,9 @@ import (
 	"testing"
 )
 
-// runGraph is a test helper that converts a Graph to Executable slice and calls RunNodes.
+// runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
 func runGraph(ctx context.Context, e *GraphExecutor, g *Graph) ([]*Result, error) {
-	executables := make([]Executable, len(g.Nodes))
-	for i, n := range g.Nodes {
-		executables[i] = n
-	}
-	return e.RunNodes(ctx, executables, g.Edges)
+	return e.RunNodes(ctx, g.Nodes, g.Edges)
 }
 
 // testNode creates a node with source and path slots for testing.
@@ -116,16 +112,23 @@ func TestLinkOperationIdempotent(t *testing.T) {
 
 func TestCopyOperation(t *testing.T) {
 	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "output.txt")
 
-	op := &CopyOp{}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
-	node.SetSlotImmediate("path", target)
-	inputContent := []byte("file content")
+	if err := os.WriteFile(source, []byte("file content"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	checksum, err := op.Write(ctx, node, inputContent)
-	if err != nil {
+	op := &CopyOp{}
+	ctx := &Context{
+		Context: context.Background(),
+		Outputs: make(map[string][]byte),
+	}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", target)
+
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("copy: %v", err)
 	}
 
@@ -137,25 +140,33 @@ func TestCopyOperation(t *testing.T) {
 		t.Errorf("expected 'file content', got %q", string(content))
 	}
 
-	if checksum == "" {
+	if ctx.TargetChecksum == "" {
 		t.Error("expected target checksum to be set")
 	}
-	if !strings.HasPrefix(checksum, "sha256:") {
-		t.Errorf("expected sha256: prefix, got %q", checksum)
+	if !strings.HasPrefix(ctx.TargetChecksum, "sha256:") {
+		t.Errorf("expected sha256: prefix, got %q", ctx.TargetChecksum)
 	}
 }
 
 func TestCopyOperationCreatesParentDirs(t *testing.T) {
 	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "deep", "nested", "output.txt")
 
-	op := &CopyOp{}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
-	node.SetSlotImmediate("path", target)
-	inputContent := []byte("nested content")
+	if err := os.WriteFile(source, []byte("nested content"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := op.Write(ctx, node, inputContent); err != nil {
+	op := &CopyOp{}
+	ctx := &Context{
+		Context: context.Background(),
+		Outputs: make(map[string][]byte),
+	}
+	node := &Node{ID: "test"}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", target)
+
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("copy with nested dirs: %v", err)
 	}
 
@@ -169,20 +180,27 @@ func TestCopyOperationCreatesParentDirs(t *testing.T) {
 }
 
 func TestRenderOperation(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "template.txt")
+	templateContent := "# Shell: {{.Shell}}\n# User: {{.Username}}\n# Project: {{.Project}}"
+	if err := os.WriteFile(source, []byte(templateContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	op := &RenderOp{}
 	ctx := &Context{
 		Context: context.Background(),
 		Data:    map[string]any{"Username": "testuser", "Shell": "/bin/zsh"},
+		Outputs: make(map[string][]byte),
 	}
 	node := &Node{ID: ".bashrc", Project: "all"}
-	node.SetSlotImmediate("source", "/environment/all/.bashrc")
-	inputContent := []byte("# Shell: {{.Shell}}\n# User: {{.Username}}\n# Project: {{.Project}}")
+	node.SetSlotImmediate("source", source)
 
-	result, err := op.Transform(ctx, node, inputContent)
-	if err != nil {
-		t.Fatalf("expand: %v", err)
+	if err := op.Execute(ctx, node); err != nil {
+		t.Fatalf("render: %v", err)
 	}
 
+	result := ctx.Outputs[node.ID]
 	expected := "# Shell: /bin/zsh\n# User: testuser\n# Project: all"
 	if string(result) != expected {
 		t.Errorf("expected %q, got %q", expected, string(result))
@@ -190,6 +208,12 @@ func TestRenderOperation(t *testing.T) {
 }
 
 func TestDecryptOperation(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "secret.txt")
+	if err := os.WriteFile(source, []byte("encrypted-data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	op := &DecryptOp{}
 
 	// Provide a mock decryptor
@@ -200,27 +224,38 @@ func TestDecryptOperation(t *testing.T) {
 	ctx := &Context{
 		Context: context.Background(),
 		Data:    map[string]any{"decryptor": mockDecrypt},
+		Outputs: make(map[string][]byte),
 	}
 	node := &Node{ID: "secret.txt"}
-	inputContent := []byte("encrypted-data")
+	node.SetSlotImmediate("source", source)
 
-	result, err := op.Transform(ctx, node, inputContent)
-	if err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
 
+	result := ctx.Outputs[node.ID]
 	if string(result) != "decrypted:encrypted-data" {
 		t.Errorf("unexpected content: %q", string(result))
 	}
 }
 
 func TestDecryptOperationNoDecryptor(t *testing.T) {
-	op := &DecryptOp{}
-	ctx := &Context{Context: context.Background(), Data: map[string]any{}}
-	node := &Node{ID: "secret.txt"}
-	inputContent := []byte("data")
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "secret.txt")
+	if err := os.WriteFile(source, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := op.Transform(ctx, node, inputContent); err == nil {
+	op := &DecryptOp{}
+	ctx := &Context{
+		Context: context.Background(),
+		Data:    map[string]any{},
+		Outputs: make(map[string][]byte),
+	}
+	node := &Node{ID: "secret.txt"}
+	node.SetSlotImmediate("source", source)
+
+	if err := op.Execute(ctx, node); err == nil {
 		t.Error("expected error when no decryptor configured")
 	}
 }
@@ -229,10 +264,13 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 // This is a critical test: we previously had a legacy signature fallback that accepted
 // func([]byte) ([]byte, error) which is a security issue since it doesn't track the source.
 func TestDecryptOperationInvalidSignature(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "secret.txt")
+	if err := os.WriteFile(source, []byte("encrypted-data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	op := &DecryptOp{}
-	node := &Node{ID: "secret.txt"}
-	node.SetSlotImmediate("source", "/path/to/secret")
-	inputContent := []byte("encrypted-data")
 
 	tests := []struct {
 		name      string
@@ -279,12 +317,16 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			node := &Node{ID: "secret.txt"}
+			node.SetSlotImmediate("source", source)
+
 			ctx := &Context{
 				Context: context.Background(),
 				Data:    map[string]any{"decryptor": tt.decryptor},
+				Outputs: make(map[string][]byte),
 			}
 
-			_, err := op.Transform(ctx, node, inputContent)
+			err := op.Execute(ctx, node)
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("expected error for %s, got nil", tt.name)
@@ -872,15 +914,23 @@ func TestBackupOperation(t *testing.T) {
 
 func TestCopyOperationWithMode(t *testing.T) {
 	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "source.sh")
 	target := filepath.Join(tmpDir, "script.sh")
 
-	op := &CopyOp{}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test", Mode: 0755}
-	node.SetSlotImmediate("path", target)
-	inputContent := []byte("#!/bin/sh\necho hello")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\necho hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := op.Write(ctx, node, inputContent); err != nil {
+	op := &CopyOp{}
+	ctx := &Context{
+		Context: context.Background(),
+		Outputs: make(map[string][]byte),
+	}
+	node := &Node{ID: "test", Mode: 0755}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", target)
+
+	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("copy with mode: %v", err)
 	}
 
