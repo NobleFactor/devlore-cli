@@ -1,5 +1,9 @@
 # Phase 5: Implementation Structs and Nuke-Safe Generation
 
+> **Superseded by [phase-6.md](phase-6.md).** Phase 6 incorporates the typed
+> slots architecture, removes OpCategory, and unifies service ops. This
+> document is preserved for historical reference.
+
 ## Context
 
 Phases 0-4 built the generator pipeline: `go.methods()` discovers signatures,
