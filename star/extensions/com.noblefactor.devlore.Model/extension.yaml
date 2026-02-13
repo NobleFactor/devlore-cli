@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.devlore.Model
+description: Devlore model management - build Ollama Modelfiles from knowledge domains
+
+commands:
+  - name: devlore.model.build
+    help: Generate Ollama Modelfile from knowledge domain
+    implementation: commands/build.star
+    flags:
+      - name: target
+        type: string
+        default: ""
+        help: "Knowledge root to read from and write Modelfile to (default: ../devlore-registry)"
+      - name: domain
+        type: string
+        default: "all"
+        help: "Domain: all, migration, onboarding"
+      - name: model
+        type: string
+        default: "qwen3:8b"
+        help: Base model for Modelfile

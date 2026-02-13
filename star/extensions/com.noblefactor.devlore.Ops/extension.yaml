@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.devlore.Ops
+description: Devlore ops tooling - generate graph operations and validate API contracts
+
+receivers:
+  - name: go
+    builtin: true
+    type: GoReceiver
+    description: Go source parsing and code generation
+  - name: file
+    builtin: true
+    type: FileReceiver
+    description: Filesystem operations
+
+commands:
+  - name: devlore.ops.generate
+    help: Generate boilerplate receivers and operations from a Go struct
+    implementation: commands/generate.star
+    flags:
+      - name: path
+        type: string
+        default: ""
+        help: Path to the Go package containing the struct
+      - name: struct
+        type: string
+        default: ""
+        help: Name of the Go struct to generate from
+      - name: category
+        type: string
+        default: ""
+        help: Override the derived category name (e.g., "file")
+      - name: package
+        type: string
+        default: ""
+        help: Override the Go package name for generated files
+      - name: methods
+        type: string
+        default: ""
+        help: Comma-separated list of methods to include (default all public)
+      - name: templates
+        type: string
+        default: "plan_receiver,graph_ops,realtime_receiver"
+        help: Comma-separated list of templates to generate
+      - name: output
+        type: string
+        default: ""
+        help: Output directory for generated files (default stdout)
+      - name: write
+        type: bool
+        default: "false"
+        help: Write files to output directory instead of stdout
+
+  - name: devlore.ops.validate
+    help: Validate devlore-cli Starlark API contract
+    implementation: commands/validate.star
+    flags:
+      - name: source
+        type: string
+        required: true
+        help: Path to devlore-cli repository
+      - name: format
+        type: string
+        default: "markdown"
+        help: "Output format: markdown, json, or yaml"

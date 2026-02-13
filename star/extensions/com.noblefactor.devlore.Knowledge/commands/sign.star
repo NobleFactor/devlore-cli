@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright Noble Factor. All rights reserved.
 
-# sign-index.star - Generate and sign index.yaml
+# sign.star - Generate and sign knowledge index
 #
-# This operation generates the package index and signs it with the
+# This operation generates the knowledge index and signs it with the
 # release signing key (pmm-signing-dev or pmm-signing-prod).
 #
 # The signature proves the index is authentic NobleFactor content,
@@ -12,8 +12,8 @@
 # See ADR-040: SSH Key Generation Ceremony for the signing protocol.
 #
 # Usage:
-#   star devlore knowledge sign index
-#   star devlore knowledge sign index --env=prod
+#   star devlore knowledge sign
+#   star devlore knowledge sign --env=prod
 
 
 def _resolve_target(ctx):

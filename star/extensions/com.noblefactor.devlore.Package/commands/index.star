@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright Noble Factor. All rights reserved.
 
-# index-packages.star - Generate package indexes
+# index.star - Generate package indexes
 #
 # This operation scans the packages/ directory in the target
 # and generates two index files:
@@ -10,7 +10,7 @@
 #   packages/cross-reference.yaml - Native package name -> lore package mappings
 #
 # Usage:
-#   star devlore knowledge index packages --target=/path/to/registry
+#   star devlore package index --target=/path/to/registry
 
 def parse_lifecycle(content):
     """Parse lifecycle.yaml content and extract all fields."""
