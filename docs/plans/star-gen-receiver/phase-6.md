@@ -13,30 +13,37 @@ Key architectural decisions that change the approach:
 |---|---|
 | `GetSlot` returns `string` | `GetSlot` returns `any` |
 | `SlotValue.Immediate` is `string` | `SlotValue.Immediate` is `any` |
-| Impl methods take `ctx *Context` first | Impl methods are stateless — no ctx param |
+| Impl methods take `ctx *Context` first | Service methods are stateless — no ctx param |
 | Ops access `ctx.Data` directly | Engine fills unfilled slots from Context.Data |
-| `Category() OpCategory` on every op | Removed; dispatch by interface type switch |
-| `op_category` in descriptor | Return signature determines interface |
-| `--category` flag required | Namespace derived from struct name |
+| `Category() OpCategory` on every op | Removed — no OpCategory |
+| `Direct`/`Writer`/`Transform` interfaces | Removed — single `Operation` interface |
+| `Executable` interface | Removed — ops receive `*Node` directly |
+| `op_category` in descriptor | Return signature determines content model |
+| `--category` flag required | Namespace derived from service name |
+| Impl structs named `fileOps` | Services named `FileService` (hand-written) |
+| Generated ops in same package | Generated code in subpackages (`generated/fileops/`) |
 
 **Repos**: noblefactor-ops (template changes), devlore-cli (infrastructure + restructure)
 
 ## Goals
 
 1. **Typed slots.** `SlotValue.Immediate` is `any`. Slot types are determined
-   by the implementation method's signature. No string-only slots.
+   by the service method's signature. No string-only slots.
 2. **Slot resolution chain.** Caller-provided first, then engine fills unfilled
    slots from Context.Data. Operations never access ctx.Data directly.
-3. **No OpCategory.** The executor dispatches via interface type switch
-   (Direct/Writer/Transform). The `Category()` method and `OpCategory` enum
-   are removed.
-4. **Return signature is the spec.** The generator infers Direct/Writer/Transform
-   from the impl method's return type. No annotation needed.
-5. **Stateless impl structs.** Implementation methods receive all inputs as
-   parameters. No ctx, no state, no side-channel data.
-6. **All Starlark infrastructure is generated.** Plan receivers, graph ops,
-   and real-time receivers are generated from implementation struct signatures.
-7. **Nuke-safe.** Delete any `_gen.go`, re-run the generator, get it back.
+3. **Single Operation interface.** `Direct`, `Writer`, `Transform`, `Executable`
+   are deleted. One interface: `Operation` with `Name()` and `Execute()`. Each
+   generated op is self-contained — the content model is baked in by the generator.
+4. **Return signature is the spec.** The generator infers the content model
+   (no content, consumer, transformer) from the service method's return type.
+   No annotation needed.
+5. **Services are the source of truth.** Hand-written `FileService`,
+   `PackageService`, `ServiceManagerService`. The generator reads their method
+   signatures to produce everything else.
+6. **All infrastructure is generated.** Ops interface, graph operations, plan
+   receivers, execute receivers, Starlark type mappings, registration — all
+   generated from service signatures.
+7. **Nuke-safe.** Delete any generated subpackage, re-run the generator, get it back.
 
 ## Current State
 
@@ -44,16 +51,18 @@ Key architectural decisions that change the approach:
 |---|---|---|
 | `SlotValue.Immediate` | `string` | `any` |
 | `GetSlot` return type | `string` | `any` |
-| `Executable.GetSlot` | `string` | `any` |
+| `Executable` interface | Present | Deleted — ops receive `*Node` |
 | `FillSlot` | Converts all to string | Stores native Go types |
-| `OpCategory` enum | Present, used by executor | Removed |
-| `Category()` on ops | Present on all 31 current ops | Removed |
+| `OpCategory` enum | Present, used by executor | Deleted |
+| `Category()` on ops | Present on all 31 current ops | Deleted |
+| `Direct`/`Writer`/`Transform` | Present, executor type-switches | Deleted — single `Operation` |
 | Engine slot filling | Not implemented | Fills unfilled from Context.Data |
 | Ops ctx.Data access | 8 ops read ctx.Data directly | Zero — all through slots |
-| Impl structs | Don't exist | Source of truth for generation |
-| Generated graph ops | Don't exist | All 21 ops generated |
+| Services | Don't exist | `FileService`, `PackageService`, `ServiceManagerService` |
+| Generated ops interface | Doesn't exist | `fileOps`, `packageOps`, `serviceManagerOps` |
+| Generated graph ops | Don't exist | All ops generated in subpackages |
 | Generated plan receivers | Don't exist | GitPlan, ArchivePlan generated |
-| Generated real-time receivers | Don't exist | ArchiveReceiver, ServiceReceiver generated |
+| Generated execute receivers | Don't exist | Archive, ServiceManager generated |
 
 ## Step 1: Typed Slot Infrastructure (devlore-cli)
 
@@ -62,7 +71,6 @@ Changes to `internal/execution/graph.go`.
 ### 1a: SlotValue.Immediate → any
 
 ```go
-// graph.go line 230
 type SlotValue struct {
     Immediate any    `json:"immediate,omitempty" yaml:"immediate,omitempty"`
     NodeRef   string `json:"node_ref,omitempty" yaml:"node_ref,omitempty"`
@@ -75,7 +83,6 @@ type SlotValue struct {
 ### 1b: GetSlot → returns any
 
 ```go
-// graph.go line 180
 func (n *Node) GetSlot(name string) any {
     if n.Slots != nil {
         if sv, ok := n.Slots[name]; ok {
@@ -91,7 +98,6 @@ func (n *Node) GetSlot(name string) any {
 ### 1c: SetSlotImmediate → takes any
 
 ```go
-// graph.go line 192
 func (n *Node) SetSlotImmediate(name string, value any) {
     if n.Slots == nil {
         n.Slots = make(map[string]SlotValue)
@@ -100,30 +106,22 @@ func (n *Node) SetSlotImmediate(name string, value any) {
 }
 ```
 
-### 1d: Executable interface
+### 1d: Delete Executable interface
 
-```go
-// graph.go line 302
-type Executable interface {
-    GetID() string
-    GetOperation() string
-    GetSlot(name string) any
-    GetProject() string
-    GetMode() os.FileMode
-}
-```
+Remove the `Executable` interface entirely. All code that references
+`Executable` changes to `*Node`.
 
 ### 1e: Cascade fixes
 
 All callers of `GetSlot` that expect `string` must type-assert:
 
-- `executor.go` lines 624, 636: `sortNodesByDepth` and `sortByDepth` use
-  `node.GetSlot("path")` for depth sorting → `path, _ := node.GetSlot("path").(string)`
-- `executor.go` line 426: source file reading →
+- `executor.go`: `sortNodesByDepth`, `sortByDepth` use
+  `node.GetSlot("path")` → `path, _ := node.GetSlot("path").(string)`
+- `executor.go`: source file reading →
   `source, _ := node.GetSlot("source").(string)`
-- `output.go` line 55: `Output.Attr` returns slot value to Starlark →
+- `output.go`: `Output.Attr` returns slot value to Starlark →
   type-switch to convert `any` back to `starlark.Value`
-- `output.go` line 163: `Output.Path()` → `o.node.GetSlot("path").(string)`
+- `output.go`: `Output.Path()` → `o.node.GetSlot("path").(string)`
 - All 31 existing ops that call `node.GetSlot("x")` and use the result as
   string → add `.(string)` assertions. (These ops are replaced in Step 5,
   so the temporary assertions are short-lived.)
@@ -162,49 +160,39 @@ not immediate values.
 go test ./internal/starlark/ -count=1
 ```
 
-## Step 3: Remove OpCategory (devlore-cli)
+## Step 3: Delete Dispatch Interfaces (devlore-cli)
 
-### 3a: Delete OpCategory from operation.go
+### 3a: Delete from operation.go
 
-Remove `OpCategory` type, constants (`OpTransform`, `OpWriter`, `OpDirect`),
-and `Category() OpCategory` from the `Operation` interface. The interface becomes:
+Remove `Direct`, `Writer`, `Transform` interfaces. Remove `OpCategory` type
+and constants. The file becomes:
 
 ```go
 type Operation interface {
     Name() string
+    Execute(ctx *Context, node *Node) error
 }
 ```
 
-### 3b: Update executor content sourcing
+### 3b: Update executor
 
-`executor.go` line 425 uses `op.Category() != OpDirect` to decide whether to
-read source content. Replace with interface type check:
+Remove the type-switch dispatch (`case Transform`, `case Writer`, `case Direct`).
+The executor calls `op.Execute(ctx, node)` uniformly for every node. Content
+sourcing moves into the ops themselves (temporarily for hand-written ops,
+permanently for generated ops).
+
+### 3c: Update all 31 ops
+
+Every op implements the single `Execute(ctx *Context, node *Node) error` method.
+Ops that previously implemented `Transform` or `Writer` now handle their own
+content sourcing inside `Execute()`.
+
+### 3d: Add content helpers to Context
 
 ```go
-// Before
-} else if op.Category() != OpDirect {
-
-// After
-} else if isContentOp(op) {
+func (ctx *Context) ContentFor(node *Node) []byte  // read from upstream or source file
+func (ctx *Context) StoreContent(node *Node, content []byte)  // store for downstream
 ```
-
-Where `isContentOp` checks `Writer` or `Transform`:
-
-```go
-func isContentOp(op Operation) bool {
-    switch op.(type) {
-    case Writer, Transform:
-        return true
-    }
-    return false
-}
-```
-
-### 3c: Remove Category() from all ops
-
-Delete the `Category() OpCategory` method from every op struct in `ops.go`,
-`ops_package.go`, `ops_service.go` (31 current ops; reduced to 21 after
-service unification in Step 5).
 
 ### Verification
 
@@ -221,15 +209,10 @@ fill any slot that the caller didn't provide.
 ### 4a: Add fillSlotsFromData to GraphExecutor
 
 ```go
-// executor.go
-func (e *GraphExecutor) fillSlotsFromData(node Executable) {
-    n, ok := node.(*Node)
-    if !ok {
-        return
-    }
+func (e *GraphExecutor) fillSlotsFromData(node *Node) {
     for key, value := range e.options.Data {
-        if _, exists := n.Slots[key]; !exists {
-            n.SetSlotImmediate(key, value)
+        if _, exists := node.Slots[key]; !exists {
+            node.SetSlotImmediate(key, value)
         }
     }
 }
@@ -237,8 +220,8 @@ func (e *GraphExecutor) fillSlotsFromData(node Executable) {
 
 ### 4b: Call before dispatch
 
-In `executeExecutableWithOutputs`, call `e.fillSlotsFromData(node)` before
-the content sourcing and dispatch logic.
+In the executor's node loop, call `e.fillSlotsFromData(node)` before
+`op.Execute(ctx, node)`.
 
 ### 4c: Verify existing ops still work
 
@@ -259,46 +242,47 @@ This is a transitional step. Step 5 removes the ctx.Data reads from ops.
 go test ./internal/execution/ -count=1
 ```
 
-## Step 5: Implementation Struct Extraction (devlore-cli)
+## Step 5: Service Extraction (devlore-cli)
 
-Extract business logic into stateless implementation structs. Each method
-receives all inputs as parameters — no ctx, no ctx.Data access.
+Extract business logic into hand-written services. Each method receives all
+inputs as parameters — no ctx, no ctx.Data access. Services are named
+`*Service` by convention.
 
-### 5a: impl_file.go
+### 5a: file_service.go
 
 ```go
-type fileOps struct{}
+type FileService struct{}
 
-func (f *fileOps) Link(source, path string) error
-func (f *fileOps) Copy(path string, mode os.FileMode, content []byte) (string, error)
-func (f *fileOps) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error)
-func (f *fileOps) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error)
-func (f *fileOps) Backup(path, backupSuffix string) error
-func (f *fileOps) Unlink(path string, prune bool, pruneBoundary string) error
-func (f *fileOps) Remove(path string, prune bool, pruneBoundary string) error
-func (f *fileOps) Write(content, path string, mode os.FileMode) error
-func (f *fileOps) Validate(validators map[string]func() error, check, message string) error
-func (f *fileOps) Move(gitMv func(src, dst string) error, source, path string) error
+func (f *FileService) Link(source, path string) error
+func (f *FileService) Copy(path string, mode os.FileMode, content []byte) (string, error)
+func (f *FileService) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error)
+func (f *FileService) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error)
+func (f *FileService) Backup(path, backupSuffix string) error
+func (f *FileService) Unlink(path string, prune bool, pruneBoundary string) error
+func (f *FileService) Remove(path string, prune bool, pruneBoundary string) error
+func (f *FileService) Write(content, path string, mode os.FileMode) error
+func (f *FileService) Validate(validators map[string]func() error, check, message string) error
+func (f *FileService) Move(gitMv func(src, dst string) error, source, path string) error
 ```
 
 Every parameter except the framework `content []byte` (last param on
-Writer/Transform methods) maps to a slot. Parameters like `decryptor`,
+consumer/transformer methods) maps to a slot. Parameters like `decryptor`,
 `validators`, `templateData`, `backupSuffix`, `prune`, `pruneBoundary`,
 `gitMv` come from Context.Data via engine slot filling.
 
 Helper functions (`pruneEmptyParents`, `isSubpath`) move to this file.
 
-### 5b: impl_package.go
+### 5b: package_service.go
 
 ```go
-type packageOps struct{}
+type PackageService struct{}
 
-func (p *packageOps) Install(packages []string, manager string, cask bool) error
-func (p *packageOps) Upgrade(packages []string, manager string, cask bool) error
-func (p *packageOps) Remove(packages []string, manager string, cask bool) error
-func (p *packageOps) Update(manager string) error
-func (p *packageOps) Shell(command string) error
-func (p *packageOps) PowerShell(command string) error
+func (p *PackageService) Install(packages []string, manager string, cask bool) error
+func (p *PackageService) Upgrade(packages []string, manager string, cask bool) error
+func (p *PackageService) Remove(packages []string, manager string, cask bool) error
+func (p *PackageService) Update(manager string) error
+func (p *PackageService) Shell(command string) error
+func (p *PackageService) PowerShell(command string) error
 ```
 
 Helper functions (`resolvePMForInstall`, `resolvePMForUpgrade`,
@@ -308,30 +292,30 @@ Helper functions (`resolvePMForInstall`, `resolvePMForUpgrade`,
 `parsePackages` helper (comma-separated string splitting) is removed.
 `FillSlot` handles `*starlark.List` → `[]string` conversion at plan time.
 
-### 5c: impl_service.go
+### 5c: service_manager_service.go
 
 Platform-agnostic service operations. Same pattern as package: the caller
-says `service.start("foo")` and the impl handles platform dispatch internally.
-15 platform-specific ops collapse to 5.
+says `service_manager.start("foo")` and the service handles platform dispatch
+internally. 15 platform-specific ops collapse to 5.
 
 ```go
-type serviceOps struct{}
+type ServiceManagerService struct{}
 
-func (s *serviceOps) Start(name string) error
-func (s *serviceOps) Stop(name string) error
-func (s *serviceOps) Restart(name string) error
-func (s *serviceOps) Enable(name string) error
-func (s *serviceOps) Disable(name string) error
+func (s *ServiceManagerService) Start(name string) error
+func (s *ServiceManagerService) Stop(name string) error
+func (s *ServiceManagerService) Restart(name string) error
+func (s *ServiceManagerService) Enable(name string) error
+func (s *ServiceManagerService) Disable(name string) error
 ```
 
 Each method detects the platform at runtime (`runtime.GOOS`) and dispatches
 to the appropriate service manager (launchd on darwin, systemd on linux,
 sc on windows). The 15 current ops (`LaunchdStartOp`, `SystemdStartOp`,
-`WinServiceStartOp`, etc.) are replaced by 5 ops (`ServiceStartOp`, etc.).
+`WinServiceStartOp`, etc.) are replaced by 5 ops.
 
 ### Verification
 
-Impl structs compile standalone. No tests yet — they're exercised through
+Services compile standalone. No tests yet — they're exercised through
 the generated ops in Step 7.
 
 ```bash
@@ -340,99 +324,55 @@ go build ./internal/execution/...
 
 ## Step 6: Generator Template Updates (noblefactor-ops)
 
-### 6a: Remove op_category from descriptor
+### 6a: Single Operation interface in templates
 
-Delete `OpCategory` field from `methodInfo`. Delete `op_category` handling
-from `methodInfoFromValue`. Add `Interface` field (inferred from return type):
+All generated ops implement `Operation` with `Name()` and `Execute()`.
+No `Direct`, `Writer`, `Transform` in generated code. The content model
+is baked into each op's `Execute()` method based on the service method's
+return signature.
+
+### 6b: Generate ops interface
+
+The generator produces an unexported interface from the service's method
+signatures:
+
+```go
+// generated/fileops/ops.go
+type fileOps interface {
+    Link(source, path string) error
+    Copy(path string, mode os.FileMode, content []byte) (string, error)
+    // ...
+}
+```
+
+### 6c: Content model inference from return signature
 
 ```go
 type methodInfo struct {
-    GoName    string
-    SnakeName string
-    Params    []paramInfo
-    ReturnType string
-    Interface  string // "Direct", "Writer", "Transform"
-    Doc        string
+    GoName       string
+    SnakeName    string
+    Params       []paramInfo
+    ReturnType   string
+    ContentModel string // "none", "consumer", "transformer"
+    Doc          string
 }
 ```
 
-In `descriptorFromValue` or `goGenerate`, after `validateReturnSignature`
-extracts the value type:
-
-```go
-switch valueType {
-case "string":
-    m.Interface = "Writer"
-case "[]byte":
-    m.Interface = "Transform"
-default:
-    m.Interface = "Direct"
-}
-```
-
-For methods that return `error` only (not `(T, error)`), the gate validation
-needs a new path. Currently `validateReturnSignature` rejects bare `error`.
-Add support:
-
-```go
-if returns == "error" {
-    return "", nil  // empty valueType signals Direct
-}
-```
-
-### 6b: Graph ops template — remove Category(), typed assertions
-
-Replace `{{if eq .OpCategory "OpWriter"}}` with `{{if eq .Interface "Writer"}}`.
-
-Remove all `Category() OpCategory` lines.
-
-Replace `tplSlotReaders` with typed assertion code:
-
-```go
-// For string params:
-source, ok := node.GetSlot("source").(string)
-if !ok {
-    return fmt.Errorf("{{$.Category}}.{{.SnakeName}}: slot \"source\" requires string")
-}
-
-// For bool params:
-prune, _ := node.GetSlot("prune").(bool)
-
-// For function params:
-decryptor, ok := node.GetSlot("decryptor").(func(string, []byte) ([]byte, error))
-if !ok {
-    return nil, fmt.Errorf("{{$.Category}}.{{.SnakeName}}: slot \"decryptor\" requires func")
-}
-```
-
-The assertion pattern depends on the Go type. Required params (string, func)
-use `ok` check with error. Optional/defaultable params (bool, int) use
-zero-value fallback.
-
-### 6c: Graph ops template — delegation without ctx
-
-Impl methods don't take ctx. The delegation call passes only slot values:
-
-```go
-return o.impl.{{.GoName}}({{implArgs .Params}})           // Direct
-return o.impl.{{.GoName}}({{implArgs .Params}}, content)  // Writer/Transform
-```
-
-### 6d: Namespace from struct name
-
-Add a `namespaceFromStruct` function that strips known suffixes and converts
-to snake_case:
-
-| Struct | Strip Suffix | Namespace |
+| Return Signature | Content Model | Generated Execute() |
 |---|---|---|
-| `fileOps` | `Ops` | `file` |
-| `packageOps` | `Ops` | `package` |
-| `serviceOps` | `Ops` | `service` |
-| `GitPlan` | `Plan` | `git` |
-| `ArchiveReceiver` | `Receiver` | `archive` |
+| `error` | `none` | Read slots, delegate, return error |
+| `(string, error)` | `consumer` | Read content + slots, delegate, store checksum |
+| `([]byte, error)` | `transformer` | Read content + slots, delegate, store output content |
 
-The `category` field in the descriptor is derived from this — no `--category`
-CLI flag needed.
+### 6d: Namespace from service name
+
+Strip `Service` suffix, snake_case:
+
+| Service | Namespace |
+|---|---|
+| `FileService` | `file` |
+| `PackageService` | `package` |
+| `ServiceManagerService` | `service_manager` |
 
 ### 6e: Expand type mappings
 
@@ -455,7 +395,7 @@ from Context.Data at runtime. The generator skips them in plan receiver template
 
 The generator must distinguish slot params from framework params. Convention:
 
-- **Framework content**: The last `[]byte` param on Writer/Transform methods.
+- **Framework content**: The last `[]byte` param on consumer/transformer methods.
   Identified by: method returns `(string, error)` or `([]byte, error)`, AND
   the last param's type is `[]byte`. This param is NOT a slot — it's the
   content pipeline.
@@ -463,25 +403,49 @@ The generator must distinguish slot params from framework params. Convention:
 
 No annotation needed. The method signature IS the specification.
 
-### 6g: Tests
+### 6g: Generate into subpackages
+
+The generator produces code in `generated/<namespace>ops/`:
+
+```
+internal/execution/generated/
+├── fileops/
+│   └── ops.go       # fileOps interface, FileLinkOp, ..., Ops() registration
+├── packageops/
+│   └── ops.go       # packageOps interface, PackageInstallOp, ..., Ops()
+└── servicemanagerops/
+    └── ops.go       # serviceManagerOps interface, ServiceManagerStartOp, ..., Ops()
+```
+
+Registration function accepts the interface:
+
+```go
+func Ops(impl fileOps) []Operation { ... }
+```
+
+Parent package wires it: `fileops.Ops(&FileService{})`.
+
+### 6h: Tests
 
 Update existing tests, add new tests:
 
+- `TestGenerateOpsInterface`: Verify generated interface matches service methods
 - `TestGenerateGraphOpsTypedSlots`: Verify typed assertion code for string,
-  bool, func params.
-- `TestGenerateGraphOpsWriterInferred`: Method with `(string, error)` return
-  generates `Write()` without explicit op_category.
-- `TestGenerateGraphOpsTransformInferred`: Method with `([]byte, error)` return
-  generates `Transform()`.
-- `TestGenerateGraphOpsDirectInferred`: Method with `error` return generates
-  `Execute()`.
-- `TestGenerateGraphOpsNoCategory`: Verify no `Category()` method in output.
-- `TestNamespaceFromStruct`: Verify suffix stripping and snake_case.
+  bool, func params
+- `TestGenerateConsumerInferred`: Method with `(string, error)` return generates
+  content consumer Execute()
+- `TestGenerateTransformerInferred`: Method with `([]byte, error)` return generates
+  content transformer Execute()
+- `TestGenerateNoContentInferred`: Method with `error` return generates
+  no-content Execute()
+- `TestGenerateNoDispatchInterfaces`: Verify no `Direct`, `Writer`, `Transform`
+  in output
+- `TestNamespaceFromService`: Verify suffix stripping and snake_case
 
 ### Verification
 
 ```bash
-cd /Users/david-noble/Workspace/NobleFactor/noblefactor-ops
+cd /path/to/noblefactor-ops
 go test ./internal/starlark/ -run TestGenerate -count=1
 go test ./internal/starlark/ -count=1
 go build ./... && go vet ./internal/starlark/
@@ -489,33 +453,43 @@ go build ./... && go vet ./internal/starlark/
 
 ## Step 7: Generate and Replace Graph Ops (devlore-cli)
 
-### 7a: Generate ops_file_gen.go
+### 7a: Generate generated/fileops/
 
-Run the generator against `fileOps`. The generated file contains:
+Run the generator against `FileService`. The generated subpackage contains:
 
-- `FileLinkOp` (Direct), `FileCopyOp` (Writer), `FileRenderOp` (Transform),
-  `FileDecryptOp` (Transform), `FileBackupOp` (Direct), `FileUnlinkOp` (Direct),
-  `FileRemoveOp` (Direct), `FileWriteOp` (Direct), `FileValidateOp` (Direct),
-  `FileMoveOp` (Direct)
-- Each op: struct with `impl *fileOps`, `Name()`, Execute/Write/Transform
-  with typed slot assertions + dry-run + delegation
-- `FileOps() []Operation` registration function
+- `fileOps` interface (unexported)
+- `FileLinkOp`, `FileCopyOp`, `FileRenderOp`, `FileDecryptOp`, `FileBackupOp`,
+  `FileUnlinkOp`, `FileRemoveOp`, `FileWriteOp`, `FileValidateOp`, `FileMoveOp`
+- Each op: struct with `impl fileOps`, `Name()`, `Execute()` with typed slot
+  assertions + dry-run + content handling + delegation
+- `Ops(impl fileOps) []Operation` registration function
 
-### 7b: Generate ops_package_gen.go
+### 7b: Generate generated/packageops/
 
-From `packageOps`. 6 ops (Install, Upgrade, Remove, Update, Shell, PowerShell).
+From `PackageService`. 6 ops (Install, Upgrade, Remove, Update, Shell, PowerShell).
 
-### 7c: Generate ops_service_gen.go
+### 7c: Generate generated/servicemanagerops/
 
-From `serviceOps`. 5 platform-agnostic ops (Start, Stop, Restart, Enable,
-Disable). Operation names: `service.start`, `service.stop`, etc.
+From `ServiceManagerService`. 5 platform-agnostic ops (Start, Stop, Restart,
+Enable, Disable). Operation names: `service_manager.start`,
+`service_manager.stop`, etc.
 
 ### 7d: Delete hand-written ops
 
 Remove `ops.go` (file ops + AllOps), `ops_package.go`, `ops_service.go`.
 
-Move `AllOps()` to a new small wiring file or into one of the generated files.
-`AllOps` calls `FileOps()`, `PackageOps()`, `ServiceOps()`.
+Create a small wiring file that imports generated subpackages and registers:
+
+```go
+// ops_registry.go
+func AllOps() []Operation {
+    var ops []Operation
+    ops = append(ops, fileops.Ops(&FileService{})...)
+    ops = append(ops, packageops.Ops(&PackageService{})...)
+    ops = append(ops, servicemanagerops.Ops(&ServiceManagerService{})...)
+    return ops
+}
+```
 
 ### Verification
 
@@ -524,15 +498,15 @@ go build ./internal/execution/...
 go test ./internal/execution/ -count=1
 
 # Nuke and regenerate
-rm internal/execution/ops_*_gen.go
-# Run generator for each impl struct
+rm -rf internal/execution/generated/
+star devlore ops generate
 go build ./internal/execution/...
 go test ./internal/execution/ -count=1
 ```
 
 ## Step 8: Generate Plan Receivers (devlore-cli)
 
-### 8a: Generate plan_git_gen.go
+### 8a: Generate plan_git in generated/
 
 From GitPlan's 3 methods (clone, checkout, pull). Delete `plan_git.go`.
 
@@ -545,7 +519,7 @@ The generated plan receiver:
 - Operation names: `git.clone`, `git.checkout`, `git.pull`
 - Node IDs: `generateNodeID("git.clone")`
 
-### 8b: Generate plan_archive_gen.go
+### 8b: Generate plan_archive in generated/
 
 From ArchivePlan's 1 method (extract). Delete `plan_archive.go`.
 
@@ -557,12 +531,6 @@ From ArchivePlan's 1 method (extract). Delete `plan_archive.go`.
   from standard `UnpackArgs`.
 - `plan_root.go`: Top-level orchestration methods.
 
-### 8d: Update plan_root.go constructors
-
-If generated plan receiver constructors changed signature (they shouldn't —
-`NewGitPlan(graph, host, project)` matches the template output), verify
-`plan_root.go` still compiles.
-
 ### Verification
 
 ```bash
@@ -570,18 +538,18 @@ go build ./internal/starlark/...
 go test ./internal/starlark/ -count=1
 ```
 
-## Step 9: Generate Real-Time Receivers (devlore-cli)
+## Step 9: Generate Execute Receivers (devlore-cli)
 
 ### 9a: Typed receivers → generated
 
-- `receiver_archive_gen.go` from ArchiveReceiver's typed params (extract).
+- Archive execute receiver from ArchiveService's typed params (extract).
   Delete `receiver_archive.go`.
-- `receiver_service_gen.go` from ServiceReceiver's typed params.
+- ServiceManager execute receiver from ServiceManagerService's typed params.
   Delete `receiver_service.go`.
 
-### 9b: Hand-written receivers stay
+### 9b: Hand-written execute receivers stay
 
-| Receiver | Reason |
+| File | Reason |
 |---|---|
 | `receiver_git.go` | kwargs passthrough (CLI wrapper) |
 | `receiver_npm.go` | kwargs passthrough |
@@ -638,7 +606,7 @@ resolution. User-authored templates reference them. No rename.
 
 In `commands.go`, the undeploy command sets `cfg.TemplateData["prune_empty_dirs"]`.
 Rename to `"prune"` to match the slot name on
-`fileOps.Unlink(path string, prune bool, ...)`.
+`FileService.Unlink(path string, prune bool, ...)`.
 
 ### Verification
 
@@ -652,33 +620,34 @@ go test ./... -count=1
 ```
 Step 1 (typed slots)
   → Step 2 (FillSlot typed conversions)
-  → Step 3 (remove OpCategory)
+  → Step 3 (delete dispatch interfaces)
   → Step 4 (engine slot filling)
-  → Step 5 (impl struct extraction)
+  → Step 5 (service extraction)
   → Step 7 (generate graph ops)
 
 Step 6 (template updates, noblefactor-ops) — parallel with Steps 1-5
 
 Step 7 (generate graph ops) requires Steps 5 + 6
 Step 8 (generate plan receivers) requires Step 6
-Step 9 (generate real-time receivers) requires Step 6
+Step 9 (generate execute receivers) requires Step 6
 Step 10 (key normalization) — can run anytime after Step 4
 ```
 
-Steps 1-4 are infrastructure. Step 5 extracts impl structs. Step 6 updates
+Steps 1-4 are infrastructure. Step 5 extracts services. Step 6 updates
 templates. Steps 7-9 generate and replace. Step 10 normalizes keys.
 
 ## Scope Boundaries
 
 | Pattern | Generated | Hand-Written |
 |---|---|---|
+| Ops interface (unexported) | All | - |
 | Graph ops (typed slot assertions + delegation) | All 21 | - |
 | Plan receivers (standard 1:1 method → node) | GitPlan, ArchivePlan | FilePlan, PackagePlan |
-| Real-time receivers (typed params) | Archive, Service | Git/Npm/Docker/Shell/Env/HTTP/Log/Package |
+| Execute receivers (typed params) | Archive, ServiceManager | Git/Npm/Docker/Shell/Env/HTTP/Log/Package |
 | Receiver embedding + MakeAttr + AttrNames | All generated | All hand-written use same pattern |
 | Slot readers + dry-run logging | All generated | - |
-| Registration functions with impl | All generated | - |
-| Implementation bodies | - | impl structs (source of truth) |
+| Registration functions | All generated | - |
+| Service implementations | - | Services (source of truth) |
 | Multi-node methods (configure) | - | Required |
 | Variadic args pattern (PackagePlan) | - | Required |
 | kwargs passthrough (CLI wrappers) | - | Required |
@@ -691,52 +660,42 @@ templates. Steps 7-9 generate and replace. Step 10 normalizes keys.
 
 | File | Action | Purpose |
 |---|---|---|
-| `internal/execution/graph.go` | Modify | Typed slots (any), GetSlot returns any |
-| `internal/execution/operation.go` | Modify | Remove OpCategory |
-| `internal/execution/executor.go` | Modify | Type-switch content sourcing, engine slot filling |
+| `internal/execution/graph.go` | Modify | Typed slots (any), delete Executable |
+| `internal/execution/operation.go` | Modify | Delete Direct/Writer/Transform, single Operation |
+| `internal/execution/executor.go` | Modify | Uniform op.Execute(), engine slot filling |
 | `internal/starlark/output.go` | Modify | FillSlot stores native Go types |
-| `internal/execution/impl_file.go` | Create | fileOps implementation struct |
-| `internal/execution/impl_package.go` | Create | packageOps implementation struct |
-| `internal/execution/impl_service.go` | Create | serviceOps implementation struct |
-| `internal/execution/ops_file_gen.go` | Create | Generated file ops |
-| `internal/execution/ops_package_gen.go` | Create | Generated package ops |
-| `internal/execution/ops_service_gen.go` | Create | Generated service ops |
-| `internal/execution/ops.go` | Delete | Replaced by impl_file.go + ops_file_gen.go |
-| `internal/execution/ops_package.go` | Delete | Replaced by impl_package.go + ops_package_gen.go |
-| `internal/execution/ops_service.go` | Delete | Replaced by impl_service.go + ops_service_gen.go |
-| `internal/starlark/plan_git_gen.go` | Create | Generated GitPlan |
-| `internal/starlark/plan_archive_gen.go` | Create | Generated ArchivePlan |
-| `internal/starlark/plan_git.go` | Delete | Replaced by plan_git_gen.go |
-| `internal/starlark/plan_archive.go` | Delete | Replaced by plan_archive_gen.go |
-| `internal/starlark/receiver_archive_gen.go` | Create | Generated ArchiveReceiver |
-| `internal/starlark/receiver_service_gen.go` | Create | Generated ServiceReceiver |
-| `internal/starlark/receiver_archive.go` | Delete | Replaced by receiver_archive_gen.go |
-| `internal/starlark/receiver_service.go` | Delete | Replaced by receiver_service_gen.go |
+| `internal/execution/file_service.go` | Create | FileService (hand-written) |
+| `internal/execution/package_service.go` | Create | PackageService (hand-written) |
+| `internal/execution/service_manager_service.go` | Create | ServiceManagerService (hand-written) |
+| `internal/execution/ops_registry.go` | Create | AllOps() wiring |
+| `internal/execution/generated/fileops/ops.go` | Create | Generated: fileOps interface + ops |
+| `internal/execution/generated/packageops/ops.go` | Create | Generated: packageOps interface + ops |
+| `internal/execution/generated/servicemanagerops/ops.go` | Create | Generated: serviceManagerOps interface + ops |
+| `internal/execution/ops.go` | Delete | Replaced by service + generated subpackage |
+| `internal/execution/ops_package.go` | Delete | Replaced by service + generated subpackage |
+| `internal/execution/ops_service.go` | Delete | Replaced by service + generated subpackage |
+| `internal/starlark/plan_git.go` | Delete | Replaced by generated |
+| `internal/starlark/plan_archive.go` | Delete | Replaced by generated |
+| `internal/starlark/receiver_archive.go` | Delete | Replaced by generated |
+| `internal/starlark/receiver_service.go` | Delete | Replaced by generated |
 | `internal/writ/commands.go` | Modify | Rename `prune_empty_dirs` key to `prune` |
 
 ### noblefactor-ops
 
 | File | Action | Purpose |
 |---|---|---|
-| `internal/starlark/receiver_go_gen.go` | Modify | Remove op_category, typed assertions, return-type inference, namespace from struct |
+| `internal/starlark/receiver_go_gen.go` | Modify | Single Operation, ops interface, content model inference, namespace from service |
 
 ## Verification
 
 After all steps, validate the nuke-and-regenerate workflow:
 
 ```bash
-# Delete all generated files
-rm internal/execution/ops_*_gen.go
-rm internal/starlark/plan_*_gen.go
-rm internal/starlark/receiver_*_gen.go
+# Delete all generated subpackages
+rm -rf internal/execution/generated/
 
 # Regenerate all
-star gen.receiver --struct fileOps --path ./internal/execution --templates graph_ops --write
-star gen.receiver --struct packageOps --path ./internal/execution --templates graph_ops --write
-star gen.receiver --struct serviceOps --path ./internal/execution --templates graph_ops --write
-star gen.receiver --struct GitPlan --path ./internal/starlark --templates plan_receiver --write
-star gen.receiver --struct ArchivePlan --path ./internal/starlark --templates plan_receiver --write
-# ... real-time receivers
+star devlore ops generate
 
 # Everything compiles and tests pass
 go build ./...
@@ -747,6 +706,7 @@ go test ./...
 
 - [devlore-typed-slots.md](../../architecture/devlore-typed-slots.md) — Typed slots architecture
 - [devlore-execution-graph.md](../../architecture/devlore-execution-graph.md) — Graph structure and lifecycle
+- [devlore-command-tree.md](../devlore-command-tree.md) — Command tree restructuring
 - [phase-5.md](phase-5.md) — Previous plan (superseded by this document)
 - Phases 0-4 — Generator pipeline (merged)
 
@@ -760,3 +720,13 @@ go test ./...
 - **`packages` slot type**: `[]string` natively. Remove comma-separated string.
   `FillSlot` converts `*starlark.List` → `[]string`.
 - **Phase 5**: Superseded by this document. Note added to phase-5.md.
+- **Dispatch interfaces**: `Direct`, `Writer`, `Transform` deleted. Single
+  `Operation` interface with `Name()` and `Execute()`. Content model baked
+  into each generated op by the generator.
+- **Service naming**: Hand-written structs named `*Service` (`FileService`,
+  `PackageService`, `ServiceManagerService`). Generated ops interface named
+  `*Ops` (unexported: `fileOps`, `packageOps`, `serviceManagerOps`).
+- **Namespace derivation**: Strip `Service` suffix, snake_case the remainder.
+  `FileService` → `file`. `ServiceManagerService` → `service_manager`.
+- **Generated code location**: Subpackages under `internal/execution/generated/`.
+  Each namespace gets its own package (`fileops/`, `packageops/`, `servicemanagerops/`).

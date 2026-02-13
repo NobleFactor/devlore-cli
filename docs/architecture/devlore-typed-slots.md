@@ -12,10 +12,12 @@ structure and lifecycle.
 |---|---|---|
 | **Receiver** | Starlark | An object with methods. `file`, `plan.file`, `git` are receivers. Methods are bound to the receiver — `file.copy()` calls the `copy` method with `file` as the receiver. |
 | **Method** | Starlark/Python | A callable bound to a receiver. `file.copy()`, `plan.file.link()`, `git.clone()` are method calls. |
-| **Namespace** | Ours | The organizational grouping that ties together a receiver, its methods, and its operations. Derived from the struct name: `fileOps` → `file`. Appears in operation names (`file.link`), method paths (`plan.file.link()`), and error messages. |
-| **Plan receiver** | Ours | A receiver whose methods create graph nodes for later execution. `plan.file`, `plan.git`. |
-| **Real-time receiver** | Ours | A receiver whose methods execute immediately. `file`, `git`, `archive`. |
-| **Implementation struct** | Ours | The Go struct whose methods contain business logic. Source of truth for the generator. `fileOps`, `packageOps`. |
+| **Namespace** | Ours | The organizational grouping that ties together a service, its receivers, its methods, and its operations. Derived from the service struct name: `FileService` → `file`. Appears in operation names (`file.link`), method paths (`plan.file.link()`), and error messages. |
+| **Plan receiver** | Ours | A receiver whose methods create graph nodes for later execution. `plan.file`, `plan.git`. Generated from the service's method signatures. |
+| **Execute receiver** | Ours | A receiver whose methods execute immediately. `file`, `archive`, `service_manager`. Generated from the service's method signatures. |
+| **Service** | Ours | The hand-written Go struct whose methods contain business logic (activities). Source of truth for the generator. `FileService`, `PackageService`, `ServiceManagerService`. Named `*Service` by convention (or `*ManagerService` to avoid collision). |
+| **Ops interface** | Ours | Generated interface extracted from the service's method signatures. `fileOps`, `packageOps`, `serviceManagerOps`. Unexported — internal contract between the service and generated ops. |
+| **Activity** | Ours | A method on a service. Currently forward-only (execution). Will expand to include forward and backward (compensation) operations. |
 | **Slot** | Ours | A named, typed input on a graph node. Holds a value or a promise. |
 | **Promise** | Ours | A slot value that references another node's output, resolved at execution time. |
 
@@ -53,118 +55,87 @@ Plan receiver                Engine                   Op
 ## Slot Types
 
 `SlotValue.Immediate` is `any`. The type of each slot is determined by the
-implementation struct's method signature:
+service's method signature:
 
 ```go
-func (f *fileOps) Link(source, path string) error
-//                      string        string
-//                      slot:"source" slot:"path"
+func (f *FileService) Link(source, path string) error
+//                         string        string
+//                         slot:"source" slot:"path"
 
-func (f *fileOps) Render(templateData map[string]any, source string, content []byte) ([]byte, error)
-//                        map[string]any               string        []byte (framework)
-//                        slot:"template_data"         slot:"source"
+func (f *FileService) Render(templateData map[string]any, source string, content []byte) ([]byte, error)
+//                            map[string]any               string        []byte (framework)
+//                            slot:"template_data"         slot:"source"
 
-func (f *fileOps) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error)
-//                         func(...)                                        string        []byte (framework)
-//                         slot:"decryptor"                                 slot:"source"
+func (f *FileService) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error)
+//                             func(...)                                        string        []byte (framework)
+//                             slot:"decryptor"                                 slot:"source"
 ```
 
 Strings, bools, maps, functions — all just values in slots.
 
 ### Framework Content
 
-Writer and Transform operations receive content from the upstream pipeline
+Consumer and transformer operations receive content from the upstream pipeline
 (e.g., read source → decrypt → render → copy). This content is
 framework-provided — it is not a slot.
 
-The generator infers the operation interface from the implementation
-method's return signature:
+The generator infers the content model from the service method's return
+signature:
 
-| Return Signature | Interface | Content? |
+| Return Signature | Content Model | Content? |
 |---|---|---|
-| `error` | `Direct` | No content parameter |
-| `(string, error)` | `Writer` | Last `[]byte` param is content (string return is checksum) |
-| `([]byte, error)` | `Transform` | Last `[]byte` param is content ([]byte return is transformed content) |
+| `error` | No content | No content parameter |
+| `(string, error)` | Content consumer | Last `[]byte` param is content (string return is checksum) |
+| `([]byte, error)` | Content transformer | Last `[]byte` param is content ([]byte return is transformed content) |
 
 No annotation is needed. The method signature IS the specification. The
 generator validates at discovery time:
 
-- Direct methods return `error` only
-- Writer methods return `(string, error)` and have at least one `[]byte` param
-- Transform methods return `([]byte, error)` and have at least one `[]byte` param
+- No-content methods return `error` only
+- Consumer methods return `(string, error)` and have at least one `[]byte` param
+- Transformer methods return `([]byte, error)` and have at least one `[]byte` param
 - Any other return signature is rejected
-
-The executor dispatches via Go interface type switch — `case Transform`,
-`case Writer`, `case Direct`.
 
 Everything except the framework `[]byte` maps to a slot. The slot name is
 the snake_case form of the Go parameter name.
 
-## Operation Interfaces
+## Operation Interface
 
-Three interfaces define how the executor calls operations:
+One interface. Every generated op implements it:
 
 ```go
 type Operation interface {
     Name() string
-}
-
-type Direct interface {
-    Operation
-    Execute(ctx *Context, node Executable) error
-}
-
-type Writer interface {
-    Operation
-    Write(ctx *Context, node Executable, content []byte) (string, error)
-}
-
-type Transform interface {
-    Operation
-    Transform(ctx *Context, node Executable, content []byte) ([]byte, error)
+    Execute(ctx *Context, node *Node) error
 }
 ```
 
-The executor type-switches to dispatch:
-
-```go
-switch op := op.(type) {
-case Transform:
-    content, err = op.Transform(ctx, node, content)
-    outputs[node.GetID()] = content
-case Writer:
-    checksum, err = op.Write(ctx, node, content)
-case Direct:
-    err = op.Execute(ctx, node)
-}
-```
-
-Content sourcing: if the operation implements Writer or Transform, the
-executor reads the source file or chains from upstream content before
-calling the operation.
+The executor calls `op.Execute(ctx, node)` for every node. No type-switch.
+Each generated op is self-contained — it knows its own content model because
+the generator baked it in from the service method's return signature. The
+generated `Execute()` method handles content sourcing, slot assertions,
+dry-run logging, and delegation to the service internally.
 
 ## Namespace
 
-The namespace is the organizational grouping for a receiver, its methods,
-and the operations they produce. It is derived from the implementation
-struct name by stripping the suffix and normalizing to snake_case:
+The namespace is the organizational grouping for a service, its receivers,
+its methods, and the operations they produce. It is derived from the service
+struct name by stripping the `Service` suffix and normalizing to snake_case:
 
-| Struct | Strip suffix | Namespace |
+| Service | Strip suffix | Namespace |
 |---|---|---|
-| `fileOps` | strip "Ops" | `file` |
-| `packageOps` | strip "Ops" | `package` |
-| `serviceOps` | strip "Ops" | `service` |
-| `GitPlan` | strip "Plan" | `git` |
-| `ArchiveReceiver` | strip "Receiver" | `archive` |
+| `FileService` | strip "Service" | `file` |
+| `PackageService` | strip "Service" | `package` |
+| `ServiceManagerService` | strip "Service" | `service_manager` |
 
 The namespace appears in:
-- Operation names: `file.link`, `package.install`, `service.start`
-- Plan receiver methods: `plan.file.link()`, `plan.git.clone()`
-- Real-time receiver methods: `archive.extract()`, `git.clone()`
+- Operation names: `file.link`, `package.install`, `service_manager.start`
+- Plan receiver methods: `plan.file.link()`, `plan.package.install()`
+- Execute receiver methods: `file.copy()`, `archive.extract()`
 - Error messages: `file.link: slot "source" requires string`
+- Generated package names: `generated/fileops/`, `generated/packageops/`, `generated/servicemanagerops/`
 
-One struct family per namespace — `fileOps` + `FilePlan` + `FileReceiver`
-all share the `file` namespace. The namespace IS the receiver's identity.
+One service per namespace. The namespace IS the service's identity.
 
 ## Two Worlds
 
@@ -180,8 +151,8 @@ Starlark involvement.
 ## Starlark Type Mappings
 
 At plan time, Starlark values must be converted to Go types for slot
-filling. The type mappings are determined from the implementation struct's
-method signatures:
+filling. The type mappings are determined from the service's method
+signatures:
 
 | Go Type | Starlark Type | Notes |
 |---|---|---|
@@ -243,53 +214,53 @@ data := map[string]any{
 Key naming convention: snake_case. This aligns with Starlark conventions
 and the generator's parameter name → slot name mapping.
 
-## Implementation Structs
+## Services
 
-Implementation structs are the source of truth for business logic. The
-generator reads their method signatures to produce graph operations,
-plan receivers, and real-time receivers.
+Services are the hand-written source of truth. The generator reads their
+method signatures to produce everything else: ops interface, graph
+operations, plan receivers, execute receivers, and Starlark type mappings.
 
 ```go
-// impl_file.go — hand-written, survives regeneration
-type fileOps struct{}
+// file_service.go — hand-written, survives regeneration
+type FileService struct{}
 
-func (f *fileOps) Link(source, path string) error {
+func (f *FileService) Link(source, path string) error {
     // idempotent symlink
 }
 
-func (f *fileOps) Copy(path string, mode os.FileMode, content []byte) (string, error) {
+func (f *FileService) Copy(path string, mode os.FileMode, content []byte) (string, error) {
     // write file, return checksum
 }
 
-func (f *fileOps) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error) {
+func (f *FileService) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error) {
     // execute Go text/template with templateData
 }
 
-func (f *fileOps) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error) {
+func (f *FileService) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error) {
     return decryptor(source, content)
 }
 
-func (f *fileOps) Backup(path, backupSuffix string) error {
+func (f *FileService) Backup(path, backupSuffix string) error {
     // timestamped backup using backupSuffix
 }
 
-func (f *fileOps) Unlink(path string, prune bool, pruneBoundary string) error {
+func (f *FileService) Unlink(path string, prune bool, pruneBoundary string) error {
     // remove symlink, optionally prune empty parents
 }
 
-func (f *fileOps) Remove(path string, prune bool, pruneBoundary string) error {
+func (f *FileService) Remove(path string, prune bool, pruneBoundary string) error {
     // delete file, optionally prune empty parents
 }
 
-func (f *fileOps) Write(content, path string, mode os.FileMode) error {
+func (f *FileService) Write(content, path string, mode os.FileMode) error {
     // write inline content
 }
 
-func (f *fileOps) Validate(validators map[string]func() error, check, message string) error {
+func (f *FileService) Validate(validators map[string]func() error, check, message string) error {
     // look up and run named validator
 }
 
-func (f *fileOps) Move(gitMv func(src, dst string) error, source, path string) error {
+func (f *FileService) Move(gitMv func(src, dst string) error, source, path string) error {
     // git mv with os.Rename fallback
 }
 ```
@@ -298,19 +269,47 @@ Every parameter except the framework `content []byte` maps to a slot. The
 slot value comes from the resolution chain: caller-provided first, then
 Context.Data fallback.
 
-## Generated Graph Ops
+## Generated Code
 
-The generator reads the implementation struct's methods and produces
-graph operations that read slots, validate types, handle dry-run, and
-delegate to the implementation:
+The generator reads the service's methods and produces all infrastructure
+in a subpackage (`internal/execution/generated/fileops/`). Everything below
+is generated — nuke-safe, never hand-edited.
+
+### Ops Interface
+
+The generated interface extracted from the service's method signatures:
 
 ```go
-// ops_file_gen.go — generated, nuke-safe
-type FileLinkOp struct{ impl *fileOps }
+// generated/fileops/ops.go — generated, nuke-safe
+type fileOps interface {
+    Link(source, path string) error
+    Copy(path string, mode os.FileMode, content []byte) (string, error)
+    Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error)
+    Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error)
+    Backup(path, backupSuffix string) error
+    Unlink(path string, prune bool, pruneBoundary string) error
+    Remove(path string, prune bool, pruneBoundary string) error
+    Write(content, path string, mode os.FileMode) error
+    Validate(validators map[string]func() error, check, message string) error
+    Move(gitMv func(src, dst string) error, source, path string) error
+}
+```
+
+`FileService` satisfies this interface. The ops reference `fileOps`, not
+the concrete `FileService` — the interface is the contract boundary.
+
+### Graph Operations
+
+Each generated op implements the single `Operation` interface. The content
+model (no content, consumer, transformer) is baked in by the generator:
+
+```go
+// generated/fileops/ops.go — generated, nuke-safe
+type FileLinkOp struct{ impl fileOps }
 
 func (o *FileLinkOp) Name() string { return "file.link" }
 
-func (o *FileLinkOp) Execute(ctx *Context, node Executable) error {
+func (o *FileLinkOp) Execute(ctx *Context, node *Node) error {
     source, ok := node.GetSlot("source").(string)
     if !ok {
         return fmt.Errorf("file.link: slot \"source\" requires string")
@@ -327,36 +326,42 @@ func (o *FileLinkOp) Execute(ctx *Context, node Executable) error {
 }
 ```
 
-For a Transform operation with a function-valued slot:
+A content-transformer op handles its own content sourcing internally:
 
 ```go
-type FileDecryptOp struct{ impl *fileOps }
+type FileDecryptOp struct{ impl fileOps }
 
 func (o *FileDecryptOp) Name() string { return "file.decrypt" }
 
-func (o *FileDecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
+func (o *FileDecryptOp) Execute(ctx *Context, node *Node) error {
     decryptor, ok := node.GetSlot("decryptor").(func(string, []byte) ([]byte, error))
     if !ok {
-        return nil, fmt.Errorf("file.decrypt: slot \"decryptor\" requires func")
+        return fmt.Errorf("file.decrypt: slot \"decryptor\" requires func")
     }
     source, ok := node.GetSlot("source").(string)
     if !ok {
-        return nil, fmt.Errorf("file.decrypt: slot \"source\" requires string")
+        return fmt.Errorf("file.decrypt: slot \"source\" requires string")
     }
+    content := ctx.ContentFor(node)
     if ctx.DryRun {
-        return content, nil
+        ctx.StoreContent(node, content)
+        return nil
     }
-    return o.impl.Decrypt(decryptor, source, content)
+    result, err := o.impl.Decrypt(decryptor, source, content)
+    if err != nil {
+        return err
+    }
+    ctx.StoreContent(node, result)
+    return nil
 }
 ```
 
-No ctx.Data access. All inputs come through typed slots.
+No type-switch in the executor. Every op is self-contained.
 
-## Registration
+### Registration
 
 ```go
-func FileOps() []Operation {
-    impl := &fileOps{}
+func Ops(impl fileOps) []Operation {
     return []Operation{
         &FileLinkOp{impl: impl},
         &FileCopyOp{impl: impl},
@@ -372,8 +377,9 @@ func FileOps() []Operation {
 }
 ```
 
-The implementation struct has no fields — it is a method namespace. All
-inputs come through typed slots. Registration is stateless.
+The parent package wires it: `fileops.Ops(&FileService{})`. The service
+has no fields — it is a method namespace. All inputs come through typed
+slots. Registration is stateless.
 
 ## Engine Slot Filling
 
@@ -423,14 +429,14 @@ A slot's name, type, and Starlark type mapping must be discoverable by
 extension authors, plan writers, and error messages.
 
 - **Names**: Derived from Go parameter names (snake_case). The canonical
-  list of slot names for an operation is its implementation method
-  signature. Available via `go.methods()` in the generator, and listed
-  by each receiver's methods at plan time.
+  list of slot names for an operation is its service method signature.
+  Available via `go.methods()` in the generator, and listed by each
+  receiver's methods at plan time.
 
-- **Types**: Determined by the implementation method signature. The
-  generator knows the Go type of each slot and the corresponding Starlark
-  type for plan receiver method arguments. The type mapping table
-  (string↔String, bool↔Bool, etc.) must be documented and consistent.
+- **Types**: Determined by the service method signature. The generator
+  knows the Go type of each slot and the corresponding Starlark type for
+  plan receiver method arguments. The type mapping table (string↔String,
+  bool↔Bool, etc.) must be documented and consistent.
 
 - **Introspection**: Operations should be able to report their expected
   slots — names and types — for tooling, help text, and error messages.
