@@ -276,11 +276,19 @@ type Graph struct {
 	// Edges are the dependencies between nodes.
 	Edges []Edge `json:"edges,omitempty" yaml:"edges,omitempty"`
 
+	// Phases defines the ordered lifecycle phases (nil for non-phased graphs).
+	// When present, the executor uses phase-aware execution with retry and rollback.
+	// When nil, the executor falls back to flat node execution.
+	Phases []*Phase `json:"phases,omitempty" yaml:"phases,omitempty"`
+
 	// Collisions records source conflicts resolved during tree building (writ-specific).
 	Collisions []Collision `json:"collisions,omitempty" yaml:"collisions,omitempty"`
 
 	// Summary contains execution statistics (populated after Run).
 	Summary Summary `json:"summary,omitempty" yaml:"summary,omitempty"`
+
+	// Rollback records compensating actions executed during rollback (populated on failure).
+	Rollback []RollbackEntry `json:"rollback,omitempty" yaml:"rollback,omitempty"`
 
 	// Checksum is the git-style integrity hash.
 	Checksum string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
@@ -389,6 +397,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 		State      GraphState   `yaml:"state"`
 		Platform   Platform     `yaml:"platform"`
 		Context    GraphContext `yaml:"context"`
+		Phases     []*Phase     `yaml:"phases,omitempty"`
 		Nodes      []*Node      `yaml:"nodes"`
 		Edges      []Edge       `yaml:"edges,omitempty"`
 		Collisions []Collision  `yaml:"collisions,omitempty"`
@@ -401,6 +410,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 		State:      g.State,
 		Platform:   g.Platform,
 		Context:    g.Context,
+		Phases:     g.Phases,
 		Nodes:      g.Nodes,
 		Edges:      g.Edges,
 		Collisions: g.Collisions,
@@ -437,6 +447,8 @@ func (g *Graph) ApplyResults(results []*Result) {
 }
 
 // ComputeSummary calculates summary statistics from nodes.
+// For phased graphs, node statuses reflect the phase execution outcome
+// (nodes in rolled-back phases may show as completed from before rollback).
 func (g *Graph) ComputeSummary() {
 	g.Summary = Summary{}
 
@@ -477,4 +489,14 @@ func (g *Graph) ComputeSummary() {
 			g.Summary.BackedUp++
 		}
 	}
+}
+
+// PhaseByID returns the phase with the given ID, or nil if not found.
+func (g *Graph) PhaseByID(id string) *Phase {
+	for _, p := range g.Phases {
+		if p.ID == id {
+			return p
+		}
+	}
+	return nil
 }

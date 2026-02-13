@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ResultStatus represents the execution status of a node.
@@ -111,13 +112,24 @@ func NewGraphExecutor(registry *OperationRegistry, opts ExecutorOptions) *GraphE
 }
 
 // Run executes all nodes in the graph, respecting ordering constraints.
-// Nodes are processed in topological order when edges define dependencies.
-// Content flows between chained nodes via an outputs map.
+// When the graph has phases, execution is delegated to RunPhased which
+// implements the saga pattern with retry and rollback. Otherwise, nodes
+// are processed in topological order (flat execution).
 func (e *GraphExecutor) Run(ctx context.Context, g *Graph) error {
 	if g.State != StatePending {
 		return fmt.Errorf("graph already executed (state: %s)", g.State)
 	}
 
+	if len(g.Phases) > 0 {
+		return e.RunPhased(ctx, g)
+	}
+
+	return e.runFlat(ctx, g)
+}
+
+// runFlat executes all nodes in topological order without phase boundaries.
+// This is the original execution path for non-phased graphs.
+func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 	ordered := e.orderNodes(g.Nodes, g.Edges)
 
 	execCtx := &Context{
@@ -152,6 +164,203 @@ func (e *GraphExecutor) Run(ctx context.Context, g *Graph) error {
 	}
 
 	return nil
+}
+
+// RunPhased executes a phased graph using the saga pattern.
+// Phases are executed in order. Each phase runs its inner nodes via
+// topological sort. On failure, completed phases are compensated in
+// LIFO order (rollback).
+//
+// Phases referenced as compensating actions (via Compensate fields) are
+// skipped during the forward pass — they execute only during rollback.
+func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
+	execCtx := &Context{
+		Context: ctx,
+		DryRun:  e.options.DryRun,
+		Logger:  e.options.Logger,
+		Data:    e.options.Data,
+	}
+
+	// Collect compensating phase IDs so we skip them in the forward pass.
+	compensateIDs := make(map[string]bool)
+	for _, p := range g.Phases {
+		if p.Compensate != "" {
+			compensateIDs[p.Compensate] = true
+		}
+	}
+
+	// Build the forward phase list (excludes compensating phases).
+	var forwardPhases []*Phase
+	for _, p := range g.Phases {
+		if !compensateIDs[p.ID] {
+			forwardPhases = append(forwardPhases, p)
+		}
+	}
+
+	stack := &RecoveryStack{}
+	var rollbackLog []RollbackEntry
+
+	for _, phase := range forwardPhases {
+		err := e.executePhase(execCtx, g, phase, stack)
+		if err != nil {
+			// Phase failed after retries — unwind completed phases
+			phase.Status = PhaseFailed
+
+			// Mark remaining forward phases as skipped
+			started := false
+			for _, p := range forwardPhases {
+				if p.ID == phase.ID {
+					started = true
+					continue
+				}
+				if started && p.Status == PhasePending {
+					p.Status = PhaseSkipped
+				}
+			}
+
+			// Unwind the recovery stack
+			rollbackLog = e.unwindStack(execCtx, g, stack)
+
+			g.Rollback = rollbackLog
+			g.ComputeSummary()
+			g.State = StateFailed
+			return fmt.Errorf("phase %s failed: %w", phase.Name, err)
+		}
+	}
+
+	g.ComputeSummary()
+	g.State = StateExecuted
+	return nil
+}
+
+// executePhase runs a single phase with retry logic.
+// On success, pushes a recovery entry onto the stack.
+// On failure (retries exhausted), returns the error.
+func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, stack *RecoveryStack) error {
+	maxAttempts := 1
+	if phase.Retry != nil {
+		maxAttempts += phase.Retry.MaxAttempts
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// Apply backoff delay before retries (not before first attempt)
+		if attempt > 0 && phase.Retry != nil {
+			delay := phase.Retry.ComputeDelay(attempt - 1)
+			if delay > 0 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(delay):
+				}
+			}
+		}
+
+		// Reset inner node statuses for retry
+		if attempt > 0 {
+			e.resetPhaseNodes(g, phase)
+		}
+
+		err := e.ExecutePhaseInner(ctx, g, phase)
+
+		attemptRecord := Attempt{
+			Number:    attempt + 1,
+			Timestamp: time.Now().Format(time.RFC3339),
+		}
+
+		if err == nil {
+			attemptRecord.Status = "completed"
+			phase.Attempts = append(phase.Attempts, attemptRecord)
+			phase.Status = PhaseCompleted
+
+			// Push recovery entry if phase has a compensating action
+			if phase.Compensate != "" {
+				compensateID := phase.Compensate
+				phaseName := phase.Name
+				phaseState := phase.State
+
+				stack.Push(RecoveryEntry{
+					PhaseID:   phase.ID,
+					PhaseName: phaseName,
+					State:     phaseState,
+					Compensate: func(ctx *Context) error {
+						// Find the compensating phase in the graph
+						for _, p := range g.Phases {
+							if p.ID == compensateID {
+								return e.ExecutePhaseInner(ctx, g, p)
+							}
+						}
+						return fmt.Errorf("compensating phase %s not found", compensateID)
+					},
+				})
+			}
+
+			return nil
+		}
+
+		attemptRecord.Status = "failed"
+		attemptRecord.Error = err.Error()
+		phase.Attempts = append(phase.Attempts, attemptRecord)
+		lastErr = err
+	}
+
+	return lastErr
+}
+
+// resetPhaseNodes resets inner node statuses back to pending for retry.
+func (e *GraphExecutor) resetPhaseNodes(g *Graph, phase *Phase) {
+	nodeSet := make(map[string]bool, len(phase.NodeIDs))
+	for _, id := range phase.NodeIDs {
+		nodeSet[id] = true
+	}
+	for _, n := range g.Nodes {
+		if nodeSet[n.ID] {
+			n.Status = StatusPending
+			n.Error = ""
+			n.Timestamp = ""
+		}
+	}
+}
+
+// unwindStack pops the recovery stack and executes compensating actions in LIFO order.
+// Returns a log of rollback entries for the receipt.
+func (e *GraphExecutor) unwindStack(ctx *Context, g *Graph, stack *RecoveryStack) []RollbackEntry {
+	entries := stack.Entries()
+	var log []RollbackEntry
+
+	// Process in LIFO order (most recent first)
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		rollback := RollbackEntry{
+			Phase:      entry.PhaseName,
+			Compensate: entry.PhaseID + ".compensate",
+		}
+
+		if entry.Compensate == nil {
+			rollback.Status = "skipped"
+			log = append(log, rollback)
+			continue
+		}
+
+		if err := entry.Compensate(ctx); err != nil {
+			rollback.Status = "failed"
+			rollback.Error = err.Error()
+		} else {
+			rollback.Status = "completed"
+		}
+
+		// Mark the original phase as rolled back
+		for _, p := range g.Phases {
+			if p.ID == entry.PhaseID {
+				p.Status = PhaseRolledBack
+				break
+			}
+		}
+
+		log = append(log, rollback)
+	}
+
+	return log
 }
 
 // RunNodes executes a slice of executables with the given edges.
