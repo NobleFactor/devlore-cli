@@ -20,7 +20,7 @@ commands:
       - name: domain
         type: string
         default: "all"
-        help: "Knowledge domain: all, onboarding, or migration"
+        help: "Knowledge domain: all, onboarding, migration, or ops"
 
   - name: devlore.knowledge.index
     help: Generate index.yaml for knowledge domains
