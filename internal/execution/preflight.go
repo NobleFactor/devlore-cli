@@ -70,19 +70,13 @@ func Preflight(graph *Graph) *PreflightResult {
 	return result
 }
 
-// nodeWritesToTarget returns true if the node's operations produce a file at
-// node's "path" slot (link, copy, or any pipeline ending in copy).
+// nodeWritesToTarget returns true if the node's operation produces a file at
+// node's "path" slot (link or copy).
 func nodeWritesToTarget(node *Node) bool {
 	if node.GetSlot("path") == "" {
 		return false
 	}
-	for _, op := range node.Operations {
-		switch op {
-		case "link", "copy":
-			return true
-		}
-	}
-	return false
+	return node.Operation == "link" || node.Operation == "copy"
 }
 
 // detectConflict checks if a target path has a conflict.

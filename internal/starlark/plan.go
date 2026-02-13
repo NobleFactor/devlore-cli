@@ -66,7 +66,7 @@ func (p *planBindings) Project() string {
 func (p *planBindings) PackageInstall(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("package-install", packages...),
-		Operations: []string{"package-install"},
+		Operation: "package-install",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -78,7 +78,7 @@ func (p *planBindings) PackageInstall(packages ...string) *execution.Node {
 func (p *planBindings) PackageUpgrade(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("package-upgrade", packages...),
-		Operations: []string{"package-upgrade"},
+		Operation: "package-upgrade",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -90,7 +90,7 @@ func (p *planBindings) PackageUpgrade(packages ...string) *execution.Node {
 func (p *planBindings) PackageRemove(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("package-remove", packages...),
-		Operations: []string{"package-remove"},
+		Operation: "package-remove",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -102,7 +102,7 @@ func (p *planBindings) PackageRemove(packages ...string) *execution.Node {
 func (p *planBindings) PackageUpdate() *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("package-update"),
-		Operations: []string{"package-update"},
+		Operation: "package-update",
 		Project:    p.project,
 	}
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -110,23 +110,37 @@ func (p *planBindings) PackageUpdate() *execution.Node {
 }
 
 // Configure adds a configuration file node (template expansion + copy).
+// Creates a render→copy chain with an edge between them.
 func (p *planBindings) Configure(source, target string) *execution.Node {
-	node := &execution.Node{
-		ID:         generateNodeID("configure"),
-		Operations: []string{"render", "copy"},
-		Project:    p.project,
+	renderNode := &execution.Node{
+		ID:        generateNodeID("render"),
+		Operation: "render",
+		Project:   p.project,
 	}
-	node.SetSlotImmediate("source", source)
-	node.SetSlotImmediate("path", p.host.ExpandPath(target))
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return node
+	renderNode.SetSlotImmediate("source", source)
+	p.graph.Nodes = append(p.graph.Nodes, renderNode)
+
+	copyNode := &execution.Node{
+		ID:        generateNodeID("configure"),
+		Operation: "copy",
+		Project:   p.project,
+	}
+	copyNode.SetSlotImmediate("path", p.host.ExpandPath(target))
+	p.graph.Nodes = append(p.graph.Nodes, copyNode)
+
+	p.graph.Edges = append(p.graph.Edges, execution.Edge{
+		From: renderNode.ID,
+		To:   copyNode.ID,
+	})
+
+	return copyNode
 }
 
 // Link adds a symlink creation node.
 func (p *planBindings) Link(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("link"),
-		Operations: []string{"link"},
+		Operation: "link",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -139,7 +153,7 @@ func (p *planBindings) Link(source, target string) *execution.Node {
 func (p *planBindings) Copy(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("copy"),
-		Operations: []string{"copy"},
+		Operation: "copy",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -152,7 +166,7 @@ func (p *planBindings) Copy(source, target string) *execution.Node {
 func (p *planBindings) Write(target, content string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("write"),
-		Operations: []string{"write"},
+		Operation: "write",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("path", p.host.ExpandPath(target))
@@ -165,7 +179,7 @@ func (p *planBindings) Write(target, content string) *execution.Node {
 func (p *planBindings) Remove(target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("remove"),
-		Operations: []string{"remove"},
+		Operation: "remove",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("path", p.host.ExpandPath(target))
@@ -177,7 +191,7 @@ func (p *planBindings) Remove(target string) *execution.Node {
 func (p *planBindings) Download(url, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("download"),
-		Operations: []string{"download"},
+		Operation: "download",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("url", url)
@@ -190,7 +204,7 @@ func (p *planBindings) Download(url, target string) *execution.Node {
 func (p *planBindings) ArchiveExtract(archive, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("archive-extract"),
-		Operations: []string{"archive-extract"},
+		Operation: "archive-extract",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("source", p.host.ExpandPath(archive))
@@ -203,7 +217,7 @@ func (p *planBindings) ArchiveExtract(archive, target string) *execution.Node {
 func (p *planBindings) GitClone(url, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("git-clone"),
-		Operations: []string{"git-clone"},
+		Operation: "git-clone",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("url", url)
@@ -216,7 +230,7 @@ func (p *planBindings) GitClone(url, target string) *execution.Node {
 func (p *planBindings) GitCheckout(ref string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("git-checkout"),
-		Operations: []string{"git-checkout"},
+		Operation: "git-checkout",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("ref", ref)
@@ -228,7 +242,7 @@ func (p *planBindings) GitCheckout(ref string) *execution.Node {
 func (p *planBindings) GitPull() *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("git-pull"),
-		Operations: []string{"git-pull"},
+		Operation: "git-pull",
 		Project:    p.project,
 	}
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -239,7 +253,7 @@ func (p *planBindings) GitPull() *execution.Node {
 func (p *planBindings) Service(name string, action ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("service", name, action.String()),
-		Operations: []string{"service"},
+		Operation: "service",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("name", name)
@@ -252,7 +266,7 @@ func (p *planBindings) Service(name string, action ServiceAction) *execution.Nod
 func (p *planBindings) Shell(command string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("shell"),
-		Operations: []string{"shell"},
+		Operation: "shell",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("command", command)

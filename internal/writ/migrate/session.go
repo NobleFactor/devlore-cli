@@ -343,13 +343,11 @@ func (s *Session) formatGraphForPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("Planned renames:\n")
 	for _, node := range s.graph.Nodes {
-		for _, op := range node.Operations {
-			if op == "move" {
-				// Show relative paths for readability
-				source := strings.TrimPrefix(node.GetSlot("source"), s.opts.SourceRoot+"/")
-				target := strings.TrimPrefix(node.GetSlot("path"), s.opts.SourceRoot+"/")
-				sb.WriteString(fmt.Sprintf("  %s -> %s\n", source, target))
-			}
+		if node.Operation == "move" {
+			// Show relative paths for readability
+			source := strings.TrimPrefix(node.GetSlot("source"), s.opts.SourceRoot+"/")
+			target := strings.TrimPrefix(node.GetSlot("path"), s.opts.SourceRoot+"/")
+			sb.WriteString(fmt.Sprintf("  %s -> %s\n", source, target))
 		}
 	}
 	return sb.String()

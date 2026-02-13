@@ -15,7 +15,7 @@ import (
 )
 
 // CurrentVersion is the graph format version.
-const CurrentVersion = "5"
+const CurrentVersion = "6"
 
 // GraphBuilder is the interface for all graph builders.
 type GraphBuilder interface {
@@ -57,19 +57,58 @@ func BuildTree(g *execution.Graph, cfg *Config) error {
 		return fmt.Errorf("build tree: %w", err)
 	}
 
-	// Convert file entries to graph nodes
+	// Convert file entries to graph nodes.
+	// Multi-op pipelines from tree (e.g., ["render", "copy"]) become node chains.
 	for _, f := range result.Files {
-		node := &execution.Node{
-			ID:         f.ID,
-			Operations: f.Operations,
-			Status:     execution.StatusPending,
-			Project:    f.Project,
-			Layer:      f.Layer,
-			Mode:       f.Mode,
+		ops := f.Operations
+
+		if len(ops) == 1 {
+			// Single operation — single node
+			node := &execution.Node{
+				ID:        f.ID,
+				Operation: ops[0],
+				Status:    execution.StatusPending,
+				Project:   f.Project,
+				Layer:     f.Layer,
+				Mode:      f.Mode,
+			}
+			node.SetSlotImmediate("source", f.Source)
+			node.SetSlotImmediate("path", f.Target)
+			g.Nodes = append(g.Nodes, node)
+		} else {
+			// Multi-op pipeline → node chain
+			var prevNode *execution.Node
+			for i, op := range ops {
+				isLast := (i == len(ops) - 1)
+				nodeID := f.ID
+				if !isLast {
+					nodeID = f.ID + ":" + op
+				}
+
+				node := &execution.Node{
+					ID:        nodeID,
+					Operation: op,
+					Status:    execution.StatusPending,
+					Project:   f.Project,
+					Layer:     f.Layer,
+					Mode:      f.Mode,
+				}
+				if i == 0 {
+					node.SetSlotImmediate("source", f.Source)
+				}
+				if isLast {
+					node.SetSlotImmediate("path", f.Target)
+				}
+				g.Nodes = append(g.Nodes, node)
+
+				if prevNode != nil {
+					g.Edges = append(g.Edges, execution.Edge{
+						From: prevNode.ID, To: node.ID,
+					})
+				}
+				prevNode = node
+			}
 		}
-		node.SetSlotImmediate("source", f.Source)
-		node.SetSlotImmediate("path", f.Target)
-		g.Nodes = append(g.Nodes, node)
 	}
 
 	// Record collisions
@@ -217,11 +256,11 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 
 		target := filepath.Join(b.view.Files.Root, relTarget)
 		node := &execution.Node{
-			ID:         relTarget,
-			Operations: []string{op},
-			Status:     execution.StatusPending,
-			Project:    entry.Project,
-			Layer:      entry.Layer,
+			ID:        relTarget,
+			Operation: op,
+			Status:    execution.StatusPending,
+			Project:   entry.Project,
+			Layer:     entry.Layer,
 		}
 		node.SetSlotImmediate("source", entry.Source)
 		node.SetSlotImmediate("path", target)

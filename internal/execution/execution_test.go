@@ -21,8 +21,8 @@ func runGraph(ctx context.Context, e *GraphExecutor, g *Graph) ([]*Result, error
 }
 
 // testNode creates a node with source and path slots for testing.
-func testNode(id string, ops []string, source, path string) *Node {
-	node := &Node{ID: id, Operations: ops}
+func testNode(id string, op string, source, path string) *Node {
+	node := &Node{ID: id, Operation: op}
 	if source != "" {
 		node.SetSlotImmediate("source", source)
 	}
@@ -448,7 +448,7 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
 		Nodes: []*Node{
-			testNode(".bashrc", []string{"link"}, source, target),
+			testNode(".bashrc", "link", source, target),
 		},
 	}
 
@@ -486,10 +486,12 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 	engine := NewGraphExecutor(reg, ExecutorOptions{
 		Data: map[string]any{"Username": "david"},
 	})
+
+	renderNode := testNode(".greeting:render", "render", source, "")
+	copyNode := testNode(".greeting", "copy", "", target)
 	graph := &Graph{
-		Nodes: []*Node{
-			testNode(".greeting", []string{"render", "copy"}, source, target),
-		},
+		Nodes: []*Node{renderNode, copyNode},
+		Edges: []Edge{{From: ".greeting:render", To: ".greeting"}},
 	}
 
 	results, err := runGraph(context.Background(), engine, graph)
@@ -497,8 +499,11 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if results[0].Status != ResultCompleted {
-		t.Errorf("expected completed, got %s (error: %v)", results[0].Status, results[0].Error)
+	// Both nodes should complete
+	for _, r := range results {
+		if r.Status != ResultCompleted {
+			t.Fatalf("node %s: expected completed, got %s (error: %v)", r.NodeID, r.Status, r.Error)
+		}
 	}
 
 	content, _ := os.ReadFile(target)
@@ -506,11 +511,13 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 		t.Errorf("expected 'Hello david!', got %q", string(content))
 	}
 
+	// The render node should have the source checksum
 	if results[0].SourceChecksum == "" {
-		t.Error("expected source checksum")
+		t.Error("expected source checksum on render node")
 	}
-	if results[0].TargetChecksum == "" {
-		t.Error("expected target checksum")
+	// The copy node should have the target checksum
+	if results[1].TargetChecksum == "" {
+		t.Error("expected target checksum on copy node")
 	}
 }
 
@@ -539,9 +546,16 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 			"Token":     "abc123",
 		},
 	})
+	// Chain: decrypt → render → copy
+	decryptNode := testNode(".secret:decrypt", "decrypt", source, "")
+	renderNode := testNode(".secret:render", "render", "", "")
+	copyNode := testNode(".secret", "copy", "", target)
+
 	graph := &Graph{
-		Nodes: []*Node{
-			testNode(".secret", []string{"decrypt", "render", "copy"}, source, target),
+		Nodes: []*Node{decryptNode, renderNode, copyNode},
+		Edges: []Edge{
+			{From: ".secret:decrypt", To: ".secret:render"},
+			{From: ".secret:render", To: ".secret"},
 		},
 	}
 
@@ -550,8 +564,11 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if results[0].Status != ResultCompleted {
-		t.Fatalf("expected completed, got %s (error: %v)", results[0].Status, results[0].Error)
+	// All three nodes should complete
+	for _, r := range results {
+		if r.Status != ResultCompleted {
+			t.Fatalf("node %s: expected completed, got %s (error: %v)", r.NodeID, r.Status, r.Error)
+		}
 	}
 
 	content, _ := os.ReadFile(target)
@@ -581,8 +598,8 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
 		Nodes: []*Node{
-			testNode("tgt1.txt", []string{"link"}, source1, target1),
-			testNode("sub/tgt2.txt", []string{"link"}, source2, target2),
+			testNode("tgt1.txt", "link", source1, target1),
+			testNode("sub/tgt2.txt", "link", source2, target2),
 		},
 	}
 
@@ -606,7 +623,7 @@ func TestEngineRunUnknownOperation(t *testing.T) {
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "test", Operations: []string{"unknown_op"}},
+			{ID: "test", Operation: "unknown_op"},
 		},
 	}
 
@@ -641,9 +658,9 @@ func TestEngineTopologicalSort(t *testing.T) {
 	// B depends on A, C depends on B
 	graph := &Graph{
 		Nodes: []*Node{
-			testNode("c", []string{"link"}, srcC, filepath.Join(tmpDir, "out_c")),
-			testNode("a", []string{"link"}, srcA, filepath.Join(tmpDir, "out_a")),
-			testNode("b", []string{"link"}, srcB, filepath.Join(tmpDir, "out_b")),
+			testNode("c", "link", srcC, filepath.Join(tmpDir, "out_c")),
+			testNode("a", "link", srcA, filepath.Join(tmpDir, "out_a")),
+			testNode("b", "link", srcB, filepath.Join(tmpDir, "out_b")),
 		},
 		Edges: []Edge{
 			{From: "a", To: "b"},
@@ -682,7 +699,7 @@ func TestEngineDryRun(t *testing.T) {
 	engine := NewGraphExecutor(reg, ExecutorOptions{DryRun: true})
 	graph := &Graph{
 		Nodes: []*Node{
-			testNode(".bashrc", []string{"link"}, source, target),
+			testNode(".bashrc", "link", source, target),
 		},
 	}
 
@@ -711,7 +728,7 @@ func TestPreflightNoConflict(t *testing.T) {
 
 	graph := &Graph{
 		Nodes: []*Node{
-			testNode("test", []string{"link"}, source, target),
+			testNode("test", "link", source, target),
 		},
 	}
 
@@ -737,7 +754,7 @@ func TestPreflightConflictRegularFile(t *testing.T) {
 
 	graph := &Graph{
 		Nodes: []*Node{
-			testNode("test", []string{"link"}, source, target),
+			testNode("test", "link", source, target),
 		},
 	}
 
@@ -763,7 +780,7 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 
 	graph := &Graph{
 		Nodes: []*Node{
-			testNode("test", []string{"link"}, source, target),
+			testNode("test", "link", source, target),
 		},
 	}
 
@@ -781,7 +798,7 @@ func TestPreflightPackagesManifest(t *testing.T) {
 	// The preflight should treat them as ready since there's no filesystem conflict
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "manifest", Operations: []string{"packages"}},
+			{ID: "manifest", Operation: "packages"},
 		},
 	}
 

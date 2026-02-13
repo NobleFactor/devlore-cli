@@ -76,21 +76,32 @@ func (f *FilePlan) configure(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:         generateNodeID("configure"),
-		Operations: []string{"render", "copy"},
-		Project:    f.project,
+	renderNode := &execution.Node{
+		ID:        generateNodeID("render"),
+		Operation: "render",
+		Project:   f.project,
 	}
-
-	if err := FillSlot(node, f.graph, "source", source); err != nil {
+	if err := FillSlot(renderNode, f.graph, "source", source); err != nil {
 		return nil, fmt.Errorf("configure: source: %w", err)
 	}
-	if err := FillSlot(node, f.graph, "path", path); err != nil {
+	f.graph.Nodes = append(f.graph.Nodes, renderNode)
+
+	copyNode := &execution.Node{
+		ID:        generateNodeID("configure"),
+		Operation: "copy",
+		Project:   f.project,
+	}
+	if err := FillSlot(copyNode, f.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("configure: path: %w", err)
 	}
+	f.graph.Nodes = append(f.graph.Nodes, copyNode)
 
-	f.graph.Nodes = append(f.graph.Nodes, node)
-	return NewOutput(node, f.graph, ""), nil
+	f.graph.Edges = append(f.graph.Edges, execution.Edge{
+		From: renderNode.ID,
+		To:   copyNode.ID,
+	})
+
+	return NewOutput(copyNode, f.graph, ""), nil
 }
 
 // link adds a symlink creation node.
@@ -109,7 +120,7 @@ func (f *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 	node := &execution.Node{
 		ID:         generateNodeID("link"),
-		Operations: []string{"link"},
+		Operation: "link",
 		Project:    f.project,
 	}
 
@@ -140,7 +151,7 @@ func (f *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 	node := &execution.Node{
 		ID:         generateNodeID("copy"),
-		Operations: []string{"copy"},
+		Operation: "copy",
 		Project:    f.project,
 	}
 
@@ -171,7 +182,7 @@ func (f *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 
 	node := &execution.Node{
 		ID:         generateNodeID("write"),
-		Operations: []string{"write"},
+		Operation: "write",
 		Project:    f.project,
 	}
 
@@ -201,7 +212,7 @@ func (f *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 
 	node := &execution.Node{
 		ID:         generateNodeID("remove"),
-		Operations: []string{"remove"},
+		Operation: "remove",
 		Project:    f.project,
 	}
 

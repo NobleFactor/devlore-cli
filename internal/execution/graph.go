@@ -139,8 +139,8 @@ type Node struct {
 	// ID is the unique identifier (typically relative target path or package name).
 	ID string `json:"id" yaml:"id"`
 
-	// Operations to perform: link, copy, expand, decrypt, install, etc.
-	Operations []string `json:"operations" yaml:"operations"`
+	// Operation to perform: link, copy, render, decrypt, install, etc.
+	Operation string `json:"operation" yaml:"operation"`
 
 	// Status of this node: pending, completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
@@ -207,8 +207,8 @@ func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
 // GetID returns the node's unique identifier.
 func (n *Node) GetID() string { return n.ID }
 
-// GetOperations returns the list of operations to perform.
-func (n *Node) GetOperations() []string { return n.Operations }
+// GetOperation returns the operation to perform.
+func (n *Node) GetOperation() string { return n.Operation }
 
 // GetProject returns the project name.
 func (n *Node) GetProject() string { return n.Project }
@@ -293,7 +293,7 @@ type Graph struct {
 // This interface is implemented by Node.
 type Executable interface {
 	GetID() string
-	GetOperations() []string
+	GetOperation() string
 	GetSlot(name string) string
 	GetProject() string
 	GetMode() os.FileMode
@@ -454,24 +454,22 @@ func (g *Graph) ComputeSummary() {
 			continue
 		}
 
-		// Determine primary operation
-		if len(n.Operations) > 0 {
-			switch n.Operations[0] {
-			case "link":
-				g.Summary.TotalFiles++
-				g.Summary.Links++
-			case "render":
-				g.Summary.TotalFiles++
-				g.Summary.Templates++
-			case "decrypt":
-				g.Summary.TotalFiles++
-				g.Summary.Secrets++
-			case "copy":
-				g.Summary.TotalFiles++
-				g.Summary.Copies++
-			case "package-install", "package-upgrade", "package-remove":
-				g.Summary.Packages++
-			}
+		// Count by operation type
+		switch n.Operation {
+		case "link":
+			g.Summary.TotalFiles++
+			g.Summary.Links++
+		case "render":
+			g.Summary.TotalFiles++
+			g.Summary.Templates++
+		case "decrypt":
+			g.Summary.TotalFiles++
+			g.Summary.Secrets++
+		case "copy":
+			g.Summary.TotalFiles++
+			g.Summary.Copies++
+		case "package-install", "package-upgrade", "package-remove":
+			g.Summary.Packages++
 		}
 
 		// Check for backup annotation

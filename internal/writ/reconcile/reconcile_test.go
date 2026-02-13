@@ -35,7 +35,7 @@ func TestCheckEntry_LinkedCorrectly(t *testing.T) {
 	}
 
 	// Check entry
-	entry := checkEntry(sourceFile, targetFile, "test.txt", "testproject", []string{"link"})
+	entry := checkEntry(sourceFile, targetFile, "test.txt", "testproject", "link")
 
 	if entry.State != StateLinked {
 		t.Errorf("expected StateLinked, got %s (%s)", entry.State.Label(), entry.Message)
@@ -63,7 +63,7 @@ func TestCheckEntry_Missing(t *testing.T) {
 	targetFile := filepath.Join(targetDir, "test.txt")
 
 	// Check entry - target doesn't exist
-	entry := checkEntry(sourceFile, targetFile, "test.txt", "testproject", []string{"link"})
+	entry := checkEntry(sourceFile, targetFile, "test.txt", "testproject", "link")
 
 	if entry.State != StateMissing {
 		t.Errorf("expected StateMissing, got %s (%s)", entry.State.Label(), entry.Message)
@@ -95,7 +95,7 @@ func TestCheckEntry_Conflict(t *testing.T) {
 	}
 
 	// Check entry - should be conflict
-	entry := checkEntry(sourceFile, targetFile, "test.txt", "testproject", []string{"link"})
+	entry := checkEntry(sourceFile, targetFile, "test.txt", "testproject", "link")
 
 	if entry.State != StateConflict {
 		t.Errorf("expected StateConflict, got %s (%s)", entry.State.Label(), entry.Message)
@@ -118,7 +118,7 @@ func TestCheckEntry_Orphan(t *testing.T) {
 	}
 
 	// Source also doesn't exist
-	entry := checkEntry(nonexistent, targetFile, "test.txt", "testproject", []string{"link"})
+	entry := checkEntry(nonexistent, targetFile, "test.txt", "testproject", "link")
 
 	if entry.State != StateOrphan {
 		t.Errorf("expected StateOrphan, got %s (%s)", entry.State.Label(), entry.Message)
@@ -150,7 +150,7 @@ func TestCheckEntry_CopiedFile(t *testing.T) {
 	}
 
 	// Check entry with copy operation
-	entry := checkEntry(sourceFile, targetFile, "config", "testproject", []string{"render", "copy"})
+	entry := checkEntry(sourceFile, targetFile, "config", "testproject", "copy")
 
 	if entry.State != StateCopied {
 		t.Errorf("expected StateCopied, got %s (%s)", entry.State.Label(), entry.Message)

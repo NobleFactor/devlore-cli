@@ -112,7 +112,7 @@ func NewGraphExecutor(registry *OperationRegistry, opts ExecutorOptions) *GraphE
 
 // Run executes all nodes in the graph, respecting ordering constraints.
 // Nodes are processed in topological order when edges define dependencies.
-// Returns results for each node.
+// Content flows between chained nodes via an outputs map.
 func (e *GraphExecutor) Run(ctx context.Context, g *Graph) error {
 	if g.State != StatePending {
 		return fmt.Errorf("graph already executed (state: %s)", g.State)
@@ -127,9 +127,10 @@ func (e *GraphExecutor) Run(ctx context.Context, g *Graph) error {
 		Data:    e.options.Data,
 	}
 
+	outputs := make(map[string][]byte)
 	var results []*Result
 	for _, node := range ordered {
-		result := e.executeNode(execCtx, node)
+		result := e.executeNodeWithOutputs(execCtx, node, g.Edges, outputs)
 		results = append(results, result)
 
 		if result.Status == ResultFailed && e.options.ConflictResolution == ResolutionStop {
@@ -166,9 +167,10 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []Executable, edges 
 		Data:    e.options.Data,
 	}
 
+	outputs := make(map[string][]byte)
 	var results []*Result
 	for _, node := range ordered {
-		result := e.executeExecutable(execCtx, node)
+		result := e.executeExecutableWithOutputs(execCtx, node, edges, outputs)
 		results = append(results, result)
 
 		if result.Status == ResultFailed && e.options.ConflictResolution == ResolutionStop {
@@ -179,60 +181,75 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []Executable, edges 
 	return results, nil
 }
 
-// executeNode processes a single node through its operation pipeline.
-func (e *GraphExecutor) executeNode(ctx *Context, node *Node) *Result {
-	return e.executeExecutable(ctx, node)
+// executeNodeWithOutputs processes a single node, resolving upstream content from edges.
+func (e *GraphExecutor) executeNodeWithOutputs(ctx *Context, node *Node, edges []Edge, outputs map[string][]byte) *Result {
+	return e.executeExecutableWithOutputs(ctx, node, edges, outputs)
 }
 
-// executeExecutable processes any Executable through its operation pipeline.
-func (e *GraphExecutor) executeExecutable(ctx *Context, node Executable) *Result {
+// executeExecutableWithOutputs processes any Executable with single-op dispatch.
+// Content flows between chained nodes via the outputs map.
+func (e *GraphExecutor) executeExecutableWithOutputs(ctx *Context, node Executable, edges []Edge, outputs map[string][]byte) *Result {
+	opName := node.GetOperation()
+	if opName == "" {
+		return &Result{
+			NodeID: node.GetID(),
+			Status: ResultFailed,
+			Error:  fmt.Errorf("node %s has no operation", node.GetID()),
+		}
+	}
+
+	op, ok := e.registry.Get(opName)
+	if !ok {
+		return &Result{
+			NodeID: node.GetID(),
+			Status: ResultFailed,
+			Error:  fmt.Errorf("unknown operation: %s", opName),
+		}
+	}
+
 	var content []byte
 	var sourceChecksum, targetChecksum string
 
-	// Pre-read source content if pipeline needs it
-	source := node.GetSlot("source")
-	if source != "" && e.needsContent(node) {
-		var err error
-		content, err = os.ReadFile(source)
-		if err != nil {
-			return &Result{
-				NodeID: node.GetID(),
-				Status: ResultFailed,
-				Error:  fmt.Errorf("read source %s: %w", source, err),
+	// Resolve input content: check upstream chain first, then read source file
+	if upstream := findContentUpstream(node.GetID(), edges, outputs); upstream != nil {
+		content = upstream
+	} else if op.Category() != OpDirect {
+		source := node.GetSlot("source")
+		if source != "" {
+			var err error
+			content, err = os.ReadFile(source)
+			if err != nil {
+				return &Result{
+					NodeID: node.GetID(),
+					Status: ResultFailed,
+					Error:  fmt.Errorf("read source %s: %w", source, err),
+				}
 			}
+			sourceChecksum = ChecksumBytes(content)
 		}
-		sourceChecksum = ChecksumBytes(content)
 	}
 
-	// Execute operation pipeline
-	for _, opName := range node.GetOperations() {
-		op, ok := e.registry.Get(opName)
-		if !ok {
-			return &Result{
-				NodeID: node.GetID(),
-				Status: ResultFailed,
-				Error:  fmt.Errorf("unknown operation: %s", opName),
-			}
+	// Single operation dispatch
+	var err error
+	switch typed := op.(type) {
+	case Transform:
+		content, err = typed.Transform(ctx, node, content)
+		if err == nil {
+			outputs[node.GetID()] = content
 		}
+	case Writer:
+		targetChecksum, err = typed.Write(ctx, node, content)
+	case Direct:
+		err = typed.Execute(ctx, node)
+	default:
+		err = fmt.Errorf("operation %s does not implement Transform, Writer, or Direct", opName)
+	}
 
-		var err error
-		switch typed := op.(type) {
-		case Transform:
-			content, err = typed.Transform(ctx, node, content)
-		case Writer:
-			targetChecksum, err = typed.Write(ctx, node, content)
-		case Direct:
-			err = typed.Execute(ctx, node)
-		default:
-			err = fmt.Errorf("operation %s does not implement Transform, Writer, or Direct", opName)
-		}
-
-		if err != nil {
-			return &Result{
-				NodeID: node.GetID(),
-				Status: ResultFailed,
-				Error:  fmt.Errorf("%s: %w", opName, err),
-			}
+	if err != nil {
+		return &Result{
+			NodeID: node.GetID(),
+			Status: ResultFailed,
+			Error:  fmt.Errorf("%s: %w", opName, err),
 		}
 	}
 
@@ -244,19 +261,16 @@ func (e *GraphExecutor) executeExecutable(ctx *Context, node Executable) *Result
 	}
 }
 
-// needsContent returns true if the node's first operation requires pre-read
-// source content (transforms and writers, but not direct operations like link).
-func (e *GraphExecutor) needsContent(node Executable) bool {
-	ops := node.GetOperations()
-	if len(ops) == 0 {
-		return false
+// findContentUpstream walks incoming edges to find content from an upstream node.
+func findContentUpstream(nodeID string, edges []Edge, outputs map[string][]byte) []byte {
+	for _, edge := range edges {
+		if edge.To == nodeID {
+			if content, ok := outputs[edge.From]; ok {
+				return content
+			}
+		}
 	}
-	first := ops[0]
-	op, ok := e.registry.Get(first)
-	if !ok {
-		return false
-	}
-	return op.Category() != OpDirect
+	return nil
 }
 
 // orderNodes returns nodes in execution order.
