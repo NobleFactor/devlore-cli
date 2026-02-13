@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.devlore.Package
+description: Devlore lore package management - index, validate, and sign packages
+
+commands:
+  - name: devlore.package.index
+    help: Generate index.yaml and cross-reference.yaml for lore packages
+    implementation: commands/index.star
+    flags:
+      - name: target
+        type: string
+        default: ""
+        help: "Knowledge root to read/write package indexes (default: ../devlore-registry)"
+
+  - name: devlore.package.sign
+    help: Sign a lore package with release key
+    implementation: commands/sign.star
+    flags:
+      - name: target
+        type: string
+        default: ""
+        help: "Knowledge root containing the package (default: ../devlore-registry)"
+      - name: env
+        type: string
+        default: "dev"
+        help: "Environment: dev or prod"
+
+  - name: devlore.package.validate
+    help: Validate lore package YAML files against JSON schemas
+    implementation: commands/validate.star
+    flags:
+      - name: target
+        type: string
+        default: ""
+        help: "Knowledge root to validate (default: ../devlore-registry)"

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright Noble Factor. All rights reserved.
 
-# sign-package.star - Sign a lore package with release key
+# sign.star - Sign a lore package with release key
 #
 # This operation signs a lore package (PMM) with the release signing key.
 # The signature proves the package is authentic NobleFactor content.
@@ -9,8 +9,8 @@
 # See ADR-040: SSH Key Generation Ceremony for the signing protocol.
 #
 # Usage:
-#   star devlore knowledge sign package --target=../devlore-registry
-#   star devlore knowledge sign package --target=../devlore-registry --env=prod
+#   star devlore package sign --target=../devlore-registry
+#   star devlore package sign --target=../devlore-registry --env=prod
 
 
 def _resolve_target(ctx):

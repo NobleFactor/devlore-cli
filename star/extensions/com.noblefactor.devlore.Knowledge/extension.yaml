@@ -2,7 +2,7 @@
 # Copyright Noble Factor. All rights reserved.
 
 extension: com.noblefactor.devlore.Knowledge
-description: Devlore knowledge management - extract, index, validate, sign, and build artifacts
+description: Devlore knowledge management - extract, index, validate, and sign knowledge artifacts
 
 commands:
   - name: devlore.knowledge.extract
@@ -22,26 +22,9 @@ commands:
         default: "all"
         help: "Knowledge domain: all, onboarding, or migration"
 
-  - name: devlore.knowledge.build.modelfile
-    help: Generate Ollama Modelfile from knowledge domain
-    implementation: commands/build-modelfile.star
-    flags:
-      - name: target
-        type: string
-        default: ""
-        help: "Knowledge root to read from and write Modelfile to (default: ../devlore-registry)"
-      - name: domain
-        type: string
-        default: "all"
-        help: "Domain: all, migration, onboarding"
-      - name: model
-        type: string
-        default: "qwen3:8b"
-        help: Base model for Modelfile
-
-  - name: devlore.knowledge.index.domains
+  - name: devlore.knowledge.index
     help: Generate index.yaml for knowledge domains
-    implementation: commands/index-domains.star
+    implementation: commands/index.star
     flags:
       - name: target
         type: string
@@ -52,18 +35,9 @@ commands:
         default: ""
         help: Show what would be done without writing files
 
-  - name: devlore.knowledge.index.packages
-    help: Generate index.yaml and cross-reference.yaml for lore packages
-    implementation: commands/index-packages.star
-    flags:
-      - name: target
-        type: string
-        default: ""
-        help: "Knowledge root to read/write package indexes (default: ../devlore-registry)"
-
-  - name: devlore.knowledge.sign.index
-    help: Generate and sign index.yaml
-    implementation: commands/sign-index.star
+  - name: devlore.knowledge.sign
+    help: Generate and sign knowledge index
+    implementation: commands/sign.star
     flags:
       - name: target
         type: string
@@ -74,41 +48,11 @@ commands:
         default: "dev"
         help: "Environment: dev or prod"
 
-  - name: devlore.knowledge.sign.package
-    help: Sign a lore package with release key
-    implementation: commands/sign-package.star
-    flags:
-      - name: target
-        type: string
-        default: ""
-        help: "Knowledge root containing the package (default: ../devlore-registry)"
-      - name: env
-        type: string
-        default: "dev"
-        help: "Environment: dev or prod"
-
   - name: devlore.knowledge.validate
-    help: Validate YAML files against JSON schemas
+    help: Validate knowledge artifact YAML files against JSON schemas
     implementation: commands/validate.star
     flags:
       - name: target
         type: string
         default: ""
         help: "Knowledge root to validate (default: ../devlore-registry)"
-      - name: type
-        type: string
-        default: ""
-        help: "Type filter (package, package.lifecycle, knowledge, etc.)"
-
-  - name: devlore.knowledge.api
-    help: Validate devlore-cli Starlark API contract and generate documentation
-    implementation: commands/api.star
-    flags:
-      - name: source
-        type: string
-        required: true
-        help: Path to devlore-cli repository
-      - name: format
-        type: string
-        default: "markdown"
-        help: "Output format: markdown, json, or yaml"

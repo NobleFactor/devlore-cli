@@ -2,14 +2,14 @@
 # Copyright Noble Factor. All rights reserved.
 
 #
-# build-modelfile.star - Generate Ollama Modelfiles from knowledge domains
+# build.star - Generate Ollama Modelfiles from knowledge domains
 #
 # This operation assembles knowledge assets (prompts, signatures, schemas,
 # examples) into an Ollama Modelfile with a comprehensive SYSTEM prompt.
 #
 # Usage:
-#   star devlore knowledge build modelfile --domain migration --model qwen3:8b
-#   star devlore knowledge build modelfile --target=/tmp/out
+#   star devlore model build --domain migration --model qwen3:8b
+#   star devlore model build --target=/tmp/out
 
 # Default base model for Modelfiles
 DEFAULT_MODEL = "qwen3:8b"

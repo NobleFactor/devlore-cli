@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright Noble Factor. All rights reserved.
 
-# index-domains.star - Generate index.yaml for knowledge domains
+# index.star - Generate index.yaml for knowledge domains
 #
 # This operation scans the knowledge/ directory in the target
 # and generates index.yaml files for each domain.
@@ -15,7 +15,7 @@
 #   - slots/       -> slots: [{name: ...}]
 #
 # Usage:
-#   star devlore knowledge index domains --target=/path/to/registry
+#   star devlore knowledge index --target=/path/to/registry
 
 # Asset type subdirectories to index
 ASSET_TYPES = ["prompts", "schemas", "examples", "transforms", "signatures", "slots"]

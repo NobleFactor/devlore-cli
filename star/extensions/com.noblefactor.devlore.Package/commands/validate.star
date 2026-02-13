@@ -1,20 +1,28 @@
 # SPDX-License-Identifier: MIT
 # Copyright Noble Factor. All rights reserved.
 
-# validate.star - Validate knowledge artifact YAML files against JSON schemas
+# validate.star - Validate lore package YAML files against JSON schemas
 #
-# This operation validates knowledge YAML files in the target against their
+# This operation validates package YAML files in the target against their
 # corresponding JSON schemas.
 #
 # Usage:
-#   star devlore knowledge validate
-#   star devlore knowledge validate --target=/path/to/registry
+#   star devlore package validate
+#   star devlore package validate --target=/path/to/registry
 
 # Schema definitions: type -> (file_pattern, schema_path)
 SCHEMAS = {
-    "knowledge.index": {
-        "pattern": "knowledge/*/index.yaml",
-        "schema": "schemas/knowledge.index.json",
+    "package.lifecycle": {
+        "pattern": "packages/*/lifecycle.yaml",
+        "schema": "schemas/package.lifecycle.json",
+    },
+    "package.index": {
+        "pattern": "packages/INDEX.yaml",
+        "schema": "schemas/package.index.json",
+    },
+    "package.signatures": {
+        "pattern": "signatures.yaml",
+        "schema": "schemas/package.signatures.json",
     },
 }
 
@@ -106,7 +114,7 @@ def run(ctx):
                     error("    " + err)
 
     if len(validated_types) == 0:
-        warn("No knowledge schemas found")
+        warn("No package schemas found")
         return
 
     if total_errors > 0:
