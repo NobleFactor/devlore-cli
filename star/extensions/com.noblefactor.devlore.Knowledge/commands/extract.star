@@ -12,7 +12,8 @@
 # Domains:
 #   - onboarding: Starlark API reference for lore package authors
 #   - migration: writ migrate patterns (source systems, encryption, execution ops)
-#   - all: Both domains (default)
+#   - ops: operation surface mappings from *Service structs
+#   - all: All domains (default)
 #
 # Usage:
 #   star devlore knowledge extract --source=. --target=/tmp/out
@@ -48,6 +49,9 @@ def run(ctx):
 
     if domain == "all" or domain == "migration":
         build_migration_knowledge(source, target)
+
+    if domain == "all" or domain == "ops":
+        build_ops_knowledge(source, target)
 
 
 def _resolve_target(ctx):
@@ -821,3 +825,139 @@ def validate_signature_coverage(source_systems, signatures_path):
                 warn("  Signature missing 'name': " + sig_file)
             if not sig.get("markers"):
                 warn("  Signature missing 'markers': " + sig_file)
+
+
+# =============================================================================
+# OPS KNOWLEDGE (Operation surface mappings from *Service structs)
+# =============================================================================
+
+# Methods from starlark.Value and starlark.HasAttrs — always excluded.
+_SKIP_METHODS = [
+    "String", "Type", "Freeze", "Truth", "Hash",
+    "Attr", "AttrNames",
+]
+
+# Common struct name suffixes to strip when deriving category
+_STRIP_SUFFIXES = ["Ops", "Impl", "Service", "Handler"]
+
+
+def _to_snake(name):
+    """Convert CamelCase to snake_case."""
+    result = []
+    for i in range(len(name)):
+        ch = name[i]
+        if ch.isupper():
+            if i > 0:
+                prev = name[i - 1]
+                if prev.islower():
+                    result.append("_")
+                elif prev.isupper() and i + 1 < len(name) and name[i + 1].islower():
+                    result.append("_")
+            result.append(ch.lower())
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
+def build_ops_knowledge(source, target):
+    """Build ops knowledge — operation surface mappings from *Service structs."""
+    note("Building ops knowledge (operation surface)...")
+
+    execution_path = file.join(source, "internal", "execution")
+    if not file.is_directory(execution_path):
+        fail("Execution source not found: " + execution_path)
+
+    # Discover *Service structs
+    all_structs = go.structs(execution_path)
+    services = []
+    for s in all_structs:
+        name = str(s.name)
+        if name.endswith("Service"):
+            services.append(name)
+
+    if len(services) == 0:
+        note("  No *Service structs found (not yet implemented)")
+        return
+
+    note("  Found " + str(len(services)) + " service(s)")
+
+    mappings_path = file.join(target, "knowledge", "ops", "mappings")
+    generated = 0
+
+    for service_name in sorted(services):
+        # Get methods for this service
+        methods = go.methods(execution_path, receiver_type=service_name)
+
+        # Filter to public methods, skip starlark.Value methods
+        filtered = []
+        for m in methods:
+            if str(m.name)[0].islower():
+                continue
+            if str(m.name) in _SKIP_METHODS:
+                continue
+            filtered.append(m)
+
+        if len(filtered) == 0:
+            note("  " + service_name + ": no eligible methods")
+            continue
+
+        # Derive category from service name
+        struct_short = service_name
+        for suffix in _STRIP_SUFFIXES:
+            if struct_short.endswith(suffix) and len(struct_short) > len(suffix):
+                struct_short = struct_short[:-len(suffix)]
+                break
+        category = _to_snake(struct_short)
+
+        # Build method descriptors
+        method_descriptors = []
+        for m in filtered:
+            params = []
+            for p in m.params:
+                params.append({
+                    "name": str(p.name),
+                    "type": str(p.type),
+                    "variadic": bool(p.variadic),
+                })
+            method_descriptors.append({
+                "name": str(m.name),
+                "returns": str(m.returns),
+                "doc": str(m.doc),
+                "params": params,
+            })
+
+        # Build descriptor for go.mapping()
+        descriptor = {
+            "package": "execution",
+            "category": category,
+            "struct_name": struct_short,
+            "namespace": category,
+            "methods": method_descriptors,
+        }
+
+        # Generate mapping YAML
+        mapping_yaml = str(go.mapping(descriptor))
+
+        # Write mapping artifact
+        mapping_file = category + ".yaml"
+        mapping_path = file.join(mappings_path, mapping_file)
+
+        changes_detected = False
+        if file.exists(mapping_path):
+            current_content = file.read(mapping_path)
+            if current_content != mapping_yaml:
+                changes_detected = True
+                note("  Changes detected in " + mapping_file)
+        else:
+            changes_detected = True
+            note("  Creating new " + mapping_file)
+
+        if changes_detected:
+            file.write(mapping_path, mapping_yaml)
+            success("  Wrote " + mapping_path)
+        else:
+            success("  No changes to " + mapping_file)
+
+        generated += 1
+
+    success("  Generated mappings for " + str(generated) + " service(s)")
