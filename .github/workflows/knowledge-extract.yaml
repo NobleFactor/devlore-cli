@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: SSPL-1.0
-# Sync knowledge base to devlore-registry when source code changes.
+# Extract knowledge base to devlore-registry when source code changes.
 # This keeps the LLM context accurate for package generation and migrations.
-name: Sync Knowledge Base
+name: Knowledge Extract
 
 on:
   push:
@@ -16,7 +16,7 @@ on:
       - 'release/*'
 
 jobs:
-  sync-knowledge:
+  knowledge-extract:
     runs-on: ubuntu-latest
     steps:
       - name: Generate app token
