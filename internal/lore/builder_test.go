@@ -290,6 +290,321 @@ func TestNativePMNodeMetadata(t *testing.T) {
 	// The PM is determined at execution time by host.PackageManager()
 }
 
+// =============================================================================
+// Phase-aware builder tests
+// =============================================================================
+
+// createLorePackage creates a lore package fixture in a temp directory with
+// the given phase scripts. Returns the registry client and package name.
+func createLorePackage(t *testing.T, pkgName string, scripts map[string]string) *lorepackage.Registry {
+	t.Helper()
+	tmpDir := t.TempDir()
+
+	// Create package directory
+	pkgDir := filepath.Join(tmpDir, "packages", pkgName)
+	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write lifecycle.yaml
+	lifecycle := "name: " + pkgName + "\nversion: 1.0.0\nplatforms: [Darwin]\n"
+	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycle), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write phase scripts
+	for relPath, content := range scripts {
+		absPath := filepath.Join(pkgDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	return lorepackage.New("test", nil, tmpDir)
+}
+
+func TestBuildPhased_NativePMCreatesPhases(t *testing.T) {
+	// Native PM packages should create Phase entries for each lifecycle phase
+	// that has actions.
+	tmpDir := t.TempDir()
+	client := lorepackage.New("test", nil, tmpDir)
+
+	result, err := Build(BuildConfig{
+		Packages:       []string{"curl"},
+		Platform:       "Darwin",
+		RegistryClient: client,
+	})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Native PM only has the "install" phase (required phase for deploy).
+	if len(result.Graph.Phases) != 1 {
+		t.Fatalf("expected 1 phase, got %d", len(result.Graph.Phases))
+	}
+
+	phase := result.Graph.Phases[0]
+	if phase.Name != "install" {
+		t.Errorf("expected phase name 'install', got %q", phase.Name)
+	}
+	if phase.ID != "phase.curl.install" {
+		t.Errorf("expected phase ID 'phase.curl.install', got %q", phase.ID)
+	}
+	if phase.Status != execution.PhasePending {
+		t.Errorf("expected status pending, got %q", phase.Status)
+	}
+	if len(phase.NodeIDs) != 1 {
+		t.Errorf("expected 1 node ID, got %d", len(phase.NodeIDs))
+	}
+	if phase.Compensate != "" {
+		t.Errorf("native PM phase should not have compensate, got %q", phase.Compensate)
+	}
+}
+
+func TestBuildPhased_LorePackageForwardOnly(t *testing.T) {
+	// Lore package with only forward() — no compensate, no configure.
+	client := createLorePackage(t, "testpkg", map[string]string{
+		"Darwin/Deploy/install.star": `
+def forward(package, system, plan):
+    plan.package.install(package.name)
+`,
+	})
+
+	result, err := Build(BuildConfig{
+		Packages:       []string{"testpkg"},
+		Platform:       "Darwin",
+		RegistryClient: client,
+	})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if len(result.Graph.Phases) != 1 {
+		t.Fatalf("expected 1 phase, got %d", len(result.Graph.Phases))
+	}
+
+	phase := result.Graph.Phases[0]
+	if phase.Name != "install" {
+		t.Errorf("expected phase name 'install', got %q", phase.Name)
+	}
+	if len(phase.NodeIDs) == 0 {
+		t.Error("expected at least 1 node in phase")
+	}
+	if phase.Compensate != "" {
+		t.Errorf("expected no compensate, got %q", phase.Compensate)
+	}
+	if phase.Retry != nil {
+		t.Error("expected no retry policy")
+	}
+}
+
+func TestBuildPhased_LorePackageWithCompensate(t *testing.T) {
+	// Lore package with forward() and compensate() — should create a
+	// compensating phase with its own nodes.
+	client := createLorePackage(t, "testpkg", map[string]string{
+		"Darwin/Deploy/install.star": `
+def forward(package, system, plan):
+    plan.package.install(package.name)
+
+def compensate(package, system, plan):
+    plan.package.remove(package.name)
+`,
+	})
+
+	result, err := Build(BuildConfig{
+		Packages:       []string{"testpkg"},
+		Platform:       "Darwin",
+		RegistryClient: client,
+	})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Should have 2 phases: forward + compensate.
+	if len(result.Graph.Phases) != 2 {
+		t.Fatalf("expected 2 phases, got %d", len(result.Graph.Phases))
+	}
+
+	forward := result.Graph.Phases[0]
+	compensate := result.Graph.Phases[1]
+
+	if forward.Name != "install" {
+		t.Errorf("forward phase name = %q, want 'install'", forward.Name)
+	}
+	if forward.Compensate != compensate.ID {
+		t.Errorf("forward.Compensate = %q, want %q", forward.Compensate, compensate.ID)
+	}
+
+	if compensate.Name != "install.compensate" {
+		t.Errorf("compensate phase name = %q, want 'install.compensate'", compensate.Name)
+	}
+	if len(compensate.NodeIDs) == 0 {
+		t.Error("expected at least 1 node in compensate phase")
+	}
+
+	// Verify compensate phase has package-remove nodes.
+	nodeSet := make(map[string]bool)
+	for _, id := range compensate.NodeIDs {
+		nodeSet[id] = true
+	}
+	foundRemove := false
+	for _, n := range result.Graph.Nodes {
+		if nodeSet[n.ID] && n.Operation == "package-remove" {
+			foundRemove = true
+			break
+		}
+	}
+	if !foundRemove {
+		t.Error("expected package-remove node in compensate phase")
+	}
+}
+
+func TestBuildPhased_LorePackageWithConfigure(t *testing.T) {
+	// Lore package with configure() hook — should set retry policy on phase.
+	client := createLorePackage(t, "testpkg", map[string]string{
+		"Darwin/Deploy/install.star": `
+def configure(phase):
+    phase.retry(max_attempts=3, backoff="exponential", initial_delay="1s", max_delay="30s")
+
+def forward(package, system, plan):
+    plan.package.install(package.name)
+`,
+	})
+
+	result, err := Build(BuildConfig{
+		Packages:       []string{"testpkg"},
+		Platform:       "Darwin",
+		RegistryClient: client,
+	})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if len(result.Graph.Phases) != 1 {
+		t.Fatalf("expected 1 phase, got %d", len(result.Graph.Phases))
+	}
+
+	phase := result.Graph.Phases[0]
+	if phase.Retry == nil {
+		t.Fatal("expected retry policy")
+	}
+	if phase.Retry.MaxAttempts != 3 {
+		t.Errorf("MaxAttempts = %d, want 3", phase.Retry.MaxAttempts)
+	}
+	if phase.Retry.Backoff != execution.BackoffExponential {
+		t.Errorf("Backoff = %q, want exponential", phase.Retry.Backoff)
+	}
+	if phase.Retry.InitialDelay != "1s" {
+		t.Errorf("InitialDelay = %q, want '1s'", phase.Retry.InitialDelay)
+	}
+	if phase.Retry.MaxDelay != "30s" {
+		t.Errorf("MaxDelay = %q, want '30s'", phase.Retry.MaxDelay)
+	}
+}
+
+func TestBuildPhased_LorePackageFullSaga(t *testing.T) {
+	// Full saga: forward + compensate + configure on multiple phases.
+	client := createLorePackage(t, "ripgrep", map[string]string{
+		"Darwin/Deploy/install.star": `
+def configure(phase):
+    phase.retry(max_attempts=2, backoff="linear", initial_delay="500ms")
+
+def forward(package, system, plan):
+    plan.package.install(package.name)
+
+def compensate(package, system, plan):
+    plan.package.remove(package.name)
+`,
+		"Darwin/Deploy/provision.star": `
+def forward(package, system, plan):
+    plan.shell(command="ln -sf /opt/rg/completions/_rg ~/.zsh/completions/_rg")
+
+def compensate(package, system, plan):
+    plan.shell(command="rm -f ~/.zsh/completions/_rg")
+`,
+	})
+
+	result, err := Build(BuildConfig{
+		Packages:       []string{"ripgrep"},
+		Platform:       "Darwin",
+		RegistryClient: client,
+	})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Should have 4 phases: install, install.compensate, provision, provision.compensate
+	if len(result.Graph.Phases) != 4 {
+		var names []string
+		for _, p := range result.Graph.Phases {
+			names = append(names, p.Name)
+		}
+		t.Fatalf("expected 4 phases, got %d: %v", len(result.Graph.Phases), names)
+	}
+
+	// Verify phase order and compensate references.
+	installPhase := result.Graph.Phases[0]
+	installComp := result.Graph.Phases[1]
+	provisionPhase := result.Graph.Phases[2]
+	provisionComp := result.Graph.Phases[3]
+
+	if installPhase.Name != "install" {
+		t.Errorf("phase[0] = %q, want 'install'", installPhase.Name)
+	}
+	if installPhase.Compensate != installComp.ID {
+		t.Errorf("install.Compensate = %q, want %q", installPhase.Compensate, installComp.ID)
+	}
+	if installPhase.Retry == nil || installPhase.Retry.MaxAttempts != 2 {
+		t.Error("install phase should have retry with max_attempts=2")
+	}
+
+	if provisionPhase.Name != "provision" {
+		t.Errorf("phase[2] = %q, want 'provision'", provisionPhase.Name)
+	}
+	if provisionPhase.Compensate != provisionComp.ID {
+		t.Errorf("provision.Compensate = %q, want %q", provisionPhase.Compensate, provisionComp.ID)
+	}
+	if provisionPhase.Retry != nil {
+		t.Error("provision phase should not have retry policy")
+	}
+
+	// Verify nodes are correctly assigned to phases.
+	if len(installPhase.NodeIDs) == 0 {
+		t.Error("install phase has no nodes")
+	}
+	if len(installComp.NodeIDs) == 0 {
+		t.Error("install.compensate phase has no nodes")
+	}
+	if len(provisionPhase.NodeIDs) == 0 {
+		t.Error("provision phase has no nodes")
+	}
+	if len(provisionComp.NodeIDs) == 0 {
+		t.Error("provision.compensate phase has no nodes")
+	}
+}
+
+func TestBuildPhased_MissingForwardFunction(t *testing.T) {
+	// Script without forward() should fail.
+	client := createLorePackage(t, "badpkg", map[string]string{
+		"Darwin/Deploy/install.star": `
+def install(package, system, plan):
+    plan.package.install(package.name)
+`,
+	})
+
+	_, err := Build(BuildConfig{
+		Packages:       []string{"badpkg"},
+		Platform:       "Darwin",
+		RegistryClient: client,
+	})
+	if err == nil {
+		t.Fatal("expected error for missing forward() function")
+	}
+}
+
 func TestDarwinPackageManagerPrefix(t *testing.T) {
 	// Test that brew:, cask:, and port: prefixes are correctly parsed
 	// This tests the prefix parsing logic for macOS package managers
