@@ -520,7 +520,7 @@ def compensate(package, system, plan):
 `,
 		"Darwin/Deploy/provision.star": `
 def forward(package, system, plan):
-    plan.file.link(source="/opt/rg/completions/_rg", path="~/.zsh/completions/_rg")
+    plan.shell(command="ln -sf /opt/rg/completions/_rg ~/.zsh/completions/_rg")
 
 def compensate(package, system, plan):
     plan.shell(command="rm -f ~/.zsh/completions/_rg")
