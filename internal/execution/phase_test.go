@@ -217,7 +217,7 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 	// Phase 3 uses an operation that always fails
 	reg.Register(&testRetryOp{
 		name: "fail-provision",
-		fn: func(ctx *Context, node Executable) error {
+		fn: func(ctx *Context, node *Node) error {
 			return fmt.Errorf("permission denied")
 		},
 	})
@@ -344,10 +344,10 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 
 	reg := NewOperationRegistry()
 	reg.Register(&LinkOp{})
-	// Register a custom Direct op that creates the file on second attempt
+	// Register a custom op that creates the file on second attempt
 	reg.Register(&testRetryOp{
 		name: "retry-test",
-		fn: func(ctx *Context, node Executable) error {
+		fn: func(ctx *Context, node *Node) error {
 			attemptCount++
 			if attemptCount == 1 {
 				return fmt.Errorf("transient failure")
@@ -418,7 +418,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 	reg.Register(&LinkOp{})
 	reg.Register(&testRetryOp{
 		name: "always-fail",
-		fn: func(ctx *Context, node Executable) error {
+		fn: func(ctx *Context, node *Node) error {
 			return fmt.Errorf("permanent failure")
 		},
 	})
@@ -576,13 +576,13 @@ func TestPhaseByID(t *testing.T) {
 	}
 }
 
-// testRetryOp is a test-only Direct operation that executes a function.
+// testRetryOp is a test-only operation that executes a function.
 type testRetryOp struct {
 	name string
-	fn   func(ctx *Context, node Executable) error
+	fn   func(ctx *Context, node *Node) error
 }
 
 func (o *testRetryOp) Name() string { return o.name }
-func (o *testRetryOp) Execute(ctx *Context, node Executable) error {
+func (o *testRetryOp) Execute(ctx *Context, node *Node) error {
 	return o.fn(ctx, node)
 }

@@ -267,13 +267,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			continue
 		}
 
-		// Convert nodes to executables and run
-		executables := make([]execution.Executable, len(buildResult.Graph.Nodes))
-		for i, n := range buildResult.Graph.Nodes {
-			executables[i] = n
-		}
-
-		results, err := executor.RunNodes(ctx, executables, buildResult.Graph.Edges)
+		results, err := executor.RunNodes(ctx, buildResult.Graph.Nodes, buildResult.Graph.Edges)
 		if err != nil {
 			cli.Error("Error deploying %q: %v", rp.pkg.Name, err)
 			lastErr = err

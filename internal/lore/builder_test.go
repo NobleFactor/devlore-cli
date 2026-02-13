@@ -13,13 +13,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 )
 
-// runGraph is a test helper that converts an execution.Graph to Executable slice and calls RunNodes.
+// runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
 func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *execution.Graph) ([]*execution.Result, error) {
-	executables := make([]execution.Executable, len(g.Nodes))
-	for i, n := range g.Nodes {
-		executables[i] = n
-	}
-	return eng.RunNodes(ctx, executables, g.Edges)
+	return eng.RunNodes(ctx, g.Nodes, g.Edges)
 }
 
 func TestBuild_WithNativePMPackage(t *testing.T) {

@@ -488,7 +488,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	hasDecrypt := hasDecryptOp(opStrings)
 
 	// Build node chain for multi-op pipelines
-	var nodes []execution.Executable
+	var nodes []*execution.Node
 	var edges []execution.Edge
 	var prevNodeID string
 	for i, opName := range opStrings {

@@ -16,11 +16,10 @@
 //   - GraphExecutor: Runs graphs by executing operations on nodes
 //   - OperationRegistry: Maps operation names to implementations
 //
-// # Operation Categories
+// # Operations
 //
-//   - Transform: Read content, produce transformed content (decrypt, expand)
-//   - Writer: Read content, write to filesystem (copy)
-//   - Direct: Manage own I/O, no content flow (link, mkdir, install)
+// Each operation implements Operation.Execute(ctx, node). Content ops
+// use ctx.ContentFor(node) and ctx.StoreContent(node, data) internally.
 //
 // # Graph Lifecycle
 //
@@ -311,20 +310,6 @@ type Graph struct {
 	// Signature contains the cryptographic signature (optional).
 	Signature *Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
 }
-
-// Executable represents a unit of work that can be executed.
-// This interface is implemented by Node.
-type Executable interface {
-	GetID() string
-	GetOperation() string
-	GetSlot(name string) any
-	RequireStringSlot(name string) (string, error)
-	GetProject() string
-	GetMode() os.FileMode
-}
-
-// Ensure Node implements Executable.
-var _ Executable = (*Node)(nil)
 
 // String returns a human-readable summary.
 func (s Summary) String() string {

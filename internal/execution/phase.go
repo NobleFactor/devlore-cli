@@ -188,10 +188,13 @@ func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *Graph, phase *Phase) 
 	}
 
 	ordered := e.topologicalSortNodes(phaseNodes, phaseEdges)
-	outputs := make(map[string][]byte)
+
+	// Set content pipeline on context for this phase
+	ctx.Edges = phaseEdges
+	ctx.Outputs = make(map[string][]byte)
 
 	for _, node := range ordered {
-		result := e.executeNodeWithOutputs(ctx, node, phaseEdges, outputs)
+		result := e.executeNode(ctx, node)
 		if result.Status == ResultFailed {
 			// Apply this result to the node
 			node.Status = StatusFailed

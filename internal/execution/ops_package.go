@@ -29,7 +29,7 @@ type PackageInstallOp struct{}
 
 func (o *PackageInstallOp) Name() string { return "package-install" }
 
-func (o *PackageInstallOp) Execute(ctx *Context, node Executable) error {
+func (o *PackageInstallOp) Execute(ctx *Context, node *Node) error {
 	pkgList, _ := node.GetSlot("packages").(string)
 	packages := parsePackages(pkgList)
 	if len(packages) == 0 {
@@ -77,7 +77,7 @@ type PackageUpgradeOp struct{}
 
 func (o *PackageUpgradeOp) Name() string { return "package-upgrade" }
 
-func (o *PackageUpgradeOp) Execute(ctx *Context, node Executable) error {
+func (o *PackageUpgradeOp) Execute(ctx *Context, node *Node) error {
 	pkgList, _ := node.GetSlot("packages").(string)
 	packages := parsePackages(pkgList)
 	if len(packages) == 0 {
@@ -128,7 +128,7 @@ type PackageRemoveOp struct{}
 
 func (o *PackageRemoveOp) Name() string { return "package-remove" }
 
-func (o *PackageRemoveOp) Execute(ctx *Context, node Executable) error {
+func (o *PackageRemoveOp) Execute(ctx *Context, node *Node) error {
 	pkgList, _ := node.GetSlot("packages").(string)
 	packages := parsePackages(pkgList)
 	if len(packages) == 0 {
@@ -188,7 +188,7 @@ type PackageUpdateOp struct{}
 
 func (o *PackageUpdateOp) Name() string { return "package-update" }
 
-func (o *PackageUpdateOp) Execute(ctx *Context, node Executable) error {
+func (o *PackageUpdateOp) Execute(ctx *Context, node *Node) error {
 	// Update uses preferred PM (not InstalledBy - we're updating the index, not a package)
 	manager, _ := node.GetSlot("manager").(string)
 	pm := resolvePMForInstall(manager)
@@ -363,7 +363,7 @@ type ShellOp struct{}
 
 func (o *ShellOp) Name() string { return "shell" }
 
-func (o *ShellOp) Execute(ctx *Context, node Executable) error {
+func (o *ShellOp) Execute(ctx *Context, node *Node) error {
 	command, _ := node.GetSlot("command").(string)
 	if command == "" {
 		return fmt.Errorf("shell: no command specified")
@@ -386,7 +386,7 @@ type PowerShellOp struct{}
 
 func (o *PowerShellOp) Name() string { return "powershell" }
 
-func (o *PowerShellOp) Execute(ctx *Context, node Executable) error {
+func (o *PowerShellOp) Execute(ctx *Context, node *Node) error {
 	command, _ := node.GetSlot("command").(string)
 	if command == "" {
 		return fmt.Errorf("powershell: no command specified")

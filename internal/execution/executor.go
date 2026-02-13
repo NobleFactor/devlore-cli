@@ -137,12 +137,13 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 		DryRun:  e.options.DryRun,
 		Logger:  e.options.Logger,
 		Data:    e.options.Data,
+		Edges:   g.Edges,
+		Outputs: make(map[string][]byte),
 	}
 
-	outputs := make(map[string][]byte)
 	var results []*Result
 	for _, node := range ordered {
-		result := e.executeNodeWithOutputs(execCtx, node, g.Edges, outputs)
+		result := e.executeNode(execCtx, node)
 		results = append(results, result)
 
 		if result.Status == ResultFailed && e.options.ConflictResolution == ResolutionStop {
@@ -363,23 +364,23 @@ func (e *GraphExecutor) unwindStack(ctx *Context, g *Graph, stack *RecoveryStack
 	return log
 }
 
-// RunNodes executes a slice of executables with the given edges.
+// RunNodes executes a slice of nodes with the given edges.
 // This is a lower-level API for callers that don't have a full Graph.
-func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []Executable, edges []Edge) ([]*Result, error) {
-	// Convert to internal node pointers for ordering
-	ordered := e.orderExecutables(nodes, edges)
+func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edge) ([]*Result, error) {
+	ordered := e.orderNodes(nodes, edges)
 
 	execCtx := &Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
 		Logger:  e.options.Logger,
 		Data:    e.options.Data,
+		Edges:   edges,
+		Outputs: make(map[string][]byte),
 	}
 
-	outputs := make(map[string][]byte)
 	var results []*Result
 	for _, node := range ordered {
-		result := e.executeExecutableWithOutputs(execCtx, node, edges, outputs)
+		result := e.executeNode(execCtx, node)
 		results = append(results, result)
 
 		if result.Status == ResultFailed && e.options.ConflictResolution == ResolutionStop {
@@ -390,99 +391,44 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []Executable, edges 
 	return results, nil
 }
 
-// executeNodeWithOutputs processes a single node, resolving upstream content from edges.
-func (e *GraphExecutor) executeNodeWithOutputs(ctx *Context, node *Node, edges []Edge, outputs map[string][]byte) *Result {
-	return e.executeExecutableWithOutputs(ctx, node, edges, outputs)
-}
-
-// executeExecutableWithOutputs processes any Executable with single-op dispatch.
-// Content flows between chained nodes via the outputs map.
-func (e *GraphExecutor) executeExecutableWithOutputs(ctx *Context, node Executable, edges []Edge, outputs map[string][]byte) *Result {
-	opName := node.GetOperation()
+// executeNode processes a single node with uniform dispatch.
+func (e *GraphExecutor) executeNode(ctx *Context, node *Node) *Result {
+	opName := node.Operation
 	if opName == "" {
 		return &Result{
-			NodeID: node.GetID(),
+			NodeID: node.ID,
 			Status: ResultFailed,
-			Error:  fmt.Errorf("node %s has no operation", node.GetID()),
+			Error:  fmt.Errorf("node %s has no operation", node.ID),
 		}
 	}
 
 	op, ok := e.registry.Get(opName)
 	if !ok {
 		return &Result{
-			NodeID: node.GetID(),
+			NodeID: node.ID,
 			Status: ResultFailed,
 			Error:  fmt.Errorf("unknown operation: %s", opName),
 		}
 	}
 
-	// Fill unfilled slots from Context.Data
 	e.fillSlotsFromData(node)
+	ctx.SourceChecksum = ""
+	ctx.TargetChecksum = ""
 
-	var content []byte
-	var sourceChecksum, targetChecksum string
-
-	// Resolve input content: check upstream chain first, then read source file
-	if upstream := findContentUpstream(node.GetID(), edges, outputs); upstream != nil {
-		content = upstream
-	} else if isContentOp(op) {
-		source, _ := node.GetSlot("source").(string)
-		if source != "" {
-			var err error
-			content, err = os.ReadFile(source)
-			if err != nil {
-				return &Result{
-					NodeID: node.GetID(),
-					Status: ResultFailed,
-					Error:  fmt.Errorf("read source %s: %w", source, err),
-				}
-			}
-			sourceChecksum = ChecksumBytes(content)
-		}
-	}
-
-	// Single operation dispatch
-	var err error
-	switch typed := op.(type) {
-	case Transform:
-		content, err = typed.Transform(ctx, node, content)
-		if err == nil {
-			outputs[node.GetID()] = content
-		}
-	case Writer:
-		targetChecksum, err = typed.Write(ctx, node, content)
-	case Direct:
-		err = typed.Execute(ctx, node)
-	default:
-		err = fmt.Errorf("operation %s does not implement Transform, Writer, or Direct", opName)
-	}
-
-	if err != nil {
+	if err := op.Execute(ctx, node); err != nil {
 		return &Result{
-			NodeID: node.GetID(),
+			NodeID: node.ID,
 			Status: ResultFailed,
 			Error:  fmt.Errorf("%s: %w", opName, err),
 		}
 	}
 
 	return &Result{
-		NodeID:         node.GetID(),
+		NodeID:         node.ID,
 		Status:         ResultCompleted,
-		SourceChecksum: sourceChecksum,
-		TargetChecksum: targetChecksum,
+		SourceChecksum: ctx.SourceChecksum,
+		TargetChecksum: ctx.TargetChecksum,
 	}
-}
-
-// findContentUpstream walks incoming edges to find content from an upstream node.
-func findContentUpstream(nodeID string, edges []Edge, outputs map[string][]byte) []byte {
-	for _, edge := range edges {
-		if edge.To == nodeID {
-			if content, ok := outputs[edge.From]; ok {
-				return content
-			}
-		}
-	}
-	return nil
 }
 
 // orderNodes returns nodes in execution order.
@@ -491,14 +437,6 @@ func (e *GraphExecutor) orderNodes(nodes []*Node, edges []Edge) []*Node {
 		return e.topologicalSortNodes(nodes, edges)
 	}
 	return e.sortNodesByDepth(nodes)
-}
-
-// orderExecutables returns executables in execution order.
-func (e *GraphExecutor) orderExecutables(nodes []Executable, edges []Edge) []Executable {
-	if len(edges) > 0 {
-		return e.topologicalSort(nodes, edges)
-	}
-	return e.sortByDepth(nodes)
 }
 
 // topologicalSortNodes orders nodes respecting edge constraints (Kahn's algorithm).
@@ -559,87 +497,9 @@ func (e *GraphExecutor) topologicalSortNodes(nodes []*Node, edges []Edge) []*Nod
 	return sorted
 }
 
-// topologicalSort orders executables respecting edge constraints.
-func (e *GraphExecutor) topologicalSort(nodes []Executable, edges []Edge) []Executable {
-	nodeMap := make(map[string]Executable)
-	inDegree := make(map[string]int)
-	adj := make(map[string][]string)
-
-	for _, node := range nodes {
-		nodeMap[node.GetID()] = node
-		inDegree[node.GetID()] = 0
-	}
-
-	for _, edge := range edges {
-		if _, fromOK := nodeMap[edge.From]; !fromOK {
-			continue
-		}
-		if _, toOK := nodeMap[edge.To]; !toOK {
-			continue
-		}
-		adj[edge.From] = append(adj[edge.From], edge.To)
-		inDegree[edge.To]++
-	}
-
-	var queue []string
-	for _, node := range nodes {
-		if inDegree[node.GetID()] == 0 {
-			queue = append(queue, node.GetID())
-		}
-	}
-
-	var sorted []Executable
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		sorted = append(sorted, nodeMap[id])
-
-		for _, neighbor := range adj[id] {
-			inDegree[neighbor]--
-			if inDegree[neighbor] == 0 {
-				queue = append(queue, neighbor)
-			}
-		}
-	}
-
-	if len(sorted) < len(nodes) {
-		visited := make(map[string]bool)
-		for _, node := range sorted {
-			visited[node.GetID()] = true
-		}
-		for _, node := range nodes {
-			if !visited[node.GetID()] {
-				sorted = append(sorted, node)
-			}
-		}
-	}
-
-	return sorted
-}
-
 // sortNodesByDepth sorts nodes by target path depth.
 func (e *GraphExecutor) sortNodesByDepth(nodes []*Node) []*Node {
 	sorted := make([]*Node, len(nodes))
-	copy(sorted, nodes)
-
-	for i := 0; i < len(sorted)-1; i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			pathI, _ := sorted[i].GetSlot("path").(string)
-			pathJ, _ := sorted[j].GetSlot("path").(string)
-			depthI := pathDepth(pathI)
-			depthJ := pathDepth(pathJ)
-			if depthI > depthJ {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
-
-	return sorted
-}
-
-// sortByDepth sorts executables by target path depth.
-func (e *GraphExecutor) sortByDepth(nodes []Executable) []Executable {
-	sorted := make([]Executable, len(nodes))
 	copy(sorted, nodes)
 
 	for i := 0; i < len(sorted)-1; i++ {
@@ -665,25 +525,12 @@ func pathDepth(path string) int {
 	return strings.Count(path, string(filepath.Separator))
 }
 
-// isContentOp returns true if the operation reads upstream content (Writer or Transform).
-func isContentOp(op Operation) bool {
-	switch op.(type) {
-	case Writer, Transform:
-		return true
-	}
-	return false
-}
-
 // fillSlotsFromData fills unfilled slots on the node from Context.Data.
 // Slots already set by the caller (Starlark plan or upstream node) are not overwritten.
-func (e *GraphExecutor) fillSlotsFromData(node Executable) {
-	n, ok := node.(*Node)
-	if !ok {
-		return
-	}
+func (e *GraphExecutor) fillSlotsFromData(node *Node) {
 	for key, value := range e.options.Data {
-		if _, exists := n.Slots[key]; !exists {
-			n.SetSlotImmediate(key, value)
+		if _, exists := node.Slots[key]; !exists {
+			node.SetSlotImmediate(key, value)
 		}
 	}
 }

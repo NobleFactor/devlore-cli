@@ -484,7 +484,7 @@ func (s *Session) executeStep() *console.Step {
 	eng := execution.NewGraphExecutor(reg, opts)
 
 	ctx := context.Background()
-	_, err := eng.RunNodes(ctx, toExecutables(s.graph.Nodes), s.graph.Edges)
+	_, err := eng.RunNodes(ctx, s.graph.Nodes, s.graph.Edges)
 	if err != nil {
 		s.err = fmt.Errorf("execution failed: %w", err)
 		s.state = StateError
@@ -623,11 +623,3 @@ func (s *Session) generateExplanation() string {
 	return buf.String()
 }
 
-// toExecutables converts nodes to executables.
-func toExecutables(nodes []*execution.Node) []execution.Executable {
-	executables := make([]execution.Executable, len(nodes))
-	for i, n := range nodes {
-		executables[i] = n
-	}
-	return executables
-}
