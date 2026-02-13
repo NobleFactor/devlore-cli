@@ -582,8 +582,7 @@ type testRetryOp struct {
 	fn   func(ctx *Context, node Executable) error
 }
 
-func (o *testRetryOp) Name() string          { return o.name }
-func (o *testRetryOp) Category() OpCategory   { return OpDirect }
+func (o *testRetryOp) Name() string { return o.name }
 func (o *testRetryOp) Execute(ctx *Context, node Executable) error {
 	return o.fn(ctx, node)
 }

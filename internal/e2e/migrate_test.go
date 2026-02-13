@@ -227,8 +227,10 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *exec
 	if graph != nil {
 		for _, node := range graph.Nodes {
 			// Extract relative paths from source/target slots
-			source := filepath.Base(node.GetSlot("source"))
-			target := filepath.Base(node.GetSlot("target"))
+			src, _ := node.GetSlot("source").(string)
+			tgt, _ := node.GetSlot("path").(string)
+			source := filepath.Base(src)
+			target := filepath.Base(tgt)
 			actualRenames[source] = target
 		}
 	}

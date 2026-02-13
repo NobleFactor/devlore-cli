@@ -10,26 +10,9 @@ import (
 
 // Operation is the base interface for all executable actions.
 type Operation interface {
-	// Name returns the operation identifier (e.g., "link", "decrypt").
+	// Name returns the operation identifier (e.g., "file.link", "file.decrypt").
 	Name() string
-
-	// Category returns the operation category for pipeline validation.
-	Category() OpCategory
 }
-
-// OpCategory classifies operations by their data flow behavior.
-type OpCategory int
-
-const (
-	// OpTransform reads content, produces transformed content.
-	OpTransform OpCategory = iota
-
-	// OpWriter reads content, writes to filesystem, produces checksum.
-	OpWriter
-
-	// OpDirect manages its own I/O, no content flow.
-	OpDirect
-)
 
 // Transform operations read content and produce transformed content.
 // Used for: decrypt, expand.

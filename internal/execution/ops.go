@@ -15,16 +15,15 @@ import (
 // LinkOp creates a symlink from node's "path" slot pointing to "source" slot.
 type LinkOp struct{}
 
-func (o *LinkOp) Name() string         { return "link" }
-func (o *LinkOp) Category() OpCategory { return OpDirect }
+func (o *LinkOp) Name() string { return "link" }
 
 func (o *LinkOp) Execute(ctx *Context, node Executable) error {
 	if ctx.DryRun {
 		return nil
 	}
 
-	target := node.GetSlot("path")
-	source := node.GetSlot("source")
+	target, _ := node.GetSlot("path").(string)
+	source, _ := node.GetSlot("source").(string)
 
 	// Idempotent: check if symlink already points correctly
 	if info, err := os.Lstat(target); err == nil {
@@ -50,15 +49,14 @@ func (o *LinkOp) Execute(ctx *Context, node Executable) error {
 // CopyOp writes content to node's "path" slot and returns the target checksum.
 type CopyOp struct{}
 
-func (o *CopyOp) Name() string         { return "copy" }
-func (o *CopyOp) Category() OpCategory { return OpWriter }
+func (o *CopyOp) Name() string { return "copy" }
 
 func (o *CopyOp) Write(ctx *Context, node Executable, content []byte) (string, error) {
 	if ctx.DryRun {
 		return ChecksumBytes(content), nil
 	}
 
-	target := node.GetSlot("path")
+	target, _ := node.GetSlot("path").(string)
 
 	// Remove existing file/symlink if present
 	if _, err := os.Lstat(target); err == nil {
@@ -87,8 +85,7 @@ func (o *CopyOp) Write(ctx *Context, node Executable, content []byte) (string, e
 // the template data. Returns the rendered content.
 type RenderOp struct{}
 
-func (o *RenderOp) Name() string         { return "render" }
-func (o *RenderOp) Category() OpCategory { return OpTransform }
+func (o *RenderOp) Name() string { return "render" }
 
 func (o *RenderOp) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
 	tmpl, err := template.New(node.GetID()).Parse(string(content))
@@ -118,8 +115,7 @@ func (o *RenderOp) Transform(ctx *Context, node Executable, content []byte) ([]b
 // configuration is expected in ctx.Data. Returns the decrypted content.
 type DecryptOp struct{}
 
-func (o *DecryptOp) Name() string         { return "decrypt" }
-func (o *DecryptOp) Category() OpCategory { return OpTransform }
+func (o *DecryptOp) Name() string { return "decrypt" }
 
 func (o *DecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
 	decryptor, ok := ctx.Data["decryptor"]
@@ -139,7 +135,8 @@ func (o *DecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]
 	if !ok {
 		return nil, fmt.Errorf("decryptor must be func(string, []byte) ([]byte, error)")
 	}
-	return decrypt(node.GetSlot("source"), content)
+	source, _ := node.GetSlot("source").(string)
+	return decrypt(source, content)
 }
 
 // NOTE: There is no DelegateOp. writ and lore share the same execution engine.
@@ -153,8 +150,7 @@ func (o *DecryptOp) Transform(ctx *Context, node Executable, content []byte) ([]
 // The backup path is stored in node.Annotations["backup_path"] after execution.
 type BackupOp struct{}
 
-func (o *BackupOp) Name() string         { return "backup" }
-func (o *BackupOp) Category() OpCategory { return OpDirect }
+func (o *BackupOp) Name() string { return "backup" }
 
 func (o *BackupOp) Execute(ctx *Context, node Executable) error {
 	if ctx.DryRun {
@@ -168,7 +164,7 @@ func (o *BackupOp) Execute(ctx *Context, node Executable) error {
 		}
 	}
 
-	target := node.GetSlot("path")
+	target, _ := node.GetSlot("path").(string)
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := target + suffix + "." + timestamp
 
@@ -191,15 +187,14 @@ func (o *BackupOp) Execute(ctx *Context, node Executable) error {
 // empty parent directories are removed up to the boundary.
 type UnlinkOp struct{}
 
-func (o *UnlinkOp) Name() string         { return "unlink" }
-func (o *UnlinkOp) Category() OpCategory { return OpDirect }
+func (o *UnlinkOp) Name() string { return "unlink" }
 
 func (o *UnlinkOp) Execute(ctx *Context, node Executable) error {
 	if ctx.DryRun {
 		return nil
 	}
 
-	target := node.GetSlot("path")
+	target, _ := node.GetSlot("path").(string)
 
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
@@ -221,20 +216,19 @@ func (o *UnlinkOp) Execute(ctx *Context, node Executable) error {
 	return nil
 }
 
-// RemoveOp deletes the file at node.GetSlot("path").
+// RemoveOp deletes the file at node's "path" slot.
 // If ctx.Data["prune_empty_dirs"] is true and ctx.Data["prune_boundary"] is set,
 // empty parent directories are removed up to the boundary.
 type RemoveOp struct{}
 
-func (o *RemoveOp) Name() string         { return "remove" }
-func (o *RemoveOp) Category() OpCategory { return OpDirect }
+func (o *RemoveOp) Name() string { return "remove" }
 
 func (o *RemoveOp) Execute(ctx *Context, node Executable) error {
 	if ctx.DryRun {
 		return nil
 	}
 
-	target := node.GetSlot("path")
+	target, _ := node.GetSlot("path").(string)
 
 	if _, err := os.Lstat(target); os.IsNotExist(err) {
 		return nil // Already gone
@@ -298,11 +292,10 @@ func isSubpath(path, parent string) bool {
 // Used by plan.file.write() for writing inline content directly.
 type WriteOp struct{}
 
-func (o *WriteOp) Name() string         { return "write" }
-func (o *WriteOp) Category() OpCategory { return OpDirect }
+func (o *WriteOp) Name() string { return "write" }
 
 func (o *WriteOp) Execute(ctx *Context, node Executable) error {
-	content := node.GetSlot("content")
+	content, _ := node.GetSlot("content").(string)
 	if content == "" {
 		return fmt.Errorf("write: no content specified in node slots")
 	}
@@ -311,7 +304,7 @@ func (o *WriteOp) Execute(ctx *Context, node Executable) error {
 		return nil
 	}
 
-	target := node.GetSlot("path")
+	target, _ := node.GetSlot("path").(string)
 
 	// Ensure parent directory exists
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
@@ -327,14 +320,13 @@ func (o *WriteOp) Execute(ctx *Context, node Executable) error {
 }
 
 // ValidateOp checks a precondition and fails with a message if unmet.
-// The check function is retrieved from ctx.Data["validators"][node.GetSlot("check")].
+// The check function is retrieved from ctx.Data["validators"][node's "check" slot].
 type ValidateOp struct{}
 
-func (o *ValidateOp) Name() string         { return "validate" }
-func (o *ValidateOp) Category() OpCategory { return OpDirect }
+func (o *ValidateOp) Name() string { return "validate" }
 
 func (o *ValidateOp) Execute(ctx *Context, node Executable) error {
-	checkName := node.GetSlot("check")
+	checkName, _ := node.GetSlot("check").(string)
 	if checkName == "" {
 		return fmt.Errorf("validate: no check specified in node slots")
 	}
@@ -350,7 +342,7 @@ func (o *ValidateOp) Execute(ctx *Context, node Executable) error {
 	}
 
 	if err := validator(); err != nil {
-		message := node.GetSlot("message")
+		message, _ := node.GetSlot("message").(string)
 		if message != "" {
 			return fmt.Errorf("%s: %w", message, err)
 		}
@@ -364,16 +356,15 @@ func (o *ValidateOp) Execute(ctx *Context, node Executable) error {
 // git mv when inside a git repository, falling back to os.Rename otherwise.
 type MoveOp struct{}
 
-func (o *MoveOp) Name() string         { return "move" }
-func (o *MoveOp) Category() OpCategory { return OpDirect }
+func (o *MoveOp) Name() string { return "move" }
 
 func (o *MoveOp) Execute(ctx *Context, node Executable) error {
 	if ctx.DryRun {
 		return nil
 	}
 
-	source := node.GetSlot("source")
-	target := node.GetSlot("path")
+	source, _ := node.GetSlot("source").(string)
+	target, _ := node.GetSlot("path").(string)
 
 	// Check if source exists
 	if _, err := os.Stat(source); err != nil {

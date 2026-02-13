@@ -52,7 +52,7 @@ func (o *Output) Attr(name string) (starlark.Value, error) {
 		return starlark.String(o.slot), nil
 	default:
 		// Get the value from the node's slots
-		if value := o.node.GetSlot(name); value != "" {
+		if value, ok := o.node.GetSlot(name).(string); ok && value != "" {
 			return starlark.String(value), nil
 		}
 		return nil, starlark.NoSuchAttrError(fmt.Sprintf("Output has no attribute %q", name))
@@ -123,34 +123,37 @@ func FillSlot(node *execution.Node, graph *execution.Graph, slotName string, val
 		return nil
 	}
 
-	// List: recurse for each element
+	// List: store as native []string (homogeneous) or []any (mixed)
 	if list, ok := value.(*starlark.List); ok {
-		iter := list.Iterate()
-		defer iter.Done()
-		var v starlark.Value
-		i := 0
-		for iter.Next(&v) {
-			subSlot := fmt.Sprintf("%s[%d]", slotName, i)
-			if err := FillSlot(node, graph, subSlot, v); err != nil {
-				return fmt.Errorf("list element %d: %w", i, err)
-			}
-			i++
+		result, err := starlarkListToSlice(list)
+		if err != nil {
+			return fmt.Errorf("slot %q: %w", slotName, err)
 		}
-		node.SetSlotImmediate(slotName+".len", fmt.Sprintf("%d", i))
+		node.SetSlotImmediate(slotName, result)
 		return nil
 	}
 
-	// Other immediate types
+	// Dict: store as native map[string]any
+	if dict, ok := value.(*starlark.Dict); ok {
+		result, err := starlarkDictToMap(dict)
+		if err != nil {
+			return fmt.Errorf("slot %q: %w", slotName, err)
+		}
+		node.SetSlotImmediate(slotName, result)
+		return nil
+	}
+
+	// Other immediate types — store as native Go types
 	switch v := value.(type) {
 	case starlark.Int:
 		i, _ := v.Int64()
-		node.SetSlotImmediate(slotName, fmt.Sprintf("%d", i))
+		node.SetSlotImmediate(slotName, int(i))
 		return nil
 	case starlark.Bool:
-		node.SetSlotImmediate(slotName, fmt.Sprintf("%t", v))
+		node.SetSlotImmediate(slotName, bool(v))
 		return nil
 	case starlark.Float:
-		node.SetSlotImmediate(slotName, fmt.Sprintf("%f", v))
+		node.SetSlotImmediate(slotName, float64(v))
 		return nil
 	case starlark.NoneType:
 		return nil
@@ -161,7 +164,8 @@ func FillSlot(node *execution.Node, graph *execution.Graph, slotName string, val
 
 // Path returns a path from the node's slots.
 func (o *Output) Path() string {
-	return o.node.GetSlot("path")
+	path, _ := o.node.GetSlot("path").(string)
+	return path
 }
 
 // DependOn creates an edge making the given node depend on this output's node.
@@ -179,6 +183,83 @@ func ResolveInput(value starlark.Value) (*Output, error) {
 		return output, nil
 	}
 	return nil, fmt.Errorf("expected Output, got %s", value.Type())
+}
+
+// starlarkValueToGo converts a Starlark value to a native Go value.
+func starlarkValueToGo(v starlark.Value) (any, error) {
+	switch val := v.(type) {
+	case starlark.String:
+		return string(val), nil
+	case starlark.Int:
+		i, _ := val.Int64()
+		return int(i), nil
+	case starlark.Bool:
+		return bool(val), nil
+	case starlark.Float:
+		return float64(val), nil
+	case starlark.NoneType:
+		return nil, nil
+	case *starlark.List:
+		return starlarkListToSlice(val)
+	case *starlark.Dict:
+		return starlarkDictToMap(val)
+	default:
+		return nil, fmt.Errorf("unsupported Starlark type %s", v.Type())
+	}
+}
+
+// starlarkListToSlice converts a Starlark list to a Go slice.
+// Returns []string if all elements are strings, []any otherwise.
+func starlarkListToSlice(list *starlark.List) (any, error) {
+	n := list.Len()
+	if n == 0 {
+		return []string{}, nil
+	}
+
+	// Try homogeneous []string first
+	allStrings := true
+	for i := 0; i < n; i++ {
+		if _, ok := list.Index(i).(starlark.String); !ok {
+			allStrings = false
+			break
+		}
+	}
+
+	if allStrings {
+		result := make([]string, n)
+		for i := 0; i < n; i++ {
+			result[i] = string(list.Index(i).(starlark.String))
+		}
+		return result, nil
+	}
+
+	// Mixed types: []any
+	result := make([]any, n)
+	for i := 0; i < n; i++ {
+		val, err := starlarkValueToGo(list.Index(i))
+		if err != nil {
+			return nil, fmt.Errorf("list element %d: %w", i, err)
+		}
+		result[i] = val
+	}
+	return result, nil
+}
+
+// starlarkDictToMap converts a Starlark dict to a Go map[string]any.
+func starlarkDictToMap(dict *starlark.Dict) (map[string]any, error) {
+	result := make(map[string]any, dict.Len())
+	for _, item := range dict.Items() {
+		key, ok := starlark.AsString(item[0])
+		if !ok {
+			return nil, fmt.Errorf("dict key must be string, got %s", item[0].Type())
+		}
+		val, err := starlarkValueToGo(item[1])
+		if err != nil {
+			return nil, fmt.Errorf("dict key %q: %w", key, err)
+		}
+		result[key] = val
+	}
+	return result, nil
 }
 
 // Gather represents a collection of outputs that can run in parallel.

@@ -243,10 +243,124 @@ func (o *PackageInstallOp) Compensate(ctx *Context, node Executable, state map[s
 }
 ```
 
-This pattern extends to code generation. The Phase 2 `go.generate()` templates
-already produce operation structs with `Execute()`. Adding `Compensate()` to
-the graph operations template is a natural extension — the generator has the
-method descriptor and can produce both methods from the same source.
+### Implementation Struct Contract
+
+Today, operation structs (`PackageInstallOp`, `LinkOp`, etc.) have logic
+inline — `PackageInstallOp.Execute()` calls `pm.Install()` directly. There is
+no separate backing implementation. This conflates graph adaptation (slot
+reading, type conversion) with business logic (is the package installed?
+install it, record what we did).
+
+The implementation struct is a **backing Go struct** that:
+
+1. Is directly callable from Go (testable without the graph, nodes, or executor)
+2. Is the single source of truth for both forward and compensating logic
+3. Is the target that the auto-generated ops struct delegates to
+
+```
+Starlark script  → plan receiver  → creates Node in graph
+                                        ↓
+Graph executor   → ops struct     → reads slots, delegates to impl
+                   (auto-generated)     ↓
+                   impl struct    → actual logic (forward + compensate)
+                   (hand-written,   directly callable from Go)
+```
+
+The implementation struct's methods follow a convention:
+
+- **Forward**: `func(params...) (map[string]any, error)` — returns compensation
+  state (the receipt) and error. The state is the S in (A, C, S).
+- **Compensate**: `func(params..., state map[string]any) error` — receives the
+  state from the forward method and returns error.
+
+```go
+// Implementation struct — directly callable, testable without the graph.
+type PackageImpl struct {
+    pm host.PackageManager
+}
+
+// Forward: returns (state, error).
+func (p *PackageImpl) Install(packages []string) (map[string]any, error) {
+    already := p.pm.IsInstalled(packages[0])
+    if !already {
+        result := p.pm.Install(packages...)
+        if !result.OK {
+            return nil, fmt.Errorf("install failed: %s", result.Stderr)
+        }
+    }
+    return map[string]any{"already_installed": already}, nil
+}
+
+// Compensate: receives state from Install, returns error.
+func (p *PackageImpl) CompensateInstall(packages []string, state map[string]any) error {
+    if already, _ := state["already_installed"].(bool); already {
+        return nil // nothing to undo
+    }
+    result := p.pm.Remove(packages[0])
+    if !result.OK {
+        return fmt.Errorf("remove failed: %s", result.Stderr)
+    }
+    return nil
+}
+```
+
+The generated ops struct delegates to the implementation struct, handling the
+graph-level concerns (slot reading, state wiring, dry-run logging):
+
+```go
+// Generated — adapts the implementation to the graph execution model
+type PackageInstallOp struct{}
+
+func (o *PackageInstallOp) Execute(ctx *Context, node Executable) error {
+    packages := parsePackages(node.GetSlot("packages"))
+    impl := &PackageImpl{pm: resolvePMForInstall(node.GetSlot("manager"))}
+
+    if ctx.DryRun {
+        fmt.Fprintf(ctx.Logger, "[dry-run] package-install %s\n", strings.Join(packages, " "))
+        return nil
+    }
+
+    state, err := impl.Install(packages)
+    if err != nil {
+        return err
+    }
+    for k, v := range state {
+        node.SetState(k, v)
+    }
+    return nil
+}
+
+func (o *PackageInstallOp) Compensate(ctx *Context, node Executable, state map[string]any) error {
+    packages := parsePackages(node.GetSlot("packages"))
+    impl := &PackageImpl{pm: resolvePMForInstall(node.GetSlot("manager"))}
+    return impl.CompensateInstall(packages, state)
+}
+```
+
+### Method Pairing for Code Generation
+
+The code generator inspects the implementation struct and pairs methods by
+naming convention:
+
+| Forward method | Compensate method |
+|---|---|
+| `Install(...)` | `CompensateInstall(...)` |
+| `Link(...)` | `CompensateLink(...)` |
+| `Copy(...)` | `CompensateCopy(...)` |
+
+Forward methods return `(map[string]any, error)`. Compensate methods accept
+the same parameters plus a `state map[string]any` and return `error`.
+
+Methods without a `Compensate` pair are not compensable. The code generator
+produces an ops struct with `Execute()` only — no `Compensate()` method.
+
+Gate validation for code generation:
+
+- **Gate 1** (existing): All parameter types must map to Starlark types
+- **Gate 2** (existing): Forward return must be `(map[string]any, error)`
+- **Gate 3** (new): If a `Compensate` pair exists, its return must be `error`
+  and its parameters must match the forward method's parameters plus
+  `state map[string]any`
 
 ### CompensableOperation Interface
 
