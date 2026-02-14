@@ -234,7 +234,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	// If --prune is set, enable directory cleanup: after each file removal,
 	// empty parent directories are removed up to the target root boundary.
 	if cfg.Prune {
-		cfg.TemplateData["prune_empty_dirs"] = true
+		cfg.TemplateData["prune"] = true
 		cfg.TemplateData["prune_boundary"] = view.Files.Root
 	}
 

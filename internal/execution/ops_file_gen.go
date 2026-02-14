@@ -111,7 +111,7 @@ func (o *FileUnlinkOp) Name() string { return "unlink" }
 
 func (o *FileUnlinkOp) Execute(ctx *Context, node *Node) error {
 	path := node.GetSlot("path").(string)
-	prune, _ := node.GetSlot("prune_empty_dirs").(bool)
+	prune, _ := node.GetSlot("prune").(bool)
 	pruneBoundary, _ := node.GetSlot("prune_boundary").(string)
 
 	if ctx.DryRun {
@@ -128,7 +128,7 @@ func (o *FileRemoveOp) Name() string { return "remove" }
 
 func (o *FileRemoveOp) Execute(ctx *Context, node *Node) error {
 	path := node.GetSlot("path").(string)
-	prune, _ := node.GetSlot("prune_empty_dirs").(bool)
+	prune, _ := node.GetSlot("prune").(bool)
 	pruneBoundary, _ := node.GetSlot("prune_boundary").(string)
 
 	if ctx.DryRun {
