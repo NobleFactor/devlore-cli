@@ -126,7 +126,7 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 		sources[name] = path
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	executor := NewGraphExecutor(reg, ExecutorOptions{})
@@ -212,7 +212,7 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 	// Phase 3 uses an operation that always fails
 	reg.Register(&testRetryOp{
@@ -277,7 +277,7 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 		Nodes: []*Node{
 			testNode("node-prepare", "link", src1, filepath.Join(tmpDir, "out1")),
 			testNode("node-install", "link", src2, filepath.Join(tmpDir, "out2")),
-			{ID: "node-provision", Operation: "fail-provision"},
+			{ID: "node-provision", Action: "fail-provision"},
 			testNode("node-verify", "link", src1, filepath.Join(tmpDir, "out4")),
 			testNode("comp-prepare", "link", compensateSrc, filepath.Join(tmpDir, "comp-out1")),
 			testNode("comp-install", "link", compensateSrc, filepath.Join(tmpDir, "comp-out2")),
@@ -342,7 +342,7 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 
 	attemptCount := 0
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 	// Register a custom op that creates the file on second attempt
 	reg.Register(&testRetryOp{
@@ -375,7 +375,7 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 			},
 		},
 		Nodes: []*Node{
-			{ID: "retry-node", Operation: "retry-test"},
+			{ID: "retry-node", Action: "retry-test"},
 		},
 	}
 
@@ -414,7 +414,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 	reg.Register(&testRetryOp{
 		name: "always-fail",
@@ -448,7 +448,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 		},
 		Nodes: []*Node{
 			testNode("prepare-node", "link", src, filepath.Join(tmpDir, "out1")),
-			{ID: "fail-node", Operation: "always-fail"},
+			{ID: "fail-node", Action: "always-fail"},
 		},
 	}
 
@@ -482,7 +482,7 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	executor := NewGraphExecutor(reg, ExecutorOptions{})
@@ -538,7 +538,7 @@ func TestPhasedGraphSerialization(t *testing.T) {
 			},
 		},
 		Nodes: []*Node{
-			{ID: "pkg-ripgrep", Operation: "package-install"},
+			{ID: "pkg-ripgrep", Action: "package-install"},
 		},
 	}
 
@@ -576,13 +576,14 @@ func TestPhaseByID(t *testing.T) {
 	}
 }
 
-// testRetryOp is a test-only operation that executes a function.
+// testRetryOp is a test-only action that executes a function.
 type testRetryOp struct {
 	name string
 	fn   func(ctx *Context, node *Node) error
 }
 
 func (o *testRetryOp) Name() string { return o.name }
-func (o *testRetryOp) Execute(ctx *Context, node *Node) error {
-	return o.fn(ctx, node)
+func (o *testRetryOp) Do(ctx *Context, node *Node) (Result, UndoState, error) {
+	return nil, nil, o.fn(ctx, node)
 }
+func (o *testRetryOp) Undo(_ *Context, _ *Node, _ UndoState) error { return nil }

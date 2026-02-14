@@ -73,7 +73,7 @@ func (p *PackagePlan) install(_ *starlark.Thread, _ *starlark.Builtin, args star
 
 	node := &execution.Node{
 		ID:         generateNodeID("package-install", packages...),
-		Operation: "package-install",
+		Action: "package-install",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -98,7 +98,7 @@ func (p *PackagePlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args star
 
 	node := &execution.Node{
 		ID:         generateNodeID("package-upgrade", packages...),
-		Operation: "package-upgrade",
+		Action: "package-upgrade",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -123,7 +123,7 @@ func (p *PackagePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starl
 
 	node := &execution.Node{
 		ID:         generateNodeID("package-remove", packages...),
-		Operation: "package-remove",
+		Action: "package-remove",
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -145,7 +145,7 @@ func (p *PackagePlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starl
 
 	node := &execution.Node{
 		ID:         generateNodeID("package-update"),
-		Operation: "package-update",
+		Action: "package-update",
 		Project:    p.project,
 	}
 

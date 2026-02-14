@@ -88,5 +88,5 @@ func ExpandDelegates(ctx context.Context, graph *Graph, builder SubgraphBuilder,
 
 // isDelegateNode returns true if the node is a pure delegate operation.
 func isDelegateNode(node *Node) bool {
-	return node.Operation == "delegate"
+	return node.Action == "delegate"
 }

@@ -326,8 +326,8 @@ func TestBuilder_BuildGraphFromManifest(t *testing.T) {
 		if graph.Nodes[i].ID != id {
 			t.Errorf("nodes[%d].ID: expected %q, got %q", i, id, graph.Nodes[i].ID)
 		}
-		if graph.Nodes[i].Operation != expectedPhases[i] {
-			t.Errorf("nodes[%d].Operation: expected %q, got %q", i, expectedPhases[i], graph.Nodes[i].Operation)
+		if graph.Nodes[i].Action != expectedPhases[i] {
+			t.Errorf("nodes[%d].Action: expected %q, got %q", i, expectedPhases[i], graph.Nodes[i].Action)
 		}
 		if graph.Nodes[i].GetSlot("package") != "gh" {
 			t.Errorf("nodes[%d] slot 'package': expected 'gh', got %q", i, graph.Nodes[i].GetSlot("package"))

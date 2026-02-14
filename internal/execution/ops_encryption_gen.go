@@ -13,29 +13,31 @@ type EncryptionDecryptOp struct{ impl *EncryptionService }
 
 func (o *EncryptionDecryptOp) Name() string { return "decrypt" }
 
-func (o *EncryptionDecryptOp) Execute(ctx *Context, node *Node) error {
+func (o *EncryptionDecryptOp) Do(ctx *Context, node *Node) (Result, UndoState, error) {
 	decryptor, _ := node.GetSlot("decryptor").(func(string, []byte) ([]byte, error))
 	source, _ := node.GetSlot("source").(string)
 	content, err := ctx.ContentFor(node)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	if ctx.DryRun {
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] decrypt %v\n", source)
-		return nil
+		return nil, nil, nil
 	}
 	result, err := o.impl.Decrypt(decryptor, source, content)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	ctx.StoreContent(node, result)
-	return nil
+	return nil, nil, nil
 }
 
-// EncryptionOps returns all encryption operations backed by the given EncryptionService.
-func EncryptionOps(impl *EncryptionService) []Operation {
-	return []Operation{
+func (o *EncryptionDecryptOp) Undo(_ *Context, _ *Node, _ UndoState) error { return nil }
+
+// EncryptionOps returns all encryption actions backed by the given EncryptionService.
+func EncryptionOps(impl *EncryptionService) []Action {
+	return []Action{
 		&EncryptionDecryptOp{impl: impl},
 	}
 }

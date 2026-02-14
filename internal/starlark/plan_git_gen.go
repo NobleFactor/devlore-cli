@@ -59,7 +59,7 @@ func (g *GitPlan) checkout(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 
 	node := &execution.Node{
 		ID:        generateNodeID("git-checkout"),
-		Operation: "git-checkout",
+		Action: "git-checkout",
 		Project:   g.project,
 	}
 
@@ -82,7 +82,7 @@ func (g *GitPlan) clone(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 	node := &execution.Node{
 		ID:        generateNodeID("git-clone"),
-		Operation: "git-clone",
+		Action: "git-clone",
 		Project:   g.project,
 	}
 
@@ -105,7 +105,7 @@ func (g *GitPlan) pull(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 
 	node := &execution.Node{
 		ID:        generateNodeID("git-pull"),
-		Operation: "git-pull",
+		Action: "git-pull",
 		Project:   g.project,
 	}
 

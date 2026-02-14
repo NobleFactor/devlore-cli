@@ -49,8 +49,8 @@ func (s ResultStatus) String() string {
 	}
 }
 
-// Result represents the outcome of executing a single node.
-type Result struct {
+// NodeResult represents the outcome of executing a single node.
+type NodeResult struct {
 	NodeID         string
 	Status         ResultStatus
 	Error          error
@@ -78,7 +78,7 @@ type ExecutorOptions struct {
 	// DryRun prevents filesystem modifications.
 	DryRun bool
 
-	// Logger receives operation output.
+	// Logger receives action output.
 	Logger io.Writer
 
 	// Data holds tool-provided context (template vars, SOPS config, etc.).
@@ -91,14 +91,14 @@ type ExecutorOptions struct {
 	BackupSuffix string
 }
 
-// GraphExecutor executes operation graphs.
+// GraphExecutor executes action graphs.
 type GraphExecutor struct {
-	registry *OperationRegistry
+	registry *ActionRegistry
 	options  ExecutorOptions
 }
 
 // NewGraphExecutor creates an executor with the given registry and options.
-func NewGraphExecutor(registry *OperationRegistry, opts ExecutorOptions) *GraphExecutor {
+func NewGraphExecutor(registry *ActionRegistry, opts ExecutorOptions) *GraphExecutor {
 	if opts.Logger == nil {
 		opts.Logger = os.Stdout
 	}
@@ -141,7 +141,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 		Outputs: make(map[string][]byte),
 	}
 
-	var results []*Result
+	var results []*NodeResult
 	for _, node := range ordered {
 		result := e.executeNode(execCtx, node)
 		results = append(results, result)
@@ -366,7 +366,7 @@ func (e *GraphExecutor) unwindStack(ctx *Context, g *Graph, stack *RecoveryStack
 
 // RunNodes executes a slice of nodes with the given edges.
 // This is a lower-level API for callers that don't have a full Graph.
-func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edge) ([]*Result, error) {
+func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edge) ([]*NodeResult, error) {
 	ordered := e.orderNodes(nodes, edges)
 
 	execCtx := &Context{
@@ -378,7 +378,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edg
 		Outputs: make(map[string][]byte),
 	}
 
-	var results []*Result
+	var results []*NodeResult
 	for _, node := range ordered {
 		result := e.executeNode(execCtx, node)
 		results = append(results, result)
@@ -392,22 +392,22 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edg
 }
 
 // executeNode processes a single node with uniform dispatch.
-func (e *GraphExecutor) executeNode(ctx *Context, node *Node) *Result {
-	opName := node.Operation
-	if opName == "" {
-		return &Result{
+func (e *GraphExecutor) executeNode(ctx *Context, node *Node) *NodeResult {
+	actionName := node.Action
+	if actionName == "" {
+		return &NodeResult{
 			NodeID: node.ID,
 			Status: ResultFailed,
-			Error:  fmt.Errorf("node %s has no operation", node.ID),
+			Error:  fmt.Errorf("node %s has no action", node.ID),
 		}
 	}
 
-	op, ok := e.registry.Get(opName)
+	action, ok := e.registry.Get(actionName)
 	if !ok {
-		return &Result{
+		return &NodeResult{
 			NodeID: node.ID,
 			Status: ResultFailed,
-			Error:  fmt.Errorf("unknown operation: %s", opName),
+			Error:  fmt.Errorf("unknown action: %s", actionName),
 		}
 	}
 
@@ -415,15 +415,16 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node) *Result {
 	ctx.SourceChecksum = ""
 	ctx.TargetChecksum = ""
 
-	if err := op.Execute(ctx, node); err != nil {
-		return &Result{
+	_, _, err := action.Do(ctx, node)
+	if err != nil {
+		return &NodeResult{
 			NodeID: node.ID,
 			Status: ResultFailed,
-			Error:  fmt.Errorf("%s: %w", opName, err),
+			Error:  fmt.Errorf("%s: %w", actionName, err),
 		}
 	}
 
-	return &Result{
+	return &NodeResult{
 		NodeID:         node.ID,
 		Status:         ResultCompleted,
 		SourceChecksum: ctx.SourceChecksum,

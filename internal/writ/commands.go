@@ -500,7 +500,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 		node := &execution.Node{
 			ID:        nodeID,
-			Operation: opName,
+			Action: opName,
 			Project:   entry.Project,
 		}
 		if i == 0 {
@@ -519,8 +519,8 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 		prevNodeID = nodeID
 	}
 
-	reg := execution.NewOperationRegistry()
-	for _, op := range execution.AllOps() {
+	reg := execution.NewActionRegistry()
+	for _, op := range execution.AllActions() {
 		reg.Register(op)
 	}
 	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{
@@ -703,14 +703,14 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 
 	for _, n := range g.Nodes {
 		// Skip non-file nodes and symlinks
-		if n.Status == execution.StatusSkipped || n.Operation == "delegate" || n.Operation == "backup" {
+		if n.Status == execution.StatusSkipped || n.Action == "delegate" || n.Action == "backup" {
 			continue
 		}
-		if n.Operation == "link" {
+		if n.Action == "link" {
 			continue // Symlinks are found by scanning
 		}
 		// Skip intermediate transform nodes
-		if n.Operation == "render" || n.Operation == "decrypt" {
+		if n.Action == "render" || n.Action == "decrypt" {
 			continue
 		}
 
@@ -723,7 +723,7 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 				Source:         source,
 				Target:         target,
 				Project:        n.Project,
-				Operation:      n.Operation,
+				Operation:      n.Action,
 				SourceChecksum: n.SourceChecksum,
 				TargetChecksum: n.TargetChecksum,
 			}
@@ -754,7 +754,7 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 				Source:    source,
 				Target:    target,
 				Project:   n.Project,
-				Operation: n.Operation,
+				Operation: n.Action,
 			}
 			if _, err := os.Stat(target); os.IsNotExist(err) {
 				entry.State = reconcile.StateMissing

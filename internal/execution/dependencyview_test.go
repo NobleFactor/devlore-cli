@@ -361,8 +361,8 @@ func TestDependencyViewSubgraph(t *testing.T) {
 func TestDependencyViewNode(t *testing.T) {
 	g := &Graph{
 		Nodes: []*Node{
-			{ID: "a", Operation: "link"},
-			{ID: "b", Operation: "copy"},
+			{ID: "a", Action: "link"},
+			{ID: "b", Action: "copy"},
 		},
 	}
 	v := NewDependencyView(g)
@@ -371,7 +371,7 @@ func TestDependencyViewNode(t *testing.T) {
 	if nodeA == nil {
 		t.Fatal("expected to find node a")
 	}
-	if nodeA.Operation != "link" {
+	if nodeA.Action != "link" {
 		t.Errorf("expected node a to have link operation")
 	}
 

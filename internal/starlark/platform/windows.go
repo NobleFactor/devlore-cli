@@ -55,7 +55,7 @@ func (w *WindowsPlanBindings) PackageManagerName() string {
 func (w *WindowsPlanBindings) PackageInstall(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("package-install", packages...),
-		Operation: "package-install",
+		Action: "package-install",
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -67,7 +67,7 @@ func (w *WindowsPlanBindings) PackageInstall(packages ...string) *execution.Node
 func (w *WindowsPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("package-upgrade", packages...),
-		Operation: "package-upgrade",
+		Action: "package-upgrade",
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -79,7 +79,7 @@ func (w *WindowsPlanBindings) PackageUpgrade(packages ...string) *execution.Node
 func (w *WindowsPlanBindings) PackageRemove(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("package-remove", packages...),
-		Operation: "package-remove",
+		Action: "package-remove",
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -91,7 +91,7 @@ func (w *WindowsPlanBindings) PackageRemove(packages ...string) *execution.Node 
 func (w *WindowsPlanBindings) PackageUpdate() *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("package-update"),
-		Operation: "package-update",
+		Action: "package-update",
 		Project:    w.project,
 	}
 	w.graph.Nodes = append(w.graph.Nodes, node)
@@ -102,7 +102,7 @@ func (w *WindowsPlanBindings) PackageUpdate() *execution.Node {
 func (w *WindowsPlanBindings) Configure(source, target string) *execution.Node {
 	renderNode := &execution.Node{
 		ID:        windowsGenerateNodeID("render"),
-		Operation: "render",
+		Action: "render",
 		Project:   w.project,
 	}
 	renderNode.SetSlotImmediate("source", source)
@@ -110,7 +110,7 @@ func (w *WindowsPlanBindings) Configure(source, target string) *execution.Node {
 
 	copyNode := &execution.Node{
 		ID:        windowsGenerateNodeID("configure"),
-		Operation: "copy",
+		Action: "copy",
 		Project:   w.project,
 	}
 	copyNode.SetSlotImmediate("path", w.host.ExpandPath(target))
@@ -127,7 +127,7 @@ func (w *WindowsPlanBindings) Configure(source, target string) *execution.Node {
 func (w *WindowsPlanBindings) Link(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("link"),
-		Operation: "link",
+		Action: "link",
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -141,7 +141,7 @@ func (w *WindowsPlanBindings) Link(source, target string) *execution.Node {
 func (w *WindowsPlanBindings) Copy(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("copy"),
-		Operation: "copy",
+		Action: "copy",
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -154,7 +154,7 @@ func (w *WindowsPlanBindings) Copy(source, target string) *execution.Node {
 func (w *WindowsPlanBindings) Write(target, content string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("write"),
-		Operation: "write",
+		Action: "write",
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("content", content)
@@ -167,7 +167,7 @@ func (w *WindowsPlanBindings) Write(target, content string) *execution.Node {
 func (w *WindowsPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("winservice", name, action.String()),
-		Operation: "winservice-" + action.String(),
+		Action: "winservice-" + action.String(),
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("name", name)
@@ -180,7 +180,7 @@ func (w *WindowsPlanBindings) Service(name string, action loreStar.ServiceAction
 func (w *WindowsPlanBindings) Shell(command string) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("shell"),
-		Operation: "powershell",
+		Action: "powershell",
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("command", command)
@@ -404,7 +404,7 @@ func (w *WindowsPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Built
 	expandedOut := w.host.ExpandPath(out)
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("write"),
-		Operation: "write",
+		Action: "write",
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("source", input.Path())

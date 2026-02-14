@@ -67,7 +67,7 @@ func (p *Plan) Mkdir(path string) *Node {
 
 	node := &Node{
 		ID:        p.nextID("mkdir"),
-		Operation: "mkdir",
+		Action: "mkdir",
 		Project:   p.project,
 		Mode:      0755,
 	}
@@ -83,7 +83,7 @@ func (p *Plan) Link(source, path string) *Node {
 
 	node := &Node{
 		ID:        p.nextID("link"),
-		Operation: "link",
+		Action: "link",
 		Project:   p.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -101,7 +101,7 @@ func (p *Plan) Copy(source, path string, transforms ...string) *Node {
 	if len(transforms) == 0 {
 		node := &Node{
 			ID:        p.nextID("copy"),
-			Operation: "copy",
+			Action: "copy",
 			Project:   p.project,
 			Mode:      0644,
 		}
@@ -119,7 +119,7 @@ func (p *Plan) Copy(source, path string, transforms ...string) *Node {
 		isLast := (i == len(allOps) - 1)
 		node := &Node{
 			ID:        p.nextID(op),
-			Operation: op,
+			Action: op,
 			Project:   p.project,
 		}
 		if i == 0 {
@@ -147,7 +147,7 @@ func (p *Plan) CopyWithMode(source, path string, mode os.FileMode, transforms ..
 	if len(transforms) == 0 {
 		node := &Node{
 			ID:        p.nextID("copy"),
-			Operation: "copy",
+			Action: "copy",
 			Project:   p.project,
 			Mode:      mode,
 		}
@@ -165,7 +165,7 @@ func (p *Plan) CopyWithMode(source, path string, mode os.FileMode, transforms ..
 		isLast := (i == len(allOps) - 1)
 		node := &Node{
 			ID:        p.nextID(op),
-			Operation: op,
+			Action: op,
 			Project:   p.project,
 		}
 		if i == 0 {
@@ -192,7 +192,7 @@ func (p *Plan) Remove(path string) *Node {
 
 	node := &Node{
 		ID:        p.nextID("remove"),
-		Operation: "remove",
+		Action: "remove",
 		Project:   p.project,
 	}
 	node.SetSlotImmediate("path", path)
@@ -207,7 +207,7 @@ func (p *Plan) Unlink(path string) *Node {
 
 	node := &Node{
 		ID:        p.nextID("unlink"),
-		Operation: "unlink",
+		Action: "unlink",
 		Project:   p.project,
 	}
 	node.SetSlotImmediate("path", path)
@@ -222,7 +222,7 @@ func (p *Plan) Backup(path string) *Node {
 
 	node := &Node{
 		ID:        p.nextID("backup"),
-		Operation: "backup",
+		Action: "backup",
 		Project:   p.project,
 	}
 	node.SetSlotImmediate("path", path)
@@ -237,7 +237,7 @@ func (p *Plan) Validate(check, message string) *Node {
 
 	node := &Node{
 		ID:        p.nextID("validate"),
-		Operation: "validate",
+		Action: "validate",
 		Project:   p.project,
 	}
 	node.SetSlotImmediate("check", check)
@@ -253,7 +253,7 @@ func (p *Plan) Rename(source, path string) *Node {
 
 	node := &Node{
 		ID:        p.nextID("move"),
-		Operation: "move",
+		Action: "move",
 		Project:   p.project,
 	}
 	node.SetSlotImmediate("source", source)
