@@ -21,7 +21,7 @@ Key architectural decisions that change the approach:
 | `op_category` in descriptor | Return signature determines content model |
 | `--category` flag required | Namespace derived from service name |
 | Impl structs named `fileOps` | Services named `FileService` (hand-written) |
-| Generated ops in same package | Generated code in subpackages (`generated/fileops/`) |
+| Generated ops in same package | Generated code in same package (`_gen.go` suffix) |
 
 **Repos**: noblefactor-ops (template changes), devlore-cli (infrastructure + restructure)
 
@@ -43,7 +43,7 @@ Key architectural decisions that change the approach:
 6. **All infrastructure is generated.** Ops interface, graph operations, plan
    receivers, execute receivers, Starlark type mappings, registration — all
    generated from service signatures.
-7. **Nuke-safe.** Delete any generated subpackage, re-run the generator, get it back.
+7. **Nuke-safe.** Delete any `*_gen.go` file, re-run the generator, get it back.
 
 ## Current State
 
@@ -60,7 +60,7 @@ Key architectural decisions that change the approach:
 | Ops ctx.Data access | 8 ops read ctx.Data directly | Zero — all through slots |
 | Services | Don't exist | `FileService`, `PackageService`, `ServiceManagerService` |
 | Generated ops interface | Doesn't exist | `fileOps`, `packageOps`, `serviceManagerOps` |
-| Generated graph ops | Don't exist | All ops generated in subpackages |
+| Generated graph ops | Don't exist | All ops generated as `_gen.go` files |
 | Generated plan receivers | Don't exist | GitPlan, ArchivePlan generated |
 | Generated execute receivers | Don't exist | Archive, ServiceManager generated |
 
@@ -337,7 +337,7 @@ The generator produces an unexported interface from the service's method
 signatures:
 
 ```go
-// generated/fileops/ops.go
+// ops_file_gen.go
 type fileOps interface {
     Link(source, path string) error
     Copy(path string, mode os.FileMode, content []byte) (string, error)
@@ -403,27 +403,28 @@ The generator must distinguish slot params from framework params. Convention:
 
 No annotation needed. The method signature IS the specification.
 
-### 6g: Generate into subpackages
+### 6g: Generate as `_gen.go` files in the same package
 
-The generator produces code in `generated/<namespace>ops/`:
+Following Go convention, generated code lives in the same package as the
+source it serves, with a `_gen.go` suffix. Each file carries the standard
+`// Code generated from gen-receiver templates; DO NOT EDIT.` header.
 
 ```
-internal/execution/generated/
-├── fileops/
-│   └── ops.go       # fileOps interface, FileLinkOp, ..., Ops() registration
-├── packageops/
-│   └── ops.go       # packageOps interface, PackageInstallOp, ..., Ops()
-└── servicemanagerops/
-    └── ops.go       # serviceManagerOps interface, ServiceManagerStartOp, ..., Ops()
+internal/execution/
+├── ops_file_gen.go              # fileOps interface, FileLinkOp, ..., FileOps()
+├── ops_encryption_gen.go        # EncryptionDecryptOp, EncryptionOps()
+├── ops_package_gen.go           # packageOps interface, PackageInstallOp, ..., PackageOps()
+├── ops_shell_gen.go             # ShellOp, PowerShellOp, ShellOps()
+└── ops_service_manager_gen.go   # ServiceManagerStartOp, ..., ServiceManagerOps()
 ```
 
-Registration function accepts the interface:
+Registration function accepts the unexported interface:
 
 ```go
-func Ops(impl fileOps) []Operation { ... }
+func FileOps(impl fileOps) []Operation { ... }
 ```
 
-Parent package wires it: `fileops.Ops(&FileService{})`.
+`AllOps()` in `ops_registry.go` wires it: `FileOps(&FileService{})`.
 
 ### 6h: Tests
 
@@ -453,40 +454,50 @@ go build ./... && go vet ./internal/starlark/
 
 ## Step 7: Generate and Replace Graph Ops (devlore-cli)
 
-### 7a: Generate generated/fileops/
+### 7a: Generate ops_file_gen.go
 
-Run the generator against `FileService`. The generated subpackage contains:
+Run the generator against `FileService`. The generated file contains:
 
 - `fileOps` interface (unexported)
-- `FileLinkOp`, `FileCopyOp`, `FileRenderOp`, `FileDecryptOp`, `FileBackupOp`,
-  `FileUnlinkOp`, `FileRemoveOp`, `FileWriteOp`, `FileValidateOp`, `FileMoveOp`
+- `FileLinkOp`, `FileCopyOp`, `FileRenderOp`, `FileBackupOp`,
+  `FileUnlinkOp`, `FileRemoveOp`, `FileWriteOp`, `FileMoveOp`
 - Each op: struct with `impl fileOps`, `Name()`, `Execute()` with typed slot
   assertions + dry-run + content handling + delegation
-- `Ops(impl fileOps) []Operation` registration function
+- `FileOps(impl fileOps) []Operation` registration function
 
-### 7b: Generate generated/packageops/
+### 7b: Generate ops_encryption_gen.go
 
-From `PackageService`. 6 ops (Install, Upgrade, Remove, Update, Shell, PowerShell).
+From `EncryptionService`. 1 op (Decrypt).
 
-### 7c: Generate generated/servicemanagerops/
+### 7c: Generate ops_package_gen.go
+
+From `PackageService`. 4 ops (Install, Upgrade, Remove, Update).
+
+### 7d: Generate ops_shell_gen.go
+
+From `ShellService`. 2 ops (Shell, PowerShell).
+
+### 7e: Generate ops_service_manager_gen.go
 
 From `ServiceManagerService`. 5 platform-agnostic ops (Start, Stop, Restart,
-Enable, Disable). Operation names: `service_manager.start`,
-`service_manager.stop`, etc.
+Enable, Disable).
 
-### 7d: Delete hand-written ops
+### 7f: Delete hand-written ops and wire AllOps
 
 Remove `ops.go` (file ops + AllOps), `ops_package.go`, `ops_service.go`.
 
-Create a small wiring file that imports generated subpackages and registers:
+Create `ops_registry.go` with `ValidateOp` (hand-written) and `AllOps()`:
 
 ```go
 // ops_registry.go
 func AllOps() []Operation {
     var ops []Operation
-    ops = append(ops, fileops.Ops(&FileService{})...)
-    ops = append(ops, packageops.Ops(&PackageService{})...)
-    ops = append(ops, servicemanagerops.Ops(&ServiceManagerService{})...)
+    ops = append(ops, FileOps(&FileService{})...)
+    ops = append(ops, EncryptionOps(&EncryptionService{})...)
+    ops = append(ops, PackageOps(&PackageService{})...)
+    ops = append(ops, ShellOps(&ShellService{})...)
+    ops = append(ops, ServiceManagerOps(&ServiceManagerService{})...)
+    ops = append(ops, &ValidateOp{})
     return ops
 }
 ```
@@ -498,7 +509,7 @@ go build ./internal/execution/...
 go test ./internal/execution/ -count=1
 
 # Nuke and regenerate
-rm -rf internal/execution/generated/
+rm internal/execution/ops_*_gen.go
 star devlore ops generate
 go build ./internal/execution/...
 go test ./internal/execution/ -count=1
@@ -506,7 +517,7 @@ go test ./internal/execution/ -count=1
 
 ## Step 8: Generate Plan Receivers (devlore-cli)
 
-### 8a: Generate plan_git in generated/
+### 8a: Generate plan_git_gen.go
 
 From GitPlan's 3 methods (clone, checkout, pull). Delete `plan_git.go`.
 
@@ -519,7 +530,7 @@ The generated plan receiver:
 - Operation names: `git.clone`, `git.checkout`, `git.pull`
 - Node IDs: `generateNodeID("git.clone")`
 
-### 8b: Generate plan_archive in generated/
+### 8b: Generate plan_archive_gen.go
 
 From ArchivePlan's 1 method (extract). Delete `plan_archive.go`.
 
@@ -540,12 +551,10 @@ go test ./internal/starlark/ -count=1
 
 ## Step 9: Generate Execute Receivers (devlore-cli)
 
-### 9a: Typed receivers → generated
+### 9a: Typed receivers → generated (`_gen.go`)
 
-- Archive execute receiver from ArchiveService's typed params (extract).
-  Delete `receiver_archive.go`.
-- ServiceManager execute receiver from ServiceManagerService's typed params.
-  Delete `receiver_service.go`.
+- Archive execute receiver → `receiver_archive_gen.go`. Delete `receiver_archive.go`.
+- ServiceManager execute receiver → `receiver_service_gen.go`. Delete `receiver_service.go`.
 
 ### 9b: Hand-written execute receivers stay
 
@@ -729,17 +738,23 @@ Step 11 separates concerns between repos.
 | `internal/execution/file_service.go` | Create | FileService (hand-written) |
 | `internal/execution/package_service.go` | Create | PackageService (hand-written) |
 | `internal/execution/service_manager_service.go` | Create | ServiceManagerService (hand-written) |
-| `internal/execution/ops_registry.go` | Create | AllOps() wiring |
-| `internal/execution/generated/fileops/ops.go` | Create | Generated: fileOps interface + ops |
-| `internal/execution/generated/packageops/ops.go` | Create | Generated: packageOps interface + ops |
-| `internal/execution/generated/servicemanagerops/ops.go` | Create | Generated: serviceManagerOps interface + ops |
-| `internal/execution/ops.go` | Delete | Replaced by service + generated subpackage |
-| `internal/execution/ops_package.go` | Delete | Replaced by service + generated subpackage |
-| `internal/execution/ops_service.go` | Delete | Replaced by service + generated subpackage |
-| `internal/starlark/plan_git.go` | Delete | Replaced by generated |
-| `internal/starlark/plan_archive.go` | Delete | Replaced by generated |
-| `internal/starlark/receiver_archive.go` | Delete | Replaced by generated |
-| `internal/starlark/receiver_service.go` | Delete | Replaced by generated |
+| `internal/execution/ops_registry.go` | Create | AllOps() wiring + ValidateOp |
+| `internal/execution/ops_file_gen.go` | Create | Generated: fileOps interface + 8 file ops |
+| `internal/execution/ops_encryption_gen.go` | Create | Generated: 1 encryption op |
+| `internal/execution/ops_package_gen.go` | Create | Generated: packageOps interface + 4 package ops |
+| `internal/execution/ops_shell_gen.go` | Create | Generated: 2 shell ops |
+| `internal/execution/ops_service_manager_gen.go` | Create | Generated: 5 service manager ops |
+| `internal/execution/ops.go` | Delete | Replaced by service + `_gen.go` files |
+| `internal/execution/ops_package.go` | Delete | Replaced by service + `_gen.go` files |
+| `internal/execution/ops_service.go` | Delete | Replaced by service + `_gen.go` files |
+| `internal/starlark/plan_git_gen.go` | Create | Generated: GitPlan receiver |
+| `internal/starlark/plan_git.go` | Delete | Replaced by plan_git_gen.go |
+| `internal/starlark/plan_archive_gen.go` | Create | Generated: ArchivePlan receiver |
+| `internal/starlark/plan_archive.go` | Delete | Replaced by plan_archive_gen.go |
+| `internal/starlark/receiver_archive_gen.go` | Create | Generated: Archive execute receiver |
+| `internal/starlark/receiver_archive.go` | Delete | Replaced by receiver_archive_gen.go |
+| `internal/starlark/receiver_service_gen.go` | Create | Generated: ServiceManager execute receiver |
+| `internal/starlark/receiver_service.go` | Delete | Replaced by receiver_service_gen.go |
 | `internal/writ/commands.go` | Modify | Rename `prune_empty_dirs` key to `prune` |
 
 ### noblefactor-ops
@@ -753,8 +768,10 @@ Step 11 separates concerns between repos.
 After all steps, validate the nuke-and-regenerate workflow:
 
 ```bash
-# Delete all generated subpackages
-rm -rf internal/execution/generated/
+# Delete all generated files
+rm internal/execution/ops_*_gen.go
+rm internal/starlark/plan_*_gen.go
+rm internal/starlark/receiver_*_gen.go
 
 # Regenerate all
 star devlore ops generate
@@ -790,5 +807,6 @@ go test ./...
   `*Ops` (unexported: `fileOps`, `packageOps`, `serviceManagerOps`).
 - **Namespace derivation**: Strip `Service` suffix, snake_case the remainder.
   `FileService` → `file`. `ServiceManagerService` → `service_manager`.
-- **Generated code location**: Subpackages under `internal/execution/generated/`.
-  Each namespace gets its own package (`fileops/`, `packageops/`, `servicemanagerops/`).
+- **Generated code location**: Same package with `_gen.go` suffix, following Go
+  convention. Generated code has access to unexported symbols and stays within
+  the same logical unit. Header: `// Code generated from gen-receiver templates; DO NOT EDIT.`
