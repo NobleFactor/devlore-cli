@@ -5,6 +5,7 @@ package execution
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,8 +31,8 @@ func testNode(id string, op string, source, path string) *Node {
 
 func TestRegistryRegisterAndGet(t *testing.T) {
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
-	reg.Register(&CopyOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg.Register(&FileCopyOp{impl: &FileService{}})
 
 	op, ok := reg.Get("link")
 	if !ok {
@@ -49,13 +50,13 @@ func TestRegistryRegisterAndGet(t *testing.T) {
 
 func TestRegistryNames(t *testing.T) {
 	reg := NewOperationRegistry()
-	for _, op := range FileOps() {
+	for _, op := range FileOps(&FileService{}) {
 		reg.Register(op)
 	}
 
 	names := reg.Names()
-	if len(names) != 10 {
-		t.Errorf("expected 10 operations, got %d", len(names))
+	if len(names) != 8 {
+		t.Errorf("expected 8 operations, got %d", len(names))
 	}
 }
 
@@ -68,7 +69,7 @@ func TestLinkOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &LinkOp{}
+	op := &FileLinkOp{impl: &FileService{}}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
@@ -99,7 +100,7 @@ func TestLinkOperationIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &LinkOp{}
+	op := &FileLinkOp{impl: &FileService{}}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
@@ -119,7 +120,7 @@ func TestCopyOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &CopyOp{}
+	op := &FileCopyOp{impl: &FileService{}}
 	ctx := &Context{
 		Context: context.Background(),
 		Outputs: make(map[string][]byte),
@@ -157,7 +158,7 @@ func TestCopyOperationCreatesParentDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &CopyOp{}
+	op := &FileCopyOp{impl: &FileService{}}
 	ctx := &Context{
 		Context: context.Background(),
 		Outputs: make(map[string][]byte),
@@ -187,7 +188,7 @@ func TestRenderOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &RenderOp{}
+	op := &FileRenderOp{impl: &FileService{}}
 	ctx := &Context{
 		Context: context.Background(),
 		Data:    map[string]any{"Username": "testuser", "Shell": "/bin/zsh"},
@@ -214,7 +215,7 @@ func TestDecryptOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &DecryptOp{}
+	op := &EncryptionDecryptOp{impl: &EncryptionService{}}
 
 	// Provide a mock decryptor
 	mockDecrypt := func(source string, ciphertext []byte) ([]byte, error) {
@@ -223,11 +224,11 @@ func TestDecryptOperation(t *testing.T) {
 
 	ctx := &Context{
 		Context: context.Background(),
-		Data:    map[string]any{"decryptor": mockDecrypt},
 		Outputs: make(map[string][]byte),
 	}
 	node := &Node{ID: "secret.txt"}
 	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("decryptor", mockDecrypt)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("decrypt: %v", err)
@@ -246,14 +247,14 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &DecryptOp{}
+	op := &EncryptionDecryptOp{impl: &EncryptionService{}}
 	ctx := &Context{
 		Context: context.Background(),
-		Data:    map[string]any{},
 		Outputs: make(map[string][]byte),
 	}
 	node := &Node{ID: "secret.txt"}
 	node.SetSlotImmediate("source", source)
+	// No decryptor slot set
 
 	if err := op.Execute(ctx, node); err == nil {
 		t.Error("expected error when no decryptor configured")
@@ -261,8 +262,8 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 }
 
 // TestDecryptOperationInvalidSignature tests that invalid decryptor signatures are rejected.
-// This is a critical test: we previously had a legacy signature fallback that accepted
-// func([]byte) ([]byte, error) which is a security issue since it doesn't track the source.
+// The delegation op reads decryptor from a node slot via type assertion. Invalid types
+// result in a nil decryptor, which EncryptionService.Decrypt rejects.
 func TestDecryptOperationInvalidSignature(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "secret.txt")
@@ -270,7 +271,7 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &DecryptOp{}
+	op := &EncryptionDecryptOp{impl: &EncryptionService{}}
 
 	tests := []struct {
 		name      string
@@ -291,19 +292,19 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 				return []byte("decrypted"), nil
 			},
 			wantErr: true,
-			errMsg:  "must be func(string, []byte)",
+			errMsg:  "no decryptor configured",
 		},
 		{
 			name:      "invalid type string",
 			decryptor: "not a function",
 			wantErr:   true,
-			errMsg:    "must be func(string, []byte)",
+			errMsg:    "no decryptor configured",
 		},
 		{
 			name:      "invalid type int",
 			decryptor: 42,
 			wantErr:   true,
-			errMsg:    "must be func(string, []byte)",
+			errMsg:    "no decryptor configured",
 		},
 		{
 			name: "invalid signature wrong return type",
@@ -311,7 +312,7 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 				return "wrong return"
 			},
 			wantErr: true,
-			errMsg:  "must be func(string, []byte)",
+			errMsg:  "no decryptor configured",
 		},
 	}
 
@@ -319,10 +320,10 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := &Node{ID: "secret.txt"}
 			node.SetSlotImmediate("source", source)
+			node.SetSlotImmediate("decryptor", tt.decryptor)
 
 			ctx := &Context{
 				Context: context.Background(),
-				Data:    map[string]any{"decryptor": tt.decryptor},
 				Outputs: make(map[string][]byte),
 			}
 
@@ -359,7 +360,7 @@ func TestUnlinkOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &UnlinkOp{}
+	op := &FileUnlinkOp{impl: &FileService{}}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
@@ -380,7 +381,7 @@ func TestRemoveOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &RemoveOp{}
+	op := &FileRemoveOp{impl: &FileService{}}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
@@ -399,7 +400,7 @@ func TestWriteOperation(t *testing.T) {
 	target := filepath.Join(tmpDir, "output.txt")
 	content := "hello world"
 
-	op := &WriteOp{}
+	op := &FileWriteOp{impl: &FileService{}}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
@@ -423,7 +424,7 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 	target := filepath.Join(tmpDir, "a", "b", "c", "output.txt")
 	content := "nested content"
 
-	op := &WriteOp{}
+	op := &FileWriteOp{impl: &FileService{}}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
@@ -443,7 +444,7 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 }
 
 func TestWriteRequiresContent(t *testing.T) {
-	op := &WriteOp{}
+	op := &FileWriteOp{impl: &FileService{}}
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", "/tmp/test.txt")
@@ -461,8 +462,8 @@ func TestWriteDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "should-not-exist.txt")
 
-	op := &WriteOp{}
-	ctx := &Context{Context: context.Background(), DryRun: true}
+	op := &FileWriteOp{impl: &FileService{}}
+	ctx := &Context{Context: context.Background(), DryRun: true, Logger: io.Discard}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", "test")
@@ -485,7 +486,7 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
@@ -522,8 +523,8 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&RenderOp{})
-	reg.Register(&CopyOp{})
+	reg.Register(&FileRenderOp{impl: &FileService{}})
+	reg.Register(&FileCopyOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{
 		Data: map[string]any{"Username": "david"},
@@ -578,9 +579,9 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&DecryptOp{})
-	reg.Register(&RenderOp{})
-	reg.Register(&CopyOp{})
+	reg.Register(&EncryptionDecryptOp{impl: &EncryptionService{}})
+	reg.Register(&FileRenderOp{impl: &FileService{}})
+	reg.Register(&FileCopyOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{
 		Data: map[string]any{
@@ -635,7 +636,7 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
@@ -693,7 +694,7 @@ func TestEngineTopologicalSort(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 
@@ -736,7 +737,7 @@ func TestEngineDryRun(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{DryRun: true})
 	graph := &Graph{
@@ -853,10 +854,10 @@ func TestPreflightPackagesManifest(t *testing.T) {
 	}
 }
 
-func TestFileOpsCount(t *testing.T) {
-	ops := FileOps()
-	if len(ops) != 10 {
-		t.Errorf("expected 10 file ops, got %d", len(ops))
+func TestAllOpsCount(t *testing.T) {
+	ops := AllOps()
+	if len(ops) != 21 {
+		t.Errorf("expected 21 total ops, got %d", len(ops))
 	}
 
 	names := make(map[string]bool)
@@ -864,13 +865,17 @@ func TestFileOpsCount(t *testing.T) {
 		names[op.Name()] = true
 	}
 
-	// NOTE: No "delegate" operation - writ and lore share the same execution.
-	// Package operations (install, configure, verify) are NOT YET IMPLEMENTED.
-	// mkdir removed - all file operations implicitly create directories.
-	expected := []string{"link", "copy", "render", "decrypt", "backup", "unlink", "remove", "write", "validate", "move"}
+	expected := []string{
+		"link", "copy", "render", "backup", "unlink", "remove", "write", "move",
+		"decrypt",
+		"package-install", "package-upgrade", "package-remove", "package-update",
+		"shell", "powershell",
+		"service-start", "service-stop", "service-restart", "service-enable", "service-disable",
+		"validate",
+	}
 	for _, name := range expected {
 		if !names[name] {
-			t.Errorf("expected operation %q in FileOps()", name)
+			t.Errorf("expected operation %q in AllOps()", name)
 		}
 	}
 }
@@ -882,8 +887,8 @@ func TestBackupOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &BackupOp{}
-	ctx := &Context{Context: context.Background(), Data: map[string]any{}}
+	op := &FileBackupOp{impl: &FileService{}}
+	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
@@ -921,7 +926,7 @@ func TestCopyOperationWithMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &CopyOp{}
+	op := &FileCopyOp{impl: &FileService{}}
 	ctx := &Context{
 		Context: context.Background(),
 		Outputs: make(map[string][]byte),
@@ -974,16 +979,12 @@ func TestRemoveOperationPrunesEmptyDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &RemoveOp{}
-	ctx := &Context{
-		Context: context.Background(),
-		Data: map[string]any{
-			"prune_empty_dirs": true,
-			"prune_boundary":   tmpDir,
-		},
-	}
+	op := &FileRemoveOp{impl: &FileService{}}
+	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
+	node.SetSlotImmediate("prune_empty_dirs", true)
+	node.SetSlotImmediate("prune_boundary", tmpDir)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -1021,16 +1022,12 @@ func TestRemoveOperationPruneStopsAtNonEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &RemoveOp{}
-	ctx := &Context{
-		Context: context.Background(),
-		Data: map[string]any{
-			"prune_empty_dirs": true,
-			"prune_boundary":   tmpDir,
-		},
-	}
+	op := &FileRemoveOp{impl: &FileService{}}
+	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
+	node.SetSlotImmediate("prune_empty_dirs", true)
+	node.SetSlotImmediate("prune_boundary", tmpDir)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -1069,16 +1066,12 @@ func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &UnlinkOp{}
-	ctx := &Context{
-		Context: context.Background(),
-		Data: map[string]any{
-			"prune_empty_dirs": true,
-			"prune_boundary":   tmpDir,
-		},
-	}
+	op := &FileUnlinkOp{impl: &FileService{}}
+	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
+	node.SetSlotImmediate("prune_empty_dirs", true)
+	node.SetSlotImmediate("prune_boundary", tmpDir)
 
 	if err := op.Execute(ctx, node); err != nil {
 		t.Fatalf("unlink: %v", err)
@@ -1153,7 +1146,7 @@ func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &RemoveOp{}
+	op := &FileRemoveOp{impl: &FileService{}}
 	// No prune flags set
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}

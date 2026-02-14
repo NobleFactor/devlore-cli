@@ -127,7 +127,7 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	executor := NewGraphExecutor(reg, ExecutorOptions{})
 
@@ -213,7 +213,7 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 	// Phase 3 uses an operation that always fails
 	reg.Register(&testRetryOp{
 		name: "fail-provision",
@@ -343,7 +343,7 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 	attemptCount := 0
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 	// Register a custom op that creates the file on second attempt
 	reg.Register(&testRetryOp{
 		name: "retry-test",
@@ -415,7 +415,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 	reg.Register(&testRetryOp{
 		name: "always-fail",
 		fn: func(ctx *Context, node *Node) error {
@@ -483,7 +483,7 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 	}
 
 	reg := NewOperationRegistry()
-	reg.Register(&LinkOp{})
+	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	executor := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
