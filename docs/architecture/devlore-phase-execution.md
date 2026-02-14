@@ -3,7 +3,8 @@
 ## Status
 
 **Approved** — Core types, executor, and Starlark integration implemented.
-Compensation ownership model under discussion.
+Activity model (Forward/Backward on Service structs) formalized. Compensation
+not yet implemented — pending Service struct extraction and code generation.
 
 ## Context
 
@@ -173,6 +174,152 @@ def configure(phase):
                 initial_delay="1s", max_delay="30s")
 ```
 
+## Activities
+
+An Activity is a unit of work on a Service — the Saga pattern's term for a
+local transaction. Each Activity comprises up to two methods on a Service struct:
+
+| Method | Role | Naming | Signature |
+|--------|------|--------|-----------|
+| **Forward** | Execute the operation | The method itself: `Copy`, `Install` | `func(params...) (...result, map[string]any, error)` |
+| **Backward** | Compensate the operation | `Compensate` prefix: `CompensateCopy` | `func(state map[string]any) error` |
+
+Activity is a design concept, not a Go type. The generator detects Activities
+by finding `Compensate<MethodName>` pairs on the Service struct. No annotation,
+no interface — naming convention is the contract.
+
+### Forward
+
+Forward executes the business logic. Its return signature encodes three things:
+
+| Output | Position | Consumer | Purpose |
+|--------|----------|----------|---------|
+| **result** | Before state | Graph/executor | Content, checksums — drives the execution pipeline |
+| **state** | `map[string]any` | Backward | Compensation receipt — the S in (A, C, S). Opaque to the executor |
+| **error** | Last | Go | Whether the operation failed |
+
+The generator determines the content model from what precedes state and error:
+
+| Returns (after stripping state + error) | Content model |
+|---|---|
+| Nothing | No content (direct op) |
+| `string` | Content consumer (string = checksum) |
+| `[]byte` | Content transformer (bytes = transformed content) |
+
+Non-compensable methods (no `Compensate` pair) omit the `map[string]any` state
+return. Their signatures follow the existing convention: `error`,
+`(string, error)`, or `([]byte, error)`.
+
+### Backward
+
+Backward receives the state saved by Forward and undoes the operation:
+
+```
+Forward(params...)  → (result, state, error)
+                         ↓        ↓
+                       graph    saved on node
+                                   ↓
+Backward(state)     → error
+```
+
+- Backward has no result. Compensation is terminal — nothing downstream
+  consumes its output.
+- Backward has no state. There is no "compensate the compensation" — the saga
+  pattern does not nest.
+- If Backward needs Forward's result, Forward saves it to state. State is the
+  single channel from Forward to Backward.
+- If Backward needs Forward's params (e.g., which packages to remove), Forward
+  saves them to state.
+
+### Example: FileService
+
+```go
+type FileService struct{}
+
+// --- Copy Activity ---
+
+// Forward: write content to path. Returns checksum (result), state, error.
+func (f *FileService) Copy(path string, mode os.FileMode, content []byte) (string, map[string]any, error) {
+    existed := fileExists(path)
+    if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+        return "", nil, fmt.Errorf("create parent dirs: %w", err)
+    }
+    if err := os.WriteFile(path, content, mode); err != nil {
+        return "", nil, err
+    }
+    checksum := ChecksumBytes(content)
+    return checksum, map[string]any{"path": path, "existed": existed}, nil
+}
+
+// Backward: undo Copy.
+func (f *FileService) CompensateCopy(state map[string]any) error {
+    path, _ := state["path"].(string)
+    existed, _ := state["existed"].(bool)
+    if existed {
+        return nil // file was already there — don't remove it
+    }
+    return os.Remove(path)
+}
+
+// --- Move Activity ---
+
+// Forward: rename source to path. Returns state, error.
+func (f *FileService) Move(source, path string) (map[string]any, error) {
+    if err := os.Rename(source, path); err != nil {
+        return nil, err
+    }
+    return map[string]any{"source": source, "path": path}, nil
+}
+
+// Backward: undo Move.
+func (f *FileService) CompensateMove(state map[string]any) error {
+    source, _ := state["source"].(string)
+    path, _ := state["path"].(string)
+    return os.Rename(path, source)
+}
+```
+
+### Generated Ops
+
+The generator reads the Service, finds the Activity pairs, and produces ops
+that bridge the uniform `Operation`/`CompensableOperation` interfaces to the
+unique Service method signatures:
+
+```go
+// Generated — nuke-safe
+type FileCopyOp struct{ svc *FileService }
+
+func (o *FileCopyOp) Name() string { return "file.copy" }
+
+func (o *FileCopyOp) Execute(ctx *Context, node *Node) error {
+    path, _ := node.GetSlot("path").(string)
+    mode := node.GetMode()
+    content, err := ctx.ContentFor(node)
+    if err != nil {
+        return err
+    }
+    if ctx.DryRun {
+        ctx.StoreContent(node, content)
+        ctx.TargetChecksum = ChecksumBytes(content)
+        return nil
+    }
+    checksum, state, err := o.svc.Copy(path, mode, content)
+    if err != nil {
+        return err
+    }
+    ctx.TargetChecksum = checksum
+    node.SaveState(state)
+    return nil
+}
+
+func (o *FileCopyOp) Compensate(ctx *Context, node *Node, state map[string]any) error {
+    return o.svc.CompensateCopy(state)
+}
+```
+
+The generated `Compensate` method is trivial — it passes state through to the
+Service's Backward method. All compensation logic lives in the Service.
+
 ## Compensation Ownership
 
 ### The Problem
@@ -195,181 +342,33 @@ The compensating action needs the **receipt** from the forward action — what d
 it actually do? That is the S in the (A, C, S) tuple. Without S, compensation
 is blind.
 
-### Return Signature: Result, State, Error
-
-An operation produces three distinct things:
-
-| Return | Consumer | Purpose |
-|--------|----------|---------|
-| **Result** | Executor | Outcome (status, checksums). Drives "continue or fail?" |
-| **State** | Compensate() | Compensation receipt. The S in (A, C, S) |
-| **Error** | Executor | Go error if the operation failed |
-
-Result tells the executor what happened. State tells the compensator what to
-undo. Error tells Go whether to propagate. These serve different consumers and
-must not be conflated.
-
-State is **opaque to the executor**. The executor saves it and hands it back
-during compensation. Only the operation knows what its own state means.
-`PackageInstallOp` writes `{"already_installed": true}` and reads it back;
-the executor never looks inside.
-
 ### Where Compensation Resides
 
-Compensation lives on the **operation implementation struct** — the same struct
-that implements the forward action. The struct owns both directions because it
-understands its own semantics.
+Compensation lives on the **Service struct** — the same struct that implements
+the forward method. The Service owns both directions because it understands its
+own semantics. See [Activities](#activities) for the full contract.
 
-```go
-// PackageInstallOp — forward and reverse on the same struct
-type PackageInstallOp struct{}
-
-func (o *PackageInstallOp) Execute(ctx *Context, node Executable) error {
-    // Forward: check state, install if needed, write receipt
-    alreadyInstalled := pm.IsInstalled(pkg)
-    node.SetState("already_installed", alreadyInstalled)
-    if !alreadyInstalled {
-        pm.Install(pkg)
-    }
-    return nil
-}
-
-func (o *PackageInstallOp) Compensate(ctx *Context, node Executable, state map[string]any) error {
-    // Reverse: read receipt, undo only what we did
-    if alreadyInstalled, _ := state["already_installed"].(bool); alreadyInstalled {
-        return nil // we didn't install it — nothing to undo
-    }
-    return pm.Remove(pkg)
-}
-```
-
-### Implementation Struct Contract
-
-Today, operation structs (`PackageInstallOp`, `LinkOp`, etc.) have logic
-inline — `PackageInstallOp.Execute()` calls `pm.Install()` directly. There is
-no separate backing implementation. This conflates graph adaptation (slot
-reading, type conversion) with business logic (is the package installed?
-install it, record what we did).
-
-The implementation struct is a **backing Go struct** that:
-
-1. Is directly callable from Go (testable without the graph, nodes, or executor)
-2. Is the single source of truth for both forward and compensating logic
-3. Is the target that the auto-generated ops struct delegates to
+The three-layer delegation:
 
 ```
 Starlark script  → plan receiver  → creates Node in graph
                                         ↓
-Graph executor   → ops struct     → reads slots, delegates to impl
-                   (auto-generated)     ↓
-                   impl struct    → actual logic (forward + compensate)
-                   (hand-written,   directly callable from Go)
+Graph executor   → ops struct     → reads slots, delegates to Service
+                   (generated)          ↓
+                   Service struct → actual logic (Forward + Backward)
+                   (hand-written,  directly callable from Go)
 ```
-
-The implementation struct's methods follow a convention:
-
-- **Forward**: `func(params...) (map[string]any, error)` — returns compensation
-  state (the receipt) and error. The state is the S in (A, C, S).
-- **Compensate**: `func(params..., state map[string]any) error` — receives the
-  state from the forward method and returns error.
-
-```go
-// Implementation struct — directly callable, testable without the graph.
-type PackageImpl struct {
-    pm host.PackageManager
-}
-
-// Forward: returns (state, error).
-func (p *PackageImpl) Install(packages []string) (map[string]any, error) {
-    already := p.pm.IsInstalled(packages[0])
-    if !already {
-        result := p.pm.Install(packages...)
-        if !result.OK {
-            return nil, fmt.Errorf("install failed: %s", result.Stderr)
-        }
-    }
-    return map[string]any{"already_installed": already}, nil
-}
-
-// Compensate: receives state from Install, returns error.
-func (p *PackageImpl) CompensateInstall(packages []string, state map[string]any) error {
-    if already, _ := state["already_installed"].(bool); already {
-        return nil // nothing to undo
-    }
-    result := p.pm.Remove(packages[0])
-    if !result.OK {
-        return fmt.Errorf("remove failed: %s", result.Stderr)
-    }
-    return nil
-}
-```
-
-The generated ops struct delegates to the implementation struct, handling the
-graph-level concerns (slot reading, state wiring, dry-run logging):
-
-```go
-// Generated — adapts the implementation to the graph execution model
-type PackageInstallOp struct{}
-
-func (o *PackageInstallOp) Execute(ctx *Context, node Executable) error {
-    packages := parsePackages(node.GetSlot("packages"))
-    impl := &PackageImpl{pm: resolvePMForInstall(node.GetSlot("manager"))}
-
-    if ctx.DryRun {
-        fmt.Fprintf(ctx.Logger, "[dry-run] package-install %s\n", strings.Join(packages, " "))
-        return nil
-    }
-
-    state, err := impl.Install(packages)
-    if err != nil {
-        return err
-    }
-    for k, v := range state {
-        node.SetState(k, v)
-    }
-    return nil
-}
-
-func (o *PackageInstallOp) Compensate(ctx *Context, node Executable, state map[string]any) error {
-    packages := parsePackages(node.GetSlot("packages"))
-    impl := &PackageImpl{pm: resolvePMForInstall(node.GetSlot("manager"))}
-    return impl.CompensateInstall(packages, state)
-}
-```
-
-### Method Pairing for Code Generation
-
-The code generator inspects the implementation struct and pairs methods by
-naming convention:
-
-| Forward method | Compensate method |
-|---|---|
-| `Install(...)` | `CompensateInstall(...)` |
-| `Link(...)` | `CompensateLink(...)` |
-| `Copy(...)` | `CompensateCopy(...)` |
-
-Forward methods return `(map[string]any, error)`. Compensate methods accept
-the same parameters plus a `state map[string]any` and return `error`.
-
-Methods without a `Compensate` pair are not compensable. The code generator
-produces an ops struct with `Execute()` only — no `Compensate()` method.
-
-Gate validation for code generation:
-
-- **Gate 1** (existing): All parameter types must map to Starlark types
-- **Gate 2** (existing): Forward return must be `(map[string]any, error)`
-- **Gate 3** (new): If a `Compensate` pair exists, its return must be `error`
-  and its parameters must match the forward method's parameters plus
-  `state map[string]any`
 
 ### CompensableOperation Interface
 
+Generated ops for compensable Activities implement `CompensableOperation`:
+
 ```go
-// CompensableOperation is implemented by operations that can undo their effects.
-// Orthogonal to the execution category (Transform, Writer, Direct).
+// CompensableOperation is implemented by generated ops whose Service method
+// has a Compensate pair. The executor calls Compensate during phase unwind.
 type CompensableOperation interface {
     Operation
-    Compensate(ctx *Context, node Executable, state map[string]any) error
+    Compensate(ctx *Context, node *Node, state map[string]any) error
 }
 ```
 
@@ -377,94 +376,66 @@ Not all operations are compensable:
 
 | Operation | Compensable | Reason |
 |-----------|-------------|--------|
-| `package-install` | Yes | Can remove what was installed |
-| `link` | Yes | Can unlink what was linked |
-| `copy` | Yes | Can remove what was copied (with backup) |
-| `render` | Yes | Same as copy (output is a file) |
-| `decrypt` | No | Transform only — no side effects to undo |
-| `validate` | No | Read-only probe — nothing to undo |
+| `package.install` | Yes | Can remove what was installed |
+| `file.link` | Yes | Can unlink what was linked |
+| `file.copy` | Yes | Can remove what was copied |
+| `file.render` | Yes | Same as copy (output is a file) |
+| `file.decrypt` | No | Transform only — no side effects to undo |
+| `file.validate` | No | Read-only probe — nothing to undo |
 | `shell` | No | Arbitrary command — cannot auto-compensate |
 
-Shell operations are not compensable at Layer 1. If a script runs
-`plan.shell(command="...")`, the operation cannot know how to reverse an
-arbitrary command. Compensation for shell operations belongs at Layer 2
-(scripted phase-level compensation).
+Shell operations are not compensable at Layer 1. Compensation for shell
+operations belongs at Layer 2 (scripted phase-level compensation).
 
-### State Capture Mechanism
+### Gate Validation for Code Generation
 
-Operations write state to the node during execution via `Executable`:
+The generator validates Activity pairs at discovery time:
 
-```go
-type Executable interface {
-    GetID() string
-    GetOperation() string
-    GetSlot(name string) string
-    GetProject() string
-    GetMode() os.FileMode
-    SetState(key string, value any)   // new
-    GetState(key string) any          // new
-}
-```
+- **Gate 1** (existing): All parameter types must map to Starlark types
+- **Gate 2** (existing): Forward return must follow the content model convention
+  (`error`, `(string, error)`, `([]byte, error)`, or their compensable variants
+  with `map[string]any` state)
+- **Gate 3** (new): If a `Compensate<Method>` pair exists, its signature must
+  be `func(state map[string]any) error`
 
-The executor reads state from the node after execution and stores it in the
-Result. This avoids changing the three operation interface signatures
-(Transform, Writer, Direct) — operations write state as a side effect of
-execution, not as a return value.
+### State Capture
 
-`BackupOp` already does this by dirty-casting `node.(*Node)` to write
-`Annotations["backup_path"]`. The `SetState`/`GetState` API replaces that
-pattern with a clean interface.
+The generated op captures state from the Service's Forward return and saves it
+on the node via `node.SaveState(state)`. The executor reads node state after
+execution and pushes it to the recovery stack.
 
 ```go
-// Node gains a State field for compensation receipts
+// Node stores compensation state from Forward's return value.
 type Node struct {
     // ...existing fields...
     State map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
 }
 
-func (n *Node) SetState(key string, value any) {
-    if n.State == nil {
-        n.State = make(map[string]any)
-    }
-    n.State[key] = value
-}
-
-func (n *Node) GetState(key string) any {
-    if n.State == nil {
-        return nil
-    }
-    return n.State[key]
+func (n *Node) SaveState(state map[string]any) {
+    n.State = state
 }
 ```
 
-Result gains a State field:
-
-```go
-type Result struct {
-    NodeID         string
-    Status         ResultStatus
-    Error          error
-    State          map[string]any  // compensation receipt from node
-    SourceChecksum string
-    TargetChecksum string
-}
-```
+State is **opaque to the executor**. The executor saves it and hands it back
+during compensation. Only the Service knows what its own state means.
 
 ### Executor State Flow
 
 ```
 Forward execution:
-  1. executor allocates node
-  2. op.Execute(ctx, node)
-     → operation writes node.SetState("already_installed", false)
-  3. executor captures node.State into Result.State
-  4. Result.State pushed to recovery stack
+  1. executor calls op.Execute(ctx, node)
+  2. generated op reads slots, calls svc.Forward(params...)
+  3. Forward returns (result, state, error)
+  4. generated op saves result to ctx (checksums, content)
+  5. generated op saves state to node via node.SaveState(state)
+  6. executor pushes node.State to recovery stack
 
 Compensation (on failure):
-  5. executor pops recovery stack (LIFO)
-  6. for each completed node (reverse order within phase):
-     → op.Compensate(ctx, node, savedState)
-     → operation reads state, decides what to undo
+  7. executor pops recovery stack (LIFO)
+  8. for each completed node (reverse order within phase):
+     → executor calls op.Compensate(ctx, node, savedState)
+     → generated op passes state to svc.Compensate<Method>(state)
+     → Service reads state, decides what to undo
 ```
 
 ### Two Layers
@@ -517,10 +488,9 @@ Resolution:
 
 ### Resolved: State Serialization
 
-Node `State` is `map[string]any` with no shape constraints. The implementation
-owns its state and decides what it needs. Implementers are responsible for
-ensuring their state round-trips through JSON and YAML marshalers with full
-fidelity.
+Node `State` is `map[string]any` with no shape constraints. The Service owns
+its state and decides what it needs. Implementers are responsible for ensuring
+their state round-trips through JSON and YAML marshalers with full fidelity.
 
 ### Resolved: Non-Compensable Operations
 
@@ -539,9 +509,18 @@ to a message type) is tracked as a future enhancement: issue #105.
 | `internal/execution/phase.go` | Phase, PhaseStatus, Attempt, RetryPolicy types |
 | `internal/execution/recovery.go` | RecoveryStack, RecoveryEntry |
 | `internal/execution/executor.go` | RunPhased, node compensation during unwind |
-| `internal/execution/graph.go` | Node.State, Result.State, Executable.SetState/GetState |
-| `internal/execution/operation.go` | CompensableOperation interface |
-| `internal/execution/ops.go` | Compensate() on file operations (link, copy, etc.) |
-| `internal/execution/ops_package.go` | Compensate() on package operations |
+| `internal/execution/graph.go` | Node.State, Node.SaveState() |
+| `internal/execution/operation.go` | Operation, CompensableOperation interfaces |
+| `internal/execution/ops.go` | Hand-written file ops (to be replaced by generated ops) |
+| `internal/execution/ops_package.go` | Hand-written package ops (to be replaced by generated ops) |
 | `internal/starlark/phase_config.go` | PhaseConfig Starlark bindings for configure() |
 | `internal/lore/builder.go` | Phase-aware graph builder |
+
+## Related Documents
+
+- [Typed Slots and Context Data](devlore-typed-slots.md) — Terminology, slot
+  model, Service structs, generated code patterns
+- [Graph Operations](devlore-graph-convergence-operations.md) — Convergence,
+  control flow, and system interaction (probe, guard, choose, retry, rollback)
+- [Operation Namespaces](devlore-operation-namespaces.md) — How to add new
+  operation namespaces

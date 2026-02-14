@@ -17,7 +17,12 @@ structure and lifecycle.
 | **Execute receiver** | Ours | A receiver whose methods execute immediately. `file`, `archive`, `service_manager`. Generated from the service's method signatures. |
 | **Service** | Ours | The hand-written Go struct whose methods contain business logic (activities). Source of truth for the generator. `FileService`, `PackageService`, `ServiceManagerService`. Named `*Service` by convention (or `*ManagerService` to avoid collision). |
 | **Ops interface** | Ours | Generated interface extracted from the service's method signatures. `fileOps`, `packageOps`, `serviceManagerOps`. Unexported — internal contract between the service and generated ops. |
-| **Activity** | Ours | A method on a service. Currently forward-only (execution). Will expand to include forward and backward (compensation) operations. |
+| **Activity** | Saga | A paired unit of work on a Service: a forward method and an optional backward (compensating) method. `FileService.Copy` + `FileService.CompensateCopy` is one Activity. Not a Go type — a design concept enforced by naming convention and the generator. |
+| **Forward** | Saga | The forward method of an Activity. The method itself — `Copy`, `Move`, `Install`. No prefix. Returns `(...result, map[string]any, error)` where the `map[string]any` is compensation state. Non-compensable methods omit the state return. |
+| **Backward** | Saga | The compensating method of an Activity. Named `Compensate<Forward>` — e.g., `CompensateCopy`, `CompensateMove`. Accepts `(state map[string]any)`, returns `error`. Undoes what Forward did, guided by the state Forward saved. |
+| **State (compensation)** | Saga | The `map[string]any` returned by Forward and passed to Backward during unwind. The S in the (A, C, S) tuple. Opaque to the executor — only the Activity knows what it means. Serializes to JSON/YAML for receipts. |
+| **Phase** | Ours | A scoped transaction boundary in a lifecycle pipeline. Groups nodes, owns retry policy, and references a compensating phase. The executor treats phases as checkpoints for the saga pattern. |
+| **Recovery stack** | Ours | Runtime bookkeeping that tracks completed phases and their compensating actions. Entries are pushed as phases complete and popped in LIFO order during unwind. |
 | **Slot** | Ours | A named, typed input on a graph node. Holds a value or a promise. |
 | **Promise** | Ours | A slot value that references another node's output, resolved at execution time. |
 
