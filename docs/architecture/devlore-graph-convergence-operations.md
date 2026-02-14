@@ -1,6 +1,6 @@
-# Graph Operations: Convergence, Control Flow, and System Interaction
+# Graph Operations: Convergence and Control Flow
 
-This document describes the graph operations that eliminate runtime system queries by encoding all decision-making in the plan. Every system interaction, conditional branch, failure policy, and privilege transition is an explicit graph node — visible in dry-run output and recorded in the receipt.
+This document describes the graph operations that encode decision-making in the plan. Every conditional branch, failure policy, and privilege transition is an explicit graph node — visible in dry-run output and recorded in the receipt.
 
 See also: [devlore-execution-graph.md](devlore-execution-graph.md) — Core graph architecture and state machine.
 
@@ -12,8 +12,6 @@ Tracking issue: https://github.com/NobleFactor/devlore-cli/issues/92
 
 | Runtime behavior | Graph operation |
 |---|---|
-| Query system state | **Probe** |
-| Conditional execution | **Guard** |
 | Select among alternatives | **Choose** |
 | Wait for all dependencies | **Gather** |
 | Handle transient failure | **Retry** |
@@ -179,110 +177,7 @@ Only one input is selected. Unchosen branches are skipped, not executed.
 
 ---
 
-## System Interaction Operations
-
-### Probe
-
-**Semantics**: Query system state and produce a value that flows through the graph via edges. Probes are the mechanism that feeds guard and choose nodes with inputs, making system queries explicit and traceable.
-
-Currently `system.package.installed("docker")` and `system.service.running("nginx")` are immediate Starlark calls invisible to the graph. As probe nodes, they become explicit steps whose results are visible in both plan (dry-run) and receipt.
-
-```
-  ┌─────────────────┐
-  │ probe: python    │ → version: "3.11.2"
-  │                  │ → installed: true
-  └────────┬────────┘
-           │ result flows via edge
-           ▼
-  ┌─────────────────┐
-  │ choose: upgrade? │
-  └─────────────────┘
-```
-
-Probe is the keystone operation — without it, choose and guard still need to reach outside the graph for inputs.
-
-#### Probe Types
-
-| Type | Queries | Example |
-|------|---------|---------|
-| `package` | Installation status, version | Is docker installed? What version? |
-| `service` | Running, enabled, exists | Is nginx running? Is it enabled at boot? |
-| `file` | Exists, permissions, checksum | Does ~/.config/git/config exist? |
-| `command` | Exit code, stdout | Does `python3 --version` succeed? |
-| `platform` | OS, distro, arch, version | What Linux distro is this? |
-| `disk` | Available space | Is there ≥2GB free on /? |
-| `network` | Reachability | Can we reach the package registry? |
-
-#### Execution Rules
-
-1. Probe nodes execute before any node that depends on their output
-2. Probe results are stored on the node and flow through edges as slot values
-3. In dry-run mode, probes still execute (they are read-only queries)
-4. Probe failures are non-fatal by default — a failed probe produces an empty/error result, not a graph failure
-5. The receipt records every probe result for audit and debugging
-
-#### Node Representation
-
-```yaml
-- id: check-python
-  mode: probe
-  probe:
-    type: package
-    name: python3
-  output:
-    installed: true
-    version: "3.11.2"
-```
-
----
-
 ## Control Flow Operations
-
-### Guard
-
-**Semantics**: Binary gate on a single path. Evaluates a condition (typically from a probe result) and either proceeds or skips/fails the downstream subgraph. Different from choose — guard is not selecting among alternatives, it's gating a single path.
-
-```
-  ┌──────────────┐
-  │ probe: disk  │ → available: 4.2GB
-  └──────┬───────┘
-         │
-         ▼
-  ┌──────────────┐
-  │ guard: ≥2GB  │ → pass/fail
-  └──────┬───────┘
-         │ (if pass)
-         ▼
-  ┌──────────────┐
-  │ install      │
-  └──────────────┘
-```
-
-#### Use Cases
-
-- **Skip if already installed**: probe → guard (not installed?) → install
-- **Version gate**: probe → guard (version < 3.0?) → upgrade
-- **Dependency check**: probe → guard (no dependents running?) → decommission
-- **Disk space**: probe → guard (≥2GB free?) → download large package
-
-#### Execution Rules
-
-1. Guard evaluates a condition against its input (from a probe or a predecessor's output)
-2. If the condition passes, downstream nodes execute normally
-3. If the condition fails, downstream nodes are marked `skipped` (soft guard) or the graph fails (hard guard)
-4. The receipt records the guard condition, input value, and pass/fail result
-
-#### Node Representation
-
-```yaml
-- id: check-disk-space
-  mode: guard
-  condition:
-    input: probe-disk.available
-    operator: gte
-    value: 2147483648  # 2GB in bytes
-  on_fail: skip  # or "fail"
-```
 
 ### Retry
 
@@ -326,40 +221,31 @@ Receipt output:
 
 ### Rollback
 
-**Semantics**: Paired compensating action. Associates a node with its undo operation. If the node succeeds but a later node in the graph fails, the executor can walk back through rollback associations to restore the previous state.
+**Semantics**: State-based compensating action. Each action's `Do` method returns rollback state that the executor stores on the recovery stack. If a later node fails, the executor unwinds the stack in reverse order, passing the stored state to each action's `Undo` method.
+
+No separate rollback nodes. The action that performed the work provides both `Do` and `Undo`, and `Do` captures exactly the state needed for compensation.
 
 ```
-  ┌──────────────┐  rollback  ┌───────────────┐
-  │ install pkg  │ ─────────→ │ remove pkg    │
-  └──────────────┘            └───────────────┘
+  Do:   install-docker → returns rollback state {packages: [...]}
+  Do:   configure-docker → returns rollback state {config_backup: "..."}
+  FAIL: start-docker
+  Undo: configure-docker(state) → restores config
+  Undo: install-docker(state) → removes packages
 ```
 
 #### Use Cases
 
-- **Partial manifest failure**: 3 of 5 packages installed, then the 4th fails. Rollback uninstalls the 3 that succeeded.
-- **Decommission safety**: If unprovision fails, rollback re-provisions the service.
-- **Configuration changes**: If new config breaks verification, rollback restores the previous config.
+- **Partial manifest failure**: 3 of 5 packages installed, then the 4th fails. Each successful install's `Do` returned rollback state; `Undo` uses it to remove installed packages.
+- **Configuration changes**: `Do` backs up the original config and returns it as rollback state. `Undo` restores from that state.
 
 #### Execution Rules
 
-1. Rollback associations are declared in the plan, not computed at runtime
-2. Rollback executes in reverse topological order (last completed node rolls back first)
-3. Rollback is optional — nodes without rollback associations are left as-is on failure
-4. The receipt records which rollbacks executed and their results
-5. Rollback failure does not mask the original error — both are reported
-
-#### Node Representation
-
-```yaml
-- id: install-docker
-  operations: [package-install]
-  rollback: remove-docker
-
-- id: remove-docker
-  operations: [package-remove]
-  slots:
-    packages: [docker-ce, docker-ce-cli, containerd.io]
-```
+1. `Do` returns rollback state (`any`) — the executor stores it on the recovery stack
+2. On failure, the executor unwinds the recovery stack in reverse order (last completed first)
+3. `Undo` receives the rollback state captured by `Do` for that node
+4. Actions with no rollback return `nil` state from `Do`; their `Undo` is a no-op
+5. The receipt records which rollbacks executed and their results
+6. Rollback failure does not mask the original error — both are reported
 
 ### Elevate
 
@@ -415,7 +301,7 @@ The lifecycle phase discovery system (`PlatformResolutionOrder()` in `internal/l
 
 ### Edge Types
 
-The existing `Edge` type supports `relation` (depends_on, orders). Convergence mode and control flow are properties of the **target node**, not the edge. An edge into a gather node means "this is a required input." An edge into a choose node means "this is an alternative." An edge from a probe to a guard means "this is the condition input."
+The existing `Edge` type supports `relation` (depends_on, orders). Convergence mode and control flow are properties of the **target node**, not the edge. An edge into a gather node means "this is a required input." An edge into a choose node means "this is an alternative."
 
 ## Implementation Notes
 
@@ -428,8 +314,6 @@ const (
     NodeDefault  NodeMode = ""         // standard operation node
     NodeGather   NodeMode = "gather"   // wait for all predecessors
     NodeChoose   NodeMode = "choose"   // select one predecessor
-    NodeProbe    NodeMode = "probe"    // query system state, produce value
-    NodeGuard    NodeMode = "guard"    // gate downstream on condition
     NodeElevate  NodeMode = "elevate"  // privilege transition
 )
 ```
@@ -456,6 +340,4 @@ The executor's topological walk checks the mode of each node:
 
 - **Default/Gather**: Wait for all predecessors, then execute operations
 - **Choose**: Evaluate criteria, execute selected predecessor, skip others, then execute
-- **Probe**: Execute query, store result, flow to dependents
-- **Guard**: Evaluate condition from input, proceed or skip/fail downstream
 - **Elevate**: Acquire/release privilege level for downstream nodes
