@@ -51,11 +51,16 @@ func (o *Output) Attr(name string) (starlark.Value, error) {
 	case "slot":
 		return starlark.String(o.slot), nil
 	default:
-		// Get the value from the node's slots
-		if value, ok := o.node.GetSlot(name).(string); ok && value != "" {
-			return starlark.String(value), nil
+		// Get the value from the node's slots and convert to Starlark
+		slotVal := o.node.GetSlot(name)
+		if slotVal == nil {
+			return nil, starlark.NoSuchAttrError(fmt.Sprintf("Output has no attribute %q", name))
 		}
-		return nil, starlark.NoSuchAttrError(fmt.Sprintf("Output has no attribute %q", name))
+		sv, err := goToStarlarkValue(slotVal)
+		if err != nil {
+			return nil, fmt.Errorf("slot %q: %w", name, err)
+		}
+		return sv, nil
 	}
 }
 
@@ -183,6 +188,30 @@ func ResolveInput(value starlark.Value) (*Output, error) {
 		return output, nil
 	}
 	return nil, fmt.Errorf("expected Output, got %s", value.Type())
+}
+
+// goToStarlarkValue converts a native Go value to a Starlark value.
+func goToStarlarkValue(v any) (starlark.Value, error) {
+	switch val := v.(type) {
+	case string:
+		return starlark.String(val), nil
+	case int:
+		return starlark.MakeInt(val), nil
+	case int64:
+		return starlark.MakeInt64(val), nil
+	case bool:
+		return starlark.Bool(val), nil
+	case float64:
+		return starlark.Float(val), nil
+	case []string:
+		elems := make([]starlark.Value, len(val))
+		for i, s := range val {
+			elems[i] = starlark.String(s)
+		}
+		return starlark.NewList(elems), nil
+	default:
+		return starlark.String(fmt.Sprintf("%v", val)), nil
+	}
 }
 
 // starlarkValueToGo converts a Starlark value to a native Go value.
@@ -319,5 +348,5 @@ func (g *Gather) FillSlot(consumer *execution.Node, slotName string) {
 		})
 	}
 	// Store count for runtime
-	consumer.SetSlotImmediate(slotName+".len", fmt.Sprintf("%d", len(g.outputs)))
+	consumer.SetSlotImmediate(slotName+".len", len(g.outputs))
 }
