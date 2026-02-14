@@ -180,6 +180,16 @@ func (f *FileService) Move(gitMv func(src, dst string) error, source, path strin
 	return os.Rename(source, path)
 }
 
+// isSubpath returns true if path is under parent (not equal to).
+func isSubpath(path, parent string) bool {
+	rel, err := filepath.Rel(parent, path)
+	if err != nil {
+		return false
+	}
+	// Must not start with ".." and must not be "."
+	return rel != "." && !filepath.IsAbs(rel) && (len(rel) < 2 || rel[:2] != "..")
+}
+
 // pruneParents removes empty parent directories up to the boundary.
 func pruneParents(path string, prune bool, boundary string) {
 	if !prune || boundary == "" {
