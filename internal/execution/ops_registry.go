@@ -7,7 +7,6 @@ import "fmt"
 
 // ValidateOp checks a precondition and fails with a message if unmet.
 // The check function is retrieved from ctx.Data["validators"][node's "check" slot].
-// Hand-written: map[string]func() error is not in the generator type mappings.
 type ValidateOp struct{}
 
 func (o *ValidateOp) Name() string { return "validate" }
