@@ -31,6 +31,24 @@ TEMPLATE_PACKAGES = {
     "realtime_receiver": "starlark",
 }
 
+# Local templates shipped with this extension (loaded from templates/ dir).
+# Builtin templates (realtime_receiver) are retrieved via go.template().
+LOCAL_TEMPLATES = {
+    "plan_receiver": "plan_receiver.go.tmpl",
+    "graph_ops": "graph_ops.go.tmpl",
+}
+
+def load_template(name, ext_dir):
+    """Load template content by name.
+
+    Local templates are read from the extension's templates/ directory.
+    Builtin templates are retrieved from the go receiver.
+    """
+    if name in LOCAL_TEMPLATES:
+        path = file.join(ext_dir, "templates", LOCAL_TEMPLATES[name])
+        return file.read(path)
+    return go.template(name)
+
 def to_snake(name):
     """Convert CamelCase to snake_case."""
     result = []
@@ -161,7 +179,8 @@ def run(ctx):
         }
 
         note("Generating " + tmpl + " for " + struct_short + "...")
-        code = go.generate(tmpl, descriptor)
+        template_content = load_template(tmpl, ctx.extension.dir)
+        code = go.generate(template_content, descriptor)
 
         filename = TEMPLATE_FILES[tmpl] % category
         if write_files and output_dir:
