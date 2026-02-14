@@ -882,6 +882,7 @@ def build_ops_knowledge(source, target):
     note("  Found " + str(len(services)) + " service(s)")
 
     mappings_path = file.join(target, "knowledge", "ops", "mappings")
+    file.mkdir(mappings_path)
     generated = 0
 
     for service_name in sorted(services):
