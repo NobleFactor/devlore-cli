@@ -110,9 +110,6 @@ def run(ctx):
     if not category:
         category = to_snake(struct_short)
 
-    # Derive impl_type for graph_ops delegation (e.g., File → fileOps)
-    impl_type = struct_short[0].lower() + struct_short[1:] + "Ops"
-
     pkg_override = ctx.args.get("package", "")
 
     # Build method descriptors
@@ -159,7 +156,7 @@ def run(ctx):
             "category": category,
             "struct_name": struct_short,
             "namespace": namespace,
-            "impl_type": impl_type,
+            "impl_type": struct_name,
             "methods": method_descriptors,
         }
 
