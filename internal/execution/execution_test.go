@@ -983,7 +983,7 @@ func TestRemoveOperationPrunesEmptyDirs(t *testing.T) {
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("prune_empty_dirs", true)
+	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
 	if err := op.Execute(ctx, node); err != nil {
@@ -1026,7 +1026,7 @@ func TestRemoveOperationPruneStopsAtNonEmpty(t *testing.T) {
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("prune_empty_dirs", true)
+	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
 	if err := op.Execute(ctx, node); err != nil {
@@ -1070,7 +1070,7 @@ func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
 	ctx := &Context{Context: context.Background()}
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("prune_empty_dirs", true)
+	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
 	if err := op.Execute(ctx, node); err != nil {
