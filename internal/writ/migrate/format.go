@@ -90,7 +90,7 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 		target, _ := node.GetSlot("path").(string)
 		nodes = append(nodes, nodeView{
 			ID:        node.ID,
-			Operation: node.Operation,
+			Operation: node.Action,
 			Source:    source,
 			Target:    target,
 			Status:    string(node.Status),
@@ -292,7 +292,7 @@ func formatRecommendations(w io.Writer, recommendations []string) {
 func filterNodesByOp(graph *execution.Graph, opName string) []*execution.Node {
 	var nodes []*execution.Node
 	for _, node := range graph.Nodes {
-		if node.Operation == opName {
+		if node.Action == opName {
 			nodes = append(nodes, node)
 		}
 	}

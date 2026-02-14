@@ -14,7 +14,7 @@ import (
 )
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
-func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *execution.Graph) ([]*execution.Result, error) {
+func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *execution.Graph) ([]*execution.NodeResult, error) {
 	return eng.RunNodes(ctx, g.Nodes, g.Edges)
 }
 
@@ -45,7 +45,7 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 	// The first node should be a namespaced package-install operation
 	found := false
 	for _, node := range result.Graph.Nodes {
-		if node.Operation == "package-install" {
+		if node.Action == "package-install" {
 			found = true
 			// Verify slot values
 			if node.GetSlot("packages") != "curl" {
@@ -93,7 +93,7 @@ func TestBuild_PlatformDetection(t *testing.T) {
 			// All platforms use the namespaced "package-install" operation
 			found := false
 			for _, node := range result.Graph.Nodes {
-				if node.Operation == "package-install" {
+				if node.Action == "package-install" {
 					found = true
 					break
 				}
@@ -173,10 +173,10 @@ func TestBuild_MutuallyExclusiveConfig(t *testing.T) {
 
 func TestEngineRunsPackageInstallOperations(t *testing.T) {
 	// Integration test: build graph and run through engine with DryRun
-	reg := execution.NewOperationRegistry()
+	reg := execution.NewActionRegistry()
 
 	// Register all operations (file + package)
-	for _, op := range execution.AllOps() {
+	for _, op := range execution.AllActions() {
 		reg.Register(op)
 	}
 
@@ -185,7 +185,7 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 	// Create a graph with a namespaced package-install node
 	node := &execution.Node{
 		ID:         "package-install-testpkg",
-		Operation: "package-install",
+		Action: "package-install",
 	}
 	node.SetSlotImmediate("packages", "testpkg")
 	graph := &execution.Graph{
@@ -208,8 +208,8 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 
 func TestEngineRunsNamespacedPackageOps(t *testing.T) {
 	// Test that all namespaced package operations can execute in dry-run mode
-	reg := execution.NewOperationRegistry()
-	for _, op := range execution.AllOps() {
+	reg := execution.NewActionRegistry()
+	for _, op := range execution.AllActions() {
 		reg.Register(op)
 	}
 
@@ -224,7 +224,7 @@ func TestEngineRunsNamespacedPackageOps(t *testing.T) {
 		t.Run(opName, func(t *testing.T) {
 			node := &execution.Node{
 				ID:         "test-" + opName,
-				Operation: opName,
+				Action: opName,
 			}
 			if opName != "package-update" {
 				node.SetSlotImmediate("packages", "testpkg")
@@ -265,7 +265,7 @@ func TestNativePMNodeMetadata(t *testing.T) {
 	// Find the install node (uses namespaced "package-install" operation)
 	var installNode *execution.Node
 	for _, node := range result.Graph.Nodes {
-		if node.Operation == "package-install" {
+		if node.Action == "package-install" {
 			installNode = node
 			break
 		}
@@ -448,7 +448,7 @@ def compensate(package, system, plan):
 	}
 	foundRemove := false
 	for _, n := range result.Graph.Nodes {
-		if nodeSet[n.ID] && n.Operation == "package-remove" {
+		if nodeSet[n.ID] && n.Action == "package-remove" {
 			foundRemove = true
 			break
 		}

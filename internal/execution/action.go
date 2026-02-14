@@ -10,25 +10,40 @@ import (
 	"os"
 )
 
-// Operation is the interface for all executable actions.
-// Each operation is self-contained: it reads its own inputs via ctx and node,
+// Result is data that flows to downstream nodes via edges (e.g., a checksum,
+// a rendered template, a query result). The executor stores this on the node
+// for edge-based slot resolution.
+type Result = any
+
+// UndoState is the state captured by Do and passed to Undo during saga
+// rollback. Each action defines its own state shape. Actions with no rollback
+// return nil from Do; their Undo ignores the state parameter.
+type UndoState = any
+
+// Action is the interface for all executable actions.
+// Each action is self-contained: it reads its own inputs via ctx and node,
 // performs its work, and stores any outputs back on ctx.
-type Operation interface {
-	// Name returns the operation identifier (e.g., "file.link", "file.decrypt").
+type Action interface {
+	// Name returns the action identifier (e.g., "link", "copy").
 	Name() string
 
-	// Execute performs the operation using context and node state.
-	Execute(ctx *Context, node *Node) error
+	// Do performs the forward action using context and node state.
+	// Returns a result (flows to downstream nodes) and undo state
+	// (stored on recovery stack for rollback).
+	Do(ctx *Context, node *Node) (Result, UndoState, error)
+
+	// Undo performs the compensating action using the state captured by Do.
+	Undo(ctx *Context, node *Node, state UndoState) error
 }
 
-// Context provides execution context to operations.
+// Context provides execution context to actions.
 type Context struct {
 	context.Context
 
 	// DryRun prevents filesystem modifications when true.
 	DryRun bool
 
-	// Logger receives operation output messages.
+	// Logger receives action output messages.
 	Logger io.Writer
 
 	// Data holds tool-provided context: template variables, SOPS config,
@@ -40,7 +55,7 @@ type Context struct {
 	Edges   []Edge
 	Outputs map[string][]byte
 
-	// Per-node checksums (written by ops, read by executor).
+	// Per-node checksums (written by actions, read by executor).
 	SourceChecksum string
 	TargetChecksum string
 }

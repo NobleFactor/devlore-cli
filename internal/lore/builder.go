@@ -393,7 +393,7 @@ func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *
 	// Create the node with namespaced operation
 	node := &execution.Node{
 		ID:        fmt.Sprintf("%s-%s-%s", opName, pkg.Name, action.PhaseName),
-		Operation: opName,
+		Action: opName,
 		Project:   pkg.Name,
 	}
 	node.SetSlotImmediate("packages", strings.Join(action.Packages, ","))

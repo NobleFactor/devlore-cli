@@ -343,7 +343,7 @@ func (s *Session) formatGraphForPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("Planned renames:\n")
 	for _, node := range s.graph.Nodes {
-		if node.Operation == "move" {
+		if node.Action == "move" {
 			// Show relative paths for readability
 			src, _ := node.GetSlot("source").(string)
 			tgt, _ := node.GetSlot("path").(string)
@@ -479,7 +479,7 @@ func (s *Session) processPlanResponse(input string) error {
 // executeStep runs the execution graph.
 func (s *Session) executeStep() *console.Step {
 	// Execute the graph
-	reg := execution.NewOperationRegistry()
+	reg := execution.NewActionRegistry()
 	opts := execution.ExecutorOptions{DryRun: false}
 	eng := execution.NewGraphExecutor(reg, opts)
 

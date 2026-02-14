@@ -3,33 +3,33 @@
 
 package execution
 
-// OperationRegistry maps operation names to their implementations.
-// Each tool registers its operations before calling GraphExecutor.Run().
-type OperationRegistry struct {
-	ops map[string]Operation
+// ActionRegistry maps action names to their implementations.
+// Each tool registers its actions before calling GraphExecutor.Run().
+type ActionRegistry struct {
+	actions map[string]Action
 }
 
-// NewOperationRegistry creates an empty operation registry.
-func NewOperationRegistry() *OperationRegistry {
-	return &OperationRegistry{ops: make(map[string]Operation)}
+// NewActionRegistry creates an empty action registry.
+func NewActionRegistry() *ActionRegistry {
+	return &ActionRegistry{actions: make(map[string]Action)}
 }
 
-// Register adds an operation to the registry. If an operation with the same
+// Register adds an action to the registry. If an action with the same
 // name already exists, it is replaced.
-func (r *OperationRegistry) Register(op Operation) {
-	r.ops[op.Name()] = op
+func (r *ActionRegistry) Register(action Action) {
+	r.actions[action.Name()] = action
 }
 
-// Get returns the operation registered under the given name.
-func (r *OperationRegistry) Get(name string) (Operation, bool) {
-	op, ok := r.ops[name]
-	return op, ok
+// Get returns the action registered under the given name.
+func (r *ActionRegistry) Get(name string) (Action, bool) {
+	action, ok := r.actions[name]
+	return action, ok
 }
 
-// Names returns all registered operation names.
-func (r *OperationRegistry) Names() []string {
-	names := make([]string, 0, len(r.ops))
-	for name := range r.ops {
+// Names returns all registered action names.
+func (r *ActionRegistry) Names() []string {
+	names := make([]string, 0, len(r.actions))
+	for name := range r.actions {
 		names = append(names, name)
 	}
 	return names

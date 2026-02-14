@@ -78,7 +78,7 @@ func (b *Builder) buildPackageNodes(pkg PackageEntry, opts execution.BuildOption
 
 		node := &execution.Node{
 			ID:        nodeID,
-			Operation: phase,
+			Action: phase,
 		}
 
 		// Store package name for registry lookup on all nodes

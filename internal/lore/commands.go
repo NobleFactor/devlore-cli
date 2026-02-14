@@ -234,8 +234,8 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	fmt.Println("\nDeploying packages...")
 
 	// Create operation registry and executor
-	registry := execution.NewOperationRegistry()
-	for _, op := range execution.AllOps() {
+	registry := execution.NewActionRegistry()
+	for _, op := range execution.AllActions() {
 		registry.Register(op)
 	}
 	executor := execution.NewGraphExecutor(registry, execution.ExecutorOptions{

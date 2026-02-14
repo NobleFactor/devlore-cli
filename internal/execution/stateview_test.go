@@ -69,8 +69,8 @@ func TestFileEntryLastOperation(t *testing.T) {
 		e := &FileEntry{
 			Target: ".bashrc",
 			History: []HistoryRecord{
-				{Receipt: "old.yaml", Operation: "link"},
-				{Receipt: "new.yaml", Operation: "copy"},
+				{Receipt: "old.yaml", Action: "link"},
+				{Receipt: "new.yaml", Action: "copy"},
 			},
 		}
 		last := e.LastOperation()
@@ -100,7 +100,7 @@ func TestFileEntryIsCopied(t *testing.T) {
 			e := &FileEntry{Target: "test"}
 			if tt.operation != "" {
 				e.History = []HistoryRecord{
-					{Operation: tt.operation},
+					{Action: tt.operation},
 				}
 			}
 			if got := e.IsCopied(); got != tt.want {
@@ -127,7 +127,7 @@ func TestFileEntryIsLinked(t *testing.T) {
 			e := &FileEntry{Target: "test"}
 			if tt.operation != "" {
 				e.History = []HistoryRecord{
-					{Operation: tt.operation},
+					{Action: tt.operation},
 				}
 			}
 			if got := e.IsLinked(); got != tt.want {
@@ -181,19 +181,19 @@ func TestFileTreeCopiedLinkedFiles(t *testing.T) {
 		Entries: map[string]*FileEntry{
 			".bashrc": {
 				Target:  ".bashrc",
-				History: []HistoryRecord{{Operation: "link"}},
+				History: []HistoryRecord{{Action: "link"}},
 			},
 			".zshrc": {
 				Target:  ".zshrc",
-				History: []HistoryRecord{{Operation: "link"}},
+				History: []HistoryRecord{{Action: "link"}},
 			},
 			".gitconfig": {
 				Target:  ".gitconfig",
-				History: []HistoryRecord{{Operation: "copy"}},
+				History: []HistoryRecord{{Action: "copy"}},
 			},
 			".ssh/config": {
 				Target:  ".ssh/config",
-				History: []HistoryRecord{{Operation: "copy"}},
+				History: []HistoryRecord{{Action: "copy"}},
 			},
 		},
 	}
@@ -303,15 +303,15 @@ func TestStateViewSummary(t *testing.T) {
 			Entries: map[string]*FileEntry{
 				".bashrc": {
 					Target:  ".bashrc",
-					History: []HistoryRecord{{Operation: "link"}},
+					History: []HistoryRecord{{Action: "link"}},
 				},
 				".zshrc": {
 					Target:  ".zshrc",
-					History: []HistoryRecord{{Operation: "link"}},
+					History: []HistoryRecord{{Action: "link"}},
 				},
 				".gitconfig": {
 					Target:  ".gitconfig",
-					History: []HistoryRecord{{Operation: "copy"}},
+					History: []HistoryRecord{{Action: "copy"}},
 				},
 			},
 		},
@@ -338,7 +338,7 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 	makeNode := func(id string, op string, source, project, layer string) *Node {
 		n := &Node{
 			ID:        id,
-			Operation: op,
+			Action: op,
 			Project:   project,
 			Layer:     layer,
 			Status:    StatusCompleted,
@@ -417,7 +417,7 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 			Nodes: []*Node{
 				{
 					ID:        "docker",
-					Operation: "install",
+					Action: "install",
 					Status:    StatusCompleted,
 				},
 			},
@@ -428,12 +428,12 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 			Nodes: []*Node{
 				{
 					ID:        "docker",
-					Operation: "verify",
+					Action: "verify",
 					Status:    StatusCompleted,
 				},
 				{
 					ID:        "golang",
-					Operation: "install",
+					Action: "install",
 					Status:    StatusCompleted,
 				},
 			},
@@ -444,7 +444,7 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 			Nodes: []*Node{
 				{
 					ID:        "docker",
-					Operation: "upgrade",
+					Action: "upgrade",
 					Status:    StatusCompleted,
 				},
 			},
@@ -468,14 +468,14 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 	}
 
 	// History should be ordered by time
-	if docker.History[0].Operation != "install" {
-		t.Errorf("expected first operation 'install', got %q", docker.History[0].Operation)
+	if docker.History[0].Action != "install" {
+		t.Errorf("expected first operation 'install', got %q", docker.History[0].Action)
 	}
-	if docker.History[1].Operation != "verify" {
-		t.Errorf("expected second operation 'verify', got %q", docker.History[1].Operation)
+	if docker.History[1].Action != "verify" {
+		t.Errorf("expected second operation 'verify', got %q", docker.History[1].Action)
 	}
-	if docker.History[2].Operation != "upgrade" {
-		t.Errorf("expected third operation 'upgrade', got %q", docker.History[2].Operation)
+	if docker.History[2].Action != "upgrade" {
+		t.Errorf("expected third operation 'upgrade', got %q", docker.History[2].Action)
 	}
 
 	// golang should have 1 history record
@@ -493,10 +493,10 @@ func TestStateViewBuilderTimeFilter(t *testing.T) {
 	now := time.Now()
 
 	graphs := []*Graph{
-		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*Node{{ID: "a", Operation: "link", Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: "b", Operation: "link", Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "c", Operation: "link", Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: "d", Operation: "link", Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*Node{{ID: "a", Action: "link", Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: "b", Action: "link", Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "c", Action: "link", Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: "d", Action: "link", Status: StatusCompleted}}},
 	}
 
 	// Filter to middle two
@@ -522,9 +522,9 @@ func TestStateViewBuilderToolFilter(t *testing.T) {
 	now := time.Now()
 
 	graphs := []*Graph{
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: ".bashrc", Operation: "link", Status: StatusCompleted}}},
-		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "docker", Operation: "install", Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: ".zshrc", Operation: "link", Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: ".bashrc", Action: "link", Status: StatusCompleted}}},
+		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "docker", Action: "install", Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: ".zshrc", Action: "link", Status: StatusCompleted}}},
 	}
 
 	t.Run("writ only", func(t *testing.T) {
@@ -567,9 +567,9 @@ func TestStateViewBuilderSkipsSkipped(t *testing.T) {
 			Tool:      "writ",
 			Timestamp: now,
 			Nodes: []*Node{
-				{ID: "a", Operation: "link", Status: StatusCompleted},
-				{ID: "b", Operation: "link", Status: StatusSkipped},
-				{ID: "c", Operation: "link", Status: StatusFailed},
+				{ID: "a", Action: "link", Status: StatusCompleted},
+				{ID: "b", Action: "link", Status: StatusSkipped},
+				{ID: "c", Action: "link", Status: StatusFailed},
 			},
 		},
 	}
@@ -612,7 +612,7 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 				State:     StateExecuted,
 				Context:   GraphContext{TargetRoot: "/home/user"},
 				Nodes: []*Node{
-					{ID: ".bashrc", Operation: "link", Status: StatusCompleted},
+					{ID: ".bashrc", Action: "link", Status: StatusCompleted},
 				},
 			},
 		},
@@ -625,7 +625,7 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 				State:     StateExecuted,
 				Context:   GraphContext{TargetRoot: "/home/user"},
 				Nodes: []*Node{
-					{ID: ".gitconfig", Operation: "link", Status: StatusCompleted},
+					{ID: ".gitconfig", Action: "link", Status: StatusCompleted},
 				},
 			},
 		},
@@ -702,7 +702,7 @@ func TestIsPackageNode(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		node := &Node{Operation: tt.operation}
+		node := &Node{Action: tt.operation}
 		got := builder.isPackageNode(node)
 		if got != tt.want {
 			t.Errorf("isPackageNode(%q) = %v, want %v", tt.operation, got, tt.want)

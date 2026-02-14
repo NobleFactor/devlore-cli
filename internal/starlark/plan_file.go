@@ -78,7 +78,7 @@ func (f *FilePlan) configure(_ *starlark.Thread, _ *starlark.Builtin, args starl
 
 	renderNode := &execution.Node{
 		ID:        generateNodeID("render"),
-		Operation: "render",
+		Action: "render",
 		Project:   f.project,
 	}
 	if err := FillSlot(renderNode, f.graph, "source", source); err != nil {
@@ -88,7 +88,7 @@ func (f *FilePlan) configure(_ *starlark.Thread, _ *starlark.Builtin, args starl
 
 	copyNode := &execution.Node{
 		ID:        generateNodeID("configure"),
-		Operation: "copy",
+		Action: "copy",
 		Project:   f.project,
 	}
 	if err := FillSlot(copyNode, f.graph, "path", path); err != nil {
@@ -120,7 +120,7 @@ func (f *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 	node := &execution.Node{
 		ID:         generateNodeID("link"),
-		Operation: "link",
+		Action: "link",
 		Project:    f.project,
 	}
 
@@ -151,7 +151,7 @@ func (f *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 	node := &execution.Node{
 		ID:         generateNodeID("copy"),
-		Operation: "copy",
+		Action: "copy",
 		Project:    f.project,
 	}
 
@@ -182,7 +182,7 @@ func (f *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 
 	node := &execution.Node{
 		ID:         generateNodeID("write"),
-		Operation: "write",
+		Action: "write",
 		Project:    f.project,
 	}
 
@@ -212,7 +212,7 @@ func (f *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 
 	node := &execution.Node{
 		ID:         generateNodeID("remove"),
-		Operation: "remove",
+		Action: "remove",
 		Project:    f.project,
 	}
 

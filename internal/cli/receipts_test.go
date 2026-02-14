@@ -17,7 +17,7 @@ import (
 func createTestGraph() *execution.Graph {
 	node := &execution.Node{
 		ID:         ".bashrc",
-		Operation: "link",
+		Action: "link",
 		Status:     execution.StatusCompleted,
 	}
 	node.SetSlotImmediate("source", "/home/user/env/.bashrc")

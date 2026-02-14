@@ -13,13 +13,13 @@ import (
 )
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
-func runGraph(ctx context.Context, e *GraphExecutor, g *Graph) ([]*Result, error) {
+func runGraph(ctx context.Context, e *GraphExecutor, g *Graph) ([]*NodeResult, error) {
 	return e.RunNodes(ctx, g.Nodes, g.Edges)
 }
 
 // testNode creates a node with source and path slots for testing.
 func testNode(id string, op string, source, path string) *Node {
-	node := &Node{ID: id, Operation: op}
+	node := &Node{ID: id, Action: op}
 	if source != "" {
 		node.SetSlotImmediate("source", source)
 	}
@@ -30,7 +30,7 @@ func testNode(id string, op string, source, path string) *Node {
 }
 
 func TestRegistryRegisterAndGet(t *testing.T) {
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 	reg.Register(&FileCopyOp{impl: &FileService{}})
 
@@ -49,7 +49,7 @@ func TestRegistryRegisterAndGet(t *testing.T) {
 }
 
 func TestRegistryNames(t *testing.T) {
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	for _, op := range FileOps(&FileService{}) {
 		reg.Register(op)
 	}
@@ -75,7 +75,7 @@ func TestLinkOperation(t *testing.T) {
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("link: %v", err)
 	}
 
@@ -106,7 +106,7 @@ func TestLinkOperationIdempotent(t *testing.T) {
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("idempotent link: %v", err)
 	}
 }
@@ -129,7 +129,7 @@ func TestCopyOperation(t *testing.T) {
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("copy: %v", err)
 	}
 
@@ -167,7 +167,7 @@ func TestCopyOperationCreatesParentDirs(t *testing.T) {
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("copy with nested dirs: %v", err)
 	}
 
@@ -197,7 +197,7 @@ func TestRenderOperation(t *testing.T) {
 	node := &Node{ID: ".bashrc", Project: "all"}
 	node.SetSlotImmediate("source", source)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 
@@ -230,7 +230,7 @@ func TestDecryptOperation(t *testing.T) {
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("decryptor", mockDecrypt)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
 
@@ -256,7 +256,7 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 	node.SetSlotImmediate("source", source)
 	// No decryptor slot set
 
-	if err := op.Execute(ctx, node); err == nil {
+	if _, _, err := op.Do(ctx, node); err == nil {
 		t.Error("expected error when no decryptor configured")
 	}
 }
@@ -327,7 +327,7 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 				Outputs: make(map[string][]byte),
 			}
 
-			err := op.Execute(ctx, node)
+			_, _, err := op.Do(ctx, node)
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("expected error for %s, got nil", tt.name)
@@ -365,7 +365,7 @@ func TestUnlinkOperation(t *testing.T) {
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("unlink: %v", err)
 	}
 
@@ -386,7 +386,7 @@ func TestRemoveOperation(t *testing.T) {
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -406,7 +406,7 @@ func TestWriteOperation(t *testing.T) {
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -430,7 +430,7 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -449,7 +449,7 @@ func TestWriteRequiresContent(t *testing.T) {
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", "/tmp/test.txt")
 
-	err := op.Execute(ctx, node)
+	_, _, err := op.Do(ctx, node)
 	if err == nil {
 		t.Fatal("expected error when content is missing")
 	}
@@ -468,7 +468,7 @@ func TestWriteDryRun(t *testing.T) {
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", "test")
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("write dry-run: %v", err)
 	}
 
@@ -485,7 +485,7 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
@@ -522,7 +522,7 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileRenderOp{impl: &FileService{}})
 	reg.Register(&FileCopyOp{impl: &FileService{}})
 
@@ -578,7 +578,7 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 		return []byte(strings.TrimPrefix(string(ciphertext), "encrypted:")), nil
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&EncryptionDecryptOp{impl: &EncryptionService{}})
 	reg.Register(&FileRenderOp{impl: &FileService{}})
 	reg.Register(&FileCopyOp{impl: &FileService{}})
@@ -635,7 +635,7 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
@@ -662,11 +662,11 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 }
 
 func TestEngineRunUnknownOperation(t *testing.T) {
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "test", Operation: "unknown_op"},
+			{ID: "test", Action: "unknown_op"},
 		},
 	}
 
@@ -693,7 +693,7 @@ func TestEngineTopologicalSort(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{})
@@ -736,7 +736,7 @@ func TestEngineDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewOperationRegistry()
+	reg := NewActionRegistry()
 	reg.Register(&FileLinkOp{impl: &FileService{}})
 
 	engine := NewGraphExecutor(reg, ExecutorOptions{DryRun: true})
@@ -841,7 +841,7 @@ func TestPreflightPackagesManifest(t *testing.T) {
 	// The preflight should treat them as ready since there's no filesystem conflict
 	graph := &Graph{
 		Nodes: []*Node{
-			{ID: "manifest", Operation: "packages"},
+			{ID: "manifest", Action: "packages"},
 		},
 	}
 
@@ -854,10 +854,10 @@ func TestPreflightPackagesManifest(t *testing.T) {
 	}
 }
 
-func TestAllOpsCount(t *testing.T) {
-	ops := AllOps()
-	if len(ops) != 21 {
-		t.Errorf("expected 21 total ops, got %d", len(ops))
+func TestAllActionsCount(t *testing.T) {
+	ops := AllActions()
+	if len(ops) != 20 {
+		t.Errorf("expected 20 total actions, got %d", len(ops))
 	}
 
 	names := make(map[string]bool)
@@ -871,11 +871,10 @@ func TestAllOpsCount(t *testing.T) {
 		"package-install", "package-upgrade", "package-remove", "package-update",
 		"shell", "powershell",
 		"service-start", "service-stop", "service-restart", "service-enable", "service-disable",
-		"validate",
 	}
 	for _, name := range expected {
 		if !names[name] {
-			t.Errorf("expected operation %q in AllOps()", name)
+			t.Errorf("expected action %q in AllActions()", name)
 		}
 	}
 }
@@ -892,7 +891,7 @@ func TestBackupOperation(t *testing.T) {
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("backup: %v", err)
 	}
 
@@ -935,7 +934,7 @@ func TestCopyOperationWithMode(t *testing.T) {
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("copy with mode: %v", err)
 	}
 
@@ -986,7 +985,7 @@ func TestRemoveOperationPrunesEmptyDirs(t *testing.T) {
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -1029,7 +1028,7 @@ func TestRemoveOperationPruneStopsAtNonEmpty(t *testing.T) {
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -1073,7 +1072,7 @@ func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("unlink: %v", err)
 	}
 
@@ -1152,7 +1151,7 @@ func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 	node := &Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
-	if err := op.Execute(ctx, node); err != nil {
+	if _, _, err := op.Do(ctx, node); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 

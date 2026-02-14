@@ -34,8 +34,8 @@ type HistoryRecord struct {
 	// Tool is which tool created this record ("lore" or "writ").
 	Tool string `json:"tool" yaml:"tool"`
 
-	// Operation performed: link, copy, render, decrypt, install, etc.
-	Operation string `json:"operation" yaml:"operation"`
+	// Action performed: link, copy, render, decrypt, install, etc.
+	Action string `json:"action" yaml:"action"`
 
 	// Status of this operation: completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
@@ -96,7 +96,7 @@ func (e *FileEntry) IsCopied() bool {
 	if last == nil {
 		return false
 	}
-	return last.Operation == "copy"
+	return last.Action == "copy"
 }
 
 // IsLinked returns true if the latest operation was a symlink.
@@ -105,7 +105,7 @@ func (e *FileEntry) IsLinked() bool {
 	if last == nil {
 		return false
 	}
-	return last.Operation == "link"
+	return last.Action == "link"
 }
 
 // SourceChecksum returns the source checksum from the latest operation.
@@ -132,7 +132,7 @@ func (e *FileEntry) LastOp() string {
 	if last == nil {
 		return ""
 	}
-	return last.Operation
+	return last.Action
 }
 
 // FileTreeNode represents a node in the target filesystem tree.
@@ -435,7 +435,7 @@ func (b *StateViewBuilder) includeGraph(g *Graph) bool {
 
 // isTransformOnlyNode returns true if the node is an intermediate transform.
 func isTransformOnlyNode(node *Node) bool {
-	switch node.Operation {
+	switch node.Action {
 	case "render", "decrypt":
 		return true
 	}
@@ -456,7 +456,7 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 			Timestamp:      g.Timestamp,
 			Receipt:        receiptName,
 			Tool:           g.Tool,
-			Operation:      node.Operation,
+			Action:         node.Action,
 			Status:         node.Status,
 			SourceChecksum: node.SourceChecksum,
 			TargetChecksum: node.TargetChecksum,
@@ -473,7 +473,7 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 
 // isPackageNode determines if a node represents a package lifecycle operation.
 func (b *StateViewBuilder) isPackageNode(node *Node) bool {
-	switch node.Operation {
+	switch node.Action {
 	case "prepare", "install", "verify", "upgrade", "uninstall", "cleanup",
 		"package-install", "package-upgrade", "package-remove":
 		return true

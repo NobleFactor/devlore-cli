@@ -66,7 +66,7 @@ func BuildTree(g *execution.Graph, cfg *Config) error {
 			// Single operation — single node
 			node := &execution.Node{
 				ID:        f.ID,
-				Operation: ops[0],
+				Action: ops[0],
 				Status:    execution.StatusPending,
 				Project:   f.Project,
 				Layer:     f.Layer,
@@ -87,7 +87,7 @@ func BuildTree(g *execution.Graph, cfg *Config) error {
 
 				node := &execution.Node{
 					ID:        nodeID,
-					Operation: op,
+					Action: op,
 					Status:    execution.StatusPending,
 					Project:   f.Project,
 					Layer:     f.Layer,
@@ -142,8 +142,8 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 	}
 
 	// Create registry and register all operations
-	registry := execution.NewOperationRegistry()
-	for _, op := range execution.AllOps() {
+	registry := execution.NewActionRegistry()
+	for _, op := range execution.AllActions() {
 		registry.Register(op)
 	}
 
@@ -257,7 +257,7 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 		target := filepath.Join(b.view.Files.Root, relTarget)
 		node := &execution.Node{
 			ID:        relTarget,
-			Operation: op,
+			Action: op,
 			Status:    execution.StatusPending,
 			Project:   entry.Project,
 			Layer:     entry.Layer,

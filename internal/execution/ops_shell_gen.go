@@ -12,42 +12,46 @@ type ShellOp struct{ impl *ShellService }
 
 func (o *ShellOp) Name() string { return "shell" }
 
-func (o *ShellOp) Execute(ctx *Context, node *Node) error {
+func (o *ShellOp) Do(ctx *Context, node *Node) (Result, UndoState, error) {
 	command, _ := node.GetSlot("command").(string)
 	if command == "" {
-		return fmt.Errorf("shell: no command specified")
+		return nil, nil, fmt.Errorf("shell: no command specified")
 	}
 
 	if ctx.DryRun {
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] shell %v\n", command)
-		return nil
+		return nil, nil, nil
 	}
 	_, _ = fmt.Fprintf(ctx.Logger, "[shell] %s\n", command)
-	return o.impl.Shell(command, ctx.Logger)
+	return nil, nil, o.impl.Shell(command, ctx.Logger)
 }
+
+func (o *ShellOp) Undo(_ *Context, _ *Node, _ UndoState) error { return nil }
 
 // PowerShellOp executes a PowerShell command from node's "command" slot (Windows).
 type PowerShellOp struct{ impl *ShellService }
 
 func (o *PowerShellOp) Name() string { return "powershell" }
 
-func (o *PowerShellOp) Execute(ctx *Context, node *Node) error {
+func (o *PowerShellOp) Do(ctx *Context, node *Node) (Result, UndoState, error) {
 	command, _ := node.GetSlot("command").(string)
 	if command == "" {
-		return fmt.Errorf("powershell: no command specified")
+		return nil, nil, fmt.Errorf("powershell: no command specified")
 	}
 
 	if ctx.DryRun {
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] powershell %v\n", command)
-		return nil
+		return nil, nil, nil
 	}
 	_, _ = fmt.Fprintf(ctx.Logger, "[powershell] %s\n", command)
-	return o.impl.PowerShell(command, ctx.Logger)
+	return nil, nil, o.impl.PowerShell(command, ctx.Logger)
 }
 
-// ShellOps returns all shell operations backed by the given ShellService.
-func ShellOps(impl *ShellService) []Operation {
-	return []Operation{
+func (o *PowerShellOp) Undo(_ *Context, _ *Node, _ UndoState) error { return nil }
+
+// ShellOps returns all shell actions backed by the given ShellService.
+func ShellOps(impl *ShellService) []Action {
+	return []Action{
 		&ShellOp{impl: impl},
 		&PowerShellOp{impl: impl},
 	}

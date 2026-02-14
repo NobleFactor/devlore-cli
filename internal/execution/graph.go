@@ -7,19 +7,19 @@
 // # Core Types
 //
 //   - Graph: A directed graph of nodes and edges representing work to be done
-//   - Node: A single unit of work with operations to execute
+//   - Node: A single unit of work with an action to execute
 //   - Edge: A dependency relationship between nodes
 //
 // # Execution Model
 //
 //   - GraphBuilder: Interface for building graphs (implementations in tools)
-//   - GraphExecutor: Runs graphs by executing operations on nodes
-//   - OperationRegistry: Maps operation names to implementations
+//   - GraphExecutor: Runs graphs by executing actions on nodes
+//   - ActionRegistry: Maps action names to implementations
 //
-// # Operations
+// # Actions
 //
-// Each operation implements Operation.Execute(ctx, node). Content ops
-// use ctx.ContentFor(node) and ctx.StoreContent(node, data) internally.
+// Each action implements Action.Do(ctx, node) returning (Result, UndoState, error).
+// Content actions use ctx.ContentFor(node) and ctx.StoreContent(node, data) internally.
 //
 // # Graph Lifecycle
 //
@@ -138,8 +138,8 @@ type Node struct {
 	// ID is the unique identifier (typically relative target path or package name).
 	ID string `json:"id" yaml:"id"`
 
-	// Operation to perform: link, copy, render, decrypt, install, etc.
-	Operation string `json:"operation" yaml:"operation"`
+	// Action to perform: link, copy, render, decrypt, install, etc.
+	Action string `json:"action" yaml:"action"`
 
 	// Status of this node: pending, completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
@@ -169,6 +169,9 @@ type Node struct {
 
 	// Error message if status is failed.
 	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+
+	// Retry is the retry policy for this node (nil = no retry).
+	Retry *RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
 
 	// Annotations holds extensible metadata (serialized to receipts).
 	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
@@ -221,8 +224,8 @@ func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
 // GetID returns the node's unique identifier.
 func (n *Node) GetID() string { return n.ID }
 
-// GetOperation returns the operation to perform.
-func (n *Node) GetOperation() string { return n.Operation }
+// GetAction returns the action to perform.
+func (n *Node) GetAction() string { return n.Action }
 
 // GetProject returns the project name.
 func (n *Node) GetProject() string { return n.Project }
@@ -284,7 +287,7 @@ type Graph struct {
 	// Context contains tool-specific metadata.
 	Context GraphContext `json:"context" yaml:"context"`
 
-	// Nodes are the operations to perform/performed.
+	// Nodes are the actions to perform/performed.
 	Nodes []*Node `json:"nodes" yaml:"nodes"`
 
 	// Edges are the dependencies between nodes.
@@ -421,8 +424,8 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 }
 
 // ApplyResults updates node states from execution results.
-func (g *Graph) ApplyResults(results []*Result) {
-	resultMap := make(map[string]*Result)
+func (g *Graph) ApplyResults(results []*NodeResult) {
+	resultMap := make(map[string]*NodeResult)
 	for _, r := range results {
 		resultMap[r.NodeID] = r
 	}
@@ -462,13 +465,13 @@ func (g *Graph) ComputeSummary() {
 			g.Summary.Failed++
 			continue
 		case StatusCompleted:
-			// Count by operation type below
+			// Count by action type below
 		default:
 			continue
 		}
 
-		// Count by operation type
-		switch n.Operation {
+		// Count by action type
+		switch n.Action {
 		case "link":
 			g.Summary.TotalFiles++
 			g.Summary.Links++

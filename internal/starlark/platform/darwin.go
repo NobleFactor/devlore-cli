@@ -172,7 +172,7 @@ func (d *DarwinPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starla
 	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-install", cleanPkgs...),
-		Operation: "package-install",
+		Action: "package-install",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
@@ -203,7 +203,7 @@ func (d *DarwinPlanBindings) packageUpgradeBuiltin(_ *starlark.Thread, _ *starla
 	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-upgrade", cleanPkgs...),
-		Operation: "package-upgrade",
+		Action: "package-upgrade",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
@@ -234,7 +234,7 @@ func (d *DarwinPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlar
 	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-remove", cleanPkgs...),
-		Operation: "package-remove",
+		Action: "package-remove",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
@@ -252,7 +252,7 @@ func (d *DarwinPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlar
 func (d *DarwinPlanBindings) packageUpdateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-update"),
-		Operation: "package-update",
+		Action: "package-update",
 		Project:    d.project,
 	}
 	d.graph.Nodes = append(d.graph.Nodes, node)
@@ -267,7 +267,7 @@ func (d *DarwinPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Bu
 
 	renderNode := &execution.Node{
 		ID:        darwinGenerateNodeID("render"),
-		Operation: "render",
+		Action: "render",
 		Project:   d.project,
 	}
 	if err := loreStar.FillSlot(renderNode, d.graph, "source", source); err != nil {
@@ -277,7 +277,7 @@ func (d *DarwinPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Bu
 
 	copyNode := &execution.Node{
 		ID:        darwinGenerateNodeID("configure"),
-		Operation: "copy",
+		Action: "copy",
 		Project:   d.project,
 	}
 	if err := loreStar.FillSlot(copyNode, d.graph, "path", path); err != nil {
@@ -301,7 +301,7 @@ func (d *DarwinPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builtin
 
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("link"),
-		Operation: "link",
+		Action: "link",
 		Project:    d.project,
 	}
 
@@ -324,7 +324,7 @@ func (d *DarwinPlanBindings) copyBuiltin(_ *starlark.Thread, _ *starlark.Builtin
 
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("copy"),
-		Operation: "copy",
+		Action: "copy",
 		Project:    d.project,
 	}
 
@@ -347,7 +347,7 @@ func (d *DarwinPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builti
 
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("write"),
-		Operation: "write",
+		Action: "write",
 		Project:    d.project,
 	}
 
@@ -382,7 +382,7 @@ func (d *DarwinPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Buil
 
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("launchd"),
-		Operation: "launchd-" + actionStr,
+		Action: "launchd-" + actionStr,
 		Project:    d.project,
 	}
 
@@ -405,7 +405,7 @@ func (d *DarwinPlanBindings) shellBuiltin(_ *starlark.Thread, _ *starlark.Builti
 
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("shell"),
-		Operation: "shell",
+		Action: "shell",
 		Project:    d.project,
 	}
 
@@ -440,7 +440,7 @@ func (d *DarwinPlanBindings) PackageInstall(packages ...string) *execution.Node 
 	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-install", cleanPkgs...),
-		Operation: "package-install",
+		Action: "package-install",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
@@ -458,7 +458,7 @@ func (d *DarwinPlanBindings) PackageUpgrade(packages ...string) *execution.Node 
 	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-upgrade", cleanPkgs...),
-		Operation: "package-upgrade",
+		Action: "package-upgrade",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
@@ -476,7 +476,7 @@ func (d *DarwinPlanBindings) PackageRemove(packages ...string) *execution.Node {
 	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-remove", cleanPkgs...),
-		Operation: "package-remove",
+		Action: "package-remove",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
@@ -493,7 +493,7 @@ func (d *DarwinPlanBindings) PackageRemove(packages ...string) *execution.Node {
 func (d *DarwinPlanBindings) PackageUpdate() *execution.Node {
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("package-update"),
-		Operation: "package-update",
+		Action: "package-update",
 		Project:    d.project,
 	}
 	d.graph.Nodes = append(d.graph.Nodes, node)
@@ -503,7 +503,7 @@ func (d *DarwinPlanBindings) PackageUpdate() *execution.Node {
 func (d *DarwinPlanBindings) Configure(source, target string) *execution.Node {
 	renderNode := &execution.Node{
 		ID:        darwinGenerateNodeID("render"),
-		Operation: "render",
+		Action: "render",
 		Project:   d.project,
 	}
 	renderNode.SetSlotImmediate("source", source)
@@ -511,7 +511,7 @@ func (d *DarwinPlanBindings) Configure(source, target string) *execution.Node {
 
 	copyNode := &execution.Node{
 		ID:        darwinGenerateNodeID("configure"),
-		Operation: "copy",
+		Action: "copy",
 		Project:   d.project,
 	}
 	copyNode.SetSlotImmediate("path", d.host.ExpandPath(target))
@@ -528,7 +528,7 @@ func (d *DarwinPlanBindings) Configure(source, target string) *execution.Node {
 func (d *DarwinPlanBindings) Link(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("link"),
-		Operation: "link",
+		Action: "link",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -540,7 +540,7 @@ func (d *DarwinPlanBindings) Link(source, target string) *execution.Node {
 func (d *DarwinPlanBindings) Copy(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("copy"),
-		Operation: "copy",
+		Action: "copy",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -552,7 +552,7 @@ func (d *DarwinPlanBindings) Copy(source, target string) *execution.Node {
 func (d *DarwinPlanBindings) Write(target, content string) *execution.Node {
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("write"),
-		Operation: "write",
+		Action: "write",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("content", content)
@@ -564,7 +564,7 @@ func (d *DarwinPlanBindings) Write(target, content string) *execution.Node {
 func (d *DarwinPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("launchd", name, action.String()),
-		Operation: "launchd-" + action.String(),
+		Action: "launchd-" + action.String(),
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("name", name)
@@ -576,7 +576,7 @@ func (d *DarwinPlanBindings) Service(name string, action loreStar.ServiceAction)
 func (d *DarwinPlanBindings) Shell(command string) *execution.Node {
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("shell"),
-		Operation: "shell",
+		Action: "shell",
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("command", command)
