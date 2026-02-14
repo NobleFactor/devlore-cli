@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright Noble Factor. All rights reserved.
 
-# generate.star - Generate receivers and operations from Go structs
+# generate.star - Generate receivers and operations from service structs
 #
-# Reads a Go implementation struct's methods via go.methods(), then calls
+# Reads a service struct's methods via go.methods(), then calls
 # go.generate() to produce plan receivers, graph operations, and real-time
 # receivers.
 
@@ -49,18 +49,18 @@ def to_snake(name):
     return "".join(result)
 
 def run(ctx):
-    """Generate receivers and operations from a Go struct."""
+    """Generate receivers and operations from a service struct."""
 
     # -------------------------------------------------------------------------
     # Validate required arguments
     # -------------------------------------------------------------------------
-    path = ctx.args.get("path", "")
-    struct_name = ctx.args.get("struct", "")
+    path = ctx.args.get("source", "")
+    struct_name = ctx.args.get("service", "")
 
     if not path:
-        fail("--path is required")
+        fail("--source is required")
     if not struct_name:
-        fail("--struct is required")
+        fail("--service is required")
 
     # -------------------------------------------------------------------------
     # Discover and filter methods
@@ -156,6 +156,7 @@ def run(ctx):
             "category": category,
             "struct_name": struct_short,
             "namespace": namespace,
+            "impl_type": struct_name,
             "methods": method_descriptors,
         }
 
