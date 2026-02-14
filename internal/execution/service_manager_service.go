@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package execution
+
+import (
+	"fmt"
+	"io"
+	"os/exec"
+	"runtime"
+)
+
+// ServiceManagerService provides platform-agnostic service management.
+// Platform detection happens at runtime — callers don't need to know
+// whether launchd, systemd, or Windows services are being used.
+type ServiceManagerService struct{}
+
+// Start starts a service.
+func (s *ServiceManagerService) Start(name string, output io.Writer) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return run(output, "launchctl", "start", name)
+	case "linux":
+		return run(output, "sudo", "systemctl", "start", name)
+	case "windows":
+		return run(output, "sc", "start", name)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+// Stop stops a service.
+func (s *ServiceManagerService) Stop(name string, output io.Writer) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return run(output, "launchctl", "stop", name)
+	case "linux":
+		return run(output, "sudo", "systemctl", "stop", name)
+	case "windows":
+		return run(output, "sc", "stop", name)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+// Restart restarts a service.
+func (s *ServiceManagerService) Restart(name string, output io.Writer) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return run(output, "launchctl", "kickstart", "-k", "gui/"+name)
+	case "linux":
+		return run(output, "sudo", "systemctl", "restart", name)
+	case "windows":
+		// Stop (ignore error if already stopped), then start
+		_ = run(output, "sc", "stop", name)
+		return run(output, "sc", "start", name)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+// Enable enables a service to start at boot.
+func (s *ServiceManagerService) Enable(name string, output io.Writer) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return run(output, "launchctl", "enable", "gui/"+name)
+	case "linux":
+		return run(output, "sudo", "systemctl", "enable", name)
+	case "windows":
+		return run(output, "sc", "config", name, "start=auto")
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+// Disable disables a service from starting at boot.
+func (s *ServiceManagerService) Disable(name string, output io.Writer) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return run(output, "launchctl", "disable", "gui/"+name)
+	case "linux":
+		return run(output, "sudo", "systemctl", "disable", name)
+	case "windows":
+		return run(output, "sc", "config", name, "start=disabled")
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+// run executes a command with output directed to the writer.
+func run(output io.Writer, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	return cmd.Run()
+}
