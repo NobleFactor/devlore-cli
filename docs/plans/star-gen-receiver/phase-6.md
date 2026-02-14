@@ -615,6 +615,66 @@ go test ./internal/writ/ -count=1
 go test ./... -count=1
 ```
 
+## Step 11: Template Separation (noblefactor-ops + devlore-cli)
+
+Move devlore-specific code generation templates out of noblefactor-ops,
+making `go.generate()` a generic Go code generation engine.
+
+### 11a: Generic go.generate() in noblefactor-ops
+
+Change `go.generate()` to accept a template string instead of a template name:
+
+```python
+# Current: hardcoded template names
+go.generate("graph_ops", descriptor)
+
+# Target: template content as input
+tmpl = file.read("templates/graph_ops.go.tmpl")
+code = go.generate(tmpl, descriptor)
+```
+
+Keep in noblefactor-ops (generic):
+- `go.generate(template_content, descriptor)` — renders any Go template with a descriptor
+- `go.mapping(descriptor)` — produces mapping YAML
+- Descriptor types (`generateDescriptor`, `methodInfo`, `paramInfo`)
+- `camelToSnake`, `validateReturnSignature`, `validateParamTypes`
+- The `realtime_receiver` template — it only references noblefactor-ops types
+  (`Receiver`, `MakeAttr`, `NoSuchAttrError`, `starlark.UnpackArgs`)
+
+### 11b: Move devlore-specific templates to devlore-cli
+
+Move to devlore-cli's Starlark extension resources:
+- `plan_receiver` template — references `execution.Graph`, `execution.Node`,
+  `host.Host`, `FillSlot`, `NewOutput`, `generateNodeID`
+- `graph_ops` template — references `*Context`, `*Node`, `Operation`,
+  `node.GetSlot()`, `ctx.DryRun`, `ctx.Logger`
+- The `framework` bool and `slotReader` patterns — content pipeline,
+  `io.Writer` logger injection, `ctx.Data` function injection
+- The specific type mapping entries (`os.FileMode`, `[]byte` framework, etc.)
+
+### 11c: Extension template loading
+
+The devlore ops extension loads templates from its own resources:
+
+```python
+# star/extensions/com.noblefactor.devlore.Ops/commands/generate.star
+graph_ops_tmpl = file.read(extension.resource("templates/graph_ops.go.tmpl"))
+code = go.generate(graph_ops_tmpl, descriptor)
+```
+
+### Verification
+
+```bash
+# noblefactor-ops: no devlore-specific imports or types
+cd /path/to/noblefactor-ops
+go test ./internal/starlark/ -count=1
+
+# devlore-cli: templates load from extension resources
+cd /path/to/devlore-cli
+star devlore ops generate
+go build ./... && go test ./...
+```
+
 ## Ordering and Dependencies
 
 ```
@@ -631,10 +691,12 @@ Step 7 (generate graph ops) requires Steps 5 + 6
 Step 8 (generate plan receivers) requires Step 6
 Step 9 (generate execute receivers) requires Step 6
 Step 10 (key normalization) — can run anytime after Step 4
+Step 11 (template separation) — after Steps 7-9 complete
 ```
 
 Steps 1-4 are infrastructure. Step 5 extracts services. Step 6 updates
 templates. Steps 7-9 generate and replace. Step 10 normalizes keys.
+Step 11 separates concerns between repos.
 
 ## Scope Boundaries
 
