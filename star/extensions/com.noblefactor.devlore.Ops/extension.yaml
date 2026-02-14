@@ -19,14 +19,14 @@ commands:
     help: Generate boilerplate receivers and operations from a Go struct
     implementation: commands/generate.star
     flags:
-      - name: path
+      - name: source
         type: string
         default: ""
-        help: Path to the Go package containing the struct
-      - name: struct
+        help: Path to the Go package containing the service struct
+      - name: service
         type: string
         default: ""
-        help: Name of the Go struct to generate from
+        help: Name of the service struct to generate from
       - name: category
         type: string
         default: ""
