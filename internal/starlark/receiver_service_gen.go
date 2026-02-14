@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Code generated from gen-receiver templates; DO NOT EDIT.
+
 package starlark
 
 import (
