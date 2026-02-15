@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package execution
+package execution_test
 
 import (
 	"context"
@@ -11,14 +11,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
 )
 
 // TestRetryPolicyComputeDelay tests backoff delay computation.
 func TestRetryPolicyComputeDelay(t *testing.T) {
 	t.Run("none backoff", func(t *testing.T) {
-		policy := &RetryPolicy{
+		policy := &execution.RetryPolicy{
 			MaxAttempts:  3,
-			Backoff:      BackoffNone,
+			Backoff:      execution.BackoffNone,
 			InitialDelay: "100ms",
 		}
 		// All attempts get the same delay
@@ -31,9 +34,9 @@ func TestRetryPolicyComputeDelay(t *testing.T) {
 	})
 
 	t.Run("linear backoff", func(t *testing.T) {
-		policy := &RetryPolicy{
+		policy := &execution.RetryPolicy{
 			MaxAttempts:  3,
-			Backoff:      BackoffLinear,
+			Backoff:      execution.BackoffLinear,
 			InitialDelay: "100ms",
 		}
 		expected := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond}
@@ -46,9 +49,9 @@ func TestRetryPolicyComputeDelay(t *testing.T) {
 	})
 
 	t.Run("exponential backoff", func(t *testing.T) {
-		policy := &RetryPolicy{
+		policy := &execution.RetryPolicy{
 			MaxAttempts:  3,
-			Backoff:      BackoffExponential,
+			Backoff:      execution.BackoffExponential,
 			InitialDelay: "100ms",
 		}
 		expected := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond}
@@ -61,9 +64,9 @@ func TestRetryPolicyComputeDelay(t *testing.T) {
 	})
 
 	t.Run("max delay cap", func(t *testing.T) {
-		policy := &RetryPolicy{
+		policy := &execution.RetryPolicy{
 			MaxAttempts:  5,
-			Backoff:      BackoffExponential,
+			Backoff:      execution.BackoffExponential,
 			InitialDelay: "100ms",
 			MaxDelay:     "300ms",
 		}
@@ -74,7 +77,7 @@ func TestRetryPolicyComputeDelay(t *testing.T) {
 	})
 
 	t.Run("empty initial delay", func(t *testing.T) {
-		policy := &RetryPolicy{Backoff: BackoffLinear}
+		policy := &execution.RetryPolicy{Backoff: execution.BackoffLinear}
 		if d := policy.ComputeDelay(0); d != 0 {
 			t.Errorf("expected 0 for empty initial delay, got %v", d)
 		}
@@ -84,28 +87,28 @@ func TestRetryPolicyComputeDelay(t *testing.T) {
 // TestRetryPolicyParseDuration tests duration string parsing.
 func TestRetryPolicyParseDuration(t *testing.T) {
 	t.Run("valid initial delay", func(t *testing.T) {
-		p := &RetryPolicy{InitialDelay: "5s"}
+		p := &execution.RetryPolicy{InitialDelay: "5s"}
 		if d := p.ParseInitialDelay(); d != 5*time.Second {
 			t.Errorf("expected 5s, got %v", d)
 		}
 	})
 
 	t.Run("valid max delay", func(t *testing.T) {
-		p := &RetryPolicy{MaxDelay: "1m30s"}
+		p := &execution.RetryPolicy{MaxDelay: "1m30s"}
 		if d := p.ParseMaxDelay(); d != 90*time.Second {
 			t.Errorf("expected 1m30s, got %v", d)
 		}
 	})
 
 	t.Run("empty string returns 0", func(t *testing.T) {
-		p := &RetryPolicy{}
+		p := &execution.RetryPolicy{}
 		if d := p.ParseInitialDelay(); d != 0 {
 			t.Errorf("expected 0, got %v", d)
 		}
 	})
 
 	t.Run("invalid string returns 0", func(t *testing.T) {
-		p := &RetryPolicy{InitialDelay: "not-a-duration"}
+		p := &execution.RetryPolicy{InitialDelay: "not-a-duration"}
 		if d := p.ParseInitialDelay(); d != 0 {
 			t.Errorf("expected 0 for invalid string, got %v", d)
 		}
@@ -126,42 +129,42 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 		sources[name] = path
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
-	executor := NewGraphExecutor(reg, ExecutorOptions{})
+	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
 
-	graph := &Graph{
-		State: StatePending,
-		Phases: []*Phase{
+	graph := &execution.Graph{
+		State: execution.StatePending,
+		Phases: []*execution.Phase{
 			{
 				ID:      "phase.prepare",
 				Name:    "prepare",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"probe"},
 			},
 			{
 				ID:         "phase.install",
 				Name:       "install",
-				Status:     PhasePending,
+				Status:     execution.PhasePending,
 				NodeIDs:    []string{"pkg"},
 				Compensate: "phase.install.compensate",
 			},
 			{
 				ID:         "phase.provision",
 				Name:       "provision",
-				Status:     PhasePending,
+				Status:     execution.PhasePending,
 				NodeIDs:    []string{"config"},
 				Compensate: "phase.provision.compensate",
 			},
 			{
 				ID:      "phase.verify",
 				Name:    "verify",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"check"},
 			},
 		},
-		Nodes: []*Node{
+		Nodes: []*execution.Node{
 			testNode("probe", "link", sources["probe.txt"], filepath.Join(tmpDir, "out-probe")),
 			testNode("pkg", "link", sources["pkg.txt"], filepath.Join(tmpDir, "out-pkg")),
 			testNode("config", "link", sources["config.txt"], filepath.Join(tmpDir, "out-config")),
@@ -174,20 +177,20 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 		t.Fatalf("expected success, got: %v", err)
 	}
 
-	if graph.State != StateExecuted {
+	if graph.State != execution.StateExecuted {
 		t.Errorf("expected state executed, got %s", graph.State)
 	}
 
 	// All phases should be completed
 	for _, p := range graph.Phases {
-		if p.Status != PhaseCompleted {
+		if p.Status != execution.PhaseCompleted {
 			t.Errorf("phase %s: expected completed, got %s", p.Name, p.Status)
 		}
 	}
 
 	// All nodes should be completed
 	for _, n := range graph.Nodes {
-		if n.Status != StatusCompleted {
+		if n.Status != execution.StatusCompleted {
 			t.Errorf("node %s: expected completed, got %s", n.ID, n.Status)
 		}
 	}
@@ -212,69 +215,69 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 	// Phase 3 uses an operation that always fails
 	reg.Register(&testRetryOp{
 		name: "fail-provision",
-		fn: func(ctx *Context, node *Node) error {
+		fn: func(ctx *execution.Context, node *execution.Node) error {
 			return fmt.Errorf("permission denied")
 		},
 	})
 
-	executor := NewGraphExecutor(reg, ExecutorOptions{})
+	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
 
-	graph := &Graph{
-		State: StatePending,
-		Phases: []*Phase{
+	graph := &execution.Graph{
+		State: execution.StatePending,
+		Phases: []*execution.Phase{
 			{
 				ID:         "phase.prepare",
 				Name:       "prepare",
-				Status:     PhasePending,
+				Status:     execution.PhasePending,
 				NodeIDs:    []string{"node-prepare"},
 				Compensate: "phase.prepare.compensate",
 			},
 			{
 				ID:         "phase.install",
 				Name:       "install",
-				Status:     PhasePending,
+				Status:     execution.PhasePending,
 				NodeIDs:    []string{"node-install"},
 				Compensate: "phase.install.compensate",
 			},
 			{
 				ID:         "phase.provision",
 				Name:       "provision",
-				Status:     PhasePending,
+				Status:     execution.PhasePending,
 				NodeIDs:    []string{"node-provision"},
 				Compensate: "phase.provision.compensate",
 			},
 			{
 				ID:      "phase.verify",
 				Name:    "verify",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"node-verify"},
 			},
 			// Compensating phases
 			{
 				ID:      "phase.prepare.compensate",
 				Name:    "prepare.compensate",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"comp-prepare"},
 			},
 			{
 				ID:      "phase.install.compensate",
 				Name:    "install.compensate",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"comp-install"},
 			},
 			{
 				ID:      "phase.provision.compensate",
 				Name:    "provision.compensate",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"comp-provision"},
 			},
 		},
-		Nodes: []*Node{
+		Nodes: []*execution.Node{
 			testNode("node-prepare", "link", src1, filepath.Join(tmpDir, "out1")),
 			testNode("node-install", "link", src2, filepath.Join(tmpDir, "out2")),
 			{ID: "node-provision", Action: "fail-provision"},
@@ -293,7 +296,7 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 		t.Errorf("expected provision failure, got: %v", err)
 	}
 
-	if graph.State != StateFailed {
+	if graph.State != execution.StateFailed {
 		t.Errorf("expected state failed, got %s", graph.State)
 	}
 
@@ -303,16 +306,16 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 	provision := graph.PhaseByID("phase.provision")
 	verify := graph.PhaseByID("phase.verify")
 
-	if prepare.Status != PhaseRolledBack {
+	if prepare.Status != execution.PhaseRolledBack {
 		t.Errorf("prepare: expected rolled_back, got %s", prepare.Status)
 	}
-	if install.Status != PhaseRolledBack {
+	if install.Status != execution.PhaseRolledBack {
 		t.Errorf("install: expected rolled_back, got %s", install.Status)
 	}
-	if provision.Status != PhaseFailed {
+	if provision.Status != execution.PhaseFailed {
 		t.Errorf("provision: expected failed, got %s", provision.Status)
 	}
-	if verify.Status != PhaseSkipped {
+	if verify.Status != execution.PhaseSkipped {
 		t.Errorf("verify: expected skipped, got %s", verify.Status)
 	}
 
@@ -342,12 +345,12 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 
 	attemptCount := 0
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 	// Register a custom op that creates the file on second attempt
 	reg.Register(&testRetryOp{
 		name: "retry-test",
-		fn: func(ctx *Context, node *Node) error {
+		fn: func(ctx *execution.Context, node *execution.Node) error {
 			attemptCount++
 			if attemptCount == 1 {
 				return fmt.Errorf("transient failure")
@@ -357,24 +360,24 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 		},
 	})
 
-	executor := NewGraphExecutor(reg, ExecutorOptions{})
+	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
 
-	graph := &Graph{
-		State: StatePending,
-		Phases: []*Phase{
+	graph := &execution.Graph{
+		State: execution.StatePending,
+		Phases: []*execution.Phase{
 			{
 				ID:      "phase.install",
 				Name:    "install",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"retry-node"},
-				Retry: &RetryPolicy{
+				Retry: &execution.RetryPolicy{
 					MaxAttempts:  2,
-					Backoff:      BackoffNone,
+					Backoff:      execution.BackoffNone,
 					InitialDelay: "1ms", // Minimal delay for tests
 				},
 			},
 		},
-		Nodes: []*Node{
+		Nodes: []*execution.Node{
 			{ID: "retry-node", Action: "retry-test"},
 		},
 	}
@@ -384,12 +387,12 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 		t.Fatalf("expected success after retry, got: %v", err)
 	}
 
-	if graph.State != StateExecuted {
+	if graph.State != execution.StateExecuted {
 		t.Errorf("expected executed, got %s", graph.State)
 	}
 
 	phase := graph.Phases[0]
-	if phase.Status != PhaseCompleted {
+	if phase.Status != execution.PhaseCompleted {
 		t.Errorf("expected completed, got %s", phase.Status)
 	}
 
@@ -414,39 +417,39 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 	reg.Register(&testRetryOp{
 		name: "always-fail",
-		fn: func(ctx *Context, node *Node) error {
+		fn: func(ctx *execution.Context, node *execution.Node) error {
 			return fmt.Errorf("permanent failure")
 		},
 	})
 
-	executor := NewGraphExecutor(reg, ExecutorOptions{})
+	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
 
-	graph := &Graph{
-		State: StatePending,
-		Phases: []*Phase{
+	graph := &execution.Graph{
+		State: execution.StatePending,
+		Phases: []*execution.Phase{
 			{
 				ID:      "phase.prepare",
 				Name:    "prepare",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"prepare-node"},
 			},
 			{
 				ID:      "phase.install",
 				Name:    "install",
-				Status:  PhasePending,
+				Status:  execution.PhasePending,
 				NodeIDs: []string{"fail-node"},
-				Retry: &RetryPolicy{
+				Retry: &execution.RetryPolicy{
 					MaxAttempts:  2,
-					Backoff:      BackoffNone,
+					Backoff:      execution.BackoffNone,
 					InitialDelay: "1ms",
 				},
 			},
 		},
-		Nodes: []*Node{
+		Nodes: []*execution.Node{
 			testNode("prepare-node", "link", src, filepath.Join(tmpDir, "out1")),
 			{ID: "fail-node", Action: "always-fail"},
 		},
@@ -458,7 +461,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 	}
 
 	phase := graph.PhaseByID("phase.install")
-	if phase.Status != PhaseFailed {
+	if phase.Status != execution.PhaseFailed {
 		t.Errorf("expected failed, got %s", phase.Status)
 	}
 
@@ -482,13 +485,13 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
-	executor := NewGraphExecutor(reg, ExecutorOptions{})
-	graph := &Graph{
-		State: StatePending,
-		Nodes: []*Node{
+	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	graph := &execution.Graph{
+		State: execution.StatePending,
+		Nodes: []*execution.Node{
 			testNode("test", "link", source, target),
 		},
 	}
@@ -498,7 +501,7 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 		t.Fatalf("non-phased run: %v", err)
 	}
 
-	if graph.State != StateExecuted {
+	if graph.State != execution.StateExecuted {
 		t.Errorf("expected executed, got %s", graph.State)
 	}
 
@@ -513,18 +516,18 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 
 // TestPhasedGraphSerialization tests that phased graphs round-trip through YAML.
 func TestPhasedGraphSerialization(t *testing.T) {
-	g := &Graph{
+	g := &execution.Graph{
 		Version: "1",
 		Tool:    "lore",
-		State:   StatePending,
-		Phases: []*Phase{
+		State:   execution.StatePending,
+		Phases: []*execution.Phase{
 			{
 				ID:     "phase.install",
 				Name:   "install",
-				Status: PhasePending,
-				Retry: &RetryPolicy{
+				Status: execution.PhasePending,
+				Retry: &execution.RetryPolicy{
 					MaxAttempts:  3,
-					Backoff:      BackoffExponential,
+					Backoff:      execution.BackoffExponential,
 					InitialDelay: "1s",
 					MaxDelay:     "30s",
 				},
@@ -534,10 +537,10 @@ func TestPhasedGraphSerialization(t *testing.T) {
 			{
 				ID:     "phase.verify",
 				Name:   "verify",
-				Status: PhasePending,
+				Status: execution.PhasePending,
 			},
 		},
-		Nodes: []*Node{
+		Nodes: []*execution.Node{
 			{ID: "pkg-ripgrep", Action: "package-install"},
 		},
 	}
@@ -561,8 +564,8 @@ func TestPhasedGraphSerialization(t *testing.T) {
 
 // TestPhaseByID tests Graph.PhaseByID lookup.
 func TestPhaseByID(t *testing.T) {
-	g := &Graph{
-		Phases: []*Phase{
+	g := &execution.Graph{
+		Phases: []*execution.Phase{
 			{ID: "phase.prepare", Name: "prepare"},
 			{ID: "phase.install", Name: "install"},
 		},
@@ -579,11 +582,13 @@ func TestPhaseByID(t *testing.T) {
 // testRetryOp is a test-only action that executes a function.
 type testRetryOp struct {
 	name string
-	fn   func(ctx *Context, node *Node) error
+	fn   func(ctx *execution.Context, node *execution.Node) error
 }
 
 func (o *testRetryOp) Name() string { return o.name }
-func (o *testRetryOp) Do(ctx *Context, node *Node) (Result, UndoState, error) {
+func (o *testRetryOp) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
 	return nil, nil, o.fn(ctx, node)
 }
-func (o *testRetryOp) Undo(_ *Context, _ *Node, _ UndoState) error { return nil }
+func (o *testRetryOp) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+	return nil
+}

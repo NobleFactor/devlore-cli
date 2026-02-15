@@ -253,7 +253,7 @@ func (p *planBindings) GitPull() *execution.Node {
 func (p *planBindings) Service(name string, action ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("service", name, action.String()),
-		Action: "service",
+		Action: "service-" + action.String(),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("name", name)

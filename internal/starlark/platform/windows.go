@@ -167,7 +167,7 @@ func (w *WindowsPlanBindings) Write(target, content string) *execution.Node {
 func (w *WindowsPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         windowsGenerateNodeID("winservice", name, action.String()),
-		Action: "winservice-" + action.String(),
+		Action: "service-" + action.String(),
 		Project:    w.project,
 	}
 	node.SetSlotImmediate("name", name)

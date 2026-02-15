@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
@@ -235,9 +236,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	// Create operation registry and executor
 	registry := execution.NewActionRegistry()
-	for _, op := range execution.AllActions() {
-		registry.Register(op)
-	}
+	provider.RegisterAll(registry)
 	executor := execution.NewGraphExecutor(registry, execution.ExecutorOptions{
 		DryRun: cfg.DryRun,
 	})

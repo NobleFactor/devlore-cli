@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 )
 
@@ -17,6 +18,7 @@ import (
 func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *execution.Graph) ([]*execution.NodeResult, error) {
 	return eng.RunNodes(ctx, g.Nodes, g.Edges)
 }
+
 
 func TestBuild_WithNativePMPackage(t *testing.T) {
 	// Test that Build creates correct nodes for native PM packages.
@@ -176,9 +178,7 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 	reg := execution.NewActionRegistry()
 
 	// Register all operations (file + package)
-	for _, op := range execution.AllActions() {
-		reg.Register(op)
-	}
+	provider.RegisterAll(reg)
 
 	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
 
@@ -209,9 +209,7 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 func TestEngineRunsNamespacedPackageOps(t *testing.T) {
 	// Test that all namespaced package operations can execute in dry-run mode
 	reg := execution.NewActionRegistry()
-	for _, op := range execution.AllActions() {
-		reg.Register(op)
-	}
+	provider.RegisterAll(reg)
 
 	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
 

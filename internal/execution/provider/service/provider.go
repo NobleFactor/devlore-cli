@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package execution
+package service
 
 import (
 	"fmt"
@@ -10,13 +10,13 @@ import (
 	"runtime"
 )
 
-// ServiceManagerService provides platform-agnostic service management.
+// Provider provides platform-agnostic service management.
 // Platform detection happens at runtime — callers don't need to know
 // whether launchd, systemd, or Windows services are being used.
-type ServiceManagerService struct{}
+type Provider struct{}
 
 // Start starts a service.
-func (s *ServiceManagerService) Start(name string, output io.Writer) error {
+func (p *Provider) Start(name string, output io.Writer) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return run(output, "launchctl", "start", name)
@@ -30,7 +30,7 @@ func (s *ServiceManagerService) Start(name string, output io.Writer) error {
 }
 
 // Stop stops a service.
-func (s *ServiceManagerService) Stop(name string, output io.Writer) error {
+func (p *Provider) Stop(name string, output io.Writer) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return run(output, "launchctl", "stop", name)
@@ -44,7 +44,7 @@ func (s *ServiceManagerService) Stop(name string, output io.Writer) error {
 }
 
 // Restart restarts a service.
-func (s *ServiceManagerService) Restart(name string, output io.Writer) error {
+func (p *Provider) Restart(name string, output io.Writer) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return run(output, "launchctl", "kickstart", "-k", "gui/"+name)
@@ -60,7 +60,7 @@ func (s *ServiceManagerService) Restart(name string, output io.Writer) error {
 }
 
 // Enable enables a service to start at boot.
-func (s *ServiceManagerService) Enable(name string, output io.Writer) error {
+func (p *Provider) Enable(name string, output io.Writer) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return run(output, "launchctl", "enable", "gui/"+name)
@@ -74,7 +74,7 @@ func (s *ServiceManagerService) Enable(name string, output io.Writer) error {
 }
 
 // Disable disables a service from starting at boot.
-func (s *ServiceManagerService) Disable(name string, output io.Writer) error {
+func (p *Provider) Disable(name string, output io.Writer) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return run(output, "launchctl", "disable", "gui/"+name)

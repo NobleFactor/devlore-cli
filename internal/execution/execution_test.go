@@ -1,25 +1,31 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package execution
+package execution_test
 
 import (
 	"context"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/encryption"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
 )
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
-func runGraph(ctx context.Context, e *GraphExecutor, g *Graph) ([]*NodeResult, error) {
+func runGraph(ctx context.Context, e *execution.GraphExecutor, g *execution.Graph) ([]*execution.NodeResult, error) {
 	return e.RunNodes(ctx, g.Nodes, g.Edges)
 }
 
 // testNode creates a node with source and path slots for testing.
-func testNode(id string, op string, source, path string) *Node {
-	node := &Node{ID: id, Action: op}
+func testNode(id string, op string, source, path string) *execution.Node {
+	node := &execution.Node{ID: id, Action: op}
 	if source != "" {
 		node.SetSlotImmediate("source", source)
 	}
@@ -29,10 +35,10 @@ func testNode(id string, op string, source, path string) *Node {
 	return node
 }
 
+
 func TestRegistryRegisterAndGet(t *testing.T) {
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
-	reg.Register(&FileCopyOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
 	op, ok := reg.Get("link")
 	if !ok {
@@ -49,14 +55,44 @@ func TestRegistryRegisterAndGet(t *testing.T) {
 }
 
 func TestRegistryNames(t *testing.T) {
-	reg := NewActionRegistry()
-	for _, op := range FileOps(&FileService{}) {
-		reg.Register(op)
-	}
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
 	names := reg.Names()
-	if len(names) != 8 {
-		t.Errorf("expected 8 operations, got %d", len(names))
+	if len(names) != 10 {
+		t.Errorf("expected 10 file operations, got %d", len(names))
+	}
+}
+
+func TestAllProvidersCount(t *testing.T) {
+	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
+
+	names := reg.Names()
+	sort.Strings(names)
+	if len(names) != 28 {
+		t.Errorf("expected 28 total actions, got %d: %v", len(names), names)
+	}
+
+	expected := []string{
+		"link", "copy", "render", "backup", "unlink", "remove", "write", "move", "mkdir", "source",
+		"decrypt",
+		"package-install", "package-upgrade", "package-remove", "package-update",
+		"shell", "powershell",
+		"service-start", "service-stop", "service-restart", "service-enable", "service-disable",
+		"literal",
+		"download",
+		"archive-extract",
+		"git-clone", "git-checkout", "git-pull",
+	}
+	nameSet := make(map[string]bool)
+	for _, n := range names {
+		nameSet[n] = true
+	}
+	for _, name := range expected {
+		if !nameSet[name] {
+			t.Errorf("expected action %q in registry", name)
+		}
 	}
 }
 
@@ -69,9 +105,10 @@ func TestLinkOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileLinkOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Link{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
@@ -100,9 +137,10 @@ func TestLinkOperationIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileLinkOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Link{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
@@ -120,12 +158,13 @@ func TestCopyOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileCopyOp{impl: &FileService{}}
-	ctx := &Context{
+	p := &file.Provider{}
+	op := &file.Copy{Impl: p}
+	ctx := &execution.Context{
 		Context: context.Background(),
 		Outputs: make(map[string][]byte),
 	}
-	node := &Node{ID: "test"}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
@@ -158,12 +197,13 @@ func TestCopyOperationCreatesParentDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileCopyOp{impl: &FileService{}}
-	ctx := &Context{
+	p := &file.Provider{}
+	op := &file.Copy{Impl: p}
+	ctx := &execution.Context{
 		Context: context.Background(),
 		Outputs: make(map[string][]byte),
 	}
-	node := &Node{ID: "test"}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
@@ -188,13 +228,14 @@ func TestRenderOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileRenderOp{impl: &FileService{}}
-	ctx := &Context{
+	p := &file.Provider{}
+	op := &file.Render{Impl: p}
+	ctx := &execution.Context{
 		Context: context.Background(),
 		Data:    map[string]any{"Username": "testuser", "Shell": "/bin/zsh"},
 		Outputs: make(map[string][]byte),
 	}
-	node := &Node{ID: ".bashrc", Project: "all"}
+	node := &execution.Node{ID: ".bashrc", Project: "all"}
 	node.SetSlotImmediate("source", source)
 
 	if _, _, err := op.Do(ctx, node); err != nil {
@@ -215,18 +256,19 @@ func TestDecryptOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &EncryptionDecryptOp{impl: &EncryptionService{}}
+	ep := &encryption.Provider{}
+	op := &encryption.Decrypt{Impl: ep}
 
 	// Provide a mock decryptor
 	mockDecrypt := func(source string, ciphertext []byte) ([]byte, error) {
 		return []byte("decrypted:" + string(ciphertext)), nil
 	}
 
-	ctx := &Context{
+	ctx := &execution.Context{
 		Context: context.Background(),
 		Outputs: make(map[string][]byte),
 	}
-	node := &Node{ID: "secret.txt"}
+	node := &execution.Node{ID: "secret.txt"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("decryptor", mockDecrypt)
 
@@ -247,12 +289,13 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &EncryptionDecryptOp{impl: &EncryptionService{}}
-	ctx := &Context{
+	ep := &encryption.Provider{}
+	op := &encryption.Decrypt{Impl: ep}
+	ctx := &execution.Context{
 		Context: context.Background(),
 		Outputs: make(map[string][]byte),
 	}
-	node := &Node{ID: "secret.txt"}
+	node := &execution.Node{ID: "secret.txt"}
 	node.SetSlotImmediate("source", source)
 	// No decryptor slot set
 
@@ -263,7 +306,7 @@ func TestDecryptOperationNoDecryptor(t *testing.T) {
 
 // TestDecryptOperationInvalidSignature tests that invalid decryptor signatures are rejected.
 // The delegation op reads decryptor from a node slot via type assertion. Invalid types
-// result in a nil decryptor, which EncryptionService.Decrypt rejects.
+// result in a nil decryptor, which the encryption provider rejects.
 func TestDecryptOperationInvalidSignature(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "secret.txt")
@@ -271,7 +314,8 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &EncryptionDecryptOp{impl: &EncryptionService{}}
+	ep := &encryption.Provider{}
+	op := &encryption.Decrypt{Impl: ep}
 
 	tests := []struct {
 		name      string
@@ -318,11 +362,11 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := &Node{ID: "secret.txt"}
+			node := &execution.Node{ID: "secret.txt"}
 			node.SetSlotImmediate("source", source)
 			node.SetSlotImmediate("decryptor", tt.decryptor)
 
-			ctx := &Context{
+			ctx := &execution.Context{
 				Context: context.Background(),
 				Outputs: make(map[string][]byte),
 			}
@@ -343,11 +387,6 @@ func TestDecryptOperationInvalidSignature(t *testing.T) {
 	}
 }
 
-// NOTE: TestDelegateOperation removed - there is no delegation between tools.
-// writ and lore share the same execution engine. When writ encounters a
-// packages-manifest.yaml, the Package Graph Builder adds package nodes to
-// the execution graph (NOT YET IMPLEMENTED).
-
 func TestUnlinkOperation(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
@@ -360,9 +399,10 @@ func TestUnlinkOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileUnlinkOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Unlink{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
 	if _, _, err := op.Do(ctx, node); err != nil {
@@ -381,9 +421,10 @@ func TestRemoveOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileRemoveOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Remove{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
 	if _, _, err := op.Do(ctx, node); err != nil {
@@ -400,9 +441,10 @@ func TestWriteOperation(t *testing.T) {
 	target := filepath.Join(tmpDir, "output.txt")
 	content := "hello world"
 
-	op := &FileWriteOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Write{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
 
@@ -424,9 +466,10 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 	target := filepath.Join(tmpDir, "a", "b", "c", "output.txt")
 	content := "nested content"
 
-	op := &FileWriteOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Write{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
 
@@ -444,9 +487,10 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 }
 
 func TestWriteRequiresContent(t *testing.T) {
-	op := &FileWriteOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Write{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", "/tmp/test.txt")
 
 	_, _, err := op.Do(ctx, node)
@@ -462,9 +506,10 @@ func TestWriteDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "should-not-exist.txt")
 
-	op := &FileWriteOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background(), DryRun: true, Logger: io.Discard}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Write{Impl: p}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: io.Discard}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", "test")
 
@@ -485,12 +530,12 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
-	engine := NewGraphExecutor(reg, ExecutorOptions{})
-	graph := &Graph{
-		Nodes: []*Node{
+	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			testNode(".bashrc", "link", source, target),
 		},
 	}
@@ -503,7 +548,7 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	if results[0].Status != ResultCompleted {
+	if results[0].Status != execution.ResultCompleted {
 		t.Errorf("expected completed, got %s", results[0].Status)
 	}
 
@@ -522,19 +567,18 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileRenderOp{impl: &FileService{}})
-	reg.Register(&FileCopyOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
-	engine := NewGraphExecutor(reg, ExecutorOptions{
+	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{
 		Data: map[string]any{"Username": "david"},
 	})
 
 	renderNode := testNode(".greeting:render", "render", source, "")
 	copyNode := testNode(".greeting", "copy", "", target)
-	graph := &Graph{
-		Nodes: []*Node{renderNode, copyNode},
-		Edges: []Edge{{From: ".greeting:render", To: ".greeting"}},
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{renderNode, copyNode},
+		Edges: []execution.Edge{{From: ".greeting:render", To: ".greeting"}},
 	}
 
 	results, err := runGraph(context.Background(), engine, graph)
@@ -544,7 +588,7 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 
 	// Both nodes should complete
 	for _, r := range results {
-		if r.Status != ResultCompleted {
+		if r.Status != execution.ResultCompleted {
 			t.Fatalf("node %s: expected completed, got %s (error: %v)", r.NodeID, r.Status, r.Error)
 		}
 	}
@@ -578,12 +622,11 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 		return []byte(strings.TrimPrefix(string(ciphertext), "encrypted:")), nil
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&EncryptionDecryptOp{impl: &EncryptionService{}})
-	reg.Register(&FileRenderOp{impl: &FileService{}})
-	reg.Register(&FileCopyOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
+	encryption.Register(reg)
 
-	engine := NewGraphExecutor(reg, ExecutorOptions{
+	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{
 		Data: map[string]any{
 			"decryptor": mockDecrypt,
 			"Token":     "abc123",
@@ -594,9 +637,9 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 	renderNode := testNode(".secret:render", "render", "", "")
 	copyNode := testNode(".secret", "copy", "", target)
 
-	graph := &Graph{
-		Nodes: []*Node{decryptNode, renderNode, copyNode},
-		Edges: []Edge{
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{decryptNode, renderNode, copyNode},
+		Edges: []execution.Edge{
 			{From: ".secret:decrypt", To: ".secret:render"},
 			{From: ".secret:render", To: ".secret"},
 		},
@@ -609,7 +652,7 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 
 	// All three nodes should complete
 	for _, r := range results {
-		if r.Status != ResultCompleted {
+		if r.Status != execution.ResultCompleted {
 			t.Fatalf("node %s: expected completed, got %s (error: %v)", r.NodeID, r.Status, r.Error)
 		}
 	}
@@ -635,12 +678,12 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
-	engine := NewGraphExecutor(reg, ExecutorOptions{})
-	graph := &Graph{
-		Nodes: []*Node{
+	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			testNode("tgt1.txt", "link", source1, target1),
 			testNode("sub/tgt2.txt", "link", source2, target2),
 		},
@@ -655,23 +698,23 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 	for _, r := range results {
-		if r.Status != ResultCompleted {
+		if r.Status != execution.ResultCompleted {
 			t.Errorf("node %s: expected completed, got %s", r.NodeID, r.Status)
 		}
 	}
 }
 
 func TestEngineRunUnknownOperation(t *testing.T) {
-	reg := NewActionRegistry()
-	engine := NewGraphExecutor(reg, ExecutorOptions{})
-	graph := &Graph{
-		Nodes: []*Node{
+	reg := execution.NewActionRegistry()
+	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			{ID: "test", Action: "unknown_op"},
 		},
 	}
 
 	results, _ := runGraph(context.Background(), engine, graph)
-	if results[0].Status != ResultFailed {
+	if results[0].Status != execution.ResultFailed {
 		t.Errorf("expected failed, got %s", results[0].Status)
 	}
 }
@@ -693,19 +736,19 @@ func TestEngineTopologicalSort(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
-	engine := NewGraphExecutor(reg, ExecutorOptions{})
+	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
 
 	// B depends on A, C depends on B
-	graph := &Graph{
-		Nodes: []*Node{
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			testNode("c", "link", srcC, filepath.Join(tmpDir, "out_c")),
 			testNode("a", "link", srcA, filepath.Join(tmpDir, "out_a")),
 			testNode("b", "link", srcB, filepath.Join(tmpDir, "out_b")),
 		},
-		Edges: []Edge{
+		Edges: []execution.Edge{
 			{From: "a", To: "b"},
 			{From: "b", To: "c"},
 		},
@@ -736,12 +779,12 @@ func TestEngineDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := NewActionRegistry()
-	reg.Register(&FileLinkOp{impl: &FileService{}})
+	reg := execution.NewActionRegistry()
+	file.Register(reg)
 
-	engine := NewGraphExecutor(reg, ExecutorOptions{DryRun: true})
-	graph := &Graph{
-		Nodes: []*Node{
+	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			testNode(".bashrc", "link", source, target),
 		},
 	}
@@ -751,7 +794,7 @@ func TestEngineDryRun(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if results[0].Status != ResultCompleted {
+	if results[0].Status != execution.ResultCompleted {
 		t.Errorf("expected completed, got %s", results[0].Status)
 	}
 
@@ -769,13 +812,13 @@ func TestPreflightNoConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	graph := &Graph{
-		Nodes: []*Node{
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			testNode("test", "link", source, target),
 		},
 	}
 
-	result := Preflight(graph)
+	result := execution.Preflight(graph)
 	if result.HasConflicts() {
 		t.Error("expected no conflicts")
 	}
@@ -795,17 +838,17 @@ func TestPreflightConflictRegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	graph := &Graph{
-		Nodes: []*Node{
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			testNode("test", "link", source, target),
 		},
 	}
 
-	result := Preflight(graph)
+	result := execution.Preflight(graph)
 	if !result.HasConflicts() {
 		t.Error("expected conflict")
 	}
-	if result.Conflicts[0].Type != ConflictRegularFile {
+	if result.Conflicts[0].Type != execution.ConflictRegularFile {
 		t.Errorf("expected regular file conflict, got %d", result.Conflicts[0].Type)
 	}
 }
@@ -821,13 +864,13 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	graph := &Graph{
-		Nodes: []*Node{
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			testNode("test", "link", source, target),
 		},
 	}
 
-	result := Preflight(graph)
+	result := execution.Preflight(graph)
 	if result.HasConflicts() {
 		t.Error("expected no conflicts for already-deployed symlink")
 	}
@@ -839,43 +882,18 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 func TestPreflightPackagesManifest(t *testing.T) {
 	// packages-manifest nodes use the "packages" operation (NOT YET IMPLEMENTED)
 	// The preflight should treat them as ready since there's no filesystem conflict
-	graph := &Graph{
-		Nodes: []*Node{
+	graph := &execution.Graph{
+		Nodes: []*execution.Node{
 			{ID: "manifest", Action: "packages"},
 		},
 	}
 
-	result := Preflight(graph)
+	result := execution.Preflight(graph)
 	if result.HasConflicts() {
 		t.Error("expected no conflicts for packages-manifest node")
 	}
 	if len(result.Ready) != 1 {
 		t.Errorf("expected 1 ready node, got %d", len(result.Ready))
-	}
-}
-
-func TestAllActionsCount(t *testing.T) {
-	ops := AllActions()
-	if len(ops) != 20 {
-		t.Errorf("expected 20 total actions, got %d", len(ops))
-	}
-
-	names := make(map[string]bool)
-	for _, op := range ops {
-		names[op.Name()] = true
-	}
-
-	expected := []string{
-		"link", "copy", "render", "backup", "unlink", "remove", "write", "move",
-		"decrypt",
-		"package-install", "package-upgrade", "package-remove", "package-update",
-		"shell", "powershell",
-		"service-start", "service-stop", "service-restart", "service-enable", "service-disable",
-	}
-	for _, name := range expected {
-		if !names[name] {
-			t.Errorf("expected action %q in AllActions()", name)
-		}
 	}
 }
 
@@ -886,9 +904,10 @@ func TestBackupOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileBackupOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Backup{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
 	if _, _, err := op.Do(ctx, node); err != nil {
@@ -925,12 +944,13 @@ func TestCopyOperationWithMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileCopyOp{impl: &FileService{}}
-	ctx := &Context{
+	p := &file.Provider{}
+	op := &file.Copy{Impl: p}
+	ctx := &execution.Context{
 		Context: context.Background(),
 		Outputs: make(map[string][]byte),
 	}
-	node := &Node{ID: "test", Mode: 0755}
+	node := &execution.Node{ID: "test", Mode: 0755}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
@@ -949,14 +969,14 @@ func TestCopyOperationWithMode(t *testing.T) {
 
 func TestResultStatusString(t *testing.T) {
 	tests := []struct {
-		status ResultStatus
+		status execution.ResultStatus
 		want   string
 	}{
-		{ResultPending, "pending"},
-		{ResultRunning, "running"},
-		{ResultCompleted, "completed"},
-		{ResultFailed, "failed"},
-		{ResultSkipped, "skipped"},
+		{execution.ResultPending, "pending"},
+		{execution.ResultRunning, "running"},
+		{execution.ResultCompleted, "completed"},
+		{execution.ResultFailed, "failed"},
+		{execution.ResultSkipped, "skipped"},
 	}
 
 	for _, tt := range tests {
@@ -978,9 +998,10 @@ func TestRemoveOperationPrunesEmptyDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileRemoveOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Remove{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
@@ -1021,9 +1042,10 @@ func TestRemoveOperationPruneStopsAtNonEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileRemoveOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Remove{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
@@ -1065,9 +1087,10 @@ func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileUnlinkOp{impl: &FileService{}}
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	p := &file.Provider{}
+	op := &file.Unlink{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
@@ -1087,7 +1110,7 @@ func TestUnlinkOperationPrunesEmptyDirs(t *testing.T) {
 
 func TestRequireStringSlot(t *testing.T) {
 	t.Run("correct value", func(t *testing.T) {
-		node := &Node{ID: "test"}
+		node := &execution.Node{ID: "test"}
 		node.SetSlotImmediate("path", "hello")
 		val, err := node.RequireStringSlot("path")
 		if err != nil {
@@ -1099,7 +1122,7 @@ func TestRequireStringSlot(t *testing.T) {
 	})
 
 	t.Run("not set", func(t *testing.T) {
-		node := &Node{ID: "test"}
+		node := &execution.Node{ID: "test"}
 		_, err := node.RequireStringSlot("path")
 		if err == nil {
 			t.Fatal("expected error for unset slot")
@@ -1110,7 +1133,7 @@ func TestRequireStringSlot(t *testing.T) {
 	})
 
 	t.Run("wrong type", func(t *testing.T) {
-		node := &Node{ID: "test"}
+		node := &execution.Node{ID: "test"}
 		node.SetSlotImmediate("count", 42)
 		_, err := node.RequireStringSlot("count")
 		if err == nil {
@@ -1122,7 +1145,7 @@ func TestRequireStringSlot(t *testing.T) {
 	})
 
 	t.Run("empty string is valid", func(t *testing.T) {
-		node := &Node{ID: "test"}
+		node := &execution.Node{ID: "test"}
 		node.SetSlotImmediate("path", "")
 		val, err := node.RequireStringSlot("path")
 		if err != nil {
@@ -1145,10 +1168,11 @@ func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	op := &FileRemoveOp{impl: &FileService{}}
+	p := &file.Provider{}
+	op := &file.Remove{Impl: p}
 	// No prune flags set
-	ctx := &Context{Context: context.Background()}
-	node := &Node{ID: "test"}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 
 	if _, _, err := op.Do(ctx, node); err != nil {

@@ -382,7 +382,7 @@ func (d *DarwinPlanBindings) serviceBuiltin(_ *starlark.Thread, _ *starlark.Buil
 
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("launchd"),
-		Action: "launchd-" + actionStr,
+		Action: "service-" + actionStr,
 		Project:    d.project,
 	}
 
@@ -564,7 +564,7 @@ func (d *DarwinPlanBindings) Write(target, content string) *execution.Node {
 func (d *DarwinPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         darwinGenerateNodeID("launchd", name, action.String()),
-		Action: "launchd-" + action.String(),
+		Action: "service-" + action.String(),
 		Project:    d.project,
 	}
 	node.SetSlotImmediate("name", name)

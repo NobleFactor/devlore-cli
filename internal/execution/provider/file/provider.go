@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package execution
+package file
 
 import (
 	"bytes"
@@ -12,14 +12,13 @@ import (
 	"time"
 )
 
-// FileService provides file system operations. Each method receives all
-// inputs as parameters — no execution context, no node access. These
-// methods are the source of truth for the code generator.
-type FileService struct{}
+// Provider provides file system operations. Each method receives all
+// inputs as parameters — no execution context, no node access.
+type Provider struct{}
 
 // Link creates a symlink at path pointing to source. Idempotent: if the
 // symlink already points correctly, it's a no-op.
-func (f *FileService) Link(source, path string) error {
+func (p *Provider) Link(source, path string) error {
 	// Idempotent: check if symlink already points correctly
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -42,7 +41,7 @@ func (f *FileService) Link(source, path string) error {
 
 // Copy writes content to path with the given mode. Returns the SHA256
 // checksum of the written content.
-func (f *FileService) Copy(path string, mode os.FileMode, content []byte) (string, error) {
+func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (string, error) {
 	// Remove existing file/symlink if present
 	if _, err := os.Lstat(path); err == nil {
 		if err := os.Remove(path); err != nil {
@@ -62,11 +61,11 @@ func (f *FileService) Copy(path string, mode os.FileMode, content []byte) (strin
 		return "", err
 	}
 
-	return ChecksumBytes(content), nil
+	return checksumBytes(content), nil
 }
 
 // Render processes content as a Go text/template. Returns the rendered bytes.
-func (f *FileService) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error) {
+func (p *Provider) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error) {
 	tmpl, err := template.New("render").Parse(string(content))
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
@@ -90,7 +89,7 @@ func (f *FileService) Render(templateData map[string]any, source, path, project 
 
 // Backup moves the file at path to a timestamped backup location.
 // Returns the backup path.
-func (f *FileService) Backup(path, backupSuffix string) (string, error) {
+func (p *Provider) Backup(path, backupSuffix string) (string, error) {
 	if backupSuffix == "" {
 		backupSuffix = ".writ-backup"
 	}
@@ -107,7 +106,7 @@ func (f *FileService) Backup(path, backupSuffix string) (string, error) {
 
 // Unlink removes a symlink at path. If prune is true and pruneBoundary
 // is set, empty parent directories are removed up to the boundary.
-func (f *FileService) Unlink(path string, prune bool, pruneBoundary string) error {
+func (p *Provider) Unlink(path string, prune bool, pruneBoundary string) error {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return nil // Already gone
@@ -130,7 +129,7 @@ func (f *FileService) Unlink(path string, prune bool, pruneBoundary string) erro
 
 // Remove deletes the file at path. If prune is true and pruneBoundary
 // is set, empty parent directories are removed up to the boundary.
-func (f *FileService) Remove(path string, prune bool, pruneBoundary string) error {
+func (p *Provider) Remove(path string, prune bool, pruneBoundary string) error {
 	if _, err := os.Lstat(path); os.IsNotExist(err) {
 		return nil // Already gone
 	}
@@ -144,7 +143,7 @@ func (f *FileService) Remove(path string, prune bool, pruneBoundary string) erro
 }
 
 // Write writes inline content to path with the given mode.
-func (f *FileService) Write(content, path string, mode os.FileMode) error {
+func (p *Provider) Write(content, path string, mode os.FileMode) error {
 	if content == "" {
 		return fmt.Errorf("write: no content specified")
 	}
@@ -162,7 +161,7 @@ func (f *FileService) Write(content, path string, mode os.FileMode) error {
 
 // Move moves a file from source to path. Uses gitMv if provided
 // (preserves git history), falling back to os.Rename.
-func (f *FileService) Move(gitMv func(src, dst string) error, source, path string) error {
+func (p *Provider) Move(gitMv func(src, dst string) error, source, path string) error {
 	if _, err := os.Stat(source); err != nil {
 		return fmt.Errorf("source does not exist: %w", err)
 	}
@@ -180,32 +179,12 @@ func (f *FileService) Move(gitMv func(src, dst string) error, source, path strin
 	return os.Rename(source, path)
 }
 
-// isSubpath returns true if path is under parent (not equal to).
-func isSubpath(path, parent string) bool {
-	rel, err := filepath.Rel(parent, path)
-	if err != nil {
-		return false
-	}
-	// Must not start with ".." and must not be "."
-	return rel != "." && !filepath.IsAbs(rel) && (len(rel) < 2 || rel[:2] != "..")
+// Source reads a file and returns its contents.
+func (p *Provider) Source(path string) ([]byte, error) {
+	return os.ReadFile(path)
 }
 
-// pruneParents removes empty parent directories up to the boundary.
-func pruneParents(path string, prune bool, boundary string) {
-	if !prune || boundary == "" {
-		return
-	}
-
-	boundary = filepath.Clean(boundary)
-	dir := filepath.Dir(path)
-
-	for {
-		if dir == boundary || !isSubpath(dir, boundary) {
-			return
-		}
-		if err := os.Remove(dir); err != nil {
-			return // Not empty or permission error
-		}
-		dir = filepath.Dir(dir)
-	}
+// Mkdir creates a directory (and parents) with the given mode.
+func (p *Provider) Mkdir(path string, mode os.FileMode) error {
+	return os.MkdirAll(path, mode)
 }

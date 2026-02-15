@@ -230,21 +230,6 @@ func (p *Plan) Backup(path string) *Node {
 	return node
 }
 
-// Validate adds a precondition check operation.
-func (p *Plan) Validate(check, message string) *Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := &Node{
-		ID:        p.nextID("validate"),
-		Action: "validate",
-		Project:   p.project,
-	}
-	node.SetSlotImmediate("check", check)
-	node.SetSlotImmediate("message", message)
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return node
-}
 
 // Rename adds a file/directory move operation (git mv when possible).
 func (p *Plan) Rename(source, path string) *Node {
