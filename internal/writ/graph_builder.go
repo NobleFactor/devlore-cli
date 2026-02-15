@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
@@ -141,11 +142,9 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 		engineData["decryptor"] = secretsMgr.Decryptor()
 	}
 
-	// Create registry and register all operations
+	// Create registry and register all providers
 	registry := execution.NewActionRegistry()
-	for _, op := range execution.AllActions() {
-		registry.Register(op)
-	}
+	provider.RegisterAll(registry)
 
 	// Create engine
 	engine := execution.NewGraphExecutor(registry, execution.ExecutorOptions{

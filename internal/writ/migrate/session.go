@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 )
@@ -480,6 +481,7 @@ func (s *Session) processPlanResponse(input string) error {
 func (s *Session) executeStep() *console.Step {
 	// Execute the graph
 	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
 	opts := execution.ExecutorOptions{DryRun: false}
 	eng := execution.NewGraphExecutor(reg, opts)
 

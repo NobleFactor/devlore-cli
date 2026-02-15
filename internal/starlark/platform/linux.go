@@ -209,7 +209,7 @@ func (l *LinuxPlanBindings) Write(target, content string) *execution.Node {
 func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("systemd", name, action.String()),
-		Action: "systemd-" + action.String(),
+		Action: "service-" + action.String(),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("name", name)

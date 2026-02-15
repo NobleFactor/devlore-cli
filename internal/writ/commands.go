@@ -23,6 +23,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
@@ -520,9 +521,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	}
 
 	reg := execution.NewActionRegistry()
-	for _, op := range execution.AllActions() {
-		reg.Register(op)
-	}
+	provider.RegisterAll(reg)
 	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
