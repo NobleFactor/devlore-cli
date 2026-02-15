@@ -63,7 +63,6 @@ func hasSopsMetadata(data []byte) bool {
 func IsSecretFile(filename string) bool {
 	lower := strings.ToLower(filename)
 	return strings.HasSuffix(lower, ".sops") ||
-		strings.HasSuffix(lower, ".age") ||
 		strings.HasSuffix(lower, ".sops.yaml") ||
 		strings.HasSuffix(lower, ".sops.json")
 }

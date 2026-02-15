@@ -98,29 +98,32 @@ func (w *WindowsPlanBindings) PackageUpdate() *execution.Node {
 	return node
 }
 
-// Configure adds a render→copy chain for a configuration file.
-func (w *WindowsPlanBindings) Configure(source, target string) *execution.Node {
-	renderNode := &execution.Node{
-		ID:        windowsGenerateNodeID("render"),
-		Action: "render",
-		Project:   w.project,
+// Render adds a template rendering node.
+func (w *WindowsPlanBindings) Render(source string) *execution.Node {
+	node := &execution.Node{
+		ID:      windowsGenerateNodeID("render"),
+		Action:  "render",
+		Project: w.project,
 	}
-	renderNode.SetSlotImmediate("source", source)
-	w.graph.Nodes = append(w.graph.Nodes, renderNode)
-
-	copyNode := &execution.Node{
-		ID:        windowsGenerateNodeID("configure"),
-		Action: "copy",
-		Project:   w.project,
+	if source != "" {
+		node.SetSlotImmediate("source", source)
 	}
-	copyNode.SetSlotImmediate("path", w.host.ExpandPath(target))
-	w.graph.Nodes = append(w.graph.Nodes, copyNode)
+	w.graph.Nodes = append(w.graph.Nodes, node)
+	return node
+}
 
-	w.graph.Edges = append(w.graph.Edges, execution.Edge{
-		From: renderNode.ID, To: copyNode.ID,
-	})
-
-	return copyNode
+// Decrypt adds a decryption node.
+func (w *WindowsPlanBindings) Decrypt(source string) *execution.Node {
+	node := &execution.Node{
+		ID:      windowsGenerateNodeID("decrypt"),
+		Action:  "decrypt",
+		Project: w.project,
+	}
+	if source != "" {
+		node.SetSlotImmediate("source", source)
+	}
+	w.graph.Nodes = append(w.graph.Nodes, node)
+	return node
 }
 
 // Link adds a symlink creation node (requires admin on Windows).
@@ -265,8 +268,6 @@ type windowsFileReceiver struct {
 
 func (r *windowsFileReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
-	case "configure":
-		return loreStar.MakeAttr("plan.file.configure", r.w.configureBuiltin), nil
 	case "copy":
 		return loreStar.MakeAttr("plan.file.copy", r.w.copyBuiltin), nil
 	case "link":
@@ -279,7 +280,7 @@ func (r *windowsFileReceiver) Attr(name string) (starlark.Value, error) {
 }
 
 func (r *windowsFileReceiver) AttrNames() []string {
-	return []string{"configure", "copy", "link", "write"}
+	return []string{"copy", "link", "write"}
 }
 
 func (w *WindowsPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -336,23 +337,6 @@ func (w *WindowsPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starla
 func (w *WindowsPlanBindings) packageUpdateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	node := w.PackageUpdate()
 	return loreStar.NewOutput(node, w.graph, "<index>"), nil
-}
-
-func (w *WindowsPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var inputArg starlark.Value
-	var out string
-	if err := starlark.UnpackArgs("configure", args, kwargs, "input", &inputArg, "out", &out); err != nil {
-		return nil, err
-	}
-
-	input, err := loreStar.ResolveInput(inputArg)
-	if err != nil {
-		return nil, fmt.Errorf("configure: input: %w", err)
-	}
-
-	node := w.Configure(input.Path(), out)
-	input.DependOn(node)
-	return loreStar.NewOutput(node, w.graph, node.GetSlot("path")), nil
 }
 
 func (w *WindowsPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

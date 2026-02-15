@@ -43,8 +43,6 @@ func (f *FilePlan) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: pl
 // Starlark HasAttrs interface
 func (f *FilePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
-	case "configure":
-		return starlark.NewBuiltin("plan.file.configure", f.configure), nil
 	case "link":
 		return starlark.NewBuiltin("plan.file.link", f.link), nil
 	case "copy":
@@ -59,49 +57,7 @@ func (f *FilePlan) Attr(name string) (starlark.Value, error) {
 }
 
 func (f *FilePlan) AttrNames() []string {
-	return []string{"configure", "copy", "link", "remove", "write"}
-}
-
-// configure adds a configuration file node (template expansion + copy).
-// Usage: plan.file.configure(source, path)
-//
-// Slots:
-//   - source: Input file/content (promise or immediate)
-//   - path: Destination path (promise or immediate)
-//
-// Returns: Promise of the configured file
-func (f *FilePlan) configure(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, path starlark.Value
-	if err := starlark.UnpackArgs("configure", args, kwargs, "source", &source, "path", &path); err != nil {
-		return nil, err
-	}
-
-	renderNode := &execution.Node{
-		ID:        generateNodeID("render"),
-		Action: "render",
-		Project:   f.project,
-	}
-	if err := FillSlot(renderNode, f.graph, "source", source); err != nil {
-		return nil, fmt.Errorf("configure: source: %w", err)
-	}
-	f.graph.Nodes = append(f.graph.Nodes, renderNode)
-
-	copyNode := &execution.Node{
-		ID:        generateNodeID("configure"),
-		Action: "copy",
-		Project:   f.project,
-	}
-	if err := FillSlot(copyNode, f.graph, "path", path); err != nil {
-		return nil, fmt.Errorf("configure: path: %w", err)
-	}
-	f.graph.Nodes = append(f.graph.Nodes, copyNode)
-
-	f.graph.Edges = append(f.graph.Edges, execution.Edge{
-		From: renderNode.ID,
-		To:   copyNode.ID,
-	})
-
-	return NewOutput(copyNode, f.graph, ""), nil
+	return []string{"copy", "link", "remove", "write"}
 }
 
 // link adds a symlink creation node.

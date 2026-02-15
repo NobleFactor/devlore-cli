@@ -484,7 +484,7 @@ func (g *Graph) ComputeSummary() {
 		case "copy":
 			g.Summary.TotalFiles++
 			g.Summary.Copies++
-		case "package-install", "package-upgrade", "package-remove":
+		case "package-install", "package-upgrade", "package-remove", "manifest-resolve":
 			g.Summary.Packages++
 		}
 

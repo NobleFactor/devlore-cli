@@ -139,8 +139,6 @@ type darwinFileReceiver struct {
 
 func (r *darwinFileReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
-	case "configure":
-		return loreStar.MakeAttr("plan.file.configure", r.d.configureBuiltin), nil
 	case "copy":
 		return loreStar.MakeAttr("plan.file.copy", r.d.copyBuiltin), nil
 	case "link":
@@ -153,7 +151,7 @@ func (r *darwinFileReceiver) Attr(name string) (starlark.Value, error) {
 }
 
 func (r *darwinFileReceiver) AttrNames() []string {
-	return []string{"configure", "copy", "link", "write"}
+	return []string{"copy", "link", "write"}
 }
 
 func (d *DarwinPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -257,40 +255,6 @@ func (d *DarwinPlanBindings) packageUpdateBuiltin(_ *starlark.Thread, _ *starlar
 	}
 	d.graph.Nodes = append(d.graph.Nodes, node)
 	return loreStar.NewOutput(node, d.graph, ""), nil
-}
-
-func (d *DarwinPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var source, path starlark.Value
-	if err := starlark.UnpackArgs("configure", args, kwargs, "source", &source, "path", &path); err != nil {
-		return nil, err
-	}
-
-	renderNode := &execution.Node{
-		ID:        darwinGenerateNodeID("render"),
-		Action: "render",
-		Project:   d.project,
-	}
-	if err := loreStar.FillSlot(renderNode, d.graph, "source", source); err != nil {
-		return nil, fmt.Errorf("configure: source: %w", err)
-	}
-	d.graph.Nodes = append(d.graph.Nodes, renderNode)
-
-	copyNode := &execution.Node{
-		ID:        darwinGenerateNodeID("configure"),
-		Action: "copy",
-		Project:   d.project,
-	}
-	if err := loreStar.FillSlot(copyNode, d.graph, "path", path); err != nil {
-		return nil, fmt.Errorf("configure: path: %w", err)
-	}
-	d.graph.Nodes = append(d.graph.Nodes, copyNode)
-
-	d.graph.Edges = append(d.graph.Edges, execution.Edge{
-		From: renderNode.ID,
-		To:   copyNode.ID,
-	})
-
-	return loreStar.NewOutput(copyNode, d.graph, ""), nil
 }
 
 func (d *DarwinPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -500,29 +464,30 @@ func (d *DarwinPlanBindings) PackageUpdate() *execution.Node {
 	return node
 }
 
-func (d *DarwinPlanBindings) Configure(source, target string) *execution.Node {
-	renderNode := &execution.Node{
-		ID:        darwinGenerateNodeID("render"),
-		Action: "render",
-		Project:   d.project,
+func (d *DarwinPlanBindings) Render(source string) *execution.Node {
+	node := &execution.Node{
+		ID:      darwinGenerateNodeID("render"),
+		Action:  "render",
+		Project: d.project,
 	}
-	renderNode.SetSlotImmediate("source", source)
-	d.graph.Nodes = append(d.graph.Nodes, renderNode)
-
-	copyNode := &execution.Node{
-		ID:        darwinGenerateNodeID("configure"),
-		Action: "copy",
-		Project:   d.project,
+	if source != "" {
+		node.SetSlotImmediate("source", source)
 	}
-	copyNode.SetSlotImmediate("path", d.host.ExpandPath(target))
-	d.graph.Nodes = append(d.graph.Nodes, copyNode)
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
+}
 
-	d.graph.Edges = append(d.graph.Edges, execution.Edge{
-		From: renderNode.ID,
-		To:   copyNode.ID,
-	})
-
-	return copyNode
+func (d *DarwinPlanBindings) Decrypt(source string) *execution.Node {
+	node := &execution.Node{
+		ID:      darwinGenerateNodeID("decrypt"),
+		Action:  "decrypt",
+		Project: d.project,
+	}
+	if source != "" {
+		node.SetSlotImmediate("source", source)
+	}
+	d.graph.Nodes = append(d.graph.Nodes, node)
+	return node
 }
 
 func (d *DarwinPlanBindings) Link(source, target string) *execution.Node {

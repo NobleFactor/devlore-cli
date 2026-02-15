@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/template"
 )
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
@@ -59,8 +60,8 @@ func TestRegistryNames(t *testing.T) {
 	file.Register(reg)
 
 	names := reg.Names()
-	if len(names) != 10 {
-		t.Errorf("expected 10 file operations, got %d", len(names))
+	if len(names) != 9 {
+		t.Errorf("expected 9 file operations, got %d", len(names))
 	}
 }
 
@@ -70,13 +71,14 @@ func TestAllProvidersCount(t *testing.T) {
 
 	names := reg.Names()
 	sort.Strings(names)
-	if len(names) != 28 {
-		t.Errorf("expected 28 total actions, got %d: %v", len(names), names)
+	if len(names) != 29 {
+		t.Errorf("expected 29 total actions, got %d: %v", len(names), names)
 	}
 
 	expected := []string{
-		"link", "copy", "render", "backup", "unlink", "remove", "write", "move", "mkdir", "source",
+		"link", "copy", "backup", "unlink", "remove", "write", "move", "mkdir", "source",
 		"decrypt",
+		"render",
 		"package-install", "package-upgrade", "package-remove", "package-update",
 		"shell", "powershell",
 		"service-start", "service-stop", "service-restart", "service-enable", "service-disable",
@@ -84,6 +86,7 @@ func TestAllProvidersCount(t *testing.T) {
 		"download",
 		"archive-extract",
 		"git-clone", "git-checkout", "git-pull",
+		"manifest-resolve",
 	}
 	nameSet := make(map[string]bool)
 	for _, n := range names {
@@ -228,8 +231,8 @@ func TestRenderOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := &file.Provider{}
-	op := &file.Render{Impl: p}
+	p := &template.Provider{}
+	op := &template.Render{Impl: p}
 	ctx := &execution.Context{
 		Context: context.Background(),
 		Data:    map[string]any{"Username": "testuser", "Shell": "/bin/zsh"},
@@ -569,6 +572,7 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 
 	reg := execution.NewActionRegistry()
 	file.Register(reg)
+	template.Register(reg)
 
 	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{
 		Data: map[string]any{"Username": "david"},
@@ -625,6 +629,7 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 	reg := execution.NewActionRegistry()
 	file.Register(reg)
 	encryption.Register(reg)
+	template.Register(reg)
 
 	engine := execution.NewGraphExecutor(reg, execution.ExecutorOptions{
 		Data: map[string]any{
@@ -880,11 +885,10 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 }
 
 func TestPreflightPackagesManifest(t *testing.T) {
-	// packages-manifest nodes use the "packages" operation (NOT YET IMPLEMENTED)
-	// The preflight should treat them as ready since there's no filesystem conflict
+	// manifest-resolve nodes have no filesystem target — preflight should treat them as ready
 	graph := &execution.Graph{
 		Nodes: []*execution.Node{
-			{ID: "manifest", Action: "packages"},
+			{ID: "manifest", Action: "manifest-resolve"},
 		},
 	}
 

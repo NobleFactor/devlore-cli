@@ -57,7 +57,7 @@ func findSopsConfig(dir string) string {
 
 // Decryptor returns a decryption function suitable for the execution.
 // The returned function takes a source path and encrypted data,
-// returning plaintext. It handles both .sops and .age files via SOPS.
+// returning plaintext. It handles .sops files via SOPS.
 func (m *Manager) Decryptor() func(source string, data []byte) ([]byte, error) {
 	return func(source string, data []byte) ([]byte, error) {
 		// Check if already decrypted (smudge filter active)

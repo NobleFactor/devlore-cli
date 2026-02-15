@@ -21,22 +21,26 @@ type PlanRoot struct {
 	project string
 
 	// Sub-namespaces (cached)
-	packagePlan *PackagePlan
-	filePlan    *FilePlan
-	archivePlan *ArchivePlan
-	gitPlan     *GitPlan
+	packagePlan    *PackagePlan
+	filePlan       *FilePlan
+	templatePlan   *TemplatePlan
+	encryptionPlan *EncryptionPlan
+	archivePlan    *ArchivePlan
+	gitPlan        *GitPlan
 }
 
 // NewPlanRoot creates a new PlanRoot for the given graph and host.
 func NewPlanRoot(graph *execution.Graph, h host.Host, project string) *PlanRoot {
 	return &PlanRoot{
-		graph:       graph,
-		host:        h,
-		project:     project,
-		packagePlan: NewPackagePlan(graph, h, project),
-		filePlan:    NewFilePlan(graph, h, project),
-		archivePlan: NewArchivePlan(graph, h, project),
-		gitPlan:     NewGitPlan(graph, h, project),
+		graph:          graph,
+		host:           h,
+		project:        project,
+		packagePlan:    NewPackagePlan(graph, h, project),
+		filePlan:       NewFilePlan(graph, h, project),
+		templatePlan:   NewTemplatePlan(graph, h, project),
+		encryptionPlan: NewEncryptionPlan(graph, h, project),
+		archivePlan:    NewArchivePlan(graph, h, project),
+		gitPlan:        NewGitPlan(graph, h, project),
 	}
 }
 
@@ -55,6 +59,10 @@ func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 		return p.packagePlan, nil
 	case "file":
 		return p.filePlan, nil
+	case "template":
+		return p.templatePlan, nil
+	case "encryption":
+		return p.encryptionPlan, nil
 	case "archive":
 		return p.archivePlan, nil
 	case "git":
@@ -79,8 +87,8 @@ func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 
 func (p *PlanRoot) AttrNames() []string {
 	return []string{
-		"archive", "download", "file", "gather", "git",
-		"literal", "package", "service", "shell", "source",
+		"archive", "download", "encryption", "file", "gather", "git",
+		"literal", "package", "service", "shell", "source", "template",
 	}
 }
 
