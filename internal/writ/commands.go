@@ -477,23 +477,22 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 		return upgradeResultSkipped
 	}
 
-	_, ops := tree.ProcessingPipeline(filepath.Base(entry.Source))
-	opStrings := ops.Strings()
+	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
-	if hasDecryptOp(opStrings) && len(identities) == 0 {
+	if hasDecryptOp(actions) && len(identities) == 0 {
 		cli.Error("%s: identities required for encrypted files", relTarget)
 		return upgradeResultError
 	}
 
 	target := filepath.Join(targetRoot, relTarget)
-	hasDecrypt := hasDecryptOp(opStrings)
+	hasDecrypt := hasDecryptOp(actions)
 
 	// Build node chain for multi-op pipelines
 	var nodes []*execution.Node
 	var edges []execution.Edge
 	var prevNodeID string
-	for i, opName := range opStrings {
-		isLast := (i == len(opStrings) - 1)
+	for i, opName := range actions {
+		isLast := (i == len(actions) - 1)
 		nodeID := relTarget
 		if !isLast {
 			nodeID = relTarget + ":" + opName

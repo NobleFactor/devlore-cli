@@ -11,7 +11,7 @@ import "fmt"
 type Provider struct{}
 
 // Decrypt decrypts content using the provided decryptor function.
-// The source path enables format detection (e.g., .sops.yaml vs .age).
+// The source path enables format detection (e.g., .sops.yaml vs .sops.json).
 // Returns the decrypted bytes.
 func (p *Provider) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error) {
 	if decryptor == nil {

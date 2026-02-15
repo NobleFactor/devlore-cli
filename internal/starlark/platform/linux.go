@@ -140,30 +140,32 @@ func (l *LinuxPlanBindings) PackageUpdate() *execution.Node {
 	return node
 }
 
-// Configure adds a configuration file node (render→copy chain).
-func (l *LinuxPlanBindings) Configure(source, target string) *execution.Node {
-	renderNode := &execution.Node{
-		ID:        linuxGenerateNodeID("render"),
-		Action: "render",
-		Project:   l.project,
+// Render adds a template rendering node.
+func (l *LinuxPlanBindings) Render(source string) *execution.Node {
+	node := &execution.Node{
+		ID:      linuxGenerateNodeID("render"),
+		Action:  "render",
+		Project: l.project,
 	}
-	renderNode.SetSlotImmediate("source", source)
-	l.graph.Nodes = append(l.graph.Nodes, renderNode)
-
-	copyNode := &execution.Node{
-		ID:        linuxGenerateNodeID("configure"),
-		Action: "copy",
-		Project:   l.project,
+	if source != "" {
+		node.SetSlotImmediate("source", source)
 	}
-	copyNode.SetSlotImmediate("path", l.host.ExpandPath(target))
-	l.graph.Nodes = append(l.graph.Nodes, copyNode)
+	l.graph.Nodes = append(l.graph.Nodes, node)
+	return node
+}
 
-	l.graph.Edges = append(l.graph.Edges, execution.Edge{
-		From: renderNode.ID,
-		To:   copyNode.ID,
-	})
-
-	return copyNode
+// Decrypt adds a decryption node.
+func (l *LinuxPlanBindings) Decrypt(source string) *execution.Node {
+	node := &execution.Node{
+		ID:      linuxGenerateNodeID("decrypt"),
+		Action:  "decrypt",
+		Project: l.project,
+	}
+	if source != "" {
+		node.SetSlotImmediate("source", source)
+	}
+	l.graph.Nodes = append(l.graph.Nodes, node)
+	return node
 }
 
 // Link adds a symlink creation node.
@@ -311,8 +313,6 @@ type linuxFileReceiver struct {
 
 func (r *linuxFileReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
-	case "configure":
-		return loreStar.MakeAttr("plan.file.configure", r.l.configureBuiltin), nil
 	case "copy":
 		return loreStar.MakeAttr("plan.file.copy", r.l.copyBuiltin), nil
 	case "link":
@@ -325,7 +325,7 @@ func (r *linuxFileReceiver) Attr(name string) (starlark.Value, error) {
 }
 
 func (r *linuxFileReceiver) AttrNames() []string {
-	return []string{"configure", "copy", "link", "write"}
+	return []string{"copy", "link", "write"}
 }
 
 func (l *LinuxPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
@@ -382,21 +382,6 @@ func (l *LinuxPlanBindings) packageRemoveBuiltin(_ *starlark.Thread, _ *starlark
 func (l *LinuxPlanBindings) packageUpdateBuiltin(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	node := l.PackageUpdate()
 	return loreStar.NewOutput(node, l.graph, "<index>"), nil
-}
-
-func (l *LinuxPlanBindings) configureBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var inputArg starlark.Value
-	var out string
-	if err := starlark.UnpackArgs("configure", args, kwargs, "input", &inputArg, "out", &out); err != nil {
-		return nil, err
-	}
-	input, err := loreStar.ResolveInput(inputArg)
-	if err != nil {
-		return nil, fmt.Errorf("configure: input: %w", err)
-	}
-	node := l.Configure(input.Path(), out)
-	input.DependOn(node)
-	return loreStar.NewOutput(node, l.graph, node.GetSlot("path").(string)), nil
 }
 
 func (l *LinuxPlanBindings) linkBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

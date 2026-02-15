@@ -92,97 +92,72 @@ func (p *Plan) Link(source, path string) *Node {
 	return node
 }
 
-// Copy adds a file copy operation. Transforms (decrypt, render) create a chain
-// of nodes connected by edges, with content flowing between them.
-func (p *Plan) Copy(source, path string, transforms ...string) *Node {
+// Copy adds a file copy operation.
+func (p *Plan) Copy(source, path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if len(transforms) == 0 {
-		node := &Node{
-			ID:        p.nextID("copy"),
-			Action: "copy",
-			Project:   p.project,
-			Mode:      0644,
-		}
-		node.SetSlotImmediate("source", source)
-		node.SetSlotImmediate("path", path)
-		p.graph.Nodes = append(p.graph.Nodes, node)
-		return node
+	node := &Node{
+		ID:      p.nextID("copy"),
+		Action:  "copy",
+		Project: p.project,
+		Mode:    0644,
 	}
-
-	// Chain: transform1 → transform2 → ... → copy
-	allOps := append(transforms, "copy")
-	var prevNode *Node
-	var lastNode *Node
-	for i, op := range allOps {
-		isLast := (i == len(allOps) - 1)
-		node := &Node{
-			ID:        p.nextID(op),
-			Action: op,
-			Project:   p.project,
-		}
-		if i == 0 {
-			node.SetSlotImmediate("source", source)
-		}
-		if isLast {
-			node.SetSlotImmediate("path", path)
-			node.Mode = 0644
-		}
-		p.graph.Nodes = append(p.graph.Nodes, node)
-		if prevNode != nil {
-			p.graph.Edges = append(p.graph.Edges, Edge{From: prevNode.ID, To: node.ID})
-		}
-		prevNode = node
-		lastNode = node
-	}
-	return lastNode
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", path)
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
 }
 
 // CopyWithMode adds a file copy operation with explicit permissions.
-func (p *Plan) CopyWithMode(source, path string, mode os.FileMode, transforms ...string) *Node {
+func (p *Plan) CopyWithMode(source, path string, mode os.FileMode) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if len(transforms) == 0 {
-		node := &Node{
-			ID:        p.nextID("copy"),
-			Action: "copy",
-			Project:   p.project,
-			Mode:      mode,
-		}
-		node.SetSlotImmediate("source", source)
-		node.SetSlotImmediate("path", path)
-		p.graph.Nodes = append(p.graph.Nodes, node)
-		return node
+	node := &Node{
+		ID:      p.nextID("copy"),
+		Action:  "copy",
+		Project: p.project,
+		Mode:    mode,
 	}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", path)
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
 
-	// Chain: transform1 → transform2 → ... → copy
-	allOps := append(transforms, "copy")
-	var prevNode *Node
-	var lastNode *Node
-	for i, op := range allOps {
-		isLast := (i == len(allOps) - 1)
-		node := &Node{
-			ID:        p.nextID(op),
-			Action: op,
-			Project:   p.project,
-		}
-		if i == 0 {
-			node.SetSlotImmediate("source", source)
-		}
-		if isLast {
-			node.SetSlotImmediate("path", path)
-			node.Mode = mode
-		}
-		p.graph.Nodes = append(p.graph.Nodes, node)
-		if prevNode != nil {
-			p.graph.Edges = append(p.graph.Edges, Edge{From: prevNode.ID, To: node.ID})
-		}
-		prevNode = node
-		lastNode = node
+// Render adds a template rendering operation.
+func (p *Plan) Render(source string) *Node {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	node := &Node{
+		ID:      p.nextID("render"),
+		Action:  "render",
+		Project: p.project,
 	}
-	return lastNode
+	if source != "" {
+		node.SetSlotImmediate("source", source)
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
+
+// Decrypt adds a decryption operation.
+func (p *Plan) Decrypt(source string) *Node {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	node := &Node{
+		ID:      p.nextID("decrypt"),
+		Action:  "decrypt",
+		Project: p.project,
+	}
+	if source != "" {
+		node.SetSlotImmediate("source", source)
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
 }
 
 // Remove adds a file/directory removal operation.
@@ -247,13 +222,6 @@ func (p *Plan) Rename(source, path string) *Node {
 	return node
 }
 
-// NOTE: There is no Delegate function. writ and lore share the same execution
-// execution. When writ encounters a packages-manifest.yaml, the Package Graph
-// Builder (internal/lore/graph) adds package installation nodes to the
-// execution graph. There is no delegation or handoff between tools.
-//
-// The Package Graph Builder is NOT YET IMPLEMENTED.
-
 // DependsOn adds an ordering edge: from must complete before to begins.
 func (p *Plan) DependsOn(from, to *Node) {
 	p.mu.Lock()
@@ -276,4 +244,3 @@ func (p *Plan) Orders(from, to *Node) {
 	})
 }
 
-// NOTE: There is no Delegates edge function. See comment above Delegate.

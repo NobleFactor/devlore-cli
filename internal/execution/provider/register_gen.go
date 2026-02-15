@@ -10,16 +10,19 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/git"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/net"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/pkg"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/service"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/shell"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/template"
 )
 
 // RegisterAll registers all provider actions into the given registry.
 func RegisterAll(reg *execution.ActionRegistry) {
 	file.Register(reg)
 	encryption.Register(reg)
+	template.Register(reg)
 	pkg.Register(reg)
 	shell.Register(reg)
 	service.Register(reg)
@@ -27,4 +30,5 @@ func RegisterAll(reg *execution.ActionRegistry) {
 	net.Register(reg)
 	archive.Register(reg)
 	git.Register(reg)
+	manifest.Register(reg)
 }

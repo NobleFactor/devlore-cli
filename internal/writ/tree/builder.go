@@ -327,7 +327,7 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, 
 		}
 
 		dir := filepath.Dir(relPath)
-		targetName, ops := ProcessingPipeline(d.Name())
+		targetName, actions := ProcessingPipeline(d.Name())
 
 		var relTarget string
 		if dir == "." {
@@ -338,24 +338,21 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, 
 
 		// Secrets get restricted permissions
 		var mode os.FileMode
-		for _, op := range ops {
-			if op == OpDecrypt {
-				mode = 0600
-				break
-			}
+		if hasAction(actions, "decrypt") {
+			mode = 0600
 		}
 
 		entry := &FileEntry{
 			ID:         relTarget,
-			Operations: ops.Strings(),
+			Operations: actions,
 			Source:     path,
 			Target:     filepath.Join(targetRoot, relTarget),
 			Project:    match.Project,
 			Mode:       mode,
 		}
 
-		// Validate packages-manifest files (package processing NOT YET IMPLEMENTED)
-		if ops.HasPackages() {
+		// Validate packages-manifest files
+		if hasAction(actions, "manifest-resolve") {
 			if manifest.IsManifestFile(d.Name()) {
 				if err := manifest.Validate(path); err != nil {
 					return fmt.Errorf("invalid %s: %w", relPath, err)
@@ -368,6 +365,16 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, 
 	})
 
 	return entries, err
+}
+
+// hasAction returns true if the actions slice contains the given name.
+func hasAction(actions []string, name string) bool {
+	for _, a := range actions {
+		if a == name {
+			return true
+		}
+	}
+	return false
 }
 
 // HasCollisions returns true if there were file collisions during build.
@@ -420,12 +427,11 @@ func (r *BuildResult) LinkCount() int {
 }
 
 // PackagesCount returns the number of packages-manifest entries.
-// These require the Package Graph Builder (NOT YET IMPLEMENTED).
 func (r *BuildResult) PackagesCount() int {
 	count := 0
 	for _, f := range r.Files {
 		for _, op := range f.Operations {
-			if op == "packages" {
+			if op == "manifest-resolve" {
 				count++
 				break
 			}

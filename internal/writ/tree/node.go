@@ -16,55 +16,43 @@ var PackagesManifestFiles = []string{
 	"packages-manifest.json",
 }
 
-// ProcessingPipeline determines operations from a filename.
+// ProcessingPipeline determines the action pipeline from a filename.
 // Extensions are processed outside-in (like .tar.gz).
 //
 // Examples:
 //
-//	"foo"                     → "foo",                     [link]
-//	"foo.template"            → "foo",                     [expand, copy]
-//	"foo.age"                 → "foo",                     [decrypt, copy]
-//	"foo.template.age"        → "foo",                     [decrypt, expand, copy]
-//	"packages-manifest.yaml"  → "packages-manifest.yaml",  [packages]
-func ProcessingPipeline(filename string) (targetName string, ops Operations) {
+//	"foo"                     → "foo",                     ["link"]
+//	"foo.template"            → "foo",                     ["render", "copy"]
+//	"foo.sops"                → "foo",                     ["decrypt", "copy"]
+//	"foo.template.sops"       → "foo",                     ["decrypt", "render", "copy"]
+//	"packages-manifest.yaml"  → "packages-manifest.yaml",  ["manifest-resolve"]
+func ProcessingPipeline(filename string) (targetName string, actions []string) {
 	name := filename
 	baseName := filepath.Base(name)
 
-	// Check for packages-manifest files (processed by Package Graph Builder)
+	// packages-manifest → manifest-resolve
 	for _, pf := range PackagesManifestFiles {
 		if baseName == pf {
-			return name, Operations{OpPackages}
+			return name, []string{"manifest-resolve"}
 		}
 	}
 
-	var pipeline Operations
+	var pipeline []string
 
-	// Process extensions outside-in
-	// .age is outermost (decrypt first)
-	if strings.HasSuffix(name, ".age") {
-		name = strings.TrimSuffix(name, ".age")
-		pipeline = append(pipeline, OpDecrypt)
-	}
-
-	// .sops is outermost (decrypt first) — SOPS-encrypted files
 	if strings.HasSuffix(name, ".sops") {
 		name = strings.TrimSuffix(name, ".sops")
-		pipeline = append(pipeline, OpDecrypt)
+		pipeline = append(pipeline, "decrypt")
 	}
 
-	// .template is inner (expand after decrypt)
 	if strings.HasSuffix(name, ".template") {
 		name = strings.TrimSuffix(name, ".template")
-		pipeline = append(pipeline, OpRender)
+		pipeline = append(pipeline, "render")
 	}
 
-	// Determine final operation
 	if len(pipeline) > 0 {
-		// After decrypt or expand, we copy the result
-		pipeline = append(pipeline, OpCopy)
+		pipeline = append(pipeline, "copy")
 	} else {
-		// Plain file: just link
-		pipeline = append(pipeline, OpLink)
+		pipeline = []string{"link"}
 	}
 
 	return name, pipeline

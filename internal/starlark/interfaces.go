@@ -148,10 +148,17 @@ type PlanBindings interface {
 	// PackageUpdate adds a package index update node.
 	PackageUpdate() *execution.Node
 
-	// File operations
+	// Template operations
 
-	// Configure adds a configuration file node (template expansion + copy).
-	Configure(source, target string) *execution.Node
+	// Render adds a template rendering node.
+	Render(source string) *execution.Node
+
+	// Encryption operations
+
+	// Decrypt adds a decryption node.
+	Decrypt(source string) *execution.Node
+
+	// File operations
 
 	// Link adds a symlink creation node.
 	Link(source, target string) *execution.Node

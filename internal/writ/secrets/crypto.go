@@ -62,8 +62,8 @@ func DecryptFile(src, dst string, mode os.FileMode) error {
 func detectFormat(path string, data []byte) string {
 	ext := strings.ToLower(filepath.Ext(path))
 
-	// Strip .sops or .age extension to get actual format
-	base := strings.TrimSuffix(strings.TrimSuffix(path, ".sops"), ".age")
+	// Strip .sops extension to get actual format
+	base := strings.TrimSuffix(path, ".sops")
 	innerExt := strings.ToLower(filepath.Ext(base))
 
 	// Check inner extension for structured formats

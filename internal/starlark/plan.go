@@ -109,31 +109,32 @@ func (p *planBindings) PackageUpdate() *execution.Node {
 	return node
 }
 
-// Configure adds a configuration file node (template expansion + copy).
-// Creates a render→copy chain with an edge between them.
-func (p *planBindings) Configure(source, target string) *execution.Node {
-	renderNode := &execution.Node{
-		ID:        generateNodeID("render"),
-		Action: "render",
-		Project:   p.project,
+// Render adds a template rendering node.
+func (p *planBindings) Render(source string) *execution.Node {
+	node := &execution.Node{
+		ID:      generateNodeID("render"),
+		Action:  "render",
+		Project: p.project,
 	}
-	renderNode.SetSlotImmediate("source", source)
-	p.graph.Nodes = append(p.graph.Nodes, renderNode)
-
-	copyNode := &execution.Node{
-		ID:        generateNodeID("configure"),
-		Action: "copy",
-		Project:   p.project,
+	if source != "" {
+		node.SetSlotImmediate("source", source)
 	}
-	copyNode.SetSlotImmediate("path", p.host.ExpandPath(target))
-	p.graph.Nodes = append(p.graph.Nodes, copyNode)
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
+}
 
-	p.graph.Edges = append(p.graph.Edges, execution.Edge{
-		From: renderNode.ID,
-		To:   copyNode.ID,
-	})
-
-	return copyNode
+// Decrypt adds a decryption node.
+func (p *planBindings) Decrypt(source string) *execution.Node {
+	node := &execution.Node{
+		ID:      generateNodeID("decrypt"),
+		Action:  "decrypt",
+		Project: p.project,
+	}
+	if source != "" {
+		node.SetSlotImmediate("source", source)
+	}
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return node
 }
 
 // Link adds a symlink creation node.
@@ -301,7 +302,8 @@ type StarlarkPlanBindings struct {
 //	plan.package.upgrade("pkg1", ...)          # Upgrade packages
 //	plan.package.remove("pkg1", ...)           # Remove packages
 //	plan.package.update()                      # Update package index
-//	plan.file.configure(source, target)        # Configure file (template + copy)
+//	plan.template.render(source)               # Render template
+//	plan.encryption.decrypt(source)            # Decrypt content
 //	plan.file.link(source, target)             # Create symlink
 //	plan.file.copy(source, target)             # Copy file
 //	plan.file.write(target, content)           # Write content to file
