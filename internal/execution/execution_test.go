@@ -1148,6 +1148,152 @@ func TestRequireStringSlot(t *testing.T) {
 	})
 }
 
+func TestMoveOperation(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "original.txt")
+	target := filepath.Join(tmpDir, "moved.txt")
+
+	if err := os.WriteFile(source, []byte("move me"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &file.Provider{}
+	op := &file.Move{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", target)
+
+	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	// Source should be gone
+	if _, err := os.Stat(source); !os.IsNotExist(err) {
+		t.Error("expected source to be gone after move")
+	}
+
+	// Target should exist with correct content
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(content) != "move me" {
+		t.Errorf("expected 'move me', got %q", string(content))
+	}
+}
+
+func TestMoveOperationCreatesParentDirs(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "original.txt")
+	target := filepath.Join(tmpDir, "deep", "nested", "moved.txt")
+
+	if err := os.WriteFile(source, []byte("nested move"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &file.Provider{}
+	op := &file.Move{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
+	node.SetSlotImmediate("source", source)
+	node.SetSlotImmediate("path", target)
+
+	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(content) != "nested move" {
+		t.Errorf("expected 'nested move', got %q", string(content))
+	}
+}
+
+func TestMkdirOperation(t *testing.T) {
+	tmpDir := t.TempDir()
+	target := filepath.Join(tmpDir, "new", "dir")
+
+	p := &file.Provider{}
+	op := &file.Mkdir{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
+	node.SetSlotImmediate("mode", os.FileMode(0750))
+
+	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("expected directory")
+	}
+	if info.Mode().Perm() != 0750 {
+		t.Errorf("expected mode 0750, got %04o", info.Mode().Perm())
+	}
+}
+
+func TestMkdirOperationDefaultMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	target := filepath.Join(tmpDir, "default-mode-dir")
+
+	p := &file.Provider{}
+	op := &file.Mkdir{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
+	node.SetSlotImmediate("path", target)
+
+	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("expected directory")
+	}
+	if info.Mode().Perm() != 0755 {
+		t.Errorf("expected default mode 0755, got %04o", info.Mode().Perm())
+	}
+}
+
+func TestSourceOperation(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "data.txt")
+	content := "source file content"
+
+	if err := os.WriteFile(source, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &file.Provider{}
+	op := &file.Source{Impl: p}
+	ctx := &execution.Context{Context: context.Background()}
+	node := &execution.Node{ID: "test"}
+	node.SetSlotImmediate("path", source)
+
+	result, _, err := op.Do(ctx, slotsFrom(node))
+	if err != nil {
+		t.Fatalf("source: %v", err)
+	}
+
+	data, ok := result.([]byte)
+	if !ok {
+		t.Fatalf("expected []byte result, got %T", result)
+	}
+	if string(data) != content {
+		t.Errorf("expected %q, got %q", content, string(data))
+	}
+}
+
 func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 	tmpDir := t.TempDir()
 	nested := filepath.Join(tmpDir, "a", "b")
