@@ -301,15 +301,15 @@ fixed.
 
 See: [Phase 4 plan](./resource-provider/phase-4.md)
 
-## Remaining Phases
+### Phase 5: Comprehensive Action Testing (current branch)
 
-### Phase 5: Comprehensive Action Testing
+Added `Graph.Hydrate(reg)` method and 52 new tests covering all 34 actions
+(Do() tests for every provider and flow action), graph serialization round-trips
+(YAML and JSON), and full lifecycle tests (build → serialize → deserialize →
+hydrate → run). External-tool actions tested via dry-run; file actions via real
+filesystem; net.download via httptest; archive.extract via real tar.gz/zip.
 
-Test all 31 provider actions and 3 flow actions. Cover Do() for every action
-(with mock filesystem/shell), flow action graph traversal (Choose branch
-selection, Gather AND-join, Elevate privilege marking), and Starlark→execution
-integration (build graph from plan functions, save graph, load graph, run
-graph).
+See: [Phase 5 plan](./resource-provider/phase-5.md)
 
 ## Naming Decisions
 
