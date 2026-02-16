@@ -344,7 +344,7 @@ func (s *Session) formatGraphForPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("Planned renames:\n")
 	for _, node := range s.graph.Nodes {
-		if node.Action == "move" {
+		if node.ActionName() == "file.move" {
 			// Show relative paths for readability
 			src, _ := node.GetSlot("source").(string)
 			tgt, _ := node.GetSlot("path").(string)
@@ -424,7 +424,9 @@ func (s *Session) addRenameToGraph(source, target string) {
 	}
 
 	// Add new rename node
-	plan := execution.NewPlan("migrate")
+	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
+	plan := execution.NewPlan(reg, "migrate")
 	newNode := plan.Rename(source, target)
 	s.graph.Nodes = append(s.graph.Nodes, newNode)
 }
@@ -480,10 +482,8 @@ func (s *Session) processPlanResponse(input string) error {
 // executeStep runs the execution graph.
 func (s *Session) executeStep() *console.Step {
 	// Execute the graph
-	reg := execution.NewActionRegistry()
-	provider.RegisterAll(reg)
 	opts := execution.ExecutorOptions{DryRun: false}
-	eng := execution.NewGraphExecutor(reg, opts)
+	eng := execution.NewGraphExecutor(opts)
 
 	ctx := context.Background()
 	_, err := eng.RunNodes(ctx, s.graph.Nodes, s.graph.Edges)

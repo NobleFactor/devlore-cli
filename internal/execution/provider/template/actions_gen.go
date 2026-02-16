@@ -12,20 +12,17 @@ import (
 // Render processes content as a Go text/template (transformer: reads content, stores result).
 type Render struct{ Impl *Provider }
 
-func (o *Render) Name() string { return "render" }
+func (o *Render) Name() string { return "template.render" }
 
-func (o *Render) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	source, _ := node.GetSlot("source").(string)
-	path, _ := node.GetSlot("path").(string)
-	project := node.GetProject()
+func (o *Render) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	source, _ := slots["source"].(string)
+	path, _ := slots["path"].(string)
+	project, _ := slots["project"].(string)
 	templateData := make(map[string]any)
 	for k, v := range ctx.Data {
 		templateData[k] = v
 	}
-	content, err := ctx.ContentFor(node)
-	if err != nil {
-		return nil, nil, err
-	}
+	content, _ := slots["content"].([]byte)
 
 	if ctx.DryRun {
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] render %v %v\n", source, path)
@@ -35,11 +32,10 @@ func (o *Render) Do(ctx *execution.Context, node *execution.Node) (execution.Res
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx.StoreContent(node, result)
-	return nil, nil, nil
+	return result, nil, nil
 }
 
-func (o *Render) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Render) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 

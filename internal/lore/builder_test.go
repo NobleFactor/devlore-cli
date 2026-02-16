@@ -22,7 +22,7 @@ func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *execution.Gr
 
 func TestBuild_WithNativePMPackage(t *testing.T) {
 	// Test that Build creates correct nodes for native PM packages.
-	// Native PM packages use the namespaced "pkg-install" operation that works
+	// Native PM packages use the namespaced "pkg.install" operation that works
 	// on all platforms. The actual PM is determined at execution time.
 
 	tmpDir := t.TempDir()
@@ -44,10 +44,10 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 		t.Error("expected at least 1 node, got 0")
 	}
 
-	// The first node should be a namespaced package-install operation
+	// The first node should be a namespaced pkg.install operation
 	found := false
 	for _, node := range result.Graph.Nodes {
-		if node.Action == "package-install" {
+		if node.ActionName() == "pkg.install" {
 			found = true
 			// Verify slot values
 			if node.GetSlot("packages") != "curl" {
@@ -57,13 +57,13 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("expected to find package-install operation")
+		t.Error("expected to find pkg.install operation")
 	}
 }
 
 func TestBuild_PlatformDetection(t *testing.T) {
 	// Test that platform is correctly resolved and stored in result.
-	// All platforms use the namespaced "package-install" operation - the actual PM
+	// All platforms use the namespaced "pkg.install" operation - the actual PM
 	// is determined at execution time by host.PackageManager().
 	tmpDir := t.TempDir()
 	client := lorepackage.New("test", nil, tmpDir)
@@ -92,16 +92,16 @@ func TestBuild_PlatformDetection(t *testing.T) {
 				t.Errorf("Platform = %q, want %q", result.Platform, tt.platform)
 			}
 
-			// All platforms use the namespaced "package-install" operation
+			// All platforms use the namespaced "pkg.install" operation
 			found := false
 			for _, node := range result.Graph.Nodes {
-				if node.Action == "package-install" {
+				if node.ActionName() == "pkg.install" {
 					found = true
 					break
 				}
 			}
 			if !found {
-				t.Errorf("expected to find package-install operation")
+				t.Errorf("expected to find pkg.install operation")
 			}
 		})
 	}
@@ -180,12 +180,12 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 	// Register all operations (file + package)
 	provider.RegisterAll(reg)
 
-	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
+	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
-	// Create a graph with a namespaced package-install node
+	// Create a graph with a namespaced pkg.install node
 	node := &execution.Node{
 		ID:         "package-install-testpkg",
-		Action: "package-install",
+		Action: reg.MustGet("pkg.install"),
 	}
 	node.SetSlotImmediate("packages", "testpkg")
 	graph := &execution.Graph{
@@ -211,20 +211,20 @@ func TestEngineRunsNamespacedPackageOps(t *testing.T) {
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
 
-	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
+	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
 	// All platforms use these four namespaced package operations
 	ops := []string{
-		"package-install", "package-upgrade", "package-remove", "package-update",
+		"pkg.install", "pkg.upgrade", "pkg.remove", "pkg.update",
 	}
 
 	for _, opName := range ops {
 		t.Run(opName, func(t *testing.T) {
 			node := &execution.Node{
 				ID:         "test-" + opName,
-				Action: opName,
+				Action: reg.MustGet(opName),
 			}
-			if opName != "package-update" {
+			if opName != "pkg.update" {
 				node.SetSlotImmediate("packages", "testpkg")
 			}
 
@@ -260,17 +260,17 @@ func TestNativePMNodeMetadata(t *testing.T) {
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	// Find the install node (uses namespaced "package-install" operation)
+	// Find the install node (uses namespaced "pkg.install" operation)
 	var installNode *execution.Node
 	for _, node := range result.Graph.Nodes {
-		if node.Action == "package-install" {
+		if node.ActionName() == "pkg.install" {
 			installNode = node
 			break
 		}
 	}
 
 	if installNode == nil {
-		t.Fatal("no package-install node found")
+		t.Fatal("no pkg.install node found")
 	}
 
 	// Verify required slots
@@ -439,20 +439,20 @@ def compensate(package, system, plan):
 		t.Error("expected at least 1 node in compensate phase")
 	}
 
-	// Verify compensate phase has package-remove nodes.
+	// Verify compensate phase has pkg.remove nodes.
 	nodeSet := make(map[string]bool)
 	for _, id := range compensate.NodeIDs {
 		nodeSet[id] = true
 	}
 	foundRemove := false
 	for _, n := range result.Graph.Nodes {
-		if nodeSet[n.ID] && n.Action == "package-remove" {
+		if nodeSet[n.ID] && n.ActionName() == "pkg.remove" {
 			foundRemove = true
 			break
 		}
 	}
 	if !foundRemove {
-		t.Error("expected package-remove node in compensate phase")
+		t.Error("expected pkg.remove node in compensate phase")
 	}
 }
 
@@ -596,6 +596,107 @@ def install(package, system, plan):
 	})
 	if err == nil {
 		t.Fatal("expected error for missing forward() function")
+	}
+}
+
+func TestPlanner_PlanPackages(t *testing.T) {
+	tmpDir := t.TempDir()
+	manifestPath := filepath.Join(tmpDir, "packages-manifest.yaml")
+
+	manifestContent := `packages:
+  - curl
+  - jq:
+      with: [json-path]
+`
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
+
+	planner := &Planner{
+		Platform:       "Linux.Debian",
+		ActionRegistry: reg,
+	}
+
+	graph := &execution.Graph{}
+	names, err := planner.PlanPackages(graph, manifestPath)
+	if err != nil {
+		t.Fatalf("PlanPackages failed: %v", err)
+	}
+
+	if len(names) != 2 {
+		t.Fatalf("expected 2 package names, got %d", len(names))
+	}
+	if names[0] != "curl" || names[1] != "jq" {
+		t.Errorf("names = %v, want [curl, jq]", names)
+	}
+
+	// Verify nodes were added to the graph
+	if len(graph.Nodes) == 0 {
+		t.Error("expected nodes to be added to graph")
+	}
+
+	// Verify phases were added
+	if len(graph.Phases) == 0 {
+		t.Error("expected phases to be added to graph")
+	}
+}
+
+func TestPlanner_PlanByName(t *testing.T) {
+	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
+
+	planner := &Planner{
+		Platform:       "Darwin",
+		ActionRegistry: reg,
+	}
+
+	graph := &execution.Graph{}
+	names, err := planner.PlanByName(graph, []string{"git", "vim"})
+	if err != nil {
+		t.Fatalf("PlanByName failed: %v", err)
+	}
+
+	if len(names) != 2 {
+		t.Fatalf("expected 2 package names, got %d", len(names))
+	}
+	if names[0] != "git" || names[1] != "vim" {
+		t.Errorf("names = %v, want [git, vim]", names)
+	}
+
+	if len(graph.Nodes) == 0 {
+		t.Error("expected nodes to be added to graph")
+	}
+}
+
+func TestMergeFeatures(t *testing.T) {
+	tests := []struct {
+		name   string
+		pkg    []string
+		global []string
+		want   []string
+	}{
+		{"empty both", nil, nil, nil},
+		{"global only", nil, []string{"a", "b"}, []string{"a", "b"}},
+		{"per-pkg only", []string{"x", "y"}, nil, []string{"x", "y"}},
+		{"merge unique", []string{"c"}, []string{"a", "b"}, []string{"c", "a", "b"}},
+		{"dedup", []string{"b", "c"}, []string{"a", "b"}, []string{"b", "c", "a"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeFeatures(tt.pkg, tt.global)
+			if len(got) != len(tt.want) {
+				t.Fatalf("mergeFeatures(%v, %v) = %v, want %v", tt.pkg, tt.global, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("mergeFeatures(%v, %v)[%d] = %q, want %q", tt.pkg, tt.global, i, got[i], tt.want[i])
+				}
+			}
+		})
 	}
 }
 

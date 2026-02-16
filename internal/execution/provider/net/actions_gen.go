@@ -12,18 +12,18 @@ import (
 )
 
 // Download fetches content from a URL. If a "path" slot is set, the content
-// is written to disk (file mode). Otherwise it is stored in the content
-// pipeline for downstream consumption.
+// is written to disk (file mode). Otherwise it is returned as Result for
+// downstream consumption.
 type Download struct{ Impl *Provider }
 
-func (o *Download) Name() string { return "download" }
+func (o *Download) Name() string { return "net.download" }
 
-func (o *Download) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	url, _ := node.GetSlot("url").(string)
+func (o *Download) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	url, _ := slots["url"].(string)
 	if url == "" {
 		return nil, nil, fmt.Errorf("download: no url specified")
 	}
-	path, _ := node.GetSlot("path").(string)
+	path, _ := slots["path"].(string)
 
 	if ctx.DryRun {
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] download %v\n", url)
@@ -39,7 +39,7 @@ func (o *Download) Do(ctx *execution.Context, node *execution.Node) (execution.R
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return nil, nil, fmt.Errorf("create parent dirs: %w", err)
 		}
-		mode := node.GetMode()
+		mode, _ := slots["mode"].(os.FileMode)
 		if mode == 0 {
 			mode = 0644
 		}
@@ -48,11 +48,10 @@ func (o *Download) Do(ctx *execution.Context, node *execution.Node) (execution.R
 		}
 	}
 
-	ctx.StoreContent(node, data)
-	return nil, nil, nil
+	return data, nil, nil
 }
 
-func (o *Download) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Download) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 

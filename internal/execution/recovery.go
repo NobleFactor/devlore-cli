@@ -3,28 +3,19 @@
 
 package execution
 
-// RecoveryEntry represents a completed phase and its compensating action.
-// The executor pushes entries as phases complete successfully, and pops
-// them in LIFO order during rollback.
+// RecoveryEntry represents a successfully executed node and the state
+// needed to undo it. The executor pushes one entry per completed node.
 type RecoveryEntry struct {
-	// PhaseID is the unique identifier of the completed phase.
-	PhaseID string
+	// Node is the executed node (carries the Action for Undo).
+	Node *Node
 
-	// PhaseName is the human-readable phase name.
-	PhaseName string
-
-	// Compensate is the function to execute for rollback.
-	// It receives the execution context and returns any error.
-	Compensate func(ctx *Context) error
-
-	// State holds the execution metadata captured during the forward action.
-	// Passed to the compensating action so it knows what to undo.
-	State map[string]any
+	// UndoState is the state captured by Do, passed to Undo during rollback.
+	UndoState UndoState
 }
 
 // RecoveryStack is a LIFO stack of recovery entries.
-// The executor pushes entries as phases complete and unwinds
-// (pops + executes compensating actions) on failure.
+// The executor pushes entries as nodes complete and unwinds
+// (pops + executes Undo) on failure.
 type RecoveryStack struct {
 	entries []RecoveryEntry
 }
@@ -39,27 +30,24 @@ func (s *RecoveryStack) Len() int {
 	return len(s.entries)
 }
 
-// Unwind executes all compensating actions in LIFO order.
-// Returns a slice of errors from compensating actions that failed.
-// Compensating action failures do not stop the unwind — all entries
-// are processed regardless of individual failures.
-func (s *RecoveryStack) Unwind(ctx *Context) []error {
+// Unwind executes Undo on all entries in LIFO order.
+// Each entry's node slots are resolved from the results map before calling Undo.
+// Undo failures do not stop the unwind — all entries are processed.
+func (s *RecoveryStack) Unwind(ctx *Context, results map[string]any) []error {
 	var errs []error
 
-	// Pop from top (most recent) to bottom (oldest)
 	for i := len(s.entries) - 1; i >= 0; i-- {
 		entry := s.entries[i]
-		if entry.Compensate == nil {
+		if entry.Node.Action == nil {
 			continue
 		}
-		if err := entry.Compensate(ctx); err != nil {
+		slots := entry.Node.ResolvedSlots(results)
+		if err := entry.Node.Action.Undo(ctx, slots, entry.UndoState); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	// Clear the stack
 	s.entries = nil
-
 	return errs
 }
 

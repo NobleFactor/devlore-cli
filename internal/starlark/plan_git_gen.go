@@ -20,15 +20,17 @@ type GitPlan struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 }
 
 // NewGitPlan creates a new GitPlan for the given graph and host.
-func NewGitPlan(graph *execution.Graph, h host.Host, project string) *GitPlan {
+func NewGitPlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *GitPlan {
 	return &GitPlan{
 		Receiver: NewReceiver("plan.git"),
 		graph:    graph,
 		host:     h,
 		project:  project,
+		reg:      reg,
 	}
 }
 
@@ -59,7 +61,7 @@ func (g *GitPlan) checkout(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 
 	node := &execution.Node{
 		ID:        generateNodeID("git-checkout"),
-		Action: "git-checkout",
+		Action: g.reg.MustGet("git.checkout"),
 		Project:   g.project,
 	}
 
@@ -82,7 +84,7 @@ func (g *GitPlan) clone(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 	node := &execution.Node{
 		ID:        generateNodeID("git-clone"),
-		Action: "git-clone",
+		Action: g.reg.MustGet("git.clone"),
 		Project:   g.project,
 	}
 
@@ -105,7 +107,7 @@ func (g *GitPlan) pull(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 
 	node := &execution.Node{
 		ID:        generateNodeID("git-pull"),
-		Action: "git-pull",
+		Action: g.reg.MustGet("git.pull"),
 		Project:   g.project,
 	}
 

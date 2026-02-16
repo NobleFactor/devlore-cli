@@ -79,7 +79,7 @@ func TestNewGraph(t *testing.T) {
 func TestNode(t *testing.T) {
 	node := &execution.Node{
 		ID:         ".bashrc",
-		Action: "link",
+		Action: execution.StubAction("file.link"),
 		Status:    execution.StatusPending,
 		Project:   "all",
 	}
@@ -89,8 +89,8 @@ func TestNode(t *testing.T) {
 	if node.ID != ".bashrc" {
 		t.Errorf("expected ID '.bashrc', got %q", node.ID)
 	}
-	if node.Action != "link" {
-		t.Errorf("expected operation 'link', got %q", node.Action)
+	if node.ActionName() != "file.link" {
+		t.Errorf("expected operation 'file.link', got %q", node.ActionName())
 	}
 	if node.Status != execution.StatusPending {
 		t.Errorf("expected status 'pending', got %q", node.Status)
@@ -256,7 +256,7 @@ func TestGraphSerialize(t *testing.T) {
 		Nodes: []*execution.Node{
 			{
 				ID:         ".bashrc",
-				Action: "link",
+				Action: execution.StubAction("file.link"),
 				Status:     execution.StatusPending,
 			},
 		},
@@ -338,8 +338,7 @@ func TestRunGraphAlreadyExecuted(t *testing.T) {
 	}
 
 	// Create a minimal executor for the test
-	reg := execution.NewActionRegistry()
-	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{DryRun: true})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
 	err := executor.Run(context.Background(), g)
 	if err == nil {
@@ -353,14 +352,14 @@ func TestRunGraphAlreadyExecuted(t *testing.T) {
 func TestComputeSummary(t *testing.T) {
 	g := &execution.Graph{
 		Nodes: []*execution.Node{
-			{ID: "1", Action: "link", Status: execution.StatusCompleted},
-			{ID: "2", Action: "link", Status: execution.StatusCompleted},
-			{ID: "3", Action: "render", Status: execution.StatusCompleted},
-			{ID: "4", Action: "decrypt", Status: execution.StatusCompleted},
-			{ID: "5", Action: "copy", Status: execution.StatusCompleted},
+			{ID: "1", Action: execution.StubAction("file.link"), Status: execution.StatusCompleted},
+			{ID: "2", Action: execution.StubAction("file.link"), Status: execution.StatusCompleted},
+			{ID: "3", Action: execution.StubAction("template.render"), Status: execution.StatusCompleted},
+			{ID: "4", Action: execution.StubAction("encryption.decrypt"), Status: execution.StatusCompleted},
+			{ID: "5", Action: execution.StubAction("file.copy"), Status: execution.StatusCompleted},
 			{ID: "6", Status: execution.StatusSkipped},
-			{ID: "7", Action: "link", Status: execution.StatusFailed},
-			{ID: "8", Action: "link", Status: execution.StatusCompleted, Annotations: map[string]string{"backup": "/path/to/backup"}},
+			{ID: "7", Action: execution.StubAction("file.link"), Status: execution.StatusFailed},
+			{ID: "8", Action: execution.StubAction("file.link"), Status: execution.StatusCompleted, Annotations: map[string]string{"backup": "/path/to/backup"}},
 		},
 	}
 
@@ -420,12 +419,17 @@ func TestNodeSlots(t *testing.T) {
 
 func TestNodeMode(t *testing.T) {
 	node := &execution.Node{
-		ID:   ".ssh/config",
-		Mode: os.FileMode(0600),
+		ID: ".ssh/config",
 	}
+	node.SetSlotImmediate("mode", os.FileMode(0600))
 
-	if node.Mode != 0600 {
-		t.Errorf("expected mode 0600, got %o", node.Mode)
+	got := node.GetSlot("mode")
+	mode, ok := got.(os.FileMode)
+	if !ok {
+		t.Fatalf("expected mode slot to be os.FileMode, got %T", got)
+	}
+	if mode != 0600 {
+		t.Errorf("expected mode 0600, got %o", mode)
 	}
 }
 

@@ -17,14 +17,16 @@ type EncryptionPlan struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 }
 
 // NewEncryptionPlan creates a new EncryptionPlan for the given graph and host.
-func NewEncryptionPlan(graph *execution.Graph, h host.Host, project string) *EncryptionPlan {
+func NewEncryptionPlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *EncryptionPlan {
 	return &EncryptionPlan{
 		graph:   graph,
 		host:    h,
 		project: project,
+		reg:     reg,
 	}
 }
 
@@ -64,7 +66,7 @@ func (e *EncryptionPlan) decrypt(_ *starlark.Thread, _ *starlark.Builtin, args s
 
 	node := &execution.Node{
 		ID:      generateNodeID("decrypt"),
-		Action:  "decrypt",
+		Action:  e.reg.MustGet("encryption.decrypt"),
 		Project: e.project,
 	}
 

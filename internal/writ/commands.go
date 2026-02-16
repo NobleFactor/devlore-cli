@@ -24,6 +24,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
+	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
@@ -39,8 +40,8 @@ func newDeployCmd() *cobra.Command {
 
 Files inside each project directory are symlinked to the target (default: ~).
 Platform-specific variants (e.g., project.Darwin) are selected automatically.
-If a project contains packages-manifest.yaml, the Package Graph Builder adds
-package installation nodes to the execution graph (NOT YET IMPLEMENTED).
+If a project contains packages-manifest.yaml, the manifest is resolved through
+the lore Planner, adding package installation nodes to the execution graph.
 
 Conflict handling (--conflict):
   stop      Stop on first conflict (default)
@@ -71,7 +72,13 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	}
 
 	// 2. Build execution graph
-	g, err := NewDeployGraphBuilder(cfg).Build()
+	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
+	builder := NewDeployGraphBuilder(cfg, reg)
+	builder.Planner = &lore.Planner{
+		ActionRegistry: reg,
+	}
+	g, err := builder.Build()
 	if err != nil {
 		return err
 	}
@@ -209,7 +216,9 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build execution graph
-	g, err := NewDecommissionGraphBuilder(cfg, view).Build()
+	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
+	g, err := NewDecommissionGraphBuilder(cfg, view, reg).Build()
 	if err != nil {
 		return err
 	}
@@ -479,6 +488,9 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
+	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
+
 	if hasDecryptOp(actions) && len(identities) == 0 {
 		cli.Error("%s: identities required for encrypted files", relTarget)
 		return upgradeResultError
@@ -500,7 +512,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 		node := &execution.Node{
 			ID:        nodeID,
-			Action: opName,
+			Action:    reg.MustGet(opName),
 			Project:   entry.Project,
 		}
 		if i == 0 {
@@ -509,7 +521,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 		if isLast {
 			node.SetSlotImmediate("path", target)
 			if hasDecrypt {
-				node.Mode = 0600
+				node.SetSlotImmediate("mode", os.FileMode(0600))
 			}
 		}
 		nodes = append(nodes, node)
@@ -519,9 +531,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 		prevNodeID = nodeID
 	}
 
-	reg := execution.NewActionRegistry()
-	provider.RegisterAll(reg)
-	eng := execution.NewGraphExecutor(reg, execution.ExecutorOptions{
+	eng := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
 		ConflictResolution: execution.ResolutionOverwrite,
@@ -701,14 +711,14 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 
 	for _, n := range g.Nodes {
 		// Skip non-file nodes and symlinks
-		if n.Status == execution.StatusSkipped || n.Action == "delegate" || n.Action == "backup" {
+		if n.Status == execution.StatusSkipped || n.ActionName() == "file.backup" {
 			continue
 		}
-		if n.Action == "link" {
+		if n.ActionName() == "file.link" {
 			continue // Symlinks are found by scanning
 		}
 		// Skip intermediate transform nodes
-		if n.Action == "render" || n.Action == "decrypt" {
+		if n.ActionName() == "template.render" || n.ActionName() == "encryption.decrypt" {
 			continue
 		}
 
@@ -721,7 +731,7 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 				Source:         source,
 				Target:         target,
 				Project:        n.Project,
-				Operation:      n.Action,
+				Operation:      n.ActionName(),
 				SourceChecksum: n.SourceChecksum,
 				TargetChecksum: n.TargetChecksum,
 			}
@@ -752,7 +762,7 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 				Source:    source,
 				Target:    target,
 				Project:   n.Project,
-				Operation: n.Action,
+				Operation: n.ActionName(),
 			}
 			if _, err := os.Stat(target); os.IsNotExist(err) {
 				entry.State = reconcile.StateMissing
@@ -1470,7 +1480,7 @@ func xdgPath(envVar, defaultPath string) string {
 // hasDecryptOp returns true if the operations include decrypt.
 func hasDecryptOp(ops []string) bool {
 	for _, op := range ops {
-		if op == "decrypt" {
+		if op == "encryption.decrypt" {
 			return true
 		}
 	}

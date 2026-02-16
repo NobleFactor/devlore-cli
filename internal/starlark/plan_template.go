@@ -17,14 +17,16 @@ type TemplatePlan struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 }
 
 // NewTemplatePlan creates a new TemplatePlan for the given graph and host.
-func NewTemplatePlan(graph *execution.Graph, h host.Host, project string) *TemplatePlan {
+func NewTemplatePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *TemplatePlan {
 	return &TemplatePlan{
 		graph:   graph,
 		host:    h,
 		project: project,
+		reg:     reg,
 	}
 }
 
@@ -64,7 +66,7 @@ func (t *TemplatePlan) render(_ *starlark.Thread, _ *starlark.Builtin, args star
 
 	node := &execution.Node{
 		ID:      generateNodeID("render"),
-		Action:  "render",
+		Action:  t.reg.MustGet("template.render"),
 		Project: t.project,
 	}
 

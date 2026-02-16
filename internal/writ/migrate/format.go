@@ -90,7 +90,7 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 		target, _ := node.GetSlot("path").(string)
 		nodes = append(nodes, nodeView{
 			ID:        node.ID,
-			Operation: node.Action,
+			Operation: node.ActionName(),
 			Source:    source,
 			Target:    target,
 			Status:    string(node.Status),
@@ -176,7 +176,7 @@ func collectExtraStats(s MigrationStats) []string {
 }
 
 func formatRenames(w io.Writer, graph *execution.Graph, sourceRoot string) {
-	renameNodes := filterNodesByOp(graph, "move")
+	renameNodes := filterNodesByOp(graph, "file.move")
 	if len(renameNodes) == 0 {
 		return
 	}
@@ -292,7 +292,7 @@ func formatRecommendations(w io.Writer, recommendations []string) {
 func filterNodesByOp(graph *execution.Graph, opName string) []*execution.Node {
 	var nodes []*execution.Node
 	for _, node := range graph.Nodes {
-		if node.Action == opName {
+		if node.ActionName() == opName {
 			nodes = append(nodes, node)
 		}
 	}

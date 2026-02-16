@@ -18,15 +18,15 @@ func TestProcessingPipeline(t *testing.T) {
 		targetName string
 		actions    []string
 	}{
-		{"foo", "foo", []string{"link"}},
-		{"foo.template", "foo", []string{"render", "copy"}},
-		{"foo.age", "foo.age", []string{"link"}},
-		{"foo.sops", "foo", []string{"decrypt", "copy"}},
-		{"foo.template.sops", "foo", []string{"decrypt", "render", "copy"}},
-		{".bashrc", ".bashrc", []string{"link"}},
-		{".bashrc.template", ".bashrc", []string{"render", "copy"}},
-		{"config.yaml.template.sops", "config.yaml", []string{"decrypt", "render", "copy"}},
-		{"packages-manifest.yaml", "packages-manifest.yaml", []string{"manifest-resolve"}},
+		{"foo", "foo", []string{"file.link"}},
+		{"foo.template", "foo", []string{"template.render", "file.copy"}},
+		{"foo.age", "foo.age", []string{"file.link"}},
+		{"foo.sops", "foo", []string{"encryption.decrypt", "file.copy"}},
+		{"foo.template.sops", "foo", []string{"encryption.decrypt", "template.render", "file.copy"}},
+		{".bashrc", ".bashrc", []string{"file.link"}},
+		{".bashrc.template", ".bashrc", []string{"template.render", "file.copy"}},
+		{"config.yaml.template.sops", "config.yaml", []string{"encryption.decrypt", "template.render", "file.copy"}},
+		{"packages-manifest.yaml", "packages-manifest.yaml", []string{"manifest.resolve"}},
 	}
 
 	for _, tt := range tests {
@@ -267,7 +267,7 @@ func TestPackagesManifestFiles(t *testing.T) {
 }
 
 // TestProcessingPipeline_ManifestFilenames tests that only valid manifest filenames
-// trigger the manifest-resolve action, and legacy filenames are treated as regular files.
+// trigger the manifest.resolve action, and legacy filenames are treated as regular files.
 func TestProcessingPipeline_ManifestFilenames(t *testing.T) {
 	tests := []struct {
 		filename    string
@@ -286,7 +286,7 @@ func TestProcessingPipeline_ManifestFilenames(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
 			_, actions := ProcessingPipeline(tt.filename)
-			hasResolve := hasAction(actions, "manifest-resolve")
+			hasResolve := hasAction(actions, "manifest.resolve")
 			if hasResolve != tt.wantResolve {
 				t.Errorf("ProcessingPipeline(%q) manifest-resolve = %v, want %v (%s)",
 					tt.filename, hasResolve, tt.wantResolve, tt.description)
@@ -301,19 +301,19 @@ func TestActionHelpers(t *testing.T) {
 		hasCopy     bool
 		hasManifest bool
 	}{
-		{[]string{"link"}, false, false},
-		{[]string{"render", "copy"}, true, false},
-		{[]string{"decrypt", "copy"}, true, false},
-		{[]string{"decrypt", "render", "copy"}, true, false},
-		{[]string{"manifest-resolve"}, false, true},
+		{[]string{"file.link"}, false, false},
+		{[]string{"template.render", "file.copy"}, true, false},
+		{[]string{"encryption.decrypt", "file.copy"}, true, false},
+		{[]string{"encryption.decrypt", "template.render", "file.copy"}, true, false},
+		{[]string{"manifest.resolve"}, false, true},
 	}
 
 	for _, tt := range tests {
-		if got := hasAction(tt.actions, "copy"); got != tt.hasCopy {
-			t.Errorf("hasAction(%v, copy) = %v, want %v", tt.actions, got, tt.hasCopy)
+		if got := hasAction(tt.actions, "file.copy"); got != tt.hasCopy {
+			t.Errorf("hasAction(%v, file.copy) = %v, want %v", tt.actions, got, tt.hasCopy)
 		}
-		if got := hasAction(tt.actions, "manifest-resolve"); got != tt.hasManifest {
-			t.Errorf("hasAction(%v, manifest-resolve) = %v, want %v", tt.actions, got, tt.hasManifest)
+		if got := hasAction(tt.actions, "manifest.resolve"); got != tt.hasManifest {
+			t.Errorf("hasAction(%v, manifest.resolve) = %v, want %v", tt.actions, got, tt.hasManifest)
 		}
 	}
 }

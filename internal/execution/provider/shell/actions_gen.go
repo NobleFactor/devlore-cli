@@ -9,13 +9,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
-// Exec executes a POSIX shell command from node's "command" slot.
+// Exec executes a POSIX shell command from the "command" slot.
 type Exec struct{ Impl *Provider }
 
-func (o *Exec) Name() string { return "shell" }
+func (o *Exec) Name() string { return "shell.exec" }
 
-func (o *Exec) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	command, _ := node.GetSlot("command").(string)
+func (o *Exec) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	command, _ := slots["command"].(string)
 	if command == "" {
 		return nil, nil, fmt.Errorf("shell: no command specified")
 	}
@@ -28,17 +28,17 @@ func (o *Exec) Do(ctx *execution.Context, node *execution.Node) (execution.Resul
 	return nil, nil, o.Impl.Shell(command, ctx.Logger)
 }
 
-func (o *Exec) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Exec) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 
-// PowerShell executes a PowerShell command from node's "command" slot (Windows).
+// PowerShell executes a PowerShell command from the "command" slot (Windows).
 type PowerShell struct{ Impl *Provider }
 
-func (o *PowerShell) Name() string { return "powershell" }
+func (o *PowerShell) Name() string { return "shell.powershell" }
 
-func (o *PowerShell) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	command, _ := node.GetSlot("command").(string)
+func (o *PowerShell) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	command, _ := slots["command"].(string)
 	if command == "" {
 		return nil, nil, fmt.Errorf("powershell: no command specified")
 	}
@@ -51,7 +51,7 @@ func (o *PowerShell) Do(ctx *execution.Context, node *execution.Node) (execution
 	return nil, nil, o.Impl.PowerShell(command, ctx.Logger)
 }
 
-func (o *PowerShell) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *PowerShell) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 

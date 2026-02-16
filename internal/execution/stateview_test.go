@@ -91,8 +91,8 @@ func TestFileEntryIsCopied(t *testing.T) {
 		want      bool
 	}{
 		{"no history", "", false},
-		{"link only", "link", false},
-		{"copy operation", "copy", true},
+		{"link only", "file.link", false},
+		{"copy operation", "file.copy", true},
 	}
 
 	for _, tt := range tests {
@@ -118,8 +118,8 @@ func TestFileEntryIsLinked(t *testing.T) {
 		want      bool
 	}{
 		{"no history", "", false},
-		{"link only", "link", true},
-		{"copy operation", "copy", false},
+		{"link only", "file.link", true},
+		{"copy operation", "file.copy", false},
 	}
 
 	for _, tt := range tests {
@@ -181,19 +181,19 @@ func TestFileTreeCopiedLinkedFiles(t *testing.T) {
 		Entries: map[string]*FileEntry{
 			".bashrc": {
 				Target:  ".bashrc",
-				History: []HistoryRecord{{Action: "link"}},
+				History: []HistoryRecord{{Action: "file.link"}},
 			},
 			".zshrc": {
 				Target:  ".zshrc",
-				History: []HistoryRecord{{Action: "link"}},
+				History: []HistoryRecord{{Action: "file.link"}},
 			},
 			".gitconfig": {
 				Target:  ".gitconfig",
-				History: []HistoryRecord{{Action: "copy"}},
+				History: []HistoryRecord{{Action: "file.copy"}},
 			},
 			".ssh/config": {
 				Target:  ".ssh/config",
-				History: []HistoryRecord{{Action: "copy"}},
+				History: []HistoryRecord{{Action: "file.copy"}},
 			},
 		},
 	}
@@ -303,15 +303,15 @@ func TestStateViewSummary(t *testing.T) {
 			Entries: map[string]*FileEntry{
 				".bashrc": {
 					Target:  ".bashrc",
-					History: []HistoryRecord{{Action: "link"}},
+					History: []HistoryRecord{{Action: "file.link"}},
 				},
 				".zshrc": {
 					Target:  ".zshrc",
-					History: []HistoryRecord{{Action: "link"}},
+					History: []HistoryRecord{{Action: "file.link"}},
 				},
 				".gitconfig": {
 					Target:  ".gitconfig",
-					History: []HistoryRecord{{Action: "copy"}},
+					History: []HistoryRecord{{Action: "file.copy"}},
 				},
 			},
 		},
@@ -337,11 +337,11 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 	// Helper to create nodes with source slot
 	makeNode := func(id string, op string, source, project, layer string) *Node {
 		n := &Node{
-			ID:        id,
-			Action: op,
-			Project:   project,
-			Layer:     layer,
-			Status:    StatusCompleted,
+			ID:      id,
+			Action:  &stubAction{name: op},
+			Project: project,
+			Layer:   layer,
+			Status:  StatusCompleted,
 		}
 		n.SetSlotImmediate("source", source)
 		return n
@@ -353,7 +353,7 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 			Timestamp: earlier,
 			Context:   GraphContext{TargetRoot: "/home/user"},
 			Nodes: []*Node{
-				makeNode(".bashrc", "link", "/repo/.bashrc", "shell", "base"),
+				makeNode(".bashrc", "file.link", "/repo/.bashrc", "shell", "base"),
 			},
 		},
 		{
@@ -361,8 +361,8 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 			Timestamp: now,
 			Context:   GraphContext{TargetRoot: "/home/user"},
 			Nodes: []*Node{
-				makeNode(".bashrc", "copy", "/repo/.bashrc", "shell", "personal"),
-				makeNode(".gitconfig", "link", "/repo/.gitconfig", "git", ""),
+				makeNode(".bashrc", "file.copy", "/repo/.bashrc", "shell", "personal"),
+				makeNode(".gitconfig", "file.link", "/repo/.gitconfig", "git", ""),
 			},
 		},
 	}
@@ -416,9 +416,9 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 			Timestamp: now.Add(-2 * time.Hour),
 			Nodes: []*Node{
 				{
-					ID:        "docker",
-					Action: "install",
-					Status:    StatusCompleted,
+					ID:     "docker",
+					Action: &stubAction{name: "pkg.install"},
+					Status: StatusCompleted,
 				},
 			},
 		},
@@ -427,14 +427,14 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 			Timestamp: now.Add(-time.Hour),
 			Nodes: []*Node{
 				{
-					ID:        "docker",
-					Action: "verify",
-					Status:    StatusCompleted,
+					ID:     "docker",
+					Action: &stubAction{name: "pkg.verify"},
+					Status: StatusCompleted,
 				},
 				{
-					ID:        "golang",
-					Action: "install",
-					Status:    StatusCompleted,
+					ID:     "golang",
+					Action: &stubAction{name: "pkg.install"},
+					Status: StatusCompleted,
 				},
 			},
 		},
@@ -443,9 +443,9 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 			Timestamp: now,
 			Nodes: []*Node{
 				{
-					ID:        "docker",
-					Action: "upgrade",
-					Status:    StatusCompleted,
+					ID:     "docker",
+					Action: &stubAction{name: "pkg.upgrade"},
+					Status: StatusCompleted,
 				},
 			},
 		},
@@ -468,14 +468,14 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 	}
 
 	// History should be ordered by time
-	if docker.History[0].Action != "install" {
-		t.Errorf("expected first operation 'install', got %q", docker.History[0].Action)
+	if docker.History[0].Action != "pkg.install" {
+		t.Errorf("expected first operation 'pkg.install', got %q", docker.History[0].Action)
 	}
-	if docker.History[1].Action != "verify" {
-		t.Errorf("expected second operation 'verify', got %q", docker.History[1].Action)
+	if docker.History[1].Action != "pkg.verify" {
+		t.Errorf("expected second operation 'pkg.verify', got %q", docker.History[1].Action)
 	}
-	if docker.History[2].Action != "upgrade" {
-		t.Errorf("expected third operation 'upgrade', got %q", docker.History[2].Action)
+	if docker.History[2].Action != "pkg.upgrade" {
+		t.Errorf("expected third operation 'pkg.upgrade', got %q", docker.History[2].Action)
 	}
 
 	// golang should have 1 history record
@@ -493,10 +493,10 @@ func TestStateViewBuilderTimeFilter(t *testing.T) {
 	now := time.Now()
 
 	graphs := []*Graph{
-		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*Node{{ID: "a", Action: "link", Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: "b", Action: "link", Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "c", Action: "link", Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: "d", Action: "link", Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*Node{{ID: "a", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: "b", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "c", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: "d", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
 	}
 
 	// Filter to middle two
@@ -522,9 +522,9 @@ func TestStateViewBuilderToolFilter(t *testing.T) {
 	now := time.Now()
 
 	graphs := []*Graph{
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: ".bashrc", Action: "link", Status: StatusCompleted}}},
-		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "docker", Action: "install", Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: ".zshrc", Action: "link", Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: ".bashrc", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
+		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "docker", Action: &stubAction{name: "pkg.install"}, Status: StatusCompleted}}},
+		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: ".zshrc", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
 	}
 
 	t.Run("writ only", func(t *testing.T) {
@@ -567,9 +567,9 @@ func TestStateViewBuilderSkipsSkipped(t *testing.T) {
 			Tool:      "writ",
 			Timestamp: now,
 			Nodes: []*Node{
-				{ID: "a", Action: "link", Status: StatusCompleted},
-				{ID: "b", Action: "link", Status: StatusSkipped},
-				{ID: "c", Action: "link", Status: StatusFailed},
+				{ID: "a", Action: &stubAction{name: "file.link"}, Status: StatusCompleted},
+				{ID: "b", Action: &stubAction{name: "file.link"}, Status: StatusSkipped},
+				{ID: "c", Action: &stubAction{name: "file.link"}, Status: StatusFailed},
 			},
 		},
 	}
@@ -612,7 +612,7 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 				State:     StateExecuted,
 				Context:   GraphContext{TargetRoot: "/home/user"},
 				Nodes: []*Node{
-					{ID: ".bashrc", Action: "link", Status: StatusCompleted},
+					{ID: ".bashrc", Action: &stubAction{name: "file.link"}, Status: StatusCompleted},
 				},
 			},
 		},
@@ -625,7 +625,7 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 				State:     StateExecuted,
 				Context:   GraphContext{TargetRoot: "/home/user"},
 				Nodes: []*Node{
-					{ID: ".gitconfig", Action: "link", Status: StatusCompleted},
+					{ID: ".gitconfig", Action: &stubAction{name: "file.link"}, Status: StatusCompleted},
 				},
 			},
 		},
@@ -686,23 +686,21 @@ func TestIsPackageNode(t *testing.T) {
 		operation string
 		want      bool
 	}{
-		{"link", false},
-		{"copy", false},
-		{"render", false},
-		{"decrypt", false},
-		{"install", true},
-		{"prepare", true},
-		{"verify", true},
-		{"upgrade", true},
-		{"uninstall", true},
-		{"cleanup", true},
-		{"package-install", true},
-		{"package-upgrade", true},
-		{"package-remove", true},
+		{"file.link", false},
+		{"file.copy", false},
+		{"template.render", false},
+		{"encryption.decrypt", false},
+		{"pkg.install", true},
+		{"pkg.prepare", true},
+		{"pkg.verify", true},
+		{"pkg.upgrade", true},
+		{"pkg.uninstall", true},
+		{"pkg.cleanup", true},
+		{"pkg.remove", true},
 	}
 
 	for _, tt := range tests {
-		node := &Node{Action: tt.operation}
+		node := &Node{Action: &stubAction{name: tt.operation}}
 		got := builder.isPackageNode(node)
 		if got != tt.want {
 			t.Errorf("isPackageNode(%q) = %v, want %v", tt.operation, got, tt.want)

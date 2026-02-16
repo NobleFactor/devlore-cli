@@ -93,12 +93,11 @@ type ExecutorOptions struct {
 
 // GraphExecutor executes action graphs.
 type GraphExecutor struct {
-	registry *ActionRegistry
-	options  ExecutorOptions
+	options ExecutorOptions
 }
 
-// NewGraphExecutor creates an executor with the given registry and options.
-func NewGraphExecutor(registry *ActionRegistry, opts ExecutorOptions) *GraphExecutor {
+// NewGraphExecutor creates an executor with the given options.
+func NewGraphExecutor(opts ExecutorOptions) *GraphExecutor {
 	if opts.Logger == nil {
 		opts.Logger = os.Stdout
 	}
@@ -106,8 +105,7 @@ func NewGraphExecutor(registry *ActionRegistry, opts ExecutorOptions) *GraphExec
 		opts.BackupSuffix = ".writ-backup"
 	}
 	return &GraphExecutor{
-		registry: registry,
-		options:  opts,
+		options: opts,
 	}
 }
 
@@ -128,7 +126,6 @@ func (e *GraphExecutor) Run(ctx context.Context, g *Graph) error {
 }
 
 // runFlat executes all nodes in topological order without phase boundaries.
-// This is the original execution path for non-phased graphs.
 func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 	ordered := e.orderNodes(g.Nodes, g.Edges)
 
@@ -137,17 +134,18 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 		DryRun:  e.options.DryRun,
 		Logger:  e.options.Logger,
 		Data:    e.options.Data,
-		Edges:   g.Edges,
-		Outputs: make(map[string][]byte),
 	}
 
-	var results []*NodeResult
+	results := make(map[string]any)
+	stack := &RecoveryStack{}
+	var nodeResults []*NodeResult
+
 	for _, node := range ordered {
-		result := e.executeNode(execCtx, node)
-		results = append(results, result)
+		result := e.executeNode(execCtx, node, results, stack)
+		nodeResults = append(nodeResults, result)
 
 		if result.Status == ResultFailed && e.options.ConflictResolution == ResolutionStop {
-			g.ApplyResults(results)
+			g.ApplyResults(nodeResults)
 			g.ComputeSummary()
 			g.State = StateFailed
 			return result.Error
@@ -155,7 +153,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 	}
 
 	// Apply results and update state
-	g.ApplyResults(results)
+	g.ApplyResults(nodeResults)
 	g.ComputeSummary()
 
 	if g.Summary.Failed > 0 {
@@ -198,13 +196,23 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 		}
 	}
 
-	stack := &RecoveryStack{}
-	var rollbackLog []RollbackEntry
+	// Phase-level recovery stack for compensating phases.
+	type phaseRecovery struct {
+		phaseID      string
+		phaseName    string
+		compensateID string
+		state        map[string]any
+	}
+	var phaseStack []phaseRecovery
+
+	// Node-level recovery stack spans all phases.
+	nodeStack := &RecoveryStack{}
+	results := make(map[string]any)
 
 	for _, phase := range forwardPhases {
-		err := e.executePhase(execCtx, g, phase, stack)
+		err := e.executePhase(execCtx, g, phase, results, nodeStack)
 		if err != nil {
-			// Phase failed after retries — unwind completed phases
+			// Phase failed after retries — unwind
 			phase.Status = PhaseFailed
 
 			// Mark remaining forward phases as skipped
@@ -219,13 +227,65 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 				}
 			}
 
-			// Unwind the recovery stack
-			rollbackLog = e.unwindStack(execCtx, g, stack)
+			// Unwind node-level recovery stack
+			nodeStack.Unwind(execCtx, results)
+
+			// Execute compensating phases in LIFO order
+			var rollbackLog []RollbackEntry
+			for i := len(phaseStack) - 1; i >= 0; i-- {
+				pr := phaseStack[i]
+				rollback := RollbackEntry{
+					Phase:      pr.phaseName,
+					Compensate: pr.compensateID,
+				}
+
+				if pr.compensateID == "" {
+					rollback.Status = "skipped"
+					rollbackLog = append(rollbackLog, rollback)
+					continue
+				}
+
+				compPhase := g.PhaseByID(pr.compensateID)
+				if compPhase == nil {
+					rollback.Status = "failed"
+					rollback.Error = fmt.Sprintf("compensating phase %s not found", pr.compensateID)
+					rollbackLog = append(rollbackLog, rollback)
+					continue
+				}
+
+				compResults := make(map[string]any)
+				compStack := &RecoveryStack{}
+				if compErr := e.ExecutePhaseInner(execCtx, g, compPhase, compResults, compStack); compErr != nil {
+					rollback.Status = "failed"
+					rollback.Error = compErr.Error()
+				} else {
+					rollback.Status = "completed"
+				}
+
+				for _, p := range g.Phases {
+					if p.ID == pr.phaseID {
+						p.Status = PhaseRolledBack
+						break
+					}
+				}
+
+				rollbackLog = append(rollbackLog, rollback)
+			}
 
 			g.Rollback = rollbackLog
 			g.ComputeSummary()
 			g.State = StateFailed
 			return fmt.Errorf("phase %s failed: %w", phase.Name, err)
+		}
+
+		// Push phase-level recovery entry
+		if phase.Compensate != "" {
+			phaseStack = append(phaseStack, phaseRecovery{
+				phaseID:      phase.ID,
+				phaseName:    phase.Name,
+				compensateID: phase.Compensate,
+				state:        phase.State,
+			})
 		}
 	}
 
@@ -235,9 +295,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 }
 
 // executePhase runs a single phase with retry logic.
-// On success, pushes a recovery entry onto the stack.
-// On failure (retries exhausted), returns the error.
-func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, stack *RecoveryStack) error {
+func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, results map[string]any, stack *RecoveryStack) error {
 	maxAttempts := 1
 	if phase.Retry != nil {
 		maxAttempts += phase.Retry.MaxAttempts
@@ -262,7 +320,7 @@ func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, stack
 			e.resetPhaseNodes(g, phase)
 		}
 
-		err := e.ExecutePhaseInner(ctx, g, phase)
+		err := e.ExecutePhaseInner(ctx, g, phase, results, stack)
 
 		attemptRecord := Attempt{
 			Number:    attempt + 1,
@@ -273,29 +331,6 @@ func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, stack
 			attemptRecord.Status = "completed"
 			phase.Attempts = append(phase.Attempts, attemptRecord)
 			phase.Status = PhaseCompleted
-
-			// Push recovery entry if phase has a compensating action
-			if phase.Compensate != "" {
-				compensateID := phase.Compensate
-				phaseName := phase.Name
-				phaseState := phase.State
-
-				stack.Push(RecoveryEntry{
-					PhaseID:   phase.ID,
-					PhaseName: phaseName,
-					State:     phaseState,
-					Compensate: func(ctx *Context) error {
-						// Find the compensating phase in the graph
-						for _, p := range g.Phases {
-							if p.ID == compensateID {
-								return e.ExecutePhaseInner(ctx, g, p)
-							}
-						}
-						return fmt.Errorf("compensating phase %s not found", compensateID)
-					},
-				})
-			}
-
 			return nil
 		}
 
@@ -323,45 +358,39 @@ func (e *GraphExecutor) resetPhaseNodes(g *Graph, phase *Phase) {
 	}
 }
 
-// unwindStack pops the recovery stack and executes compensating actions in LIFO order.
-// Returns a log of rollback entries for the receipt.
-func (e *GraphExecutor) unwindStack(ctx *Context, g *Graph, stack *RecoveryStack) []RollbackEntry {
-	entries := stack.Entries()
-	var log []RollbackEntry
-
-	// Process in LIFO order (most recent first)
-	for i := len(entries) - 1; i >= 0; i-- {
-		entry := entries[i]
-		rollback := RollbackEntry{
-			Phase:      entry.PhaseName,
-			Compensate: entry.PhaseID + ".compensate",
-		}
-
-		if entry.Compensate == nil {
-			rollback.Status = "skipped"
-			log = append(log, rollback)
-			continue
-		}
-
-		if err := entry.Compensate(ctx); err != nil {
-			rollback.Status = "failed"
-			rollback.Error = err.Error()
-		} else {
-			rollback.Status = "completed"
-		}
-
-		// Mark the original phase as rolled back
-		for _, p := range g.Phases {
-			if p.ID == entry.PhaseID {
-				p.Status = PhaseRolledBack
-				break
-			}
-		}
-
-		log = append(log, rollback)
+// ExecutePhaseInner runs the inner nodes of a phase.
+func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *Graph, phase *Phase, results map[string]any, stack *RecoveryStack) error {
+	// Collect phase nodes
+	nodeSet := make(map[string]bool, len(phase.NodeIDs))
+	for _, id := range phase.NodeIDs {
+		nodeSet[id] = true
 	}
 
-	return log
+	var phaseNodes []*Node
+	for _, n := range g.Nodes {
+		if nodeSet[n.ID] {
+			phaseNodes = append(phaseNodes, n)
+		}
+	}
+
+	// Filter edges to only those within this phase
+	var phaseEdges []Edge
+	for _, edge := range g.Edges {
+		if nodeSet[edge.From] && nodeSet[edge.To] {
+			phaseEdges = append(phaseEdges, edge)
+		}
+	}
+
+	ordered := e.orderNodes(phaseNodes, phaseEdges)
+
+	for _, node := range ordered {
+		result := e.executeNode(ctx, node, results, stack)
+		if result.Status == ResultFailed {
+			return result.Error
+		}
+	}
+
+	return nil
 }
 
 // RunNodes executes a slice of nodes with the given edges.
@@ -374,27 +403,28 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edg
 		DryRun:  e.options.DryRun,
 		Logger:  e.options.Logger,
 		Data:    e.options.Data,
-		Edges:   edges,
-		Outputs: make(map[string][]byte),
 	}
 
-	var results []*NodeResult
+	results := make(map[string]any)
+	stack := &RecoveryStack{}
+	var nodeResults []*NodeResult
+
 	for _, node := range ordered {
-		result := e.executeNode(execCtx, node)
-		results = append(results, result)
+		result := e.executeNode(execCtx, node, results, stack)
+		nodeResults = append(nodeResults, result)
 
 		if result.Status == ResultFailed && e.options.ConflictResolution == ResolutionStop {
-			return results, result.Error
+			return nodeResults, result.Error
 		}
 	}
 
-	return results, nil
+	return nodeResults, nil
 }
 
-// executeNode processes a single node with uniform dispatch.
-func (e *GraphExecutor) executeNode(ctx *Context, node *Node) *NodeResult {
-	actionName := node.Action
-	if actionName == "" {
+// executeNode resolves slots, calls Do, stores the result, and pushes a recovery entry.
+func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string]any, stack *RecoveryStack) *NodeResult {
+	if node.Action == nil {
+		node.Status = StatusFailed
 		return &NodeResult{
 			NodeID: node.ID,
 			Status: ResultFailed,
@@ -402,21 +432,20 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node) *NodeResult {
 		}
 	}
 
-	action, ok := e.registry.Get(actionName)
-	if !ok {
-		return &NodeResult{
-			NodeID: node.ID,
-			Status: ResultFailed,
-			Error:  fmt.Errorf("unknown action: %s", actionName),
-		}
-	}
+	actionName := node.ActionName()
 
-	e.fillSlotsFromData(node)
+	// Resolve promise slots from upstream results
+	slots := node.ResolvedSlots(results)
+
+	// Fill unfilled slots from Context.Data
+	fillSlotsFromData(slots, e.options.Data)
+
 	ctx.SourceChecksum = ""
 	ctx.TargetChecksum = ""
 
-	_, _, err := action.Do(ctx, node)
+	result, undoState, err := node.Action.Do(ctx, slots)
 	if err != nil {
+		node.Status = StatusFailed
 		return &NodeResult{
 			NodeID: node.ID,
 			Status: ResultFailed,
@@ -424,11 +453,33 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node) *NodeResult {
 		}
 	}
 
+	// Store result for downstream promise resolution
+	if result != nil {
+		results[node.ID] = result
+	}
+
+	// Push recovery entry
+	stack.Push(RecoveryEntry{Node: node, UndoState: undoState})
+
+	node.Status = StatusCompleted
+	node.SourceChecksum = ctx.SourceChecksum
+	node.TargetChecksum = ctx.TargetChecksum
+
 	return &NodeResult{
 		NodeID:         node.ID,
 		Status:         ResultCompleted,
 		SourceChecksum: ctx.SourceChecksum,
 		TargetChecksum: ctx.TargetChecksum,
+	}
+}
+
+// fillSlotsFromData fills unfilled slots from Context.Data.
+// Slots already set by the caller or resolved from promises are not overwritten.
+func fillSlotsFromData(slots map[string]any, data map[string]any) {
+	for key, value := range data {
+		if _, exists := slots[key]; !exists {
+			slots[key] = value
+		}
 	}
 }
 
@@ -524,16 +575,6 @@ func pathDepth(path string) int {
 		return 0
 	}
 	return strings.Count(path, string(filepath.Separator))
-}
-
-// fillSlotsFromData fills unfilled slots on the node from Context.Data.
-// Slots already set by the caller (Starlark plan or upstream node) are not overwritten.
-func (e *GraphExecutor) fillSlotsFromData(node *Node) {
-	for key, value := range e.options.Data {
-		if _, exists := node.Slots[key]; !exists {
-			node.SetSlotImmediate(key, value)
-		}
-	}
 }
 
 // ChecksumBytes computes SHA256 of content and returns "sha256:<hex>".

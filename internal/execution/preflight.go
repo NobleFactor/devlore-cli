@@ -77,7 +77,7 @@ func nodeWritesToTarget(node *Node) bool {
 	if path == "" {
 		return false
 	}
-	return node.Action == "link" || node.Action == "copy"
+	return node.ActionName() == "file.link" || node.ActionName() == "file.copy"
 }
 
 // detectConflict checks if a target path has a conflict.

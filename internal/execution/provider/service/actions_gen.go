@@ -12,10 +12,10 @@ import (
 // Start starts a service.
 type Start struct{ Impl *Provider }
 
-func (o *Start) Name() string { return "service-start" }
+func (o *Start) Name() string { return "service.start" }
 
-func (o *Start) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	name, _ := node.GetSlot("name").(string)
+func (o *Start) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name, _ := slots["name"].(string)
 	if name == "" {
 		return nil, nil, fmt.Errorf("service-start: no service specified")
 	}
@@ -27,17 +27,17 @@ func (o *Start) Do(ctx *execution.Context, node *execution.Node) (execution.Resu
 	return nil, nil, o.Impl.Start(name, ctx.Logger)
 }
 
-func (o *Start) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Start) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 
 // Stop stops a service.
 type Stop struct{ Impl *Provider }
 
-func (o *Stop) Name() string { return "service-stop" }
+func (o *Stop) Name() string { return "service.stop" }
 
-func (o *Stop) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	name, _ := node.GetSlot("name").(string)
+func (o *Stop) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name, _ := slots["name"].(string)
 	if name == "" {
 		return nil, nil, fmt.Errorf("service-stop: no service specified")
 	}
@@ -49,17 +49,17 @@ func (o *Stop) Do(ctx *execution.Context, node *execution.Node) (execution.Resul
 	return nil, nil, o.Impl.Stop(name, ctx.Logger)
 }
 
-func (o *Stop) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Stop) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 
 // Restart restarts a service.
 type Restart struct{ Impl *Provider }
 
-func (o *Restart) Name() string { return "service-restart" }
+func (o *Restart) Name() string { return "service.restart" }
 
-func (o *Restart) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	name, _ := node.GetSlot("name").(string)
+func (o *Restart) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name, _ := slots["name"].(string)
 	if name == "" {
 		return nil, nil, fmt.Errorf("service-restart: no service specified")
 	}
@@ -71,17 +71,17 @@ func (o *Restart) Do(ctx *execution.Context, node *execution.Node) (execution.Re
 	return nil, nil, o.Impl.Restart(name, ctx.Logger)
 }
 
-func (o *Restart) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Restart) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 
 // Enable enables a service to start at boot.
 type Enable struct{ Impl *Provider }
 
-func (o *Enable) Name() string { return "service-enable" }
+func (o *Enable) Name() string { return "service.enable" }
 
-func (o *Enable) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	name, _ := node.GetSlot("name").(string)
+func (o *Enable) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name, _ := slots["name"].(string)
 	if name == "" {
 		return nil, nil, fmt.Errorf("service-enable: no service specified")
 	}
@@ -93,17 +93,17 @@ func (o *Enable) Do(ctx *execution.Context, node *execution.Node) (execution.Res
 	return nil, nil, o.Impl.Enable(name, ctx.Logger)
 }
 
-func (o *Enable) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Enable) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 
 // Disable disables a service from starting at boot.
 type Disable struct{ Impl *Provider }
 
-func (o *Disable) Name() string { return "service-disable" }
+func (o *Disable) Name() string { return "service.disable" }
 
-func (o *Disable) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	name, _ := node.GetSlot("name").(string)
+func (o *Disable) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name, _ := slots["name"].(string)
 	if name == "" {
 		return nil, nil, fmt.Errorf("service-disable: no service specified")
 	}
@@ -115,7 +115,7 @@ func (o *Disable) Do(ctx *execution.Context, node *execution.Node) (execution.Re
 	return nil, nil, o.Impl.Disable(name, ctx.Logger)
 }
 
-func (o *Disable) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Disable) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 

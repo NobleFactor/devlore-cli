@@ -13,15 +13,12 @@ import (
 // (transformer: reads content, stores decrypted result).
 type Decrypt struct{ Impl *Provider }
 
-func (o *Decrypt) Name() string { return "decrypt" }
+func (o *Decrypt) Name() string { return "encryption.decrypt" }
 
-func (o *Decrypt) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	decryptor, _ := node.GetSlot("decryptor").(func(string, []byte) ([]byte, error))
-	source, _ := node.GetSlot("source").(string)
-	content, err := ctx.ContentFor(node)
-	if err != nil {
-		return nil, nil, err
-	}
+func (o *Decrypt) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	decryptor, _ := slots["decryptor"].(func(string, []byte) ([]byte, error))
+	source, _ := slots["source"].(string)
+	content, _ := slots["content"].([]byte)
 
 	if ctx.DryRun {
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] decrypt %v\n", source)
@@ -31,11 +28,10 @@ func (o *Decrypt) Do(ctx *execution.Context, node *execution.Node) (execution.Re
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx.StoreContent(node, result)
-	return nil, nil, nil
+	return result, nil, nil
 }
 
-func (o *Decrypt) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Decrypt) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 )
@@ -367,7 +368,9 @@ func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 
 // buildGraphFromRegistry constructs an execution.Graph from registry prompt output.
 func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *execution.Graph {
-	plan := execution.NewPlan("migrate")
+	reg := execution.NewActionRegistry()
+	provider.RegisterAll(reg)
+	plan := execution.NewPlan(reg, "migrate")
 	nodeMap := make(map[string]*execution.Node)
 
 	for _, n := range regGraph.Nodes {
@@ -380,13 +383,13 @@ func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph)
 
 		var node *execution.Node
 		switch n.Op {
-		case "move":
+		case "file.move":
 			node = plan.Rename(source, target)
-		case "mkdir":
+		case "file.mkdir":
 			node = plan.Mkdir(target)
-		case "copy":
+		case "file.copy":
 			node = plan.Copy(source, target)
-		case "remove":
+		case "file.remove":
 			node = plan.Remove(source)
 		}
 		if node != nil {

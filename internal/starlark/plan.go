@@ -36,14 +36,16 @@ type planBindings struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string // Package name for grouping
+	reg     *execution.ActionRegistry
 }
 
 // NewPlanBindings creates a new PlanBindings for the given graph and host.
-func NewPlanBindings(graph *execution.Graph, h host.Host, project string) PlanBindings {
+func NewPlanBindings(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) PlanBindings {
 	return &planBindings{
 		graph:   graph,
 		host:    h,
 		project: project,
+		reg:     reg,
 	}
 }
 
@@ -66,7 +68,7 @@ func (p *planBindings) Project() string {
 func (p *planBindings) PackageInstall(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("package-install", packages...),
-		Action: "package-install",
+		Action: p.reg.MustGet("pkg.install"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -78,7 +80,7 @@ func (p *planBindings) PackageInstall(packages ...string) *execution.Node {
 func (p *planBindings) PackageUpgrade(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("package-upgrade", packages...),
-		Action: "package-upgrade",
+		Action: p.reg.MustGet("pkg.upgrade"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -90,7 +92,7 @@ func (p *planBindings) PackageUpgrade(packages ...string) *execution.Node {
 func (p *planBindings) PackageRemove(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("package-remove", packages...),
-		Action: "package-remove",
+		Action: p.reg.MustGet("pkg.remove"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -102,7 +104,7 @@ func (p *planBindings) PackageRemove(packages ...string) *execution.Node {
 func (p *planBindings) PackageUpdate() *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("package-update"),
-		Action: "package-update",
+		Action: p.reg.MustGet("pkg.update"),
 		Project:    p.project,
 	}
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -113,7 +115,7 @@ func (p *planBindings) PackageUpdate() *execution.Node {
 func (p *planBindings) Render(source string) *execution.Node {
 	node := &execution.Node{
 		ID:      generateNodeID("render"),
-		Action:  "render",
+		Action:  p.reg.MustGet("template.render"),
 		Project: p.project,
 	}
 	if source != "" {
@@ -127,7 +129,7 @@ func (p *planBindings) Render(source string) *execution.Node {
 func (p *planBindings) Decrypt(source string) *execution.Node {
 	node := &execution.Node{
 		ID:      generateNodeID("decrypt"),
-		Action:  "decrypt",
+		Action:  p.reg.MustGet("encryption.decrypt"),
 		Project: p.project,
 	}
 	if source != "" {
@@ -141,7 +143,7 @@ func (p *planBindings) Decrypt(source string) *execution.Node {
 func (p *planBindings) Link(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("link"),
-		Action: "link",
+		Action: p.reg.MustGet("file.link"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -154,7 +156,7 @@ func (p *planBindings) Link(source, target string) *execution.Node {
 func (p *planBindings) Copy(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("copy"),
-		Action: "copy",
+		Action: p.reg.MustGet("file.copy"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -167,7 +169,7 @@ func (p *planBindings) Copy(source, target string) *execution.Node {
 func (p *planBindings) Write(target, content string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("write"),
-		Action: "write",
+		Action: p.reg.MustGet("file.write"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("path", p.host.ExpandPath(target))
@@ -180,7 +182,7 @@ func (p *planBindings) Write(target, content string) *execution.Node {
 func (p *planBindings) Remove(target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("remove"),
-		Action: "remove",
+		Action: p.reg.MustGet("file.remove"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("path", p.host.ExpandPath(target))
@@ -192,7 +194,7 @@ func (p *planBindings) Remove(target string) *execution.Node {
 func (p *planBindings) Download(url, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("download"),
-		Action: "download",
+		Action: p.reg.MustGet("net.download"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("url", url)
@@ -205,7 +207,7 @@ func (p *planBindings) Download(url, target string) *execution.Node {
 func (p *planBindings) ArchiveExtract(archive, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("archive-extract"),
-		Action: "archive-extract",
+		Action: p.reg.MustGet("archive.extract"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("source", p.host.ExpandPath(archive))
@@ -218,7 +220,7 @@ func (p *planBindings) ArchiveExtract(archive, target string) *execution.Node {
 func (p *planBindings) GitClone(url, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("git-clone"),
-		Action: "git-clone",
+		Action: p.reg.MustGet("git.clone"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("url", url)
@@ -231,7 +233,7 @@ func (p *planBindings) GitClone(url, target string) *execution.Node {
 func (p *planBindings) GitCheckout(ref string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("git-checkout"),
-		Action: "git-checkout",
+		Action: p.reg.MustGet("git.checkout"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("ref", ref)
@@ -243,7 +245,7 @@ func (p *planBindings) GitCheckout(ref string) *execution.Node {
 func (p *planBindings) GitPull() *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("git-pull"),
-		Action: "git-pull",
+		Action: p.reg.MustGet("git.pull"),
 		Project:    p.project,
 	}
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -254,7 +256,7 @@ func (p *planBindings) GitPull() *execution.Node {
 func (p *planBindings) Service(name string, action ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("service", name, action.String()),
-		Action: "service-" + action.String(),
+		Action: p.reg.MustGet("service." + action.String()),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("name", name)
@@ -267,7 +269,7 @@ func (p *planBindings) Service(name string, action ServiceAction) *execution.Nod
 func (p *planBindings) Shell(command string) *execution.Node {
 	node := &execution.Node{
 		ID:         generateNodeID("shell"),
-		Action: "shell",
+		Action: p.reg.MustGet("shell.exec"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("command", command)
@@ -290,6 +292,7 @@ func (p *planBindings) DependsOn(from, to *execution.Node) {
 // StarlarkPlanBindings wraps PlanBindings for Starlark conversion.
 type StarlarkPlanBindings struct {
 	PlanBindings
+	reg *execution.ActionRegistry
 }
 
 // ToStarlark converts the plan bindings to a Starlark value.
@@ -319,7 +322,7 @@ type StarlarkPlanBindings struct {
 //	plan.shell(command)                        # Run shell command
 //	plan.depends_on(consumer, producer)        # Create dependency
 func (s *StarlarkPlanBindings) ToStarlark() starlark.Value {
-	return NewPlanRoot(s.Graph(), s.Host(), s.Project())
+	return NewPlanRoot(s.Graph(), s.Host(), s.Project(), s.reg)
 }
 
 // extractNodeID extracts the node ID from an argument that may be Output or struct.

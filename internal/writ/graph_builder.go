@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
+	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
@@ -46,7 +46,8 @@ func NewGraph(cfg *Config) *execution.Graph {
 
 // BuildTree walks the source directories and populates the graph with file nodes.
 // This processes layers in order (base → team → personal) with collision detection.
-func BuildTree(g *execution.Graph, cfg *Config) error {
+// Returns discovered manifest source paths instead of creating nodes for them.
+func BuildTree(g *execution.Graph, cfg *Config, reg *execution.ActionRegistry) (manifests []string, err error) {
 	result, err := tree.Build(tree.BuildConfig{
 		SourceRoot: cfg.SourceRoot,
 		TargetRoot: cfg.TargetRoot,
@@ -55,26 +56,35 @@ func BuildTree(g *execution.Graph, cfg *Config) error {
 		Segments:   cfg.Segments,
 	})
 	if err != nil {
-		return fmt.Errorf("build tree: %w", err)
+		return nil, fmt.Errorf("build tree: %w", err)
 	}
 
 	// Convert file entries to graph nodes.
 	// Multi-op pipelines from tree (e.g., ["render", "copy"]) become node chains.
+	// Manifest files are collected separately for planner resolution.
 	for _, f := range result.Files {
 		ops := f.Operations
+
+		// Collect manifest files instead of creating nodes
+		if len(ops) == 1 && ops[0] == "manifest.resolve" {
+			manifests = append(manifests, f.Source)
+			continue
+		}
 
 		if len(ops) == 1 {
 			// Single operation — single node
 			node := &execution.Node{
-				ID:        f.ID,
-				Action: ops[0],
-				Status:    execution.StatusPending,
-				Project:   f.Project,
-				Layer:     f.Layer,
-				Mode:      f.Mode,
+				ID:      f.ID,
+				Action:  reg.MustGet(ops[0]),
+				Status:  execution.StatusPending,
+				Project: f.Project,
+				Layer:   f.Layer,
 			}
 			node.SetSlotImmediate("source", f.Source)
 			node.SetSlotImmediate("path", f.Target)
+			if f.Mode != 0 {
+				node.SetSlotImmediate("mode", f.Mode)
+			}
 			g.Nodes = append(g.Nodes, node)
 		} else {
 			// Multi-op pipeline → node chain
@@ -87,18 +97,20 @@ func BuildTree(g *execution.Graph, cfg *Config) error {
 				}
 
 				node := &execution.Node{
-					ID:        nodeID,
-					Action: op,
-					Status:    execution.StatusPending,
-					Project:   f.Project,
-					Layer:     f.Layer,
-					Mode:      f.Mode,
+					ID:      nodeID,
+					Action:  reg.MustGet(op),
+					Status:  execution.StatusPending,
+					Project: f.Project,
+					Layer:   f.Layer,
 				}
 				if i == 0 {
 					node.SetSlotImmediate("source", f.Source)
 				}
 				if isLast {
 					node.SetSlotImmediate("path", f.Target)
+					if f.Mode != 0 {
+						node.SetSlotImmediate("mode", f.Mode)
+					}
 				}
 				g.Nodes = append(g.Nodes, node)
 
@@ -125,7 +137,7 @@ func BuildTree(g *execution.Graph, cfg *Config) error {
 		})
 	}
 
-	return nil
+	return manifests, nil
 }
 
 // ConfigureEngine creates and configures an execution engine for the graph.
@@ -142,12 +154,8 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 		engineData["decryptor"] = secretsMgr.Decryptor()
 	}
 
-	// Create registry and register all providers
-	registry := execution.NewActionRegistry()
-	provider.RegisterAll(registry)
-
 	// Create engine
-	engine := execution.NewGraphExecutor(registry, execution.ExecutorOptions{
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
 		ConflictResolution: cfg.ConflictResolution,
@@ -178,12 +186,14 @@ func graphBuiltinTemplateData(segments map[string]string) map[string]any {
 
 // DeployGraphBuilder builds execution graphs for deploy operations.
 type DeployGraphBuilder struct {
-	config *Config
+	config  *Config
+	reg     *execution.ActionRegistry
+	Planner *lore.Planner // nil means skip manifest resolution
 }
 
 // NewDeployGraphBuilder creates a new deploy graph builder.
-func NewDeployGraphBuilder(cfg *DeployConfig) *DeployGraphBuilder {
-	return &DeployGraphBuilder{config: &cfg.Config}
+func NewDeployGraphBuilder(cfg *DeployConfig, reg *execution.ActionRegistry) *DeployGraphBuilder {
+	return &DeployGraphBuilder{config: &cfg.Config, reg: reg}
 }
 
 // Build creates an execution graph for a deploy operation.
@@ -192,8 +202,18 @@ func (b *DeployGraphBuilder) Build() (*execution.Graph, error) {
 	g := NewGraph(b.config)
 
 	// Build the file tree and populate nodes
-	if err := BuildTree(g, b.config); err != nil {
+	manifests, err := BuildTree(g, b.config, b.reg)
+	if err != nil {
 		return nil, err
+	}
+
+	// Resolve manifest files through the planner
+	if b.Planner != nil && len(manifests) > 0 {
+		for _, m := range manifests {
+			if _, err := b.Planner.PlanPackages(g, m); err != nil {
+				return nil, fmt.Errorf("manifest %s: %w", m, err)
+			}
+		}
 	}
 
 	return g, nil
@@ -206,14 +226,16 @@ func (b *DeployGraphBuilder) Build() (*execution.Graph, error) {
 // DecommissionGraphBuilder builds execution graphs for decommission operations.
 type DecommissionGraphBuilder struct {
 	config *Config
+	reg    *execution.ActionRegistry
 	view   *execution.StateView
 	force  bool
 }
 
 // NewDecommissionGraphBuilder creates a new decommission graph builder.
-func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateView) *DecommissionGraphBuilder {
+func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateView, reg *execution.ActionRegistry) *DecommissionGraphBuilder {
 	return &DecommissionGraphBuilder{
 		config: &cfg.Config,
+		reg:    reg,
 		view:   view,
 		force:  cfg.Force,
 	}
@@ -236,9 +258,9 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 		}
 
 		// Determine operation: unlink for symlinks, remove for copied files
-		op := "unlink"
+		op := "file.unlink"
 		if entry.IsCopied() {
-			op = "remove"
+			op = "file.remove"
 		}
 
 		// Check for local modifications on copied files
@@ -255,11 +277,11 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 
 		target := filepath.Join(b.view.Files.Root, relTarget)
 		node := &execution.Node{
-			ID:        relTarget,
-			Action: op,
-			Status:    execution.StatusPending,
-			Project:   entry.Project,
-			Layer:     entry.Layer,
+			ID:      relTarget,
+			Action:  b.reg.MustGet(op),
+			Status:  execution.StatusPending,
+			Project: entry.Project,
+			Layer:   entry.Layer,
 		}
 		node.SetSlotImmediate("source", entry.Source)
 		node.SetSlotImmediate("path", target)

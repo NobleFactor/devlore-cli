@@ -19,6 +19,7 @@ type PlanRoot struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 
 	// Sub-namespaces (cached)
 	packagePlan    *PackagePlan
@@ -30,17 +31,18 @@ type PlanRoot struct {
 }
 
 // NewPlanRoot creates a new PlanRoot for the given graph and host.
-func NewPlanRoot(graph *execution.Graph, h host.Host, project string) *PlanRoot {
+func NewPlanRoot(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PlanRoot {
 	return &PlanRoot{
 		graph:          graph,
 		host:           h,
 		project:        project,
-		packagePlan:    NewPackagePlan(graph, h, project),
-		filePlan:       NewFilePlan(graph, h, project),
-		templatePlan:   NewTemplatePlan(graph, h, project),
-		encryptionPlan: NewEncryptionPlan(graph, h, project),
-		archivePlan:    NewArchivePlan(graph, h, project),
-		gitPlan:        NewGitPlan(graph, h, project),
+		reg:            reg,
+		packagePlan:    NewPackagePlan(graph, h, project, reg),
+		filePlan:       NewFilePlan(graph, h, project, reg),
+		templatePlan:   NewTemplatePlan(graph, h, project, reg),
+		encryptionPlan: NewEncryptionPlan(graph, h, project, reg),
+		archivePlan:    NewArchivePlan(graph, h, project, reg),
+		gitPlan:        NewGitPlan(graph, h, project, reg),
 	}
 }
 
@@ -107,7 +109,7 @@ func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 
 	node := &execution.Node{
 		ID:         generateNodeID("source"),
-		Action: "source",
+		Action: p.reg.MustGet("file.source"),
 		Project:    p.project,
 	}
 
@@ -134,7 +136,7 @@ func (p *PlanRoot) literal(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 
 	node := &execution.Node{
 		ID:         generateNodeID("literal"),
-		Action: "literal",
+		Action: p.reg.MustGet("content.literal"),
 		Project:    p.project,
 	}
 
@@ -161,7 +163,7 @@ func (p *PlanRoot) download(_ *starlark.Thread, _ *starlark.Builtin, args starla
 
 	node := &execution.Node{
 		ID:         generateNodeID("download"),
-		Action: "download",
+		Action: p.reg.MustGet("net.download"),
 		Project:    p.project,
 	}
 
@@ -201,7 +203,7 @@ func (p *PlanRoot) service(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 
 	node := &execution.Node{
 		ID:         generateNodeID("service"),
-		Action: "service-" + actionStr,
+		Action: p.reg.MustGet("service." + actionStr),
 		Project:    p.project,
 	}
 
@@ -231,7 +233,7 @@ func (p *PlanRoot) shell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 
 	node := &execution.Node{
 		ID:         generateNodeID("shell"),
-		Action: "shell",
+		Action: p.reg.MustGet("shell.exec"),
 		Project:    p.project,
 	}
 

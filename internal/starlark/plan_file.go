@@ -22,14 +22,16 @@ type FilePlan struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 }
 
 // NewFilePlan creates a new FilePlan for the given graph and host.
-func NewFilePlan(graph *execution.Graph, h host.Host, project string) *FilePlan {
+func NewFilePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *FilePlan {
 	return &FilePlan{
 		graph:   graph,
 		host:    h,
 		project: project,
+		reg:     reg,
 	}
 }
 
@@ -76,7 +78,7 @@ func (f *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 	node := &execution.Node{
 		ID:         generateNodeID("link"),
-		Action: "link",
+		Action: f.reg.MustGet("file.link"),
 		Project:    f.project,
 	}
 
@@ -107,7 +109,7 @@ func (f *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 
 	node := &execution.Node{
 		ID:         generateNodeID("copy"),
-		Action: "copy",
+		Action: f.reg.MustGet("file.copy"),
 		Project:    f.project,
 	}
 
@@ -138,7 +140,7 @@ func (f *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 
 	node := &execution.Node{
 		ID:         generateNodeID("write"),
-		Action: "write",
+		Action: f.reg.MustGet("file.write"),
 		Project:    f.project,
 	}
 
@@ -168,7 +170,7 @@ func (f *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 
 	node := &execution.Node{
 		ID:         generateNodeID("remove"),
-		Action: "remove",
+		Action: f.reg.MustGet("file.remove"),
 		Project:    f.project,
 	}
 

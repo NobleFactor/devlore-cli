@@ -125,7 +125,7 @@ func TestParseRegistryLLMResponse(t *testing.T) {
 		],
 		"execution_graph": {
 			"nodes": [
-				{"id": "move-1", "op": "move", "source": "Home/Configs/all-Darwin", "target": "Home/Configs/all.Darwin", "project": "all"}
+				{"id": "move-1", "op": "file.move", "source": "Home/Configs/all-Darwin", "target": "Home/Configs/all.Darwin", "project": "all"}
 			],
 			"edges": []
 		}
@@ -237,8 +237,8 @@ func TestFormatMigrationViewJSON(t *testing.T) {
 	// Create a mock graph using registry format
 	graph := buildGraphFromRegistry("/test/root", &registryExecutionGraph{
 		Nodes: []registryNode{
-			{ID: "r1", Op: "move", Source: "all-Darwin", Target: "all.Darwin"},
-			{ID: "r2", Op: "move", Source: "all-Unix", Target: "all.Unix"},
+			{ID: "r1", Op: "file.move", Source: "all-Darwin", Target: "all.Darwin"},
+			{ID: "r2", Op: "file.move", Source: "all-Unix", Target: "all.Unix"},
 		},
 		Edges: []registryEdge{
 			{From: "r1", To: "r2"},
@@ -302,7 +302,7 @@ func TestFormatMigrationViewYAML(t *testing.T) {
 
 	graph := buildGraphFromRegistry("/test/root", &registryExecutionGraph{
 		Nodes: []registryNode{
-			{ID: "r1", Op: "move", Source: "pkg-Darwin", Target: "pkg.Darwin"},
+			{ID: "r1", Op: "file.move", Source: "pkg-Darwin", Target: "pkg.Darwin"},
 		},
 		Edges: []registryEdge{},
 	})
@@ -357,7 +357,7 @@ func TestExecuteWithMockGraph(t *testing.T) {
 
 	graph := buildGraphFromRegistry(tmpDir, &registryExecutionGraph{
 		Nodes: []registryNode{
-			{ID: "r1", Op: "move", Source: "all-Darwin", Target: "all.Darwin"},
+			{ID: "r1", Op: "file.move", Source: "all-Darwin", Target: "all.Darwin"},
 		},
 		Edges: []registryEdge{},
 	})
@@ -402,7 +402,7 @@ func TestExecuteConflict(t *testing.T) {
 
 	graph := buildGraphFromRegistry(tmpDir, &registryExecutionGraph{
 		Nodes: []registryNode{
-			{ID: "r1", Op: "move", Source: "all-Darwin", Target: "all.Darwin"},
+			{ID: "r1", Op: "file.move", Source: "all-Darwin", Target: "all.Darwin"},
 		},
 		Edges: []registryEdge{},
 	})

@@ -5,12 +5,12 @@ package provider
 
 import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/flow"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/archive"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/content"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/git"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/net"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/pkg"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/service"
@@ -30,5 +30,5 @@ func RegisterAll(reg *execution.ActionRegistry) {
 	net.Register(reg)
 	archive.Register(reg)
 	git.Register(reg)
-	manifest.Register(reg)
+	flow.Register(reg)
 }
