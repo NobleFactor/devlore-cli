@@ -169,7 +169,7 @@ func (w *WindowsPlanBindings) Write(target, content string) *execution.Node {
 // Service adds a Windows Service management node.
 func (w *WindowsPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
-		ID:         windowsGenerateNodeID("winservice", name, action.String()),
+		ID:         windowsGenerateNodeID("service", name, action.String()),
 		Action: w.reg.MustGet("service." + action.String()),
 		Project:    w.project,
 	}

@@ -3,8 +3,8 @@
 ## Status
 
 **Approved** — Core types, executor, and Starlark integration implemented.
-Activity model (Forward/Backward on Service structs) formalized. Compensation
-not yet implemented — pending Service struct extraction and code generation.
+Activity model (Forward/Backward on Provider structs) formalized. Compensation
+not yet implemented — pending Provider struct extraction and code generation.
 
 ## Context
 
@@ -176,8 +176,8 @@ def configure(phase):
 
 ## Activities
 
-An Activity is a unit of work on a Service — the Saga pattern's term for a
-local transaction. Each Activity comprises up to two methods on a Service struct:
+An Activity is a unit of work on a Provider — the Saga pattern's term for a
+local transaction. Each Activity comprises up to two methods on a Provider struct:
 
 | Method | Role | Naming | Signature |
 |--------|------|--------|-----------|
@@ -185,7 +185,7 @@ local transaction. Each Activity comprises up to two methods on a Service struct
 | **Backward** | Compensate the operation | `Compensate` prefix: `CompensateCopy` | `func(state map[string]any) error` |
 
 Activity is a design concept, not a Go type. The generator detects Activities
-by finding `Compensate<MethodName>` pairs on the Service struct. No annotation,
+by finding `Compensate<MethodName>` pairs on the Provider struct. No annotation,
 no interface — naming convention is the contract.
 
 ### Forward
@@ -194,9 +194,9 @@ Forward executes the business logic. Its return signature encodes three things:
 
 | Output | Position | Consumer | Purpose |
 |--------|----------|----------|---------|
-| **result** | Before state | Graph/executor | Content, checksums — drives the execution pipeline |
+| **result** | Before state | Graph/executor | Content, checksums — flows to downstream nodes via Result |
 | **state** | `map[string]any` | Backward | Compensation receipt — the S in (A, C, S). Opaque to the executor |
-| **error** | Last | Go | Whether the operation failed |
+| **error** | Last | Go | Whether the action failed |
 
 The generator determines the content model from what precedes state and error:
 
@@ -231,15 +231,16 @@ Backward(state)     → error
 - If Backward needs Forward's params (e.g., which packages to remove), Forward
   saves them to state.
 
-### Example: FileService
+### Example: file.Provider
 
 ```go
-type FileService struct{}
+// provider/file/provider.go
+type Provider struct{}
 
 // --- Copy Activity ---
 
 // Forward: write content to path. Returns checksum (result), state, error.
-func (f *FileService) Copy(path string, mode os.FileMode, content []byte) (string, map[string]any, error) {
+func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (string, map[string]any, error) {
     existed := fileExists(path)
     if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
         return "", nil, fmt.Errorf("create parent dirs: %w", err)
@@ -252,7 +253,7 @@ func (f *FileService) Copy(path string, mode os.FileMode, content []byte) (strin
 }
 
 // Backward: undo Copy.
-func (f *FileService) CompensateCopy(state map[string]any) error {
+func (p *Provider) CompensateCopy(state map[string]any) error {
     path, _ := state["path"].(string)
     existed, _ := state["existed"].(bool)
     if existed {
@@ -264,7 +265,7 @@ func (f *FileService) CompensateCopy(state map[string]any) error {
 // --- Move Activity ---
 
 // Forward: rename source to path. Returns state, error.
-func (f *FileService) Move(source, path string) (map[string]any, error) {
+func (p *Provider) Move(source, path string) (map[string]any, error) {
     if err := os.Rename(source, path); err != nil {
         return nil, err
     }
@@ -272,53 +273,50 @@ func (f *FileService) Move(source, path string) (map[string]any, error) {
 }
 
 // Backward: undo Move.
-func (f *FileService) CompensateMove(state map[string]any) error {
+func (p *Provider) CompensateMove(state map[string]any) error {
     source, _ := state["source"].(string)
     path, _ := state["path"].(string)
     return os.Rename(path, source)
 }
 ```
 
-### Generated Ops
+### Generated Actions
 
-The generator reads the Service, finds the Activity pairs, and produces ops
-that bridge the uniform `Operation`/`CompensableOperation` interfaces to the
-unique Service method signatures:
+The generator reads the Provider, finds the Activity pairs, and produces
+action structs that implement the unified `Action` interface (Do + Undo):
 
 ```go
-// Generated — nuke-safe
-type FileCopyOp struct{ svc *FileService }
+// provider/file/actions_gen.go — generated, nuke-safe
+type Copy struct{ Impl *Provider }
 
-func (o *FileCopyOp) Name() string { return "file.copy" }
+func (o *Copy) Name() string { return "file.copy" }
 
-func (o *FileCopyOp) Execute(ctx *Context, node *Node) error {
-    path, _ := node.GetSlot("path").(string)
-    mode := node.GetMode()
-    content, err := ctx.ContentFor(node)
-    if err != nil {
-        return err
-    }
+func (o *Copy) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+    path := slots["path"].(string)
+    mode, _ := slots["mode"].(os.FileMode)
+    content, _ := slots["content"].([]byte)
+
     if ctx.DryRun {
-        ctx.StoreContent(node, content)
-        ctx.TargetChecksum = ChecksumBytes(content)
-        return nil
+        _, _ = fmt.Fprintf(ctx.Logger, "[dry-run] copy %v\n", path)
+        ctx.TargetChecksum = checksumBytes(content)
+        return nil, nil, nil
     }
-    checksum, state, err := o.svc.Copy(path, mode, content)
+    checksum, state, err := o.Impl.Copy(path, mode, content)
     if err != nil {
-        return err
+        return nil, nil, err
     }
     ctx.TargetChecksum = checksum
-    node.SaveState(state)
-    return nil
+    return nil, state, nil
 }
 
-func (o *FileCopyOp) Compensate(ctx *Context, node *Node, state map[string]any) error {
-    return o.svc.CompensateCopy(state)
+func (o *Copy) Undo(ctx *execution.Context, slots map[string]any, state execution.UndoState) error {
+    s, _ := state.(map[string]any)
+    return o.Impl.CompensateCopy(s)
 }
 ```
 
-The generated `Compensate` method is trivial — it passes state through to the
-Service's Backward method. All compensation logic lives in the Service.
+The generated `Undo` method is trivial — it passes state through to the
+Provider's Backward method. All compensation logic lives in the Provider.
 
 ## Compensation Ownership
 
@@ -344,8 +342,8 @@ is blind.
 
 ### Where Compensation Resides
 
-Compensation lives on the **Service struct** — the same struct that implements
-the forward method. The Service owns both directions because it understands its
+Compensation lives on the **Provider struct** — the same struct that implements
+the forward method. The Provider owns both directions because it understands its
 own semantics. See [Activities](#activities) for the full contract.
 
 The three-layer delegation:
@@ -353,107 +351,86 @@ The three-layer delegation:
 ```
 Starlark script  → plan receiver  → creates Node in graph
                                         ↓
-Graph executor   → ops struct     → reads slots, delegates to Service
+Graph executor   → action struct  → reads slots, delegates to Provider
                    (generated)          ↓
-                   Service struct → actual logic (Forward + Backward)
+                   Provider struct → actual logic (Forward + Backward)
                    (hand-written,  directly callable from Go)
 ```
 
-### CompensableOperation Interface
+### Undo on Action
 
-Generated ops for compensable Activities implement `CompensableOperation`:
+Every action implements both `Do` and `Undo`. Non-compensable actions
+return nil from `Undo` — the executor skips them during unwind:
 
-```go
-// CompensableOperation is implemented by generated ops whose Service method
-// has a Compensate pair. The executor calls Compensate during phase unwind.
-type CompensableOperation interface {
-    Operation
-    Compensate(ctx *Context, node *Node, state map[string]any) error
-}
-```
+| Action | Undo behavior | Reason |
+|--------|---------------|--------|
+| `pkg.install` | Removes installed packages | Can remove what was installed |
+| `file.link` | Unlinks created symlink | Can unlink what was linked |
+| `file.copy` | Removes copied file | Can remove what was copied |
+| `template.render` | Same as copy | Output is a file |
+| `encryption.decrypt` | No-op (nil) | Transform only — no side effects to undo |
+| `shell.exec` | No-op (nil) | Arbitrary command — cannot auto-compensate |
 
-Not all operations are compensable:
-
-| Operation | Compensable | Reason |
-|-----------|-------------|--------|
-| `package.install` | Yes | Can remove what was installed |
-| `file.link` | Yes | Can unlink what was linked |
-| `file.copy` | Yes | Can remove what was copied |
-| `file.render` | Yes | Same as copy (output is a file) |
-| `file.decrypt` | No | Transform only — no side effects to undo |
-| `file.validate` | No | Read-only probe — nothing to undo |
-| `shell` | No | Arbitrary command — cannot auto-compensate |
-
-Shell operations are not compensable at Layer 1. Compensation for shell
-operations belongs at Layer 2 (scripted phase-level compensation).
+Shell actions are not compensable at Layer 1. Compensation for shell
+actions belongs at Layer 2 (scripted phase-level compensation).
 
 ### Gate Validation for Code Generation
 
 The generator validates Activity pairs at discovery time:
 
-- **Gate 1** (existing): All parameter types must map to Starlark types
-- **Gate 2** (existing): Forward return must follow the content model convention
+- **Gate 1**: All parameter types must map to Starlark types
+- **Gate 2**: Forward return must follow the content model convention
   (`error`, `(string, error)`, `([]byte, error)`, or their compensable variants
   with `map[string]any` state)
-- **Gate 3** (new): If a `Compensate<Method>` pair exists, its signature must
+- **Gate 3**: If a `Compensate<Method>` pair exists, its signature must
   be `func(state map[string]any) error`
 
 ### State Capture
 
-The generated op captures state from the Service's Forward return and saves it
-on the node via `node.SaveState(state)`. The executor reads node state after
-execution and pushes it to the recovery stack.
+The generated action captures state from the Provider's Forward return and
+returns it as `UndoState` from `Do`. The executor stores UndoState in a
+`RecoveryEntry` on the recovery stack.
 
-```go
-// Node stores compensation state from Forward's return value.
-type Node struct {
-    // ...existing fields...
-    State map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
-}
-
-func (n *Node) SaveState(state map[string]any) {
-    n.State = state
-}
-```
-
-State is **opaque to the executor**. The executor saves it and hands it back
-during compensation. Only the Service knows what its own state means.
+State is **opaque to the executor**. The executor stores it and passes it
+back to `Undo` during compensation. Only the Provider knows what its own
+state means.
 
 ### Executor State Flow
 
 ```
 Forward execution:
-  1. executor calls op.Execute(ctx, node)
-  2. generated op reads slots, calls svc.Forward(params...)
-  3. Forward returns (result, state, error)
-  4. generated op saves result to ctx (checksums, content)
-  5. generated op saves state to node via node.SaveState(state)
-  6. executor pushes node.State to recovery stack
+  1. executor resolves promise slots → flat map[string]any
+  2. executor calls action.Do(ctx, slots)
+  3. generated action reads slots, calls provider.Forward(params...)
+  4. Forward returns (result, state, error)
+  5. Do returns (Result, UndoState, error) to executor
+  6. executor stores Result for downstream promise resolution
+  7. executor pushes RecoveryEntry{Node, UndoState} to recovery stack
 
 Compensation (on failure):
-  7. executor pops recovery stack (LIFO)
-  8. for each completed node (reverse order within phase):
-     → executor calls op.Compensate(ctx, node, savedState)
-     → generated op passes state to svc.Compensate<Method>(state)
-     → Service reads state, decides what to undo
+  8. executor pops recovery stack (LIFO)
+  9. for each completed node (reverse order within phase):
+     → executor resolves slots again via node.ResolvedSlots(results)
+     → executor calls action.Undo(ctx, slots, savedState)
+     → generated action passes state to provider.Compensate<Method>(state)
+     → Provider reads state, decides what to undo
 ```
 
 ### Two Layers
 
 There are two distinct layers of compensation that serve different purposes.
 
-**Layer 1 — Operation-level (automatic, fine-grained)**
+**Layer 1 — Action-level (automatic, fine-grained)**
 
-Each operation knows its own inverse. The executor calls `Compensate()` on
+Each action knows its own inverse via `Undo`. The executor calls `Undo()` on
 each completed node within a failed phase, in reverse order. No Starlark
-involvement. The operation is the single source of truth.
+involvement. The action is the single source of truth.
 
 During phase unwind, the executor:
 1. Iterates completed nodes in reverse order.
-2. Looks up the operation in the registry.
-3. If the operation implements `CompensableOperation`, calls `Compensate()`
-   with the node's saved state.
-4. If the operation does not implement `CompensableOperation`, skips it (logged).
+2. Calls `node.Action.Undo(ctx, slots, savedState)`.
+3. If Undo returns nil (no-op), the executor logs and continues.
+4. If Undo returns an error, the executor logs the error and continues unwinding.
 
 **Layer 2 — Phase-level (scripted, coarse-grained)**
 
@@ -488,7 +465,7 @@ Resolution:
 
 ### Resolved: State Serialization
 
-Node `State` is `map[string]any` with no shape constraints. The Service owns
+Node `State` is `map[string]any` with no shape constraints. The Provider owns
 its state and decides what it needs. Implementers are responsible for ensuring
 their state round-trips through JSON and YAML marshalers with full fidelity.
 
@@ -509,18 +486,20 @@ to a message type) is tracked as a future enhancement: issue #105.
 | `internal/execution/phase.go` | Phase, PhaseStatus, Attempt, RetryPolicy types |
 | `internal/execution/recovery.go` | RecoveryStack, RecoveryEntry |
 | `internal/execution/executor.go` | RunPhased, node compensation during unwind |
-| `internal/execution/graph.go` | Node.State, Node.SaveState() |
-| `internal/execution/operation.go` | Operation, CompensableOperation interfaces |
-| `internal/execution/ops.go` | Hand-written file ops (to be replaced by generated ops) |
-| `internal/execution/ops_package.go` | Hand-written package ops (to be replaced by generated ops) |
+| `internal/execution/graph.go` | Node, ResolvedSlots, ActionName, custom marshal |
+| `internal/execution/action.go` | Action interface, Result, UndoState, Context |
+| `internal/execution/registry.go` | ActionRegistry (Get, MustGet, Register, Names) |
+| `internal/execution/provider/register_gen.go` | RegisterAll — calls all provider Register functions |
+| `internal/execution/provider/*/actions_gen.go` | Generated action structs (Do, Undo, Register) |
+| `internal/execution/provider/*/provider.go` | Hand-written Provider structs (business logic) |
 | `internal/starlark/phase_config.go` | PhaseConfig Starlark bindings for configure() |
 | `internal/lore/builder.go` | Phase-aware graph builder |
 
 ## Related Documents
 
 - [Typed Slots and Context Data](devlore-typed-slots.md) — Terminology, slot
-  model, Service structs, generated code patterns
+  model, Provider structs, generated code patterns
 - [Graph Operations](devlore-graph-convergence-operations.md) — Convergence,
   control flow, and system interaction (probe, guard, choose, retry, rollback)
-- [Operation Namespaces](devlore-operation-namespaces.md) — How to add new
-  operation namespaces
+- [Action Namespaces](devlore-operation-namespaces.md) — How to add new
+  action namespaces

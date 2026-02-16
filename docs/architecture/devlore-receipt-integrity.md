@@ -79,7 +79,7 @@ context:
 roots: [project1, project2]
 nodes:
   - id: .config/app/config.yaml
-    operation: link
+    action: file.link
     status: completed
     ...
 edges: []
@@ -163,5 +163,5 @@ func (r *Receipt) Verify(identities []age.Identity) error {
 
 ## Related Documents
 
-- [Operation Namespaces](devlore-operation-namespaces.md) - Engine operations
+- [Action Namespaces](devlore-operation-namespaces.md) - Engine actions
 - [Receipts User Guide](../guides/writ/receipts.md) - User-facing documentation

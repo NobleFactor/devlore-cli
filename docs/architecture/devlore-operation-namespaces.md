@@ -1,31 +1,32 @@
-# Operation Namespaces
+# Action Namespaces
 
-This document describes how to add new operation namespaces to the devlore-cli execution engine.
+This document describes how to add new action namespaces to the devlore-cli execution engine.
 
 ## Architecture Overview
 
-The execution engine processes a directed acyclic graph (DAG) of nodes, where each node specifies one or more operations to execute. Both `writ` and `lore` share the same engine:
+The execution engine processes a directed acyclic graph (DAG) of nodes, where each node specifies an action to execute. Both `writ` and `lore` share the same engine:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Execution Engine                         │
-│                  (internal/engine)                          │
+│                (internal/execution)                         │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌─────────────────┐          ┌─────────────────┐          │
 │  │  File Tree      │          │  Package Graph  │          │
 │  │  Builder        │          │  Builder        │          │
-│  │  (writ/tree)    │          │  (lore/graph)   │          │
+│  │  (writ/tree)    │          │  (lore/builder) │          │
 │  └────────┬────────┘          └────────┬────────┘          │
 │           │                            │                    │
 │           │    ┌──────────────────┐    │                    │
 │           └───►│ Execution Graph  │◄───┘                    │
-│                │ (engine.Graph)   │                         │
+│                │ (execution.Graph)│                         │
 │                └────────┬─────────┘                         │
 │                         │                                   │
 │                         ▼                                   │
 │                ┌──────────────────┐                         │
-│                │   Engine.Run()   │                         │
+│                │ GraphExecutor    │                         │
+│                │  .RunNodes()     │                         │
 │                └──────────────────┘                         │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -33,11 +34,19 @@ The execution engine processes a directed acyclic graph (DAG) of nodes, where ea
 
 ## Current Namespaces
 
-| Namespace | Operations | File |
-|-----------|------------|------|
-| file | `link`, `copy`, `expand`, `decrypt`, `backup`, `unlink`, `remove`, `mkdir`, `validate`, `rename` | `ops.go` |
-| package | `package-install`, `package-upgrade`, `package-remove`, `package-update` | `ops_package.go` |
-| shell | `shell`, `powershell` | `ops_package.go` |
+| Namespace | Actions | Package |
+|-----------|---------|---------|
+| file | `file.link`, `file.copy`, `file.backup`, `file.unlink`, `file.remove`, `file.write`, `file.move`, `file.mkdir`, `file.source` | `provider/file` |
+| encryption | `encryption.decrypt` | `provider/encryption` |
+| template | `template.render` | `provider/template` |
+| content | `content.literal` | `provider/content` |
+| pkg | `pkg.install`, `pkg.upgrade`, `pkg.remove`, `pkg.update` | `provider/pkg` |
+| shell | `shell.exec`, `shell.powershell` | `provider/shell` |
+| service | `service.start`, `service.stop`, `service.restart`, `service.enable`, `service.disable` | `provider/service` |
+| net | `net.download` | `provider/net` |
+| archive | `archive.extract` | `provider/archive` |
+| git | `git.clone`, `git.checkout`, `git.pull` | `provider/git` |
+| flow | `flow.choose`, `flow.gather`, `flow.elevate` | `flow/` |
 
 ## Darwin Package Manager Idempotence
 
@@ -63,9 +72,9 @@ type Host interface {
 }
 ```
 
-### Operation Behavior
+### Action Behavior
 
-| Operation | PM Resolution | Notes |
+| Action | PM Resolution | Notes |
 |-----------|---------------|-------|
 | Install | Explicit prefix > Preferred PM | Skip if already installed by any PM |
 | Upgrade | Explicit prefix > InstalledBy > Preferred | Upgrades via the PM that installed it |
@@ -74,7 +83,7 @@ type Host interface {
 
 ### Multi-PM Warning
 
-When removing a package installed by multiple package managers, the operation:
+When removing a package installed by multiple package managers, the action:
 1. Removes via the preferred PM (or explicit prefix)
 2. Warns the user about other installations
 
@@ -114,89 +123,93 @@ func (m *brewManager) Installed(name string) bool {
 
 ## Adding a New Namespace
 
-Follow these steps to add a new operation namespace (e.g., `docker`).
+Follow these steps to add a new action namespace (e.g., `docker`).
 
-### Step 1: Create the Operations File
+### Step 1: Create the Provider
 
-Create `internal/engine/ops_<namespace>.go`:
+Create `internal/execution/provider/docker/provider.go`:
 
 ```go
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package engine
+package docker
 
 import (
     "fmt"
     "os/exec"
 )
 
-// =============================================================================
-// Docker Operations
-// =============================================================================
+// Provider implements Docker container operations.
+type Provider struct{}
 
-// DockerPullOp pulls a container image.
-type DockerPullOp struct{}
-
-func (o *DockerPullOp) Name() string         { return "docker-pull" }
-func (o *DockerPullOp) Category() OpCategory { return OpDirect }
-
-func (o *DockerPullOp) Execute(ctx *Context, node *Node) error {
-    image := node.Metadata["image"]
-    if image == "" {
-        return fmt.Errorf("docker-pull: no image specified")
-    }
-
-    if ctx.DryRun {
-        _, _ = fmt.Fprintf(ctx.Logger, "[dry-run] docker pull %s\n", image)
-        return nil
-    }
-
-    _, _ = fmt.Fprintf(ctx.Logger, "[docker] pull %s\n", image)
+func (p *Provider) Pull(image string) error {
+    _, _ = fmt.Fprintf(os.Stderr, "[docker] pull %s\n", image)
     cmd := exec.Command("docker", "pull", image)
-    cmd.Stdout = ctx.Logger
-    cmd.Stderr = ctx.Logger
+    cmd.Stdout = os.Stderr
+    cmd.Stderr = os.Stderr
     return cmd.Run()
 }
 
-// DockerBuildOp builds a container image.
-type DockerBuildOp struct{}
-
-func (o *DockerBuildOp) Name() string         { return "docker-build" }
-func (o *DockerBuildOp) Category() OpCategory { return OpDirect }
-
-func (o *DockerBuildOp) Execute(ctx *Context, node *Node) error {
+func (p *Provider) Build(context, tag string) error {
     // Implementation...
 }
-
-// DockerOps returns all Docker operations for registration.
-func DockerOps() []Operation {
-    return []Operation{
-        &DockerPullOp{},
-        &DockerBuildOp{},
-        // Add more as needed
-    }
-}
 ```
 
-### Step 2: Update AllOps()
+### Step 2: Create Actions
 
-In `internal/engine/ops.go`, add your namespace to `AllOps()`:
+Create `internal/execution/provider/docker/actions_gen.go`:
 
 ```go
-// AllOps returns all operations (file + package + docker + ...) for registration.
-// Both writ and lore use this to ensure the same operations are available.
-func AllOps() []Operation {
-    ops := FileOps()
-    ops = append(ops, PackageOps()...)
-    ops = append(ops, DockerOps()...)  // Add your namespace
-    return ops
+package docker
+
+import (
+    "fmt"
+
+    "github.com/NobleFactor/devlore-cli/internal/execution"
+)
+
+// Pull pulls a container image.
+type Pull struct{ Impl *Provider }
+
+func (o *Pull) Name() string { return "docker.pull" }
+
+func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+    image := slots["image"].(string)
+
+    if ctx.DryRun {
+        _, _ = fmt.Fprintf(ctx.Logger, "[dry-run] docker pull %s\n", image)
+        return nil, nil, nil
+    }
+    return nil, nil, o.Impl.Pull(image)
+}
+
+func (o *Pull) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+    return nil
+}
+
+// Register registers all docker actions with the given registry.
+func Register(reg *execution.ActionRegistry) {
+    p := &Provider{}
+    reg.Register(&Pull{Impl: p})
 }
 ```
 
-This single change makes your operations available to both `writ` and `lore`.
+### Step 3: Update RegisterAll()
 
-### Step 3: Add Starlark Plan Bindings
+In `internal/execution/provider/register_gen.go`, add your namespace:
+
+```go
+func RegisterAll(reg *execution.ActionRegistry) {
+    file.Register(reg)
+    // ...existing providers...
+    docker.Register(reg)  // Add your namespace
+}
+```
+
+This single change makes your actions available to both `writ` and `lore`.
+
+### Step 4: Add Starlark Plan Bindings
 
 Update the plan bindings interface in `internal/starlark/interfaces.go`:
 
@@ -204,33 +217,31 @@ Update the plan bindings interface in `internal/starlark/interfaces.go`:
 type PlanBindings interface {
     // ... existing methods ...
 
-    // Docker operations
-    DockerPull(image string) *engine.Node
-    DockerBuild(context, tag string) *engine.Node
+    // Docker actions
+    DockerPull(image string) *execution.Node
+    DockerBuild(context, tag string) *execution.Node
 }
 ```
 
-### Step 4: Implement Platform Bindings
+### Step 5: Implement Platform Bindings
 
 Update each platform binding file (`darwin.go`, `linux.go`, `windows.go`) in `internal/starlark/platform/`:
 
 ```go
 // DockerPull adds a docker pull node.
-func (d *DarwinPlanBindings) DockerPull(image string) *engine.Node {
-    node := &engine.Node{
-        ID:         darwinGenerateNodeID("docker-pull", image),
-        Operations: []string{"docker-pull"},
-        Project:    d.project,
-        Metadata: map[string]string{
-            "image": image,
-        },
+func (d *DarwinPlanBindings) DockerPull(image string) *execution.Node {
+    node := &execution.Node{
+        ID:      darwinGenerateNodeID("docker-pull", image),
+        Action:  d.reg.MustGet("docker.pull"),
+        Project: d.project,
     }
+    node.SetSlotImmediate("image", image)
     d.graph.Nodes = append(d.graph.Nodes, node)
     return node
 }
 ```
 
-### Step 5: Add Starlark Namespace
+### Step 6: Add Starlark Namespace
 
 In the `ToStarlark()` method, add the nested struct for your namespace:
 
@@ -238,8 +249,8 @@ In the `ToStarlark()` method, add the nested struct for your namespace:
 func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
     // ... existing namespaces ...
 
-    // Docker operations namespace: plan.docker.*
-    dockerOps := starlarkstruct.FromStringDict(starlark.String("docker"), starlark.StringDict{
+    // Docker namespace: plan.docker.*
+    dockerNs := starlarkstruct.FromStringDict(starlark.String("docker"), starlark.StringDict{
         "pull":  starlark.NewBuiltin("pull", d.dockerPullBuiltin),
         "build": starlark.NewBuiltin("build", d.dockerBuildBuiltin),
     })
@@ -247,7 +258,7 @@ func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
     return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
         "package":    packageOps,
         "file":       fileOps,
-        "docker":     dockerOps,  // Add your namespace
+        "docker":     dockerNs,   // Add your namespace
         "service":    starlark.NewBuiltin("service", d.serviceBuiltin),
         "shell":      starlark.NewBuiltin("shell", d.shellBuiltin),
         "depends_on": starlark.NewBuiltin("depends_on", d.dependsOnBuiltin),
@@ -255,24 +266,9 @@ func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
 }
 ```
 
-### Step 6: Implement Starlark Builtins
-
-Add the builtin functions that bridge Starlark calls to Go methods:
-
-```go
-func (d *DarwinPlanBindings) dockerPullBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-    var image string
-    if err := starlark.UnpackArgs("pull", args, kwargs, "image", &image); err != nil {
-        return nil, err
-    }
-    node := d.DockerPull(image)
-    return nodeToStarlark(node), nil
-}
-```
-
 ## Starlark API Convention
 
-Operations are exposed via nested structs under `plan`:
+Actions are exposed via nested structs under `plan`:
 
 ```starlark
 def install(package, system, plan):
@@ -302,43 +298,39 @@ def install(package, system, plan):
 
 | Layer | Convention | Example |
 |-------|------------|---------|
-| Engine operation | `<namespace>-<action>` | `docker-pull`, `package-install` |
-| Go method | `<Namespace><Action>` | `DockerPull`, `PackageInstall` |
+| Action name | `<namespace>.<action>` | `docker.pull`, `pkg.install` |
+| Action struct | `<Action>` in package | `docker.Pull`, `pkg.Install` |
+| Provider method | `<Action>` | `Provider.Pull`, `Provider.Install` |
 | Starlark builtin | `<namespace><Action>Builtin` | `dockerPullBuiltin` |
 | Starlark API | `plan.<namespace>.<action>()` | `plan.docker.pull()` |
 
 ## Testing
 
-Add tests for your operations in `internal/engine/ops_<namespace>_test.go`:
+Add tests in `internal/execution/execution_test.go` or create a dedicated
+test file in the provider package:
 
 ```go
 func TestDockerPullDryRun(t *testing.T) {
-    reg := NewRegistry()
-    for _, op := range AllOps() {
-        reg.Register(op)
+    reg := execution.NewActionRegistry()
+    provider.RegisterAll(reg)
+
+    node := &execution.Node{
+        ID:     "test-docker-pull",
+        Action: reg.MustGet("docker.pull"),
+        Status: execution.StatusPending,
+    }
+    node.SetSlotImmediate("image", "nginx:latest")
+
+    ctx := &execution.Context{
+        Context: context.Background(),
+        DryRun:  true,
+        Logger:  io.Discard,
     }
 
-    eng := New(reg, Options{DryRun: true})
-
-    graph := &Graph{
-        Nodes: []*Node{
-            {
-                ID:         "test-docker-pull",
-                Operations: []string{"docker-pull"},
-                Metadata: map[string]string{
-                    "image": "nginx:latest",
-                },
-            },
-        },
-    }
-
-    results, err := eng.Run(context.Background(), graph)
+    slots := node.ResolvedSlots(nil)
+    _, _, err := node.Action.Do(ctx, slots)
     if err != nil {
-        t.Fatalf("Run failed: %v", err)
-    }
-
-    if results[0].Status != StatusCompleted {
-        t.Errorf("expected completed, got %s", results[0].Status)
+        t.Fatalf("Do failed: %v", err)
     }
 }
 ```
@@ -424,7 +416,7 @@ def install(package, system, plan):
 
 | Audience | Location | Content |
 |----------|----------|---------|
-| Engine developers | `docs/architecture/devlore-operation-namespaces.md` | How to implement namespaces |
+| Engine developers | `docs/architecture/devlore-operation-namespaces.md` | How to implement action namespaces |
 | Package developers | `docs/guides/lore/plan-bindings.md` | How to use plan.* in Starlark |
 | CLI users | `docs/cli/lore/` | Command-line usage |
 
@@ -441,9 +433,9 @@ The Starlark API documentation should match the implementation. When updating bi
 
 When adding a new namespace:
 
-- [ ] Create `internal/engine/ops_<namespace>.go` with operations
-- [ ] Add `<Namespace>Ops()` function returning all operations
-- [ ] Update `AllOps()` in `ops.go` to include your operations
+- [ ] Create `internal/execution/provider/<namespace>/provider.go` with Provider struct
+- [ ] Create `internal/execution/provider/<namespace>/actions_gen.go` with action structs and `Register(reg)`
+- [ ] Update `RegisterAll()` in `provider/register_gen.go` to include your provider
 - [ ] Update `PlanBindings` interface in `internal/starlark/interfaces.go`
 - [ ] Implement methods in all platform bindings (darwin, linux, windows)
 - [ ] Add nested struct to `ToStarlark()` in all platform bindings

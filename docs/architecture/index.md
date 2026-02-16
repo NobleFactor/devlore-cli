@@ -9,7 +9,7 @@ Internal engineering documentation for devlore-cli developers.
 - [LLM Integration](devlore-llm-integration.md) - Provider abstraction and prompt loading for AI-assisted commands
 - [Registry Knowledge Base](devlore-registry-knowledge.md) - Knowledge domain structure in devlore-registry
 - [E2E Testing](devlore-e2e-testing.md) - Multi-provider testing strategy for LLM commands
-- [Operation Namespaces](devlore-operation-namespaces.md) - How to add new operation namespaces to the execution engine
+- [Action Namespaces](devlore-operation-namespaces.md) - How to add new action namespaces to the execution engine
 - [Receipt Integrity](devlore-receipt-integrity.md) - Checksum and signature verification for receipts
 
 ## Overview

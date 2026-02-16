@@ -210,7 +210,7 @@ func (l *LinuxPlanBindings) Write(target, content string) *execution.Node {
 // Service adds a systemd service management node.
 func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
-		ID:         linuxGenerateNodeID("systemd", name, action.String()),
+		ID:         linuxGenerateNodeID("service", name, action.String()),
 		Action: l.reg.MustGet("service." + action.String()),
 		Project:    l.project,
 	}
