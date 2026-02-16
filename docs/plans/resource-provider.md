@@ -38,7 +38,7 @@ live in `execution/flow` as typed Actions: `flow.Choose` (OR-selector),
 6. **Generator-ready.** Action files use the `_gen.go` suffix and follow the
    patterns produced by `star gen.receiver`. Hand-written now, regenerable later.
 
-## Current State (after Phase 2D)
+## Current State (after Phase 3)
 
 | Component | State |
 |---|---|
@@ -56,6 +56,7 @@ live in `execution/flow` as typed Actions: `flow.Choose` (OR-selector),
 | Delegate/manifest | Deleted — no delegate nodes, no manifest.Resolve action, no SubgraphBuilder |
 | Planner | `lore.Planner` — `PlanPackages(graph, manifestPath)`, `PlanByName(graph, packages)` |
 | Writ → Lore wiring | `DeployGraphBuilder.Planner` field; BuildTree returns manifest paths |
+| Code gen templates | `graph_actions` + `plan_receiver` emit Do/Undo/Register, `slots map[string]any`, `Impl *Provider`, `p.reg.MustGet()` |
 
 ## Vernacular
 
@@ -277,12 +278,13 @@ Kept as tree detection sentinel. `Build()` refactored to use Planner internally.
 
 See: [Phase 2D plan](./resource-provider/phase-2d.md)
 
-### Phase 3: Generator Templates
+### Phase 3: Generator Templates (current branch)
 
-Update the `star gen.receiver` templates and noblefactor-ops helper functions
-so the `_gen.go` files become regenerable. After this phase,
-`rm provider/*/actions_gen.go` + re-run `star gen.receiver` produces identical
-output.
+Updated `star gen.receiver` templates and noblefactor-ops helper functions so
+`_gen.go` files become regenerable. Template helpers emit Do/Undo/Register
+pattern with `slots map[string]any`, three-value returns, `Impl *Provider`.
+Plan receiver template threads `reg *execution.ActionRegistry` and uses
+`p.reg.MustGet()`. Renamed `graph_ops` → `graph_actions` throughout.
 
 **Repos**: noblefactor-ops (template helpers in `receiver_go_gen.go`),
 devlore-cli (template files in `com.noblefactor.devlore.Ops`)

@@ -20,14 +20,14 @@ STRIP_SUFFIXES = ["Ops", "Impl", "Service", "Handler"]
 # Template to output filename mapping
 TEMPLATE_FILES = {
     "plan_receiver": "plan_%s_gen.go",
-    "graph_ops": "ops_%s_gen.go",
+    "graph_actions": "actions_gen.go",
     "realtime_receiver": "receiver_%s_gen.go",
 }
 
 # Template to default package mapping
 TEMPLATE_PACKAGES = {
     "plan_receiver": "starlark",
-    "graph_ops": "execution",
+    "graph_actions": "",  # derived from category at runtime
     "realtime_receiver": "starlark",
 }
 
@@ -35,7 +35,7 @@ TEMPLATE_PACKAGES = {
 # Builtin templates (realtime_receiver) are retrieved via go.template().
 LOCAL_TEMPLATES = {
     "plan_receiver": "plan_receiver.go.tmpl",
-    "graph_ops": "graph_ops.go.tmpl",
+    "graph_actions": "graph_actions.go.tmpl",
 }
 
 def load_template(name, ext_dir):
@@ -150,7 +150,7 @@ def run(ctx):
     # -------------------------------------------------------------------------
     # Generate code for each template
     # -------------------------------------------------------------------------
-    templates_str = ctx.args.get("templates", "plan_receiver,graph_ops,realtime_receiver")
+    templates_str = ctx.args.get("templates", "plan_receiver,graph_actions,realtime_receiver")
     templates = templates_str.split(",")
     output_dir = ctx.args.get("output", "")
     write_files = ctx.args.get("write", "false") == "true"
@@ -158,7 +158,7 @@ def run(ctx):
     for tmpl in templates:
         tmpl = tmpl.strip()
         if tmpl not in TEMPLATE_FILES:
-            fail("unknown template: " + tmpl + " (valid: plan_receiver, graph_ops, realtime_receiver)")
+            fail("unknown template: " + tmpl + " (valid: plan_receiver, graph_actions, realtime_receiver)")
 
         # Derive namespace
         if tmpl == "plan_receiver":
@@ -166,23 +166,35 @@ def run(ctx):
         else:
             namespace = category
 
-        # Derive package
-        pkg = pkg_override if pkg_override else TEMPLATE_PACKAGES[tmpl]
+        # Derive package and struct name per template
+        if tmpl == "graph_actions":
+            # graph_actions lives in the per-provider package
+            pkg = pkg_override if pkg_override else category
+            tmpl_struct_name = struct_short
+            impl_type = "Provider"
+        else:
+            pkg = pkg_override if pkg_override else TEMPLATE_PACKAGES[tmpl]
+            tmpl_struct_name = struct_short
+            impl_type = struct_name
 
         descriptor = {
             "package": pkg,
             "category": category,
-            "struct_name": struct_short,
+            "struct_name": tmpl_struct_name,
             "namespace": namespace,
-            "impl_type": struct_name,
+            "impl_type": impl_type,
             "methods": method_descriptors,
         }
 
-        note("Generating " + tmpl + " for " + struct_short + "...")
+        note("Generating " + tmpl + " for " + tmpl_struct_name + "...")
         template_content = load_template(tmpl, ctx.extension.dir)
         code = go.generate(template_content, descriptor)
 
-        filename = TEMPLATE_FILES[tmpl] % category
+        filename_pattern = TEMPLATE_FILES[tmpl]
+        if "%s" in filename_pattern:
+            filename = filename_pattern % category
+        else:
+            filename = filename_pattern
         if write_files and output_dir:
             out_path = output_dir + "/" + filename
             file.write(out_path, code)
