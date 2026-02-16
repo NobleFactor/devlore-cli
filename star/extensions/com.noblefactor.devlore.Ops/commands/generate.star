@@ -34,8 +34,8 @@ TEMPLATE_PACKAGES = {
 # Local templates shipped with this extension (loaded from templates/ dir).
 # Builtin templates (realtime_receiver) are retrieved via go.template().
 LOCAL_TEMPLATES = {
-    "plan_receiver": "plan_receiver.go.tmpl",
-    "graph_actions": "graph_actions.go.tmpl",
+    "plan_receiver": "plan_receiver.go.template",
+    "graph_actions": "graph_actions.go.template",
 }
 
 def load_template(name, ext_dir):
