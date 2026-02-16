@@ -41,7 +41,7 @@ commands:
         help: Comma-separated list of methods to include (default all public)
       - name: templates
         type: string
-        default: "plan_receiver,graph_ops,realtime_receiver"
+        default: "plan_receiver,graph_actions,realtime_receiver"
         help: Comma-separated list of templates to generate
       - name: output
         type: string

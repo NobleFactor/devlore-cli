@@ -3,7 +3,7 @@
 ```yaml
 title: "Phase 3: Generator Templates"
 issue: TBD
-status: draft
+status: complete
 created: 2026-02-15
 updated: 2026-02-15
 ```

@@ -16,14 +16,16 @@ type {{.StructName}}Plan struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 }
 
-func New{{.StructName}}Plan(graph *execution.Graph, h host.Host, project string) *{{.StructName}}Plan {
+func New{{.StructName}}Plan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *{{.StructName}}Plan {
 	return &{{.StructName}}Plan{
 		Receiver: NewReceiver("{{.Namespace}}"),
 		graph:    graph,
 		host:     h,
 		project:  project,
+		reg:      reg,
 	}
 }
 
@@ -46,9 +48,9 @@ func (p *{{$.StructName}}Plan) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Bu
 {{planUnpackArgs .}}
 
 	node := &execution.Node{
-		ID:        generateNodeID("{{$.Category}}.{{.SnakeName}}"),
-		Operation: "{{$.Category}}.{{.SnakeName}}",
-		Project:   p.project,
+		ID:      generateNodeID("{{$.Category}}-{{.SnakeName}}"),
+		Action:  p.reg.MustGet("{{$.Category}}.{{.SnakeName}}"),
+		Project: p.project,
 	}
 {{planFillSlots .}}
 
