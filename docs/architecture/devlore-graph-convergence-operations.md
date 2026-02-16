@@ -75,7 +75,7 @@ Equivalent to `Promise.all()`. Every input must succeed for the gather node to s
 ```yaml
 - id: verify-container-stack
   mode: gather
-  operations: [shell]
+  action: shell.exec
   depends_on: [install-docker, install-compose, install-kubectl]
   slots:
     command: "docker compose version && kubectl version --client"
@@ -200,7 +200,7 @@ Only one input is selected. Unchosen branches are skipped, not executed.
 
 ```yaml
 - id: install-docker
-  operations: [package-install]
+  action: pkg.install
   retry:
     max_attempts: 3
     backoff: exponential  # none, linear, exponential
@@ -311,14 +311,17 @@ Node mode is a node-level property that determines execution semantics:
 type NodeMode string
 
 const (
-    NodeDefault  NodeMode = ""         // standard operation node
+    NodeDefault  NodeMode = ""         // standard action node
     NodeGather   NodeMode = "gather"   // wait for all predecessors
     NodeChoose   NodeMode = "choose"   // select one predecessor
     NodeElevate  NodeMode = "elevate"  // privilege transition
 )
 ```
 
-Retry and rollback are node properties, not modes — they modify execution behavior of any node regardless of its mode:
+Retry is a node property, not a mode — it modifies execution behavior of any
+node regardless of its mode. Rollback is handled by the Action interface's `Undo`
+method — each action's `Do` returns `UndoState` that the executor stores on the
+recovery stack and passes back to `Undo` during unwind:
 
 ```go
 type RetryPolicy struct {
@@ -330,14 +333,13 @@ type RetryPolicy struct {
 
 type Node struct {
     // ...existing fields...
-    Mode     NodeMode
+    Action   Action       // action to execute (has Do + Undo)
     Retry    *RetryPolicy // nil = no retry
-    Rollback string       // node ID of compensating action, empty = no rollback
 }
 ```
 
 The executor's topological walk checks the mode of each node:
 
-- **Default/Gather**: Wait for all predecessors, then execute operations
+- **Default/Gather**: Wait for all predecessors, then execute the action
 - **Choose**: Evaluate criteria, execute selected predecessor, skip others, then execute
 - **Elevate**: Acquire/release privilege level for downstream nodes

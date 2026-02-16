@@ -162,7 +162,7 @@ type ExecutionGraph struct {
     Platform  Platform  // OS, arch
 
     // Content
-    Nodes     []*Node   // operations to perform
+    Nodes     []*Node   // actions to perform
     Edges     []Edge    // dependencies
     Collisions []Collision
 
@@ -191,16 +191,18 @@ Each node tracks its own state:
 
 ```go
 type Node struct {
-    ID         string
-    Operations []string
-    Source     string
-    Target     string
-    Project    string
-    Layer      string
+    ID      string
+    Action  Action   // action to execute (set via registry.MustGet)
+
+    // Slots holds input values for this node (immediate or promise).
+    Slots   map[string]SlotValue
+
+    Project string
+    Layer   string
 
     // State (mutated by Run)
     Status         NodeStatus  // pending, completed, skipped, failed
-    Timestamp      time.Time
+    Timestamp      string
     SourceChecksum string
     TargetChecksum string
     Error          string
@@ -236,10 +238,11 @@ context:
   projects: [base, team, personal]
 nodes:
   - id: .config/git/config
-    operations: [link]
+    action: file.link
     status: pending
-    source: /Users/me/.local/share/devlore/repos/base/.config/git/config
-    target: /Users/me/.config/git/config
+    slots:
+      source: /Users/me/.local/share/devlore/repos/base/.config/git/config
+      path: /Users/me/.config/git/config
 ```
 
 ### After Run() - Receipt Output
@@ -257,11 +260,12 @@ context:
   projects: [base, team, personal]
 nodes:
   - id: .config/git/config
-    operations: [link]
+    action: file.link
     status: completed
     timestamp: "2025-01-29T10:30:01Z"
-    source: /Users/me/.local/share/devlore/repos/base/.config/git/config
-    target: /Users/me/.config/git/config
+    slots:
+      source: /Users/me/.local/share/devlore/repos/base/.config/git/config
+      path: /Users/me/.config/git/config
 summary:
   total_files: 42
   links: 38
@@ -318,20 +322,23 @@ context:
   source_root: /Users/me/dotfiles
 nodes:
   - id: rename-all-darwin
-    operations: [rename]
+    action: file.move
     status: pending
-    source: Home/Configs/all-Darwin
-    target: Home/Configs/all.Darwin
+    slots:
+      source: Home/Configs/all-Darwin
+      path: Home/Configs/all.Darwin
   - id: rename-all-linux
-    operations: [rename]
+    action: file.move
     status: pending
-    source: Home/Configs/all-Linux
-    target: Home/Configs/all.Linux
+    slots:
+      source: Home/Configs/all-Linux
+      path: Home/Configs/all.Linux
   - id: rename-noblefactor-unix
-    operations: [rename]
+    action: file.move
     status: pending
-    source: Home/Configs/noblefactor-Unix
-    target: Home/Configs/noblefactor.Unix
+    slots:
+      source: Home/Configs/noblefactor-Unix
+      path: Home/Configs/noblefactor.Unix
 edges:
   - from: rename-all-darwin
     to: rename-all-linux
@@ -371,7 +378,7 @@ func (g *ExecutionGraph) Run() error {
         return err
     }
 
-    // 2. Execute operations
+    // 2. Execute actions
     eng := g.createEngine()
     results, err := eng.Run(context.Background(), g.toEngineGraph())
     if err != nil {

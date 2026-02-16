@@ -5,7 +5,7 @@ title: Resource-Provider Model
 issue: TBD
 status: in-progress
 created: 2026-02-14
-updated: 2026-02-15
+updated: 2026-02-16
 ```
 
 ## Summary
@@ -291,17 +291,25 @@ devlore-cli (template files in `com.noblefactor.devlore.Ops`)
 
 See: [Phase 3 plan](./resource-provider/phase-3.md)
 
-### Phase 4: Architecture Documentation
+### Phase 4: Architecture Documentation (current branch)
 
-Update architecture docs to reflect the new model.
+Updated architecture docs to reflect the Action model. All five architecture
+docs updated: Operation→Action, Service→Provider, Execute→Do/Undo,
+ContentFor/StoreContent→Result+promise slots. Cross-references updated in
+index.md, receipt-integrity.md, and this plan. Code doc comment in graph.go
+fixed.
 
-| Document | Change |
-|---|---|
-| `devlore-operation-namespaces.md` | Retitle to "Action Namespaces". Update all Operation → Action references. Update package paths to `provider/*`. |
-| `devlore-execution-graph.md` | Update Operation → Action, Node.Action is interface, Do/Undo take slots. |
-| `devlore-graph-convergence-operations.md` | Update code snippets to use Action interface with slots. |
-| `devlore-typed-slots.md` | Update any Operation references to Action. |
-| `devlore-phase-execution.md` | Update Operation → Action in saga/phase references. |
+See: [Phase 4 plan](./resource-provider/phase-4.md)
+
+## Remaining Phases
+
+### Phase 5: Comprehensive Action Testing
+
+Test all 31 provider actions and 3 flow actions. Cover Do() for every action
+(with mock filesystem/shell), flow action graph traversal (Choose branch
+selection, Gather AND-join, Elevate privilege marking), and Starlark→execution
+integration (build graph from plan functions, save graph, load graph, run
+graph).
 
 ## Naming Decisions
 
@@ -365,14 +373,6 @@ No cycles. All subpackages import `execution` for core types.
 
 ## Open Questions
 
-- [ ] Should `Undo()` methods be populated for file actions now (e.g.,
-  `file.Link.Undo` removes the symlink), or deferred until the saga controller
-  integration? The interface is ready — the question is when to populate.
-- [ ] Platform-specific plan receivers (`platform/darwin.go`,
-  `platform/linux.go`, `platform/windows.go`) emit names like
-  `launchd-start`, `systemd-start`. Do these converge to `service.start`
-  now, or do they remain as platform-specific action names?
-
 ### Resolved
 
 - **Delegate pseudo-operation**: Eliminated. No delegate nodes, no delegate
@@ -384,6 +384,11 @@ No cycles. All subpackages import `execution` for core types.
 - **engine/build subpackages**: Not created. Executor, phase, and recovery stay
   flat in the `execution` package. Builder and preflight stay flat. The planned
   `engine/` and `build/` moves are dropped — the flat layout works.
+- **Undo methods**: Populated as part of this plan (Goal 1: "every action
+  implements Do and Undo").
+- **Platform-specific action names**: Resolved — all platforms already use
+  `service.*` action names. Node ID prefixes updated from `launchd`/`systemd`/
+  `winservice` to `service` for consistency.
 
 ## Related Documents
 
@@ -391,4 +396,4 @@ No cycles. All subpackages import `execution` for core types.
 - [Execution Graph Architecture](../architecture/devlore-execution-graph.md) — Core graph state machine
 - [Phase Execution Architecture](../architecture/devlore-phase-execution.md) — Saga pattern, phases, retry/rollback
 - [Typed Slots Architecture](../architecture/devlore-typed-slots.md) — Slot resolution chain
-- [Operation Namespaces](../architecture/devlore-operation-namespaces.md) — Current namespace guide (to be updated)
+- [Action Namespaces](../architecture/devlore-operation-namespaces.md) — Action namespace guide

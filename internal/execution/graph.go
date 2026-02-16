@@ -18,8 +18,9 @@
 //
 // # Actions
 //
-// Each action implements Action.Do(ctx, node) returning (Result, UndoState, error).
-// Content actions use ctx.ContentFor(node) and ctx.StoreContent(node, data) internally.
+// Each action implements Action.Do(ctx, slots) returning (Result, UndoState, error).
+// Content flows via Result and promise slots — upstream actions return content as
+// Result, downstream actions receive it through a "content" promise slot.
 //
 // # Graph Lifecycle
 //
