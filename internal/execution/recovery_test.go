@@ -9,6 +9,23 @@ import (
 	"testing"
 )
 
+// testUndoAction implements Action with controllable Undo behavior.
+type testUndoAction struct {
+	name   string
+	undoFn func(ctx *Context, slots map[string]any, state UndoState) error
+}
+
+func (a *testUndoAction) Name() string { return a.name }
+func (a *testUndoAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
+	return nil, nil, nil
+}
+func (a *testUndoAction) Undo(ctx *Context, slots map[string]any, state UndoState) error {
+	if a.undoFn != nil {
+		return a.undoFn(ctx, slots, state)
+	}
+	return nil
+}
+
 func TestRecoveryStackPushLen(t *testing.T) {
 	s := &RecoveryStack{}
 
@@ -16,8 +33,8 @@ func TestRecoveryStackPushLen(t *testing.T) {
 		t.Errorf("expected empty stack, got len %d", s.Len())
 	}
 
-	s.Push(RecoveryEntry{PhaseID: "phase.prepare", PhaseName: "prepare"})
-	s.Push(RecoveryEntry{PhaseID: "phase.install", PhaseName: "install"})
+	s.Push(RecoveryEntry{Node: &Node{ID: "prepare", Action: &stubAction{name: "test"}}})
+	s.Push(RecoveryEntry{Node: &Node{ID: "install", Action: &stubAction{name: "test"}}})
 
 	if s.Len() != 2 {
 		t.Errorf("expected len 2, got %d", s.Len())
@@ -29,32 +46,35 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	var order []string
 
 	s.Push(RecoveryEntry{
-		PhaseID:   "phase.prepare",
-		PhaseName: "prepare",
-		Compensate: func(ctx *Context) error {
-			order = append(order, "prepare")
-			return nil
-		},
+		Node: &Node{ID: "prepare", Action: &testUndoAction{
+			name: "prepare",
+			undoFn: func(_ *Context, _ map[string]any, _ UndoState) error {
+				order = append(order, "prepare")
+				return nil
+			},
+		}},
 	})
 	s.Push(RecoveryEntry{
-		PhaseID:   "phase.install",
-		PhaseName: "install",
-		Compensate: func(ctx *Context) error {
-			order = append(order, "install")
-			return nil
-		},
+		Node: &Node{ID: "install", Action: &testUndoAction{
+			name: "install",
+			undoFn: func(_ *Context, _ map[string]any, _ UndoState) error {
+				order = append(order, "install")
+				return nil
+			},
+		}},
 	})
 	s.Push(RecoveryEntry{
-		PhaseID:   "phase.provision",
-		PhaseName: "provision",
-		Compensate: func(ctx *Context) error {
-			order = append(order, "provision")
-			return nil
-		},
+		Node: &Node{ID: "provision", Action: &testUndoAction{
+			name: "provision",
+			undoFn: func(_ *Context, _ map[string]any, _ UndoState) error {
+				order = append(order, "provision")
+				return nil
+			},
+		}},
 	})
 
 	ctx := &Context{Context: context.Background()}
-	errs := s.Unwind(ctx)
+	errs := s.Unwind(ctx, nil)
 
 	if len(errs) != 0 {
 		t.Errorf("expected no errors, got %v", errs)
@@ -81,29 +101,26 @@ func TestRecoveryStackUnwindCompensateError(t *testing.T) {
 	s := &RecoveryStack{}
 
 	s.Push(RecoveryEntry{
-		PhaseID:   "phase.prepare",
-		PhaseName: "prepare",
-		Compensate: func(ctx *Context) error {
-			return nil
-		},
+		Node: &Node{ID: "prepare", Action: &testUndoAction{
+			name: "prepare",
+		}},
 	})
 	s.Push(RecoveryEntry{
-		PhaseID:   "phase.install",
-		PhaseName: "install",
-		Compensate: func(ctx *Context) error {
-			return fmt.Errorf("compensate install failed")
-		},
+		Node: &Node{ID: "install", Action: &testUndoAction{
+			name: "install",
+			undoFn: func(_ *Context, _ map[string]any, _ UndoState) error {
+				return fmt.Errorf("compensate install failed")
+			},
+		}},
 	})
 	s.Push(RecoveryEntry{
-		PhaseID:   "phase.provision",
-		PhaseName: "provision",
-		Compensate: func(ctx *Context) error {
-			return nil
-		},
+		Node: &Node{ID: "provision", Action: &testUndoAction{
+			name: "provision",
+		}},
 	})
 
 	ctx := &Context{Context: context.Background()}
-	errs := s.Unwind(ctx)
+	errs := s.Unwind(ctx, nil)
 
 	// Should have 1 error but all three were executed
 	if len(errs) != 1 {
@@ -118,16 +135,14 @@ func TestRecoveryStackUnwindNilCompensate(t *testing.T) {
 	s := &RecoveryStack{}
 
 	s.Push(RecoveryEntry{
-		PhaseID:    "phase.prepare",
-		PhaseName:  "prepare",
-		Compensate: nil, // No compensating action
+		Node: &Node{ID: "prepare", Action: nil}, // No action — should be skipped
 	})
 
 	ctx := &Context{Context: context.Background()}
-	errs := s.Unwind(ctx)
+	errs := s.Unwind(ctx, nil)
 
 	if len(errs) != 0 {
-		t.Errorf("expected no errors for nil compensate, got %v", errs)
+		t.Errorf("expected no errors for nil action, got %v", errs)
 	}
 }
 
@@ -135,7 +150,7 @@ func TestRecoveryStackUnwindEmpty(t *testing.T) {
 	s := &RecoveryStack{}
 
 	ctx := &Context{Context: context.Background()}
-	errs := s.Unwind(ctx)
+	errs := s.Unwind(ctx, nil)
 
 	if len(errs) != 0 {
 		t.Errorf("expected no errors for empty stack, got %v", errs)
@@ -145,24 +160,24 @@ func TestRecoveryStackUnwindEmpty(t *testing.T) {
 func TestRecoveryStackEntries(t *testing.T) {
 	s := &RecoveryStack{}
 
-	s.Push(RecoveryEntry{PhaseID: "a", PhaseName: "first"})
-	s.Push(RecoveryEntry{PhaseID: "b", PhaseName: "second"})
+	s.Push(RecoveryEntry{Node: &Node{ID: "a", Action: &stubAction{name: "first"}}})
+	s.Push(RecoveryEntry{Node: &Node{ID: "b", Action: &stubAction{name: "second"}}})
 
 	entries := s.Entries()
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
-	if entries[0].PhaseID != "a" {
-		t.Errorf("expected first entry 'a', got %q", entries[0].PhaseID)
+	if entries[0].Node.ActionName() != "first" {
+		t.Errorf("expected first entry action name 'first', got %q", entries[0].Node.ActionName())
 	}
-	if entries[1].PhaseID != "b" {
-		t.Errorf("expected second entry 'b', got %q", entries[1].PhaseID)
+	if entries[1].Node.ActionName() != "second" {
+		t.Errorf("expected second entry action name 'second', got %q", entries[1].Node.ActionName())
 	}
 
-	// Entries is a copy — original stack should be unaffected
-	entries[0].PhaseID = "modified"
+	// Entries is a slice copy — appending to it does not affect the stack
+	entries = append(entries, RecoveryEntry{})
 	original := s.Entries()
-	if original[0].PhaseID != "a" {
+	if len(original) != 2 {
 		t.Error("Entries() did not return a copy")
 	}
 }

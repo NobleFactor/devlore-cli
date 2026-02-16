@@ -20,14 +20,16 @@ import (
 //	    plan.link("/usr/local/bin/foo", source="/path/to/foo")
 type Plan struct {
 	mu      sync.Mutex
+	reg     *ActionRegistry
 	graph   *Graph
 	project string // default project for new nodes
 	nodeID  int    // auto-incrementing node ID
 }
 
 // NewPlan creates a new plan for building an execution graph.
-func NewPlan(project string) *Plan {
+func NewPlan(reg *ActionRegistry, project string) *Plan {
 	return &Plan{
+		reg:     reg,
 		graph:   &Graph{Nodes: []*Node{}, Edges: []Edge{}},
 		project: project,
 	}
@@ -66,12 +68,12 @@ func (p *Plan) Mkdir(path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:        p.nextID("mkdir"),
-		Action: "mkdir",
-		Project:   p.project,
-		Mode:      0755,
+		ID:      p.nextID("mkdir"),
+		Action:  p.reg.MustGet("file.mkdir"),
+		Project: p.project,
 	}
 	node.SetSlotImmediate("path", path)
+	node.SetSlotImmediate("mode", os.FileMode(0755))
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
@@ -82,9 +84,9 @@ func (p *Plan) Link(source, path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:        p.nextID("link"),
-		Action: "link",
-		Project:   p.project,
+		ID:      p.nextID("link"),
+		Action:  p.reg.MustGet("file.link"),
+		Project: p.project,
 	}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", path)
@@ -99,12 +101,12 @@ func (p *Plan) Copy(source, path string) *Node {
 
 	node := &Node{
 		ID:      p.nextID("copy"),
-		Action:  "copy",
+		Action:  p.reg.MustGet("file.copy"),
 		Project: p.project,
-		Mode:    0644,
 	}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", path)
+	node.SetSlotImmediate("mode", os.FileMode(0644))
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
@@ -116,12 +118,12 @@ func (p *Plan) CopyWithMode(source, path string, mode os.FileMode) *Node {
 
 	node := &Node{
 		ID:      p.nextID("copy"),
-		Action:  "copy",
+		Action:  p.reg.MustGet("file.copy"),
 		Project: p.project,
-		Mode:    mode,
 	}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", path)
+	node.SetSlotImmediate("mode", mode)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
@@ -133,7 +135,7 @@ func (p *Plan) Render(source string) *Node {
 
 	node := &Node{
 		ID:      p.nextID("render"),
-		Action:  "render",
+		Action:  p.reg.MustGet("template.render"),
 		Project: p.project,
 	}
 	if source != "" {
@@ -150,7 +152,7 @@ func (p *Plan) Decrypt(source string) *Node {
 
 	node := &Node{
 		ID:      p.nextID("decrypt"),
-		Action:  "decrypt",
+		Action:  p.reg.MustGet("encryption.decrypt"),
 		Project: p.project,
 	}
 	if source != "" {
@@ -166,9 +168,9 @@ func (p *Plan) Remove(path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:        p.nextID("remove"),
-		Action: "remove",
-		Project:   p.project,
+		ID:      p.nextID("remove"),
+		Action:  p.reg.MustGet("file.remove"),
+		Project: p.project,
 	}
 	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -181,9 +183,9 @@ func (p *Plan) Unlink(path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:        p.nextID("unlink"),
-		Action: "unlink",
-		Project:   p.project,
+		ID:      p.nextID("unlink"),
+		Action:  p.reg.MustGet("file.unlink"),
+		Project: p.project,
 	}
 	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -196,15 +198,14 @@ func (p *Plan) Backup(path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:        p.nextID("backup"),
-		Action: "backup",
-		Project:   p.project,
+		ID:      p.nextID("backup"),
+		Action:  p.reg.MustGet("file.backup"),
+		Project: p.project,
 	}
 	node.SetSlotImmediate("path", path)
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return node
 }
-
 
 // Rename adds a file/directory move operation (git mv when possible).
 func (p *Plan) Rename(source, path string) *Node {
@@ -212,9 +213,9 @@ func (p *Plan) Rename(source, path string) *Node {
 	defer p.mu.Unlock()
 
 	node := &Node{
-		ID:        p.nextID("move"),
-		Action: "move",
-		Project:   p.project,
+		ID:      p.nextID("move"),
+		Action:  p.reg.MustGet("file.move"),
+		Project: p.project,
 	}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", path)

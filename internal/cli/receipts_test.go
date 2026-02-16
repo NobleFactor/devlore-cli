@@ -17,7 +17,7 @@ import (
 func createTestGraph() *execution.Graph {
 	node := &execution.Node{
 		ID:         ".bashrc",
-		Action: "link",
+		Action: execution.StubAction("file.link"),
 		Status:     execution.StatusCompleted,
 	}
 	node.SetSlotImmediate("source", "/home/user/env/.bashrc")
@@ -187,8 +187,7 @@ platform:
 context: {}
 nodes:
   - id: .bashrc
-    operations:
-      - link
+    action: file.link
     status: completed
 checksum: "sha256:abc123"
 `

@@ -19,14 +19,16 @@ type PackagePlan struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 }
 
 // NewPackagePlan creates a new PackagePlan for the given graph and host.
-func NewPackagePlan(graph *execution.Graph, h host.Host, project string) *PackagePlan {
+func NewPackagePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PackagePlan {
 	return &PackagePlan{
 		graph:   graph,
 		host:    h,
 		project: project,
+		reg:     reg,
 	}
 }
 
@@ -73,7 +75,7 @@ func (p *PackagePlan) install(_ *starlark.Thread, _ *starlark.Builtin, args star
 
 	node := &execution.Node{
 		ID:         generateNodeID("package-install", packages...),
-		Action: "package-install",
+		Action: p.reg.MustGet("pkg.install"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -98,7 +100,7 @@ func (p *PackagePlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args star
 
 	node := &execution.Node{
 		ID:         generateNodeID("package-upgrade", packages...),
-		Action: "package-upgrade",
+		Action: p.reg.MustGet("pkg.upgrade"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -123,7 +125,7 @@ func (p *PackagePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starl
 
 	node := &execution.Node{
 		ID:         generateNodeID("package-remove", packages...),
-		Action: "package-remove",
+		Action: p.reg.MustGet("pkg.remove"),
 		Project:    p.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -145,7 +147,7 @@ func (p *PackagePlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starl
 
 	node := &execution.Node{
 		ID:         generateNodeID("package-update"),
-		Action: "package-update",
+		Action: p.reg.MustGet("pkg.update"),
 		Project:    p.project,
 	}
 

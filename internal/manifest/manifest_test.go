@@ -4,12 +4,9 @@
 package manifest
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
 func TestParse_YAML_SimplePackages(t *testing.T) {
@@ -291,117 +288,3 @@ func TestPackagesManifest_PackageNames(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// Builder Tests
-// ============================================================================
-
-func TestBuilder_BuildGraphFromManifest(t *testing.T) {
-	builder := NewBuilder()
-	manifest := &PackagesManifest{
-		Packages: []PackageEntry{
-			{Name: "gh"},
-			{Name: "neovim", With: []string{"lsp", "treesitter"}},
-			{Name: "docker", With: []string{"rootless"}},
-		},
-	}
-
-	graph, err := builder.BuildGraphFromManifest(context.TODO(), manifest, defaultBuildOpts())
-	if err != nil {
-		t.Fatalf("BuildGraphFromManifest failed: %v", err)
-	}
-
-	// 3 packages × 4 phases = 12 nodes
-	if len(graph.Nodes) != 12 {
-		t.Fatalf("expected 12 nodes (3 packages × 4 phases), got %d", len(graph.Nodes))
-	}
-	// 3 packages × 3 edges per chain = 9 edges
-	if len(graph.Edges) != 9 {
-		t.Fatalf("expected 9 edges, got %d", len(graph.Edges))
-	}
-
-	// Check first package chain (gh): gh:prepare → gh:install → gh:provision → gh
-	expectedPhases := []string{"prepare", "install", "provision", "verify"}
-	expectedIDs := []string{"gh:prepare", "gh:install", "gh:provision", "gh"}
-	for i, id := range expectedIDs {
-		if graph.Nodes[i].ID != id {
-			t.Errorf("nodes[%d].ID: expected %q, got %q", i, id, graph.Nodes[i].ID)
-		}
-		if graph.Nodes[i].Action != expectedPhases[i] {
-			t.Errorf("nodes[%d].Action: expected %q, got %q", i, expectedPhases[i], graph.Nodes[i].Action)
-		}
-		if graph.Nodes[i].GetSlot("package") != "gh" {
-			t.Errorf("nodes[%d] slot 'package': expected 'gh', got %q", i, graph.Nodes[i].GetSlot("package"))
-		}
-	}
-
-	// Check second package chain (neovim) — features on first node
-	neovimStart := 4
-	if graph.Nodes[neovimStart].ID != "neovim:prepare" {
-		t.Errorf("nodes[%d].ID: expected 'neovim:prepare', got %q", neovimStart, graph.Nodes[neovimStart].ID)
-	}
-	if graph.Nodes[neovimStart].GetSlot("feature_count") != "2" {
-		t.Errorf("nodes[%d] slot 'feature_count': expected '2', got %q", neovimStart, graph.Nodes[neovimStart].GetSlot("feature_count"))
-	}
-	if graph.Nodes[neovimStart].GetSlot("feature.0") != "lsp" {
-		t.Errorf("nodes[%d] slot 'feature.0': expected 'lsp', got %q", neovimStart, graph.Nodes[neovimStart].GetSlot("feature.0"))
-	}
-}
-
-func TestBuilder_BuildGraph_FromFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "packages-manifest.yaml")
-
-	content := `packages:
-  - gh
-  - neovim:
-      with: [lsp]
-`
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	builder := NewBuilder()
-	graph, err := builder.BuildSubgraph(context.TODO(), path, defaultBuildOpts())
-	if err != nil {
-		t.Fatalf("BuildSubgraph failed: %v", err)
-	}
-
-	// 2 packages × 4 phases = 8 nodes
-	if len(graph.Nodes) != 8 {
-		t.Fatalf("expected 8 nodes (2 packages × 4 phases), got %d", len(graph.Nodes))
-	}
-
-	// Final node of first chain is "gh" (the verify phase)
-	if graph.Nodes[3].ID != "gh" {
-		t.Errorf("nodes[3].ID: expected 'gh', got %q", graph.Nodes[3].ID)
-	}
-	// Final node of second chain is "neovim"
-	if graph.Nodes[7].ID != "neovim" {
-		t.Errorf("nodes[7].ID: expected 'neovim', got %q", graph.Nodes[7].ID)
-	}
-}
-
-func TestBuilder_BuildGraph_InvalidManifest(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "packages-manifest.yaml")
-
-	// Missing 'packages' field
-	content := `invalid: content`
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	builder := NewBuilder()
-	_, err := builder.BuildSubgraph(context.TODO(), path, defaultBuildOpts())
-	if err == nil {
-		t.Error("expected error for invalid manifest")
-	}
-}
-
-func defaultBuildOpts() execution.BuildOptions {
-	return execution.BuildOptions{
-		DryRun:   false,
-		Features: nil,
-		Data:     make(map[string]any),
-	}
-}

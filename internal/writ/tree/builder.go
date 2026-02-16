@@ -338,7 +338,7 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, 
 
 		// Secrets get restricted permissions
 		var mode os.FileMode
-		if hasAction(actions, "decrypt") {
+		if hasAction(actions, "encryption.decrypt") {
 			mode = 0600
 		}
 
@@ -352,7 +352,7 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, 
 		}
 
 		// Validate packages-manifest files
-		if hasAction(actions, "manifest-resolve") {
+		if hasAction(actions, "manifest.resolve") {
 			if manifest.IsManifestFile(d.Name()) {
 				if err := manifest.Validate(path); err != nil {
 					return fmt.Errorf("invalid %s: %w", relPath, err)
@@ -392,7 +392,7 @@ func (r *BuildResult) SecretCount() int {
 	count := 0
 	for _, f := range r.Files {
 		for _, op := range f.Operations {
-			if op == "decrypt" {
+			if op == "encryption.decrypt" {
 				count++
 				break
 			}
@@ -406,7 +406,7 @@ func (r *BuildResult) TemplateCount() int {
 	count := 0
 	for _, f := range r.Files {
 		for _, op := range f.Operations {
-			if op == "render" {
+			if op == "template.render" {
 				count++
 				break
 			}
@@ -419,7 +419,7 @@ func (r *BuildResult) TemplateCount() int {
 func (r *BuildResult) LinkCount() int {
 	count := 0
 	for _, f := range r.Files {
-		if len(f.Operations) == 1 && f.Operations[0] == "link" {
+		if len(f.Operations) == 1 && f.Operations[0] == "file.link" {
 			count++
 		}
 	}
@@ -431,7 +431,7 @@ func (r *BuildResult) PackagesCount() int {
 	count := 0
 	for _, f := range r.Files {
 		for _, op := range f.Operations {
-			if op == "manifest-resolve" {
+			if op == "manifest.resolve" {
 				count++
 				break
 			}

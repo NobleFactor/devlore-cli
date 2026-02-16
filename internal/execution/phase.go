@@ -4,7 +4,6 @@
 package execution
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -158,59 +157,3 @@ type RollbackEntry struct {
 	Error string `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
-// ExecutePhaseInner runs all inner nodes of a phase using the executor.
-// It extracts the phase's nodes from the graph and runs them in topological order.
-// Any node failure immediately fails the phase.
-func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *Graph, phase *Phase) error {
-	// Collect the phase's inner nodes
-	nodeSet := make(map[string]bool, len(phase.NodeIDs))
-	for _, id := range phase.NodeIDs {
-		nodeSet[id] = true
-	}
-
-	var phaseNodes []*Node
-	for _, n := range g.Nodes {
-		if nodeSet[n.ID] {
-			phaseNodes = append(phaseNodes, n)
-		}
-	}
-
-	if len(phaseNodes) == 0 {
-		return nil
-	}
-
-	// Filter edges to only those between phase nodes
-	var phaseEdges []Edge
-	for _, edge := range g.Edges {
-		if nodeSet[edge.From] && nodeSet[edge.To] {
-			phaseEdges = append(phaseEdges, edge)
-		}
-	}
-
-	ordered := e.topologicalSortNodes(phaseNodes, phaseEdges)
-
-	// Set content pipeline on context for this phase
-	ctx.Edges = phaseEdges
-	ctx.Outputs = make(map[string][]byte)
-
-	for _, node := range ordered {
-		result := e.executeNode(ctx, node)
-		if result.Status == ResultFailed {
-			// Apply this result to the node
-			node.Status = StatusFailed
-			if result.Error != nil {
-				node.Error = result.Error.Error()
-			}
-			node.Timestamp = time.Now().Format(time.RFC3339)
-			return fmt.Errorf("node %s failed: %w", node.ID, result.Error)
-		}
-
-		// Apply successful result
-		node.Status = StatusCompleted
-		node.Timestamp = time.Now().Format(time.RFC3339)
-		node.SourceChecksum = result.SourceChecksum
-		node.TargetChecksum = result.TargetChecksum
-	}
-
-	return nil
-}

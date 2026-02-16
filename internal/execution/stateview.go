@@ -96,7 +96,7 @@ func (e *FileEntry) IsCopied() bool {
 	if last == nil {
 		return false
 	}
-	return last.Action == "copy"
+	return last.Action == "file.copy"
 }
 
 // IsLinked returns true if the latest operation was a symlink.
@@ -105,7 +105,7 @@ func (e *FileEntry) IsLinked() bool {
 	if last == nil {
 		return false
 	}
-	return last.Action == "link"
+	return last.Action == "file.link"
 }
 
 // SourceChecksum returns the source checksum from the latest operation.
@@ -435,8 +435,8 @@ func (b *StateViewBuilder) includeGraph(g *Graph) bool {
 
 // isTransformOnlyNode returns true if the node is an intermediate transform.
 func isTransformOnlyNode(node *Node) bool {
-	switch node.Action {
-	case "render", "decrypt":
+	switch node.ActionName() {
+	case "template.render", "encryption.decrypt":
 		return true
 	}
 	return false
@@ -456,7 +456,7 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 			Timestamp:      g.Timestamp,
 			Receipt:        receiptName,
 			Tool:           g.Tool,
-			Action:         node.Action,
+			Action:         node.ActionName(),
 			Status:         node.Status,
 			SourceChecksum: node.SourceChecksum,
 			TargetChecksum: node.TargetChecksum,
@@ -473,9 +473,9 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 
 // isPackageNode determines if a node represents a package lifecycle operation.
 func (b *StateViewBuilder) isPackageNode(node *Node) bool {
-	switch node.Action {
-	case "prepare", "install", "verify", "upgrade", "uninstall", "cleanup",
-		"package-install", "package-upgrade", "package-remove":
+	switch node.ActionName() {
+	case "pkg.prepare", "pkg.install", "pkg.verify", "pkg.upgrade", "pkg.uninstall", "pkg.cleanup",
+		"pkg.remove":
 		return true
 	}
 	return false

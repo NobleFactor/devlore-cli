@@ -59,6 +59,7 @@ type basePlanBindings struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 }
 
 // Graph returns the underlying execution graph.
@@ -77,11 +78,12 @@ func (b *basePlanBindings) Project() string {
 }
 
 // newBasePlanBindings creates a new base plan bindings.
-func newBasePlanBindings(graph *execution.Graph, h host.Host, project string) *basePlanBindings {
+func newBasePlanBindings(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *basePlanBindings {
 	return &basePlanBindings{
 		graph:   graph,
 		host:    h,
 		project: project,
+		reg:     reg,
 	}
 }
 
@@ -89,7 +91,7 @@ func newBasePlanBindings(graph *execution.Graph, h host.Host, project string) *b
 func (b *basePlanBindings) Remove(target string) *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("remove"),
-		Action: "remove",
+		Action: b.reg.MustGet("file.remove"),
 		Project:    b.project,
 	}
 	node.SetSlotImmediate("path", b.host.ExpandPath(target))
@@ -101,7 +103,7 @@ func (b *basePlanBindings) Remove(target string) *execution.Node {
 func (b *basePlanBindings) Download(url, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("download"),
-		Action: "download",
+		Action: b.reg.MustGet("net.download"),
 		Project:    b.project,
 	}
 	node.SetSlotImmediate("url", url)
@@ -114,7 +116,7 @@ func (b *basePlanBindings) Download(url, target string) *execution.Node {
 func (b *basePlanBindings) ArchiveExtract(archive, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("archive-extract"),
-		Action: "archive-extract",
+		Action: b.reg.MustGet("archive.extract"),
 		Project:    b.project,
 	}
 	node.SetSlotImmediate("source", b.host.ExpandPath(archive))
@@ -127,7 +129,7 @@ func (b *basePlanBindings) ArchiveExtract(archive, target string) *execution.Nod
 func (b *basePlanBindings) GitClone(url, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("git-clone"),
-		Action: "git-clone",
+		Action: b.reg.MustGet("git.clone"),
 		Project:    b.project,
 	}
 	node.SetSlotImmediate("url", url)
@@ -140,7 +142,7 @@ func (b *basePlanBindings) GitClone(url, target string) *execution.Node {
 func (b *basePlanBindings) GitCheckout(ref string) *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("git-checkout"),
-		Action: "git-checkout",
+		Action: b.reg.MustGet("git.checkout"),
 		Project:    b.project,
 	}
 	node.SetSlotImmediate("ref", ref)
@@ -152,7 +154,7 @@ func (b *basePlanBindings) GitCheckout(ref string) *execution.Node {
 func (b *basePlanBindings) GitPull() *execution.Node {
 	node := &execution.Node{
 		ID:         baseGenerateNodeID("git-pull"),
-		Action: "git-pull",
+		Action: b.reg.MustGet("git.pull"),
 		Project:    b.project,
 	}
 	b.graph.Nodes = append(b.graph.Nodes, node)

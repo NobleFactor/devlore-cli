@@ -129,10 +129,8 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 		sources[name] = path
 	}
 
-	reg := execution.NewActionRegistry()
-	file.Register(reg)
-
-	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	fp := &file.Provider{}
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
 
 	graph := &execution.Graph{
 		State: execution.StatePending,
@@ -165,10 +163,10 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 			},
 		},
 		Nodes: []*execution.Node{
-			testNode("probe", "link", sources["probe.txt"], filepath.Join(tmpDir, "out-probe")),
-			testNode("pkg", "link", sources["pkg.txt"], filepath.Join(tmpDir, "out-pkg")),
-			testNode("config", "link", sources["config.txt"], filepath.Join(tmpDir, "out-config")),
-			testNode("check", "link", sources["verify.txt"], filepath.Join(tmpDir, "out-verify")),
+			testNode("probe", &file.Link{Impl: fp}, sources["probe.txt"], filepath.Join(tmpDir, "out-probe")),
+			testNode("pkg", &file.Link{Impl: fp}, sources["pkg.txt"], filepath.Join(tmpDir, "out-pkg")),
+			testNode("config", &file.Link{Impl: fp}, sources["config.txt"], filepath.Join(tmpDir, "out-config")),
+			testNode("check", &file.Link{Impl: fp}, sources["verify.txt"], filepath.Join(tmpDir, "out-verify")),
 		},
 	}
 
@@ -215,17 +213,15 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := execution.NewActionRegistry()
-	file.Register(reg)
-	// Phase 3 uses an operation that always fails
-	reg.Register(&testRetryOp{
+	fp := &file.Provider{}
+	failOp := &testRetryOp{
 		name: "fail-provision",
-		fn: func(ctx *execution.Context, node *execution.Node) error {
+		fn: func(ctx *execution.Context, slots map[string]any) error {
 			return fmt.Errorf("permission denied")
 		},
-	})
+	}
 
-	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
 
 	graph := &execution.Graph{
 		State: execution.StatePending,
@@ -278,13 +274,13 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 			},
 		},
 		Nodes: []*execution.Node{
-			testNode("node-prepare", "link", src1, filepath.Join(tmpDir, "out1")),
-			testNode("node-install", "link", src2, filepath.Join(tmpDir, "out2")),
-			{ID: "node-provision", Action: "fail-provision"},
-			testNode("node-verify", "link", src1, filepath.Join(tmpDir, "out4")),
-			testNode("comp-prepare", "link", compensateSrc, filepath.Join(tmpDir, "comp-out1")),
-			testNode("comp-install", "link", compensateSrc, filepath.Join(tmpDir, "comp-out2")),
-			testNode("comp-provision", "link", compensateSrc, filepath.Join(tmpDir, "comp-out3")),
+			testNode("node-prepare", &file.Link{Impl: fp}, src1, filepath.Join(tmpDir, "out1")),
+			testNode("node-install", &file.Link{Impl: fp}, src2, filepath.Join(tmpDir, "out2")),
+			{ID: "node-provision", Action: failOp},
+			testNode("node-verify", &file.Link{Impl: fp}, src1, filepath.Join(tmpDir, "out4")),
+			testNode("comp-prepare", &file.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out1")),
+			testNode("comp-install", &file.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out2")),
+			testNode("comp-provision", &file.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out3")),
 		},
 	}
 
@@ -345,12 +341,9 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 
 	attemptCount := 0
 
-	reg := execution.NewActionRegistry()
-	file.Register(reg)
-	// Register a custom op that creates the file on second attempt
-	reg.Register(&testRetryOp{
+	retryOp := &testRetryOp{
 		name: "retry-test",
-		fn: func(ctx *execution.Context, node *execution.Node) error {
+		fn: func(ctx *execution.Context, slots map[string]any) error {
 			attemptCount++
 			if attemptCount == 1 {
 				return fmt.Errorf("transient failure")
@@ -358,9 +351,9 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 			// Create the file on retry
 			return os.WriteFile(delayedSrc, []byte("ok"), 0644)
 		},
-	})
+	}
 
-	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
 
 	graph := &execution.Graph{
 		State: execution.StatePending,
@@ -378,7 +371,7 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 			},
 		},
 		Nodes: []*execution.Node{
-			{ID: "retry-node", Action: "retry-test"},
+			{ID: "retry-node", Action: retryOp},
 		},
 	}
 
@@ -417,16 +410,15 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := execution.NewActionRegistry()
-	file.Register(reg)
-	reg.Register(&testRetryOp{
+	fp := &file.Provider{}
+	failOp := &testRetryOp{
 		name: "always-fail",
-		fn: func(ctx *execution.Context, node *execution.Node) error {
+		fn: func(ctx *execution.Context, slots map[string]any) error {
 			return fmt.Errorf("permanent failure")
 		},
-	})
+	}
 
-	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
 
 	graph := &execution.Graph{
 		State: execution.StatePending,
@@ -450,8 +442,8 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 			},
 		},
 		Nodes: []*execution.Node{
-			testNode("prepare-node", "link", src, filepath.Join(tmpDir, "out1")),
-			{ID: "fail-node", Action: "always-fail"},
+			testNode("prepare-node", &file.Link{Impl: fp}, src, filepath.Join(tmpDir, "out1")),
+			{ID: "fail-node", Action: failOp},
 		},
 	}
 
@@ -485,14 +477,12 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := execution.NewActionRegistry()
-	file.Register(reg)
-
-	executor := execution.NewGraphExecutor(reg, execution.ExecutorOptions{})
+	fp := &file.Provider{}
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
 	graph := &execution.Graph{
 		State: execution.StatePending,
 		Nodes: []*execution.Node{
-			testNode("test", "link", source, target),
+			testNode("test", &file.Link{Impl: fp}, source, target),
 		},
 	}
 
@@ -541,7 +531,7 @@ func TestPhasedGraphSerialization(t *testing.T) {
 			},
 		},
 		Nodes: []*execution.Node{
-			{ID: "pkg-ripgrep", Action: "package-install"},
+			{ID: "pkg-ripgrep", Action: execution.StubAction("package-install")},
 		},
 	}
 
@@ -582,13 +572,13 @@ func TestPhaseByID(t *testing.T) {
 // testRetryOp is a test-only action that executes a function.
 type testRetryOp struct {
 	name string
-	fn   func(ctx *execution.Context, node *execution.Node) error
+	fn   func(ctx *execution.Context, slots map[string]any) error
 }
 
 func (o *testRetryOp) Name() string { return o.name }
-func (o *testRetryOp) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	return nil, nil, o.fn(ctx, node)
+func (o *testRetryOp) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	return nil, nil, o.fn(ctx, slots)
 }
-func (o *testRetryOp) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *testRetryOp) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }

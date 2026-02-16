@@ -49,7 +49,7 @@ type LinuxPlanBindings struct {
 
 // NewPlanBindings creates a new Linux-specific PlanBindings.
 // The appropriate package manager is selected based on the detected distro.
-func NewPlanBindings(graph *execution.Graph, h host.Host, project string) PlatformPlanBindings {
+func NewPlanBindings(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) PlatformPlanBindings {
 	p := h.Platform()
 	distro := strings.ToLower(p.Distro)
 
@@ -76,7 +76,7 @@ func NewPlanBindings(graph *execution.Graph, h host.Host, project string) Platfo
 	}
 
 	return &LinuxPlanBindings{
-		basePlanBindings: newBasePlanBindings(graph, h, project),
+		basePlanBindings: newBasePlanBindings(graph, h, project, reg),
 		pmType:           pmType,
 		pmName:           pmName,
 		distro:           distro,
@@ -97,7 +97,7 @@ func (l *LinuxPlanBindings) PackageManagerName() string {
 func (l *LinuxPlanBindings) PackageInstall(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-install", packages...),
-		Action: "package-install",
+		Action: l.reg.MustGet("pkg.install"),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -109,7 +109,7 @@ func (l *LinuxPlanBindings) PackageInstall(packages ...string) *execution.Node {
 func (l *LinuxPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-upgrade", packages...),
-		Action: "package-upgrade",
+		Action: l.reg.MustGet("pkg.upgrade"),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -121,7 +121,7 @@ func (l *LinuxPlanBindings) PackageUpgrade(packages ...string) *execution.Node {
 func (l *LinuxPlanBindings) PackageRemove(packages ...string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-remove", packages...),
-		Action: "package-remove",
+		Action: l.reg.MustGet("pkg.remove"),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("packages", strings.Join(packages, ","))
@@ -133,7 +133,7 @@ func (l *LinuxPlanBindings) PackageRemove(packages ...string) *execution.Node {
 func (l *LinuxPlanBindings) PackageUpdate() *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("package-update"),
-		Action: "package-update",
+		Action: l.reg.MustGet("pkg.update"),
 		Project:    l.project,
 	}
 	l.graph.Nodes = append(l.graph.Nodes, node)
@@ -144,7 +144,7 @@ func (l *LinuxPlanBindings) PackageUpdate() *execution.Node {
 func (l *LinuxPlanBindings) Render(source string) *execution.Node {
 	node := &execution.Node{
 		ID:      linuxGenerateNodeID("render"),
-		Action:  "render",
+		Action:  l.reg.MustGet("template.render"),
 		Project: l.project,
 	}
 	if source != "" {
@@ -158,7 +158,7 @@ func (l *LinuxPlanBindings) Render(source string) *execution.Node {
 func (l *LinuxPlanBindings) Decrypt(source string) *execution.Node {
 	node := &execution.Node{
 		ID:      linuxGenerateNodeID("decrypt"),
-		Action:  "decrypt",
+		Action:  l.reg.MustGet("encryption.decrypt"),
 		Project: l.project,
 	}
 	if source != "" {
@@ -172,7 +172,7 @@ func (l *LinuxPlanBindings) Decrypt(source string) *execution.Node {
 func (l *LinuxPlanBindings) Link(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("link"),
-		Action: "link",
+		Action: l.reg.MustGet("file.link"),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -185,7 +185,7 @@ func (l *LinuxPlanBindings) Link(source, target string) *execution.Node {
 func (l *LinuxPlanBindings) Copy(source, target string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("copy"),
-		Action: "copy",
+		Action: l.reg.MustGet("file.copy"),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("source", source)
@@ -198,7 +198,7 @@ func (l *LinuxPlanBindings) Copy(source, target string) *execution.Node {
 func (l *LinuxPlanBindings) Write(target, content string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("write"),
-		Action: "write",
+		Action: l.reg.MustGet("file.write"),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("content", content)
@@ -211,7 +211,7 @@ func (l *LinuxPlanBindings) Write(target, content string) *execution.Node {
 func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("systemd", name, action.String()),
-		Action: "service-" + action.String(),
+		Action: l.reg.MustGet("service." + action.String()),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("name", name)
@@ -224,7 +224,7 @@ func (l *LinuxPlanBindings) Service(name string, action loreStar.ServiceAction) 
 func (l *LinuxPlanBindings) Shell(command string) *execution.Node {
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("shell"),
-		Action: "shell",
+		Action: l.reg.MustGet("shell.exec"),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("command", command)
@@ -428,7 +428,7 @@ func (l *LinuxPlanBindings) writeBuiltin(_ *starlark.Thread, _ *starlark.Builtin
 	expandedOut := l.host.ExpandPath(out)
 	node := &execution.Node{
 		ID:         linuxGenerateNodeID("write"),
-		Action: "write",
+		Action: l.reg.MustGet("file.write"),
 		Project:    l.project,
 	}
 	node.SetSlotImmediate("source", input.Path())

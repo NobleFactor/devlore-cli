@@ -26,6 +26,17 @@ func (r *ActionRegistry) Get(name string) (Action, bool) {
 	return action, ok
 }
 
+// MustGet returns the action registered under the given name.
+// Panics if the action is not registered (safe: all actions are
+// pre-registered before any builder runs).
+func (r *ActionRegistry) MustGet(name string) Action {
+	a, ok := r.actions[name]
+	if !ok {
+		panic("unregistered action: " + name)
+	}
+	return a
+}
+
 // Names returns all registered action names.
 func (r *ActionRegistry) Names() []string {
 	names := make([]string, 0, len(r.actions))

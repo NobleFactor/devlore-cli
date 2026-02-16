@@ -21,19 +21,19 @@ var PackagesManifestFiles = []string{
 //
 // Examples:
 //
-//	"foo"                     → "foo",                     ["link"]
-//	"foo.template"            → "foo",                     ["render", "copy"]
-//	"foo.sops"                → "foo",                     ["decrypt", "copy"]
-//	"foo.template.sops"       → "foo",                     ["decrypt", "render", "copy"]
-//	"packages-manifest.yaml"  → "packages-manifest.yaml",  ["manifest-resolve"]
+//	"foo"                     → "foo",                     ["file.link"]
+//	"foo.template"            → "foo",                     ["template.render", "file.copy"]
+//	"foo.sops"                → "foo",                     ["encryption.decrypt", "file.copy"]
+//	"foo.template.sops"       → "foo",                     ["encryption.decrypt", "template.render", "file.copy"]
+//	"packages-manifest.yaml"  → "packages-manifest.yaml",  ["manifest.resolve"]
 func ProcessingPipeline(filename string) (targetName string, actions []string) {
 	name := filename
 	baseName := filepath.Base(name)
 
-	// packages-manifest → manifest-resolve
+	// packages-manifest → manifest.resolve
 	for _, pf := range PackagesManifestFiles {
 		if baseName == pf {
-			return name, []string{"manifest-resolve"}
+			return name, []string{"manifest.resolve"}
 		}
 	}
 
@@ -41,18 +41,18 @@ func ProcessingPipeline(filename string) (targetName string, actions []string) {
 
 	if strings.HasSuffix(name, ".sops") {
 		name = strings.TrimSuffix(name, ".sops")
-		pipeline = append(pipeline, "decrypt")
+		pipeline = append(pipeline, "encryption.decrypt")
 	}
 
 	if strings.HasSuffix(name, ".template") {
 		name = strings.TrimSuffix(name, ".template")
-		pipeline = append(pipeline, "render")
+		pipeline = append(pipeline, "template.render")
 	}
 
 	if len(pipeline) > 0 {
-		pipeline = append(pipeline, "copy")
+		pipeline = append(pipeline, "file.copy")
 	} else {
-		pipeline = []string{"link"}
+		pipeline = []string{"file.link"}
 	}
 
 	return name, pipeline

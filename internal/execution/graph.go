@@ -33,8 +33,8 @@ package execution
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -138,8 +138,9 @@ type Node struct {
 	// ID is the unique identifier (typically relative target path or package name).
 	ID string `json:"id" yaml:"id"`
 
-	// Action to perform: link, copy, render, decrypt, install, etc.
-	Action string `json:"action" yaml:"action"`
+	// Action to perform. Set at construction via SetAction or node.Action = reg.MustGet(...).
+	// Serialized as the action name string; deserialized as a stubAction.
+	Action Action `json:"-" yaml:"-"`
 
 	// Status of this node: pending, completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
@@ -158,9 +159,6 @@ type Node struct {
 	// Layer is the repository layer (base, team, personal).
 	Layer string `json:"layer,omitempty" yaml:"layer,omitempty"`
 
-	// Mode is the file permissions to set.
-	Mode os.FileMode `json:"-" yaml:"-"`
-
 	// SourceChecksum is the SHA256 of the source file at deploy time.
 	SourceChecksum string `json:"source_checksum,omitempty" yaml:"source_checksum,omitempty"`
 
@@ -175,6 +173,88 @@ type Node struct {
 
 	// Annotations holds extensible metadata (serialized to receipts).
 	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+// StubAction creates a named Action stub for testing and receipt deserialization.
+// Do and Undo return errors — stub actions are not executable.
+func StubAction(name string) Action { return &stubAction{name: name} }
+
+// stubAction implements Action with just a name for receipt deserialization.
+// Do and Undo return errors — receipt nodes are not executable.
+type stubAction struct{ name string }
+
+func (s *stubAction) Name() string { return s.name }
+func (s *stubAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
+	return nil, nil, fmt.Errorf("stub action %s: not executable", s.name)
+}
+func (s *stubAction) Undo(_ *Context, _ map[string]any, _ UndoState) error {
+	return fmt.Errorf("stub action %s: not executable", s.name)
+}
+
+// nodeJSON is the JSON/YAML serialization shape for Node.
+// The type alias strips MarshalJSON/UnmarshalJSON to avoid infinite recursion.
+type nodeJSON Node
+
+type nodeJSONWire struct {
+	Action string `json:"action" yaml:"action"`
+	*nodeJSON
+}
+
+// MarshalJSON serializes the node with Action as its name string.
+func (n Node) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&nodeJSONWire{
+		Action:   n.ActionName(),
+		nodeJSON: (*nodeJSON)(&n),
+	})
+}
+
+// UnmarshalJSON deserializes a node, creating a stubAction from the action name.
+func (n *Node) UnmarshalJSON(data []byte) error {
+	aux := &nodeJSONWire{nodeJSON: (*nodeJSON)(n)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if aux.Action != "" {
+		n.Action = &stubAction{name: aux.Action}
+	}
+	return nil
+}
+
+// MarshalYAML serializes the node with Action as its name string.
+// Note: we cannot use the nodeJSONWire embedding pattern here because yaml.v3
+// panics on unexported concrete types behind interfaces in shadowed embedded
+// fields, and fails to decode embedded fields when names collide (unlike
+// encoding/json which handles both correctly). We round-trip through JSON instead.
+func (n Node) MarshalYAML() (any, error) {
+	data, err := json.Marshal(n)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// UnmarshalYAML deserializes a node, creating a stubAction from the action name.
+// Like MarshalYAML, we avoid the embedded struct pattern and decode manually.
+func (n *Node) UnmarshalYAML(value *yaml.Node) error {
+	// Decode into a raw map to extract the action name separately.
+	var raw struct {
+		Action string `yaml:"action"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	// Decode remaining fields into the node via the type-alias (strips this method).
+	if err := value.Decode((*nodeJSON)(n)); err != nil {
+		return err
+	}
+	if raw.Action != "" {
+		n.Action = &stubAction{name: raw.Action}
+	}
+	return nil
 }
 
 // GetSlot returns the resolved value of a slot.
@@ -213,6 +293,25 @@ func (n *Node) SetSlotImmediate(name string, value any) {
 	n.Slots[name] = SlotValue{Immediate: value}
 }
 
+// ResolvedSlots returns all slot values as a flat map.
+// Promise slots are resolved from the results map; immediate slots are returned directly.
+// Pass nil for results when all slots are immediate (e.g., in tests).
+func (n *Node) ResolvedSlots(results map[string]any) map[string]any {
+	slots := make(map[string]any, len(n.Slots))
+	for name, sv := range n.Slots {
+		if sv.IsPromise() {
+			if results != nil {
+				if val, ok := results[sv.NodeRef]; ok {
+					slots[name] = val
+				}
+			}
+		} else if sv.IsImmediate() {
+			slots[name] = sv.Immediate
+		}
+	}
+	return slots
+}
+
 // SetSlotPromise sets a slot to a promise (reference to another node).
 func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
 	if n.Slots == nil {
@@ -224,14 +323,17 @@ func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
 // GetID returns the node's unique identifier.
 func (n *Node) GetID() string { return n.ID }
 
-// GetAction returns the action to perform.
-func (n *Node) GetAction() string { return n.Action }
+// ActionName returns the action name. Works for both live nodes
+// (Action interface set) and deserialized receipt nodes (stubAction).
+func (n *Node) ActionName() string {
+	if n.Action != nil {
+		return n.Action.Name()
+	}
+	return ""
+}
 
 // GetProject returns the project name.
 func (n *Node) GetProject() string { return n.Project }
-
-// GetMode returns the file mode.
-func (n *Node) GetMode() os.FileMode { return n.Mode }
 
 // Edge represents a dependency relationship between two nodes.
 // From must complete before To can begin execution.
@@ -471,20 +573,20 @@ func (g *Graph) ComputeSummary() {
 		}
 
 		// Count by action type
-		switch n.Action {
-		case "link":
+		switch n.ActionName() {
+		case "file.link":
 			g.Summary.TotalFiles++
 			g.Summary.Links++
-		case "render":
+		case "template.render":
 			g.Summary.TotalFiles++
 			g.Summary.Templates++
-		case "decrypt":
+		case "encryption.decrypt":
 			g.Summary.TotalFiles++
 			g.Summary.Secrets++
-		case "copy":
+		case "file.copy":
 			g.Summary.TotalFiles++
 			g.Summary.Copies++
-		case "package-install", "package-upgrade", "package-remove", "manifest-resolve":
+		case "pkg.install", "pkg.upgrade", "pkg.remove":
 			g.Summary.Packages++
 		}
 

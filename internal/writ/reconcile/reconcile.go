@@ -12,11 +12,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
-// nodeIsDelegate returns true if the node's operation is "delegate".
-func nodeIsDelegate(op string) bool {
-	return op == "delegate"
-}
-
 // State represents the status of a deployed file.
 type State int
 
@@ -175,10 +170,7 @@ func FromBuildResult(br *tree.BuildResult) *Report {
 		// Use first operation from tree pipeline as the primary operation
 		op := ""
 		if len(f.Operations) > 0 {
-			op = f.Operations[len(f.Operations)-1] // final op (e.g., "copy" for render+copy)
-		}
-		if nodeIsDelegate(op) {
-			continue // Skip delegate nodes
+			op = f.Operations[len(f.Operations)-1] // final op (e.g., "file.copy" for render+copy)
 		}
 		entry := checkEntry(f.Source, f.Target, f.ID, f.Project, op)
 		report.Entries = append(report.Entries, entry)
@@ -217,7 +209,7 @@ func checkEntry(source, target, relTarget, project, operation string) Entry {
 	}
 
 	// Determine expected operation type
-	isLink := operation == "link"
+	isLink := operation == "file.link"
 
 	if isLink {
 		// Should be a symlink
@@ -342,7 +334,7 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 			Source:    linkTarget,
 			Target:    path,
 			Project:   project,
-			Operation: "link",
+			Operation: "file.link",
 		}
 
 		// Check if source exists

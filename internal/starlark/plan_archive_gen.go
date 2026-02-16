@@ -20,15 +20,17 @@ type ArchivePlan struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
+	reg     *execution.ActionRegistry
 }
 
 // NewArchivePlan creates a new ArchivePlan for the given graph and host.
-func NewArchivePlan(graph *execution.Graph, h host.Host, project string) *ArchivePlan {
+func NewArchivePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ArchivePlan {
 	return &ArchivePlan{
 		Receiver: NewReceiver("plan.archive"),
 		graph:    graph,
 		host:     h,
 		project:  project,
+		reg:      reg,
 	}
 }
 
@@ -55,7 +57,7 @@ func (a *ArchivePlan) extract(_ *starlark.Thread, _ *starlark.Builtin, args star
 
 	node := &execution.Node{
 		ID:        generateNodeID("archive-extract"),
-		Action: "archive-extract",
+		Action: a.reg.MustGet("archive.extract"),
 		Project:   a.project,
 	}
 

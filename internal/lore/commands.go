@@ -237,7 +237,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	// Create operation registry and executor
 	registry := execution.NewActionRegistry()
 	provider.RegisterAll(registry)
-	executor := execution.NewGraphExecutor(registry, execution.ExecutorOptions{
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun: cfg.DryRun,
 	})
 
@@ -248,10 +248,11 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 		// Build the execution graph for this package
 		buildResult, err := Build(BuildConfig{
-			Packages: []string{rp.pkg.Name},
-			Platform: detectPlatform(),
-			Features: features,
-			DryRun:   cfg.DryRun,
+			Packages:       []string{rp.pkg.Name},
+			Platform:       detectPlatform(),
+			Features:       features,
+			DryRun:         cfg.DryRun,
+			ActionRegistry: registry,
 		})
 		if err != nil {
 			cli.Error("Error building graph for %q: %v", rp.pkg.Name, err)

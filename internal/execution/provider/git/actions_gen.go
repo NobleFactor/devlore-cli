@@ -12,40 +12,40 @@ import (
 // Clone clones a git repository.
 type Clone struct{ Impl *Provider }
 
-func (o *Clone) Name() string { return "git-clone" }
+func (o *Clone) Name() string { return "git.clone" }
 
-func (o *Clone) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	url, _ := node.GetSlot("url").(string)
+func (o *Clone) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	url, _ := slots["url"].(string)
 	if url == "" {
 		return nil, nil, fmt.Errorf("git-clone: no url specified")
 	}
-	path, _ := node.GetSlot("path").(string)
+	path, _ := slots["path"].(string)
 	if path == "" {
 		return nil, nil, fmt.Errorf("git-clone: no path specified")
 	}
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] git-clone %v → %v\n", url, path)
+		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] git-clone %v \u2192 %v\n", url, path)
 		return nil, nil, nil
 	}
 	return nil, nil, o.Impl.Clone(url, path, ctx.Logger)
 }
 
-func (o *Clone) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Clone) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 
 // Checkout checks out a git ref.
 type Checkout struct{ Impl *Provider }
 
-func (o *Checkout) Name() string { return "git-checkout" }
+func (o *Checkout) Name() string { return "git.checkout" }
 
-func (o *Checkout) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	repo, _ := node.GetSlot("path").(string)
+func (o *Checkout) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	repo, _ := slots["path"].(string)
 	if repo == "" {
 		return nil, nil, fmt.Errorf("git-checkout: no path specified")
 	}
-	ref, _ := node.GetSlot("ref").(string)
+	ref, _ := slots["ref"].(string)
 	if ref == "" {
 		return nil, nil, fmt.Errorf("git-checkout: no ref specified")
 	}
@@ -57,17 +57,17 @@ func (o *Checkout) Do(ctx *execution.Context, node *execution.Node) (execution.R
 	return nil, nil, o.Impl.Checkout(repo, ref, ctx.Logger)
 }
 
-func (o *Checkout) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Checkout) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 
 // Pull pulls latest changes in a git repository.
 type Pull struct{ Impl *Provider }
 
-func (o *Pull) Name() string { return "git-pull" }
+func (o *Pull) Name() string { return "git.pull" }
 
-func (o *Pull) Do(ctx *execution.Context, node *execution.Node) (execution.Result, execution.UndoState, error) {
-	repo, _ := node.GetSlot("path").(string)
+func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	repo, _ := slots["path"].(string)
 	if repo == "" {
 		return nil, nil, fmt.Errorf("git-pull: no path specified")
 	}
@@ -79,7 +79,7 @@ func (o *Pull) Do(ctx *execution.Context, node *execution.Node) (execution.Resul
 	return nil, nil, o.Impl.Pull(repo, ctx.Logger)
 }
 
-func (o *Pull) Undo(_ *execution.Context, _ *execution.Node, _ execution.UndoState) error {
+func (o *Pull) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
 	return nil
 }
 
