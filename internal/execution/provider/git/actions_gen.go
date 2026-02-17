@@ -28,11 +28,16 @@ func (o *Clone) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] git-clone %v \u2192 %v\n", url, path)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Clone(url, path, ctx.Logger)
+	state, err := o.Impl.Clone(url, path, ctx.Logger)
+	return nil, state, err
 }
 
-func (o *Clone) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Clone) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateClone(s)
 }
 
 // Checkout checks out a git ref.

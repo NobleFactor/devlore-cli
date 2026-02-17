@@ -37,11 +37,16 @@ func (o *Extract) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] archive-extract %v \u2192 %v\n", source, prefix)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Extract(source, prefix)
+	state, err := o.Impl.Extract(source, prefix)
+	return nil, state, err
 }
 
-func (o *Extract) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Extract) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateExtract(s)
 }
 
 // Register registers all archive actions with the given registry.
