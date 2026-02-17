@@ -38,7 +38,7 @@ func TestStartNotRunning(t *testing.T) {
 	}
 
 	// Compensate: should stop (wasn't running before)
-	if err := p.CompensateStart(state, io.Discard); err != nil {
+	if err := p.CompensateStart(state); err != nil {
 		t.Fatalf("CompensateStart: %v", err)
 	}
 	if len(*log) != 2 {
@@ -62,7 +62,7 @@ func TestStartAlreadyRunning(t *testing.T) {
 	}
 
 	// Compensate: should be no-op (was already running)
-	if err := p.CompensateStart(state, io.Discard); err != nil {
+	if err := p.CompensateStart(state); err != nil {
 		t.Fatalf("CompensateStart: %v", err)
 	}
 	if len(*log) != 1 {
@@ -85,7 +85,7 @@ func TestStopWasRunning(t *testing.T) {
 	}
 
 	// Compensate: should start (was running before)
-	if err := p.CompensateStop(state, io.Discard); err != nil {
+	if err := p.CompensateStop(state); err != nil {
 		t.Fatalf("CompensateStop: %v", err)
 	}
 	if len(*log) != 2 {
@@ -104,7 +104,7 @@ func TestStopNotRunning(t *testing.T) {
 	}
 
 	// Compensate: should be no-op (wasn't running)
-	if err := p.CompensateStop(state, io.Discard); err != nil {
+	if err := p.CompensateStop(state); err != nil {
 		t.Fatalf("CompensateStop: %v", err)
 	}
 	if len(*log) != 1 {
@@ -122,7 +122,7 @@ func TestRestartCompensateNoOp(t *testing.T) {
 	}
 
 	// Compensate: always no-op
-	if err := p.CompensateRestart(state, io.Discard); err != nil {
+	if err := p.CompensateRestart(state); err != nil {
 		t.Fatalf("CompensateRestart: %v", err)
 	}
 	if len(*log) != 1 {
@@ -145,7 +145,7 @@ func TestEnableNotEnabled(t *testing.T) {
 	}
 
 	// Compensate: should disable (wasn't enabled before)
-	if err := p.CompensateEnable(state, io.Discard); err != nil {
+	if err := p.CompensateEnable(state); err != nil {
 		t.Fatalf("CompensateEnable: %v", err)
 	}
 	if len(*log) != 2 {
@@ -164,7 +164,7 @@ func TestEnableAlreadyEnabled(t *testing.T) {
 	}
 
 	// Compensate: should be no-op (was already enabled)
-	if err := p.CompensateEnable(state, io.Discard); err != nil {
+	if err := p.CompensateEnable(state); err != nil {
 		t.Fatalf("CompensateEnable: %v", err)
 	}
 	if len(*log) != 1 {
@@ -187,7 +187,7 @@ func TestDisableWasEnabled(t *testing.T) {
 	}
 
 	// Compensate: should enable (was enabled before)
-	if err := p.CompensateDisable(state, io.Discard); err != nil {
+	if err := p.CompensateDisable(state); err != nil {
 		t.Fatalf("CompensateDisable: %v", err)
 	}
 	if len(*log) != 2 {
@@ -206,7 +206,7 @@ func TestDisableNotEnabled(t *testing.T) {
 	}
 
 	// Compensate: should be no-op (wasn't enabled)
-	if err := p.CompensateDisable(state, io.Discard); err != nil {
+	if err := p.CompensateDisable(state); err != nil {
 		t.Fatalf("CompensateDisable: %v", err)
 	}
 	if len(*log) != 1 {
@@ -219,19 +219,19 @@ func TestDisableNotEnabled(t *testing.T) {
 func TestCompensateNilState(t *testing.T) {
 	p, _ := mockProvider(false, false)
 
-	if err := p.CompensateStart(nil, io.Discard); err != nil {
+	if err := p.CompensateStart(nil); err != nil {
 		t.Errorf("CompensateStart(nil): %v", err)
 	}
-	if err := p.CompensateStop(nil, io.Discard); err != nil {
+	if err := p.CompensateStop(nil); err != nil {
 		t.Errorf("CompensateStop(nil): %v", err)
 	}
-	if err := p.CompensateRestart(nil, io.Discard); err != nil {
+	if err := p.CompensateRestart(nil); err != nil {
 		t.Errorf("CompensateRestart(nil): %v", err)
 	}
-	if err := p.CompensateEnable(nil, io.Discard); err != nil {
+	if err := p.CompensateEnable(nil); err != nil {
 		t.Errorf("CompensateEnable(nil): %v", err)
 	}
-	if err := p.CompensateDisable(nil, io.Discard); err != nil {
+	if err := p.CompensateDisable(nil); err != nil {
 		t.Errorf("CompensateDisable(nil): %v", err)
 	}
 }
