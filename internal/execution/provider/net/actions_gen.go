@@ -46,13 +46,18 @@ func (o *Download) Do(ctx *execution.Context, slots map[string]any) (execution.R
 		if err := os.WriteFile(path, data, mode); err != nil {
 			return nil, nil, err
 		}
+		return data, map[string]any{"path": path}, nil
 	}
 
 	return data, nil, nil
 }
 
-func (o *Download) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Download) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateDownload(s)
 }
 
 // Register registers all net actions with the given registry.

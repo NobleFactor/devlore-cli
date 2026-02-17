@@ -15,39 +15,87 @@ import (
 )
 
 // Provider provides archive extraction operations.
+//
+// Compensable Forward methods return (map[string]any, error).
+// The map is the compensation receipt — opaque to the executor,
+// meaningful only to the corresponding Compensate* Backward method.
 type Provider struct{}
 
 // Extract extracts an archive (tar.gz or zip) from source into the prefix directory.
 // The archive format is detected from the file extension.
-func (p *Provider) Extract(source, prefix string) error {
+// Returns compensation state with the list of created files.
+func (p *Provider) Extract(source, prefix string) (map[string]any, error) {
 	if err := os.MkdirAll(prefix, 0755); err != nil {
-		return fmt.Errorf("create prefix dir: %w", err)
+		return nil, fmt.Errorf("create prefix dir: %w", err)
 	}
+
+	var created []string
+	var err error
 
 	lower := strings.ToLower(source)
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		return extractTarGz(source, prefix)
+		created, err = extractTarGz(source, prefix)
 	case strings.HasSuffix(lower, ".zip"):
-		return extractZip(source, prefix)
+		created, err = extractZip(source, prefix)
 	default:
-		return fmt.Errorf("unsupported archive format: %s", source)
+		return nil, fmt.Errorf("unsupported archive format: %s", source)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"dest":          prefix,
+		"created_files": created,
+	}, nil
 }
 
-func extractTarGz(source, prefix string) error {
+// CompensateExtract removes files created during extraction, then cleans up
+// empty directories under dest.
+func (p *Provider) CompensateExtract(state map[string]any) error {
+	created, _ := state["created_files"].([]string)
+
+	// Remove files in reverse order (deepest first)
+	for i := len(created) - 1; i >= 0; i-- {
+		os.Remove(created[i])
+	}
+
+	// Clean up empty directories under dest
+	dest, _ := state["dest"].(string)
+	if dest != "" {
+		removeEmptyDirs(dest)
+	}
+	return nil
+}
+
+// removeEmptyDirs walks dest bottom-up removing empty directories.
+func removeEmptyDirs(root string) {
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !info.IsDir() {
+			return nil
+		}
+		// Try to remove — fails silently if non-empty
+		os.Remove(path)
+		return nil
+	})
+}
+
+func extractTarGz(source, prefix string) ([]string, error) {
 	f, err := os.Open(source)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer f.Close()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
-		return fmt.Errorf("gzip: %w", err)
+		return nil, fmt.Errorf("gzip: %w", err)
 	}
 	defer gz.Close()
 
+	var created []string
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -55,7 +103,7 @@ func extractTarGz(source, prefix string) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("tar: %w", err)
+			return created, fmt.Errorf("tar: %w", err)
 		}
 
 		target := filepath.Join(prefix, filepath.Clean(hdr.Name))
@@ -66,33 +114,35 @@ func extractTarGz(source, prefix string) error {
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
-				return err
+				return created, err
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
+				return created, err
 			}
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
 			if err != nil {
-				return err
+				return created, err
 			}
 			if _, err := io.Copy(out, tr); err != nil {
 				out.Close()
-				return err
+				return created, err
 			}
 			out.Close()
+			created = append(created, target)
 		}
 	}
-	return nil
+	return created, nil
 }
 
-func extractZip(source, prefix string) error {
+func extractZip(source, prefix string) ([]string, error) {
 	r, err := zip.OpenReader(source)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer r.Close()
 
+	var created []string
 	for _, f := range r.File {
 		target := filepath.Join(prefix, filepath.Clean(f.Name))
 		if !strings.HasPrefix(target, filepath.Clean(prefix)+string(os.PathSeparator)) {
@@ -101,33 +151,34 @@ func extractZip(source, prefix string) error {
 
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(target, f.Mode()); err != nil {
-				return err
+				return created, err
 			}
 			continue
 		}
 
 		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return err
+			return created, err
 		}
 
 		rc, err := f.Open()
 		if err != nil {
-			return err
+			return created, err
 		}
 
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
 		if err != nil {
 			rc.Close()
-			return err
+			return created, err
 		}
 
 		if _, err := io.Copy(out, rc); err != nil {
 			out.Close()
 			rc.Close()
-			return err
+			return created, err
 		}
 		out.Close()
 		rc.Close()
+		created = append(created, target)
 	}
-	return nil
+	return created, nil
 }
