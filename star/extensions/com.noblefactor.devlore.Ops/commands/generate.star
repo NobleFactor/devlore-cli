@@ -88,11 +88,16 @@ def run(ctx):
     if len(methods) == 0:
         fail("no methods found for " + struct_name + " in " + path)
 
-    # Filter to public methods, excluding skip list
+    # Filter to public methods, excluding skip list and Compensate* methods
     methods_filter = ctx.args.get("methods", "")
     include_list = []
     if methods_filter:
         include_list = methods_filter.split(",")
+
+    # First pass: collect all method names for compensation pair detection
+    all_method_names = {}
+    for m in methods:
+        all_method_names[m.name] = True
 
     filtered = []
     for m in methods:
@@ -101,6 +106,9 @@ def run(ctx):
             continue
         # Skip starlark.Value / HasAttrs interface methods
         if m.name in SKIP_METHODS:
+            continue
+        # Skip Compensate* backward methods (handled via compensable flag)
+        if m.name.startswith("Compensate"):
             continue
         # Apply inclusion filter if specified
         if include_list and m.name not in include_list:
@@ -130,7 +138,7 @@ def run(ctx):
 
     pkg_override = ctx.args.get("package", "")
 
-    # Build method descriptors
+    # Build method descriptors with compensation pair detection
     method_descriptors = []
     for m in filtered:
         params = []
@@ -140,11 +148,13 @@ def run(ctx):
                 "type": p.type,
                 "variadic": p.variadic,
             })
+        compensable = ("Compensate" + m.name) in all_method_names
         method_descriptors.append({
             "name": m.name,
             "returns": m.returns,
             "doc": m.doc,
             "params": params,
+            "compensable": compensable,
         })
 
     # -------------------------------------------------------------------------

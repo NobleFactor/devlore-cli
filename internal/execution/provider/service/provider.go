@@ -41,7 +41,7 @@ func (p *Provider) Start(name string, output io.Writer) (map[string]any, error) 
 
 // CompensateStart undoes a Start by stopping the service if it wasn't
 // running before.
-func (p *Provider) CompensateStart(state map[string]any, output io.Writer) error {
+func (p *Provider) CompensateStart(state map[string]any) error {
 	name, _ := state["name"].(string)
 	if name == "" {
 		return nil
@@ -50,7 +50,7 @@ func (p *Provider) CompensateStart(state map[string]any, output io.Writer) error
 	if wasRunning {
 		return nil // Was already running — no-op
 	}
-	return p.run(output, stopArgs(name)...)
+	return p.run(io.Discard, stopArgs(name)...)
 }
 
 // Stop stops a service. Returns compensation state with pre-action
@@ -69,7 +69,7 @@ func (p *Provider) Stop(name string, output io.Writer) (map[string]any, error) {
 
 // CompensateStop undoes a Stop by starting the service if it was
 // running before.
-func (p *Provider) CompensateStop(state map[string]any, output io.Writer) error {
+func (p *Provider) CompensateStop(state map[string]any) error {
 	name, _ := state["name"].(string)
 	if name == "" {
 		return nil
@@ -78,7 +78,7 @@ func (p *Provider) CompensateStop(state map[string]any, output io.Writer) error 
 	if !wasRunning {
 		return nil // Wasn't running — no-op
 	}
-	return p.run(output, startArgs(name)...)
+	return p.run(io.Discard, startArgs(name)...)
 }
 
 // Restart restarts a service. Returns compensation state. Compensation
@@ -94,7 +94,7 @@ func (p *Provider) Restart(name string, output io.Writer) (map[string]any, error
 
 // CompensateRestart is a no-op. A restarted service was already running;
 // the service is still running after restart — nothing to undo.
-func (p *Provider) CompensateRestart(_ map[string]any, _ io.Writer) error {
+func (p *Provider) CompensateRestart(_ map[string]any) error {
 	return nil
 }
 
@@ -114,7 +114,7 @@ func (p *Provider) Enable(name string, output io.Writer) (map[string]any, error)
 
 // CompensateEnable undoes an Enable by disabling the service if it
 // wasn't enabled before.
-func (p *Provider) CompensateEnable(state map[string]any, output io.Writer) error {
+func (p *Provider) CompensateEnable(state map[string]any) error {
 	name, _ := state["name"].(string)
 	if name == "" {
 		return nil
@@ -123,7 +123,7 @@ func (p *Provider) CompensateEnable(state map[string]any, output io.Writer) erro
 	if wasEnabled {
 		return nil // Was already enabled — no-op
 	}
-	return p.run(output, disableArgs(name)...)
+	return p.run(io.Discard, disableArgs(name)...)
 }
 
 // Disable disables a service from starting at boot. Returns
@@ -142,7 +142,7 @@ func (p *Provider) Disable(name string, output io.Writer) (map[string]any, error
 
 // CompensateDisable undoes a Disable by enabling the service if it was
 // enabled before.
-func (p *Provider) CompensateDisable(state map[string]any, output io.Writer) error {
+func (p *Provider) CompensateDisable(state map[string]any) error {
 	name, _ := state["name"].(string)
 	if name == "" {
 		return nil
@@ -151,7 +151,7 @@ func (p *Provider) CompensateDisable(state map[string]any, output io.Writer) err
 	if !wasEnabled {
 		return nil // Wasn't enabled — no-op
 	}
-	return p.run(output, enableArgs(name)...)
+	return p.run(io.Discard, enableArgs(name)...)
 }
 
 // --- Platform-specific command builders ---

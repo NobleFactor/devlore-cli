@@ -28,12 +28,12 @@ func (o *Start) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 	return nil, state, err
 }
 
-func (o *Start) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+func (o *Start) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
 	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	return o.Impl.CompensateStart(s, ctx.Logger)
+	return o.Impl.CompensateStart(s)
 }
 
 // Stop stops a service.
@@ -55,12 +55,12 @@ func (o *Stop) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 	return nil, state, err
 }
 
-func (o *Stop) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+func (o *Stop) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
 	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	return o.Impl.CompensateStop(s, ctx.Logger)
+	return o.Impl.CompensateStop(s)
 }
 
 // Restart restarts a service.
@@ -82,12 +82,12 @@ func (o *Restart) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 	return nil, state, err
 }
 
-func (o *Restart) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+func (o *Restart) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
 	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	return o.Impl.CompensateRestart(s, ctx.Logger)
+	return o.Impl.CompensateRestart(s)
 }
 
 // Enable enables a service to start at boot.
@@ -109,12 +109,12 @@ func (o *Enable) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	return nil, state, err
 }
 
-func (o *Enable) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+func (o *Enable) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
 	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	return o.Impl.CompensateEnable(s, ctx.Logger)
+	return o.Impl.CompensateEnable(s)
 }
 
 // Disable disables a service from starting at boot.
@@ -136,12 +136,12 @@ func (o *Disable) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 	return nil, state, err
 }
 
-func (o *Disable) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+func (o *Disable) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
 	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	return o.Impl.CompensateDisable(s, ctx.Logger)
+	return o.Impl.CompensateDisable(s)
 }
 
 // Register registers all service actions with the given registry.
