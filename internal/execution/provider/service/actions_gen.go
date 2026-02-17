@@ -24,11 +24,16 @@ func (o *Start) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] service-start %v\n", name)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Start(name, ctx.Logger)
+	state, err := o.Impl.Start(name, ctx.Logger)
+	return nil, state, err
 }
 
-func (o *Start) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Start) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateStart(s, ctx.Logger)
 }
 
 // Stop stops a service.
@@ -46,11 +51,16 @@ func (o *Stop) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] service-stop %v\n", name)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Stop(name, ctx.Logger)
+	state, err := o.Impl.Stop(name, ctx.Logger)
+	return nil, state, err
 }
 
-func (o *Stop) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Stop) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateStop(s, ctx.Logger)
 }
 
 // Restart restarts a service.
@@ -68,11 +78,16 @@ func (o *Restart) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] service-restart %v\n", name)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Restart(name, ctx.Logger)
+	state, err := o.Impl.Restart(name, ctx.Logger)
+	return nil, state, err
 }
 
-func (o *Restart) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Restart) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateRestart(s, ctx.Logger)
 }
 
 // Enable enables a service to start at boot.
@@ -90,11 +105,16 @@ func (o *Enable) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] service-enable %v\n", name)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Enable(name, ctx.Logger)
+	state, err := o.Impl.Enable(name, ctx.Logger)
+	return nil, state, err
 }
 
-func (o *Enable) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Enable) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateEnable(s, ctx.Logger)
 }
 
 // Disable disables a service from starting at boot.
@@ -112,11 +132,16 @@ func (o *Disable) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] service-disable %v\n", name)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Disable(name, ctx.Logger)
+	state, err := o.Impl.Disable(name, ctx.Logger)
+	return nil, state, err
 }
 
-func (o *Disable) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Disable) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateDisable(s, ctx.Logger)
 }
 
 // Register registers all service actions with the given registry.
