@@ -46,7 +46,7 @@ live in `execution/flow` as typed Actions: `flow.Choose` (OR-selector),
 | Node.Action | `Action` interface field (`json:"-" yaml:"-"`), serialized via custom marshal |
 | Node.ResolvedSlots | `ResolvedSlots(results map[string]any) map[string]any` — resolves promise slots from upstream results |
 | Providers (11) | `provider/file`, `provider/encryption`, `provider/template`, `provider/content`, `provider/pkg`, `provider/shell`, `provider/service`, `provider/net`, `provider/archive`, `provider/git`, `provider/register_gen.go` |
-| Actions (31) | 9 file + 1 encryption + 1 template + 1 content + 4 pkg + 2 shell + 5 service + 1 net + 1 archive + 3 git + 3 flow |
+| Actions (32) | 9 file + 1 encryption + 1 template + 1 content + 4 pkg + 2 shell + 5 service + 1 net + 1 archive + 3 git + 4 flow |
 | Op names | Dotted: `"file.link"`, `"file.copy"`, `"pkg.install"`, etc. |
 | ActionRegistry | `NewActionRegistry()`, `Register()`, `Get()`, `MustGet()`, `Names()` |
 | GraphExecutor | No registry field — actions live on nodes, executor calls `node.Action.Do(ctx, slots)` directly |
@@ -86,9 +86,10 @@ internal/execution/
   dependencyview.go      — DependencyView
 
   flow/
-    choose.go            — flow.Choose (OR-selector)
-    gather.go            — flow.Gather (AND-join)
+    choose.go            — flow.Choose (predicate branching)
+    gather.go            — flow.Gather (parallel comprehension)
     elevate.go           — flow.Elevate (privilege transition)
+    wait_until.go        — flow.WaitUntil (poll-based synchronization)
     register.go          — Register(reg)
 
   provider/
@@ -358,7 +359,7 @@ No cycles. All subpackages import `execution` for core types.
 
 ## Action Count
 
-31 registered:
+32 registered:
 - 9 file (link, copy, backup, unlink, remove, write, move, mkdir, source)
 - 1 encryption (decrypt)
 - 1 template (render)
@@ -369,7 +370,7 @@ No cycles. All subpackages import `execution` for core types.
 - 1 net (download)
 - 1 archive (extract)
 - 3 git (clone, checkout, pull)
-- 3 flow (choose, gather, elevate)
+- 4 flow (choose, gather, elevate, wait_until)
 
 ## Open Questions
 
@@ -397,3 +398,5 @@ No cycles. All subpackages import `execution` for core types.
 - [Phase Execution Architecture](../architecture/devlore-phase-execution.md) — Saga pattern, phases, retry/rollback
 - [Typed Slots Architecture](../architecture/devlore-typed-slots.md) — Slot resolution chain
 - [Action Namespaces](../architecture/devlore-operation-namespaces.md) — Action namespace guide
+- [Orchestration Primitives Architecture](../architecture/devlore-orchestration-primitives.md) — Gather, Choose, WaitUntil, SlotProxy, hooks
+- [Orchestration Primitives Plan](orchestration-primitives.md) — Implementation plan for orchestration primitives

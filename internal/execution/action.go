@@ -49,7 +49,42 @@ type Context struct {
 	// calling GraphExecutor.Run().
 	Data map[string]any
 
+	// Graph is the graph being executed. Flow actions use this to look up
+	// phases referenced by their slots (e.g., gather body, choose branch).
+	Graph *Graph
+
+	// NodeID is the ID of the currently executing node. Flow actions use
+	// this to identify themselves (e.g., gather uses it for proxy context).
+	NodeID string
+
 	// Per-node checksums (written by actions, read by executor).
 	SourceChecksum string
 	TargetChecksum string
+}
+
+// GatherUndoState preserves per-iteration state needed for rollback.
+// Gather's Do returns this as its UndoState. Recovery entries reference
+// shared nodes — no lifecycle issue.
+type GatherUndoState struct {
+	Iterations []IterationUndo
+}
+
+// IterationUndo captures one gather iteration's undo state.
+type IterationUndo struct {
+	ProxyCtx map[string]any  // {gatherID: item} for slot re-resolution
+	Results  map[string]any  // node results for promise re-resolution
+	Entries  []RecoveryEntry // shared node refs + per-node undo state
+}
+
+// ChooseUndoState preserves the selected branch's recovery state.
+// Choose's Do returns this as its UndoState.
+type ChooseUndoState struct {
+	Results map[string]any  // node results for promise re-resolution
+	Entries []RecoveryEntry // branch node refs + per-node undo state
+}
+
+// ChooseCase pairs a predicate with a phase to execute if the predicate matches.
+type ChooseCase struct {
+	Predicate Predicate
+	PhaseID   string
 }

@@ -33,7 +33,7 @@ func (s *RecoveryStack) Len() int {
 // Unwind executes Undo on all entries in LIFO order.
 // Each entry's node slots are resolved from the results map before calling Undo.
 // Undo failures do not stop the unwind — all entries are processed.
-func (s *RecoveryStack) Unwind(ctx *Context, results map[string]any) []error {
+func (s *RecoveryStack) Unwind(ctx *Context, results map[string]any, proxyCtx ...map[string]any) []error {
 	var errs []error
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
@@ -41,7 +41,7 @@ func (s *RecoveryStack) Unwind(ctx *Context, results map[string]any) []error {
 		if entry.Node.Action == nil {
 			continue
 		}
-		slots := entry.Node.ResolvedSlots(results)
+		slots := entry.Node.ResolvedSlots(results, proxyCtx...)
 		if err := entry.Node.Action.Undo(ctx, slots, entry.UndoState); err != nil {
 			errs = append(errs, err)
 		}
