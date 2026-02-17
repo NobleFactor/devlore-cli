@@ -11,6 +11,9 @@ Internal engineering documentation for devlore-cli developers.
 - [E2E Testing](devlore-e2e-testing.md) - Multi-provider testing strategy for LLM commands
 - [Action Namespaces](devlore-operation-namespaces.md) - How to add new action namespaces to the execution engine
 - [Receipt Integrity](devlore-receipt-integrity.md) - Checksum and signature verification for receipts
+- [Phase Execution](devlore-phase-execution.md) - Saga pattern, phases, retry/rollback
+- [Typed Slots](devlore-typed-slots.md) - Slot model and resolution chain
+- [Orchestration Primitives](devlore-orchestration-primitives.md) - Gather, Choose, WaitUntil, SlotProxy, ActivationState, Sidecar hooks
 
 ## Overview
 

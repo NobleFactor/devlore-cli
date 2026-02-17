@@ -94,6 +94,7 @@ type ExecutorOptions struct {
 // GraphExecutor executes action graphs.
 type GraphExecutor struct {
 	options ExecutorOptions
+	hooks   *HookRegistry
 }
 
 // NewGraphExecutor creates an executor with the given options.
@@ -107,6 +108,11 @@ func NewGraphExecutor(opts ExecutorOptions) *GraphExecutor {
 	return &GraphExecutor{
 		options: opts,
 	}
+}
+
+// SetHooks sets the lifecycle hook registry for this executor.
+func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
+	e.hooks = hooks
 }
 
 // Run executes all nodes in the graph, respecting ordering constraints.
@@ -127,13 +133,14 @@ func (e *GraphExecutor) Run(ctx context.Context, g *Graph) error {
 
 // runFlat executes all nodes in topological order without phase boundaries.
 func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
-	ordered := e.orderNodes(g.Nodes, g.Edges)
+	ordered := OrderNodes(g.Nodes, g.Edges)
 
 	execCtx := &Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
 		Logger:  e.options.Logger,
 		Data:    e.options.Data,
+		Graph:   g,
 	}
 
 	results := make(map[string]any)
@@ -178,6 +185,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 		DryRun:  e.options.DryRun,
 		Logger:  e.options.Logger,
 		Data:    e.options.Data,
+		Graph:   g,
 	}
 
 	// Collect compensating phase IDs so we skip them in the forward pass.
@@ -360,43 +368,27 @@ func (e *GraphExecutor) resetPhaseNodes(g *Graph, phase *Phase) {
 
 // ExecutePhaseInner runs the inner nodes of a phase.
 func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *Graph, phase *Phase, results map[string]any, stack *RecoveryStack) error {
-	// Collect phase nodes
-	nodeSet := make(map[string]bool, len(phase.NodeIDs))
-	for _, id := range phase.NodeIDs {
-		nodeSet[id] = true
-	}
+	phaseNodes, phaseEdges := g.CollectPhaseNodes(phase)
+	ordered := OrderNodes(phaseNodes, phaseEdges)
 
-	var phaseNodes []*Node
-	for _, n := range g.Nodes {
-		if nodeSet[n.ID] {
-			phaseNodes = append(phaseNodes, n)
-		}
-	}
-
-	// Filter edges to only those within this phase
-	var phaseEdges []Edge
-	for _, edge := range g.Edges {
-		if nodeSet[edge.From] && nodeSet[edge.To] {
-			phaseEdges = append(phaseEdges, edge)
-		}
-	}
-
-	ordered := e.orderNodes(phaseNodes, phaseEdges)
+	e.hooks.FirePhaseStart(ctx, phase.ID)
 
 	for _, node := range ordered {
 		result := e.executeNode(ctx, node, results, stack)
 		if result.Status == ResultFailed {
+			e.hooks.FirePhaseComplete(ctx, phase.ID, result.Error)
 			return result.Error
 		}
 	}
 
+	e.hooks.FirePhaseComplete(ctx, phase.ID, nil)
 	return nil
 }
 
 // RunNodes executes a slice of nodes with the given edges.
 // This is a lower-level API for callers that don't have a full Graph.
 func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edge) ([]*NodeResult, error) {
-	ordered := e.orderNodes(nodes, edges)
+	ordered := OrderNodes(nodes, edges)
 
 	execCtx := &Context{
 		Context: ctx,
@@ -438,13 +430,17 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string
 	slots := node.ResolvedSlots(results)
 
 	// Fill unfilled slots from Context.Data
-	fillSlotsFromData(slots, e.options.Data)
+	FillSlotsFromData(slots, e.options.Data)
 
+	ctx.NodeID = node.ID
 	ctx.SourceChecksum = ""
 	ctx.TargetChecksum = ""
 
+	e.hooks.FireNodeStart(ctx, node.ID, slots)
+
 	result, undoState, err := node.Action.Do(ctx, slots)
 	if err != nil {
+		e.hooks.FireNodeComplete(ctx, node.ID, nil, err)
 		node.Status = StatusFailed
 		return &NodeResult{
 			NodeID: node.ID,
@@ -452,6 +448,8 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string
 			Error:  fmt.Errorf("%s: %w", actionName, err),
 		}
 	}
+
+	e.hooks.FireNodeComplete(ctx, node.ID, result, nil)
 
 	// Store result for downstream promise resolution
 	if result != nil {
@@ -473,9 +471,9 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string
 	}
 }
 
-// fillSlotsFromData fills unfilled slots from Context.Data.
+// FillSlotsFromData fills unfilled slots from Context.Data.
 // Slots already set by the caller or resolved from promises are not overwritten.
-func fillSlotsFromData(slots map[string]any, data map[string]any) {
+func FillSlotsFromData(slots map[string]any, data map[string]any) {
 	for key, value := range data {
 		if _, exists := slots[key]; !exists {
 			slots[key] = value
@@ -483,16 +481,17 @@ func fillSlotsFromData(slots map[string]any, data map[string]any) {
 	}
 }
 
-// orderNodes returns nodes in execution order.
-func (e *GraphExecutor) orderNodes(nodes []*Node, edges []Edge) []*Node {
+// OrderNodes returns nodes in execution order.
+// Nodes with edges are topologically sorted; nodes without edges are sorted by path depth.
+func OrderNodes(nodes []*Node, edges []Edge) []*Node {
 	if len(edges) > 0 {
-		return e.topologicalSortNodes(nodes, edges)
+		return topologicalSortNodes(nodes, edges)
 	}
-	return e.sortNodesByDepth(nodes)
+	return sortNodesByDepth(nodes)
 }
 
 // topologicalSortNodes orders nodes respecting edge constraints (Kahn's algorithm).
-func (e *GraphExecutor) topologicalSortNodes(nodes []*Node, edges []Edge) []*Node {
+func topologicalSortNodes(nodes []*Node, edges []Edge) []*Node {
 	nodeMap := make(map[string]*Node)
 	inDegree := make(map[string]int)
 	adj := make(map[string][]string)
@@ -550,7 +549,7 @@ func (e *GraphExecutor) topologicalSortNodes(nodes []*Node, edges []Edge) []*Nod
 }
 
 // sortNodesByDepth sorts nodes by target path depth.
-func (e *GraphExecutor) sortNodesByDepth(nodes []*Node) []*Node {
+func sortNodesByDepth(nodes []*Node) []*Node {
 	sorted := make([]*Node, len(nodes))
 	copy(sorted, nodes)
 

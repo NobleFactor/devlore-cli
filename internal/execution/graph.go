@@ -295,22 +295,43 @@ func (n *Node) SetSlotImmediate(name string, value any) {
 }
 
 // ResolvedSlots returns all slot values as a flat map.
-// Promise slots are resolved from the results map; immediate slots are returned directly.
+// Promise slots are resolved from the results map; immediate slots are returned
+// directly. Proxy slots are resolved from the optional proxyCtx map (used by
+// gather for per-iteration item binding).
 // Pass nil for results when all slots are immediate (e.g., in tests).
-func (n *Node) ResolvedSlots(results map[string]any) map[string]any {
+func (n *Node) ResolvedSlots(results map[string]any, proxyCtx ...map[string]any) map[string]any {
 	slots := make(map[string]any, len(n.Slots))
 	for name, sv := range n.Slots {
-		if sv.IsPromise() {
+		switch {
+		case sv.IsProxy():
+			if len(proxyCtx) > 0 && proxyCtx[0] != nil {
+				if item, ok := proxyCtx[0][sv.GatherRef]; ok {
+					slots[name] = fieldAccess(item, sv.Field)
+				}
+			}
+		case sv.IsPromise():
 			if results != nil {
 				if val, ok := results[sv.NodeRef]; ok {
 					slots[name] = val
 				}
 			}
-		} else if sv.IsImmediate() {
+		default:
 			slots[name] = sv.Immediate
 		}
 	}
 	return slots
+}
+
+// fieldAccess extracts a named field from a value.
+// Supports map[string]any for structured items.
+func fieldAccess(item any, field string) any {
+	if field == "" {
+		return item
+	}
+	if m, ok := item.(map[string]any); ok {
+		return m[field]
+	}
+	return nil
 }
 
 // SetSlotPromise sets a slot to a promise (reference to another node).
@@ -319,6 +340,14 @@ func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
 		n.Slots = make(map[string]SlotValue)
 	}
 	n.Slots[name] = SlotValue{NodeRef: nodeRef, Slot: slot}
+}
+
+// SetSlotProxy sets a slot to a gather proxy reference.
+func (n *Node) SetSlotProxy(name, gatherRef, field string) {
+	if n.Slots == nil {
+		n.Slots = make(map[string]SlotValue)
+	}
+	n.Slots[name] = SlotValue{GatherRef: gatherRef, Field: field}
 }
 
 // GetID returns the node's unique identifier.
@@ -344,7 +373,10 @@ type Edge struct {
 }
 
 // SlotValue represents a value that fills a slot in a node.
-// Either Immediate is set (direct value) or NodeRef is set (promise from upstream node).
+// Three variants, mutually exclusive:
+//   - Immediate: value known at analysis time
+//   - Promise: reference to another node's output (NodeRef)
+//   - Proxy: reference to a gather iteration item (GatherRef + Field)
 type SlotValue struct {
 	// Immediate is the direct value (any type, known at analysis time).
 	Immediate any `json:"immediate,omitempty" yaml:"immediate,omitempty"`
@@ -354,6 +386,12 @@ type SlotValue struct {
 
 	// Slot is which output slot of the referenced node (empty = default output).
 	Slot string `json:"slot,omitempty" yaml:"slot,omitempty"`
+
+	// GatherRef is the gather node ID for proxy resolution.
+	GatherRef string `json:"gather_ref,omitempty" yaml:"gather_ref,omitempty"`
+
+	// Field is the field name to access on the proxy item.
+	Field string `json:"field,omitempty" yaml:"field,omitempty"`
 }
 
 // IsPromise returns true if this slot value is a promise (reference to another node).
@@ -361,9 +399,14 @@ func (s SlotValue) IsPromise() bool {
 	return s.NodeRef != ""
 }
 
+// IsProxy returns true if this slot value is a gather proxy reference.
+func (s SlotValue) IsProxy() bool {
+	return s.GatherRef != ""
+}
+
 // IsImmediate returns true if this slot value is an immediate value.
 func (s SlotValue) IsImmediate() bool {
-	return s.NodeRef == "" && s.Immediate != nil
+	return !s.IsPromise() && !s.IsProxy()
 }
 
 // Graph represents an execution graph containing nodes and edges.
@@ -624,4 +667,30 @@ func (g *Graph) PhaseByID(id string) *Phase {
 		}
 	}
 	return nil
+}
+
+// CollectPhaseNodes returns the nodes and intra-phase edges for the given phase.
+// Nodes are returned in graph order; edges are filtered to only those between
+// phase-internal nodes.
+func (g *Graph) CollectPhaseNodes(phase *Phase) ([]*Node, []Edge) {
+	nodeSet := make(map[string]bool, len(phase.NodeIDs))
+	for _, id := range phase.NodeIDs {
+		nodeSet[id] = true
+	}
+
+	var nodes []*Node
+	for _, n := range g.Nodes {
+		if nodeSet[n.ID] {
+			nodes = append(nodes, n)
+		}
+	}
+
+	var edges []Edge
+	for _, e := range g.Edges {
+		if nodeSet[e.From] && nodeSet[e.To] {
+			edges = append(edges, e)
+		}
+	}
+
+	return nodes, edges
 }

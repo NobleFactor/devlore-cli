@@ -10,4 +10,5 @@ func Register(reg *execution.ActionRegistry) {
 	reg.Register(&Choose{})
 	reg.Register(&Gather{})
 	reg.Register(&Elevate{})
+	reg.Register(&WaitUntil{})
 }

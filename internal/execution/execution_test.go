@@ -84,8 +84,8 @@ func TestAllProvidersCount(t *testing.T) {
 
 	names := reg.Names()
 	sort.Strings(names)
-	if len(names) != 31 {
-		t.Errorf("expected 31 total actions, got %d: %v", len(names), names)
+	if len(names) != 32 {
+		t.Errorf("expected 32 total actions, got %d: %v", len(names), names)
 	}
 
 	expected := []string{
@@ -99,7 +99,7 @@ func TestAllProvidersCount(t *testing.T) {
 		"net.download",
 		"archive.extract",
 		"git.clone", "git.checkout", "git.pull",
-		"flow.choose", "flow.gather", "flow.elevate",
+		"flow.choose", "flow.gather", "flow.elevate", "flow.wait_until",
 	}
 	nameSet := make(map[string]bool)
 	for _, n := range names {
