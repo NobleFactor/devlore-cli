@@ -24,11 +24,16 @@ func (o *Install) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] package-install %v\n", strings.Join(packages, " "))
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Install(packages, manager, cask)
+	state, err := o.Impl.Install(packages, manager, cask)
+	return nil, state, err
 }
 
-func (o *Install) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Install) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateInstall(s)
 }
 
 // Upgrade upgrades packages using the platform's package manager.
@@ -45,11 +50,16 @@ func (o *Upgrade) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] package-upgrade %v\n", strings.Join(packages, " "))
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Upgrade(packages, manager, cask)
+	state, err := o.Impl.Upgrade(packages, manager, cask)
+	return nil, state, err
 }
 
-func (o *Upgrade) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Upgrade) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateUpgrade(s)
 }
 
 // Remove removes packages using the platform's package manager.
@@ -66,11 +76,16 @@ func (o *Remove) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] package-remove %v\n", strings.Join(packages, " "))
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Remove(packages, manager, cask)
+	state, err := o.Impl.Remove(packages, manager, cask)
+	return nil, state, err
 }
 
-func (o *Remove) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Remove) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateRemove(s)
 }
 
 // Update refreshes the package manager index.
