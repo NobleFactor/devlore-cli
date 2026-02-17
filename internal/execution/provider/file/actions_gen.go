@@ -23,11 +23,16 @@ func (o *Link) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] link %v %v\n", source, path)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Link(source, path)
+	state, err := o.Impl.Link(source, path)
+	return nil, state, err
 }
 
-func (o *Link) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Link) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateLink(s)
 }
 
 // Copy writes content to "path" slot (consumer: reads content from slot, checksums).
@@ -58,16 +63,20 @@ func (o *Copy) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		ctx.TargetChecksum = checksumBytes(content)
 		return nil, nil, nil
 	}
-	checksum, err := o.Impl.Copy(path, mode, content)
+	checksum, state, err := o.Impl.Copy(path, mode, content)
 	if err != nil {
 		return nil, nil, err
 	}
 	ctx.TargetChecksum = checksum
-	return nil, nil, nil
+	return nil, state, nil
 }
 
-func (o *Copy) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Copy) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateCopy(s)
 }
 
 // Backup moves the existing file at "path" slot to a timestamped backup.
@@ -84,15 +93,19 @@ func (o *Backup) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] backup %v\n", path)
 		return nil, nil, nil
 	}
-	backupPath, err := o.Impl.Backup(path, backupSuffix)
+	backupPath, state, err := o.Impl.Backup(path, backupSuffix)
 	if err != nil {
 		return nil, nil, err
 	}
-	return backupPath, nil, nil
+	return backupPath, state, nil
 }
 
-func (o *Backup) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Backup) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateBackup(s)
 }
 
 // Unlink removes a symlink at "path" slot.
@@ -109,11 +122,16 @@ func (o *Unlink) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] unlink %v\n", path)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Unlink(path, prune, pruneBoundary)
+	state, err := o.Impl.Unlink(path, prune, pruneBoundary)
+	return nil, state, err
 }
 
-func (o *Unlink) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Unlink) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateUnlink(s)
 }
 
 // Remove deletes the file at "path" slot.
@@ -130,11 +148,16 @@ func (o *Remove) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] remove %v\n", path)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Remove(path, prune, pruneBoundary)
+	state, err := o.Impl.Remove(path, prune, pruneBoundary)
+	return nil, state, err
 }
 
-func (o *Remove) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Remove) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateRemove(s)
 }
 
 // Write writes content from "content" slot to "path" slot.
@@ -151,11 +174,16 @@ func (o *Write) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] write %v\n", path)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Write(content, path, mode)
+	state, err := o.Impl.Write(content, path, mode)
+	return nil, state, err
 }
 
-func (o *Write) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Write) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateWrite(s)
 }
 
 // Move moves a file from "source" slot to "path" slot.
@@ -172,11 +200,16 @@ func (o *Move) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] move %v %v\n", source, path)
 		return nil, nil, nil
 	}
-	return nil, nil, o.Impl.Move(gitMv, source, path)
+	state, err := o.Impl.Move(gitMv, source, path)
+	return nil, state, err
 }
 
-func (o *Move) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+func (o *Move) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	return o.Impl.CompensateMove(s)
 }
 
 // Mkdir creates a directory at "path" slot.
