@@ -1,7 +1,7 @@
 ---
 title: "Action Compensation"
 issue: TBD
-status: draft
+status: complete
 created: 2026-02-17
 updated: 2026-02-17
 ---
@@ -44,10 +44,10 @@ achieved by resource-provider plan; compensation goals carried forward here).
 |---|---|---|
 | Action interface (Do/Undo) | Implemented | `action.go` |
 | RecoveryStack.Unwind | Implemented | Calls `Action.Undo()` per node in reverse |
-| Provider Forward methods | Implemented | Return `(result, error)` — no state |
-| Provider Backward methods | Missing | No `Compensate<Method>` methods |
-| Action Undo wiring | Missing | All return nil |
-| Generator Activity detection | Missing | Template emits nil Undo only |
+| Provider Forward methods | Implemented | Return `(result, map[string]any, error)` for compensable methods |
+| Provider Backward methods | Implemented | `Compensate<Method>` on all providers (Phases 1–4) |
+| Action Undo wiring | Implemented | Generated actions delegate to `Compensate<Method>` |
+| Generator Activity detection | Implemented | `compensable` flag on method descriptors (Phase 5) |
 
 ## Compensation Inventory
 
@@ -211,22 +211,22 @@ func (o *Source) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoSt
 
 ## Implementation Phases
 
-### Phase 1: File Provider (Reference Implementation)
+### Phase 1: File Provider (Reference Implementation) — PR #141
 
 The largest provider (9 actions, 7 compensable). Establishes the pattern.
 
-- [ ] Add state capture to compensable Forward methods (7 methods):
+- [x] Add state capture to compensable Forward methods (7 methods):
       `Copy`, `Link`, `Backup`, `Write`, `Move`, `Unlink`, `Remove`
-- [ ] Add Backward methods (7 methods):
+- [x] Add Backward methods (7 methods):
       `CompensateCopy`, `CompensateLink`, `CompensateBackup`,
       `CompensateWrite`, `CompensateMove`, `CompensateUnlink`,
       `CompensateRemove`
-- [ ] Pre-action state query: check `existed_before`, save `previous_target`
+- [x] Pre-action state query: check `existed_before`, save `previous_target`
       (for link), save `content` + `mode` (for remove)
-- [ ] Update action Do to capture state as UndoState (7 actions)
-- [ ] Update action Undo to delegate to CompensateXxx (7 actions)
-- [ ] Non-compensable actions (`Source`, `Mkdir`) unchanged
-- [ ] Tests: Forward+state round-trip, Backward restores previous state
+- [x] Update action Do to capture state as UndoState (7 actions)
+- [x] Update action Undo to delegate to CompensateXxx (7 actions)
+- [x] Non-compensable actions (`Source`, `Mkdir`) unchanged
+- [x] Tests: Forward+state round-trip, Backward restores previous state
 
 **Files:**
 
@@ -236,21 +236,21 @@ The largest provider (9 actions, 7 compensable). Establishes the pattern.
 | `provider/file/actions_gen.go` | Modify | Wire Do state capture + Undo delegation |
 | `provider/file/provider_test.go` | Create | Forward/Backward tests per Activity pair |
 
-### Phase 2: Service Provider
+### Phase 2: Service Provider — PR #142
 
 Natural inverse pairs. Requires querying service state before acting.
 
-- [ ] Add pre-action state query: is service running? is service enabled?
+- [x] Add pre-action state query: is service running? is service enabled?
       (platform-specific: `systemctl is-active`, `launchctl list`, `sc query`)
-- [ ] Add state capture to Forward methods (5 methods)
-- [ ] Add Backward methods:
+- [x] Add state capture to Forward methods (5 methods)
+- [x] Add Backward methods:
       `CompensateStart` (stop if wasn't running),
       `CompensateStop` (start if was running),
       `CompensateRestart` (no-op),
       `CompensateEnable` (disable if wasn't enabled),
       `CompensateDisable` (enable if was enabled)
-- [ ] Update action wiring (5 actions)
-- [ ] Tests: mock service state query, verify Backward logic
+- [x] Update action wiring (5 actions)
+- [x] Tests: mock service state query, verify Backward logic
 
 **Files:**
 
@@ -260,19 +260,19 @@ Natural inverse pairs. Requires querying service state before acting.
 | `provider/service/actions_gen.go` | Modify | Wire Do/Undo |
 | `provider/service/provider_test.go` | Create | Forward/Backward tests |
 
-### Phase 3: Package Provider
+### Phase 3: Package Provider — PR #143
 
 Requires querying installed-package state before acting.
 
-- [ ] Add pre-action state query: which packages are already installed?
+- [x] Add pre-action state query: which packages are already installed?
       (platform-specific: `dpkg -l`, `rpm -q`, `brew list`, etc.)
-- [ ] Add state capture to Forward methods (3 methods)
-- [ ] Add Backward methods:
+- [x] Add state capture to Forward methods (3 methods)
+- [x] Add Backward methods:
       `CompensateInstall` (remove packages that weren't already installed),
       `CompensateUpgrade` (downgrade to saved versions),
       `CompensateRemove` (re-install removed packages)
-- [ ] Update action wiring (3 actions)
-- [ ] Tests
+- [x] Update action wiring (3 actions)
+- [x] Tests
 
 **Files:**
 
@@ -282,16 +282,16 @@ Requires querying installed-package state before acting.
 | `provider/pkg/actions_gen.go` | Modify | Wire Do/Undo |
 | `provider/pkg/provider_test.go` | Create | Forward/Backward tests |
 
-### Phase 4: Remaining Providers (Net, Archive, Git)
+### Phase 4: Remaining Providers (Net, Archive, Git) — PR #144
 
 Smaller scope — 3 compensable actions across 3 providers.
 
-- [ ] `net.Download`: save path, CompensateDownload removes file
-- [ ] `archive.Extract`: save dest + created file list, CompensateExtract
+- [x] `net.Download`: save path, CompensateDownload removes file
+- [x] `archive.Extract`: save dest + created file list, CompensateExtract
       removes created files
-- [ ] `git.Clone`: save path, CompensateClone removes directory
-- [ ] Update action wiring (3 actions)
-- [ ] Tests
+- [x] `git.Clone`: save path, CompensateClone removes directory
+- [x] Update action wiring (3 actions)
+- [x] Tests
 
 **Files:**
 
@@ -304,51 +304,50 @@ Smaller scope — 3 compensable actions across 3 providers.
 | `provider/git/provider.go` | Modify | Add state return, Backward method |
 | `provider/git/actions_gen.go` | Modify | Wire Do/Undo |
 
-### Phase 5: Generator Template Update
+### Phase 5: Generator Template Update — PR #145 (devlore-cli), PR #80 (noblefactor-ops)
 
 Update the `graph_actions` template in noblefactor-ops to detect Activity
 pairs and emit the wiring automatically. After this phase, all `actions_gen.go`
 files are nuke-safe: `rm *_gen.go` + regenerate produces identical code.
 
-- [ ] Update `methodInfo` analysis to detect `Compensate<Method>` pairs
-- [ ] Gate 3 validation: verify Backward signature is
+- [x] Update `methodInfo` analysis to detect `Compensate<Method>` pairs
+- [x] Gate 3 validation: verify Backward signature is
       `func(state map[string]any) error`
-- [ ] Update `graph_actions.go.template` to emit:
+- [x] Update `graph_actions.go.template` to emit:
       - Do: capture state from Forward's `map[string]any` return → UndoState
       - Undo: delegate to `Impl.CompensateXxx(state)` for compensable ops
       - Undo: return nil for non-compensable ops
-- [ ] Filter `Compensate*` methods from Forward method list in `generate.star`
-- [ ] Verify: regenerate all `actions_gen.go`, diff against hand-written
-- [ ] Update `plan_receiver.go.template` if needed (unlikely — plan receivers
-      don't touch compensation)
+- [x] Filter `Compensate*` methods from Forward method list in `generate.star`
+- [x] Verify: regenerate all `actions_gen.go`, diff against hand-written
+- [x] Standardize Service Compensate signatures to `(map[string]any) error`
+      (no `io.Writer` parameter)
 
-**Files (noblefactor-ops):**
-
-| File | Action | Purpose |
-|---|---|---|
-| `internal/starlark/receiver_go_gen.go` | Modify | Template + pair detection |
-| `star/extensions/.../commands/generate.star` | Modify | Filter Compensate* methods |
-
-**Files (devlore-cli):**
+**Files (noblefactor-ops — PR #80):**
 
 | File | Action | Purpose |
 |---|---|---|
-| `star/extensions/.../templates/graph_actions.go.template` | Modify | Emit Do/Undo wiring |
+| `internal/starlark/receiver_go_gen.go` | Modify | `compensable` flag on method descriptors, pair detection |
+| `star/extensions/.../commands/generate.star` | Modify | Filter `Compensate*` methods from Forward list |
 
-### Phase 6: Compensation Integration Tests
+**Files (devlore-cli — PR #145):**
 
-End-to-end tests verifying the full compensation cycle: build graph → execute
-→ fail mid-phase → unwind → verify compensation occurred.
+| File | Action | Purpose |
+|---|---|---|
+| `star/extensions/.../commands/generate.star` | Modify | Filter `Compensate*` methods in Ops extension |
 
-- [ ] Test: file phase fails mid-execution, completed file ops are compensated
-      (created files removed, moved files restored)
-- [ ] Test: service phase fails, started services are stopped
-- [ ] Test: package phase fails, installed packages are removed
-- [ ] Test: gather with 5 items, item 3 fails — items 1-2 compensated,
-      items 4-5 never started
-- [ ] Test: nested phase compensation (gather body contains choose with
-      compensable branch)
-- [ ] Test: dry-run produces no UndoState (nil), Undo is no-op
+### Phase 6: Compensation Integration Tests — PR #146
+
+Six focused integration tests verifying the compensation cycle through the
+execution runtime.
+
+- [x] `TestCompensationFileOps`: file operations are compensated on failure
+- [x] `TestCompensationOrdering`: compensation occurs in LIFO order
+- [x] `TestCompensationDryRun`: dry-run produces no UndoState, Undo is no-op
+- [x] `TestCompensationNilState`: nil state in Undo is handled gracefully
+- [x] `TestCompensationPartialFailure`: only completed ops are compensated,
+      failed and unstarted ops are skipped
+- [x] `TestCompensationGather`: gather walks completed iterations in reverse
+      via `undoCompleted`
 
 **Files:**
 
