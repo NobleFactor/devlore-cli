@@ -1,6 +1,6 @@
 # DevLore Complexity Measurements
 
-Generated: 2026-01-29
+Generated: 2026-01-29 | Updated: 2026-02-17
 
 ## Summary
 
@@ -30,10 +30,10 @@ Generated: 2026-01-29
 | `bindgen` | Starlark binding generation |
 | `cli` | Terminal UI, colors, prompts |
 | `credentials` | Credential management |
-| `engine` | Execution graph and operations |
+| `execution` | Execution graph, actions, phases, recovery |
 | `host` | Platform detection, package managers |
 | `lore` | Lore command implementation |
-| `model` | Data models and DTOs |
+| `model` | AI model providers |
 | `pwsh` | PowerShell integration |
 | `registry` | Registry client, package resolution |
 | `shell` | Shell execution utilities |
@@ -51,9 +51,9 @@ Generated: 2026-01-29
 
 ### Key Interfaces
 
-- `PlanBindings` - Starlark plan API (package, file, service operations)
+- `Action` - Execution action interface (Do/Undo with typed slots)
+- `PlanBindings` - Starlark plan API (package, file, service actions)
 - `PackageManager` - Native PM abstraction (apt, dnf, brew, winget)
-- `Operation` - Engine operation interface
 - `Host` - Platform abstraction
 
 ---
@@ -64,16 +64,16 @@ Generated: 2026-01-29
 
 | Package | Platforms | Phase Scripts | Status |
 |---------|-----------|---------------|--------|
-| docker | 4 | 40 | Migrated to new API |
-| astro | 1 | 4 | Legacy API |
-| aws-cli | 1 | 4 | Legacy API |
-| azure-cli | 1 | 4 | Legacy API |
-| gcloud | 1 | 4 | Legacy API |
-| kubectl | 1 | 4 | Legacy API |
-| pandoc | 1 | 4 | Legacy API |
-| terraform | 1 | 4 | Legacy API |
-| xcode | 1 | 4 | Legacy API |
-| xcode-clt | 1 | 4 | Legacy API |
+| docker | 4 | 40 | Current API |
+| astro | 1 | 4 | Current API |
+| aws-cli | 1 | 4 | Current API |
+| azure-cli | 1 | 4 | Current API |
+| gcloud | 1 | 4 | Current API |
+| kubectl | 1 | 4 | Current API |
+| pandoc | 1 | 4 | Current API |
+| terraform | 1 | 4 | Current API |
+| xcode | 1 | 4 | Current API |
+| xcode-clt | 1 | 4 | Current API |
 
 ### Platform Coverage
 
@@ -92,14 +92,13 @@ Generated: 2026-01-29
 | Upgrade | 12 | prepare, upgrade, verify |
 | Decommission | 12 | unprovision, uninstall, cleanup |
 
-### API Migration Status
+### Phase Script API
 
-| API Version | Files | Signature |
-|-------------|-------|-----------|
-| New (v2) | 40 | `def phase(package, system, plan):` |
-| Legacy (v1) | 36 | `def phase():` |
+All phase scripts use the three-argument signature:
 
-**Migration Progress:** 53% complete (40/76 files)
+```starlark
+def phase(package, system, plan):
+```
 
 ---
 
@@ -109,14 +108,14 @@ Generated: 2026-01-29
 
 1. **Clear separation of concerns** - `internal/` packages have single responsibilities
 2. **Platform abstraction** - `host/` package isolates OS-specific code
-3. **Unified execution model** - Both writ and lore use same engine
-4. **Namespaced API** - `plan.package.*`, `plan.file.*` provides clear structure
+3. **Unified execution model** - Both writ and lore use same action-based execution graph
+4. **Namespaced API** - `plan.package.*`, `plan.file.*`, `plan.template.*` provides clear structure
+5. **Saga-pattern compensation** - All resource providers support forward/undo with typed receipts
 
 ### Areas for Improvement
 
 1. **Test coverage** - 20% of LOC is test code (target: 30%+)
-2. **API consistency** - 47% of registry scripts still use legacy API
-3. **Documentation** - Knowledge base exists but needs more examples
+2. **Documentation** - Knowledge base exists but needs more examples
 
 ### Complexity Indicators
 
@@ -131,24 +130,10 @@ Generated: 2026-01-29
 
 ## Technical Debt
 
-### High Priority
-
-1. **Migrate 9 legacy packages** to new API signature
-   - astro, aws-cli, azure-cli, gcloud, kubectl, pandoc, terraform, xcode, xcode-clt
-
 ### Medium Priority
 
-2. **Implement missing plan operations**
-   - `plan.download()` - File downloads
-   - `plan.verify()` - Verification checks
-   - `plan.file.write()` - File creation
-   - `plan.file.remove()` - File deletion
-   - `plan.user.add_to_group()` - User management
-
-### Low Priority
-
-3. **Increase test coverage** - Add tests for starlark bindings
-4. **Add integration tests** - End-to-end pipeline tests
+1. **Increase test coverage** - Add tests for starlark bindings
+2. **Add integration tests** - End-to-end pipeline tests
 
 ---
 
@@ -160,7 +145,7 @@ devlore-cli/
 │   ├── lore/              # lore command tree
 │   └── writ/              # writ command tree
 ├── internal/              # Core packages (31,670 LOC)
-│   ├── engine/            # Execution engine
+│   ├── execution/         # Execution graph, actions, phases
 │   ├── host/              # Platform abstraction
 │   ├── registry/          # Package registry
 │   ├── starlark/          # Starlark runtime
