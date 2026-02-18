@@ -24,6 +24,43 @@ _ANALYSIS_FILE = "analysis.go"
 _PLAN_FILE = "plan.go"
 _GRAPH_FILE = "graph.go"
 
+# Known properties — non-callable attributes that can't be detected by call scanning.
+# These appear as direct value returns in Attr() switch cases or FromStringDict struct fields.
+_KNOWN_PROPERTIES = {
+    "package.name":             {"type": "string", "doc": "Package name being deployed"},
+    "package.version":          {"type": "string", "doc": "Version being deployed"},
+    "package.features":         {"type": "list[string]", "doc": "Enabled features"},
+    "package.settings":         {"type": "dict[string, string]", "doc": "Key-value settings"},
+    "package.dry_run":          {"type": "bool", "doc": "True if this is a preview run"},
+    "package.source_root":      {"type": "string", "doc": "Package source directory"},
+    "package.target_root":      {"type": "string", "doc": "Deployment target directory"},
+    "system.platform.os":       {"type": "string", "doc": "Operating system (darwin, linux, windows)"},
+    "system.platform.arch":     {"type": "string", "doc": "Architecture (amd64, arm64)"},
+    "system.platform.distro":   {"type": "string", "doc": "Distribution codename"},
+    "system.platform.version":  {"type": "string", "doc": "OS version string"},
+    "system.platform.hostname": {"type": "string", "doc": "Machine hostname"},
+}
+
+# AttrNames declarations from Go source — authoritative cross-reference.
+# If a name appears here but isn't found as a binding, property, or sub-namespace,
+# the extract pipeline fails. Update this when adding new attrs in Go.
+_ATTR_NAMES = {
+    "plan": ["archive", "download", "encryption", "file", "gather", "git", "literal", "package", "service", "shell", "source", "template"],
+    "plan.file": ["copy", "link", "remove", "write"],
+    "plan.package": ["install", "remove", "update", "upgrade"],
+    "plan.template": ["render"],
+    "plan.encryption": ["decrypt"],
+    "plan.archive": ["extract"],
+    "plan.git": ["checkout", "clone", "pull"],
+    "system": ["file", "git", "package", "platform", "service"],
+    "system.package": ["installed", "manager", "version"],
+    "system.service": ["enabled", "exists", "running"],
+    "system.git": ["current_branch", "installed", "is_clean", "repo_root", "version"],
+    "system.file": ["exists", "home", "is_dir", "which"],
+    "package": ["dry_run", "features", "has_feature", "name", "setting", "settings", "source_root", "target_root", "version"],
+    "phase": ["retry"],
+}
+
 
 def run(ctx):
     """Main entry point for extract command."""
@@ -84,11 +121,13 @@ def _parse_devlore_api(path):
     """Parse devlore-cli Starlark API from Go source files.
 
     Uses go.methods() and go.calls() to extract:
-    - Binding names from Attr methods (via NewBuiltin calls)
+    - Binding names from Attr methods (via NewBuiltin and MakeAttr calls)
     - Handler details: doc, slots, operations, output
+    - Properties from _KNOWN_PROPERTIES
     - StringDict violations (non-Attr NewBuiltin registrations)
+    - AttrNames cross-reference violations
     """
-    # Step 1: Find all Attr methods and extract bindings
+    # Step 1: Find all Attr methods and extract bindings via NewBuiltin
     attr_methods = go.methods(path, name="Attr")
     bindings = {}
     seen = {}
@@ -108,10 +147,49 @@ def _parse_devlore_api(path):
             seen[binding_name] = True
             binding = _extract_binding_info(path, handler_name, binding_name, str(attr_method.file), int(call.line))
             if binding:
+                binding["kind"] = "method"
                 bindings[binding_name] = binding
 
-    # Step 2: Detect StringDict violations
-    # Any NewBuiltin call for plan.*/system.* outside Attr methods is a violation
+    # Step 1b: Extract bindings via MakeAttr (same 2-arg signature as NewBuiltin)
+    for attr_method in attr_methods:
+        make_attr_calls = go.calls(attr_method.scope, name="MakeAttr")
+        for call in make_attr_calls:
+            args = list(call.args)
+            if len(args) < 2:
+                continue
+            binding_name = str(args[0].string_value)
+            handler_name = str(args[1].ident_name)
+            if not binding_name or not _is_api_binding(binding_name):
+                continue
+            if binding_name in seen:
+                continue
+            seen[binding_name] = True
+            binding = _extract_binding_info(path, handler_name, binding_name, str(attr_method.file), int(call.line))
+            if binding:
+                binding["kind"] = "method"
+                bindings[binding_name] = binding
+
+    # Step 2: Inject known properties
+    for prop_name, prop_info in _KNOWN_PROPERTIES.items():
+        if prop_name in seen:
+            continue
+        seen[prop_name] = True
+        bindings[prop_name] = {
+            "kind": "property",
+            "value_type": prop_info["type"],
+            "doc": prop_info["doc"],
+            "usage": "",
+            "slots": [],
+            "slot_docs": {},
+            "operations": [],
+            "output": "none",
+            "returns": "",
+            "file": "",
+            "line": 0,
+        }
+
+    # Step 3: Detect StringDict violations
+    # Any NewBuiltin call for API bindings outside Attr methods is a violation
     all_methods = go.methods(path)
     violations = []
     for method in all_methods:
@@ -135,9 +213,15 @@ def _parse_devlore_api(path):
                 "error": "uses StringDict instead of Attr receiver",
             })
 
-    # Step 3: Build hierarchical result
+    # Step 4: AttrNames cross-reference validation
+    attr_violations = _validate_attr_names(bindings)
+    violations.extend(attr_violations)
+
+    # Step 5: Build hierarchical result
     plan = {}
     system = {}
+    package = {}
+    phase = {}
     for name in sorted(bindings.keys()):
         b = bindings[name]
         parts = name.split(".")
@@ -153,6 +237,7 @@ def _parse_devlore_api(path):
         entry = {
             "name": method_name,
             "full_name": name,
+            "kind": b.get("kind", "method"),
             "doc": b.get("doc", ""),
             "usage": b.get("usage", ""),
             "slots": b.get("slots", []),
@@ -163,6 +248,8 @@ def _parse_devlore_api(path):
             "file": b.get("file", ""),
             "line": b.get("line", 0),
         }
+        if b.get("kind") == "property":
+            entry["value_type"] = b.get("value_type", "")
         if context == "plan":
             if namespace not in plan:
                 plan[namespace] = []
@@ -171,18 +258,65 @@ def _parse_devlore_api(path):
             if namespace not in system:
                 system[namespace] = []
             system[namespace].append(entry)
+        elif context == "package":
+            if namespace not in package:
+                package[namespace] = []
+            package[namespace].append(entry)
+        elif context == "phase":
+            if namespace not in phase:
+                phase[namespace] = []
+            phase[namespace].append(entry)
 
     return {
         "valid": len(violations) == 0,
         "plan": plan,
         "system": system,
+        "package": package,
+        "phase": phase,
         "violations": violations,
     }
 
 
 def _is_api_binding(name):
-    """Check if a binding name is an API binding (plan.* or system.*)."""
-    return name.startswith("plan.") or name.startswith("system.")
+    """Check if a binding name is a lore API binding."""
+    return (name.startswith("plan.") or name.startswith("system.") or
+            name.startswith("package.") or name.startswith("phase."))
+
+
+def _validate_attr_names(bindings):
+    """Cross-reference AttrNames declarations against collected bindings.
+
+    Every name declared in _ATTR_NAMES must be accounted for as either:
+    - A binding (found via NewBuiltin/MakeAttr scanning)
+    - A property (in _KNOWN_PROPERTIES)
+    - A sub-namespace reference (has child bindings like prefix.name.*)
+    """
+    violations = []
+    all_binding_names = set(bindings.keys())
+
+    for prefix, names in _ATTR_NAMES.items():
+        for name in names:
+            qualified = prefix + "." + name
+            # Check if it's a direct binding or property
+            if qualified in all_binding_names:
+                continue
+            # Check if it's a sub-namespace (has children like prefix.name.*)
+            child_prefix = qualified + "."
+            has_children = False
+            for b in all_binding_names:
+                if b.startswith(child_prefix):
+                    has_children = True
+                    break
+            if has_children:
+                continue
+            violations.append({
+                "name": qualified,
+                "file": "",
+                "line": 0,
+                "error": "declared in AttrNames but not found as binding, property, or sub-namespace",
+            })
+
+    return violations
 
 
 def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallback_line):
@@ -422,10 +556,9 @@ def build_onboarding_knowledge(source, target):
 
     success("  No contract violations")
 
-    # Write to target
+    # Write YAML reference
     reference_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.yaml")
 
-    # Compare with existing
     changes_detected = False
     new_content = yaml.encode(api)
     if file.exists(reference_path):
@@ -443,6 +576,26 @@ def build_onboarding_knowledge(source, target):
     else:
         success("  No changes to reference.yaml")
 
+    # Write markdown reference
+    md_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.md")
+    md_content = _render_markdown(api)
+
+    md_changed = False
+    if file.exists(md_path):
+        current_md = file.read(md_path)
+        if current_md != md_content:
+            md_changed = True
+            note("  Changes detected in reference.md")
+    else:
+        md_changed = True
+        note("  Creating new reference.md")
+
+    if md_changed:
+        file.write(md_path, md_content)
+        success("  Wrote " + md_path)
+    else:
+        success("  No changes to reference.md")
+
 
 def _count_bindings(api):
     """Count total bindings in the API dict."""
@@ -451,7 +604,239 @@ def _count_bindings(api):
         count += len(api["plan"][ns])
     for ns in api["system"]:
         count += len(api["system"][ns])
+    for ns in api["package"]:
+        count += len(api["package"][ns])
+    for ns in api["phase"]:
+        count += len(api["phase"][ns])
     return count
+
+
+# =============================================================================
+# MARKDOWN RENDERER
+# =============================================================================
+
+def _render_markdown(api):
+    """Render the API dict as markdown reference documentation."""
+    lines = []
+
+    # Header
+    lines.append("<!-- Auto-generated by: star devlore knowledge extract --domain=onboarding -->")
+    lines.append("<!-- Do not edit this file manually. -->")
+    lines.append("")
+    lines.append("# Starlark API Reference")
+    lines.append("")
+    lines.append("This document describes the bindings available in lore phase scripts.")
+    lines.append("")
+
+    # Overview
+    lines.append("## Overview")
+    lines.append("")
+    lines.append("Phase scripts receive three arguments:")
+    lines.append("")
+    lines.append("```starlark")
+    lines.append("def install(package, system, plan):")
+    lines.append("    # package - context about the package being deployed")
+    lines.append("    # system  - read-only queries about the current system")
+    lines.append("    # plan    - actions to add to the execution graph")
+    lines.append("```")
+    lines.append("")
+    lines.append("Additionally, a `configure(phase)` hook can set phase-level configuration.")
+    lines.append("")
+
+    # Binding summary table
+    plan_methods = _count_by_kind(api["plan"], "method")
+    plan_props = _count_by_kind(api["plan"], "property")
+    sys_methods = _count_by_kind(api["system"], "method")
+    sys_props = _count_by_kind(api["system"], "property")
+    pkg_methods = _count_by_kind(api["package"], "method")
+    pkg_props = _count_by_kind(api["package"], "property")
+    phase_methods = _count_by_kind(api["phase"], "method")
+    phase_props = _count_by_kind(api["phase"], "property")
+    total_methods = plan_methods + sys_methods + pkg_methods + phase_methods
+    total_props = plan_props + sys_props + pkg_props + phase_props
+
+    lines.append("| Category | Methods | Properties | Total |")
+    lines.append("|----------|---------|------------|-------|")
+    lines.append("| plan.* | " + str(plan_methods) + " | " + str(plan_props) + " | " + str(plan_methods + plan_props) + " |")
+    lines.append("| system.* | " + str(sys_methods) + " | " + str(sys_props) + " | " + str(sys_methods + sys_props) + " |")
+    lines.append("| package.* | " + str(pkg_methods) + " | " + str(pkg_props) + " | " + str(pkg_methods + pkg_props) + " |")
+    lines.append("| phase.* | " + str(phase_methods) + " | " + str(phase_props) + " | " + str(phase_methods + phase_props) + " |")
+    lines.append("| **Total** | **" + str(total_methods) + "** | **" + str(total_props) + "** | **" + str(total_methods + total_props) + "** |")
+    lines.append("")
+
+    # --- plan.* ---
+    lines.append("---")
+    lines.append("")
+    lines.append("## plan.*")
+    lines.append("")
+    lines.append("The `plan` object schedules actions into the execution graph.")
+    lines.append("")
+
+    # Namespace table
+    lines.append("| Namespace | Purpose |")
+    lines.append("|-----------|---------|")
+    _NS_DESCRIPTIONS = {
+        "file": "File system actions",
+        "package": "Package manager actions",
+        "template": "Template rendering",
+        "encryption": "SOPS decryption",
+        "archive": "Archive extraction",
+        "git": "Git operations",
+        "(root)": "Top-level plan actions",
+    }
+    for ns in sorted(api["plan"].keys()):
+        desc = _NS_DESCRIPTIONS.get(ns, "")
+        label = "plan." + ns + ".*" if ns != "(root)" else "plan.*"
+        lines.append("| `" + label + "` | " + desc + " |")
+    lines.append("")
+
+    # Render each namespace
+    plan_ns_order = ["file", "package", "template", "encryption", "archive", "git", "(root)"]
+    for ns in plan_ns_order:
+        if ns not in api["plan"]:
+            continue
+        entries = api["plan"][ns]
+        if ns == "(root)":
+            lines.append("### Top-level plan actions")
+        else:
+            lines.append("### plan." + ns)
+        lines.append("")
+        _render_entries(lines, entries)
+
+    # --- system.* ---
+    lines.append("---")
+    lines.append("")
+    lines.append("## system.*")
+    lines.append("")
+    lines.append("The `system` object provides read-only queries about the current platform state.")
+    lines.append("")
+
+    # Platform properties
+    if "platform" in api["system"]:
+        lines.append("### system.platform")
+        lines.append("")
+        platform_entries = api["system"]["platform"]
+        props = [e for e in platform_entries if e.get("kind") == "property"]
+        if props:
+            lines.append("| Property | Type | Description |")
+            lines.append("|----------|------|-------------|")
+            for p in sorted(props, key=lambda e: e["full_name"]):
+                lines.append("| `" + p["full_name"] + "` | " + p.get("value_type", "") + " | " + p.get("doc", "") + " |")
+            lines.append("")
+
+    # Other system namespaces
+    sys_ns_order = ["package", "service", "git", "file"]
+    for ns in sys_ns_order:
+        if ns not in api["system"]:
+            continue
+        entries = api["system"][ns]
+        lines.append("### system." + ns)
+        lines.append("")
+        _render_entries(lines, entries)
+
+    # --- package.* ---
+    lines.append("---")
+    lines.append("")
+    lines.append("## package.*")
+    lines.append("")
+    lines.append("The `package` object provides context about the package being deployed.")
+    lines.append("")
+
+    if "(root)" in api["package"]:
+        entries = api["package"]["(root)"]
+        props = [e for e in entries if e.get("kind") == "property"]
+        methods = [e for e in entries if e.get("kind") == "method"]
+
+        if props:
+            lines.append("### Properties")
+            lines.append("")
+            lines.append("| Property | Type | Description |")
+            lines.append("|----------|------|-------------|")
+            for p in sorted(props, key=lambda e: e["full_name"]):
+                lines.append("| `" + p["full_name"] + "` | " + p.get("value_type", "") + " | " + p.get("doc", "") + " |")
+            lines.append("")
+
+        if methods:
+            lines.append("### Methods")
+            lines.append("")
+            _render_entries(lines, methods)
+
+    # --- phase.* ---
+    lines.append("---")
+    lines.append("")
+    lines.append("## phase.*")
+    lines.append("")
+    lines.append("The `phase` object is passed to `configure(phase)` hooks for phase-level configuration.")
+    lines.append("")
+
+    if "(root)" in api["phase"]:
+        _render_entries(lines, api["phase"]["(root)"])
+
+    # --- Output objects ---
+    lines.append("---")
+    lines.append("")
+    lines.append("## Output Objects")
+    lines.append("")
+    lines.append("Most plan actions return an **Output** object (a promise). When passed to another")
+    lines.append("action's slot, it creates an edge in the execution graph, ensuring the producer runs")
+    lines.append("before the consumer.")
+    lines.append("")
+    lines.append("| Property | Type | Description |")
+    lines.append("|----------|------|-------------|")
+    lines.append("| `output.node_id` | string | Unique identifier of the producing node |")
+    lines.append("| `output.slot` | string | Which output slot this represents |")
+    lines.append("")
+    lines.append("Use `plan.gather(*promises)` to group multiple outputs for parallel execution.")
+    lines.append("When the group is passed to another action's slot, it creates edges from all")
+    lines.append("members to the consumer.")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def _count_by_kind(category_dict, kind):
+    """Count entries of a given kind across all namespaces in a category."""
+    count = 0
+    for ns in category_dict:
+        for entry in category_dict[ns]:
+            if entry.get("kind", "method") == kind:
+                count += 1
+    return count
+
+
+def _render_entries(lines, entries):
+    """Render a list of binding entries as markdown."""
+    methods = [e for e in entries if e.get("kind", "method") == "method"]
+    for entry in sorted(methods, key=lambda e: e["full_name"]):
+        full = entry["full_name"]
+        doc = entry.get("doc", "")
+        usage = entry.get("usage", "")
+        slots = entry.get("slots", [])
+        slot_docs = entry.get("slot_docs", {})
+        output = entry.get("output", "none")
+        returns = entry.get("returns", "")
+
+        lines.append("#### " + full)
+        lines.append("")
+        if doc:
+            lines.append(doc)
+            lines.append("")
+        if usage:
+            lines.append("**Usage:** `" + usage + "`")
+            lines.append("")
+        if slots:
+            lines.append("| Slot | Description |")
+            lines.append("|------|-------------|")
+            for s in slots:
+                s_doc = slot_docs.get(s, "")
+                lines.append("| `" + s + "` | " + s_doc + " |")
+            lines.append("")
+        if returns:
+            lines.append("**Returns:** " + returns)
+            lines.append("")
+        elif output == "promise":
+            lines.append("**Returns:** Output (promise)")
+            lines.append("")
 
 
 # =============================================================================
