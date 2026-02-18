@@ -22,4 +22,4 @@ The devlore-cli consists of two main tools that share a common execution engine:
 - **writ** - File tree management (dotfiles, configs, templates)
 - **lore** - Package management (software installation, configuration)
 
-Both tools produce execution graphs that are processed by the shared engine in `internal/engine/`.
+Both tools produce execution graphs that are processed by the shared engine in `internal/execution/`.

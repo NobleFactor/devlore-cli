@@ -135,14 +135,22 @@ def install(package, system, plan):
 | `plan.package.upgrade(*pkgs)` | Upgrade packages via native PM |
 | `plan.package.remove(*pkgs)` | Remove packages via native PM |
 | `plan.package.update()` | Update package index |
-| `plan.file.copy(src, dst)` | Copy a file |
-| `plan.file.link(src, dst)` | Create a symlink |
-| `plan.file.configure(src, dst)` | Template expansion + copy |
-| `plan.file.mkdir(path)` | Create a directory |
-| `plan.file.write(path, content)` | Write content directly to file |
+| `plan.file.link(source, path)` | Create a symlink |
+| `plan.file.copy(source, path)` | Copy a file |
+| `plan.file.write(content, path)` | Write content directly to file |
+| `plan.file.remove(path)` | Remove a file or directory |
+| `plan.template.render(source)` | Render a template |
+| `plan.encryption.decrypt(source)` | Decrypt SOPS-encrypted content |
+| `plan.archive.extract(archive, prefix)` | Extract an archive |
+| `plan.git.clone(url, path)` | Clone a repository |
+| `plan.git.checkout(repo, ref)` | Checkout a ref |
+| `plan.git.pull(repo)` | Pull latest changes |
+| `plan.source(path)` | Declare a source file |
+| `plan.literal(content)` | Inline content |
+| `plan.download(url)` | Download a file |
 | `plan.service(name, action)` | Manage a service (start/stop/enable/disable) |
 | `plan.shell(command)` | Execute a shell command |
-| `plan.depends_on(node1, node2)` | node1 runs after node2 |
+| `plan.gather(promise1, ..., promiseN)` | Group outputs for parallel execution |
 
 ### Example: complete manifest
 

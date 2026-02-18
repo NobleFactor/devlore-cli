@@ -1,6 +1,6 @@
 # Package Hierarchy
 
-Complete list of public and private elements per package, verified against code.
+Public elements per package, verified against code.
 
 ---
 
@@ -11,212 +11,188 @@ CLI infrastructure shared by writ and lore.
 ### PUBLIC
 
 **Constants:**
-- `ExitOK` (0) - Success
-- `ExitError` (1) - Generic error
-- `ExitUsage` (64) - Bad CLI syntax
-- `ExitDataErr` (65) - Invalid manifest/config
-- `ExitNoInput` (66) - File not found
-- `ExitUnavailable` (69) - Registry unreachable
-- `ExitSoftware` (70) - Internal error (bug)
-- `ExitCantCreate` (73) - Can't create file/symlink
-- `ExitIOErr` (74) - Read/write failure
-- `ExitNoPerm` (77) - Permission denied
-- `DefaultFormat` - Default output format ("json")
-
-**Variables:**
-- `ErrManNotAvailable` - Error when man command unavailable
+- `ExitOK` (0), `ExitError` (1), `ExitUsage` (64), `ExitDataErr` (65), `ExitNoInput` (66), `ExitUnavailable` (69), `ExitSoftware` (70), `ExitCantCreate` (73), `ExitIOErr` (74), `ExitNoPerm` (77)
 
 **Types:**
-- `ConfigInfo` - Configuration metadata for a tool (Name, Schema, DefaultConfig)
-- `ManHeader` - Metadata for man page generation (Title, Section, Source, Manual)
-- `MutationFlags` - Flags for mutating commands (Passthru, Format)
-- `OutputFlags` - Filter and format flag values
+- `ConfigInfo` - Configuration metadata for a tool
+- `ManHeader` - Metadata for man page generation
 - `SelfInstallInfo` - Metadata for self-installation
 - `VersionInfo` - Version metadata (Version, Commit, BuildDate)
 - `ViperConfig` - Configuration for Viper initialization
 
-**Functions:**
-- `AddMutationFlags(cmd, flags)` - Add --passthru and --format flags
-- `AddOutputFlags(cmd, flags)` - Add --filter and --format flags
-- `AddSilentFlag(cmd)` - Add --silent flag to root command
-- `AllSettings()` - Return all settings as map
-- `BashCompletionPath()` - Return bash completion directory
-- `BindFlags(cmd, toolName, useShared)` - Bind persistent flags to Viper
-- `BindFlagsWithPrefix(flags, prefix)` - Bind flags with custom prefix
-- `CacheHome()` - Return XDG_CACHE_HOME
-- `ConfigFileUsed()` - Return loaded config file path
-- `ConfigHome()` - Return XDG_CONFIG_HOME
-- `DataHome()` - Return XDG_DATA_HOME
-- `Debug()` - Print Viper state for debugging
-- `DevloreCacheHome()` - Return unified devlore cache directory
-- `DevloreConfigHome()` - Return unified devlore config directory
-- `DevloreDataHome()` - Return unified devlore data directory
-- `DevloreStateHome()` - Return unified devlore state directory
-- `DisplayManPage(cmd, header)` - Generate and display man page
-- `Error(format, args...)` - Print error message (non-fatal)
-- `ExitCode(err)` - Extract exit code from error
-- `ExitWith(code, err)` - Return error with specific exit code
-- `Failure(format, args...)` - Print error and return error (fatal)
-- `FishCompletionPath()` - Return fish completion directory
-- `Get(toolName, key, useShared)` - Retrieve config value
-- `GetBool(toolName, key, useShared)` - Retrieve boolean config value
-- `GetInt(toolName, key, useShared)` - Retrieve integer config value
-- `GetString(toolName, key, useShared)` - Retrieve string config value
-- `GetStringMap(toolName, key, useShared)` - Retrieve string map config value
-- `GetStringSlice(toolName, key, useShared)` - Retrieve string slice config value
-- `InitViper(cfg)` - Initialize Viper with devlore conventions
-- `LatestReceiptPath(producer)` - Return path to latest receipt symlink
-- `LoadLatestReceipt(producer)` - Load most recent receipt for producer
-- `LoadReceipt(path)` - Load execution graph from YAML receipt file
-- `ManPath()` - Return user man page directory
-- `NewConfigCmd(info)` - Create config command with subcommands
-- `NewHelpCmd(rootCmd, header)` - Create help command preferring man pages
-- `NewManCmd(rootCmd, header)` - Create man command for displaying/installing
-- `NewSelfInstallCmd(rootCmd, info)` - Create self-install command
-- `NewVersionCmd(info)` - Create version command
+**Functions (output):**
 - `Note(format, args...)` - Print informational message
-- `ReceiptsDir()` - Return receipts storage directory
-- `Render(w, data, flags)` - Output data per format specification
-- `RenderMutation(w, data, flags)` - Output if --passthru set
-- `RenderMutationTo(data, flags)` - Render mutation to stdout
-- `RenderTo(data, flags)` - Render to stdout
+- `Warn(format, args...)` - Print warning message
+- `Error(format, args...)` - Print error message (non-fatal)
+- `Failure(format, args...)` - Print error and return error
+- `Success(format, args...)` - Print success message
+- `ExitWith(code, err)` - Return error with specific exit code
+- `ExitCode(err)` - Extract exit code from error
 - `SetProgramName(name)` - Set program name for output prefixes
 - `SetSilent(s)` - Enable/disable silent mode
+- `AddSilentFlag(cmd)` - Add --silent flag to root command
+
+**Functions (config):**
+- `InitViper(cfg)` - Initialize Viper with devlore conventions
+- `BindPFlags(cmd)` - Bind persistent flags to Viper
+- `GetString(toolName, key, useShared)` - Retrieve string config value
 - `SharedConfigPath()` - Return shared devlore config file path
-- `StateHome()` - Return XDG_STATE_HOME
-- `Success(format, args...)` - Print success message
-- `ToolConfigPath(toolName)` - Return tool-specific config file path
-- `Warn(format, args...)` - Print warning message
-- `WriteReceipt(g, producer)` - Write graph as receipt with checksum
+
+**Functions (XDG):**
+- `ConfigHome()`, `DataHome()`, `CacheHome()`, `StateHome()` - XDG base directories
+- `DevloreConfigHome()`, `DevloreCacheHome()`, `DevloreStateHome()`, `DevloreDataHome()` - Devlore directories
+- `ManPath()` - Return user man page directory
 - `WritLayersDir()` - Return writ layers directory
-- `ZshCompletionPath()` - Return zsh completion directory
 
-### private
+**Functions (receipts):**
+- `ReceiptsDir()` - Return receipts storage directory
+- `LatestReceiptPath(producer)` - Return path to latest receipt symlink
+- `LoadReceipt(path)` - Load execution graph from YAML receipt file
+- `LoadLatestReceipt(producer)` - Load most recent receipt for producer
+- `WriteReceipt(g, producer)` - Write graph as receipt with checksum
+- `WriteReceiptWithSigningDir(g, producer, signingDir)` - Write receipt with signing
 
-**types:**
-- `exitError` - Error carrying exit code
-- `installFlags` - Flags for self-install command
-
-**constants:**
-- `colorReset`, `colorRed`, `colorGreen`, `colorYellow`, `colorGray` - ANSI colors
-- `symbolNote`, `symbolWarn`, `symbolError`, `symbolSuccess` - Output symbols
-
-**variables:**
-- `programName` - Current program name for output
-- `silent` - Silent mode flag
+**Functions (commands):**
+- `NewConfigCmd(info)` - Create config command with subcommands
+- `NewHelpCmd(rootCmd, header)` - Create help command preferring man pages
+- `NewManCmd(rootCmd, header)` - Create man command
+- `NewSelfInstallCmd(rootCmd, info)` - Create self-install command
+- `NewVersionCmd(info)` - Create version command
+- `DisplayManPage(cmd, header)` - Generate and display man page
 
 ---
 
 ## internal/execution
 
-Core execution graph primitives and executor shared by writ and lore.
+Core execution graph: typed actions, saga-pattern phases, and the graph executor.
 
 ### PUBLIC
 
+**Core Types:**
+- `Action` (interface) - Name(), Do(ctx, slots) (Result, UndoState, error), Undo(ctx, slots, state) error
+- `Result` (alias `any`) - Data flowing to downstream nodes via edges
+- `UndoState` (alias `any`) - State captured by Do, passed to Undo during rollback
+- `Context` - Execution context: DryRun, Logger, Data, Graph, NodeID, checksums
+
+**Graph Types:**
+- `Graph` - Execution graph: nodes, edges, phases, summary, rollback, checksum, signature
+- `Node` - Unit of work: ID, Action, Status, Slots, checksums, annotations
+- `Edge` - Dependency: From, To
+- `SlotValue` - Node input: Immediate value or promise (NodeRef, Slot, GatherRef, Field)
+- `GraphState` - pending, executed, failed
+- `NodeStatus` - pending, completed, skipped, failed
+- `Platform` - OS, Arch
+- `GraphContext` - SourceRoot, TargetRoot, Projects, Packages, Segments, etc.
+- `Summary` - Execution statistics
+- `Collision` - Source conflict record
+- `Signature` - Cryptographic signature (Method, Value, KeyID)
+
+**Phase Types (Saga Pattern):**
+- `Phase` - Lifecycle phase: ID, Name, Status, Retry, NodeIDs, Compensate, Attempts, State
+- `PhaseStatus` - pending, completed, failed, rolled_back, skipped
+- `RetryPolicy` - MaxAttempts, Backoff, InitialDelay, MaxDelay
+- `BackoffStrategy` - none, linear, exponential
+- `Attempt` - Number, Status, Error, Timestamp
+- `RollbackEntry` - Phase-level rollback record (serialized to receipts)
+
+**Recovery Types:**
+- `RecoveryStack` - LIFO stack of completed node entries for saga unwind
+- `RecoveryEntry` - Node + UndoState pair (in-memory, not yet serialized)
+
+**Flow Support Types:**
+- `ChooseUndoState` - Branch recovery state (Results, Entries)
+- `ChooseCase` - Predicate + PhaseID pair
+- `GatherUndoState` - Per-iteration recovery state (Iterations)
+- `IterationUndo` - ProxyCtx, Results, Entries
+- `Predicate` (interface) - Eval(input) (bool, error), String()
+
+**Executor Types:**
+- `GraphExecutor` - Executes graphs (flat or phased)
+- `ExecutorOptions` - DryRun, Logger, Data, ConflictResolution, BackupSuffix
+- `ActionRegistry` - Maps action names to implementations
+- `NodeResult` - Per-node execution outcome
+- `ResultStatus` - pending, running, completed, failed, skipped
+- `ConflictResolution` - stop, backup, overwrite, skip
+
+**Lifecycle Hooks:**
+- `LifecycleHook` (interface) - OnNodeStart, OnNodeComplete, OnPhaseStart, OnPhaseComplete
+- `HookRegistry` - Manages lifecycle hooks
+
+**Plan Builder:**
+- `Plan` - Builder for constructing execution graphs with action registry
+
 **Constants:**
-- `StatePending` - Graph not yet executed
-- `StateExecuted` - Graph completed successfully
-- `StateFailed` - Graph execution failed
-- `StatusPending` - Node not yet processed
-- `StatusCompleted` - Node executed successfully
-- `StatusSkipped` - Node was skipped
-- `StatusFailed` - Node failed
-- `ResultPending`, `ResultRunning`, `ResultCompleted`, `ResultFailed`, `ResultSkipped` - Result statuses
-- `ResolutionStop` - Abort on first conflict
-- `ResolutionBackup` - Move conflicts to backups
-- `ResolutionOverwrite` - Remove conflicts without backup
-- `ResolutionSkip` - Skip conflicts and continue
-- `OpTransform`, `OpWriter`, `OpDirect` - Operation categories
-- `ConflictNone`, `ConflictRegularFile`, `ConflictDirectory`, `ConflictForeignSymlink`, `ConflictOurSymlink` - Conflict types
-
-**Types:**
-- `Graph` - Execution graph with nodes and edges (the core data structure)
-- `Node` - Single unit of work (ID, Operations, Status, Source, Target, etc.)
-- `Edge` - Dependency relationship between nodes (From, To, Relation)
-- `GraphState` - Execution state (pending, executed, failed)
-- `NodeStatus` - Node execution status
-- `Platform` - OS and architecture record
-- `GraphContext` - Tool-specific metadata (SourceRoot, TargetRoot, Projects, etc.)
-- `Summary` - Execution statistics (TotalFiles, Links, Copies, etc.)
-- `Signature` - Cryptographic signature (Method, Value, Recipient)
-- `Collision` - Source conflict record (Target, Winner, Loser, etc.)
-- `GraphExecutor` - Executes operation graphs
-- `ExecutorOptions` - Executor configuration (DryRun, Logger, Data, etc.)
-- `OperationRegistry` - Maps operation names to implementations
-- `Context` - Execution context for operations (DryRun, Logger, Data)
-- `Result` - Outcome of executing a node
-- `ResultStatus` - Execution status enum
-- `ConflictResolution` - Conflict handling strategy
-- `ConflictType` - Kind of conflict at target path
-- `Conflict` - Pre-flight detected conflict
-- `PreflightResult` - Results of conflict detection
-- `Plan` - Builder for constructing execution graphs
-- `Encoder` - Interface for graph serialization (Encode method)
-- `Executable` - Interface for executable units (GetID, GetOperations, etc.)
-- `Operation` - Base interface for all operations (Name, Category)
-- `Transform` - Operations that transform content (decrypt, expand)
-- `Writer` - Operations that write content to filesystem (copy)
-- `Direct` - Operations managing own I/O (link, mkdir, etc.)
-- `GraphBuilder` - Interface for building graphs
-- `SubgraphBuilder` - Builds subgraphs from manifest files
-- `BuildOptions` - Subgraph building configuration
-
-**Operation Types (all implement Operation):**
-- `BackupOp` - Move file to timestamped backup
-- `CopyOp` - Write content to target
-- `DecryptOp` - Decrypt content using SOPS
-- `RenderOp` - Process content as Go template
-- `WriteOp` - Write inline content to target
-- `LinkOp` - Create symlink
-- `MkdirOp` - Create directory
-- `RemoveOp` - Delete file
-- `MoveOp` - Move file (git mv when possible)
-- `UnlinkOp` - Remove symlink
-- `ValidateOp` - Check precondition
-- `ShellOp` - Execute shell command
-- `PowerShellOp` - Execute PowerShell command (Windows)
-- `PackageInstallOp` - Install packages
-- `PackageRemoveOp` - Remove packages
-- `PackageUpdateOp` - Refresh package manager index
-- `PackageUpgradeOp` - Upgrade packages
-- `LaunchdStartOp`, `LaunchdStopOp`, `LaunchdRestartOp`, `LaunchdEnableOp`, `LaunchdDisableOp` - macOS service ops
-- `SystemdStartOp`, `SystemdStopOp`, `SystemdRestartOp`, `SystemdEnableOp`, `SystemdDisableOp` - Linux service ops
-- `WinServiceStartOp`, `WinServiceStopOp`, `WinServiceRestartOp`, `WinServiceEnableOp`, `WinServiceDisableOp` - Windows service ops
+- `StatePending`, `StateExecuted`, `StateFailed`
+- `StatusPending`, `StatusCompleted`, `StatusSkipped`, `StatusFailed`
+- `PhasePending`, `PhaseCompleted`, `PhaseFailed`, `PhaseRolledBack`, `PhaseSkipped`
+- `BackoffNone`, `BackoffLinear`, `BackoffExponential`
+- `ResolutionStop`, `ResolutionBackup`, `ResolutionOverwrite`, `ResolutionSkip`
 
 **Functions:**
-- `NewGraphExecutor(registry, opts)` - Create executor with registry and options
-- `NewOperationRegistry()` - Create empty operation registry
-- `NewPlan(project)` - Create new plan for building graph
-- `AllOps()` - Return all operations for registration
-- `FileOps()` - Return file operations
-- `PackageOps()` - Return package manager operations
-- `ServiceOps()` - Return service manager operations
-- `Preflight(graph)` - Pre-flight conflict detection
-- `ExpandDelegates(ctx, graph, builder, opts)` - Replace delegate nodes with subgraphs
-- `ChecksumBytes(content)` - Compute SHA256 of bytes
-- `ChecksumFile(path)` - Compute SHA256 of file
-- `GitStyleChecksum(type, basename, content)` - Git-style checksum
+- `NewGraphExecutor(opts)` - Create executor
+- `NewActionRegistry()` - Create action registry
+- `NewHookRegistry()` - Create hook registry
+- `NewPlan(reg, project)` - Create plan builder
+- `StubAction(name)` - Create stub action for receipt deserialization
+- `OrderNodes(nodes, edges)` - Topological sort
+- `FillSlotsFromData(slots, data)` - Populate slots from context data
+- `ChecksumBytes(content)`, `ChecksumFile(path)`, `GitStyleChecksum(type, basename, content)` - Integrity
 
-**Methods:**
-- `Graph.Serialize(enc)` - Write graph to encoder
-- `Graph.Filename()` - Return standard filename
-- `Graph.CanonicalContent()` - Return content for checksumming
-- `Graph.ApplyResults(results)` - Update nodes from results
-- `Graph.ComputeSummary()` - Calculate statistics
-- `GraphExecutor.Run(ctx, g)` - Execute graph, update state
-- `GraphExecutor.RunNodes(ctx, nodes, edges)` - Execute nodes (lower-level API)
-- `OperationRegistry.Register(op)` - Add operation to registry
-- `OperationRegistry.Get(name)` - Get operation by name
-- `OperationRegistry.Names()` - Get all registered names
-- `Plan.Link/Copy/Mkdir/Remove/Unlink/Backup/Rename/Validate(...)` - Add operations
-- `Plan.DependsOn(from, to)` - Add ordering edge
-- `Plan.Graph()` - Return built graph
-- `Node.GetID/GetOperations/GetSource/GetTarget/GetProject/GetMode/GetMetadata()` - Node accessors
+---
 
-### private
+## internal/execution/flow
 
-**types:**
-- `pipelineState` - Internal state for operation pipeline execution
+Flow actions for control flow within the execution graph.
+
+### PUBLIC
+
+**Types (all implement Action):**
+- `Choose` - Predicate-driven branch selector (OR). Evaluates cases, executes first matching phase.
+- `Gather` - Fan-in AND. Iterates items, executes body phase per item, collects results.
+- `Elevate` - Privilege transition. Marks a privilege boundary in the graph.
+- `WaitUntil` - Temporal gate. Waits for a duration or condition.
+
+---
+
+## internal/execution/provider
+
+Resource providers with saga-pattern compensation. Each provider exposes forward methods (returning receipt state) and Compensate methods (reading state to undo).
+
+### Provider Packages
+
+**file/** - Filesystem operations
+- Link, Copy, Write, Remove, Move, Unlink, Mkdir, Backup
+- Each has a Compensate counterpart
+
+**pkg/** - Package manager operations
+- Install, Upgrade, Remove
+- Each has a Compensate counterpart
+
+**service/** - Service manager operations
+- Start, Stop, Restart, Enable, Disable
+- Each has a Compensate counterpart
+
+**template/** - Template rendering
+- Render, CompensateRender
+
+**encryption/** - SOPS decryption
+- Decrypt, CompensateDecrypt
+
+**net/** - Network operations
+- Download, CompensateDownload
+
+**archive/** - Archive operations
+- Extract, CompensateExtract
+
+**git/** - Git operations
+- Clone, Checkout, Pull
+- Each has a Compensate counterpart
+
+**shell/** - Shell command execution
+- Execute, CompensateExecute (returns nil — shell commands are not compensable)
+
+**content/** - Content pipeline
+- Literal
 
 ---
 
@@ -226,27 +202,10 @@ Writ CLI commands for configuration deployment.
 
 ### PUBLIC
 
-**Constants:**
-- `CurrentVersion` ("5") - Graph format version
-- `VerifyOK`, `VerifyUnsigned`, `VerifyInvalid`, `VerifyMissing` - Verification results
-
-**Variables:**
-- `LayerOrder` - Processing order for repository layers (base, team, personal)
-
 **Types:**
 - `Config` - Base settings for lifecycle operations
-- `DeployConfig` - Settings for deploy operation
-- `DecommissionConfig` - Settings for decommission operation (+ Force, Prune)
-- `UpgradeConfig` - Settings for upgrade operation (+ Force)
-- `ReconcileConfig` - Settings for reconcile operation (+ CheckDrift, JSONOutput)
-- `AdoptConfig` - Settings for adopt operation (+ Files, Layer, Project, etc.)
-- `GraphBuilder` - Interface for graph builders (Build method)
-- `DeployGraphBuilder` - Builds deploy graphs
-- `DecommissionGraphBuilder` - Builds decommission graphs
-- `UpgradeGraphBuilder` - Builds upgrade graphs
-- `ReconcileGraphBuilder` - Builds reconcile graphs
-- `AdoptGraphBuilder` - Builds adopt graphs
-- `MigrateGraphBuilder` - Builds migrate graphs
+- `DeployConfig`, `DecommissionConfig`, `UpgradeConfig`, `ReconcileConfig`, `AdoptConfig` - Per-command config
+- `DeployGraphBuilder`, `UpgradeGraphBuilder`, `ReconcileGraphBuilder`, `AdoptGraphBuilder`, `MigrateGraphBuilder` - Graph builders
 - `TargetSpec` - Source directory and deployment target
 - `VerifyResult` - Signature verification outcome
 
@@ -256,104 +215,8 @@ Writ CLI commands for configuration deployment.
 - `BuildTree(g, cfg)` - Walk source directories, populate graph nodes
 - `ConfigureEngine(cfg)` - Create and configure execution engine
 - `CollectLayerSources()` - Gather configured repository layers
-- `TargetOrder()` - Return processing order for targets
 - `VerifyGraphSignature(g, identities)` - Verify graph signature
-- `NewDeployGraphBuilder(cfg)` - Create deploy graph builder
-- `NewDecommissionGraphBuilder(cfg, state)` - Create decommission graph builder
-- `NewUpgradeGraphBuilder(cfg, state)` - Create upgrade graph builder
-- `NewReconcileGraphBuilder(cfg)` - Create reconcile graph builder
-- `NewAdoptGraphBuilder(cfg)` - Create adopt graph builder
-- `NewMigrateGraphBuilder(cfg, sourcePath)` - Create migrate graph builder
-
-**Methods:**
-- `Config.SegmentMap()` - Return segments as string map
-- `VerifyResult.String()` - Human-readable verification result
-- All builder `.Build()` methods
-
-### private
-
-**types:**
-- `upgradeResult` - Result enum for upgrade operations
-
-**functions:**
-- `runDeployV2`, `runDecommission`, `runUpgrade`, `runReconcile`, `runAdopt` - Command implementations
-- `parseDeployConfig`, `parseDecommissionConfig`, etc. - Config parsers
-- `reportGraphContext`, `reportCollisions` - Output helpers
-- `builtinTemplateData`, `graphBuiltinTemplateData` - Template data builders
-- `expandPath`, `projectSet`, `findSigningKey` - Utility functions
-- `adoptFiles`, `adoptItem`, `adoptDirectory`, `adoptFile` - Adopt helpers
-- `loadDecommissionState`, `updateDecommissionState` - State management
-- `buildReconcileReport`, `reconcileFromState` - Reconcile helpers
-- `outputDryRun`, `outputReconcileJSON`, `outputReconcileText` - Output formatters
-
----
-
-## internal/writ/deploystate
-
-Deployment state persistence with signing.
-
-### PUBLIC
-
-**Types:**
-- `State` - Deployment state (SourceRoot, TargetRoot, Files map, Signature)
-- `FileEntry` - Single file in state (Source, Project, Layer, checksums, Operations)
-- `Signature` - State signature (Method, Value, Recipient)
-
-**Functions:**
-- `Load()` - Load state from disk
-- `StatePath()` - Return state file path
-
-**Methods:**
-- `State.Write()` - Persist state to disk
-- `State.Sign(identity)` - Sign state with age identity
-- `State.Verify(identities)` - Verify state signature
-- `State.IsSigned()` - Check if state is signed
-- `State.AddEntry(relTarget, entry)` - Add file entry
-- `State.RemoveEntry(relTarget)` - Remove file entry
-- `State.UpdateChecksum(relTarget, source, target)` - Update checksums
-- `State.CopiedFiles()` - Return files with copy operations
-- `State.Projects()` - Return list of projects
-- `FileEntry.IsCopied()` - Check if entry was copied (not linked)
-
----
-
-## internal/writ/reconcile
-
-Full-stack drift detection and repair.
-
-### PUBLIC
-
-**Constants:**
-- `StateLinked` - Symlink exists and correct
-- `StateConflict` - File exists but isn't our symlink
-- `StateMissing` - Source exists but target symlink missing
-- `StateOrphan` - Symlink points to nonexistent file
-- `StateCopied` - File was copied and exists
-- `StateStale` - Source changed since deployment
-- `StateModified` - Target modified locally
-- `StateDriftConflict` - Both source and target changed
-
-**Types:**
-- `State` - Status of a deployed file (enum)
-- `Entry` - Status of a single file
-- `Report` - Full status report
-
-**Functions:**
-- `FromBuildResult(br)` - Generate status from build result
-- `ScanTarget(targetRoot, sourceRoot)` - Scan target for writ-managed symlinks
-
-**Methods:**
-- `State.String()` - Status indicator for display
-- `State.Label()` - Human-readable label
-- `Report.Summary()` - Counts of each state
-- `Report.HasIssues()` - Check for non-linked/copied states
-
-### private
-
-**functions:**
-- `nodeIsDelegate(ops)` - Check if node is delegate
-- `checkEntry(source, target, ...)` - Check status of single file
-- `checkEntryWithDrift(...)` - Check with checksums for drift
+- Builder constructors: `NewDeployGraphBuilder`, `NewUpgradeGraphBuilder`, etc.
 
 ---
 
@@ -368,17 +231,13 @@ File tree building with layer/segment processing.
 - `BuildResult` - Result of tree building (Files, Collisions)
 - `FileEntry` - Single file with operations
 - `Collision` - Source conflict record
-- `LayerSource` - Layer configuration (Layer, SourceRoot, TargetRoot, etc.)
+- `LayerSource` - Layer configuration
 - `Operation` - File operation enum (OpLink, OpCopy, OpExpand, OpDecrypt, etc.)
 - `Operations` - Slice of operations with methods
 
 **Functions:**
 - `Build(cfg)` - Build file tree from configuration
 - `ProcessingPipeline(filename)` - Determine operations from filename
-
-**Methods:**
-- `Operations.Strings()` - Convert to string slice
-- `Operations.Has(op)` - Check for operation
 
 ---
 
@@ -389,53 +248,47 @@ Platform segment detection and matching.
 ### PUBLIC
 
 **Types:**
-- `Segment` - Named segment with value
-- `Segments` - Slice of segments with methods
-- `Matcher` - Matches paths against segments
+- `Segment`, `Segments`, `Matcher`
 
 **Functions:**
 - `DetectSegments()` - Detect platform segments (OS, ARCH, DISTRO, etc.)
 
-**Methods:**
-- `Segments.LoadFromEnv()` - Load segment values from environment
-- `Segments.String()` - String representation
-- `Segments.Get(name)` - Get segment by name
-- `Matcher.Match(path)` - Match path against segment patterns
+---
+
+## internal/writ/reconcile
+
+Drift detection and repair.
+
+### PUBLIC
+
+**Constants:**
+- `StateLinked`, `StateConflict`, `StateMissing`, `StateOrphan`, `StateCopied`, `StateStale`, `StateModified`, `StateDriftConflict`
+
+**Types:**
+- `State` - Status enum
+- `Entry` - Status of a single file
+- `Report` - Full status report
+
+**Functions:**
+- `FromBuildResult(br)` - Generate status from build result
+- `ScanTarget(targetRoot, sourceRoot)` - Scan target for writ-managed symlinks
 
 ---
 
-## internal/host
+## internal/writ/deploystate
 
-Platform detection and package/service management.
+Deployment state persistence with signing.
 
 ### PUBLIC
 
 **Types:**
-- `Platform` - Platform info (OS, Distro, Version, Arch, etc.)
-- `PackageManager` - Interface for package managers
-- `ServiceManager` - Interface for service managers
-- `Host` - Platform-specific host implementation
-- `Result` - Command execution result
-- `SearchResult` - Package search result
+- `State` - Deployment state (SourceRoot, TargetRoot, Files map, Signature)
+- `FileEntry` - Single file in state
+- `Signature` - State signature
 
 **Functions:**
-- `NewHost()` - Create host for current platform
-- `DetectPlatform()` - Detect current platform
-
-**Methods:**
-- `Platform.String()` - Platform string representation
-- `Host.Platform()` - Get platform info
-- `Host.PackageManager()` - Get package manager
-- `Host.ServiceManager()` - Get service manager
-- `PackageManager.Install/Remove/Upgrade/Update/Search/IsInstalled/List(...)` - PM operations
-- `ServiceManager.Start/Stop/Restart/Enable/Disable/Status(...)` - Service operations
-
-### private
-
-**types:**
-- `linuxHost`, `darwinHost`, `windowsHost` - Platform-specific hosts
-- `aptManager`, `dnfManager`, `brewManager`, `portManager`, `wingetManager` - Package managers
-- `darwinServiceManager`, `windowsServiceManager` - Service managers
+- `Load()` - Load state from disk
+- `StatePath()` - Return state file path
 
 ---
 
@@ -448,16 +301,6 @@ Lore CLI commands for package management.
 **Functions:**
 - `NewRootCmd()` - Create root lore command
 
-### private
-
-**variables:**
-- `version`, `commit`, `buildDate` - Build metadata
-
-**functions:**
-- `initConfig` - Initialize configuration
-- `newDeployCmd`, `newUpgradeCmd`, `newDecommissionCmd`, etc. - Command constructors
-- `runDeploy`, `runUpgrade`, etc. - Command implementations
-
 ---
 
 ## internal/lorepackage
@@ -467,32 +310,19 @@ Package resolution and lifecycle management.
 ### PUBLIC
 
 **Constants:**
-- `SourceLore`, `SourceApt`, `SourceDnf`, `SourceBrew`, `SourcePort`, `SourceWinget` - Package sources
-- `OpDeploy`, `OpUpgrade`, `OpDecommission` - Lifecycle operations
-- `PMInstall`, `PMUpgrade`, `PMRemove` - Package manager operations
+- `SourceLore`, `SourceApt`, `SourceDnf`, `SourceBrew`, `SourcePort`, `SourceWinget`
+- `OpDeploy`, `OpUpgrade`, `OpDecommission`
+- `PMInstall`, `PMUpgrade`, `PMRemove`
 
 **Types:**
-- `PackageSource` - Where package comes from
-- `Release` - Resolved package release
-- `Operation` - Lifecycle operation enum
-- `Lifecycle` - Package lifecycle with phases
-- `PhaseAction` - Action within a phase
-- `ScriptAction` - Script-based action
-- `NativePMAction` - Native package manager action
-- `Registry` - Package registry interface
-- `PMOperation` - Package manager operation enum
+- `PackageSource`, `Release`, `Operation`, `Lifecycle`, `PhaseAction`, `ScriptAction`, `NativePMAction`, `Registry`, `PMOperation`
 
 **Functions:**
 - `Resolve(name, opts)` - Resolve package to release
 - `VerifySyntheticPackage(path)` - Verify synthetic package structure
-- `SyntheticCache()` - Get synthetic package cache
-- `ParsePackagePrefix(spec)` - Parse package manager prefix
-- `Lifecycle(release, op)` - Get lifecycle for operation
 - `DiscoverPhaseScripts(dir)` - Find phase scripts in directory
-- `HasPhase(lifecycle, phase)` - Check if lifecycle has phase
-- `PhaseActions(lifecycle, phase)` - Get actions for phase
-- `IsNative(source)` - Check if native package manager
-- `IsSynthetic(source)` - Check if synthetic (lore) package
+- `ParsePackagePrefix(spec)` - Parse package manager prefix
+- `IsNative(source)`, `IsSynthetic(source)` - Source classification
 
 ---
 
@@ -504,44 +334,60 @@ Package manifest parsing and validation.
 
 **Types:**
 - `PackagesManifest` - Parsed packages-manifest.yaml
-- `PackageEntry` - Single package entry
-- `PackageOptions` - Package-specific options
+- `PackageEntry` - Single package entry (Name, With)
 
 **Functions:**
-- `Load(path)` - Load manifest from file
-- `Parse(data)` - Parse manifest from bytes
-- `Validate(manifest)` - Validate manifest structure
-- `ValidateBytes(data)` - Validate manifest bytes
-- `IsManifestFile(filename)` - Check if file is manifest
-
-**Methods:**
-- `PackagesManifest.PackageNames()` - Get list of package names
-- `PackagesManifest.String()` - String representation
+- `Load(path)`, `Parse(data)`, `Validate(manifest)`, `ValidateBytes(data)`, `IsManifestFile(filename)`
 
 ---
 
-## Other Packages (abbreviated)
+## internal/starlark
+
+Starlark runtime and receiver bindings.
+
+### PUBLIC
+
+**Receiver Types:**
+- `ArchiveReceiver` - archive.extract, archive.list
+- `DockerReceiver` - docker operations
+- `EnvReceiver` - env.get, env.set, env.expand
+- `GitReceiver` - git.clone, git.pull, git.push, etc.
+- `HTTPReceiver` - http.get, http.post, http.put, http.delete, http.download
+- `LogReceiver` - log.info, log.warn, log.error, log.debug
+- `NpmReceiver` - npm.install, npm.update, npm.remove, etc.
+- `PackageReceiver` - package.manager, package.installed, package.install, etc.
+- `ServiceReceiver` - service.start, service.stop, service.restart, etc.
+- `ShellReceiver` - shell.run, shell.which
+
+**Plan Types:**
+- `PlanBindings` (interface) - Graph building from Starlark scripts
+- `PlanRoot` - Namespace: file, package, template, encryption, archive, git, shell
+- `FilePlan`, `PackagePlan`, `TemplatePlan`, `EncryptionPlan`, `ArchivePlan`, `GitPlan` - Plan builders
+
+**System Types:**
+- `SystemBindings` (interface) - Platform(), Package(), Service(), ToStarlark()
+- `PackageQueries` (interface) - Installed(), Version()
+- `ServiceQueries` (interface) - Exists(), Running(), Enabled()
+- `PackageContext` - Name, Version, Features, Settings, DryRun, SourceRoot, TargetRoot
+
+---
+
+## Other Packages
+
+### internal/host
+Platform detection and package/service management (Host, Platform, PackageManager, ServiceManager interfaces).
 
 ### internal/console
-TUI console for interactive operations (Model, Console, Styles)
+TUI console for interactive operations (Console, Model, Styles).
 
 ### internal/credentials
-Credential storage (Get, Set, Delete)
-
-### internal/shell
-Shell command execution (Session, Result, Run, Script)
-
-### internal/pwsh
-PowerShell execution (Run, RunWithInput)
-
-### internal/model
-AI model configuration (Config, Provider, LoadConfig, SelectModel)
-
-### internal/starlark
-Starlark bindings for package scripts (Bindings, Exec, LoadModule)
+Credential storage (Get, Set, Delete).
 
 ### internal/bindgen
-CLI binding generation (BindingDef, Command, LoadYAML, Merge)
+CLI binding generation (BindingDef, Command, LoadYAML).
+
+### internal/model
+AI model configuration (Config, Provider, LoadConfig, SelectModel).
 
 ### internal/tools/docgen
-Documentation generation (PageData, GenerateTree, BuildPageData)
+Documentation generation (PageData, GenerateTree, BuildPageData).
