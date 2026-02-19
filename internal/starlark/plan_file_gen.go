@@ -46,14 +46,35 @@ func (f *FilePlan) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("plan.file.write", f.write), nil
 	case "remove":
 		return MakeAttr("plan.file.remove", f.remove), nil
+	// Predicate methods — return RuntimePredicate for plan.choose()
+	case "exists":
+		return starlark.NewBuiltin("plan.file.exists", f.predicateExists), nil
+	case "is_dir":
+		return starlark.NewBuiltin("plan.file.is_dir", f.predicateIsDir), nil
 	default:
 		return nil, NoSuchAttrError("plan.file", name)
 	}
 }
 
+func (f *FilePlan) predicateExists(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("exists", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+	return fileExists(path), nil
+}
+
+func (f *FilePlan) predicateIsDir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("is_dir", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+	return fileIsDir(path), nil
+}
+
 // AttrNames implements starlark.HasAttrs.
 func (f *FilePlan) AttrNames() []string {
-	return []string{"copy", "link", "remove", "write"}
+	return []string{"copy", "exists", "is_dir", "link", "remove", "write"}
 }
 
 func (f *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

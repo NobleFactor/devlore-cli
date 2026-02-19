@@ -51,14 +51,45 @@ func (p *PackagePlan) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("plan.package.remove", p.remove), nil
 	case "update":
 		return MakeAttr("plan.package.update", p.update), nil
+	// Predicate methods — return RuntimePredicate for plan.choose()
+	case "installed":
+		return starlark.NewBuiltin("plan.package.installed", p.predicateInstalled), nil
+	case "not_installed":
+		return starlark.NewBuiltin("plan.package.not_installed", p.predicateNotInstalled), nil
+	case "version_gte":
+		return starlark.NewBuiltin("plan.package.version_gte", p.predicateVersionGTE), nil
 	default:
 		return nil, NoSuchAttrError("plan.package", name)
 	}
 }
 
+func (p *PackagePlan) predicateInstalled(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs("installed", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+	return packageInstalled(p.host.PackageManager(), name), nil
+}
+
+func (p *PackagePlan) predicateNotInstalled(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs("not_installed", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+	return packageNotInstalled(p.host.PackageManager(), name), nil
+}
+
+func (p *PackagePlan) predicateVersionGTE(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name, version string
+	if err := starlark.UnpackArgs("version_gte", args, kwargs, "name", &name, "version", &version); err != nil {
+		return nil, err
+	}
+	return packageVersionGTE(p.host.PackageManager(), name, version), nil
+}
+
 // AttrNames implements starlark.HasAttrs.
 func (p *PackagePlan) AttrNames() []string {
-	return []string{"install", "remove", "update", "upgrade"}
+	return []string{"install", "installed", "not_installed", "remove", "update", "upgrade", "version_gte"}
 }
 
 func (p *PackagePlan) install(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {

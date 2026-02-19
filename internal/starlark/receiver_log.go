@@ -109,3 +109,17 @@ func (r *LogReceiver) success(_ *starlark.Thread, _ *starlark.Builtin, args star
 	_, _ = fmt.Fprintf(r.output, "  [SUCCESS] %s\n", msg)
 	return starlark.None, nil
 }
+
+// OutputGlobals returns a StringDict containing the log receiver and all
+// root-level output function builtins. Used by the lore builder to inject
+// output functions into the script environment.
+func (r *LogReceiver) OutputGlobals() starlark.StringDict {
+	return starlark.StringDict{
+		"log":     r,
+		"note":    starlark.NewBuiltin("note", r.note),
+		"warn":    starlark.NewBuiltin("warn", r.warn),
+		"error":   starlark.NewBuiltin("error", r.errorFunc),
+		"success": starlark.NewBuiltin("success", r.success),
+		"fail":    starlark.NewBuiltin("fail", r.fail),
+	}
+}

@@ -3,74 +3,27 @@
 
 package starlark
 
-import (
-	"go.starlark.net/starlark"
-
-	"github.com/NobleFactor/devlore-cli/internal/host"
-)
-
 // =============================================================================
 // Phase Script Arguments
 // =============================================================================
 //
-// Phase scripts receive three arguments: (package, system, plan)
+// Phase scripts receive two arguments: (package, phase)
+// plan is a global, not an argument.
 //
-//   def forward(package, system, plan):
-//       if system.package.installed(package.name):
-//           return
+//   def install(package, phase):
+//       phase.retry(max_attempts=3, backoff="exponential")
 //       plan.package.install(package.name)
 //
 // - package: Context about the package being deployed
-// - system:  Read-only queries about the current platform state
-// - plan:    Graph-building operations that add nodes to the execution graph
-
-// =============================================================================
-// System Bindings (read-only queries)
-// =============================================================================
-
-// SystemBindings provides read-only queries about the current platform state.
-// Wraps host.Host to expose platform information to phase scripts.
-type SystemBindings interface {
-	// Platform returns information about the current system.
-	Platform() host.Platform
-
-	// Package provides package manager queries.
-	Package() PackageQueries
-
-	// Service provides service manager queries.
-	Service() ServiceQueries
-
-	// ToStarlark converts the system bindings to a Starlark value.
-	ToStarlark() starlark.Value
-}
-
-// PackageQueries provides read-only package manager queries.
-type PackageQueries interface {
-	// Installed checks if a package is installed.
-	Installed(name string) bool
-
-	// Version returns the installed version of a package, or empty string if not installed.
-	Version(name string) string
-}
-
-// ServiceQueries provides read-only service manager queries.
-type ServiceQueries interface {
-	// Exists checks if a service exists.
-	Exists(name string) bool
-
-	// Running checks if a service is currently running.
-	Running(name string) bool
-
-	// Enabled checks if a service is enabled at boot.
-	Enabled(name string) bool
-}
+// - phase:   Phase context (name, action, retry)
+// - plan:    Global — graph-building operations that add nodes to the execution graph
 
 // =============================================================================
 // Package Context
 // =============================================================================
 
 // PackageContext provides information about the package being deployed.
-// Passed to phase scripts as the second argument.
+// Passed to phase scripts as the first argument.
 type PackageContext struct {
 	// Name is the package name being deployed.
 	Name string

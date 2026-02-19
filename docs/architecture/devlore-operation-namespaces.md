@@ -2,6 +2,13 @@
 
 This document describes how to add new action namespaces to the devlore-cli execution engine.
 
+See also:
+
+- [Execution Graph](devlore-execution-graph.md) — Core graph architecture
+- [Typed Slots](devlore-typed-slots.md) — Slot model and type mappings
+- [Emergent System Model](devlore-emergent-system-model.md) — System-level architecture,
+  dependency taxonomy (structural, functional, procedural)
+
 ## Architecture Overview
 
 The execution engine processes a directed acyclic graph (DAG) of nodes, where each node specifies an action to execute. Both `writ` and `lore` share the same engine:

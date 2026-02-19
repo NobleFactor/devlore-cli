@@ -43,14 +43,21 @@ func (g *GitPlan) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("plan.git.clone", g.clone), nil
 	case "pull":
 		return MakeAttr("plan.git.pull", g.pull), nil
+	// Predicate methods — return RuntimePredicate for plan.choose()
+	case "installed":
+		return starlark.NewBuiltin("plan.git.installed", g.predicateInstalled), nil
 	default:
 		return nil, NoSuchAttrError("plan.git", name)
 	}
 }
 
+func (g *GitPlan) predicateInstalled(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+	return gitInstalled(), nil
+}
+
 // AttrNames implements starlark.HasAttrs.
 func (g *GitPlan) AttrNames() []string {
-	return []string{"checkout", "clone", "pull"}
+	return []string{"checkout", "clone", "installed", "pull"}
 }
 
 func (g *GitPlan) checkout(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

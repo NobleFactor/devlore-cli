@@ -49,7 +49,7 @@ Provider. Changes to a Provider don't propagate to either binding layer.
 | template | Render | 0 of 1 | hand-written | none |
 | content | Literal | 0 of 1 | top-level builtin | none |
 
-## Phase 1: Fix the realtime_receiver Template
+## Phase 1: Fix the realtime_receiver Template (COMPLETE — PR #151)
 
 The `realtime_receiver` template (builtin in noblefactor-ops) generates receivers
 that call `host.Host` methods. It must generate receivers that call Provider methods.
@@ -96,7 +96,7 @@ constructor sets these. Actions continue using slots.
 | devlore-cli | `star/extensions/com.noblefactor.devlore.Ops/templates/realtime_receiver.go.template` | Create: local template replacing builtin |
 | devlore-cli | `star/extensions/com.noblefactor.devlore.Ops/commands/generate.star` | Update LOCAL_TEMPLATES |
 
-## Phase 2: Generate Plan Bindings for All Providers
+## Phase 2: Generate Plan Bindings for All Providers (COMPLETE — PR #151)
 
 Replace the 4 hand-written plan files with generated ones. The generated pattern
 matches the existing `plan_archive_gen.go` and `plan_git_gen.go`: embed Receiver,
@@ -140,7 +140,7 @@ builtins (graph construction primitives, not resource operations).
 | `internal/starlark/plan_template.go` | Delete |
 | `internal/starlark/plan_root.go` | Modify: add service, shell, net, content sub-namespaces; remove service/shell/download/literal builtins |
 
-## Phase 3: Generate Receivers for All Providers
+## Phase 3: Generate Receivers for All Providers (COMPLETE — PR #151)
 
 Generate receivers that call Provider methods for all 10 providers. For providers
 where the hand-written receiver had additional query/convenience methods beyond
@@ -189,7 +189,7 @@ are needed for them, providers will be created first.
 | `internal/starlark/receiver_git.go` | Delete |
 | `internal/starlark/receiver_http.go` | Delete |
 
-## Phase 4: Wiring and Cleanup
+## Phase 4: Wiring and Cleanup (COMPLETE — PR #151)
 
 ### bindings.go
 
@@ -229,25 +229,246 @@ These files become dead code after Phase 2. Delete them.
 | `internal/starlark/platform/linux.go` | Delete |
 | `internal/starlark/platform/windows.go` | Delete |
 
-## Phase 5: Registry Script and Doc Updates
+## Phase 5: Folded into Phase 6
 
-Starlark API changes affect lore manifest scripts in devlore-registry:
+Registry script updates and doc updates are folded into Phase 6. Every file
+Phase 5 would touch gets rewritten by the new programming model.
 
-| Old API | New API |
-|---------|---------|
-| `plan.service("nginx", "start")` | `plan.service.start("nginx")` |
-| `plan.shell("command")` | `plan.shell.exec("command")` |
-| `plan.download(url)` | `plan.net.download(url)` |
-| `plan.literal(content)` | `plan.content.literal(content)` |
+## Phase 6: New Lifecycle Script Programming Model
 
-Update all registry scripts. Update `docs/guides/lore/create-manifests.md`.
-Regenerate knowledge extract outputs.
+### Motivation
 
-### Interaction with plan-to-phase rename
+Three architectural problems drive this phase:
 
-The separate `docs/plans/phase-binding.md` plan renames `plan.*` to `phase.*`
-throughout the codebase. That plan runs AFTER this one. Since everything is
-generated, the rename is a template variable change + regeneration.
+1. **Non-deterministic graphs.** System bindings (`system.package.installed()`,
+   `system.service.exists()`, etc.) query local machine state during graph
+   construction. The same manifest produces different graphs depending on
+   which machine runs the planner. A package already installed on the
+   planner's machine gets skipped entirely — the graph shape becomes a
+   function of local state.
+
+2. **Remote targeting breaks.** If you plan on machine A and execute on
+   machine B, every system probe queries the wrong machine. Distributed
+   coordination (subgraph shipping, remote writ execution) becomes
+   fundamentally unreliable.
+
+3. **Signing is meaningless.** If the graph hash depends on local system
+   state, the same manifest produces a different hash each time.
+
+The flow control primitives (Choose, Gather, Elevate) already exist to
+handle conditional logic at execution time. Planning becomes pure graph
+construction with no I/O; execution is where reality is consulted.
+
+### New Programming Model
+
+Three concerns cleanly separated:
+
+- **`plan`** — global, verb, graph construction: `plan.package.install()`,
+  `plan.choose()`, `plan.gather()`, `plan.source()`
+- **`phase`** — argument, noun, phase context: `phase.name`, `phase.action`,
+  `phase.retry(...)`
+- **`package`** — argument, data: `package.name`, `package.version`,
+  `package.has_feature()`, `package.setting()`
+
+**Entry point named for the phase:**
+
+| Old | New | Rationale |
+|-----|-----|-----------|
+| `def forward(package, system, plan):` | `def install(package, phase):` | Entry point named for the lifecycle phase; `system` removed; `plan` becomes a global |
+| `def compensate(package, system, plan):` | *(deleted)* | Compensation is handled by Action Do/Undo on the recovery stack. Planning cannot be undone. If the entry point fails, fail fast. |
+| `def configure(phase):` | *(deleted)* | Absorbed into `phase.retry()`. Retry is node-attachable, not a separate hook. |
+
+```python
+def install(package, phase):
+    note("installing %s %s" % (package.name, package.version))
+
+    phase.retry(max_attempts=3, backoff="exponential")
+
+    plan.package.install("docker-ce", "docker-ce-cli", "containerd.io")
+    plan.service.enable("docker")
+    plan.service.start("docker")
+
+    if package.has_feature("rootless"):
+        plan.shell.exec("dockerd-rootless-setuptool.sh install")
+```
+
+**Output functions as globals: `note`, `warn`, `error`, `success`, `fail`**
+
+Available as top-level builtins in every lifecycle script. Requires passing
+an `io.Writer` into `prepareScriptEnv()`.
+
+**Choose predicates replace system probes:**
+
+All conditional logic that previously queried system state at planning time
+becomes Choose nodes that probe at execution time on the target machine:
+
+```python
+# Before: system probe at planning time (non-deterministic)
+def forward(package, system, plan):
+    if system.package.installed("docker-ce"):
+        return
+    plan.package.install("docker-ce")
+
+# After: Choose node probes at execution time (deterministic)
+def install(package, phase):
+    plan.choose(
+        when=plan.package.not_installed("docker-ce"),
+        then=lambda: plan.package.install("docker-ce"),
+    )
+```
+
+| System binding (removed) | Choose predicate (new) |
+|--------------------------|----------------------|
+| `system.package.installed(name)` | `plan.package.installed(name)` / `plan.package.not_installed(name)` |
+| `system.package.version(name)` | `plan.package.version_gte(name, version)` |
+| `system.service.exists(name)` | `plan.service.exists(name)` |
+| `system.service.running(name)` | `plan.service.running(name)` |
+| `system.service.enabled(name)` | `plan.service.enabled(name)` |
+| `system.file.exists(path)` | `plan.file.exists(path)` |
+| `system.file.is_dir(path)` | `plan.file.is_dir(path)` |
+| `system.git.installed()` | `plan.git.installed()` |
+
+**Retry is node-attachable, not phase-level configuration.**
+
+Retry is configuration + code. It should be settable on any node, not just
+phases. `phase.retry(...)` sets the default retry policy for the phase.
+Individual nodes can override:
+
+```python
+def install(package, phase):
+    phase.retry(max_attempts=3, backoff="exponential")     # phase default
+
+    node = plan.net.download("https://example.com/archive.tar.gz")
+    node.retry(max_attempts=5, backoff="linear")           # node override
+```
+
+This subsumes the `configure()` hook entirely. The `PhaseConfig` struct
+and `starlarkPhaseConfig` wrapper are deleted.
+
+**Fully supersedes phase-binding plan.**
+
+The `docs/plans/phase-binding.md` plan proposed renaming `plan` to `phase`
+throughout the codebase. That rename is cancelled. `plan` stays `plan` — it
+is the verb (graph-building). `phase` is the noun (phase context). The
+phase-binding plan is fully superseded by this phase.
+
+### Changes
+
+**1. New entry point and script environment.**
+
+```go
+// prepareScriptEnv injects plan as global + output functions
+// package and phase are passed as call arguments
+globals := starlark.StringDict{
+    "plan":    planRoot,
+    "log":     logRecv,
+    "note":    starlark.NewBuiltin("note", logRecv.note),
+    "warn":    starlark.NewBuiltin("warn", logRecv.warn),
+    "error":   starlark.NewBuiltin("error", logRecv.errorFunc),
+    "success": starlark.NewBuiltin("success", logRecv.success),
+    "fail":    starlark.NewBuiltin("fail", logRecv.fail),
+}
+
+// Call: install(package, phase)
+result, err := starlark.Call(thread, entryPoint, starlark.Tuple{
+    pkgContext.ToStarlark(),
+    phaseContext.ToStarlark(),
+}, nil)
+```
+
+The builder looks for an entry point named for the lifecycle phase
+(e.g., `install`, `prepare`, `provision`, `verify`). The `compensate` and
+`configure` lookups are deleted. `executeCompensateScript()` and all
+compensating phase construction in `buildPackageNodes()` are deleted.
+
+**2. Delete system binding source files.**
+
+| File | Action |
+|------|--------|
+| `internal/starlark/system.go` | Delete |
+| `internal/starlark/system_root.go` | Delete |
+| `internal/starlark/system_package.go` | Delete |
+| `internal/starlark/system_service.go` | Delete |
+| `internal/starlark/system_git.go` | Delete |
+| `internal/starlark/system_file.go` | Delete |
+| `internal/starlark/interfaces.go` | Remove `SystemBindings`, `PackageQueries`, `ServiceQueries` interfaces |
+| `internal/starlark/phase_config.go` | Delete (retry absorbed into phase object) |
+
+**3. Modify builder.**
+
+| File | Changes |
+|------|---------|
+| `internal/lore/builder.go` | Remove `system` from globals; add `plan` as global; look for phase-named entry point instead of `forward`; pass `package` and `phase` as call arguments; delete `executeCompensateScript()` and compensating phase construction; delete `configure()` hook; pass `io.Writer` for output functions |
+| `internal/lore/builder_test.go` | Update all embedded Starlark scripts to `def install(package, phase):` with `plan.*` for graph ops |
+
+**4. Add execution-time predicates.**
+
+Predicate implementations for Choose nodes that call
+`host.PackageManager`, `host.ServiceManager`, or `os.Stat`
+at execution time.
+
+**5. Node-attachable retry.**
+
+`RetryPolicy` becomes a first-class Starlark object. `phase.retry(...)`
+sets the phase default. Nodes returned by plan methods expose
+`.retry(...)` to override per-node.
+
+**6. Update all registry scripts (devlore-registry).**
+
+| Old | New |
+|-----|-----|
+| `def forward(package, system, plan):` | `def install(package, phase):` |
+| `def compensate(package, system, plan):` | *(deleted)* |
+| `def configure(phase):` | *(deleted — use `phase.retry()` in entry point)* |
+| `plan.package.install(...)` | `plan.package.install(...)` (unchanged — `plan` stays `plan`) |
+| `plan.service("nginx", "start")` | `plan.service.start("nginx")` (Phase 2 change) |
+| `plan.shell("cmd")` | `plan.shell.exec("cmd")` (Phase 2 change) |
+| `if system.package.installed(x):` | `plan.choose(when=plan.package.not_installed(x), ...)` |
+
+**7. Update knowledge extract pipeline.**
+
+The extract pipeline discovers entry points and binding surfaces.
+Look for phase-named entry points instead of `def forward(`. The `system`
+category disappears from binding reference output.
+
+## Phase 7: Update Architecture and User-Facing Documentation
+
+Update all architecture documents, user-facing guides, and authoring
+references to reflect the new programming model. All references to the
+old entry points (`forward`, `compensate`, `configure`), system bindings,
+and the old `plan` argument are updated.
+
+### Architecture documents (devlore-cli)
+
+| File | Changes |
+|------|---------|
+| `docs/architecture/devlore-phase-execution.md` | Update Starlark examples: `forward` → phase-named entry, remove `system` arg, `plan` is now a global |
+| `docs/architecture/devlore-orchestration-primitives.md` | Update examples, document Choose predicates replacing system probes |
+| `docs/architecture/devlore-operation-namespaces.md` | Update namespace references |
+| `docs/architecture/devlore-typed-slots.md` | Update examples |
+
+### User-facing guides (devlore-cli)
+
+| File | Changes |
+|------|---------|
+| `docs/guides/lore/create-manifests.md` | Rewrite script examples with `def install(package, phase):`, document output functions, document Choose predicates |
+| `docs/guides/lore/pipeline.md` | Update execution flow description, remove system binding references |
+| `docs/package-hierarchy.md` | Update references |
+
+### Authoring references (devlore-registry)
+
+| File | Changes |
+|------|---------|
+| `AUTHORING.md` | Rewrite all examples: phase-named entry point, `plan` as global, no system bindings |
+| `knowledge/package-authoring/prompts/*.txt` | Update LLM prompts with new programming model |
+| `knowledge/package-authoring/bindings/reference.md` | Regenerate: `system` category removed, entry point docs updated |
+| `knowledge/package-authoring/bindings/reference.yaml` | Regenerate |
+
+### Plan documents
+
+| File | Changes |
+|------|---------|
+| `docs/plans/phase-binding.md` | Mark as fully superseded by binding-unification Phase 6 |
 
 ## Verification
 
