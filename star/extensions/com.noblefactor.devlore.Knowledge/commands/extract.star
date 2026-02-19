@@ -45,13 +45,17 @@ _KNOWN_PROPERTIES = {
 # If a name appears here but isn't found as a binding, property, or sub-namespace,
 # the extract pipeline fails. Update this when adding new attrs in Go.
 _ATTR_NAMES = {
-    "plan": ["archive", "download", "encryption", "file", "gather", "git", "literal", "package", "service", "shell", "source", "template"],
+    "plan": ["archive", "content", "encryption", "file", "gather", "git", "net", "package", "service", "shell", "source", "template"],
     "plan.file": ["copy", "link", "remove", "write"],
     "plan.package": ["install", "remove", "update", "upgrade"],
     "plan.template": ["render"],
     "plan.encryption": ["decrypt"],
     "plan.archive": ["extract"],
     "plan.git": ["checkout", "clone", "pull"],
+    "plan.service": ["disable", "enable", "restart", "start", "stop"],
+    "plan.shell": ["exec"],
+    "plan.net": ["download"],
+    "plan.content": ["literal"],
     "system": ["file", "git", "package", "platform", "service"],
     "system.package": ["installed", "manager", "version"],
     "system.service": ["enabled", "exists", "running"],
