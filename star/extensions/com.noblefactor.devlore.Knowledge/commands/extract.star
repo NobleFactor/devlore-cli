@@ -34,6 +34,8 @@ _KNOWN_PROPERTIES = {
     "package.dry_run":          {"type": "bool", "doc": "True if this is a preview run"},
     "package.source_root":      {"type": "string", "doc": "Package source directory"},
     "package.target_root":      {"type": "string", "doc": "Deployment target directory"},
+    "phase.name":               {"type": "string", "doc": "Lifecycle phase name (e.g. install, provision)"},
+    "phase.action":             {"type": "string", "doc": "Lifecycle action (e.g. deploy, remove)"},
 }
 
 # AttrNames declarations from Go source — authoritative cross-reference.
