@@ -39,19 +39,22 @@ Common prepare actions:
 - Download and cache large files
 
 ```starlark
-# prepare.star — Docker on Ubuntu
-def prepare(package, system, plan):
+# Linux.Debian/Deploy/prepare.star — Docker on Debian/Ubuntu
+def prepare(package, phase):
     # Add Docker's official GPG key and repository
-    plan.shell("curl -fsSL https://download.docker.com/linux/ubuntu/gpg | "
-               "sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg")
+    plan.shell.exec("curl -fsSL https://download.docker.com/linux/ubuntu/gpg | "
+                    "sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg")
 
-    # Add repository (using system.platform for codename)
-    plan.shell("echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] "
-               "https://download.docker.com/linux/ubuntu {} stable' | "
-               "sudo tee /etc/apt/sources.list.d/docker.list".format(system.platform.distro))
+    # Add repository
+    plan.shell.exec("echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] "
+                    "https://download.docker.com/linux/ubuntu noble stable' | "
+                    "sudo tee /etc/apt/sources.list.d/docker.list")
 
     plan.package.update()
 ```
+
+Note: This script lives in `Linux.Debian/Deploy/` — the distro is implicit from
+the directory, not queried at runtime.
 
 ## Phase 2: Install
 
@@ -65,8 +68,8 @@ Installation methods (in order of preference):
 4. **Custom script** — Arbitrary installation logic
 
 ```starlark
-# install.star — Docker on Ubuntu
-def install(package, system, plan):
+# Linux.Debian/Deploy/install.star — Docker on Debian/Ubuntu
+def install(package, phase):
     packages = [
         "docker-ce",
         "docker-ce-cli",
@@ -93,14 +96,14 @@ Common provision actions:
 - Create data directories
 
 ```starlark
-# provision.star — Docker on Ubuntu
-def provision(package, system, plan):
+# Linux.Debian/Deploy/provision.star — Docker on Debian/Ubuntu
+def provision(package, phase):
     # Enable and start service
-    plan.service("docker", "enable")
-    plan.service("docker", "start")
+    plan.service.enable("docker")
+    plan.service.start("docker")
 
     if package.has_feature("rootless"):
-        plan.shell("dockerd-rootless-setuptool.sh install")
+        plan.shell.exec("dockerd-rootless-setuptool.sh install")
 ```
 
 ## Phase 4: Verify
@@ -116,18 +119,14 @@ Common verification checks:
 - Configuration is valid
 
 ```starlark
-# verify.star — Docker
-def verify(package, system, plan):
+# Common/Deploy/verify.star — Docker
+def verify(package, phase):
     # Check binary exists
-    plan.shell("docker --version")
-
-    # Check service is running
-    if not system.service.running("docker"):
-        fail("Docker service is not running")
+    plan.shell.exec("docker --version")
 
     # Check compose if enabled
     if package.has_feature("compose"):
-        plan.shell("docker compose version")
+        plan.shell.exec("docker compose version")
 ```
 
 ## Features in the pipeline
@@ -142,7 +141,7 @@ lore deploy docker --with rootless --with compose
 Inside phase scripts, check for enabled features:
 
 ```starlark
-def install(package, system, plan):
+def install(package, phase):
     # Always install core
     plan.package.install("docker-ce", "docker-ce-cli", "containerd.io")
 

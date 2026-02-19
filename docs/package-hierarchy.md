@@ -360,14 +360,10 @@ Starlark runtime and receiver bindings.
 - `ShellReceiver` - shell.run, shell.which
 
 **Plan Types:**
-- `PlanBindings` (interface) - Graph building from Starlark scripts
-- `PlanRoot` - Namespace: file, package, template, encryption, archive, git, shell
-- `FilePlan`, `PackagePlan`, `TemplatePlan`, `EncryptionPlan`, `ArchivePlan`, `GitPlan` - Plan builders
+- `PlanRoot` - Namespace: file, package, service, shell, template, encryption, archive, git, net, content
+- `FilePlan`, `PackagePlan`, `ServicePlan`, `ShellPlan`, `TemplatePlan`, `EncryptionPlan`, `ArchivePlan`, `GitPlan`, `NetPlan`, `ContentPlan` - Plan builders
 
-**System Types:**
-- `SystemBindings` (interface) - Platform(), Package(), Service(), ToStarlark()
-- `PackageQueries` (interface) - Installed(), Version()
-- `ServiceQueries` (interface) - Exists(), Running(), Enabled()
+**Package Context:**
 - `PackageContext` - Name, Version, Features, Settings, DryRun, SourceRoot, TargetRoot
 
 ---

@@ -2,9 +2,10 @@
 
 ## Status
 
-**Approved** — Core types, executor, and Starlark integration implemented.
-Activity model (Forward/Backward on Provider structs) formalized. Compensation
-not yet implemented — pending Provider struct extraction and code generation.
+**Approved** — Core types, executor, Starlark integration, and full
+compensation implemented. Activity model (Forward/Backward on Provider structs)
+formalized. All 10 providers have compensation pairs. Generated actions wire
+Do/Undo through to Provider methods.
 
 ## Context
 
@@ -150,28 +151,30 @@ to the phase-aware loop when present.
 
 ## Starlark Integration
 
-Phase scripts use three entry points:
+Phase scripts define a function named for the phase:
 
-- **`forward(package, system, plan)`** — the forward action. Emits nodes into
-  the phase via plan receivers. Required.
-- **`compensate(package, system, plan)`** — the compensating action. Emits nodes
-  into a paired compensating phase. Optional.
-- **`configure(phase)`** — sets phase-level configuration (retry policy) before
-  forward execution. Optional.
+```python
+def install(package, phase):
+    """Forward action. Emits nodes into the phase via plan globals."""
+    plan.package.install("nginx")
+```
 
-The builder calls `configure()` first (if present), then `forward()`, then
-checks for `compensate()`. If `compensate()` exists, the builder creates a
-paired compensating phase and executes `compensate()` to populate it.
+- **`def <phase>(package, phase)`** — the forward action. Emits nodes into
+  the phase via the `plan` global. Required.
+- **Compensation** is handled automatically by Layer 1 (action-level Undo on
+  Provider structs). Layer 2 scripted compensation is a future enhancement.
+- **Retry policy** is set via the `phase` argument.
 
-Scripts that only define `forward()` produce a phase with no compensation.
-This is appropriate for idempotent phases like `verify`.
+The `plan` object is a global available in every script — it is not passed
+as an argument. The `phase` argument provides phase context (name, retry policy).
 
 ### Retry Policy from Scripts
 
 ```python
-def configure(phase):
+def install(package, phase):
     phase.retry(max_attempts=3, backoff="exponential",
                 initial_delay="1s", max_delay="30s")
+    plan.package.install("nginx")
 ```
 
 ## Activities
@@ -438,30 +441,13 @@ For orchestration logic beyond what individual operations provide: cleaning up
 temporary artifacts, sending notifications, restoring backups, coordinating
 multi-step rollback sequences that span concerns.
 
-This is where the Starlark `compensate()` function lives.
+Layer 2 is a future enhancement. Currently all compensation is handled by
+Layer 1 (action-level Undo on Provider structs).
 
 **Layer interaction**: Layer 1 runs first (reverse-order node compensation
-within the phase). Layer 2 runs after (phase-level scripted compensation).
+within the phase). Layer 2 would run after (phase-level scripted compensation).
 Layer 2 does not subsume Layer 1 — they are complementary. A phase can have
 Layer 1 only, Layer 2 only, both, or neither.
-
-### Build Time vs Runtime
-
-The current implementation runs `compensate()` at build time to emit nodes
-into the graph. This gives dry-run visibility but cannot handle
-state-dependent compensation.
-
-Resolution:
-
-- **Build time (dry-run)**: The graph shows compensation **capability** — which
-  operations are compensable (interface check), which phases have scripted
-  compensation (compensate function exists). This is metadata, not a plan.
-- **Runtime**: The executor determines actual compensation from execution
-  state. Node results carry compensation receipts. The recovery stack carries
-  these receipts for unwind.
-- **Transition**: The builder's current `compensate()` call at build time
-  should be replaced with a compensation capability flag on the phase. The
-  Starlark `compensate()` function moves to runtime execution during unwind.
 
 ### Resolved: State Serialization
 
@@ -492,7 +478,6 @@ to a message type) is tracked as a future enhancement: issue #105.
 | `internal/execution/provider/register_gen.go` | RegisterAll — calls all provider Register functions |
 | `internal/execution/provider/*/actions_gen.go` | Generated action structs (Do, Undo, Register) |
 | `internal/execution/provider/*/provider.go` | Hand-written Provider structs (business logic) |
-| `internal/starlark/phase_config.go` | PhaseConfig Starlark bindings for configure() |
 | `internal/lore/builder.go` | Phase-aware graph builder |
 
 ## Related Documents

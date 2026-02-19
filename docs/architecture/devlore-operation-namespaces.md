@@ -216,69 +216,52 @@ func RegisterAll(reg *execution.ActionRegistry) {
 
 This single change makes your actions available to both `writ` and `lore`.
 
-### Step 4: Add Starlark Plan Bindings
+### Step 4: Add Plan Binding
 
-Update the plan bindings interface in `internal/starlark/interfaces.go`:
+Create a plan binding struct in `internal/starlark/` (or generate one via
+`devlore ops.generate`). The plan binding creates graph nodes when called
+from Starlark:
 
 ```go
-type PlanBindings interface {
-    // ... existing methods ...
-
-    // Docker actions
-    DockerPull(image string) *execution.Node
-    DockerBuild(context, tag string) *execution.Node
+// internal/starlark/plan_docker_gen.go — generated
+type DockerPlan struct {
+    PlanBase
 }
-```
 
-### Step 5: Implement Platform Bindings
-
-Update each platform binding file (`darwin.go`, `linux.go`, `windows.go`) in `internal/starlark/platform/`:
-
-```go
-// DockerPull adds a docker pull node.
-func (d *DarwinPlanBindings) DockerPull(image string) *execution.Node {
-    node := &execution.Node{
-        ID:      darwinGenerateNodeID("docker-pull", image),
-        Action:  d.reg.MustGet("docker.pull"),
-        Project: d.project,
-    }
+func (p *DockerPlan) Pull(image string) *execution.Node {
+    node := p.addNode("docker.pull")
     node.SetSlotImmediate("image", image)
-    d.graph.Nodes = append(d.graph.Nodes, node)
     return node
 }
 ```
 
-### Step 6: Add Starlark Namespace
+### Step 5: Register on PlanRoot
 
-In the `ToStarlark()` method, add the nested struct for your namespace:
+Add the plan binding as a sub-namespace on `PlanRoot` in
+`internal/starlark/plan_root.go`:
 
 ```go
-func (d *DarwinPlanBindings) ToStarlark() starlark.Value {
-    // ... existing namespaces ...
-
-    // Docker namespace: plan.docker.*
-    dockerNs := starlarkstruct.FromStringDict(starlark.String("docker"), starlark.StringDict{
-        "pull":  starlark.NewBuiltin("pull", d.dockerPullBuiltin),
-        "build": starlark.NewBuiltin("build", d.dockerBuildBuiltin),
-    })
-
-    return starlarkstruct.FromStringDict(starlark.String("plan"), starlark.StringDict{
-        "package":    packageOps,
-        "file":       fileOps,
-        "docker":     dockerNs,   // Add your namespace
-        "service":    starlark.NewBuiltin("service", d.serviceBuiltin),
-        "shell":      starlark.NewBuiltin("shell", d.shellBuiltin),
-        "depends_on": starlark.NewBuiltin("depends_on", d.dependsOnBuiltin),
-    })
-}
+// In PlanRoot.ToStarlark():
+dockerNs := starlarkstruct.FromStringDict(starlark.String("docker"), starlark.StringDict{
+    "pull":  starlark.NewBuiltin("pull", p.docker.pullBuiltin),
+    "build": starlark.NewBuiltin("build", p.docker.buildBuiltin),
+})
 ```
+
+All resource operations are sub-namespaces under `plan`:
+- `plan.package.*`, `plan.file.*`, `plan.service.*`, `plan.shell.*`
+- `plan.net.*`, `plan.archive.*`, `plan.git.*`, `plan.content.*`
+- `plan.template.*`, `plan.encryption.*`
+
+Only graph construction primitives remain top-level: `plan.source()`,
+`plan.gather()`, `plan.choose()`, `plan.depends_on()`.
 
 ## Starlark API Convention
 
-Actions are exposed via nested structs under `plan`:
+All resource operations are exposed via sub-namespaces under the `plan` global:
 
 ```starlark
-def install(package, system, plan):
+def install(package, phase):
     # Package operations
     plan.package.install("nginx")
     plan.package.upgrade("curl")
@@ -291,14 +274,25 @@ def install(package, system, plan):
     plan.file.configure(source, target)  # template + copy
     plan.file.mkdir(target)
 
+    # Service operations
+    plan.service.start("nginx")
+    plan.service.enable("nginx")
+
+    # Shell (escape hatch)
+    plan.shell.exec("echo hello")
+
+    # Network and content
+    plan.net.download(url)
+    plan.content.literal(content)
+
     # Docker operations (example)
     plan.docker.pull("nginx:latest")
     plan.docker.build(context=".", tag="myapp:latest")
 
-    # System operations (not namespaced)
-    plan.service(name="nginx", action="start")
-    plan.shell("echo hello")
+    # Graph construction primitives (top-level)
     plan.depends_on(node_a, node_b)
+    plan.choose(when=predicate, then=lambda: ...)
+    plan.gather(items=list, do=lambda item: ...)
 ```
 
 ## Naming Conventions
@@ -370,7 +364,7 @@ Pulls a container image from a registry.
 
 **Example:**
 ```starlark
-def install(package, system, plan):
+def install(package, phase):
     # Pull the base image
     nginx = plan.docker.pull("nginx:1.25")
 
@@ -410,7 +404,7 @@ Installs one or more packages.
 
 **Example:**
 ```starlark
-def install(package, system, plan):
+def install(package, phase):
     # Install multiple packages
     plan.package.install("curl", "jq", "ripgrep")
 
@@ -431,10 +425,10 @@ def install(package, system, plan):
 
 The Starlark API documentation should match the implementation. When updating bindings:
 
-1. Update the Go implementation
-2. Update `docs/guides/lore/plan-bindings.md` with new/changed functions
-3. Add examples showing real usage patterns
-4. Note any platform-specific behavior
+1. Update the Provider struct and regenerate actions
+2. Regenerate plan bindings and receivers via `devlore ops.generate`
+3. Update `docs/guides/lore/plan-bindings.md` with new/changed functions
+4. Add examples showing real usage patterns
 
 ## Checklist
 
@@ -443,10 +437,8 @@ When adding a new namespace:
 - [ ] Create `internal/execution/provider/<namespace>/provider.go` with Provider struct
 - [ ] Create `internal/execution/provider/<namespace>/actions_gen.go` with action structs and `Register(reg)`
 - [ ] Update `RegisterAll()` in `provider/register_gen.go` to include your provider
-- [ ] Update `PlanBindings` interface in `internal/starlark/interfaces.go`
-- [ ] Implement methods in all platform bindings (darwin, linux, windows)
-- [ ] Add nested struct to `ToStarlark()` in all platform bindings
-- [ ] Implement Starlark builtin functions
+- [ ] Create plan binding struct in `internal/starlark/plan_<namespace>_gen.go`
+- [ ] Register sub-namespace on `PlanRoot` in `internal/starlark/plan_root.go`
 - [ ] Add tests
 - [ ] **Document for package developers** in `docs/guides/lore/plan-bindings.md`
 - [ ] Update this architecture documentation
