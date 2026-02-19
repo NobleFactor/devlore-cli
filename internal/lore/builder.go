@@ -16,7 +16,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
-	"github.com/NobleFactor/devlore-cli/internal/starlark/platform"
 )
 
 // BuildResult contains the built execution graph and metadata for packages.
@@ -370,7 +369,7 @@ func executeScriptAction(graph *execution.Graph, pkg *lorepackage.Release, h hos
 	args := starlark.Tuple{
 		pkgContext.ToStarlark(),
 		systemBindings.ToStarlark(),
-		planBindings.ToStarlark(),
+		planBindings,
 	}
 	_, err = starlark.Call(thread, callable, args, nil)
 	if err != nil {
@@ -417,7 +416,7 @@ func executeCompensateScript(graph *execution.Graph, pkg *lorepackage.Release, h
 	args := starlark.Tuple{
 		pkgContext.ToStarlark(),
 		systemBindings.ToStarlark(),
-		planBindings.ToStarlark(),
+		planBindings,
 	}
 	_, err = starlark.Call(thread, callable, args, nil)
 	if err != nil {
@@ -430,10 +429,10 @@ func executeCompensateScript(graph *execution.Graph, pkg *lorepackage.Release, h
 // prepareScriptEnv creates the Starlark thread, globals, and bindings
 // needed to execute a phase script. Shared by forward and compensate paths.
 func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (
-	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, loreStar.SystemBindings, platform.PlatformPlanBindings, error,
+	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, loreStar.SystemBindings, *loreStar.PlanRoot, error,
 ) {
 	systemBindings := loreStar.NewSystemBindings(h)
-	planBindings := platform.NewPlanBindings(graph, h, pkg.Name, reg)
+	planBindings := loreStar.NewPlanRoot(graph, h, pkg.Name, reg)
 
 	lifecycle := pkg.Lifecycle()
 	features := lifecycle.EnabledFeatures(cfg.Features)
@@ -459,7 +458,7 @@ func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.H
 	globals := starlark.StringDict{
 		"system":  systemBindings.ToStarlark(),
 		"package": pkgContext.ToStarlark(),
-		"plan":    planBindings.ToStarlark(),
+		"plan":    planBindings,
 	}
 
 	return thread, globals, pkgContext, systemBindings, planBindings, nil

@@ -7,29 +7,6 @@ import (
 	"testing"
 )
 
-func TestServiceActionString(t *testing.T) {
-	tests := []struct {
-		action   ServiceAction
-		expected string
-	}{
-		{ServiceStart, "start"},
-		{ServiceStop, "stop"},
-		{ServiceRestart, "restart"},
-		{ServiceEnable, "enable"},
-		{ServiceDisable, "disable"},
-		{ServiceAction(99), "unknown"}, // unknown action
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			result := tt.action.String()
-			if result != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
 func TestPackageContextHasFeature(t *testing.T) {
 	ctx := &PackageContext{
 		Name:     "mypackage",
@@ -139,24 +116,5 @@ func TestPackageContextFields(t *testing.T) {
 	}
 	if ctx.TargetRoot != "/path/to/target" {
 		t.Errorf("expected TargetRoot '/path/to/target', got %q", ctx.TargetRoot)
-	}
-}
-
-func TestServiceActionConstants(t *testing.T) {
-	// Verify constants are distinct
-	actions := []ServiceAction{
-		ServiceStart,
-		ServiceStop,
-		ServiceRestart,
-		ServiceEnable,
-		ServiceDisable,
-	}
-
-	seen := make(map[ServiceAction]bool)
-	for _, a := range actions {
-		if seen[a] {
-			t.Errorf("duplicate ServiceAction value: %d", a)
-		}
-		seen[a] = true
 	}
 }

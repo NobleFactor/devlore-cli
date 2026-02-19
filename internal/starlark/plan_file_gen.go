@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Code generated from gen-receiver templates; DO NOT EDIT.
+
 package starlark
 
 import (
@@ -14,11 +16,8 @@ import (
 
 // FilePlan implements plan.file.* bindings using the slot-based model.
 // Each method adds a node to the execution graph.
-//
-// Slots can be filled with either:
-// - Immediate values (strings known at analysis time)
-// - Promises (Output handles that create edges)
 type FilePlan struct {
+	Receiver
 	graph   *execution.Graph
 	host    host.Host
 	project string
@@ -28,48 +27,35 @@ type FilePlan struct {
 // NewFilePlan creates a new FilePlan for the given graph and host.
 func NewFilePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *FilePlan {
 	return &FilePlan{
-		graph:   graph,
-		host:    h,
-		project: project,
-		reg:     reg,
+		Receiver: NewReceiver("plan.file"),
+		graph:    graph,
+		host:     h,
+		project:  project,
+		reg:      reg,
 	}
 }
 
-// Starlark Value interface
-func (f *FilePlan) String() string        { return "plan.file" }
-func (f *FilePlan) Type() string          { return "plan.file" }
-func (f *FilePlan) Freeze()               {}
-func (f *FilePlan) Truth() starlark.Bool  { return true }
-func (f *FilePlan) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: plan.file") }
-
-// Starlark HasAttrs interface
+// Attr implements starlark.HasAttrs.
 func (f *FilePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "link":
-		return starlark.NewBuiltin("plan.file.link", f.link), nil
+		return MakeAttr("plan.file.link", f.link), nil
 	case "copy":
-		return starlark.NewBuiltin("plan.file.copy", f.copy), nil
+		return MakeAttr("plan.file.copy", f.copy), nil
 	case "write":
-		return starlark.NewBuiltin("plan.file.write", f.write), nil
+		return MakeAttr("plan.file.write", f.write), nil
 	case "remove":
-		return starlark.NewBuiltin("plan.file.remove", f.remove), nil
+		return MakeAttr("plan.file.remove", f.remove), nil
 	default:
-		return nil, starlark.NoSuchAttrError(fmt.Sprintf("plan.file has no attribute %q", name))
+		return nil, NoSuchAttrError("plan.file", name)
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (f *FilePlan) AttrNames() []string {
 	return []string{"copy", "link", "remove", "write"}
 }
 
-// link adds a symlink creation node.
-// Usage: plan.file.link(source, path)
-//
-// Slots:
-//   - source: File to link to (promise or immediate)
-//   - path: Where to create the symlink (promise or immediate)
-//
-// Returns: Promise of the symlink
 func (f *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var source, path starlark.Value
 	if err := starlark.UnpackArgs("link", args, kwargs, "source", &source, "path", &path); err != nil {
@@ -77,9 +63,9 @@ func (f *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	node := &execution.Node{
-		ID:         generateNodeID("link"),
-		Action: f.reg.MustGet("file.link"),
-		Project:    f.project,
+		ID:      generateNodeID("link"),
+		Action:  f.reg.MustGet("file.link"),
+		Project: f.project,
 	}
 
 	if err := FillSlot(node, f.graph, "source", source); err != nil {
@@ -93,14 +79,6 @@ func (f *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	return NewOutput(node, f.graph, ""), nil
 }
 
-// copy adds a file copy node.
-// Usage: plan.file.copy(source, path)
-//
-// Slots:
-//   - source: File to copy (promise or immediate)
-//   - path: Destination path (promise or immediate)
-//
-// Returns: Promise of the copied file
 func (f *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var source, path starlark.Value
 	if err := starlark.UnpackArgs("copy", args, kwargs, "source", &source, "path", &path); err != nil {
@@ -108,9 +86,9 @@ func (f *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	node := &execution.Node{
-		ID:         generateNodeID("copy"),
-		Action: f.reg.MustGet("file.copy"),
-		Project:    f.project,
+		ID:      generateNodeID("copy"),
+		Action:  f.reg.MustGet("file.copy"),
+		Project: f.project,
 	}
 
 	if err := FillSlot(node, f.graph, "source", source); err != nil {
@@ -124,14 +102,6 @@ func (f *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	return NewOutput(node, f.graph, ""), nil
 }
 
-// write adds a file write node.
-// Usage: plan.file.write(content, path)
-//
-// Slots:
-//   - content: Content to write (promise or immediate)
-//   - path: Destination path (promise or immediate)
-//
-// Returns: Promise of the written file
 func (f *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var content, path starlark.Value
 	if err := starlark.UnpackArgs("write", args, kwargs, "content", &content, "path", &path); err != nil {
@@ -139,9 +109,9 @@ func (f *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 
 	node := &execution.Node{
-		ID:         generateNodeID("write"),
-		Action: f.reg.MustGet("file.write"),
-		Project:    f.project,
+		ID:      generateNodeID("write"),
+		Action:  f.reg.MustGet("file.write"),
+		Project: f.project,
 	}
 
 	if err := FillSlot(node, f.graph, "content", content); err != nil {
@@ -155,13 +125,6 @@ func (f *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	return NewOutput(node, f.graph, ""), nil
 }
 
-// remove adds a file/directory removal node.
-// Usage: plan.file.remove(path)
-//
-// Slots:
-//   - path: Path to remove (promise or immediate)
-//
-// Returns: None (removal produces no output)
 func (f *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path starlark.Value
 	if err := starlark.UnpackArgs("remove", args, kwargs, "path", &path); err != nil {
@@ -169,9 +132,9 @@ func (f *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	node := &execution.Node{
-		ID:         generateNodeID("remove"),
-		Action: f.reg.MustGet("file.remove"),
-		Project:    f.project,
+		ID:      generateNodeID("remove"),
+		Action:  f.reg.MustGet("file.remove"),
+		Project: f.project,
 	}
 
 	if err := FillSlot(node, f.graph, "path", path); err != nil {

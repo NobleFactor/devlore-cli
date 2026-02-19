@@ -6,7 +6,6 @@ package starlark
 import (
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
@@ -16,7 +15,7 @@ import (
 //
 // Phase scripts receive three arguments: (package, system, plan)
 //
-//   def install(package, system, plan):
+//   def forward(package, system, plan):
 //       if system.package.installed(package.name):
 //           return
 //       plan.package.install(package.name)
@@ -111,129 +110,4 @@ func (p *PackageContext) Setting(key string) string {
 		return ""
 	}
 	return p.Settings[key]
-}
-
-// =============================================================================
-// Plan Bindings (graph-building operations)
-// =============================================================================
-
-// PlanBindings provides operations that add nodes to the execution graph.
-// Each method returns the created node for chaining or dependency specification.
-//
-// Note: Go method names are simple (Install, Remove, etc.) while Starlark
-// uses nested structs (plan.package.install, plan.file.copy) and engine
-// operations use namespaced names (package-install, package-remove).
-type PlanBindings interface {
-	// Graph returns the underlying execution graph being built.
-	Graph() *execution.Graph
-
-	// Host returns the host abstraction for path expansion, etc.
-	Host() host.Host
-
-	// Project returns the project name for grouping nodes.
-	Project() string
-
-	// Package operations - use platform's auto-detected package manager.
-	// On Darwin, supports brew:pkg and port:pkg prefixes for manager override.
-
-	// PackageInstall adds a package installation node.
-	PackageInstall(packages ...string) *execution.Node
-
-	// PackageUpgrade adds a package upgrade node.
-	PackageUpgrade(packages ...string) *execution.Node
-
-	// PackageRemove adds a package removal node.
-	PackageRemove(packages ...string) *execution.Node
-
-	// PackageUpdate adds a package index update node.
-	PackageUpdate() *execution.Node
-
-	// Template operations
-
-	// Render adds a template rendering node.
-	Render(source string) *execution.Node
-
-	// Encryption operations
-
-	// Decrypt adds a decryption node.
-	Decrypt(source string) *execution.Node
-
-	// File operations
-
-	// Link adds a symlink creation node.
-	Link(source, target string) *execution.Node
-
-	// Copy adds a file copy node.
-	Copy(source, target string) *execution.Node
-
-	// Write adds a file write node (write content directly to target).
-	Write(target, content string) *execution.Node
-
-	// Remove adds a file/directory removal node.
-	Remove(target string) *execution.Node
-
-	// Download adds a file download node.
-	Download(url, target string) *execution.Node
-
-	// Archive operations
-
-	// ArchiveExtract adds an archive extraction node.
-	ArchiveExtract(archive, target string) *execution.Node
-
-	// Git operations
-
-	// GitClone adds a git clone node.
-	GitClone(url, target string) *execution.Node
-
-	// GitCheckout adds a git checkout node.
-	GitCheckout(ref string) *execution.Node
-
-	// GitPull adds a git pull node.
-	GitPull() *execution.Node
-
-	// System operations
-
-	// Service adds a service management node.
-	Service(name string, action ServiceAction) *execution.Node
-
-	// Shell adds a shell command execution node.
-	Shell(command string) *execution.Node
-
-	// DependsOn creates a dependency edge between nodes.
-	// The 'from' node will execute after the 'to' node completes.
-	DependsOn(from, to *execution.Node)
-}
-
-// ServiceAction represents a service management action.
-type ServiceAction int
-
-const (
-	// ServiceStart starts a service.
-	ServiceStart ServiceAction = iota
-	// ServiceStop stops a service.
-	ServiceStop
-	// ServiceRestart restarts a service.
-	ServiceRestart
-	// ServiceEnable enables a service at boot.
-	ServiceEnable
-	// ServiceDisable disables a service at boot.
-	ServiceDisable
-)
-
-// String returns the action name.
-func (a ServiceAction) String() string {
-	switch a {
-	case ServiceStart:
-		return "start"
-	case ServiceStop:
-		return "stop"
-	case ServiceRestart:
-		return "restart"
-	case ServiceEnable:
-		return "enable"
-	case ServiceDisable:
-		return "disable"
-	default:
-		return "unknown"
-	}
 }

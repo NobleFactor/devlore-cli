@@ -12,6 +12,11 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/archive"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/git"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/net"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/shell"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
@@ -40,15 +45,16 @@ func (b *Bindings) Globals() starlark.StringDict {
 
 	return starlark.StringDict{
 		"platform": b.platformStruct(),
-		"package":  NewPackageReceiver(b.host.PackageManager(), b.features, b.settings, b.output),
-		"shell":    NewShellReceiver(b.host, b.output),
-		"http":     NewHTTPReceiver(b.host, b.output),
-		"archive":  NewArchiveReceiver(b.host, b.output),
-		"env":      NewEnvReceiver(),
-		"service":  NewServiceReceiver(b.host.ServiceManager(), b.output),
-		"npm":      NewNpmReceiver(b.output),
-		"git":      NewGitReceiver(b.output),
+		"archive":  NewArchiveReceiver(&archive.Provider{}, b.output),
 		"docker":   NewDockerReceiver(b.output),
+		"env":      NewEnvReceiver(),
+		"file":     NewFileReceiver(&file.Provider{}, b.output),
+		"git":      NewGitReceiver(&git.Provider{}, b.output),
+		"net":      NewNetReceiver(&net.Provider{}, b.output),
+		"npm":      NewNpmReceiver(b.output),
+		"package":  NewPackageReceiver(b.host.PackageManager(), b.features, b.settings, b.output),
+		"service":  NewServiceReceiver(b.host.ServiceManager(), b.output),
+		"shell":    NewShellReceiver(&shell.Provider{}, b.output),
 		"log":      logRecv,
 		"note":     starlark.NewBuiltin("note", logRecv.note),
 		"warn":     starlark.NewBuiltin("warn", logRecv.warn),
@@ -73,17 +79,6 @@ func (b *Bindings) platformStruct() *starlarkstruct.Struct {
 // =============================================================================
 // Helpers
 // =============================================================================
-
-// resultToStarlark converts a host.Result to a Starlark struct.
-func resultToStarlark(r host.Result) *starlarkstruct.Struct {
-	return starlarkstruct.FromStringDict(starlark.String("result"), starlark.StringDict{
-		"ok":         starlark.Bool(r.OK),
-		"stdout":     starlark.String(r.Stdout),
-		"stderr":     starlark.String(r.Stderr),
-		"returncode": starlark.MakeInt(r.Code),
-		"code":       starlark.MakeInt(r.Code),
-	})
-}
 
 // argToString converts a Starlark value to a string for CLI args.
 func argToString(val starlark.Value) string {

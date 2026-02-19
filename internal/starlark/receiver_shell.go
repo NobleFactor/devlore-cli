@@ -4,30 +4,28 @@
 package starlark
 
 import (
-	"fmt"
 	"io"
 	"os/exec"
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/shell"
 )
 
 // ShellReceiver provides the shell.* Starlark namespace.
-//
-// Backing implementation: host.Host (RunCommand) for exec/run,
-// os/exec.LookPath for which.
+// Forward operations (exec, run) delegate to shell.Provider.
+// Query operations (which) use os/exec directly.
 type ShellReceiver struct {
 	Receiver
-	host   host.Host
-	output io.Writer
+	provider *shell.Provider
+	output   io.Writer
 }
 
 // NewShellReceiver creates a new shell receiver.
-func NewShellReceiver(h host.Host, output io.Writer) *ShellReceiver {
+func NewShellReceiver(provider *shell.Provider, output io.Writer) *ShellReceiver {
 	return &ShellReceiver{
 		Receiver: NewReceiver("shell"),
-		host:     h,
+		provider: provider,
 		output:   output,
 	}
 }
@@ -37,6 +35,8 @@ func (r *ShellReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "exec":
 		return MakeAttr("shell.exec", r.shellExec), nil
+	case "power_shell":
+		return MakeAttr("shell.power_shell", r.powerShell), nil
 	case "run":
 		return MakeAttr("shell.run", r.shellRun), nil
 	case "which":
@@ -48,46 +48,47 @@ func (r *ShellReceiver) Attr(name string) (starlark.Value, error) {
 
 // AttrNames implements starlark.HasAttrs.
 func (r *ShellReceiver) AttrNames() []string {
-	return []string{"exec", "run", "which"}
+	return []string{"exec", "power_shell", "run", "which"}
 }
 
-func (r *ShellReceiver) shellExec(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (r *ShellReceiver) shellExec(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var command string
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "command", &command); err != nil {
+	if err := starlark.UnpackArgs("exec", args, kwargs, "command", &command); err != nil {
 		return nil, err
 	}
-
-	_, _ = fmt.Fprintf(r.output, "  [shell] %s\n", command)
-	result := r.host.RunCommand(command, false)
-	return resultToStarlark(result), nil
+	if err := r.provider.Shell(command, r.output); err != nil {
+		return nil, err
+	}
+	return starlark.None, nil
 }
 
-func (r *ShellReceiver) shellRun(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (r *ShellReceiver) shellRun(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var command string
-	var shell bool
-	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "command", &command, "shell?", &shell); err != nil {
-		if len(args) >= 1 {
-			if s, ok := starlark.AsString(args[0]); ok {
-				command = s
-			}
-		}
+	if err := starlark.UnpackArgs("run", args, kwargs, "command", &command); err != nil {
+		return nil, err
 	}
+	if err := r.provider.Shell(command, r.output); err != nil {
+		return nil, err
+	}
+	return starlark.None, nil
+}
 
-	_, _ = fmt.Fprintf(r.output, "  [shell] %s\n", command)
-	result := r.host.RunCommand(command, false)
-	return resultToStarlark(result), nil
+func (r *ShellReceiver) powerShell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var command string
+	if err := starlark.UnpackArgs("power_shell", args, kwargs, "command", &command); err != nil {
+		return nil, err
+	}
+	if err := r.provider.PowerShell(command, r.output); err != nil {
+		return nil, err
+	}
+	return starlark.None, nil
 }
 
 func (r *ShellReceiver) shellWhich(_ *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name string
 	if err := starlark.UnpackArgs(fn.Name(), args, kwargs, "name", &name); err != nil {
-		if len(args) >= 1 {
-			if s, ok := starlark.AsString(args[0]); ok {
-				name = s
-			}
-		}
+		return nil, err
 	}
-
 	path, err := exec.LookPath(name)
 	if err != nil {
 		return starlark.String(""), nil
