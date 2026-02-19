@@ -87,6 +87,8 @@ func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 	case "template":
 		return p.templatePlan, nil
 	// Top-level bindings (graph construction primitives)
+	case "choose":
+		return starlark.NewBuiltin("plan.choose", p.choose), nil
 	case "source":
 		return starlark.NewBuiltin("plan.source", p.source), nil
 	case "gather":
@@ -98,9 +100,72 @@ func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 
 func (p *PlanRoot) AttrNames() []string {
 	return []string{
-		"archive", "content", "encryption", "file", "gather", "git",
+		"archive", "choose", "content", "encryption", "file", "gather", "git",
 		"net", "package", "service", "shell", "source", "template",
 	}
+}
+
+// choose creates a conditional branch in the execution graph.
+// Usage: plan.choose(when=predicate, then=callback)
+//
+// The predicate is evaluated at execution time on the target machine.
+// If it matches, the nodes built by the callback are executed.
+//
+// Arguments:
+//   - when: A predicate (e.g., plan.package.not_installed("docker-ce"))
+//   - then: A callable that builds graph nodes when the predicate matches
+//
+// Returns: Output of the choose node
+func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var when starlark.Value
+	var then starlark.Callable
+
+	if err := starlark.UnpackArgs("choose", args, kwargs,
+		"when", &when,
+		"then", &then,
+	); err != nil {
+		return nil, err
+	}
+
+	// Extract predicate from the when argument.
+	pred, ok := when.(*RuntimePredicate)
+	if !ok {
+		return nil, fmt.Errorf("choose: when must be a predicate (e.g., plan.package.not_installed(...)), got %s", when.Type())
+	}
+
+	// Snapshot current graph state to track nodes added by the callback.
+	nodesBefore := len(p.graph.Nodes)
+
+	// Execute the callback to build sub-graph nodes.
+	_, err := starlark.Call(thread, then, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("choose: then callback: %w", err)
+	}
+
+	// Collect nodes added by the callback into a branch phase.
+	branchPhaseID := generateNodeID("choose-branch")
+	branchPhase := &execution.Phase{
+		ID:     branchPhaseID,
+		Name:   "choose-branch",
+		Status: execution.PhasePending,
+	}
+	for i := nodesBefore; i < len(p.graph.Nodes); i++ {
+		branchPhase.NodeIDs = append(branchPhase.NodeIDs, p.graph.Nodes[i].ID)
+	}
+	p.graph.Phases = append(p.graph.Phases, branchPhase)
+
+	// Create the choose node with the predicate and branch phase.
+	chooseNode := &execution.Node{
+		ID:      generateNodeID("choose"),
+		Action:  p.reg.MustGet("flow.choose"),
+		Project: p.project,
+	}
+	chooseNode.SetSlotImmediate("cases", []execution.ChooseCase{
+		{Predicate: pred, PhaseID: branchPhaseID},
+	})
+
+	p.graph.Nodes = append(p.graph.Nodes, chooseNode)
+	return NewOutput(chooseNode, p.graph, ""), nil
 }
 
 // source creates a source file artifact.

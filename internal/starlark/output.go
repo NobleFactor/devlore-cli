@@ -50,6 +50,8 @@ func (o *Output) Attr(name string) (starlark.Value, error) {
 		return starlark.String(o.node.ID), nil
 	case "slot":
 		return starlark.String(o.slot), nil
+	case "retry":
+		return starlark.NewBuiltin("output.retry", o.retryBuiltin), nil
 	default:
 		// Get the value from the node's slots and convert to Starlark
 		slotVal := o.node.GetSlot(name)
@@ -65,7 +67,7 @@ func (o *Output) Attr(name string) (starlark.Value, error) {
 }
 
 func (o *Output) AttrNames() []string {
-	names := []string{"node_id", "slot"}
+	names := []string{"node_id", "retry", "slot"}
 	// Add slot names from the node
 	if o.node.Slots != nil {
 		for name := range o.node.Slots {
@@ -171,6 +173,53 @@ func FillSlot(node *execution.Node, graph *execution.Graph, slotName string, val
 func (o *Output) Path() string {
 	path, _ := o.node.GetSlot("path").(string)
 	return path
+}
+
+// retryBuiltin sets the retry policy on this output's node.
+// Usage: node = plan.net.download(...); node.retry(max_attempts=5, backoff="linear")
+func (o *Output) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var maxAttempts int
+	var backoff, initialDelay, maxDelay string
+
+	if err := starlark.UnpackArgs("retry", args, kwargs,
+		"max_attempts", &maxAttempts,
+		"backoff?", &backoff,
+		"initial_delay?", &initialDelay,
+		"max_delay?", &maxDelay,
+	); err != nil {
+		return nil, err
+	}
+
+	if maxAttempts < 0 {
+		return nil, fmt.Errorf("retry: max_attempts must be non-negative, got %d", maxAttempts)
+	}
+
+	policy := &execution.RetryPolicy{
+		MaxAttempts: maxAttempts,
+	}
+
+	if backoff != "" {
+		switch backoff {
+		case "none":
+			policy.Backoff = execution.BackoffNone
+		case "linear":
+			policy.Backoff = execution.BackoffLinear
+		case "exponential":
+			policy.Backoff = execution.BackoffExponential
+		default:
+			return nil, fmt.Errorf("retry: unknown backoff %q (use none, linear, exponential)", backoff)
+		}
+	}
+
+	if initialDelay != "" {
+		policy.InitialDelay = initialDelay
+	}
+	if maxDelay != "" {
+		policy.MaxDelay = maxDelay
+	}
+
+	o.node.Retry = policy
+	return o, nil
 }
 
 // DependOn creates an edge making the given node depend on this output's node.

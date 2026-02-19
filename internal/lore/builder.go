@@ -231,18 +231,9 @@ func BuildFromPackages(packages []string, plat string) (*BuildResult, error) {
 	})
 }
 
-// scriptResult holds metadata returned from executing a Starlark phase script.
-type scriptResult struct {
-	// HasCompensate is true if the script defines a compensate() function.
-	HasCompensate bool
-
-	// RetryPolicy from the configure() hook (nil if no configure function).
-	RetryPolicy *execution.RetryPolicy
-}
-
 // buildPackageNodes adds execution nodes and phases for a package to the graph.
-// Each lifecycle phase becomes a Phase entry in the graph. Phases that define
-// compensating actions get corresponding compensating Phase entries.
+// Each lifecycle phase becomes a Phase entry in the graph. Compensation is
+// handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
 func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig, reg *execution.ActionRegistry) error {
 	op := lorepackage.OpDeploy
 	phases := lorepackage.PhaseOrder(op)
@@ -263,21 +254,15 @@ func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.
 		// Snapshot current node count to track which nodes this phase adds.
 		nodesBefore := len(graph.Nodes)
 
-		// Track scripts that define compensate().
-		var compensateScripts []*lorepackage.ScriptAction
-
 		for _, action := range actions {
 			switch a := action.(type) {
 			case *lorepackage.ScriptAction:
-				result, err := executeScriptAction(graph, pkg, h, plat, a, cfg, reg)
+				retryPolicy, err := executeScriptAction(graph, pkg, h, plat, a, cfg, reg)
 				if err != nil {
 					return fmt.Errorf("phase %q: %w", phaseName, err)
 				}
-				if result.HasCompensate {
-					compensateScripts = append(compensateScripts, a)
-				}
-				if result.RetryPolicy != nil && phase.Retry == nil {
-					phase.Retry = result.RetryPolicy
+				if retryPolicy != nil && phase.Retry == nil {
+					phase.Retry = retryPolicy
 				}
 			case *lorepackage.NativePMAction:
 				if err := addNativePMNodes(graph, pkg, a, reg); err != nil {
@@ -293,40 +278,17 @@ func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.
 			phase.NodeIDs = append(phase.NodeIDs, graph.Nodes[i].ID)
 		}
 
-		// Create compensating phase if any script defines compensate().
-		if len(compensateScripts) > 0 {
-			compensatePhaseID := phaseID + ".compensate"
-			compensatePhase := &execution.Phase{
-				ID:     compensatePhaseID,
-				Name:   phaseName + ".compensate",
-				Status: execution.PhasePending,
-			}
-
-			compensateNodesBefore := len(graph.Nodes)
-			for _, script := range compensateScripts {
-				if err := executeCompensateScript(graph, pkg, h, plat, script, cfg, reg); err != nil {
-					return fmt.Errorf("phase %q compensate: %w", phaseName, err)
-				}
-			}
-			for i := compensateNodesBefore; i < len(graph.Nodes); i++ {
-				compensatePhase.NodeIDs = append(compensatePhase.NodeIDs, graph.Nodes[i].ID)
-			}
-
-			phase.Compensate = compensatePhaseID
-			graph.Phases = append(graph.Phases, phase)
-			graph.Phases = append(graph.Phases, compensatePhase)
-		} else {
-			graph.Phases = append(graph.Phases, phase)
-		}
+		graph.Phases = append(graph.Phases, phase)
 	}
 
 	return nil
 }
 
-// executeScriptAction runs a Starlark phase script's forward() function
-// and returns metadata about compensate() and configure() availability.
-func executeScriptAction(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (*scriptResult, error) {
-	thread, globals, pkgContext, systemBindings, planBindings, err := prepareScriptEnv(graph, pkg, h, action, cfg, reg)
+// executeScriptAction runs a Starlark phase script's entry point function
+// (named for the lifecycle phase, e.g., "install", "provision") and returns
+// the retry policy if one was configured via phase.retry().
+func executeScriptAction(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (*execution.RetryPolicy, error) {
+	thread, globals, pkgContext, _, err := prepareScriptEnv(graph, pkg, h, action, cfg, reg)
 	if err != nil {
 		return nil, err
 	}
@@ -341,97 +303,43 @@ func executeScriptAction(graph *execution.Graph, pkg *lorepackage.Release, h hos
 		return nil, fmt.Errorf("executing script: %w", err)
 	}
 
-	result := &scriptResult{}
-
-	// Call configure() hook if present.
-	if configureFn, ok := scriptGlobals["configure"]; ok {
-		if callable, ok := configureFn.(starlark.Callable); ok {
-			phaseConfig := loreStar.NewPhaseConfig()
-			_, err := starlark.Call(thread, callable, starlark.Tuple{phaseConfig.ToStarlark()}, nil)
-			if err != nil {
-				return nil, fmt.Errorf("calling configure(): %w", err)
-			}
-			result.RetryPolicy = phaseConfig.Retry
-		}
-	}
-
-	// Call forward() — the forward action.
-	fn, ok := scriptGlobals["forward"]
+	// Look for a phase-named entry point (e.g., "install", "provision").
+	entryName := action.PhaseName
+	fn, ok := scriptGlobals[entryName]
 	if !ok {
-		return nil, fmt.Errorf("function \"forward\" not found in script %s", action.Path)
+		return nil, fmt.Errorf("function %q not found in script %s", entryName, action.Path)
 	}
 
 	callable, ok := fn.(starlark.Callable)
 	if !ok {
-		return nil, fmt.Errorf("\"forward\" is not callable in script %s", action.Path)
+		return nil, fmt.Errorf("%q is not callable in script %s", entryName, action.Path)
 	}
 
+	// Create phase context with name and action.
+	phaseCtx := &loreStar.PhaseContext{
+		PhaseName: action.PhaseName,
+		Action:    "deploy",
+	}
+
+	// Call: install(package, phase) — plan is a global, not an argument.
 	args := starlark.Tuple{
 		pkgContext.ToStarlark(),
-		systemBindings.ToStarlark(),
-		planBindings,
+		phaseCtx.ToStarlark(),
 	}
 	_, err = starlark.Call(thread, callable, args, nil)
 	if err != nil {
-		return nil, fmt.Errorf("calling forward(): %w", err)
+		return nil, fmt.Errorf("calling %s(): %w", entryName, err)
 	}
 
-	// Check for compensate() function.
-	if _, ok := scriptGlobals["compensate"]; ok {
-		result.HasCompensate = true
-	}
-
-	return result, nil
+	return phaseCtx.Retry, nil
 }
 
-// executeCompensateScript runs a Starlark phase script's compensate() function
-// to collect compensating nodes into the graph at build time.
-func executeCompensateScript(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) error {
-	thread, globals, pkgContext, systemBindings, planBindings, err := prepareScriptEnv(graph, pkg, h, action, cfg, reg)
-	if err != nil {
-		return err
-	}
-	thread.Name = action.PhaseName + ".compensate"
-
-	data, err := os.ReadFile(action.Path)
-	if err != nil {
-		return fmt.Errorf("reading script %s: %w", action.Path, err)
-	}
-
-	scriptGlobals, err := starlark.ExecFile(thread, action.Path, data, globals)
-	if err != nil {
-		return fmt.Errorf("executing script for compensate: %w", err)
-	}
-
-	fn, ok := scriptGlobals["compensate"]
-	if !ok {
-		return fmt.Errorf("function \"compensate\" not found in script %s", action.Path)
-	}
-
-	callable, ok := fn.(starlark.Callable)
-	if !ok {
-		return fmt.Errorf("\"compensate\" is not callable in script %s", action.Path)
-	}
-
-	args := starlark.Tuple{
-		pkgContext.ToStarlark(),
-		systemBindings.ToStarlark(),
-		planBindings,
-	}
-	_, err = starlark.Call(thread, callable, args, nil)
-	if err != nil {
-		return fmt.Errorf("calling compensate(): %w", err)
-	}
-
-	return nil
-}
-
-// prepareScriptEnv creates the Starlark thread, globals, and bindings
-// needed to execute a phase script. Shared by forward and compensate paths.
+// prepareScriptEnv creates the Starlark thread and globals needed to execute
+// a phase script. plan is injected as a global. Output functions (note, warn,
+// error, success, fail) are also globals.
 func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (
-	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, loreStar.SystemBindings, *loreStar.PlanRoot, error,
+	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, *loreStar.PlanRoot, error,
 ) {
-	systemBindings := loreStar.NewSystemBindings(h)
 	planBindings := loreStar.NewPlanRoot(graph, h, pkg.Name, reg)
 
 	lifecycle := pkg.Lifecycle()
@@ -455,13 +363,13 @@ func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.H
 		},
 	}
 
-	globals := starlark.StringDict{
-		"system":  systemBindings.ToStarlark(),
-		"package": pkgContext.ToStarlark(),
-		"plan":    planBindings,
-	}
+	// plan is a global — graph construction operations.
+	// Output functions are globals — note, warn, error, success, fail.
+	logRecv := loreStar.NewLogReceiver(os.Stdout)
+	globals := logRecv.OutputGlobals()
+	globals["plan"] = planBindings
 
-	return thread, globals, pkgContext, systemBindings, planBindings, nil
+	return thread, globals, pkgContext, planBindings, nil
 }
 
 // addNativePMNodes adds nodes for a native package manager operation.
@@ -483,9 +391,9 @@ func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *
 
 	// Create the node with resolved action
 	node := &execution.Node{
-		ID:        fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName),
-		Action:    reg.MustGet(actionName),
-		Project:   pkg.Name,
+		ID:      fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName),
+		Action:  reg.MustGet(actionName),
+		Project: pkg.Name,
 	}
 	node.SetSlotImmediate("packages", strings.Join(action.Packages, ","))
 	node.SetSlotImmediate("phase", action.PhaseName)

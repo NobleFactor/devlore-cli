@@ -48,14 +48,45 @@ func (s *ServicePlan) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("plan.service.enable", s.enable), nil
 	case "disable":
 		return MakeAttr("plan.service.disable", s.disable), nil
+	// Predicate methods — return RuntimePredicate for plan.choose()
+	case "exists":
+		return starlark.NewBuiltin("plan.service.exists", s.predicateExists), nil
+	case "running":
+		return starlark.NewBuiltin("plan.service.running", s.predicateRunning), nil
+	case "enabled":
+		return starlark.NewBuiltin("plan.service.enabled", s.predicateEnabled), nil
 	default:
 		return nil, NoSuchAttrError("plan.service", name)
 	}
 }
 
+func (s *ServicePlan) predicateExists(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs("exists", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+	return serviceExists(s.host.ServiceManager(), name), nil
+}
+
+func (s *ServicePlan) predicateRunning(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs("running", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+	return serviceRunning(s.host.ServiceManager(), name), nil
+}
+
+func (s *ServicePlan) predicateEnabled(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs("enabled", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+	return serviceEnabled(s.host.ServiceManager(), name), nil
+}
+
 // AttrNames implements starlark.HasAttrs.
 func (s *ServicePlan) AttrNames() []string {
-	return []string{"disable", "enable", "restart", "start", "stop"}
+	return []string{"disable", "enable", "enabled", "exists", "restart", "running", "start", "stop"}
 }
 
 func (s *ServicePlan) start(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
