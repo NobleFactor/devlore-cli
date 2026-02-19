@@ -44,6 +44,17 @@ func (r Receiver) Hash() (uint32, error) {
 	return 0, fmt.Errorf("unhashable type: %s", r.name)
 }
 
+// listToStringSlice converts a Starlark list to a Go string slice.
+// Used by generated receivers to convert []string parameters.
+func listToStringSlice(list *starlark.List) []string {
+	result := make([]string, list.Len())
+	for i := 0; i < list.Len(); i++ {
+		s, _ := starlark.AsString(list.Index(i))
+		result[i] = s
+	}
+	return result
+}
+
 // NoSuchAttrError returns an error for an unknown attribute.
 func NoSuchAttrError(receiver, attr string) error {
 	return fmt.Errorf("%s has no .%s attribute", receiver, attr)

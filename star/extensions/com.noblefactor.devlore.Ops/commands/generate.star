@@ -32,10 +32,10 @@ TEMPLATE_PACKAGES = {
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
-# Builtin templates (realtime_receiver) are retrieved via go.template().
 LOCAL_TEMPLATES = {
     "plan_receiver": "plan_receiver.go.template",
     "graph_actions": "graph_actions.go.template",
+    "realtime_receiver": "realtime_receiver.go.template",
 }
 
 def load_template(name, ext_dir):
@@ -165,6 +165,12 @@ def run(ctx):
     output_dir = ctx.args.get("output", "")
     write_files = ctx.args.get("write", "false") == "true"
 
+    # Extra attrs from companion query files (for realtime_receiver)
+    extra_attrs_str = ctx.args.get("extra-attrs", "")
+    extra_attrs = []
+    if extra_attrs_str:
+        extra_attrs = extra_attrs_str.split(",")
+
     for tmpl in templates:
         tmpl = tmpl.strip()
         if tmpl not in TEMPLATE_FILES:
@@ -195,6 +201,9 @@ def run(ctx):
             "impl_type": impl_type,
             "methods": method_descriptors,
         }
+        # Add extra attrs for realtime_receiver (companion query files)
+        if tmpl == "realtime_receiver" and extra_attrs:
+            descriptor["extra_attrs"] = extra_attrs
 
         note("Generating " + tmpl + " for " + tmpl_struct_name + "...")
         template_content = load_template(tmpl, ctx.extension.dir)

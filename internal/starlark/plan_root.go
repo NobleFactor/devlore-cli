@@ -13,8 +13,9 @@ import (
 )
 
 // PlanRoot implements the top-level plan namespace using the slot-based model.
-// It provides access to sub-namespaces (package, file, archive, git) and
-// top-level bindings (source, literal, download, service, shell, depends_on).
+// It provides access to sub-namespaces (package, file, template, encryption,
+// archive, git, service, shell, net, content) and top-level bindings
+// (source, gather).
 type PlanRoot struct {
 	graph   *execution.Graph
 	host    host.Host
@@ -28,6 +29,10 @@ type PlanRoot struct {
 	encryptionPlan *EncryptionPlan
 	archivePlan    *ArchivePlan
 	gitPlan        *GitPlan
+	servicePlan    *ServicePlan
+	shellPlan      *ShellPlan
+	netPlan        *NetPlan
+	contentPlan    *ContentPlan
 }
 
 // NewPlanRoot creates a new PlanRoot for the given graph and host.
@@ -43,6 +48,10 @@ func NewPlanRoot(graph *execution.Graph, h host.Host, project string, reg *execu
 		encryptionPlan: NewEncryptionPlan(graph, h, project, reg),
 		archivePlan:    NewArchivePlan(graph, h, project, reg),
 		gitPlan:        NewGitPlan(graph, h, project, reg),
+		servicePlan:    NewServicePlan(graph, h, project, reg),
+		shellPlan:      NewShellPlan(graph, h, project, reg),
+		netPlan:        NewNetPlan(graph, h, project, reg),
+		contentPlan:    NewContentPlan(graph, h, project, reg),
 	}
 }
 
@@ -57,29 +66,29 @@ func (p *PlanRoot) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: pl
 func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 	switch name {
 	// Sub-namespaces
-	case "package":
-		return p.packagePlan, nil
-	case "file":
-		return p.filePlan, nil
-	case "template":
-		return p.templatePlan, nil
-	case "encryption":
-		return p.encryptionPlan, nil
 	case "archive":
 		return p.archivePlan, nil
+	case "content":
+		return p.contentPlan, nil
+	case "encryption":
+		return p.encryptionPlan, nil
+	case "file":
+		return p.filePlan, nil
 	case "git":
 		return p.gitPlan, nil
-	// Top-level bindings
+	case "net":
+		return p.netPlan, nil
+	case "package":
+		return p.packagePlan, nil
+	case "service":
+		return p.servicePlan, nil
+	case "shell":
+		return p.shellPlan, nil
+	case "template":
+		return p.templatePlan, nil
+	// Top-level bindings (graph construction primitives)
 	case "source":
 		return starlark.NewBuiltin("plan.source", p.source), nil
-	case "literal":
-		return starlark.NewBuiltin("plan.literal", p.literal), nil
-	case "download":
-		return starlark.NewBuiltin("plan.download", p.download), nil
-	case "service":
-		return starlark.NewBuiltin("plan.service", p.service), nil
-	case "shell":
-		return starlark.NewBuiltin("plan.shell", p.shell), nil
 	case "gather":
 		return starlark.NewBuiltin("plan.gather", p.gather), nil
 	default:
@@ -89,8 +98,8 @@ func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 
 func (p *PlanRoot) AttrNames() []string {
 	return []string{
-		"archive", "download", "encryption", "file", "gather", "git",
-		"literal", "package", "service", "shell", "source", "template",
+		"archive", "content", "encryption", "file", "gather", "git",
+		"net", "package", "service", "shell", "source", "template",
 	}
 }
 
@@ -108,137 +117,13 @@ func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	node := &execution.Node{
-		ID:         generateNodeID("source"),
-		Action: p.reg.MustGet("file.source"),
-		Project:    p.project,
+		ID:      generateNodeID("source"),
+		Action:  p.reg.MustGet("file.source"),
+		Project: p.project,
 	}
 
 	if err := FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("source: path: %w", err)
-	}
-
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
-}
-
-// literal creates a literal content artifact.
-// Usage: plan.literal(content)
-//
-// Slots:
-//   - content: Inline content (promise or immediate)
-//
-// Returns: Promise of the content
-func (p *PlanRoot) literal(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var content starlark.Value
-	if err := starlark.UnpackArgs("literal", args, kwargs, "content", &content); err != nil {
-		return nil, err
-	}
-
-	node := &execution.Node{
-		ID:         generateNodeID("literal"),
-		Action: p.reg.MustGet("content.literal"),
-		Project:    p.project,
-	}
-
-	if err := FillSlot(node, p.graph, "content", content); err != nil {
-		return nil, fmt.Errorf("literal: content: %w", err)
-	}
-
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
-}
-
-// download downloads a file from a URL.
-// Usage: plan.download(url)
-//
-// Slots:
-//   - url: URL to download from (promise or immediate)
-//
-// Returns: Promise of the downloaded file
-func (p *PlanRoot) download(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var url starlark.Value
-	if err := starlark.UnpackArgs("download", args, kwargs, "url", &url); err != nil {
-		return nil, err
-	}
-
-	node := &execution.Node{
-		ID:         generateNodeID("download"),
-		Action: p.reg.MustGet("net.download"),
-		Project:    p.project,
-	}
-
-	if err := FillSlot(node, p.graph, "url", url); err != nil {
-		return nil, fmt.Errorf("download: url: %w", err)
-	}
-
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
-}
-
-// service manages a system service.
-// Usage: plan.service(name, action)
-//
-// Slots:
-//   - name: Service name (promise or immediate)
-//   - action: Action to perform: start, stop, restart, enable, disable (immediate)
-//
-// Returns: Promise of the service operation
-func (p *PlanRoot) service(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var name, action starlark.Value
-	if err := starlark.UnpackArgs("service", args, kwargs, "name", &name, "action", &action); err != nil {
-		return nil, err
-	}
-
-	// Validate action is a known value
-	actionStr, ok := starlark.AsString(action)
-	if !ok {
-		return nil, fmt.Errorf("service: action must be a string, got %s", action.Type())
-	}
-	switch actionStr {
-	case "start", "stop", "restart", "enable", "disable":
-		// Valid
-	default:
-		return nil, fmt.Errorf("service: unknown action %q", actionStr)
-	}
-
-	node := &execution.Node{
-		ID:         generateNodeID("service"),
-		Action: p.reg.MustGet("service." + actionStr),
-		Project:    p.project,
-	}
-
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
-		return nil, fmt.Errorf("service: name: %w", err)
-	}
-	if err := FillSlot(node, p.graph, "action", action); err != nil {
-		return nil, fmt.Errorf("service: action: %w", err)
-	}
-
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
-}
-
-// shell runs a shell command.
-// Usage: plan.shell(command)
-//
-// Slots:
-//   - command: Command to execute (promise or immediate)
-//
-// Returns: Promise of the command result
-func (p *PlanRoot) shell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var command starlark.Value
-	if err := starlark.UnpackArgs("shell", args, kwargs, "command", &command); err != nil {
-		return nil, err
-	}
-
-	node := &execution.Node{
-		ID:         generateNodeID("shell"),
-		Action: p.reg.MustGet("shell.exec"),
-		Project:    p.project,
-	}
-
-	if err := FillSlot(node, p.graph, "command", command); err != nil {
-		return nil, fmt.Errorf("shell: command: %w", err)
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -256,14 +141,6 @@ func (p *PlanRoot) shell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 //   - promises: Two or more Output values to gather
 //
 // Returns: Gather handle that can be passed to other operations
-//
-// Example:
-//
-//	a = plan.file.copy(src1, dst1)
-//	b = plan.file.copy(src2, dst2)
-//	c = plan.file.copy(src3, dst3)
-//	group = plan.gather(a, b, c)
-//	d = plan.whatever(group)  # d waits for a, b, c (which run in parallel)
 func (p *PlanRoot) gather(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))

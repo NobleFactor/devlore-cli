@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Code generated from gen-receiver templates; DO NOT EDIT.
+
 package starlark
 
 import (
@@ -14,6 +16,7 @@ import (
 
 // TemplatePlan implements plan.template.* bindings using the slot-based model.
 type TemplatePlan struct {
+	Receiver
 	graph   *execution.Graph
 	host    host.Host
 	project string
@@ -23,41 +26,29 @@ type TemplatePlan struct {
 // NewTemplatePlan creates a new TemplatePlan for the given graph and host.
 func NewTemplatePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *TemplatePlan {
 	return &TemplatePlan{
-		graph:   graph,
-		host:    h,
-		project: project,
-		reg:     reg,
+		Receiver: NewReceiver("plan.template"),
+		graph:    graph,
+		host:     h,
+		project:  project,
+		reg:      reg,
 	}
 }
 
-// Starlark Value interface
-func (t *TemplatePlan) String() string        { return "plan.template" }
-func (t *TemplatePlan) Type() string          { return "plan.template" }
-func (t *TemplatePlan) Freeze()               {}
-func (t *TemplatePlan) Truth() starlark.Bool  { return true }
-func (t *TemplatePlan) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: plan.template") }
-
-// Starlark HasAttrs interface
+// Attr implements starlark.HasAttrs.
 func (t *TemplatePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "render":
-		return starlark.NewBuiltin("plan.template.render", t.render), nil
+		return MakeAttr("plan.template.render", t.render), nil
 	default:
-		return nil, starlark.NoSuchAttrError(fmt.Sprintf("plan.template has no attribute %q", name))
+		return nil, NoSuchAttrError("plan.template", name)
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (t *TemplatePlan) AttrNames() []string {
 	return []string{"render"}
 }
 
-// render adds a template rendering node.
-// Usage: plan.template.render(source)
-//
-// Slots:
-//   - source: Input file/content (promise or immediate)
-//
-// Returns: Promise of the rendered content
 func (t *TemplatePlan) render(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var source starlark.Value
 	if err := starlark.UnpackArgs("render", args, kwargs, "source", &source); err != nil {

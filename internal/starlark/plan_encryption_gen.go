@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Code generated from gen-receiver templates; DO NOT EDIT.
+
 package starlark
 
 import (
@@ -14,6 +16,7 @@ import (
 
 // EncryptionPlan implements plan.encryption.* bindings using the slot-based model.
 type EncryptionPlan struct {
+	Receiver
 	graph   *execution.Graph
 	host    host.Host
 	project string
@@ -23,41 +26,29 @@ type EncryptionPlan struct {
 // NewEncryptionPlan creates a new EncryptionPlan for the given graph and host.
 func NewEncryptionPlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *EncryptionPlan {
 	return &EncryptionPlan{
-		graph:   graph,
-		host:    h,
-		project: project,
-		reg:     reg,
+		Receiver: NewReceiver("plan.encryption"),
+		graph:    graph,
+		host:     h,
+		project:  project,
+		reg:      reg,
 	}
 }
 
-// Starlark Value interface
-func (e *EncryptionPlan) String() string        { return "plan.encryption" }
-func (e *EncryptionPlan) Type() string          { return "plan.encryption" }
-func (e *EncryptionPlan) Freeze()               {}
-func (e *EncryptionPlan) Truth() starlark.Bool  { return true }
-func (e *EncryptionPlan) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: plan.encryption") }
-
-// Starlark HasAttrs interface
+// Attr implements starlark.HasAttrs.
 func (e *EncryptionPlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "decrypt":
-		return starlark.NewBuiltin("plan.encryption.decrypt", e.decrypt), nil
+		return MakeAttr("plan.encryption.decrypt", e.decrypt), nil
 	default:
-		return nil, starlark.NoSuchAttrError(fmt.Sprintf("plan.encryption has no attribute %q", name))
+		return nil, NoSuchAttrError("plan.encryption", name)
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (e *EncryptionPlan) AttrNames() []string {
 	return []string{"decrypt"}
 }
 
-// decrypt adds a decryption node.
-// Usage: plan.encryption.decrypt(source)
-//
-// Slots:
-//   - source: Input file/content (promise or immediate)
-//
-// Returns: Promise of the decrypted content
 func (e *EncryptionPlan) decrypt(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var source starlark.Value
 	if err := starlark.UnpackArgs("decrypt", args, kwargs, "source", &source); err != nil {

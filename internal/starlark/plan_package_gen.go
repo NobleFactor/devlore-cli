@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Code generated from gen-receiver templates; DO NOT EDIT.
+
 package starlark
 
 import (
@@ -11,11 +13,16 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 )
 
 // PackagePlan implements plan.package.* bindings using the slot-based model.
 // Each method adds a node to the execution graph.
+//
+// Package names may include manager prefixes (brew:pkg, cask:pkg, port:pkg)
+// for platform-specific package manager overrides.
 type PackagePlan struct {
+	Receiver
 	graph   *execution.Graph
 	host    host.Host
 	project string
@@ -25,45 +32,35 @@ type PackagePlan struct {
 // NewPackagePlan creates a new PackagePlan for the given graph and host.
 func NewPackagePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PackagePlan {
 	return &PackagePlan{
-		graph:   graph,
-		host:    h,
-		project: project,
-		reg:     reg,
+		Receiver: NewReceiver("plan.package"),
+		graph:    graph,
+		host:     h,
+		project:  project,
+		reg:      reg,
 	}
 }
 
-// Starlark Value interface
-func (p *PackagePlan) String() string        { return "plan.package" }
-func (p *PackagePlan) Type() string          { return "plan.package" }
-func (p *PackagePlan) Freeze()               {}
-func (p *PackagePlan) Truth() starlark.Bool  { return true }
-func (p *PackagePlan) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: plan.package") }
-
-// Starlark HasAttrs interface
+// Attr implements starlark.HasAttrs.
 func (p *PackagePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "install":
-		return starlark.NewBuiltin("plan.package.install", p.install), nil
+		return MakeAttr("plan.package.install", p.install), nil
 	case "upgrade":
-		return starlark.NewBuiltin("plan.package.upgrade", p.upgrade), nil
+		return MakeAttr("plan.package.upgrade", p.upgrade), nil
 	case "remove":
-		return starlark.NewBuiltin("plan.package.remove", p.remove), nil
+		return MakeAttr("plan.package.remove", p.remove), nil
 	case "update":
-		return starlark.NewBuiltin("plan.package.update", p.update), nil
+		return MakeAttr("plan.package.update", p.update), nil
 	default:
-		return nil, starlark.NoSuchAttrError(fmt.Sprintf("plan.package has no attribute %q", name))
+		return nil, NoSuchAttrError("plan.package", name)
 	}
 }
 
+// AttrNames implements starlark.HasAttrs.
 func (p *PackagePlan) AttrNames() []string {
 	return []string{"install", "remove", "update", "upgrade"}
 }
 
-// install adds a package installation node.
-// Usage: plan.package.install("pkg1", "pkg2", ...)
-//
-// Slots: packages (list of package names, immediate strings)
-// Returns: Promise of installed packages
 func (p *PackagePlan) install(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	packages, err := argsToStrings("install", args)
 	if err != nil {
@@ -73,22 +70,24 @@ func (p *PackagePlan) install(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, fmt.Errorf("install: at least one package required")
 	}
 
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
-		ID:         generateNodeID("package-install", packages...),
-		Action: p.reg.MustGet("pkg.install"),
-		Project:    p.project,
+		ID:      generateNodeID("package-install", cleanPkgs...),
+		Action:  p.reg.MustGet("pkg.install"),
+		Project: p.project,
 	}
-	node.SetSlotImmediate("packages", strings.Join(packages, ","))
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// upgrade adds a package upgrade node.
-// Usage: plan.package.upgrade("pkg1", "pkg2", ...)
-//
-// Slots: packages (list of package names, immediate strings)
-// Returns: Promise of upgraded packages
 func (p *PackagePlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	packages, err := argsToStrings("upgrade", args)
 	if err != nil {
@@ -98,22 +97,24 @@ func (p *PackagePlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, fmt.Errorf("upgrade: at least one package required")
 	}
 
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
-		ID:         generateNodeID("package-upgrade", packages...),
-		Action: p.reg.MustGet("pkg.upgrade"),
-		Project:    p.project,
+		ID:      generateNodeID("package-upgrade", cleanPkgs...),
+		Action:  p.reg.MustGet("pkg.upgrade"),
+		Project: p.project,
 	}
-	node.SetSlotImmediate("packages", strings.Join(packages, ","))
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// remove adds a package removal node.
-// Usage: plan.package.remove("pkg1", "pkg2", ...)
-//
-// Slots: packages (list of package names, immediate strings)
-// Returns: None (removal produces no output)
 func (p *PackagePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	packages, err := argsToStrings("remove", args)
 	if err != nil {
@@ -123,32 +124,33 @@ func (p *PackagePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, fmt.Errorf("remove: at least one package required")
 	}
 
+	cleanPkgs, manager, isCask := parsePackagesWithPrefix(packages)
 	node := &execution.Node{
-		ID:         generateNodeID("package-remove", packages...),
-		Action: p.reg.MustGet("pkg.remove"),
-		Project:    p.project,
+		ID:      generateNodeID("package-remove", cleanPkgs...),
+		Action:  p.reg.MustGet("pkg.remove"),
+		Project: p.project,
 	}
-	node.SetSlotImmediate("packages", strings.Join(packages, ","))
+	node.SetSlotImmediate("packages", strings.Join(cleanPkgs, ","))
+	if manager != "" {
+		node.SetSlotImmediate("manager", manager)
+	}
+	if isCask {
+		node.SetSlotImmediate("cask", "true")
+	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	// Remove produces no output
 	return starlark.None, nil
 }
 
-// update adds a package index update node.
-// Usage: plan.package.update()
-//
-// Slots: (none)
-// Returns: Promise of updated package index
 func (p *PackagePlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	if len(args) > 0 {
 		return nil, fmt.Errorf("update: takes no arguments")
 	}
 
 	node := &execution.Node{
-		ID:         generateNodeID("package-update"),
-		Action: p.reg.MustGet("pkg.update"),
-		Project:    p.project,
+		ID:      generateNodeID("package-update"),
+		Action:  p.reg.MustGet("pkg.update"),
+		Project: p.project,
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
@@ -166,4 +168,22 @@ func argsToStrings(funcName string, args starlark.Tuple) ([]string, error) {
 		result[i] = str
 	}
 	return result, nil
+}
+
+// parsePackagesWithPrefix extracts manager override from brew:, cask:, or port: prefixes.
+func parsePackagesWithPrefix(packages []string) (cleanPkgs []string, manager string, isCask bool) {
+	cleanPkgs = make([]string, len(packages))
+	for i, p := range packages {
+		pkg, prefix := lorepackage.ParsePackagePrefix(p)
+		cleanPkgs[i] = pkg
+		if prefix != "" {
+			if prefix == "cask" {
+				manager = "brew"
+				isCask = true
+			} else {
+				manager = prefix
+			}
+		}
+	}
+	return cleanPkgs, manager, isCask
 }

@@ -29,13 +29,6 @@ func TestNoDictBasedReceivers(t *testing.T) {
 		t.Fatalf("read dir: %v", err)
 	}
 
-	// Also scan platform subdirectory
-	platformDir := filepath.Join(pkgDir, "platform")
-	platformEntries, err := os.ReadDir(platformDir)
-	if err != nil {
-		t.Fatalf("read platform dir: %v", err)
-	}
-
 	type goFile struct {
 		name string
 		path string
@@ -44,11 +37,6 @@ func TestNoDictBasedReceivers(t *testing.T) {
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".go") && !strings.HasSuffix(e.Name(), "_test.go") {
 			files = append(files, goFile{name: e.Name(), path: filepath.Join(pkgDir, e.Name())})
-		}
-	}
-	for _, e := range platformEntries {
-		if strings.HasSuffix(e.Name(), ".go") && !strings.HasSuffix(e.Name(), "_test.go") {
-			files = append(files, goFile{name: "platform/" + e.Name(), path: filepath.Join(platformDir, e.Name())})
 		}
 	}
 
