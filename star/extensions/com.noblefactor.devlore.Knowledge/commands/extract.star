@@ -34,35 +34,25 @@ _KNOWN_PROPERTIES = {
     "package.dry_run":          {"type": "bool", "doc": "True if this is a preview run"},
     "package.source_root":      {"type": "string", "doc": "Package source directory"},
     "package.target_root":      {"type": "string", "doc": "Deployment target directory"},
-    "system.platform.os":       {"type": "string", "doc": "Operating system (darwin, linux, windows)"},
-    "system.platform.arch":     {"type": "string", "doc": "Architecture (amd64, arm64)"},
-    "system.platform.distro":   {"type": "string", "doc": "Distribution codename"},
-    "system.platform.version":  {"type": "string", "doc": "OS version string"},
-    "system.platform.hostname": {"type": "string", "doc": "Machine hostname"},
 }
 
 # AttrNames declarations from Go source — authoritative cross-reference.
 # If a name appears here but isn't found as a binding, property, or sub-namespace,
 # the extract pipeline fails. Update this when adding new attrs in Go.
 _ATTR_NAMES = {
-    "plan": ["archive", "content", "encryption", "file", "gather", "git", "net", "package", "service", "shell", "source", "template"],
-    "plan.file": ["copy", "link", "remove", "write"],
-    "plan.package": ["install", "remove", "update", "upgrade"],
+    "plan": ["archive", "choose", "content", "encryption", "file", "gather", "git", "net", "package", "service", "shell", "source", "template"],
+    "plan.file": ["copy", "exists", "is_dir", "link", "remove", "write"],
+    "plan.package": ["install", "installed", "not_installed", "remove", "update", "upgrade", "version_gte"],
     "plan.template": ["render"],
     "plan.encryption": ["decrypt"],
     "plan.archive": ["extract"],
-    "plan.git": ["checkout", "clone", "pull"],
-    "plan.service": ["disable", "enable", "restart", "start", "stop"],
+    "plan.git": ["checkout", "clone", "installed", "pull"],
+    "plan.service": ["disable", "enable", "enabled", "exists", "restart", "running", "start", "stop"],
     "plan.shell": ["exec"],
     "plan.net": ["download"],
     "plan.content": ["literal"],
-    "system": ["file", "git", "package", "platform", "service"],
-    "system.package": ["installed", "manager", "version"],
-    "system.service": ["enabled", "exists", "running"],
-    "system.git": ["current_branch", "installed", "is_clean", "repo_root", "version"],
-    "system.file": ["exists", "home", "is_dir", "which"],
     "package": ["dry_run", "features", "has_feature", "name", "setting", "settings", "source_root", "target_root", "version"],
-    "phase": ["retry"],
+    "phase": ["action", "name", "retry"],
 }
 
 
@@ -223,7 +213,6 @@ def _parse_devlore_api(path):
 
     # Step 5: Build hierarchical result
     plan = {}
-    system = {}
     package = {}
     phase = {}
     for name in sorted(bindings.keys()):
@@ -258,10 +247,6 @@ def _parse_devlore_api(path):
             if namespace not in plan:
                 plan[namespace] = []
             plan[namespace].append(entry)
-        elif context == "system":
-            if namespace not in system:
-                system[namespace] = []
-            system[namespace].append(entry)
         elif context == "package":
             if namespace not in package:
                 package[namespace] = []
@@ -274,7 +259,6 @@ def _parse_devlore_api(path):
     return {
         "valid": len(violations) == 0,
         "plan": plan,
-        "system": system,
         "package": package,
         "phase": phase,
         "violations": violations,
@@ -283,7 +267,7 @@ def _parse_devlore_api(path):
 
 def _is_api_binding(name):
     """Check if a binding name is a lore API binding."""
-    return (name.startswith("plan.") or name.startswith("system.") or
+    return (name.startswith("plan.") or
             name.startswith("package.") or name.startswith("phase."))
 
 
@@ -606,8 +590,6 @@ def _count_bindings(api):
     count = 0
     for ns in api["plan"]:
         count += len(api["plan"][ns])
-    for ns in api["system"]:
-        count += len(api["system"][ns])
     for ns in api["package"]:
         count += len(api["package"][ns])
     for ns in api["phase"]:
@@ -635,34 +617,29 @@ def _render_markdown(api):
     # Overview
     lines.append("## Overview")
     lines.append("")
-    lines.append("Phase scripts receive three arguments:")
+    lines.append("Phase scripts define a function named for the lifecycle phase:")
     lines.append("")
     lines.append("```starlark")
-    lines.append("def install(package, system, plan):")
+    lines.append("def install(package, phase):")
     lines.append("    # package - context about the package being deployed")
-    lines.append("    # system  - read-only queries about the current system")
-    lines.append("    # plan    - actions to add to the execution graph")
+    lines.append("    # phase   - phase context (name, action, retry)")
+    lines.append("    # plan    - global, graph construction operations")
     lines.append("```")
-    lines.append("")
-    lines.append("Additionally, a `configure(phase)` hook can set phase-level configuration.")
     lines.append("")
 
     # Binding summary table
     plan_methods = _count_by_kind(api["plan"], "method")
     plan_props = _count_by_kind(api["plan"], "property")
-    sys_methods = _count_by_kind(api["system"], "method")
-    sys_props = _count_by_kind(api["system"], "property")
     pkg_methods = _count_by_kind(api["package"], "method")
     pkg_props = _count_by_kind(api["package"], "property")
     phase_methods = _count_by_kind(api["phase"], "method")
     phase_props = _count_by_kind(api["phase"], "property")
-    total_methods = plan_methods + sys_methods + pkg_methods + phase_methods
-    total_props = plan_props + sys_props + pkg_props + phase_props
+    total_methods = plan_methods + pkg_methods + phase_methods
+    total_props = plan_props + pkg_props + phase_props
 
     lines.append("| Category | Methods | Properties | Total |")
     lines.append("|----------|---------|------------|-------|")
     lines.append("| plan.* | " + str(plan_methods) + " | " + str(plan_props) + " | " + str(plan_methods + plan_props) + " |")
-    lines.append("| system.* | " + str(sys_methods) + " | " + str(sys_props) + " | " + str(sys_methods + sys_props) + " |")
     lines.append("| package.* | " + str(pkg_methods) + " | " + str(pkg_props) + " | " + str(pkg_methods + pkg_props) + " |")
     lines.append("| phase.* | " + str(phase_methods) + " | " + str(phase_props) + " | " + str(phase_methods + phase_props) + " |")
     lines.append("| **Total** | **" + str(total_methods) + "** | **" + str(total_props) + "** | **" + str(total_methods + total_props) + "** |")
@@ -680,13 +657,17 @@ def _render_markdown(api):
     lines.append("| Namespace | Purpose |")
     lines.append("|-----------|---------|")
     _NS_DESCRIPTIONS = {
-        "file": "File system actions",
-        "package": "Package manager actions",
+        "file": "File system actions and predicates",
+        "package": "Package manager actions and predicates",
         "template": "Template rendering",
         "encryption": "SOPS decryption",
         "archive": "Archive extraction",
-        "git": "Git operations",
-        "(root)": "Top-level plan actions",
+        "git": "Git operations and predicates",
+        "service": "Service management actions and predicates",
+        "shell": "Shell execution",
+        "net": "Network operations",
+        "content": "Content literals",
+        "(root)": "Top-level plan actions (choose, source, gather)",
     }
     for ns in sorted(api["plan"].keys()):
         desc = _NS_DESCRIPTIONS.get(ns, "")
@@ -695,7 +676,7 @@ def _render_markdown(api):
     lines.append("")
 
     # Render each namespace
-    plan_ns_order = ["file", "package", "template", "encryption", "archive", "git", "(root)"]
+    plan_ns_order = ["file", "package", "service", "shell", "net", "content", "template", "encryption", "archive", "git", "(root)"]
     for ns in plan_ns_order:
         if ns not in api["plan"]:
             continue
@@ -704,37 +685,6 @@ def _render_markdown(api):
             lines.append("### Top-level plan actions")
         else:
             lines.append("### plan." + ns)
-        lines.append("")
-        _render_entries(lines, entries)
-
-    # --- system.* ---
-    lines.append("---")
-    lines.append("")
-    lines.append("## system.*")
-    lines.append("")
-    lines.append("The `system` object provides read-only queries about the current platform state.")
-    lines.append("")
-
-    # Platform properties
-    if "platform" in api["system"]:
-        lines.append("### system.platform")
-        lines.append("")
-        platform_entries = api["system"]["platform"]
-        props = [e for e in platform_entries if e.get("kind") == "property"]
-        if props:
-            lines.append("| Property | Type | Description |")
-            lines.append("|----------|------|-------------|")
-            for p in sorted(props, key=lambda e: e["full_name"]):
-                lines.append("| `" + p["full_name"] + "` | " + p.get("value_type", "") + " | " + p.get("doc", "") + " |")
-            lines.append("")
-
-    # Other system namespaces
-    sys_ns_order = ["package", "service", "git", "file"]
-    for ns in sys_ns_order:
-        if ns not in api["system"]:
-            continue
-        entries = api["system"][ns]
-        lines.append("### system." + ns)
         lines.append("")
         _render_entries(lines, entries)
 
@@ -770,7 +720,7 @@ def _render_markdown(api):
     lines.append("")
     lines.append("## phase.*")
     lines.append("")
-    lines.append("The `phase` object is passed to `configure(phase)` hooks for phase-level configuration.")
+    lines.append("The `phase` object is passed as the second argument to lifecycle entry points.")
     lines.append("")
 
     if "(root)" in api["phase"]:
