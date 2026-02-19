@@ -1,8 +1,20 @@
 # Graph Operations: Convergence and Control Flow
 
+> **Partial supersession notice.** The Gather, Choose, and Convergence Comparison
+> sections of this document are superseded by
+> [Orchestration Primitives](devlore-orchestration-primitives.md), which refines
+> these operations with phase-level execution, runtime predicates, and SlotProxy.
+> The Retry, Rollback, and Elevate sections remain current.
+
 This document describes the graph operations that encode decision-making in the plan. Every conditional branch, failure policy, and privilege transition is an explicit graph node — visible in dry-run output and recorded in the receipt.
 
-See also: [devlore-execution-graph.md](devlore-execution-graph.md) — Core graph architecture and state machine.
+See also:
+
+- [Execution Graph](devlore-execution-graph.md) — Core graph architecture and state machine
+- [Orchestration Primitives](devlore-orchestration-primitives.md) — Refined Gather,
+  Choose, WaitUntil, Sidecar (supersedes sections of this document)
+- [Emergent System Model](devlore-emergent-system-model.md) — System-level architecture,
+  dependency taxonomy (structural, functional, procedural)
 
 Tracking issue: https://github.com/NobleFactor/devlore-cli/issues/92
 

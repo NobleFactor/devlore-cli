@@ -14,6 +14,8 @@ See also:
   (superseded in part — see [Supersession Table](#supersession-table))
 - [Typed Slots](devlore-typed-slots.md) — Slot model and resolution chain
   (extended — see [Supersession Table](#supersession-table))
+- [Emergent System Model](devlore-emergent-system-model.md) — System-level architecture,
+  dependency taxonomy (structural, functional, procedural)
 - [Action Namespaces](devlore-operation-namespaces.md) — How to add action namespaces
 
 Tracking issue: TBD
