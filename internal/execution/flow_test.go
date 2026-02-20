@@ -318,13 +318,10 @@ func TestFlowElevateDo(t *testing.T) {
 	}
 }
 
-func TestFlowElevateUndo(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background()}
-	op := &flow.Elevate{}
-
-	err := op.Undo(ctx, nil, nil)
-	if err != nil {
-		t.Fatalf("flow.elevate Undo: %v", err)
+func TestFlowElevateNotCompensableAction(t *testing.T) {
+	var action execution.Action = &flow.Elevate{}
+	if _, ok := action.(execution.CompensableAction); ok {
+		t.Error("Elevate should not implement CompensableAction")
 	}
 }
 
@@ -347,13 +344,10 @@ func TestFlowWaitUntilDoImmediate(t *testing.T) {
 	}
 }
 
-func TestFlowWaitUntilUndo(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background()}
-	op := &flow.WaitUntil{}
-
-	err := op.Undo(ctx, nil, nil)
-	if err != nil {
-		t.Fatalf("flow.wait_until Undo: %v", err)
+func TestFlowWaitUntilNotCompensableAction(t *testing.T) {
+	var action execution.Action = &flow.WaitUntil{}
+	if _, ok := action.(execution.CompensableAction); ok {
+		t.Error("WaitUntil should not implement CompensableAction")
 	}
 }
 

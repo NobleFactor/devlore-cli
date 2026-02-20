@@ -31,87 +31,91 @@ import (
 
 func TestPkgInstallDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &pkg.Install{Impl: &pkg.Provider{}}
 	slots := map[string]any{
 		"packages": []string{"vim", "tmux"},
 		"manager":  "brew",
+		"cask":     false,
 	}
 
 	_, _, err := op.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("pkg.install dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "[dry-run]") {
-		t.Errorf("expected dry-run log, got %q", buf.String())
-	}
-	if !strings.Contains(buf.String(), "package-install") {
-		t.Errorf("expected 'package-install' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "[dry-run] pkg.install") {
+		t.Errorf("expected dry-run pkg.install log, got %q", buf.String())
 	}
 }
 
 func TestPkgUpgradeDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &pkg.Upgrade{Impl: &pkg.Provider{}}
 	slots := map[string]any{
 		"packages": []string{"vim"},
+		"manager":  "brew",
+		"cask":     false,
 	}
 
 	_, _, err := op.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("pkg.upgrade dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "package-upgrade") {
-		t.Errorf("expected 'package-upgrade' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "pkg.upgrade") {
+		t.Errorf("expected 'pkg.upgrade' in log, got %q", buf.String())
 	}
 }
 
 func TestPkgRemoveDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &pkg.Remove{Impl: &pkg.Provider{}}
 	slots := map[string]any{
 		"packages": []string{"unused-pkg"},
+		"manager":  "brew",
+		"cask":     false,
 	}
 
 	_, _, err := op.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("pkg.remove dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "package-remove") {
-		t.Errorf("expected 'package-remove' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "pkg.remove") {
+		t.Errorf("expected 'pkg.remove' in log, got %q", buf.String())
 	}
 }
 
 func TestPkgUpdateDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &pkg.Update{Impl: &pkg.Provider{}}
-	slots := map[string]any{}
+	slots := map[string]any{
+		"manager": "brew",
+	}
 
 	_, _, err := op.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("pkg.update dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "package-update") {
-		t.Errorf("expected 'package-update' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "pkg.update") {
+		t.Errorf("expected 'pkg.update' in log, got %q", buf.String())
 	}
 }
 
 // --- shell action dry-run tests ---
 
-func TestShellExecDryRun(t *testing.T) {
+func TestShellDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
-	op := &shell.Exec{Impl: &shell.Provider{}}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
+	op := &shell.Shell{Impl: &shell.Provider{}}
 	slots := map[string]any{
 		"command": "echo hello",
 	}
 
 	_, _, err := op.Do(ctx, slots)
 	if err != nil {
-		t.Fatalf("shell.exec dry-run: %v", err)
+		t.Fatalf("shell.shell dry-run: %v", err)
 	}
 	if !strings.Contains(buf.String(), "[dry-run] shell") {
 		t.Errorf("expected dry-run shell log, got %q", buf.String())
@@ -121,25 +125,17 @@ func TestShellExecDryRun(t *testing.T) {
 	}
 }
 
-func TestShellExecEmptyCommand(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background(), Logger: os.Stdout}
-	op := &shell.Exec{Impl: &shell.Provider{}}
-	slots := map[string]any{
-		"command": "",
-	}
-
-	_, _, err := op.Do(ctx, slots)
+func TestShellEmptyCommand(t *testing.T) {
+	p := &shell.Provider{}
+	err := p.Shell("", os.Stdout)
 	if err == nil {
 		t.Fatal("expected error for empty command")
-	}
-	if !strings.Contains(err.Error(), "no command specified") {
-		t.Errorf("expected 'no command specified' error, got: %v", err)
 	}
 }
 
 func TestPowerShellDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &shell.PowerShell{Impl: &shell.Provider{}}
 	slots := map[string]any{
 		"command": "Get-Process",
@@ -149,8 +145,8 @@ func TestPowerShellDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("shell.powershell dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "[dry-run] powershell") {
-		t.Errorf("expected dry-run powershell log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "[dry-run] shell.power_shell") {
+		t.Errorf("expected dry-run power_shell log, got %q", buf.String())
 	}
 }
 
@@ -158,7 +154,7 @@ func TestPowerShellDryRun(t *testing.T) {
 
 func TestServiceStartDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &service.Start{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
@@ -166,8 +162,8 @@ func TestServiceStartDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service.start dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "service-start") {
-		t.Errorf("expected 'service-start' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "service.start") {
+		t.Errorf("expected 'service.start' in log, got %q", buf.String())
 	}
 	if !strings.Contains(buf.String(), "nginx") {
 		t.Errorf("expected service name in log, got %q", buf.String())
@@ -176,7 +172,7 @@ func TestServiceStartDryRun(t *testing.T) {
 
 func TestServiceStopDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &service.Stop{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
@@ -184,14 +180,14 @@ func TestServiceStopDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service.stop dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "service-stop") {
-		t.Errorf("expected 'service-stop' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "service.stop") {
+		t.Errorf("expected 'service.stop' in log, got %q", buf.String())
 	}
 }
 
 func TestServiceRestartDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &service.Restart{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
@@ -199,14 +195,14 @@ func TestServiceRestartDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service.restart dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "service-restart") {
-		t.Errorf("expected 'service-restart' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "service.restart") {
+		t.Errorf("expected 'service.restart' in log, got %q", buf.String())
 	}
 }
 
 func TestServiceEnableDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &service.Enable{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
@@ -214,14 +210,14 @@ func TestServiceEnableDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service.enable dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "service-enable") {
-		t.Errorf("expected 'service-enable' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "service.enable") {
+		t.Errorf("expected 'service.enable' in log, got %q", buf.String())
 	}
 }
 
 func TestServiceDisableDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &service.Disable{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
@@ -229,22 +225,16 @@ func TestServiceDisableDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service.disable dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "service-disable") {
-		t.Errorf("expected 'service-disable' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "service.disable") {
+		t.Errorf("expected 'service.disable' in log, got %q", buf.String())
 	}
 }
 
 func TestServiceEmptyName(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background(), Logger: os.Stdout}
-	op := &service.Start{Impl: &service.Provider{}}
-	slots := map[string]any{"name": ""}
-
-	_, _, err := op.Do(ctx, slots)
+	p := &service.Provider{}
+	_, err := p.Start("", os.Stdout)
 	if err == nil {
 		t.Fatal("expected error for empty service name")
-	}
-	if !strings.Contains(err.Error(), "no service specified") {
-		t.Errorf("expected 'no service specified' error, got: %v", err)
 	}
 }
 
@@ -252,7 +242,7 @@ func TestServiceEmptyName(t *testing.T) {
 
 func TestGitCloneDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &git.Clone{Impl: &git.Provider{}}
 	slots := map[string]any{
 		"url":  "https://github.com/example/repo.git",
@@ -263,8 +253,8 @@ func TestGitCloneDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git.clone dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "git-clone") {
-		t.Errorf("expected 'git-clone' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "git.clone") {
+		t.Errorf("expected 'git.clone' in log, got %q", buf.String())
 	}
 	if !strings.Contains(buf.String(), "https://github.com/example/repo.git") {
 		t.Errorf("expected URL in log, got %q", buf.String())
@@ -272,28 +262,19 @@ func TestGitCloneDryRun(t *testing.T) {
 }
 
 func TestGitCloneEmptyURL(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background(), Logger: os.Stdout}
-	op := &git.Clone{Impl: &git.Provider{}}
-	slots := map[string]any{
-		"url":  "",
-		"path": "/tmp/repo",
-	}
-
-	_, _, err := op.Do(ctx, slots)
+	p := &git.Provider{}
+	_, err := p.Clone("", "/tmp/repo", os.Stdout)
 	if err == nil {
 		t.Fatal("expected error for empty URL")
-	}
-	if !strings.Contains(err.Error(), "no url specified") {
-		t.Errorf("expected 'no url specified' error, got: %v", err)
 	}
 }
 
 func TestGitCheckoutDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &git.Checkout{Impl: &git.Provider{}}
 	slots := map[string]any{
-		"path": "/tmp/repo",
+		"repo": "/tmp/repo",
 		"ref":  "main",
 	}
 
@@ -301,25 +282,25 @@ func TestGitCheckoutDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git.checkout dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "git-checkout") {
-		t.Errorf("expected 'git-checkout' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "git.checkout") {
+		t.Errorf("expected 'git.checkout' in log, got %q", buf.String())
 	}
 }
 
 func TestGitPullDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &git.Pull{Impl: &git.Provider{}}
 	slots := map[string]any{
-		"path": "/tmp/repo",
+		"repo": "/tmp/repo",
 	}
 
 	_, _, err := op.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("git.pull dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "git-pull") {
-		t.Errorf("expected 'git-pull' in log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "git.pull") {
+		t.Errorf("expected 'git.pull' in log, got %q", buf.String())
 	}
 }
 
@@ -348,7 +329,7 @@ func TestContentLiteral(t *testing.T) {
 
 func TestContentLiteralDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &content.Literal{Impl: &content.Provider{}}
 	slots := map[string]any{
 		"content": "test data",
@@ -391,39 +372,35 @@ func TestNetDownload(t *testing.T) {
 	}
 }
 
-func TestNetDownloadToFile(t *testing.T) {
+func TestNetDownloadReturnsContent(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, "file content")
 	}))
 	defer ts.Close()
 
-	tmpDir := t.TempDir()
-	target := filepath.Join(tmpDir, "downloaded.txt")
-
 	ctx := &execution.Context{Context: context.Background()}
 	op := &net.Download{Impl: &net.Provider{}}
 	slots := map[string]any{
-		"url":  ts.URL,
-		"path": target,
+		"url": ts.URL,
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	result, _, err := op.Do(ctx, slots)
 	if err != nil {
-		t.Fatalf("net.download to file: %v", err)
+		t.Fatalf("net.download: %v", err)
 	}
 
-	content, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("read target: %v", err)
+	data, ok := result.([]byte)
+	if !ok {
+		t.Fatalf("expected []byte result, got %T", result)
 	}
-	if string(content) != "file content" {
-		t.Errorf("expected 'file content', got %q", string(content))
+	if string(data) != "file content" {
+		t.Errorf("expected 'file content', got %q", string(data))
 	}
 }
 
 func TestNetDownloadDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &net.Download{Impl: &net.Provider{}}
 	slots := map[string]any{
 		"url": "https://example.com/test.tar.gz",
@@ -433,7 +410,7 @@ func TestNetDownloadDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("net.download dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "[dry-run] download") {
+	if !strings.Contains(buf.String(), "[dry-run] net.download") {
 		t.Errorf("expected dry-run download log, got %q", buf.String())
 	}
 }
@@ -518,7 +495,7 @@ func TestArchiveExtractTarGz(t *testing.T) {
 	op := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": archivePath,
-		"path":   extractDir,
+		"prefix": extractDir,
 	}
 
 	_, _, err := op.Do(ctx, slots)
@@ -563,7 +540,7 @@ func TestArchiveExtractZip(t *testing.T) {
 	op := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": archivePath,
-		"path":   extractDir,
+		"prefix": extractDir,
 	}
 
 	_, _, err := op.Do(ctx, slots)
@@ -590,18 +567,18 @@ func TestArchiveExtractZip(t *testing.T) {
 
 func TestArchiveExtractDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Logger: &buf}
+	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
 	op := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": "/tmp/test.tar.gz",
-		"path":   "/tmp/extracted",
+		"prefix": "/tmp/extracted",
 	}
 
 	_, _, err := op.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("archive.extract dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "[dry-run] archive-extract") {
-		t.Errorf("expected dry-run archive-extract log, got %q", buf.String())
+	if !strings.Contains(buf.String(), "[dry-run] archive.extract") {
+		t.Errorf("expected dry-run archive.extract log, got %q", buf.String())
 	}
 }

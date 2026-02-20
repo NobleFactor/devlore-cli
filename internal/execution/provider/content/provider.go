@@ -3,7 +3,9 @@
 
 package content
 
-// Provider provides content operations.
+// Provider provides content actions.
+//
+//devlore:plannable
 type Provider struct{}
 
 // Literal returns the provided content as-is.

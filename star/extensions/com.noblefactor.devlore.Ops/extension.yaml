@@ -22,15 +22,7 @@ commands:
       - name: source
         type: string
         default: ""
-        help: Path to the Go package containing the service struct
-      - name: service
-        type: string
-        default: ""
-        help: Name of the service struct to generate from
-      - name: category
-        type: string
-        default: ""
-        help: Override the derived category name (e.g., "file")
+        help: Path to the Go package containing the provider struct
       - name: package
         type: string
         default: ""
@@ -41,8 +33,8 @@ commands:
         help: Comma-separated list of methods to include (default all public)
       - name: templates
         type: string
-        default: "plan_receiver,graph_actions,realtime_receiver"
-        help: Comma-separated list of templates to generate
+        default: ""
+        help: "Comma-separated templates (default: auto-detected from //devlore:plannable directive)"
       - name: output
         type: string
         default: ""

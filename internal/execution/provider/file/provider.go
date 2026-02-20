@@ -10,12 +10,14 @@ import (
 	"time"
 )
 
-// Provider provides file system operations. Each method receives all
+// Provider provides file system actions. Each method receives all
 // inputs as parameters — no execution context, no node access.
 //
 // Compensable Forward methods return (result, map[string]any, error).
 // The map is the compensation receipt — opaque to the executor,
 // meaningful only to the corresponding Compensate* Backward method.
+//
+//devlore:plannable
 type Provider struct{}
 
 // Link creates a symlink at path pointing to source. Idempotent: if the
@@ -62,7 +64,7 @@ func (p *Provider) Link(source, path string) (map[string]any, error) {
 	return state, nil
 }
 
-// CompensateLink undoes a Link operation using the captured state.
+// CompensateLink undoes a Link action using the captured state.
 func (p *Provider) CompensateLink(state map[string]any) error {
 	path, _ := state["path"].(string)
 	if path == "" {
@@ -124,7 +126,7 @@ func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (string, 
 	return checksumBytes(content), state, nil
 }
 
-// CompensateCopy undoes a Copy operation using the captured state.
+// CompensateCopy undoes a Copy action using the captured state.
 func (p *Provider) CompensateCopy(state map[string]any) error {
 	path, _ := state["path"].(string)
 	if path == "" {
@@ -310,7 +312,7 @@ func (p *Provider) Write(content, path string, mode os.FileMode) (map[string]any
 	return state, nil
 }
 
-// CompensateWrite undoes a Write operation using the captured state.
+// CompensateWrite undoes a Write action using the captured state.
 func (p *Provider) CompensateWrite(state map[string]any) error {
 	path, _ := state["path"].(string)
 	if path == "" {

@@ -4,6 +4,9 @@ package {{.Package}}
 
 import (
 	"fmt"
+{{- if needsImport .Methods "os.FileMode"}}
+	"os"
+{{- end}}
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
@@ -11,13 +14,13 @@ import (
 // {{.GoName}} — {{.Doc}}
 type {{.GoName}} struct{ Impl *Provider }
 
-func (o *{{.GoName}}) Name() string { return "{{$.Category}}.{{.SnakeName}}" }
+func (o *{{.GoName}}) Name() string { return "{{$.Provider}}.{{.SnakeName}}" }
 
 func (o *{{.GoName}}) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
 {{graphReaders .}}
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .}}\n"{{dryRunVars .}}){{dryRunChecksum .}}
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] {{$.Provider}}.{{.SnakeName}} {{dryRunFmt .}}\n"{{dryRunVars .}}){{dryRunChecksum .}}
 		return nil, nil, nil
 	}
 {{graphReturn . $.ImplType}}
@@ -25,7 +28,7 @@ func (o *{{.GoName}}) Do(ctx *execution.Context, slots map[string]any) (executio
 
 {{graphUndo .}}
 {{end}}
-// Register registers all {{.Category}} actions with the given registry.
+// Register registers all {{.Provider}} actions with the given registry.
 func Register(reg *execution.ActionRegistry) {
 	p := &Provider{}
 {{- range .Methods}}

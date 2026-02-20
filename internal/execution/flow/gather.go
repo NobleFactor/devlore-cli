@@ -104,7 +104,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 				iterCtx := &execution.Context{
 					Context: iterCtxBase,
 					DryRun:  ctx.DryRun,
-					Logger:  ctx.Logger,
+					Writer:  ctx.Writer,
 					Data:    ctx.Data,
 					Graph:   ctx.Graph,
 					NodeID:  ctx.NodeID,
@@ -166,12 +166,19 @@ func (a *Gather) undoCompleted(ctx *execution.Context, gs *execution.GatherUndoS
 		iter := gs.Iterations[i]
 		for j := len(iter.Entries) - 1; j >= 0; j-- {
 			entry := iter.Entries[j]
-			if entry.Node.Action == nil {
+			undoable, ok := entry.Node.Action.(execution.CompensableAction)
+			if !ok {
 				continue
 			}
 			entrySlots := entry.Node.ResolvedSlots(iter.Results, iter.ProxyCtx)
 			execution.FillSlotsFromData(entrySlots, ctx.Data)
-			if err := entry.Node.Action.Undo(ctx, entrySlots, entry.UndoState); err != nil {
+			if err := undoable.Undo(ctx, entrySlots, entry.UndoState); err != nil {
+				if errors.Is(err, execution.NotCompensableError) {
+					if ctx.Writer != nil {
+						fmt.Fprintf(ctx.Writer, "  [warn] %s: not compensable, skipping\n", undoable.Name())
+					}
+					continue
+				}
 				errs = append(errs, err)
 			}
 		}
@@ -222,7 +229,9 @@ func executeIteration(ctx *execution.Context, ordered []*execution.Node, gatherI
 		if result != nil {
 			results[node.ID] = result
 		}
-		stack.Push(execution.RecoveryEntry{Node: node, UndoState: undoState})
+		if _, ok := node.Action.(execution.CompensableAction); ok {
+			stack.Push(execution.RecoveryEntry{Node: node, UndoState: undoState})
+		}
 	}
 
 	// Terminal result is the last ordered node's result.

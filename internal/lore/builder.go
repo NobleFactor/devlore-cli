@@ -363,17 +363,15 @@ func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.H
 		},
 	}
 
-	// plan is a global — graph construction operations.
-	// Output functions are globals — note, warn, error, success, fail.
-	logRecv := loreStar.NewLogReceiver(os.Stdout)
-	globals := logRecv.OutputGlobals()
-	globals["plan"] = planBindings
+	globals := starlark.StringDict{
+		"plan": planBindings,
+	}
 
 	return thread, globals, pkgContext, planBindings, nil
 }
 
-// addNativePMNodes adds nodes for a native package manager operation.
-// Uses namespaced operation names (package-install, package-upgrade, package-remove) that work on all platforms.
+// addNativePMNodes adds nodes for a native package manager action.
+// Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that work on all platforms.
 // The actual package manager is determined at execution time by host.PackageManager().
 func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *execution.ActionRegistry) error {
 	// Determine the dotted action name

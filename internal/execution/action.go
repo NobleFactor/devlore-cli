@@ -5,8 +5,13 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"io"
 )
+
+// NotCompensableError signals that an action acknowledges rollback but cannot
+// undo its effect. The executor logs a warning and continues unwinding.
+var NotCompensableError = errors.New("action is not compensable")
 
 // Result is data that flows to downstream nodes via edges (e.g., file content,
 // a rendered template, a query result). The executor stores this keyed by node
@@ -18,7 +23,7 @@ type Result = any
 // return nil from Do; their Undo ignores the state parameter.
 type UndoState = any
 
-// Action is the interface for all executable actions.
+// Action is the forward-only interface. All executable actions implement this.
 // Actions receive resolved slots — they never touch *Node. The executor
 // resolves all promise slots before calling Do.
 type Action interface {
@@ -29,6 +34,12 @@ type Action interface {
 	// Returns a result (flows to downstream nodes via promise slots) and undo
 	// state (stored on recovery stack for rollback).
 	Do(ctx *Context, slots map[string]any) (Result, UndoState, error)
+}
+
+// CompensableAction extends Action with compensation. Only actions that
+// participate in rollback implement this interface.
+type CompensableAction interface {
+	Action
 
 	// Undo performs the compensating action using the state captured by Do.
 	Undo(ctx *Context, slots map[string]any, state UndoState) error
@@ -41,8 +52,8 @@ type Context struct {
 	// DryRun prevents filesystem modifications when true.
 	DryRun bool
 
-	// Logger receives action output messages.
-	Logger io.Writer
+	// Writer receives user-facing output messages.
+	Writer io.Writer
 
 	// Data holds tool-provided context: template variables, SOPS config,
 	// identities, segment maps, etc. Each tool populates this before

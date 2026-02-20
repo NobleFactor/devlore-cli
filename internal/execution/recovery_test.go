@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// testUndoAction implements Action with controllable Undo behavior.
+// testUndoAction implements CompensableAction with controllable Undo behavior.
 type testUndoAction struct {
 	name   string
 	undoFn func(ctx *Context, slots map[string]any, state UndoState) error

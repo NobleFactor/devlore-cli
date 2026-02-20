@@ -92,6 +92,7 @@ func (p *PackagePlan) AttrNames() []string {
 	return []string{"install", "installed", "not_installed", "remove", "update", "upgrade", "version_gte"}
 }
 
+// install installs one or more packages.
 func (p *PackagePlan) install(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	packages, err := argsToStrings("install", args)
 	if err != nil {
@@ -119,6 +120,7 @@ func (p *PackagePlan) install(_ *starlark.Thread, _ *starlark.Builtin, args star
 	return NewOutput(node, p.graph, ""), nil
 }
 
+// upgrade upgrades one or more packages.
 func (p *PackagePlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	packages, err := argsToStrings("upgrade", args)
 	if err != nil {
@@ -146,6 +148,7 @@ func (p *PackagePlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args star
 	return NewOutput(node, p.graph, ""), nil
 }
 
+// remove removes one or more packages.
 func (p *PackagePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	packages, err := argsToStrings("remove", args)
 	if err != nil {
@@ -173,6 +176,7 @@ func (p *PackagePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starl
 	return starlark.None, nil
 }
 
+// update refreshes the package index.
 func (p *PackagePlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 	if len(args) > 0 {
 		return nil, fmt.Errorf("update: takes no arguments")

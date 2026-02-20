@@ -18,15 +18,11 @@ func (o *Literal) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 	raw, _ := slots["content"].(string)
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] literal (%d bytes)\n", len(raw))
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] literal (%d bytes)\n", len(raw))
 		return nil, nil, nil
 	}
 	content := o.Impl.Literal([]byte(raw))
 	return content, nil, nil
-}
-
-func (o *Literal) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
 }
 
 // Register registers all content actions with the given registry.

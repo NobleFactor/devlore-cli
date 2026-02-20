@@ -45,7 +45,7 @@ func (p *PreflightResult) HasConflicts() bool {
 }
 
 // Preflight performs pre-flight conflict detection without modifying anything.
-// Only applies to nodes with file operations (link, copy).
+// Only applies to nodes with file actions (link, copy).
 func Preflight(graph *Graph) *PreflightResult {
 	result := &PreflightResult{}
 
@@ -70,7 +70,7 @@ func Preflight(graph *Graph) *PreflightResult {
 	return result
 }
 
-// nodeWritesToTarget returns true if the node's operation produces a file at
+// nodeWritesToTarget returns true if the node's action produces a file at
 // node's "path" slot (link or copy).
 func nodeWritesToTarget(node *Node) bool {
 	path, _ := node.GetSlot("path").(string)

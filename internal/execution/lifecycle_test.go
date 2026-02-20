@@ -321,7 +321,7 @@ func TestGraphHydrate(t *testing.T) {
 
 	// Actions should not be stubs — test by checking that they don't return the stub error
 	// (We can't call Do without proper slots, but we can verify the action type changed)
-	_, _, err = loaded.Nodes[0].Action.Do(&execution.Context{Context: context.Background(), DryRun: true, Logger: os.Stdout},
+	_, _, err = loaded.Nodes[0].Action.Do(&execution.Context{Context: context.Background(), DryRun: true, Writer: os.Stdout},
 		map[string]any{"source": "/x", "path": "/y"})
 	if err != nil {
 		t.Errorf("expected hydrated action to succeed in dry-run, got: %v", err)
@@ -381,13 +381,19 @@ func TestGraphLifecycle(t *testing.T) {
 	linkNode.SetSlotImmediate("source", srcLink)
 	linkNode.SetSlotImmediate("path", filepath.Join(dstDir, "config.txt"))
 
+	copyContent, err := os.ReadFile(srcCopy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	copyNode := &execution.Node{
 		ID:     "data.txt",
 		Action: &file.Copy{Impl: fp},
 		Status: execution.StatusPending,
 	}
-	copyNode.SetSlotImmediate("source", srcCopy)
+	copyNode.SetSlotImmediate("content", copyContent)
 	copyNode.SetSlotImmediate("path", filepath.Join(dstDir, "data.txt"))
+	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	graph := &execution.Graph{
 		Version:   "1",
@@ -424,10 +430,17 @@ func TestGraphLifecycle(t *testing.T) {
 		t.Fatalf("hydrate: %v", err)
 	}
 
-	// Reset state to pending for execution
+	// Reset state to pending for execution.
+	// Re-set typed slots that don't survive YAML round-trip (os.FileMode, []byte).
 	loaded.State = execution.StatePending
 	for _, n := range loaded.Nodes {
 		n.Status = execution.StatusPending
+	}
+	for _, n := range loaded.Nodes {
+		if n.ActionName() == "file.copy" {
+			n.SetSlotImmediate("mode", os.FileMode(0644))
+			n.SetSlotImmediate("content", copyContent)
+		}
 	}
 
 	// Step 4: Run the graph
@@ -488,12 +501,17 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 	}
 	sourceNode.SetSlotImmediate("path", tmplPath)
 
+	dstPath := filepath.Join(dstDir, "greeting.txt")
+
 	renderNode := &execution.Node{
 		ID:     "greeting:render",
 		Action: &template.Render{Impl: tp},
 		Status: execution.StatusPending,
 	}
 	renderNode.SetSlotImmediate("source", tmplPath)
+	renderNode.SetSlotImmediate("path", dstPath)
+	renderNode.SetSlotImmediate("project", "")
+	renderNode.SetSlotImmediate("template_data", map[string]any{"Username": "david"})
 	// Content flows from source → render via promise slot
 	renderNode.SetSlotPromise("content", "greeting:source", "")
 
@@ -502,7 +520,8 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 		Action: &file.Copy{Impl: fp},
 		Status: execution.StatusPending,
 	}
-	copyNode.SetSlotImmediate("path", filepath.Join(dstDir, "greeting.txt"))
+	copyNode.SetSlotImmediate("path", dstPath)
+	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 	// Content flows from render → copy via promise slot
 	copyNode.SetSlotPromise("content", "greeting:render", "")
 
@@ -543,16 +562,23 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 		t.Fatalf("hydrate: %v", err)
 	}
 
-	// Reset state
+	// Reset state.
+	// Re-set typed slots that don't survive YAML round-trip (os.FileMode, map[string]any).
 	loaded.State = execution.StatePending
 	for _, n := range loaded.Nodes {
 		n.Status = execution.StatusPending
 	}
+	for _, n := range loaded.Nodes {
+		switch n.ActionName() {
+		case "template.render":
+			n.SetSlotImmediate("template_data", map[string]any{"Username": "david"})
+		case "file.copy":
+			n.SetSlotImmediate("mode", os.FileMode(0644))
+		}
+	}
 
 	// Run with template data
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
-		Data: map[string]any{"Username": "david"},
-	})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
 	if err := engine.Run(context.Background(), &loaded); err != nil {
 		t.Fatalf("run: %v", err)
 	}

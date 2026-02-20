@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/service"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/shell"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/template"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/ui"
 )
 
 // RegisterAll registers all provider actions into the given registry.
@@ -30,5 +31,6 @@ func RegisterAll(reg *execution.ActionRegistry) {
 	net.Register(reg)
 	archive.Register(reg)
 	git.Register(reg)
+	ui.Register(reg)
 	flow.Register(reg)
 }

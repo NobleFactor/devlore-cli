@@ -11,6 +11,8 @@ import "fmt"
 // Compensable Forward methods return (map[string]any, error).
 // The map is the compensation receipt — opaque to the executor,
 // meaningful only to the corresponding Compensate* Backward method.
+//
+//devlore:plannable
 type Provider struct {
 	// Test hooks. Nil means use real host implementation.
 	isInstalledFn func(pkg, manager string) bool
@@ -48,7 +50,7 @@ func (p *Provider) Install(packages []string, manager string, cask bool) (map[st
 }
 
 // CompensateInstall undoes an Install by removing packages that weren't
-// already installed before the operation.
+// already installed before the action.
 func (p *Provider) CompensateInstall(state map[string]any) error {
 	packages, _ := state["packages"].([]string)
 	alreadyInstalled, _ := state["already_installed"].([]string)

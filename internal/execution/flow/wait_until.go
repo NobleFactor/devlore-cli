@@ -83,11 +83,6 @@ func (a *WaitUntil) Do(ctx *execution.Context, slots map[string]any) (execution.
 	}
 }
 
-// Undo is a no-op — WaitUntil observes state but does not modify it.
-func (a *WaitUntil) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
-}
-
 // parseDurationSlot extracts a duration from slots by name.
 // Accepts string (Go duration) or time.Duration. Returns defaultVal if the
 // slot is absent or nil.

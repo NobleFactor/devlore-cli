@@ -146,7 +146,7 @@ type Node struct {
 	// Status of this node: pending, completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
 
-	// Timestamp is when this operation completed.
+	// Timestamp is when this action completed.
 	Timestamp string `json:"timestamp,omitempty" yaml:"timestamp,omitempty"`
 
 	// Slots holds input values for this node. Each slot can be:
@@ -177,19 +177,17 @@ type Node struct {
 }
 
 // StubAction creates a named Action stub for testing and receipt deserialization.
-// Do and Undo return errors — stub actions are not executable.
+// Do returns an error — stub actions are not executable.
 func StubAction(name string) Action { return &stubAction{name: name} }
 
 // stubAction implements Action with just a name for receipt deserialization.
-// Do and Undo return errors — receipt nodes are not executable.
+// Do returns an error — receipt nodes are not executable. stubAction does
+// not implement CompensableAction; it is forward-only.
 type stubAction struct{ name string }
 
 func (s *stubAction) Name() string { return s.name }
 func (s *stubAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
 	return nil, nil, fmt.Errorf("stub action %s: not executable", s.name)
-}
-func (s *stubAction) Undo(_ *Context, _ map[string]any, _ UndoState) error {
-	return fmt.Errorf("stub action %s: not executable", s.name)
 }
 
 // nodeJSON is the JSON/YAML serialization shape for Node.

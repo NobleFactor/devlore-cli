@@ -234,7 +234,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	fmt.Println("\nDeploying packages...")
 
-	// Create operation registry and executor
+	// Create action registry and executor
 	registry := execution.NewActionRegistry()
 	provider.RegisterAll(registry)
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
@@ -262,7 +262,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 		if len(buildResult.Graph.Nodes) == 0 {
 			if cfg.Verbose {
-				cli.Note("No operations for %q", rp.pkg.Name)
+				cli.Note("No actions for %q", rp.pkg.Name)
 			}
 			continue
 		}
@@ -783,7 +783,7 @@ func newAuditCmd() *cobra.Command {
 		Short: "View security audit log entries",
 		Long: `View security audit log entries.
 
-The audit log records security-sensitive operations:
+The audit log records security-sensitive actions:
   - pmm.fetch: Package fetch with signature status
   - pmm.verify: Signature verification results
   - privilege.request: Sudo/elevation requests

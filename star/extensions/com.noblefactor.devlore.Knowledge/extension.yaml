@@ -21,6 +21,10 @@ commands:
         type: string
         default: "all"
         help: "Knowledge domain: all, onboarding, migration, or ops"
+      - name: format
+        type: string
+        default: "all"
+        help: "Output format: yaml, md, or all (default: all)"
 
   - name: devlore.knowledge.index
     help: Generate index.yaml for knowledge domains

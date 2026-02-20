@@ -91,7 +91,9 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		if result != nil {
 			results[node.ID] = result
 		}
-		stack.Push(execution.RecoveryEntry{Node: node, UndoState: undoState})
+		if _, ok := node.Action.(execution.CompensableAction); ok {
+			stack.Push(execution.RecoveryEntry{Node: node, UndoState: undoState})
+		}
 	}
 
 	// Terminal result is the last ordered node's result.
@@ -108,7 +110,7 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	return terminalResult, undoState, nil
 }
 
-// Undo walks the selected branch's entries in reverse and calls Action.Undo.
+// Undo walks the selected branch's entries in reverse and calls CompensableAction.Undo.
 func (a *Choose) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
 	cs, ok := state.(*execution.ChooseUndoState)
 	if !ok || cs == nil {
@@ -118,12 +120,19 @@ func (a *Choose) Undo(ctx *execution.Context, _ map[string]any, state execution.
 	var errs []error
 	for i := len(cs.Entries) - 1; i >= 0; i-- {
 		entry := cs.Entries[i]
-		if entry.Node.Action == nil {
+		undoable, ok := entry.Node.Action.(execution.CompensableAction)
+		if !ok {
 			continue
 		}
 		entrySlots := entry.Node.ResolvedSlots(cs.Results)
 		execution.FillSlotsFromData(entrySlots, ctx.Data)
-		if err := entry.Node.Action.Undo(ctx, entrySlots, entry.UndoState); err != nil {
+		if err := undoable.Undo(ctx, entrySlots, entry.UndoState); err != nil {
+			if errors.Is(err, execution.NotCompensableError) {
+				if ctx.Writer != nil {
+					fmt.Fprintf(ctx.Writer, "  [warn] %s: not compensable, skipping\n", undoable.Name())
+				}
+				continue
+			}
 			errs = append(errs, err)
 		}
 	}

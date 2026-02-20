@@ -14,11 +14,13 @@ import (
 	"strings"
 )
 
-// Provider provides archive extraction operations.
+// Provider provides archive extraction actions.
 //
 // Compensable Forward methods return (map[string]any, error).
 // The map is the compensation receipt — opaque to the executor,
 // meaningful only to the corresponding Compensate* Backward method.
+//
+//devlore:plannable
 type Provider struct{}
 
 // Extract extracts an archive (tar.gz or zip) from source into the prefix directory.

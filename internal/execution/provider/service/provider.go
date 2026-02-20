@@ -18,6 +18,8 @@ import (
 // Compensable Forward methods return (map[string]any, error).
 // The map is the compensation receipt — opaque to the executor,
 // meaningful only to the corresponding Compensate* Backward method.
+//
+//devlore:plannable
 type Provider struct {
 	// Test hooks. Nil means use real platform implementation.
 	runFn       func(io.Writer, string, ...string) error

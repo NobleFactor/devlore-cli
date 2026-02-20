@@ -99,8 +99,8 @@ type Entry struct {
 	// Project is the project this belongs to
 	Project string
 
-	// Operation that was/should be performed
-	Operation string
+	// Action that was/should be performed
+	Action string
 
 	// Message provides additional context (e.g., "points to wrong file")
 	Message string
@@ -167,7 +167,7 @@ func FromBuildResult(br *tree.BuildResult) *Report {
 	}
 
 	for _, f := range br.Files {
-		// Use first operation from tree pipeline as the primary operation
+		// Use first action from tree pipeline as the primary action
 		op := ""
 		if len(f.Operations) > 0 {
 			op = f.Operations[len(f.Operations)-1] // final op (e.g., "file.copy" for render+copy)
@@ -180,13 +180,13 @@ func FromBuildResult(br *tree.BuildResult) *Report {
 }
 
 // checkEntry checks the status of a single file.
-func checkEntry(source, target, relTarget, project, operation string) Entry {
+func checkEntry(source, target, relTarget, project, action string) Entry {
 	entry := Entry{
 		RelTarget: relTarget,
 		Source:     source,
 		Target:     target,
 		Project:    project,
-		Operation:  operation,
+		Action:     action,
 	}
 
 	// Check if target exists
@@ -208,8 +208,8 @@ func checkEntry(source, target, relTarget, project, operation string) Entry {
 		return entry
 	}
 
-	// Determine expected operation type
-	isLink := operation == "file.link"
+	// Determine expected action type
+	isLink := action == "file.link"
 
 	if isLink {
 		// Should be a symlink
@@ -334,7 +334,7 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 			Source:    linkTarget,
 			Target:    path,
 			Project:   project,
-			Operation: "file.link",
+			Action:    "file.link",
 		}
 
 		// Check if source exists

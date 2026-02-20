@@ -63,6 +63,7 @@ def run(ctx):
     source = ctx.args.get("source", "")
     target = _resolve_target(ctx)
     domain = ctx.args.get("domain", "all")
+    fmt = ctx.args.get("format", "all")
 
     # Smart default for source: look for sibling directory
     if not source:
@@ -78,7 +79,7 @@ def run(ctx):
 
     # Build knowledge for selected domain(s)
     if domain == "all" or domain == "onboarding":
-        build_onboarding_knowledge(source, target)
+        build_onboarding_knowledge(source, target, fmt)
 
     if domain == "all" or domain == "migration":
         build_migration_knowledge(source, target)
@@ -519,7 +520,7 @@ def _scan_execution(path):
 # ONBOARDING KNOWLEDGE (Starlark API reference for lore package authors)
 # =============================================================================
 
-def build_onboarding_knowledge(source, target):
+def build_onboarding_knowledge(source, target, fmt = "all"):
     """Build Starlark API reference from devlore-cli source."""
     note("Building onboarding knowledge (Starlark API)...")
 
@@ -547,44 +548,46 @@ def build_onboarding_knowledge(source, target):
     success("  No contract violations")
 
     # Write YAML reference
-    reference_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.yaml")
+    if fmt in ("yaml", "all"):
+        reference_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.yaml")
 
-    changes_detected = False
-    new_content = yaml.encode(api)
-    if file.exists(reference_path):
-        current_content = file.read(reference_path)
-        if current_content != new_content:
+        changes_detected = False
+        new_content = yaml.encode(api)
+        if file.exists(reference_path):
+            current_content = file.read(reference_path)
+            if current_content != new_content:
+                changes_detected = True
+                note("  Changes detected in reference.yaml")
+        else:
             changes_detected = True
-            note("  Changes detected in reference.yaml")
-    else:
-        changes_detected = True
-        note("  Creating new reference.yaml")
+            note("  Creating new reference.yaml")
 
-    if changes_detected:
-        file.write(reference_path, new_content)
-        success("  Wrote " + reference_path)
-    else:
-        success("  No changes to reference.yaml")
+        if changes_detected:
+            file.write(reference_path, new_content)
+            success("  Wrote " + reference_path)
+        else:
+            success("  No changes to reference.yaml")
 
     # Write markdown reference
-    md_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.md")
-    md_content = _render_markdown(api)
+    if fmt in ("md", "all"):
+        md_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.md")
+        md_content = _render_markdown(api)
 
-    md_changed = False
-    if file.exists(md_path):
-        current_md = file.read(md_path)
-        if current_md != md_content:
+        md_changed = False
+        if file.exists(md_path):
+            current_md = file.read(md_path)
+            if current_md != md_content:
+                md_changed = True
+                note("  Changes detected in reference.md")
+        else:
             md_changed = True
-            note("  Changes detected in reference.md")
-    else:
-        md_changed = True
-        note("  Creating new reference.md")
+            note("  Creating new reference.md")
 
-    if md_changed:
-        file.write(md_path, md_content)
-        success("  Wrote " + md_path)
-    else:
-        success("  No changes to reference.md")
+        if md_changed:
+            file.write(md_path, md_content)
+            success("  Wrote " + md_path)
+        else:
+            success("  No changes to reference.md")
 
 
 def _count_bindings(api):
@@ -1178,26 +1181,6 @@ _SKIP_METHODS = [
     "Attr", "AttrNames",
 ]
 
-# Common struct name suffixes to strip when deriving category
-_STRIP_SUFFIXES = ["Ops", "Impl", "Service", "Handler"]
-
-
-def _to_snake(name):
-    """Convert CamelCase to snake_case."""
-    result = []
-    for i in range(len(name)):
-        ch = name[i]
-        if ch.isupper():
-            if i > 0:
-                prev = name[i - 1]
-                if prev.islower():
-                    result.append("_")
-                elif prev.isupper() and i + 1 < len(name) and name[i + 1].islower():
-                    result.append("_")
-            result.append(ch.lower())
-        else:
-            result.append(ch)
-    return "".join(result)
 
 
 def build_ops_knowledge(source, target):
@@ -1243,13 +1226,11 @@ def build_ops_knowledge(source, target):
             note("  " + service_name + ": no eligible methods")
             continue
 
-        # Derive category from service name
-        struct_short = service_name
-        for suffix in _STRIP_SUFFIXES:
-            if struct_short.endswith(suffix) and len(struct_short) > len(suffix):
-                struct_short = struct_short[:-len(suffix)]
-                break
-        category = _to_snake(struct_short)
+        # Derive provider from service name — strip "Service" suffix
+        provider = service_name
+        if provider.endswith("Service") and len(provider) > len("Service"):
+            provider = provider[:-len("Service")]
+        provider = provider.lower()
 
         # Build method descriptors
         method_descriptors = []
@@ -1271,9 +1252,9 @@ def build_ops_knowledge(source, target):
         # Build descriptor for go.mapping()
         descriptor = {
             "package": "execution",
-            "category": category,
-            "struct_name": struct_short,
-            "namespace": category,
+            "provider": provider,
+            "struct_name": provider.title(),
+            "namespace": provider,
             "methods": method_descriptors,
         }
 
@@ -1281,7 +1262,7 @@ def build_ops_knowledge(source, target):
         mapping_yaml = str(go.mapping(descriptor))
 
         # Write mapping artifact
-        mapping_file = category + ".yaml"
+        mapping_file = provider + ".yaml"
         mapping_path = file.join(mappings_path, mapping_file)
 
         changes_detected = False
