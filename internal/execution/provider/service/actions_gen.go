@@ -8,6 +8,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+func init() {
+	execution.RegisterProvider(Register)
+}
+
 // Start — Start starts a service. Returns compensation state with pre-action running status.
 type Start struct{ Impl *Provider }
 
@@ -138,6 +142,66 @@ func (o *Disable) Undo(_ *execution.Context, _ map[string]any, state execution.U
 	return o.Impl.CompensateDisable(s)
 }
 
+// Exists — Exists returns true if the named service exists on the system.
+type Exists struct{ Impl *Provider }
+
+func (o *Exists) Name() string { return "service.exists" }
+
+func (o *Exists) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name := slots["name"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] service.exists %v\n", name)
+		return nil, nil, nil
+	}
+
+	return o.Impl.Exists(name), nil, nil
+}
+
+func (o *Exists) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
+// Running — Running returns true if the named service is currently running.
+type Running struct{ Impl *Provider }
+
+func (o *Running) Name() string { return "service.running" }
+
+func (o *Running) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name := slots["name"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] service.running %v\n", name)
+		return nil, nil, nil
+	}
+
+	return o.Impl.Running(name), nil, nil
+}
+
+func (o *Running) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
+// Enabled — Enabled returns true if the named service is enabled to start at boot.
+type Enabled struct{ Impl *Provider }
+
+func (o *Enabled) Name() string { return "service.enabled" }
+
+func (o *Enabled) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name := slots["name"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] service.enabled %v\n", name)
+		return nil, nil, nil
+	}
+
+	return o.Impl.Enabled(name), nil, nil
+}
+
+func (o *Enabled) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
 // Register registers all service actions with the given registry.
 func Register(reg *execution.ActionRegistry) {
 	p := &Provider{}
@@ -146,4 +210,7 @@ func Register(reg *execution.ActionRegistry) {
 	reg.Register(&Restart{Impl: p})
 	reg.Register(&Enable{Impl: p})
 	reg.Register(&Disable{Impl: p})
+	reg.Register(&Exists{Impl: p})
+	reg.Register(&Running{Impl: p})
+	reg.Register(&Enabled{Impl: p})
 }

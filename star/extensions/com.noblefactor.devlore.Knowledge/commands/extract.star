@@ -38,24 +38,6 @@ _KNOWN_PROPERTIES = {
     "phase.action":             {"type": "string", "doc": "Lifecycle action (e.g. deploy, remove)"},
 }
 
-# AttrNames declarations from Go source — authoritative cross-reference.
-# If a name appears here but isn't found as a binding, property, or sub-namespace,
-# the extract pipeline fails. Update this when adding new attrs in Go.
-_ATTR_NAMES = {
-    "plan": ["archive", "choose", "content", "encryption", "file", "gather", "git", "net", "package", "service", "shell", "source", "template"],
-    "plan.file": ["copy", "exists", "is_dir", "link", "remove", "write"],
-    "plan.package": ["install", "installed", "not_installed", "remove", "update", "upgrade", "version_gte"],
-    "plan.template": ["render"],
-    "plan.encryption": ["decrypt"],
-    "plan.archive": ["extract"],
-    "plan.git": ["checkout", "clone", "installed", "pull"],
-    "plan.service": ["disable", "enable", "enabled", "exists", "restart", "running", "start", "stop"],
-    "plan.shell": ["exec"],
-    "plan.net": ["download"],
-    "plan.content": ["literal"],
-    "package": ["dry_run", "features", "has_feature", "name", "setting", "settings", "source_root", "target_root", "version"],
-    "phase": ["action", "name", "retry"],
-}
 
 
 def run(ctx):
@@ -114,6 +96,106 @@ def _find_sibling(name):
 # GO AST HELPERS
 # =============================================================================
 
+def _build_attr_names_from_source(path):
+    """Build AttrNames cross-reference from Go source.
+
+    Scans AttrNames() methods for static []string{...} return literals,
+    then correlates with Attr() methods to derive namespace prefixes.
+    Returns a dict like {"plan.file": ["copy", "link", ...], "package": ["name", ...]}
+    """
+    attr_names = {}
+
+    # Index Attr methods by receiver_type for prefix derivation
+    attr_methods = go.methods(path, name="Attr")
+    attr_by_receiver = {}
+    for m in attr_methods:
+        attr_by_receiver[str(m.receiver_type)] = m
+
+    # Extract static AttrNames from each receiver
+    attr_names_methods = go.methods(path, name="AttrNames")
+    for m in attr_names_methods:
+        receiver = str(m.receiver_type)
+        names = list(go.return_strings(m.scope))
+        if not names:
+            continue  # Dynamic AttrNames (e.g., PlanRoot) — skip
+
+        # Derive prefix from corresponding Attr() method
+        if receiver not in attr_by_receiver:
+            continue
+        prefix = _derive_attr_prefix(attr_by_receiver[receiver])
+        if prefix:
+            attr_names[prefix] = [str(n) for n in names]
+
+    return attr_names
+
+
+def _derive_attr_prefix(attr_method):
+    """Derive the namespace prefix from an Attr() method's binding calls.
+
+    Scans MakeAttr and NewBuiltin calls for the first qualified name
+    (e.g., "plan.file.copy") and extracts the prefix ("plan.file").
+    """
+    scope = str(attr_method.scope)
+    for call_type in ["MakeAttr", "NewBuiltin"]:
+        calls = go.calls(scope, name=call_type)
+        for call in calls:
+            args = list(call.args)
+            if len(args) >= 1:
+                binding_name = str(args[0].string_value)
+                if binding_name and _is_api_binding(binding_name):
+                    dot_idx = binding_name.rfind(".")
+                    if dot_idx > 0:
+                        return binding_name[:dot_idx]
+    return ""
+
+
+def _build_ns_descriptions(starlark_path):
+    """Build namespace descriptions from provider type doc comments.
+
+    Scans each provider directory for a Provider type and extracts its
+    first-line doc comment. Returns {"file": "File system ...", ...}.
+    """
+    descriptions = {"(root)": "Top-level graph construction primitives"}
+    provider_base = file.join(starlark_path, "..", "execution", "provider")
+    if not file.is_directory(provider_base):
+        return descriptions
+
+    for entry in file.list(provider_base):
+        if not entry.is_dir:
+            continue
+        ns = str(entry.name)
+        provider_path = file.join(provider_base, ns)
+        doc = str(go.type_doc(provider_path, "Provider"))
+        if doc:
+            # Join paragraph lines into one string, stopping at blank lines or directives.
+            para_lines = []
+            for line in doc.split("\n"):
+                line = line.strip()
+                if not line or line.startswith("//"):
+                    break
+                para_lines.append(line)
+            para = " ".join(para_lines)
+            if not para:
+                continue
+            # Strip "Provider provides/implements" prefix
+            for strip in ["Provider provides ", "Provider implements "]:
+                if para.startswith(strip):
+                    para = para[len(strip):]
+                    break
+            # Take first sentence (split on ". ")
+            dot_idx = para.find(". ")
+            if dot_idx > 0:
+                para = para[:dot_idx]
+            # Capitalize and remove trailing period
+            if para:
+                para = para[0].upper() + para[1:]
+                if para.endswith("."):
+                    para = para[:-1]
+                descriptions[ns] = para
+
+    return descriptions
+
+
 def _parse_devlore_api(path):
     """Parse devlore-cli Starlark API from Go source files.
 
@@ -142,7 +224,8 @@ def _parse_devlore_api(path):
             if binding_name in seen:
                 continue
             seen[binding_name] = True
-            binding = _extract_binding_info(path, handler_name, binding_name, str(attr_method.file), int(call.line))
+            receiver_type = str(attr_method.receiver_type).lstrip("*")
+            binding = _extract_binding_info(path, handler_name, binding_name, str(attr_method.file), int(call.line), receiver_type)
             if binding:
                 binding["kind"] = "method"
                 bindings[binding_name] = binding
@@ -161,7 +244,8 @@ def _parse_devlore_api(path):
             if binding_name in seen:
                 continue
             seen[binding_name] = True
-            binding = _extract_binding_info(path, handler_name, binding_name, str(attr_method.file), int(call.line))
+            receiver_type = str(attr_method.receiver_type).lstrip("*")
+            binding = _extract_binding_info(path, handler_name, binding_name, str(attr_method.file), int(call.line), receiver_type)
             if binding:
                 binding["kind"] = "method"
                 bindings[binding_name] = binding
@@ -210,8 +294,9 @@ def _parse_devlore_api(path):
                 "error": "uses StringDict instead of Attr receiver",
             })
 
-    # Step 4: AttrNames cross-reference validation
-    attr_violations = _validate_attr_names(bindings)
+    # Step 4: AttrNames cross-reference validation (programmatic, not hand-maintained)
+    attr_names = _build_attr_names_from_source(path)
+    attr_violations = _validate_attr_names(bindings, attr_names)
     violations.extend(attr_violations)
 
     # Step 5: Build hierarchical result
@@ -259,12 +344,16 @@ def _parse_devlore_api(path):
                 phase[namespace] = []
             phase[namespace].append(entry)
 
+    # Step 6: Extract namespace descriptions from provider type docs
+    ns_descriptions = _build_ns_descriptions(path)
+
     return {
         "valid": len(violations) == 0,
         "plan": plan,
         "package": package,
         "phase": phase,
         "violations": violations,
+        "ns_descriptions": ns_descriptions,
     }
 
 
@@ -274,10 +363,11 @@ def _is_api_binding(name):
             name.startswith("package.") or name.startswith("phase."))
 
 
-def _validate_attr_names(bindings):
+def _validate_attr_names(bindings, attr_names):
     """Cross-reference AttrNames declarations against collected bindings.
 
-    Every name declared in _ATTR_NAMES must be accounted for as either:
+    Every name declared in AttrNames (extracted from Go source) must be
+    accounted for as either:
     - A binding (found via NewBuiltin/MakeAttr scanning)
     - A property (in _KNOWN_PROPERTIES)
     - A sub-namespace reference (has child bindings like prefix.name.*)
@@ -285,7 +375,7 @@ def _validate_attr_names(bindings):
     violations = []
     all_binding_names = set(bindings.keys())
 
-    for prefix, names in _ATTR_NAMES.items():
+    for prefix, names in attr_names.items():
         for name in names:
             qualified = prefix + "." + name
             # Check if it's a direct binding or property
@@ -310,21 +400,29 @@ def _validate_attr_names(bindings):
     return violations
 
 
-def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallback_line):
+def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallback_line, receiver_type=""):
     """Extract binding info from a handler method."""
     if not handler_name:
         return {"file": fallback_file, "line": fallback_line}
 
-    # Find the handler method
-    handler_methods = go.methods(path, name=handler_name)
+    # Find the handler method, filtering by receiver type to disambiguate
+    # methods with the same name on different receivers (e.g., remove, exists).
+    if receiver_type:
+        handler_methods = go.methods(path, name=handler_name, receiver_type=receiver_type)
+    else:
+        handler_methods = go.methods(path, name=handler_name)
     if len(list(handler_methods)) == 0:
         return {"file": fallback_file, "line": fallback_line}
 
     handler = list(handler_methods)[0]
     scope = str(handler.scope)
 
-    # Parse doc comment
+    # Parse doc comment and strip Go method-name prefix.
+    # Go convention: doc starts with the method name (e.g., "Remove removes packages...").
+    # Generated methods add a second prefix: "remove Remove removes packages...".
+    # Strip both patterns so the rendered doc reads naturally.
     doc, usage, slot_docs, returns = _parse_doc_comment(str(handler.doc))
+    doc = _strip_doc_prefix(doc, handler_name)
 
     # Extract slots from FillSlot calls
     slots = []
@@ -404,6 +502,37 @@ def _parse_doc_comment(doc_text):
 
     description = " ".join(desc_lines)
     return description, usage, slot_docs, returns
+
+
+def _strip_doc_prefix(doc, handler_name):
+    """Strip Go method-name prefix from a doc string.
+
+    Handles two patterns:
+    1. Generated: "remove Remove removes packages..." → "Removes packages..."
+       (snake_name GoMethodName rest)
+    2. Hand-written: "choose creates a conditional..." → "Creates a conditional..."
+       (method_name rest)
+    """
+    if not doc:
+        return doc
+
+    # Pattern 1: "snake_name GoMethodName rest..."
+    # Generated methods prepend the snake_name, and the provider doc starts with GoMethodName.
+    words = doc.split(" ", 3)
+    if len(words) >= 3:
+        w0 = words[0]
+        w1 = words[1]
+        if w0 == w0.lower() and w1[:1].isupper() and w1.lower().replace("_", "") == w0.replace("_", ""):
+            rest = words[2] if len(words) == 3 else words[2] + " " + words[3]
+            return rest[0].upper() + rest[1:] if rest else ""
+
+    # Pattern 2: "method_name rest..."
+    # Go convention: doc starts with the function name.
+    if doc.startswith(handler_name + " "):
+        rest = doc[len(handler_name) + 1:]
+        return rest[0].upper() + rest[1:] if rest else ""
+
+    return doc
 
 
 def _parse_migrate_knowledge(path):
@@ -661,27 +790,15 @@ def _render_markdown(api):
     # Namespace table
     lines.append("| Namespace | Purpose |")
     lines.append("|-----------|---------|")
-    _NS_DESCRIPTIONS = {
-        "file": "File system actions and predicates",
-        "package": "Package manager actions and predicates",
-        "template": "Template rendering",
-        "encryption": "SOPS decryption",
-        "archive": "Archive extraction",
-        "git": "Git operations and predicates",
-        "service": "Service management actions and predicates",
-        "shell": "Shell execution",
-        "net": "Network operations",
-        "content": "Content literals",
-        "(root)": "Top-level plan actions (choose, source, gather)",
-    }
+    ns_descriptions = api.get("ns_descriptions", {})
     for ns in sorted(api["plan"].keys()):
-        desc = _NS_DESCRIPTIONS.get(ns, "")
+        desc = ns_descriptions.get(ns, "")
         label = "plan." + ns + ".*" if ns != "(root)" else "plan.*"
         lines.append("| `" + label + "` | " + desc + " |")
     lines.append("")
 
     # Render each namespace
-    plan_ns_order = ["file", "package", "service", "shell", "net", "content", "template", "encryption", "archive", "git", "(root)"]
+    plan_ns_order = sorted([ns for ns in api["plan"].keys() if ns != "(root)"]) + (["(root)"] if "(root)" in api["plan"] else [])
     for ns in plan_ns_order:
         if ns not in api["plan"]:
             continue

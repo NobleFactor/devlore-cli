@@ -153,6 +153,27 @@ func (p *Provider) Update(manager string) error {
 	return nil
 }
 
+// --- Predicates ---
+
+// Installed returns true if the named package is installed.
+func (p *Provider) Installed(name string) bool {
+	return p.isInstalled(name, "")
+}
+
+// NotInstalled returns true if the named package is not installed.
+func (p *Provider) NotInstalled(name string) bool {
+	return !p.isInstalled(name, "")
+}
+
+// VersionGTE returns true if the installed version of name is >= version.
+func (p *Provider) VersionGTE(name, version string) bool {
+	current := p.getVersion(name, "")
+	if current == "" {
+		return false
+	}
+	return current >= version
+}
+
 // --- Internal helpers ---
 
 func (p *Provider) isInstalled(pkg, manager string) bool {

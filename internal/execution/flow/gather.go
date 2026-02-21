@@ -12,6 +12,18 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+// gatherUndoState preserves per-iteration state needed for rollback.
+type gatherUndoState struct {
+	Iterations []iterationUndo
+}
+
+// iterationUndo captures one gather iteration's undo state.
+type iterationUndo struct {
+	ProxyCtx map[string]any          // {gatherID: item} for slot re-resolution
+	Results  map[string]any          // node results for promise re-resolution
+	Entries  []execution.RecoveryEntry // shared node refs + per-node undo state
+}
+
 // Gather is a parallel comprehension flow action. It executes a phase body
 // once per item with configurable concurrency, collecting terminal results.
 //
@@ -34,7 +46,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		return nil, nil, err
 	}
 	if len(items) == 0 {
-		return []any{}, &execution.GatherUndoState{}, nil
+		return []any{}, &gatherUndoState{}, nil
 	}
 
 	phaseID, ok := slots["do"].(string)
@@ -60,7 +72,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 
 	type iterOutcome struct {
 		result  any
-		undo    execution.IterationUndo
+		undo    iterationUndo
 		err     error
 	}
 	outcomes := make([]iterOutcome, len(items))
@@ -126,7 +138,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 
 	// Collect results and build undo state.
 	var results []any
-	undoState := &execution.GatherUndoState{}
+	undoState := &gatherUndoState{}
 	var gatherErr error
 
 	for i, o := range outcomes {
@@ -152,7 +164,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 // Undo walks iterations in reverse, re-resolves slots with saved proxy context,
 // and calls Action.Undo per entry.
 func (a *Gather) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
-	gs, ok := state.(*execution.GatherUndoState)
+	gs, ok := state.(*gatherUndoState)
 	if !ok || gs == nil {
 		return nil
 	}
@@ -160,7 +172,7 @@ func (a *Gather) Undo(ctx *execution.Context, _ map[string]any, state execution.
 }
 
 // undoCompleted unwinds all iterations that have recovery entries.
-func (a *Gather) undoCompleted(ctx *execution.Context, gs *execution.GatherUndoState) error {
+func (a *Gather) undoCompleted(ctx *execution.Context, gs *gatherUndoState) error {
 	var errs []error
 	for i := len(gs.Iterations) - 1; i >= 0; i-- {
 		iter := gs.Iterations[i]
@@ -189,12 +201,12 @@ func (a *Gather) undoCompleted(ctx *execution.Context, gs *execution.GatherUndoS
 // executeIteration runs the phase body for a single item.
 func executeIteration(ctx *execution.Context, ordered []*execution.Node, gatherID string, item any) struct {
 	result any
-	undo   execution.IterationUndo
+	undo   iterationUndo
 	err    error
 } {
 	type outcome = struct {
 		result any
-		undo   execution.IterationUndo
+		undo   iterationUndo
 		err    error
 	}
 
@@ -218,7 +230,7 @@ func executeIteration(ctx *execution.Context, ordered []*execution.Node, gatherI
 			// Unwind this iteration's completed nodes.
 			stack.Unwind(ctx, results, proxyCtx)
 			return outcome{
-				undo: execution.IterationUndo{
+				undo: iterationUndo{
 					ProxyCtx: proxyCtx,
 					Results:  results,
 				},
@@ -242,7 +254,7 @@ func executeIteration(ctx *execution.Context, ordered []*execution.Node, gatherI
 
 	return outcome{
 		result: terminalResult,
-		undo: execution.IterationUndo{
+		undo: iterationUndo{
 			ProxyCtx: proxyCtx,
 			Results:  results,
 			Entries:  stack.Entries(),

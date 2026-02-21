@@ -113,7 +113,7 @@ func TestCompensationFileActions(t *testing.T) {
 	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	copyNode := &execution.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
-	copyNode.SetSlotImmediate("source", linkSource)
+	copyNode.SetSlotImmediate("content", []byte("copied content"))
 	copyNode.SetSlotImmediate("path", copyPath)
 	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 
@@ -189,7 +189,7 @@ func TestCompensationDryRun(t *testing.T) {
 	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	copyNode := &execution.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
-	copyNode.SetSlotImmediate("source", linkSource)
+	copyNode.SetSlotImmediate("content", []byte("dry-run content"))
 	copyNode.SetSlotImmediate("path", copyPath)
 	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 

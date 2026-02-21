@@ -8,6 +8,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+func init() {
+	execution.RegisterProvider(Register)
+}
+
 // Install — Install installs packages using the platform's package manager. Returns compensation state with pre-install status per package.
 type Install struct{ Impl *Provider }
 
@@ -105,6 +109,71 @@ func (o *Update) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	return nil, nil, o.Impl.Update(manager)
 }
 
+func (o *Update) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
+// Installed — Installed returns true if the named package is installed.
+type Installed struct{ Impl *Provider }
+
+func (o *Installed) Name() string { return "pkg.installed" }
+
+func (o *Installed) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name := slots["name"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] pkg.installed %v\n", name)
+		return nil, nil, nil
+	}
+
+	return o.Impl.Installed(name), nil, nil
+}
+
+func (o *Installed) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
+// NotInstalled — NotInstalled returns true if the named package is not installed.
+type NotInstalled struct{ Impl *Provider }
+
+func (o *NotInstalled) Name() string { return "pkg.not_installed" }
+
+func (o *NotInstalled) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name := slots["name"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] pkg.not_installed %v\n", name)
+		return nil, nil, nil
+	}
+
+	return o.Impl.NotInstalled(name), nil, nil
+}
+
+func (o *NotInstalled) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
+// VersionGTE — VersionGTE returns true if the installed version of name is >= version.
+type VersionGTE struct{ Impl *Provider }
+
+func (o *VersionGTE) Name() string { return "pkg.version_gte" }
+
+func (o *VersionGTE) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	name := slots["name"].(string)
+	version := slots["version"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] pkg.version_gte %v %v\n", name, version)
+		return nil, nil, nil
+	}
+
+	return o.Impl.VersionGTE(name, version), nil, nil
+}
+
+func (o *VersionGTE) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
 // Register registers all pkg actions with the given registry.
 func Register(reg *execution.ActionRegistry) {
 	p := &Provider{}
@@ -112,4 +181,7 @@ func Register(reg *execution.ActionRegistry) {
 	reg.Register(&Upgrade{Impl: p})
 	reg.Register(&Remove{Impl: p})
 	reg.Register(&Update{Impl: p})
+	reg.Register(&Installed{Impl: p})
+	reg.Register(&NotInstalled{Impl: p})
+	reg.Register(&VersionGTE{Impl: p})
 }

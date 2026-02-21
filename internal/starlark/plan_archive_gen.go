@@ -11,6 +11,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
+func init() {
+	registerPlan("archive", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return NewArchivePlan(graph, h, project, reg)
+	})
+}
+
 type ArchivePlan struct {
 	Receiver
 	graph   *execution.Graph

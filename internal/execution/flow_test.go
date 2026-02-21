@@ -27,30 +27,15 @@ func (a *flowAction) Undo(_ *execution.Context, _ map[string]any, _ execution.Un
 	return nil
 }
 
-// flowPredicate is a simple predicate for flow tests.
-type flowPredicate struct {
-	match bool
-}
-
-func (p *flowPredicate) Eval(_ any) (bool, error) { return p.match, nil }
-func (p *flowPredicate) String() string {
-	if p.match {
-		return "always-true"
-	}
-	return "always-false"
-}
-
 // --- Choose tests ---
 
-func TestFlowChooseDo(t *testing.T) {
+func TestFlowChooseDoWhenTrue(t *testing.T) {
 	nodeA := &execution.Node{ID: "a", Action: &flowAction{name: "test.a", result: "result-a"}}
-	nodeB := &execution.Node{ID: "b", Action: &flowAction{name: "test.b", result: "result-b"}}
 
 	graph := &execution.Graph{
-		Nodes: []*execution.Node{nodeA, nodeB},
+		Nodes: []*execution.Node{nodeA},
 		Phases: []*execution.Phase{
 			{ID: "phase-a", NodeIDs: []string{"a"}},
-			{ID: "phase-b", NodeIDs: []string{"b"}},
 		},
 	}
 
@@ -58,11 +43,8 @@ func TestFlowChooseDo(t *testing.T) {
 	op := &flow.Choose{}
 
 	result, undo, err := op.Do(ctx, map[string]any{
-		"input": "hello",
-		"cases": []execution.ChooseCase{
-			{Predicate: &flowPredicate{match: true}, PhaseID: "phase-a"},
-			{Predicate: &flowPredicate{match: false}, PhaseID: "phase-b"},
-		},
+		"when": true,
+		"then": "phase-a",
 	})
 	if err != nil {
 		t.Fatalf("choose Do: %v", err)
@@ -75,13 +57,13 @@ func TestFlowChooseDo(t *testing.T) {
 	}
 }
 
-func TestFlowChooseDoDefault(t *testing.T) {
-	nodeD := &execution.Node{ID: "d", Action: &flowAction{name: "test.d", result: "default-result"}}
+func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
+	nodeD := &execution.Node{ID: "d", Action: &flowAction{name: "test.d", result: "else-result"}}
 
 	graph := &execution.Graph{
 		Nodes: []*execution.Node{nodeD},
 		Phases: []*execution.Phase{
-			{ID: "phase-default", NodeIDs: []string{"d"}},
+			{ID: "phase-else", NodeIDs: []string{"d"}},
 		},
 	}
 
@@ -89,33 +71,31 @@ func TestFlowChooseDoDefault(t *testing.T) {
 	op := &flow.Choose{}
 
 	result, _, err := op.Do(ctx, map[string]any{
-		"input": "hello",
-		"cases": []execution.ChooseCase{
-			{Predicate: &flowPredicate{match: false}, PhaseID: "phase-default"},
-		},
-		"default": "phase-default",
+		"when": false,
+		"else": "phase-else",
 	})
 	if err != nil {
-		t.Fatalf("choose Do default: %v", err)
+		t.Fatalf("choose Do else: %v", err)
 	}
-	if result != "default-result" {
-		t.Errorf("expected default-result, got %v", result)
+	if result != "else-result" {
+		t.Errorf("expected else-result, got %v", result)
 	}
 }
 
-func TestFlowChooseDoNoMatch(t *testing.T) {
+func TestFlowChooseDoWhenFalseNoElse(t *testing.T) {
 	graph := &execution.Graph{}
 	ctx := &execution.Context{Context: context.Background(), Graph: graph}
 	op := &flow.Choose{}
 
-	_, _, err := op.Do(ctx, map[string]any{
-		"input": "hello",
-		"cases": []execution.ChooseCase{
-			{Predicate: &flowPredicate{match: false}, PhaseID: "phase-x"},
-		},
+	result, _, err := op.Do(ctx, map[string]any{
+		"when": false,
+		"then": "phase-x",
 	})
-	if err == nil {
-		t.Fatal("expected error when no predicate matches and no default")
+	if err != nil {
+		t.Fatal("expected no error for false with no else — should be no-op")
+	}
+	if result != nil {
+		t.Errorf("expected nil result, got %v", result)
 	}
 }
 
@@ -171,14 +151,6 @@ func TestFlowGatherDo(t *testing.T) {
 	if undo == nil {
 		t.Fatal("expected non-nil undo state")
 	}
-
-	gs, ok := undo.(*execution.GatherUndoState)
-	if !ok {
-		t.Fatalf("expected *GatherUndoState, got %T", undo)
-	}
-	if len(gs.Iterations) != 3 {
-		t.Errorf("expected 3 iteration undo entries, got %d", len(gs.Iterations))
-	}
 }
 
 func TestFlowGatherDoEmpty(t *testing.T) {
@@ -221,7 +193,7 @@ func TestFlowGatherDoConcurrent(t *testing.T) {
 	}
 
 	op := &flow.Gather{}
-	result, undo, err := op.Do(ctx, map[string]any{
+	result, _, err := op.Do(ctx, map[string]any{
 		"items": []any{"a", "b", "c", "d", "e"},
 		"do":    "body-phase",
 		"limit": 3,
@@ -236,11 +208,6 @@ func TestFlowGatherDoConcurrent(t *testing.T) {
 	}
 	if len(results) != 5 {
 		t.Errorf("expected 5 results, got %d", len(results))
-	}
-
-	gs := undo.(*execution.GatherUndoState)
-	if len(gs.Iterations) != 5 {
-		t.Errorf("expected 5 iteration undo entries, got %d", len(gs.Iterations))
 	}
 }
 
@@ -333,7 +300,7 @@ func TestFlowWaitUntilDoImmediate(t *testing.T) {
 
 	result, _, err := op.Do(ctx, map[string]any{
 		"target":    "ready",
-		"predicate": &flowPredicate{match: true},
+		"predicate": flow.PredicateFunc(func(_ any) (bool, error) { return true, nil }),
 		"timeout":   "10s",
 	})
 	if err != nil {

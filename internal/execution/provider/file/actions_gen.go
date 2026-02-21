@@ -9,6 +9,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+func init() {
+	execution.RegisterProvider(Register)
+}
+
 // Link — Link creates a symlink at path pointing to source. Idempotent: if the symlink already points correctly, it's a no-op (returns nil state).
 type Link struct{ Impl *Provider }
 
@@ -82,7 +86,10 @@ func (o *Backup) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	}
 
 	result, state, err := o.Impl.Backup(path, backupSuffix)
-	return result, state, err
+	if err != nil {
+		return nil, nil, err
+	}
+	return result, state, nil
 }
 
 func (o *Backup) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
@@ -218,6 +225,10 @@ func (o *Source) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	return result, nil, err
 }
 
+func (o *Source) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
 // Mkdir — Mkdir creates a directory (and parents) with the given mode.
 type Mkdir struct{ Impl *Provider }
 
@@ -235,6 +246,50 @@ func (o *Mkdir) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 	return nil, nil, o.Impl.Mkdir(path, mode)
 }
 
+func (o *Mkdir) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
+// Exists — Exists returns true if path exists on the filesystem.
+type Exists struct{ Impl *Provider }
+
+func (o *Exists) Name() string { return "file.exists" }
+
+func (o *Exists) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	path := slots["path"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.exists %v\n", path)
+		return nil, nil, nil
+	}
+
+	return o.Impl.Exists(path), nil, nil
+}
+
+func (o *Exists) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
+// IsDir — IsDir returns true if path exists and is a directory.
+type IsDir struct{ Impl *Provider }
+
+func (o *IsDir) Name() string { return "file.is_dir" }
+
+func (o *IsDir) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+	path := slots["path"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.is_dir %v\n", path)
+		return nil, nil, nil
+	}
+
+	return o.Impl.IsDir(path), nil, nil
+}
+
+func (o *IsDir) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
 // Register registers all file actions with the given registry.
 func Register(reg *execution.ActionRegistry) {
 	p := &Provider{}
@@ -247,4 +302,6 @@ func Register(reg *execution.ActionRegistry) {
 	reg.Register(&Move{Impl: p})
 	reg.Register(&Source{Impl: p})
 	reg.Register(&Mkdir{Impl: p})
+	reg.Register(&Exists{Impl: p})
+	reg.Register(&IsDir{Impl: p})
 }

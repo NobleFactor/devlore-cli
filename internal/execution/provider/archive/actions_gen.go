@@ -8,6 +8,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+func init() {
+	execution.RegisterProvider(Register)
+}
+
 // Extract — Extract extracts an archive (tar.gz or zip) from source into the prefix directory. The archive format is detected from the file extension. Returns compensation state with the list of created files.
 type Extract struct{ Impl *Provider }
 

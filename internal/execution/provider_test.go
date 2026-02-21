@@ -19,7 +19,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/archive"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/content"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/git"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/net"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/pkg"
@@ -108,7 +107,7 @@ func TestPkgUpdateDryRun(t *testing.T) {
 func TestShellDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &shell.Shell{Impl: &shell.Provider{}}
+	op := &shell.Exec{Impl: &shell.Provider{}}
 	slots := map[string]any{
 		"command": "echo hello",
 	}
@@ -127,7 +126,7 @@ func TestShellDryRun(t *testing.T) {
 
 func TestShellEmptyCommand(t *testing.T) {
 	p := &shell.Provider{}
-	err := p.Shell("", os.Stdout)
+	err := p.Exec("", os.Stdout)
 	if err == nil {
 		t.Fatal("expected error for empty command")
 	}
@@ -301,46 +300,6 @@ func TestGitPullDryRun(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "git.pull") {
 		t.Errorf("expected 'git.pull' in log, got %q", buf.String())
-	}
-}
-
-// --- content action tests ---
-
-func TestContentLiteral(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background()}
-	op := &content.Literal{Impl: &content.Provider{}}
-	slots := map[string]any{
-		"content": "hello world",
-	}
-
-	result, _, err := op.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("content.literal: %v", err)
-	}
-
-	data, ok := result.([]byte)
-	if !ok {
-		t.Fatalf("expected []byte result, got %T", result)
-	}
-	if string(data) != "hello world" {
-		t.Errorf("expected 'hello world', got %q", string(data))
-	}
-}
-
-func TestContentLiteralDryRun(t *testing.T) {
-	var buf bytes.Buffer
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &content.Literal{Impl: &content.Provider{}}
-	slots := map[string]any{
-		"content": "test data",
-	}
-
-	_, _, err := op.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("content.literal dry-run: %v", err)
-	}
-	if !strings.Contains(buf.String(), "[dry-run] literal") {
-		t.Errorf("expected dry-run literal log, got %q", buf.String())
 	}
 }
 

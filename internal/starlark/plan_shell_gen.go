@@ -11,6 +11,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
+func init() {
+	registerPlan("shell", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return NewShellPlan(graph, h, project, reg)
+	})
+}
+
 type ShellPlan struct {
 	Receiver
 	graph   *execution.Graph
@@ -31,8 +37,8 @@ func NewShellPlan(graph *execution.Graph, h host.Host, project string, reg *exec
 
 func (p *ShellPlan) Attr(name string) (starlark.Value, error) {
 	switch name {
-	case "shell":
-		return MakeAttr("plan.shell.shell", p.shell), nil
+	case "exec":
+		return MakeAttr("plan.shell.exec", p.exec), nil
 	case "power_shell":
 		return MakeAttr("plan.shell.power_shell", p.power_shell), nil
 	default:
@@ -41,19 +47,19 @@ func (p *ShellPlan) Attr(name string) (starlark.Value, error) {
 }
 
 func (p *ShellPlan) AttrNames() []string {
-	return []string{"power_shell", "shell"}
+	return []string{"exec", "power_shell"}
 }
 
-// shell Shell executes a POSIX shell command.
-func (p *ShellPlan) shell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+// exec Exec executes a POSIX shell command.
+func (p *ShellPlan) exec(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var command starlark.Value
-	if err := starlark.UnpackArgs("shell", args, kwargs, "command", &command); err != nil {
+	if err := starlark.UnpackArgs("exec", args, kwargs, "command", &command); err != nil {
 		return nil, err
 	}
 
 	node := &execution.Node{
-		ID:      generateNodeID("shell-shell"),
-		Action:  p.reg.MustGet("shell.shell"),
+		ID:      generateNodeID("shell-exec"),
+		Action:  p.reg.MustGet("shell.exec"),
 		Project: p.project,
 	}
 	if err := FillSlot(node, p.graph, "command", command); err != nil {

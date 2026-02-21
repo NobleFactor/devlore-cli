@@ -10,49 +10,43 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
-// Choose is a predicate-driven branch selector. It evaluates case predicates
-// against an input value and executes the first matching phase.
+// chooseUndoState preserves the selected branch's recovery state.
+type chooseUndoState struct {
+	Results map[string]any          // node results for promise re-resolution
+	Entries []execution.RecoveryEntry // branch node refs + per-node undo state
+}
+
+// Choose is a conditional branch selector. It reads a boolean from its
+// "when" slot and executes either the "then" or "else" phase.
 //
 // Slots:
-//   - input: any — the value to evaluate predicates against
-//   - cases: []execution.ChooseCase — predicate+phase pairs, evaluated in order
-//   - default: string — phase ID to execute when no predicate matches (optional)
+//   - when: bool — condition (resolved from a predicate action's output)
+//   - then: string — phase ID to execute when true
+//   - else: string — phase ID to execute when false (optional)
 //
 // Result: the selected branch phase's terminal node Result.
-// UndoState: *ChooseUndoState — the branch's recovery entries.
+// UndoState: *chooseUndoState — the branch's recovery entries.
 type Choose struct{}
 
 // Name returns the dotted action name.
 func (a *Choose) Name() string { return "flow.choose" }
 
-// Do evaluates predicates and executes the matching branch phase.
+// Do reads the boolean condition and executes the matching branch phase.
 func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
-	input := slots["input"]
+	when, _ := slots["when"].(bool)
+	thenPhaseID, _ := slots["then"].(string)
+	elsePhaseID, _ := slots["else"].(string)
 
-	cases, err := extractCases(slots)
-	if err != nil {
-		return nil, nil, err
-	}
-	defaultPhaseID, _ := slots["default"].(string)
-
-	// Evaluate predicates in order — first match wins.
 	var selectedPhaseID string
-	for _, c := range cases {
-		matched, evalErr := c.Predicate.Eval(input)
-		if evalErr != nil {
-			return nil, nil, fmt.Errorf("choose: predicate %s: %w", c.Predicate, evalErr)
-		}
-		if matched {
-			selectedPhaseID = c.PhaseID
-			break
-		}
+	if when {
+		selectedPhaseID = thenPhaseID
+	} else {
+		selectedPhaseID = elsePhaseID
 	}
 
 	if selectedPhaseID == "" {
-		if defaultPhaseID == "" {
-			return nil, nil, fmt.Errorf("choose: no predicate matched and no default phase")
-		}
-		selectedPhaseID = defaultPhaseID
+		// No branch to execute — no-op.
+		return nil, nil, nil
 	}
 
 	// Look up and execute the selected phase.
@@ -102,7 +96,7 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		terminalResult = results[ordered[len(ordered)-1].ID]
 	}
 
-	undoState := &execution.ChooseUndoState{
+	undoState := &chooseUndoState{
 		Results: results,
 		Entries: stack.Entries(),
 	}
@@ -112,7 +106,7 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 
 // Undo walks the selected branch's entries in reverse and calls CompensableAction.Undo.
 func (a *Choose) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
-	cs, ok := state.(*execution.ChooseUndoState)
+	cs, ok := state.(*chooseUndoState)
 	if !ok || cs == nil {
 		return nil
 	}
@@ -137,20 +131,4 @@ func (a *Choose) Undo(ctx *execution.Context, _ map[string]any, state execution.
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// extractCases pulls the cases list from slots.
-func extractCases(slots map[string]any) ([]execution.ChooseCase, error) {
-	raw, ok := slots["cases"]
-	if !ok {
-		return nil, fmt.Errorf("choose: missing 'cases' slot")
-	}
-	cases, ok := raw.([]execution.ChooseCase)
-	if !ok {
-		return nil, fmt.Errorf("choose: 'cases' slot must be []ChooseCase, got %T", raw)
-	}
-	if len(cases) == 0 {
-		return nil, fmt.Errorf("choose: 'cases' slot is empty")
-	}
-	return cases, nil
 }

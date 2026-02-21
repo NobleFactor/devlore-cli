@@ -386,3 +386,15 @@ func (p *Provider) Source(path string) ([]byte, error) {
 func (p *Provider) Mkdir(path string, mode os.FileMode) error {
 	return os.MkdirAll(path, mode)
 }
+
+// Exists returns true if path exists on the filesystem.
+func (p *Provider) Exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// IsDir returns true if path exists and is a directory.
+func (p *Provider) IsDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}

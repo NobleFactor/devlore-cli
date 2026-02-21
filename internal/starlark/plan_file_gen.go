@@ -11,6 +11,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
+func init() {
+	registerPlan("file", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return NewFilePlan(graph, h, project, reg)
+	})
+}
+
 type FilePlan struct {
 	Receiver
 	graph   *execution.Graph
@@ -49,13 +55,17 @@ func (p *FilePlan) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("plan.file.source", p.source), nil
 	case "mkdir":
 		return MakeAttr("plan.file.mkdir", p.mkdir), nil
+	case "exists":
+		return MakeAttr("plan.file.exists", p.exists), nil
+	case "is_dir":
+		return MakeAttr("plan.file.is_dir", p.is_dir), nil
 	default:
 		return nil, NoSuchAttrError("plan.file", name)
 	}
 }
 
 func (p *FilePlan) AttrNames() []string {
-	return []string{"backup", "copy", "link", "mkdir", "move", "remove", "source", "unlink", "write"}
+	return []string{"backup", "copy", "exists", "is_dir", "link", "mkdir", "move", "remove", "source", "unlink", "write"}
 }
 
 // link Link creates a symlink at path pointing to source. Idempotent: if the symlink already points correctly, it's a no-op (returns nil state).
@@ -265,6 +275,46 @@ func (p *FilePlan) mkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 	if err := FillSlot(node, p.graph, "mode", mode); err != nil {
 		return nil, fmt.Errorf("mode: %w", err)
+	}
+
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return NewOutput(node, p.graph, ""), nil
+}
+
+// exists Exists returns true if path exists on the filesystem.
+func (p *FilePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path starlark.Value
+	if err := starlark.UnpackArgs("exists", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	node := &execution.Node{
+		ID:      generateNodeID("file-exists"),
+		Action:  p.reg.MustGet("file.exists"),
+		Project: p.project,
+	}
+	if err := FillSlot(node, p.graph, "path", path); err != nil {
+		return nil, fmt.Errorf("path: %w", err)
+	}
+
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return NewOutput(node, p.graph, ""), nil
+}
+
+// is_dir IsDir returns true if path exists and is a directory.
+func (p *FilePlan) is_dir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path starlark.Value
+	if err := starlark.UnpackArgs("is_dir", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	node := &execution.Node{
+		ID:      generateNodeID("file-is_dir"),
+		Action:  p.reg.MustGet("file.is_dir"),
+		Project: p.project,
+	}
+	if err := FillSlot(node, p.graph, "path", path); err != nil {
+		return nil, fmt.Errorf("path: %w", err)
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)

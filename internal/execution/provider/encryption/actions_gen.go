@@ -8,6 +8,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+func init() {
+	execution.RegisterProvider(Register)
+}
+
 // Decrypt — Decrypt decrypts content using the provided decryptor function. The source path enables format detection (e.g., .sops.yaml vs .sops.json). Returns the decrypted bytes.
 type Decrypt struct{ Impl *Provider }
 
@@ -28,6 +32,10 @@ func (o *Decrypt) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		return nil, nil, err
 	}
 	return result, nil, nil
+}
+
+func (o *Decrypt) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
 }
 
 // Register registers all encryption actions with the given registry.

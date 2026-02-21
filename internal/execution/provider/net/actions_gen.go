@@ -8,6 +8,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+func init() {
+	execution.RegisterProvider(Register)
+}
+
 // Download — Download fetches the content at the given URL and returns the response body.
 type Download struct{ Impl *Provider }
 
@@ -23,6 +27,10 @@ func (o *Download) Do(ctx *execution.Context, slots map[string]any) (execution.R
 
 	result, err := o.Impl.Download(url)
 	return result, nil, err
+}
+
+func (o *Download) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
 }
 
 // Register registers all net actions with the given registry.

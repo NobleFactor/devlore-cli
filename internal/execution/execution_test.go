@@ -74,8 +74,8 @@ func TestRegistryNames(t *testing.T) {
 	file.Register(reg)
 
 	names := reg.Names()
-	if len(names) != 9 {
-		t.Errorf("expected 9 file actions, got %d", len(names))
+	if len(names) != 11 {
+		t.Errorf("expected 11 file actions, got %d", len(names))
 	}
 }
 
@@ -85,23 +85,20 @@ func TestAllProvidersCount(t *testing.T) {
 
 	names := reg.Names()
 	sort.Strings(names)
-	if len(names) != 37 {
-		t.Errorf("expected 37 total actions, got %d: %v", len(names), names)
+	if len(names) != 35 {
+		t.Errorf("expected 35 total actions, got %d: %v", len(names), names)
 	}
 
 	expected := []string{
-		"file.link", "file.copy", "file.backup", "file.unlink", "file.remove", "file.write", "file.move", "file.mkdir", "file.source",
+		"file.link", "file.copy", "file.backup", "file.unlink", "file.remove", "file.write", "file.move", "file.mkdir", "file.source", "file.exists", "file.is_dir",
 		"encryption.decrypt",
 		"template.render",
-		"pkg.install", "pkg.upgrade", "pkg.remove", "pkg.update",
-		"shell.shell", "shell.power_shell",
-		"service.start", "service.stop", "service.restart", "service.enable", "service.disable",
-		"content.literal",
+		"pkg.install", "pkg.upgrade", "pkg.remove", "pkg.update", "pkg.installed", "pkg.not_installed", "pkg.version_gte",
+		"shell.exec", "shell.power_shell",
+		"service.start", "service.stop", "service.restart", "service.enable", "service.disable", "service.exists", "service.running", "service.enabled",
 		"net.download",
 		"archive.extract",
 		"git.clone", "git.checkout", "git.pull",
-		"ui.note", "ui.warn", "ui.error", "ui.success", "ui.fail",
-		"flow.choose", "flow.gather", "flow.elevate", "flow.wait_until",
 	}
 	nameSet := make(map[string]bool)
 	for _, n := range names {

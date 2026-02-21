@@ -15,8 +15,8 @@ receivers:
     description: Filesystem operations
 
 commands:
-  - name: devlore.ops.generate
-    help: Generate boilerplate receivers and operations from a Go struct
+  - name: devlore.actions.generate
+    help: Generate Starlark plan receivers and execution graph actions from a resource provider
     implementation: commands/generate.star
     flags:
       - name: source
@@ -44,8 +44,8 @@ commands:
         default: "false"
         help: Write files to output directory instead of stdout
 
-  - name: devlore.ops.validate
-    help: Validate devlore-cli Starlark API contract
+  - name: devlore.actions.validate
+    help: Validate Starlark API contract against resource provider source
     implementation: commands/validate.star
     flags:
       - name: source

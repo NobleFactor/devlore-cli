@@ -11,6 +11,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
+func init() {
+	registerPlan("net", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return NewNetPlan(graph, h, project, reg)
+	})
+}
+
 type NetPlan struct {
 	Receiver
 	graph   *execution.Graph

@@ -11,6 +11,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
+func init() {
+	registerPlan("git", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return NewGitPlan(graph, h, project, reg)
+	})
+}
+
 type GitPlan struct {
 	Receiver
 	graph   *execution.Graph

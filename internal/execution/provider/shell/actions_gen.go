@@ -8,21 +8,29 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
-// Shell — Shell executes a POSIX shell command.
-type Shell struct{ Impl *Provider }
+func init() {
+	execution.RegisterProvider(Register)
+}
 
-func (o *Shell) Name() string { return "shell.shell" }
+// Exec — Exec executes a POSIX shell command.
+type Exec struct{ Impl *Provider }
 
-func (o *Shell) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+func (o *Exec) Name() string { return "shell.exec" }
+
+func (o *Exec) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
 	command := slots["command"].(string)
 	output := ctx.Writer
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] shell.shell %v\n", command)
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] shell.exec %v\n", command)
 		return nil, nil, nil
 	}
 
-	return nil, nil, o.Impl.Shell(command, output)
+	return nil, nil, o.Impl.Exec(command, output)
+}
+
+func (o *Exec) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
 }
 
 // PowerShell — PowerShell executes a PowerShell command (Windows).
@@ -42,9 +50,13 @@ func (o *PowerShell) Do(ctx *execution.Context, slots map[string]any) (execution
 	return nil, nil, o.Impl.PowerShell(command, output)
 }
 
+func (o *PowerShell) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
 // Register registers all shell actions with the given registry.
 func Register(reg *execution.ActionRegistry) {
 	p := &Provider{}
-	reg.Register(&Shell{Impl: p})
+	reg.Register(&Exec{Impl: p})
 	reg.Register(&PowerShell{Impl: p})
 }

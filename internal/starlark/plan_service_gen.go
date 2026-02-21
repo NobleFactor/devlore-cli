@@ -11,6 +11,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
+func init() {
+	registerPlan("service", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return NewServicePlan(graph, h, project, reg)
+	})
+}
+
 type ServicePlan struct {
 	Receiver
 	graph   *execution.Graph
@@ -41,13 +47,19 @@ func (p *ServicePlan) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("plan.service.enable", p.enable), nil
 	case "disable":
 		return MakeAttr("plan.service.disable", p.disable), nil
+	case "exists":
+		return MakeAttr("plan.service.exists", p.exists), nil
+	case "running":
+		return MakeAttr("plan.service.running", p.running), nil
+	case "enabled":
+		return MakeAttr("plan.service.enabled", p.enabled), nil
 	default:
 		return nil, NoSuchAttrError("plan.service", name)
 	}
 }
 
 func (p *ServicePlan) AttrNames() []string {
-	return []string{"disable", "enable", "restart", "start", "stop"}
+	return []string{"disable", "enable", "enabled", "exists", "restart", "running", "start", "stop"}
 }
 
 // start Start starts a service. Returns compensation state with pre-action running status.
@@ -140,6 +152,66 @@ func (p *ServicePlan) disable(_ *starlark.Thread, _ *starlark.Builtin, args star
 	node := &execution.Node{
 		ID:      generateNodeID("service-disable"),
 		Action:  p.reg.MustGet("service.disable"),
+		Project: p.project,
+	}
+	if err := FillSlot(node, p.graph, "name", name); err != nil {
+		return nil, fmt.Errorf("name: %w", err)
+	}
+
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return NewOutput(node, p.graph, ""), nil
+}
+
+// exists Exists returns true if the named service exists on the system.
+func (p *ServicePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name starlark.Value
+	if err := starlark.UnpackArgs("exists", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+
+	node := &execution.Node{
+		ID:      generateNodeID("service-exists"),
+		Action:  p.reg.MustGet("service.exists"),
+		Project: p.project,
+	}
+	if err := FillSlot(node, p.graph, "name", name); err != nil {
+		return nil, fmt.Errorf("name: %w", err)
+	}
+
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return NewOutput(node, p.graph, ""), nil
+}
+
+// running Running returns true if the named service is currently running.
+func (p *ServicePlan) running(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name starlark.Value
+	if err := starlark.UnpackArgs("running", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+
+	node := &execution.Node{
+		ID:      generateNodeID("service-running"),
+		Action:  p.reg.MustGet("service.running"),
+		Project: p.project,
+	}
+	if err := FillSlot(node, p.graph, "name", name); err != nil {
+		return nil, fmt.Errorf("name: %w", err)
+	}
+
+	p.graph.Nodes = append(p.graph.Nodes, node)
+	return NewOutput(node, p.graph, ""), nil
+}
+
+// enabled Enabled returns true if the named service is enabled to start at boot.
+func (p *ServicePlan) enabled(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name starlark.Value
+	if err := starlark.UnpackArgs("enabled", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+
+	node := &execution.Node{
+		ID:      generateNodeID("service-enabled"),
+		Action:  p.reg.MustGet("service.enabled"),
 		Project: p.project,
 	}
 	if err := FillSlot(node, p.graph, "name", name); err != nil {

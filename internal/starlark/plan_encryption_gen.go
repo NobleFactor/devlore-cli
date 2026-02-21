@@ -11,6 +11,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
+func init() {
+	registerPlan("encryption", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return NewEncryptionPlan(graph, h, project, reg)
+	})
+}
+
 type EncryptionPlan struct {
 	Receiver
 	graph   *execution.Graph

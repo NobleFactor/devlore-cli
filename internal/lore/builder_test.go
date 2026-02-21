@@ -364,7 +364,7 @@ func TestBuildPhased_LorePackageForwardOnly(t *testing.T) {
 	client := createLorePackage(t, "testpkg", map[string]string{
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -399,7 +399,7 @@ func TestBuildPhased_LorePackageWithRetry(t *testing.T) {
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
     phase.retry(max_attempts=3, backoff="exponential", initial_delay="1s", max_delay="30s")
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -440,7 +440,7 @@ func TestBuildPhased_LorePackageMultiPhase(t *testing.T) {
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
     phase.retry(max_attempts=2, backoff="linear", initial_delay="500ms")
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 		"Darwin/Deploy/provision.star": `
 def provision(package, phase):
@@ -497,7 +497,7 @@ func TestBuildPhased_MissingEntryPoint(t *testing.T) {
 	client := createLorePackage(t, "badpkg", map[string]string{
 		"Darwin/Deploy/install.star": `
 def forward(package, system, plan):
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -520,7 +520,7 @@ def install(package, phase):
         fail("expected phase.name='install', got '%s'" % phase.name)
     if phase.action != "deploy":
         fail("expected phase.action='deploy', got '%s'" % phase.action)
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -540,7 +540,7 @@ func TestBuildPhased_OutputFunctions(t *testing.T) {
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
     note("installing %s" % package.name)
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
     success("done")
 `,
 	})
@@ -561,7 +561,7 @@ func TestBuildPhased_PlanIsGlobal(t *testing.T) {
 	client := createLorePackage(t, "testpkg", map[string]string{
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -574,7 +574,7 @@ def install(package, phase):
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	// Verify the graph has nodes (proves plan.package.install() worked).
+	// Verify the graph has nodes (proves plan.pkg.install() worked).
 	found := false
 	for _, node := range result.Graph.Nodes {
 		if node.ActionName() == "pkg.install" {
@@ -583,7 +583,7 @@ def install(package, phase):
 		}
 	}
 	if !found {
-		t.Error("expected pkg.install node from plan.package.install()")
+		t.Error("expected pkg.install node from plan.pkg.install()")
 	}
 }
 

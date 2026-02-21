@@ -8,6 +8,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+func init() {
+	execution.RegisterProvider(Register)
+}
+
 // Clone — Clone clones a repository from url into path. Returns compensation state with the cloned path.
 type Clone struct{ Impl *Provider }
 
@@ -53,6 +57,10 @@ func (o *Checkout) Do(ctx *execution.Context, slots map[string]any) (execution.R
 	return nil, nil, o.Impl.Checkout(repo, ref, output)
 }
 
+func (o *Checkout) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
+}
+
 // Pull — Pull pulls the latest changes in the given repository directory.
 type Pull struct{ Impl *Provider }
 
@@ -68,6 +76,10 @@ func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 	}
 
 	return nil, nil, o.Impl.Pull(repo, output)
+}
+
+func (o *Pull) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+	return nil
 }
 
 // Register registers all git actions with the given registry.

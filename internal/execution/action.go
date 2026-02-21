@@ -73,29 +73,3 @@ type Context struct {
 	TargetChecksum string
 }
 
-// GatherUndoState preserves per-iteration state needed for rollback.
-// Gather's Do returns this as its UndoState. Recovery entries reference
-// shared nodes — no lifecycle issue.
-type GatherUndoState struct {
-	Iterations []IterationUndo
-}
-
-// IterationUndo captures one gather iteration's undo state.
-type IterationUndo struct {
-	ProxyCtx map[string]any  // {gatherID: item} for slot re-resolution
-	Results  map[string]any  // node results for promise re-resolution
-	Entries  []RecoveryEntry // shared node refs + per-node undo state
-}
-
-// ChooseUndoState preserves the selected branch's recovery state.
-// Choose's Do returns this as its UndoState.
-type ChooseUndoState struct {
-	Results map[string]any  // node results for promise re-resolution
-	Entries []RecoveryEntry // branch node refs + per-node undo state
-}
-
-// ChooseCase pairs a predicate with a phase to execute if the predicate matches.
-type ChooseCase struct {
-	Predicate Predicate
-	PhaseID   string
-}
