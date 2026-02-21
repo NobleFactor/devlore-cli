@@ -731,7 +731,7 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 				Source:         source,
 				Target:         target,
 				Project:        n.Project,
-				Operation:      n.ActionName(),
+				Action:      n.ActionName(),
 				SourceChecksum: n.SourceChecksum,
 				TargetChecksum: n.TargetChecksum,
 			}
@@ -762,7 +762,7 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 				Source:    source,
 				Target:    target,
 				Project:   n.Project,
-				Operation: n.ActionName(),
+				Action: n.ActionName(),
 			}
 			if _, err := os.Stat(target); os.IsNotExist(err) {
 				entry.State = reconcile.StateMissing
@@ -795,7 +795,7 @@ func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Re
 			Source:         entry.Source,
 			Target:         target,
 			Project:        entry.Project,
-			Operation:      entry.LastOp(),
+			Action:         entry.LastActionName(),
 			SourceChecksum: entrySourceChecksum,
 			TargetChecksum: entryTargetChecksum,
 		}
@@ -883,7 +883,7 @@ func outputReconcileJSON(report *reconcile.Report) error {
 		Target   string `json:"target"`
 		State    string `json:"state"`
 		Project  string `json:"project"`
-		Operation string `json:"operation"`
+		Action    string `json:"action"`
 		Message  string `json:"message,omitempty"`
 	}
 
@@ -921,7 +921,7 @@ func outputReconcileJSON(report *reconcile.Report) error {
 			Target:    e.Target,
 			State:     e.State.Label(),
 			Project:   e.Project,
-			Operation: e.Operation,
+			Action:    e.Action,
 			Message:   e.Message,
 		})
 	}

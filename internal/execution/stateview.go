@@ -23,9 +23,9 @@ const (
 	EntryFile EntryType = "file"
 )
 
-// HistoryRecord represents a single operation on an entry from a receipt.
+// HistoryRecord represents a single action on an entry from a receipt.
 type HistoryRecord struct {
-	// Timestamp is when this operation occurred.
+	// Timestamp is when this action occurred.
 	Timestamp time.Time `json:"timestamp" yaml:"timestamp"`
 
 	// Receipt is the filename of the receipt that recorded this.
@@ -37,13 +37,13 @@ type HistoryRecord struct {
 	// Action performed: link, copy, render, decrypt, install, etc.
 	Action string `json:"action" yaml:"action"`
 
-	// Status of this operation: completed, skipped, failed.
+	// Status of this action: completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
 
-	// SourceChecksum is the SHA256 of the source at operation time.
+	// SourceChecksum is the SHA256 of the source at action time.
 	SourceChecksum string `json:"source_checksum,omitempty" yaml:"source_checksum,omitempty"`
 
-	// TargetChecksum is the SHA256 of the target after operation.
+	// TargetChecksum is the SHA256 of the target after action.
 	TargetChecksum string `json:"target_checksum,omitempty" yaml:"target_checksum,omitempty"`
 }
 
@@ -52,12 +52,12 @@ type PackageEntry struct {
 	// Name is the package name (e.g., "docker").
 	Name string `json:"name" yaml:"name"`
 
-	// History of lifecycle operations, ordered by time.
+	// History of lifecycle actions, ordered by time.
 	History []HistoryRecord `json:"history" yaml:"history"`
 }
 
-// LastOperation returns the most recent operation, or nil if no history.
-func (e *PackageEntry) LastOperation() *HistoryRecord {
+// LastAction returns the most recent action, or nil if no history.
+func (e *PackageEntry) LastAction() *HistoryRecord {
 	if len(e.History) == 0 {
 		return nil
 	}
@@ -78,57 +78,57 @@ type FileEntry struct {
 	// Layer is the repository layer (base, team, personal).
 	Layer string `json:"layer,omitempty" yaml:"layer,omitempty"`
 
-	// History of deployment operations, ordered by time.
+	// History of deployment actions, ordered by time.
 	History []HistoryRecord `json:"history" yaml:"history"`
 }
 
-// LastOperation returns the most recent operation, or nil if no history.
-func (e *FileEntry) LastOperation() *HistoryRecord {
+// LastAction returns the most recent action, or nil if no history.
+func (e *FileEntry) LastAction() *HistoryRecord {
 	if len(e.History) == 0 {
 		return nil
 	}
 	return &e.History[len(e.History)-1]
 }
 
-// IsCopied returns true if the latest operation was a copy (not symlink).
+// IsCopied returns true if the latest action was a copy (not symlink).
 func (e *FileEntry) IsCopied() bool {
-	last := e.LastOperation()
+	last := e.LastAction()
 	if last == nil {
 		return false
 	}
 	return last.Action == "file.copy"
 }
 
-// IsLinked returns true if the latest operation was a symlink.
+// IsLinked returns true if the latest action was a symlink.
 func (e *FileEntry) IsLinked() bool {
-	last := e.LastOperation()
+	last := e.LastAction()
 	if last == nil {
 		return false
 	}
 	return last.Action == "file.link"
 }
 
-// SourceChecksum returns the source checksum from the latest operation.
+// SourceChecksum returns the source checksum from the latest action.
 func (e *FileEntry) SourceChecksum() string {
-	last := e.LastOperation()
+	last := e.LastAction()
 	if last == nil {
 		return ""
 	}
 	return last.SourceChecksum
 }
 
-// TargetChecksum returns the target checksum from the latest operation.
+// TargetChecksum returns the target checksum from the latest action.
 func (e *FileEntry) TargetChecksum() string {
-	last := e.LastOperation()
+	last := e.LastAction()
 	if last == nil {
 		return ""
 	}
 	return last.TargetChecksum
 }
 
-// LastOp returns the operation from the latest deployment.
-func (e *FileEntry) LastOp() string {
-	last := e.LastOperation()
+// LastActionName returns the action name from the latest deployment.
+func (e *FileEntry) LastActionName() string {
+	last := e.LastAction()
 	if last == nil {
 		return ""
 	}
@@ -471,7 +471,7 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 	}
 }
 
-// isPackageNode determines if a node represents a package lifecycle operation.
+// isPackageNode determines if a node represents a package lifecycle action.
 func (b *StateViewBuilder) isPackageNode(node *Node) bool {
 	switch node.ActionName() {
 	case "pkg.prepare", "pkg.install", "pkg.verify", "pkg.upgrade", "pkg.uninstall", "pkg.cleanup",

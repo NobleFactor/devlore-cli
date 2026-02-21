@@ -22,7 +22,7 @@ func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *execution.Gr
 
 func TestBuild_WithNativePMPackage(t *testing.T) {
 	// Test that Build creates correct nodes for native PM packages.
-	// Native PM packages use the namespaced "pkg.install" operation that works
+	// Native PM packages use the namespaced "pkg.install" action that works
 	// on all platforms. The actual PM is determined at execution time.
 
 	tmpDir := t.TempDir()
@@ -44,7 +44,7 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 		t.Error("expected at least 1 node, got 0")
 	}
 
-	// The first node should be a namespaced pkg.install operation
+	// The first node should be a namespaced pkg.install action
 	found := false
 	for _, node := range result.Graph.Nodes {
 		if node.ActionName() == "pkg.install" {
@@ -57,13 +57,13 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("expected to find pkg.install operation")
+		t.Error("expected to find pkg.install action")
 	}
 }
 
 func TestBuild_PlatformDetection(t *testing.T) {
 	// Test that platform is correctly resolved and stored in result.
-	// All platforms use the namespaced "pkg.install" operation - the actual PM
+	// All platforms use the namespaced "pkg.install" action - the actual PM
 	// is determined at execution time by host.PackageManager().
 	tmpDir := t.TempDir()
 	client := lorepackage.New("test", nil, tmpDir)
@@ -92,7 +92,7 @@ func TestBuild_PlatformDetection(t *testing.T) {
 				t.Errorf("Platform = %q, want %q", result.Platform, tt.platform)
 			}
 
-			// All platforms use the namespaced "pkg.install" operation
+			// All platforms use the namespaced "pkg.install" action
 			found := false
 			for _, node := range result.Graph.Nodes {
 				if node.ActionName() == "pkg.install" {
@@ -101,7 +101,7 @@ func TestBuild_PlatformDetection(t *testing.T) {
 				}
 			}
 			if !found {
-				t.Errorf("expected to find pkg.install operation")
+				t.Errorf("expected to find pkg.install action")
 			}
 		})
 	}
@@ -173,11 +173,11 @@ func TestBuild_MutuallyExclusiveConfig(t *testing.T) {
 	}
 }
 
-func TestEngineRunsPackageInstallOperations(t *testing.T) {
+func TestEngineRunsPackageInstallActions(t *testing.T) {
 	// Integration test: build graph and run through engine with DryRun
 	reg := execution.NewActionRegistry()
 
-	// Register all operations (file + package)
+	// Register all actions (file + package)
 	provider.RegisterAll(reg)
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
@@ -187,7 +187,9 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 		ID:         "package-install-testpkg",
 		Action: reg.MustGet("pkg.install"),
 	}
-	node.SetSlotImmediate("packages", "testpkg")
+	node.SetSlotImmediate("packages", []string{"testpkg"})
+	node.SetSlotImmediate("manager", "brew")
+	node.SetSlotImmediate("cask", false)
 	graph := &execution.Graph{
 		Nodes: []*execution.Node{node},
 	}
@@ -206,26 +208,28 @@ func TestEngineRunsPackageInstallOperations(t *testing.T) {
 	}
 }
 
-func TestEngineRunsNamespacedPackageOps(t *testing.T) {
-	// Test that all namespaced package operations can execute in dry-run mode
+func TestEngineRunsNamespacedPackageActions(t *testing.T) {
+	// Test that all namespaced package actions can execute in dry-run mode
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
-	// All platforms use these four namespaced package operations
-	ops := []string{
+	// All platforms use these four namespaced package actions
+	actions := []string{
 		"pkg.install", "pkg.upgrade", "pkg.remove", "pkg.update",
 	}
 
-	for _, opName := range ops {
+	for _, opName := range actions {
 		t.Run(opName, func(t *testing.T) {
 			node := &execution.Node{
 				ID:         "test-" + opName,
 				Action: reg.MustGet(opName),
 			}
+			node.SetSlotImmediate("manager", "brew")
 			if opName != "pkg.update" {
-				node.SetSlotImmediate("packages", "testpkg")
+				node.SetSlotImmediate("packages", []string{"testpkg"})
+				node.SetSlotImmediate("cask", false)
 			}
 
 			graph := &execution.Graph{
@@ -246,7 +250,7 @@ func TestEngineRunsNamespacedPackageOps(t *testing.T) {
 
 func TestNativePMNodeMetadata(t *testing.T) {
 	// Test that native PM nodes have correct metadata.
-	// With namespaced operations, manager is NOT set in metadata - it's determined
+	// With namespaced actions, manager is NOT set in metadata - it's determined
 	// at execution time by host.PackageManager(). Only packages and phase are set.
 	tmpDir := t.TempDir()
 	client := lorepackage.New("test", nil, tmpDir)
@@ -260,7 +264,7 @@ func TestNativePMNodeMetadata(t *testing.T) {
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	// Find the install node (uses namespaced "pkg.install" operation)
+	// Find the install node (uses namespaced "pkg.install" action)
 	var installNode *execution.Node
 	for _, node := range result.Graph.Nodes {
 		if node.ActionName() == "pkg.install" {
@@ -280,7 +284,7 @@ func TestNativePMNodeMetadata(t *testing.T) {
 	if installNode.GetSlot("phase") == "" {
 		t.Error("expected phase slot to be set")
 	}
-	// Note: manager is NOT set for namespaced operations
+	// Note: manager is NOT set for namespaced actions
 	// The PM is determined at execution time by host.PackageManager()
 }
 
@@ -360,7 +364,7 @@ func TestBuildPhased_LorePackageForwardOnly(t *testing.T) {
 	client := createLorePackage(t, "testpkg", map[string]string{
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -395,7 +399,7 @@ func TestBuildPhased_LorePackageWithRetry(t *testing.T) {
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
     phase.retry(max_attempts=3, backoff="exponential", initial_delay="1s", max_delay="30s")
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -436,7 +440,7 @@ func TestBuildPhased_LorePackageMultiPhase(t *testing.T) {
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
     phase.retry(max_attempts=2, backoff="linear", initial_delay="500ms")
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 		"Darwin/Deploy/provision.star": `
 def provision(package, phase):
@@ -493,7 +497,7 @@ func TestBuildPhased_MissingEntryPoint(t *testing.T) {
 	client := createLorePackage(t, "badpkg", map[string]string{
 		"Darwin/Deploy/install.star": `
 def forward(package, system, plan):
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -516,7 +520,7 @@ def install(package, phase):
         fail("expected phase.name='install', got '%s'" % phase.name)
     if phase.action != "deploy":
         fail("expected phase.action='deploy', got '%s'" % phase.action)
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -536,7 +540,7 @@ func TestBuildPhased_OutputFunctions(t *testing.T) {
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
     note("installing %s" % package.name)
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
     success("done")
 `,
 	})
@@ -557,7 +561,7 @@ func TestBuildPhased_PlanIsGlobal(t *testing.T) {
 	client := createLorePackage(t, "testpkg", map[string]string{
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
-    plan.package.install(package.name)
+    plan.pkg.install(packages=package.name, manager="brew", cask=False)
 `,
 	})
 
@@ -570,7 +574,7 @@ def install(package, phase):
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	// Verify the graph has nodes (proves plan.package.install() worked).
+	// Verify the graph has nodes (proves plan.pkg.install() worked).
 	found := false
 	for _, node := range result.Graph.Nodes {
 		if node.ActionName() == "pkg.install" {
@@ -579,7 +583,7 @@ def install(package, phase):
 		}
 	}
 	if !found {
-		t.Error("expected pkg.install node from plan.package.install()")
+		t.Error("expected pkg.install node from plan.pkg.install()")
 	}
 }
 

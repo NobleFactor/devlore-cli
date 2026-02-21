@@ -11,6 +11,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
+func init() {
+	registerPlan("{{.Provider}}", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return New{{.StructName}}Plan(graph, h, project, reg)
+	})
+}
+
 type {{.StructName}}Plan struct {
 	Receiver
 	graph   *execution.Graph
@@ -44,12 +50,13 @@ func (p *{{.StructName}}Plan) AttrNames() []string {
 	return []string{{"{"}}{{attrNamesList .Methods}}{{"}"}}
 }
 {{range .Methods}}
+// {{.SnakeName}} {{.Doc}}
 func (p *{{$.StructName}}Plan) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 {{planUnpackArgs .}}
 
 	node := &execution.Node{
-		ID:      generateNodeID("{{$.Category}}-{{.SnakeName}}"),
-		Action:  p.reg.MustGet("{{$.Category}}.{{.SnakeName}}"),
+		ID:      generateNodeID("{{$.Provider}}-{{.SnakeName}}"),
+		Action:  p.reg.MustGet("{{$.Provider}}.{{.SnakeName}}"),
 		Project: p.project,
 	}
 {{planFillSlots .}}

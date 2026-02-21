@@ -78,8 +78,8 @@ type ExecutorOptions struct {
 	// DryRun prevents filesystem modifications.
 	DryRun bool
 
-	// Logger receives action output.
-	Logger io.Writer
+	// Writer receives user-facing output.
+	Writer io.Writer
 
 	// Data holds tool-provided context (template vars, SOPS config, etc.).
 	Data map[string]any
@@ -99,8 +99,8 @@ type GraphExecutor struct {
 
 // NewGraphExecutor creates an executor with the given options.
 func NewGraphExecutor(opts ExecutorOptions) *GraphExecutor {
-	if opts.Logger == nil {
-		opts.Logger = os.Stdout
+	if opts.Writer == nil {
+		opts.Writer = os.Stdout
 	}
 	if opts.BackupSuffix == "" {
 		opts.BackupSuffix = ".writ-backup"
@@ -138,7 +138,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 	execCtx := &Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
-		Logger:  e.options.Logger,
+		Writer:  e.options.Writer,
 		Data:    e.options.Data,
 		Graph:   g,
 	}
@@ -183,7 +183,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 	execCtx := &Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
-		Logger:  e.options.Logger,
+		Writer:  e.options.Writer,
 		Data:    e.options.Data,
 		Graph:   g,
 	}
@@ -393,7 +393,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edg
 	execCtx := &Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
-		Logger:  e.options.Logger,
+		Writer:  e.options.Writer,
 		Data:    e.options.Data,
 	}
 
@@ -456,8 +456,10 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string
 		results[node.ID] = result
 	}
 
-	// Push recovery entry
-	stack.Push(RecoveryEntry{Node: node, UndoState: undoState})
+	// Push recovery entry only for compensable actions.
+	if _, ok := node.Action.(CompensableAction); ok {
+		stack.Push(RecoveryEntry{Node: node, UndoState: undoState})
+	}
 
 	node.Status = StatusCompleted
 	node.SourceChecksum = ctx.SourceChecksum

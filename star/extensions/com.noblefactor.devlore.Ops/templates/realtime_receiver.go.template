@@ -10,18 +10,18 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/{{.Category}}"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/{{.Provider}}"
 )
 
 type {{.StructName}}Receiver struct {
 	Receiver
-	provider *{{.Category}}.Provider
+	provider *{{.Provider}}.Provider
 	output   io.Writer
 }
 
-func New{{.StructName}}Receiver(provider *{{.Category}}.Provider, output io.Writer) *{{.StructName}}Receiver {
+func New{{.StructName}}Receiver(provider *{{.Provider}}.Provider, output io.Writer) *{{.StructName}}Receiver {
 	return &{{.StructName}}Receiver{
-		Receiver: NewReceiver("{{.Category}}"),
+		Receiver: NewReceiver("{{.Provider}}"),
 		provider: provider,
 		output:   output,
 	}
@@ -31,13 +31,13 @@ func (r *{{.StructName}}Receiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 {{- range .Methods}}
 	case "{{.SnakeName}}":
-		return MakeAttr("{{$.Category}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
+		return MakeAttr("{{$.Provider}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
 {{- end}}
 	default:
 {{- if hasExtraAttrs .}}
 		return r.queryAttr(name)
 {{- else}}
-		return nil, NoSuchAttrError("{{.Category}}", name)
+		return nil, NoSuchAttrError("{{.Provider}}", name)
 {{- end}}
 	}
 }
@@ -46,6 +46,7 @@ func (r *{{.StructName}}Receiver) AttrNames() []string {
 	return []string{{"{"}}{{allAttrNames .}}{{"}"}}
 }
 {{range .Methods}}
+// {{.SnakeName}} {{.Doc}}
 func (r *{{$.StructName}}Receiver) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 {{realtimeUnpackArgs .}}
 {{realtimeProviderBody .}}

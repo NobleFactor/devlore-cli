@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
 # Copyright Noble Factor. All rights reserved.
 
-# generate.star - Generate receivers and operations from service structs
+# generate.star - Generate receivers and actions from provider structs
 #
-# Reads a service struct's methods via go.methods(), then calls
-# go.generate() to produce plan receivers, graph operations, and real-time
+# Reads a provider struct's methods via go.methods(), then calls
+# go.generate() to produce plan receivers, graph actions, and realtime
 # receivers.
 
 # Methods from starlark.Value and starlark.HasAttrs -- always excluded.
@@ -13,9 +13,6 @@ SKIP_METHODS = [
     "String", "Type", "Freeze", "Truth", "Hash",
     "Attr", "AttrNames",
 ]
-
-# Common struct name suffixes to strip when deriving category
-STRIP_SUFFIXES = ["Ops", "Impl", "Service", "Handler"]
 
 # Template to output filename mapping
 TEMPLATE_FILES = {
@@ -27,7 +24,7 @@ TEMPLATE_FILES = {
 # Template to default package mapping
 TEMPLATE_PACKAGES = {
     "plan_receiver": "starlark",
-    "graph_actions": "",  # derived from category at runtime
+    "graph_actions": "",  # derived from provider at runtime
     "realtime_receiver": "starlark",
 }
 
@@ -67,18 +64,17 @@ def to_snake(name):
     return "".join(result)
 
 def run(ctx):
-    """Generate receivers and operations from a service struct."""
+    """Generate receivers and actions from a provider struct."""
 
     # -------------------------------------------------------------------------
     # Validate required arguments
     # -------------------------------------------------------------------------
     path = ctx.args.get("source", "")
-    struct_name = ctx.args.get("service", "")
-
     if not path:
         fail("--source is required")
-    if not struct_name:
-        fail("--service is required")
+
+    # All providers use the same struct name
+    struct_name = "Provider"
 
     # -------------------------------------------------------------------------
     # Discover and filter methods
@@ -124,17 +120,9 @@ def run(ctx):
     # Derive names and build descriptor
     # -------------------------------------------------------------------------
 
-    # Strip common suffixes from struct name
-    struct_short = struct_name
-    for suffix in STRIP_SUFFIXES:
-        if struct_short.endswith(suffix) and len(struct_short) > len(suffix):
-            struct_short = struct_short[:-len(suffix)]
-            break
-
-    # Category override or derive from struct name
-    category = ctx.args.get("category", "")
-    if not category:
-        category = to_snake(struct_short)
+    # Provider identity comes from the source path, not the struct name
+    provider = path.split("/")[-1]
+    struct_short = provider.title()
 
     pkg_override = ctx.args.get("package", "")
 
@@ -152,16 +140,32 @@ def run(ctx):
         method_descriptors.append({
             "name": m.name,
             "returns": m.returns,
-            "doc": m.doc,
+            "doc": " ".join(m.doc.split()),
             "params": params,
             "compensable": compensable,
         })
 
     # -------------------------------------------------------------------------
+    # Detect plannable directive and derive template selection
+    # -------------------------------------------------------------------------
+    templates_str = ctx.args.get("templates", "")
+    if templates_str:
+        # Explicit --templates overrides auto-detection
+        templates = templates_str.split(",")
+    else:
+        # Auto-detect from //devlore:plannable directive on the Provider struct
+        type_doc = go.type_doc(path, name=struct_name)
+        is_plannable = "devlore:plannable" in type_doc
+        if is_plannable:
+            templates = ["plan_receiver", "graph_actions"]
+            note("Detected //devlore:plannable — generating plan_receiver + graph_actions")
+        else:
+            templates = ["realtime_receiver"]
+            note("No //devlore:plannable directive — generating realtime_receiver")
+
+    # -------------------------------------------------------------------------
     # Generate code for each template
     # -------------------------------------------------------------------------
-    templates_str = ctx.args.get("templates", "plan_receiver,graph_actions,realtime_receiver")
-    templates = templates_str.split(",")
     output_dir = ctx.args.get("output", "")
     write_files = ctx.args.get("write", "false") == "true"
 
@@ -178,40 +182,36 @@ def run(ctx):
 
         # Derive namespace
         if tmpl == "plan_receiver":
-            namespace = "plan." + category
+            namespace = "plan." + provider
         else:
-            namespace = category
+            namespace = provider
 
-        # Derive package and struct name per template
+        # Derive package per template
         if tmpl == "graph_actions":
             # graph_actions lives in the per-provider package
-            pkg = pkg_override if pkg_override else category
-            tmpl_struct_name = struct_short
-            impl_type = "Provider"
+            pkg = pkg_override if pkg_override else provider
         else:
             pkg = pkg_override if pkg_override else TEMPLATE_PACKAGES[tmpl]
-            tmpl_struct_name = struct_short
-            impl_type = struct_name
 
         descriptor = {
             "package": pkg,
-            "category": category,
-            "struct_name": tmpl_struct_name,
+            "provider": provider,
+            "struct_name": struct_short,
             "namespace": namespace,
-            "impl_type": impl_type,
+            "impl_type": struct_name,
             "methods": method_descriptors,
         }
         # Add extra attrs for realtime_receiver (companion query files)
         if tmpl == "realtime_receiver" and extra_attrs:
             descriptor["extra_attrs"] = extra_attrs
 
-        note("Generating " + tmpl + " for " + tmpl_struct_name + "...")
+        note("Generating " + tmpl + " for " + struct_short + "...")
         template_content = load_template(tmpl, ctx.extension.dir)
         code = go.generate(template_content, descriptor)
 
         filename_pattern = TEMPLATE_FILES[tmpl]
         if "%s" in filename_pattern:
-            filename = filename_pattern % category
+            filename = filename_pattern % provider
         else:
             filename = filename_pattern
         if write_files and output_dir:

@@ -19,15 +19,12 @@ import (
 
 // --- Test helpers ---
 
-// failAction always returns error from Do.
+// failAction always returns error from Do. Action-only (no Undo).
 type failAction struct{}
 
 func (a *failAction) Name() string { return "test.fail" }
 func (a *failAction) Do(_ *execution.Context, _ map[string]any) (execution.Result, execution.UndoState, error) {
 	return nil, nil, fmt.Errorf("deliberate failure")
-}
-func (a *failAction) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
 }
 
 // trackAction records Undo calls for ordering verification.
@@ -48,15 +45,12 @@ func (a *trackAction) Undo(_ *execution.Context, _ map[string]any, state executi
 	return nil
 }
 
-// noopAction returns nil UndoState (non-compensable).
+// noopAction returns nil UndoState. Action-only (no compensation required).
 type noopAction struct{}
 
 func (a *noopAction) Name() string { return "test.noop" }
 func (a *noopAction) Do(_ *execution.Context, _ map[string]any) (execution.Result, execution.UndoState, error) {
 	return nil, nil, nil
-}
-func (a *noopAction) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
 }
 
 // conditionalFailAction fails when the "path" slot matches failPath.
@@ -71,9 +65,6 @@ func (a *conditionalFailAction) Do(_ *execution.Context, slots map[string]any) (
 		return nil, nil, fmt.Errorf("deliberate failure on %s", path)
 	}
 	return nil, nil, nil
-}
-func (a *conditionalFailAction) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
 }
 
 // phasedGraph builds a single-phase graph with linear edges between nodes.
@@ -101,9 +92,9 @@ func phasedGraph(nodes []*execution.Node) *execution.Graph {
 
 // --- Tests ---
 
-// TestCompensationFileOps verifies that completed file operations (write, copy,
+// TestCompensationFileActions verifies that completed file actions (write, copy,
 // link) are fully compensated when a subsequent action fails.
-func TestCompensationFileOps(t *testing.T) {
+func TestCompensationFileActions(t *testing.T) {
 	tmpDir := t.TempDir()
 	fp := &file.Provider{}
 
@@ -119,10 +110,12 @@ func TestCompensationFileOps(t *testing.T) {
 	writeNode := &execution.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
+	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	copyNode := &execution.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
-	copyNode.SetSlotImmediate("source", linkSource)
+	copyNode.SetSlotImmediate("content", []byte("copied content"))
 	copyNode.SetSlotImmediate("path", copyPath)
+	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	linkNode := &execution.Node{ID: "link", Action: &file.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
@@ -131,7 +124,7 @@ func TestCompensationFileOps(t *testing.T) {
 	failNode := &execution.Node{ID: "fail", Action: &failAction{}}
 
 	g := phasedGraph([]*execution.Node{writeNode, copyNode, linkNode, failNode})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Logger: io.Discard})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
 	if err == nil {
@@ -161,7 +154,7 @@ func TestCompensationOrdering(t *testing.T) {
 	nodeFail := &execution.Node{ID: "fail", Action: &failAction{}}
 
 	g := phasedGraph([]*execution.Node{nodeA, nodeB, nodeC, nodeFail})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Logger: io.Discard})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	if err := executor.Run(context.Background(), g); err == nil {
 		t.Fatal("expected error")
@@ -193,10 +186,12 @@ func TestCompensationDryRun(t *testing.T) {
 	writeNode := &execution.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
+	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	copyNode := &execution.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
-	copyNode.SetSlotImmediate("source", linkSource)
+	copyNode.SetSlotImmediate("content", []byte("dry-run content"))
 	copyNode.SetSlotImmediate("path", copyPath)
+	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	linkNode := &execution.Node{ID: "link", Action: &file.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
@@ -207,7 +202,7 @@ func TestCompensationDryRun(t *testing.T) {
 	g := phasedGraph([]*execution.Node{writeNode, copyNode, linkNode, failNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun: true,
-		Logger: io.Discard,
+		Writer: io.Discard,
 	})
 
 	err := executor.Run(context.Background(), g)
@@ -234,11 +229,12 @@ func TestCompensationNilState(t *testing.T) {
 	writeNode := &execution.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
+	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	failNode := &execution.Node{ID: "fail", Action: &failAction{}}
 
 	g := phasedGraph([]*execution.Node{noopNode, writeNode, failNode})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Logger: io.Discard})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
 	if err == nil {
@@ -262,15 +258,17 @@ func TestCompensationPartialFailure(t *testing.T) {
 	firstNode := &execution.Node{ID: "first", Action: &file.Write{Impl: fp}}
 	firstNode.SetSlotImmediate("content", "first")
 	firstNode.SetSlotImmediate("path", firstPath)
+	firstNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	failNode := &execution.Node{ID: "fail", Action: &failAction{}}
 
 	thirdNode := &execution.Node{ID: "third", Action: &file.Write{Impl: fp}}
 	thirdNode.SetSlotImmediate("content", "third")
 	thirdNode.SetSlotImmediate("path", thirdPath)
+	thirdNode.SetSlotImmediate("mode", os.FileMode(0644))
 
 	g := phasedGraph([]*execution.Node{firstNode, failNode, thirdNode})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Logger: io.Discard})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
 	if err == nil {
@@ -302,6 +300,7 @@ func TestCompensationGather(t *testing.T) {
 
 	writeNode := &execution.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "gather test")
+	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 	writeNode.SetSlotProxy("path", "gather", "")
 
 	cfail := &conditionalFailAction{failPath: paths[2]}
@@ -322,7 +321,7 @@ func TestCompensationGather(t *testing.T) {
 
 	ctx := &execution.Context{
 		Context: context.Background(),
-		Logger:  io.Discard,
+		Writer:  io.Discard,
 		Graph:   g,
 		NodeID:  "gather",
 	}

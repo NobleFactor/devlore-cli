@@ -5,9 +5,11 @@ package encryption
 
 import "fmt"
 
-// Provider provides encryption and decryption operations.
+// Provider provides encryption and decryption actions.
 // The actual crypto backend (SOPS, age, etc.) is injected via function
 // parameters, keeping this provider independent of specific libraries.
+//
+//devlore:plannable
 type Provider struct{}
 
 // Decrypt decrypts content using the provided decryptor function.

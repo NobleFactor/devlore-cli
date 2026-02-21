@@ -5,6 +5,7 @@ package starlark
 
 import (
 	"fmt"
+	"sort"
 
 	"go.starlark.net/starlark"
 
@@ -13,45 +14,31 @@ import (
 )
 
 // PlanRoot implements the top-level plan namespace using the slot-based model.
-// It provides access to sub-namespaces (package, file, template, encryption,
-// archive, git, service, shell, net, content) and top-level bindings
-// (source, gather).
+// Sub-namespaces are dynamically populated from the plan registry (each
+// plan_*_gen.go registers via init()).
 type PlanRoot struct {
 	graph   *execution.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 
-	// Sub-namespaces (cached)
-	packagePlan    *PackagePlan
-	filePlan       *FilePlan
-	templatePlan   *TemplatePlan
-	encryptionPlan *EncryptionPlan
-	archivePlan    *ArchivePlan
-	gitPlan        *GitPlan
-	servicePlan    *ServicePlan
-	shellPlan      *ShellPlan
-	netPlan        *NetPlan
-	contentPlan    *ContentPlan
+	// Sub-namespaces built from planRegistry.
+	plans map[string]starlark.Value
 }
 
 // NewPlanRoot creates a new PlanRoot for the given graph and host.
+// Sub-namespaces are built dynamically from the plan registry.
 func NewPlanRoot(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PlanRoot {
+	plans := make(map[string]starlark.Value, len(planRegistry))
+	for name, factory := range planRegistry {
+		plans[name] = factory(graph, h, project, reg)
+	}
 	return &PlanRoot{
-		graph:          graph,
-		host:           h,
-		project:        project,
-		reg:            reg,
-		packagePlan:    NewPackagePlan(graph, h, project, reg),
-		filePlan:       NewFilePlan(graph, h, project, reg),
-		templatePlan:   NewTemplatePlan(graph, h, project, reg),
-		encryptionPlan: NewEncryptionPlan(graph, h, project, reg),
-		archivePlan:    NewArchivePlan(graph, h, project, reg),
-		gitPlan:        NewGitPlan(graph, h, project, reg),
-		servicePlan:    NewServicePlan(graph, h, project, reg),
-		shellPlan:      NewShellPlan(graph, h, project, reg),
-		netPlan:        NewNetPlan(graph, h, project, reg),
-		contentPlan:    NewContentPlan(graph, h, project, reg),
+		graph:   graph,
+		host:    h,
+		project: project,
+		reg:     reg,
+		plans:   plans,
 	}
 }
 
@@ -64,29 +51,13 @@ func (p *PlanRoot) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: pl
 
 // Starlark HasAttrs interface
 func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
-	switch name {
-	// Sub-namespaces
-	case "archive":
-		return p.archivePlan, nil
-	case "content":
-		return p.contentPlan, nil
-	case "encryption":
-		return p.encryptionPlan, nil
-	case "file":
-		return p.filePlan, nil
-	case "git":
-		return p.gitPlan, nil
-	case "net":
-		return p.netPlan, nil
-	case "package":
-		return p.packagePlan, nil
-	case "service":
-		return p.servicePlan, nil
-	case "shell":
-		return p.shellPlan, nil
-	case "template":
-		return p.templatePlan, nil
+	// Dynamic sub-namespaces from registry
+	if plan, ok := p.plans[name]; ok {
+		return plan, nil
+	}
+
 	// Top-level bindings (graph construction primitives)
+	switch name {
 	case "choose":
 		return starlark.NewBuiltin("plan.choose", p.choose), nil
 	case "source":
@@ -99,21 +70,25 @@ func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
 }
 
 func (p *PlanRoot) AttrNames() []string {
-	return []string{
-		"archive", "choose", "content", "encryption", "file", "gather", "git",
-		"net", "package", "service", "shell", "source", "template",
+	names := make([]string, 0, len(p.plans)+3)
+	for name := range p.plans {
+		names = append(names, name)
 	}
+	names = append(names, "choose", "source", "gather")
+	sort.Strings(names)
+	return names
 }
 
 // choose creates a conditional branch in the execution graph.
-// Usage: plan.choose(when=predicate, then=callback)
+// Usage: plan.choose(when=predicate_output, then=callback)
 //
-// The predicate is evaluated at execution time on the target machine.
-// If it matches, the nodes built by the callback are executed.
+// The "when" argument is the output of a predicate action (a bool-returning
+// provider method like plan.file.exists(path)). The predicate node runs first,
+// producing a boolean that flows into Choose's "when" slot via an edge.
 //
 // Arguments:
-//   - when: A predicate (e.g., plan.package.not_installed("docker-ce"))
-//   - then: A callable that builds graph nodes when the predicate matches
+//   - when: An Output from a predicate action (e.g., plan.file.exists(path))
+//   - then: A callable that builds graph nodes for the true branch
 //
 // Returns: Output of the choose node
 func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -127,10 +102,10 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 		return nil, err
 	}
 
-	// Extract predicate from the when argument.
-	pred, ok := when.(*RuntimePredicate)
+	// The "when" must be an Output — the promise of a boolean from a predicate node.
+	predOutput, ok := when.(*Output)
 	if !ok {
-		return nil, fmt.Errorf("choose: when must be a predicate (e.g., plan.package.not_installed(...)), got %s", when.Type())
+		return nil, fmt.Errorf("choose: when must be a predicate output (e.g., plan.file.exists(...)), got %s", when.Type())
 	}
 
 	// Snapshot current graph state to track nodes added by the callback.
@@ -154,15 +129,19 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 	p.graph.Phases = append(p.graph.Phases, branchPhase)
 
-	// Create the choose node with the predicate and branch phase.
+	// Create the choose node. The "when" slot is a promise that resolves
+	// to the predicate node's boolean result at execution time.
 	chooseNode := &execution.Node{
 		ID:      generateNodeID("choose"),
 		Action:  p.reg.MustGet("flow.choose"),
 		Project: p.project,
 	}
-	chooseNode.SetSlotImmediate("cases", []execution.ChooseCase{
-		{Predicate: pred, PhaseID: branchPhaseID},
-	})
+
+	// Wire predicate output → choose "when" slot via FillSlot (creates edge).
+	if err := FillSlot(chooseNode, p.graph, "when", predOutput); err != nil {
+		return nil, fmt.Errorf("choose: when: %w", err)
+	}
+	chooseNode.SetSlotImmediate("then", branchPhaseID)
 
 	p.graph.Nodes = append(p.graph.Nodes, chooseNode)
 	return NewOutput(chooseNode, p.graph, ""), nil

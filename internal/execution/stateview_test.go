@@ -12,11 +12,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestPackageEntryLastOperation tests PackageEntry.LastOperation.
-func TestPackageEntryLastOperation(t *testing.T) {
+// TestPackageEntryLastAction tests PackageEntry.LastAction.
+func TestPackageEntryLastAction(t *testing.T) {
 	t.Run("empty history", func(t *testing.T) {
 		e := &PackageEntry{Name: "docker"}
-		if e.LastOperation() != nil {
+		if e.LastAction() != nil {
 			t.Error("expected nil for empty history")
 		}
 	})
@@ -28,9 +28,9 @@ func TestPackageEntryLastOperation(t *testing.T) {
 				{Receipt: "a.yaml", Status: StatusCompleted},
 			},
 		}
-		last := e.LastOperation()
+		last := e.LastAction()
 		if last == nil {
-			t.Fatal("expected non-nil last operation")
+			t.Fatal("expected non-nil last action")
 		}
 		if last.Receipt != "a.yaml" {
 			t.Errorf("expected receipt 'a.yaml', got %q", last.Receipt)
@@ -46,9 +46,9 @@ func TestPackageEntryLastOperation(t *testing.T) {
 				{Receipt: "c.yaml", Status: StatusFailed},
 			},
 		}
-		last := e.LastOperation()
+		last := e.LastAction()
 		if last == nil {
-			t.Fatal("expected non-nil last operation")
+			t.Fatal("expected non-nil last action")
 		}
 		if last.Receipt != "c.yaml" {
 			t.Errorf("expected receipt 'c.yaml', got %q", last.Receipt)
@@ -56,11 +56,11 @@ func TestPackageEntryLastOperation(t *testing.T) {
 	})
 }
 
-// TestFileEntryLastOperation tests FileEntry.LastOperation.
-func TestFileEntryLastOperation(t *testing.T) {
+// TestFileEntryLastAction tests FileEntry.LastAction.
+func TestFileEntryLastAction(t *testing.T) {
 	t.Run("empty history", func(t *testing.T) {
 		e := &FileEntry{Target: ".bashrc"}
-		if e.LastOperation() != nil {
+		if e.LastAction() != nil {
 			t.Error("expected nil for empty history")
 		}
 	})
@@ -73,9 +73,9 @@ func TestFileEntryLastOperation(t *testing.T) {
 				{Receipt: "new.yaml", Action: "copy"},
 			},
 		}
-		last := e.LastOperation()
+		last := e.LastAction()
 		if last == nil {
-			t.Fatal("expected non-nil last operation")
+			t.Fatal("expected non-nil last action")
 		}
 		if last.Receipt != "new.yaml" {
 			t.Errorf("expected receipt 'new.yaml', got %q", last.Receipt)

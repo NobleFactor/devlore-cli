@@ -10,7 +10,7 @@ import (
 
 // Plan provides binding functions for building an execution graph.
 // Graph producers (writ tree builder, lore pipeline executor, LLM graph builder)
-// use Plan to add operations to the graph. Each method returns the created node
+// use Plan to add actions to the graph. Each method returns the created node
 // for edge construction.
 //
 // In Starlark scripts, the plan object is passed to each phase function:
@@ -62,7 +62,7 @@ func itoa(i int) string {
 	return string(b[n:])
 }
 
-// Mkdir adds a directory creation operation.
+// Mkdir adds a directory creation action.
 func (p *Plan) Mkdir(path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -78,7 +78,7 @@ func (p *Plan) Mkdir(path string) *Node {
 	return node
 }
 
-// Link adds a symlink creation operation.
+// Link adds a symlink creation action.
 func (p *Plan) Link(source, path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -94,7 +94,7 @@ func (p *Plan) Link(source, path string) *Node {
 	return node
 }
 
-// Copy adds a file copy operation.
+// Copy adds a file copy action.
 func (p *Plan) Copy(source, path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -111,7 +111,7 @@ func (p *Plan) Copy(source, path string) *Node {
 	return node
 }
 
-// CopyWithMode adds a file copy operation with explicit permissions.
+// CopyWithMode adds a file copy action with explicit permissions.
 func (p *Plan) CopyWithMode(source, path string, mode os.FileMode) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -128,7 +128,7 @@ func (p *Plan) CopyWithMode(source, path string, mode os.FileMode) *Node {
 	return node
 }
 
-// Render adds a template rendering operation.
+// Render adds a template rendering action.
 func (p *Plan) Render(source string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -145,7 +145,7 @@ func (p *Plan) Render(source string) *Node {
 	return node
 }
 
-// Decrypt adds a decryption operation.
+// Decrypt adds a decryption action.
 func (p *Plan) Decrypt(source string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -162,7 +162,7 @@ func (p *Plan) Decrypt(source string) *Node {
 	return node
 }
 
-// Remove adds a file/directory removal operation.
+// Remove adds a file/directory removal action.
 func (p *Plan) Remove(path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -177,7 +177,7 @@ func (p *Plan) Remove(path string) *Node {
 	return node
 }
 
-// Unlink adds a symlink removal operation.
+// Unlink adds a symlink removal action.
 func (p *Plan) Unlink(path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -192,7 +192,7 @@ func (p *Plan) Unlink(path string) *Node {
 	return node
 }
 
-// Backup adds a backup operation for an existing file.
+// Backup adds a backup action for an existing file.
 func (p *Plan) Backup(path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -207,7 +207,7 @@ func (p *Plan) Backup(path string) *Node {
 	return node
 }
 
-// Rename adds a file/directory move operation (git mv when possible).
+// Rename adds a file/directory move action (git mv when possible).
 func (p *Plan) Rename(source, path string) *Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()

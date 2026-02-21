@@ -18,6 +18,8 @@ import (
 // Compensable Forward methods return (map[string]any, error).
 // The map is the compensation receipt — opaque to the executor,
 // meaningful only to the corresponding Compensate* Backward method.
+//
+//devlore:plannable
 type Provider struct {
 	// Test hooks. Nil means use real platform implementation.
 	runFn       func(io.Writer, string, ...string) error
@@ -152,6 +154,33 @@ func (p *Provider) CompensateDisable(state map[string]any) error {
 		return nil // Wasn't enabled — no-op
 	}
 	return p.run(io.Discard, enableArgs(name)...)
+}
+
+// --- Predicates ---
+
+// Exists returns true if the named service exists on the system.
+func (p *Provider) Exists(name string) bool {
+	switch runtime.GOOS {
+	case "linux":
+		return exec.Command("systemctl", "cat", name).Run() == nil
+	case "darwin":
+		_, err := exec.Command("launchctl", "list", name).Output()
+		return err == nil
+	case "windows":
+		return exec.Command("sc", "query", name).Run() == nil
+	default:
+		return false
+	}
+}
+
+// Running returns true if the named service is currently running.
+func (p *Provider) Running(name string) bool {
+	return p.isRunning(name)
+}
+
+// Enabled returns true if the named service is enabled to start at boot.
+func (p *Provider) Enabled(name string) bool {
+	return p.isEnabled(name)
 }
 
 // --- Platform-specific command builders ---

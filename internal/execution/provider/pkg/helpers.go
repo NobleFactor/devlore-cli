@@ -10,7 +10,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/host"
 )
 
-// resolvePMForInstall returns the package manager for install operations.
+// resolvePMForInstall returns the package manager for install actions.
 func resolvePMForInstall(managerOverride string) host.PackageManager {
 	h := host.NewHost()
 
@@ -24,7 +24,7 @@ func resolvePMForInstall(managerOverride string) host.PackageManager {
 	return h.PackageManager()
 }
 
-// resolvePMForUpgrade returns the package manager for upgrade operations.
+// resolvePMForUpgrade returns the package manager for upgrade actions.
 func resolvePMForUpgrade(managerOverride string, packages []string) host.PackageManager {
 	h := host.NewHost()
 
@@ -45,7 +45,7 @@ func resolvePMForUpgrade(managerOverride string, packages []string) host.Package
 	return h.PackageManager()
 }
 
-// resolvePMForRemove returns the package manager for remove operations.
+// resolvePMForRemove returns the package manager for remove actions.
 func resolvePMForRemove(managerOverride string, p string) (pm host.PackageManager, otherPMs []host.PackageManager) {
 	h := host.NewHost()
 

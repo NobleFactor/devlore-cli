@@ -9,11 +9,13 @@ import (
 	"os/exec"
 )
 
-// Provider provides git operations.
+// Provider provides git actions.
 //
 // Compensable Forward methods return (map[string]any, error).
 // The map is the compensation receipt — opaque to the executor,
 // meaningful only to the corresponding Compensate* Backward method.
+//
+//devlore:plannable
 type Provider struct {
 	// Test hooks. Nil means use real git commands.
 	cloneFn func(url, path string, output io.Writer) error

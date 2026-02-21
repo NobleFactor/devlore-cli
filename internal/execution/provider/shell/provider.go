@@ -4,15 +4,21 @@
 package shell
 
 import (
+	"fmt"
 	"io"
 	"os/exec"
 )
 
 // Provider provides shell command execution.
+//
+//devlore:plannable
 type Provider struct{}
 
-// Shell executes a POSIX shell command.
-func (p *Provider) Shell(command string, output io.Writer) error {
+// Exec executes a POSIX shell command.
+func (p *Provider) Exec(command string, output io.Writer) error {
+	if command == "" {
+		return fmt.Errorf("no command specified")
+	}
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Stdout = output
 	cmd.Stderr = output

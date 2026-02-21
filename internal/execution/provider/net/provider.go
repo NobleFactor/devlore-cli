@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 )
 
-// Provider provides network operations.
+// Provider provides network actions.
 //
-// Compensable Backward methods accept the state map returned by the action's
-// Do method and undo the side effects.
+//devlore:plannable
 type Provider struct{}
 
 // Download fetches the content at the given URL and returns the response body.
@@ -33,14 +31,4 @@ func (p *Provider) Download(url string) ([]byte, error) {
 		return nil, fmt.Errorf("download %s: read body: %w", url, err)
 	}
 	return data, nil
-}
-
-// CompensateDownload removes the downloaded file at state["path"].
-// In-memory downloads (no path) produce nil state and are not compensated.
-func (p *Provider) CompensateDownload(state map[string]any) error {
-	path, _ := state["path"].(string)
-	if path == "" {
-		return nil
-	}
-	return os.Remove(path)
 }

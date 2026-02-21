@@ -10,12 +10,15 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 )
 
+// PredicateFunc is a re-evaluable condition for polling actions.
+type PredicateFunc func(any) (bool, error)
+
 // WaitUntil is an event-driven sensor — a synchronization primitive that
-// pauses execution until a predicate is satisfied or a timeout expires.
+// pauses execution until a condition is satisfied or a timeout expires.
 //
 // Slots:
 //   - target: any — the value to evaluate the predicate against (typically a promise)
-//   - predicate: execution.Predicate — condition to evaluate
+//   - predicate: PredicateFunc — condition to evaluate
 //   - timeout: string — maximum wait time (Go duration, e.g. "5m")
 //   - interval: string — poll interval (Go duration, default "5s")
 //
@@ -31,7 +34,7 @@ func (a *WaitUntil) Name() string { return "flow.wait_until" }
 func (a *WaitUntil) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
 	target := slots["target"]
 
-	pred, ok := slots["predicate"].(execution.Predicate)
+	pred, ok := slots["predicate"].(PredicateFunc)
 	if !ok {
 		return nil, nil, fmt.Errorf("wait_until: missing or invalid 'predicate' slot")
 	}
@@ -50,7 +53,7 @@ func (a *WaitUntil) Do(ctx *execution.Context, slots map[string]any) (execution.
 	}
 
 	// Evaluate immediately before entering the poll loop.
-	matched, err := pred.Eval(target)
+	matched, err := pred(target)
 	if err != nil {
 		return nil, nil, fmt.Errorf("wait_until: predicate error: %w", err)
 	}
@@ -70,9 +73,9 @@ func (a *WaitUntil) Do(ctx *execution.Context, slots map[string]any) (execution.
 		case <-ctx.Done():
 			return nil, nil, ctx.Err()
 		case <-deadline.C:
-			return nil, nil, fmt.Errorf("wait_until: timeout after %s waiting for %s", timeout, pred)
+			return nil, nil, fmt.Errorf("wait_until: timeout after %s", timeout)
 		case <-ticker.C:
-			matched, err := pred.Eval(target)
+			matched, err := pred(target)
 			if err != nil {
 				return nil, nil, fmt.Errorf("wait_until: predicate error: %w", err)
 			}
@@ -81,11 +84,6 @@ func (a *WaitUntil) Do(ctx *execution.Context, slots map[string]any) (execution.
 			}
 		}
 	}
-}
-
-// Undo is a no-op — WaitUntil observes state but does not modify it.
-func (a *WaitUntil) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
 }
 
 // parseDurationSlot extracts a duration from slots by name.
