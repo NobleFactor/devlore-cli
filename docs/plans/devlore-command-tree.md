@@ -129,7 +129,7 @@ extension directories.
 
 - [ ] Create `com.noblefactor.devlore.Knowledge` (slimmed — 4 commands)
 - [ ] Create `com.noblefactor.devlore.Package` (3 commands)
-- [ ] Create `com.noblefactor.devlore.Ops` (2 commands)
+- [ ] Create `com.noblefactor.devlore.Actions` (2 commands)
 - [ ] Create `com.noblefactor.devlore.Model` (1 command)
 - [ ] Move `gen-receiver.star` from noblefactor-ops to devlore-cli
 - [ ] Split `validate.star` into knowledge and package variants
@@ -148,9 +148,9 @@ extension directories.
 | `star/extensions/com.noblefactor.devlore.Package/commands/index.star` | devlore-cli | Create (from index-packages.star) |
 | `star/extensions/com.noblefactor.devlore.Package/commands/sign.star` | devlore-cli | Create (from sign-package.star) |
 | `star/extensions/com.noblefactor.devlore.Package/commands/validate.star` | devlore-cli | Create (package validation from validate.star) |
-| `star/extensions/com.noblefactor.devlore.Ops/extension.yaml` | devlore-cli | Create |
-| `star/extensions/com.noblefactor.devlore.Ops/commands/generate.star` | devlore-cli | Create (from gen-receiver.star + doc generation from api.star) |
-| `star/extensions/com.noblefactor.devlore.Ops/commands/validate.star` | devlore-cli | Create (contract validation from api.star) |
+| `star/extensions/com.noblefactor.devlore.Actions/extension.yaml` | devlore-cli | Create |
+| `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` | devlore-cli | Create (from gen-receiver.star + doc generation from api.star) |
+| `star/extensions/com.noblefactor.devlore.Actions/commands/validate.star` | devlore-cli | Create (contract validation from api.star) |
 | `star/extensions/com.noblefactor.devlore.Model/extension.yaml` | devlore-cli | Create |
 | `star/extensions/com.noblefactor.devlore.Model/commands/build.star` | devlore-cli | Create (from build-modelfile.star) |
 

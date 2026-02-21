@@ -288,7 +288,7 @@ Plan receiver template threads `reg *execution.ActionRegistry` and uses
 `p.reg.MustGet()`. Renamed `graph_ops` → `graph_actions` throughout.
 
 **Repos**: noblefactor-ops (template helpers in `receiver_go_gen.go`),
-devlore-cli (template files in `com.noblefactor.devlore.Ops`)
+devlore-cli (template files in `com.noblefactor.devlore.Actions`)
 
 See: [Phase 3 plan](./resource-provider/phase-3.md)
 

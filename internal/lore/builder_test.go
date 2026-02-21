@@ -535,13 +535,13 @@ def install(package, phase):
 }
 
 func TestBuildPhased_OutputFunctions(t *testing.T) {
-	// Verify that note(), warn(), success() are available as globals.
+	// Verify that ui.note(), ui.success() are available as globals.
 	client := createLorePackage(t, "testpkg", map[string]string{
 		"Darwin/Deploy/install.star": `
 def install(package, phase):
-    note("installing %s" % package.name)
+    ui.note("installing %s" % package.name)
     plan.pkg.install(packages=package.name, manager="brew", cask=False)
-    success("done")
+    ui.success("done")
 `,
 	})
 

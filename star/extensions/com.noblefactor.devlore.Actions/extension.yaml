@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.devlore.Actions
+description: Devlore actions tooling - generate graph actions and validate API contracts
+
+receivers:
+  - name: go
+    builtin: true
+    type: GoReceiver
+    description: Go source parsing and code generation
+  - name: file
+    builtin: true
+    type: FileReceiver
+    description: Filesystem operations
+
+commands:
+  - name: devlore.actions.generate
+    help: Generate Starlark plan receivers and execution graph actions from a resource provider
+    implementation: commands/generate.star
+    flags:
+      - name: source
+        type: string
+        default: ""
+        help: Path to the Go package containing the provider struct
+      - name: package
+        type: string
+        default: ""
+        help: Override the Go package name for generated files
+      - name: methods
+        type: string
+        default: ""
+        help: Comma-separated list of methods to include (default all public)
+      - name: templates
+        type: string
+        default: ""
+        help: "Comma-separated templates (default: auto-detected from //devlore:plannable directive)"
+      - name: output
+        type: string
+        default: ""
+        help: Output directory for generated files (default stdout)
+      - name: write
+        type: bool
+        default: "false"
+        help: Write files to output directory instead of stdout
+
+  - name: devlore.actions.validate
+    help: Validate Starlark API contract against resource provider source
+    implementation: commands/validate.star
+    flags:
+      - name: source
+        type: string
+        required: true
+        help: Path to devlore-cli repository
+      - name: format
+        type: string
+        default: "markdown"
+        help: "Output format: markdown, json, or yaml"

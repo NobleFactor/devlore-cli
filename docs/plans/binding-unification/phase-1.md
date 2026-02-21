@@ -17,8 +17,8 @@ call Provider methods instead.
 
 ### devlore-cli
 
-- `star/extensions/com.noblefactor.devlore.Ops/templates/realtime_receiver.go.template` — local template replacing builtin
-- `star/extensions/com.noblefactor.devlore.Ops/commands/generate.star` — update LOCAL_TEMPLATES
+- `star/extensions/com.noblefactor.devlore.Actions/templates/realtime_receiver.go.template` — local template replacing builtin
+- `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` — update LOCAL_TEMPLATES
 
 ## Design Decisions
 

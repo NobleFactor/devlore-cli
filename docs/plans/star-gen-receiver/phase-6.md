@@ -666,7 +666,7 @@ Move to devlore-cli's Starlark extension resources:
 The devlore ops extension loads templates from its own resources:
 
 ```python
-# star/extensions/com.noblefactor.devlore.Ops/commands/generate.star
+# star/extensions/com.noblefactor.devlore.Actions/commands/generate.star
 graph_ops_tmpl = file.read(extension.resource("templates/graph_ops.go.tmpl"))
 code = go.generate(graph_ops_tmpl, descriptor)
 ```
