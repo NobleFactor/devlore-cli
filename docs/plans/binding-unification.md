@@ -234,7 +234,7 @@ These files become dead code after Phase 2. Delete them.
 Registry script updates and doc updates are folded into Phase 6. Every file
 Phase 5 would touch gets rewritten by the new programming model.
 
-## Phase 6: New Lifecycle Script Programming Model
+## Phase 6: New Lifecycle Script Programming Model (COMPLETE)
 
 ### Motivation
 
@@ -431,7 +431,7 @@ The extract pipeline discovers entry points and binding surfaces.
 Look for phase-named entry points instead of `def forward(`. The `system`
 category disappears from binding reference output.
 
-## Phase 7: Update Architecture and User-Facing Documentation
+## Phase 7: Update Architecture and User-Facing Documentation (COMPLETE)
 
 Update all architecture documents, user-facing guides, and authoring
 references to reflect the new programming model. All references to the

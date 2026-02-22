@@ -13,11 +13,11 @@ import (
 // use Plan to add actions to the graph. Each method returns the created node
 // for edge construction.
 //
-// In Starlark scripts, the plan object is passed to each phase function:
+// In Starlark scripts, plan is a global:
 //
-//	def install(system, package, plan):
-//	    plan.mkdir("/usr/local/bin")
-//	    plan.link("/usr/local/bin/foo", source="/path/to/foo")
+//	def install(package, phase):
+//	    plan.file.mkdir("/usr/local/bin")
+//	    plan.file.link("/usr/local/bin/foo", source="/path/to/foo")
 type Plan struct {
 	mu      sync.Mutex
 	reg     *ActionRegistry
