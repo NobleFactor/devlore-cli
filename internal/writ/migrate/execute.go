@@ -13,6 +13,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
 )
 
 // MigratedMarker records what was done during execution.
@@ -58,7 +59,7 @@ func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
 	}
 
 	// Perform renames
-	var renames []Rename
+	fp := &file.Provider{}
 	for _, node := range renameNodes {
 		source, err := node.RequireStringSlot("source")
 		if err != nil {
@@ -68,12 +69,11 @@ func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
 		if err != nil {
 			return fmt.Errorf("rename node %s: %w", node.ID, err)
 		}
-		if err := os.Rename(source, target); err != nil {
+		if _, err := fp.Move(nil, source, target); err != nil {
 			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
 			return fmt.Errorf("rename %s -> %s: %w", source, target, err)
 		}
 		cli.Success("  %s -> %s", filepath.Base(source), filepath.Base(target))
-		renames = append(renames, Rename{From: source, To: target})
 	}
 
 	// Write marker file

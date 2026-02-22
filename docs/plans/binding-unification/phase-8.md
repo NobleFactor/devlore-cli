@@ -66,17 +66,20 @@ During implementation, scope expanded to address several interrelated issues:
 | 23a | StringDict purge: migrate all `NewBuiltin` registrations from `StringDict` to `Attr` receivers | Done |
 | 24 | Wire UI as realtime receiver in lore (`receiver_ui_gen.go` generated, `builder.go` wires `ui` namespace into globals). Writ uses `cli.Note` directly, which already delegates to `ui.Provider`. | Done |
 | 25 | Doc comments in templates (`{{.Doc}}` in all 3 templates) + `--format` flag in `extract.star` | Done |
+| 26 | Refactor filesystem bypass callers to use `file.Provider` (`adoptFile`, `linkToLayer`, `moveToLayer`, `Execute`) | Done |
 
 ## Remaining
 
-### Part 26: Refactor filesystem bypass callers
+### ~~Part 26: Refactor filesystem bypass callers~~ — Done
 
-Lower priority. Replace direct `os.*` calls with `file.Provider.*` calls:
+Replaced direct `os.*` calls with `file.Provider.*` calls in four functions:
 
-- `writ adopt` (`commands.go:1238`) — `os.Rename`/`os.Symlink` → `file.Provider.Move`/`Link`
-- `writ migrate execute` (`execute.go:71`) — `os.Rename` → `file.Provider.Move`
-- `writ migrate_cmd.go` (layer setup) — `os.MkdirAll`/`os.Symlink`/`os.Rename` → `file.Provider.*`
-- `writ/secrets/crypto.go` — assess; may stay direct (crypto output, not deployment)
+- `adoptFile` (`commands.go`) — `os.MkdirAll`→`fp.Mkdir`, `os.Rename`→`fp.Move`, `os.Symlink`→`fp.Link`
+- `linkToLayer` (`migrate_cmd.go`) — `os.MkdirAll`→`fp.Mkdir`, `os.Symlink`→`fp.Link`
+- `moveToLayer` (`migrate_cmd.go`) — `os.MkdirAll`→`fp.Mkdir`, `os.Rename`→`fp.Move`
+- `Execute` (`execute.go`) — `os.Rename`→`fp.Move`
+
+Not changed (by design): `secrets/crypto.go` (crypto output), `WriteMigratedMarker` (CLI artifact).
 
 ### Part 27: Verification
 
