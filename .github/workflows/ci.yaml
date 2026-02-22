@@ -3,9 +3,15 @@ name: CI
 
 on:
   push:
-    branches: [develop]
+    branches:
+      - develop
+      - main
+      - 'release/*'
   pull_request:
-    branches: [develop]
+    branches:
+      - develop
+      - main
+      - 'release/*'
 
 jobs:
   quality-gate:

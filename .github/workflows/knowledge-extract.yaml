@@ -66,11 +66,22 @@ jobs:
             --source ${{ github.workspace }}/devlore-cli \
             --target ${{ github.workspace }}/devlore-registry
 
-      - name: Validate knowledge (PR only)
+      - name: Validate package schemas
+        working-directory: devlore-cli
+        run: |
+          ${{ github.workspace }}/noblefactor-ops/bin/star devlore package validate \
+            --target=${{ github.workspace }}/devlore-registry
+
+      - name: Validate knowledge schemas
+        working-directory: devlore-cli
+        run: |
+          ${{ github.workspace }}/noblefactor-ops/bin/star devlore knowledge validate \
+            --target=${{ github.workspace }}/devlore-registry
+
+      - name: Report knowledge changes (PR only)
         if: github.event_name == 'pull_request'
         working-directory: devlore-registry
         run: |
-          # On PRs, just validate - don't push
           if git diff --quiet; then
             echo "No knowledge changes detected"
           else
