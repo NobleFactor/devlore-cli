@@ -69,7 +69,7 @@ def run(ctx):
     # -------------------------------------------------------------------------
     # Validate required arguments
     # -------------------------------------------------------------------------
-    path = ctx.args.get("source", "")
+    path = ctx.args.get("source", "").rstrip("/")
     if not path:
         fail("--source is required")
 
@@ -135,6 +135,7 @@ def run(ctx):
                 "name": p.name,
                 "type": p.type,
                 "variadic": p.variadic,
+                "doc": p.doc,
             })
         compensable = ("Compensate" + m.name) in all_method_names
         method_descriptors.append({

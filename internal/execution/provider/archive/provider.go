@@ -28,7 +28,7 @@ type Provider struct{}
 // The archive format is detected from the file extension.
 // Returns compensation state with the list of created files.
 //
-// Slots:
+// Parameters:
 //   - source: Path to the archive file (tar.gz, tgz, or zip)
 //   - prefix: Directory to extract into
 func (p *Provider) Extract(source, prefix string) (string, map[string]any, error) {

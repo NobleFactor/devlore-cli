@@ -17,8 +17,8 @@ type Provider struct{}
 
 // Render processes content as a Go text/template. Returns the rendered bytes.
 //
-// Slots:
-//   - template_data: Key-value pairs available as template variables
+// Parameters:
+//   - templateData: Key-value pairs available as template variables
 //   - source: Source file path (available as .Source in the template)
 //   - path: Target file path (available as .Target in the template)
 //   - project: Project name (available as .Project in the template)

@@ -29,7 +29,7 @@ type Provider struct {
 // Install installs packages using the platform's package manager.
 // Returns compensation state with pre-install status per package.
 //
-// Slots:
+// Parameters:
 //   - packages: List of package names to install
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
@@ -91,7 +91,7 @@ func (p *Provider) CompensateInstall(state any) error {
 // Upgrade upgrades packages using the platform's package manager.
 // Returns compensation state with pre-upgrade versions per package.
 //
-// Slots:
+// Parameters:
 //   - packages: List of package names to upgrade
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
@@ -130,7 +130,7 @@ func (p *Provider) CompensateUpgrade(_ any) error {
 // Remove removes packages using the platform's package manager.
 // Returns compensation state for reinstallation.
 //
-// Slots:
+// Parameters:
 //   - packages: List of package names to remove
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
@@ -168,7 +168,7 @@ func (p *Provider) CompensateRemove(state any) error {
 
 // Update refreshes the package manager index.
 //
-// Slots:
+// Parameters:
 //   - manager: Package manager override (empty for auto-detect)
 func (p *Provider) Update(manager string) (string, error) {
 	pm := resolvePMForInstall(manager)
@@ -187,7 +187,7 @@ func (p *Provider) Update(manager string) (string, error) {
 
 // Installed returns true if the named package is installed.
 //
-// Slots:
+// Parameters:
 //   - name: Package name to check
 func (p *Provider) Installed(name string) (bool, error) {
 	return p.isInstalled(name, ""), nil
@@ -195,7 +195,7 @@ func (p *Provider) Installed(name string) (bool, error) {
 
 // NotInstalled returns true if the named package is not installed.
 //
-// Slots:
+// Parameters:
 //   - name: Package name to check
 func (p *Provider) NotInstalled(name string) (bool, error) {
 	return !p.isInstalled(name, ""), nil
@@ -203,7 +203,7 @@ func (p *Provider) NotInstalled(name string) (bool, error) {
 
 // VersionGTE returns true if the installed version of name is >= version.
 //
-// Slots:
+// Parameters:
 //   - name: Package name to check
 //   - version: Minimum version string to compare against
 func (p *Provider) VersionGTE(name, version string) (bool, error) {

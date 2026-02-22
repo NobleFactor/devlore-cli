@@ -31,7 +31,7 @@ type Provider struct {
 // Start starts a service. Returns compensation state with pre-action
 // running status.
 //
-// Slots:
+// Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *Provider) Start(name string, output io.Writer) (string, map[string]any, error) {
 	wasRunning := p.isRunning(name)
@@ -66,7 +66,7 @@ func (p *Provider) CompensateStart(state any) error {
 // Stop stops a service. Returns compensation state with pre-action
 // running status.
 //
-// Slots:
+// Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *Provider) Stop(name string, output io.Writer) (string, map[string]any, error) {
 	wasRunning := p.isRunning(name)
@@ -101,7 +101,7 @@ func (p *Provider) CompensateStop(state any) error {
 // Restart restarts a service. Returns compensation state. Compensation
 // is a no-op — if the service was restarted, it was already running.
 //
-// Slots:
+// Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *Provider) Restart(name string, output io.Writer) (string, map[string]any, error) {
 	if err := p.run(output, restartArgs(name)...); err != nil {
@@ -121,7 +121,7 @@ func (p *Provider) CompensateRestart(_ any) error {
 // Enable enables a service to start at boot. Returns compensation state
 // with pre-action enabled status.
 //
-// Slots:
+// Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *Provider) Enable(name string, output io.Writer) (string, map[string]any, error) {
 	wasEnabled := p.isEnabled(name)
@@ -156,7 +156,7 @@ func (p *Provider) CompensateEnable(state any) error {
 // Disable disables a service from starting at boot. Returns
 // compensation state with pre-action enabled status.
 //
-// Slots:
+// Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *Provider) Disable(name string, output io.Writer) (string, map[string]any, error) {
 	wasEnabled := p.isEnabled(name)
@@ -192,7 +192,7 @@ func (p *Provider) CompensateDisable(state any) error {
 
 // Exists returns true if the named service exists on the system.
 //
-// Slots:
+// Parameters:
 //   - name: Service name to check
 func (p *Provider) Exists(name string) (bool, error) {
 	switch runtime.GOOS {
@@ -210,7 +210,7 @@ func (p *Provider) Exists(name string) (bool, error) {
 
 // Running returns true if the named service is currently running.
 //
-// Slots:
+// Parameters:
 //   - name: Service name to check
 func (p *Provider) Running(name string) (bool, error) {
 	return p.isRunning(name), nil
@@ -218,7 +218,7 @@ func (p *Provider) Running(name string) (bool, error) {
 
 // Enabled returns true if the named service is enabled to start at boot.
 //
-// Slots:
+// Parameters:
 //   - name: Service name to check
 func (p *Provider) Enabled(name string) (bool, error) {
 	return p.isEnabled(name), nil

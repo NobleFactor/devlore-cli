@@ -24,7 +24,7 @@ type Provider struct{}
 // Link creates a symlink at path pointing to source. Idempotent: if the
 // symlink already points correctly, it's a no-op (returns nil state).
 //
-// Slots:
+// Parameters:
 //   - source: Absolute path to the symlink target
 //   - path: Absolute path where the symlink will be created
 func (p *Provider) Link(source, path string) (string, map[string]any, error) {
@@ -97,7 +97,7 @@ func (p *Provider) CompensateLink(state any) error {
 // Copy writes content to path with the given mode. Returns the SHA256
 // checksum of the written content and compensation state.
 //
-// Slots:
+// Parameters:
 //   - path: Absolute path where the file will be written
 //   - mode: File permission bits (e.g., 0o644)
 func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (string, map[string]any, error) {
@@ -167,9 +167,9 @@ func (p *Provider) CompensateCopy(state any) error {
 // Backup moves the file at path to a timestamped backup location.
 // Returns the backup path and compensation state.
 //
-// Slots:
+// Parameters:
 //   - path: Absolute path to the file to back up
-//   - backup_suffix: Suffix appended before the timestamp (default: .writ-backup)
+//   - backupSuffix: Suffix appended before the timestamp (default: .writ-backup)
 func (p *Provider) Backup(path, backupSuffix string) (string, map[string]any, error) {
 	if backupSuffix == "" {
 		backupSuffix = ".writ-backup"
@@ -208,10 +208,10 @@ func (p *Provider) CompensateBackup(state any) error {
 // is set, empty parent directories are removed up to the boundary.
 // Returns compensation state with the symlink target for re-creation.
 //
-// Slots:
+// Parameters:
 //   - path: Absolute path to the symlink to remove
 //   - prune: If true, remove empty parent directories after unlinking
-//   - prune_boundary: Stop pruning at this directory (prevents removing too much)
+//   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
 func (p *Provider) Unlink(path string, prune bool, pruneBoundary string) (string, map[string]any, error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -261,10 +261,10 @@ func (p *Provider) CompensateUnlink(state any) error {
 // is set, empty parent directories are removed up to the boundary.
 // Returns compensation state with file content for re-creation.
 //
-// Slots:
+// Parameters:
 //   - path: Absolute path to the file to delete
 //   - prune: If true, remove empty parent directories after deletion
-//   - prune_boundary: Stop pruning at this directory (prevents removing too much)
+//   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
 func (p *Provider) Remove(path string, prune bool, pruneBoundary string) (string, map[string]any, error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -318,7 +318,7 @@ func (p *Provider) CompensateRemove(state any) error {
 // Write writes inline content to path with the given mode.
 // Returns compensation state for undo.
 //
-// Slots:
+// Parameters:
 //   - content: String content to write to the file
 //   - path: Absolute path where the file will be written
 //   - mode: File permission bits (e.g., 0o644)
@@ -389,7 +389,7 @@ func (p *Provider) CompensateWrite(state any) error {
 // (preserves git history), falling back to os.Rename.
 // Returns compensation state with paths for reverse move.
 //
-// Slots:
+// Parameters:
 //   - source: Absolute path to the file to move
 //   - path: Absolute destination path
 func (p *Provider) Move(gitMv func(src, dst string) error, source, path string) (string, map[string]any, error) {
@@ -439,7 +439,7 @@ func (p *Provider) CompensateMove(state any) error {
 
 // Source reads a file and returns its contents.
 //
-// Slots:
+// Parameters:
 //   - path: Absolute path to the file to read
 func (p *Provider) Source(path string) ([]byte, error) {
 	return os.ReadFile(path)
@@ -447,7 +447,7 @@ func (p *Provider) Source(path string) ([]byte, error) {
 
 // Mkdir creates a directory (and parents) with the given mode.
 //
-// Slots:
+// Parameters:
 //   - path: Absolute path of the directory to create
 //   - mode: Directory permission bits (e.g., 0o755)
 func (p *Provider) Mkdir(path string, mode os.FileMode) (string, error) {
@@ -456,7 +456,7 @@ func (p *Provider) Mkdir(path string, mode os.FileMode) (string, error) {
 
 // Exists returns true if path exists on the filesystem.
 //
-// Slots:
+// Parameters:
 //   - path: Absolute path to check
 func (p *Provider) Exists(path string) (bool, error) {
 	_, err := os.Lstat(path)
@@ -465,7 +465,7 @@ func (p *Provider) Exists(path string) (bool, error) {
 
 // IsDir returns true if path exists and is a directory.
 //
-// Slots:
+// Parameters:
 //   - path: Absolute path to check
 func (p *Provider) IsDir(path string) (bool, error) {
 	info, err := os.Stat(path)
