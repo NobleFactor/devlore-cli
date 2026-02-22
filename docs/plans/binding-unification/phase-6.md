@@ -1,6 +1,6 @@
 # Phase 6: New Lifecycle Script Programming Model
 
-**Status**: Planning
+**Status**: Complete
 
 ## Programming Model
 
