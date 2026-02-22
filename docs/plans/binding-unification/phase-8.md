@@ -88,14 +88,54 @@ Not changed (by design): `secrets/crypto.go` (crypto output), `WriteMigratedMark
 3. Inspect regenerated files for doc comments
 4. Inspect reference.yaml for populated doc fields
 
+### Part 28: Parameter documentation → slot_docs in reference.yaml
+
+Part 25 added method-level doc comments flowing through code generation to
+`reference.yaml`. But `slot_docs` is empty for every `plan.*` entry — the
+reference tables show slot names with no descriptions.
+
+The extraction pipeline (`_parse_doc_comment()` in `extract.star`) already
+parses structured `Slots:` sections. The proof is `plan_root.go`'s `source()`
+method, which populates `slot_docs` correctly. The gap: generated plan
+receivers flatten multi-line doc to a single line, destroying the structured
+format before extraction sees it.
+
+**Problem chain:**
+1. Provider source has method doc but no parameter docs
+2. `generate.star:143` does `" ".join(m.doc.split())` — collapses newlines
+3. Plan receiver template renders `// {{.SnakeName}} {{.Doc}}` as one line
+4. `extract.star` parses the one-line doc — no `Slots:` section — `slot_docs = {}`
+
+**Steps:**
+
+1. **Add `Slots:` sections to 9 provider source files** — 35 methods across
+   file, pkg, service, git, shell, template, archive, net, encryption
+2. **Preserve multi-line doc in `generate.star`** — change
+   `" ".join(m.doc.split())` to `m.doc`
+3. **Multi-line doc rendering in `plan_receiver.go.template`** — new
+   `docComment(snakeName, doc)` template function in noblefactor-ops
+4. **Single-line doc for `graph_actions.go.template`** — new
+   `docSummary(doc)` template function (text up to first blank line)
+5. **Regenerate** all `plan_*_gen.go`, `actions_gen.go`, and `reference.yaml`
+
+**Cross-repo order:**
+1. noblefactor-ops: add `docComment`/`docSummary` template funcs, rebuild `star`
+2. devlore-cli: add Slots: to providers, update generate.star + templates, regenerate
+
+**Verification:**
+- `grep -c 'slot_docs: {}' reference.yaml` for `plan.*` entries — should be zero
+- `plan.file.link` has `slot_docs: {source: "...", path: "..."}`
+- `actions_gen.go` struct comments remain single-line
+- `plan_file_gen.go` handler methods have multi-line doc with Slots:
+
 ## Cross-Repo Coordination
 
 Remaining parts only (Parts 1-25 are completed):
 
 | Repo | Parts | Notes |
 |------|-------|-------|
-| noblefactor-ops | 21 (`go.type_doc()`) | Must rebuild `star` before Part 22 |
-| devlore-cli | 26, 27 | After noblefactor-ops changes |
+| noblefactor-ops | 21 (`go.type_doc()`), 28 (`docComment`/`docSummary`) | Must rebuild `star` before Parts 22, 28 |
+| devlore-cli | 26, 27, 28 | After noblefactor-ops changes |
 
 ## Design Decision: Compensation Classification
 
@@ -298,8 +338,4 @@ removed. No follow-up PR needed.
 
 ## Known Limitations
 
-**slot_docs remain empty.** Provider doc comments describe the method, not
-individual parameters. Populating `slot_docs` would require either structured
-parameter annotations in Provider source or a parser that extracts per-parameter
-descriptions from prose. This is a future enhancement — the method-level doc
-is the important win for LLM consumers.
+None remaining. Part 28 addresses the previously empty `slot_docs`.
