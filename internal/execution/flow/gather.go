@@ -150,7 +150,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 
 	if gatherErr != nil {
 		// Unwind all completed iterations.
-		a.undoCompleted(ctx, undoState)
+		a.undoCompleted(undoState)
 		return nil, nil, gatherErr
 	}
 
@@ -161,18 +161,17 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	return results, undoState, nil
 }
 
-// Undo walks iterations in reverse, re-resolves slots with saved proxy context,
-// and calls Action.Undo per entry.
-func (a *Gather) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+// Undo walks iterations in reverse and calls Action.Undo per entry.
+func (a *Gather) Undo(state execution.UndoState) error {
 	gs, ok := state.(*gatherUndoState)
 	if !ok || gs == nil {
 		return nil
 	}
-	return a.undoCompleted(ctx, gs)
+	return a.undoCompleted(gs)
 }
 
 // undoCompleted unwinds all iterations that have recovery entries.
-func (a *Gather) undoCompleted(ctx *execution.Context, gs *gatherUndoState) error {
+func (a *Gather) undoCompleted(gs *gatherUndoState) error {
 	var errs []error
 	for i := len(gs.Iterations) - 1; i >= 0; i-- {
 		iter := gs.Iterations[i]
@@ -182,13 +181,8 @@ func (a *Gather) undoCompleted(ctx *execution.Context, gs *gatherUndoState) erro
 			if !ok {
 				continue
 			}
-			entrySlots := entry.Node.ResolvedSlots(iter.Results, iter.ProxyCtx)
-			execution.FillSlotsFromData(entrySlots, ctx.Data)
-			if err := undoable.Undo(ctx, entrySlots, entry.UndoState); err != nil {
+			if err := undoable.Undo(entry.UndoState); err != nil {
 				if errors.Is(err, execution.NotCompensableError) {
-					if ctx.Writer != nil {
-						fmt.Fprintf(ctx.Writer, "  [warn] %s: not compensable, skipping\n", undoable.Name())
-					}
 					continue
 				}
 				errs = append(errs, err)
@@ -219,16 +213,13 @@ func executeIteration(ctx *execution.Context, ordered []*execution.Node, gatherI
 			continue
 		}
 
-		ctx.SourceChecksum = ""
-		ctx.TargetChecksum = ""
-
 		nodeSlots := node.ResolvedSlots(results, proxyCtx)
 		execution.FillSlotsFromData(nodeSlots, ctx.Data)
 
 		result, undoState, err := node.Action.Do(ctx, nodeSlots)
 		if err != nil {
 			// Unwind this iteration's completed nodes.
-			stack.Unwind(ctx, results, proxyCtx)
+			stack.Unwind(ctx)
 			return outcome{
 				undo: iterationUndo{
 					ProxyCtx: proxyCtx,

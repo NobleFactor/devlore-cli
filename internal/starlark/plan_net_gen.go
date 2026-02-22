@@ -49,6 +49,9 @@ func (p *NetPlan) AttrNames() []string {
 }
 
 // download Download fetches the content at the given URL and returns the response body.
+//
+// Slots:
+//   - url: HTTP(S) URL to fetch
 func (p *NetPlan) download(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var url starlark.Value
 	if err := starlark.UnpackArgs("download", args, kwargs, "url", &url); err != nil {

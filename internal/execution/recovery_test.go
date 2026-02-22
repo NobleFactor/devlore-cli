@@ -12,16 +12,16 @@ import (
 // testUndoAction implements CompensableAction with controllable Undo behavior.
 type testUndoAction struct {
 	name   string
-	undoFn func(ctx *Context, slots map[string]any, state UndoState) error
+	undoFn func(state UndoState) error
 }
 
 func (a *testUndoAction) Name() string { return a.name }
 func (a *testUndoAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
 	return nil, nil, nil
 }
-func (a *testUndoAction) Undo(ctx *Context, slots map[string]any, state UndoState) error {
+func (a *testUndoAction) Undo(state UndoState) error {
 	if a.undoFn != nil {
-		return a.undoFn(ctx, slots, state)
+		return a.undoFn(state)
 	}
 	return nil
 }
@@ -48,7 +48,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	s.Push(RecoveryEntry{
 		Node: &Node{ID: "prepare", Action: &testUndoAction{
 			name: "prepare",
-			undoFn: func(_ *Context, _ map[string]any, _ UndoState) error {
+			undoFn: func(_ UndoState) error {
 				order = append(order, "prepare")
 				return nil
 			},
@@ -57,7 +57,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	s.Push(RecoveryEntry{
 		Node: &Node{ID: "install", Action: &testUndoAction{
 			name: "install",
-			undoFn: func(_ *Context, _ map[string]any, _ UndoState) error {
+			undoFn: func(_ UndoState) error {
 				order = append(order, "install")
 				return nil
 			},
@@ -66,7 +66,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	s.Push(RecoveryEntry{
 		Node: &Node{ID: "provision", Action: &testUndoAction{
 			name: "provision",
-			undoFn: func(_ *Context, _ map[string]any, _ UndoState) error {
+			undoFn: func(_ UndoState) error {
 				order = append(order, "provision")
 				return nil
 			},
@@ -74,7 +74,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	})
 
 	ctx := &Context{Context: context.Background()}
-	errs := s.Unwind(ctx, nil)
+	errs := s.Unwind(ctx)
 
 	if len(errs) != 0 {
 		t.Errorf("expected no errors, got %v", errs)
@@ -108,7 +108,7 @@ func TestRecoveryStackUnwindCompensateError(t *testing.T) {
 	s.Push(RecoveryEntry{
 		Node: &Node{ID: "install", Action: &testUndoAction{
 			name: "install",
-			undoFn: func(_ *Context, _ map[string]any, _ UndoState) error {
+			undoFn: func(_ UndoState) error {
 				return fmt.Errorf("compensate install failed")
 			},
 		}},
@@ -120,7 +120,7 @@ func TestRecoveryStackUnwindCompensateError(t *testing.T) {
 	})
 
 	ctx := &Context{Context: context.Background()}
-	errs := s.Unwind(ctx, nil)
+	errs := s.Unwind(ctx)
 
 	// Should have 1 error but all three were executed
 	if len(errs) != 1 {
@@ -139,7 +139,7 @@ func TestRecoveryStackUnwindNilCompensate(t *testing.T) {
 	})
 
 	ctx := &Context{Context: context.Background()}
-	errs := s.Unwind(ctx, nil)
+	errs := s.Unwind(ctx)
 
 	if len(errs) != 0 {
 		t.Errorf("expected no errors for nil action, got %v", errs)
@@ -150,7 +150,7 @@ func TestRecoveryStackUnwindEmpty(t *testing.T) {
 	s := &RecoveryStack{}
 
 	ctx := &Context{Context: context.Background()}
-	errs := s.Unwind(ctx, nil)
+	errs := s.Unwind(ctx)
 
 	if len(errs) != 0 {
 		t.Errorf("expected no errors for empty stack, got %v", errs)

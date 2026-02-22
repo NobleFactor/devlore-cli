@@ -311,11 +311,11 @@ Package resolution and lifecycle management.
 
 **Constants:**
 - `SourceLore`, `SourceApt`, `SourceDnf`, `SourceBrew`, `SourcePort`, `SourceWinget`
-- `OpDeploy`, `OpUpgrade`, `OpDecommission`
+- `Deploy`, `Upgrade`, `Decommission`, `Reconcile`
 - `PMInstall`, `PMUpgrade`, `PMRemove`
 
 **Types:**
-- `PackageSource`, `Release`, `Operation`, `Lifecycle`, `PhaseAction`, `ScriptAction`, `NativePMAction`, `Registry`, `PMOperation`
+- `PackageSource`, `Release`, `Action`, `Lifecycle`, `PhaseAction`, `ScriptAction`, `NativePMAction`, `Registry`, `PMCommand`
 
 **Functions:**
 - `Resolve(name, opts)` - Resolve package to release

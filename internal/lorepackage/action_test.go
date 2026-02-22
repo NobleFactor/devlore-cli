@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-func TestPMOperation_String(t *testing.T) {
+func TestPMCommand_String(t *testing.T) {
 	tests := []struct {
-		op   PMOperation
+		cmd  PMCommand
 		want string
 	}{
 		{PMInstall, "install"},
@@ -20,8 +20,8 @@ func TestPMOperation_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.op.String(); got != tt.want {
-				t.Errorf("PMOperation.String() = %q, want %q", got, tt.want)
+			if got := tt.cmd.String(); got != tt.want {
+				t.Errorf("PMCommand.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -45,7 +45,7 @@ func TestScriptAction(t *testing.T) {
 func TestNativePMAction(t *testing.T) {
 	action := &NativePMAction{
 		Manager:   SourceApt,
-		Operation: PMInstall,
+		Command:   PMInstall,
 		Packages:  []string{"curl", "wget"},
 		PhaseName: "install",
 	}
@@ -60,7 +60,7 @@ func TestNativePMAction(t *testing.T) {
 
 func TestNativePMAction_Batchable(t *testing.T) {
 	tests := []struct {
-		op   PMOperation
+		cmd  PMCommand
 		want bool
 	}{
 		{PMInstall, true},
@@ -70,8 +70,8 @@ func TestNativePMAction_Batchable(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.op.String(), func(t *testing.T) {
-			action := &NativePMAction{Operation: tt.op}
+		t.Run(tt.cmd.String(), func(t *testing.T) {
+			action := &NativePMAction{Command: tt.cmd}
 			if got := action.Batchable(); got != tt.want {
 				t.Errorf("Batchable() = %v, want %v", got, tt.want)
 			}
@@ -82,7 +82,7 @@ func TestNativePMAction_Batchable(t *testing.T) {
 func TestNativePMAction_CanBatchWith(t *testing.T) {
 	base := &NativePMAction{
 		Manager:   SourceApt,
-		Operation: PMInstall,
+		Command:   PMInstall,
 		Packages:  []string{"curl"},
 		PhaseName: "install",
 	}
@@ -93,10 +93,10 @@ func TestNativePMAction_CanBatchWith(t *testing.T) {
 		want  bool
 	}{
 		{
-			name: "same manager and operation",
+			name: "same manager and command",
 			other: &NativePMAction{
 				Manager:   SourceApt,
-				Operation: PMInstall,
+				Command:   PMInstall,
 				Packages:  []string{"wget"},
 				PhaseName: "install",
 			},
@@ -106,17 +106,17 @@ func TestNativePMAction_CanBatchWith(t *testing.T) {
 			name: "different manager",
 			other: &NativePMAction{
 				Manager:   SourceBrew,
-				Operation: PMInstall,
+				Command:   PMInstall,
 				Packages:  []string{"wget"},
 				PhaseName: "install",
 			},
 			want: false,
 		},
 		{
-			name: "different operation",
+			name: "different command",
 			other: &NativePMAction{
 				Manager:   SourceApt,
-				Operation: PMRemove,
+				Command:   PMRemove,
 				Packages:  []string{"wget"},
 				PhaseName: "install",
 			},
@@ -126,7 +126,7 @@ func TestNativePMAction_CanBatchWith(t *testing.T) {
 			name: "different phase",
 			other: &NativePMAction{
 				Manager:   SourceApt,
-				Operation: PMInstall,
+				Command:   PMInstall,
 				Packages:  []string{"wget"},
 				PhaseName: "upgrade",
 			},
@@ -146,14 +146,14 @@ func TestNativePMAction_CanBatchWith(t *testing.T) {
 func TestNativePMAction_Merge(t *testing.T) {
 	a := &NativePMAction{
 		Manager:   SourceApt,
-		Operation: PMInstall,
+		Command:   PMInstall,
 		Packages:  []string{"curl", "wget"},
 		PhaseName: "install",
 	}
 
 	b := &NativePMAction{
 		Manager:   SourceApt,
-		Operation: PMInstall,
+		Command:   PMInstall,
 		Packages:  []string{"jq", "vim"},
 		PhaseName: "install",
 	}
@@ -166,8 +166,8 @@ func TestNativePMAction_Merge(t *testing.T) {
 	if merged.Manager != SourceApt {
 		t.Errorf("Manager = %v, want SourceApt", merged.Manager)
 	}
-	if merged.Operation != PMInstall {
-		t.Errorf("Operation = %v, want PMInstall", merged.Operation)
+	if merged.Command != PMInstall {
+		t.Errorf("Command = %v, want PMInstall", merged.Command)
 	}
 	if len(merged.Packages) != 4 {
 		t.Errorf("len(Packages) = %d, want 4", len(merged.Packages))
@@ -183,7 +183,7 @@ func TestNativePMAction_Merge(t *testing.T) {
 	// Test incompatible merge returns nil
 	incompatible := &NativePMAction{
 		Manager:   SourceBrew,
-		Operation: PMInstall,
+		Command:   PMInstall,
 		Packages:  []string{"htop"},
 		PhaseName: "install",
 	}

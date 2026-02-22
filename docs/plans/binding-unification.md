@@ -93,8 +93,8 @@ constructor sets these. Actions continue using slots.
 |------|------|--------|
 | noblefactor-ops | `internal/starlark/receiver_go_gen.go` | Modify: new `realtimeProviderBody` template helper |
 | noblefactor-ops | `internal/starlark/receiver_go_gen_test.go` | Add test for new helper |
-| devlore-cli | `star/extensions/com.noblefactor.devlore.Ops/templates/realtime_receiver.go.template` | Create: local template replacing builtin |
-| devlore-cli | `star/extensions/com.noblefactor.devlore.Ops/commands/generate.star` | Update LOCAL_TEMPLATES |
+| devlore-cli | `star/extensions/com.noblefactor.devlore.Actions/templates/realtime_receiver.go.template` | Create: local template replacing builtin |
+| devlore-cli | `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` | Update LOCAL_TEMPLATES |
 
 ## Phase 2: Generate Plan Bindings for All Providers (COMPLETE — PR #151)
 
@@ -356,17 +356,17 @@ phase-binding plan is fully superseded by this phase.
 
 **1. New entry point and script environment.**
 
+> **Historical example.** The `starlark.StringDict` type shown below is the
+> Starlark runtime API for passing predeclared globals. The bare `NewBuiltin`
+> registrations (`note`, `warn`, etc.) shown here are **banned** — the actual
+> implementation injects the UI receiver as `"ui"`, not as decomposed globals.
+
 ```go
-// prepareScriptEnv injects plan as global + output functions
+// prepareScriptEnv injects plan and ui as globals.
 // package and phase are passed as call arguments
 globals := starlark.StringDict{
-    "plan":    planRoot,
-    "log":     logRecv,
-    "note":    starlark.NewBuiltin("note", logRecv.note),
-    "warn":    starlark.NewBuiltin("warn", logRecv.warn),
-    "error":   starlark.NewBuiltin("error", logRecv.errorFunc),
-    "success": starlark.NewBuiltin("success", logRecv.success),
-    "fail":    starlark.NewBuiltin("fail", logRecv.fail),
+    "plan": planRoot,
+    "ui":   uiReceiver,
 }
 
 // Call: install(package, phase)

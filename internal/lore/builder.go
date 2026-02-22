@@ -5,7 +5,6 @@ package lore
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -237,11 +236,11 @@ func BuildFromPackages(packages []string, plat string) (*BuildResult, error) {
 // Each lifecycle phase becomes a Phase entry in the graph. Compensation is
 // handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
 func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig, reg *execution.ActionRegistry) error {
-	op := lorepackage.OpDeploy
-	phases := lorepackage.PhaseOrder(op)
+	action := lorepackage.Deploy
+	phases := lorepackage.PhaseOrder(action)
 
 	for _, phaseName := range phases {
-		actions := pkg.PhaseActions(plat, op, phaseName)
+		actions := pkg.PhaseActions(plat, action, phaseName)
 		if len(actions) == 0 {
 			continue
 		}
@@ -337,8 +336,7 @@ func executeScriptAction(graph *execution.Graph, pkg *lorepackage.Release, h hos
 }
 
 // prepareScriptEnv creates the Starlark thread and globals needed to execute
-// a phase script. plan is injected as a global. Output functions (note, warn,
-// error, success, fail) are also globals.
+// a phase script. plan and ui are injected as globals.
 func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (
 	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, *loreStar.PlanRoot, error,
 ) {
@@ -365,43 +363,16 @@ func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.H
 		},
 	}
 
-	uiProv := &ui.Provider{}
-	w := os.Stdout
 	globals := starlark.StringDict{
-		"plan":    planBindings,
-		"note":    starlark.NewBuiltin("note", makeUIBuiltin(uiProv.Note, w)),
-		"warn":    starlark.NewBuiltin("warn", makeUIBuiltin(uiProv.Warn, w)),
-		"error":   starlark.NewBuiltin("error", makeUIErrorBuiltin(uiProv.Error, w)),
-		"success": starlark.NewBuiltin("success", makeUIBuiltin(uiProv.Success, w)),
-		"fail":    starlark.NewBuiltin("fail", makeUIErrorBuiltin(uiProv.Fail, w)),
+		"plan": planBindings,
+		"ui": loreStar.NewUiReceiver(&ui.Provider{
+			Writer:      os.Stdout,
+			ProgramName: "lore",
+			Color:       true,
+		}),
 	}
 
 	return thread, globals, pkgContext, planBindings, nil
-}
-
-// makeUIBuiltin wraps a UI output function as a Starlark builtin.
-// Used for note, warn, success which print and return None.
-func makeUIBuiltin(fn func(string, io.Writer) error, w io.Writer) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-		var msg string
-		if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &msg); err != nil {
-			return nil, err
-		}
-		_ = fn(msg, w)
-		return starlark.None, nil
-	}
-}
-
-// makeUIErrorBuiltin wraps a UI error function as a Starlark builtin.
-// Used for error, fail which print and return an error to halt execution.
-func makeUIErrorBuiltin(fn func(string, io.Writer) error, w io.Writer) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
-	return func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-		var msg string
-		if err := starlark.UnpackPositionalArgs(b.Name(), args, nil, 1, &msg); err != nil {
-			return nil, err
-		}
-		return nil, fn(msg, w)
-	}
 }
 
 // addNativePMNodes adds nodes for a native package manager action.
@@ -410,7 +381,7 @@ func makeUIErrorBuiltin(fn func(string, io.Writer) error, w io.Writer) func(*sta
 func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *execution.ActionRegistry) error {
 	// Determine the dotted action name
 	var actionName string
-	switch action.Operation {
+	switch action.Command {
 	case lorepackage.PMInstall:
 		actionName = "pkg.install"
 	case lorepackage.PMRemove:

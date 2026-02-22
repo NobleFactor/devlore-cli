@@ -81,7 +81,7 @@ These `Operation` references are in separate domains and must NOT be renamed:
 | Location | Field | Reason |
 |---|---|---|
 | `writ/reconcile/reconcile.go` | `Entry.Operation` | Reconcile package's own type |
-| `lorepackage/action.go` | `NativePMAction.Operation` | PMOperation type, not execution.Action |
+| `lorepackage/action.go` | `NativePMAction.Command` | PMCommand type, not execution.Action |
 | `writ/tree/operation.go` | `Operation` type | Tree package's own type |
 | `writ/migrate/format.go` | `nodeView.Operation` | Serialization view struct field |
 

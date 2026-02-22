@@ -43,7 +43,7 @@ func mockProvider(installed map[string]bool, versions map[string]string) (*Provi
 
 func TestInstallNoneInstalled(t *testing.T) {
 	p, log := mockProvider(map[string]bool{}, nil)
-	state, err := p.Install([]string{"curl", "wget"}, "brew", false)
+	_, state, err := p.Install([]string{"curl", "wget"}, "brew", false)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestInstallNoneInstalled(t *testing.T) {
 
 func TestInstallSomeAlreadyInstalled(t *testing.T) {
 	p, log := mockProvider(map[string]bool{"curl": true}, nil)
-	state, err := p.Install([]string{"curl", "wget"}, "brew", false)
+	_, state, err := p.Install([]string{"curl", "wget"}, "brew", false)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestInstallSomeAlreadyInstalled(t *testing.T) {
 
 func TestInstallAllAlreadyInstalled(t *testing.T) {
 	p, log := mockProvider(map[string]bool{"curl": true, "wget": true}, nil)
-	state, err := p.Install([]string{"curl", "wget"}, "brew", false)
+	_, state, err := p.Install([]string{"curl", "wget"}, "brew", false)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestInstallAllAlreadyInstalled(t *testing.T) {
 
 func TestInstallEmptyPackages(t *testing.T) {
 	p, _ := mockProvider(nil, nil)
-	_, err := p.Install(nil, "brew", false)
+	_, _, err := p.Install(nil, "brew", false)
 	if err == nil {
 		t.Error("expected error for empty packages")
 	}
@@ -117,7 +117,7 @@ func TestInstallEmptyPackages(t *testing.T) {
 
 func TestUpgradeCapturesVersions(t *testing.T) {
 	p, _ := mockProvider(nil, map[string]string{"curl": "7.88", "wget": "1.21"})
-	state, err := p.Upgrade([]string{"curl", "wget"}, "brew", false)
+	_, state, err := p.Upgrade([]string{"curl", "wget"}, "brew", false)
 	if err != nil {
 		t.Fatalf("Upgrade: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestUpgradeCapturesVersions(t *testing.T) {
 
 func TestUpgradeCompensateNoOp(t *testing.T) {
 	p, _ := mockProvider(nil, map[string]string{"curl": "7.88"})
-	state, err := p.Upgrade([]string{"curl"}, "brew", false)
+	_, state, err := p.Upgrade([]string{"curl"}, "brew", false)
 	if err != nil {
 		t.Fatalf("Upgrade: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestUpgradeCompensateNoOp(t *testing.T) {
 
 func TestUpgradeEmptyPackages(t *testing.T) {
 	p, _ := mockProvider(nil, nil)
-	_, err := p.Upgrade(nil, "brew", false)
+	_, _, err := p.Upgrade(nil, "brew", false)
 	if err == nil {
 		t.Error("expected error for empty packages")
 	}
@@ -153,7 +153,7 @@ func TestUpgradeEmptyPackages(t *testing.T) {
 
 func TestRemoveCompensateReinstalls(t *testing.T) {
 	p, log := mockProvider(nil, nil)
-	state, err := p.Remove([]string{"curl", "wget"}, "brew", false)
+	_, state, err := p.Remove([]string{"curl", "wget"}, "brew", false)
 	if err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestRemoveCompensateReinstalls(t *testing.T) {
 
 func TestRemoveEmptyPackages(t *testing.T) {
 	p, _ := mockProvider(nil, nil)
-	_, err := p.Remove(nil, "brew", false)
+	_, _, err := p.Remove(nil, "brew", false)
 	if err == nil {
 		t.Error("expected error for empty packages")
 	}

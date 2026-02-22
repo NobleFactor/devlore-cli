@@ -26,16 +26,15 @@ func (o *Start) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Start(name, output)
-	return nil, state, err
+	result, state, err := o.Impl.Start(name, output)
+	return result, state, err
 }
 
-func (o *Start) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Start) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateStart(s)
+	return o.Impl.CompensateStart(state)
 }
 
 // Stop — Stop stops a service. Returns compensation state with pre-action running status.
@@ -52,16 +51,15 @@ func (o *Stop) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Stop(name, output)
-	return nil, state, err
+	result, state, err := o.Impl.Stop(name, output)
+	return result, state, err
 }
 
-func (o *Stop) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Stop) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateStop(s)
+	return o.Impl.CompensateStop(state)
 }
 
 // Restart — Restart restarts a service. Returns compensation state. Compensation is a no-op — if the service was restarted, it was already running.
@@ -78,16 +76,15 @@ func (o *Restart) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Restart(name, output)
-	return nil, state, err
+	result, state, err := o.Impl.Restart(name, output)
+	return result, state, err
 }
 
-func (o *Restart) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Restart) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateRestart(s)
+	return o.Impl.CompensateRestart(state)
 }
 
 // Enable — Enable enables a service to start at boot. Returns compensation state with pre-action enabled status.
@@ -104,16 +101,15 @@ func (o *Enable) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Enable(name, output)
-	return nil, state, err
+	result, state, err := o.Impl.Enable(name, output)
+	return result, state, err
 }
 
-func (o *Enable) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Enable) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateEnable(s)
+	return o.Impl.CompensateEnable(state)
 }
 
 // Disable — Disable disables a service from starting at boot. Returns compensation state with pre-action enabled status.
@@ -130,16 +126,15 @@ func (o *Disable) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Disable(name, output)
-	return nil, state, err
+	result, state, err := o.Impl.Disable(name, output)
+	return result, state, err
 }
 
-func (o *Disable) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Disable) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateDisable(s)
+	return o.Impl.CompensateDisable(state)
 }
 
 // Exists — Exists returns true if the named service exists on the system.
@@ -155,11 +150,8 @@ func (o *Exists) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		return nil, nil, nil
 	}
 
-	return o.Impl.Exists(name), nil, nil
-}
-
-func (o *Exists) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Exists(name)
+	return result, nil, err
 }
 
 // Running — Running returns true if the named service is currently running.
@@ -175,11 +167,8 @@ func (o *Running) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		return nil, nil, nil
 	}
 
-	return o.Impl.Running(name), nil, nil
-}
-
-func (o *Running) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Running(name)
+	return result, nil, err
 }
 
 // Enabled — Enabled returns true if the named service is enabled to start at boot.
@@ -195,11 +184,8 @@ func (o *Enabled) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		return nil, nil, nil
 	}
 
-	return o.Impl.Enabled(name), nil, nil
-}
-
-func (o *Enabled) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Enabled(name)
+	return result, nil, err
 }
 
 // Register registers all service actions with the given registry.

@@ -15,6 +15,9 @@ import (
 type Provider struct{}
 
 // Download fetches the content at the given URL and returns the response body.
+//
+// Slots:
+//   - url: HTTP(S) URL to fetch
 func (p *Provider) Download(url string) ([]byte, error) {
 	resp, err := http.Get(url) //nolint:gosec // URL comes from plan configuration
 	if err != nil {

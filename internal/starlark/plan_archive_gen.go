@@ -48,7 +48,13 @@ func (p *ArchivePlan) AttrNames() []string {
 	return []string{"extract"}
 }
 
-// extract Extract extracts an archive (tar.gz or zip) from source into the prefix directory. The archive format is detected from the file extension. Returns compensation state with the list of created files.
+// extract Extract extracts an archive (tar.gz or zip) from source into the prefix directory.
+// The archive format is detected from the file extension.
+// Returns compensation state with the list of created files.
+//
+// Slots:
+//   - source: Path to the archive file (tar.gz, tgz, or zip)
+//   - prefix: Directory to extract into
 func (p *ArchivePlan) extract(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var source, prefix starlark.Value
 	if err := starlark.UnpackArgs("extract", args, kwargs, "source", &source, "prefix", &prefix); err != nil {

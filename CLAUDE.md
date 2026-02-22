@@ -35,6 +35,15 @@ Before completing any task:
 - [ ] Run tests to confirm rejection of old formats/signatures
 - [ ] Consult issue #65 for known error patterns
 
+## Build and Test
+
+**Use `make` for ALL build and test operations. NEVER run `go build`, `go test`, or `go vet` directly.**
+
+- `make build` — build with ldflags (version, commit, date)
+- `make test` — run tests with timeout
+- `make check` — vet, lint, shell-lint, complexity, test
+- `make vet` — go vet
+
 ## Repository-Specific Notes
 
 - Default branch: `develop`

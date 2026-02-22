@@ -251,20 +251,20 @@ Update expected output in test cases to match new Do/Undo/Register pattern.
 
 ### Step 3: devlore-cli — Update graph_actions template
 
-**File**: `star/extensions/com.noblefactor.devlore.Ops/templates/graph_actions.go.tmpl`
+**File**: `star/extensions/com.noblefactor.devlore.Actions/templates/graph_actions.go.tmpl`
 (renamed from `graph_ops.go.tmpl`)
 
 Replace template content with the new pattern.
 
 ### Step 4: devlore-cli — Update plan_receiver template
 
-**File**: `star/extensions/com.noblefactor.devlore.Ops/templates/plan_receiver.go.tmpl`
+**File**: `star/extensions/com.noblefactor.devlore.Actions/templates/plan_receiver.go.tmpl`
 
 Add `reg` field, update constructor, change `Operation:` → `Action: p.reg.MustGet(...)`.
 
 ### Step 5: devlore-cli — Update generate.star
 
-**File**: `star/extensions/com.noblefactor.devlore.Ops/commands/generate.star`
+**File**: `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star`
 
 Rename `graph_ops` → `graph_actions` in mappings. Update default packages.
 Update struct name derivation for actions template. Update output filename.

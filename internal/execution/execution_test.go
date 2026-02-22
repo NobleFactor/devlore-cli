@@ -187,13 +187,6 @@ func TestCopyAction(t *testing.T) {
 	if string(content) != "file content" {
 		t.Errorf("expected 'file content', got %q", string(content))
 	}
-
-	if ctx.TargetChecksum == "" {
-		t.Error("expected target checksum to be set")
-	}
-	if !strings.HasPrefix(ctx.TargetChecksum, "sha256:") {
-		t.Errorf("expected sha256: prefix, got %q", ctx.TargetChecksum)
-	}
 }
 
 func TestCopyActionCreatesParentDirs(t *testing.T) {
@@ -407,7 +400,7 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 
 func TestWriteRequiresContent(t *testing.T) {
 	p := &file.Provider{}
-	_, err := p.Write("", "/tmp/test.txt", os.FileMode(0644))
+	_, _, err := p.Write("", "/tmp/test.txt", os.FileMode(0644))
 	if err == nil {
 		t.Fatal("expected error when content is empty")
 	}
@@ -516,11 +509,6 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 	content, _ := os.ReadFile(target)
 	if string(content) != "Hello david!" {
 		t.Errorf("expected 'Hello david!', got %q", string(content))
-	}
-
-	// The copy node should have the target checksum
-	if results[1].TargetChecksum == "" {
-		t.Error("expected target checksum on copy node")
 	}
 }
 

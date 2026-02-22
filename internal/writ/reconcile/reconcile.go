@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package reconcile provides full-stack drift detection and repair for writ deployments.
 package reconcile
 
 import (
@@ -12,25 +11,25 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 )
 
-// State represents the status of a deployed file.
+// State represents the reconciliation state of a deployed entry.
 type State int
 
 const (
-	// StateLinked means the symlink exists and points to the correct source.
+	// StateLinked means the symlink exists and points correctly.
 	StateLinked State = iota
-	// StateConflict means a file exists at the target but isn't our symlink.
-	StateConflict
-	// StateMissing means the source file exists but target symlink is missing.
-	StateMissing
-	// StateOrphan means the symlink points to a nonexistent file.
-	StateOrphan
-	// StateCopied means the file was copied (template/secret) and matches expected.
+	// StateCopied means the file was copied and exists.
 	StateCopied
-	// StateStale means the source template/secret has changed since deployment.
+	// StateConflict means the target exists but doesn't match expectations.
+	StateConflict
+	// StateMissing means the expected target doesn't exist.
+	StateMissing
+	// StateOrphan means the symlink target no longer exists.
+	StateOrphan
+	// StateStale means the source changed since deployment.
 	StateStale
-	// StateModified means the target file was edited after deployment.
+	// StateModified means the target was locally modified.
 	StateModified
-	// StateDriftConflict means both source and target changed since deployment.
+	// StateDriftConflict means both source and target changed.
 	StateDriftConflict
 )
 
@@ -38,102 +37,72 @@ const (
 func (s State) String() string {
 	switch s {
 	case StateLinked:
-		return "✓"
-	case StateConflict:
-		return "⚠"
-	case StateMissing:
-		return "✗"
-	case StateOrphan:
-		return "?"
+		return "✓ Linked"
 	case StateCopied:
-		return "✓"
+		return "✓ Copied"
+	case StateConflict:
+		return "⚠ Conflict"
+	case StateMissing:
+		return "✗ Missing"
+	case StateOrphan:
+		return "? Orphan"
 	case StateStale:
-		return "↑" // Source changed, needs redeploy
+		return "↑ Stale"
 	case StateModified:
-		return "M" // Target modified
+		return "M Modified"
 	case StateDriftConflict:
-		return "!" // Both changed
+		return "! Conflict"
 	default:
-		return "?"
+		return "? Unknown"
 	}
 }
 
-// Label returns a human-readable label for the state.
+// Label returns a machine-readable label for JSON output.
 func (s State) Label() string {
 	switch s {
 	case StateLinked:
 		return "linked"
+	case StateCopied:
+		return "copied"
 	case StateConflict:
 		return "conflict"
 	case StateMissing:
 		return "missing"
 	case StateOrphan:
 		return "orphan"
-	case StateCopied:
-		return "copied"
 	case StateStale:
 		return "stale"
 	case StateModified:
 		return "modified"
 	case StateDriftConflict:
-		return "drift-conflict"
+		return "drift_conflict"
 	default:
 		return "unknown"
 	}
 }
 
-// Entry represents the status of a single file.
+// Entry represents a single file in the reconcile report.
 type Entry struct {
-	// RelTarget is the relative path from target root (e.g., .bashrc)
 	RelTarget string
-
-	// Source is the absolute path to the source file
-	Source string
-
-	// Target is the absolute path to the target file
-	Target string
-
-	// State is the current status
-	State State
-
-	// Project is the project this belongs to
-	Project string
-
-	// Action that was/should be performed
-	Action string
-
-	// Message provides additional context (e.g., "points to wrong file")
-	Message string
-
-	// SourceChecksum is the expected source checksum (from receipt)
-	SourceChecksum string
-
-	// TargetChecksum is the expected target checksum (from receipt)
-	TargetChecksum string
+	Source    string
+	Target   string
+	Project  string
+	Action   string
+	State    State
+	Message  string
 }
 
-// Report contains the full status report.
+// Report contains the reconciliation results.
 type Report struct {
-	// TargetRoot is the deployment target (e.g., $HOME)
-	TargetRoot string
-
-	// SourceRoot is the environment layer path
-	SourceRoot string
-
-	// Projects checked
-	Projects []string
-
-	// Entries are the individual file statuses
-	Entries []Entry
-
-	// FromReceipt indicates status was computed from a receipt
+	TargetRoot  string
+	SourceRoot  string
+	Projects    []string
 	FromReceipt bool
-
-	// ReceiptPath is the path to the receipt used (if any)
 	ReceiptPath string
+	Entries     []Entry
 }
 
-// Summary returns counts of each state.
+// Summary returns counts by state.
 func (r *Report) Summary() map[State]int {
 	counts := make(map[State]int)
 	for _, e := range r.Entries {
@@ -142,202 +111,96 @@ func (r *Report) Summary() map[State]int {
 	return counts
 }
 
-// HasIssues returns true if there are any non-linked/copied states.
-func (r *Report) HasIssues() bool {
-	for _, e := range r.Entries {
-		if e.State != StateLinked && e.State != StateCopied {
-			return true
-		}
-	}
-	return false
-}
-
-// FromBuildResult generates status by checking entries in a build result.
-func FromBuildResult(br *tree.BuildResult) *Report {
-	// For multi-source mode, SourceRoot is empty; use first layer's source
-	sourceRoot := br.SourceRoot
-	if sourceRoot == "" && len(br.Sources) > 0 {
-		sourceRoot = br.Sources[0].SourceRoot
-	}
+// FromBuildResult creates a report from a tree build result by scanning
+// the target directory for each expected file.
+func FromBuildResult(result *tree.BuildResult) *Report {
 	report := &Report{
-		TargetRoot:  br.TargetRoot,
-		SourceRoot:  sourceRoot,
-		Projects:    br.Projects,
-		FromReceipt: false,
+		TargetRoot: result.TargetRoot,
+		SourceRoot: result.SourceRoot,
 	}
 
-	for _, f := range br.Files {
-		// Use first action from tree pipeline as the primary action
-		op := ""
-		if len(f.Operations) > 0 {
-			op = f.Operations[len(f.Operations)-1] // final op (e.g., "file.copy" for render+copy)
+	projects := make(map[string]bool)
+	for _, f := range result.Files {
+		if f.Project != "" {
+			projects[f.Project] = true
 		}
-		entry := checkEntry(f.Source, f.Target, f.ID, f.Project, op)
+
+		entry := Entry{
+			RelTarget: f.ID,
+			Source:    f.Source,
+			Target:   f.Target,
+			Project:  f.Project,
+		}
+
+		info, err := os.Lstat(f.Target)
+		if os.IsNotExist(err) {
+			entry.State = StateMissing
+			entry.Message = "not deployed"
+		} else if err != nil {
+			entry.State = StateConflict
+			entry.Message = err.Error()
+		} else if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(f.Target)
+			if err != nil {
+				entry.State = StateConflict
+				entry.Message = "cannot read symlink"
+			} else if filepath.Clean(linkTarget) == filepath.Clean(f.Source) {
+				entry.State = StateLinked
+			} else {
+				entry.State = StateConflict
+				entry.Message = "symlink points to " + linkTarget
+			}
+		} else {
+			entry.State = StateCopied
+		}
+
 		report.Entries = append(report.Entries, entry)
+	}
+
+	for p := range projects {
+		report.Projects = append(report.Projects, p)
 	}
 
 	return report
 }
 
-// checkEntry checks the status of a single file.
-func checkEntry(source, target, relTarget, project, action string) Entry {
-	entry := Entry{
-		RelTarget: relTarget,
-		Source:     source,
-		Target:     target,
-		Project:    project,
-		Action:     action,
-	}
-
-	// Check if target exists
-	targetInfo, err := os.Lstat(target)
-	if os.IsNotExist(err) {
-		// Target doesn't exist
-		if _, srcErr := os.Stat(source); srcErr == nil {
-			entry.State = StateMissing
-			entry.Message = "symlink not created"
-		} else {
-			entry.State = StateOrphan
-			entry.Message = "source file deleted"
-		}
-		return entry
-	}
-	if err != nil {
-		entry.State = StateConflict
-		entry.Message = err.Error()
-		return entry
-	}
-
-	// Determine expected action type
-	isLink := action == "file.link"
-
-	if isLink {
-		// Should be a symlink
-		if targetInfo.Mode()&os.ModeSymlink == 0 {
-			entry.State = StateConflict
-			entry.Message = "file exists, not a symlink"
-			return entry
-		}
-
-		// Check symlink target
-		linkTarget, err := os.Readlink(target)
-		if err != nil {
-			entry.State = StateConflict
-			entry.Message = "cannot read symlink"
-			return entry
-		}
-
-		// Resolve relative symlinks
-		if !filepath.IsAbs(linkTarget) {
-			linkTarget = filepath.Join(filepath.Dir(target), linkTarget)
-		}
-		linkTarget = filepath.Clean(linkTarget)
-
-		// Check if symlink points to our source
-		if linkTarget == source {
-			// Verify the source actually exists
-			if _, err := os.Stat(source); os.IsNotExist(err) {
-				entry.State = StateOrphan
-				entry.Message = "source file deleted"
-				return entry
-			}
-			entry.State = StateLinked
-			return entry
-		}
-
-		// Symlink points elsewhere - check if it's a dangling symlink
-		if _, err := os.Stat(linkTarget); os.IsNotExist(err) {
-			entry.State = StateOrphan
-			entry.Message = "symlink points to nonexistent file"
-			return entry
-		}
-
-		entry.State = StateConflict
-		entry.Message = "symlink points to " + linkTarget
-		return entry
-	}
-
-	// Should be a copied file (template, secret, etc.)
-	if targetInfo.Mode()&os.ModeSymlink != 0 {
-		entry.State = StateConflict
-		entry.Message = "expected file, found symlink"
-		return entry
-	}
-
-	// File exists, was copied
-	entry.State = StateCopied
-	return entry
-}
-
-// ScanTarget scans the target directory for writ-managed symlinks.
-// This works without a receipt by looking for symlinks that point into sourceRoot.
+// ScanTarget scans the target directory for symlinks pointing to source.
 func ScanTarget(targetRoot, sourceRoot string) *Report {
 	report := &Report{
-		TargetRoot:  targetRoot,
-		SourceRoot:  sourceRoot,
-		FromReceipt: false,
+		TargetRoot: targetRoot,
+		SourceRoot: sourceRoot,
 	}
 
-	projectSet := make(map[string]bool)
-
-	// Walk the target directory looking for symlinks
 	_ = filepath.Walk(targetRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip errors
-		}
-
-		// Skip hidden directories (except at top level)
-		if info.IsDir() {
-			base := filepath.Base(path)
-			if path != targetRoot && strings.HasPrefix(base, ".") && base != ".config" && base != ".local" {
-				// Skip most hidden dirs, but walk .config and .local
-				return filepath.SkipDir
-			}
 			return nil
 		}
-
-		// Only check symlinks
 		if info.Mode()&os.ModeSymlink == 0 {
 			return nil
 		}
 
-		// Check where symlink points
 		linkTarget, err := os.Readlink(path)
 		if err != nil {
 			return nil
 		}
 
-		// Resolve relative symlinks
 		if !filepath.IsAbs(linkTarget) {
 			linkTarget = filepath.Join(filepath.Dir(path), linkTarget)
 		}
 		linkTarget = filepath.Clean(linkTarget)
 
-		// Check if it points into our source root
 		if !strings.HasPrefix(linkTarget, sourceRoot) {
-			return nil // Not our symlink
-		}
-
-		// Extract project from path
-		relSource := strings.TrimPrefix(linkTarget, sourceRoot+"/")
-		parts := strings.SplitN(relSource, "/", 3) // Home/project/...
-		project := ""
-		if len(parts) >= 2 {
-			project = strings.Split(parts[1], ".")[0] // Strip suffix like .Darwin
-			projectSet[project] = true
+			return nil
 		}
 
 		relTarget, _ := filepath.Rel(targetRoot, path)
-
 		entry := Entry{
 			RelTarget: relTarget,
 			Source:    linkTarget,
-			Target:    path,
-			Project:   project,
-			Action:    "file.link",
+			Target:   path,
+			Action:   "file.link",
 		}
 
-		// Check if source exists
 		if _, err := os.Stat(linkTarget); os.IsNotExist(err) {
 			entry.State = StateOrphan
 			entry.Message = "source file deleted"
@@ -348,11 +211,6 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 		report.Entries = append(report.Entries, entry)
 		return nil
 	})
-
-	// Convert project set to slice
-	for p := range projectSet {
-		report.Projects = append(report.Projects, p)
-	}
 
 	return report
 }

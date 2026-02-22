@@ -27,16 +27,15 @@ func (o *Install) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Install(packages, manager, cask)
-	return nil, state, err
+	result, state, err := o.Impl.Install(packages, manager, cask)
+	return result, state, err
 }
 
-func (o *Install) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Install) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateInstall(s)
+	return o.Impl.CompensateInstall(state)
 }
 
 // Upgrade — Upgrade upgrades packages using the platform's package manager. Returns compensation state with pre-upgrade versions per package.
@@ -54,16 +53,15 @@ func (o *Upgrade) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Upgrade(packages, manager, cask)
-	return nil, state, err
+	result, state, err := o.Impl.Upgrade(packages, manager, cask)
+	return result, state, err
 }
 
-func (o *Upgrade) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Upgrade) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateUpgrade(s)
+	return o.Impl.CompensateUpgrade(state)
 }
 
 // Remove — Remove removes packages using the platform's package manager. Returns compensation state for reinstallation.
@@ -81,16 +79,15 @@ func (o *Remove) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Remove(packages, manager, cask)
-	return nil, state, err
+	result, state, err := o.Impl.Remove(packages, manager, cask)
+	return result, state, err
 }
 
-func (o *Remove) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Remove) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateRemove(s)
+	return o.Impl.CompensateRemove(state)
 }
 
 // Update — Update refreshes the package manager index.
@@ -106,11 +103,8 @@ func (o *Update) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		return nil, nil, nil
 	}
 
-	return nil, nil, o.Impl.Update(manager)
-}
-
-func (o *Update) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Update(manager)
+	return result, nil, err
 }
 
 // Installed — Installed returns true if the named package is installed.
@@ -126,11 +120,8 @@ func (o *Installed) Do(ctx *execution.Context, slots map[string]any) (execution.
 		return nil, nil, nil
 	}
 
-	return o.Impl.Installed(name), nil, nil
-}
-
-func (o *Installed) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Installed(name)
+	return result, nil, err
 }
 
 // NotInstalled — NotInstalled returns true if the named package is not installed.
@@ -146,11 +137,8 @@ func (o *NotInstalled) Do(ctx *execution.Context, slots map[string]any) (executi
 		return nil, nil, nil
 	}
 
-	return o.Impl.NotInstalled(name), nil, nil
-}
-
-func (o *NotInstalled) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.NotInstalled(name)
+	return result, nil, err
 }
 
 // VersionGTE — VersionGTE returns true if the installed version of name is >= version.
@@ -167,11 +155,8 @@ func (o *VersionGTE) Do(ctx *execution.Context, slots map[string]any) (execution
 		return nil, nil, nil
 	}
 
-	return o.Impl.VersionGTE(name, version), nil, nil
-}
-
-func (o *VersionGTE) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.VersionGTE(name, version)
+	return result, nil, err
 }
 
 // Register registers all pkg actions with the given registry.

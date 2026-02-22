@@ -16,9 +16,10 @@ import (
 
 // Provider provides archive extraction actions.
 //
-// Compensable Forward methods return (map[string]any, error).
-// The map is the compensation receipt — opaque to the executor,
-// meaningful only to the corresponding Compensate* Backward method.
+// Compensable Forward methods return (string, map[string]any, error):
+// the extraction directory, the compensation receipt, and an error.
+// The map is opaque to the executor, meaningful only to the
+// corresponding Compensate* Backward method.
 //
 //devlore:plannable
 type Provider struct{}
@@ -26,9 +27,13 @@ type Provider struct{}
 // Extract extracts an archive (tar.gz or zip) from source into the prefix directory.
 // The archive format is detected from the file extension.
 // Returns compensation state with the list of created files.
-func (p *Provider) Extract(source, prefix string) (map[string]any, error) {
+//
+// Slots:
+//   - source: Path to the archive file (tar.gz, tgz, or zip)
+//   - prefix: Directory to extract into
+func (p *Provider) Extract(source, prefix string) (string, map[string]any, error) {
 	if err := os.MkdirAll(prefix, 0755); err != nil {
-		return nil, fmt.Errorf("create prefix dir: %w", err)
+		return "", nil, fmt.Errorf("create prefix dir: %w", err)
 	}
 
 	var created []string
@@ -41,14 +46,14 @@ func (p *Provider) Extract(source, prefix string) (map[string]any, error) {
 	case strings.HasSuffix(lower, ".zip"):
 		created, err = extractZip(source, prefix)
 	default:
-		return nil, fmt.Errorf("unsupported archive format: %s", source)
+		return "", nil, fmt.Errorf("unsupported archive format: %s", source)
 	}
 
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
-	return map[string]any{
+	return prefix, map[string]any{
 		"dest":          prefix,
 		"created_files": created,
 	}, nil
@@ -56,8 +61,12 @@ func (p *Provider) Extract(source, prefix string) (map[string]any, error) {
 
 // CompensateExtract removes files created during extraction, then cleans up
 // empty directories under dest.
-func (p *Provider) CompensateExtract(state map[string]any) error {
-	created, _ := state["created_files"].([]string)
+func (p *Provider) CompensateExtract(state any) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	created, _ := s["created_files"].([]string)
 
 	// Remove files in reverse order (deepest first)
 	for i := len(created) - 1; i >= 0; i-- {
@@ -65,7 +74,7 @@ func (p *Provider) CompensateExtract(state map[string]any) error {
 	}
 
 	// Clean up empty directories under dest
-	dest, _ := state["dest"].(string)
+	dest, _ := s["dest"].(string)
 	if dest != "" {
 		removeEmptyDirs(dest)
 	}

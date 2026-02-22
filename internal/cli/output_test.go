@@ -270,27 +270,27 @@ func TestRenderMutation(t *testing.T) {
 }
 
 func TestSetProgramName(t *testing.T) {
-	original := programName
-	defer func() { programName = original }()
+	original := output.ProgramName
+	defer func() { output.ProgramName = original }()
 
 	SetProgramName("testprog")
-	if programName != "testprog" {
-		t.Errorf("expected programName 'testprog', got %q", programName)
+	if output.ProgramName != "testprog" {
+		t.Errorf("expected ProgramName 'testprog', got %q", output.ProgramName)
 	}
 }
 
 func TestSetSilent(t *testing.T) {
-	original := silent
-	defer func() { silent = original }()
+	original := output.Silent
+	defer func() { output.Silent = original }()
 
 	SetSilent(true)
-	if !silent {
-		t.Error("expected silent to be true")
+	if !output.Silent {
+		t.Error("expected Silent to be true")
 	}
 
 	SetSilent(false)
-	if silent {
-		t.Error("expected silent to be false")
+	if output.Silent {
+		t.Error("expected Silent to be false")
 	}
 }
 

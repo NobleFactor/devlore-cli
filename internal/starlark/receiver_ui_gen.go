@@ -3,8 +3,6 @@
 package starlark
 
 import (
-	"io"
-
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/ui"
@@ -13,29 +11,27 @@ import (
 type UiReceiver struct {
 	Receiver
 	provider *ui.Provider
-	output   io.Writer
 }
 
-func NewUiReceiver(provider *ui.Provider, output io.Writer) *UiReceiver {
+func NewUiReceiver(provider *ui.Provider) *UiReceiver {
 	return &UiReceiver{
 		Receiver: NewReceiver("ui"),
 		provider: provider,
-		output:   output,
 	}
 }
 
 func (r *UiReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "note":
-		return MakeAttr("ui.note", r.note), nil
+		return MakeAttr("note", r.note), nil
 	case "warn":
-		return MakeAttr("ui.warn", r.warn), nil
+		return MakeAttr("warn", r.warn), nil
 	case "error":
-		return MakeAttr("ui.error", r.error), nil
+		return MakeAttr("error", r.error), nil
 	case "success":
-		return MakeAttr("ui.success", r.success), nil
+		return MakeAttr("success", r.success), nil
 	case "fail":
-		return MakeAttr("ui.fail", r.fail), nil
+		return MakeAttr("fail", r.fail), nil
 	default:
 		return nil, NoSuchAttrError("ui", name)
 	}
@@ -45,47 +41,51 @@ func (r *UiReceiver) AttrNames() []string {
 	return []string{"error", "fail", "note", "success", "warn"}
 }
 
-// note Note informs the user of progress.
+// note informs the user of progress.
 func (r *UiReceiver) note(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var msg string
 	if err := starlark.UnpackArgs("note", args, kwargs, "msg", &msg); err != nil {
 		return nil, err
 	}
-	return starlark.None, r.provider.Note(string(msg), r.output)
+	r.provider.Note(msg)
+	return starlark.None, nil
 }
 
-// warn Warn alerts the user to a potential issue.
+// warn alerts the user to a potential issue.
 func (r *UiReceiver) warn(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var msg string
 	if err := starlark.UnpackArgs("warn", args, kwargs, "msg", &msg); err != nil {
 		return nil, err
 	}
-	return starlark.None, r.provider.Warn(string(msg), r.output)
+	r.provider.Warn(msg)
+	return starlark.None, nil
 }
 
-// error Error reports a problem to the user.
+// error reports a problem to the user.
 func (r *UiReceiver) error(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var msg string
 	if err := starlark.UnpackArgs("error", args, kwargs, "msg", &msg); err != nil {
 		return nil, err
 	}
-	return starlark.None, r.provider.Error(string(msg), r.output)
+	r.provider.Error(msg)
+	return starlark.None, nil
 }
 
-// success Success confirms completion to the user.
+// success confirms completion to the user.
 func (r *UiReceiver) success(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var msg string
 	if err := starlark.UnpackArgs("success", args, kwargs, "msg", &msg); err != nil {
 		return nil, err
 	}
-	return starlark.None, r.provider.Success(string(msg), r.output)
+	r.provider.Success(msg)
+	return starlark.None, nil
 }
 
-// fail Fail aborts execution with a message to the user.
+// fail aborts execution with a message to the user.
 func (r *UiReceiver) fail(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var msg string
 	if err := starlark.UnpackArgs("fail", args, kwargs, "msg", &msg); err != nil {
 		return nil, err
 	}
-	return starlark.None, r.provider.Fail(string(msg), r.output)
+	return nil, r.provider.Fail(msg)
 }

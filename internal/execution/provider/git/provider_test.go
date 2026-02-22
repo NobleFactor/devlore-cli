@@ -20,7 +20,7 @@ func TestCloneAndCompensate(t *testing.T) {
 		},
 	}
 
-	state, err := p.Clone("https://example.com/repo.git", clonePath, io.Discard)
+	_, state, err := p.Clone("https://example.com/repo.git", clonePath, io.Discard)
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}

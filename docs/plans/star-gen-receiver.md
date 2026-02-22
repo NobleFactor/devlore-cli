@@ -205,6 +205,10 @@ exists before creating one:
 This prevents duplication — many methods across different receivers return
 `host.Result`, but the Starlark type for it exists exactly once.
 
+> **Banned pattern.** `FromStringDict` with `NewBuiltin` values for namespace
+> receivers is prohibited. Data-only result structs now also use
+> `Attr()`/`AttrNames()` receivers instead of `FromStringDict`.
+
 Currently, result structs are scattered as inline `FromStringDict` calls:
 - `resultToStarlark()` in `bindings.go` (converts `host.Result`)
 - Inline in `receiver_git.go`, `receiver_docker.go`, `receiver_npm.go`
@@ -432,7 +436,7 @@ copyNode   := &execution.Node{ID: "file.copy-1",   Operation: "copy", ...}
 - [ ] Update writ graph builder to emit node chains instead of operation lists
 - [ ] Update writ reconciler to emit node chains
 - [ ] Update stateview and history to use singular `Operation`
-- [ ] Consolidate scattered `FromStringDict` result converters into `types.go`
+- [ ] Consolidate scattered result converters into `types.go` using Attr/AttrNames receivers
 - [ ] Update all existing tests
 
 The only multi-op patterns in the codebase are `["render", "copy"]` and

@@ -160,12 +160,6 @@ type Node struct {
 	// Layer is the repository layer (base, team, personal).
 	Layer string `json:"layer,omitempty" yaml:"layer,omitempty"`
 
-	// SourceChecksum is the SHA256 of the source file at deploy time.
-	SourceChecksum string `json:"source_checksum,omitempty" yaml:"source_checksum,omitempty"`
-
-	// TargetChecksum is the SHA256 of the target file after deployment.
-	TargetChecksum string `json:"target_checksum,omitempty" yaml:"target_checksum,omitempty"`
-
 	// Error message if status is failed.
 	Error string `json:"error,omitempty" yaml:"error,omitempty"`
 
@@ -588,8 +582,6 @@ func (g *Graph) ApplyResults(results []*NodeResult) {
 				}
 			}
 			n.Timestamp = time.Now().Format(time.RFC3339)
-			n.SourceChecksum = r.SourceChecksum
-			n.TargetChecksum = r.TargetChecksum
 		}
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
@@ -85,7 +86,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 
 	// Verbose output (command-layer concern)
 	if cfg.Verbose {
-		reportGraphContext(cfg, g)
+		reportGraphContext(cfg)
 	}
 
 	// Report collisions
@@ -126,7 +127,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 }
 
 // reportGraphContext outputs verbose context information.
-func reportGraphContext(cfg *DeployConfig, g *execution.Graph) {
+func reportGraphContext(cfg *DeployConfig) {
 	if len(cfg.LayerSources) > 0 {
 		cli.Note("Layers: %d sources", len(cfg.LayerSources))
 		for _, src := range cfg.LayerSources {
@@ -349,10 +350,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Prepare engine data
-	engineData, identities, err := prepareUpgradeEngine(cfg)
-	if err != nil {
-		return err
-	}
+	engineData, identities := prepareUpgradeEngine(cfg)
 
 	// 4. Execute upgrades
 	return executeUpgrades(cfg, view, copied, engineData, identities)
@@ -390,7 +388,7 @@ func loadViewAndCopiedFiles(cfg *UpgradeConfig) (*execution.StateView, map[strin
 }
 
 // prepareUpgradeEngine prepares the engine data and loads identities.
-func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, []age.Identity, error) {
+func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, []age.Identity) {
 	segs := segment.DetectSegments().LoadFromEnv()
 
 	segMap := make(map[string]string)
@@ -417,7 +415,7 @@ func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, []age.Identity, e
 	engineData["decryptor"] = upgradeSecretsMgr.Decryptor()
 
 	identities, _ := identity.LoadIdentities()
-	return engineData, identities, nil
+	return engineData, identities
 }
 
 // executeUpgrades regenerates copied files.
@@ -466,25 +464,6 @@ const (
 // upgradeFile regenerates a single copied file.
 func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string, entry *execution.FileEntry, engineData map[string]any, identities []age.Identity) upgradeResult {
 	targetRoot := view.Files.Root
-	entrySourceChecksum := entry.SourceChecksum()
-	entryTargetChecksum := entry.TargetChecksum()
-
-	currentSourceChecksum := execution.ChecksumFile(entry.Source)
-	currentTargetChecksum := execution.ChecksumFile(filepath.Join(targetRoot, relTarget))
-
-	sourceChanged := currentSourceChecksum != "" && entrySourceChecksum != "" && currentSourceChecksum != entrySourceChecksum
-	targetChanged := currentTargetChecksum != "" && entryTargetChecksum != "" && currentTargetChecksum != entryTargetChecksum
-
-	if targetChanged && !cfg.Force {
-		if cfg.Verbose {
-			if sourceChanged {
-				cli.Warn("%s (skipped: both source and target changed)", relTarget)
-			} else {
-				cli.Warn("%s (skipped: locally modified)", relTarget)
-			}
-		}
-		return upgradeResultSkipped
-	}
 
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
@@ -497,39 +476,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	}
 
 	target := filepath.Join(targetRoot, relTarget)
-	hasDecrypt := hasDecryptOp(actions)
-
-	// Build node chain for multi-op pipelines
-	var nodes []*execution.Node
-	var edges []execution.Edge
-	var prevNodeID string
-	for i, opName := range actions {
-		isLast := (i == len(actions) - 1)
-		nodeID := relTarget
-		if !isLast {
-			nodeID = relTarget + ":" + opName
-		}
-
-		node := &execution.Node{
-			ID:        nodeID,
-			Action:    reg.MustGet(opName),
-			Project:   entry.Project,
-		}
-		if i == 0 {
-			node.SetSlotImmediate("source", entry.Source)
-		}
-		if isLast {
-			node.SetSlotImmediate("path", target)
-			if hasDecrypt {
-				node.SetSlotImmediate("mode", os.FileMode(0600))
-			}
-		}
-		nodes = append(nodes, node)
-		if prevNodeID != "" {
-			edges = append(edges, execution.Edge{From: prevNodeID, To: nodeID})
-		}
-		prevNodeID = nodeID
-	}
+	nodes, edges := buildUpgradeChain(reg, actions, relTarget, entry, target)
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
@@ -548,14 +495,48 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	}
 
 	if cfg.Verbose {
-		if targetChanged && cfg.Force {
-			cli.Success("%s (regenerated, local changes overwritten)", relTarget)
-		} else {
-			cli.Success("%s (regenerated)", relTarget)
-		}
+		cli.Success("%s (regenerated)", relTarget)
 	}
 
 	return upgradeResultRegenerated
+}
+
+
+// buildUpgradeChain builds the node chain for a multi-action upgrade pipeline.
+func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*execution.Node, []execution.Edge) {
+	hasDecrypt := hasDecryptOp(actions)
+	var nodes []*execution.Node
+	var edges []execution.Edge
+	var prevNodeID string
+
+	for i, opName := range actions {
+		isLast := (i == len(actions) - 1)
+		nodeID := relTarget
+		if !isLast {
+			nodeID = relTarget + ":" + opName
+		}
+
+		node := &execution.Node{
+			ID:      nodeID,
+			Action:  reg.MustGet(opName),
+			Project: entry.Project,
+		}
+		if i == 0 {
+			node.SetSlotImmediate("source", entry.Source)
+		}
+		if isLast {
+			node.SetSlotImmediate("path", target)
+			if hasDecrypt {
+				node.SetSlotImmediate("mode", os.FileMode(0600))
+			}
+		}
+		nodes = append(nodes, node)
+		if prevNodeID != "" {
+			edges = append(edges, execution.Edge{From: prevNodeID, To: nodeID})
+		}
+		prevNodeID = nodeID
+	}
+	return nodes, edges
 }
 
 func newReconcileCmd() *cobra.Command {
@@ -682,7 +663,7 @@ func verifyGraphSignatureForReconcile(cfg *ReconcileConfig, g *execution.Graph) 
 			cli.Note("Receipt unsigned, skipping verification")
 		}
 	case VerifyInvalid, VerifyMissing:
-		return fmt.Errorf("receipt signature invalid, redeploy to regenerate: %v", verifyErr)
+		return fmt.Errorf("receipt signature invalid, redeploy to regenerate: %w", verifyErr)
 	}
 	return nil
 }
@@ -710,71 +691,44 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 	report.ReceiptPath = cli.LatestReceiptPath("writ")
 
 	for _, n := range g.Nodes {
-		// Skip non-file nodes and symlinks
-		if n.Status == execution.StatusSkipped || n.ActionName() == "file.backup" {
+		if isSkippableNode(n) {
 			continue
 		}
-		if n.ActionName() == "file.link" {
-			continue // Symlinks are found by scanning
-		}
-		// Skip intermediate transform nodes
-		if n.ActionName() == "template.render" || n.ActionName() == "encryption.decrypt" {
-			continue
-		}
-
-		var entry reconcile.Entry
 		source, _ := n.GetSlot("source").(string)
 		target, _ := n.GetSlot("path").(string)
-		if checkDrift && n.SourceChecksum != "" {
-			entry = reconcile.Entry{
-				RelTarget:      n.ID,
-				Source:         source,
-				Target:         target,
-				Project:        n.Project,
-				Action:      n.ActionName(),
-				SourceChecksum: n.SourceChecksum,
-				TargetChecksum: n.TargetChecksum,
-			}
-			// Check drift
-			currentSourceChecksum := execution.ChecksumFile(source)
-			currentTargetChecksum := execution.ChecksumFile(target)
-
-			sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != n.SourceChecksum
-			targetChanged := currentTargetChecksum != "" && currentTargetChecksum != n.TargetChecksum
-
-			switch {
-			case sourceChanged && targetChanged:
-				entry.State = reconcile.StateDriftConflict
-				entry.Message = "both source and target changed"
-			case sourceChanged:
-				entry.State = reconcile.StateStale
-				entry.Message = "source changed, redeploy needed"
-			case targetChanged:
-				entry.State = reconcile.StateModified
-				entry.Message = "target modified locally"
-			default:
-				entry.State = reconcile.StateCopied
-			}
-		} else {
-			// Just check if file exists
-			entry = reconcile.Entry{
-				RelTarget: n.ID,
-				Source:    source,
-				Target:    target,
-				Project:   n.Project,
-				Action: n.ActionName(),
-			}
-			if _, err := os.Stat(target); os.IsNotExist(err) {
-				entry.State = reconcile.StateMissing
-				entry.Message = "file not deployed"
-			} else {
-				entry.State = reconcile.StateCopied
-			}
-		}
-
-		report.Entries = append(report.Entries, entry)
+		report.Entries = append(report.Entries, buildNodeEntry(n, source, target, checkDrift))
 	}
 }
+
+// isSkippableNode returns true for nodes that should not appear in the reconcile report.
+func isSkippableNode(n *execution.Node) bool {
+	action := n.ActionName()
+	return n.Status == execution.StatusSkipped ||
+		action == "file.backup" ||
+		action == "file.link" ||
+		action == "template.render" ||
+		action == "encryption.decrypt"
+}
+
+// buildNodeEntry creates a reconcile entry from a graph node.
+func buildNodeEntry(n *execution.Node, source, target string, _ bool) reconcile.Entry {
+	entry := reconcile.Entry{
+		RelTarget: n.ID,
+		Source:    source,
+		Target:   target,
+		Project:  n.Project,
+		Action:   n.ActionName(),
+	}
+
+	if _, err := os.Stat(target); os.IsNotExist(err) {
+		entry.State = reconcile.StateMissing
+		entry.Message = "file not deployed"
+	} else {
+		entry.State = reconcile.StateCopied
+	}
+	return entry
+}
+
 
 // reconcileFromView builds a status report from the StateView.
 func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Report {
@@ -787,92 +741,81 @@ func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Re
 
 	for relTarget, entry := range view.Files.Entries {
 		target := filepath.Join(view.Files.Root, relTarget)
-		entrySourceChecksum := entry.SourceChecksum()
-		entryTargetChecksum := entry.TargetChecksum()
-
 		statusEntry := reconcile.Entry{
-			RelTarget:      relTarget,
-			Source:         entry.Source,
-			Target:         target,
-			Project:        entry.Project,
-			Action:         entry.LastActionName(),
-			SourceChecksum: entrySourceChecksum,
-			TargetChecksum: entryTargetChecksum,
+			RelTarget: relTarget,
+			Source:    entry.Source,
+			Target:   target,
+			Project:  entry.Project,
+			Action:   entry.LastActionName(),
 		}
 
 		if entry.IsCopied() {
-			// Copied file - check existence and optionally drift
-			if _, err := os.Stat(target); os.IsNotExist(err) {
-				statusEntry.State = reconcile.StateMissing
-				statusEntry.Message = "file not deployed"
-			} else if checkDrift && entrySourceChecksum != "" {
-				// Check drift
-				currentSourceChecksum := execution.ChecksumFile(entry.Source)
-				currentTargetChecksum := execution.ChecksumFile(target)
-
-				sourceChanged := currentSourceChecksum != "" && currentSourceChecksum != entrySourceChecksum
-				targetChanged := currentTargetChecksum != "" && currentTargetChecksum != entryTargetChecksum
-
-				switch {
-				case sourceChanged && targetChanged:
-					statusEntry.State = reconcile.StateDriftConflict
-					statusEntry.Message = "both source and target changed"
-				case sourceChanged:
-					statusEntry.State = reconcile.StateStale
-					statusEntry.Message = "source changed, redeploy needed"
-				case targetChanged:
-					statusEntry.State = reconcile.StateModified
-					statusEntry.Message = "target modified locally"
-				default:
-					statusEntry.State = reconcile.StateCopied
-				}
-			} else {
-				statusEntry.State = reconcile.StateCopied
-			}
+			classifyCopiedEntry(&statusEntry, checkDrift)
 		} else {
-			// Symlink - check if it exists and points correctly
-			info, err := os.Lstat(target)
-			if os.IsNotExist(err) {
-				statusEntry.State = reconcile.StateMissing
-				statusEntry.Message = "symlink not created"
-			} else if err != nil {
-				statusEntry.State = reconcile.StateConflict
-				statusEntry.Message = err.Error()
-			} else if info.Mode()&os.ModeSymlink == 0 {
-				statusEntry.State = reconcile.StateConflict
-				statusEntry.Message = "file exists, not a symlink"
-			} else {
-				// Check symlink target
-				linkTarget, err := os.Readlink(target)
-				if err != nil {
-					statusEntry.State = reconcile.StateConflict
-					statusEntry.Message = "cannot read symlink"
-				} else {
-					// Resolve relative symlinks
-					if !filepath.IsAbs(linkTarget) {
-						linkTarget = filepath.Join(filepath.Dir(target), linkTarget)
-					}
-					linkTarget = filepath.Clean(linkTarget)
-
-					if linkTarget == entry.Source {
-						if _, err := os.Stat(entry.Source); os.IsNotExist(err) {
-							statusEntry.State = reconcile.StateOrphan
-							statusEntry.Message = "source file deleted"
-						} else {
-							statusEntry.State = reconcile.StateLinked
-						}
-					} else {
-						statusEntry.State = reconcile.StateConflict
-						statusEntry.Message = "symlink points to " + linkTarget
-					}
-				}
-			}
+			classifySymlinkEntry(&statusEntry, entry.Source)
 		}
 
 		report.Entries = append(report.Entries, statusEntry)
 	}
 
 	return report
+}
+
+// classifyCopiedEntry determines the state of a copied file entry.
+func classifyCopiedEntry(entry *reconcile.Entry, _ bool) {
+	if _, err := os.Stat(entry.Target); os.IsNotExist(err) {
+		entry.State = reconcile.StateMissing
+		entry.Message = "file not deployed"
+		return
+	}
+
+	entry.State = reconcile.StateCopied
+}
+
+// classifySymlinkEntry determines the state of a symlink entry.
+func classifySymlinkEntry(entry *reconcile.Entry, expectedSource string) {
+	info, err := os.Lstat(entry.Target)
+	if os.IsNotExist(err) {
+		entry.State = reconcile.StateMissing
+		entry.Message = "symlink not created"
+		return
+	}
+	if err != nil {
+		entry.State = reconcile.StateConflict
+		entry.Message = err.Error()
+		return
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		entry.State = reconcile.StateConflict
+		entry.Message = "file exists, not a symlink"
+		return
+	}
+
+	linkTarget, err := os.Readlink(entry.Target)
+	if err != nil {
+		entry.State = reconcile.StateConflict
+		entry.Message = "cannot read symlink"
+		return
+	}
+
+	// Resolve relative symlinks
+	if !filepath.IsAbs(linkTarget) {
+		linkTarget = filepath.Join(filepath.Dir(entry.Target), linkTarget)
+	}
+	linkTarget = filepath.Clean(linkTarget)
+
+	if linkTarget != expectedSource {
+		entry.State = reconcile.StateConflict
+		entry.Message = "symlink points to " + linkTarget
+		return
+	}
+
+	if _, err := os.Stat(expectedSource); os.IsNotExist(err) {
+		entry.State = reconcile.StateOrphan
+		entry.Message = "source file deleted"
+	} else {
+		entry.State = reconcile.StateLinked
+	}
 }
 
 // outputReconcileJSON outputs the reconcile report as JSON.
@@ -994,6 +937,17 @@ func outputReconcileText(report *reconcile.Report) error {
 	}
 
 	// Summary
+	printReconcileSummary(report)
+
+	if report.FromReceipt {
+		fmt.Printf("(from receipt: %s)\n", report.ReceiptPath)
+	}
+
+	return nil
+}
+
+// printReconcileSummary prints a one-line summary of reconcile results.
+func printReconcileSummary(report *reconcile.Report) {
 	summary := report.Summary()
 	total := len(report.Entries)
 	linked := summary[reconcile.StateLinked] + summary[reconcile.StateCopied]
@@ -1001,34 +955,26 @@ func outputReconcileText(report *reconcile.Report) error {
 
 	if issues == 0 {
 		fmt.Printf("%d files, all deployed correctly\n", total)
-	} else {
-		fmt.Printf("%d files: %d ok", total, linked)
-		if n := summary[reconcile.StateConflict]; n > 0 {
-			fmt.Printf(", %d conflict", n)
-		}
-		if n := summary[reconcile.StateMissing]; n > 0 {
-			fmt.Printf(", %d missing", n)
-		}
-		if n := summary[reconcile.StateOrphan]; n > 0 {
-			fmt.Printf(", %d orphan", n)
-		}
-		if n := summary[reconcile.StateStale]; n > 0 {
-			fmt.Printf(", %d stale", n)
-		}
-		if n := summary[reconcile.StateModified]; n > 0 {
-			fmt.Printf(", %d modified", n)
-		}
-		if n := summary[reconcile.StateDriftConflict]; n > 0 {
-			fmt.Printf(", %d drift-conflict", n)
-		}
-		fmt.Println()
+		return
 	}
 
-	if report.FromReceipt {
-		fmt.Printf("(from receipt: %s)\n", report.ReceiptPath)
+	fmt.Printf("%d files: %d ok", total, linked)
+	for _, pair := range []struct {
+		state reconcile.State
+		label string
+	}{
+		{reconcile.StateConflict, "conflict"},
+		{reconcile.StateMissing, "missing"},
+		{reconcile.StateOrphan, "orphan"},
+		{reconcile.StateStale, "stale"},
+		{reconcile.StateModified, "modified"},
+		{reconcile.StateDriftConflict, "drift-conflict"},
+	} {
+		if n := summary[pair.state]; n > 0 {
+			fmt.Printf(", %d %s", n, pair.label)
+		}
 	}
-
-	return nil
+	fmt.Println()
 }
 
 func newAdoptCmd() *cobra.Command {
@@ -1088,16 +1034,16 @@ func adoptFiles(cfg *AdoptConfig) int {
 	}
 
 	var adopted int
-	for _, file := range cfg.Files {
-		count := adoptItem(cfg, file)
+	for _, item := range cfg.Files {
+		count := adoptItem(cfg, item)
 		adopted += count
 	}
 	return adopted
 }
 
 // adoptItem processes a single file or directory for adoption.
-func adoptItem(cfg *AdoptConfig, file string) int {
-	filePath := expandPath(file)
+func adoptItem(cfg *AdoptConfig, item string) int {
+	filePath := expandPath(item)
 	if !filepath.IsAbs(filePath) {
 		filePath = filepath.Join(cfg.TargetRoot, filePath)
 	}
@@ -1112,15 +1058,15 @@ func adoptItem(cfg *AdoptConfig, file string) int {
 	info, err := os.Lstat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			cli.Error("%s: file does not exist", file)
+			cli.Error("%s: file does not exist", item)
 		} else {
-			cli.Error("%s: %v", file, err)
+			cli.Error("%s: %v", item, err)
 		}
 		return 0
 	}
 
 	if info.Mode()&os.ModeSymlink != 0 {
-		cli.Warn("%s: already a symlink (skip)", file)
+		cli.Warn("%s: already a symlink (skip)", item)
 		return 0
 	}
 
@@ -1135,7 +1081,7 @@ func adoptItem(cfg *AdoptConfig, file string) int {
 
 	count, err := adoptFile(filePath, targetRoot, projectDir, cfg.Verbose, cfg.DryRun)
 	if err != nil {
-		cli.Error("%s: %v", file, err)
+		cli.Error("%s: %v", item, err)
 		return 0
 	}
 	return count
@@ -1255,9 +1201,11 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 		return 1, nil
 	}
 
+	fp := &file.Provider{}
+
 	// Create destination directory
 	destDir := filepath.Dir(destPath)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if _, err := fp.Mkdir(destDir, 0755); err != nil {
 		return 0, fmt.Errorf("creating directory %s: %w", destDir, err)
 	}
 
@@ -1267,8 +1215,8 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 	}
 
 	// Move file to repo
-	if err := os.Rename(filePath, destPath); err != nil {
-		// Rename may fail across filesystems, try copy+remove
+	if _, _, err := fp.Move(nil, filePath, destPath); err != nil {
+		// Move may fail across filesystems, try copy+remove
 		if err := copyFile(filePath, destPath); err != nil {
 			return 0, fmt.Errorf("moving file: %w", err)
 		}
@@ -1279,12 +1227,8 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 	}
 
 	// Create symlink back
-	if err := os.Symlink(destPath, filePath); err != nil {
-		// Try to restore the file
-		if mvErr := os.Rename(destPath, filePath); mvErr != nil {
-			return 0, fmt.Errorf("creating symlink (file remains at %s): %w", destPath, err)
-		}
-		return 0, fmt.Errorf("creating symlink: %w", err)
+	if _, _, err := fp.Link(destPath, filePath); err != nil {
+		return 0, fmt.Errorf("creating symlink (file remains at %s): %w", destPath, err)
 	}
 
 	cli.Success("Adopted %s", relPath)
@@ -1462,9 +1406,7 @@ func builtinTemplateData(segMap map[string]string) map[string]any {
 	data["CacheHome"] = xdgPath("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 
 	// Environment lookup function (usable in templates as {{ Env "KEY" }})
-	data["Env"] = func(key string) string {
-		return os.Getenv(key)
-	}
+	data["Env"] = os.Getenv
 
 	return data
 }

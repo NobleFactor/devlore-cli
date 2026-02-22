@@ -6,6 +6,7 @@ package bindgen
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 	"text/template"
 	"unicode"
@@ -34,6 +35,7 @@ func (g *GoGenerator) Generate(def *BindingDef) (string, error) {
 		"flagArgs":    g.flagArgs,
 		"buildCmd":    g.buildCmd,
 		"kwargSwitch": g.kwargSwitch,
+		"sortedKeys":  sortedKeys,
 	}).Parse(goTemplate)
 	if err != nil {
 		return "", err
@@ -139,6 +141,16 @@ func toCamelCase(s string) string {
 	return strings.Join(parts, "")
 }
 
+// sortedKeys returns the sorted keys of a map[string]*Command.
+func sortedKeys(m map[string]*Command) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // toExportedName converts a name to an exported Go identifier.
 func toExportedName(s string) string {
 	camel := toCamelCase(s)
@@ -163,31 +175,40 @@ import (
 	"strings"
 
 	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 )
 
-// {{export .Name}}Bindings provides the {{.Name}}.* API to Starlark scripts.
-type {{export .Name}}Bindings struct {
+// {{export .Name}}Receiver provides the {{.Name}}.* API to Starlark scripts.
+type {{export .Name}}Receiver struct {
+	Receiver
 	bindings *Bindings
 }
 
-// New{{export .Name}}Bindings creates {{.Name}} bindings attached to the parent bindings.
-func New{{export .Name}}Bindings(b *Bindings) *{{export .Name}}Bindings {
-	return &{{export .Name}}Bindings{bindings: b}
+// New{{export .Name}}Receiver creates {{.Name}} receiver attached to the parent bindings.
+func New{{export .Name}}Receiver(b *Bindings) *{{export .Name}}Receiver {
+	return &{{export .Name}}Receiver{
+		Receiver: NewReceiver("{{.Name}}"),
+		bindings: b,
+	}
 }
 
-// Struct returns the {{.Name}}.* namespace for Starlark.
-func (b *{{export .Name}}Bindings) Struct() *starlarkstruct.Struct {
-	return starlarkstruct.FromStringDict(starlark.String("{{.Name}}"), starlark.StringDict{
+func (r *{{export .Name}}Receiver) Attr(name string) (starlark.Value, error) {
+	switch name {
 {{- range $name, $cmd := .Commands}}
-		"{{$name}}": starlark.NewBuiltin("{{$.Name}}.{{$name}}", b.{{camel $name}}),
+	case "{{$name}}":
+		return MakeAttr("{{$.Name}}.{{$name}}", r.{{camel $name}}), nil
 {{- end}}
-	})
+	default:
+		return nil, NoSuchAttrError("{{.Name}}", name)
+	}
+}
+
+func (r *{{export .Name}}Receiver) AttrNames() []string {
+	return []string{ {{- range $i, $name := sortedKeys .Commands}}{{if $i}}, {{end}}"{{$name}}"{{- end -}} }
 }
 {{range $name, $cmd := .Commands}}
 // {{camel $name}} executes {{$.Name}} {{$name}}.
 // {{$cmd.Description}}
-func (b *{{export $.Name}}Bindings) {{camel $name}}(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (r *{{export $.Name}}Receiver) {{camel $name}}(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 {{flagArgs $cmd.Flags}}
 
 	for _, kv := range kwargs {
@@ -200,11 +221,39 @@ func (b *{{export $.Name}}Bindings) {{camel $name}}(thread *starlark.Thread, fn 
 	cmdArgs := []string{"{{$name}}"}
 {{buildCmd $cmd}}
 
-	return b.run{{export $.Name}}(cmdArgs)
+	return r.run{{export $.Name}}(cmdArgs)
 }
 {{end}}
+// cmdResult wraps command execution output as a Starlark value.
+type cmdResult struct {
+	Receiver
+	ok     bool
+	stdout string
+	stderr string
+	code   int
+}
+
+func (r *cmdResult) Attr(name string) (starlark.Value, error) {
+	switch name {
+	case "ok":
+		return starlark.Bool(r.ok), nil
+	case "stdout":
+		return starlark.String(r.stdout), nil
+	case "stderr":
+		return starlark.String(r.stderr), nil
+	case "code":
+		return starlark.MakeInt(r.code), nil
+	default:
+		return nil, NoSuchAttrError("result", name)
+	}
+}
+
+func (r *cmdResult) AttrNames() []string {
+	return []string{"code", "ok", "stderr", "stdout"}
+}
+
 // run{{export .Name}} executes {{.Name}} with the given arguments.
-func (b *{{export .Name}}Bindings) run{{export .Name}}(args []string) (starlark.Value, error) {
+func (r *{{export .Name}}Receiver) run{{export .Name}}(args []string) (starlark.Value, error) {
 	cmd := exec.Command("{{.Name}}", args...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -220,11 +269,12 @@ func (b *{{export .Name}}Bindings) run{{export .Name}}(args []string) (starlark.
 		}
 	}
 
-	return starlarkstruct.FromStringDict(starlark.String("result"), starlark.StringDict{
-		"ok":     starlark.Bool(code == 0),
-		"stdout": starlark.String(strings.TrimSpace(stdout.String())),
-		"stderr": starlark.String(strings.TrimSpace(stderr.String())),
-		"code":   starlark.MakeInt(code),
-	}), nil
+	return &cmdResult{
+		Receiver: NewReceiver("result"),
+		ok:       code == 0,
+		stdout:   strings.TrimSpace(stdout.String()),
+		stderr:   strings.TrimSpace(stderr.String()),
+		code:     code,
+	}, nil
 }
 `

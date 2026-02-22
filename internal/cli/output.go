@@ -16,6 +16,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/ui"
 )
 
 // =============================================================================
@@ -389,107 +391,55 @@ func formatFieldValue(v interface{}) string {
 // Status Output Functions
 // =============================================================================
 //
-// Consistent output functions for CLI commands. All messages go to stderr.
-// Data output goes to stdout via Render.
-//
-// Format: [program] [symbol] message
-//   Note:    [program] [+] message     (light gray +)
-//   Warn:    [program] [△] message     (yellow △)
-//   Error:   [program] [✖] message     (red ✖)
-//   Failure: [program] [✖] message     (red ✖) + returns error
-//   Success: [program] [✔] message     (green ✔)
-//
-// Use --silent to suppress all status messages.
+// Thin wrappers around ui.Provider. All 136 call sites remain unchanged.
+// The ui.Provider is the single implementation for both Go callers and
+// Starlark realtime receivers.
 
-// ANSI color codes
-const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorGray   = "\033[37m"
-)
-
-// Status symbols
-const (
-	symbolNote    = "+"
-	symbolWarn    = "△"
-	symbolError   = "✖"
-	symbolSuccess = "✔"
-)
-
-// programName holds the current program name for output prefixes.
-// Set via SetProgramName at startup.
-var programName = "devlore"
-
-// silent suppresses all status messages when true.
-// Set via --silent flag on the root command.
-var silent = false
+// output is the package-level ui.Provider instance.
+var output = &ui.Provider{
+	Writer: os.Stderr,
+	Color:  true,
+}
 
 // SetProgramName sets the program name used in output prefixes.
 func SetProgramName(name string) {
-	programName = name
+	output.ProgramName = name
 }
 
 // SetSilent enables or disables silent mode.
 func SetSilent(s bool) {
-	silent = s
+	output.Silent = s
 }
 
 // AddSilentFlag adds the --silent flag to a root command.
 func AddSilentFlag(cmd *cobra.Command) {
-	cmd.PersistentFlags().BoolVar(&silent, "silent", false,
+	cmd.PersistentFlags().BoolVar(&output.Silent, "silent", false,
 		`Suppress all status messages (stderr)`)
 }
 
 // Note prints an informational message to stderr.
-// Format: [program] [+] message (light gray +)
 func Note(format string, args ...interface{}) {
-	if silent {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorGray, symbolNote, colorReset, msg)
+	output.Note(fmt.Sprintf(format, args...))
 }
 
 // Warn prints a warning message to stderr.
-// Format: [program] [△] message (yellow △)
 func Warn(format string, args ...interface{}) {
-	if silent {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorYellow, symbolWarn, colorReset, msg)
+	output.Warn(fmt.Sprintf(format, args...))
 }
 
 // Error prints an error message to stderr.
 // Unlike Failure, this does not return an error—use for non-fatal errors.
-// Format: [program] [✖] message (red ✖)
 func Error(format string, args ...interface{}) {
-	if silent {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorRed, symbolError, colorReset, msg)
+	output.Error(fmt.Sprintf(format, args...))
 }
 
 // Failure prints an error message to stderr and returns an error.
 // Use when the operation cannot continue.
-// Format: [program] [✖] message (red ✖)
 func Failure(format string, args ...interface{}) error {
-	msg := fmt.Sprintf(format, args...)
-	if !silent {
-		fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorRed, symbolError, colorReset, msg)
-	}
-	return fmt.Errorf("%s", msg)
+	return output.Fail(fmt.Sprintf(format, args...))
 }
 
 // Success prints a success message to stderr.
-// Format: [program] [✔] message (green ✔)
 func Success(format string, args ...interface{}) {
-	if silent {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorGreen, symbolSuccess, colorReset, msg)
+	output.Success(fmt.Sprintf(format, args...))
 }

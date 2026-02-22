@@ -5,8 +5,6 @@ package execution
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -51,12 +49,10 @@ func (s ResultStatus) String() string {
 
 // NodeResult represents the outcome of executing a single node.
 type NodeResult struct {
-	NodeID         string
-	Status         ResultStatus
-	Error          error
-	Message        string
-	SourceChecksum string
-	TargetChecksum string
+	NodeID  string
+	Status  ResultStatus
+	Error   error
+	Message string
 }
 
 // ConflictResolution specifies how to handle conflicts during execution.
@@ -236,7 +232,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 			}
 
 			// Unwind node-level recovery stack
-			nodeStack.Unwind(execCtx, results)
+			nodeStack.Unwind(execCtx)
 
 			// Execute compensating phases in LIFO order
 			var rollbackLog []RollbackEntry
@@ -433,8 +429,6 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string
 	FillSlotsFromData(slots, e.options.Data)
 
 	ctx.NodeID = node.ID
-	ctx.SourceChecksum = ""
-	ctx.TargetChecksum = ""
 
 	e.hooks.FireNodeStart(ctx, node.ID, slots)
 
@@ -462,14 +456,10 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string
 	}
 
 	node.Status = StatusCompleted
-	node.SourceChecksum = ctx.SourceChecksum
-	node.TargetChecksum = ctx.TargetChecksum
 
 	return &NodeResult{
-		NodeID:         node.ID,
-		Status:         ResultCompleted,
-		SourceChecksum: ctx.SourceChecksum,
-		TargetChecksum: ctx.TargetChecksum,
+		NodeID: node.ID,
+		Status: ResultCompleted,
 	}
 }
 
@@ -578,18 +568,3 @@ func pathDepth(path string) int {
 	return strings.Count(path, string(filepath.Separator))
 }
 
-// ChecksumBytes computes SHA256 of content and returns "sha256:<hex>".
-func ChecksumBytes(content []byte) string {
-	hash := sha256.Sum256(content)
-	return "sha256:" + hex.EncodeToString(hash[:])
-}
-
-// ChecksumFile computes SHA256 of a file and returns "sha256:<hex>".
-// Returns empty string if the file cannot be read.
-func ChecksumFile(path string) string {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return ChecksumBytes(content)
-}

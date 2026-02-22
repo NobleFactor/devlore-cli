@@ -29,10 +29,6 @@ func (o *Download) Do(ctx *execution.Context, slots map[string]any) (execution.R
 	return result, nil, err
 }
 
-func (o *Download) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
-}
-
 // Register registers all net actions with the given registry.
 func Register(reg *execution.ActionRegistry) {
 	p := &Provider{}

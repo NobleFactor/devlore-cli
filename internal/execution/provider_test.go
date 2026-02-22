@@ -126,7 +126,7 @@ func TestShellDryRun(t *testing.T) {
 
 func TestShellEmptyCommand(t *testing.T) {
 	p := &shell.Provider{}
-	err := p.Exec("", os.Stdout)
+	_, err := p.Exec("", os.Stdout)
 	if err == nil {
 		t.Fatal("expected error for empty command")
 	}
@@ -231,7 +231,7 @@ func TestServiceDisableDryRun(t *testing.T) {
 
 func TestServiceEmptyName(t *testing.T) {
 	p := &service.Provider{}
-	_, err := p.Start("", os.Stdout)
+	_, _, err := p.Start("", os.Stdout)
 	if err == nil {
 		t.Fatal("expected error for empty service name")
 	}
@@ -262,7 +262,7 @@ func TestGitCloneDryRun(t *testing.T) {
 
 func TestGitCloneEmptyURL(t *testing.T) {
 	p := &git.Provider{}
-	_, err := p.Clone("", "/tmp/repo", os.Stdout)
+	_, _, err := p.Clone("", "/tmp/repo", os.Stdout)
 	if err == nil {
 		t.Fatal("expected error for empty URL")
 	}

@@ -3,14 +3,18 @@
 
 package pkg
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Provider provides platform-independent package management.
 // The package manager is resolved at runtime via host.PackageManager().
 //
-// Compensable Forward methods return (map[string]any, error).
-// The map is the compensation receipt — opaque to the executor,
-// meaningful only to the corresponding Compensate* Backward method.
+// Compensable Forward methods return (string, map[string]any, error):
+// a summary of affected packages, the compensation receipt, and an error.
+// The map is opaque to the executor, meaningful only to the corresponding
+// Compensate* Backward method.
 //
 //devlore:plannable
 type Provider struct {
@@ -24,9 +28,14 @@ type Provider struct {
 
 // Install installs packages using the platform's package manager.
 // Returns compensation state with pre-install status per package.
-func (p *Provider) Install(packages []string, manager string, cask bool) (map[string]any, error) {
+//
+// Slots:
+//   - packages: List of package names to install
+//   - manager: Package manager override (empty for auto-detect)
+//   - cask: If true, use Homebrew cask for macOS GUI apps
+func (p *Provider) Install(packages []string, manager string, cask bool) (string, map[string]any, error) {
 	if len(packages) == 0 {
-		return nil, fmt.Errorf("no packages specified")
+		return "", nil, fmt.Errorf("no packages specified")
 	}
 
 	// Query which packages are already installed before acting
@@ -38,10 +47,10 @@ func (p *Provider) Install(packages []string, manager string, cask bool) (map[st
 	}
 
 	if err := p.doInstall(packages, manager, cask); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
-	return map[string]any{
+	return strings.Join(packages, ", "), map[string]any{
 		"packages":          packages,
 		"manager":           manager,
 		"cask":              cask,
@@ -51,11 +60,15 @@ func (p *Provider) Install(packages []string, manager string, cask bool) (map[st
 
 // CompensateInstall undoes an Install by removing packages that weren't
 // already installed before the action.
-func (p *Provider) CompensateInstall(state map[string]any) error {
-	packages, _ := state["packages"].([]string)
-	alreadyInstalled, _ := state["already_installed"].([]string)
-	manager, _ := state["manager"].(string)
-	cask, _ := state["cask"].(bool)
+func (p *Provider) CompensateInstall(state any) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	packages, _ := s["packages"].([]string)
+	alreadyInstalled, _ := s["already_installed"].([]string)
+	manager, _ := s["manager"].(string)
+	cask, _ := s["cask"].(bool)
 
 	installed := make(map[string]bool)
 	for _, pkg := range alreadyInstalled {
@@ -77,9 +90,14 @@ func (p *Provider) CompensateInstall(state map[string]any) error {
 
 // Upgrade upgrades packages using the platform's package manager.
 // Returns compensation state with pre-upgrade versions per package.
-func (p *Provider) Upgrade(packages []string, manager string, cask bool) (map[string]any, error) {
+//
+// Slots:
+//   - packages: List of package names to upgrade
+//   - manager: Package manager override (empty for auto-detect)
+//   - cask: If true, use Homebrew cask for macOS GUI apps
+func (p *Provider) Upgrade(packages []string, manager string, cask bool) (string, map[string]any, error) {
 	if len(packages) == 0 {
-		return nil, fmt.Errorf("no packages specified")
+		return "", nil, fmt.Errorf("no packages specified")
 	}
 
 	// Capture current versions before upgrading
@@ -91,10 +109,10 @@ func (p *Provider) Upgrade(packages []string, manager string, cask bool) (map[st
 	}
 
 	if err := p.doUpgrade(packages, manager, cask); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
-	return map[string]any{
+	return strings.Join(packages, ", "), map[string]any{
 		"packages":          packages,
 		"manager":           manager,
 		"cask":              cask,
@@ -105,22 +123,27 @@ func (p *Provider) Upgrade(packages []string, manager string, cask bool) (map[st
 // CompensateUpgrade is a diagnostic no-op. Previous versions are captured
 // in state for manual recovery, but automatic downgrade is not reliable
 // across package managers.
-func (p *Provider) CompensateUpgrade(_ map[string]any) error {
+func (p *Provider) CompensateUpgrade(_ any) error {
 	return nil
 }
 
 // Remove removes packages using the platform's package manager.
 // Returns compensation state for reinstallation.
-func (p *Provider) Remove(packages []string, manager string, cask bool) (map[string]any, error) {
+//
+// Slots:
+//   - packages: List of package names to remove
+//   - manager: Package manager override (empty for auto-detect)
+//   - cask: If true, use Homebrew cask for macOS GUI apps
+func (p *Provider) Remove(packages []string, manager string, cask bool) (string, map[string]any, error) {
 	if len(packages) == 0 {
-		return nil, fmt.Errorf("no packages specified")
+		return "", nil, fmt.Errorf("no packages specified")
 	}
 
 	if err := p.doRemove(packages, manager, cask); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
-	return map[string]any{
+	return strings.Join(packages, ", "), map[string]any{
 		"packages": packages,
 		"manager":  manager,
 		"cask":     cask,
@@ -128,10 +151,14 @@ func (p *Provider) Remove(packages []string, manager string, cask bool) (map[str
 }
 
 // CompensateRemove undoes a Remove by reinstalling the removed packages.
-func (p *Provider) CompensateRemove(state map[string]any) error {
-	packages, _ := state["packages"].([]string)
-	manager, _ := state["manager"].(string)
-	cask, _ := state["cask"].(bool)
+func (p *Provider) CompensateRemove(state any) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	packages, _ := s["packages"].([]string)
+	manager, _ := s["manager"].(string)
+	cask, _ := s["cask"].(bool)
 
 	if len(packages) == 0 {
 		return nil
@@ -140,38 +167,51 @@ func (p *Provider) CompensateRemove(state map[string]any) error {
 }
 
 // Update refreshes the package manager index.
-func (p *Provider) Update(manager string) error {
+//
+// Slots:
+//   - manager: Package manager override (empty for auto-detect)
+func (p *Provider) Update(manager string) (string, error) {
 	pm := resolvePMForInstall(manager)
 	if pm == nil {
-		return fmt.Errorf("no package manager available")
+		return "", fmt.Errorf("no package manager available")
 	}
 
 	result := pm.Update()
 	if !result.OK {
-		return fmt.Errorf("%s update failed: %s", pm.Name(), result.Stderr)
+		return "", fmt.Errorf("%s update failed: %s", pm.Name(), result.Stderr)
 	}
-	return nil
+	return pm.Name(), nil
 }
 
 // --- Predicates ---
 
 // Installed returns true if the named package is installed.
-func (p *Provider) Installed(name string) bool {
-	return p.isInstalled(name, "")
+//
+// Slots:
+//   - name: Package name to check
+func (p *Provider) Installed(name string) (bool, error) {
+	return p.isInstalled(name, ""), nil
 }
 
 // NotInstalled returns true if the named package is not installed.
-func (p *Provider) NotInstalled(name string) bool {
-	return !p.isInstalled(name, "")
+//
+// Slots:
+//   - name: Package name to check
+func (p *Provider) NotInstalled(name string) (bool, error) {
+	return !p.isInstalled(name, ""), nil
 }
 
 // VersionGTE returns true if the installed version of name is >= version.
-func (p *Provider) VersionGTE(name, version string) bool {
+//
+// Slots:
+//   - name: Package name to check
+//   - version: Minimum version string to compare against
+func (p *Provider) VersionGTE(name, version string) (bool, error) {
 	current := p.getVersion(name, "")
 	if current == "" {
-		return false
+		return false, nil
 	}
-	return current >= version
+	return current >= version, nil
 }
 
 // --- Internal helpers ---

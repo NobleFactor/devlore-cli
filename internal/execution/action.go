@@ -42,7 +42,7 @@ type CompensableAction interface {
 	Action
 
 	// Undo performs the compensating action using the state captured by Do.
-	Undo(ctx *Context, slots map[string]any, state UndoState) error
+	Undo(state UndoState) error
 }
 
 // Context provides execution context to actions.
@@ -67,9 +67,5 @@ type Context struct {
 	// NodeID is the ID of the currently executing node. Flow actions use
 	// this to identify themselves (e.g., gather uses it for proxy context).
 	NodeID string
-
-	// Per-node checksums (written by actions, read by executor).
-	SourceChecksum string
-	TargetChecksum string
 }
 

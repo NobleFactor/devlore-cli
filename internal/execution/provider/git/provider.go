@@ -11,9 +11,10 @@ import (
 
 // Provider provides git actions.
 //
-// Compensable Forward methods return (map[string]any, error).
-// The map is the compensation receipt — opaque to the executor,
-// meaningful only to the corresponding Compensate* Backward method.
+// Compensable Forward methods return (string, map[string]any, error):
+// the resource path, the compensation receipt, and an error. The map is
+// opaque to the executor, meaningful only to the corresponding
+// Compensate* Backward method.
 //
 //devlore:plannable
 type Provider struct {
@@ -23,16 +24,24 @@ type Provider struct {
 
 // Clone clones a repository from url into path.
 // Returns compensation state with the cloned path.
-func (p *Provider) Clone(url, path string, output io.Writer) (map[string]any, error) {
+//
+// Slots:
+//   - url: Git repository URL to clone
+//   - path: Local directory path for the clone
+func (p *Provider) Clone(url, path string, output io.Writer) (string, map[string]any, error) {
 	if err := p.doClone(url, path, output); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return map[string]any{"path": path}, nil
+	return path, map[string]any{"path": path}, nil
 }
 
 // CompensateClone removes the cloned directory.
-func (p *Provider) CompensateClone(state map[string]any) error {
-	path, _ := state["path"].(string)
+func (p *Provider) CompensateClone(state any) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	path, _ := s["path"].(string)
 	if path == "" {
 		return nil
 	}
@@ -40,19 +49,26 @@ func (p *Provider) CompensateClone(state map[string]any) error {
 }
 
 // Checkout checks out a ref in the given repository directory.
-func (p *Provider) Checkout(repo, ref string, output io.Writer) error {
+//
+// Slots:
+//   - repo: Local path to the git repository
+//   - ref: Branch, tag, or commit to check out
+func (p *Provider) Checkout(repo, ref string, output io.Writer) (string, error) {
 	cmd := exec.Command("git", "-C", repo, "checkout", ref)
 	cmd.Stdout = output
 	cmd.Stderr = output
-	return cmd.Run()
+	return ref, cmd.Run()
 }
 
 // Pull pulls the latest changes in the given repository directory.
-func (p *Provider) Pull(repo string, output io.Writer) error {
+//
+// Slots:
+//   - repo: Local path to the git repository
+func (p *Provider) Pull(repo string, output io.Writer) (string, error) {
 	cmd := exec.Command("git", "-C", repo, "pull")
 	cmd.Stdout = output
 	cmd.Stderr = output
-	return cmd.Run()
+	return repo, cmd.Run()
 }
 
 func (p *Provider) doClone(url, path string, output io.Writer) error {

@@ -77,7 +77,7 @@ func TestExtractTarGzAndCompensate(t *testing.T) {
 
 	dest := filepath.Join(dir, "out")
 	p := &Provider{}
-	state, err := p.Extract(archive, dest)
+	_, state, err := p.Extract(archive, dest)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestExtractZipAndCompensate(t *testing.T) {
 
 	dest := filepath.Join(dir, "out")
 	p := &Provider{}
-	state, err := p.Extract(archive, dest)
+	_, state, err := p.Extract(archive, dest)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}

@@ -52,7 +52,12 @@ func (p *GitPlan) AttrNames() []string {
 	return []string{"checkout", "clone", "pull"}
 }
 
-// clone Clone clones a repository from url into path. Returns compensation state with the cloned path.
+// clone Clone clones a repository from url into path.
+// Returns compensation state with the cloned path.
+//
+// Slots:
+//   - url: Git repository URL to clone
+//   - path: Local directory path for the clone
 func (p *GitPlan) clone(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var url, path starlark.Value
 	if err := starlark.UnpackArgs("clone", args, kwargs, "url", &url, "path", &path); err != nil {
@@ -76,6 +81,10 @@ func (p *GitPlan) clone(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 }
 
 // checkout Checkout checks out a ref in the given repository directory.
+//
+// Slots:
+//   - repo: Local path to the git repository
+//   - ref: Branch, tag, or commit to check out
 func (p *GitPlan) checkout(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var repo, ref starlark.Value
 	if err := starlark.UnpackArgs("checkout", args, kwargs, "repo", &repo, "ref", &ref); err != nil {
@@ -99,6 +108,9 @@ func (p *GitPlan) checkout(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 }
 
 // pull Pull pulls the latest changes in the given repository directory.
+//
+// Slots:
+//   - repo: Local path to the git repository
 func (p *GitPlan) pull(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var repo starlark.Value
 	if err := starlark.UnpackArgs("pull", args, kwargs, "repo", &repo); err != nil {

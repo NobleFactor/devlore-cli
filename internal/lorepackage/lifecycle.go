@@ -12,13 +12,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Operation represents a pipeline operation type.
-type Operation string
+// Action represents a lifecycle action type.
+type Action string
 
 const (
-	OpDeploy       Operation = "Deploy"
-	OpUpgrade      Operation = "Upgrade"
-	OpDecommission Operation = "Decommission"
+	Deploy       Action = "Deploy"
+	Upgrade      Action = "Upgrade"
+	Decommission Action = "Decommission"
+	Reconcile    Action = "Reconcile"
 )
 
 // Signatures maps package managers to the names this package is known by.
@@ -95,43 +96,52 @@ type HardwareProvision struct {
 // DeployPhaseOrder is the standard order of deploy pipeline phases.
 var DeployPhaseOrder = []string{"prepare", "install", "provision", "verify"}
 
-// UpgradePhaseOrder is the order for upgrade operations.
+// UpgradePhaseOrder is the order for upgrade actions.
 // The "migrate" phase handles version-specific migrations (config format changes,
 // data migrations, etc.) that may be needed between versions.
 var UpgradePhaseOrder = []string{"prepare", "upgrade", "migrate", "verify"}
 
-// DecommissionPhaseOrder is the order for decommission operations.
+// DecommissionPhaseOrder is the order for decommission actions.
 var DecommissionPhaseOrder = []string{"unprovision", "uninstall", "cleanup"}
 
-// RequiredPhase returns the required phase for an operation.
-// Each operation has exactly one required phase that must be implemented.
+// ReconcilePhaseOrder is the order for reconcile actions.
+// Scan discovers drift, repair corrects it, verify confirms the system is good.
+var ReconcilePhaseOrder = []string{"scan", "repair", "verify"}
+
+// RequiredPhase returns the required phase for an action.
+// Each action has exactly one required phase that must be implemented.
 // Native PM packages implement only this phase; lore packages may add others.
 //
 //   - Deploy requires "install"
 //   - Upgrade requires "upgrade"
 //   - Decommission requires "uninstall"
-func RequiredPhase(op Operation) string {
-	switch op {
-	case OpDeploy:
+//   - Reconcile requires "repair"
+func RequiredPhase(action Action) string {
+	switch action {
+	case Deploy:
 		return "install"
-	case OpUpgrade:
+	case Upgrade:
 		return "upgrade"
-	case OpDecommission:
+	case Decommission:
 		return "uninstall"
+	case Reconcile:
+		return "repair"
 	default:
 		return "install"
 	}
 }
 
-// PhaseOrder returns the phase order for an operation.
-func PhaseOrder(op Operation) []string {
-	switch op {
-	case OpDeploy:
+// PhaseOrder returns the phase order for an action.
+func PhaseOrder(action Action) []string {
+	switch action {
+	case Deploy:
 		return DeployPhaseOrder
-	case OpUpgrade:
+	case Upgrade:
 		return UpgradePhaseOrder
-	case OpDecommission:
+	case Decommission:
 		return DecommissionPhaseOrder
+	case Reconcile:
+		return ReconcilePhaseOrder
 	default:
 		return DeployPhaseOrder
 	}
@@ -189,20 +199,20 @@ func LoadLifecycle(packageDir string) (*Lifecycle, error) {
 // DiscoverPhaseScripts returns all phase scripts for a phase, ordered from
 // most general to most specific for chained execution.
 //
-// Example for platform="Linux.Debian", op=OpDeploy, phase="install":
+// Example for platform="Linux.Debian", action=Deploy, phase="install":
 //
 //	["Common/Deploy/install.star", "Unix/Deploy/install.star",
 //	 "Linux/Deploy/install.star", "Linux.Debian/Deploy/install.star"]
 //
 // Only scripts that exist are included.
-func (l *Lifecycle) DiscoverPhaseScripts(packageDir, platform string, op Operation, phase string) []string {
+func (l *Lifecycle) DiscoverPhaseScripts(packageDir, platform string, action Action, phase string) []string {
 	if l.synthetic {
 		return nil // Synthetic lifecycles have no scripts
 	}
 
 	var scripts []string
 	for _, p := range PlatformResolutionOrder(platform) {
-		path := filepath.Join(packageDir, p, string(op), phase+".star")
+		path := filepath.Join(packageDir, p, string(action), phase+".star")
 		if _, err := os.Stat(path); err == nil {
 			scripts = append(scripts, path)
 		}
@@ -211,11 +221,11 @@ func (l *Lifecycle) DiscoverPhaseScripts(packageDir, platform string, op Operati
 }
 
 // GetPhaseScript returns the path to a single phase script for the given
-// platform and operation. This finds the MOST SPECIFIC script only.
+// platform and action. This finds the MOST SPECIFIC script only.
 // For chained execution, use DiscoverPhaseScripts instead.
 //
 // Returns empty string if no script exists for this phase.
-func (l *Lifecycle) GetPhaseScript(packageDir, platform string, op Operation, phase string) string {
+func (l *Lifecycle) GetPhaseScript(packageDir, platform string, action Action, phase string) string {
 	if l.synthetic {
 		return ""
 	}
@@ -224,7 +234,7 @@ func (l *Lifecycle) GetPhaseScript(packageDir, platform string, op Operation, ph
 	platforms := PlatformResolutionOrder(platform)
 	for i := len(platforms) - 1; i >= 0; i-- {
 		p := platforms[i]
-		path := filepath.Join(packageDir, p, string(op), phase+".star")
+		path := filepath.Join(packageDir, p, string(action), phase+".star")
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
@@ -233,17 +243,17 @@ func (l *Lifecycle) GetPhaseScript(packageDir, platform string, op Operation, ph
 }
 
 // HasPhase returns true if at least one phase script exists for this phase
-// on the given platform and operation.
-func (l *Lifecycle) HasPhase(packageDir, platform string, op Operation, phase string) bool {
-	return len(l.DiscoverPhaseScripts(packageDir, platform, op, phase)) > 0
+// on the given platform and action.
+func (l *Lifecycle) HasPhase(packageDir, platform string, action Action, phase string) bool {
+	return len(l.DiscoverPhaseScripts(packageDir, platform, action, phase)) > 0
 }
 
 // DiscoverAllPhases returns a map of phase name to script paths for all
-// phases in an operation on the given platform.
-func (l *Lifecycle) DiscoverAllPhases(packageDir, platform string, op Operation) map[string][]string {
+// phases in an action on the given platform.
+func (l *Lifecycle) DiscoverAllPhases(packageDir, platform string, action Action) map[string][]string {
 	phases := make(map[string][]string)
-	for _, phase := range PhaseOrder(op) {
-		scripts := l.DiscoverPhaseScripts(packageDir, platform, op, phase)
+	for _, phase := range PhaseOrder(action) {
+		scripts := l.DiscoverPhaseScripts(packageDir, platform, action, phase)
 		if len(scripts) > 0 {
 			phases[phase] = scripts
 		}

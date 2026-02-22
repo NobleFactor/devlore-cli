@@ -15,20 +15,26 @@ import (
 type Provider struct{}
 
 // Exec executes a POSIX shell command.
-func (p *Provider) Exec(command string, output io.Writer) error {
+//
+// Slots:
+//   - command: Shell command string to execute via sh -c
+func (p *Provider) Exec(command string, output io.Writer) (string, error) {
 	if command == "" {
-		return fmt.Errorf("no command specified")
+		return "", fmt.Errorf("no command specified")
 	}
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Stdout = output
 	cmd.Stderr = output
-	return cmd.Run()
+	return command, cmd.Run()
 }
 
 // PowerShell executes a PowerShell command (Windows).
-func (p *Provider) PowerShell(command string, output io.Writer) error {
+//
+// Slots:
+//   - command: PowerShell command string to execute
+func (p *Provider) PowerShell(command string, output io.Writer) (string, error) {
 	cmd := exec.Command("powershell", "-Command", command)
 	cmd.Stdout = output
 	cmd.Stderr = output
-	return cmd.Run()
+	return command, cmd.Run()
 }

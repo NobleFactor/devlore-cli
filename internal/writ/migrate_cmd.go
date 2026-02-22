@@ -13,6 +13,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
+	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
@@ -171,7 +172,7 @@ func runMigrateInteractive(opts migrate.Options, layer string, useMove, verbose 
 
 	sessionResult, ok := result.(*migrate.SessionResult)
 	if !ok || sessionResult == nil {
-		return fmt.Errorf("migration cancelled")
+		return fmt.Errorf("migration canceled")
 	}
 
 	if !sessionResult.Executed {
@@ -239,92 +240,83 @@ func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, us
 	return nil
 }
 
-// linkToLayer creates a symlink from layerDir to sourceRoot.
-// If layerDir exists, it is removed first (must be empty or a symlink).
-func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
-	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(layerDir), 0755); err != nil {
+// clearExistingLayer removes an existing symlink or empty directory at layerDir.
+// Non-empty directories and non-symlink files are rejected with an error.
+// Returns nil if layerDir does not exist.
+func clearExistingLayer(layerDir string, verbose bool) error {
+	info, err := os.Lstat(layerDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
 
-	// Check if layer directory exists
-	if info, err := os.Lstat(layerDir); err == nil {
-		// If it's a symlink, remove it
-		if info.Mode()&os.ModeSymlink != 0 {
-			if verbose {
-				cli.Note("Removing existing symlink: %s", layerDir)
-			}
-			if err := os.Remove(layerDir); err != nil {
-				return fmt.Errorf("remove existing symlink: %w", err)
-			}
-		} else if info.IsDir() {
-			// If it's a directory, check if empty
-			entries, err := os.ReadDir(layerDir)
-			if err != nil {
-				return err
-			}
-			if len(entries) > 0 {
-				return fmt.Errorf("layer directory %s is not empty; remove or move contents first", layerDir)
-			}
-			if verbose {
-				cli.Note("Removing empty directory: %s", layerDir)
-			}
-			if err := os.Remove(layerDir); err != nil {
-				return fmt.Errorf("remove empty directory: %w", err)
-			}
-		} else {
-			return fmt.Errorf("layer path %s exists and is not a directory or symlink", layerDir)
+	if info.Mode()&os.ModeSymlink != 0 {
+		if verbose {
+			cli.Note("Removing existing symlink: %s", layerDir)
 		}
+		if err := os.Remove(layerDir); err != nil {
+			return fmt.Errorf("remove existing symlink: %w", err)
+		}
+		return nil
 	}
 
-	// Create symlink
+	if info.IsDir() {
+		entries, err := os.ReadDir(layerDir)
+		if err != nil {
+			return err
+		}
+		if len(entries) > 0 {
+			return fmt.Errorf("layer directory %s is not empty; remove or move contents first", layerDir)
+		}
+		if verbose {
+			cli.Note("Removing empty directory: %s", layerDir)
+		}
+		if err := os.Remove(layerDir); err != nil {
+			return fmt.Errorf("remove empty directory: %w", err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("layer path %s exists and is not a directory or symlink", layerDir)
+}
+
+// linkToLayer creates a symlink from layerDir to sourceRoot.
+// If layerDir exists, it is removed first (must be empty or a symlink).
+func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
+	fp := &file.Provider{}
+
+	if _, err := fp.Mkdir(filepath.Dir(layerDir), 0755); err != nil {
+		return err
+	}
+	if err := clearExistingLayer(layerDir, verbose); err != nil {
+		return err
+	}
+
 	if verbose {
 		cli.Note("Creating symlink: %s -> %s", layerDir, sourceRoot)
 	}
-	return os.Symlink(sourceRoot, layerDir)
+	_, _, err := fp.Link(sourceRoot, layerDir)
+	return err
 }
 
 // moveToLayer moves content from sourceRoot to layerDir.
 func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
-	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(layerDir), 0755); err != nil {
+	fp := &file.Provider{}
+
+	if _, err := fp.Mkdir(filepath.Dir(layerDir), 0755); err != nil {
+		return err
+	}
+	if err := clearExistingLayer(layerDir, verbose); err != nil {
 		return err
 	}
 
-	// Check if layer directory exists
-	if info, err := os.Lstat(layerDir); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			// Remove existing symlink
-			if verbose {
-				cli.Note("Removing existing symlink: %s", layerDir)
-			}
-			if err := os.Remove(layerDir); err != nil {
-				return fmt.Errorf("remove existing symlink: %w", err)
-			}
-		} else if info.IsDir() {
-			entries, err := os.ReadDir(layerDir)
-			if err != nil {
-				return err
-			}
-			if len(entries) > 0 {
-				return fmt.Errorf("layer directory %s is not empty; remove or move contents first", layerDir)
-			}
-			if verbose {
-				cli.Note("Removing empty directory: %s", layerDir)
-			}
-			if err := os.Remove(layerDir); err != nil {
-				return fmt.Errorf("remove empty directory: %w", err)
-			}
-		} else {
-			return fmt.Errorf("layer path %s exists and is not a directory or symlink", layerDir)
-		}
-	}
-
-	// Move (rename) source to layer directory
 	if verbose {
 		cli.Note("Moving: %s -> %s", sourceRoot, layerDir)
 	}
-	return os.Rename(sourceRoot, layerDir)
+	_, _, err := fp.Move(nil, sourceRoot, layerDir)
+	return err
 }
 
 // mustGetString gets a string flag value, returning empty string on error.
