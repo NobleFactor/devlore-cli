@@ -579,6 +579,6 @@ func (o *testRetryOp) Name() string { return o.name }
 func (o *testRetryOp) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
 	return nil, nil, o.fn(ctx, slots)
 }
-func (o *testRetryOp) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+func (o *testRetryOp) Undo(_ execution.UndoState) error {
 	return nil
 }

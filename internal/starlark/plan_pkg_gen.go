@@ -60,7 +60,13 @@ func (p *PkgPlan) AttrNames() []string {
 	return []string{"install", "installed", "not_installed", "remove", "update", "upgrade", "version_gte"}
 }
 
-// install Install installs packages using the platform's package manager. Returns compensation state with pre-install status per package.
+// install Install installs packages using the platform's package manager.
+// Returns compensation state with pre-install status per package.
+//
+// Slots:
+//   - packages: List of package names to install
+//   - manager: Package manager override (empty for auto-detect)
+//   - cask: If true, use Homebrew cask for macOS GUI apps
 func (p *PkgPlan) install(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var packages, manager, cask starlark.Value
 	if err := starlark.UnpackArgs("install", args, kwargs, "packages", &packages, "manager", &manager, "cask", &cask); err != nil {
@@ -86,7 +92,13 @@ func (p *PkgPlan) install(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// upgrade Upgrade upgrades packages using the platform's package manager. Returns compensation state with pre-upgrade versions per package.
+// upgrade Upgrade upgrades packages using the platform's package manager.
+// Returns compensation state with pre-upgrade versions per package.
+//
+// Slots:
+//   - packages: List of package names to upgrade
+//   - manager: Package manager override (empty for auto-detect)
+//   - cask: If true, use Homebrew cask for macOS GUI apps
 func (p *PkgPlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var packages, manager, cask starlark.Value
 	if err := starlark.UnpackArgs("upgrade", args, kwargs, "packages", &packages, "manager", &manager, "cask", &cask); err != nil {
@@ -112,7 +124,13 @@ func (p *PkgPlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// remove Remove removes packages using the platform's package manager. Returns compensation state for reinstallation.
+// remove Remove removes packages using the platform's package manager.
+// Returns compensation state for reinstallation.
+//
+// Slots:
+//   - packages: List of package names to remove
+//   - manager: Package manager override (empty for auto-detect)
+//   - cask: If true, use Homebrew cask for macOS GUI apps
 func (p *PkgPlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var packages, manager, cask starlark.Value
 	if err := starlark.UnpackArgs("remove", args, kwargs, "packages", &packages, "manager", &manager, "cask", &cask); err != nil {
@@ -139,6 +157,9 @@ func (p *PkgPlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 }
 
 // update Update refreshes the package manager index.
+//
+// Slots:
+//   - manager: Package manager override (empty for auto-detect)
 func (p *PkgPlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var manager starlark.Value
 	if err := starlark.UnpackArgs("update", args, kwargs, "manager", &manager); err != nil {
@@ -159,6 +180,9 @@ func (p *PkgPlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 }
 
 // installed Installed returns true if the named package is installed.
+//
+// Slots:
+//   - name: Package name to check
 func (p *PkgPlan) installed(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("installed", args, kwargs, "name", &name); err != nil {
@@ -179,6 +203,9 @@ func (p *PkgPlan) installed(_ *starlark.Thread, _ *starlark.Builtin, args starla
 }
 
 // not_installed NotInstalled returns true if the named package is not installed.
+//
+// Slots:
+//   - name: Package name to check
 func (p *PkgPlan) not_installed(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("not_installed", args, kwargs, "name", &name); err != nil {
@@ -199,6 +226,10 @@ func (p *PkgPlan) not_installed(_ *starlark.Thread, _ *starlark.Builtin, args st
 }
 
 // version_gte VersionGTE returns true if the installed version of name is >= version.
+//
+// Slots:
+//   - name: Package name to check
+//   - version: Minimum version string to compare against
 func (p *PkgPlan) version_gte(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name, version starlark.Value
 	if err := starlark.UnpackArgs("version_gte", args, kwargs, "name", &name, "version", &version); err != nil {

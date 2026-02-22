@@ -39,12 +39,6 @@ type HistoryRecord struct {
 
 	// Status of this action: completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
-
-	// SourceChecksum is the SHA256 of the source at action time.
-	SourceChecksum string `json:"source_checksum,omitempty" yaml:"source_checksum,omitempty"`
-
-	// TargetChecksum is the SHA256 of the target after action.
-	TargetChecksum string `json:"target_checksum,omitempty" yaml:"target_checksum,omitempty"`
 }
 
 // PackageEntry represents a lore package's lifecycle history.
@@ -106,24 +100,6 @@ func (e *FileEntry) IsLinked() bool {
 		return false
 	}
 	return last.Action == "file.link"
-}
-
-// SourceChecksum returns the source checksum from the latest action.
-func (e *FileEntry) SourceChecksum() string {
-	last := e.LastAction()
-	if last == nil {
-		return ""
-	}
-	return last.SourceChecksum
-}
-
-// TargetChecksum returns the target checksum from the latest action.
-func (e *FileEntry) TargetChecksum() string {
-	last := e.LastAction()
-	if last == nil {
-		return ""
-	}
-	return last.TargetChecksum
 }
 
 // LastActionName returns the action name from the latest deployment.
@@ -453,13 +429,11 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 		}
 
 		record := HistoryRecord{
-			Timestamp:      g.Timestamp,
-			Receipt:        receiptName,
-			Tool:           g.Tool,
-			Action:         node.ActionName(),
-			Status:         node.Status,
-			SourceChecksum: node.SourceChecksum,
-			TargetChecksum: node.TargetChecksum,
+			Timestamp: g.Timestamp,
+			Receipt:   receiptName,
+			Tool:      g.Tool,
+			Action:    node.ActionName(),
+			Status:    node.Status,
 		}
 
 		// Determine if this is a package or file node

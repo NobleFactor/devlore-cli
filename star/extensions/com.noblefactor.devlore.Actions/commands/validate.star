@@ -74,21 +74,23 @@ def _parse_devlore_api(path):
     seen = {}
 
     for attr_method in attr_methods:
-        builtin_calls = go.calls(attr_method.scope, name="NewBuiltin")
-        for call in builtin_calls:
-            args = list(call.args)
-            if len(args) < 2:
-                continue
-            binding_name = str(args[0].string_value)
-            handler_name = str(args[1].ident_name)
-            if not binding_name or not _is_api_binding(binding_name):
-                continue
-            if binding_name in seen:
-                continue
-            seen[binding_name] = True
-            binding = _extract_binding_info(path, handler_name, binding_name, str(attr_method.file), int(call.line))
-            if binding:
-                bindings[binding_name] = binding
+        # Look for both direct NewBuiltin and MakeAttr (which wraps NewBuiltin)
+        for call_name in ["NewBuiltin", "MakeAttr"]:
+            builtin_calls = go.calls(attr_method.scope, name=call_name)
+            for call in builtin_calls:
+                args = list(call.args)
+                if len(args) < 2:
+                    continue
+                binding_name = str(args[0].string_value)
+                handler_name = str(args[1].ident_name)
+                if not binding_name or not _is_api_binding(binding_name):
+                    continue
+                if binding_name in seen:
+                    continue
+                seen[binding_name] = True
+                binding = _extract_binding_info(path, handler_name, binding_name, str(attr_method.file), int(call.line))
+                if binding:
+                    bindings[binding_name] = binding
 
     # Detect StringDict violations
     all_methods = go.methods(path)

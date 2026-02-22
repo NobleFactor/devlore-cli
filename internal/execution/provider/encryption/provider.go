@@ -15,6 +15,9 @@ type Provider struct{}
 // Decrypt decrypts content using the provided decryptor function.
 // The source path enables format detection (e.g., .sops.yaml vs .sops.json).
 // Returns the decrypted bytes.
+//
+// Slots:
+//   - source: Path to the encrypted file (enables format detection)
 func (p *Provider) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error) {
 	if decryptor == nil {
 		return nil, fmt.Errorf("no decryptor configured")

@@ -68,7 +68,12 @@ func (p *FilePlan) AttrNames() []string {
 	return []string{"backup", "copy", "exists", "is_dir", "link", "mkdir", "move", "remove", "source", "unlink", "write"}
 }
 
-// link Link creates a symlink at path pointing to source. Idempotent: if the symlink already points correctly, it's a no-op (returns nil state).
+// link Link creates a symlink at path pointing to source. Idempotent: if the
+// symlink already points correctly, it's a no-op (returns nil state).
+//
+// Slots:
+//   - source: Absolute path to the symlink target
+//   - path: Absolute path where the symlink will be created
 func (p *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var source, path starlark.Value
 	if err := starlark.UnpackArgs("link", args, kwargs, "source", &source, "path", &path); err != nil {
@@ -91,7 +96,12 @@ func (p *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// copy Copy writes content to path with the given mode. Returns the SHA256 checksum of the written content and compensation state.
+// copy Copy writes content to path with the given mode. Returns the SHA256
+// checksum of the written content and compensation state.
+//
+// Slots:
+//   - path: Absolute path where the file will be written
+//   - mode: File permission bits (e.g., 0o644)
 func (p *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, mode starlark.Value
 	if err := starlark.UnpackArgs("copy", args, kwargs, "path", &path, "mode", &mode); err != nil {
@@ -114,7 +124,12 @@ func (p *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// backup Backup moves the file at path to a timestamped backup location. Returns the backup path and compensation state.
+// backup Backup moves the file at path to a timestamped backup location.
+// Returns the backup path and compensation state.
+//
+// Slots:
+//   - path: Absolute path to the file to back up
+//   - backup_suffix: Suffix appended before the timestamp (default: .writ-backup)
 func (p *FilePlan) backup(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, backupSuffix starlark.Value
 	if err := starlark.UnpackArgs("backup", args, kwargs, "path", &path, "backup_suffix", &backupSuffix); err != nil {
@@ -137,7 +152,14 @@ func (p *FilePlan) backup(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// unlink Unlink removes a symlink at path. If prune is true and pruneBoundary is set, empty parent directories are removed up to the boundary. Returns compensation state with the symlink target for re-creation.
+// unlink Unlink removes a symlink at path. If prune is true and pruneBoundary
+// is set, empty parent directories are removed up to the boundary.
+// Returns compensation state with the symlink target for re-creation.
+//
+// Slots:
+//   - path: Absolute path to the symlink to remove
+//   - prune: If true, remove empty parent directories after unlinking
+//   - prune_boundary: Stop pruning at this directory (prevents removing too much)
 func (p *FilePlan) unlink(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, prune, pruneBoundary starlark.Value
 	if err := starlark.UnpackArgs("unlink", args, kwargs, "path", &path, "prune", &prune, "prune_boundary", &pruneBoundary); err != nil {
@@ -163,7 +185,14 @@ func (p *FilePlan) unlink(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// remove Remove deletes the file at path. If prune is true and pruneBoundary is set, empty parent directories are removed up to the boundary. Returns compensation state with file content for re-creation.
+// remove Remove deletes the file at path. If prune is true and pruneBoundary
+// is set, empty parent directories are removed up to the boundary.
+// Returns compensation state with file content for re-creation.
+//
+// Slots:
+//   - path: Absolute path to the file to delete
+//   - prune: If true, remove empty parent directories after deletion
+//   - prune_boundary: Stop pruning at this directory (prevents removing too much)
 func (p *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, prune, pruneBoundary starlark.Value
 	if err := starlark.UnpackArgs("remove", args, kwargs, "path", &path, "prune", &prune, "prune_boundary", &pruneBoundary); err != nil {
@@ -189,7 +218,13 @@ func (p *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// write Write writes inline content to path with the given mode. Returns compensation state for undo.
+// write Write writes inline content to path with the given mode.
+// Returns compensation state for undo.
+//
+// Slots:
+//   - content: String content to write to the file
+//   - path: Absolute path where the file will be written
+//   - mode: File permission bits (e.g., 0o644)
 func (p *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var content, path, mode starlark.Value
 	if err := starlark.UnpackArgs("write", args, kwargs, "content", &content, "path", &path, "mode", &mode); err != nil {
@@ -215,7 +250,13 @@ func (p *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// move Move moves a file from source to path. Uses gitMv if provided (preserves git history), falling back to os.Rename. Returns compensation state with paths for reverse move.
+// move Move moves a file from source to path. Uses gitMv if provided
+// (preserves git history), falling back to os.Rename.
+// Returns compensation state with paths for reverse move.
+//
+// Slots:
+//   - source: Absolute path to the file to move
+//   - path: Absolute destination path
 func (p *FilePlan) move(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var source, path starlark.Value
 	if err := starlark.UnpackArgs("move", args, kwargs, "source", &source, "path", &path); err != nil {
@@ -239,6 +280,9 @@ func (p *FilePlan) move(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 }
 
 // source Source reads a file and returns its contents.
+//
+// Slots:
+//   - path: Absolute path to the file to read
 func (p *FilePlan) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path starlark.Value
 	if err := starlark.UnpackArgs("source", args, kwargs, "path", &path); err != nil {
@@ -259,6 +303,10 @@ func (p *FilePlan) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 }
 
 // mkdir Mkdir creates a directory (and parents) with the given mode.
+//
+// Slots:
+//   - path: Absolute path of the directory to create
+//   - mode: Directory permission bits (e.g., 0o755)
 func (p *FilePlan) mkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, mode starlark.Value
 	if err := starlark.UnpackArgs("mkdir", args, kwargs, "path", &path, "mode", &mode); err != nil {
@@ -282,6 +330,9 @@ func (p *FilePlan) mkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 }
 
 // exists Exists returns true if path exists on the filesystem.
+//
+// Slots:
+//   - path: Absolute path to check
 func (p *FilePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path starlark.Value
 	if err := starlark.UnpackArgs("exists", args, kwargs, "path", &path); err != nil {
@@ -302,6 +353,9 @@ func (p *FilePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 }
 
 // is_dir IsDir returns true if path exists and is a directory.
+//
+// Slots:
+//   - path: Absolute path to check
 func (p *FilePlan) is_dir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path starlark.Value
 	if err := starlark.UnpackArgs("is_dir", args, kwargs, "path", &path); err != nil {

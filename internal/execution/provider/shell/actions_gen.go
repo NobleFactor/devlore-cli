@@ -26,11 +26,8 @@ func (o *Exec) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		return nil, nil, nil
 	}
 
-	return nil, nil, o.Impl.Exec(command, output)
-}
-
-func (o *Exec) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Exec(command, output)
+	return result, nil, err
 }
 
 // PowerShell — PowerShell executes a PowerShell command (Windows).
@@ -47,11 +44,8 @@ func (o *PowerShell) Do(ctx *execution.Context, slots map[string]any) (execution
 		return nil, nil, nil
 	}
 
-	return nil, nil, o.Impl.PowerShell(command, output)
-}
-
-func (o *PowerShell) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.PowerShell(command, output)
+	return result, nil, err
 }
 
 // Register registers all shell actions with the given registry.

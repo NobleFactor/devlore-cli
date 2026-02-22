@@ -27,16 +27,15 @@ func (o *Link) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Link(source, path)
-	return nil, state, err
+	result, state, err := o.Impl.Link(source, path)
+	return result, state, err
 }
 
-func (o *Link) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Link) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateLink(s)
+	return o.Impl.CompensateLink(state)
 }
 
 // Copy — Copy writes content to path with the given mode. Returns the SHA256 checksum of the written content and compensation state.
@@ -51,24 +50,21 @@ func (o *Copy) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 
 	if ctx.DryRun {
 		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.copy %v %v\n", path, mode)
-		ctx.TargetChecksum = execution.ChecksumBytes(content)
 		return nil, nil, nil
 	}
 
-	checksum, state, err := o.Impl.Copy(path, mode, content)
+	result, state, err := o.Impl.Copy(path, mode, content)
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx.TargetChecksum = checksum
-	return nil, state, nil
+	return result, state, nil
 }
 
-func (o *Copy) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Copy) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateCopy(s)
+	return o.Impl.CompensateCopy(state)
 }
 
 // Backup — Backup moves the file at path to a timestamped backup location. Returns the backup path and compensation state.
@@ -86,18 +82,14 @@ func (o *Backup) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	}
 
 	result, state, err := o.Impl.Backup(path, backupSuffix)
-	if err != nil {
-		return nil, nil, err
-	}
-	return result, state, nil
+	return result, state, err
 }
 
-func (o *Backup) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Backup) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateBackup(s)
+	return o.Impl.CompensateBackup(state)
 }
 
 // Unlink — Unlink removes a symlink at path. If prune is true and pruneBoundary is set, empty parent directories are removed up to the boundary. Returns compensation state with the symlink target for re-creation.
@@ -115,16 +107,15 @@ func (o *Unlink) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Unlink(path, prune, pruneBoundary)
-	return nil, state, err
+	result, state, err := o.Impl.Unlink(path, prune, pruneBoundary)
+	return result, state, err
 }
 
-func (o *Unlink) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Unlink) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateUnlink(s)
+	return o.Impl.CompensateUnlink(state)
 }
 
 // Remove — Remove deletes the file at path. If prune is true and pruneBoundary is set, empty parent directories are removed up to the boundary. Returns compensation state with file content for re-creation.
@@ -142,16 +133,15 @@ func (o *Remove) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Remove(path, prune, pruneBoundary)
-	return nil, state, err
+	result, state, err := o.Impl.Remove(path, prune, pruneBoundary)
+	return result, state, err
 }
 
-func (o *Remove) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Remove) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateRemove(s)
+	return o.Impl.CompensateRemove(state)
 }
 
 // Write — Write writes inline content to path with the given mode. Returns compensation state for undo.
@@ -169,16 +159,15 @@ func (o *Write) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Write(content, path, mode)
-	return nil, state, err
+	result, state, err := o.Impl.Write(content, path, mode)
+	return result, state, err
 }
 
-func (o *Write) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Write) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateWrite(s)
+	return o.Impl.CompensateWrite(state)
 }
 
 // Move — Move moves a file from source to path. Uses gitMv if provided (preserves git history), falling back to os.Rename. Returns compensation state with paths for reverse move.
@@ -196,16 +185,15 @@ func (o *Move) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Move(gitMv, source, path)
-	return nil, state, err
+	result, state, err := o.Impl.Move(gitMv, source, path)
+	return result, state, err
 }
 
-func (o *Move) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Move) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateMove(s)
+	return o.Impl.CompensateMove(state)
 }
 
 // Source — Source reads a file and returns its contents.
@@ -225,10 +213,6 @@ func (o *Source) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	return result, nil, err
 }
 
-func (o *Source) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
-}
-
 // Mkdir — Mkdir creates a directory (and parents) with the given mode.
 type Mkdir struct{ Impl *Provider }
 
@@ -243,11 +227,8 @@ func (o *Mkdir) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 		return nil, nil, nil
 	}
 
-	return nil, nil, o.Impl.Mkdir(path, mode)
-}
-
-func (o *Mkdir) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Mkdir(path, mode)
+	return result, nil, err
 }
 
 // Exists — Exists returns true if path exists on the filesystem.
@@ -263,11 +244,8 @@ func (o *Exists) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		return nil, nil, nil
 	}
 
-	return o.Impl.Exists(path), nil, nil
-}
-
-func (o *Exists) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Exists(path)
+	return result, nil, err
 }
 
 // IsDir — IsDir returns true if path exists and is a directory.
@@ -283,11 +261,8 @@ func (o *IsDir) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 		return nil, nil, nil
 	}
 
-	return o.Impl.IsDir(path), nil, nil
-}
-
-func (o *IsDir) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.IsDir(path)
+	return result, nil, err
 }
 
 // Register registers all file actions with the given registry.

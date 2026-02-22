@@ -465,13 +465,6 @@ const (
 func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string, entry *execution.FileEntry, engineData map[string]any, identities []age.Identity) upgradeResult {
 	targetRoot := view.Files.Root
 
-	sourceChanged, targetChanged := detectUpgradeDrift(entry, targetRoot, relTarget)
-
-	if targetChanged && !cfg.Force {
-		reportSkippedUpgrade(cfg, relTarget, sourceChanged)
-		return upgradeResultSkipped
-	}
-
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
 	reg := execution.NewActionRegistry()
@@ -502,39 +495,12 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	}
 
 	if cfg.Verbose {
-		if targetChanged && cfg.Force {
-			cli.Success("%s (regenerated, local changes overwritten)", relTarget)
-		} else {
-			cli.Success("%s (regenerated)", relTarget)
-		}
+		cli.Success("%s (regenerated)", relTarget)
 	}
 
 	return upgradeResultRegenerated
 }
 
-// detectUpgradeDrift checks whether source or target have changed since last deployment.
-func detectUpgradeDrift(entry *execution.FileEntry, targetRoot, relTarget string) (sourceChanged, targetChanged bool) {
-	entrySourceChecksum := entry.SourceChecksum()
-	entryTargetChecksum := entry.TargetChecksum()
-	currentSourceChecksum := execution.ChecksumFile(entry.Source)
-	currentTargetChecksum := execution.ChecksumFile(filepath.Join(targetRoot, relTarget))
-
-	sourceChanged = currentSourceChecksum != "" && entrySourceChecksum != "" && currentSourceChecksum != entrySourceChecksum
-	targetChanged = currentTargetChecksum != "" && entryTargetChecksum != "" && currentTargetChecksum != entryTargetChecksum
-	return
-}
-
-// reportSkippedUpgrade logs why an upgrade was skipped.
-func reportSkippedUpgrade(cfg *UpgradeConfig, relTarget string, sourceChanged bool) {
-	if !cfg.Verbose {
-		return
-	}
-	if sourceChanged {
-		cli.Warn("%s (skipped: both source and target changed)", relTarget)
-	} else {
-		cli.Warn("%s (skipped: locally modified)", relTarget)
-	}
-}
 
 // buildUpgradeChain builds the node chain for a multi-action upgrade pipeline.
 func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*execution.Node, []execution.Edge) {
@@ -744,8 +710,8 @@ func isSkippableNode(n *execution.Node) bool {
 		action == "encryption.decrypt"
 }
 
-// buildNodeEntry creates a reconcile entry from a graph node, optionally checking drift.
-func buildNodeEntry(n *execution.Node, source, target string, checkDrift bool) reconcile.Entry {
+// buildNodeEntry creates a reconcile entry from a graph node.
+func buildNodeEntry(n *execution.Node, source, target string, _ bool) reconcile.Entry {
 	entry := reconcile.Entry{
 		RelTarget: n.ID,
 		Source:    source,
@@ -754,13 +720,7 @@ func buildNodeEntry(n *execution.Node, source, target string, checkDrift bool) r
 		Action:   n.ActionName(),
 	}
 
-	if checkDrift && n.SourceChecksum != "" {
-		entry.SourceChecksum = n.SourceChecksum
-		entry.TargetChecksum = n.TargetChecksum
-		classifyDrift(&entry,
-			execution.ChecksumFile(source), n.SourceChecksum,
-			execution.ChecksumFile(target), n.TargetChecksum)
-	} else if _, err := os.Stat(target); os.IsNotExist(err) {
+	if _, err := os.Stat(target); os.IsNotExist(err) {
 		entry.State = reconcile.StateMissing
 		entry.Message = "file not deployed"
 	} else {
@@ -769,25 +729,6 @@ func buildNodeEntry(n *execution.Node, source, target string, checkDrift bool) r
 	return entry
 }
 
-// classifyDrift sets the State and Message on a reconcile entry based on checksum comparison.
-func classifyDrift(entry *reconcile.Entry, currentSource, expectedSource, currentTarget, expectedTarget string) {
-	sourceChanged := currentSource != "" && currentSource != expectedSource
-	targetChanged := currentTarget != "" && currentTarget != expectedTarget
-
-	switch {
-	case sourceChanged && targetChanged:
-		entry.State = reconcile.StateDriftConflict
-		entry.Message = "both source and target changed"
-	case sourceChanged:
-		entry.State = reconcile.StateStale
-		entry.Message = "source changed, redeploy needed"
-	case targetChanged:
-		entry.State = reconcile.StateModified
-		entry.Message = "target modified locally"
-	default:
-		entry.State = reconcile.StateCopied
-	}
-}
 
 // reconcileFromView builds a status report from the StateView.
 func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Report {
@@ -801,17 +742,15 @@ func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Re
 	for relTarget, entry := range view.Files.Entries {
 		target := filepath.Join(view.Files.Root, relTarget)
 		statusEntry := reconcile.Entry{
-			RelTarget:      relTarget,
-			Source:         entry.Source,
-			Target:         target,
-			Project:        entry.Project,
-			Action:         entry.LastActionName(),
-			SourceChecksum: entry.SourceChecksum(),
-			TargetChecksum: entry.TargetChecksum(),
+			RelTarget: relTarget,
+			Source:    entry.Source,
+			Target:   target,
+			Project:  entry.Project,
+			Action:   entry.LastActionName(),
 		}
 
 		if entry.IsCopied() {
-			classifyCopiedEntry(&statusEntry, entry.Source, checkDrift)
+			classifyCopiedEntry(&statusEntry, checkDrift)
 		} else {
 			classifySymlinkEntry(&statusEntry, entry.Source)
 		}
@@ -823,17 +762,10 @@ func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Re
 }
 
 // classifyCopiedEntry determines the state of a copied file entry.
-func classifyCopiedEntry(entry *reconcile.Entry, source string, checkDrift bool) {
+func classifyCopiedEntry(entry *reconcile.Entry, _ bool) {
 	if _, err := os.Stat(entry.Target); os.IsNotExist(err) {
 		entry.State = reconcile.StateMissing
 		entry.Message = "file not deployed"
-		return
-	}
-
-	if checkDrift && entry.SourceChecksum != "" {
-		classifyDrift(entry,
-			execution.ChecksumFile(source), entry.SourceChecksum,
-			execution.ChecksumFile(entry.Target), entry.TargetChecksum)
 		return
 	}
 
@@ -1273,7 +1205,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 
 	// Create destination directory
 	destDir := filepath.Dir(destPath)
-	if err := fp.Mkdir(destDir, 0755); err != nil {
+	if _, err := fp.Mkdir(destDir, 0755); err != nil {
 		return 0, fmt.Errorf("creating directory %s: %w", destDir, err)
 	}
 
@@ -1283,7 +1215,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 	}
 
 	// Move file to repo
-	if _, err := fp.Move(nil, filePath, destPath); err != nil {
+	if _, _, err := fp.Move(nil, filePath, destPath); err != nil {
 		// Move may fail across filesystems, try copy+remove
 		if err := copyFile(filePath, destPath); err != nil {
 			return 0, fmt.Errorf("moving file: %w", err)
@@ -1295,7 +1227,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 	}
 
 	// Create symlink back
-	if _, err := fp.Link(destPath, filePath); err != nil {
+	if _, _, err := fp.Link(destPath, filePath); err != nil {
 		return 0, fmt.Errorf("creating symlink (file remains at %s): %w", destPath, err)
 	}
 

@@ -70,15 +70,12 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 			continue
 		}
 
-		ctx.SourceChecksum = ""
-		ctx.TargetChecksum = ""
-
 		nodeSlots := node.ResolvedSlots(results)
 		execution.FillSlotsFromData(nodeSlots, ctx.Data)
 
 		result, undoState, doErr := node.Action.Do(ctx, nodeSlots)
 		if doErr != nil {
-			stack.Unwind(ctx, results)
+			stack.Unwind(ctx)
 			return nil, nil, fmt.Errorf("choose: phase %s node %s: %w", selectedPhaseID, node.ID, doErr)
 		}
 
@@ -105,7 +102,7 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 }
 
 // Undo walks the selected branch's entries in reverse and calls CompensableAction.Undo.
-func (a *Choose) Undo(ctx *execution.Context, _ map[string]any, state execution.UndoState) error {
+func (a *Choose) Undo(state execution.UndoState) error {
 	cs, ok := state.(*chooseUndoState)
 	if !ok || cs == nil {
 		return nil
@@ -118,13 +115,8 @@ func (a *Choose) Undo(ctx *execution.Context, _ map[string]any, state execution.
 		if !ok {
 			continue
 		}
-		entrySlots := entry.Node.ResolvedSlots(cs.Results)
-		execution.FillSlotsFromData(entrySlots, ctx.Data)
-		if err := undoable.Undo(ctx, entrySlots, entry.UndoState); err != nil {
+		if err := undoable.Undo(entry.UndoState); err != nil {
 			if errors.Is(err, execution.NotCompensableError) {
-				if ctx.Writer != nil {
-					fmt.Fprintf(ctx.Writer, "  [warn] %s: not compensable, skipping\n", undoable.Name())
-				}
 				continue
 			}
 			errs = append(errs, err)

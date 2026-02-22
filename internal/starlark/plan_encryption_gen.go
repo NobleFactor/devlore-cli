@@ -48,7 +48,12 @@ func (p *EncryptionPlan) AttrNames() []string {
 	return []string{"decrypt"}
 }
 
-// decrypt Decrypt decrypts content using the provided decryptor function. The source path enables format detection (e.g., .sops.yaml vs .sops.json). Returns the decrypted bytes.
+// decrypt Decrypt decrypts content using the provided decryptor function.
+// The source path enables format detection (e.g., .sops.yaml vs .sops.json).
+// Returns the decrypted bytes.
+//
+// Slots:
+//   - source: Path to the encrypted file (enables format detection)
 func (p *EncryptionPlan) decrypt(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var source starlark.Value
 	if err := starlark.UnpackArgs("decrypt", args, kwargs, "source", &source); err != nil {

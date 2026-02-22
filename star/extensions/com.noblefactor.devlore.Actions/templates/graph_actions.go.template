@@ -15,7 +15,7 @@ func init() {
 	execution.RegisterProvider(Register)
 }
 {{range .Methods}}
-// {{.GoName}} — {{.Doc}}
+// {{.GoName}} — {{docSummary .Doc}}
 type {{.GoName}} struct{ Impl *Provider }
 
 func (o *{{.GoName}}) Name() string { return "{{$.Provider}}.{{.SnakeName}}" }

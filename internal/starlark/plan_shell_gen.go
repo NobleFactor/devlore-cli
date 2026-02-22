@@ -51,6 +51,9 @@ func (p *ShellPlan) AttrNames() []string {
 }
 
 // exec Exec executes a POSIX shell command.
+//
+// Slots:
+//   - command: Shell command string to execute via sh -c
 func (p *ShellPlan) exec(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var command starlark.Value
 	if err := starlark.UnpackArgs("exec", args, kwargs, "command", &command); err != nil {
@@ -71,6 +74,9 @@ func (p *ShellPlan) exec(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 }
 
 // power_shell PowerShell executes a PowerShell command (Windows).
+//
+// Slots:
+//   - command: PowerShell command string to execute
 func (p *ShellPlan) power_shell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var command starlark.Value
 	if err := starlark.UnpackArgs("power_shell", args, kwargs, "command", &command); err != nil {

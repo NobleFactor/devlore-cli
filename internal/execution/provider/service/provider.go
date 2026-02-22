@@ -15,9 +15,10 @@ import (
 // Platform detection happens at runtime — callers don't need to know
 // whether launchd, systemd, or Windows services are being used.
 //
-// Compensable Forward methods return (map[string]any, error).
-// The map is the compensation receipt — opaque to the executor,
-// meaningful only to the corresponding Compensate* Backward method.
+// Compensable Forward methods return (string, map[string]any, error):
+// the service name, the compensation receipt, and an error. The map is
+// opaque to the executor, meaningful only to the corresponding
+// Compensate* Backward method.
 //
 //devlore:plannable
 type Provider struct {
@@ -29,13 +30,16 @@ type Provider struct {
 
 // Start starts a service. Returns compensation state with pre-action
 // running status.
-func (p *Provider) Start(name string, output io.Writer) (map[string]any, error) {
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
+func (p *Provider) Start(name string, output io.Writer) (string, map[string]any, error) {
 	wasRunning := p.isRunning(name)
 
 	if err := p.run(output, startArgs(name)...); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return map[string]any{
+	return name, map[string]any{
 		"name":        name,
 		"was_running": wasRunning,
 	}, nil
@@ -43,12 +47,16 @@ func (p *Provider) Start(name string, output io.Writer) (map[string]any, error) 
 
 // CompensateStart undoes a Start by stopping the service if it wasn't
 // running before.
-func (p *Provider) CompensateStart(state map[string]any) error {
-	name, _ := state["name"].(string)
+func (p *Provider) CompensateStart(state any) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	name, _ := s["name"].(string)
 	if name == "" {
 		return nil
 	}
-	wasRunning, _ := state["was_running"].(bool)
+	wasRunning, _ := s["was_running"].(bool)
 	if wasRunning {
 		return nil // Was already running — no-op
 	}
@@ -57,13 +65,16 @@ func (p *Provider) CompensateStart(state map[string]any) error {
 
 // Stop stops a service. Returns compensation state with pre-action
 // running status.
-func (p *Provider) Stop(name string, output io.Writer) (map[string]any, error) {
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
+func (p *Provider) Stop(name string, output io.Writer) (string, map[string]any, error) {
 	wasRunning := p.isRunning(name)
 
 	if err := p.run(output, stopArgs(name)...); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return map[string]any{
+	return name, map[string]any{
 		"name":        name,
 		"was_running": wasRunning,
 	}, nil
@@ -71,12 +82,16 @@ func (p *Provider) Stop(name string, output io.Writer) (map[string]any, error) {
 
 // CompensateStop undoes a Stop by starting the service if it was
 // running before.
-func (p *Provider) CompensateStop(state map[string]any) error {
-	name, _ := state["name"].(string)
+func (p *Provider) CompensateStop(state any) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	name, _ := s["name"].(string)
 	if name == "" {
 		return nil
 	}
-	wasRunning, _ := state["was_running"].(bool)
+	wasRunning, _ := s["was_running"].(bool)
 	if !wasRunning {
 		return nil // Wasn't running — no-op
 	}
@@ -85,30 +100,36 @@ func (p *Provider) CompensateStop(state map[string]any) error {
 
 // Restart restarts a service. Returns compensation state. Compensation
 // is a no-op — if the service was restarted, it was already running.
-func (p *Provider) Restart(name string, output io.Writer) (map[string]any, error) {
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
+func (p *Provider) Restart(name string, output io.Writer) (string, map[string]any, error) {
 	if err := p.run(output, restartArgs(name)...); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return map[string]any{
+	return name, map[string]any{
 		"name": name,
 	}, nil
 }
 
 // CompensateRestart is a no-op. A restarted service was already running;
 // the service is still running after restart — nothing to undo.
-func (p *Provider) CompensateRestart(_ map[string]any) error {
+func (p *Provider) CompensateRestart(_ any) error {
 	return nil
 }
 
 // Enable enables a service to start at boot. Returns compensation state
 // with pre-action enabled status.
-func (p *Provider) Enable(name string, output io.Writer) (map[string]any, error) {
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
+func (p *Provider) Enable(name string, output io.Writer) (string, map[string]any, error) {
 	wasEnabled := p.isEnabled(name)
 
 	if err := p.run(output, enableArgs(name)...); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return map[string]any{
+	return name, map[string]any{
 		"name":        name,
 		"was_enabled": wasEnabled,
 	}, nil
@@ -116,12 +137,16 @@ func (p *Provider) Enable(name string, output io.Writer) (map[string]any, error)
 
 // CompensateEnable undoes an Enable by disabling the service if it
 // wasn't enabled before.
-func (p *Provider) CompensateEnable(state map[string]any) error {
-	name, _ := state["name"].(string)
+func (p *Provider) CompensateEnable(state any) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	name, _ := s["name"].(string)
 	if name == "" {
 		return nil
 	}
-	wasEnabled, _ := state["was_enabled"].(bool)
+	wasEnabled, _ := s["was_enabled"].(bool)
 	if wasEnabled {
 		return nil // Was already enabled — no-op
 	}
@@ -130,13 +155,16 @@ func (p *Provider) CompensateEnable(state map[string]any) error {
 
 // Disable disables a service from starting at boot. Returns
 // compensation state with pre-action enabled status.
-func (p *Provider) Disable(name string, output io.Writer) (map[string]any, error) {
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
+func (p *Provider) Disable(name string, output io.Writer) (string, map[string]any, error) {
 	wasEnabled := p.isEnabled(name)
 
 	if err := p.run(output, disableArgs(name)...); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return map[string]any{
+	return name, map[string]any{
 		"name":        name,
 		"was_enabled": wasEnabled,
 	}, nil
@@ -144,12 +172,16 @@ func (p *Provider) Disable(name string, output io.Writer) (map[string]any, error
 
 // CompensateDisable undoes a Disable by enabling the service if it was
 // enabled before.
-func (p *Provider) CompensateDisable(state map[string]any) error {
-	name, _ := state["name"].(string)
+func (p *Provider) CompensateDisable(state any) error {
+	s, _ := state.(map[string]any)
+	if s == nil {
+		return nil
+	}
+	name, _ := s["name"].(string)
 	if name == "" {
 		return nil
 	}
-	wasEnabled, _ := state["was_enabled"].(bool)
+	wasEnabled, _ := s["was_enabled"].(bool)
 	if !wasEnabled {
 		return nil // Wasn't enabled — no-op
 	}
@@ -159,28 +191,37 @@ func (p *Provider) CompensateDisable(state map[string]any) error {
 // --- Predicates ---
 
 // Exists returns true if the named service exists on the system.
-func (p *Provider) Exists(name string) bool {
+//
+// Slots:
+//   - name: Service name to check
+func (p *Provider) Exists(name string) (bool, error) {
 	switch runtime.GOOS {
 	case "linux":
-		return exec.Command("systemctl", "cat", name).Run() == nil
+		return exec.Command("systemctl", "cat", name).Run() == nil, nil
 	case "darwin":
 		_, err := exec.Command("launchctl", "list", name).Output()
-		return err == nil
+		return err == nil, nil
 	case "windows":
-		return exec.Command("sc", "query", name).Run() == nil
+		return exec.Command("sc", "query", name).Run() == nil, nil
 	default:
-		return false
+		return false, nil
 	}
 }
 
 // Running returns true if the named service is currently running.
-func (p *Provider) Running(name string) bool {
-	return p.isRunning(name)
+//
+// Slots:
+//   - name: Service name to check
+func (p *Provider) Running(name string) (bool, error) {
+	return p.isRunning(name), nil
 }
 
 // Enabled returns true if the named service is enabled to start at boot.
-func (p *Provider) Enabled(name string) bool {
-	return p.isEnabled(name)
+//
+// Slots:
+//   - name: Service name to check
+func (p *Provider) Enabled(name string) (bool, error) {
+	return p.isEnabled(name), nil
 }
 
 // --- Platform-specific command builders ---

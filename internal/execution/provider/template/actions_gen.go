@@ -36,10 +36,6 @@ func (o *Render) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	return result, nil, nil
 }
 
-func (o *Render) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
-}
-
 // Register registers all template actions with the given registry.
 func Register(reg *execution.ActionRegistry) {
 	p := &Provider{}

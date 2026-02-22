@@ -21,7 +21,7 @@ func TestLinkNewSymlink(t *testing.T) {
 	link := filepath.Join(dir, "link")
 
 	p := &Provider{}
-	state, err := p.Link(source, link)
+	_, state, err := p.Link(source, link)
 	if err != nil {
 		t.Fatalf("Link: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestLinkReplaceExistingSymlink(t *testing.T) {
 	os.Symlink(oldTarget, link)
 
 	p := &Provider{}
-	state, err := p.Link(newTarget, link)
+	_, state, err := p.Link(newTarget, link)
 	if err != nil {
 		t.Fatalf("Link: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestLinkIdempotent(t *testing.T) {
 	os.Symlink(source, link)
 
 	p := &Provider{}
-	state, err := p.Link(source, link)
+	_, state, err := p.Link(source, link)
 	if err != nil {
 		t.Fatalf("Link: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestUnlinkRoundTrip(t *testing.T) {
 	os.Symlink(source, link)
 
 	p := &Provider{}
-	state, err := p.Unlink(link, false, "")
+	_, state, err := p.Unlink(link, false, "")
 	if err != nil {
 		t.Fatalf("Unlink: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestUnlinkAlreadyGone(t *testing.T) {
 	path := filepath.Join(dir, "nonexistent")
 
 	p := &Provider{}
-	state, err := p.Unlink(path, false, "")
+	_, state, err := p.Unlink(path, false, "")
 	if err != nil {
 		t.Fatalf("Unlink: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestRemoveRoundTrip(t *testing.T) {
 	os.WriteFile(path, content, 0600)
 
 	p := &Provider{}
-	state, err := p.Remove(path, false, "")
+	_, state, err := p.Remove(path, false, "")
 	if err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestRemoveAlreadyGone(t *testing.T) {
 	path := filepath.Join(dir, "nonexistent")
 
 	p := &Provider{}
-	state, err := p.Remove(path, false, "")
+	_, state, err := p.Remove(path, false, "")
 	if err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestWriteNewFile(t *testing.T) {
 	path := filepath.Join(dir, "output.txt")
 
 	p := &Provider{}
-	state, err := p.Write("hello world", path, 0644)
+	_, state, err := p.Write("hello world", path, 0644)
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestWriteOverwriteExisting(t *testing.T) {
 	os.WriteFile(path, []byte("original"), 0644)
 
 	p := &Provider{}
-	state, err := p.Write("replacement", path, 0644)
+	_, state, err := p.Write("replacement", path, 0644)
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestMoveRoundTrip(t *testing.T) {
 	os.WriteFile(source, content, 0644)
 
 	p := &Provider{}
-	state, err := p.Move(nil, source, dest)
+	_, state, err := p.Move(nil, source, dest)
 	if err != nil {
 		t.Fatalf("Move: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestMkdirUnchanged(t *testing.T) {
 	path := filepath.Join(dir, "subdir", "nested")
 
 	p := &Provider{}
-	if err := p.Mkdir(path, 0755); err != nil {
+	if _, err := p.Mkdir(path, 0755); err != nil {
 		t.Fatalf("Mkdir: %v", err)
 	}
 	info, err := os.Stat(path)

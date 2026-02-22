@@ -62,7 +62,11 @@ func (p *ServicePlan) AttrNames() []string {
 	return []string{"disable", "enable", "enabled", "exists", "restart", "running", "start", "stop"}
 }
 
-// start Start starts a service. Returns compensation state with pre-action running status.
+// start Start starts a service. Returns compensation state with pre-action
+// running status.
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *ServicePlan) start(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("start", args, kwargs, "name", &name); err != nil {
@@ -82,7 +86,11 @@ func (p *ServicePlan) start(_ *starlark.Thread, _ *starlark.Builtin, args starla
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// stop Stop stops a service. Returns compensation state with pre-action running status.
+// stop Stop stops a service. Returns compensation state with pre-action
+// running status.
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *ServicePlan) stop(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("stop", args, kwargs, "name", &name); err != nil {
@@ -102,7 +110,11 @@ func (p *ServicePlan) stop(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// restart Restart restarts a service. Returns compensation state. Compensation is a no-op — if the service was restarted, it was already running.
+// restart Restart restarts a service. Returns compensation state. Compensation
+// is a no-op — if the service was restarted, it was already running.
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *ServicePlan) restart(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("restart", args, kwargs, "name", &name); err != nil {
@@ -122,7 +134,11 @@ func (p *ServicePlan) restart(_ *starlark.Thread, _ *starlark.Builtin, args star
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// enable Enable enables a service to start at boot. Returns compensation state with pre-action enabled status.
+// enable Enable enables a service to start at boot. Returns compensation state
+// with pre-action enabled status.
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *ServicePlan) enable(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("enable", args, kwargs, "name", &name); err != nil {
@@ -142,7 +158,11 @@ func (p *ServicePlan) enable(_ *starlark.Thread, _ *starlark.Builtin, args starl
 	return NewOutput(node, p.graph, ""), nil
 }
 
-// disable Disable disables a service from starting at boot. Returns compensation state with pre-action enabled status.
+// disable Disable disables a service from starting at boot. Returns
+// compensation state with pre-action enabled status.
+//
+// Slots:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 func (p *ServicePlan) disable(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("disable", args, kwargs, "name", &name); err != nil {
@@ -163,6 +183,9 @@ func (p *ServicePlan) disable(_ *starlark.Thread, _ *starlark.Builtin, args star
 }
 
 // exists Exists returns true if the named service exists on the system.
+//
+// Slots:
+//   - name: Service name to check
 func (p *ServicePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("exists", args, kwargs, "name", &name); err != nil {
@@ -183,6 +206,9 @@ func (p *ServicePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starl
 }
 
 // running Running returns true if the named service is currently running.
+//
+// Slots:
+//   - name: Service name to check
 func (p *ServicePlan) running(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("running", args, kwargs, "name", &name); err != nil {
@@ -203,6 +229,9 @@ func (p *ServicePlan) running(_ *starlark.Thread, _ *starlark.Builtin, args star
 }
 
 // enabled Enabled returns true if the named service is enabled to start at boot.
+//
+// Slots:
+//   - name: Service name to check
 func (p *ServicePlan) enabled(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var name starlark.Value
 	if err := starlark.UnpackArgs("enabled", args, kwargs, "name", &name); err != nil {

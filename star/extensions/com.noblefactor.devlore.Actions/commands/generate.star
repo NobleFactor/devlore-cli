@@ -140,9 +140,11 @@ def run(ctx):
         method_descriptors.append({
             "name": m.name,
             "returns": m.returns,
-            "doc": " ".join(m.doc.split()),
+            "doc": m.doc,
             "params": params,
             "compensable": compensable,
+            "file": m.file,
+            "line": m.line,
         })
 
     # -------------------------------------------------------------------------

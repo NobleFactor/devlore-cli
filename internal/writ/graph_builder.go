@@ -263,18 +263,6 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 			op = "file.remove"
 		}
 
-		// Check for local modifications on copied files
-		targetChecksum := entry.TargetChecksum()
-		if entry.IsCopied() && targetChecksum != "" {
-			currentChecksum := execution.ChecksumFile(filepath.Join(b.view.Files.Root, relTarget))
-			if currentChecksum != "" && currentChecksum != targetChecksum {
-				if !b.force {
-					// Skip modified files unless --force
-					continue
-				}
-			}
-		}
-
 		target := filepath.Join(b.view.Files.Root, relTarget)
 		node := &execution.Node{
 			ID:      relTarget,

@@ -12,12 +12,12 @@ import (
 )
 
 func init() {
-	registerPlan("template", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
-		return NewTemplatePlan(graph, h, project, reg)
+	registerPlan("", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+		return NewPlan(graph, h, project, reg)
 	})
 }
 
-type TemplatePlan struct {
+type Plan struct {
 	Receiver
 	graph   *execution.Graph
 	host    host.Host
@@ -25,9 +25,9 @@ type TemplatePlan struct {
 	reg     *execution.ActionRegistry
 }
 
-func NewTemplatePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *TemplatePlan {
-	return &TemplatePlan{
-		Receiver: NewReceiver("plan.template"),
+func NewPlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *Plan {
+	return &Plan{
+		Receiver: NewReceiver("plan."),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -35,16 +35,16 @@ func NewTemplatePlan(graph *execution.Graph, h host.Host, project string, reg *e
 	}
 }
 
-func (p *TemplatePlan) Attr(name string) (starlark.Value, error) {
+func (p *Plan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "render":
-		return MakeAttr("plan.template.render", p.render), nil
+		return MakeAttr("plan..render", p.render), nil
 	default:
-		return nil, NoSuchAttrError("plan.template", name)
+		return nil, NoSuchAttrError("plan.", name)
 	}
 }
 
-func (p *TemplatePlan) AttrNames() []string {
+func (p *Plan) AttrNames() []string {
 	return []string{"render"}
 }
 
@@ -55,15 +55,15 @@ func (p *TemplatePlan) AttrNames() []string {
 //   - source: Source file path (available as .Source in the template)
 //   - path: Target file path (available as .Target in the template)
 //   - project: Project name (available as .Project in the template)
-func (p *TemplatePlan) render(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (p *Plan) render(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var templateData, source, path, project starlark.Value
 	if err := starlark.UnpackArgs("render", args, kwargs, "template_data", &templateData, "source", &source, "path", &path, "project", &project); err != nil {
 		return nil, err
 	}
 
 	node := &execution.Node{
-		ID:      generateNodeID("template-render"),
-		Action:  p.reg.MustGet("template.render"),
+		ID:      generateNodeID("-render"),
+		Action:  p.reg.MustGet(".render"),
 		Project: p.project,
 	}
 	if err := FillSlot(node, p.graph, "template_data", templateData); err != nil {

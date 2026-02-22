@@ -27,16 +27,15 @@ func (o *Clone) Do(ctx *execution.Context, slots map[string]any) (execution.Resu
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Clone(url, path, output)
-	return nil, state, err
+	result, state, err := o.Impl.Clone(url, path, output)
+	return result, state, err
 }
 
-func (o *Clone) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Clone) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateClone(s)
+	return o.Impl.CompensateClone(state)
 }
 
 // Checkout — Checkout checks out a ref in the given repository directory.
@@ -54,11 +53,8 @@ func (o *Checkout) Do(ctx *execution.Context, slots map[string]any) (execution.R
 		return nil, nil, nil
 	}
 
-	return nil, nil, o.Impl.Checkout(repo, ref, output)
-}
-
-func (o *Checkout) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Checkout(repo, ref, output)
+	return result, nil, err
 }
 
 // Pull — Pull pulls the latest changes in the given repository directory.
@@ -75,11 +71,8 @@ func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
 		return nil, nil, nil
 	}
 
-	return nil, nil, o.Impl.Pull(repo, output)
-}
-
-func (o *Pull) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
-	return nil
+	result, err := o.Impl.Pull(repo, output)
+	return result, nil, err
 }
 
 // Register registers all git actions with the given registry.

@@ -26,16 +26,15 @@ func (o *Extract) Do(ctx *execution.Context, slots map[string]any) (execution.Re
 		return nil, nil, nil
 	}
 
-	state, err := o.Impl.Extract(source, prefix)
-	return nil, state, err
+	result, state, err := o.Impl.Extract(source, prefix)
+	return result, state, err
 }
 
-func (o *Extract) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (o *Extract) Undo(state execution.UndoState) error {
+	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateExtract(s)
+	return o.Impl.CompensateExtract(state)
 }
 
 // Register registers all archive actions with the given registry.

@@ -27,7 +27,7 @@ func mockProvider(running, enabled bool) (*Provider, *[]string) {
 
 func TestStartNotRunning(t *testing.T) {
 	p, log := mockProvider(false, false)
-	state, err := p.Start("nginx", io.Discard)
+	_, state, err := p.Start("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestStartNotRunning(t *testing.T) {
 
 func TestStartAlreadyRunning(t *testing.T) {
 	p, log := mockProvider(true, false)
-	state, err := p.Start("nginx", io.Discard)
+	_, state, err := p.Start("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestStartAlreadyRunning(t *testing.T) {
 
 func TestStopWasRunning(t *testing.T) {
 	p, log := mockProvider(true, false)
-	state, err := p.Stop("nginx", io.Discard)
+	_, state, err := p.Stop("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestStopWasRunning(t *testing.T) {
 
 func TestStopNotRunning(t *testing.T) {
 	p, log := mockProvider(false, false)
-	state, err := p.Stop("nginx", io.Discard)
+	_, state, err := p.Stop("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestStopNotRunning(t *testing.T) {
 
 func TestRestartCompensateNoOp(t *testing.T) {
 	p, log := mockProvider(true, false)
-	state, err := p.Restart("nginx", io.Discard)
+	_, state, err := p.Restart("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestRestartCompensateNoOp(t *testing.T) {
 
 func TestEnableNotEnabled(t *testing.T) {
 	p, log := mockProvider(false, false)
-	state, err := p.Enable("nginx", io.Discard)
+	_, state, err := p.Enable("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestEnableNotEnabled(t *testing.T) {
 
 func TestEnableAlreadyEnabled(t *testing.T) {
 	p, log := mockProvider(false, true)
-	state, err := p.Enable("nginx", io.Discard)
+	_, state, err := p.Enable("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestEnableAlreadyEnabled(t *testing.T) {
 
 func TestDisableWasEnabled(t *testing.T) {
 	p, log := mockProvider(false, true)
-	state, err := p.Disable("nginx", io.Discard)
+	_, state, err := p.Disable("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Disable: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestDisableWasEnabled(t *testing.T) {
 
 func TestDisableNotEnabled(t *testing.T) {
 	p, log := mockProvider(false, false)
-	state, err := p.Disable("nginx", io.Discard)
+	_, state, err := p.Disable("nginx", io.Discard)
 	if err != nil {
 		t.Fatalf("Disable: %v", err)
 	}
