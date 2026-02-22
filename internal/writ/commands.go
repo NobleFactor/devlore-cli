@@ -31,6 +31,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -142,7 +143,7 @@ func reportGraphContext(cfg *DeployConfig) {
 }
 
 // reportCollisions outputs collision warnings.
-func reportCollisions(cfg *DeployConfig, collisions []execution.Collision) {
+func reportCollisions(cfg *DeployConfig, collisions []projection.Collision) {
 	if len(cfg.LayerSources) > 0 {
 		cli.Warn("%d source collision(s) resolved by layer/specificity:", len(collisions))
 		for _, c := range collisions {
@@ -503,10 +504,10 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 
 // buildUpgradeChain builds the node chain for a multi-action upgrade pipeline.
-func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*execution.Node, []execution.Edge) {
+func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*projection.Node, []projection.Edge) {
 	hasDecrypt := hasDecryptOp(actions)
-	var nodes []*execution.Node
-	var edges []execution.Edge
+	var nodes []*projection.Node
+	var edges []projection.Edge
 	var prevNodeID string
 
 	for i, opName := range actions {
@@ -516,7 +517,7 @@ func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarge
 			nodeID = relTarget + ":" + opName
 		}
 
-		node := &execution.Node{
+		node := &projection.Node{
 			ID:      nodeID,
 			Action:  reg.MustGet(opName),
 			Project: entry.Project,
@@ -532,7 +533,7 @@ func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarge
 		}
 		nodes = append(nodes, node)
 		if prevNodeID != "" {
-			edges = append(edges, execution.Edge{From: prevNodeID, To: nodeID})
+			edges = append(edges, projection.Edge{From: prevNodeID, To: nodeID})
 		}
 		prevNodeID = nodeID
 	}
@@ -646,7 +647,7 @@ func buildReportFromScan(cfg *ReconcileConfig) (*reconcile.Report, error) {
 }
 
 // verifyGraphSignatureForReconcile verifies the graph signature for reconcile.
-func verifyGraphSignatureForReconcile(cfg *ReconcileConfig, g *execution.Graph) error {
+func verifyGraphSignatureForReconcile(cfg *ReconcileConfig, g *projection.Graph) error {
 	identities, err := identity.LoadIdentities()
 	if err != nil {
 		return fmt.Errorf("load identities for signature verification: %w", err)
@@ -686,7 +687,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 }
 
 // addCopiedFilesFromGraph adds copied file nodes from a graph to the report.
-func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, checkDrift bool) {
+func addCopiedFilesFromGraph(report *reconcile.Report, g *projection.Graph, checkDrift bool) {
 	report.FromReceipt = true
 	report.ReceiptPath = cli.LatestReceiptPath("writ")
 
@@ -701,9 +702,9 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *execution.Graph, check
 }
 
 // isSkippableNode returns true for nodes that should not appear in the reconcile report.
-func isSkippableNode(n *execution.Node) bool {
+func isSkippableNode(n *projection.Node) bool {
 	action := n.ActionName()
-	return n.Status == execution.StatusSkipped ||
+	return n.Status == projection.StatusSkipped ||
 		action == "file.backup" ||
 		action == "file.link" ||
 		action == "template.render" ||
@@ -711,7 +712,7 @@ func isSkippableNode(n *execution.Node) bool {
 }
 
 // buildNodeEntry creates a reconcile entry from a graph node.
-func buildNodeEntry(n *execution.Node, source, target string, _ bool) reconcile.Entry {
+func buildNodeEntry(n *projection.Node, source, target string, _ bool) reconcile.Entry {
 	entry := reconcile.Entry{
 		RelTarget: n.ID,
 		Source:    source,

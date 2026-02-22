@@ -10,29 +10,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // createTestGraph creates a minimal test graph for receipt testing.
-func createTestGraph() *execution.Graph {
-	node := &execution.Node{
+func createTestGraph() *projection.Graph {
+	node := &projection.Node{
 		ID:         ".bashrc",
-		Action: execution.StubAction("file.link"),
-		Status:     execution.StatusCompleted,
+		Action: projection.StubAction("file.link"),
+		Status:     projection.StatusCompleted,
 	}
 	node.SetSlotImmediate("source", "/home/user/env/.bashrc")
 	node.SetSlotImmediate("path", "/home/user/.bashrc")
 
-	return &execution.Graph{
+	return &projection.Graph{
 		Version:   "5",
 		Tool:      "test",
 		Timestamp: time.Date(2026, 1, 21, 10, 30, 0, 0, time.UTC),
-		State:     execution.StateExecuted,
-		Platform: execution.Platform{
+		State:     projection.StateExecuted,
+		Platform: projection.Platform{
 			OS:   "darwin",
 			Arch: "arm64",
 		},
-		Nodes: []*execution.Node{node},
+		Nodes: []*projection.Node{node},
 	}
 }
 

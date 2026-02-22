@@ -17,6 +17,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // SessionState represents a state in the migration session.
@@ -41,7 +42,7 @@ type Session struct {
 	result *SessionResult
 
 	// Analysis results
-	graph    *execution.Graph
+	graph    *projection.Graph
 	analysis *MigrationAnalysis
 
 	// Conversation state
@@ -51,7 +52,7 @@ type Session struct {
 
 // SessionResult is the final output of a migration session.
 type SessionResult struct {
-	Graph       *execution.Graph
+	Graph       *projection.Graph
 	Analysis    *MigrationAnalysis
 	Executed    bool
 	ReceiptPath string

@@ -12,7 +12,7 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // VerifyResult indicates the outcome of signature verification.
@@ -43,7 +43,7 @@ func (r VerifyResult) String() string {
 
 // VerifyGraphSignature verifies the graph signature using the provided identities.
 // Returns the verification result and any error encountered.
-func VerifyGraphSignature(g *execution.Graph, identities []age.Identity) (VerifyResult, error) {
+func VerifyGraphSignature(g *projection.Graph, identities []age.Identity) (VerifyResult, error) {
 	if g.Signature == nil {
 		return VerifyUnsigned, nil
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // Options controls migration behavior.
@@ -182,7 +183,7 @@ func computeLimitsFromCache(cache *ModelCache, providerInfo *ProviderInfo, model
 // The LLM returns:
 //   - Analysis: system detection, structure, observations, warnings, recommendations
 //   - Execution Graph: rename operations for directory structure changes
-func BuildMigration(ctx context.Context, opts Options) (*execution.Graph, *MigrationAnalysis, error) {
+func BuildMigration(ctx context.Context, opts Options) (*projection.Graph, *MigrationAnalysis, error) {
 	root := opts.SourceRoot
 
 	// Check for prior migration
@@ -229,7 +230,7 @@ func BuildMigration(ctx context.Context, opts Options) (*execution.Graph, *Migra
 // LLMResult holds the parsed response from LLM analysis.
 type LLMResult struct {
 	Analysis *MigrationAnalysis
-	Graph    *execution.Graph
+	Graph    *projection.Graph
 }
 
 // AnalyzeWithLLMFromRegistry sends gathered inputs to the LLM using registry-loaded prompt.
@@ -367,11 +368,11 @@ func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 }
 
 // buildGraphFromRegistry constructs an execution.Graph from registry prompt output.
-func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *execution.Graph {
+func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *projection.Graph {
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
 	plan := execution.NewPlan(reg, "migrate")
-	nodeMap := make(map[string]*execution.Node)
+	nodeMap := make(map[string]*projection.Node)
 
 	for _, n := range regGraph.Nodes {
 		source := n.Source
@@ -381,7 +382,7 @@ func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph)
 			target = sourceRoot + "/" + target
 		}
 
-		var node *execution.Node
+		var node *projection.Node
 		switch n.Op {
 		case "file.move":
 			node = plan.Rename(source, target)
@@ -470,7 +471,7 @@ func parseEncryptionSystem(s string) EncryptionSystem {
 }
 
 // computeStatsFromGraph computes summary statistics from the graph and analysis.
-func computeStatsFromGraph(graph *execution.Graph, analysis *MigrationAnalysis) MigrationStats {
+func computeStatsFromGraph(graph *projection.Graph, analysis *MigrationAnalysis) MigrationStats {
 	stats := MigrationStats{
 		Renames:          len(graph.Nodes),
 		Scripts:          len(analysis.Scripts),

@@ -13,6 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // CurrentVersion is the graph format version.
@@ -20,34 +21,34 @@ const CurrentVersion = "6"
 
 // GraphBuilder is the interface for all graph builders.
 type GraphBuilder interface {
-	Build() (*execution.Graph, error)
+	Build() (*projection.Graph, error)
 }
 
-// NewGraph creates an execution.Graph with common fields populated for writ.
-func NewGraph(cfg *Config) *execution.Graph {
-	return &execution.Graph{
+// NewGraph creates a projection.Graph with common fields populated for writ.
+func NewGraph(cfg *Config) *projection.Graph {
+	return &projection.Graph{
 		Version:   CurrentVersion,
 		Tool:      cfg.Tool,
 		Timestamp: time.Now(),
-		State:     execution.StatePending,
-		Platform: execution.Platform{
+		State:     projection.StatePending,
+		Platform: projection.Platform{
 			OS:   runtime.GOOS,
 			Arch: runtime.GOARCH,
 		},
-		Context: execution.GraphContext{
+		Context: projection.GraphContext{
 			SourceRoot: cfg.SourceRoot,
 			TargetRoot: cfg.TargetRoot,
 			Projects:   cfg.Projects,
 			Segments:   cfg.SegmentMap(),
 		},
-		Nodes: make([]*execution.Node, 0),
+		Nodes: make([]*projection.Node, 0),
 	}
 }
 
 // BuildTree walks the source directories and populates the graph with file nodes.
 // This processes layers in order (base → team → personal) with collision detection.
 // Returns discovered manifest source paths instead of creating nodes for them.
-func BuildTree(g *execution.Graph, cfg *Config, reg *execution.ActionRegistry) (manifests []string, err error) {
+func BuildTree(g *projection.Graph, cfg *Config, reg *execution.ActionRegistry) (manifests []string, err error) {
 	result, err := tree.Build(tree.BuildConfig{
 		SourceRoot: cfg.SourceRoot,
 		TargetRoot: cfg.TargetRoot,
@@ -73,10 +74,10 @@ func BuildTree(g *execution.Graph, cfg *Config, reg *execution.ActionRegistry) (
 
 		if len(ops) == 1 {
 			// Single operation — single node
-			node := &execution.Node{
+			node := &projection.Node{
 				ID:      f.ID,
 				Action:  reg.MustGet(ops[0]),
-				Status:  execution.StatusPending,
+				Status:  projection.StatusPending,
 				Project: f.Project,
 				Layer:   f.Layer,
 			}
@@ -88,7 +89,7 @@ func BuildTree(g *execution.Graph, cfg *Config, reg *execution.ActionRegistry) (
 			g.Nodes = append(g.Nodes, node)
 		} else {
 			// Multi-op pipeline → node chain
-			var prevNode *execution.Node
+			var prevNode *projection.Node
 			for i, op := range ops {
 				isLast := (i == len(ops) - 1)
 				nodeID := f.ID
@@ -96,10 +97,10 @@ func BuildTree(g *execution.Graph, cfg *Config, reg *execution.ActionRegistry) (
 					nodeID = f.ID + ":" + op
 				}
 
-				node := &execution.Node{
+				node := &projection.Node{
 					ID:      nodeID,
 					Action:  reg.MustGet(op),
-					Status:  execution.StatusPending,
+					Status:  projection.StatusPending,
 					Project: f.Project,
 					Layer:   f.Layer,
 				}
@@ -115,7 +116,7 @@ func BuildTree(g *execution.Graph, cfg *Config, reg *execution.ActionRegistry) (
 				g.Nodes = append(g.Nodes, node)
 
 				if prevNode != nil {
-					g.Edges = append(g.Edges, execution.Edge{
+					g.Edges = append(g.Edges, projection.Edge{
 						From: prevNode.ID, To: node.ID,
 					})
 				}
@@ -126,7 +127,7 @@ func BuildTree(g *execution.Graph, cfg *Config, reg *execution.ActionRegistry) (
 
 	// Record collisions
 	for _, c := range result.Collisions {
-		g.Collisions = append(g.Collisions, execution.Collision{
+		g.Collisions = append(g.Collisions, projection.Collision{
 			Target:            c.Target,
 			Winner:            c.Winner,
 			WinnerLayer:       c.WinnerLayer,
@@ -197,7 +198,7 @@ func NewDeployGraphBuilder(cfg *DeployConfig, reg *execution.ActionRegistry) *De
 }
 
 // Build creates an execution graph for a deploy operation.
-func (b *DeployGraphBuilder) Build() (*execution.Graph, error) {
+func (b *DeployGraphBuilder) Build() (*projection.Graph, error) {
 	// Create the graph
 	g := NewGraph(b.config)
 
@@ -242,7 +243,7 @@ func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateV
 }
 
 // Build creates an execution graph for a decommission operation.
-func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
+func (b *DecommissionGraphBuilder) Build() (*projection.Graph, error) {
 	// Create the graph
 	g := NewGraph(b.config)
 	g.Context.TargetRoot = b.view.Files.Root
@@ -264,10 +265,10 @@ func (b *DecommissionGraphBuilder) Build() (*execution.Graph, error) {
 		}
 
 		target := filepath.Join(b.view.Files.Root, relTarget)
-		node := &execution.Node{
+		node := &projection.Node{
 			ID:      relTarget,
 			Action:  b.reg.MustGet(op),
-			Status:  execution.StatusPending,
+			Status:  projection.StatusPending,
 			Project: entry.Project,
 			Layer:   entry.Layer,
 		}
@@ -301,7 +302,7 @@ func NewUpgradeGraphBuilder(cfg *UpgradeConfig, view *execution.StateView) *Upgr
 }
 
 // Build creates an execution graph for an upgrade operation.
-func (b *UpgradeGraphBuilder) Build() (*execution.Graph, error) {
+func (b *UpgradeGraphBuilder) Build() (*projection.Graph, error) {
 	// TODO: implement upgrade graph building
 	return nil, fmt.Errorf("upgrade graph building not yet implemented")
 }
@@ -321,7 +322,7 @@ func NewReconcileGraphBuilder(cfg *ReconcileConfig) *ReconcileGraphBuilder {
 }
 
 // Build creates an execution graph for a reconcile operation.
-func (b *ReconcileGraphBuilder) Build() (*execution.Graph, error) {
+func (b *ReconcileGraphBuilder) Build() (*projection.Graph, error) {
 	// TODO: implement reconcile graph building
 	return nil, fmt.Errorf("reconcile graph building not yet implemented")
 }
@@ -351,7 +352,7 @@ func NewAdoptGraphBuilder(cfg *AdoptConfig) *AdoptGraphBuilder {
 }
 
 // Build creates an execution graph for an adopt operation.
-func (b *AdoptGraphBuilder) Build() (*execution.Graph, error) {
+func (b *AdoptGraphBuilder) Build() (*projection.Graph, error) {
 	// TODO: implement adopt graph building
 	return nil, fmt.Errorf("adopt graph building not yet implemented")
 }
@@ -375,7 +376,7 @@ func NewMigrateGraphBuilder(cfg *Config, sourcePath string) *MigrateGraphBuilder
 }
 
 // Build creates an execution graph for a migrate operation.
-func (b *MigrateGraphBuilder) Build() (*execution.Graph, error) {
+func (b *MigrateGraphBuilder) Build() (*projection.Graph, error) {
 	// TODO: implement migrate graph building
 	return nil, fmt.Errorf("migrate graph building not yet implemented")
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/execution/flow"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // --- Test helpers ---
@@ -68,23 +69,23 @@ func (a *conditionalFailAction) Do(_ *execution.Context, slots map[string]any) (
 }
 
 // phasedGraph builds a single-phase graph with linear edges between nodes.
-func phasedGraph(nodes []*execution.Node) *execution.Graph {
+func phasedGraph(nodes []*projection.Node) *projection.Graph {
 	ids := make([]string, len(nodes))
-	var edges []execution.Edge
+	var edges []projection.Edge
 	for i, n := range nodes {
 		ids[i] = n.ID
 		if i > 0 {
-			edges = append(edges, execution.Edge{From: nodes[i-1].ID, To: n.ID})
+			edges = append(edges, projection.Edge{From: nodes[i-1].ID, To: n.ID})
 		}
 	}
-	return &execution.Graph{
-		State: execution.StatePending,
+	return &projection.Graph{
+		State: projection.StatePending,
 		Nodes: nodes,
 		Edges: edges,
-		Phases: []*execution.Phase{{
+		Phases: []*projection.Phase{{
 			ID:      "phase.test",
 			Name:    "test",
-			Status:  execution.PhasePending,
+			Status:  projection.PhasePending,
 			NodeIDs: ids,
 		}},
 	}
@@ -107,23 +108,23 @@ func TestCompensationFileActions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeNode := &execution.Node{ID: "write", Action: &file.Write{Impl: fp}}
+	writeNode := &projection.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 
-	copyNode := &execution.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
+	copyNode := &projection.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
 	copyNode.SetSlotImmediate("content", []byte("copied content"))
 	copyNode.SetSlotImmediate("path", copyPath)
 	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 
-	linkNode := &execution.Node{ID: "link", Action: &file.Link{Impl: fp}}
+	linkNode := &projection.Node{ID: "link", Action: &file.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
 	linkNode.SetSlotImmediate("path", linkPath)
 
-	failNode := &execution.Node{ID: "fail", Action: &failAction{}}
+	failNode := &projection.Node{ID: "fail", Action: &failAction{}}
 
-	g := phasedGraph([]*execution.Node{writeNode, copyNode, linkNode, failNode})
+	g := phasedGraph([]*projection.Node{writeNode, copyNode, linkNode, failNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
@@ -148,12 +149,12 @@ func TestCompensationOrdering(t *testing.T) {
 	var mu sync.Mutex
 	var log []string
 
-	nodeA := &execution.Node{ID: "a", Action: &trackAction{label: "A", mu: &mu, log: &log}}
-	nodeB := &execution.Node{ID: "b", Action: &trackAction{label: "B", mu: &mu, log: &log}}
-	nodeC := &execution.Node{ID: "c", Action: &trackAction{label: "C", mu: &mu, log: &log}}
-	nodeFail := &execution.Node{ID: "fail", Action: &failAction{}}
+	nodeA := &projection.Node{ID: "a", Action: &trackAction{label: "A", mu: &mu, log: &log}}
+	nodeB := &projection.Node{ID: "b", Action: &trackAction{label: "B", mu: &mu, log: &log}}
+	nodeC := &projection.Node{ID: "c", Action: &trackAction{label: "C", mu: &mu, log: &log}}
+	nodeFail := &projection.Node{ID: "fail", Action: &failAction{}}
 
-	g := phasedGraph([]*execution.Node{nodeA, nodeB, nodeC, nodeFail})
+	g := phasedGraph([]*projection.Node{nodeA, nodeB, nodeC, nodeFail})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	if err := executor.Run(context.Background(), g); err == nil {
@@ -183,23 +184,23 @@ func TestCompensationDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeNode := &execution.Node{ID: "write", Action: &file.Write{Impl: fp}}
+	writeNode := &projection.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 
-	copyNode := &execution.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
+	copyNode := &projection.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
 	copyNode.SetSlotImmediate("content", []byte("dry-run content"))
 	copyNode.SetSlotImmediate("path", copyPath)
 	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 
-	linkNode := &execution.Node{ID: "link", Action: &file.Link{Impl: fp}}
+	linkNode := &projection.Node{ID: "link", Action: &file.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
 	linkNode.SetSlotImmediate("path", linkPath)
 
-	failNode := &execution.Node{ID: "fail", Action: &failAction{}}
+	failNode := &projection.Node{ID: "fail", Action: &failAction{}}
 
-	g := phasedGraph([]*execution.Node{writeNode, copyNode, linkNode, failNode})
+	g := phasedGraph([]*projection.Node{writeNode, copyNode, linkNode, failNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun: true,
 		Writer: io.Discard,
@@ -224,16 +225,16 @@ func TestCompensationNilState(t *testing.T) {
 	fp := &file.Provider{}
 	writePath := filepath.Join(tmpDir, "write.txt")
 
-	noopNode := &execution.Node{ID: "noop", Action: &noopAction{}}
+	noopNode := &projection.Node{ID: "noop", Action: &noopAction{}}
 
-	writeNode := &execution.Node{ID: "write", Action: &file.Write{Impl: fp}}
+	writeNode := &projection.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 
-	failNode := &execution.Node{ID: "fail", Action: &failAction{}}
+	failNode := &projection.Node{ID: "fail", Action: &failAction{}}
 
-	g := phasedGraph([]*execution.Node{noopNode, writeNode, failNode})
+	g := phasedGraph([]*projection.Node{noopNode, writeNode, failNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
@@ -255,19 +256,19 @@ func TestCompensationPartialFailure(t *testing.T) {
 	firstPath := filepath.Join(tmpDir, "first.txt")
 	thirdPath := filepath.Join(tmpDir, "third.txt")
 
-	firstNode := &execution.Node{ID: "first", Action: &file.Write{Impl: fp}}
+	firstNode := &projection.Node{ID: "first", Action: &file.Write{Impl: fp}}
 	firstNode.SetSlotImmediate("content", "first")
 	firstNode.SetSlotImmediate("path", firstPath)
 	firstNode.SetSlotImmediate("mode", os.FileMode(0644))
 
-	failNode := &execution.Node{ID: "fail", Action: &failAction{}}
+	failNode := &projection.Node{ID: "fail", Action: &failAction{}}
 
-	thirdNode := &execution.Node{ID: "third", Action: &file.Write{Impl: fp}}
+	thirdNode := &projection.Node{ID: "third", Action: &file.Write{Impl: fp}}
 	thirdNode.SetSlotImmediate("content", "third")
 	thirdNode.SetSlotImmediate("path", thirdPath)
 	thirdNode.SetSlotImmediate("mode", os.FileMode(0644))
 
-	g := phasedGraph([]*execution.Node{firstNode, failNode, thirdNode})
+	g := phasedGraph([]*projection.Node{firstNode, failNode, thirdNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
@@ -298,23 +299,23 @@ func TestCompensationGather(t *testing.T) {
 		filepath.Join(tmpDir, "c.txt"),
 	}
 
-	writeNode := &execution.Node{ID: "write", Action: &file.Write{Impl: fp}}
+	writeNode := &projection.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "gather test")
 	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
 	writeNode.SetSlotProxy("path", "gather", "")
 
 	cfail := &conditionalFailAction{failPath: paths[2]}
-	cfailNode := &execution.Node{ID: "cfail", Action: cfail}
+	cfailNode := &projection.Node{ID: "cfail", Action: cfail}
 	cfailNode.SetSlotProxy("path", "gather", "")
 
-	g := &execution.Graph{
-		State: execution.StatePending,
-		Nodes: []*execution.Node{writeNode, cfailNode},
-		Edges: []execution.Edge{{From: "write", To: "cfail"}},
-		Phases: []*execution.Phase{{
+	g := &projection.Graph{
+		State: projection.StatePending,
+		Nodes: []*projection.Node{writeNode, cfailNode},
+		Edges: []projection.Edge{{From: "write", To: "cfail"}},
+		Phases: []*projection.Phase{{
 			ID:      "phase.body",
 			Name:    "body",
-			Status:  execution.PhasePending,
+			Status:  projection.PhasePending,
 			NodeIDs: []string{"write", "cfail"},
 		}},
 	}

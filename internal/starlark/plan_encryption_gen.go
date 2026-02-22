@@ -9,25 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 func init() {
-	registerPlan("encryption", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("encryption", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewEncryptionPlan(graph, h, project, reg)
 	})
 }
 
 type EncryptionPlan struct {
-	Receiver
-	graph   *execution.Graph
+	projection.Receiver
+	graph   *projection.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewEncryptionPlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *EncryptionPlan {
+func NewEncryptionPlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *EncryptionPlan {
 	return &EncryptionPlan{
-		Receiver: NewReceiver("plan.encryption"),
+		Receiver: projection.NewReceiver("plan.encryption"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -38,9 +39,9 @@ func NewEncryptionPlan(graph *execution.Graph, h host.Host, project string, reg 
 func (p *EncryptionPlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "decrypt":
-		return MakeAttr("plan.encryption.decrypt", p.decrypt), nil
+		return projection.MakeAttr("plan.encryption.decrypt", p.decrypt), nil
 	default:
-		return nil, NoSuchAttrError("plan.encryption", name)
+		return nil, projection.NoSuchAttrError("plan.encryption", name)
 	}
 }
 
@@ -60,8 +61,8 @@ func (p *EncryptionPlan) decrypt(_ *starlark.Thread, _ *starlark.Builtin, args s
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:      generateNodeID("encryption-decrypt"),
+	node := &projection.Node{
+		ID:      projection.GenerateNodeID("encryption-decrypt"),
 		Action:  p.reg.MustGet("encryption.decrypt"),
 		Project: p.project,
 	}
@@ -70,5 +71,5 @@ func (p *EncryptionPlan) decrypt(_ *starlark.Thread, _ *starlark.Builtin, args s
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
+	return projection.NewOutput(node, p.graph, ""), nil
 }

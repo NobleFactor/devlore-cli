@@ -5,6 +5,8 @@ package execution
 
 import (
 	"context"
+
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // GraphBuilder is the interface for building execution graphs.
@@ -13,5 +15,5 @@ import (
 type GraphBuilder interface {
 	// Build creates an execution graph.
 	// Implementations hold their configuration internally (set at construction).
-	Build(ctx context.Context) (*Graph, error)
+	Build(ctx context.Context) (*projection.Graph, error)
 }

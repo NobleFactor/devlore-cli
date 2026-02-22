@@ -1,6 +1,6 @@
 # Phase 8: Plannable Directive, Generator Fixes, Regeneration
 
-**Status**: In Progress
+**Status**: Complete
 
 ## Context
 

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/console"
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 func TestNewSession(t *testing.T) {
@@ -129,7 +129,7 @@ func TestSessionSlashCommands(t *testing.T) {
 	// Set up state for slash commands
 	session.state = StateConversing
 	session.analysis = &MigrationAnalysis{SourceRoot: "/tmp/test"}
-	session.graph = &execution.Graph{}
+	session.graph = &projection.Graph{}
 
 	tests := []struct {
 		cmd           string
@@ -328,7 +328,7 @@ func TestSessionErrorState(t *testing.T) {
 
 func TestSessionResultType(t *testing.T) {
 	result := &SessionResult{
-		Graph:       &execution.Graph{},
+		Graph:       &projection.Graph{},
 		Analysis:    &MigrationAnalysis{SourceRoot: "/test"},
 		Executed:    true,
 		ReceiptPath: "/path/to/receipt.yaml",

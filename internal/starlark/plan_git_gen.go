@@ -9,25 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 func init() {
-	registerPlan("git", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("git", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewGitPlan(graph, h, project, reg)
 	})
 }
 
 type GitPlan struct {
-	Receiver
-	graph   *execution.Graph
+	projection.Receiver
+	graph   *projection.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewGitPlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *GitPlan {
+func NewGitPlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *GitPlan {
 	return &GitPlan{
-		Receiver: NewReceiver("plan.git"),
+		Receiver: projection.NewReceiver("plan.git"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -38,13 +39,13 @@ func NewGitPlan(graph *execution.Graph, h host.Host, project string, reg *execut
 func (p *GitPlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "clone":
-		return MakeAttr("plan.git.clone", p.clone), nil
+		return projection.MakeAttr("plan.git.clone", p.clone), nil
 	case "checkout":
-		return MakeAttr("plan.git.checkout", p.checkout), nil
+		return projection.MakeAttr("plan.git.checkout", p.checkout), nil
 	case "pull":
-		return MakeAttr("plan.git.pull", p.pull), nil
+		return projection.MakeAttr("plan.git.pull", p.pull), nil
 	default:
-		return nil, NoSuchAttrError("plan.git", name)
+		return nil, projection.NoSuchAttrError("plan.git", name)
 	}
 }
 
@@ -64,8 +65,8 @@ func (p *GitPlan) clone(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:      generateNodeID("git-clone"),
+	node := &projection.Node{
+		ID:      projection.GenerateNodeID("git-clone"),
 		Action:  p.reg.MustGet("git.clone"),
 		Project: p.project,
 	}
@@ -77,7 +78,7 @@ func (p *GitPlan) clone(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
+	return projection.NewOutput(node, p.graph, ""), nil
 }
 
 // checkout Checkout checks out a ref in the given repository directory.
@@ -91,8 +92,8 @@ func (p *GitPlan) checkout(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:      generateNodeID("git-checkout"),
+	node := &projection.Node{
+		ID:      projection.GenerateNodeID("git-checkout"),
 		Action:  p.reg.MustGet("git.checkout"),
 		Project: p.project,
 	}
@@ -104,7 +105,7 @@ func (p *GitPlan) checkout(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
+	return projection.NewOutput(node, p.graph, ""), nil
 }
 
 // pull Pull pulls the latest changes in the given repository directory.
@@ -117,8 +118,8 @@ func (p *GitPlan) pull(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:      generateNodeID("git-pull"),
+	node := &projection.Node{
+		ID:      projection.GenerateNodeID("git-pull"),
 		Action:  p.reg.MustGet("git.pull"),
 		Project: p.project,
 	}
@@ -127,5 +128,5 @@ func (p *GitPlan) pull(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
+	return projection.NewOutput(node, p.graph, ""), nil
 }

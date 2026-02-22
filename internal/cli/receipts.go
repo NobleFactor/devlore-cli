@@ -10,8 +10,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/signing"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // ReceiptsDir returns the directory where receipts are stored.
@@ -27,13 +27,13 @@ func LatestReceiptPath(producer string) string {
 }
 
 // LoadReceipt loads an execution graph from a YAML receipt file.
-func LoadReceipt(path string) (*execution.Graph, error) {
+func LoadReceipt(path string) (*projection.Graph, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read receipt: %w", err)
 	}
 
-	var g execution.Graph
+	var g projection.Graph
 	if err := yaml.Unmarshal(data, &g); err != nil {
 		return nil, fmt.Errorf("parse receipt: %w", err)
 	}
@@ -42,7 +42,7 @@ func LoadReceipt(path string) (*execution.Graph, error) {
 }
 
 // LoadLatestReceipt loads the most recent receipt for a producer.
-func LoadLatestReceipt(producer string) (*execution.Graph, error) {
+func LoadLatestReceipt(producer string) (*projection.Graph, error) {
 	return LoadReceipt(LatestReceiptPath(producer))
 }
 
@@ -57,7 +57,7 @@ func LoadLatestReceipt(producer string) (*execution.Graph, error) {
 // The receipt is checksummed before writing. Signing is performed using
 // the first available backend from .sops.yaml (GPG, AWS KMS, GCP KMS, or Azure Key Vault).
 // The .sops.yaml is expected at ${XDG_STATE_HOME}/devlore/.sops.yaml.
-func WriteReceipt(g *execution.Graph, producer string) (string, error) {
+func WriteReceipt(g *projection.Graph, producer string) (string, error) {
 	// Search for .sops.yaml from the devlore state directory
 	// Expected location: ${XDG_STATE_HOME}/devlore/.sops.yaml
 	return WriteReceiptWithSigningDir(g, producer, DevloreStateHome())
@@ -65,7 +65,7 @@ func WriteReceipt(g *execution.Graph, producer string) (string, error) {
 
 // WriteReceiptWithSigningDir writes the graph as a receipt, searching for
 // .sops.yaml starting from signingDir to configure signing backends.
-func WriteReceiptWithSigningDir(g *execution.Graph, producer, signingDir string) (string, error) {
+func WriteReceiptWithSigningDir(g *projection.Graph, producer, signingDir string) (string, error) {
 	dir := ReceiptsDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create receipts dir: %w", err)
@@ -79,7 +79,7 @@ func WriteReceiptWithSigningDir(g *execution.Graph, producer, signingDir string)
 	if err != nil {
 		return "", fmt.Errorf("canonical content: %w", err)
 	}
-	g.Checksum = execution.GitStyleChecksum("graph", filename, canonical)
+	g.Checksum = projection.GitStyleChecksum("graph", filename, canonical)
 
 	// Sign receipt using backends from .sops.yaml
 	signGraph(g, canonical, signingDir)
@@ -110,7 +110,7 @@ func WriteReceiptWithSigningDir(g *execution.Graph, producer, signingDir string)
 // signGraph signs the graph using the first available signing backend.
 // Searches for .sops.yaml starting from searchDir.
 // If no backends are available, signing is skipped (g.Signature remains nil).
-func signGraph(g *execution.Graph, canonical []byte, searchDir string) {
+func signGraph(g *projection.Graph, canonical []byte, searchDir string) {
 	chain := signing.BuildSignerChain(searchDir)
 
 	sig, err := chain.Sign(canonical)
@@ -119,8 +119,8 @@ func signGraph(g *execution.Graph, canonical []byte, searchDir string) {
 		return
 	}
 
-	// Convert signing.Signature to execution.Signature
-	g.Signature = &execution.Signature{
+	// Convert signing.Signature to projection.Signature
+	g.Signature = &projection.Signature{
 		Method: sig.Method,
 		Value:  sig.Value,
 		KeyID:  sig.KeyID,

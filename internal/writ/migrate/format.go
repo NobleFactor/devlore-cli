@@ -12,8 +12,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // FormatMigrationPlan renders the execution Graph and MigrationAnalysis as
@@ -21,7 +21,7 @@ import (
 //
 // Supported formats: "text" (default), "yaml", "json"
 // For "explain" format, use FormatMigrationExplain which requires an AI provider.
-func FormatMigrationPlan(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis, format string) error {
+func FormatMigrationPlan(w io.Writer, graph *projection.Graph, analysis *MigrationAnalysis, format string) error {
 	switch format {
 	case "yaml":
 		return formatMigrationYAML(w, graph, analysis)
@@ -68,21 +68,21 @@ type edgeView struct {
 	To   string `json:"to" yaml:"to"`
 }
 
-func formatMigrationYAML(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationYAML(w io.Writer, graph *projection.Graph, analysis *MigrationAnalysis) error {
 	view := buildMigrationView(graph, analysis)
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
 	return enc.Encode(view)
 }
 
-func formatMigrationJSON(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationJSON(w io.Writer, graph *projection.Graph, analysis *MigrationAnalysis) error {
 	view := buildMigrationView(graph, analysis)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(view)
 }
 
-func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *migrationView {
+func buildMigrationView(graph *projection.Graph, analysis *MigrationAnalysis) *migrationView {
 	// Build nodes
 	var nodes []nodeView
 	for _, node := range graph.Nodes {
@@ -121,7 +121,7 @@ func buildMigrationView(graph *execution.Graph, analysis *MigrationAnalysis) *mi
 	}
 }
 
-func formatMigrationText(w io.Writer, graph *execution.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationText(w io.Writer, graph *projection.Graph, analysis *MigrationAnalysis) error {
 	formatHeader(w, analysis)
 	formatSummary(w, analysis.Stats)
 	formatRenames(w, graph, analysis.SourceRoot)
@@ -175,7 +175,7 @@ func collectExtraStats(s MigrationStats) []string {
 	return extras
 }
 
-func formatRenames(w io.Writer, graph *execution.Graph, sourceRoot string) {
+func formatRenames(w io.Writer, graph *projection.Graph, sourceRoot string) {
 	renameNodes := filterNodesByOp(graph, "file.move")
 	if len(renameNodes) == 0 {
 		return
@@ -289,8 +289,8 @@ func formatRecommendations(w io.Writer, recommendations []string) {
 }
 
 // filterNodesByOp returns nodes that have the specified operation.
-func filterNodesByOp(graph *execution.Graph, opName string) []*execution.Node {
-	var nodes []*execution.Node
+func filterNodesByOp(graph *projection.Graph, opName string) []*projection.Node {
+	var nodes []*projection.Node
 	for _, node := range graph.Nodes {
 		if node.ActionName() == opName {
 			nodes = append(nodes, node)

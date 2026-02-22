@@ -16,42 +16,43 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/template"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 
 	"gopkg.in/yaml.v3"
 )
 
 // buildTestGraph creates a simple graph programmatically for lifecycle tests.
-func buildTestGraph() *execution.Graph {
+func buildTestGraph() *projection.Graph {
 	fp := &file.Provider{}
 
-	nodeA := &execution.Node{
+	nodeA := &projection.Node{
 		ID:     "a",
 		Action: &file.Link{Impl: fp},
-		Status: execution.StatusPending,
+		Status: projection.StatusPending,
 	}
 	nodeA.SetSlotImmediate("source", "/src/a.txt")
 	nodeA.SetSlotImmediate("path", "/dst/a.txt")
 
-	nodeB := &execution.Node{
+	nodeB := &projection.Node{
 		ID:     "b",
 		Action: &file.Copy{Impl: fp},
-		Status: execution.StatusPending,
+		Status: projection.StatusPending,
 	}
 	nodeB.SetSlotImmediate("source", "/src/b.txt")
 	nodeB.SetSlotImmediate("path", "/dst/b.txt")
 
-	return &execution.Graph{
+	return &projection.Graph{
 		Version:   "1",
 		Tool:      "writ",
 		Timestamp: time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC),
-		State:     execution.StatePending,
-		Platform:  execution.Platform{OS: "darwin", Arch: "arm64"},
-		Context: execution.GraphContext{
+		State:     projection.StatePending,
+		Platform:  projection.Platform{OS: "darwin", Arch: "arm64"},
+		Context: projection.GraphContext{
 			SourceRoot: "/src",
 			TargetRoot: "/dst",
 		},
-		Nodes: []*execution.Node{nodeA, nodeB},
-		Edges: []execution.Edge{{From: "a", To: "b"}},
+		Nodes: []*projection.Node{nodeA, nodeB},
+		Edges: []projection.Edge{{From: "a", To: "b"}},
 	}
 }
 
@@ -141,7 +142,7 @@ func TestGraphDeserializeYAML(t *testing.T) {
 	enc.Close()
 
 	// Deserialize
-	var loaded execution.Graph
+	var loaded projection.Graph
 	if err := yaml.Unmarshal(buf.Bytes(), &loaded); err != nil {
 		t.Fatalf("deserialize YAML: %v", err)
 	}
@@ -171,11 +172,9 @@ func TestGraphDeserializeYAML(t *testing.T) {
 		t.Errorf("expected edge a→b, got %s→%s", loaded.Edges[0].From, loaded.Edges[0].To)
 	}
 
-	// Verify stub actions are not executable
-	ctx := &execution.Context{Context: context.Background()}
-	_, _, err := loaded.Nodes[0].Action.Do(ctx, nil)
-	if err == nil {
-		t.Error("expected stub action to return error from Do()")
+	// Verify stub actions are not executable (they don't implement execution.Action)
+	if _, ok := loaded.Nodes[0].Action.(execution.Action); ok {
+		t.Error("expected stub action to NOT implement execution.Action")
 	}
 }
 
@@ -190,7 +189,7 @@ func TestGraphDeserializeJSON(t *testing.T) {
 	}
 
 	// Deserialize
-	var loaded execution.Graph
+	var loaded projection.Graph
 	if err := json.Unmarshal(buf.Bytes(), &loaded); err != nil {
 		t.Fatalf("deserialize JSON: %v", err)
 	}
@@ -219,7 +218,7 @@ func TestGraphRoundTripYAML(t *testing.T) {
 	enc.Close()
 
 	// Deserialize
-	var loaded execution.Graph
+	var loaded projection.Graph
 	if err := yaml.Unmarshal(buf.Bytes(), &loaded); err != nil {
 		t.Fatalf("deserialize: %v", err)
 	}
@@ -259,7 +258,7 @@ func TestGraphRoundTripJSON(t *testing.T) {
 	}
 
 	// Deserialize
-	var loaded execution.Graph
+	var loaded projection.Graph
 	if err := json.Unmarshal(buf.Bytes(), &loaded); err != nil {
 		t.Fatalf("deserialize: %v", err)
 	}
@@ -291,23 +290,21 @@ func TestGraphHydrate(t *testing.T) {
 	enc.Close()
 
 	// Deserialize
-	var loaded execution.Graph
+	var loaded projection.Graph
 	if err := yaml.Unmarshal(buf.Bytes(), &loaded); err != nil {
 		t.Fatalf("deserialize: %v", err)
 	}
 
-	// Verify stub before hydration
-	ctx := &execution.Context{Context: context.Background()}
-	_, _, err := loaded.Nodes[0].Action.Do(ctx, nil)
-	if err == nil {
-		t.Error("expected stub action to fail before hydration")
+	// Verify stub before hydration — stubs don't implement execution.Action
+	if _, ok := loaded.Nodes[0].Action.(execution.Action); ok {
+		t.Error("expected stub action to NOT implement execution.Action before hydration")
 	}
 
 	// Hydrate with real registry
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
 
-	if err := loaded.Hydrate(reg); err != nil {
+	if err := execution.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}
 
@@ -319,9 +316,12 @@ func TestGraphHydrate(t *testing.T) {
 		t.Errorf("expected 'file.copy' after hydration, got %q", loaded.Nodes[1].ActionName())
 	}
 
-	// Actions should not be stubs — test by checking that they don't return the stub error
-	// (We can't call Do without proper slots, but we can verify the action type changed)
-	_, _, err = loaded.Nodes[0].Action.Do(&execution.Context{Context: context.Background(), DryRun: true, Writer: os.Stdout},
+	// Actions should be real execution.Action after hydration (not stubs)
+	act, ok := loaded.Nodes[0].Action.(execution.Action)
+	if !ok {
+		t.Fatal("expected hydrated action to implement execution.Action")
+	}
+	_, _, err := act.Do(&execution.Context{Context: context.Background(), DryRun: true, Writer: os.Stdout},
 		map[string]any{"source": "/x", "path": "/y"})
 	if err != nil {
 		t.Errorf("expected hydrated action to succeed in dry-run, got: %v", err)
@@ -329,16 +329,16 @@ func TestGraphHydrate(t *testing.T) {
 }
 
 func TestGraphHydrateUnknownAction(t *testing.T) {
-	g := &execution.Graph{
-		Nodes: []*execution.Node{
-			{ID: "test", Action: execution.StubAction("nonexistent.action")},
+	g := &projection.Graph{
+		Nodes: []*projection.Node{
+			{ID: "test", Action: projection.StubAction("nonexistent.action")},
 		},
 	}
 
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
 
-	err := g.Hydrate(reg)
+	err := execution.HydrateGraph(g, reg)
 	if err == nil {
 		t.Fatal("expected error for unknown action during hydration")
 	}
@@ -373,10 +373,10 @@ func TestGraphLifecycle(t *testing.T) {
 
 	// Build graph
 	fp := &file.Provider{}
-	linkNode := &execution.Node{
+	linkNode := &projection.Node{
 		ID:     "config.txt",
 		Action: &file.Link{Impl: fp},
-		Status: execution.StatusPending,
+		Status: projection.StatusPending,
 	}
 	linkNode.SetSlotImmediate("source", srcLink)
 	linkNode.SetSlotImmediate("path", filepath.Join(dstDir, "config.txt"))
@@ -386,26 +386,26 @@ func TestGraphLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	copyNode := &execution.Node{
+	copyNode := &projection.Node{
 		ID:     "data.txt",
 		Action: &file.Copy{Impl: fp},
-		Status: execution.StatusPending,
+		Status: projection.StatusPending,
 	}
 	copyNode.SetSlotImmediate("content", copyContent)
 	copyNode.SetSlotImmediate("path", filepath.Join(dstDir, "data.txt"))
 	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 
-	graph := &execution.Graph{
+	graph := &projection.Graph{
 		Version:   "1",
 		Tool:      "writ",
 		Timestamp: time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC),
-		State:     execution.StatePending,
-		Platform:  execution.Platform{OS: "darwin", Arch: "arm64"},
-		Context: execution.GraphContext{
+		State:     projection.StatePending,
+		Platform:  projection.Platform{OS: "darwin", Arch: "arm64"},
+		Context: projection.GraphContext{
 			SourceRoot: srcDir,
 			TargetRoot: dstDir,
 		},
-		Nodes: []*execution.Node{linkNode, copyNode},
+		Nodes: []*projection.Node{linkNode, copyNode},
 	}
 
 	// Step 1: Serialize to YAML
@@ -418,7 +418,7 @@ func TestGraphLifecycle(t *testing.T) {
 	enc.Close()
 
 	// Step 2: Deserialize from YAML
-	var loaded execution.Graph
+	var loaded projection.Graph
 	if err := yaml.Unmarshal(buf.Bytes(), &loaded); err != nil {
 		t.Fatalf("deserialize: %v", err)
 	}
@@ -426,15 +426,15 @@ func TestGraphLifecycle(t *testing.T) {
 	// Step 3: Hydrate with real actions
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
-	if err := loaded.Hydrate(reg); err != nil {
+	if err := execution.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}
 
 	// Reset state to pending for execution.
 	// Re-set typed slots that don't survive YAML round-trip (os.FileMode, []byte).
-	loaded.State = execution.StatePending
+	loaded.State = projection.StatePending
 	for _, n := range loaded.Nodes {
-		n.Status = execution.StatusPending
+		n.Status = projection.StatusPending
 	}
 	for _, n := range loaded.Nodes {
 		if n.ActionName() == "file.copy" {
@@ -450,7 +450,7 @@ func TestGraphLifecycle(t *testing.T) {
 	}
 
 	// Verify state updated
-	if loaded.State != execution.StateExecuted {
+	if loaded.State != projection.StateExecuted {
 		t.Errorf("expected state 'executed', got %q", loaded.State)
 	}
 
@@ -494,19 +494,19 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 	fp := &file.Provider{}
 	tp := &template.Provider{}
 
-	sourceNode := &execution.Node{
+	sourceNode := &projection.Node{
 		ID:     "greeting:source",
 		Action: &file.Source{Impl: fp},
-		Status: execution.StatusPending,
+		Status: projection.StatusPending,
 	}
 	sourceNode.SetSlotImmediate("path", tmplPath)
 
 	dstPath := filepath.Join(dstDir, "greeting.txt")
 
-	renderNode := &execution.Node{
+	renderNode := &projection.Node{
 		ID:     "greeting:render",
 		Action: &template.Render{Impl: tp},
-		Status: execution.StatusPending,
+		Status: projection.StatusPending,
 	}
 	renderNode.SetSlotImmediate("source", tmplPath)
 	renderNode.SetSlotImmediate("path", dstPath)
@@ -515,28 +515,28 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 	// Content flows from source → render via promise slot
 	renderNode.SetSlotPromise("content", "greeting:source", "")
 
-	copyNode := &execution.Node{
+	copyNode := &projection.Node{
 		ID:     "greeting",
 		Action: &file.Copy{Impl: fp},
-		Status: execution.StatusPending,
+		Status: projection.StatusPending,
 	}
 	copyNode.SetSlotImmediate("path", dstPath)
 	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 	// Content flows from render → copy via promise slot
 	copyNode.SetSlotPromise("content", "greeting:render", "")
 
-	graph := &execution.Graph{
+	graph := &projection.Graph{
 		Version:   "1",
 		Tool:      "writ",
 		Timestamp: time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC),
-		State:     execution.StatePending,
-		Platform:  execution.Platform{OS: "darwin", Arch: "arm64"},
-		Context: execution.GraphContext{
+		State:     projection.StatePending,
+		Platform:  projection.Platform{OS: "darwin", Arch: "arm64"},
+		Context: projection.GraphContext{
 			SourceRoot: srcDir,
 			TargetRoot: dstDir,
 		},
-		Nodes: []*execution.Node{sourceNode, renderNode, copyNode},
-		Edges: []execution.Edge{
+		Nodes: []*projection.Node{sourceNode, renderNode, copyNode},
+		Edges: []projection.Edge{
 			{From: "greeting:source", To: "greeting:render"},
 			{From: "greeting:render", To: "greeting"},
 		},
@@ -551,22 +551,22 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 	}
 	enc.Close()
 
-	var loaded execution.Graph
+	var loaded projection.Graph
 	if err := yaml.Unmarshal(buf.Bytes(), &loaded); err != nil {
 		t.Fatalf("deserialize: %v", err)
 	}
 
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
-	if err := loaded.Hydrate(reg); err != nil {
+	if err := execution.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}
 
 	// Reset state.
 	// Re-set typed slots that don't survive YAML round-trip (os.FileMode, map[string]any).
-	loaded.State = execution.StatePending
+	loaded.State = projection.StatePending
 	for _, n := range loaded.Nodes {
-		n.Status = execution.StatusPending
+		n.Status = projection.StatusPending
 	}
 	for _, n := range loaded.Nodes {
 		switch n.ActionName() {

@@ -11,17 +11,18 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/{{.Provider}}"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 type {{.StructName}}Receiver struct {
-	Receiver
+	projection.Receiver
 	provider *{{.Provider}}.Provider
 	output   io.Writer
 }
 
 func New{{.StructName}}Receiver(provider *{{.Provider}}.Provider, output io.Writer) *{{.StructName}}Receiver {
 	return &{{.StructName}}Receiver{
-		Receiver: NewReceiver("{{.Provider}}"),
+		Receiver: projection.NewReceiver("{{.Provider}}"),
 		provider: provider,
 		output:   output,
 	}
@@ -31,13 +32,13 @@ func (r *{{.StructName}}Receiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 {{- range .Methods}}
 	case "{{.SnakeName}}":
-		return MakeAttr("{{$.Provider}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
+		return projection.MakeAttr("{{$.Provider}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
 {{- end}}
 	default:
 {{- if hasExtraAttrs .}}
 		return r.queryAttr(name)
 {{- else}}
-		return nil, NoSuchAttrError("{{.Provider}}", name)
+		return nil, projection.NoSuchAttrError("{{.Provider}}", name)
 {{- end}}
 	}
 }

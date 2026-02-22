@@ -9,25 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 func init() {
-	registerPlan("shell", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("shell", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewShellPlan(graph, h, project, reg)
 	})
 }
 
 type ShellPlan struct {
-	Receiver
-	graph   *execution.Graph
+	projection.Receiver
+	graph   *projection.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewShellPlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ShellPlan {
+func NewShellPlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ShellPlan {
 	return &ShellPlan{
-		Receiver: NewReceiver("plan.shell"),
+		Receiver: projection.NewReceiver("plan.shell"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -38,11 +39,11 @@ func NewShellPlan(graph *execution.Graph, h host.Host, project string, reg *exec
 func (p *ShellPlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "exec":
-		return MakeAttr("plan.shell.exec", p.exec), nil
+		return projection.MakeAttr("plan.shell.exec", p.exec), nil
 	case "power_shell":
-		return MakeAttr("plan.shell.power_shell", p.power_shell), nil
+		return projection.MakeAttr("plan.shell.power_shell", p.power_shell), nil
 	default:
-		return nil, NoSuchAttrError("plan.shell", name)
+		return nil, projection.NoSuchAttrError("plan.shell", name)
 	}
 }
 
@@ -60,8 +61,8 @@ func (p *ShellPlan) exec(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:      generateNodeID("shell-exec"),
+	node := &projection.Node{
+		ID:      projection.GenerateNodeID("shell-exec"),
 		Action:  p.reg.MustGet("shell.exec"),
 		Project: p.project,
 	}
@@ -70,7 +71,7 @@ func (p *ShellPlan) exec(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
+	return projection.NewOutput(node, p.graph, ""), nil
 }
 
 // power_shell PowerShell executes a PowerShell command (Windows).
@@ -83,8 +84,8 @@ func (p *ShellPlan) power_shell(_ *starlark.Thread, _ *starlark.Builtin, args st
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:      generateNodeID("shell-power_shell"),
+	node := &projection.Node{
+		ID:      projection.GenerateNodeID("shell-power_shell"),
 		Action:  p.reg.MustGet("shell.power_shell"),
 		Project: p.project,
 	}
@@ -93,5 +94,5 @@ func (p *ShellPlan) power_shell(_ *starlark.Thread, _ *starlark.Builtin, args st
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
+	return projection.NewOutput(node, p.graph, ""), nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/execution/flow"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // --- test helpers ---
@@ -30,11 +31,11 @@ func (a *flowAction) Undo(_ execution.UndoState) error {
 // --- Choose tests ---
 
 func TestFlowChooseDoWhenTrue(t *testing.T) {
-	nodeA := &execution.Node{ID: "a", Action: &flowAction{name: "test.a", result: "result-a"}}
+	nodeA := &projection.Node{ID: "a", Action: &flowAction{name: "test.a", result: "result-a"}}
 
-	graph := &execution.Graph{
-		Nodes: []*execution.Node{nodeA},
-		Phases: []*execution.Phase{
+	graph := &projection.Graph{
+		Nodes: []*projection.Node{nodeA},
+		Phases: []*projection.Phase{
 			{ID: "phase-a", NodeIDs: []string{"a"}},
 		},
 	}
@@ -58,11 +59,11 @@ func TestFlowChooseDoWhenTrue(t *testing.T) {
 }
 
 func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
-	nodeD := &execution.Node{ID: "d", Action: &flowAction{name: "test.d", result: "else-result"}}
+	nodeD := &projection.Node{ID: "d", Action: &flowAction{name: "test.d", result: "else-result"}}
 
-	graph := &execution.Graph{
-		Nodes: []*execution.Node{nodeD},
-		Phases: []*execution.Phase{
+	graph := &projection.Graph{
+		Nodes: []*projection.Node{nodeD},
+		Phases: []*projection.Phase{
 			{ID: "phase-else", NodeIDs: []string{"d"}},
 		},
 	}
@@ -83,7 +84,7 @@ func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
 }
 
 func TestFlowChooseDoWhenFalseNoElse(t *testing.T) {
-	graph := &execution.Graph{}
+	graph := &projection.Graph{}
 	ctx := &execution.Context{Context: context.Background(), Graph: graph}
 	op := &flow.Choose{}
 
@@ -111,11 +112,11 @@ func TestFlowChooseUndo(t *testing.T) {
 // --- Gather tests ---
 
 func TestFlowGatherDo(t *testing.T) {
-	bodyNode := &execution.Node{ID: "body", Action: &flowAction{name: "test.body", result: "processed"}}
+	bodyNode := &projection.Node{ID: "body", Action: &flowAction{name: "test.body", result: "processed"}}
 
-	graph := &execution.Graph{
-		Nodes: []*execution.Node{bodyNode},
-		Phases: []*execution.Phase{
+	graph := &projection.Graph{
+		Nodes: []*projection.Node{bodyNode},
+		Phases: []*projection.Phase{
 			{ID: "gather-body", NodeIDs: []string{"body"}},
 		},
 	}
@@ -176,11 +177,11 @@ func TestFlowGatherDoEmpty(t *testing.T) {
 }
 
 func TestFlowGatherDoConcurrent(t *testing.T) {
-	bodyNode := &execution.Node{ID: "body", Action: &flowAction{name: "test.body", result: "done"}}
+	bodyNode := &projection.Node{ID: "body", Action: &flowAction{name: "test.body", result: "done"}}
 
-	graph := &execution.Graph{
-		Nodes: []*execution.Node{bodyNode},
-		Phases: []*execution.Phase{
+	graph := &projection.Graph{
+		Nodes: []*projection.Node{bodyNode},
+		Phases: []*projection.Phase{
 			{ID: "body-phase", NodeIDs: []string{"body"}},
 		},
 	}
@@ -212,17 +213,17 @@ func TestFlowGatherDoConcurrent(t *testing.T) {
 
 func TestFlowGatherDoProxySlots(t *testing.T) {
 	// Body node with a proxy slot that resolves per-item.
-	bodyNode := &execution.Node{
+	bodyNode := &projection.Node{
 		ID:     "body",
 		Action: &flowAction{name: "test.body", result: "done"},
-		Slots: map[string]execution.SlotValue{
+		Slots: map[string]projection.SlotValue{
 			"name": {GatherRef: "gather-proxy", Field: "name"},
 		},
 	}
 
-	graph := &execution.Graph{
-		Nodes: []*execution.Node{bodyNode},
-		Phases: []*execution.Phase{
+	graph := &projection.Graph{
+		Nodes: []*projection.Node{bodyNode},
+		Phases: []*projection.Phase{
 			{ID: "body-phase", NodeIDs: []string{"body"}},
 		},
 	}
@@ -350,28 +351,28 @@ func TestFlowWaitUntilName(t *testing.T) {
 
 // TestGatherIntegration tests Gather via phased execution with a real graph.
 func TestGatherIntegration(t *testing.T) {
-	bodyNode := &execution.Node{
+	bodyNode := &projection.Node{
 		ID:     "body-action",
 		Action: &flowAction{name: "test.body", result: "done"},
 	}
 
-	gatherNode := &execution.Node{
+	gatherNode := &projection.Node{
 		ID:     "gather",
 		Action: &flow.Gather{},
-		Slots: map[string]execution.SlotValue{
+		Slots: map[string]projection.SlotValue{
 			"items": {Immediate: []any{"a", "b", "c"}},
 			"do":    {Immediate: "body-phase"},
 		},
 	}
 
 	// Main phase contains the gather node; body phase is executed by gather.
-	mainPhase := &execution.Phase{ID: "main", NodeIDs: []string{"gather"}}
-	bodyPhase := &execution.Phase{ID: "body-phase", NodeIDs: []string{"body-action"}}
+	mainPhase := &projection.Phase{ID: "main", NodeIDs: []string{"gather"}}
+	bodyPhase := &projection.Phase{ID: "body-phase", NodeIDs: []string{"body-action"}}
 
-	graph := &execution.Graph{
-		State:  execution.StatePending,
-		Nodes:  []*execution.Node{gatherNode, bodyNode},
-		Phases: []*execution.Phase{mainPhase, bodyPhase},
+	graph := &projection.Graph{
+		State:  projection.StatePending,
+		Nodes:  []*projection.Node{gatherNode, bodyNode},
+		Phases: []*projection.Phase{mainPhase, bodyPhase},
 	}
 
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
@@ -380,7 +381,7 @@ func TestGatherIntegration(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if gatherNode.Status != execution.StatusCompleted {
+	if gatherNode.Status != projection.StatusCompleted {
 		t.Errorf("gather status: expected completed, got %s", gatherNode.Status)
 	}
 }

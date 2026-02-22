@@ -6,6 +6,8 @@ package execution
 import (
 	"fmt"
 	"os"
+
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // ConflictType describes the kind of conflict at a target path.
@@ -26,7 +28,7 @@ const (
 
 // Conflict represents a pre-flight detected conflict.
 type Conflict struct {
-	Node         *Node
+	Node         *projection.Node
 	Type         ConflictType
 	ExistingPath string // For symlinks, where it points
 	Message      string
@@ -35,8 +37,8 @@ type Conflict struct {
 // PreflightResult contains the results of pre-flight conflict detection.
 type PreflightResult struct {
 	Conflicts   []Conflict
-	AlreadyDone []Conflict // Symlinks that already point correctly
-	Ready       []*Node    // Nodes ready to deploy (no conflict)
+	AlreadyDone []Conflict               // Symlinks that already point correctly
+	Ready       []*projection.Node // Nodes ready to deploy (no conflict)
 }
 
 // HasConflicts returns true if any conflicts were detected.
@@ -46,7 +48,7 @@ func (p *PreflightResult) HasConflicts() bool {
 
 // Preflight performs pre-flight conflict detection without modifying anything.
 // Only applies to nodes with file actions (link, copy).
-func Preflight(graph *Graph) *PreflightResult {
+func Preflight(graph *projection.Graph) *PreflightResult {
 	result := &PreflightResult{}
 
 	for _, node := range graph.Nodes {
@@ -72,7 +74,7 @@ func Preflight(graph *Graph) *PreflightResult {
 
 // nodeWritesToTarget returns true if the node's action produces a file at
 // node's "path" slot (link or copy).
-func nodeWritesToTarget(node *Node) bool {
+func nodeWritesToTarget(node *projection.Node) bool {
 	path, _ := node.GetSlot("path").(string)
 	if path == "" {
 		return false
@@ -81,7 +83,7 @@ func nodeWritesToTarget(node *Node) bool {
 }
 
 // detectConflict checks if a target path has a conflict.
-func detectConflict(node *Node) Conflict {
+func detectConflict(node *projection.Node) Conflict {
 	path, _ := node.GetSlot("path").(string)
 	if path == "" {
 		return Conflict{Node: node, Type: ConflictNone}
