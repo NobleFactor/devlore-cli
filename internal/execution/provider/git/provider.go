@@ -25,7 +25,7 @@ type Provider struct {
 // Clone clones a repository from url into path.
 // Returns compensation state with the cloned path.
 //
-// Slots:
+// Parameters:
 //   - url: Git repository URL to clone
 //   - path: Local directory path for the clone
 func (p *Provider) Clone(url, path string, output io.Writer) (string, map[string]any, error) {
@@ -50,7 +50,7 @@ func (p *Provider) CompensateClone(state any) error {
 
 // Checkout checks out a ref in the given repository directory.
 //
-// Slots:
+// Parameters:
 //   - repo: Local path to the git repository
 //   - ref: Branch, tag, or commit to check out
 func (p *Provider) Checkout(repo, ref string, output io.Writer) (string, error) {
@@ -62,7 +62,7 @@ func (p *Provider) Checkout(repo, ref string, output io.Writer) (string, error) 
 
 // Pull pulls the latest changes in the given repository directory.
 //
-// Slots:
+// Parameters:
 //   - repo: Local path to the git repository
 func (p *Provider) Pull(repo string, output io.Writer) (string, error) {
 	cmd := exec.Command("git", "-C", repo, "pull")

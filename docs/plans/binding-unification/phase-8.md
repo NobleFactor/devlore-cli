@@ -67,6 +67,7 @@ During implementation, scope expanded to address several interrelated issues:
 | 24 | Wire UI as realtime receiver in lore (`receiver_ui_gen.go` generated, `builder.go` wires `ui` namespace into globals). Writ uses `cli.Note` directly, which already delegates to `ui.Provider`. | Done |
 | 25 | Doc comments in templates (`{{.Doc}}` in all 3 templates) + `--format` flag in `extract.star` | Done |
 | 26 | Refactor filesystem bypass callers to use `file.Provider` (`adoptFile`, `linkToLayer`, `moveToLayer`, `Execute`) | Done |
+| 27 | Verification: `make build`, `make test`, inspect regenerated files for doc comments and populated slot_docs | Done |
 
 ## Remaining
 
@@ -81,12 +82,11 @@ Replaced direct `os.*` calls with `file.Provider.*` calls in four functions:
 
 Not changed (by design): `secrets/crypto.go` (crypto output), `WriteMigratedMarker` (CLI artifact).
 
-### Part 27: Verification
+### ~~Part 27: Verification~~ — Done
 
-1. `make build`
-2. `make test`
-3. Inspect regenerated files for doc comments
-4. Inspect reference.yaml for populated doc fields
+Build and tests pass. Regenerated files have doc comments. `reference.yaml`
+has populated `slot_docs` for all plan entries except flow actions (`choose`,
+`gather`).
 
 ### Part 28: Parameter documentation → slot_docs in reference.yaml ✅
 

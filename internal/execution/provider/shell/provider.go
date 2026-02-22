@@ -16,7 +16,7 @@ type Provider struct{}
 
 // Exec executes a POSIX shell command.
 //
-// Slots:
+// Parameters:
 //   - command: Shell command string to execute via sh -c
 func (p *Provider) Exec(command string, output io.Writer) (string, error) {
 	if command == "" {
@@ -30,7 +30,7 @@ func (p *Provider) Exec(command string, output io.Writer) (string, error) {
 
 // PowerShell executes a PowerShell command (Windows).
 //
-// Slots:
+// Parameters:
 //   - command: PowerShell command string to execute
 func (p *Provider) PowerShell(command string, output io.Writer) (string, error) {
 	cmd := exec.Command("powershell", "-Command", command)
