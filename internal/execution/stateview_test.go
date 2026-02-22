@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,7 +27,7 @@ func TestPackageEntryLastAction(t *testing.T) {
 		e := &PackageEntry{
 			Name: "docker",
 			History: []HistoryRecord{
-				{Receipt: "a.yaml", Status: StatusCompleted},
+				{Receipt: "a.yaml", Status: projection.StatusCompleted},
 			},
 		}
 		last := e.LastAction()
@@ -41,9 +43,9 @@ func TestPackageEntryLastAction(t *testing.T) {
 		e := &PackageEntry{
 			Name: "docker",
 			History: []HistoryRecord{
-				{Receipt: "a.yaml", Status: StatusCompleted},
-				{Receipt: "b.yaml", Status: StatusCompleted},
-				{Receipt: "c.yaml", Status: StatusFailed},
+				{Receipt: "a.yaml", Status: projection.StatusCompleted},
+				{Receipt: "b.yaml", Status: projection.StatusCompleted},
+				{Receipt: "c.yaml", Status: projection.StatusFailed},
 			},
 		}
 		last := e.LastAction()
@@ -335,32 +337,32 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 	earlier := now.Add(-time.Hour)
 
 	// Helper to create nodes with source slot
-	makeNode := func(id string, op string, source, project, layer string) *Node {
-		n := &Node{
+	makeNode := func(id string, op string, source, project, layer string) *projection.Node {
+		n := &projection.Node{
 			ID:      id,
-			Action:  &stubAction{name: op},
+			Action:  projection.StubAction(op),
 			Project: project,
 			Layer:   layer,
-			Status:  StatusCompleted,
+			Status:  projection.StatusCompleted,
 		}
 		n.SetSlotImmediate("source", source)
 		return n
 	}
 
-	graphs := []*Graph{
+	graphs := []*projection.Graph{
 		{
 			Tool:      "writ",
 			Timestamp: earlier,
-			Context:   GraphContext{TargetRoot: "/home/user"},
-			Nodes: []*Node{
+			Context:   projection.GraphContext{TargetRoot: "/home/user"},
+			Nodes: []*projection.Node{
 				makeNode(".bashrc", "file.link", "/repo/.bashrc", "shell", "base"),
 			},
 		},
 		{
 			Tool:      "writ",
 			Timestamp: now,
-			Context:   GraphContext{TargetRoot: "/home/user"},
-			Nodes: []*Node{
+			Context:   projection.GraphContext{TargetRoot: "/home/user"},
+			Nodes: []*projection.Node{
 				makeNode(".bashrc", "file.copy", "/repo/.bashrc", "shell", "personal"),
 				makeNode(".gitconfig", "file.link", "/repo/.gitconfig", "git", ""),
 			},
@@ -410,42 +412,42 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 func TestStateViewBuilderPackageNodes(t *testing.T) {
 	now := time.Now()
 
-	graphs := []*Graph{
+	graphs := []*projection.Graph{
 		{
 			Tool:      "lore",
 			Timestamp: now.Add(-2 * time.Hour),
-			Nodes: []*Node{
+			Nodes: []*projection.Node{
 				{
 					ID:     "docker",
-					Action: &stubAction{name: "pkg.install"},
-					Status: StatusCompleted,
+					Action: projection.StubAction("pkg.install"),
+					Status: projection.StatusCompleted,
 				},
 			},
 		},
 		{
 			Tool:      "lore",
 			Timestamp: now.Add(-time.Hour),
-			Nodes: []*Node{
+			Nodes: []*projection.Node{
 				{
 					ID:     "docker",
-					Action: &stubAction{name: "pkg.verify"},
-					Status: StatusCompleted,
+					Action: projection.StubAction("pkg.verify"),
+					Status: projection.StatusCompleted,
 				},
 				{
 					ID:     "golang",
-					Action: &stubAction{name: "pkg.install"},
-					Status: StatusCompleted,
+					Action: projection.StubAction("pkg.install"),
+					Status: projection.StatusCompleted,
 				},
 			},
 		},
 		{
 			Tool:      "lore",
 			Timestamp: now,
-			Nodes: []*Node{
+			Nodes: []*projection.Node{
 				{
 					ID:     "docker",
-					Action: &stubAction{name: "pkg.upgrade"},
-					Status: StatusCompleted,
+					Action: projection.StubAction("pkg.upgrade"),
+					Status: projection.StatusCompleted,
 				},
 			},
 		},
@@ -492,11 +494,11 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 func TestStateViewBuilderTimeFilter(t *testing.T) {
 	now := time.Now()
 
-	graphs := []*Graph{
-		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*Node{{ID: "a", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: "b", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "c", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: "d", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
+	graphs := []*projection.Graph{
+		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*projection.Node{{ID: "a", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*projection.Node{{ID: "b", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*projection.Node{{ID: "c", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
+		{Tool: "writ", Timestamp: now, Nodes: []*projection.Node{{ID: "d", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
 	}
 
 	// Filter to middle two
@@ -521,10 +523,10 @@ func TestStateViewBuilderTimeFilter(t *testing.T) {
 func TestStateViewBuilderToolFilter(t *testing.T) {
 	now := time.Now()
 
-	graphs := []*Graph{
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*Node{{ID: ".bashrc", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
-		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*Node{{ID: "docker", Action: &stubAction{name: "pkg.install"}, Status: StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*Node{{ID: ".zshrc", Action: &stubAction{name: "file.link"}, Status: StatusCompleted}}},
+	graphs := []*projection.Graph{
+		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*projection.Node{{ID: ".bashrc", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
+		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*projection.Node{{ID: "docker", Action: projection.StubAction("pkg.install"), Status: projection.StatusCompleted}}},
+		{Tool: "writ", Timestamp: now, Nodes: []*projection.Node{{ID: ".zshrc", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
 	}
 
 	t.Run("writ only", func(t *testing.T) {
@@ -562,14 +564,14 @@ func TestStateViewBuilderToolFilter(t *testing.T) {
 func TestStateViewBuilderSkipsSkipped(t *testing.T) {
 	now := time.Now()
 
-	graphs := []*Graph{
+	graphs := []*projection.Graph{
 		{
 			Tool:      "writ",
 			Timestamp: now,
-			Nodes: []*Node{
-				{ID: "a", Action: &stubAction{name: "file.link"}, Status: StatusCompleted},
-				{ID: "b", Action: &stubAction{name: "file.link"}, Status: StatusSkipped},
-				{ID: "c", Action: &stubAction{name: "file.link"}, Status: StatusFailed},
+			Nodes: []*projection.Node{
+				{ID: "a", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted},
+				{ID: "b", Action: projection.StubAction("file.link"), Status: projection.StatusSkipped},
+				{ID: "c", Action: projection.StubAction("file.link"), Status: projection.StatusFailed},
 			},
 		},
 	}
@@ -601,31 +603,31 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 	// Create test receipt files
 	receipts := []struct {
 		name  string
-		graph *Graph
+		graph *projection.Graph
 	}{
 		{
 			name: "writ-2025-01-01T10-00-00.yaml",
-			graph: &Graph{
+			graph: &projection.Graph{
 				Version:   "1",
 				Tool:      "writ",
 				Timestamp: now.Add(-time.Hour),
-				State:     StateExecuted,
-				Context:   GraphContext{TargetRoot: "/home/user"},
-				Nodes: []*Node{
-					{ID: ".bashrc", Action: &stubAction{name: "file.link"}, Status: StatusCompleted},
+				State:     projection.StateExecuted,
+				Context:   projection.GraphContext{TargetRoot: "/home/user"},
+				Nodes: []*projection.Node{
+					{ID: ".bashrc", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted},
 				},
 			},
 		},
 		{
 			name: "writ-2025-01-01T11-00-00.yaml",
-			graph: &Graph{
+			graph: &projection.Graph{
 				Version:   "1",
 				Tool:      "writ",
 				Timestamp: now,
-				State:     StateExecuted,
-				Context:   GraphContext{TargetRoot: "/home/user"},
-				Nodes: []*Node{
-					{ID: ".gitconfig", Action: &stubAction{name: "file.link"}, Status: StatusCompleted},
+				State:     projection.StateExecuted,
+				Context:   projection.GraphContext{TargetRoot: "/home/user"},
+				Nodes: []*projection.Node{
+					{ID: ".gitconfig", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted},
 				},
 			},
 		},
@@ -700,7 +702,7 @@ func TestIsPackageNode(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		node := &Node{Action: &stubAction{name: tt.operation}}
+		node := &projection.Node{Action: projection.StubAction(tt.operation)}
 		got := builder.isPackageNode(node)
 		if got != tt.want {
 			t.Errorf("isPackageNode(%q) = %v, want %v", tt.operation, got, tt.want)

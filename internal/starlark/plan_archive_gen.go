@@ -9,25 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 func init() {
-	registerPlan("archive", func(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("archive", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewArchivePlan(graph, h, project, reg)
 	})
 }
 
 type ArchivePlan struct {
-	Receiver
-	graph   *execution.Graph
+	projection.Receiver
+	graph   *projection.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewArchivePlan(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ArchivePlan {
+func NewArchivePlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ArchivePlan {
 	return &ArchivePlan{
-		Receiver: NewReceiver("plan.archive"),
+		Receiver: projection.NewReceiver("plan.archive"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -38,9 +39,9 @@ func NewArchivePlan(graph *execution.Graph, h host.Host, project string, reg *ex
 func (p *ArchivePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "extract":
-		return MakeAttr("plan.archive.extract", p.extract), nil
+		return projection.MakeAttr("plan.archive.extract", p.extract), nil
 	default:
-		return nil, NoSuchAttrError("plan.archive", name)
+		return nil, projection.NoSuchAttrError("plan.archive", name)
 	}
 }
 
@@ -61,8 +62,8 @@ func (p *ArchivePlan) extract(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:      generateNodeID("archive-extract"),
+	node := &projection.Node{
+		ID:      projection.GenerateNodeID("archive-extract"),
 		Action:  p.reg.MustGet("archive.extract"),
 		Project: p.project,
 	}
@@ -74,5 +75,5 @@ func (p *ArchivePlan) extract(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
+	return projection.NewOutput(node, p.graph, ""), nil
 }

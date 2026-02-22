@@ -6,10 +6,12 @@ package execution
 import (
 	"reflect"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 func TestDependencyViewEmpty(t *testing.T) {
-	g := &Graph{}
+	g := &projection.Graph{}
 	v := NewDependencyView(g)
 
 	if v.NodeCount() != 0 {
@@ -27,8 +29,8 @@ func TestDependencyViewEmpty(t *testing.T) {
 }
 
 func TestDependencyViewSingleNode(t *testing.T) {
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}},
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}},
 	}
 	v := NewDependencyView(g)
 
@@ -49,9 +51,9 @@ func TestDependencyViewSingleNode(t *testing.T) {
 
 func TestDependencyViewLinearChain(t *testing.T) {
 	// a -> b -> c
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "b", To: "c"},
 		},
@@ -102,9 +104,9 @@ func TestDependencyViewDiamond(t *testing.T) {
 	//   b   c
 	//    \ /
 	//     d
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "a", To: "c"},
 			{From: "b", To: "d"},
@@ -136,9 +138,9 @@ func TestDependencyViewDiamond(t *testing.T) {
 func TestDependencyViewTopologicalOrder(t *testing.T) {
 	// a -> b -> d
 	// a -> c -> d
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "a", To: "c"},
 			{From: "b", To: "d"},
@@ -170,9 +172,9 @@ func TestDependencyViewTopologicalOrder(t *testing.T) {
 
 func TestDependencyViewCycleDetection(t *testing.T) {
 	// a -> b -> c -> a (cycle)
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "b", To: "c"},
 			{From: "c", To: "a"},
@@ -194,9 +196,9 @@ func TestDependencyViewParallelLevels(t *testing.T) {
 	// b   c   f
 	//  \ /
 	//   d
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}, {ID: "f"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}, {ID: "f"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "a", To: "c"},
 			{From: "b", To: "d"},
@@ -230,9 +232,9 @@ func TestDependencyViewParallelLevels(t *testing.T) {
 func TestDependencyViewCriticalPath(t *testing.T) {
 	// a -> b -> c -> d (critical path = 4)
 	// a -> e -> d (shorter path = 3)
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "b", To: "c"},
 			{From: "c", To: "d"},
@@ -253,9 +255,9 @@ func TestDependencyViewIndependentSets(t *testing.T) {
 	// Component 1: a -> b
 	// Component 2: c -> d
 	// Component 3: e (standalone)
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "c", To: "d"},
 		},
@@ -290,9 +292,9 @@ func TestDependencyViewPathBetween(t *testing.T) {
 	//      |
 	//      v
 	//      e
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "b", To: "c"},
 			{From: "c", To: "d"},
@@ -328,9 +330,9 @@ func TestDependencyViewPathBetween(t *testing.T) {
 
 func TestDependencyViewSubgraph(t *testing.T) {
 	// Original: a -> b -> c -> d
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}},
-		Edges: []Edge{
+	g := &projection.Graph{
+		Nodes: []*projection.Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}},
+		Edges: []projection.Edge{
 			{From: "a", To: "b"},
 			{From: "b", To: "c"},
 			{From: "c", To: "d"},
@@ -359,10 +361,10 @@ func TestDependencyViewSubgraph(t *testing.T) {
 }
 
 func TestDependencyViewNode(t *testing.T) {
-	g := &Graph{
-		Nodes: []*Node{
-			{ID: "a", Action: &stubAction{name: "file.link"}},
-			{ID: "b", Action: &stubAction{name: "file.copy"}},
+	g := &projection.Graph{
+		Nodes: []*projection.Node{
+			{ID: "a", Action: projection.StubAction("file.link")},
+			{ID: "b", Action: projection.StubAction("file.copy")},
 		},
 	}
 	v := NewDependencyView(g)

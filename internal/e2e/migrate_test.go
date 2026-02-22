@@ -13,10 +13,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // MigrateExpected represents the expected output for a migration test.
@@ -211,7 +211,7 @@ func runMigrateTestWithProvider(t *testing.T, fixture MigrateFixture, provider m
 }
 
 // evaluateMigrateCorrectness computes correctness metrics for migration.
-func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *execution.Graph, expected MigrateExpected) CorrectnessMetrics {
+func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *projection.Graph, expected MigrateExpected) CorrectnessMetrics {
 	metrics := CorrectnessMetrics{}
 
 	// Check system detection

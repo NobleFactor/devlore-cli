@@ -6,16 +6,17 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/ui"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 type UiReceiver struct {
-	Receiver
+	projection.Receiver
 	provider *ui.Provider
 }
 
 func NewUiReceiver(provider *ui.Provider) *UiReceiver {
 	return &UiReceiver{
-		Receiver: NewReceiver("ui"),
+		Receiver: projection.NewReceiver("ui"),
 		provider: provider,
 	}
 }
@@ -23,17 +24,17 @@ func NewUiReceiver(provider *ui.Provider) *UiReceiver {
 func (r *UiReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "note":
-		return MakeAttr("note", r.note), nil
+		return projection.MakeAttr("note", r.note), nil
 	case "warn":
-		return MakeAttr("warn", r.warn), nil
+		return projection.MakeAttr("warn", r.warn), nil
 	case "error":
-		return MakeAttr("error", r.error), nil
+		return projection.MakeAttr("error", r.error), nil
 	case "success":
-		return MakeAttr("success", r.success), nil
+		return projection.MakeAttr("success", r.success), nil
 	case "fail":
-		return MakeAttr("fail", r.fail), nil
+		return projection.MakeAttr("fail", r.fail), nil
 	default:
-		return nil, NoSuchAttrError("ui", name)
+		return nil, projection.NoSuchAttrError("ui", name)
 	}
 }
 

@@ -73,7 +73,11 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		nodeSlots := node.ResolvedSlots(results)
 		execution.FillSlotsFromData(nodeSlots, ctx.Data)
 
-		result, undoState, doErr := node.Action.Do(ctx, nodeSlots)
+		action, ok := node.Action.(execution.Action)
+		if !ok {
+			continue
+		}
+		result, undoState, doErr := action.Do(ctx, nodeSlots)
 		if doErr != nil {
 			stack.Unwind(ctx)
 			return nil, nil, fmt.Errorf("choose: phase %s node %s: %w", selectedPhaseID, node.ID, doErr)

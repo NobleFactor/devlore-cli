@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // testUndoAction implements CompensableAction with controllable Undo behavior.
@@ -33,8 +35,8 @@ func TestRecoveryStackPushLen(t *testing.T) {
 		t.Errorf("expected empty stack, got len %d", s.Len())
 	}
 
-	s.Push(RecoveryEntry{Node: &Node{ID: "prepare", Action: &stubAction{name: "test"}}})
-	s.Push(RecoveryEntry{Node: &Node{ID: "install", Action: &stubAction{name: "test"}}})
+	s.Push(RecoveryEntry{Node: &projection.Node{ID: "prepare", Action: projection.StubAction("test")}})
+	s.Push(RecoveryEntry{Node: &projection.Node{ID: "install", Action: projection.StubAction("test")}})
 
 	if s.Len() != 2 {
 		t.Errorf("expected len 2, got %d", s.Len())
@@ -46,7 +48,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	var order []string
 
 	s.Push(RecoveryEntry{
-		Node: &Node{ID: "prepare", Action: &testUndoAction{
+		Node: &projection.Node{ID: "prepare", Action: &testUndoAction{
 			name: "prepare",
 			undoFn: func(_ UndoState) error {
 				order = append(order, "prepare")
@@ -55,7 +57,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 		}},
 	})
 	s.Push(RecoveryEntry{
-		Node: &Node{ID: "install", Action: &testUndoAction{
+		Node: &projection.Node{ID: "install", Action: &testUndoAction{
 			name: "install",
 			undoFn: func(_ UndoState) error {
 				order = append(order, "install")
@@ -64,7 +66,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 		}},
 	})
 	s.Push(RecoveryEntry{
-		Node: &Node{ID: "provision", Action: &testUndoAction{
+		Node: &projection.Node{ID: "provision", Action: &testUndoAction{
 			name: "provision",
 			undoFn: func(_ UndoState) error {
 				order = append(order, "provision")
@@ -101,12 +103,12 @@ func TestRecoveryStackUnwindCompensateError(t *testing.T) {
 	s := &RecoveryStack{}
 
 	s.Push(RecoveryEntry{
-		Node: &Node{ID: "prepare", Action: &testUndoAction{
+		Node: &projection.Node{ID: "prepare", Action: &testUndoAction{
 			name: "prepare",
 		}},
 	})
 	s.Push(RecoveryEntry{
-		Node: &Node{ID: "install", Action: &testUndoAction{
+		Node: &projection.Node{ID: "install", Action: &testUndoAction{
 			name: "install",
 			undoFn: func(_ UndoState) error {
 				return fmt.Errorf("compensate install failed")
@@ -114,7 +116,7 @@ func TestRecoveryStackUnwindCompensateError(t *testing.T) {
 		}},
 	})
 	s.Push(RecoveryEntry{
-		Node: &Node{ID: "provision", Action: &testUndoAction{
+		Node: &projection.Node{ID: "provision", Action: &testUndoAction{
 			name: "provision",
 		}},
 	})
@@ -135,7 +137,7 @@ func TestRecoveryStackUnwindNilCompensate(t *testing.T) {
 	s := &RecoveryStack{}
 
 	s.Push(RecoveryEntry{
-		Node: &Node{ID: "prepare", Action: nil}, // No action — should be skipped
+		Node: &projection.Node{ID: "prepare", Action: nil}, // No action — should be skipped
 	})
 
 	ctx := &Context{Context: context.Background()}
@@ -160,8 +162,8 @@ func TestRecoveryStackUnwindEmpty(t *testing.T) {
 func TestRecoveryStackEntries(t *testing.T) {
 	s := &RecoveryStack{}
 
-	s.Push(RecoveryEntry{Node: &Node{ID: "a", Action: &stubAction{name: "first"}}})
-	s.Push(RecoveryEntry{Node: &Node{ID: "b", Action: &stubAction{name: "second"}}})
+	s.Push(RecoveryEntry{Node: &projection.Node{ID: "a", Action: projection.StubAction("first")}})
+	s.Push(RecoveryEntry{Node: &projection.Node{ID: "b", Action: projection.StubAction("second")}})
 
 	entries := s.Entries()
 	if len(entries) != 2 {

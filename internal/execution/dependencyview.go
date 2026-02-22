@@ -5,15 +5,17 @@ package execution
 
 import (
 	"sort"
+
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // DependencyView provides dependency analysis for a single execution graph.
 // It indexes the graph's edges to enable efficient dependency queries.
 type DependencyView struct {
-	graph *Graph
+	graph *projection.Graph
 
 	// Indexed lookups
-	nodeByID   map[string]*Node
+	nodeByID   map[string]*projection.Node
 	dependsOn  map[string][]string // nodeID -> nodes it depends on (incoming edges)
 	dependents map[string][]string // nodeID -> nodes that depend on it (outgoing edges)
 
@@ -23,10 +25,10 @@ type DependencyView struct {
 }
 
 // NewDependencyView creates a DependencyView for the given graph.
-func NewDependencyView(g *Graph) *DependencyView {
+func NewDependencyView(g *projection.Graph) *DependencyView {
 	v := &DependencyView{
 		graph:      g,
-		nodeByID:   make(map[string]*Node),
+		nodeByID:   make(map[string]*projection.Node),
 		dependsOn:  make(map[string][]string),
 		dependents: make(map[string][]string),
 	}
@@ -65,12 +67,12 @@ func NewDependencyView(g *Graph) *DependencyView {
 }
 
 // Graph returns the underlying graph.
-func (v *DependencyView) Graph() *Graph {
+func (v *DependencyView) Graph() *projection.Graph {
 	return v.graph
 }
 
 // Node returns the node with the given ID, or nil if not found.
-func (v *DependencyView) Node(id string) *Node {
+func (v *DependencyView) Node(id string) *projection.Node {
 	return v.nodeByID[id]
 }
 
@@ -417,7 +419,7 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 	}
 
 	// Build subgraph
-	subgraph := &Graph{
+	subgraph := &projection.Graph{
 		Version:   v.graph.Version,
 		Tool:      v.graph.Tool,
 		Timestamp: v.graph.Timestamp,

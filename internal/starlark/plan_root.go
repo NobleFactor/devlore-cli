@@ -11,13 +11,14 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // PlanRoot implements the top-level plan namespace using the slot-based model.
 // Sub-namespaces are dynamically populated from the plan registry (each
 // plan_*_gen.go registers via init()).
 type PlanRoot struct {
-	graph   *execution.Graph
+	graph   *projection.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
@@ -28,7 +29,7 @@ type PlanRoot struct {
 
 // NewPlanRoot creates a new PlanRoot for the given graph and host.
 // Sub-namespaces are built dynamically from the plan registry.
-func NewPlanRoot(graph *execution.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PlanRoot {
+func NewPlanRoot(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PlanRoot {
 	plans := make(map[string]starlark.Value, len(planRegistry))
 	for name, factory := range planRegistry {
 		plans[name] = factory(graph, h, project, reg)
@@ -103,7 +104,7 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 
 	// The "when" must be an Output — the promise of a boolean from a predicate node.
-	predOutput, ok := when.(*Output)
+	predOutput, ok := when.(*projection.Output)
 	if !ok {
 		return nil, fmt.Errorf("choose: when must be a predicate output (e.g., plan.file.exists(...)), got %s", when.Type())
 	}
@@ -118,11 +119,11 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 
 	// Collect nodes added by the callback into a branch phase.
-	branchPhaseID := generateNodeID("choose-branch")
-	branchPhase := &execution.Phase{
+	branchPhaseID := projection.GenerateNodeID("choose-branch")
+	branchPhase := &projection.Phase{
 		ID:     branchPhaseID,
 		Name:   "choose-branch",
-		Status: execution.PhasePending,
+		Status: projection.PhasePending,
 	}
 	for i := nodesBefore; i < len(p.graph.Nodes); i++ {
 		branchPhase.NodeIDs = append(branchPhase.NodeIDs, p.graph.Nodes[i].ID)
@@ -131,20 +132,20 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 
 	// Create the choose node. The "when" slot is a promise that resolves
 	// to the predicate node's boolean result at execution time.
-	chooseNode := &execution.Node{
-		ID:      generateNodeID("choose"),
+	chooseNode := &projection.Node{
+		ID:      projection.GenerateNodeID("choose"),
 		Action:  p.reg.MustGet("flow.choose"),
 		Project: p.project,
 	}
 
 	// Wire predicate output → choose "when" slot via FillSlot (creates edge).
-	if err := FillSlot(chooseNode, p.graph, "when", predOutput); err != nil {
+	if err := projection.FillSlot(chooseNode, p.graph, "when", predOutput); err != nil {
 		return nil, fmt.Errorf("choose: when: %w", err)
 	}
 	chooseNode.SetSlotImmediate("then", branchPhaseID)
 
 	p.graph.Nodes = append(p.graph.Nodes, chooseNode)
-	return NewOutput(chooseNode, p.graph, ""), nil
+	return projection.NewOutput(chooseNode, p.graph, ""), nil
 }
 
 // source creates a source file artifact.
@@ -160,18 +161,18 @@ func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &execution.Node{
-		ID:      generateNodeID("source"),
+	node := &projection.Node{
+		ID:      projection.GenerateNodeID("source"),
 		Action:  p.reg.MustGet("file.source"),
 		Project: p.project,
 	}
 
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := projection.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("source: path: %w", err)
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewOutput(node, p.graph, ""), nil
+	return projection.NewOutput(node, p.graph, ""), nil
 }
 
 // gather creates a handle for parallel execution of multiple nodes.
@@ -190,14 +191,14 @@ func (p *PlanRoot) gather(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
 	}
 
-	outputs := make([]*Output, 0, len(args))
+	outputs := make([]*projection.Output, 0, len(args))
 	for i, arg := range args {
-		output, ok := arg.(*Output)
+		output, ok := arg.(*projection.Output)
 		if !ok {
 			return nil, fmt.Errorf("gather: argument %d must be an Output, got %s", i+1, arg.Type())
 		}
 		outputs = append(outputs, output)
 	}
 
-	return NewGather(p.graph, outputs...), nil
+	return projection.NewGather(p.graph, outputs...), nil
 }

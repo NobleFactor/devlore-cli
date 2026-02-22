@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,7 +39,7 @@ type HistoryRecord struct {
 	Action string `json:"action" yaml:"action"`
 
 	// Status of this action: completed, skipped, failed.
-	Status NodeStatus `json:"status" yaml:"status"`
+	Status projection.NodeStatus `json:"status" yaml:"status"`
 }
 
 // PackageEntry represents a lore package's lifecycle history.
@@ -285,9 +286,9 @@ func (b *StateViewBuilder) Build(receiptsDir string) (*StateView, error) {
 }
 
 // BuildFrom creates a StateView from the given graphs.
-func (b *StateViewBuilder) BuildFrom(graphs []*Graph) *StateView {
+func (b *StateViewBuilder) BuildFrom(graphs []*projection.Graph) *StateView {
 	// Filter graphs according to options
-	var filtered []*Graph
+	var filtered []*projection.Graph
 	for _, g := range graphs {
 		if b.includeGraph(g) {
 			filtered = append(filtered, g)
@@ -328,7 +329,7 @@ func (b *StateViewBuilder) BuildFrom(graphs []*Graph) *StateView {
 }
 
 // loadReceipts loads all receipt files from the directory.
-func (b *StateViewBuilder) loadReceipts(dir string) ([]*Graph, error) {
+func (b *StateViewBuilder) loadReceipts(dir string) ([]*projection.Graph, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -337,7 +338,7 @@ func (b *StateViewBuilder) loadReceipts(dir string) ([]*Graph, error) {
 		return nil, err
 	}
 
-	var graphs []*Graph
+	var graphs []*projection.Graph
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -368,13 +369,13 @@ func (b *StateViewBuilder) loadReceipts(dir string) ([]*Graph, error) {
 }
 
 // loadReceipt loads a single receipt file.
-func (b *StateViewBuilder) loadReceipt(path string) (*Graph, error) {
+func (b *StateViewBuilder) loadReceipt(path string) (*projection.Graph, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var g Graph
+	var g projection.Graph
 	if err := yaml.Unmarshal(data, &g); err != nil {
 		return nil, err
 	}
@@ -383,7 +384,7 @@ func (b *StateViewBuilder) loadReceipt(path string) (*Graph, error) {
 }
 
 // includeGraph checks if a graph should be included based on options.
-func (b *StateViewBuilder) includeGraph(g *Graph) bool {
+func (b *StateViewBuilder) includeGraph(g *projection.Graph) bool {
 	// Filter by time
 	if !b.opts.Since.IsZero() && g.Timestamp.Before(b.opts.Since) {
 		return false
@@ -410,7 +411,7 @@ func (b *StateViewBuilder) includeGraph(g *Graph) bool {
 }
 
 // isTransformOnlyNode returns true if the node is an intermediate transform.
-func isTransformOnlyNode(node *Node) bool {
+func isTransformOnlyNode(node *projection.Node) bool {
 	switch node.ActionName() {
 	case "template.render", "encryption.decrypt":
 		return true
@@ -419,12 +420,12 @@ func isTransformOnlyNode(node *Node) bool {
 }
 
 // processGraph adds nodes from a graph to the view.
-func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
+func (b *StateViewBuilder) processGraph(view *StateView, g *projection.Graph) {
 	receiptName := g.Filename()
 
 	for _, node := range g.Nodes {
 		// Skip skipped nodes and intermediate transform nodes
-		if node.Status == StatusSkipped || isTransformOnlyNode(node) {
+		if node.Status == projection.StatusSkipped || isTransformOnlyNode(node) {
 			continue
 		}
 
@@ -446,7 +447,7 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *Graph) {
 }
 
 // isPackageNode determines if a node represents a package lifecycle action.
-func (b *StateViewBuilder) isPackageNode(node *Node) bool {
+func (b *StateViewBuilder) isPackageNode(node *projection.Node) bool {
 	switch node.ActionName() {
 	case "pkg.prepare", "pkg.install", "pkg.verify", "pkg.upgrade", "pkg.uninstall", "pkg.cleanup",
 		"pkg.remove":
@@ -456,7 +457,7 @@ func (b *StateViewBuilder) isPackageNode(node *Node) bool {
 }
 
 // addPackageRecord adds a package lifecycle record to the view.
-func (b *StateViewBuilder) addPackageRecord(view *StateView, node *Node, record HistoryRecord) {
+func (b *StateViewBuilder) addPackageRecord(view *StateView, node *projection.Node, record HistoryRecord) {
 	name := node.ID // Package name is the node ID
 
 	entry, ok := view.Packages[name]
@@ -472,7 +473,7 @@ func (b *StateViewBuilder) addPackageRecord(view *StateView, node *Node, record 
 }
 
 // addFileRecord adds a file deployment record to the view.
-func (b *StateViewBuilder) addFileRecord(view *StateView, node *Node, record HistoryRecord, g *Graph) {
+func (b *StateViewBuilder) addFileRecord(view *StateView, node *projection.Node, record HistoryRecord, g *projection.Graph) {
 	relTarget := node.ID // Relative target path is the node ID
 	source, _ := node.GetSlot("source").(string)
 

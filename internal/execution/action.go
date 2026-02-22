@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"io"
+
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // NotCompensableError signals that an action acknowledges rollback but cannot
@@ -62,7 +64,7 @@ type Context struct {
 
 	// Graph is the graph being executed. Flow actions use this to look up
 	// phases referenced by their slots (e.g., gather body, choose branch).
-	Graph *Graph
+	Graph *projection.Graph
 
 	// NodeID is the ID of the currently executing node. Flow actions use
 	// this to identify themselves (e.g., gather uses it for proxy context).

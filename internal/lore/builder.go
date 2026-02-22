@@ -17,12 +17,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // BuildResult contains the built execution graph and metadata for packages.
 type BuildResult struct {
 	// Graph is the execution graph ready for the execution.
-	Graph *execution.Graph
+	Graph *projection.Graph
 
 	// Packages lists the resolved package names.
 	Packages []string
@@ -76,7 +77,7 @@ type Planner struct {
 
 // PlanPackages parses a packages-manifest file and adds installation nodes
 // to the graph. Returns the resolved package names.
-func (p *Planner) PlanPackages(graph *execution.Graph, manifestPath string) ([]string, error) {
+func (p *Planner) PlanPackages(graph *projection.Graph, manifestPath string) ([]string, error) {
 	m, err := manifest.Load(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("parsing manifest: %w", err)
@@ -115,7 +116,7 @@ func (p *Planner) PlanPackages(graph *execution.Graph, manifestPath string) ([]s
 
 // PlanByName resolves explicit package names and adds installation nodes
 // to the graph. Returns the resolved package names.
-func (p *Planner) PlanByName(graph *execution.Graph, packages []string) ([]string, error) {
+func (p *Planner) PlanByName(graph *projection.Graph, packages []string) ([]string, error) {
 	plat, reg, regClient, err := p.resolve()
 	if err != nil {
 		return nil, err
@@ -196,7 +197,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		DryRun:         cfg.DryRun,
 	}
 
-	graph := &execution.Graph{}
+	graph := &projection.Graph{}
 
 	var packages []string
 	var err error
@@ -235,7 +236,7 @@ func BuildFromPackages(packages []string, plat string) (*BuildResult, error) {
 // buildPackageNodes adds execution nodes and phases for a package to the graph.
 // Each lifecycle phase becomes a Phase entry in the graph. Compensation is
 // handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
-func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig, reg *execution.ActionRegistry) error {
+func buildPackageNodes(graph *projection.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig, reg *execution.ActionRegistry) error {
 	action := lorepackage.Deploy
 	phases := lorepackage.PhaseOrder(action)
 
@@ -246,10 +247,10 @@ func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.
 		}
 
 		phaseID := fmt.Sprintf("phase.%s.%s", pkg.Name, phaseName)
-		phase := &execution.Phase{
+		phase := &projection.Phase{
 			ID:     phaseID,
 			Name:   phaseName,
-			Status: execution.PhasePending,
+			Status: projection.PhasePending,
 		}
 
 		// Snapshot current node count to track which nodes this phase adds.
@@ -288,7 +289,7 @@ func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.
 // executeScriptAction runs a Starlark phase script's entry point function
 // (named for the lifecycle phase, e.g., "install", "provision") and returns
 // the retry policy if one was configured via phase.retry().
-func executeScriptAction(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (*execution.RetryPolicy, error) {
+func executeScriptAction(graph *projection.Graph, pkg *lorepackage.Release, h host.Host, plat string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (*projection.RetryPolicy, error) {
 	thread, globals, pkgContext, _, err := prepareScriptEnv(graph, pkg, h, action, cfg, reg)
 	if err != nil {
 		return nil, err
@@ -337,7 +338,7 @@ func executeScriptAction(graph *execution.Graph, pkg *lorepackage.Release, h hos
 
 // prepareScriptEnv creates the Starlark thread and globals needed to execute
 // a phase script. plan and ui are injected as globals.
-func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (
+func prepareScriptEnv(graph *projection.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (
 	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, *loreStar.PlanRoot, error,
 ) {
 	planBindings := loreStar.NewPlanRoot(graph, h, pkg.Name, reg)
@@ -378,7 +379,7 @@ func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.H
 // addNativePMNodes adds nodes for a native package manager action.
 // Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that work on all platforms.
 // The actual package manager is determined at execution time by host.PackageManager().
-func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *execution.ActionRegistry) error {
+func addNativePMNodes(graph *projection.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *execution.ActionRegistry) error {
 	// Determine the dotted action name
 	var actionName string
 	switch action.Command {
@@ -393,7 +394,7 @@ func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *
 	}
 
 	// Create the node with resolved action
-	node := &execution.Node{
+	node := &projection.Node{
 		ID:      fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName),
 		Action:  reg.MustGet(actionName),
 		Project: pkg.Name,

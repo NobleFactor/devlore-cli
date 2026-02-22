@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // ResultStatus represents the execution status of a node.
@@ -115,8 +117,8 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 // When the graph has phases, execution is delegated to RunPhased which
 // implements the saga pattern with retry and rollback. Otherwise, nodes
 // are processed in topological order (flat execution).
-func (e *GraphExecutor) Run(ctx context.Context, g *Graph) error {
-	if g.State != StatePending {
+func (e *GraphExecutor) Run(ctx context.Context, g *projection.Graph) error {
+	if g.State != projection.StatePending {
 		return fmt.Errorf("graph already executed (state: %s)", g.State)
 	}
 
@@ -128,7 +130,7 @@ func (e *GraphExecutor) Run(ctx context.Context, g *Graph) error {
 }
 
 // runFlat executes all nodes in topological order without phase boundaries.
-func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
+func (e *GraphExecutor) runFlat(ctx context.Context, g *projection.Graph) error {
 	ordered := OrderNodes(g.Nodes, g.Edges)
 
 	execCtx := &Context{
@@ -148,21 +150,21 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 		nodeResults = append(nodeResults, result)
 
 		if result.Status == ResultFailed && e.options.ConflictResolution == ResolutionStop {
-			g.ApplyResults(nodeResults)
+			ApplyResults(g, nodeResults)
 			g.ComputeSummary()
-			g.State = StateFailed
+			g.State = projection.StateFailed
 			return result.Error
 		}
 	}
 
 	// Apply results and update state
-	g.ApplyResults(nodeResults)
+	ApplyResults(g, nodeResults)
 	g.ComputeSummary()
 
 	if g.Summary.Failed > 0 {
-		g.State = StateFailed
+		g.State = projection.StateFailed
 	} else {
-		g.State = StateExecuted
+		g.State = projection.StateExecuted
 	}
 
 	return nil
@@ -175,7 +177,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *Graph) error {
 //
 // Phases referenced as compensating actions (via Compensate fields) are
 // skipped during the forward pass — they execute only during rollback.
-func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
+func (e *GraphExecutor) RunPhased(ctx context.Context, g *projection.Graph) error {
 	execCtx := &Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
@@ -193,7 +195,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 	}
 
 	// Build the forward phase list (excludes compensating phases).
-	var forwardPhases []*Phase
+	var forwardPhases []*projection.Phase
 	for _, p := range g.Phases {
 		if !compensateIDs[p.ID] {
 			forwardPhases = append(forwardPhases, p)
@@ -217,7 +219,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 		err := e.executePhase(execCtx, g, phase, results, nodeStack)
 		if err != nil {
 			// Phase failed after retries — unwind
-			phase.Status = PhaseFailed
+			phase.Status = projection.PhaseFailed
 
 			// Mark remaining forward phases as skipped
 			started := false
@@ -226,8 +228,8 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 					started = true
 					continue
 				}
-				if started && p.Status == PhasePending {
-					p.Status = PhaseSkipped
+				if started && p.Status == projection.PhasePending {
+					p.Status = projection.PhaseSkipped
 				}
 			}
 
@@ -235,10 +237,10 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 			nodeStack.Unwind(execCtx)
 
 			// Execute compensating phases in LIFO order
-			var rollbackLog []RollbackEntry
+			var rollbackLog []projection.RollbackEntry
 			for i := len(phaseStack) - 1; i >= 0; i-- {
 				pr := phaseStack[i]
-				rollback := RollbackEntry{
+				rollback := projection.RollbackEntry{
 					Phase:      pr.phaseName,
 					Compensate: pr.compensateID,
 				}
@@ -268,7 +270,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 
 				for _, p := range g.Phases {
 					if p.ID == pr.phaseID {
-						p.Status = PhaseRolledBack
+						p.Status = projection.PhaseRolledBack
 						break
 					}
 				}
@@ -278,7 +280,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 
 			g.Rollback = rollbackLog
 			g.ComputeSummary()
-			g.State = StateFailed
+			g.State = projection.StateFailed
 			return fmt.Errorf("phase %s failed: %w", phase.Name, err)
 		}
 
@@ -294,12 +296,12 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *Graph) error {
 	}
 
 	g.ComputeSummary()
-	g.State = StateExecuted
+	g.State = projection.StateExecuted
 	return nil
 }
 
 // executePhase runs a single phase with retry logic.
-func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, results map[string]any, stack *RecoveryStack) error {
+func (e *GraphExecutor) executePhase(ctx *Context, g *projection.Graph, phase *projection.Phase, results map[string]any, stack *RecoveryStack) error {
 	maxAttempts := 1
 	if phase.Retry != nil {
 		maxAttempts += phase.Retry.MaxAttempts
@@ -326,7 +328,7 @@ func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, resul
 
 		err := e.ExecutePhaseInner(ctx, g, phase, results, stack)
 
-		attemptRecord := Attempt{
+		attemptRecord := projection.Attempt{
 			Number:    attempt + 1,
 			Timestamp: time.Now().Format(time.RFC3339),
 		}
@@ -334,7 +336,7 @@ func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, resul
 		if err == nil {
 			attemptRecord.Status = "completed"
 			phase.Attempts = append(phase.Attempts, attemptRecord)
-			phase.Status = PhaseCompleted
+			phase.Status = projection.PhaseCompleted
 			return nil
 		}
 
@@ -348,14 +350,14 @@ func (e *GraphExecutor) executePhase(ctx *Context, g *Graph, phase *Phase, resul
 }
 
 // resetPhaseNodes resets inner node statuses back to pending for retry.
-func (e *GraphExecutor) resetPhaseNodes(g *Graph, phase *Phase) {
+func (e *GraphExecutor) resetPhaseNodes(g *projection.Graph, phase *projection.Phase) {
 	nodeSet := make(map[string]bool, len(phase.NodeIDs))
 	for _, id := range phase.NodeIDs {
 		nodeSet[id] = true
 	}
 	for _, n := range g.Nodes {
 		if nodeSet[n.ID] {
-			n.Status = StatusPending
+			n.Status = projection.StatusPending
 			n.Error = ""
 			n.Timestamp = ""
 		}
@@ -363,7 +365,7 @@ func (e *GraphExecutor) resetPhaseNodes(g *Graph, phase *Phase) {
 }
 
 // ExecutePhaseInner runs the inner nodes of a phase.
-func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *Graph, phase *Phase, results map[string]any, stack *RecoveryStack) error {
+func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *projection.Graph, phase *projection.Phase, results map[string]any, stack *RecoveryStack) error {
 	phaseNodes, phaseEdges := g.CollectPhaseNodes(phase)
 	ordered := OrderNodes(phaseNodes, phaseEdges)
 
@@ -383,7 +385,7 @@ func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *Graph, phase *Phase, 
 
 // RunNodes executes a slice of nodes with the given edges.
 // This is a lower-level API for callers that don't have a full Graph.
-func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edge) ([]*NodeResult, error) {
+func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*projection.Node, edges []projection.Edge) ([]*NodeResult, error) {
 	ordered := OrderNodes(nodes, edges)
 
 	execCtx := &Context{
@@ -410,13 +412,23 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*Node, edges []Edg
 }
 
 // executeNode resolves slots, calls Do, stores the result, and pushes a recovery entry.
-func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string]any, stack *RecoveryStack) *NodeResult {
+func (e *GraphExecutor) executeNode(ctx *Context, node *projection.Node, results map[string]any, stack *RecoveryStack) *NodeResult {
 	if node.Action == nil {
-		node.Status = StatusFailed
+		node.Status = projection.StatusFailed
 		return &NodeResult{
 			NodeID: node.ID,
 			Status: ResultFailed,
 			Error:  fmt.Errorf("node %s has no action", node.ID),
+		}
+	}
+
+	action, ok := node.Action.(Action)
+	if !ok {
+		node.Status = projection.StatusFailed
+		return &NodeResult{
+			NodeID: node.ID,
+			Status: ResultFailed,
+			Error:  fmt.Errorf("node %s: action is not executable (type %T)", node.ID, node.Action),
 		}
 	}
 
@@ -432,10 +444,10 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string
 
 	e.hooks.FireNodeStart(ctx, node.ID, slots)
 
-	result, undoState, err := node.Action.Do(ctx, slots)
+	result, undoState, err := action.Do(ctx, slots)
 	if err != nil {
 		e.hooks.FireNodeComplete(ctx, node.ID, nil, err)
-		node.Status = StatusFailed
+		node.Status = projection.StatusFailed
 		return &NodeResult{
 			NodeID: node.ID,
 			Status: ResultFailed,
@@ -455,7 +467,7 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *Node, results map[string
 		stack.Push(RecoveryEntry{Node: node, UndoState: undoState})
 	}
 
-	node.Status = StatusCompleted
+	node.Status = projection.StatusCompleted
 
 	return &NodeResult{
 		NodeID: node.ID,
@@ -475,7 +487,7 @@ func FillSlotsFromData(slots map[string]any, data map[string]any) {
 
 // OrderNodes returns nodes in execution order.
 // Nodes with edges are topologically sorted; nodes without edges are sorted by path depth.
-func OrderNodes(nodes []*Node, edges []Edge) []*Node {
+func OrderNodes(nodes []*projection.Node, edges []projection.Edge) []*projection.Node {
 	if len(edges) > 0 {
 		return topologicalSortNodes(nodes, edges)
 	}
@@ -483,8 +495,8 @@ func OrderNodes(nodes []*Node, edges []Edge) []*Node {
 }
 
 // topologicalSortNodes orders nodes respecting edge constraints (Kahn's algorithm).
-func topologicalSortNodes(nodes []*Node, edges []Edge) []*Node {
-	nodeMap := make(map[string]*Node)
+func topologicalSortNodes(nodes []*projection.Node, edges []projection.Edge) []*projection.Node {
+	nodeMap := make(map[string]*projection.Node)
 	inDegree := make(map[string]int)
 	adj := make(map[string][]string)
 
@@ -511,7 +523,7 @@ func topologicalSortNodes(nodes []*Node, edges []Edge) []*Node {
 		}
 	}
 
-	var sorted []*Node
+	var sorted []*projection.Node
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]
@@ -541,8 +553,8 @@ func topologicalSortNodes(nodes []*Node, edges []Edge) []*Node {
 }
 
 // sortNodesByDepth sorts nodes by target path depth.
-func sortNodesByDepth(nodes []*Node) []*Node {
-	sorted := make([]*Node, len(nodes))
+func sortNodesByDepth(nodes []*projection.Node) []*projection.Node {
+	sorted := make([]*projection.Node, len(nodes))
 	copy(sorted, nodes)
 
 	for i := 0; i < len(sorted)-1; i++ {
@@ -567,4 +579,3 @@ func pathDepth(path string) int {
 	}
 	return strings.Count(path, string(filepath.Separator))
 }
-

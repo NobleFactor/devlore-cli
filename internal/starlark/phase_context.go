@@ -8,7 +8,7 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // PhaseContext provides phase metadata to lifecycle scripts.
@@ -27,7 +27,7 @@ type PhaseContext struct {
 	Action string
 
 	// Retry holds the retry policy configured by the script.
-	Retry *execution.RetryPolicy
+	Retry *projection.RetryPolicy
 }
 
 // ToStarlark returns a Starlark value exposing phase.name, phase.action, phase.retry().
@@ -85,18 +85,18 @@ func (s *starlarkPhaseContext) retry(_ *starlark.Thread, _ *starlark.Builtin, ar
 		return nil, fmt.Errorf("retry: max_attempts must be non-negative, got %d", maxAttempts)
 	}
 
-	policy := &execution.RetryPolicy{
+	policy := &projection.RetryPolicy{
 		MaxAttempts: maxAttempts,
 	}
 
 	if backoff != "" {
 		switch backoff {
 		case "none":
-			policy.Backoff = execution.BackoffNone
+			policy.Backoff = projection.BackoffNone
 		case "linear":
-			policy.Backoff = execution.BackoffLinear
+			policy.Backoff = projection.BackoffLinear
 		case "exponential":
-			policy.Backoff = execution.BackoffExponential
+			policy.Backoff = projection.BackoffExponential
 		default:
 			return nil, fmt.Errorf("retry: unknown backoff %q (use none, linear, exponential)", backoff)
 		}

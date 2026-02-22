@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // gatherUndoState preserves per-iteration state needed for rollback.
@@ -193,7 +194,7 @@ func (a *Gather) undoCompleted(gs *gatherUndoState) error {
 }
 
 // executeIteration runs the phase body for a single item.
-func executeIteration(ctx *execution.Context, ordered []*execution.Node, gatherID string, item any) struct {
+func executeIteration(ctx *execution.Context, ordered []*projection.Node, gatherID string, item any) struct {
 	result any
 	undo   iterationUndo
 	err    error
@@ -216,7 +217,11 @@ func executeIteration(ctx *execution.Context, ordered []*execution.Node, gatherI
 		nodeSlots := node.ResolvedSlots(results, proxyCtx)
 		execution.FillSlotsFromData(nodeSlots, ctx.Data)
 
-		result, undoState, err := node.Action.Do(ctx, nodeSlots)
+		action, ok := node.Action.(execution.Action)
+		if !ok {
+			continue
+		}
+		result, undoState, err := action.Do(ctx, nodeSlots)
 		if err != nil {
 			// Unwind this iteration's completed nodes.
 			stack.Unwind(ctx)

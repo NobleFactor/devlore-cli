@@ -12,8 +12,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // MigratedMarker records what was done during execution.
@@ -31,9 +31,9 @@ type Rename struct {
 
 // Execute performs the directory renames specified in the execution graph.
 // It writes progress to stderr using standard cli output functions.
-func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
+func Execute(graph *projection.Graph, analysis *MigrationAnalysis) error {
 	// Find rename nodes in the graph
-	var renameNodes []*execution.Node
+	var renameNodes []*projection.Node
 	for _, node := range graph.Nodes {
 		if node.ActionName() == "file.move" {
 			renameNodes = append(renameNodes, node)
@@ -92,7 +92,7 @@ func Execute(graph *execution.Graph, analysis *MigrationAnalysis) error {
 }
 
 // WriteMigratedMarker writes the .writ-migrated marker file.
-func WriteMigratedMarker(sourceRoot string, graph *execution.Graph, analysis *MigrationAnalysis) error {
+func WriteMigratedMarker(sourceRoot string, graph *projection.Graph, analysis *MigrationAnalysis) error {
 	var renames []Rename
 	for _, node := range graph.Nodes {
 		if node.ActionName() == "file.move" {

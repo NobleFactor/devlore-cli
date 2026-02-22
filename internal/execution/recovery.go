@@ -6,6 +6,8 @@ package execution
 import (
 	"errors"
 	"fmt"
+
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 // RecoveryEntry represents a successfully executed undoable node and the
@@ -13,7 +15,7 @@ import (
 // node that implements CompensableAction.
 type RecoveryEntry struct {
 	// Node is the executed node (carries the CompensableAction action for Undo).
-	Node *Node
+	Node *projection.Node
 
 	// UndoState is the state captured by Do, passed to Undo during rollback.
 	UndoState UndoState

@@ -15,16 +15,17 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/projection"
 )
 
 func TestGraphStates(t *testing.T) {
 	tests := []struct {
-		state    execution.GraphState
+		state    projection.GraphState
 		expected string
 	}{
-		{execution.StatePending, "pending"},
-		{execution.StateExecuted, "executed"},
-		{execution.StateFailed, "failed"},
+		{projection.StatePending, "pending"},
+		{projection.StateExecuted, "executed"},
+		{projection.StateFailed, "failed"},
 	}
 
 	for _, tt := range tests {
@@ -36,13 +37,13 @@ func TestGraphStates(t *testing.T) {
 
 func TestNodeStatus(t *testing.T) {
 	tests := []struct {
-		status   execution.NodeStatus
+		status   projection.NodeStatus
 		expected string
 	}{
-		{execution.StatusPending, "pending"},
-		{execution.StatusCompleted, "completed"},
-		{execution.StatusSkipped, "skipped"},
-		{execution.StatusFailed, "failed"},
+		{projection.StatusPending, "pending"},
+		{projection.StatusCompleted, "completed"},
+		{projection.StatusSkipped, "skipped"},
+		{projection.StatusFailed, "failed"},
 	}
 
 	for _, tt := range tests {
@@ -68,7 +69,7 @@ func TestNewGraph(t *testing.T) {
 	if g.Tool != "writ" {
 		t.Errorf("expected tool 'writ', got %q", g.Tool)
 	}
-	if g.State != execution.StatePending {
+	if g.State != projection.StatePending {
 		t.Errorf("expected state 'pending', got %q", g.State)
 	}
 	if g.Context.SourceRoot != "/home/user/env" {
@@ -77,10 +78,10 @@ func TestNewGraph(t *testing.T) {
 }
 
 func TestNode(t *testing.T) {
-	node := &execution.Node{
+	node := &projection.Node{
 		ID:         ".bashrc",
-		Action: execution.StubAction("file.link"),
-		Status:    execution.StatusPending,
+		Action: projection.StubAction("file.link"),
+		Status:    projection.StatusPending,
 		Project:   "all",
 	}
 	node.SetSlotImmediate("source", "/home/user/env/all/.bashrc")
@@ -92,13 +93,13 @@ func TestNode(t *testing.T) {
 	if node.ActionName() != "file.link" {
 		t.Errorf("expected operation 'file.link', got %q", node.ActionName())
 	}
-	if node.Status != execution.StatusPending {
+	if node.Status != projection.StatusPending {
 		t.Errorf("expected status 'pending', got %q", node.Status)
 	}
 }
 
 func TestEdge(t *testing.T) {
-	edge := execution.Edge{
+	edge := projection.Edge{
 		From: "nodeA",
 		To:   "nodeB",
 	}
@@ -112,7 +113,7 @@ func TestEdge(t *testing.T) {
 }
 
 func TestCollision(t *testing.T) {
-	collision := execution.Collision{
+	collision := projection.Collision{
 		Target:            ".gitconfig",
 		Winner:            "/home/user/personal/.gitconfig",
 		WinnerLayer:       "personal",
@@ -133,12 +134,12 @@ func TestCollision(t *testing.T) {
 func TestSummaryString(t *testing.T) {
 	tests := []struct {
 		name     string
-		summary  execution.Summary
+		summary  projection.Summary
 		contains []string
 	}{
 		{
 			name: "basic",
-			summary: execution.Summary{
+			summary: projection.Summary{
 				TotalFiles: 10,
 				Links:      5,
 				Templates:  3,
@@ -148,7 +149,7 @@ func TestSummaryString(t *testing.T) {
 		},
 		{
 			name: "with skipped",
-			summary: execution.Summary{
+			summary: projection.Summary{
 				TotalFiles: 5,
 				Links:      5,
 				Skipped:    2,
@@ -157,7 +158,7 @@ func TestSummaryString(t *testing.T) {
 		},
 		{
 			name: "with failed",
-			summary: execution.Summary{
+			summary: projection.Summary{
 				TotalFiles: 5,
 				Links:      4,
 				Failed:     1,
@@ -166,7 +167,7 @@ func TestSummaryString(t *testing.T) {
 		},
 		{
 			name: "with backups",
-			summary: execution.Summary{
+			summary: projection.Summary{
 				TotalFiles: 5,
 				Links:      5,
 				BackedUp:   3,
@@ -188,7 +189,7 @@ func TestSummaryString(t *testing.T) {
 }
 
 func TestSignature(t *testing.T) {
-	sig := &execution.Signature{
+	sig := &projection.Signature{
 		Method: "gpg",
 		Value:  "base64-encoded-signature",
 		KeyID:  "ABC123DEF456",
@@ -206,7 +207,7 @@ func TestSignature(t *testing.T) {
 }
 
 func TestPlatform(t *testing.T) {
-	p := execution.Platform{
+	p := projection.Platform{
 		OS:   "darwin",
 		Arch: "arm64",
 	}
@@ -220,7 +221,7 @@ func TestPlatform(t *testing.T) {
 }
 
 func TestGraphContext(t *testing.T) {
-	ctx := execution.GraphContext{
+	ctx := projection.GraphContext{
 		SourceRoot: "/home/user/env",
 		TargetRoot: "/home/user",
 		Projects:   []string{"all", "work"},
@@ -243,21 +244,21 @@ func TestGraphContext(t *testing.T) {
 }
 
 func TestGraphSerialize(t *testing.T) {
-	g := &execution.Graph{
+	g := &projection.Graph{
 		Version:   "1",
 		Tool:      "writ",
 		Timestamp: time.Date(2026, 1, 29, 10, 0, 0, 0, time.UTC),
-		State:     execution.StatePending,
-		Platform:  execution.Platform{OS: "darwin", Arch: "arm64"},
-		Context: execution.GraphContext{
+		State:     projection.StatePending,
+		Platform:  projection.Platform{OS: "darwin", Arch: "arm64"},
+		Context: projection.GraphContext{
 			SourceRoot: "/home/user/env",
 			TargetRoot: "/home/user",
 		},
-		Nodes: []*execution.Node{
+		Nodes: []*projection.Node{
 			{
 				ID:         ".bashrc",
-				Action: execution.StubAction("file.link"),
-				Status:     execution.StatusPending,
+				Action: projection.StubAction("file.link"),
+				Status:     projection.StatusPending,
 			},
 		},
 	}
@@ -286,7 +287,7 @@ func TestGraphSerialize(t *testing.T) {
 }
 
 func TestGraphFilename(t *testing.T) {
-	g := &execution.Graph{
+	g := &projection.Graph{
 		Tool:      "writ",
 		Timestamp: time.Date(2026, 1, 29, 14, 30, 45, 0, time.UTC),
 	}
@@ -302,7 +303,7 @@ func TestGitStyleChecksum(t *testing.T) {
 	content := []byte("test content")
 	basename := "test.yaml"
 
-	checksum := execution.GitStyleChecksum("graph", basename, content)
+	checksum := projection.GitStyleChecksum("graph", basename, content)
 
 	// Should have sha256: prefix
 	if !strings.HasPrefix(checksum, "sha256:") {
@@ -310,13 +311,13 @@ func TestGitStyleChecksum(t *testing.T) {
 	}
 
 	// Should be deterministic
-	checksum2 := execution.GitStyleChecksum("graph", basename, content)
+	checksum2 := projection.GitStyleChecksum("graph", basename, content)
 	if checksum != checksum2 {
 		t.Error("expected checksum to be deterministic")
 	}
 
 	// Different content should produce different checksum
-	checksum3 := execution.GitStyleChecksum("graph", basename, []byte("different"))
+	checksum3 := projection.GitStyleChecksum("graph", basename, []byte("different"))
 	if checksum == checksum3 {
 		t.Error("expected different content to produce different checksum")
 	}
@@ -333,8 +334,8 @@ func TestReceiptsDir(t *testing.T) {
 }
 
 func TestRunGraphAlreadyExecuted(t *testing.T) {
-	g := &execution.Graph{
-		State: execution.StateExecuted,
+	g := &projection.Graph{
+		State: projection.StateExecuted,
 	}
 
 	// Create a minimal executor for the test
@@ -350,16 +351,16 @@ func TestRunGraphAlreadyExecuted(t *testing.T) {
 }
 
 func TestComputeSummary(t *testing.T) {
-	g := &execution.Graph{
-		Nodes: []*execution.Node{
-			{ID: "1", Action: execution.StubAction("file.link"), Status: execution.StatusCompleted},
-			{ID: "2", Action: execution.StubAction("file.link"), Status: execution.StatusCompleted},
-			{ID: "3", Action: execution.StubAction("template.render"), Status: execution.StatusCompleted},
-			{ID: "4", Action: execution.StubAction("encryption.decrypt"), Status: execution.StatusCompleted},
-			{ID: "5", Action: execution.StubAction("file.copy"), Status: execution.StatusCompleted},
-			{ID: "6", Status: execution.StatusSkipped},
-			{ID: "7", Action: execution.StubAction("file.link"), Status: execution.StatusFailed},
-			{ID: "8", Action: execution.StubAction("file.link"), Status: execution.StatusCompleted, Annotations: map[string]string{"backup": "/path/to/backup"}},
+	g := &projection.Graph{
+		Nodes: []*projection.Node{
+			{ID: "1", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted},
+			{ID: "2", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted},
+			{ID: "3", Action: projection.StubAction("template.render"), Status: projection.StatusCompleted},
+			{ID: "4", Action: projection.StubAction("encryption.decrypt"), Status: projection.StatusCompleted},
+			{ID: "5", Action: projection.StubAction("file.copy"), Status: projection.StatusCompleted},
+			{ID: "6", Status: projection.StatusSkipped},
+			{ID: "7", Action: projection.StubAction("file.link"), Status: projection.StatusFailed},
+			{ID: "8", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted, Annotations: map[string]string{"backup": "/path/to/backup"}},
 		},
 	}
 
@@ -392,7 +393,7 @@ func TestComputeSummary(t *testing.T) {
 }
 
 func TestNodeAnnotations(t *testing.T) {
-	node := &execution.Node{
+	node := &projection.Node{
 		ID:          ".bashrc",
 		Annotations: map[string]string{"backup": "/backup/path"},
 	}
@@ -403,7 +404,7 @@ func TestNodeAnnotations(t *testing.T) {
 }
 
 func TestNodeSlots(t *testing.T) {
-	node := &execution.Node{
+	node := &projection.Node{
 		ID: "install-curl",
 	}
 	node.SetSlotImmediate("packages", "curl,wget")
@@ -418,7 +419,7 @@ func TestNodeSlots(t *testing.T) {
 }
 
 func TestNodeMode(t *testing.T) {
-	node := &execution.Node{
+	node := &projection.Node{
 		ID: ".ssh/config",
 	}
 	node.SetSlotImmediate("mode", os.FileMode(0600))
