@@ -4,12 +4,12 @@
 // action.go defines PhaseAction types for uniform pipeline phases.
 //
 // PhaseAction is the core abstraction: both Starlark scripts (ScriptAction)
-// and native PM operations (NativePMAction) implement this interface.
+// and native PM commands (NativePMAction) implement this interface.
 // The engine's package-manifest delegate queries Release.PhaseActions()
 // and adds the results to the execution graph.
 //
 // TODO: Implement graph optimization that batches NativePMAction nodes with
-// the same manager and operation. See docs/plans/uniform-pipeline-interface.md.
+// the same manager and command. See docs/plans/uniform-pipeline-interface.md.
 
 package lorepackage
 
@@ -19,16 +19,16 @@ type PhaseActionType int
 const (
 	// ActionScript is a Starlark phase script.
 	ActionScript PhaseActionType = iota
-	// ActionNativePM is a native package manager operation.
+	// ActionNativePM is a native package manager command.
 	ActionNativePM
 )
 
-// PMOperation represents a native package manager operation.
-type PMOperation int
+// PMCommand represents a native package manager command (install, remove, etc.).
+type PMCommand int
 
 const (
 	// PMInstall installs packages.
-	PMInstall PMOperation = iota
+	PMInstall PMCommand = iota
 	// PMRemove removes packages.
 	PMRemove
 	// PMUpdate refreshes the package index.
@@ -37,9 +37,9 @@ const (
 	PMUpgrade
 )
 
-// String returns the operation name.
-func (op PMOperation) String() string {
-	switch op {
+// String returns the command name.
+func (c PMCommand) String() string {
+	switch c {
 	case PMInstall:
 		return "install"
 	case PMRemove:
@@ -54,7 +54,7 @@ func (op PMOperation) String() string {
 }
 
 // PhaseAction represents an executable phase action.
-// This provides a uniform interface for both Starlark scripts and native PM operations.
+// This provides a uniform interface for both Starlark scripts and native PM commands.
 type PhaseAction interface {
 	// Type returns the action type (script or native PM).
 	Type() PhaseActionType
@@ -85,13 +85,13 @@ func (a *ScriptAction) Phase() string {
 	return a.PhaseName
 }
 
-// NativePMAction executes a native package manager operation.
+// NativePMAction executes a native package manager command.
 type NativePMAction struct {
 	// Manager identifies which package manager to use.
 	Manager PackageSource
 
-	// Operation is the PM operation (install, remove, update).
-	Operation PMOperation
+	// Command is the native PM command (install, remove, update, upgrade).
+	Command PMCommand
 
 	// Packages is the list of package names to operate on.
 	Packages []string
@@ -111,16 +111,16 @@ func (a *NativePMAction) Phase() string {
 }
 
 // Batchable returns true if this action can be batched with others.
-// Native PM install/upgrade/remove operations are batchable; update (index refresh) is not.
+// Native PM install/upgrade/remove commands are batchable; update (index refresh) is not.
 func (a *NativePMAction) Batchable() bool {
-	return a.Operation == PMInstall || a.Operation == PMUpgrade || a.Operation == PMRemove
+	return a.Command == PMInstall || a.Command == PMUpgrade || a.Command == PMRemove
 }
 
 // CanBatchWith returns true if this action can be batched with another.
-// Actions can be batched if they have the same manager, operation, and phase.
+// Actions can be batched if they have the same manager, command, and phase.
 func (a *NativePMAction) CanBatchWith(other *NativePMAction) bool {
 	return a.Manager == other.Manager &&
-		a.Operation == other.Operation &&
+		a.Command == other.Command &&
 		a.PhaseName == other.PhaseName
 }
 
@@ -138,7 +138,7 @@ func (a *NativePMAction) Merge(other *NativePMAction) *NativePMAction {
 
 	return &NativePMAction{
 		Manager:   a.Manager,
-		Operation: a.Operation,
+		Command: a.Command,
 		Packages:  packages,
 		PhaseName: a.PhaseName,
 	}

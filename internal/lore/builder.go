@@ -236,11 +236,11 @@ func BuildFromPackages(packages []string, plat string) (*BuildResult, error) {
 // Each lifecycle phase becomes a Phase entry in the graph. Compensation is
 // handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
 func buildPackageNodes(graph *execution.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig, reg *execution.ActionRegistry) error {
-	op := lorepackage.OpDeploy
-	phases := lorepackage.PhaseOrder(op)
+	action := lorepackage.Deploy
+	phases := lorepackage.PhaseOrder(action)
 
 	for _, phaseName := range phases {
-		actions := pkg.PhaseActions(plat, op, phaseName)
+		actions := pkg.PhaseActions(plat, action, phaseName)
 		if len(actions) == 0 {
 			continue
 		}
@@ -381,7 +381,7 @@ func prepareScriptEnv(graph *execution.Graph, pkg *lorepackage.Release, h host.H
 func addNativePMNodes(graph *execution.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *execution.ActionRegistry) error {
 	// Determine the dotted action name
 	var actionName string
-	switch action.Operation {
+	switch action.Command {
 	case lorepackage.PMInstall:
 		actionName = "pkg.install"
 	case lorepackage.PMRemove:

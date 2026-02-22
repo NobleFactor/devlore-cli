@@ -11,19 +11,20 @@ import (
 
 func TestRequiredPhase(t *testing.T) {
 	tests := []struct {
-		op   Operation
-		want string
+		action Action
+		want   string
 	}{
-		{OpDeploy, "install"},
-		{OpUpgrade, "upgrade"},
-		{OpDecommission, "uninstall"},
+		{Deploy, "install"},
+		{Upgrade, "upgrade"},
+		{Decommission, "uninstall"},
+		{Reconcile, "repair"},
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.op), func(t *testing.T) {
-			got := RequiredPhase(tt.op)
+		t.Run(string(tt.action), func(t *testing.T) {
+			got := RequiredPhase(tt.action)
 			if got != tt.want {
-				t.Errorf("RequiredPhase(%s) = %q, want %q", tt.op, got, tt.want)
+				t.Errorf("RequiredPhase(%s) = %q, want %q", tt.action, got, tt.want)
 			}
 		})
 	}
@@ -31,35 +32,38 @@ func TestRequiredPhase(t *testing.T) {
 
 func TestPhaseToNativePMOp(t *testing.T) {
 	tests := []struct {
-		op     Operation
+		action Action
 		phase  string
-		wantPM PMOperation
+		wantPM PMCommand
 		wantOK bool
 	}{
 		// Required phases should map
-		{OpDeploy, "install", PMInstall, true},
-		{OpUpgrade, "upgrade", PMUpgrade, true},
-		{OpDecommission, "uninstall", PMRemove, true},
+		{Deploy, "install", PMInstall, true},
+		{Upgrade, "upgrade", PMUpgrade, true},
+		{Decommission, "uninstall", PMRemove, true},
+
+		// Reconcile has no native PM equivalent
+		{Reconcile, "repair", 0, false},
 
 		// Non-required phases should not map
-		{OpDeploy, "prepare", 0, false},
-		{OpDeploy, "provision", 0, false},
-		{OpDeploy, "verify", 0, false},
-		{OpUpgrade, "prepare", 0, false},
-		{OpUpgrade, "migrate", 0, false},
-		{OpDecommission, "unprovision", 0, false},
-		{OpDecommission, "cleanup", 0, false},
+		{Deploy, "prepare", 0, false},
+		{Deploy, "provision", 0, false},
+		{Deploy, "verify", 0, false},
+		{Upgrade, "prepare", 0, false},
+		{Upgrade, "migrate", 0, false},
+		{Decommission, "unprovision", 0, false},
+		{Decommission, "cleanup", 0, false},
 	}
 
 	for _, tt := range tests {
-		name := string(tt.op) + "/" + tt.phase
+		name := string(tt.action) + "/" + tt.phase
 		t.Run(name, func(t *testing.T) {
-			gotPM, gotOK := phaseToNativePMOp(tt.op, tt.phase)
+			gotPM, gotOK := phaseToNativePMCmd(tt.action, tt.phase)
 			if gotOK != tt.wantOK {
-				t.Errorf("phaseToNativePMOp(%s, %s) ok = %v, want %v", tt.op, tt.phase, gotOK, tt.wantOK)
+				t.Errorf("phaseToNativePMOp(%s, %s) ok = %v, want %v", tt.action, tt.phase, gotOK, tt.wantOK)
 			}
 			if gotOK && gotPM != tt.wantPM {
-				t.Errorf("phaseToNativePMOp(%s, %s) = %v, want %v", tt.op, tt.phase, gotPM, tt.wantPM)
+				t.Errorf("phaseToNativePMOp(%s, %s) = %v, want %v", tt.action, tt.phase, gotPM, tt.wantPM)
 			}
 		})
 	}
@@ -75,27 +79,30 @@ func TestRelease_PhaseActions_NativePM(t *testing.T) {
 	}
 
 	tests := []struct {
-		op        Operation
+		action    Action
 		phase     string
 		wantCount int
-		wantPMOp  PMOperation
+		wantPMCmd PMCommand
 	}{
 		// Required phases return one action
-		{OpDeploy, "install", 1, PMInstall},
-		{OpUpgrade, "upgrade", 1, PMUpgrade},
-		{OpDecommission, "uninstall", 1, PMRemove},
+		{Deploy, "install", 1, PMInstall},
+		{Upgrade, "upgrade", 1, PMUpgrade},
+		{Decommission, "uninstall", 1, PMRemove},
+
+		// Reconcile has no native PM equivalent
+		{Reconcile, "repair", 0, 0},
 
 		// Non-required phases return empty
-		{OpDeploy, "prepare", 0, 0},
-		{OpDeploy, "provision", 0, 0},
-		{OpDeploy, "verify", 0, 0},
-		{OpUpgrade, "migrate", 0, 0},
+		{Deploy, "prepare", 0, 0},
+		{Deploy, "provision", 0, 0},
+		{Deploy, "verify", 0, 0},
+		{Upgrade, "migrate", 0, 0},
 	}
 
 	for _, tt := range tests {
-		name := string(tt.op) + "/" + tt.phase
+		name := string(tt.action) + "/" + tt.phase
 		t.Run(name, func(t *testing.T) {
-			actions := pkg.PhaseActions("Linux.Debian", tt.op, tt.phase)
+			actions := pkg.PhaseActions("Linux.Debian", tt.action, tt.phase)
 
 			if len(actions) != tt.wantCount {
 				t.Errorf("PhaseActions() returned %d actions, want %d", len(actions), tt.wantCount)
@@ -116,8 +123,8 @@ func TestRelease_PhaseActions_NativePM(t *testing.T) {
 				if pmAction.Manager != SourceApt {
 					t.Errorf("Manager = %v, want SourceApt", pmAction.Manager)
 				}
-				if pmAction.Operation != tt.wantPMOp {
-					t.Errorf("Operation = %v, want %v", pmAction.Operation, tt.wantPMOp)
+				if pmAction.Command != tt.wantPMCmd {
+					t.Errorf("Command = %v, want %v", pmAction.Command, tt.wantPMCmd)
 				}
 				if len(pmAction.Packages) != 1 || pmAction.Packages[0] != "curl" {
 					t.Errorf("Packages = %v, want [curl]", pmAction.Packages)
@@ -169,7 +176,7 @@ platforms:
 	}
 
 	// Test install phase returns ScriptActions
-	actions := pkg.PhaseActions("Darwin", OpDeploy, "install")
+	actions := pkg.PhaseActions("Darwin", Deploy, "install")
 
 	// Should have 2 scripts: Common and Darwin (Unix doesn't exist)
 	if len(actions) != 2 {
@@ -191,7 +198,7 @@ platforms:
 	}
 
 	// Test non-existent phase returns empty
-	actions = pkg.PhaseActions("Darwin", OpDeploy, "provision")
+	actions = pkg.PhaseActions("Darwin", Deploy, "provision")
 	if len(actions) != 0 {
 		t.Errorf("PhaseActions(provision) returned %d actions, want 0", len(actions))
 	}

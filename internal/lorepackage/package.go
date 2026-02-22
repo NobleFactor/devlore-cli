@@ -73,16 +73,16 @@ func (rel *Release) Lifecycle() *Lifecycle {
 // most general to most specific for chained execution.
 //
 // For native PM packages, returns empty (the engine handles install directly).
-func (rel *Release) DiscoverPhaseScripts(platform string, op Operation, phase string) []string {
+func (rel *Release) DiscoverPhaseScripts(platform string, action Action, phase string) []string {
 	if rel.Source != SourceLore || rel.Dir == "" {
 		return nil // Native PM packages don't have scripts
 	}
-	return rel.Lifecycle().DiscoverPhaseScripts(rel.Dir, platform, op, phase)
+	return rel.Lifecycle().DiscoverPhaseScripts(rel.Dir, platform, action, phase)
 }
 
 // HasPhase returns true if at least one phase script exists for this phase.
-func (rel *Release) HasPhase(platform string, op Operation, phase string) bool {
-	return len(rel.DiscoverPhaseScripts(platform, op, phase)) > 0
+func (rel *Release) HasPhase(platform string, action Action, phase string) bool {
+	return len(rel.DiscoverPhaseScripts(platform, action, phase)) > 0
 }
 
 // PhaseActions returns the executable actions for a phase.
@@ -90,10 +90,10 @@ func (rel *Release) HasPhase(platform string, op Operation, phase string) bool {
 //
 // For lore packages: returns ScriptAction items for each discovered script.
 // For native PM packages: returns a NativePMAction for install/uninstall phases.
-func (rel *Release) PhaseActions(platform string, op Operation, phase string) []PhaseAction {
+func (rel *Release) PhaseActions(platform string, action Action, phase string) []PhaseAction {
 	if rel.Source == SourceLore && rel.Dir != "" {
 		// Lore package: return script actions
-		scripts := rel.DiscoverPhaseScripts(platform, op, phase)
+		scripts := rel.DiscoverPhaseScripts(platform, action, phase)
 		actions := make([]PhaseAction, 0, len(scripts))
 		for _, script := range scripts {
 			actions = append(actions, &ScriptAction{
@@ -106,7 +106,7 @@ func (rel *Release) PhaseActions(platform string, op Operation, phase string) []
 	}
 
 	// Native PM package: return native PM action for relevant phases
-	pmOp, ok := phaseToNativePMOp(op, phase)
+	pmCmd, ok := phaseToNativePMCmd(action, phase)
 	if !ok {
 		return nil // Phase not applicable for native PM
 	}
@@ -119,7 +119,7 @@ func (rel *Release) PhaseActions(platform string, op Operation, phase string) []
 	return []PhaseAction{
 		&NativePMAction{
 			Manager:   rel.Source,
-			Operation: pmOp,
+			Command: pmCmd,
 			Packages:  []string{pkgName},
 			PhaseName: phase,
 		},
@@ -140,24 +140,25 @@ func platformFromPath(scriptPath, packageDir string) string {
 	return ""
 }
 
-// phaseToNativePMOp maps operation+phase to native PM operation.
-// Native PM packages only implement the required phase for each operation.
-// Returns false if the phase is not the required phase for the operation.
-func phaseToNativePMOp(op Operation, phase string) (PMOperation, bool) {
-	// Only the required phase maps to a native PM operation
-	if phase != RequiredPhase(op) {
+// phaseToNativePMCmd maps action+phase to native PM command.
+// Native PM packages only implement the required phase for each action.
+// Returns false if the phase is not the required phase for the action,
+// or if the action has no native PM equivalent (e.g., Reconcile).
+func phaseToNativePMCmd(action Action, phase string) (PMCommand, bool) {
+	// Only the required phase maps to a native PM command
+	if phase != RequiredPhase(action) {
 		return 0, false
 	}
 
-	switch op {
-	case OpDeploy:
+	switch action {
+	case Deploy:
 		return PMInstall, true
-	case OpUpgrade:
+	case Upgrade:
 		return PMUpgrade, true
-	case OpDecommission:
+	case Decommission:
 		return PMRemove, true
 	default:
-		return PMInstall, true
+		return 0, false
 	}
 }
 
