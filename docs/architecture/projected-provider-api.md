@@ -121,7 +121,7 @@ At startup, blank imports in `register.go` trigger all `init()` functions. Then
 ### 2. Plan Registration (Starlark Binding)
 
 Each provider's generated `plan_*_gen.go` contains:
-- A plan struct (e.g., `FilePlan`) embedding `Receiver`
+- A plan struct (e.g., `FilePlan`) embedding `projection.Receiver`
 - An `init()` function that calls `registerPlan("file", factory)`
 - A factory function that creates the plan struct with graph and registry references
 
@@ -134,8 +134,8 @@ Both registrations happen via `init()` — self-registration triggered by import
 The plan receiver references the action registry to resolve action names:
 
 ```go
-node := &execution.Node{
-    ID:     GenerateNodeID("file-link"),
+node := &projection.Node{
+    ID:     projection.GenerateNodeID("file-link"),
     Action: p.reg.MustGet("file.link"),  // ← looks up the Action wrapper
 }
 ```
@@ -147,51 +147,59 @@ executor will call. The action registry is the single source of truth for what
 ## The Projection Layer
 
 The infrastructure that makes projection work — `Receiver`, `Output`,
-`FillSlot`, type conversions, node ID generation — is generic. It has no
-knowledge of specific providers, specific actions, or the execution engine's
-internals. It needs only two things from the execution layer:
+`FillSlot`, type conversions, node ID generation — lives in `pkg/projection/`.
+It has no knowledge of specific providers, specific actions, or the execution
+engine's internals.
 
-1. **A node** — something with an ID, slots, and the ability to set slot values
-2. **A graph** — something that can record edges between nodes
+### Type Ownership
 
-These requirements are captured as interfaces:
+`pkg/projection/` owns the concrete graph data model types directly:
 
-```go
-// NodeHandle abstracts a graph node for the projection layer.
-type NodeHandle interface {
-    NodeID() string
-    GetSlot(name string) any
-    SetSlotImmediate(name string, value any)
-    SetSlotPromise(name string, nodeRef string, slot string)
-    SlotNames() []string
-}
+- **`Node`** — graph node with ID, slots, status, and an `Action` field typed
+  as `any`. The executor type-asserts `node.Action.(Action)` before calling Do.
+  `ActionName()` uses duck-type assertion `interface{ Name() string }`.
+- **`Graph`** — collection of nodes and edges with serialization, checksums,
+  state tracking.
+- **`Edge`**, **`SlotValue`** — graph connectivity and slot value types.
+- **`Phase`**, **`RetryPolicy`** — execution grouping and retry configuration.
+- **`Output`**, **`Gather`** — Starlark value types that represent graph nodes.
+- **`FillSlot`** — dispatches slot values based on Starlark argument type.
+- **`Receiver`** — base type for generated Starlark namespace receivers.
 
-// GraphHandle abstracts graph edge creation.
-type GraphHandle interface {
-    AddEdge(from, to string)
-}
-```
+Since Output, Gather, and FillSlot operate on `*Node` and `*Graph` in the same
+package, no interfaces are needed. The projection layer works with concrete
+types.
 
-With these interfaces, the projection layer can live in `pkg/projection/` —
-a public package with no `internal/` imports. `execution.Node` satisfies
-`NodeHandle`; `execution.Graph` satisfies `GraphHandle`. Generated code
-imports both packages: it creates concrete `*execution.Node` values (it knows
-the execution model) but passes them to `projection.FillSlot()` and
-`projection.NewOutput()` through the interface boundary.
+### Standalone Execution Functions
+
+Two operations that need execution-layer types live as standalone functions in
+`internal/execution/`:
+
+- **`HydrateGraph(g *projection.Graph, reg *ActionRegistry)`** — replaces stub
+  actions on deserialized graph nodes with real Action implementations from the
+  registry.
+- **`ApplyResults(g *projection.Graph, results []*NodeResult)`** — updates graph
+  nodes with execution outcomes.
+
+This prevents `pkg/projection/` from importing `internal/execution/`.
 
 ### Package Boundary
 
 ```
 pkg/projection/          ← public, no internal/ imports
-  graph.go               ← NodeHandle, GraphHandle interfaces
-  receiver.go            ← Receiver base type, MakeAttr, helpers
+  graph.go               ← Node, Graph, Edge, SlotValue, state/status types
+  phase.go               ← Phase, RetryPolicy, BackoffStrategy
   output.go              ← Output, Gather, FillSlot
+  receiver.go            ← Receiver base type, MakeAttr, helpers
   convert.go             ← Starlark ↔ Go type conversions
   access.go              ← Access level constants
   nodeid.go              ← GenerateNodeID (atomic counter)
 
-internal/execution/      ← implements projection interfaces
-  graph.go               ← Node satisfies NodeHandle; Graph satisfies GraphHandle
+internal/execution/      ← owns Action interface, executor, registry
+  graph.go               ← HydrateGraph(), ApplyResults()
+  action.go              ← Action, CompensableAction, Context
+  executor.go            ← GraphExecutor (type-asserts node.Action)
+  recovery.go            ← RecoveryStack (node: *projection.Node)
 
 internal/starlark/       ← imports both; devlore-specific wiring
   plan_root.go           ← PlanRoot (choose, gather, source)
@@ -240,7 +248,8 @@ each method appears on:
 | *(none)* | Yes | — | Queries and facts (exists, is_installed) |
 
 The current system uses struct-level `//devlore:plannable` as a binary flag.
-The extraction plan establishes constants for future method-level granularity:
+Constants in `pkg/projection/access.go` prepare for future method-level
+granularity:
 
 ```go
 const (
@@ -261,12 +270,12 @@ different stage of the Provider lifecycle.
 
 ### star — Code Generator
 
-Star is the code generation tool. Its Ops extension reads Provider structs via
-Go reflection, detects `//devlore:plannable` directives, and renders the three
-templates into generated code.
+Star is the code generation tool. Its Actions extension reads Provider structs
+via Go reflection, detects `//devlore:plannable` directives, and renders the
+three templates into generated code.
 
 ```
-star devlore ops generate
+star devlore actions generate
     ↓
     reads Provider struct (e.g., file.Provider)
     ↓
@@ -332,7 +341,7 @@ writ deploy personal
     graph complete → GraphExecutor.Run()
 ```
 
-Writ builds most of its graph imperatively — calling `execution.Node{}`
+Writ builds most of its graph imperatively — calling `projection.Node{}`
 constructors directly for file operations discovered by tree walking. It only
 enters the Starlark projection layer when it delegates package installation to
 Lore's Planner. This makes Writ a hybrid consumer: it uses the execution layer
@@ -343,7 +352,7 @@ management.
 
 ```
                     pkg/projection/
-                    (Receiver, Output, FillSlot, convert, nodeid)
+                    (Node, Graph, Receiver, Output, FillSlot, convert, nodeid)
                          │
             ┌────────────┼────────────────┐
             │            │                │
@@ -358,7 +367,8 @@ management.
             │            └───────┬────────┘
             │                    │
             │            internal/execution/
-            │            (Graph, Node, Action, executor)
+            │            (Action, ActionRegistry, GraphExecutor,
+            │             HydrateGraph, ApplyResults)
             │                    │
             └────────────────────┘
                     generated code lives here
@@ -369,7 +379,7 @@ Star produces the generated code that both Lore and Writ consume. Lore
 evaluates Starlark scripts through the projection layer to build graphs. Writ
 builds graphs mostly imperatively but delegates to Lore's Planner when it
 finds package manifests. All three tools share the execution layer — the
-`ActionRegistry`, `Graph`, and `GraphExecutor` — as the common substrate.
+`ActionRegistry`, `HydrateGraph`, and `GraphExecutor` — as the common substrate.
 
 ## Design Properties
 
@@ -389,6 +399,10 @@ declarations — dependencies emerge from data flow.
 **Decoupled projection.** The projection layer (`pkg/projection/`) knows
 nothing about files, packages, or services. It knows about nodes, slots, edges,
 and Starlark values. New providers plug in without touching projection code.
+
+**Zero back-imports.** `pkg/projection/` imports only stdlib +
+`go.starlark.net` + `gopkg.in/yaml.v3`. It never imports from `internal/`.
+The execution layer imports projection; projection never imports execution.
 
 **Self-registering providers.** Adding a new provider requires writing the Go
 struct and running the generator. The `init()` pattern ensures the provider is
