@@ -36,9 +36,9 @@ TEMPLATE_PACKAGES = {
 
 # Local templates shipped with this extension (loaded from templates/ dir).
 LOCAL_TEMPLATES = {
-    "planned_receiver": "plan_receiver.go.template",
+    "planned_receiver": "planned_receiver.go.template",
     "graph_actions": "graph_actions.go.template",
-    "immediate_receiver": "realtime_receiver.go.template",
+    "immediate_receiver": "immediate_receiver.go.template",
 }
 
 # Valid access levels for the +devlore:access directive.

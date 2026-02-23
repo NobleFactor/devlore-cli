@@ -124,13 +124,13 @@ Changes:
 - Change import from `internal/execution` to `pkg/projection`
 - Only emit action wrappers for methods with `access=planned` or `access=both`
 
-**`plan_receiver.go.template`**:
-- Import path already uses `pkg/projection` — no change needed
+**`planned_receiver.go.template`**:
+- Import path uses `pkg/op`
 - Only emit plan methods for `access=planned` or `access=both`
 
-**`realtime_receiver.go.template`**:
+**`immediate_receiver.go.template`**:
 - Only emit immediate methods for `access=immediate` or `access=both`
-- Change any remaining `internal/execution` imports to `pkg/projection`
+- Import path uses `pkg/op`
 
 ### 6. Update `internal/execution/`
 
