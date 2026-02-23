@@ -474,8 +474,8 @@ func (b *StateViewBuilder) addPackageRecord(view *StateView, node *op.Node, reco
 
 // addFileRecord adds a file deployment record to the view.
 func (b *StateViewBuilder) addFileRecord(view *StateView, node *op.Node, record HistoryRecord) {
-	relTarget := node.ID // Relative target path is the node ID
-	source, _ := node.GetSlot("source").(string)
+	relTarget := node.ID                         // Relative target path is the node ID
+	source, _ := node.GetSlot("source").(string) //nolint:errcheck // zero value (empty) is acceptable
 
 	entry, ok := view.Files.Entries[relTarget]
 	if !ok {

@@ -86,11 +86,11 @@ func (s State) Label() string {
 type Entry struct {
 	RelTarget string
 	Source    string
-	Target   string
-	Project  string
-	Action   string
-	State    State
-	Message  string
+	Target    string
+	Project   string
+	Action    string
+	State     State
+	Message   string
 }
 
 // Report contains the reconciliation results.
@@ -129,8 +129,8 @@ func FromBuildResult(result *tree.BuildResult) *Report {
 		entry := Entry{
 			RelTarget: f.ID,
 			Source:    f.Source,
-			Target:   f.Target,
-			Project:  f.Project,
+			Target:    f.Target,
+			Project:   f.Project,
 		}
 
 		info, err := os.Lstat(f.Target)
@@ -203,8 +203,8 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 		entry := Entry{
 			RelTarget: relTarget,
 			Source:    linkTarget,
-			Target:   path,
-			Action:   "file.link",
+			Target:    path,
+			Action:    "file.link",
 		}
 
 		if _, err := os.Stat(linkTarget); os.IsNotExist(err) {

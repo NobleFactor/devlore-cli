@@ -157,7 +157,7 @@ func TestMatchDirectories(t *testing.T) {
 	}
 
 	for _, d := range dirs {
-		if err := os.Mkdir(filepath.Join(tmpDir, d), 0755); err != nil {
+		if err := os.Mkdir(filepath.Join(tmpDir, d), 0o755); err != nil {
 			t.Fatalf("failed to create dir %s: %v", d, err)
 		}
 	}

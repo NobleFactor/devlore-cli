@@ -79,10 +79,10 @@ func TestNewGraph(t *testing.T) {
 
 func TestNode(t *testing.T) {
 	node := &op.Node{
-		ID:         ".bashrc",
-		Action: op.StubAction("file.link"),
-		Status:    op.StatusPending,
-		Project:   "all",
+		ID:      ".bashrc",
+		Action:  op.StubAction("file.link"),
+		Status:  op.StatusPending,
+		Project: "all",
 	}
 	node.SetSlotImmediate("source", "/home/user/env/all/.bashrc")
 	node.SetSlotImmediate("path", "/home/user/.bashrc")
@@ -256,9 +256,9 @@ func TestGraphSerialize(t *testing.T) {
 		},
 		Nodes: []*op.Node{
 			{
-				ID:         ".bashrc",
+				ID:     ".bashrc",
 				Action: op.StubAction("file.link"),
-				Status:     op.StatusPending,
+				Status: op.StatusPending,
 			},
 		},
 	}

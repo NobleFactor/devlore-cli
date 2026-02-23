@@ -5,6 +5,7 @@ package credentials
 
 import (
 	"bytes"
+	"context"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -80,7 +81,7 @@ func helperErase(helper, key string) error {
 
 // macOS: use security command (Keychain)
 func macOSGet(key string) (string, error) {
-	cmd := exec.Command("security", "find-generic-password", //nolint:gosec // G204: credential helper path from config
+	cmd := exec.CommandContext(context.Background(), "security", "find-generic-password", //nolint:gosec // G204: keychain command with known args
 		"-s", serviceName,
 		"-a", key,
 		"-w")
@@ -95,7 +96,7 @@ func macOSGet(key string) (string, error) {
 func macOSStore(account, secret string) error {
 	label := "DevLore: " + account
 	// -U updates if exists, creates if not
-	cmd := exec.Command("security", "add-generic-password",
+	cmd := exec.CommandContext(context.Background(), "security", "add-generic-password", //nolint:gosec // G204: keychain command with known args
 		"-s", serviceName,
 		"-a", account,
 		"-l", label,
@@ -105,7 +106,7 @@ func macOSStore(account, secret string) error {
 }
 
 func macOSErase(key string) error {
-	cmd := exec.Command("security", "delete-generic-password",
+	cmd := exec.CommandContext(context.Background(), "security", "delete-generic-password", //nolint:gosec // G204: keychain command with known args
 		"-s", serviceName,
 		"-a", key)
 	return cmd.Run()
@@ -113,7 +114,7 @@ func macOSErase(key string) error {
 
 // Linux: use secret-tool (libsecret / GNOME Keyring / KWallet)
 func linuxGet(key string) (string, error) {
-	cmd := exec.Command("secret-tool", "lookup",
+	cmd := exec.CommandContext(context.Background(), "secret-tool", "lookup", //nolint:gosec // G204: secret-tool with known args
 		"service", serviceName,
 		"account", key)
 	var stdout bytes.Buffer
@@ -125,7 +126,7 @@ func linuxGet(key string) (string, error) {
 }
 
 func linuxStore(key, secret string) error {
-	cmd := exec.Command("secret-tool", "store", //nolint:gosec // G204: credential helper path from config
+	cmd := exec.CommandContext(context.Background(), "secret-tool", "store", //nolint:gosec // G204: secret-tool with known args
 		"--label", "DevLore: "+key,
 		"service", serviceName,
 		"account", key)
@@ -134,7 +135,7 @@ func linuxStore(key, secret string) error {
 }
 
 func linuxErase(key string) error {
-	cmd := exec.Command("secret-tool", "clear",
+	cmd := exec.CommandContext(context.Background(), "secret-tool", "clear", //nolint:gosec // G204: secret-tool with known args
 		"service", serviceName,
 		"account", key)
 	return cmd.Run()
@@ -151,7 +152,7 @@ try {
     Write-Output $cred.Password
 } catch { exit 1 }
 `
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -170,7 +171,7 @@ try { $vault.Remove($vault.Retrieve("` + serviceName + `", "` + account + `")) }
 $cred = New-Object Windows.Security.Credentials.PasswordCredential("` + serviceName + `", "` + account + `", '` + escapedSecret + `')
 $vault.Add($cred)
 `
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
 	return cmd.Run()
 }
 
@@ -183,6 +184,6 @@ try {
     $vault.Remove($cred)
 } catch {}
 `
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
 	return cmd.Run()
 }

@@ -71,7 +71,7 @@ func (g *GitProvider) Sync(ctx context.Context, cacheDir string, opts SyncOption
 // clone performs initial shallow clone.
 func (g *GitProvider) clone(ctx context.Context, cacheDir string) (*SyncResult, error) {
 	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(cacheDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cacheDir), 0o755); err != nil {
 		return nil, fmt.Errorf("creating cache parent directory: %w", err)
 	}
 
@@ -215,7 +215,7 @@ func (g *GitProvider) writeSyncInfo(cacheDir, ref string, syncedAt time.Time) er
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(cacheDir, ".sync-info.yaml"), data, 0644)
+	return os.WriteFile(filepath.Join(cacheDir, ".sync-info.yaml"), data, 0o644)
 }
 
 // fileExists checks if a path exists.

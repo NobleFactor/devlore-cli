@@ -13,7 +13,7 @@ import (
 
 // chooseUndoState preserves the selected branch's recovery state.
 type chooseUndoState struct {
-	Results map[string]any          // node results for promise re-resolution
+	Results map[string]any            // node results for promise re-resolution
 	Entries []execution.RecoveryEntry // branch node refs + per-node undo state
 }
 
@@ -33,10 +33,10 @@ type Choose struct{}
 func (a *Choose) Name() string { return "flow.choose" }
 
 // Do reads the boolean condition and executes the matching branch phase.
-func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
-	when, _ := slots["when"].(bool)
-	thenPhaseID, _ := slots["then"].(string)
-	elsePhaseID, _ := slots["else"].(string)
+func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+	when, _ := slots["when"].(bool)          //nolint:errcheck // zero value (false) is acceptable default
+	thenPhaseID, _ := slots["then"].(string) //nolint:errcheck // zero value (empty) is acceptable
+	elsePhaseID, _ := slots["else"].(string) //nolint:errcheck // zero value (empty) is acceptable
 
 	var selectedPhaseID string
 	if when {

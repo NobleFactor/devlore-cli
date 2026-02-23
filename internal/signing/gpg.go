@@ -144,7 +144,7 @@ func verifyGPGWithTempFiles(data, sigBytes []byte) error {
 	}
 	defer removeTempFile(sigFile)
 
-	cmd := exec.Command("gpg", "--verify", "--batch", sigFile, dataFile) //nolint:gosec // G204: gpg invocation with validated arguments
+	cmd := exec.CommandContext(context.Background(), "gpg", "--verify", "--batch", sigFile, dataFile) //nolint:gosec // G204: gpg invocation with validated arguments
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 

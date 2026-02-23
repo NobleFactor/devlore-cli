@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package migrate implements dotfile migration analysis and execution.
 package migrate
 
 // SourceSystem identifies the dotfile management approach used in the source repository.

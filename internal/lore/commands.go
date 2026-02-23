@@ -15,11 +15,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -85,10 +85,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 // parseLoreDeployConfig parses flags and arguments into a deploy config.
 func parseLoreDeployConfig(cmd *cobra.Command, args []string) (*loreDeployConfig, error) { //nolint:unparam // error return reserved for future use
-	features, _ := cmd.Flags().GetStringArray("with")   //nolint:errcheck // flag registered by AddCommand
-	knownOnly, _ := cmd.Flags().GetBool("known-only")   //nolint:errcheck // flag registered by AddCommand
-	force, _ := cmd.Flags().GetBool("force")             //nolint:errcheck // flag registered by AddCommand
-	parallel, _ := cmd.Flags().GetInt("parallel")        //nolint:errcheck // flag registered by AddCommand
+	features, _ := cmd.Flags().GetStringArray("with") //nolint:errcheck // flag registered by AddCommand
+	knownOnly, _ := cmd.Flags().GetBool("known-only") //nolint:errcheck // flag registered by AddCommand
+	force, _ := cmd.Flags().GetBool("force")          //nolint:errcheck // flag registered by AddCommand
+	parallel, _ := cmd.Flags().GetInt("parallel")     //nolint:errcheck // flag registered by AddCommand
 
 	cfg := &loreDeployConfig{
 		GlobalFeatures: features,
@@ -496,7 +496,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	loreOnly, _ := cmd.Flags().GetBool("lore-only")     //nolint:errcheck // flag registered by AddCommand
 	nativeOnly, _ := cmd.Flags().GetBool("native-only") //nolint:errcheck // flag registered by AddCommand
-	limit, _ := cmd.Flags().GetInt("limit")              //nolint:errcheck // flag registered by AddCommand
+	limit, _ := cmd.Flags().GetInt("limit")             //nolint:errcheck // flag registered by AddCommand
 
 	// Create registry client
 	regClient, err := lorepackage.NewRegistry()
@@ -630,11 +630,11 @@ environment repository.`,
 func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,gocyclo
 	ctx := cmd.Context()
 
-	source, _ := cmd.Flags().GetString("from")        //nolint:errcheck // flag registered by AddCommand
-	outputDir, _ := cmd.Flags().GetString("output")   //nolint:errcheck // flag registered by AddCommand
-	format, _ := cmd.Flags().GetString("format")      //nolint:errcheck // flag registered by AddCommand
-	verbose, _ := cmd.Flags().GetBool("verbose")      //nolint:errcheck // flag registered by AddCommand
-	explain, _ := cmd.Flags().GetBool("explain")      //nolint:errcheck // flag registered by AddCommand
+	source, _ := cmd.Flags().GetString("from")         //nolint:errcheck // flag registered by AddCommand
+	outputDir, _ := cmd.Flags().GetString("output")    //nolint:errcheck // flag registered by AddCommand
+	format, _ := cmd.Flags().GetString("format")       //nolint:errcheck // flag registered by AddCommand
+	verbose, _ := cmd.Flags().GetBool("verbose")       //nolint:errcheck // flag registered by AddCommand
+	explain, _ := cmd.Flags().GetBool("explain")       //nolint:errcheck // flag registered by AddCommand
 	maxFetches, _ := cmd.Flags().GetInt("max-fetches") //nolint:errcheck // flag registered by AddCommand
 
 	if outputDir == "" {
@@ -720,7 +720,7 @@ func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,goc
 
 	// Write manifest
 	manifestPath := outputDir + "/packages-manifest.yaml"
-	if err := os.WriteFile(manifestPath, []byte(result.Manifest), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(result.Manifest), 0o600); err != nil {
 		return fmt.Errorf("writing manifest: %w", err)
 	}
 

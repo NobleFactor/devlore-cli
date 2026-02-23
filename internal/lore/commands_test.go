@@ -24,7 +24,7 @@ func TestManifestLoad_YAML(t *testing.T) {
   - docker:
       with: [rootless, compose]
 `
-	if err := os.WriteFile(manifestPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,7 +77,7 @@ func TestManifestLoad_JSON(t *testing.T) {
     {"neovim": {"with": ["lsp", "treesitter"]}}
   ]
 }`
-	if err := os.WriteFile(manifestPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -115,7 +115,7 @@ func TestManifestLoad_ManifestExtension(t *testing.T) {
   - terraform:
       with: [aws, gcp]
 `
-	if err := os.WriteFile(manifestPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -142,7 +142,7 @@ func TestManifestLoad_Empty(t *testing.T) {
 	manifestPath := filepath.Join(tmpDir, "empty.yaml")
 
 	content := `packages: []`
-	if err := os.WriteFile(manifestPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

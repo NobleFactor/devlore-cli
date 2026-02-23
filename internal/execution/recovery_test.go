@@ -18,7 +18,7 @@ type testUndoAction struct {
 }
 
 func (a *testUndoAction) Name() string { return a.name }
-func (a *testUndoAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
+func (a *testUndoAction) Do(_ *Context, _ map[string]any) (result Result, undo UndoState, retErr error) {
 	return nil, nil, nil
 }
 func (a *testUndoAction) Undo(state UndoState) error {

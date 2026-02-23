@@ -107,7 +107,7 @@ func DisplayManPage(cmd *cobra.Command, header *doc.GenManHeader) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer func() { os.Remove(tmpFile.Name()) }() //nolint:errcheck // best-effort cleanup
+	defer func() { os.Remove(tmpFile.Name()) }() //nolint:errcheck,gosec // best-effort cleanup; G703: temp file path
 
 	// Generate man page to temp file
 	if err := doc.GenMan(cmd, header, tmpFile); err != nil {

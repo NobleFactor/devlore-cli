@@ -141,19 +141,19 @@ func TestRelease_PhaseActions_LorePackage(t *testing.T) {
 
 	// Create Common/Deploy/install.star
 	commonDeployDir := filepath.Join(pkgDir, "Common", "Deploy")
-	if err := os.MkdirAll(commonDeployDir, 0755); err != nil {
+	if err := os.MkdirAll(commonDeployDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(commonDeployDir, "install.star"), []byte("def install(): pass"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(commonDeployDir, "install.star"), []byte("def install(): pass"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create Darwin/Deploy/install.star
 	darwinDeployDir := filepath.Join(pkgDir, "Darwin", "Deploy")
-	if err := os.MkdirAll(darwinDeployDir, 0755); err != nil {
+	if err := os.MkdirAll(darwinDeployDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(darwinDeployDir, "install.star"), []byte("def install(): pass"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(darwinDeployDir, "install.star"), []byte("def install(): pass"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -164,7 +164,7 @@ description: "Test package"
 platforms:
   - Darwin
 `
-	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

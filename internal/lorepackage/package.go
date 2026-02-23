@@ -120,7 +120,7 @@ func (rel *Release) PhaseActions(platform string, action Action, phase string) [
 	return []PhaseAction{
 		&NativePMAction{
 			Manager:   rel.Source,
-			Command: pmCmd,
+			Command:   pmCmd,
 			Packages:  []string{pkgName},
 			PhaseName: phase,
 		},
@@ -309,7 +309,7 @@ func dirExists(path string) bool {
 //	"wget"             → ("wget", "")
 //
 // Returns (packageName, prefix) where prefix is "brew", "cask", "port", or "" for auto-detect.
-func ParsePackagePrefix(name string) (string, string) {
+func ParsePackagePrefix(name string) (packageName, prefix string) {
 	if strings.HasPrefix(name, "brew:") {
 		return strings.TrimPrefix(name, "brew:"), "brew"
 	}

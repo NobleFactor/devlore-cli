@@ -19,7 +19,7 @@ type Provider struct{}
 // Parameters:
 //   - url: HTTP(S) URL to fetch
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Download(url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 	if err != nil {

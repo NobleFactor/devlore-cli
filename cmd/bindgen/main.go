@@ -72,7 +72,7 @@ func main() {
 		usage()
 
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1]) //nolint:gosec // G705: stderr output, not user-facing HTML
 		usage()
 		os.Exit(1)
 	}
@@ -125,7 +125,7 @@ func cmdParse(command string, subcommands []string) {
 	if len(subcommands) == 0 {
 		discovered, err := parser.ListSubcommands()
 		if err == nil && len(discovered) > 0 {
-			fmt.Fprintf(os.Stderr, "Discovered subcommands: %v\n", discovered)
+			fmt.Fprintf(os.Stderr, "Discovered subcommands: %v\n", discovered) //nolint:gosec // G705: stderr
 			subcommands = discovered
 		}
 	}
@@ -134,16 +134,16 @@ func cmdParse(command string, subcommands []string) {
 	for _, sub := range subcommands {
 		cmd, err := parser.Parse(sub)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to parse %s %s: %v\n", command, sub, err)
+			fmt.Fprintf(os.Stderr, "Warning: failed to parse %s %s: %v\n", command, sub, err) //nolint:gosec // G705: stderr
 			continue
 		}
 		def.Commands[sub] = cmd
-		fmt.Fprintf(os.Stderr, "Parsed %s %s: %d flags\n", command, sub, len(cmd.Flags))
+		fmt.Fprintf(os.Stderr, "Parsed %s %s: %d flags\n", command, sub, len(cmd.Flags)) //nolint:gosec // G705: stderr diagnostic
 	}
 
 	// Output YAML
 	if err := bindgen.SaveYAML(def, "/dev/stdout"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing YAML: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error writing YAML: %v\n", err) //nolint:gosec // G705: stderr diagnostic
 		os.Exit(1)
 	}
 }
@@ -152,7 +152,7 @@ func cmdParse(command string, subcommands []string) {
 func cmdGenerate(yamlPath string) {
 	def, err := bindgen.LoadYAML(yamlPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading %s: %v\n", yamlPath, err)
+		fmt.Fprintf(os.Stderr, "Error loading %s: %v\n", yamlPath, err) //nolint:gosec // G705: stderr diagnostic
 		os.Exit(1)
 	}
 
@@ -165,8 +165,8 @@ func cmdGenerate(yamlPath string) {
 	}
 
 	goPath := def.Name + "_gen.go"
-	if err := os.WriteFile(goPath, []byte(goCode), 0644); err != nil { //nolint:gosec // G705: template output is for code generation
-		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", goPath, err)
+	if err := os.WriteFile(goPath, []byte(goCode), 0o644); err != nil { //nolint:gosec // G306: generated code files need read access
+		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", goPath, err) //nolint:gosec // G705: stderr diagnostic
 		os.Exit(1)
 	}
 	fmt.Printf("Generated %s\n", goPath)
@@ -180,8 +180,8 @@ func cmdGenerate(yamlPath string) {
 	}
 
 	stubPath := def.Name + "_gen.star"
-	if err := os.WriteFile(stubPath, []byte(stubCode), 0644); err != nil { //nolint:gosec // G705: template output is for code generation
-		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", stubPath, err)
+	if err := os.WriteFile(stubPath, []byte(stubCode), 0o644); err != nil { //nolint:gosec // G306: generated code files need read access
+		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", stubPath, err) //nolint:gosec // G705: stderr diagnostic
 		os.Exit(1)
 	}
 	fmt.Printf("Generated %s\n", stubPath)
@@ -200,7 +200,7 @@ func cmdScaffold(command string, subcommands []string) {
 	if len(subcommands) == 0 {
 		discovered, err := parser.ListSubcommands()
 		if err == nil && len(discovered) > 0 {
-			fmt.Fprintf(os.Stderr, "Discovered subcommands: %v\n", discovered)
+			fmt.Fprintf(os.Stderr, "Discovered subcommands: %v\n", discovered) //nolint:gosec // G705: stderr
 			subcommands = discovered
 		}
 	}
@@ -209,11 +209,11 @@ func cmdScaffold(command string, subcommands []string) {
 	for _, sub := range subcommands {
 		cmd, err := parser.Parse(sub)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to parse %s %s: %v\n", command, sub, err)
+			fmt.Fprintf(os.Stderr, "Warning: failed to parse %s %s: %v\n", command, sub, err) //nolint:gosec // G705: stderr
 			continue
 		}
 		def.Commands[sub] = cmd
-		fmt.Fprintf(os.Stderr, "Parsed %s %s: %d flags\n", command, sub, len(cmd.Flags))
+		fmt.Fprintf(os.Stderr, "Parsed %s %s: %d flags\n", command, sub, len(cmd.Flags)) //nolint:gosec // G705: stderr diagnostic
 	}
 
 	if len(def.Commands) == 0 {
@@ -230,7 +230,7 @@ func cmdScaffold(command string, subcommands []string) {
 	}
 
 	goPath := filepath.Join(".", def.Name+"_gen.go")
-	if err := os.WriteFile(goPath, []byte(goCode), 0644); err != nil { //nolint:gosec // G705: template output is for code generation
+	if err := os.WriteFile(goPath, []byte(goCode), 0o644); err != nil { //nolint:gosec // G306: generated code files need read access
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", goPath, err)
 		os.Exit(1)
 	}
@@ -245,7 +245,7 @@ func cmdScaffold(command string, subcommands []string) {
 	}
 
 	stubPath := filepath.Join(".", def.Name+"_gen.star")
-	if err := os.WriteFile(stubPath, []byte(stubCode), 0644); err != nil { //nolint:gosec // G705: template output is for code generation
+	if err := os.WriteFile(stubPath, []byte(stubCode), 0o644); err != nil { //nolint:gosec // G306: generated code files need read access
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", stubPath, err)
 		os.Exit(1)
 	}
@@ -258,7 +258,7 @@ func cmdExtractCobra(sourceDir string, verbose bool) {
 
 	def, err := extractor.ExtractDir(sourceDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error extracting from %s: %v\n", sourceDir, err)
+		fmt.Fprintf(os.Stderr, "Error extracting from %s: %v\n", sourceDir, err) //nolint:gosec // G705: stderr diagnostic
 		os.Exit(1)
 	}
 
@@ -269,7 +269,7 @@ func cmdExtractCobra(sourceDir string, verbose bool) {
 	}
 
 	commands, flags := extractor.Stats()
-	fmt.Fprintf(os.Stderr, "Extracted %d commands, %d flags from %s\n", commands, flags, sourceDir)
+	fmt.Fprintf(os.Stderr, "Extracted %d commands, %d flags from %s\n", commands, flags, sourceDir) //nolint:gosec // G705: stderr diagnostic
 
 	// Output YAML to stdout
 	if err := bindgen.SaveYAML(def, "/dev/stdout"); err != nil {

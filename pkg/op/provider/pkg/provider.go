@@ -32,7 +32,7 @@ type Provider struct {
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Install(packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
 	if len(packages) == 0 {
 		return "", nil, fmt.Errorf("no packages specified")
@@ -65,10 +65,10 @@ func (p *Provider) CompensateInstall(state any) error {
 	if !ok || s == nil {
 		return nil
 	}
-	packages, _ := s["packages"].([]string)           //nolint:errcheck // zero value (nil) is acceptable
+	packages, _ := s["packages"].([]string)                  //nolint:errcheck // zero value (nil) is acceptable
 	alreadyInstalled, _ := s["already_installed"].([]string) //nolint:errcheck // zero value (nil) is acceptable
-	manager, _ := s["manager"].(string)                //nolint:errcheck // zero value (empty) is acceptable
-	cask, _ := s["cask"].(bool)                        //nolint:errcheck // zero value (false) is acceptable
+	manager, _ := s["manager"].(string)                      //nolint:errcheck // zero value (empty) is acceptable
+	cask, _ := s["cask"].(bool)                              //nolint:errcheck // zero value (false) is acceptable
 
 	installed := make(map[string]bool)
 	for _, pkg := range alreadyInstalled {
@@ -96,7 +96,7 @@ func (p *Provider) CompensateInstall(state any) error {
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Upgrade(packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
 	if len(packages) == 0 {
 		return "", nil, fmt.Errorf("no packages specified")
@@ -137,7 +137,7 @@ func (p *Provider) CompensateUpgrade(_ any) error {
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Remove(packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
 	if len(packages) == 0 {
 		return "", nil, fmt.Errorf("no packages specified")
@@ -175,7 +175,7 @@ func (p *Provider) CompensateRemove(state any) error {
 // Parameters:
 //   - manager: Package manager override (empty for auto-detect)
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Update(manager string) (string, error) {
 	pm := resolvePMForInstall(manager)
 	if pm == nil {
@@ -196,7 +196,7 @@ func (p *Provider) Update(manager string) (string, error) {
 // Parameters:
 //   - name: Package name to check
 //
-//+devlore:access=both
+// +devlore:access=both
 func (p *Provider) Installed(name string) (bool, error) {
 	return p.isInstalled(name, ""), nil
 }
@@ -206,7 +206,7 @@ func (p *Provider) Installed(name string) (bool, error) {
 // Parameters:
 //   - name: Package name to check
 //
-//+devlore:access=both
+// +devlore:access=both
 func (p *Provider) NotInstalled(name string) (bool, error) {
 	return !p.isInstalled(name, ""), nil
 }
@@ -217,7 +217,7 @@ func (p *Provider) NotInstalled(name string) (bool, error) {
 //   - name: Package name to check
 //   - version: Minimum version string to compare against
 //
-//+devlore:access=both
+// +devlore:access=both
 func (p *Provider) VersionGTE(name, version string) (bool, error) {
 	current := p.getVersion(name, "")
 	if current == "" {

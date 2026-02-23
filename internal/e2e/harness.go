@@ -52,7 +52,7 @@ import (
 // GetTestProvider returns a provider using devlore's standard configuration.
 // Uses the full resolution chain: CLI flags → env vars → config → keystore → auto-detect → Ollama.
 // Returns nil and an error message if no provider is available (tests should skip).
-func GetTestProvider(ctx context.Context) (model.Provider, string) {
+func GetTestProvider(ctx context.Context) (prov model.Provider, errMsg string) {
 	provider, err := model.EnsureProvider(ctx, false, model.CLIFlags{})
 	if err != nil {
 		return nil, fmt.Sprintf("no provider available: %v", err)
@@ -201,7 +201,7 @@ func (r *TestReport) WriteReport(outDir string) error {
 	if err != nil {
 		return fmt.Errorf("marshaling JSON: %w", err)
 	}
-	if err := os.WriteFile(jsonPath, jsonData, 0o600); err != nil {
+	if err := os.WriteFile(jsonPath, jsonData, 0o600); err != nil { //nolint:gosec // G703: path from test output dir
 		return fmt.Errorf("writing JSON report: %w", err)
 	}
 
@@ -211,14 +211,14 @@ func (r *TestReport) WriteReport(outDir string) error {
 	if err != nil {
 		return fmt.Errorf("marshaling YAML: %w", err)
 	}
-	if err := os.WriteFile(yamlPath, yamlData, 0o600); err != nil {
+	if err := os.WriteFile(yamlPath, yamlData, 0o600); err != nil { //nolint:gosec // G703: path from test output dir
 		return fmt.Errorf("writing YAML report: %w", err)
 	}
 
 	// Write summary markdown
 	summaryPath := filepath.Join(outDir, "summary.md")
 	summary := r.GenerateSummary()
-	if err := os.WriteFile(summaryPath, []byte(summary), 0o600); err != nil {
+	if err := os.WriteFile(summaryPath, []byte(summary), 0o600); err != nil { //nolint:gosec // G703: path from test output directory
 		return fmt.Errorf("writing summary: %w", err)
 	}
 

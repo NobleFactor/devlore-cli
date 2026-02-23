@@ -102,7 +102,7 @@ func (a *AzureKVSigner) Available() bool {
 }
 
 // findAvailableKey returns the first key URL that we can use for signing.
-func (a *AzureKVSigner) findAvailableKey(ctx context.Context, cred *azidentity.DefaultAzureCredential) (string, *azkeys.Client, string, string) {
+func (a *AzureKVSigner) findAvailableKey(ctx context.Context, cred *azidentity.DefaultAzureCredential) (vaultURL string, client *azkeys.Client, keyName, version string) {
 	for _, keyURL := range a.keyURLs {
 		vaultURL, keyName, version, err := parseKeyURL(keyURL)
 		if err != nil || keyName == "" {

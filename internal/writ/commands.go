@@ -23,8 +23,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
@@ -32,6 +30,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -502,7 +502,6 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	return upgradeResultRegenerated
 }
 
-
 // buildUpgradeChain builds the node chain for a multi-action upgrade pipeline.
 func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*op.Node, []op.Edge) {
 	hasDecrypt := hasDecryptAction(actions)
@@ -511,7 +510,7 @@ func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarge
 	var prevNodeID string
 
 	for i, opName := range actions {
-		isLast := (i == len(actions) - 1)
+		isLast := (i == len(actions)-1)
 		nodeID := relTarget
 		if !isLast {
 			nodeID = relTarget + ":" + opName
@@ -695,8 +694,8 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *op.Graph, checkDrift b
 		if isSkippableNode(n) {
 			continue
 		}
-		source, _ := n.GetSlot("source").(string)
-		target, _ := n.GetSlot("path").(string)
+		source, _ := n.GetSlot("source").(string) //nolint:errcheck // zero value (empty) is acceptable
+		target, _ := n.GetSlot("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
 		report.Entries = append(report.Entries, buildNodeEntry(n, source, target, checkDrift))
 	}
 }
@@ -716,9 +715,9 @@ func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
 	entry := reconcile.Entry{
 		RelTarget: n.ID,
 		Source:    source,
-		Target:   target,
-		Project:  n.Project,
-		Action:   n.ActionName(),
+		Target:    target,
+		Project:   n.Project,
+		Action:    n.ActionName(),
 	}
 
 	if _, err := os.Stat(target); os.IsNotExist(err) {
@@ -729,7 +728,6 @@ func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
 	}
 	return entry
 }
-
 
 // reconcileFromView builds a status report from the StateView.
 func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Report {
@@ -745,9 +743,9 @@ func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Re
 		statusEntry := reconcile.Entry{
 			RelTarget: relTarget,
 			Source:    entry.Source,
-			Target:   target,
-			Project:  entry.Project,
-			Action:   entry.LastActionName(),
+			Target:    target,
+			Project:   entry.Project,
+			Action:    entry.LastActionName(),
 		}
 
 		if entry.IsCopied() {
@@ -824,11 +822,11 @@ func outputReconcileJSON(report *reconcile.Report) error {
 	type jsonEntry struct {
 		RelTarget string `json:"rel_target"`
 		Source    string `json:"source"`
-		Target   string `json:"target"`
-		State    string `json:"state"`
-		Project  string `json:"project"`
+		Target    string `json:"target"`
+		State     string `json:"state"`
+		Project   string `json:"project"`
 		Action    string `json:"action"`
-		Message  string `json:"message,omitempty"`
+		Message   string `json:"message,omitempty"`
 	}
 
 	type jsonReport struct {
@@ -1206,7 +1204,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 
 	// Create destination directory
 	destDir := filepath.Dir(destPath)
-	if _, err := fp.Mkdir(destDir, 0755); err != nil {
+	if _, err := fp.Mkdir(destDir, 0o755); err != nil {
 		return 0, fmt.Errorf("creating directory %s: %w", destDir, err)
 	}
 

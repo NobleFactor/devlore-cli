@@ -12,8 +12,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // MigratedMarker records what was done during execution.
@@ -96,8 +96,8 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 	var renames []Rename
 	for _, node := range graph.Nodes {
 		if node.ActionName() == "file.move" {
-			source, _ := node.GetSlot("source").(string)
-			target, _ := node.GetSlot("path").(string)
+			source, _ := node.GetSlot("source").(string) //nolint:errcheck // zero value (empty) is acceptable
+			target, _ := node.GetSlot("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
 			renames = append(renames, Rename{From: source, To: target})
 		}
 	}
@@ -112,7 +112,7 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 	if err != nil {
 		return fmt.Errorf("marshal marker: %w", err)
 	}
-	if err := os.WriteFile(markerPath, data, 0644); err != nil {
+	if err := os.WriteFile(markerPath, data, 0o600); err != nil {
 		return fmt.Errorf("write marker: %w", err)
 	}
 	return nil

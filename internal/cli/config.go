@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -343,7 +344,7 @@ func configEdit(path string, defaultConfig []byte) error {
 		editor = "vi"
 	}
 
-	cmd := exec.Command(editor, path)
+	cmd := exec.CommandContext(context.Background(), editor, path) //nolint:gosec // G204: editor from EDITOR/VISUAL env var
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -370,7 +371,7 @@ func configValidate(path string, schemaBytes []byte) error {
 	}
 
 	// Basic validation: check for unknown keys
-	properties, _ := schema["properties"].(map[string]interface{})
+	properties, _ := schema["properties"].(map[string]interface{}) //nolint:errcheck // zero value (nil) is acceptable
 	if properties == nil {
 		properties = make(map[string]interface{})
 	}
@@ -620,7 +621,7 @@ func schemaTypeForKey(schemaBytes []byte, key string) (string, bool) {
 	current := schema
 
 	for i, part := range parts {
-		properties, _ := current["properties"].(map[string]interface{})
+		properties, _ := current["properties"].(map[string]interface{}) //nolint:errcheck // zero value (nil) is acceptable
 
 		prop, inProperties := properties[part].(map[string]interface{})
 		if !inProperties {

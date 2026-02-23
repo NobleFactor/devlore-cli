@@ -62,7 +62,7 @@ func TestBuild(t *testing.T) {
 	}
 
 	for _, d := range dirs {
-		if err := os.MkdirAll(filepath.Join(tmpDir, d), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(tmpDir, d), 0o755); err != nil {
 			t.Fatalf("failed to create dir %s: %v", d, err)
 		}
 	}
@@ -79,10 +79,10 @@ func TestBuild(t *testing.T) {
 
 	for path, content := range files {
 		fullPath := filepath.Join(tmpDir, path)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			t.Fatalf("failed to create dir for %s: %v", path, err)
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
 			t.Fatalf("failed to write %s: %v", path, err)
 		}
 	}
@@ -154,18 +154,18 @@ func TestBuildWithCollisions(t *testing.T) {
 	}
 
 	for _, d := range dirs {
-		if err := os.MkdirAll(filepath.Join(tmpDir, d), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(tmpDir, d), 0o755); err != nil {
 			t.Fatalf("failed to create dir %s: %v", d, err)
 		}
 	}
 
 	// Create the same file in both directories
 	// all/.bashrc (less specific)
-	if err := os.WriteFile(filepath.Join(tmpDir, "all", ".bashrc"), []byte("generic"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "all", ".bashrc"), []byte("generic"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// all.Darwin/.bashrc (more specific - should win)
-	if err := os.WriteFile(filepath.Join(tmpDir, "all.Darwin", ".bashrc"), []byte("darwin specific"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "all.Darwin", ".bashrc"), []byte("darwin specific"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -325,18 +325,18 @@ func TestBuildMultiSource(t *testing.T) {
 	targetDir := t.TempDir()
 
 	// Create project in base layer
-	if err := os.MkdirAll(filepath.Join(baseDir, "all"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(baseDir, "all"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(baseDir, "all", ".bashrc"), []byte("base bashrc"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(baseDir, "all", ".bashrc"), []byte("base bashrc"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create project in personal layer with different file
-	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(personalDir, "all", ".zshrc"), []byte("personal zshrc"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(personalDir, "all", ".zshrc"), []byte("personal zshrc"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -387,17 +387,17 @@ func TestBuildMultiSourceLayerPrecedence(t *testing.T) {
 	targetDir := t.TempDir()
 
 	// Create same file in both layers
-	if err := os.MkdirAll(filepath.Join(baseDir, "all"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(baseDir, "all"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(baseDir, "all", ".bashrc"), []byte("base bashrc"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(baseDir, "all", ".bashrc"), []byte("base bashrc"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(personalDir, "all", ".bashrc"), []byte("personal bashrc"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(personalDir, "all", ".bashrc"), []byte("personal bashrc"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -459,18 +459,18 @@ func TestBuildMultiSourceSpecificityWithinLayer(t *testing.T) {
 	targetDir := t.TempDir()
 
 	// Create all (specificity 0) and all.Darwin (specificity 1)
-	if err := os.MkdirAll(filepath.Join(layerDir, "all"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(layerDir, "all"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(layerDir, "all.Darwin"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(layerDir, "all.Darwin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	// Same file in both
-	if err := os.WriteFile(filepath.Join(layerDir, "all", ".bashrc"), []byte("generic"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(layerDir, "all", ".bashrc"), []byte("generic"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(layerDir, "all.Darwin", ".bashrc"), []byte("darwin"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(layerDir, "all.Darwin", ".bashrc"), []byte("darwin"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -526,18 +526,18 @@ func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
 	targetDir := t.TempDir()
 
 	// Base layer with high specificity (all.Darwin)
-	if err := os.MkdirAll(filepath.Join(baseDir, "all.Darwin"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(baseDir, "all.Darwin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(baseDir, "all.Darwin", ".bashrc"), []byte("base darwin"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(baseDir, "all.Darwin", ".bashrc"), []byte("base darwin"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Personal layer with low specificity (all)
-	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(personalDir, "all"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(personalDir, "all", ".bashrc"), []byte("personal generic"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(personalDir, "all", ".bashrc"), []byte("personal generic"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -138,7 +138,7 @@ func (a *NativePMAction) Merge(other *NativePMAction) *NativePMAction {
 
 	return &NativePMAction{
 		Manager:   a.Manager,
-		Command: a.Command,
+		Command:   a.Command,
 		Packages:  packages,
 		PhaseName: a.PhaseName,
 	}

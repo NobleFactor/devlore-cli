@@ -355,20 +355,20 @@ func TestGraphLifecycle(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcDir := filepath.Join(tmpDir, "src")
 	dstDir := filepath.Join(tmpDir, "dst")
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create source files
 	srcLink := filepath.Join(srcDir, "config.txt")
 	srcCopy := filepath.Join(srcDir, "data.txt")
-	if err := os.WriteFile(srcLink, []byte("link content"), 0644); err != nil {
+	if err := os.WriteFile(srcLink, []byte("link content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(srcCopy, []byte("copy content"), 0644); err != nil {
+	if err := os.WriteFile(srcCopy, []byte("copy content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -394,7 +394,7 @@ func TestGraphLifecycle(t *testing.T) {
 	}
 	copyNode.SetSlotImmediate("content", copyContent)
 	copyNode.SetSlotImmediate("path", filepath.Join(dstDir, "data.txt"))
-	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
+	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	graph := &op.Graph{
 		Version:   "1",
@@ -439,7 +439,7 @@ func TestGraphLifecycle(t *testing.T) {
 	}
 	for _, n := range loaded.Nodes {
 		if n.ActionName() == "file.copy" {
-			n.SetSlotImmediate("mode", os.FileMode(0644))
+			n.SetSlotImmediate("mode", os.FileMode(0o644))
 			n.SetSlotImmediate("content", copyContent)
 		}
 	}
@@ -477,17 +477,17 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcDir := filepath.Join(tmpDir, "src")
 	dstDir := filepath.Join(tmpDir, "dst")
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create template source
 	tmplContent := []byte("Hello {{.Username}}!")
 	tmplPath := filepath.Join(srcDir, "greeting.tmpl")
-	if err := os.WriteFile(tmplPath, tmplContent, 0644); err != nil {
+	if err := os.WriteFile(tmplPath, tmplContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -522,7 +522,7 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 		Status: op.StatusPending,
 	}
 	copyNode.SetSlotImmediate("path", dstPath)
-	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
+	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
 	// Content flows from render → copy via promise slot
 	copyNode.SetSlotPromise("content", "greeting:render", "")
 
@@ -574,7 +574,7 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 		case "template.render":
 			n.SetSlotImmediate("template_data", map[string]any{"Username": "david"})
 		case "file.copy":
-			n.SetSlotImmediate("mode", os.FileMode(0644))
+			n.SetSlotImmediate("mode", os.FileMode(0o644))
 		}
 	}
 

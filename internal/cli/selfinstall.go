@@ -282,7 +282,7 @@ func installBinary(root, name string) (string, error) {
 	}
 
 	// Make executable
-	if err := os.Chmod(targetPath, 0o750); err != nil {
+	if err := os.Chmod(targetPath, 0o750); err != nil { //nolint:gosec // G302: binary must be executable
 		return "", fmt.Errorf("failed to make executable: %w", err)
 	}
 

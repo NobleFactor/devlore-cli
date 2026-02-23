@@ -33,7 +33,7 @@ func TestResolveWithConfidence_LoreRelease(t *testing.T) {
 	// Create a temporary registry with a lore package
 	tmpDir := t.TempDir()
 	pkgDir := filepath.Join(tmpDir, "packages", "testpkg")
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -45,7 +45,7 @@ platforms:
   - Darwin
   - Linux
 `
-	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycleYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -68,7 +68,7 @@ platforms:
 func TestResolveWithConfidence_NativePackage(t *testing.T) {
 	// Create an empty registry (no lore packages)
 	tmpDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(tmpDir, "packages"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, "packages"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -99,7 +99,7 @@ func TestSearchLore(t *testing.T) {
 
 	// Create docker package
 	dockerDir := filepath.Join(packagesDir, "docker")
-	if err := os.MkdirAll(dockerDir, 0755); err != nil {
+	if err := os.MkdirAll(dockerDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	dockerYAML := `name: docker
@@ -107,13 +107,13 @@ version: "24.0"
 description: "Container runtime"
 platforms: [Darwin, Linux, Windows]
 `
-	if err := os.WriteFile(filepath.Join(dockerDir, "lifecycle.yaml"), []byte(dockerYAML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dockerDir, "lifecycle.yaml"), []byte(dockerYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create kubectl package
 	kubectlDir := filepath.Join(packagesDir, "kubectl")
-	if err := os.MkdirAll(kubectlDir, 0755); err != nil {
+	if err := os.MkdirAll(kubectlDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	kubectlYAML := `name: kubectl
@@ -121,7 +121,7 @@ version: "1.28"
 description: "Kubernetes CLI"
 platforms: [Darwin, Linux, Windows]
 `
-	if err := os.WriteFile(filepath.Join(kubectlDir, "lifecycle.yaml"), []byte(kubectlYAML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(kubectlDir, "lifecycle.yaml"), []byte(kubectlYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,11 +187,11 @@ func TestListPackages(t *testing.T) {
 
 	for _, pkg := range packages {
 		pkgDir := filepath.Join(packagesDir, pkg.name)
-		if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		yaml := "name: " + pkg.name + "\nversion: \"" + pkg.version + "\"\ndescription: \"" + pkg.description + "\"\nplatforms: [Darwin]\n"
-		if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(yaml), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(yaml), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

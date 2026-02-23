@@ -18,7 +18,7 @@ type Provider struct{}
 // Parameters:
 //   - source: Path to the encrypted file (enables format detection)
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error) {
 	if decryptor == nil {
 		return nil, fmt.Errorf("no decryptor configured")

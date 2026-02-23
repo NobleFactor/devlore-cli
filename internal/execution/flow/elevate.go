@@ -16,7 +16,7 @@ func (a *Elevate) Name() string { return "flow.elevate" }
 
 // Do acquires elevated privilege. Stub implementation — full sudo/privilege
 // integration is a separate plan.
-func (a *Elevate) Do(_ *execution.Context, _ map[string]any) (execution.Result, execution.UndoState, error) {
+func (a *Elevate) Do(_ *execution.Context, _ map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
 	// Stub: privilege acquisition will be wired when the privilege model is
 	// implemented. For now this is a passthrough that makes privilege
 	// boundaries visible in the graph.

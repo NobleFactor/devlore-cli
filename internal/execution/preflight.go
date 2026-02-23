@@ -37,7 +37,7 @@ type Conflict struct {
 // PreflightResult contains the results of pre-flight conflict detection.
 type PreflightResult struct {
 	Conflicts   []Conflict
-	AlreadyDone []Conflict               // Symlinks that already point correctly
+	AlreadyDone []Conflict // Symlinks that already point correctly
 	Ready       []*op.Node // Nodes ready to deploy (no conflict)
 }
 
@@ -75,7 +75,7 @@ func Preflight(graph *op.Graph) *PreflightResult {
 // nodeWritesToTarget returns true if the node's action produces a file at
 // node's "path" slot (link or copy).
 func nodeWritesToTarget(node *op.Node) bool {
-	path, _ := node.GetSlot("path").(string)
+	path, _ := node.GetSlot("path").(string) //nolint:errcheck // zero value (empty) is acceptable
 	if path == "" {
 		return false
 	}
@@ -84,7 +84,7 @@ func nodeWritesToTarget(node *op.Node) bool {
 
 // detectConflict checks if a target path has a conflict.
 func detectConflict(node *op.Node) Conflict {
-	path, _ := node.GetSlot("path").(string)
+	path, _ := node.GetSlot("path").(string) //nolint:errcheck // zero value (empty) is acceptable
 	if path == "" {
 		return Conflict{Node: node, Type: ConflictNone}
 	}
@@ -119,7 +119,7 @@ func detectConflict(node *op.Node) Conflict {
 			}
 		}
 
-		source, _ := node.GetSlot("source").(string)
+		source, _ := node.GetSlot("source").(string) //nolint:errcheck // zero value (empty) is acceptable
 		if linkTarget == source {
 			return Conflict{
 				Node:         node,

@@ -20,8 +20,8 @@ type gatherUndoState struct {
 
 // iterationUndo captures one gather iteration's undo state.
 type iterationUndo struct {
-	ProxyCtx map[string]any          // {gatherID: item} for slot re-resolution
-	Results  map[string]any          // node results for promise re-resolution
+	ProxyCtx map[string]any            // {gatherID: item} for slot re-resolution
+	Results  map[string]any            // node results for promise re-resolution
 	Entries  []execution.RecoveryEntry // shared node refs + per-node undo state
 }
 
@@ -41,7 +41,7 @@ type Gather struct{}
 func (a *Gather) Name() string { return "flow.gather" }
 
 // Do executes the referenced phase once per item, with per-iteration isolation.
-func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
+func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
 	items, err := extractItems(slots)
 	if err != nil {
 		return nil, nil, err
@@ -72,9 +72,9 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 	gatherID := ctx.NodeID
 
 	type iterOutcome struct {
-		result  any
-		undo    iterationUndo
-		err     error
+		result any
+		undo   iterationUndo
+		err    error
 	}
 	outcomes := make([]iterOutcome, len(items))
 

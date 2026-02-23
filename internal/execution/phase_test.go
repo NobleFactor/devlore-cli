@@ -124,7 +124,7 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 	sources := make(map[string]string)
 	for _, name := range []string{"probe.txt", "pkg.txt", "config.txt", "verify.txt"} {
 		path := filepath.Join(tmpDir, "src-"+name)
-		if err := os.WriteFile(path, []byte("content-"+name), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("content-"+name), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		sources[name] = path
@@ -202,15 +202,15 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 	// Create source files for phases 1 and 2 (these succeed)
 	src1 := filepath.Join(tmpDir, "src1.txt")
 	src2 := filepath.Join(tmpDir, "src2.txt")
-	if err := os.WriteFile(src1, []byte("a"), 0644); err != nil {
+	if err := os.WriteFile(src1, []byte("a"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(src2, []byte("b"), 0644); err != nil {
+	if err := os.WriteFile(src2, []byte("b"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	compensateSrc := filepath.Join(tmpDir, "compensate.txt")
-	if err := os.WriteFile(compensateSrc, []byte("c"), 0644); err != nil {
+	if err := os.WriteFile(compensateSrc, []byte("c"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -333,7 +333,7 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	src := filepath.Join(tmpDir, "src.txt")
-	if err := os.WriteFile(src, []byte("content"), 0644); err != nil {
+	if err := os.WriteFile(src, []byte("content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -350,7 +350,7 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 				return fmt.Errorf("transient failure")
 			}
 			// Create the file on retry
-			return os.WriteFile(delayedSrc, []byte("ok"), 0644)
+			return os.WriteFile(delayedSrc, []byte("ok"), 0o644)
 		},
 	}
 
@@ -407,7 +407,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	src := filepath.Join(tmpDir, "src.txt")
-	if err := os.WriteFile(src, []byte("content"), 0644); err != nil {
+	if err := os.WriteFile(src, []byte("content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -474,7 +474,7 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	if err := os.WriteFile(source, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -577,7 +577,7 @@ type testRetryAction struct {
 }
 
 func (o *testRetryAction) Name() string { return o.name }
-func (o *testRetryAction) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+func (o *testRetryAction) Do(ctx *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
 	return nil, nil, o.fn(ctx, slots)
 }
 func (o *testRetryAction) Undo(_ execution.UndoState) error {

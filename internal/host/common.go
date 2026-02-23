@@ -4,6 +4,7 @@
 package host
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"runtime"
@@ -20,9 +21,9 @@ func detectArch() string {
 func runShellCommand(command string, sudo bool) Result {
 	var cmd *exec.Cmd
 	if sudo {
-		cmd = exec.Command("sudo", "bash", "-c", command) //nolint:gosec // G204: shell command from internal caller
+		cmd = exec.CommandContext(context.Background(), "sudo", "bash", "-c", command) //nolint:gosec // G204: shell command from internal caller
 	} else {
-		cmd = exec.Command("bash", "-c", command) //nolint:gosec // G204: shell command from internal caller
+		cmd = exec.CommandContext(context.Background(), "bash", "-c", command) //nolint:gosec // G204: shell command from internal caller
 	}
 
 	var stdout, stderr strings.Builder

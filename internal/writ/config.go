@@ -202,8 +202,8 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	cfg.Verbose = viper.GetBool("writ.verbose")
 
 	// Adopt-specific flags
-	cfg.Layer, _ = cmd.Flags().GetString("layer")           //nolint:errcheck // flag registered by AddCommand
-	cfg.Project, _ = cmd.Flags().GetString("project")       //nolint:errcheck // flag registered by AddCommand
+	cfg.Layer, _ = cmd.Flags().GetString("layer")            //nolint:errcheck // flag registered by AddCommand
+	cfg.Project, _ = cmd.Flags().GetString("project")        //nolint:errcheck // flag registered by AddCommand
 	cfg.FromReceipt, _ = cmd.Flags().GetBool("from-receipt") //nolint:errcheck // flag registered by AddCommand
 
 	// Skip validation for --from-receipt mode

@@ -51,7 +51,6 @@ func testNode(id string, action op.Action, source, path string) *op.Node {
 	return node
 }
 
-
 func TestRegistryRegisterAndGet(t *testing.T) {
 	reg := execution.NewActionRegistry()
 	file.Register(reg)
@@ -117,7 +116,7 @@ func TestLinkAction(t *testing.T) {
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
 
-	if err := os.WriteFile(source, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +145,7 @@ func TestLinkActionIdempotent(t *testing.T) {
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
 
-	if err := os.WriteFile(source, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(source, target); err != nil {
@@ -175,7 +174,7 @@ func TestCopyAction(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("content", []byte("file content"))
 	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("mode", os.FileMode(0644))
+	node.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("copy: %v", err)
@@ -200,7 +199,7 @@ func TestCopyActionCreatesParentDirs(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("content", []byte("nested content"))
 	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("mode", os.FileMode(0644))
+	node.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("copy with nested dirs: %v", err)
@@ -220,7 +219,7 @@ func TestRenderAction(t *testing.T) {
 	source := filepath.Join(tmpDir, "template.txt")
 	target := filepath.Join(tmpDir, "output.txt")
 	templateContent := "# Shell: {{.Shell}}\n# User: {{.Username}}\n# Project: {{.Project}}"
-	if err := os.WriteFile(source, []byte(templateContent), 0644); err != nil {
+	if err := os.WriteFile(source, []byte(templateContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -252,7 +251,7 @@ func TestRenderAction(t *testing.T) {
 func TestDecryptAction(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "secret.txt")
-	if err := os.WriteFile(source, []byte("encrypted-data"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("encrypted-data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -299,7 +298,7 @@ func TestUnlinkAction(t *testing.T) {
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "link.txt")
 
-	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(source, target); err != nil {
@@ -326,7 +325,7 @@ func TestUnlinkAction(t *testing.T) {
 func TestRemoveAction(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "file.txt")
-	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+	if err := os.WriteFile(target, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -358,7 +357,7 @@ func TestWriteAction(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
-	node.SetSlotImmediate("mode", os.FileMode(0644))
+	node.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("write: %v", err)
@@ -384,7 +383,7 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
-	node.SetSlotImmediate("mode", os.FileMode(0644))
+	node.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("write: %v", err)
@@ -401,7 +400,7 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 
 func TestWriteRequiresContent(t *testing.T) {
 	p := &file.Provider{}
-	_, _, err := p.Write("", "/tmp/test.txt", os.FileMode(0644))
+	_, _, err := p.Write("", "/tmp/test.txt", os.FileMode(0o644))
 	if err == nil {
 		t.Fatal("expected error when content is empty")
 	}
@@ -420,7 +419,7 @@ func TestWriteDryRun(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", "test")
-	node.SetSlotImmediate("mode", os.FileMode(0644))
+	node.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("write dry-run: %v", err)
@@ -435,7 +434,7 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	if err := os.WriteFile(source, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -471,7 +470,7 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 	target := filepath.Join(tmpDir, "output.txt")
 
 	templateContent := []byte("Hello {{.Username}}!")
-	if err := os.WriteFile(source, templateContent, 0644); err != nil {
+	if err := os.WriteFile(source, templateContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -487,7 +486,7 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 	renderNode.SetSlotImmediate("template_data", map[string]any{"Username": "david"})
 	renderNode.SetSlotImmediate("project", "")
 	copyNode := testNode(".greeting", &file.Copy{Impl: fp}, "", target)
-	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
+	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
 	// Content flows from render to copy via promise slot
 	copyNode.SetSlotPromise("content", ".greeting:render", "")
 	graph := &op.Graph{
@@ -519,7 +518,7 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 	target := filepath.Join(tmpDir, "secret.txt")
 
 	encryptedContent := []byte("encrypted:token={{.Token}}")
-	if err := os.WriteFile(source, encryptedContent, 0644); err != nil {
+	if err := os.WriteFile(source, encryptedContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -547,7 +546,7 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 	// Content flows from decrypt to render via promise slot
 	renderNode.SetSlotPromise("content", ".secret:decrypt", "")
 	copyNode := testNode(".secret", &file.Copy{Impl: fp}, "", target)
-	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
+	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
 	// Content flows from render to copy via promise slot
 	copyNode.SetSlotPromise("content", ".secret:render", "")
 
@@ -585,10 +584,10 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 	source2 := filepath.Join(tmpDir, "src2.txt")
 	target2 := filepath.Join(tmpDir, "sub", "tgt2.txt")
 
-	if err := os.WriteFile(source1, []byte("file1"), 0644); err != nil {
+	if err := os.WriteFile(source1, []byte("file1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(source2, []byte("file2"), 0644); err != nil {
+	if err := os.WriteFile(source2, []byte("file2"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -637,13 +636,13 @@ func TestEngineTopologicalSort(t *testing.T) {
 	srcA := filepath.Join(tmpDir, "a.txt")
 	srcB := filepath.Join(tmpDir, "b.txt")
 	srcC := filepath.Join(tmpDir, "c.txt")
-	if err := os.WriteFile(srcA, []byte("a"), 0644); err != nil {
+	if err := os.WriteFile(srcA, []byte("a"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(srcB, []byte("b"), 0644); err != nil {
+	if err := os.WriteFile(srcB, []byte("b"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(srcC, []byte("c"), 0644); err != nil {
+	if err := os.WriteFile(srcC, []byte("c"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -684,7 +683,7 @@ func TestEngineDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	if err := os.WriteFile(source, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -715,7 +714,7 @@ func TestPreflightNoConflict(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt") // Doesn't exist
-	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -738,10 +737,10 @@ func TestPreflightConflictRegularFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(target, []byte("existing"), 0644); err != nil { // Conflict!
+	if err := os.WriteFile(target, []byte("existing"), 0o644); err != nil { // Conflict!
 		t.Fatal(err)
 	}
 
@@ -764,7 +763,7 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	target := filepath.Join(tmpDir, "target.txt")
-	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(source, target); err != nil { // Already correct
@@ -789,7 +788,7 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 func TestBackupAction(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "file.txt")
-	if err := os.WriteFile(target, []byte("original"), 0644); err != nil {
+	if err := os.WriteFile(target, []byte("original"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -874,11 +873,11 @@ func TestRemoveActionPrunesEmptyDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Create nested structure: tmpDir/a/b/c/file.txt
 	nested := filepath.Join(tmpDir, "a", "b", "c")
-	if err := os.MkdirAll(nested, 0755); err != nil {
+	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(nested, "file.txt")
-	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+	if err := os.WriteFile(target, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -914,15 +913,15 @@ func TestRemoveActionPruneStopsAtNonEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Create nested structure: tmpDir/a/b/file.txt and tmpDir/a/other.txt
 	nested := filepath.Join(tmpDir, "a", "b")
-	if err := os.MkdirAll(nested, 0755); err != nil {
+	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(nested, "file.txt")
 	other := filepath.Join(tmpDir, "a", "other.txt")
-	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+	if err := os.WriteFile(target, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(other, []byte("keep"), 0644); err != nil {
+	if err := os.WriteFile(other, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -960,10 +959,10 @@ func TestUnlinkActionPrunesEmptyDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "source.txt")
 	nested := filepath.Join(tmpDir, "a", "b")
-	if err := os.MkdirAll(nested, 0755); err != nil {
+	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(source, []byte("x"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(nested, "link.txt")
@@ -1046,7 +1045,7 @@ func TestMoveAction(t *testing.T) {
 	source := filepath.Join(tmpDir, "original.txt")
 	target := filepath.Join(tmpDir, "moved.txt")
 
-	if err := os.WriteFile(source, []byte("move me"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("move me"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1082,7 +1081,7 @@ func TestMoveActionCreatesParentDirs(t *testing.T) {
 	source := filepath.Join(tmpDir, "original.txt")
 	target := filepath.Join(tmpDir, "deep", "nested", "moved.txt")
 
-	if err := os.WriteFile(source, []byte("nested move"), 0644); err != nil {
+	if err := os.WriteFile(source, []byte("nested move"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1156,8 +1155,8 @@ func TestMkdirActionDefaultMode(t *testing.T) {
 	if !info.IsDir() {
 		t.Error("expected directory")
 	}
-	if info.Mode().Perm() != 0755 {
-		t.Errorf("expected default mode 0755, got %04o", info.Mode().Perm())
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("expected default mode 0o755, got %04o", info.Mode().Perm())
 	}
 }
 
@@ -1166,7 +1165,7 @@ func TestSourceAction(t *testing.T) {
 	source := filepath.Join(tmpDir, "data.txt")
 	content := "source file content"
 
-	if err := os.WriteFile(source, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(source, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1193,11 +1192,11 @@ func TestSourceAction(t *testing.T) {
 func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 	tmpDir := t.TempDir()
 	nested := filepath.Join(tmpDir, "a", "b")
-	if err := os.MkdirAll(nested, 0755); err != nil {
+	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(nested, "file.txt")
-	if err := os.WriteFile(target, []byte("data"), 0644); err != nil {
+	if err := os.WriteFile(target, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

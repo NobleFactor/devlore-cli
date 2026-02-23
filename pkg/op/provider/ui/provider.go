@@ -3,7 +3,7 @@
 
 // Package ui provides user-facing terminal messaging for the operation graph.
 //
-//+devlore:access=immediate
+// +devlore:access=immediate
 package ui
 
 import (

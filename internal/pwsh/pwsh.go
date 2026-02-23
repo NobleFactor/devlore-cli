@@ -128,7 +128,7 @@ func New() (*Session, error) {
 	}
 
 	// Start PowerShell with no profile for clean environment
-	cmd := exec.Command(pwshPath, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-") //nolint:gosec // G204: PowerShell path resolved from system
+	cmd := exec.CommandContext(context.Background(), pwshPath, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-") //nolint:gosec // G204: PowerShell path resolved from system
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -353,7 +353,7 @@ func Version() (string, error) {
 		return "", err
 	}
 
-	cmd := exec.Command(pwshPath, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()") //nolint:gosec // G204: PowerShell path resolved from system
+	cmd := exec.CommandContext(context.Background(), pwshPath, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()") //nolint:gosec // G204: PowerShell path resolved from system
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

@@ -171,14 +171,14 @@ type discoveryResult struct {
 }
 
 // fetchContent fetches content from a URL or file.
-func fetchContent(ctx context.Context, source string) (content string, sourceURL string, err error) {
+func fetchContent(ctx context.Context, source string) (content, sourceURL string, err error) {
 	// Check if it's a URL
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil) //nolint:gosec // G107: URL from config
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, http.NoBody) //nolint:gosec // G107: URL from config
 		if err != nil {
 			return "", "", err
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: URL from user-provided source input
 		if err != nil {
 			return "", "", err
 		}
@@ -307,7 +307,7 @@ func parseDocuments(ctx context.Context, opts Options, docs []documentContent) (
 }
 
 // generateManifest creates a packages-manifest.yaml from discovery and slots.
-func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, format string) string { //nolint:gocognit,gocyclo
+func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ string) string { //nolint:gocognit,gocyclo
 	var sb strings.Builder
 
 	if discovery.Product != nil {

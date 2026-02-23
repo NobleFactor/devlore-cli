@@ -16,9 +16,9 @@ import (
 // createTestGraph creates a minimal test graph for receipt testing.
 func createTestGraph() *op.Graph {
 	node := &op.Node{
-		ID:         ".bashrc",
+		ID:     ".bashrc",
 		Action: op.StubAction("file.link"),
-		Status:     op.StatusCompleted,
+		Status: op.StatusCompleted,
 	}
 	node.SetSlotImmediate("source", "/home/user/env/.bashrc")
 	node.SetSlotImmediate("path", "/home/user/.bashrc")

@@ -13,10 +13,10 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 func newMigrateCmd() *cobra.Command {
@@ -85,14 +85,14 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("source root %s is not a directory", sourceRoot)
 	}
 
-	dryRun, _ := cmd.Root().Flags().GetBool("dry-run")               //nolint:errcheck // flag registered above
-	nonInteractive, _ := cmd.Flags().GetBool("non-interactive")       //nolint:errcheck // flag registered above
-	useMove, _ := cmd.Flags().GetBool("move")                         //nolint:errcheck // flag registered above
-	layer, _ := cmd.Flags().GetString("layer")                        //nolint:errcheck // flag registered above
-	format, _ := cmd.Flags().GetString("format")                      //nolint:errcheck // flag registered above
-	verbose, _ := cmd.Root().Flags().GetBool("verbose")               //nolint:errcheck // flag registered above
-	treeDepth, _ := cmd.Flags().GetInt("tree-depth")                  //nolint:errcheck // flag registered above
-	scriptBudget, _ := cmd.Flags().GetInt("script-budget")            //nolint:errcheck // flag registered above
+	dryRun, _ := cmd.Root().Flags().GetBool("dry-run")          //nolint:errcheck // flag registered above
+	nonInteractive, _ := cmd.Flags().GetBool("non-interactive") //nolint:errcheck // flag registered above
+	useMove, _ := cmd.Flags().GetBool("move")                   //nolint:errcheck // flag registered above
+	layer, _ := cmd.Flags().GetString("layer")                  //nolint:errcheck // flag registered above
+	format, _ := cmd.Flags().GetString("format")                //nolint:errcheck // flag registered above
+	verbose, _ := cmd.Root().Flags().GetBool("verbose")         //nolint:errcheck // flag registered above
+	treeDepth, _ := cmd.Flags().GetInt("tree-depth")            //nolint:errcheck // flag registered above
+	scriptBudget, _ := cmd.Flags().GetInt("script-budget")      //nolint:errcheck // flag registered above
 
 	// Validate layer
 	if layer != "personal" && layer != "team" && layer != "base" {
@@ -287,7 +287,7 @@ func clearExistingLayer(layerDir string, verbose bool) error {
 func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 	fp := &file.Provider{}
 
-	if _, err := fp.Mkdir(filepath.Dir(layerDir), 0755); err != nil {
+	if _, err := fp.Mkdir(filepath.Dir(layerDir), 0o755); err != nil {
 		return err
 	}
 	if err := clearExistingLayer(layerDir, verbose); err != nil {
@@ -305,7 +305,7 @@ func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 	fp := &file.Provider{}
 
-	if _, err := fp.Mkdir(filepath.Dir(layerDir), 0755); err != nil {
+	if _, err := fp.Mkdir(filepath.Dir(layerDir), 0o755); err != nil {
 		return err
 	}
 	if err := clearExistingLayer(layerDir, verbose); err != nil {

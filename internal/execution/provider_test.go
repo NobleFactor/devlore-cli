@@ -394,7 +394,7 @@ func createTarGz(t *testing.T, dir string, files map[string]string) string {
 	for name, content := range files {
 		hdr := &tar.Header{
 			Name: name,
-			Mode: 0644,
+			Mode: 0o644,
 			Size: int64(len(content)),
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
@@ -438,10 +438,10 @@ func TestArchiveExtractTarGz(t *testing.T) {
 	tmpDir := t.TempDir()
 	archiveDir := filepath.Join(tmpDir, "archives")
 	extractDir := filepath.Join(tmpDir, "extracted")
-	if err := os.MkdirAll(archiveDir, 0755); err != nil {
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(extractDir, 0755); err != nil {
+	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -483,10 +483,10 @@ func TestArchiveExtractZip(t *testing.T) {
 	tmpDir := t.TempDir()
 	archiveDir := filepath.Join(tmpDir, "archives")
 	extractDir := filepath.Join(tmpDir, "extracted")
-	if err := os.MkdirAll(archiveDir, 0755); err != nil {
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(extractDir, 0755); err != nil {
+	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 

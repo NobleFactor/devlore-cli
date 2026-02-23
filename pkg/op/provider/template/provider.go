@@ -22,7 +22,7 @@ type Provider struct{}
 //   - path: Target file path (available as .Target in the template)
 //   - project: Project name (available as .Project in the template)
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error) {
 	tmpl, err := template.New("render").Parse(string(content))
 	if err != nil {

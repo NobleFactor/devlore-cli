@@ -49,7 +49,7 @@ func (r *HookRegistry) FireNodeComplete(ctx *Context, nodeID string, result Resu
 	}
 	for _, h := range r.hooks {
 		func() {
-			defer func() { recover() }()
+			defer func() { recover() }() //nolint:errcheck // intentional panic recovery
 			h.OnNodeComplete(ctx, nodeID, result, err)
 		}()
 	}
@@ -62,7 +62,7 @@ func (r *HookRegistry) FirePhaseStart(ctx *Context, phaseID string) {
 	}
 	for _, h := range r.hooks {
 		func() {
-			defer func() { recover() }()
+			defer func() { recover() }() //nolint:errcheck // intentional panic recovery
 			h.OnPhaseStart(ctx, phaseID)
 		}()
 	}
@@ -75,7 +75,7 @@ func (r *HookRegistry) FirePhaseComplete(ctx *Context, phaseID string, err error
 	}
 	for _, h := range r.hooks {
 		func() {
-			defer func() { recover() }()
+			defer func() { recover() }() //nolint:errcheck // intentional panic recovery
 			h.OnPhaseComplete(ctx, phaseID, err)
 		}()
 	}

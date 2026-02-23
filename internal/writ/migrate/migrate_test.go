@@ -261,10 +261,10 @@ func TestFormatMigrationViewJSON(t *testing.T) {
 			Tool    string `json:"tool"`
 			State   string `json:"state"`
 			Nodes   []struct {
-				ID         string   `json:"id"`
+				ID        string `json:"id"`
 				Operation string `json:"operation"`
-				Source     string   `json:"source"`
-				Target     string   `json:"target"`
+				Source    string `json:"source"`
+				Target    string `json:"target"`
 			} `json:"nodes"`
 			Edges []struct {
 				From     string `json:"from"`
@@ -342,10 +342,10 @@ func TestExecuteWithMockGraph(t *testing.T) {
 
 	// Create source directories
 	srcDir := filepath.Join(tmpDir, "all-Darwin")
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(srcDir, "test.txt"), []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(srcDir, "test.txt"), []byte("test"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -388,10 +388,10 @@ func TestExecuteConflict(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create both source and target directories
-	if err := os.MkdirAll(filepath.Join(tmpDir, "all-Darwin"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, "all-Darwin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(tmpDir, "all.Darwin"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, "all.Darwin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -421,7 +421,7 @@ func TestAlreadyMigrated(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Write a marker to simulate prior migration
-	if err := os.WriteFile(filepath.Join(tmpDir, ".writ-migrated"), []byte("timestamp: now\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, ".writ-migrated"), []byte("timestamp: now\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

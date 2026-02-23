@@ -11,13 +11,13 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )
 
 // BuildResult contains the built execution graph and metadata for packages.
@@ -149,7 +149,7 @@ func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, erro
 
 // resolve returns the resolved platform, action registry, and registry client,
 // auto-creating any that are nil on the Planner.
-func (p *Planner) resolve() (string, *execution.ActionRegistry, *lorepackage.Registry, error) {
+func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *execution.ActionRegistry, resolvedRegistry *lorepackage.Registry, retErr error) {
 	plat := p.Platform
 	if plat == "" {
 		plat = detectPlatform()
@@ -338,8 +338,8 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host,
 
 // prepareScriptEnv creates the Starlark thread and globals needed to execute
 // a phase script. plan and ui are injected as globals.
-func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) ( //nolint:unparam // error return reserved for future use
-	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, *loreStar.PlanRoot, error,
+func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (
+	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, *loreStar.PlanRoot, error, //nolint:unparam // error return reserved for future use
 ) {
 	planBindings := loreStar.NewPlanRoot(graph, h, pkg.Name, reg)
 

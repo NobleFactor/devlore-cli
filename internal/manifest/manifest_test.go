@@ -233,7 +233,7 @@ func TestLoad_File(t *testing.T) {
   - neovim:
       with: [lsp]
 `
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
@@ -287,4 +287,3 @@ func TestPackagesManifest_PackageNames(t *testing.T) {
 		}
 	}
 }
-

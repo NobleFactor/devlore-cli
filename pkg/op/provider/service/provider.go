@@ -34,7 +34,7 @@ type Provider struct {
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Start(name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	wasRunning := p.isRunning(name)
 
@@ -71,7 +71,7 @@ func (p *Provider) CompensateStart(state any) error {
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Stop(name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	wasRunning := p.isRunning(name)
 
@@ -108,7 +108,7 @@ func (p *Provider) CompensateStop(state any) error {
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Restart(name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	if err := p.run(output, restartArgs(name)...); err != nil {
 		return "", nil, err
@@ -130,7 +130,7 @@ func (p *Provider) CompensateRestart(_ any) error {
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Enable(name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	wasEnabled := p.isEnabled(name)
 
@@ -167,7 +167,7 @@ func (p *Provider) CompensateEnable(state any) error {
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
-//+devlore:access=planned
+// +devlore:access=planned
 func (p *Provider) Disable(name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	wasEnabled := p.isEnabled(name)
 
@@ -205,7 +205,7 @@ func (p *Provider) CompensateDisable(state any) error {
 // Parameters:
 //   - name: Service name to check
 //
-//+devlore:access=both
+// +devlore:access=both
 func (p *Provider) Exists(name string) (bool, error) {
 	switch runtime.GOOS {
 	case "linux":
@@ -225,7 +225,7 @@ func (p *Provider) Exists(name string) (bool, error) {
 // Parameters:
 //   - name: Service name to check
 //
-//+devlore:access=both
+// +devlore:access=both
 func (p *Provider) Running(name string) (bool, error) {
 	return p.isRunning(name), nil
 }
@@ -235,7 +235,7 @@ func (p *Provider) Running(name string) (bool, error) {
 // Parameters:
 //   - name: Service name to check
 //
-//+devlore:access=both
+// +devlore:access=both
 func (p *Provider) Enabled(name string) (bool, error) {
 	return p.isEnabled(name), nil
 }

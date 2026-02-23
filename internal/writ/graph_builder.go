@@ -91,7 +91,7 @@ func BuildTree(g *op.Graph, cfg *Config, reg *execution.ActionRegistry) (manifes
 			// Multi-action pipeline → node chain
 			var prevNode *op.Node
 			for i, action := range actions {
-				isLast := (i == len(actions) - 1)
+				isLast := (i == len(actions)-1)
 				nodeID := f.ID
 				if !isLast {
 					nodeID = f.ID + ":" + action

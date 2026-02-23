@@ -10,16 +10,15 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
 func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *op.Graph) ([]*execution.NodeResult, error) {
 	return eng.RunNodes(ctx, g.Nodes, g.Edges)
 }
-
 
 func TestBuild_WithNativePMPackage(t *testing.T) {
 	// Test that Build creates correct nodes for native PM packages.
@@ -117,7 +116,7 @@ func TestBuildFromManifest(t *testing.T) {
   - curl
   - jq
 `
-	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -185,7 +184,7 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 
 	// Create a graph with a namespaced pkg.install node
 	node := &op.Node{
-		ID:         "package-install-testpkg",
+		ID:     "package-install-testpkg",
 		Action: reg.MustGet("pkg.install"),
 	}
 	node.SetSlotImmediate("packages", []string{"testpkg"})
@@ -224,7 +223,7 @@ func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	for _, opName := range actions {
 		t.Run(opName, func(t *testing.T) {
 			node := &op.Node{
-				ID:         "test-" + opName,
+				ID:     "test-" + opName,
 				Action: reg.MustGet(opName),
 			}
 			node.SetSlotImmediate("manager", "brew")
@@ -301,23 +300,23 @@ func createLorePackage(t *testing.T, pkgName string, scripts map[string]string) 
 
 	// Create package directory
 	pkgDir := filepath.Join(tmpDir, "packages", pkgName)
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	// Write lifecycle.yaml
 	lifecycle := "name: " + pkgName + "\nversion: 1.0.0\nplatforms: [Darwin]\n"
-	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycle), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycle), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Write phase scripts
 	for relPath, content := range scripts {
 		absPath := filepath.Join(pkgDir, relPath)
-		if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -597,7 +596,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
   - jq:
       with: [json-path]
 `
-	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -14,10 +14,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 // SessionState represents a state in the migration session.
@@ -358,8 +358,8 @@ func (s *Session) formatGraphForPrompt() string {
 			continue
 		}
 		// Show relative paths for readability
-		src, _ := node.GetSlot("source").(string)
-		tgt, _ := node.GetSlot("path").(string)
+		src, _ := node.GetSlot("source").(string) //nolint:errcheck // zero value (empty) is acceptable
+		tgt, _ := node.GetSlot("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
 		source := strings.TrimPrefix(src, s.opts.SourceRoot+"/")
 		target := strings.TrimPrefix(tgt, s.opts.SourceRoot+"/")
 		fmt.Fprintf(&sb, "  %s -> %s\n", source, target)
@@ -435,7 +435,7 @@ func (s *Session) addRenameToGraph(source, target string) {
 
 	// Check if this rename already exists
 	for _, node := range s.graph.Nodes {
-		src, _ := node.GetSlot("source").(string)
+		src, _ := node.GetSlot("source").(string) //nolint:errcheck // zero value (empty) is acceptable
 		if src == source {
 			// Update existing rename
 			node.SetSlotImmediate("path", target)
@@ -460,7 +460,7 @@ func (s *Session) removeRenameFromGraph(source string) {
 
 	// Find and remove the node
 	for i, node := range s.graph.Nodes {
-		src, _ := node.GetSlot("source").(string)
+		src, _ := node.GetSlot("source").(string) //nolint:errcheck // zero value (empty) is acceptable
 		if src == source {
 			s.graph.Nodes = append(s.graph.Nodes[:i], s.graph.Nodes[i+1:]...)
 			return
@@ -554,7 +554,7 @@ func (s *Session) outputJSON() {
 		cli.Warn("Failed to format JSON output: %v", err)
 		return
 	}
-	fmt.Fprintln(os.Stdout, buf.String())
+	fmt.Fprintln(os.Stdout, buf.String()) //nolint:errcheck // stdout output
 }
 
 // completeStep shows the completion message.
@@ -567,7 +567,7 @@ func (s *Session) completeStep() *console.Step {
 	if len(s.analysis.Recommendations) > 0 {
 		content.WriteString("### Next Steps\n")
 		for i, rec := range s.analysis.Recommendations {
-			content.WriteString(fmt.Sprintf("%d. %s\n", i+1, rec))
+			fmt.Fprintf(&content, "%d. %s\n", i+1, rec)
 		}
 	}
 
@@ -644,4 +644,3 @@ func (s *Session) generateExplanation() string {
 	}
 	return buf.String()
 }
-

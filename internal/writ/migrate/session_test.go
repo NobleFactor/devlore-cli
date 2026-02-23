@@ -271,13 +271,13 @@ func TestSessionWithRealDirectory(t *testing.T) {
 
 	// Create a simple structure
 	projectDir := filepath.Join(tmpDir, "shell")
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatalf("failed to create project dir: %v", err)
 	}
 
 	// Create a test file
 	testFile := filepath.Join(projectDir, ".bashrc")
-	if err := os.WriteFile(testFile, []byte("# test bashrc"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("# test bashrc"), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 

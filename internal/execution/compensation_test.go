@@ -24,7 +24,7 @@ import (
 type failAction struct{}
 
 func (a *failAction) Name() string { return "test.fail" }
-func (a *failAction) Do(_ *execution.Context, _ map[string]any) (execution.Result, execution.UndoState, error) {
+func (a *failAction) Do(_ *execution.Context, _ map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
 	return nil, nil, fmt.Errorf("deliberate failure")
 }
 
@@ -36,7 +36,7 @@ type trackAction struct {
 }
 
 func (a *trackAction) Name() string { return "test.track." + a.label }
-func (a *trackAction) Do(_ *execution.Context, _ map[string]any) (execution.Result, execution.UndoState, error) {
+func (a *trackAction) Do(_ *execution.Context, _ map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
 	return nil, a.label, nil
 }
 func (a *trackAction) Undo(state execution.UndoState) error {
@@ -50,7 +50,7 @@ func (a *trackAction) Undo(state execution.UndoState) error {
 type noopAction struct{}
 
 func (a *noopAction) Name() string { return "test.noop" }
-func (a *noopAction) Do(_ *execution.Context, _ map[string]any) (execution.Result, execution.UndoState, error) {
+func (a *noopAction) Do(_ *execution.Context, _ map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
 	return nil, nil, nil
 }
 
@@ -60,7 +60,7 @@ type conditionalFailAction struct {
 }
 
 func (a *conditionalFailAction) Name() string { return "test.conditional_fail" }
-func (a *conditionalFailAction) Do(_ *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+func (a *conditionalFailAction) Do(_ *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
 	path, _ := slots["path"].(string)
 	if path == a.failPath {
 		return nil, nil, fmt.Errorf("deliberate failure on %s", path)
@@ -104,19 +104,19 @@ func TestCompensationFileActions(t *testing.T) {
 	linkSource := filepath.Join(tmpDir, "source.txt")
 	linkPath := filepath.Join(tmpDir, "link.txt")
 
-	if err := os.WriteFile(linkSource, []byte("source content"), 0644); err != nil {
+	if err := os.WriteFile(linkSource, []byte("source content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	writeNode := &op.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
-	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
+	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	copyNode := &op.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
 	copyNode.SetSlotImmediate("content", []byte("copied content"))
 	copyNode.SetSlotImmediate("path", copyPath)
-	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
+	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	linkNode := &op.Node{ID: "link", Action: &file.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
@@ -180,19 +180,19 @@ func TestCompensationDryRun(t *testing.T) {
 	linkSource := filepath.Join(tmpDir, "source.txt")
 	linkPath := filepath.Join(tmpDir, "link.txt")
 
-	if err := os.WriteFile(linkSource, []byte("source"), 0644); err != nil {
+	if err := os.WriteFile(linkSource, []byte("source"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	writeNode := &op.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
-	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
+	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	copyNode := &op.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
 	copyNode.SetSlotImmediate("content", []byte("dry-run content"))
 	copyNode.SetSlotImmediate("path", copyPath)
-	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
+	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	linkNode := &op.Node{ID: "link", Action: &file.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
@@ -230,7 +230,7 @@ func TestCompensationNilState(t *testing.T) {
 	writeNode := &op.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("path", writePath)
-	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
+	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
 
@@ -259,14 +259,14 @@ func TestCompensationPartialFailure(t *testing.T) {
 	firstNode := &op.Node{ID: "first", Action: &file.Write{Impl: fp}}
 	firstNode.SetSlotImmediate("content", "first")
 	firstNode.SetSlotImmediate("path", firstPath)
-	firstNode.SetSlotImmediate("mode", os.FileMode(0644))
+	firstNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
 
 	thirdNode := &op.Node{ID: "third", Action: &file.Write{Impl: fp}}
 	thirdNode.SetSlotImmediate("content", "third")
 	thirdNode.SetSlotImmediate("path", thirdPath)
-	thirdNode.SetSlotImmediate("mode", os.FileMode(0644))
+	thirdNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	g := phasedGraph([]*op.Node{firstNode, failNode, thirdNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
@@ -301,7 +301,7 @@ func TestCompensationGather(t *testing.T) {
 
 	writeNode := &op.Node{ID: "write", Action: &file.Write{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "gather test")
-	writeNode.SetSlotImmediate("mode", os.FileMode(0644))
+	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 	writeNode.SetSlotProxy("path", "gather", "")
 
 	cfail := &conditionalFailAction{failPath: paths[2]}

@@ -176,7 +176,7 @@ func (e *Extractor) extractFromPackage(pkg *packages.Package) {
 	// Process each function declaration
 	nodeFilter := []ast.Node{(*ast.FuncDecl)(nil)}
 	inspect.Preorder(nodeFilter, func(n ast.Node) {
-		fn := n.(*ast.FuncDecl)
+		fn := n.(*ast.FuncDecl) //nolint:errcheck // preorder filter guarantees type
 		e.extractFromFunction(fn, prefix)
 	})
 }
