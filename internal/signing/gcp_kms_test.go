@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
+	"errors"
 	"testing"
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
@@ -213,10 +214,7 @@ func TestVerifyGCPKMS_WrongMethod(t *testing.T) {
 	}
 
 	var verifyErr *VerifyError
-	if err != nil {
-		verifyErr, _ = err.(*VerifyError)
-	}
-	if verifyErr == nil || verifyErr.Err != ErrWrongMethod {
+	if !errors.As(err, &verifyErr) || !errors.Is(verifyErr.Err, ErrWrongMethod) {
 		t.Errorf("expected ErrWrongMethod, got: %v", err)
 	}
 }

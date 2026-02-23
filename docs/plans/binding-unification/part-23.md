@@ -76,7 +76,7 @@ Deleted `predicate.go` (Predicate interface replaced by bool slot on Choose).
 ### Done: Regeneration (20 of 22 files)
 
 All 10 plannable providers regenerated:
-- 10 `plan_*_gen.go` files in `internal/starlark/`
+- 10 `planned_*_gen.go` files in `internal/starlark/`
 - 10 `actions_gen.go` files in `internal/execution/provider/*/`
 
 `content/provider.go`: `Literal` return changed to `([]byte, error)`.
@@ -92,10 +92,10 @@ Rebuild from noblefactor-ops (has `go.type_doc`, bool support, Provider field,
 ### Step 2: Regenerate UI provider + `register_gen.go`
 
 UI provider has no `//devlore:plannable` directive, so `go.type_doc` auto-detects
-it as `realtime_receiver`. This was blocked before `go.type_doc` existed.
+it as immediate receiver. This was blocked before `go.type_doc` existed.
 
 `register_gen.go` aggregates all per-provider `Register()` functions. The UI
-provider does NOT have a `Register()` — it uses the `realtime_receiver` template.
+provider does NOT have a `Register()` — it uses the immediate receiver template.
 This file must be regenerated or restored to match the current set of plannable
 providers.
 

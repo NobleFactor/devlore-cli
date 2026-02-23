@@ -12,7 +12,7 @@ Three tools share these providers:
 - **writ** needs graph actions (graph execution)
 
 Currently the code generation pipeline (`devlore ops.generate`) produces three outputs
-from a Provider struct: `plan_receiver`, `graph_actions`, `realtime_receiver`. But:
+from a Provider struct: `planned_receiver`, `graph_actions`, `immediate_receiver`. But:
 
 1. Only 2 of 10 providers have generated plan bindings (archive, git). The other
    4 plan bindings (file, package, encryption, template) are hand-written.
@@ -49,9 +49,9 @@ Provider. Changes to a Provider don't propagate to either binding layer.
 | template | Render | 0 of 1 | hand-written | none |
 | content | Literal | 0 of 1 | top-level builtin | none |
 
-## Phase 1: Fix the realtime_receiver Template (COMPLETE — PR #151)
+## Phase 1: Fix the Immediate Receiver Template (COMPLETE — PR #151)
 
-The `realtime_receiver` template (builtin in noblefactor-ops) generates receivers
+The `immediate_receiver` template (builtin in noblefactor-ops) generates receivers
 that call `host.Host` methods. It must generate receivers that call Provider methods.
 
 ### Template change
@@ -93,7 +93,7 @@ constructor sets these. Actions continue using slots.
 |------|------|--------|
 | noblefactor-ops | `internal/starlark/receiver_go_gen.go` | Modify: new `realtimeProviderBody` template helper |
 | noblefactor-ops | `internal/starlark/receiver_go_gen_test.go` | Add test for new helper |
-| devlore-cli | `star/extensions/com.noblefactor.devlore.Actions/templates/realtime_receiver.go.template` | Create: local template replacing builtin |
+| devlore-cli | `star/extensions/com.noblefactor.devlore.Actions/templates/immediate_receiver.go.template` | Create: local template replacing builtin |
 | devlore-cli | `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` | Update LOCAL_TEMPLATES |
 
 ## Phase 2: Generate Plan Bindings for All Providers (COMPLETE — PR #151)

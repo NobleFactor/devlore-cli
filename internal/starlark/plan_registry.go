@@ -10,14 +10,14 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // PlanFactory creates a plan sub-namespace for the given graph context.
-type PlanFactory func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value
+type PlanFactory func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value
 
 // planRegistry maps namespace names to plan factories. Populated by init()
-// functions in generated plan_*_gen.go files.
+// functions in generated planned_*_gen.go files.
 var planRegistry = map[string]PlanFactory{}
 
 // registerPlan adds a plan factory to the registry.

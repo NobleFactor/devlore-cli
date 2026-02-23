@@ -9,8 +9,8 @@ updated: 2026-02-12
 
 ## Summary
 
-Every plan receiver (`plan_file.go`, `plan_git.go`), graph operation (`ops_package.go`),
-and real-time receiver (`receiver_git.go`) follows an identical mechanical pattern.
+Every planned receiver (`plan_file.go`, `plan_git.go`), graph operation (`ops_package.go`),
+and immediate receiver (`receiver_git.go`) follows an identical mechanical pattern.
 Writing these by hand is tedious and error-prone. This plan creates a star extension
 (`com.noblefactor.star.GenReceiver`) that reads a Go implementation struct via the
 existing `go.methods()` / `go.structs()` AST primitives, then generates the three kinds
@@ -19,8 +19,8 @@ files ready to compile.
 
 ## Goals
 
-1. **Eliminate hand-written boilerplate**: Generate plan receivers, graph operations,
-   and real-time receivers from Go struct definitions
+1. **Eliminate hand-written boilerplate**: Generate planned receivers, graph operations,
+   and immediate receivers from Go struct definitions
 2. **Enforce the receiver pattern**: All generated code uses `Receiver` base type with
    `Attr`/`AttrNames` — never dict-based `FromStringDict` namespaces
 3. **Extend AST primitives**: Add parameter info to `go.methods()` and `go.funcs()` so
@@ -32,9 +32,9 @@ files ready to compile.
 | --- | --- | --- |
 | `go.methods()` / `go.funcs()` | Partial | Returns name, receiver, returns, doc, scope — no params |
 | `typeToString()` | Partial | Missing Ellipsis, InterfaceType, FuncType, ChanType, IndexExpr |
-| Plan receivers | Manual | `plan_file.go`, `plan_git.go` etc. written by hand |
+| Planned receivers | Manual | `plan_file.go`, `plan_git.go` etc. written by hand |
 | Graph operations | Manual | `ops_package.go` etc. written by hand |
-| Real-time receivers | Manual | `receiver_git.go` etc. written by hand |
+| Immediate receivers | Manual | `receiver_git.go` etc. written by hand |
 | Dict-based receiver ban | Enforced | `TestNoDictBasedReceivers` catches violations in CI |
 
 ## Graph Execution Model
@@ -47,7 +47,7 @@ expressed as separate nodes connected by edges, with data flowing through
 slots and promises — the same mechanism used for all inter-node data binding.
 
 This eliminates the implicit `[]byte` accumulator in the executor pipeline loop.
-The plan receiver is responsible for decomposing multi-step workflows into
+The planned receiver is responsible for decomposing multi-step workflows into
 individual nodes with edges between them.
 
 ### Typed Operation Results
@@ -268,7 +268,7 @@ Extend `typeToString()` with missing AST types:
 
 Add a new method to GoReceiver: `go.generate(template, descriptor) -> string`
 
-- `template`: one of `"plan_receiver"`, `"graph_ops"`, `"realtime_receiver"`
+- `template`: one of `"planned_receiver"`, `"graph_ops"`, `"immediate_receiver"`
 - `descriptor`: Starlark dict with analyzed method info (built by the .star command)
 - Returns: generated Go source code as a string
 
@@ -277,7 +277,7 @@ Templates live as raw string constants in a new file:
 
 #### Type Mapping
 
-| Go Type | Starlark (real-time) | Slot (plan) | Slot Reader (ops) |
+| Go Type | Starlark (immediate) | Slot (plan) | Slot Reader (ops) |
 |---|---|---|---|
 | `string` | `starlark.String` | `FillSlot()` | `node.GetSlot("x")` |
 | `bool` | `starlark.Bool` | `FillSlot()` | `node.GetSlot("x") == "true"` |
@@ -287,12 +287,12 @@ Templates live as raw string constants in a new file:
 | Go struct (return only) | Generated Starlark struct (`types_gen.go`) | — | — |
 | _(unmapped type)_ | **generator error** | — | — |
 
-#### Template 1: Plan Receiver
+#### Template 1: Planned Receiver
 
 Each method: unpacks Starlark args, creates `*execution.Node` with a single
 `Operation` derived from the struct/method name, fills input slots from args,
 appends node to graph, returns promise. When the Starlark script chains
-operations (e.g., passes a promise as an arg), the plan receiver creates
+operations (e.g., passes a promise as an arg), the planned receiver creates
 an edge between the upstream and downstream nodes.
 
 Reference: `devlore-cli/internal/starlark/plan_file.go`
@@ -307,7 +307,7 @@ according to the node's `ErrorAction`. Registration function returns all ops.
 
 Reference: `devlore-cli/internal/execution/ops_package.go`
 
-#### Template 3: Real-time Receiver
+#### Template 3: Immediate Receiver
 
 Each method: embeds `Receiver` base, `Attr()` switch dispatches to methods that unpack
 args, call backing impl, convert result. Reference: `devlore-cli/internal/starlark/receiver_git.go`
@@ -316,14 +316,14 @@ args, call backing impl, convert result. Reference: `devlore-cli/internal/starla
 
 | Concept | Pattern | Example |
 |---|---|---|
-| Plan receiver struct | `XxxPlan` | `FilePlan`, `GitPlan` |
-| Generated plan file | `plan_xxx_gen.go` | `plan_file_gen.go` |
+| Planned receiver struct | `XxxPlan` | `FilePlan`, `GitPlan` |
+| Generated planned receiver file | `plan_xxx_gen.go` | `plan_file_gen.go` |
 | Op struct | `XxxYyyOp` | `FileCopyOp` |
 | Op name | `"category.method"` | `"file.copy"` |
 | Generated ops file | `ops_xxx_gen.go` | `ops_file_gen.go` |
 | Ops registration | `XxxOps() []Operation` | `FileOps()` |
-| Real-time struct | `XxxReceiver` | `GitReceiver` |
-| Generated receiver file | `receiver_xxx_gen.go` | `receiver_git_gen.go` |
+| Immediate receiver struct | `XxxReceiver` | `GitReceiver` |
+| Generated immediate receiver file | `receiver_xxx_gen.go` | `receiver_git_gen.go` |
 | Starlark method | `snake_case(GoMethod)` | `ConfigGet` → `config_get` |
 | Slot name | `snake_case(param)` | `SourceRoot` → `source_root` |
 | Node ID | `category.name-N` | `file.copy-1` |
@@ -347,9 +347,9 @@ The `.star` command orchestrates:
 2. Filter: public methods only, optional `--methods` inclusion list
 3. Normalize names: struct → category (snake_case), methods → operations (snake_case)
 4. Build descriptor dict with method info, namespace, type mappings
-5. `go.generate("plan_receiver", descriptor)` → write to `plan_xxx_gen.go`
+5. `go.generate("planned_receiver", descriptor)` → write to `planned_xxx_gen.go`
 6. `go.generate("graph_ops", descriptor)` → write to `ops_xxx_gen.go`
-7. `go.generate("realtime_receiver", descriptor)` → write to `receiver_xxx_gen.go`
+7. `go.generate("immediate_receiver", descriptor)` → write to `immediate_xxx_gen.go`
 
 ## Execution Model Changes
 
@@ -405,7 +405,7 @@ func (e *GraphExecutor) executeNode(ctx *Context, node Executable) *Result {
 
 ### Chained operations become node chains
 
-A plan receiver that previously created:
+A planned receiver that previously created:
 
 ```go
 node := &execution.Node{
@@ -432,7 +432,7 @@ copyNode   := &execution.Node{ID: "file.copy-1",   Operation: "copy", ...}
 - [ ] Add `ErrorAction` field to `Node`
 - [ ] Replace `ConflictResolution` on `ExecutorOptions` with per-node `ErrorAction`
 - [ ] Update executor error handling: check failing node's `ErrorAction`, skip dependent downstream nodes on `Continue`/`Silent`
-- [ ] Update lore plan receivers to emit node chains for multi-step workflows
+- [ ] Update lore planned receivers to emit node chains for multi-step workflows
 - [ ] Update writ graph builder to emit node chains instead of operation lists
 - [ ] Update writ reconciler to emit node chains
 - [ ] Update stateview and history to use singular `Operation`
@@ -486,7 +486,7 @@ with edges carrying content between them.
 
 ### Phase 2: Add `go.generate()` with Templates (noblefactor-ops)
 
-- [ ] Create template constants for all three receiver types + struct type template
+- [ ] Create template constants for all three generated receiver types + struct type template
 - [ ] Implement `go.generate()` method with type mapping and name normalization
 - [ ] Implement Gate 1 (all types must map) and Gate 2 (`(T, error)` return) validation
 - [ ] Generate Starlark struct types for Go struct return values into `types_gen.go`
@@ -526,9 +526,9 @@ with edges carrying content between them.
 
 Generated files need one manual line each to wire into the system:
 
-- **Plan receivers**: Add field + case in `PlanRoot.Attr()` (`plan_root.go`)
+- **Planned receivers**: Add field + case in `PlanRoot.Attr()` (`plan_root.go`)
 - **Graph operations**: Add `XxxOps()` call in `AllOps()` (`ops.go`)
-- **Real-time receivers**: Add `NewXxxReceiver()` in `Bindings.Globals()` (`bindings.go`)
+- **Immediate receivers**: Add `NewXxxReceiver()` in `Bindings.Globals()` (`bindings.go`)
 
 This is intentional — the generator eliminates the method-by-method boilerplate,
 while the one-line registration serves as an explicit manifest.

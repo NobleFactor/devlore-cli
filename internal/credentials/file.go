@@ -4,6 +4,7 @@
 package credentials
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,7 @@ func fileSet(key, secret string) error {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 
@@ -64,7 +65,9 @@ func fileSet(key, secret string) error {
 	creds := make(map[string]string)
 	data, err := os.ReadFile(path)
 	if err == nil {
-		_ = yaml.Unmarshal(data, &creds)
+		if err := yaml.Unmarshal(data, &creds); err != nil {
+			return fmt.Errorf("parsing credentials file: %w", err)
+		}
 	}
 
 	// Update
@@ -81,7 +84,7 @@ func fileSet(key, secret string) error {
 	}
 	sb.Write(data)
 
-	return os.WriteFile(path, []byte(sb.String()), 0600)
+	return os.WriteFile(path, []byte(sb.String()), 0o600)
 }
 
 // fileDelete removes a credential from the credentials file.
@@ -115,5 +118,5 @@ func fileDelete(key string) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0600)
+	return os.WriteFile(path, data, 0o600)
 }

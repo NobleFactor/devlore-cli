@@ -9,26 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("{{.Provider}}", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("{{.Provider}}", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return New{{.StructName}}Plan(graph, h, project, reg)
 	})
 }
 
 type {{.StructName}}Plan struct {
-	projection.Receiver
-	graph   *projection.Graph
+	op.Receiver
+	graph   *op.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func New{{.StructName}}Plan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *{{.StructName}}Plan {
+func New{{.StructName}}Plan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *{{.StructName}}Plan {
 	return &{{.StructName}}Plan{
-		Receiver: projection.NewReceiver("{{.Namespace}}"),
+		Receiver: op.NewReceiver("{{.Namespace}}"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -40,10 +40,10 @@ func (p *{{.StructName}}Plan) Attr(name string) (starlark.Value, error) {
 	switch name {
 {{- range .Methods}}
 	case "{{.SnakeName}}":
-		return projection.MakeAttr("{{$.Namespace}}.{{.SnakeName}}", p.{{.SnakeName}}), nil
+		return op.MakeAttr("{{$.Namespace}}.{{.SnakeName}}", p.{{.SnakeName}}), nil
 {{- end}}
 	default:
-		return nil, projection.NoSuchAttrError("{{.Namespace}}", name)
+		return nil, op.NoSuchAttrError("{{.Namespace}}", name)
 	}
 }
 
@@ -55,14 +55,14 @@ func (p *{{.StructName}}Plan) AttrNames() []string {
 func (p *{{$.StructName}}Plan) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 {{planUnpackArgs .}}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("{{$.Provider}}-{{.SnakeName}}"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("{{$.Provider}}-{{.SnakeName}}"),
 		Action:  p.reg.MustGet("{{$.Provider}}.{{.SnakeName}}"),
 		Project: p.project,
 	}
 {{planFillSlots .}}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 {{end}}

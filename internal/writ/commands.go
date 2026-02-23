@@ -23,15 +23,15 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -99,7 +99,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	if cfg.DryRun {
 		enc := yaml.NewEncoder(os.Stdout)
 		enc.SetIndent(2)
-		defer func() { _ = enc.Close() }()
+		defer func() { _ = enc.Close() }() //nolint:errcheck
 		return g.Serialize(enc)
 	}
 
@@ -143,7 +143,7 @@ func reportGraphContext(cfg *DeployConfig) {
 }
 
 // reportCollisions outputs collision warnings.
-func reportCollisions(cfg *DeployConfig, collisions []projection.Collision) {
+func reportCollisions(cfg *DeployConfig, collisions []op.Collision) {
 	if len(cfg.LayerSources) > 0 {
 		cli.Warn("%d source collision(s) resolved by layer/specificity:", len(collisions))
 		for _, c := range collisions {
@@ -238,7 +238,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	if cfg.DryRun {
 		enc := yaml.NewEncoder(os.Stdout)
 		enc.SetIndent(2)
-		defer func() { _ = enc.Close() }()
+		defer func() { _ = enc.Close() }() //nolint:errcheck
 		return g.Serialize(enc)
 	}
 
@@ -412,10 +412,10 @@ func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, []age.Identity) {
 	}
 
 	// Use the configured source root for secrets
-	upgradeSecretsMgr, _ := secrets.NewManager(cfg.SourceRoot)
+	upgradeSecretsMgr, _ := secrets.NewManager(cfg.SourceRoot) //nolint:errcheck // fallback: continue without secrets
 	engineData["decryptor"] = upgradeSecretsMgr.Decryptor()
 
-	identities, _ := identity.LoadIdentities()
+	identities, _ := identity.LoadIdentities() //nolint:errcheck // fallback: continue without identities
 	return engineData, identities
 }
 
@@ -471,7 +471,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
 
-	if hasDecryptOp(actions) && len(identities) == 0 {
+	if hasDecryptAction(actions) && len(identities) == 0 {
 		cli.Error("%s: identities required for encrypted files", relTarget)
 		return upgradeResultError
 	}
@@ -504,10 +504,10 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 
 // buildUpgradeChain builds the node chain for a multi-action upgrade pipeline.
-func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*projection.Node, []projection.Edge) {
-	hasDecrypt := hasDecryptOp(actions)
-	var nodes []*projection.Node
-	var edges []projection.Edge
+func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*op.Node, []op.Edge) {
+	hasDecrypt := hasDecryptAction(actions)
+	var nodes []*op.Node
+	var edges []op.Edge
 	var prevNodeID string
 
 	for i, opName := range actions {
@@ -517,7 +517,7 @@ func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarge
 			nodeID = relTarget + ":" + opName
 		}
 
-		node := &projection.Node{
+		node := &op.Node{
 			ID:      nodeID,
 			Action:  reg.MustGet(opName),
 			Project: entry.Project,
@@ -528,12 +528,12 @@ func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarge
 		if isLast {
 			node.SetSlotImmediate("path", target)
 			if hasDecrypt {
-				node.SetSlotImmediate("mode", os.FileMode(0600))
+				node.SetSlotImmediate("mode", os.FileMode(0o600))
 			}
 		}
 		nodes = append(nodes, node)
 		if prevNodeID != "" {
-			edges = append(edges, projection.Edge{From: prevNodeID, To: nodeID})
+			edges = append(edges, op.Edge{From: prevNodeID, To: nodeID})
 		}
 		prevNodeID = nodeID
 	}
@@ -647,7 +647,7 @@ func buildReportFromScan(cfg *ReconcileConfig) (*reconcile.Report, error) {
 }
 
 // verifyGraphSignatureForReconcile verifies the graph signature for reconcile.
-func verifyGraphSignatureForReconcile(cfg *ReconcileConfig, g *projection.Graph) error {
+func verifyGraphSignatureForReconcile(cfg *ReconcileConfig, g *op.Graph) error {
 	identities, err := identity.LoadIdentities()
 	if err != nil {
 		return fmt.Errorf("load identities for signature verification: %w", err)
@@ -687,7 +687,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 }
 
 // addCopiedFilesFromGraph adds copied file nodes from a graph to the report.
-func addCopiedFilesFromGraph(report *reconcile.Report, g *projection.Graph, checkDrift bool) {
+func addCopiedFilesFromGraph(report *reconcile.Report, g *op.Graph, checkDrift bool) {
 	report.FromReceipt = true
 	report.ReceiptPath = cli.LatestReceiptPath("writ")
 
@@ -702,9 +702,9 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *projection.Graph, chec
 }
 
 // isSkippableNode returns true for nodes that should not appear in the reconcile report.
-func isSkippableNode(n *projection.Node) bool {
+func isSkippableNode(n *op.Node) bool {
 	action := n.ActionName()
-	return n.Status == projection.StatusSkipped ||
+	return n.Status == op.StatusSkipped ||
 		action == "file.backup" ||
 		action == "file.link" ||
 		action == "template.render" ||
@@ -712,7 +712,7 @@ func isSkippableNode(n *projection.Node) bool {
 }
 
 // buildNodeEntry creates a reconcile entry from a graph node.
-func buildNodeEntry(n *projection.Node, source, target string, _ bool) reconcile.Entry {
+func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
 	entry := reconcile.Entry{
 		RelTarget: n.ID,
 		Source:    source,
@@ -1385,7 +1385,10 @@ func builtinTemplateData(segMap map[string]string) map[string]any {
 	// Platform info
 	data["OS"] = runtime.GOOS
 	data["ARCH"] = runtime.GOARCH
-	hostname, _ := os.Hostname()
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
+	}
 	data["Hostname"] = hostname
 
 	// User info
@@ -1420,10 +1423,10 @@ func xdgPath(envVar, defaultPath string) string {
 	return defaultPath
 }
 
-// hasDecryptOp returns true if the operations include decrypt.
-func hasDecryptOp(ops []string) bool {
-	for _, op := range ops {
-		if op == "encryption.decrypt" {
+// hasDecryptAction returns true if the actions include decrypt.
+func hasDecryptAction(actions []string) bool {
+	for _, action := range actions {
+		if action == "encryption.decrypt" {
 			return true
 		}
 	}

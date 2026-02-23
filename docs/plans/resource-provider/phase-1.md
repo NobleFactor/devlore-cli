@@ -58,7 +58,7 @@ establishing the interface contract.
 
 Each file: rename `Execute` method to `Do` with triple return, add no-op `Undo`.
 
-### Plan receivers (`internal/execution/plan.go`, `internal/starlark/plan*.go`, `internal/starlark/platform/*.go`)
+### Planned receivers (`internal/execution/plan.go`, `internal/starlark/plan*.go`, `internal/starlark/platform/*.go`)
 
 All `Operation:` struct field initializers to `Action:`.
 

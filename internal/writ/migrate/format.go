@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // FormatMigrationPlan renders the execution Graph and MigrationAnalysis as
@@ -21,7 +21,7 @@ import (
 //
 // Supported formats: "text" (default), "yaml", "json"
 // For "explain" format, use FormatMigrationExplain which requires an AI provider.
-func FormatMigrationPlan(w io.Writer, graph *projection.Graph, analysis *MigrationAnalysis, format string) error {
+func FormatMigrationPlan(w io.Writer, graph *op.Graph, analysis *MigrationAnalysis, format string) error {
 	switch format {
 	case "yaml":
 		return formatMigrationYAML(w, graph, analysis)
@@ -68,21 +68,21 @@ type edgeView struct {
 	To   string `json:"to" yaml:"to"`
 }
 
-func formatMigrationYAML(w io.Writer, graph *projection.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationYAML(w io.Writer, graph *op.Graph, analysis *MigrationAnalysis) error {
 	view := buildMigrationView(graph, analysis)
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
 	return enc.Encode(view)
 }
 
-func formatMigrationJSON(w io.Writer, graph *projection.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationJSON(w io.Writer, graph *op.Graph, analysis *MigrationAnalysis) error {
 	view := buildMigrationView(graph, analysis)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(view)
 }
 
-func buildMigrationView(graph *projection.Graph, analysis *MigrationAnalysis) *migrationView {
+func buildMigrationView(graph *op.Graph, analysis *MigrationAnalysis) *migrationView {
 	// Build nodes
 	var nodes []nodeView
 	for _, node := range graph.Nodes {
@@ -121,7 +121,7 @@ func buildMigrationView(graph *projection.Graph, analysis *MigrationAnalysis) *m
 	}
 }
 
-func formatMigrationText(w io.Writer, graph *projection.Graph, analysis *MigrationAnalysis) error {
+func formatMigrationText(w io.Writer, graph *op.Graph, analysis *MigrationAnalysis) error {
 	formatHeader(w, analysis)
 	formatSummary(w, analysis.Stats)
 	formatRenames(w, graph, analysis.SourceRoot)
@@ -134,14 +134,14 @@ func formatMigrationText(w io.Writer, graph *projection.Graph, analysis *Migrati
 }
 
 func formatHeader(w io.Writer, analysis *MigrationAnalysis) {
-	_, _ = fmt.Fprintf(w, "Migration Plan\n")
-	_, _ = fmt.Fprintf(w, "Source: %s\n", analysis.SourceRoot)
+	_, _ = fmt.Fprintf(w, "Migration Plan\n")              //nolint:errcheck // table output
+	_, _ = fmt.Fprintf(w, "Source: %s\n", analysis.SourceRoot) //nolint:errcheck // table output
 	_, _ = fmt.Fprintf(w, "System: %s", analysis.System)
 	if analysis.SystemConfidence > 0 {
 		_, _ = fmt.Fprintf(w, " (confidence: %.0f%%)", analysis.SystemConfidence*100)
 	}
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w) //nolint:errcheck // table output
+	_, _ = fmt.Fprintln(w) //nolint:errcheck // table output
 }
 
 func formatSummary(w io.Writer, s MigrationStats) {
@@ -155,7 +155,7 @@ func formatSummary(w io.Writer, s MigrationStats) {
 	if len(extras) > 0 {
 		_, _ = fmt.Fprintf(w, "  %s\n", strings.Join(extras, " | "))
 	}
-	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w) //nolint:errcheck // table output
 }
 
 func collectExtraStats(s MigrationStats) []string {
@@ -175,8 +175,8 @@ func collectExtraStats(s MigrationStats) []string {
 	return extras
 }
 
-func formatRenames(w io.Writer, graph *projection.Graph, sourceRoot string) {
-	renameNodes := filterNodesByOp(graph, "file.move")
+func formatRenames(w io.Writer, graph *op.Graph, sourceRoot string) {
+	renameNodes := filterNodesByAction(graph, "file.move")
 	if len(renameNodes) == 0 {
 		return
 	}
@@ -205,13 +205,13 @@ func formatScripts(w io.Writer, scripts []ScriptAnalysis) {
 	}
 
 	_, _ = fmt.Fprintf(w, "Lifecycle scripts (%d):\n", len(scripts))
-	for _, script := range scripts {
-		formatScript(w, script)
+	for i := range scripts {
+		formatScript(w, &scripts[i])
 	}
 	_, _ = fmt.Fprintln(w)
 }
 
-func formatScript(w io.Writer, script ScriptAnalysis) {
+func formatScript(w io.Writer, script *ScriptAnalysis) {
 	_, _ = fmt.Fprintf(w, "  %s\n", script.RelPath)
 	_, _ = fmt.Fprintf(w, "    %s | %d lines\n", script.Phase, script.LineCount)
 
@@ -288,11 +288,11 @@ func formatRecommendations(w io.Writer, recommendations []string) {
 	}
 }
 
-// filterNodesByOp returns nodes that have the specified operation.
-func filterNodesByOp(graph *projection.Graph, opName string) []*projection.Node {
-	var nodes []*projection.Node
+// filterNodesByAction returns nodes that have the specified action.
+func filterNodesByAction(graph *op.Graph, actionName string) []*op.Node {
+	var nodes []*op.Node
 	for _, node := range graph.Nodes {
-		if node.ActionName() == opName {
+		if node.ActionName() == actionName {
 			nodes = append(nodes, node)
 		}
 	}

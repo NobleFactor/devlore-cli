@@ -33,12 +33,12 @@ regenerated from scratch. The architecture separates implementation structs
 
 | Component | Source of Truth | Generated | Hand-Written |
 |---|---|---|---|
-| Plan receivers (GitPlan, ArchivePlan) | None | No | Yes (plan_git.go, plan_archive.go) |
-| Plan receivers (FilePlan, PackagePlan) | None | No | Yes (multi-node / variadic patterns) |
+| Planned receivers (GitPlan, ArchivePlan) | None | No | Yes (plan_git.go, plan_archive.go) |
+| Planned receivers (FilePlan, PackagePlan) | None | No | Yes (multi-node / variadic patterns) |
 | Graph ops (file) | Inline in ops.go | No | Yes (10 ops) |
 | Graph ops (package) | Inline in ops_package.go | No | Yes (6 ops) |
 | Graph ops (service) | Inline in ops_service.go | No | Yes (15 ops) |
-| Real-time receivers | Inline in receiver_*.go | No | Yes (10 receivers) |
+| Immediate receivers | Inline in receiver_*.go | No | Yes (10 receivers) |
 | System bindings | Inline in system_*.go | No | Yes (always manual) |
 
 ## Target Architecture
@@ -64,16 +64,16 @@ internal/starlark/
   # Base receiver infrastructure — SHARED BY ALL
   receiver.go            Receiver, NewReceiver, MakeAttr, BuiltinFunc, NoSuchAttrError
 
-  # Generated plan receivers — NUKE-SAFE
+  # Generated planned receivers — NUKE-SAFE
   plan_git_gen.go        GitPlan (clone, checkout, pull)
   plan_archive_gen.go    ArchivePlan (extract)
 
-  # Hand-written plan receivers — EDGE CASES
+  # Hand-written planned receivers — EDGE CASES
   plan_file.go           FilePlan (configure = multi-node)
   plan_package.go        PackagePlan (variadic args pattern)
   plan_root.go           PlanRoot (source, literal, download, service, shell, gather)
 
-  # Generated real-time receivers — NUKE-SAFE
+  # Generated immediate receivers — NUKE-SAFE
   receiver_archive_gen.go
   receiver_service_gen.go
 
@@ -124,7 +124,7 @@ func (r *JSONReceiver) AttrNames() []string { ... }        // sorted list
 func (r *JSONReceiver) encode(...) { ... }                 // BuiltinFunc sig
 ```
 
-In devlore-cli, the real-time receivers already follow this same pattern:
+In devlore-cli, the immediate receivers already follow this same pattern:
 
 ```go
 type ArchiveReceiver struct{ Receiver; host host.Host; ... }  // embed base
@@ -132,19 +132,19 @@ func NewArchiveReceiver(...) *ArchiveReceiver { ... }
 func (r *ArchiveReceiver) Attr(name string) { MakeAttr(...) }
 ```
 
-But the **plan receivers do NOT**. GitPlan and ArchivePlan have hand-written
-inline starlark.Value methods instead of embedding `Receiver`. The plan
+But the **planned receivers do NOT**. GitPlan and ArchivePlan have hand-written
+inline starlark.Value methods instead of embedding `Receiver`. The planned
 receiver template similarly generates inline boilerplate.
 
-**Decision**: Update all three templates (plan_receiver, realtime_receiver,
+**Decision**: Update all three templates (planned_receiver, immediate_receiver,
 graph_ops) so that generated code uses the established pattern:
-- Plan receivers embed `Receiver` via `NewReceiver(namespace)`
+- Planned receivers embed `Receiver` via `NewReceiver(namespace)`
 - Attr dispatch uses `MakeAttr(name, fn)` instead of `starlark.NewBuiltin()`
 - Error handling uses `NoSuchAttrError(receiver, attr)` instead of
   `starlark.NoSuchAttrError(fmt.Sprintf(...))`
 
 This ensures generated code is structurally identical to hand-written code.
-When hand-written plan receivers (FilePlan, PackagePlan) are eventually
+When hand-written planned receivers (FilePlan, PackagePlan) are eventually
 refactored, they too should embed `Receiver`.
 
 **Naming**: The base type is `Receiver` with factory `NewReceiver()` (as in
@@ -278,7 +278,7 @@ struct has methods like `Start(ctx, name)` but the op names vary by platform.
 The impl struct pattern still works: `serviceOps.Start(ctx, name)` contains
 the platform dispatch logic (or uses the host.ServiceManager interface).
 
-### Real-time receivers: typed vs kwargs passthrough
+### Immediate receivers: typed vs kwargs passthrough
 
 The generator handles **typed** receivers (named parameters with Starlark
 types). These CAN be generated:
@@ -295,10 +295,10 @@ Other receivers with unique backing logic also stay hand-written:
 
 ## Implementation Steps
 
-### Step 1: Update plan_receiver template to use Receiver pattern (noblefactor-ops)
+### Step 1: Update planned_receiver template to use Receiver pattern (noblefactor-ops)
 
-The current `planReceiverTemplate` generates inline starlark.Value methods.
-Update it to embed `Receiver` and use `MakeAttr`/`NoSuchAttrError`.
+The current `planReceiverTemplate` generates inline starlark.Value methods for
+the planned receiver. Update it to embed `Receiver` and use `MakeAttr`/`NoSuchAttrError`.
 
 **1a: Replace inline starlark.Value boilerplate with Receiver embedding**
 
@@ -356,7 +356,7 @@ return nil, starlark.NoSuchAttrError(fmt.Sprintf("{{.Namespace}} has no attribut
 return nil, NoSuchAttrError("{{.Category}}", name)
 ```
 
-**1d: Remove `"fmt"` from plan_receiver import if only used for NoSuchAttrError**
+**1d: Remove `"fmt"` from planned_receiver import if only used for NoSuchAttrError**
 
 The `fmt` import is still needed for FillSlot error wrapping, so it stays. But
 `starlark.NoSuchAttrError` is no longer called, so verify the import list.
@@ -369,9 +369,9 @@ Update `TestGeneratePlanReceiver` assertions:
 - Check for `MakeAttr(` instead of `starlark.NewBuiltin(`
 - Check for `NoSuchAttrError("file"` instead of `starlark.NoSuchAttrError`
 
-### Step 2: Update realtime_receiver template to use Receiver pattern (noblefactor-ops)
+### Step 2: Update immediate_receiver template to use Receiver pattern (noblefactor-ops)
 
-Same changes as Step 1 but for the real-time receiver template:
+Same changes as Step 1 but for the immediate receiver template:
 - Embed `Receiver` instead of inline starlark.Value methods
 - Use `MakeAttr` in Attr dispatch
 - Use `NoSuchAttrError` in default case
@@ -546,7 +546,7 @@ The generated ops just delegate.
 Keep helper functions (`parsePackages`, `resolvePMForInstall`, etc.) in
 `impl_package.go`.
 
-### Step 7: Generate plan receivers (devlore-cli)
+### Step 7: Generate planned receivers (devlore-cli)
 
 **7a: Generate `plan_git_gen.go`**
 
@@ -567,7 +567,7 @@ No changes. These use patterns the generator doesn't support.
 Update field types and constructor to use generated plan types if their
 names changed (e.g., `GitPlan` stays the same).
 
-### Step 8: Generate real-time receivers (devlore-cli)
+### Step 8: Generate immediate receivers (devlore-cli)
 
 **8a: Identify typed receivers**
 
@@ -594,7 +594,7 @@ Update constructor calls if receiver constructors changed.
 | Slot readers + dry-run logging | Yes | - |
 | Op struct + Name() + Category() | Yes | - |
 | Registration function with impl | Yes | - |
-| Plan receiver (standard UnpackArgs) | Yes | - |
+| Planned receiver (standard UnpackArgs) | Yes | - |
 | Attr/AttrNames dispatch | Yes | - |
 | Implementation bodies | - | Required (impl structs) |
 | Multi-node methods (configure) | No | Required |
@@ -624,8 +624,8 @@ After all steps, validate the nuke-and-regenerate workflow:
 ```bash
 # Delete all generated files
 rm internal/execution/ops_*_gen.go
-rm internal/starlark/plan_*_gen.go
-rm internal/starlark/receiver_*_gen.go
+rm internal/starlark/planned_*_gen.go
+rm internal/starlark/immediate_*_gen.go
 
 # Regenerate
 star gen.receiver --struct fileOps --path ./internal/execution --category file --templates graph_ops --output ./internal/execution --write

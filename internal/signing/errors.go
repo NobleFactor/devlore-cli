@@ -60,7 +60,7 @@ func createTempFile(pattern string, data []byte) (string, error) {
 	defer func() { _ = f.Close() }()
 
 	if _, err := f.Write(data); err != nil {
-		_ = os.Remove(f.Name())
+		_ = os.Remove(f.Name()) //nolint:errcheck,gosec // G703: path is internal
 		return "", err
 	}
 
@@ -69,5 +69,5 @@ func createTempFile(pattern string, data []byte) (string, error) {
 
 // removeTempFile removes a temporary file, ignoring errors.
 func removeTempFile(path string) {
-	_ = os.Remove(path)
+	_ = os.Remove(path) //nolint:errcheck // best-effort cleanup
 }

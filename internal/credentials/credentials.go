@@ -45,7 +45,7 @@ func Set(key, secret string) error {
 func Delete(key string) error {
 	// Try both - don't fail if one doesn't have it
 	if helper := detectHelper(); helper != "" {
-		_ = helperErase(helper, key)
+		_ = helperErase(helper, key) //nolint:errcheck // best-effort erase, not critical
 	}
 	return fileDelete(key)
 }

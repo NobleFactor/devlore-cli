@@ -352,7 +352,7 @@ own semantics. See [Activities](#activities) for the full contract.
 The three-layer delegation:
 
 ```
-Starlark script  → plan receiver  → creates Node in graph
+Starlark script  → planned receiver → creates Node in graph
                                         ↓
 Graph executor   → action struct  → reads slots, delegates to Provider
                    (generated)          ↓

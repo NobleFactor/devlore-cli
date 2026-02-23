@@ -9,26 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("file", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("file", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewFilePlan(graph, h, project, reg)
 	})
 }
 
 type FilePlan struct {
-	projection.Receiver
-	graph   *projection.Graph
+	op.Receiver
+	graph   *op.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewFilePlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *FilePlan {
+func NewFilePlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *FilePlan {
 	return &FilePlan{
-		Receiver: projection.NewReceiver("plan.file"),
+		Receiver: op.NewReceiver("plan.file"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -39,29 +39,29 @@ func NewFilePlan(graph *projection.Graph, h host.Host, project string, reg *exec
 func (p *FilePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "link":
-		return projection.MakeAttr("plan.file.link", p.link), nil
+		return op.MakeAttr("plan.file.link", p.link), nil
 	case "copy":
-		return projection.MakeAttr("plan.file.copy", p.copy), nil
+		return op.MakeAttr("plan.file.copy", p.copy), nil
 	case "backup":
-		return projection.MakeAttr("plan.file.backup", p.backup), nil
+		return op.MakeAttr("plan.file.backup", p.backup), nil
 	case "unlink":
-		return projection.MakeAttr("plan.file.unlink", p.unlink), nil
+		return op.MakeAttr("plan.file.unlink", p.unlink), nil
 	case "remove":
-		return projection.MakeAttr("plan.file.remove", p.remove), nil
+		return op.MakeAttr("plan.file.remove", p.remove), nil
 	case "write":
-		return projection.MakeAttr("plan.file.write", p.write), nil
+		return op.MakeAttr("plan.file.write", p.write), nil
 	case "move":
-		return projection.MakeAttr("plan.file.move", p.move), nil
+		return op.MakeAttr("plan.file.move", p.move), nil
 	case "source":
-		return projection.MakeAttr("plan.file.source", p.source), nil
+		return op.MakeAttr("plan.file.source", p.source), nil
 	case "mkdir":
-		return projection.MakeAttr("plan.file.mkdir", p.mkdir), nil
+		return op.MakeAttr("plan.file.mkdir", p.mkdir), nil
 	case "exists":
-		return projection.MakeAttr("plan.file.exists", p.exists), nil
+		return op.MakeAttr("plan.file.exists", p.exists), nil
 	case "is_dir":
-		return projection.MakeAttr("plan.file.is_dir", p.is_dir), nil
+		return op.MakeAttr("plan.file.is_dir", p.is_dir), nil
 	default:
-		return nil, projection.NoSuchAttrError("plan.file", name)
+		return nil, op.NoSuchAttrError("plan.file", name)
 	}
 }
 
@@ -81,8 +81,8 @@ func (p *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-link"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-link"),
 		Action:  p.reg.MustGet("file.link"),
 		Project: p.project,
 	}
@@ -94,7 +94,7 @@ func (p *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // copy Copy writes content to path with the given mode. Returns the SHA256
@@ -109,8 +109,8 @@ func (p *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-copy"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-copy"),
 		Action:  p.reg.MustGet("file.copy"),
 		Project: p.project,
 	}
@@ -122,7 +122,7 @@ func (p *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // backup Backup moves the file at path to a timestamped backup location.
@@ -137,8 +137,8 @@ func (p *FilePlan) backup(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-backup"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-backup"),
 		Action:  p.reg.MustGet("file.backup"),
 		Project: p.project,
 	}
@@ -150,7 +150,7 @@ func (p *FilePlan) backup(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // unlink Unlink removes a symlink at path. If prune is true and pruneBoundary
@@ -167,8 +167,8 @@ func (p *FilePlan) unlink(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-unlink"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-unlink"),
 		Action:  p.reg.MustGet("file.unlink"),
 		Project: p.project,
 	}
@@ -183,7 +183,7 @@ func (p *FilePlan) unlink(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // remove Remove deletes the file at path. If prune is true and pruneBoundary
@@ -200,8 +200,8 @@ func (p *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-remove"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-remove"),
 		Action:  p.reg.MustGet("file.remove"),
 		Project: p.project,
 	}
@@ -216,7 +216,7 @@ func (p *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // write Write writes inline content to path with the given mode.
@@ -232,8 +232,8 @@ func (p *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-write"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-write"),
 		Action:  p.reg.MustGet("file.write"),
 		Project: p.project,
 	}
@@ -248,7 +248,7 @@ func (p *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // move Move moves a file from source to path. Uses gitMv if provided
@@ -264,8 +264,8 @@ func (p *FilePlan) move(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-move"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-move"),
 		Action:  p.reg.MustGet("file.move"),
 		Project: p.project,
 	}
@@ -277,7 +277,7 @@ func (p *FilePlan) move(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // source Source reads a file and returns its contents.
@@ -290,8 +290,8 @@ func (p *FilePlan) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-source"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-source"),
 		Action:  p.reg.MustGet("file.source"),
 		Project: p.project,
 	}
@@ -300,7 +300,7 @@ func (p *FilePlan) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // mkdir Mkdir creates a directory (and parents) with the given mode.
@@ -314,8 +314,8 @@ func (p *FilePlan) mkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-mkdir"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-mkdir"),
 		Action:  p.reg.MustGet("file.mkdir"),
 		Project: p.project,
 	}
@@ -327,7 +327,7 @@ func (p *FilePlan) mkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // exists Exists returns true if path exists on the filesystem.
@@ -340,8 +340,8 @@ func (p *FilePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-exists"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-exists"),
 		Action:  p.reg.MustGet("file.exists"),
 		Project: p.project,
 	}
@@ -350,7 +350,7 @@ func (p *FilePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // is_dir IsDir returns true if path exists and is a directory.
@@ -363,8 +363,8 @@ func (p *FilePlan) is_dir(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("file-is_dir"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("file-is_dir"),
 		Action:  p.reg.MustGet("file.is_dir"),
 		Project: p.project,
 	}
@@ -373,5 +373,5 @@ func (p *FilePlan) is_dir(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }

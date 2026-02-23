@@ -96,7 +96,7 @@ func TestLoad_FromFile(t *testing.T) {
 
 	// Create config file
 	configDir := filepath.Join(tmpDir, "devlore")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}
 
@@ -115,7 +115,7 @@ writ:
     - SITE
 `
 	configPath := filepath.Join(configDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("writing config file: %v", err)
 	}
 
@@ -153,7 +153,7 @@ func TestLoad_EnvOverridesFile(t *testing.T) {
 
 	// Create config file with one provider
 	configDir := filepath.Join(tmpDir, "devlore")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}
 
@@ -163,7 +163,7 @@ model:
   name: llama3.1:8b
 `
 	configPath := filepath.Join(configDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("writing config file: %v", err)
 	}
 
@@ -263,13 +263,13 @@ func TestSave_APIKeyNotWrittenToFile(t *testing.T) {
 	}
 
 	// API key should NOT be in the file
-	if string(content) != "" && contains(string(content), "secret-api-key") {
+	if len(content) != 0 && contains(string(content), "secret-api-key") {
 		t.Error("API key should not be written to config file")
 	}
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && (s[:len(substr)] == substr || contains(s[1:], substr)))
+	return len(s) >= len(substr) && (s == substr || s != "" && (s[:len(substr)] == substr || contains(s[1:], substr)))
 }
 
 func TestModelConfig_WithDefaults(t *testing.T) {

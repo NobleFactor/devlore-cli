@@ -208,7 +208,7 @@ func TestCopyFile(t *testing.T) {
 	dst := filepath.Join(tmpDir, "dest.txt")
 
 	content := []byte("test content")
-	if err := os.WriteFile(src, content, 0644); err != nil {
+	if err := os.WriteFile(src, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -221,7 +221,7 @@ func TestCopyFile(t *testing.T) {
 		t.Fatalf("read dest: %v", err)
 	}
 
-	if string(got) != string(content) {
+	if !bytes.Equal(got, content) {
 		t.Errorf("content mismatch: got %q, want %q", string(got), string(content))
 	}
 }

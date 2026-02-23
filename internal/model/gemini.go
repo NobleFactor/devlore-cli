@@ -98,20 +98,23 @@ func (g *GeminiProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRespon
 	// Gemini uses API key as query parameter
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", g.endpoint, g.model, g.apiKey)
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body)) //nolint:gosec // G107: URL comes from user configuration
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := g.client.Do(httpReq)
+	resp, err := g.client.Do(httpReq) //nolint:gosec // G704: URL comes from user configuration
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			respBody = nil
+		}
 		return nil, fmt.Errorf("gemini error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 

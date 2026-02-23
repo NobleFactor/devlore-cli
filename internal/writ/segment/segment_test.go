@@ -220,7 +220,7 @@ func TestDetectSegments(t *testing.T) {
 	}
 
 	// OS should be set
-	if os := segs.Get("OS"); os == "" {
+	if osVal := segs.Get("OS"); osVal == "" {
 		t.Error("OS segment is empty")
 	}
 

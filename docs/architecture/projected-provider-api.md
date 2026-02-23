@@ -42,8 +42,8 @@ produces three distinct artifacts from three templates:
 | Artifact | Template | Purpose |
 |----------|----------|---------|
 | **Action wrappers** | `graph_actions.go.template` | Implements the `Action` interface: unpacks slots, calls Provider method, returns result + compensation state |
-| **Plan receiver** | `plan_receiver.go.template` | Starlark namespace under `plan.*`: creates `Node`, fills slots, returns `Output` |
-| **Realtime receiver** | `realtime_receiver.go.template` | Starlark namespace at top level: calls Provider method directly, returns value |
+| **Planned receiver** | `planned_receiver.go.template` | Starlark namespace under `plan.*`: creates `Node`, fills slots, returns `Output` |
+| **Immediate receiver** | `immediate_receiver.go.template` | Starlark namespace at top level: calls Provider method directly, returns value |
 
 The action wrappers bridge Provider methods to the execution engine. The two
 receivers bridge Provider methods to the Starlark script environment. All three
@@ -74,7 +74,7 @@ Three slot value types make this work:
 | **Promise** | Argument is an `Output` — the result of another planned call | At execution time — the producing node runs first, its result fills the slot |
 | **Proxy** | Argument references a field within a `Gather` iteration | At execution time — the gather node fans out, each item fills the slot |
 
-The `FillSlot` function encapsulates this dispatch. Generated plan receivers
+The `FillSlot` function encapsulates this dispatch. Generated planned receivers
 call it for every argument; it examines the Starlark value type and sets the
 appropriate slot variant. This is how the graph builds itself from the natural
 flow of the script — no explicit edge declarations needed.
@@ -120,7 +120,7 @@ At startup, blank imports in `register.go` trigger all `init()` functions. Then
 
 ### 2. Plan Registration (Starlark Binding)
 
-Each provider's generated `plan_*_gen.go` contains:
+Each provider's generated `planned_*_gen.go` contains:
 - A plan struct (e.g., `FilePlan`) embedding `projection.Receiver`
 - An `init()` function that calls `registerPlan("file", factory)`
 - A factory function that creates the plan struct with graph and registry references
@@ -131,7 +131,7 @@ factory, building the `plan.file`, `plan.net`, etc. sub-namespaces dynamically.
 ### The Connection
 
 Both registrations happen via `init()` — self-registration triggered by import.
-The plan receiver references the action registry to resolve action names:
+The planned receiver references the action registry to resolve action names:
 
 ```go
 node := &projection.Node{
@@ -204,8 +204,8 @@ internal/execution/      ← owns Action interface, executor, registry
 internal/starlark/       ← imports both; devlore-specific wiring
   plan_root.go           ← PlanRoot (choose, gather, source)
   plan_registry.go       ← PlanFactory type and registry
-  plan_*_gen.go          ← generated plan receivers
-  receiver_*_gen.go      ← generated realtime receivers
+  planned_*_gen.go       ← generated planned receivers
+  immediate_*_gen.go     ← generated immediate receivers
 ```
 
 ## The User Experience
@@ -280,8 +280,8 @@ star devlore actions generate
     reads Provider struct (e.g., file.Provider)
     ↓
     ├→ graph_actions.go.template    → provider/file/actions_gen.go
-    ├→ plan_receiver.go.template    → starlark/plan_file_gen.go
-    └→ realtime_receiver.go.template → starlark/receiver_file_gen.go
+    ├→ planned_receiver.go.template  → starlark/planned_file_gen.go
+    └→ immediate_receiver.go.template → starlark/immediate_file_gen.go
 ```
 
 Star does not import `pkg/projection/` at generation time — it *emits code*
@@ -312,7 +312,7 @@ lore deploy @packages-manifest.yaml
 ```
 
 Lore uses both projection surfaces. The `plan.*` namespace (planned projection)
-builds the graph. Realtime receivers like `note()`, `warn()`, and `fail()`
+builds the graph. Immediate receivers like `ui.note()`, `ui.warn()`, and `ui.fail()`
 (immediate projection) provide feedback during script evaluation. Lore's
 `builder.go` creates the `PlanRoot`, wires it into the Starlark globals, and
 executes phase entry points (`install`, `provision`, `verify`).
@@ -372,7 +372,7 @@ management.
             │                    │
             └────────────────────┘
                     generated code lives here
-                    (plan_*_gen.go, actions_gen.go)
+                    (planned_*_gen.go, actions_gen.go)
 ```
 
 Star produces the generated code that both Lore and Writ consume. Lore
@@ -384,13 +384,13 @@ finds package manifests. All three tools share the execution layer — the
 ## Design Properties
 
 **No code duplication.** One Go method powers up to three generated artifacts
-(action wrapper, plan receiver method, realtime receiver method). Business
+(action wrapper, planned receiver method, immediate receiver method). Business
 logic exists in exactly one place.
 
 **Safety by design.** A method marked `planned` cannot be called immediately —
-the generator simply doesn't emit it in the realtime receiver. A method with no
+the generator simply doesn't emit it in the immediate receiver. A method with no
 `plannable` directive cannot create graph nodes — the generator doesn't emit it
-in the plan receiver. Misuse is a compile error, not a runtime surprise.
+in the planned receiver. Misuse is a compile error, not a runtime surprise.
 
 **Automatic dependency wiring.** Passing an `Output` handle as an argument
 creates a graph edge. The script author never writes explicit dependency

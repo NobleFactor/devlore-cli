@@ -36,23 +36,23 @@ boilerplate the templates generate themselves -- including them would create dup
 
 | Template | Output File | Example |
 |---|---|---|
-| `plan_receiver` | `plan_{category}_gen.go` | `plan_file_gen.go` |
+| `planned_receiver` | `planned_{category}_gen.go` | `planned_file_gen.go` |
 | `graph_ops` | `ops_{category}_gen.go` | `ops_file_gen.go` |
-| `realtime_receiver` | `receiver_{category}_gen.go` | `receiver_file_gen.go` |
+| `immediate_receiver` | `immediate_{category}_gen.go` | `immediate_file_gen.go` |
 
 ### Namespace derivation
 
 The namespace is derived from the template and category:
-- `plan_receiver`: `"plan.{category}"` (e.g., `"plan.file"`)
+- `planned_receiver`: `"plan.{category}"` (e.g., `"plan.file"`)
 - `graph_ops`: not used (ops don't have namespaces)
-- `realtime_receiver`: `"{category}"` (e.g., `"file"`)
+- `immediate_receiver`: `"{category}"` (e.g., `"file"`)
 
 ### Package derivation
 
 The package name is derived from the template:
-- `plan_receiver`: `"starlark"` (plan receivers live in `internal/starlark/`)
+- `planned_receiver`: `"starlark"` (planned receivers live in `internal/starlark/`)
 - `graph_ops`: `"execution"` (ops live in `internal/execution/`)
-- `realtime_receiver`: `"starlark"` (receivers live in `internal/starlark/`)
+- `immediate_receiver`: `"starlark"` (immediate receivers live in `internal/starlark/`)
 
 These defaults can be overridden with the `--package` flag for non-standard layouts.
 
@@ -77,7 +77,7 @@ and lets users inspect output before committing.
 # Copyright Noble Factor. All rights reserved.
 
 extension: com.noblefactor.star.GenReceiver
-description: Generate plan receivers, graph operations, and real-time receivers from Go structs
+description: Generate planned receivers, graph operations, and immediate receivers from Go structs
 
 receivers:
   - name: go
@@ -116,7 +116,7 @@ commands:
         help: Comma-separated list of methods to include (default all public)
       - name: templates
         type: string
-        default: "plan_receiver,graph_ops,realtime_receiver"
+        default: "planned_receiver,graph_ops,immediate_receiver"
         help: Comma-separated list of templates to generate
       - name: output
         type: string
@@ -137,7 +137,7 @@ commands:
 # gen-receiver.star - Generate receivers and operations from Go structs
 #
 # Reads a Go implementation struct's methods via go.methods(), then calls
-# go.generate() to produce plan receivers, graph operations, and real-time
+# go.generate() to produce planned receivers, graph operations, and immediate
 # receivers.
 
 # Methods from starlark.Value and starlark.HasAttrs -- always excluded
@@ -151,16 +151,16 @@ STRIP_SUFFIXES = ["Ops", "Impl", "Service", "Handler"]
 
 # Template to output filename mapping
 TEMPLATE_FILES = {
-    "plan_receiver": "plan_%s_gen.go",
+    "planned_receiver": "planned_%s_gen.go",
     "graph_ops": "ops_%s_gen.go",
-    "realtime_receiver": "receiver_%s_gen.go",
+    "immediate_receiver": "immediate_%s_gen.go",
 }
 
 # Template to default package mapping
 TEMPLATE_PACKAGES = {
-    "plan_receiver": "starlark",
+    "planned_receiver": "starlark",
     "graph_ops": "execution",
-    "realtime_receiver": "starlark",
+    "immediate_receiver": "starlark",
 }
 
 def run(ctx):
@@ -256,7 +256,7 @@ The `run(ctx)` function body is detailed in Steps 3-7.
 ## Step 6: Generate Code for Each Template
 
 ```python
-    templates_str = ctx.args.get("templates", "plan_receiver,graph_ops,realtime_receiver")
+    templates_str = ctx.args.get("templates", "planned_receiver,graph_ops,immediate_receiver")
     templates = templates_str.split(",")
     output_dir = ctx.args.get("output", "")
     write_files = ctx.args.get("write", "false") == "true"
@@ -264,12 +264,12 @@ The `run(ctx)` function body is detailed in Steps 3-7.
     for tmpl in templates:
         tmpl = tmpl.strip()
         if tmpl not in TEMPLATE_FILES:
-            fail("unknown template: " + tmpl + " (valid: plan_receiver, graph_ops, realtime_receiver)")
+            fail("unknown template: " + tmpl + " (valid: planned_receiver, graph_ops, immediate_receiver)")
 
         # Derive namespace
-        if tmpl == "plan_receiver":
+        if tmpl == "planned_receiver":
             namespace = "plan." + category
-        elif tmpl == "realtime_receiver":
+        elif tmpl == "immediate_receiver":
             namespace = category
         else:
             namespace = category

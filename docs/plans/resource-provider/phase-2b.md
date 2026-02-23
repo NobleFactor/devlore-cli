@@ -209,7 +209,7 @@ Delete `Plan.Validate()` — already done in Phase 2A.
 ### Generated plan methods (future)
 
 The plan methods follow the same pattern as actions: they read slots and create
-nodes. The `plan_receiver` template from `star gen.receiver` can generate both
+nodes. The `planned_receiver` template from `star gen.receiver` can generate both
 the Go plan methods and the Starlark plan bindings.
 
 In this phase, the plan methods remain hand-written but follow the exact

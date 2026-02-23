@@ -133,6 +133,8 @@ func expandTilde(path string) string {
 }
 
 // runSelfInstall performs the complete installation.
+//
+//nolint:gocognit,gocyclo // orchestration function with sequential install steps
 func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, flags installFlags) error {
 	var installed []string
 	var installedShells []string
@@ -236,7 +238,7 @@ func initWritLayers() ([]string, error) {
 	for _, layer := range []string{"base", "team", "personal"} {
 		layerPath := filepath.Join(layersDir, layer)
 		if _, err := os.Stat(layerPath); os.IsNotExist(err) {
-			if err := os.MkdirAll(layerPath, 0755); err != nil {
+			if err := os.MkdirAll(layerPath, 0o750); err != nil {
 				return created, err
 			}
 			created = append(created, layerPath)
@@ -265,7 +267,7 @@ func installBinary(root, name string) (string, error) {
 	targetPath := filepath.Join(binDir, name)
 
 	// Create bin directory
-	if err := os.MkdirAll(binDir, 0755); err != nil {
+	if err := os.MkdirAll(binDir, 0o750); err != nil {
 		return "", fmt.Errorf("failed to create directory %s: %w", binDir, err)
 	}
 
@@ -280,7 +282,7 @@ func installBinary(root, name string) (string, error) {
 	}
 
 	// Make executable
-	if err := os.Chmod(targetPath, 0755); err != nil {
+	if err := os.Chmod(targetPath, 0o750); err != nil {
 		return "", fmt.Errorf("failed to make executable: %w", err)
 	}
 
@@ -311,7 +313,7 @@ func copyFile(src, dst string) error {
 // installManPagesTo installs man pages and returns the list of installed files.
 func installManPagesTo(rootCmd *cobra.Command, path string, header ManHeader) ([]string, error) {
 	// Create directory
-	if err := os.MkdirAll(path, 0755); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create directory %s: %w", path, err)
 	}
 
@@ -374,7 +376,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 		}
 
 		dir := filepath.Join(root, relPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return paths, fmt.Errorf("failed to create %s completion directory: %w", shellName, err)
 		}
 
@@ -449,20 +451,20 @@ func initDevloreConfig(info SelfInstallInfo) ([]string, error) {
 
 	// Create unified devlore config directory
 	configDir := DevloreConfigHome()
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	// Create config.d directory for tool-specific configs
 	configDDir := filepath.Join(configDir, "config.d")
-	if err := os.MkdirAll(configDDir, 0755); err != nil {
+	if err := os.MkdirAll(configDDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create config.d directory: %w", err)
 	}
 
 	// Create shared config.yaml if it doesn't exist
 	sharedConfigPath := filepath.Join(configDir, "config.yaml")
 	if _, err := os.Stat(sharedConfigPath); os.IsNotExist(err) {
-		if err := os.WriteFile(sharedConfigPath, schema.SharedDefaultConfig, 0644); err != nil {
+		if err := os.WriteFile(sharedConfigPath, schema.SharedDefaultConfig, 0o600); err != nil {
 			return nil, fmt.Errorf("failed to write shared config: %w", err)
 		}
 	}
@@ -471,7 +473,7 @@ func initDevloreConfig(info SelfInstallInfo) ([]string, error) {
 	// Create tool-specific config in config.d/ if it doesn't exist
 	toolConfigPath := filepath.Join(configDDir, info.Name+".yaml")
 	if _, err := os.Stat(toolConfigPath); os.IsNotExist(err) {
-		if err := os.WriteFile(toolConfigPath, info.ConfigInfo.DefaultConfig, 0644); err != nil {
+		if err := os.WriteFile(toolConfigPath, info.ConfigInfo.DefaultConfig, 0o600); err != nil {
 			return nil, fmt.Errorf("failed to write %s config: %w", info.Name, err)
 		}
 	}
@@ -485,7 +487,7 @@ func initDevloreCache(toolName string) (string, error) {
 	// Create unified devlore cache directory with tool subdirectory
 	cacheDir := filepath.Join(DevloreCacheHome(), toolName)
 
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o750); err != nil {
 		return "", fmt.Errorf("failed to create cache directory: %w", err)
 	}
 

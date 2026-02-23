@@ -21,43 +21,43 @@ func (r *BuildResult) String() string {
 
 	// Multi-source mode: show all sources
 	if len(r.Sources) > 0 {
-		sb.WriteString(fmt.Sprintf("Deployment: %d layers → %s\n", len(r.Sources), r.TargetRoot))
+		fmt.Fprintf(&sb, "Deployment: %d layers → %s\n", len(r.Sources), r.TargetRoot)
 		for _, src := range r.Sources {
-			sb.WriteString(fmt.Sprintf("  %s: %s\n", src.Layer, src.SourceRoot))
+			fmt.Fprintf(&sb, "  %s: %s\n", src.Layer, src.SourceRoot)
 		}
 		sb.WriteString("\n")
 	} else {
 		// Single-source mode
-		sb.WriteString(fmt.Sprintf("Deployment: %s → %s\n\n", r.SourceRoot, r.TargetRoot))
+		fmt.Fprintf(&sb, "Deployment: %s → %s\n\n", r.SourceRoot, r.TargetRoot)
 	}
-	sb.WriteString(fmt.Sprintf("Projects: %s\n\n", strings.Join(r.Projects, ", ")))
+	fmt.Fprintf(&sb, "Projects: %s\n\n", strings.Join(r.Projects, ", "))
 
 	sb.WriteString("Matched directories:\n")
 	for _, m := range r.MatchedDirs {
-		sb.WriteString(fmt.Sprintf("  %s/\n", filepath.Base(m.Path)))
+		fmt.Fprintf(&sb, "  %s/\n", filepath.Base(m.Path))
 	}
 	sb.WriteString("\n")
 
 	if r.HasCollisions() {
-		sb.WriteString(fmt.Sprintf("Collisions (%d):\n", len(r.Collisions)))
+		fmt.Fprintf(&sb, "Collisions (%d):\n", len(r.Collisions))
 		for _, c := range r.Collisions {
-			sb.WriteString(fmt.Sprintf("  %s: %s (specificity %d) overrides %s (specificity %d)\n",
+			fmt.Fprintf(&sb, "  %s: %s (specificity %d) overrides %s (specificity %d)\n",
 				c.Target,
 				filepath.Base(filepath.Dir(c.Winner)),
 				c.WinnerSpecificity,
 				filepath.Base(filepath.Dir(c.Loser)),
-				c.LoserSpecificity))
+				c.LoserSpecificity)
 		}
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString(fmt.Sprintf("Files (%d):\n", r.FileCount()))
-	sb.WriteString(fmt.Sprintf("  Links: %d, Templates: %d, Secrets: %d\n\n",
-		r.LinkCount(), r.TemplateCount(), r.SecretCount()))
+	fmt.Fprintf(&sb, "Files (%d):\n", r.FileCount())
+	fmt.Fprintf(&sb, "  Links: %d, Templates: %d, Secrets: %d\n\n",
+		r.LinkCount(), r.TemplateCount(), r.SecretCount())
 
 	for _, f := range r.Files {
-		ops := "[" + strings.Join(f.Operations, ", ") + "]"
-		sb.WriteString(fmt.Sprintf("  %-40s %s\n", f.ID, ops))
+		actions := "[" + strings.Join(f.Operations, ", ") + "]"
+		fmt.Fprintf(&sb, "  %-40s %s\n", f.ID, actions)
 	}
 
 	return sb.String()

@@ -40,7 +40,11 @@ func (m *Manager) ConfigPath() string {
 
 // findSopsConfig walks up from dir looking for .sops.yaml.
 func findSopsConfig(dir string) string {
-	dir, _ = filepath.Abs(dir)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "" // cannot resolve path; give up
+	}
+	dir = absDir
 	for {
 		candidate := filepath.Join(dir, ".sops.yaml")
 		if _, err := os.Stat(candidate); err == nil {

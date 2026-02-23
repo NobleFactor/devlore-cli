@@ -56,7 +56,7 @@ live in `execution/flow` as typed Actions: `flow.Choose` (OR-selector),
 | Delegate/manifest | Deleted — no delegate nodes, no manifest.Resolve action, no SubgraphBuilder |
 | Planner | `lore.Planner` — `PlanPackages(graph, manifestPath)`, `PlanByName(graph, packages)` |
 | Writ → Lore wiring | `DeployGraphBuilder.Planner` field; BuildTree returns manifest paths |
-| Code gen templates | `graph_actions` + `plan_receiver` emit Do/Undo/Register, `slots map[string]any`, `Impl *Provider`, `p.reg.MustGet()` |
+| Code gen templates | `graph_actions` + `planned_receiver` emit Do/Undo/Register, `slots map[string]any`, `Impl *Provider`, `p.reg.MustGet()` |
 
 ## Vernacular
 
@@ -221,7 +221,7 @@ The `star gen.receiver` extension (noblefactor-ops) reads Provider method
 signatures and generates:
 
 1. **Action structs** (`actions_gen.go`) — via the `graph_actions` template
-2. **Plan receivers** (`plan_*_gen.go`) — via the `plan_receiver` template
+2. **Planned receivers** (`planned_*_gen.go`) — via the `planned_receiver` template
 
 The templates live in the devlore-cli Actions extension:
 `star/extensions/com.noblefactor.devlore.Actions/templates/`
@@ -229,7 +229,7 @@ The templates live in the devlore-cli Actions extension:
 | Template | Generates | Updated in |
 |---|---|---|
 | `graph_actions.go.template` | Action structs (Do/Undo, Register) | Phase 3 |
-| `plan_receiver.go.template` | Plan namespace structs (node creation) | Phase 3 |
+| `planned_receiver.go.template` | Plan namespace structs (node creation) | Phase 3 |
 
 ## Completed Phases
 
@@ -284,7 +284,7 @@ See: [Phase 2D plan](./resource-provider/phase-2d.md)
 Updated `star gen.receiver` templates and noblefactor-ops helper functions so
 `_gen.go` files become regenerable. Template helpers emit Do/Undo/Register
 pattern with `slots map[string]any`, three-value returns, `Impl *Provider`.
-Plan receiver template threads `reg *execution.ActionRegistry` and uses
+Planned receiver template threads `reg *execution.ActionRegistry` and uses
 `p.reg.MustGet()`. Renamed `graph_ops` → `graph_actions` throughout.
 
 **Repos**: noblefactor-ops (template helpers in `receiver_go_gen.go`),

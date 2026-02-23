@@ -9,26 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("service", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("service", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewServicePlan(graph, h, project, reg)
 	})
 }
 
 type ServicePlan struct {
-	projection.Receiver
-	graph   *projection.Graph
+	op.Receiver
+	graph   *op.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewServicePlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ServicePlan {
+func NewServicePlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ServicePlan {
 	return &ServicePlan{
-		Receiver: projection.NewReceiver("plan.service"),
+		Receiver: op.NewReceiver("plan.service"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -39,23 +39,23 @@ func NewServicePlan(graph *projection.Graph, h host.Host, project string, reg *e
 func (p *ServicePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "start":
-		return projection.MakeAttr("plan.service.start", p.start), nil
+		return op.MakeAttr("plan.service.start", p.start), nil
 	case "stop":
-		return projection.MakeAttr("plan.service.stop", p.stop), nil
+		return op.MakeAttr("plan.service.stop", p.stop), nil
 	case "restart":
-		return projection.MakeAttr("plan.service.restart", p.restart), nil
+		return op.MakeAttr("plan.service.restart", p.restart), nil
 	case "enable":
-		return projection.MakeAttr("plan.service.enable", p.enable), nil
+		return op.MakeAttr("plan.service.enable", p.enable), nil
 	case "disable":
-		return projection.MakeAttr("plan.service.disable", p.disable), nil
+		return op.MakeAttr("plan.service.disable", p.disable), nil
 	case "exists":
-		return projection.MakeAttr("plan.service.exists", p.exists), nil
+		return op.MakeAttr("plan.service.exists", p.exists), nil
 	case "running":
-		return projection.MakeAttr("plan.service.running", p.running), nil
+		return op.MakeAttr("plan.service.running", p.running), nil
 	case "enabled":
-		return projection.MakeAttr("plan.service.enabled", p.enabled), nil
+		return op.MakeAttr("plan.service.enabled", p.enabled), nil
 	default:
-		return nil, projection.NoSuchAttrError("plan.service", name)
+		return nil, op.NoSuchAttrError("plan.service", name)
 	}
 }
 
@@ -74,8 +74,8 @@ func (p *ServicePlan) start(_ *starlark.Thread, _ *starlark.Builtin, args starla
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("service-start"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("service-start"),
 		Action:  p.reg.MustGet("service.start"),
 		Project: p.project,
 	}
@@ -84,7 +84,7 @@ func (p *ServicePlan) start(_ *starlark.Thread, _ *starlark.Builtin, args starla
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // stop Stop stops a service. Returns compensation state with pre-action
@@ -98,8 +98,8 @@ func (p *ServicePlan) stop(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("service-stop"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("service-stop"),
 		Action:  p.reg.MustGet("service.stop"),
 		Project: p.project,
 	}
@@ -108,7 +108,7 @@ func (p *ServicePlan) stop(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // restart Restart restarts a service. Returns compensation state. Compensation
@@ -122,8 +122,8 @@ func (p *ServicePlan) restart(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("service-restart"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("service-restart"),
 		Action:  p.reg.MustGet("service.restart"),
 		Project: p.project,
 	}
@@ -132,7 +132,7 @@ func (p *ServicePlan) restart(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // enable Enable enables a service to start at boot. Returns compensation state
@@ -146,8 +146,8 @@ func (p *ServicePlan) enable(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("service-enable"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("service-enable"),
 		Action:  p.reg.MustGet("service.enable"),
 		Project: p.project,
 	}
@@ -156,7 +156,7 @@ func (p *ServicePlan) enable(_ *starlark.Thread, _ *starlark.Builtin, args starl
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // disable Disable disables a service from starting at boot. Returns
@@ -170,8 +170,8 @@ func (p *ServicePlan) disable(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("service-disable"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("service-disable"),
 		Action:  p.reg.MustGet("service.disable"),
 		Project: p.project,
 	}
@@ -180,7 +180,7 @@ func (p *ServicePlan) disable(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // exists Exists returns true if the named service exists on the system.
@@ -193,8 +193,8 @@ func (p *ServicePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("service-exists"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("service-exists"),
 		Action:  p.reg.MustGet("service.exists"),
 		Project: p.project,
 	}
@@ -203,7 +203,7 @@ func (p *ServicePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starl
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // running Running returns true if the named service is currently running.
@@ -216,8 +216,8 @@ func (p *ServicePlan) running(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("service-running"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("service-running"),
 		Action:  p.reg.MustGet("service.running"),
 		Project: p.project,
 	}
@@ -226,7 +226,7 @@ func (p *ServicePlan) running(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // enabled Enabled returns true if the named service is enabled to start at boot.
@@ -239,8 +239,8 @@ func (p *ServicePlan) enabled(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("service-enabled"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("service-enabled"),
 		Action:  p.reg.MustGet("service.enabled"),
 		Project: p.project,
 	}
@@ -249,5 +249,5 @@ func (p *ServicePlan) enabled(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }

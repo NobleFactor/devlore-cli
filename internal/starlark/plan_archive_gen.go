@@ -9,26 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("archive", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("archive", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewArchivePlan(graph, h, project, reg)
 	})
 }
 
 type ArchivePlan struct {
-	projection.Receiver
-	graph   *projection.Graph
+	op.Receiver
+	graph   *op.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewArchivePlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ArchivePlan {
+func NewArchivePlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ArchivePlan {
 	return &ArchivePlan{
-		Receiver: projection.NewReceiver("plan.archive"),
+		Receiver: op.NewReceiver("plan.archive"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -39,9 +39,9 @@ func NewArchivePlan(graph *projection.Graph, h host.Host, project string, reg *e
 func (p *ArchivePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "extract":
-		return projection.MakeAttr("plan.archive.extract", p.extract), nil
+		return op.MakeAttr("plan.archive.extract", p.extract), nil
 	default:
-		return nil, projection.NoSuchAttrError("plan.archive", name)
+		return nil, op.NoSuchAttrError("plan.archive", name)
 	}
 }
 
@@ -62,8 +62,8 @@ func (p *ArchivePlan) extract(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("archive-extract"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("archive-extract"),
 		Action:  p.reg.MustGet("archive.extract"),
 		Project: p.project,
 	}
@@ -75,5 +75,5 @@ func (p *ArchivePlan) extract(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }

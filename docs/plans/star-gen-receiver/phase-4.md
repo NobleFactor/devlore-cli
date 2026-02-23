@@ -5,7 +5,7 @@
 Phase 0-3 are merged. The generator pipeline is complete: `go.methods()` discovers
 signatures, `go.generate()` produces code from templates, and `star gen.receiver`
 orchestrates the full workflow. Phase 4 validates the generated output against
-devlore-cli's hand-written plan receivers, graph operations, and real-time receivers.
+devlore-cli's hand-written planned receivers, graph operations, and immediate receivers.
 
 The goal is to identify every structural difference between generated and hand-written
 code, then decide for each: adjust the template, or accept the difference as an
@@ -45,7 +45,7 @@ The hand-written code includes the category in the node ID prefix for uniqueness
 across categories (e.g., `git-clone-1` vs `file-copy-1`).
 
 **Decision**: The generator should include the category. **Template change needed.**
-Update the plan receiver template to use `generateNodeID("{{$.Category}}.{{.SnakeName}}")`.
+Update the planned receiver template to use `generateNodeID("{{$.Category}}.{{.SnakeName}}")`.
 
 ### Mismatch 3: Graph Ops — OpCategory
 
@@ -68,7 +68,7 @@ to `OpDirect`. The `.star` command can set this per-method via a mapping or flag
 **Template change needed** — the graph_ops template should read `op_category` from
 each method and generate the correct interface implementation.
 
-### Mismatch 4: Real-Time Receiver — kwargs Passthrough
+### Mismatch 4: Immediate Receiver — kwargs Passthrough
 
 | Source | Pattern | Example |
 |---|---|---|
@@ -79,19 +79,19 @@ The GitReceiver doesn't use typed parameter unpacking at all. It converts arbitr
 kwargs to CLI flags (`--branch main` → `-b main`). This is a fundamentally different
 pattern — the receiver is a thin CLI wrapper, not a typed API.
 
-**Decision**: The generated real-time receiver template is correct for typed APIs
+**Decision**: The generated immediate receiver template is correct for typed APIs
 (e.g., a future `DockerReceiver` with explicit params). The kwargs-passthrough pattern
 is specific to CLI wrappers and won't be generated — it's hand-written by design.
 **No template change needed.** Document that CLI-wrapper receivers are out of scope.
 
-### Mismatch 5: Plan Receiver — starlark.Value Args
+### Mismatch 5: Planned Receiver — starlark.Value Args
 
 | Source | Unpack Type | Why |
 |---|---|---|
 | Generated | `starlark.Value` for all params | Supports both promises (Output) and immediates |
 | Hand-written | `starlark.Value` for all params | Same reason |
 
-**No mismatch.** The plan receiver template correctly uses `starlark.Value` because
+**No mismatch.** The planned receiver template correctly uses `starlark.Value` because
 plan-time arguments can be either literals or promises from upstream nodes.
 
 ### Mismatch 6: FillSlot Variable Name
@@ -120,7 +120,7 @@ multi-node methods are out of scope.
 
 ## Step 1: Fix Node ID Prefix (noblefactor-ops)
 
-Update the plan receiver template in `receiver_go_gen.go`:
+Update the planned receiver template in `receiver_go_gen.go`:
 
 ```go
 // Before:
@@ -225,7 +225,7 @@ star gen.receiver \
   --path /path/to/devlore-cli/internal/starlark \
   --struct GitPlan \
   --category git \
-  --templates plan_receiver
+  --templates planned_receiver
 ```
 
 Compare generated `plan_git_gen.go` against `plan_git.go`:
@@ -247,7 +247,7 @@ star gen.receiver \
   --path /path/to/devlore-cli/internal/starlark \
   --struct ArchivePlan \
   --category archive \
-  --templates plan_receiver
+  --templates planned_receiver
 ```
 
 Compare against `plan_archive.go`. Expected: near-identical structure.

@@ -13,7 +13,7 @@ structure and lifecycle.
 | **Receiver** | Starlark | An object with methods. `file`, `plan.file`, `git` are receivers. Methods are bound to the receiver — `file.copy()` calls the `copy` method with `file` as the receiver. |
 | **Method** | Starlark/Python | A callable bound to a receiver. `file.copy()`, `plan.file.link()`, `git.clone()` are method calls. |
 | **Namespace** | Ours | The organizational grouping that ties together a provider, its receivers, its methods, and its actions. Derived from the provider package name: `file`, `pkg`, `service`. Appears in action names (`file.link`), method paths (`plan.file.link()`), and error messages. |
-| **Plan receiver** | Ours | A receiver whose methods create graph nodes for later execution. `plan.file`, `plan.git`. Generated from the provider's method signatures. |
+| **Planned receiver** | Ours | A receiver offering planned access — its methods create graph nodes for later execution. `plan.file`, `plan.git`. Generated from the provider's method signatures. |
 | **Execute receiver** | Ours | A receiver whose methods execute immediately. `file`, `archive`, `service`. Generated from the provider's method signatures. |
 | **Provider** | Ours | The hand-written Go struct whose methods contain business logic (activities). Source of truth for the generator. `file.Provider`, `pkg.Provider`, `service.Provider`. Lives in `provider/<namespace>/provider.go`. |
 | **Activity** | Saga | A paired unit of work on a Provider: a forward method and an optional backward (compensating) method. `file.Provider.Copy` + `file.Provider.CompensateCopy` is one Activity. Not a Go type — a design concept enforced by naming convention and the generator. |
@@ -39,14 +39,14 @@ next, and user config files last.
 
 Slots hold typed values or promises. When an action reads a slot:
 
-1. **Caller-provided** — plan receiver method filled it explicitly (value or promise)
+1. **Caller-provided** — planned receiver method filled it explicitly (value or promise)
 2. **Context.Data fallback** — engine fills unfilled slots from Context.Data by key name
 
-A plan receiver method can override any global default per-node. If it
+A planned receiver method can override any global default per-node. If it
 doesn't, the engine provides the global value from Context.Data.
 
 ```
-Plan receiver                Engine                   Action
+Planned receiver             Engine                   Action
      │                         │                       │
      │── FillSlot("path",v) ──▶│                       │
      │                         │── resolve promises ──▶│
@@ -140,7 +140,7 @@ name:
 
 The namespace appears in:
 - Action names: `file.link`, `pkg.install`, `service.start`
-- Plan receiver methods: `plan.file.link()`, `plan.package.install()`
+- Planned receiver methods: `plan.file.link()`, `plan.package.install()`
 - Execute receiver methods: `file.copy()`, `archive.extract()`
 - Error messages: `file.link: slot "source" requires string`
 - Provider package paths: `provider/file/`, `provider/pkg/`, `provider/service/`
@@ -149,7 +149,7 @@ One provider per namespace. The namespace IS the provider's identity.
 
 ## Two Worlds
 
-**Plan time (Starlark):** Plan receiver methods create nodes and fill slots.
+**Plan time (Starlark):** Planned receiver methods create nodes and fill slots.
 Starlark values are converted to Go types via Starlark type mappings.
 Promises (Output references to upstream nodes) are also slots — resolved
 later by the engine.
@@ -227,7 +227,7 @@ and the generator's parameter name → slot name mapping.
 ## Providers
 
 Providers are the hand-written source of truth. The generator reads their
-method signatures to produce everything else: action structs, plan receivers,
+method signatures to produce everything else: action structs, planned receivers,
 execute receivers, and Starlark type mappings. Each provider lives in its own
 package under `internal/execution/provider/`.
 
@@ -381,7 +381,7 @@ Caller-provided slots take precedence. Context.Data provides defaults.
 Slots hold either values (known at plan time) or promises (resolved at
 runtime). This is a fundamental distinction:
 
-- **Values**: Filled by a plan receiver method from Starlark arguments.
+- **Values**: Filled by a planned receiver method from Starlark arguments.
   The slot contains a concrete Go value. Available for dry-run
   serialization, graph inspection, and preflight validation.
 
@@ -397,7 +397,7 @@ runtime). This is a fundamental distinction:
 
 The engine must handle all three cases in the resolution chain. The
 executor resolves promises and fills Context.Data defaults into a flat
-`map[string]any` before calling `action.Do(ctx, slots)`. Plan receiver
+`map[string]any` before calling `action.Do(ctx, slots)`. Planned receiver
 methods and Starlark users work with values and promises. Context.Data
 defaults are invisible to them — they're engine-level concerns.
 
@@ -413,7 +413,7 @@ extension authors, plan writers, and error messages.
 
 - **Types**: Determined by the provider method signature. The generator
   knows the Go type of each slot and the corresponding Starlark type for
-  plan receiver method arguments. The type mapping table (string↔String,
+  planned receiver method arguments. The type mapping table (string↔String,
   bool↔Bool, etc.) must be documented and consistent.
 
 - **Introspection**: Actions should be able to report their expected

@@ -6,6 +6,7 @@ package migrate
 // SourceSystem identifies the dotfile management approach used in the source repository.
 type SourceSystem string
 
+// Source system detection constants.
 const (
 	SystemNative      SourceSystem = "native"       // Already writ-compatible (Home/ or System/)
 	SystemTuckr       SourceSystem = "tuckr"        // Tuckr dotfile manager
@@ -20,6 +21,7 @@ const (
 // EncryptionSystem identifies the secret encryption tool in use.
 type EncryptionSystem string
 
+// Encryption system constants.
 const (
 	EncryptGitCrypt     EncryptionSystem = "git-crypt"
 	EncryptBlackbox     EncryptionSystem = "blackbox"
@@ -125,9 +127,10 @@ type MigrationStats struct {
 }
 
 // RepoLayer indicates the precedence layer of a repository.
-// Precedence: base (lowest) → team → personal (highest).
+// Precedence: base (lowest) -> team -> personal (highest).
 type RepoLayer string
 
+// Repository layer constants.
 const (
 	LayerBase     RepoLayer = "base"
 	LayerTeam     RepoLayer = "team"

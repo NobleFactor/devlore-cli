@@ -30,7 +30,7 @@ func TestRequiredPhase(t *testing.T) {
 	}
 }
 
-func TestPhaseToNativePMOp(t *testing.T) {
+func TestPhaseToNativePMAction(t *testing.T) {
 	tests := []struct {
 		action Action
 		phase  string
@@ -60,10 +60,10 @@ func TestPhaseToNativePMOp(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotPM, gotOK := phaseToNativePMCmd(tt.action, tt.phase)
 			if gotOK != tt.wantOK {
-				t.Errorf("phaseToNativePMOp(%s, %s) ok = %v, want %v", tt.action, tt.phase, gotOK, tt.wantOK)
+				t.Errorf("phaseToNativePMCmd(%s, %s) ok = %v, want %v", tt.action, tt.phase, gotOK, tt.wantOK)
 			}
 			if gotOK && gotPM != tt.wantPM {
-				t.Errorf("phaseToNativePMOp(%s, %s) = %v, want %v", tt.action, tt.phase, gotPM, tt.wantPM)
+				t.Errorf("phaseToNativePMCmd(%s, %s) = %v, want %v", tt.action, tt.phase, gotPM, tt.wantPM)
 			}
 		})
 	}

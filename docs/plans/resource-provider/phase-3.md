@@ -1,4 +1,4 @@
-# Phase 3: Generator Templates — graph_actions + plan_receiver
+# Phase 3: Generator Templates — graph_actions + planned_receiver
 
 ```yaml
 title: "Phase 3: Generator Templates"
@@ -13,10 +13,10 @@ updated: 2026-02-15
 Phases 2A–2D restructured the execution layer: Actions have `Do(ctx, slots)`/
 `Undo(ctx, slots, state)` signatures, actions live in per-provider packages
 (`provider/file`, `provider/git`, etc.), nodes carry Action interface instances
-(not strings), plan receivers thread `ActionRegistry` and use `reg.MustGet()`.
+(not strings), planned receivers thread `ActionRegistry` and use `reg.MustGet()`.
 
 The `_gen.go` files are currently **hand-written** to match this new contract.
-The code generation templates (`graph_ops.go.tmpl`, `plan_receiver.go.tmpl`)
+The code generation templates (`graph_ops.go.tmpl`, `planned_receiver.go.tmpl`)
 and the helper functions in noblefactor-ops (`receiver_go_gen.go`) still emit
 the **old** pattern: `Execute(ctx, node) error`, `node.GetSlot(...)`,
 `Operation: "name"`, `[]Operation` factory.
@@ -45,7 +45,7 @@ hand-written files. After this phase, `rm *_gen.go` + re-run
 | Factory | `{{Struct}}Ops(impl) []Operation` | `Register(reg *execution.ActionRegistry)` |
 | Import | `"fmt"` | `"fmt"` + `"github.com/.../execution"` |
 
-### plan_receiver (plan_*_gen.go)
+### planned_receiver (planned_*_gen.go)
 
 | Aspect | Current Template | Target |
 |---|---|---|
@@ -151,7 +151,7 @@ func Register(reg *execution.ActionRegistry) {
 }
 ```
 
-### devlore-cli: plan_receiver.go.tmpl
+### devlore-cli: planned_receiver.go.tmpl
 
 Update to thread `reg`:
 
@@ -256,9 +256,9 @@ Update expected output in test cases to match new Do/Undo/Register pattern.
 
 Replace template content with the new pattern.
 
-### Step 4: devlore-cli — Update plan_receiver template
+### Step 4: devlore-cli — Update planned_receiver template
 
-**File**: `star/extensions/com.noblefactor.devlore.Actions/templates/plan_receiver.go.tmpl`
+**File**: `star/extensions/com.noblefactor.devlore.Actions/templates/planned_receiver.go.tmpl`
 
 Add `reg` field, update constructor, change `Operation:` → `Action: p.reg.MustGet(...)`.
 
@@ -303,7 +303,7 @@ go test ./... -count=1
 | noblefactor-ops | `internal/starlark/receiver_go_gen.go` | Update 5 helpers, add graphUndo |
 | noblefactor-ops | `internal/starlark/receiver_go_gen_test.go` | Update expected output |
 | devlore-cli | `star/.../templates/graph_ops.go.tmpl` | Rename → `graph_actions.go.tmpl`, rewrite |
-| devlore-cli | `star/.../templates/plan_receiver.go.tmpl` | Add reg field, MustGet |
+| devlore-cli | `star/.../templates/planned_receiver.go.tmpl` | Add reg field, MustGet |
 | devlore-cli | `star/.../commands/generate.star` | Rename template, update mappings |
 
 ## What This Phase Does NOT Touch
@@ -312,11 +312,11 @@ go test ./... -count=1
 - Provider `helpers.go` files
 - Flow actions (not generated)
 - `register_gen.go` (RegisterAll — could be generated but deferred)
-- Starlark plan receivers that are NOT `_gen.go` files (plan_file.go, etc.)
+- Starlark planned receivers that are NOT `_gen.go` files (plan_file.go, etc.)
 
 ## Open Questions
 
-- Should the `realtime_receiver` template (builtin in noblefactor-ops) also be
+- Should the `immediate_receiver` template (builtin in noblefactor-ops) also be
   updated? It is not used by any devlore-cli code currently.
 - Should `register_gen.go` (`RegisterAll`) be generated? Currently hand-written.
   Low value since it only changes when a provider is added/removed.

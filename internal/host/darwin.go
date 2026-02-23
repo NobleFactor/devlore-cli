@@ -6,6 +6,7 @@
 package host
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,11 +45,14 @@ func (h *darwinHost) Platform() Platform {
 }
 
 func (h *darwinHost) detectPlatform() Platform {
-	hostname, _ := os.Hostname()
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = ""
+	}
 
 	// Get macOS version from sw_vers
 	version := ""
-	if out, err := exec.Command("sw_vers", "-productVersion").Output(); err == nil {
+	if out, err := exec.CommandContext(context.Background(), "sw_vers", "-productVersion").Output(); err == nil {
 		version = strings.TrimSpace(string(out))
 	}
 

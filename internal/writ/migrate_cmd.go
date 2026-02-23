@@ -13,7 +13,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
@@ -85,14 +85,14 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("source root %s is not a directory", sourceRoot)
 	}
 
-	dryRun, _ := cmd.Root().Flags().GetBool("dry-run")
-	nonInteractive, _ := cmd.Flags().GetBool("non-interactive")
-	useMove, _ := cmd.Flags().GetBool("move")
-	layer, _ := cmd.Flags().GetString("layer")
-	format, _ := cmd.Flags().GetString("format")
-	verbose, _ := cmd.Root().Flags().GetBool("verbose")
-	treeDepth, _ := cmd.Flags().GetInt("tree-depth")
-	scriptBudget, _ := cmd.Flags().GetInt("script-budget")
+	dryRun, _ := cmd.Root().Flags().GetBool("dry-run")               //nolint:errcheck // flag registered above
+	nonInteractive, _ := cmd.Flags().GetBool("non-interactive")       //nolint:errcheck // flag registered above
+	useMove, _ := cmd.Flags().GetBool("move")                         //nolint:errcheck // flag registered above
+	layer, _ := cmd.Flags().GetString("layer")                        //nolint:errcheck // flag registered above
+	format, _ := cmd.Flags().GetString("format")                      //nolint:errcheck // flag registered above
+	verbose, _ := cmd.Root().Flags().GetBool("verbose")               //nolint:errcheck // flag registered above
+	treeDepth, _ := cmd.Flags().GetInt("tree-depth")                  //nolint:errcheck // flag registered above
+	scriptBudget, _ := cmd.Flags().GetInt("script-budget")            //nolint:errcheck // flag registered above
 
 	// Validate layer
 	if layer != "personal" && layer != "team" && layer != "base" {
@@ -321,6 +321,6 @@ func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 
 // mustGetString gets a string flag value, returning empty string on error.
 func mustGetString(cmd *cobra.Command, name string) string {
-	val, _ := cmd.Flags().GetString(name)
+	val, _ := cmd.Flags().GetString(name) //nolint:errcheck // flag registered above
 	return val
 }

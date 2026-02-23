@@ -5,6 +5,7 @@ package bindgen
 
 import (
 	"bufio"
+	"context"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -27,7 +28,7 @@ func (p *HelpParser) Parse(subcommand string) (*Command, error) {
 		args = []string{subcommand, "--help"}
 	}
 
-	cmd := exec.Command(p.command, args...)
+	cmd := exec.CommandContext(context.Background(), p.command, args...) //nolint:gosec // G204: command name from CLI tool registration
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Many CLIs exit non-zero for --help, check if we got output
@@ -40,7 +41,7 @@ func (p *HelpParser) Parse(subcommand string) (*Command, error) {
 }
 
 // parseHelp extracts command metadata from help text.
-func (p *HelpParser) parseHelp(help string, name string) (*Command, error) {
+func (p *HelpParser) parseHelp(help, name string) (*Command, error) {
 	cmd := &Command{
 		Name:    name,
 		Flags:   []*Flag{},
@@ -148,7 +149,7 @@ func (p *HelpParser) inferType(hint string) string {
 
 // ListSubcommands attempts to extract subcommand names from help.
 func (p *HelpParser) ListSubcommands() ([]string, error) {
-	cmd := exec.Command(p.command, "--help")
+	cmd := exec.CommandContext(context.Background(), p.command, "--help") //nolint:gosec // G204: command name from CLI tool registration
 	output, err := cmd.CombinedOutput()
 	if err != nil && len(output) == 0 {
 		return nil, err

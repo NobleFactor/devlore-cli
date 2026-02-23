@@ -78,7 +78,7 @@ func Load() (*Config, error) {
 
 	// Load API key from keystore if not already set
 	if cfg.Model.APIKey == "" && cfg.Model.Provider != "" {
-		cfg.Model.APIKey, _ = credentials.Get(cfg.Model.Provider)
+		cfg.Model.APIKey, _ = credentials.Get(cfg.Model.Provider) //nolint:errcheck // fallback: continue without credential
 	}
 
 	return cfg, nil
@@ -99,7 +99,7 @@ func Save(cfg *Config) error {
 	fileCfg.Model.APIKey = ""
 
 	path := Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
@@ -108,7 +108,7 @@ func Save(cfg *Config) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.

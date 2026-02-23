@@ -213,7 +213,7 @@ func (r *Registry) ListPackages() ([]SearchResultItem, error) {
 }
 
 // ResolveWithConfidence resolves a package and returns confidence information.
-func (r *Registry) ResolveWithConfidence(name string, platform string) (*Release, Confidence, error) {
+func (r *Registry) ResolveWithConfidence(name, platform string) (*Release, Confidence, error) {
 	pkg, err := r.Resolve(name, platform)
 	if err != nil {
 		return nil, ConfidenceLow, err

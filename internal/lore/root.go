@@ -132,7 +132,7 @@ func initConfig(cmd *cobra.Command) error {
 	}
 
 	// Check for custom config file via flag
-	if cfgFile, _ := cmd.Flags().GetString("config"); cfgFile != "" {
+	if cfgFile, _ := cmd.Flags().GetString("config"); cfgFile != "" { //nolint:errcheck // flag registered above
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {
 			return fmt.Errorf("failed to read config %s: %w", cfgFile, err)

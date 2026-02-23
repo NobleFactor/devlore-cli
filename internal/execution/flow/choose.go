@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package flow implements flow-control actions for execution graphs.
 package flow
 
 import (
@@ -73,11 +74,7 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		nodeSlots := node.ResolvedSlots(results)
 		execution.FillSlotsFromData(nodeSlots, ctx.Data)
 
-		action, ok := node.Action.(execution.Action)
-		if !ok {
-			continue
-		}
-		result, undoState, doErr := action.Do(ctx, nodeSlots)
+		result, undoState, doErr := node.Action.Do(ctx, nodeSlots)
 		if doErr != nil {
 			stack.Unwind(ctx)
 			return nil, nil, fmt.Errorf("choose: phase %s node %s: %w", selectedPhaseID, node.ID, doErr)
@@ -120,7 +117,7 @@ func (a *Choose) Undo(state execution.UndoState) error {
 			continue
 		}
 		if err := undoable.Undo(entry.UndoState); err != nil {
-			if errors.Is(err, execution.NotCompensableError) {
+			if errors.Is(err, execution.ErrNotCompensable) {
 				continue
 			}
 			errs = append(errs, err)

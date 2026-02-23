@@ -91,7 +91,7 @@ func LoadIdentitiesFromPaths(paths []string) ([]age.Identity, error) {
 
 // loadIdentityFile loads age identities from a file.
 func loadIdentityFile(path string) ([]age.Identity, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // G304: path is validated by caller
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +141,8 @@ func GenerateIdentity() (*age.X25519Identity, error) {
 	return age.GenerateX25519Identity()
 }
 
-// IdentityToRecipient returns the public key (recipient) for an identity.
-func IdentityToRecipient(identity *age.X25519Identity) string {
+// ToRecipient returns the public key (recipient) for an identity.
+func ToRecipient(identity *age.X25519Identity) string {
 	return identity.Recipient().String()
 }
 

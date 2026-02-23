@@ -15,7 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
@@ -84,11 +84,11 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 }
 
 // parseLoreDeployConfig parses flags and arguments into a deploy config.
-func parseLoreDeployConfig(cmd *cobra.Command, args []string) (*loreDeployConfig, error) {
-	features, _ := cmd.Flags().GetStringArray("with")
-	knownOnly, _ := cmd.Flags().GetBool("known-only")
-	force, _ := cmd.Flags().GetBool("force")
-	parallel, _ := cmd.Flags().GetInt("parallel")
+func parseLoreDeployConfig(cmd *cobra.Command, args []string) (*loreDeployConfig, error) { //nolint:unparam // error return reserved for future use
+	features, _ := cmd.Flags().GetStringArray("with")   //nolint:errcheck // flag registered by AddCommand
+	knownOnly, _ := cmd.Flags().GetBool("known-only")   //nolint:errcheck // flag registered by AddCommand
+	force, _ := cmd.Flags().GetBool("force")             //nolint:errcheck // flag registered by AddCommand
+	parallel, _ := cmd.Flags().GetInt("parallel")        //nolint:errcheck // flag registered by AddCommand
 
 	cfg := &loreDeployConfig{
 		GlobalFeatures: features,
@@ -101,7 +101,7 @@ func parseLoreDeployConfig(cmd *cobra.Command, args []string) (*loreDeployConfig
 
 	// Parse args into package requests
 	for _, arg := range args {
-		if len(arg) > 0 && arg[0] == '@' {
+		if arg != "" && arg[0] == '@' {
 			// Manifest file - use shared manifest package
 			m, err := manifest.Load(arg[1:])
 			if err != nil {
@@ -219,9 +219,9 @@ func filterLowConfidence(resolved []resolvedPackage, cfg *loreDeployConfig) ([]r
 	fmt.Printf("\nProceed anyway? [y/N]: ")
 
 	var response string
-	_, _ = fmt.Scanln(&response)
-	if strings.ToLower(response) != "y" {
-		return nil, fmt.Errorf("deployment cancelled by user")
+	_, _ = fmt.Scanln(&response) //nolint:errcheck
+	if !strings.EqualFold(response, "y") {
+		return nil, fmt.Errorf("deployment canceled by user")
 	}
 	return resolved, nil
 }
@@ -494,9 +494,9 @@ Use --native-only to search only the native package manager.`,
 func runSearch(cmd *cobra.Command, args []string) error {
 	query := args[0]
 
-	loreOnly, _ := cmd.Flags().GetBool("lore-only")
-	nativeOnly, _ := cmd.Flags().GetBool("native-only")
-	limit, _ := cmd.Flags().GetInt("limit")
+	loreOnly, _ := cmd.Flags().GetBool("lore-only")     //nolint:errcheck // flag registered by AddCommand
+	nativeOnly, _ := cmd.Flags().GetBool("native-only") //nolint:errcheck // flag registered by AddCommand
+	limit, _ := cmd.Flags().GetInt("limit")              //nolint:errcheck // flag registered by AddCommand
 
 	// Create registry client
 	regClient, err := lorepackage.NewRegistry()
@@ -545,7 +545,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		// Add installed indicator
 		name := r.Name
 		if r.Installed {
-			name = name + " *"
+			name += " *"
 		}
 
 		fmt.Printf("%-30s %-10s %-8s %-10s %s\n", name, sourceStr, confStr, version, desc)
@@ -622,20 +622,20 @@ environment repository.`,
 	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
 	cmd.Flags().Int("max-fetches", 5, "Maximum additional URLs to fetch")
-	_ = cmd.MarkFlagRequired("from")
+	_ = cmd.MarkFlagRequired("from") //nolint:errcheck
 
 	return cmd
 }
 
-func runOnboard(cmd *cobra.Command, args []string) error {
+func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,gocyclo
 	ctx := cmd.Context()
 
-	source, _ := cmd.Flags().GetString("from")
-	outputDir, _ := cmd.Flags().GetString("output")
-	format, _ := cmd.Flags().GetString("format")
-	verbose, _ := cmd.Flags().GetBool("verbose")
-	explain, _ := cmd.Flags().GetBool("explain")
-	maxFetches, _ := cmd.Flags().GetInt("max-fetches")
+	source, _ := cmd.Flags().GetString("from")        //nolint:errcheck // flag registered by AddCommand
+	outputDir, _ := cmd.Flags().GetString("output")   //nolint:errcheck // flag registered by AddCommand
+	format, _ := cmd.Flags().GetString("format")      //nolint:errcheck // flag registered by AddCommand
+	verbose, _ := cmd.Flags().GetBool("verbose")      //nolint:errcheck // flag registered by AddCommand
+	explain, _ := cmd.Flags().GetBool("explain")      //nolint:errcheck // flag registered by AddCommand
+	maxFetches, _ := cmd.Flags().GetInt("max-fetches") //nolint:errcheck // flag registered by AddCommand
 
 	if outputDir == "" {
 		outputDir = "."
@@ -647,7 +647,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("AI provider required; configure with 'lore config model'")
 	}
 
-	provider, err := model.NewProvider(config.ModelConfig{
+	aiProvider, err := model.NewProvider(config.ModelConfig{
 		Provider: providerName,
 		Name:     viper.GetString("lore.model.model"),
 		Endpoint: viper.GetString("lore.model.endpoint"),
@@ -679,7 +679,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		Format:     format,
 		Verbose:    verbose,
 		Explain:    explain,
-		Provider:   provider,
+		Provider:   aiProvider,
 		RegClient:  reg,
 		MaxFetches: maxFetches,
 	}

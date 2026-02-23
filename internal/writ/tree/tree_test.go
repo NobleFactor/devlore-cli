@@ -121,7 +121,7 @@ func TestBuild(t *testing.T) {
 	if len(result.Files) != expectedFiles {
 		t.Errorf("got %d nodes, want %d", len(result.Files), expectedFiles)
 		for _, n := range result.Files {
-			t.Logf("  node: %s ops=%v", n.ID, n.Operations)
+			t.Logf("  node: %s actions=%v", n.ID, n.Operations)
 		}
 	}
 

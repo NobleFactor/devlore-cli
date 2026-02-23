@@ -72,7 +72,7 @@ func (g *GoGenerator) flagArgs(flags []*Flag) string {
 
 // kwargSwitch generates the switch statement for parsing kwargs.
 func (g *GoGenerator) kwargSwitch(flags []*Flag) string {
-	var cases []string
+	var switchCases []string
 	for _, f := range flags {
 		varName := toCamelCase(f.Name)
 		var assign string
@@ -88,9 +88,9 @@ func (g *GoGenerator) kwargSwitch(flags []*Flag) string {
 		case "string_map":
 			assign = fmt.Sprintf("%s = toStringMap(kv[1])", varName)
 		}
-		cases = append(cases, fmt.Sprintf("\t\tcase \"%s\":\n\t\t\t%s", f.Name, assign))
+		switchCases = append(switchCases, fmt.Sprintf("\t\tcase %q:\n\t\t\t%s", f.Name, assign))
 	}
-	return strings.Join(cases, "\n")
+	return strings.Join(switchCases, "\n")
 }
 
 // buildCmd generates code to build the command arguments.
@@ -154,7 +154,7 @@ func sortedKeys(m map[string]*Command) []string {
 // toExportedName converts a name to an exported Go identifier.
 func toExportedName(s string) string {
 	camel := toCamelCase(s)
-	if len(camel) == 0 {
+	if camel == "" {
 		return ""
 	}
 	runes := []rune(camel)

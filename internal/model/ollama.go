@@ -55,12 +55,12 @@ func (o *OllamaProvider) Endpoint() string {
 // Available checks if Ollama is running and the model is available.
 func (o *OllamaProvider) Available(ctx context.Context) bool {
 	// Check if Ollama is running
-	req, err := http.NewRequestWithContext(ctx, "GET", o.endpoint+"/api/tags", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", o.endpoint+"/api/tags", http.NoBody) //nolint:gosec // G107: URL comes from user configuration
 	if err != nil {
 		return false
 	}
 
-	resp, err := o.client.Do(req)
+	resp, err := o.client.Do(req) //nolint:gosec // G704: URL comes from user configuration
 	if err != nil {
 		return false
 	}
@@ -125,20 +125,23 @@ func (o *OllamaProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRespon
 		return nil, fmt.Errorf("marshaling request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", o.endpoint+"/api/chat", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", o.endpoint+"/api/chat", bytes.NewReader(body)) //nolint:gosec // G107: URL comes from user configuration
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := o.client.Do(httpReq)
+	resp, err := o.client.Do(httpReq) //nolint:gosec // G704: URL comes from user configuration
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			respBody = nil
+		}
 		return nil, fmt.Errorf("ollama error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 

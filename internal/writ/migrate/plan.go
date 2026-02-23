@@ -13,10 +13,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Options controls migration behavior.
@@ -79,16 +79,16 @@ type ModelLimits struct {
 // 1. Look up model in litellm-cache.json, compute limits from max_input_tokens
 // 2. Apply provider overrides (e.g., GitHub's rate limits)
 // 3. Fall back to provider's default input_limits if model not found
-func LoadInputLimits(reg *lorepackage.Registry, provider model.Provider) (InputLimits, error) {
+func LoadInputLimits(reg *lorepackage.Registry, aiProvider model.Provider) (InputLimits, error) {
 	if reg == nil {
 		return InputLimits{}, fmt.Errorf("registry required for provider limits")
 	}
-	if provider == nil {
+	if aiProvider == nil {
 		return InputLimits{}, fmt.Errorf("provider required for input limits")
 	}
 
-	providerName := strings.ToLower(provider.Name())
-	modelName := provider.Model()
+	providerName := strings.ToLower(aiProvider.Name())
+	modelName := aiProvider.Model()
 
 	// Load provider config
 	configData, err := reg.Knowledge("shared").Providers("providers.yaml")
@@ -183,7 +183,7 @@ func computeLimitsFromCache(cache *ModelCache, providerInfo *ProviderInfo, model
 // The LLM returns:
 //   - Analysis: system detection, structure, observations, warnings, recommendations
 //   - Execution Graph: rename operations for directory structure changes
-func BuildMigration(ctx context.Context, opts Options) (*projection.Graph, *MigrationAnalysis, error) {
+func BuildMigration(ctx context.Context, opts Options) (*op.Graph, *MigrationAnalysis, error) {
 	root := opts.SourceRoot
 
 	// Check for prior migration
@@ -230,11 +230,11 @@ func BuildMigration(ctx context.Context, opts Options) (*projection.Graph, *Migr
 // LLMResult holds the parsed response from LLM analysis.
 type LLMResult struct {
 	Analysis *MigrationAnalysis
-	Graph    *projection.Graph
+	Graph    *op.Graph
 }
 
 // AnalyzeWithLLMFromRegistry sends gathered inputs to the LLM using registry-loaded prompt.
-func AnalyzeWithLLMFromRegistry(ctx context.Context, provider model.Provider, reg *lorepackage.Registry, input *GatherInput) (*LLMResult, error) {
+func AnalyzeWithLLMFromRegistry(ctx context.Context, aiProvider model.Provider, reg *lorepackage.Registry, input *GatherInput) (*LLMResult, error) {
 	prompt, err := loadMigrationPrompt(reg)
 	if err != nil {
 		return nil, fmt.Errorf("loading migration prompt: %w", err)
@@ -242,7 +242,7 @@ func AnalyzeWithLLMFromRegistry(ctx context.Context, provider model.Provider, re
 
 	userMessage := buildUserMessage(input)
 
-	resp, err := provider.Chat(ctx, model.ChatRequest{
+	resp, err := aiProvider.Chat(ctx, model.ChatRequest{
 		SystemPrompt: prompt,
 		Messages: []model.Message{
 			{Role: model.RoleUser, Content: userMessage},
@@ -314,7 +314,7 @@ type registryExecutionGraph struct {
 
 type registryNode struct {
 	ID      string `json:"id"`
-	Op      string `json:"op"`
+	Action  string `json:"action"`
 	Source  string `json:"source"`
 	Target  string `json:"target"`
 	Project string `json:"project,omitempty"`
@@ -368,11 +368,11 @@ func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 }
 
 // buildGraphFromRegistry constructs an execution.Graph from registry prompt output.
-func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *projection.Graph {
+func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *op.Graph {
 	reg := execution.NewActionRegistry()
 	provider.RegisterAll(reg)
 	plan := execution.NewPlan(reg, "migrate")
-	nodeMap := make(map[string]*projection.Node)
+	nodeMap := make(map[string]*op.Node)
 
 	for _, n := range regGraph.Nodes {
 		source := n.Source
@@ -382,8 +382,8 @@ func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph)
 			target = sourceRoot + "/" + target
 		}
 
-		var node *projection.Node
-		switch n.Op {
+		var node *op.Node
+		switch n.Action {
 		case "file.move":
 			node = plan.Rename(source, target)
 		case "file.mkdir":
@@ -471,7 +471,7 @@ func parseEncryptionSystem(s string) EncryptionSystem {
 }
 
 // computeStatsFromGraph computes summary statistics from the graph and analysis.
-func computeStatsFromGraph(graph *projection.Graph, analysis *MigrationAnalysis) MigrationStats {
+func computeStatsFromGraph(graph *op.Graph, analysis *MigrationAnalysis) MigrationStats {
 	stats := MigrationStats{
 		Renames:          len(graph.Nodes),
 		Scripts:          len(analysis.Scripts),
@@ -491,8 +491,8 @@ func computeStatsFromGraph(graph *projection.Graph, analysis *MigrationAnalysis)
 // countLifecycleScripts counts scripts with install/initialize phases.
 func countLifecycleScripts(scripts []ScriptAnalysis) int {
 	count := 0
-	for _, s := range scripts {
-		if s.Phase == "install" || s.Phase == "initialize" {
+	for i := range scripts {
+		if scripts[i].Phase == "install" || scripts[i].Phase == "initialize" {
 			count++
 		}
 	}

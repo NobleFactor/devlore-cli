@@ -13,7 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // CurrentVersion is the graph format version.
@@ -21,34 +21,34 @@ const CurrentVersion = "6"
 
 // GraphBuilder is the interface for all graph builders.
 type GraphBuilder interface {
-	Build() (*projection.Graph, error)
+	Build() (*op.Graph, error)
 }
 
-// NewGraph creates a projection.Graph with common fields populated for writ.
-func NewGraph(cfg *Config) *projection.Graph {
-	return &projection.Graph{
+// NewGraph creates a op.Graph with common fields populated for writ.
+func NewGraph(cfg *Config) *op.Graph {
+	return &op.Graph{
 		Version:   CurrentVersion,
 		Tool:      cfg.Tool,
 		Timestamp: time.Now(),
-		State:     projection.StatePending,
-		Platform: projection.Platform{
+		State:     op.StatePending,
+		Platform: op.Platform{
 			OS:   runtime.GOOS,
 			Arch: runtime.GOARCH,
 		},
-		Context: projection.GraphContext{
+		Context: op.GraphContext{
 			SourceRoot: cfg.SourceRoot,
 			TargetRoot: cfg.TargetRoot,
 			Projects:   cfg.Projects,
 			Segments:   cfg.SegmentMap(),
 		},
-		Nodes: make([]*projection.Node, 0),
+		Nodes: make([]*op.Node, 0),
 	}
 }
 
 // BuildTree walks the source directories and populates the graph with file nodes.
 // This processes layers in order (base → team → personal) with collision detection.
 // Returns discovered manifest source paths instead of creating nodes for them.
-func BuildTree(g *projection.Graph, cfg *Config, reg *execution.ActionRegistry) (manifests []string, err error) {
+func BuildTree(g *op.Graph, cfg *Config, reg *execution.ActionRegistry) (manifests []string, err error) { //nolint:gocognit
 	result, err := tree.Build(tree.BuildConfig{
 		SourceRoot: cfg.SourceRoot,
 		TargetRoot: cfg.TargetRoot,
@@ -64,20 +64,20 @@ func BuildTree(g *projection.Graph, cfg *Config, reg *execution.ActionRegistry) 
 	// Multi-op pipelines from tree (e.g., ["render", "copy"]) become node chains.
 	// Manifest files are collected separately for planner resolution.
 	for _, f := range result.Files {
-		ops := f.Operations
+		actions := f.Operations
 
 		// Collect manifest files instead of creating nodes
-		if len(ops) == 1 && ops[0] == "manifest.resolve" {
+		if len(actions) == 1 && actions[0] == "manifest.resolve" {
 			manifests = append(manifests, f.Source)
 			continue
 		}
 
-		if len(ops) == 1 {
+		if len(actions) == 1 {
 			// Single operation — single node
-			node := &projection.Node{
+			node := &op.Node{
 				ID:      f.ID,
-				Action:  reg.MustGet(ops[0]),
-				Status:  projection.StatusPending,
+				Action:  reg.MustGet(actions[0]),
+				Status:  op.StatusPending,
 				Project: f.Project,
 				Layer:   f.Layer,
 			}
@@ -88,19 +88,19 @@ func BuildTree(g *projection.Graph, cfg *Config, reg *execution.ActionRegistry) 
 			}
 			g.Nodes = append(g.Nodes, node)
 		} else {
-			// Multi-op pipeline → node chain
-			var prevNode *projection.Node
-			for i, op := range ops {
-				isLast := (i == len(ops) - 1)
+			// Multi-action pipeline → node chain
+			var prevNode *op.Node
+			for i, action := range actions {
+				isLast := (i == len(actions) - 1)
 				nodeID := f.ID
 				if !isLast {
-					nodeID = f.ID + ":" + op
+					nodeID = f.ID + ":" + action
 				}
 
-				node := &projection.Node{
+				node := &op.Node{
 					ID:      nodeID,
-					Action:  reg.MustGet(op),
-					Status:  projection.StatusPending,
+					Action:  reg.MustGet(action),
+					Status:  op.StatusPending,
 					Project: f.Project,
 					Layer:   f.Layer,
 				}
@@ -116,7 +116,7 @@ func BuildTree(g *projection.Graph, cfg *Config, reg *execution.ActionRegistry) 
 				g.Nodes = append(g.Nodes, node)
 
 				if prevNode != nil {
-					g.Edges = append(g.Edges, projection.Edge{
+					g.Edges = append(g.Edges, op.Edge{
 						From: prevNode.ID, To: node.ID,
 					})
 				}
@@ -127,7 +127,7 @@ func BuildTree(g *projection.Graph, cfg *Config, reg *execution.ActionRegistry) 
 
 	// Record collisions
 	for _, c := range result.Collisions {
-		g.Collisions = append(g.Collisions, projection.Collision{
+		g.Collisions = append(g.Collisions, op.Collision{
 			Target:            c.Target,
 			Winner:            c.Winner,
 			WinnerLayer:       c.WinnerLayer,
@@ -150,7 +150,10 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 	}
 
 	// Set up SOPS decryptor
-	secretsMgr, _ := secrets.NewManager(cfg.SourceRoot)
+	secretsMgr, err := secrets.NewManager(cfg.SourceRoot)
+	if err != nil {
+		return nil, fmt.Errorf("initialize secrets manager: %w", err)
+	}
 	if secretsMgr != nil {
 		engineData["decryptor"] = secretsMgr.Decryptor()
 	}
@@ -198,7 +201,7 @@ func NewDeployGraphBuilder(cfg *DeployConfig, reg *execution.ActionRegistry) *De
 }
 
 // Build creates an execution graph for a deploy operation.
-func (b *DeployGraphBuilder) Build() (*projection.Graph, error) {
+func (b *DeployGraphBuilder) Build() (*op.Graph, error) {
 	// Create the graph
 	g := NewGraph(b.config)
 
@@ -243,7 +246,7 @@ func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateV
 }
 
 // Build creates an execution graph for a decommission operation.
-func (b *DecommissionGraphBuilder) Build() (*projection.Graph, error) {
+func (b *DecommissionGraphBuilder) Build() (*op.Graph, error) {
 	// Create the graph
 	g := NewGraph(b.config)
 	g.Context.TargetRoot = b.view.Files.Root
@@ -259,16 +262,16 @@ func (b *DecommissionGraphBuilder) Build() (*projection.Graph, error) {
 		}
 
 		// Determine operation: unlink for symlinks, remove for copied files
-		op := "file.unlink"
+		action := "file.unlink"
 		if entry.IsCopied() {
-			op = "file.remove"
+			action = "file.remove"
 		}
 
 		target := filepath.Join(b.view.Files.Root, relTarget)
-		node := &projection.Node{
+		node := &op.Node{
 			ID:      relTarget,
-			Action:  b.reg.MustGet(op),
-			Status:  projection.StatusPending,
+			Action:  b.reg.MustGet(action),
+			Status:  op.StatusPending,
 			Project: entry.Project,
 			Layer:   entry.Layer,
 		}
@@ -302,7 +305,7 @@ func NewUpgradeGraphBuilder(cfg *UpgradeConfig, view *execution.StateView) *Upgr
 }
 
 // Build creates an execution graph for an upgrade operation.
-func (b *UpgradeGraphBuilder) Build() (*projection.Graph, error) {
+func (b *UpgradeGraphBuilder) Build() (*op.Graph, error) {
 	// TODO: implement upgrade graph building
 	return nil, fmt.Errorf("upgrade graph building not yet implemented")
 }
@@ -322,7 +325,7 @@ func NewReconcileGraphBuilder(cfg *ReconcileConfig) *ReconcileGraphBuilder {
 }
 
 // Build creates an execution graph for a reconcile operation.
-func (b *ReconcileGraphBuilder) Build() (*projection.Graph, error) {
+func (b *ReconcileGraphBuilder) Build() (*op.Graph, error) {
 	// TODO: implement reconcile graph building
 	return nil, fmt.Errorf("reconcile graph building not yet implemented")
 }
@@ -352,7 +355,7 @@ func NewAdoptGraphBuilder(cfg *AdoptConfig) *AdoptGraphBuilder {
 }
 
 // Build creates an execution graph for an adopt operation.
-func (b *AdoptGraphBuilder) Build() (*projection.Graph, error) {
+func (b *AdoptGraphBuilder) Build() (*op.Graph, error) {
 	// TODO: implement adopt graph building
 	return nil, fmt.Errorf("adopt graph building not yet implemented")
 }
@@ -376,7 +379,7 @@ func NewMigrateGraphBuilder(cfg *Config, sourcePath string) *MigrateGraphBuilder
 }
 
 // Build creates an execution graph for a migrate operation.
-func (b *MigrateGraphBuilder) Build() (*projection.Graph, error) {
+func (b *MigrateGraphBuilder) Build() (*op.Graph, error) {
 	// TODO: implement migrate graph building
 	return nil, fmt.Errorf("migrate graph building not yet implemented")
 }

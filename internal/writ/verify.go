@@ -12,12 +12,15 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // VerifyResult indicates the outcome of signature verification.
 type VerifyResult int
 
+// VerifyOK indicates the signature matched, VerifyUnsigned means no signature was
+// present, VerifyInvalid means the signature failed verification, and VerifyMissing
+// means the expected signature data was absent.
 const (
 	VerifyOK VerifyResult = iota
 	VerifyUnsigned
@@ -43,7 +46,7 @@ func (r VerifyResult) String() string {
 
 // VerifyGraphSignature verifies the graph signature using the provided identities.
 // Returns the verification result and any error encountered.
-func VerifyGraphSignature(g *projection.Graph, identities []age.Identity) (VerifyResult, error) {
+func VerifyGraphSignature(g *op.Graph, identities []age.Identity) (VerifyResult, error) {
 	if g.Signature == nil {
 		return VerifyUnsigned, nil
 	}

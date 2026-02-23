@@ -63,7 +63,7 @@ func (g *GCPKMSSigner) Available() bool {
 	if err != nil {
 		return false
 	}
-	defer func() { _ = client.Close() }()
+	defer func() { _ = client.Close() }() //nolint:errcheck // Close error not actionable
 
 	// Check if we can get at least one key
 	for _, name := range g.keyNames {
@@ -134,7 +134,7 @@ func (g *GCPKMSSigner) Sign(data []byte) (*Signature, error) {
 	if err != nil {
 		return nil, &SignError{Backend: "gcp_kms", Err: err}
 	}
-	defer func() { _ = client.Close() }()
+	defer func() { _ = client.Close() }() //nolint:errcheck // Close error not actionable
 
 	keyVersionName := g.findAvailableKey(ctx, client)
 	if keyVersionName == "" {
@@ -187,7 +187,7 @@ func VerifyGCPKMS(data []byte, sig *Signature) error {
 	if err != nil {
 		return &VerifyError{Backend: "gcp_kms", Err: err}
 	}
-	defer func() { _ = client.Close() }()
+	defer func() { _ = client.Close() }() //nolint:errcheck // Close error not actionable
 
 	sigBytes, err := base64.StdEncoding.DecodeString(sig.Value)
 	if err != nil {

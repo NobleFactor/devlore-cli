@@ -47,10 +47,13 @@ func NewModel(session Session) *Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
-	renderer, _ := glamour.NewTermRenderer(
+	renderer, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(80),
 	)
+	if err != nil {
+		renderer = nil
+	}
 
 	return &Model{
 		session:   session,
@@ -87,7 +90,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, m.renderStep()
+		cmd := m.renderStep()
+		return m, cmd
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -101,8 +105,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Update input components
 	var cmd tea.Cmd
-	switch m.step.Type {
-	case StepInput:
+	if m.step.Type == StepInput {
 		m.textInput, cmd = m.textInput.Update(msg)
 	}
 	return m, cmd
@@ -237,6 +240,9 @@ func (m *Model) renderStep() tea.Cmd {
 	return func() tea.Msg {
 		if m.step == nil || m.step.Content == "" {
 			return stepRenderedMsg("")
+		}
+		if m.renderer == nil {
+			return stepRenderedMsg(m.step.Content)
 		}
 		rendered, err := m.renderer.Render(m.step.Content)
 		if err != nil {
@@ -407,10 +413,13 @@ func (m *Model) SetStyles(styles *Styles) {
 func (m *Model) WithWidth(width int) *Model {
 	m.width = width
 	if m.renderer != nil {
-		m.renderer, _ = glamour.NewTermRenderer(
+		r, err := glamour.NewTermRenderer(
 			glamour.WithAutoStyle(),
 			glamour.WithWordWrap(width-4),
 		)
+		if err == nil {
+			m.renderer = r
+		}
 	}
 	return m
 }

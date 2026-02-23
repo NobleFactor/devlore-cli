@@ -1,177 +1,219 @@
-# The Projected Provider API — Extraction Plan
+# The Projected Provider API — Full Realization
 
-## Status: Implemented
+## Status: In Progress
 
-Implemented via type ownership extraction in the `feature/binding-unification`
-branch. The original plan proposed interface-based decoupling (NodeHandle,
-GraphHandle). The implementation uses **type ownership** instead: `pkg/projection/`
-owns the concrete graph data model types directly. Since Output, Gather, and
-FillSlot are in the same package as Node and Graph, no interfaces are needed.
+Phase 1 (type ownership extraction to `pkg/projection/`) was completed in the
+`feature/binding-unification` branch. This plan covers the remaining work:
+moving Action types, providers, and the registry into the projection library,
+and replacing the struct-level `//devlore:plannable` directive with method-level
+`//+devlore:access=[immediate|planned|both]`.
 
 ## Context
 
-The binding unification (Phases 1-9) established a clean pattern: one Go
-Provider struct is the source of truth, and code generation produces Starlark
-bindings for both immediate execution and deferred graph construction. The
-projection machinery — `Receiver`, `Output`, `FillSlot`, type conversions,
-node ID generation — is generic and reusable, but was buried in
-`internal/starlark/` and `internal/execution/` where no external package can
-import it.
+The initial extraction moved `Node`, `Graph`, `Phase`, `Output`, `Gather`,
+`FillSlot`, `Receiver`, type conversions, and node ID generation to
+`pkg/projection/`. However, the Action interface, ActionRegistry, execution
+Context, and all 10 providers still live in `internal/execution/`. This forces
+`Node.Action` to be typed `any` (duck-typed at runtime), keeps HydrateGraph in
+the execution layer, and prevents `pkg/projection/` from being a self-contained
+projection library.
 
-Extracting this infrastructure into `pkg/projection/` formalizes the
-"Projected Provider API": one Provider projected into two Starlark namespaces
-(Immediate vs. Planned), with the projection layer decoupled from the execution
-engine.
+The struct-level `//devlore:plannable` directive is binary — the entire provider
+is either plannable or not. Method-level `//+devlore:access=` gives per-method
+control over which projection surface each method appears on.
 
-## Design
+## What Changes
 
-### Type Ownership (Not Interfaces)
+### 1. Move Action types to `pkg/projection/`
 
-`pkg/projection/` owns the concrete graph data model types directly. There are
-no interfaces — `Output`, `Gather`, and `FillSlot` operate on `*Node` and
-`*Graph` in the same package.
+**From** `internal/execution/action.go` **to** `pkg/projection/action.go`:
+- `Action` interface (Name, Do)
+- `CompensableAction` interface (Action + Undo)
+- `Context` struct (DryRun, Writer, Data, Graph, NodeID)
+- `Result`, `UndoState` type aliases
+- `NotCompensableError`
 
-Key design decisions:
+**From** `internal/execution/registry.go` **to** `pkg/projection/registry.go`:
+- `ActionRegistry` (unchanged API)
 
-1. **`Node.Action` is `any`.** The `Action` interface (Do/Undo) stays in
-   `internal/execution/`. The projection `Node` stores `any`. The executor
-   type-asserts `node.Action.(Action)` before calling Do. `ActionName()` uses
-   `interface{ Name() string }` duck-type assertion.
+**From** `internal/execution/provider_registry.go` **to** `pkg/projection/provider_registry.go`:
+- `ProviderRegistrar`, `RegisterProvider`, `RegisterAllProviders`
 
-2. **`Hydrate`/`ApplyResults` are standalone functions.** `Graph.Hydrate` needs
-   `ActionRegistry` (execution type) and `Graph.ApplyResults` needs `NodeResult`
-   (execution type). Both live in `internal/execution/` as `HydrateGraph()` and
-   `ApplyResults()` to prevent `pkg/projection/` from importing execution.
+**Consequence**: `Node.Action` changes from `any` to `Action`. The duck-type
+assertion in `ActionName()` is replaced with direct `Action` interface usage.
+`HydrateGraph()` moves into `pkg/projection/` since it no longer needs
+execution-layer types. `ApplyResults()` remains in `internal/execution/`
+because it depends on `NodeResult`/`ResultStatus` (execution concerns).
 
-3. **Zero back-imports.** `pkg/projection/` imports only stdlib +
-   `go.starlark.net` + `gopkg.in/yaml.v3`. Never `internal/`.
+### 2. Move providers to `pkg/projection/provider/`
 
-### Package Boundary
+Move 9 provider packages (ui stays in `internal/execution/provider/`):
 
-```
-pkg/projection/          ← public, no internal/ imports
-  graph.go               ← Node, Graph, Edge, SlotValue, state/status types,
-                            serialization, checksums, StubAction
-  phase.go               ← Phase, RetryPolicy, BackoffStrategy, RollbackEntry
-  output.go              ← Output, Gather, FillSlot, NewOutput, NewGather
-  receiver.go            ← Receiver base type, MakeAttr, helpers
-  convert.go             ← Starlark ↔ Go type conversions
-  access.go              ← Access level constants
-  nodeid.go              ← GenerateNodeID (atomic counter)
-
-internal/execution/      ← owns Action interface, executor, registry
-  graph.go               ← HydrateGraph(), ApplyResults() standalone functions
-  action.go              ← Action, CompensableAction, Context (Graph: *projection.Graph)
-  executor.go            ← GraphExecutor (type-asserts node.Action.(Action))
-  recovery.go            ← RecoveryEntry (Node: *projection.Node)
-
-internal/starlark/       ← imports both; devlore-specific wiring
-  plan_root.go           ← PlanRoot (choose, gather, source)
-  plan_registry.go       ← PlanFactory type and registry
-  output.go              ← FillSlot bridge (var FillSlot = projection.FillSlot)
-  plan_*_gen.go          ← generated plan receivers (use projection types)
-  receiver_*_gen.go      ← generated realtime receivers
-```
-
-### What Moved
-
-| Source | Destination | Notes |
-|--------|-------------|-------|
-| `internal/execution/graph.go` types | `pkg/projection/graph.go` | Node, Graph, Edge, SlotValue, state/status constants, serialization, checksums. `Node.Action` field: `Action` interface → `any` |
-| `internal/execution/phase.go` types | `pkg/projection/phase.go` | Phase, RetryPolicy, BackoffStrategy, RollbackEntry, Attempt |
-| `internal/starlark/output.go` (Output, Gather, FillSlot) | `pkg/projection/output.go` | Operate on `*Node` and `*Graph` directly (same package) |
-| `internal/starlark/output.go` (type conversions) | `pkg/projection/convert.go` | GoToStarlarkValue, StarlarkValueToGo, etc. |
-| `internal/starlark/receiver.go` | `pkg/projection/receiver.go` | Receiver, MakeAttr, NoSuchAttrError, BuiltinFunc |
-| `internal/starlark/plan.go` (generateNodeID) | `pkg/projection/nodeid.go` | Exported as GenerateNodeID |
-| Access constants | `pkg/projection/access.go` | AccessImmediate, AccessPlanned, AccessBoth |
-
-### What Stays in `internal/execution/`
-
-| Type | Why |
+| From | To |
 |------|-----|
-| `Action`, `CompensableAction` | Define the Do/Undo contract — execution concern |
-| `Context` | Provides DryRun, Writer, Graph to actions — execution concern |
-| `ActionRegistry` | Maps action names to Action implementations |
-| `GraphExecutor` | Runs the graph — orchestration logic |
-| `RecoveryStack`, `RecoveryEntry` | Saga rollback (Node field is `*projection.Node`) |
-| `NodeResult`, `ResultStatus` | Execution outcomes |
-| `HydrateGraph()` | Replaces stubs with real Actions from registry |
-| `ApplyResults()` | Updates graph nodes with execution results |
+| `internal/execution/provider/file/` | `pkg/projection/provider/file/` |
+| `internal/execution/provider/shell/` | `pkg/projection/provider/shell/` |
+| `internal/execution/provider/service/` | `pkg/projection/provider/service/` |
+| `internal/execution/provider/pkg/` | `pkg/projection/provider/pkg/` |
+| `internal/execution/provider/template/` | `pkg/projection/provider/template/` |
+| `internal/execution/provider/encryption/` | `pkg/projection/provider/encryption/` |
+| `internal/execution/provider/net/` | `pkg/projection/provider/net/` |
+| `internal/execution/provider/git/` | `pkg/projection/provider/git/` |
+| `internal/execution/provider/archive/` | `pkg/projection/provider/archive/` |
 
-### How Generated Code Works
+Each provider's `actions_gen.go` changes its import from `internal/execution`
+to `pkg/projection` for Action, Context, ActionRegistry, etc.
 
-```go
-import (
-    "github.com/NobleFactor/devlore-cli/internal/execution"
-    "github.com/NobleFactor/devlore-cli/pkg/projection"
-)
+The `ui` provider remains at `internal/execution/provider/ui/` — it has no
+actions_gen.go, no Action wrappers, and is consumed only by the immediate
+receiver and CLI output wrappers.
 
-type FilePlan struct {
-    projection.Receiver             // from pkg/projection
-    graph *projection.Graph         // concrete type, same package as Output
-    reg   *execution.ActionRegistry // stays in execution
-}
+### 3. Replace `//devlore:plannable` with `//+devlore:access=`
 
-func (p *FilePlan) link(...) {
-    node := &projection.Node{
-        ID:     projection.GenerateNodeID("file-link"),
-        Action: p.reg.MustGet("file.link"),
-    }
-    FillSlot(node, p.graph, "source", source)           // bridge alias
-    return projection.NewOutput(node, p.graph, ""), nil
-}
-```
+**Current**: `//devlore:plannable` on the Provider struct type. Binary: the
+entire provider is either plannable or not.
 
-Generated code creates concrete `*projection.Node` values and calls
-`projection.FillSlot()` / `projection.NewOutput()` on them. No interfaces
-needed — everything is in the same package.
+**New**: `//+devlore:access=[immediate|planned|both]` on each method.
+Per-method control over which projection surface the method appears on.
 
-The `FillSlot` bridge alias in `internal/starlark/output.go` exists because the
-code generator template (`planFillSlots`) emits bare `FillSlot()` calls. The
-alias delegates to `projection.FillSlot`.
+Default (no directive) = `immediate`.
 
-### Template Changes
+Access level assignments:
 
-**`plan_receiver.go.template`:**
-- `Receiver` → `projection.Receiver`
-- `NewReceiver` → `projection.NewReceiver`
-- `MakeAttr` → `projection.MakeAttr`
-- `NoSuchAttrError` → `projection.NoSuchAttrError`
-- `FillSlot` → `projection.FillSlot` (via bridge alias)
-- `NewOutput` → `projection.NewOutput`
-- `generateNodeID` → `projection.GenerateNodeID`
-- `execution.Node` → `projection.Node`
-- `execution.Graph` → `projection.Graph`
+| Provider | Method | Access | Rationale |
+|----------|--------|--------|-----------|
+| file | Link, Copy, Backup, Unlink, Remove, Write, Move | planned | Compensable state-changing |
+| file | Source, Mkdir | planned | Graph-only execution |
+| file | Exists, IsDir | both | Predicates for control flow + plan.choose |
+| git | Clone, Checkout, Pull, Config | planned | Compensable state-changing |
+| git | CurrentBranch, IsRepo | both | Predicates |
+| archive | Extract | planned | Compensable |
+| encryption | Decrypt | planned | Compensable |
+| net | Download | planned | Compensable |
+| pkg | Install, Remove, Upgrade | planned | Compensable state-changing |
+| pkg | IsInstalled, Version | both | Predicates |
+| service | Enable, Disable, Start, Stop, Restart | planned | Compensable |
+| service | IsActive, IsEnabled | both | Predicates |
+| shell | Run | planned | Side-effecting |
+| template | Render | planned | Graph-only |
+| ui | Note, Warn, Error, Success, Fail | immediate | Script-time feedback |
 
-**`realtime_receiver.go.template`:**
-- Same prefix changes for Receiver, NewReceiver, MakeAttr, NoSuchAttrError
+### 4. Update code generator
 
-**`graph_actions.go.template`:**
-- No changes — works with execution types directly
+**File**: `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star`
 
-## Access Level Directives
+Changes:
+- Remove struct-level `//devlore:plannable` detection
+- Add method-level `//+devlore:access=` parsing per method
+- Group methods by access level: immediate-only, planned-only, both
+- Generate per access level:
+  - `access=immediate` → include in immediate receiver only
+  - `access=planned` → include in planned receiver + action wrapper
+  - `access=both` → include in all three artifacts
+- Always generate all three files if ANY method targets that surface
 
-Current state: struct-level `//devlore:plannable` (binary: plannable or not).
+### 5. Update templates
 
-Future evolution (method-level granularity):
-```go
-const (
-    AccessImmediate = "immediate"  // execute during script eval, return value
-    AccessPlanned   = "planned"    // defer to graph, return handle
-    AccessBoth      = "both"       // available in both projections (default)
-)
-```
+**`graph_actions.go.template`**:
+- Change import from `internal/execution` to `pkg/projection`
+- Only emit action wrappers for methods with `access=planned` or `access=both`
 
-The initial extraction preserves the existing `//devlore:plannable` directive.
-Method-level `//devlore:access=immediate|planned|both` is a future phase that
-builds on this foundation.
+**`plan_receiver.go.template`**:
+- Import path already uses `pkg/projection` — no change needed
+- Only emit plan methods for `access=planned` or `access=both`
 
-## Future Enhancements (not in scope)
+**`realtime_receiver.go.template`**:
+- Only emit immediate methods for `access=immediate` or `access=both`
+- Change any remaining `internal/execution` imports to `pkg/projection`
 
-1. **Method-level access directives**: `//devlore:access=immediate|planned|both`
-   per method, parsed by generator, controlling which projection surface each
-   method appears on
-2. **Explicit Bind API**: `registry.Bind("pkg", pkg.Provider, Immediate|Planned)`
-   replacing init-based self-registration with consumer-driven subscription
-3. **Provider registration unification**: Single `Registry` that drives both
-   plan factory and realtime receiver construction from the same Provider
+### 6. Update `internal/execution/`
+
+What stays:
+- `executor.go` — `GraphExecutor`, `NodeResult`, `ResultStatus`, `ApplyResults`
+- `recovery.go` — `RecoveryStack`, `RecoveryEntry`
+- `hooks.go` — `LifecycleHook`, `HookRegistry`
+- `flow/` — flow control actions
+- Remaining orchestration files
+
+What changes:
+- All imports of `Action`, `ActionRegistry`, `Context` → `pkg/projection`
+- Old `action.go`, `registry.go`, `provider_registry.go` → type alias re-exports
+  (allows compilation while old files exist; removed once user runs cleanup)
+- `graph.go` → `ApplyResults` moves to `executor.go`; rest deleted after
+  `HydrateGraph` moves to `pkg/projection/`
+- `internal/execution/provider/` directory → dead code after providers move
+
+### 7. Update consumers
+
+- `internal/starlark/plan_registry.go`: `*execution.ActionRegistry` → `*projection.ActionRegistry`
+- `internal/starlark/plan_root.go`: same import change
+- `internal/starlark/output.go`: FillSlot bridge unchanged
+- `internal/lore/builder.go`: import changes for ActionRegistry
+- `internal/writ/graph_builder.go`: import changes for ActionRegistry
+- `internal/cli/output.go`: import changes for ui provider path
+- All generated `plan_*_gen.go` and `receiver_*_gen.go`: updated import paths
+- All test files: updated import paths
+
+### 8. Fix plan document status
+
+Update this document's status line upon completion.
+
+## Execution Order
+
+1. Create Action/Context/Registry types in `pkg/projection/`
+2. Replace old `internal/execution/` definition files with type alias re-exports
+3. Update `pkg/projection/graph.go` — `Node.Action` becomes `Action`, add `HydrateGraph`
+4. Copy 9 provider packages to `pkg/projection/provider/` with updated imports
+5. Add `//+devlore:access=` directives to every provider method
+6. Update `register.go` for new provider paths
+7. Update all consumer imports (lore, writ, starlark, cli, flow, tests)
+8. Update generated `plan_*_gen.go` and `actions_gen.go` files
+9. Update `generate.star` to parse method-level directives
+10. Update templates for new import paths and per-method filtering
+11. `make check` — fix all issues
+12. Update plan document status
+
+## Files Created in `pkg/projection/`
+
+- `action.go` — Action, CompensableAction, Context, Result, UndoState, NotCompensableError
+- `registry.go` — ActionRegistry
+- `provider_registry.go` — ProviderRegistrar, RegisterProvider, RegisterAllProviders
+- `provider/` — 9 subdirectories with provider.go + actions_gen.go each
+- `provider/register.go` — RegisterAll with blank imports
+
+## Files Modified in `internal/execution/`
+
+- `action.go` — gutted to type alias re-exports
+- `registry.go` — gutted to type alias re-exports
+- `provider_registry.go` — gutted to type alias re-exports
+- `graph.go` — ApplyResults moves to executor.go; file becomes alias stub
+- `executor.go` — absorbs ApplyResults, imports change
+- `recovery.go` — import changes
+- `hooks.go` — import changes
+- `flow/*.go` — import changes
+
+## Files Modified in `internal/starlark/`
+
+- `plan_registry.go` — import change
+- `plan_root.go` — import change
+- `plan_*_gen.go` — import changes (9 files)
+- `receiver_ui_gen.go` — import change for provider path
+
+## Files Modified in Consumers
+
+- `internal/lore/builder.go` — import changes
+- `internal/writ/graph_builder.go` — import changes
+- `internal/writ/commands.go` — import changes
+- `internal/writ/migrate/*.go` — import changes
+- `internal/cli/output.go` — import change for ui provider
+- All test files referencing execution types
+
+## Verification
+
+1. `make check` passes (vet, lint, test)
+2. Generated code imports `pkg/projection` — no references to `internal/execution` for Action/Registry/Context
+3. Grep for `//devlore:plannable` — zero matches in provider source
+4. Grep for `internal/execution/provider` — only ui and dead code awaiting deletion
+5. Each provider method has `//+devlore:access=` or falls to default (immediate)
+6. `pkg/projection/` has zero imports from `internal/`
+7. Type alias re-exports in `internal/execution/` compile and are unused by production code

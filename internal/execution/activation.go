@@ -4,7 +4,7 @@
 package execution
 
 import (
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // ActivationState captures per-execution mutable state for a node.
@@ -16,7 +16,7 @@ import (
 // ActivationState is transient — it is discarded after results and undo state
 // are captured.
 type ActivationState struct {
-	Status    projection.NodeStatus
+	Status    op.NodeStatus
 	Timestamp string
 	Error     string
 }

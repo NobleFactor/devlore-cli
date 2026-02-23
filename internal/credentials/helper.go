@@ -80,7 +80,7 @@ func helperErase(helper, key string) error {
 
 // macOS: use security command (Keychain)
 func macOSGet(key string) (string, error) {
-	cmd := exec.Command("security", "find-generic-password",
+	cmd := exec.Command("security", "find-generic-password", //nolint:gosec // G204: credential helper path from config
 		"-s", serviceName,
 		"-a", key,
 		"-w")
@@ -125,7 +125,7 @@ func linuxGet(key string) (string, error) {
 }
 
 func linuxStore(key, secret string) error {
-	cmd := exec.Command("secret-tool", "store",
+	cmd := exec.Command("secret-tool", "store", //nolint:gosec // G204: credential helper path from config
 		"--label", "DevLore: "+key,
 		"service", serviceName,
 		"account", key)

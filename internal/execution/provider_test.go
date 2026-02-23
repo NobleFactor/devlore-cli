@@ -18,12 +18,12 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/archive"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/git"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/net"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/pkg"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/service"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/shell"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/archive"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
 )
 
 // --- pkg action dry-run tests ---
@@ -31,14 +31,14 @@ import (
 func TestPkgInstallDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &pkg.Install{Impl: &pkg.Provider{}}
+	action := &pkg.Install{Impl: &pkg.Provider{}}
 	slots := map[string]any{
 		"packages": []string{"vim", "tmux"},
 		"manager":  "brew",
 		"cask":     false,
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("pkg.install dry-run: %v", err)
 	}
@@ -50,14 +50,14 @@ func TestPkgInstallDryRun(t *testing.T) {
 func TestPkgUpgradeDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &pkg.Upgrade{Impl: &pkg.Provider{}}
+	action := &pkg.Upgrade{Impl: &pkg.Provider{}}
 	slots := map[string]any{
 		"packages": []string{"vim"},
 		"manager":  "brew",
 		"cask":     false,
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("pkg.upgrade dry-run: %v", err)
 	}
@@ -69,14 +69,14 @@ func TestPkgUpgradeDryRun(t *testing.T) {
 func TestPkgRemoveDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &pkg.Remove{Impl: &pkg.Provider{}}
+	action := &pkg.Remove{Impl: &pkg.Provider{}}
 	slots := map[string]any{
 		"packages": []string{"unused-pkg"},
 		"manager":  "brew",
 		"cask":     false,
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("pkg.remove dry-run: %v", err)
 	}
@@ -88,12 +88,12 @@ func TestPkgRemoveDryRun(t *testing.T) {
 func TestPkgUpdateDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &pkg.Update{Impl: &pkg.Provider{}}
+	action := &pkg.Update{Impl: &pkg.Provider{}}
 	slots := map[string]any{
 		"manager": "brew",
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("pkg.update dry-run: %v", err)
 	}
@@ -107,12 +107,12 @@ func TestPkgUpdateDryRun(t *testing.T) {
 func TestShellDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &shell.Exec{Impl: &shell.Provider{}}
+	action := &shell.Exec{Impl: &shell.Provider{}}
 	slots := map[string]any{
 		"command": "echo hello",
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("shell.shell dry-run: %v", err)
 	}
@@ -135,12 +135,12 @@ func TestShellEmptyCommand(t *testing.T) {
 func TestPowerShellDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &shell.PowerShell{Impl: &shell.Provider{}}
+	action := &shell.PowerShell{Impl: &shell.Provider{}}
 	slots := map[string]any{
 		"command": "Get-Process",
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("shell.powershell dry-run: %v", err)
 	}
@@ -154,10 +154,10 @@ func TestPowerShellDryRun(t *testing.T) {
 func TestServiceStartDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &service.Start{Impl: &service.Provider{}}
+	action := &service.Start{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("service.start dry-run: %v", err)
 	}
@@ -172,10 +172,10 @@ func TestServiceStartDryRun(t *testing.T) {
 func TestServiceStopDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &service.Stop{Impl: &service.Provider{}}
+	action := &service.Stop{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("service.stop dry-run: %v", err)
 	}
@@ -187,10 +187,10 @@ func TestServiceStopDryRun(t *testing.T) {
 func TestServiceRestartDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &service.Restart{Impl: &service.Provider{}}
+	action := &service.Restart{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("service.restart dry-run: %v", err)
 	}
@@ -202,10 +202,10 @@ func TestServiceRestartDryRun(t *testing.T) {
 func TestServiceEnableDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &service.Enable{Impl: &service.Provider{}}
+	action := &service.Enable{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("service.enable dry-run: %v", err)
 	}
@@ -217,10 +217,10 @@ func TestServiceEnableDryRun(t *testing.T) {
 func TestServiceDisableDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &service.Disable{Impl: &service.Provider{}}
+	action := &service.Disable{Impl: &service.Provider{}}
 	slots := map[string]any{"name": "nginx"}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("service.disable dry-run: %v", err)
 	}
@@ -242,13 +242,13 @@ func TestServiceEmptyName(t *testing.T) {
 func TestGitCloneDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &git.Clone{Impl: &git.Provider{}}
+	action := &git.Clone{Impl: &git.Provider{}}
 	slots := map[string]any{
 		"url":  "https://github.com/example/repo.git",
 		"path": "/tmp/repo",
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("git.clone dry-run: %v", err)
 	}
@@ -271,13 +271,13 @@ func TestGitCloneEmptyURL(t *testing.T) {
 func TestGitCheckoutDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &git.Checkout{Impl: &git.Provider{}}
+	action := &git.Checkout{Impl: &git.Provider{}}
 	slots := map[string]any{
 		"repo": "/tmp/repo",
 		"ref":  "main",
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("git.checkout dry-run: %v", err)
 	}
@@ -289,12 +289,12 @@ func TestGitCheckoutDryRun(t *testing.T) {
 func TestGitPullDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &git.Pull{Impl: &git.Provider{}}
+	action := &git.Pull{Impl: &git.Provider{}}
 	slots := map[string]any{
 		"repo": "/tmp/repo",
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("git.pull dry-run: %v", err)
 	}
@@ -312,12 +312,12 @@ func TestNetDownload(t *testing.T) {
 	defer ts.Close()
 
 	ctx := &execution.Context{Context: context.Background()}
-	op := &net.Download{Impl: &net.Provider{}}
+	action := &net.Download{Impl: &net.Provider{}}
 	slots := map[string]any{
 		"url": ts.URL,
 	}
 
-	result, _, err := op.Do(ctx, slots)
+	result, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("net.download: %v", err)
 	}
@@ -338,12 +338,12 @@ func TestNetDownloadReturnsContent(t *testing.T) {
 	defer ts.Close()
 
 	ctx := &execution.Context{Context: context.Background()}
-	op := &net.Download{Impl: &net.Provider{}}
+	action := &net.Download{Impl: &net.Provider{}}
 	slots := map[string]any{
 		"url": ts.URL,
 	}
 
-	result, _, err := op.Do(ctx, slots)
+	result, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("net.download: %v", err)
 	}
@@ -360,12 +360,12 @@ func TestNetDownloadReturnsContent(t *testing.T) {
 func TestNetDownloadDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &net.Download{Impl: &net.Provider{}}
+	action := &net.Download{Impl: &net.Provider{}}
 	slots := map[string]any{
 		"url": "https://example.com/test.tar.gz",
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("net.download dry-run: %v", err)
 	}
@@ -451,13 +451,13 @@ func TestArchiveExtractTarGz(t *testing.T) {
 	})
 
 	ctx := &execution.Context{Context: context.Background()}
-	op := &archive.Extract{Impl: &archive.Provider{}}
+	action := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": archivePath,
 		"prefix": extractDir,
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("archive.extract tar.gz: %v", err)
 	}
@@ -496,13 +496,13 @@ func TestArchiveExtractZip(t *testing.T) {
 	})
 
 	ctx := &execution.Context{Context: context.Background()}
-	op := &archive.Extract{Impl: &archive.Provider{}}
+	action := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": archivePath,
 		"prefix": extractDir,
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("archive.extract zip: %v", err)
 	}
@@ -527,13 +527,13 @@ func TestArchiveExtractZip(t *testing.T) {
 func TestArchiveExtractDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	op := &archive.Extract{Impl: &archive.Provider{}}
+	action := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": "/tmp/test.tar.gz",
 		"prefix": "/tmp/extracted",
 	}
 
-	_, _, err := op.Do(ctx, slots)
+	_, _, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("archive.extract dry-run: %v", err)
 	}

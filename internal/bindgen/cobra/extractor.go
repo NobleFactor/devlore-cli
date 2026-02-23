@@ -97,13 +97,13 @@ func (e *Extractor) ExtractDir(dir string) (*bindgen.BindingDef, error) {
 }
 
 // findPackages finds all Go package patterns in a directory tree.
-func (e *Extractor) findPackages(dir string) ([]string, error) {
+func (e *Extractor) findPackages(dir string) ([]string, error) { //nolint:gocognit
 	seen := make(map[string]bool)
 	var patterns []string
 
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip errors
+			return nil //nolint:nilerr // intentional: skip unreadable entries during walk
 		}
 		if info.IsDir() {
 			// Skip vendor, testdata, hidden dirs
@@ -118,7 +118,10 @@ func (e *Extractor) findPackages(dir string) ([]string, error) {
 			if !seen[pkgDir] {
 				seen[pkgDir] = true
 				// Use relative pattern
-				rel, _ := filepath.Rel(dir, pkgDir)
+				rel, err := filepath.Rel(dir, pkgDir)
+				if err != nil {
+					return nil //nolint:nilerr // intentional: skip packages with non-relative paths
+				}
 				if rel == "." {
 					patterns = append(patterns, ".")
 				} else {
@@ -142,7 +145,10 @@ func (e *Extractor) extractFromPackage(pkg *packages.Package) {
 	importsCobra := false
 	for _, file := range pkg.Syntax {
 		for _, imp := range file.Imports {
-			path, _ := strconv.Unquote(imp.Path.Value)
+			path, err := strconv.Unquote(imp.Path.Value)
+			if err != nil {
+				continue
+			}
 			if strings.Contains(path, "spf13/cobra") {
 				importsCobra = true
 				break
@@ -202,7 +208,7 @@ func (e *Extractor) calculatePrefix(pkg *packages.Package) string {
 
 // extractFromFunction extracts commands and their flags from a single function.
 // prefix is the parent command name derived from the package directory (e.g., "container").
-func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, prefix string) {
+func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, prefix string) { //nolint:gocognit,gocyclo
 	var currentCmd *bindgen.Command
 
 	ast.Inspect(fn, func(n ast.Node) bool {
@@ -330,7 +336,10 @@ func (e *Extractor) stringValue(expr ast.Expr) string {
 	switch v := expr.(type) {
 	case *ast.BasicLit:
 		if v.Kind == token.STRING {
-			s, _ := strconv.Unquote(v.Value)
+			s, err := strconv.Unquote(v.Value)
+			if err != nil {
+				return ""
+			}
 			return s
 		}
 	case *ast.BinaryExpr:
@@ -452,7 +461,10 @@ func (e *Extractor) extractFlagArgs(args []ast.Expr, flagType string, hasShort b
 func (e *Extractor) defaultValue(expr ast.Expr) string {
 	switch v := expr.(type) {
 	case *ast.BasicLit:
-		s, _ := strconv.Unquote(v.Value)
+		s, err := strconv.Unquote(v.Value)
+		if err != nil {
+			return v.Value
+		}
 		if s != "" {
 			return s
 		}
@@ -466,7 +478,7 @@ func (e *Extractor) defaultValue(expr ast.Expr) string {
 }
 
 // Stats returns extraction statistics.
-func (e *Extractor) Stats() (commands int, flags int) {
+func (e *Extractor) Stats() (commands, flags int) {
 	for _, cmd := range e.commands {
 		commands++
 		flags += len(cmd.Flags)

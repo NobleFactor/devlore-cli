@@ -10,13 +10,13 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
-func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *projection.Graph) ([]*execution.NodeResult, error) {
+func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *op.Graph) ([]*execution.NodeResult, error) {
 	return eng.RunNodes(ctx, g.Nodes, g.Edges)
 }
 
@@ -184,15 +184,15 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
 	// Create a graph with a namespaced pkg.install node
-	node := &projection.Node{
+	node := &op.Node{
 		ID:         "package-install-testpkg",
 		Action: reg.MustGet("pkg.install"),
 	}
 	node.SetSlotImmediate("packages", []string{"testpkg"})
 	node.SetSlotImmediate("manager", "brew")
 	node.SetSlotImmediate("cask", false)
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{node},
+	graph := &op.Graph{
+		Nodes: []*op.Node{node},
 	}
 
 	results, err := runGraph(context.Background(), eng, graph)
@@ -223,7 +223,7 @@ func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 
 	for _, opName := range actions {
 		t.Run(opName, func(t *testing.T) {
-			node := &projection.Node{
+			node := &op.Node{
 				ID:         "test-" + opName,
 				Action: reg.MustGet(opName),
 			}
@@ -233,8 +233,8 @@ func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 				node.SetSlotImmediate("cask", false)
 			}
 
-			graph := &projection.Graph{
-				Nodes: []*projection.Node{node},
+			graph := &op.Graph{
+				Nodes: []*op.Node{node},
 			}
 
 			results, err := runGraph(context.Background(), eng, graph)
@@ -266,7 +266,7 @@ func TestNativePMNodeMetadata(t *testing.T) {
 	}
 
 	// Find the install node (uses namespaced "pkg.install" action)
-	var installNode *projection.Node
+	var installNode *op.Node
 	for _, node := range result.Graph.Nodes {
 		if node.ActionName() == "pkg.install" {
 			installNode = node
@@ -352,7 +352,7 @@ func TestBuildPhased_NativePMCreatesPhases(t *testing.T) {
 	if phase.ID != "phase.curl.install" {
 		t.Errorf("expected phase ID 'phase.curl.install', got %q", phase.ID)
 	}
-	if phase.Status != projection.PhasePending {
+	if phase.Status != op.PhasePending {
 		t.Errorf("expected status pending, got %q", phase.Status)
 	}
 	if len(phase.NodeIDs) != 1 {
@@ -424,7 +424,7 @@ def install(package, phase):
 	if phase.Retry.MaxAttempts != 3 {
 		t.Errorf("MaxAttempts = %d, want 3", phase.Retry.MaxAttempts)
 	}
-	if phase.Retry.Backoff != projection.BackoffExponential {
+	if phase.Retry.Backoff != op.BackoffExponential {
 		t.Errorf("Backoff = %q, want exponential", phase.Retry.Backoff)
 	}
 	if phase.Retry.InitialDelay != "1s" {
@@ -609,7 +609,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 		ActionRegistry: reg,
 	}
 
-	graph := &projection.Graph{}
+	graph := &op.Graph{}
 	names, err := planner.PlanPackages(graph, manifestPath)
 	if err != nil {
 		t.Fatalf("PlanPackages failed: %v", err)
@@ -642,7 +642,7 @@ func TestPlanner_PlanByName(t *testing.T) {
 		ActionRegistry: reg,
 	}
 
-	graph := &projection.Graph{}
+	graph := &op.Graph{}
 	names, err := planner.PlanByName(graph, []string{"git", "vim"})
 	if err != nil {
 		t.Fatalf("PlanByName failed: %v", err)

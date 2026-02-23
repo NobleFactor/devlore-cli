@@ -100,14 +100,17 @@ func (o *OpenAIProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRespon
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
 
-	resp, err := o.client.Do(httpReq)
+	resp, err := o.client.Do(httpReq) //nolint:gosec // G704: URL from configured endpoint
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			respBody = nil
+		}
 		return nil, fmt.Errorf("openai error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 

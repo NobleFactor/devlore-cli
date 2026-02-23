@@ -35,7 +35,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	cfg.Verbose = viper.GetBool("writ.verbose")
 
 	// Conflict resolution
-	conflictFlag, _ := cmd.Flags().GetString("conflict")
+	conflictFlag, _ := cmd.Flags().GetString("conflict") //nolint:errcheck // flag registered by AddCommand
 	resolution, err := parseConflictResolution(conflictFlag)
 	if err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 
 	// Segments
 	cfg.Segments = segment.DetectSegments().LoadFromEnv()
-	segmentFlags, _ := cmd.Flags().GetStringArray("segment")
+	segmentFlags, _ := cmd.Flags().GetStringArray("segment") //nolint:errcheck // flag registered by AddCommand
 	for _, sf := range segmentFlags {
 		parts := strings.SplitN(sf, "=", 2)
 		if len(parts) != 2 {
@@ -102,7 +102,7 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	cfg.Force, _ = cmd.Flags().GetBool("force")
+	cfg.Force, _ = cmd.Flags().GetBool("force") //nolint:errcheck // flag registered by AddCommand
 
 	// Source root
 	sourceRoot := cli.GetString("writ", "repo", true)
@@ -145,8 +145,8 @@ func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, 
 
 	// Behavior flags
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	cfg.CheckDrift, _ = cmd.Flags().GetBool("drift")
-	cfg.JSONOutput, _ = cmd.Flags().GetBool("json")
+	cfg.CheckDrift, _ = cmd.Flags().GetBool("drift") //nolint:errcheck // flag registered by AddCommand
+	cfg.JSONOutput, _ = cmd.Flags().GetBool("json")  //nolint:errcheck // flag registered by AddCommand
 
 	// Source root
 	sourceRoot := cli.GetString("writ", "repo", true)
@@ -176,8 +176,8 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) (*DecommissionCo
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	cfg.Force, _ = cmd.Flags().GetBool("force")
-	cfg.Prune, _ = cmd.Flags().GetBool("prune")
+	cfg.Force, _ = cmd.Flags().GetBool("force") //nolint:errcheck // flag registered by AddCommand
+	cfg.Prune, _ = cmd.Flags().GetBool("prune") //nolint:errcheck // flag registered by AddCommand
 
 	// Target root
 	cfg.TargetRoot = os.Getenv("HOME")
@@ -202,9 +202,9 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	cfg.Verbose = viper.GetBool("writ.verbose")
 
 	// Adopt-specific flags
-	cfg.Layer, _ = cmd.Flags().GetString("layer")
-	cfg.Project, _ = cmd.Flags().GetString("project")
-	cfg.FromReceipt, _ = cmd.Flags().GetBool("from-receipt")
+	cfg.Layer, _ = cmd.Flags().GetString("layer")           //nolint:errcheck // flag registered by AddCommand
+	cfg.Project, _ = cmd.Flags().GetString("project")       //nolint:errcheck // flag registered by AddCommand
+	cfg.FromReceipt, _ = cmd.Flags().GetBool("from-receipt") //nolint:errcheck // flag registered by AddCommand
 
 	// Skip validation for --from-receipt mode
 	if cfg.FromReceipt {

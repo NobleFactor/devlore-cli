@@ -9,7 +9,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/execution/flow"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // --- test helpers ---
@@ -31,19 +31,19 @@ func (a *flowAction) Undo(_ execution.UndoState) error {
 // --- Choose tests ---
 
 func TestFlowChooseDoWhenTrue(t *testing.T) {
-	nodeA := &projection.Node{ID: "a", Action: &flowAction{name: "test.a", result: "result-a"}}
+	nodeA := &op.Node{ID: "a", Action: &flowAction{name: "test.a", result: "result-a"}}
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{nodeA},
-		Phases: []*projection.Phase{
+	graph := &op.Graph{
+		Nodes: []*op.Node{nodeA},
+		Phases: []*op.Phase{
 			{ID: "phase-a", NodeIDs: []string{"a"}},
 		},
 	}
 
 	ctx := &execution.Context{Context: context.Background(), Graph: graph}
-	op := &flow.Choose{}
+	act := &flow.Choose{}
 
-	result, undo, err := op.Do(ctx, map[string]any{
+	result, undo, err := act.Do(ctx, map[string]any{
 		"when": true,
 		"then": "phase-a",
 	})
@@ -59,19 +59,19 @@ func TestFlowChooseDoWhenTrue(t *testing.T) {
 }
 
 func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
-	nodeD := &projection.Node{ID: "d", Action: &flowAction{name: "test.d", result: "else-result"}}
+	nodeD := &op.Node{ID: "d", Action: &flowAction{name: "test.d", result: "else-result"}}
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{nodeD},
-		Phases: []*projection.Phase{
+	graph := &op.Graph{
+		Nodes: []*op.Node{nodeD},
+		Phases: []*op.Phase{
 			{ID: "phase-else", NodeIDs: []string{"d"}},
 		},
 	}
 
 	ctx := &execution.Context{Context: context.Background(), Graph: graph}
-	op := &flow.Choose{}
+	act := &flow.Choose{}
 
-	result, _, err := op.Do(ctx, map[string]any{
+	result, _, err := act.Do(ctx, map[string]any{
 		"when": false,
 		"else": "phase-else",
 	})
@@ -84,11 +84,11 @@ func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
 }
 
 func TestFlowChooseDoWhenFalseNoElse(t *testing.T) {
-	graph := &projection.Graph{}
+	graph := &op.Graph{}
 	ctx := &execution.Context{Context: context.Background(), Graph: graph}
-	op := &flow.Choose{}
+	action := &flow.Choose{}
 
-	result, _, err := op.Do(ctx, map[string]any{
+	result, _, err := action.Do(ctx, map[string]any{
 		"when": false,
 		"then": "phase-x",
 	})
@@ -101,9 +101,9 @@ func TestFlowChooseDoWhenFalseNoElse(t *testing.T) {
 }
 
 func TestFlowChooseUndo(t *testing.T) {
-	op := &flow.Choose{}
+	action := &flow.Choose{}
 
-	err := op.Undo(nil)
+	err := action.Undo(nil)
 	if err != nil {
 		t.Fatalf("flow.choose Undo: %v", err)
 	}
@@ -112,11 +112,11 @@ func TestFlowChooseUndo(t *testing.T) {
 // --- Gather tests ---
 
 func TestFlowGatherDo(t *testing.T) {
-	bodyNode := &projection.Node{ID: "body", Action: &flowAction{name: "test.body", result: "processed"}}
+	bodyNode := &op.Node{ID: "body", Action: &flowAction{name: "test.body", result: "processed"}}
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{bodyNode},
-		Phases: []*projection.Phase{
+	graph := &op.Graph{
+		Nodes: []*op.Node{bodyNode},
+		Phases: []*op.Phase{
 			{ID: "gather-body", NodeIDs: []string{"body"}},
 		},
 	}
@@ -127,8 +127,8 @@ func TestFlowGatherDo(t *testing.T) {
 		NodeID:  "gather-1",
 	}
 
-	op := &flow.Gather{}
-	result, undo, err := op.Do(ctx, map[string]any{
+	action := &flow.Gather{}
+	result, undo, err := action.Do(ctx, map[string]any{
 		"items": []any{"x", "y", "z"},
 		"do":    "gather-body",
 	})
@@ -155,9 +155,9 @@ func TestFlowGatherDo(t *testing.T) {
 
 func TestFlowGatherDoEmpty(t *testing.T) {
 	ctx := &execution.Context{Context: context.Background()}
-	op := &flow.Gather{}
+	action := &flow.Gather{}
 
-	result, undo, err := op.Do(ctx, map[string]any{
+	result, undo, err := action.Do(ctx, map[string]any{
 		"items": []any{},
 		"do":    "any-phase",
 	})
@@ -177,11 +177,11 @@ func TestFlowGatherDoEmpty(t *testing.T) {
 }
 
 func TestFlowGatherDoConcurrent(t *testing.T) {
-	bodyNode := &projection.Node{ID: "body", Action: &flowAction{name: "test.body", result: "done"}}
+	bodyNode := &op.Node{ID: "body", Action: &flowAction{name: "test.body", result: "done"}}
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{bodyNode},
-		Phases: []*projection.Phase{
+	graph := &op.Graph{
+		Nodes: []*op.Node{bodyNode},
+		Phases: []*op.Phase{
 			{ID: "body-phase", NodeIDs: []string{"body"}},
 		},
 	}
@@ -192,8 +192,8 @@ func TestFlowGatherDoConcurrent(t *testing.T) {
 		NodeID:  "gather-concurrent",
 	}
 
-	op := &flow.Gather{}
-	result, _, err := op.Do(ctx, map[string]any{
+	action := &flow.Gather{}
+	result, _, err := action.Do(ctx, map[string]any{
 		"items": []any{"a", "b", "c", "d", "e"},
 		"do":    "body-phase",
 		"limit": 3,
@@ -213,17 +213,17 @@ func TestFlowGatherDoConcurrent(t *testing.T) {
 
 func TestFlowGatherDoProxySlots(t *testing.T) {
 	// Body node with a proxy slot that resolves per-item.
-	bodyNode := &projection.Node{
+	bodyNode := &op.Node{
 		ID:     "body",
 		Action: &flowAction{name: "test.body", result: "done"},
-		Slots: map[string]projection.SlotValue{
+		Slots: map[string]op.SlotValue{
 			"name": {GatherRef: "gather-proxy", Field: "name"},
 		},
 	}
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{bodyNode},
-		Phases: []*projection.Phase{
+	graph := &op.Graph{
+		Nodes: []*op.Node{bodyNode},
+		Phases: []*op.Phase{
 			{ID: "body-phase", NodeIDs: []string{"body"}},
 		},
 	}
@@ -234,13 +234,13 @@ func TestFlowGatherDoProxySlots(t *testing.T) {
 		NodeID:  "gather-proxy",
 	}
 
-	op := &flow.Gather{}
+	action := &flow.Gather{}
 	items := []any{
 		map[string]any{"name": "alpha"},
 		map[string]any{"name": "beta"},
 	}
 
-	result, _, err := op.Do(ctx, map[string]any{
+	result, _, err := action.Do(ctx, map[string]any{
 		"items": items,
 		"do":    "body-phase",
 	})
@@ -258,9 +258,9 @@ func TestFlowGatherDoProxySlots(t *testing.T) {
 }
 
 func TestFlowGatherUndo(t *testing.T) {
-	op := &flow.Gather{}
+	action := &flow.Gather{}
 
-	err := op.Undo(nil)
+	err := action.Undo(nil)
 	if err != nil {
 		t.Fatalf("flow.gather Undo: %v", err)
 	}
@@ -270,9 +270,9 @@ func TestFlowGatherUndo(t *testing.T) {
 
 func TestFlowElevateDo(t *testing.T) {
 	ctx := &execution.Context{Context: context.Background()}
-	op := &flow.Elevate{}
+	action := &flow.Elevate{}
 
-	result, undo, err := op.Do(ctx, nil)
+	result, undo, err := action.Do(ctx, nil)
 	if err != nil {
 		t.Fatalf("flow.elevate Do: %v", err)
 	}
@@ -295,9 +295,9 @@ func TestFlowElevateNotCompensableAction(t *testing.T) {
 
 func TestFlowWaitUntilDoImmediate(t *testing.T) {
 	ctx := &execution.Context{Context: context.Background()}
-	op := &flow.WaitUntil{}
+	action := &flow.WaitUntil{}
 
-	result, _, err := op.Do(ctx, map[string]any{
+	result, _, err := action.Do(ctx, map[string]any{
 		"target":    "ready",
 		"predicate": flow.PredicateFunc(func(_ any) (bool, error) { return true, nil }),
 		"timeout":   "10s",
@@ -320,30 +320,30 @@ func TestFlowWaitUntilNotCompensableAction(t *testing.T) {
 // --- Name tests ---
 
 func TestFlowChooseName(t *testing.T) {
-	op := &flow.Choose{}
-	if op.Name() != "flow.choose" {
-		t.Errorf("expected 'flow.choose', got %q", op.Name())
+	action := &flow.Choose{}
+	if action.Name() != "flow.choose" {
+		t.Errorf("expected 'flow.choose', got %q", action.Name())
 	}
 }
 
 func TestFlowGatherName(t *testing.T) {
-	op := &flow.Gather{}
-	if op.Name() != "flow.gather" {
-		t.Errorf("expected 'flow.gather', got %q", op.Name())
+	action := &flow.Gather{}
+	if action.Name() != "flow.gather" {
+		t.Errorf("expected 'flow.gather', got %q", action.Name())
 	}
 }
 
 func TestFlowElevateName(t *testing.T) {
-	op := &flow.Elevate{}
-	if op.Name() != "flow.elevate" {
-		t.Errorf("expected 'flow.elevate', got %q", op.Name())
+	action := &flow.Elevate{}
+	if action.Name() != "flow.elevate" {
+		t.Errorf("expected 'flow.elevate', got %q", action.Name())
 	}
 }
 
 func TestFlowWaitUntilName(t *testing.T) {
-	op := &flow.WaitUntil{}
-	if op.Name() != "flow.wait_until" {
-		t.Errorf("expected 'flow.wait_until', got %q", op.Name())
+	action := &flow.WaitUntil{}
+	if action.Name() != "flow.wait_until" {
+		t.Errorf("expected 'flow.wait_until', got %q", action.Name())
 	}
 }
 
@@ -351,28 +351,28 @@ func TestFlowWaitUntilName(t *testing.T) {
 
 // TestGatherIntegration tests Gather via phased execution with a real graph.
 func TestGatherIntegration(t *testing.T) {
-	bodyNode := &projection.Node{
+	bodyNode := &op.Node{
 		ID:     "body-action",
 		Action: &flowAction{name: "test.body", result: "done"},
 	}
 
-	gatherNode := &projection.Node{
+	gatherNode := &op.Node{
 		ID:     "gather",
 		Action: &flow.Gather{},
-		Slots: map[string]projection.SlotValue{
+		Slots: map[string]op.SlotValue{
 			"items": {Immediate: []any{"a", "b", "c"}},
 			"do":    {Immediate: "body-phase"},
 		},
 	}
 
 	// Main phase contains the gather node; body phase is executed by gather.
-	mainPhase := &projection.Phase{ID: "main", NodeIDs: []string{"gather"}}
-	bodyPhase := &projection.Phase{ID: "body-phase", NodeIDs: []string{"body-action"}}
+	mainPhase := &op.Phase{ID: "main", NodeIDs: []string{"gather"}}
+	bodyPhase := &op.Phase{ID: "body-phase", NodeIDs: []string{"body-action"}}
 
-	graph := &projection.Graph{
-		State:  projection.StatePending,
-		Nodes:  []*projection.Node{gatherNode, bodyNode},
-		Phases: []*projection.Phase{mainPhase, bodyPhase},
+	graph := &op.Graph{
+		State:  op.StatePending,
+		Nodes:  []*op.Node{gatherNode, bodyNode},
+		Phases: []*op.Phase{mainPhase, bodyPhase},
 	}
 
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
@@ -381,7 +381,7 @@ func TestGatherIntegration(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if gatherNode.Status != projection.StatusCompleted {
+	if gatherNode.Status != op.StatusCompleted {
 		t.Errorf("gather status: expected completed, got %s", gatherNode.Status)
 	}
 }

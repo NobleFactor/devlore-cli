@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // RecoveryEntry represents a successfully executed undoable node and the
@@ -15,7 +15,7 @@ import (
 // node that implements CompensableAction.
 type RecoveryEntry struct {
 	// Node is the executed node (carries the CompensableAction action for Undo).
-	Node *projection.Node
+	Node *op.Node
 
 	// UndoState is the state captured by Do, passed to Undo during rollback.
 	UndoState UndoState
@@ -40,7 +40,7 @@ func (s *RecoveryStack) Len() int {
 
 // Unwind executes Undo on all entries in LIFO order.
 // Undo failures do not stop the unwind — all entries are processed.
-// Non-compensable actions (NotCompensableError) are logged and skipped.
+// Non-compensable actions (ErrNotCompensable) are logged and skipped.
 func (s *RecoveryStack) Unwind(ctx *Context) []error {
 	var errs []error
 
@@ -51,9 +51,9 @@ func (s *RecoveryStack) Unwind(ctx *Context) []error {
 			continue
 		}
 		if err := undoable.Undo(entry.UndoState); err != nil {
-			if errors.Is(err, NotCompensableError) {
+			if errors.Is(err, ErrNotCompensable) {
 				if ctx.Writer != nil {
-					fmt.Fprintf(ctx.Writer, "  [warn] %s: not compensable, skipping\n", undoable.Name())
+					fmt.Fprintf(ctx.Writer, "  [warn] %s: not compensable, skipping\n", undoable.Name()) //nolint:errcheck // status output to writer
 				}
 				continue
 			}

@@ -91,14 +91,17 @@ func (a *AnthropicProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRes
 	httpReq.Header.Set("x-api-key", a.apiKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := a.client.Do(httpReq)
+	resp, err := a.client.Do(httpReq) //nolint:gosec // G107: URL comes from user configuration
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			respBody = nil
+		}
 		return nil, fmt.Errorf("anthropic error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 

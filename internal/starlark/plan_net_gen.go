@@ -9,26 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("net", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("net", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewNetPlan(graph, h, project, reg)
 	})
 }
 
 type NetPlan struct {
-	projection.Receiver
-	graph   *projection.Graph
+	op.Receiver
+	graph   *op.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewNetPlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *NetPlan {
+func NewNetPlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *NetPlan {
 	return &NetPlan{
-		Receiver: projection.NewReceiver("plan.net"),
+		Receiver: op.NewReceiver("plan.net"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -39,9 +39,9 @@ func NewNetPlan(graph *projection.Graph, h host.Host, project string, reg *execu
 func (p *NetPlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "download":
-		return projection.MakeAttr("plan.net.download", p.download), nil
+		return op.MakeAttr("plan.net.download", p.download), nil
 	default:
-		return nil, projection.NoSuchAttrError("plan.net", name)
+		return nil, op.NoSuchAttrError("plan.net", name)
 	}
 }
 
@@ -59,8 +59,8 @@ func (p *NetPlan) download(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("net-download"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("net-download"),
 		Action:  p.reg.MustGet("net.download"),
 		Project: p.project,
 	}
@@ -69,5 +69,5 @@ func (p *NetPlan) download(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }

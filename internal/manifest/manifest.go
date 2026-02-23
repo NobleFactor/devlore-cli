@@ -84,7 +84,7 @@ func Parse(data []byte, path string) (*PackagesManifest, error) {
 
 // parsePackageEntry parses a single package entry from the raw interface value.
 // Supports both string format ("gh") and object format ({"neovim": {"with": [...]}}).
-func parsePackageEntry(item interface{}) (PackageEntry, error) {
+func parsePackageEntry(item interface{}) (PackageEntry, error) { //nolint:gocognit
 	switch v := item.(type) {
 	case string:
 		// Simple string: "gh"
@@ -208,7 +208,7 @@ func ValidateBytes(data []byte, path string) error {
 }
 
 // validatePackageEntry validates a single package entry.
-func validatePackageEntry(pkg interface{}, index int) error {
+func validatePackageEntry(pkg interface{}, index int) error { //nolint:gocognit,gocyclo
 	switch v := pkg.(type) {
 	case string:
 		if v == "" {

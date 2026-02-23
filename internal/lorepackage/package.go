@@ -14,6 +14,7 @@ import (
 // PackageSource indicates where a package was resolved from.
 type PackageSource string
 
+// Package source constants for resolution.
 const (
 	SourceLore   PackageSource = "lore"   // Lore registry (full lifecycle)
 	SourceApt    PackageSource = "apt"    // Debian/Ubuntu apt
@@ -174,7 +175,7 @@ func (rel *Release) IsSynthetic() bool {
 
 // Resolve looks up a package by name in the registry.
 // It checks the lore registry first, then falls back to native package managers.
-func (r *Registry) Resolve(name string, platform string) (*Release, error) {
+func (r *Registry) Resolve(name, platform string) (*Release, error) {
 	// First, check lore registry
 	pkgDir := filepath.Join(r.cacheDir, "packages", name)
 	if dirExists(pkgDir) {
@@ -198,7 +199,7 @@ func (r *Registry) Resolve(name string, platform string) (*Release, error) {
 
 // resolveNative creates a synthetic Release for a native PM package.
 // It uses the synthetic cache to avoid repeated lookups and store verification results.
-func (r *Registry) resolveNative(name string, platform string) (*Release, error) {
+func (r *Registry) resolveNative(name, platform string) (*Release, error) {
 	var source PackageSource
 	switch {
 	case strings.HasPrefix(platform, "Linux.Debian") || platform == "Linux":
@@ -241,7 +242,7 @@ func (r *Registry) resolveNative(name string, platform string) (*Release, error)
 		Version:    "latest",
 		Verified:   false,
 	}
-	_ = cache.Put(info) // Ignore cache errors; they're non-fatal
+	_ = cache.Put(info) //nolint:errcheck // cache errors are non-fatal
 
 	return pkg, nil
 }
@@ -276,7 +277,7 @@ func (r *Registry) VerifySyntheticPackage(pkg *Release) bool {
 		Version:    pkg.Version,
 		Verified:   available,
 	}
-	_ = cache.Put(info)
+	_ = cache.Put(info) //nolint:errcheck // cache errors are non-fatal
 
 	return available
 }

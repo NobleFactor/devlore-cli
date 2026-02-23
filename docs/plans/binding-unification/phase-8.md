@@ -11,8 +11,8 @@ During implementation, scope expanded to address several interrelated issues:
    which broke when all providers unified on `Provider`. Fixed by deriving
    `provider` from the source path.
 
-2. **Receiver cleanup**: Lore/writ planners use plan receivers, not realtime
-   receivers. All hand-written realtime receivers were deleted from the planning
+2. **Receiver cleanup**: Lore/writ planners use planned receivers, not immediate
+   receivers. All hand-written immediate receivers were deleted from the planning
    layer. A new UI provider was created for user-facing messaging.
 
 3. **Logger→Writer**: `ctx.Logger` renamed to `ctx.Writer` across both repos.
@@ -45,11 +45,11 @@ During implementation, scope expanded to address several interrelated issues:
 | 6 | Fix `net.Provider` contract (delete `CompensateDownload`) | Done |
 | 7 | Delete junk files (`plan_pkg_gen.go`, `actions_gen.go`) | Done |
 | 8 | Add doc comments to hand-written `plan_package_gen.go` | Done |
-| 9a | Regenerate plan receivers (9 providers) | Done |
+| 9a | Regenerate planned receivers (9 providers) | Done |
 | 9b | Regenerate graph actions (9 providers) | Done |
 | 10 | Rename `ctx.Logger`→`ctx.Writer` in noblefactor-ops (type mapping + tests) | Done |
 | 11 | Rename `ctx.Logger`→`ctx.Writer` in devlore-cli (action.go, executor.go, gather.go, all tests, hand-written net/content actions) | Done |
-| 12 | Delete all hand-written realtime receivers (15 files) + `bindings.go` | Done |
+| 12 | Delete all hand-written immediate receivers (15 files) + `bindings.go` | Done |
 | 13 | Create `internal/execution/provider/ui/provider.go` (Note, Warn, Error, Success, Fail) | Done |
 | 14 | ~~Generate `ui/actions_gen.go`~~ Removed — UI is not plannable, no actions. | Struck |
 | 15 | Delete `plan_ui_gen.go` (UI is not plannable) | Done |
@@ -61,10 +61,10 @@ During implementation, scope expanded to address several interrelated issues:
 | 19b | Rename `PMOperation` → `PMCommand`, `NativePMAction.Operation` → `.Command`, `phaseToNativePMOp` → `phaseToNativePMCmd` | Done |
 | 20 | Add `//devlore:plannable` directive to 9 plannable providers (not UI) | Done |
 | 21 | Add `go.type_doc()` to noblefactor-ops GoReceiver + `commentGroupRaw` helper for directive preservation + tests | Done |
-| 22 | Update `generate.star`: auto-detect plannable directive, derive template selection (plan_receiver+graph_actions vs realtime_receiver) | Done |
+| 22 | Update `generate.star`: auto-detect plannable directive, derive template selection (planned_receiver+graph_actions vs immediate_receiver) | Done |
 | 23 | Redesign `ui.Provider` (4 config fields: Writer, ProgramName, Silent, Color) + `cli/output.go` convenience wrappers delegating to `ui.Provider` | Done |
 | 23a | StringDict purge: migrate all `NewBuiltin` registrations from `StringDict` to `Attr` receivers | Done |
-| 24 | Wire UI as realtime receiver in lore (`receiver_ui_gen.go` generated, `builder.go` wires `ui` namespace into globals). Writ uses `cli.Note` directly, which already delegates to `ui.Provider`. | Done |
+| 24 | Wire UI as immediate receiver in lore (`receiver_ui_gen.go` generated, `builder.go` wires `ui` namespace into globals). Writ uses `cli.Note` directly, which already delegates to `ui.Provider`. | Done |
 | 25 | Doc comments in templates (`{{.Doc}}` in all 3 templates) + `--format` flag in `extract.star` | Done |
 | 26 | Refactor filesystem bypass callers to use `file.Provider` (`adoptFile`, `linkToLayer`, `moveToLayer`, `Execute`) | Done |
 | 27 | Verification: `make build`, `make test`, inspect regenerated files for doc comments and populated slot_docs | Done |
@@ -103,7 +103,7 @@ reference tables showed slot names with no descriptions.
 4. Updated `validate.star` to detect `MakeAttr` calls (not just `NewBuiltin`)
 5. Changed all predicate methods from `bool` to `(bool, error)` return
 6. Changed `shell.Exec`/`shell.PowerShell` from `error` to `(string, error)`
-7. Regenerated all 9 `plan_*_gen.go` + 9 `actions_gen.go` + `reference.yaml`
+7. Regenerated all 9 `planned_*_gen.go` + 9 `actions_gen.go` + `reference.yaml`
 
 **Verification results:**
 - `grep -c 'slot_docs: {}' reference.yaml` → 2 (only `choose` and `gather`, flow actions)
@@ -164,16 +164,16 @@ var NotCompensableError = errors.New("action is not compensable")
 Go's `//tool:directive` convention.
 
 **Semantics**: A provider with `//devlore:plannable` participates in planning.
-Its actions can be deferred into an execution graph via plan receivers and
-executed via action nodes. A provider without the directive is realtime-only —
+Its actions can be deferred into an execution graph via planned receivers and
+executed via action nodes. A provider without the directive is immediate-only —
 its methods execute immediately when called.
 
 **Template selection matrix**:
 
-| Directive | Star (realtime tool) | Lore/Writ (planning tools) |
+| Directive | Star (immediate tool) | Lore/Writ (planning tools) |
 |-----------|---------------------|---------------------------|
-| `//devlore:plannable` | realtime receiver | plan receiver + action nodes |
-| (none) | realtime receiver | realtime receiver |
+| `//devlore:plannable` | immediate receiver | planned receiver + action nodes |
+| (none) | immediate receiver | immediate receiver |
 
 **Status**: Implemented (Parts 20-22). All 9 plannable providers have the directive.
 
@@ -187,7 +187,7 @@ surfaces exist:
 | Surface | Mechanism | Status |
 |---------|-----------|--------|
 | Starlark plan bindings | `plan.file.link()` → graph node → executor → `actions_gen` → `Provider` | 9 providers |
-| Starlark realtime bindings | `ui.note()` in script env → `Provider` method directly | UI (Part 24) |
+| Starlark immediate bindings | `ui.note()` in script env → `Provider` method directly | UI (Part 24) |
 | Go graph execution | writ deploy/upgrade → build graph → executor → `actions_gen` → `Provider` | Works |
 | **Go direct calls** | `os.Rename()`, `os.Symlink()` — **bypass file provider** (Part 26) | **Partial** |
 

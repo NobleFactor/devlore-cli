@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package tree builds deployment trees from source and target specifications.
 package tree
 
 import (
@@ -170,7 +171,8 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 			}
 
 			// Collision: more specific wins
-			if specificity > existing.specificity {
+			switch {
+			case specificity > existing.specificity:
 				result.Collisions = append(result.Collisions, Collision{
 					Target:            entry.ID,
 					Winner:            entry.Source,
@@ -179,7 +181,7 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 					LoserSpecificity:  existing.specificity,
 				})
 				entriesByTarget[entry.ID] = fileEntryWithMeta{entry: entry, specificity: specificity}
-			} else if specificity < existing.specificity {
+			case specificity < existing.specificity:
 				result.Collisions = append(result.Collisions, Collision{
 					Target:            entry.ID,
 					Winner:            existing.entry.Source,
@@ -187,7 +189,7 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 					Loser:             entry.Source,
 					LoserSpecificity:  specificity,
 				})
-			} else {
+			default:
 				// Same specificity — last wins
 				result.Collisions = append(result.Collisions, Collision{
 					Target:            entry.ID,
@@ -215,7 +217,7 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 // buildMultiSource builds from multiple layer sources with precedence.
 // Layers are processed in order (base → team → personal).
 // Higher-order layers override lower-order layers for the same target.
-func buildMultiSource(cfg BuildConfig) (*BuildResult, error) {
+func buildMultiSource(cfg BuildConfig) (*BuildResult, error) { //nolint:gocognit
 	result := &BuildResult{
 		Sources:    cfg.Sources,
 		TargetRoot: cfg.TargetRoot,
@@ -339,7 +341,7 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, 
 		// Secrets get restricted permissions
 		var mode os.FileMode
 		if hasAction(actions, "encryption.decrypt") {
-			mode = 0600
+			mode = 0o600
 		}
 
 		entry := &FileEntry{
@@ -391,8 +393,8 @@ func (r *BuildResult) FileCount() int {
 func (r *BuildResult) SecretCount() int {
 	count := 0
 	for _, f := range r.Files {
-		for _, op := range f.Operations {
-			if op == "encryption.decrypt" {
+		for _, action := range f.Operations {
+			if action == "encryption.decrypt" {
 				count++
 				break
 			}
@@ -405,8 +407,8 @@ func (r *BuildResult) SecretCount() int {
 func (r *BuildResult) TemplateCount() int {
 	count := 0
 	for _, f := range r.Files {
-		for _, op := range f.Operations {
-			if op == "template.render" {
+		for _, action := range f.Operations {
+			if action == "template.render" {
 				count++
 				break
 			}
@@ -430,8 +432,8 @@ func (r *BuildResult) LinkCount() int {
 func (r *BuildResult) PackagesCount() int {
 	count := 0
 	for _, f := range r.Files {
-		for _, op := range f.Operations {
-			if op == "manifest.resolve" {
+		for _, action := range f.Operations {
+			if action == "manifest.resolve" {
 				count++
 				break
 			}

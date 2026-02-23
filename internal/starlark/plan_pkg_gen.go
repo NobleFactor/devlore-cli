@@ -9,26 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("pkg", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("pkg", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewPkgPlan(graph, h, project, reg)
 	})
 }
 
 type PkgPlan struct {
-	projection.Receiver
-	graph   *projection.Graph
+	op.Receiver
+	graph   *op.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewPkgPlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PkgPlan {
+func NewPkgPlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PkgPlan {
 	return &PkgPlan{
-		Receiver: projection.NewReceiver("plan.pkg"),
+		Receiver: op.NewReceiver("plan.pkg"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -39,21 +39,21 @@ func NewPkgPlan(graph *projection.Graph, h host.Host, project string, reg *execu
 func (p *PkgPlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "install":
-		return projection.MakeAttr("plan.pkg.install", p.install), nil
+		return op.MakeAttr("plan.pkg.install", p.install), nil
 	case "upgrade":
-		return projection.MakeAttr("plan.pkg.upgrade", p.upgrade), nil
+		return op.MakeAttr("plan.pkg.upgrade", p.upgrade), nil
 	case "remove":
-		return projection.MakeAttr("plan.pkg.remove", p.remove), nil
+		return op.MakeAttr("plan.pkg.remove", p.remove), nil
 	case "update":
-		return projection.MakeAttr("plan.pkg.update", p.update), nil
+		return op.MakeAttr("plan.pkg.update", p.update), nil
 	case "installed":
-		return projection.MakeAttr("plan.pkg.installed", p.installed), nil
+		return op.MakeAttr("plan.pkg.installed", p.installed), nil
 	case "not_installed":
-		return projection.MakeAttr("plan.pkg.not_installed", p.not_installed), nil
+		return op.MakeAttr("plan.pkg.not_installed", p.not_installed), nil
 	case "version_gte":
-		return projection.MakeAttr("plan.pkg.version_gte", p.version_gte), nil
+		return op.MakeAttr("plan.pkg.version_gte", p.version_gte), nil
 	default:
-		return nil, projection.NoSuchAttrError("plan.pkg", name)
+		return nil, op.NoSuchAttrError("plan.pkg", name)
 	}
 }
 
@@ -74,8 +74,8 @@ func (p *PkgPlan) install(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("pkg-install"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("pkg-install"),
 		Action:  p.reg.MustGet("pkg.install"),
 		Project: p.project,
 	}
@@ -90,7 +90,7 @@ func (p *PkgPlan) install(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // upgrade Upgrade upgrades packages using the platform's package manager.
@@ -106,8 +106,8 @@ func (p *PkgPlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("pkg-upgrade"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("pkg-upgrade"),
 		Action:  p.reg.MustGet("pkg.upgrade"),
 		Project: p.project,
 	}
@@ -122,7 +122,7 @@ func (p *PkgPlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // remove Remove removes packages using the platform's package manager.
@@ -138,8 +138,8 @@ func (p *PkgPlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("pkg-remove"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("pkg-remove"),
 		Action:  p.reg.MustGet("pkg.remove"),
 		Project: p.project,
 	}
@@ -154,7 +154,7 @@ func (p *PkgPlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // update Update refreshes the package manager index.
@@ -167,8 +167,8 @@ func (p *PkgPlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("pkg-update"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("pkg-update"),
 		Action:  p.reg.MustGet("pkg.update"),
 		Project: p.project,
 	}
@@ -177,7 +177,7 @@ func (p *PkgPlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // installed Installed returns true if the named package is installed.
@@ -190,8 +190,8 @@ func (p *PkgPlan) installed(_ *starlark.Thread, _ *starlark.Builtin, args starla
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("pkg-installed"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("pkg-installed"),
 		Action:  p.reg.MustGet("pkg.installed"),
 		Project: p.project,
 	}
@@ -200,7 +200,7 @@ func (p *PkgPlan) installed(_ *starlark.Thread, _ *starlark.Builtin, args starla
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // not_installed NotInstalled returns true if the named package is not installed.
@@ -213,8 +213,8 @@ func (p *PkgPlan) not_installed(_ *starlark.Thread, _ *starlark.Builtin, args st
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("pkg-not_installed"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("pkg-not_installed"),
 		Action:  p.reg.MustGet("pkg.not_installed"),
 		Project: p.project,
 	}
@@ -223,7 +223,7 @@ func (p *PkgPlan) not_installed(_ *starlark.Thread, _ *starlark.Builtin, args st
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
 
 // version_gte VersionGTE returns true if the installed version of name is >= version.
@@ -237,8 +237,8 @@ func (p *PkgPlan) version_gte(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("pkg-version_gte"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("pkg-version_gte"),
 		Action:  p.reg.MustGet("pkg.version_gte"),
 		Project: p.project,
 	}
@@ -250,5 +250,5 @@ func (p *PkgPlan) version_gte(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }

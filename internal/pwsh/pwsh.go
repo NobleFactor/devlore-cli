@@ -37,7 +37,9 @@ package pwsh
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -85,7 +87,10 @@ func (r *Result) String() string {
 
 // JSON returns the result as indented JSON.
 func (r *Result) JSON() string {
-	b, _ := json.MarshalIndent(r, "", "  ")
+	b, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err)
+	}
 	return string(b)
 }
 
@@ -123,7 +128,7 @@ func New() (*Session, error) {
 	}
 
 	// Start PowerShell with no profile for clean environment
-	cmd := exec.Command(pwshPath, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-")
+	cmd := exec.Command(pwshPath, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-") //nolint:gosec // G204: PowerShell path resolved from system
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -181,7 +186,7 @@ func findPowerShell() (string, error) {
 // init drains any startup output from the PowerShell process.
 func (s *Session) init() {
 	// Emit a ready marker to consume any startup ANSI sequences or banners.
-	_, _ = fmt.Fprintf(s.stdin, "Write-Output '%sREADY'\n", s.marker)
+	_, _ = fmt.Fprintf(s.stdin, "Write-Output '%sREADY'\n", s.marker) //nolint:errcheck // best-effort init write
 
 	for s.scanner.Scan() {
 		line := stripANSI(s.scanner.Text())
@@ -239,8 +244,8 @@ func (s *Session) Run(command string) *Result {
 	// Send command directly in session scope, then emit a marker with the
 	// exit code. Using $global:LASTEXITCODE preserves native command exit
 	// codes; $? reflects PowerShell command success.
-	_, _ = fmt.Fprintf(s.stdin, "%s\n", command)
-	_, _ = fmt.Fprintf(s.stdin, "Write-Output '%s'$(if ($?) { $global:LASTEXITCODE } else { if ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 } })\n", s.marker)
+	_, _ = fmt.Fprintf(s.stdin, "%s\n", command)                                                                                                                           //nolint:errcheck // best-effort stdin write
+	_, _ = fmt.Fprintf(s.stdin, "Write-Output '%s'$(if ($?) { $global:LASTEXITCODE } else { if ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 } })\n", s.marker) //nolint:errcheck // best-effort stdin write
 
 	// Read output until we see the marker, stripping ANSI escape sequences.
 	// If the scanner hits EOF (process exited), capture exit from process state.
@@ -264,7 +269,8 @@ func (s *Session) Run(command string) *Result {
 	if !strings.HasPrefix(stripANSI(s.scanner.Text()), s.marker) {
 		s.dead = true
 		if err := s.cmd.Wait(); err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
 				result.ExitCode = exitErr.ExitCode()
 			} else {
 				result.ExitCode = 1
@@ -280,7 +286,7 @@ func (s *Session) Run(command string) *Result {
 	s.history = append(s.history, result)
 
 	if s.audit != nil {
-		_, _ = fmt.Fprintln(s.audit, result.JSON())
+		_, _ = fmt.Fprintln(s.audit, result.JSON()) //nolint:errcheck
 	}
 
 	return result
@@ -347,7 +353,7 @@ func Version() (string, error) {
 		return "", err
 	}
 
-	cmd := exec.Command(pwshPath, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()")
+	cmd := exec.Command(pwshPath, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()") //nolint:gosec // G204: PowerShell path resolved from system
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -384,7 +390,7 @@ func Bootstrap() error {
 	// Platform-specific installation
 	switch {
 	case fileExists("/opt/homebrew/bin/brew") || fileExists("/usr/local/bin/brew"):
-		cmd := exec.Command("brew", "install", "powershell")
+		cmd := exec.CommandContext(context.Background(), "brew", "install", "powershell")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()

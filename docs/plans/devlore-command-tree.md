@@ -48,7 +48,7 @@ One extension in the wrong repo with the wrong naming convention:
 
 | Command | Target | Proposed Home |
 |---|---|---|
-| `gen.receiver` | Graph ops + plan receivers | ops |
+| `gen.receiver` | Graph ops + planned receivers | ops |
 
 ## Target Command Tree
 
@@ -64,7 +64,7 @@ devlore
 │   ├── sign             — sign a lore package
 │   └── validate         — validate lore packages
 ├── ops
-│   ├── generate         — generate graph operations + plan receivers + docs
+│   ├── generate         — generate graph operations + planned receivers + docs
 │   └── validate         — validate API contract (Attr vs StringDict, etc.)
 └── model
     └── build            — generate Ollama Modelfile from knowledge domain
@@ -210,7 +210,7 @@ only hand-written code; everything else is generated and nuke-safe.
 |---|---|---|
 | Ops interface | `internal/execution/generated/fileops/` | `fileOps` (unexported) |
 | Graph operations | `internal/execution/generated/fileops/` | `FileLinkOp`, `FileCopyOp` |
-| Plan receiver | `internal/execution/generated/fileops/` | Starlark `plan.file.*` bindings |
+| Planned receiver | `internal/execution/generated/fileops/` | Starlark `plan.file.*` bindings |
 | Execute receiver | `internal/execution/generated/fileops/` | Starlark `file.*` bindings |
 | Starlark type mappings | `internal/execution/generated/fileops/` | Slot assertions, UnpackArgs |
 | Registration | `internal/execution/generated/fileops/` | `Ops(impl fileOps) []Operation` |

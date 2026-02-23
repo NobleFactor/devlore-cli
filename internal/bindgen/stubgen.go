@@ -111,7 +111,7 @@ func (g *StubGenerator) defaultValue(f *Flag) string {
 	if f.Default != "" {
 		switch f.Type {
 		case "string":
-			return fmt.Sprintf("\"%s\"", f.Default)
+			return fmt.Sprintf("%q", f.Default)
 		case "bool":
 			if f.Default == "true" {
 				return "True"

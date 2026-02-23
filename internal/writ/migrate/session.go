@@ -14,15 +14,17 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // SessionState represents a state in the migration session.
 type SessionState int
 
+// StateAnalyzing through StateError represent the lifecycle states of a migration
+// session, from initial analysis through completion or error.
 const (
 	StateAnalyzing SessionState = iota
 	StateConversing
@@ -42,7 +44,7 @@ type Session struct {
 	result *SessionResult
 
 	// Analysis results
-	graph    *projection.Graph
+	graph    *op.Graph
 	analysis *MigrationAnalysis
 
 	// Conversation state
@@ -52,7 +54,7 @@ type Session struct {
 
 // SessionResult is the final output of a migration session.
 type SessionResult struct {
-	Graph       *projection.Graph
+	Graph       *op.Graph
 	Analysis    *MigrationAnalysis
 	Executed    bool
 	ReceiptPath string
@@ -68,8 +70,8 @@ func NewSession(opts Options) *Session {
 }
 
 // NewSessionWithProvider creates a session with an AI provider.
-func NewSessionWithProvider(opts Options, provider model.Provider, regClient *lorepackage.Registry) *Session {
-	opts.Provider = provider
+func NewSessionWithProvider(opts Options, aiProvider model.Provider, regClient *lorepackage.Registry) *Session {
+	opts.Provider = aiProvider
 	opts.RegClient = regClient
 	return NewSession(opts)
 }
@@ -171,7 +173,10 @@ func (s *Session) generateInitialResponse() string {
 	}
 
 	ctx := context.Background()
-	analysisJSON, _ := json.MarshalIndent(s.analysis, "", "  ")
+	analysisJSON, err := json.MarshalIndent(s.analysis, "", "  ")
+	if err != nil {
+		return s.generateStaticInitialResponse()
+	}
 
 	prompt := `You are helping the user migrate their environment to writ.
 You have just analyzed their directory. Present your findings conversationally:
@@ -201,21 +206,21 @@ Do not output JSON. Write in a friendly, conversational tone.`
 func (s *Session) generateStaticInitialResponse() string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("## Analysis of %s\n\n", s.opts.SourceRoot))
-	sb.WriteString(fmt.Sprintf("**Detected system:** %s", s.analysis.System))
+	fmt.Fprintf(&sb, "## Analysis of %s\n\n", s.opts.SourceRoot)
+	fmt.Fprintf(&sb, "**Detected system:** %s", s.analysis.System)
 	if s.analysis.SystemConfidence > 0 {
-		sb.WriteString(fmt.Sprintf(" (%.0f%% confidence)", s.analysis.SystemConfidence*100))
+		fmt.Fprintf(&sb, " (%.0f%% confidence)", s.analysis.SystemConfidence*100)
 	}
 	sb.WriteString("\n\n")
 
 	st := s.analysis.Stats
-	sb.WriteString(fmt.Sprintf("**Files:** %d | **Projects:** %d | **Platforms:** %d\n\n",
-		st.TotalFiles, st.Projects, st.Platforms))
+	fmt.Fprintf(&sb, "**Files:** %d | **Projects:** %d | **Platforms:** %d\n\n",
+		st.TotalFiles, st.Projects, st.Platforms)
 
 	if len(s.analysis.Observations) > 0 {
 		sb.WriteString("### Observations\n")
 		for _, obs := range s.analysis.Observations {
-			sb.WriteString(fmt.Sprintf("- %s\n", obs))
+			fmt.Fprintf(&sb, "- %s\n", obs)
 		}
 		sb.WriteString("\n")
 	}
@@ -223,7 +228,7 @@ func (s *Session) generateStaticInitialResponse() string {
 	if len(s.analysis.Warnings) > 0 {
 		sb.WriteString("### Warnings\n")
 		for _, warn := range s.analysis.Warnings {
-			sb.WriteString(fmt.Sprintf("- %s\n", warn))
+			fmt.Fprintf(&sb, "- %s\n", warn)
 		}
 		sb.WriteString("\n")
 	}
@@ -231,7 +236,7 @@ func (s *Session) generateStaticInitialResponse() string {
 	if len(s.analysis.Recommendations) > 0 {
 		sb.WriteString("### Recommendations\n")
 		for _, rec := range s.analysis.Recommendations {
-			sb.WriteString(fmt.Sprintf("- %s\n", rec))
+			fmt.Fprintf(&sb, "- %s\n", rec)
 		}
 		sb.WriteString("\n")
 	}
@@ -265,7 +270,11 @@ func (s *Session) processConversation(input string) error {
 
 	// Build context for AI including both analysis and current execution graph
 	ctx := context.Background()
-	analysisJSON, _ := json.MarshalIndent(s.analysis, "", "  ")
+	analysisJSON, err := json.MarshalIndent(s.analysis, "", "  ")
+	if err != nil {
+		s.aiResponse = fmt.Sprintf("Error marshaling analysis: %v", err)
+		return nil
+	}
 	graphJSON := s.formatGraphForPrompt()
 
 	systemPrompt := fmt.Sprintf(`You are helping the user migrate their environment to writ.
@@ -345,20 +354,21 @@ func (s *Session) formatGraphForPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("Planned renames:\n")
 	for _, node := range s.graph.Nodes {
-		if node.ActionName() == "file.move" {
-			// Show relative paths for readability
-			src, _ := node.GetSlot("source").(string)
-			tgt, _ := node.GetSlot("path").(string)
-			source := strings.TrimPrefix(src, s.opts.SourceRoot+"/")
-			target := strings.TrimPrefix(tgt, s.opts.SourceRoot+"/")
-			sb.WriteString(fmt.Sprintf("  %s -> %s\n", source, target))
+		if node.ActionName() != "file.move" {
+			continue
 		}
+		// Show relative paths for readability
+		src, _ := node.GetSlot("source").(string)
+		tgt, _ := node.GetSlot("path").(string)
+		source := strings.TrimPrefix(src, s.opts.SourceRoot+"/")
+		target := strings.TrimPrefix(tgt, s.opts.SourceRoot+"/")
+		fmt.Fprintf(&sb, "  %s -> %s\n", source, target)
 	}
 	return sb.String()
 }
 
 // applyGraphModifications parses AI response for graph modifications and applies them.
-func (s *Session) applyGraphModifications(content string) {
+func (s *Session) applyGraphModifications(content string) { //nolint:gocognit
 	lines := strings.Split(content, "\n")
 	inModifications := false
 
@@ -380,27 +390,36 @@ func (s *Session) applyGraphModifications(content string) {
 			continue
 		}
 
-		// Parse ADD_RENAME: source -> target
-		if strings.HasPrefix(line, "- ADD_RENAME:") || strings.HasPrefix(line, "ADD_RENAME:") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				pathParts := strings.Split(parts[1], "->")
-				if len(pathParts) == 2 {
-					source := strings.TrimSpace(pathParts[0])
-					target := strings.TrimSpace(pathParts[1])
-					s.addRenameToGraph(source, target)
-				}
-			}
-		}
+		s.parseModificationLine(line)
+	}
+}
 
-		// Parse REMOVE_RENAME: source
-		if strings.HasPrefix(line, "- REMOVE_RENAME:") || strings.HasPrefix(line, "REMOVE_RENAME:") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				source := strings.TrimSpace(parts[1])
-				s.removeRenameFromGraph(source)
-			}
+// parseModificationLine handles a single modification line from the AI response.
+func (s *Session) parseModificationLine(line string) {
+	// Parse ADD_RENAME: source -> target
+	if strings.HasPrefix(line, "- ADD_RENAME:") || strings.HasPrefix(line, "ADD_RENAME:") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			return
 		}
+		pathParts := strings.Split(parts[1], "->")
+		if len(pathParts) != 2 {
+			return
+		}
+		source := strings.TrimSpace(pathParts[0])
+		target := strings.TrimSpace(pathParts[1])
+		s.addRenameToGraph(source, target)
+		return
+	}
+
+	// Parse REMOVE_RENAME: source
+	if strings.HasPrefix(line, "- REMOVE_RENAME:") || strings.HasPrefix(line, "REMOVE_RENAME:") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			return
+		}
+		source := strings.TrimSpace(parts[1])
+		s.removeRenameFromGraph(source)
 	}
 }
 

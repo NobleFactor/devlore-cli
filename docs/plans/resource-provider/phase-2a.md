@@ -8,7 +8,7 @@ Phase 2 is split into two PRs:
   providers for unregistered pseudo-operations, wire from call sites, delete old files
 - **Phase 2B** (next): Template provider, manifest provider, delete Operation enum
 
-Nine action names exist in plan receivers but have no registered Action
+Nine action names exist in planned receivers but have no registered Action
 implementation — the executor returns "unknown action" for them. This PR creates
 real Action implementations in their respective provider packages.
 
@@ -147,4 +147,4 @@ Delete the `Validate` method from `plan.go`. No callers exist.
 - No flow package (Choose/Gather/Elevate) — Phase 2B
 - No engine/build subpackage restructuring
 - No ComputeSummary or Preflight changes
-- No plan receiver changes (except platform service name convergence)
+- No planned receiver changes (except platform service name convergence)

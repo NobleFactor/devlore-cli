@@ -87,6 +87,7 @@ type CreationRule struct {
 // Backend represents a signing backend type.
 type Backend string
 
+// Signing backend constants.
 const (
 	BackendPGP     Backend = "pgp"
 	BackendAWSKMS  Backend = "aws_kms"
@@ -103,7 +104,7 @@ type ParsedBackend struct {
 
 // FindSopsConfig searches for .sops.yaml starting from dir, walking up.
 func FindSopsConfig(dir string) string {
-	dir, _ = filepath.Abs(dir)
+	dir, _ = filepath.Abs(dir) //nolint:errcheck // fallback to relative path
 	for {
 		candidate := filepath.Join(dir, ".sops.yaml")
 		if _, err := os.Stat(candidate); err == nil {

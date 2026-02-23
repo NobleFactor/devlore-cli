@@ -36,7 +36,7 @@ func (r *HookRegistry) FireNodeStart(ctx *Context, nodeID string, slots map[stri
 	}
 	for _, h := range r.hooks {
 		func() {
-			defer func() { recover() }()
+			defer func() { _ = recover() }() //nolint:errcheck // intentional panic recovery
 			h.OnNodeStart(ctx, nodeID, slots)
 		}()
 	}

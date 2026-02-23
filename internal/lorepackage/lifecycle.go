@@ -15,6 +15,7 @@ import (
 // Action represents a lifecycle action type.
 type Action string
 
+// Lifecycle action constants.
 const (
 	Deploy       Action = "Deploy"
 	Upgrade      Action = "Upgrade"
@@ -267,7 +268,7 @@ func (l *Lifecycle) EnabledFeatures(explicit []string) []string {
 	// Build a set of explicitly mentioned features (positive or negative)
 	explicitSet := make(map[string]bool)
 	for _, f := range explicit {
-		if len(f) > 0 && f[0] == '-' {
+		if f != "" && f[0] == '-' {
 			// Negative feature: -completions means disable
 			explicitSet[f[1:]] = false
 		} else {
@@ -278,7 +279,7 @@ func (l *Lifecycle) EnabledFeatures(explicit []string) []string {
 	// Start with explicit enables
 	var result []string
 	for _, f := range explicit {
-		if len(f) > 0 && f[0] != '-' {
+		if f != "" && f[0] != '-' {
 			result = append(result, f)
 		}
 	}

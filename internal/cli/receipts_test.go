@@ -10,29 +10,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // createTestGraph creates a minimal test graph for receipt testing.
-func createTestGraph() *projection.Graph {
-	node := &projection.Node{
+func createTestGraph() *op.Graph {
+	node := &op.Node{
 		ID:         ".bashrc",
-		Action: projection.StubAction("file.link"),
-		Status:     projection.StatusCompleted,
+		Action: op.StubAction("file.link"),
+		Status:     op.StatusCompleted,
 	}
 	node.SetSlotImmediate("source", "/home/user/env/.bashrc")
 	node.SetSlotImmediate("path", "/home/user/.bashrc")
 
-	return &projection.Graph{
+	return &op.Graph{
 		Version:   "5",
 		Tool:      "test",
 		Timestamp: time.Date(2026, 1, 21, 10, 30, 0, 0, time.UTC),
-		State:     projection.StateExecuted,
-		Platform: projection.Platform{
+		State:     op.StateExecuted,
+		Platform: op.Platform{
 			OS:   "darwin",
 			Arch: "arm64",
 		},
-		Nodes: []*projection.Node{node},
+		Nodes: []*op.Node{node},
 	}
 }
 
@@ -48,7 +48,7 @@ func TestWriteReceipt_WithGPGSigning(t *testing.T) {
 
 	// Create devlore state directory
 	devloreDir := filepath.Join(tmpState, "devlore")
-	if err := os.MkdirAll(devloreDir, 0755); err != nil {
+	if err := os.MkdirAll(devloreDir, 0o755); err != nil {
 		t.Fatalf("create devlore dir: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestWriteReceipt_WithGPGSigning(t *testing.T) {
 	sopsConfig := `creation_rules:
   - pgp: "0000000000000000000000000000000000000000"
 `
-	if err := os.WriteFile(filepath.Join(devloreDir, ".sops.yaml"), []byte(sopsConfig), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(devloreDir, ".sops.yaml"), []byte(sopsConfig), 0o644); err != nil {
 		t.Fatalf("write .sops.yaml: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestWriteReceipt_NoSopsConfig(t *testing.T) {
 
 	// Create devlore state directory (but no .sops.yaml)
 	devloreDir := filepath.Join(tmpState, "devlore")
-	if err := os.MkdirAll(devloreDir, 0755); err != nil {
+	if err := os.MkdirAll(devloreDir, 0o755); err != nil {
 		t.Fatalf("create devlore dir: %v", err)
 	}
 
@@ -140,12 +140,12 @@ func TestWriteReceipt_EmptySopsConfig(t *testing.T) {
 
 	// Create devlore state directory
 	devloreDir := filepath.Join(tmpState, "devlore")
-	if err := os.MkdirAll(devloreDir, 0755); err != nil {
+	if err := os.MkdirAll(devloreDir, 0o755); err != nil {
 		t.Fatalf("create devlore dir: %v", err)
 	}
 
 	// Create empty .sops.yaml
-	if err := os.WriteFile(filepath.Join(devloreDir, ".sops.yaml"), []byte("creation_rules: []\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(devloreDir, ".sops.yaml"), []byte("creation_rules: []\n"), 0o644); err != nil {
 		t.Fatalf("write .sops.yaml: %v", err)
 	}
 
@@ -191,7 +191,7 @@ nodes:
     status: completed
 checksum: "sha256:abc123"
 `
-	if err := os.WriteFile(receiptPath, []byte(receiptContent), 0644); err != nil {
+	if err := os.WriteFile(receiptPath, []byte(receiptContent), 0o644); err != nil {
 		t.Fatalf("write receipt: %v", err)
 	}
 

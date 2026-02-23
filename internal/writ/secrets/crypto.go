@@ -39,7 +39,7 @@ func DecryptFile(src, dst string, mode os.FileMode) error {
 	// Check if already decrypted
 	if !IsEncrypted(data) {
 		// Already decrypted (smudge filter active) — copy as-is
-		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 			return fmt.Errorf("create parent dir: %w", err)
 		}
 		return os.WriteFile(dst, data, mode)
@@ -51,7 +51,7 @@ func DecryptFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return fmt.Errorf("create parent dir: %w", err)
 	}
 

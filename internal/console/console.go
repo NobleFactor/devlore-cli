@@ -62,7 +62,10 @@ func (c *Console) Run(session Session) (any, error) {
 		return nil, fmt.Errorf("console: %w", err)
 	}
 
-	m := finalModel.(*Model)
+	m, ok := finalModel.(*Model)
+	if !ok {
+		return nil, fmt.Errorf("console: unexpected model type %T", finalModel)
+	}
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -90,7 +93,10 @@ func (c *Console) RunInline(session Session) (any, error) {
 		return nil, fmt.Errorf("console: %w", err)
 	}
 
-	m := finalModel.(*Model)
+	m, ok := finalModel.(*Model)
+	if !ok {
+		return nil, fmt.Errorf("console: unexpected model type %T", finalModel)
+	}
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -109,30 +115,30 @@ func (c *Console) Styles() *Styles {
 
 // Print outputs styled text without a session.
 func (c *Console) Print(text string) {
-	fmt.Fprint(c.output, text)
+	_, _ = fmt.Fprint(c.output, text) //nolint:errcheck
 }
 
 // PrintStyled outputs text with the given style.
 func (c *Console) PrintStyled(text string, style func(string) string) {
-	fmt.Fprint(c.output, style(text))
+	_, _ = fmt.Fprint(c.output, style(text)) //nolint:errcheck
 }
 
 // Success prints a success message.
 func (c *Console) Success(msg string) {
-	fmt.Fprintln(c.output, c.styles.Success.Render("✓ "+msg))
+	_, _ = fmt.Fprintln(c.output, c.styles.Success.Render("✓ "+msg)) //nolint:errcheck
 }
 
 // Warning prints a warning message.
 func (c *Console) Warning(msg string) {
-	fmt.Fprintln(c.output, c.styles.Warning.Render("⚠ "+msg))
+	_, _ = fmt.Fprintln(c.output, c.styles.Warning.Render("⚠ "+msg)) //nolint:errcheck
 }
 
 // Error prints an error message.
 func (c *Console) Error(msg string) {
-	fmt.Fprintln(c.output, c.styles.Error.Render("✗ "+msg))
+	_, _ = fmt.Fprintln(c.output, c.styles.Error.Render("✗ "+msg)) //nolint:errcheck
 }
 
 // Info prints an info message.
 func (c *Console) Info(msg string) {
-	fmt.Fprintln(c.output, c.styles.Highlighted.Render("ℹ "+msg))
+	_, _ = fmt.Fprintln(c.output, c.styles.Highlighted.Render("ℹ "+msg)) //nolint:errcheck
 }

@@ -41,7 +41,7 @@ func TestUnifiedConfig_BothToolsSeeSharedSettings(t *testing.T) {
 
 	// Create shared config with settings relevant to both tools
 	configDir := filepath.Join(tmpDir, "devlore")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}
 
@@ -65,7 +65,7 @@ writ:
     USER_NAME: "Test User"
 `
 	configPath := filepath.Join(configDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("writing config file: %v", err)
 	}
 
@@ -125,7 +125,7 @@ func TestUnifiedConfig_ToolSpecificSettingsVisible(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	configDir := filepath.Join(tmpDir, "devlore")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}
 
@@ -140,7 +140,7 @@ writ:
     USER_EMAIL: "jane@example.com"
 `
 	configPath := filepath.Join(configDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("writing config file: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestConfigListOutput_SameForBothTools(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	configDir := filepath.Join(tmpDir, "devlore")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}
 
@@ -246,7 +246,7 @@ registry:
   url: https://example.com/registry.git
 `
 	configPath := filepath.Join(configDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("writing config file: %v", err)
 	}
 
@@ -352,13 +352,13 @@ func TestLoadConfig_EmptyFile(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	configDir := filepath.Join(tmpDir, "devlore")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}
 
 	// Create empty config file
 	configPath := filepath.Join(configDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(""), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(""), 0o644); err != nil {
 		t.Fatalf("writing config file: %v", err)
 	}
 

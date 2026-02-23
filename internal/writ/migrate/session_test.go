@@ -4,13 +4,14 @@
 package migrate
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func TestNewSession(t *testing.T) {
@@ -73,7 +74,7 @@ func TestSessionError(t *testing.T) {
 
 	// Set an error
 	session.err = os.ErrNotExist
-	if session.Error() != os.ErrNotExist {
+	if !errors.Is(session.Error(), os.ErrNotExist) {
 		t.Errorf("expected os.ErrNotExist, got %v", session.Error())
 	}
 }
@@ -129,7 +130,7 @@ func TestSessionSlashCommands(t *testing.T) {
 	// Set up state for slash commands
 	session.state = StateConversing
 	session.analysis = &MigrationAnalysis{SourceRoot: "/tmp/test"}
-	session.graph = &projection.Graph{}
+	session.graph = &op.Graph{}
 
 	tests := []struct {
 		cmd           string
@@ -300,9 +301,10 @@ func TestSessionWithRealDirectory(t *testing.T) {
 	}
 
 	// Either we got an error step or we're in conversing
-	if step.Type == console.StepError {
+	switch step.Type {
+	case console.StepError:
 		t.Log("Analysis failed:", session.err)
-	} else if step.Type == console.StepProgress {
+	case console.StepProgress:
 		// Analysis completed, next call should return conversation step
 		t.Log("Analysis in progress")
 	}
@@ -328,7 +330,7 @@ func TestSessionErrorState(t *testing.T) {
 
 func TestSessionResultType(t *testing.T) {
 	result := &SessionResult{
-		Graph:       &projection.Graph{},
+		Graph:       &op.Graph{},
 		Analysis:    &MigrationAnalysis{SourceRoot: "/test"},
 		Executed:    true,
 		ReceiptPath: "/path/to/receipt.yaml",
@@ -381,7 +383,7 @@ func TestGenerateStaticInitialResponse(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+	return len(s) >= len(substr) && (s == substr || s != "" && containsHelper(s, substr))
 }
 
 func containsHelper(s, substr string) bool {

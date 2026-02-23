@@ -99,6 +99,7 @@ type Message struct {
 // Role identifies the message sender.
 type Role string
 
+// Chat role constants.
 const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"

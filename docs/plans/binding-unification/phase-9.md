@@ -115,8 +115,8 @@ m.params[0].doc   # "Absolute path to the symlink target"
 
 Both templates updated to use `{{docComment .SnakeName .Doc}}{{slotDocs .}}`:
 
-- **`plan_receiver.go.template`** — `{{slotDocs .}}` appended after `{{docComment}}`
-- **`realtime_receiver.go.template`** — same pattern
+- **`planned_receiver.go.template`** — `{{slotDocs .}}` appended after `{{docComment}}`
+- **`immediate_receiver.go.template`** — same pattern
 
 **`slotDocs`** and **`hasSlotDocs`** — template functions in noblefactor-ops
 (`receiver_go_gen.go`): `slotDocs` emits a `// Slots:` block from structured
@@ -164,8 +164,8 @@ Steps 1-2 complete. Steps 3-4 require devlore-registry.
 | noblefactor-ops | `internal/starlark/receiver_go_test.go` | Add: test for `parseParamDocs()` |
 | noblefactor-ops | `internal/starlark/receiver_go_gen_test.go` | Add: test for `hasSlotDocs` helper, update test templates |
 | devlore-cli | `star/.../Actions/commands/generate.star` | Modify: pass `p.doc` |
-| devlore-cli | `star/.../Actions/templates/plan_receiver.go.template` | Modify: emit `// Slots:` |
-| devlore-cli | `star/.../Actions/templates/realtime_receiver.go.template` | Modify: emit `// Slots:` |
+| devlore-cli | `star/.../Actions/templates/planned_receiver.go.template` | Modify: emit `// Slots:` |
+| devlore-cli | `star/.../Actions/templates/immediate_receiver.go.template` | Modify: emit `// Slots:` |
 | devlore-cli | `internal/execution/provider/file/provider.go` | Modify: add `Parameters:` docs |
 | devlore-cli | `internal/execution/provider/pkg/provider.go` | Modify: add `Parameters:` docs |
 | devlore-cli | `internal/execution/provider/service/provider.go` | Modify: add `Parameters:` docs |
@@ -175,7 +175,7 @@ Steps 1-2 complete. Steps 3-4 require devlore-registry.
 | devlore-cli | `internal/execution/provider/net/provider.go` | Modify: add `Parameters:` docs |
 | devlore-cli | `internal/execution/provider/encryption/provider.go` | Modify: add `Parameters:` docs |
 | devlore-cli | `internal/execution/provider/template/provider.go` | Modify: add `Parameters:` docs |
-| devlore-cli | `internal/starlark/plan_*_gen.go` (9 files) | Regenerate |
+| devlore-cli | `internal/starlark/planned_*_gen.go` (9 files) | Regenerate |
 | devlore-registry | `knowledge/.../reference.yaml` | Regenerate |
 | devlore-registry | `knowledge/.../reference.md` | Regenerate |
 
@@ -191,7 +191,7 @@ Steps 1-2 complete. Steps 3-4 require devlore-registry.
 
 1. `make build` — compiles ✅
 2. `make test` — all tests pass ✅
-3. Inspect generated `plan_*_gen.go` — `Slots:` blocks with descriptions ✅
+3. Inspect generated `planned_*_gen.go` — `Slots:` blocks with descriptions ✅
 4. Inspect generated `actions_gen.go` — single-line docs, no `Parameters:` leak ✅
 5. Regenerate reference.yaml in devlore-registry ✅
 6. Verify no `slot_docs: {}` remains for methods that have slotted params ✅

@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // gatherUndoState preserves per-iteration state needed for rollback.
@@ -41,7 +41,7 @@ type Gather struct{}
 func (a *Gather) Name() string { return "flow.gather" }
 
 // Do executes the referenced phase once per item, with per-iteration isolation.
-func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
 	items, err := extractItems(slots)
 	if err != nil {
 		return nil, nil, err
@@ -96,11 +96,12 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 		var firstErr error
 		var mu sync.Mutex
 
+	iterLoop:
 		for i, item := range items {
 			// Check for cancellation before starting a new iteration.
 			select {
 			case <-iterCtxBase.Done():
-				break
+				break iterLoop
 			default:
 			}
 			if iterCtxBase.Err() != nil {
@@ -151,7 +152,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (execution.Res
 
 	if gatherErr != nil {
 		// Unwind all completed iterations.
-		a.undoCompleted(undoState)
+		_ = a.undoCompleted(undoState) //nolint:errcheck // compensation is best-effort during error unwind
 		return nil, nil, gatherErr
 	}
 
@@ -183,7 +184,7 @@ func (a *Gather) undoCompleted(gs *gatherUndoState) error {
 				continue
 			}
 			if err := undoable.Undo(entry.UndoState); err != nil {
-				if errors.Is(err, execution.NotCompensableError) {
+				if errors.Is(err, execution.ErrNotCompensable) {
 					continue
 				}
 				errs = append(errs, err)
@@ -194,7 +195,7 @@ func (a *Gather) undoCompleted(gs *gatherUndoState) error {
 }
 
 // executeIteration runs the phase body for a single item.
-func executeIteration(ctx *execution.Context, ordered []*projection.Node, gatherID string, item any) struct {
+func executeIteration(ctx *execution.Context, ordered []*op.Node, gatherID string, item any) struct {
 	result any
 	undo   iterationUndo
 	err    error
@@ -217,11 +218,7 @@ func executeIteration(ctx *execution.Context, ordered []*projection.Node, gather
 		nodeSlots := node.ResolvedSlots(results, proxyCtx)
 		execution.FillSlotsFromData(nodeSlots, ctx.Data)
 
-		action, ok := node.Action.(execution.Action)
-		if !ok {
-			continue
-		}
-		result, undoState, err := action.Do(ctx, nodeSlots)
+		result, undoState, err := node.Action.Do(ctx, nodeSlots)
 		if err != nil {
 			// Unwind this iteration's completed nodes.
 			stack.Unwind(ctx)

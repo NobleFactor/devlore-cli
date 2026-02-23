@@ -5,6 +5,7 @@ package signing
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"os/exec"
 	"strings"
@@ -58,7 +59,7 @@ func (g *GPGSigner) hasSecretKey(fingerprint string) bool {
 	// Normalize fingerprint (remove spaces)
 	fp := strings.ReplaceAll(fingerprint, " ", "")
 
-	cmd := exec.Command("gpg", "--list-secret-keys", "--with-colons", fp)
+	cmd := exec.CommandContext(context.TODO(), "gpg", "--list-secret-keys", "--with-colons", fp) //nolint:gosec // G204: gpg invocation with validated arguments
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -89,7 +90,7 @@ func (g *GPGSigner) Sign(data []byte) (*Signature, error) {
 	keyID = strings.ReplaceAll(keyID, " ", "")
 
 	// Create detached armored signature
-	cmd := exec.Command("gpg",
+	cmd := exec.CommandContext(context.TODO(), "gpg", //nolint:gosec // G204: gpg invocation with validated arguments
 		"--detach-sign",
 		"--armor",
 		"--local-user", keyID,
@@ -143,7 +144,7 @@ func verifyGPGWithTempFiles(data, sigBytes []byte) error {
 	}
 	defer removeTempFile(sigFile)
 
-	cmd := exec.Command("gpg", "--verify", "--batch", sigFile, dataFile)
+	cmd := exec.Command("gpg", "--verify", "--batch", sigFile, dataFile) //nolint:gosec // G204: gpg invocation with validated arguments
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 

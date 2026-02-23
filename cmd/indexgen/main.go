@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -89,7 +90,7 @@ var assetTypes = []string{
 	"slots",
 }
 
-func main() {
+func main() { //nolint:gocognit
 	registryPath := flag.String("registry", "", "Path to devlore-registry root")
 	dryRun := flag.Bool("dry-run", false, "Print what would be written without writing")
 	flag.Parse()
@@ -102,7 +103,7 @@ func main() {
 		}
 		for _, c := range candidates {
 			if c != "" {
-				if info, err := os.Stat(filepath.Join(c, "knowledge")); err == nil && info.IsDir() {
+				if info, err := os.Stat(filepath.Join(c, "knowledge")); err == nil && info.IsDir() { //nolint:gosec // G703: path from local filesystem
 					*registryPath = c
 					break
 				}
@@ -141,7 +142,10 @@ func main() {
 
 		if *dryRun {
 			fmt.Printf("=== %s/index.yaml ===\n", domain)
-			data, _ := yaml.Marshal(index)
+			data, err := yaml.Marshal(index)
+			if err != nil {
+				log.Fatalf("marshal index for %s: %v", domain, err)
+			}
 			fmt.Println(string(data))
 		} else {
 			if err := writeIndex(domainPath, index); err != nil {
@@ -153,7 +157,7 @@ func main() {
 	}
 }
 
-func buildIndex(domain, domainPath string) (*KnowledgeIndex, error) {
+func buildIndex(domain, domainPath string) (*KnowledgeIndex, error) { //nolint:unparam // error return reserved for future use
 	// Load existing index to preserve metadata
 	existing := loadExistingIndex(domainPath)
 
@@ -336,5 +340,5 @@ func writeIndex(domainPath string, index *KnowledgeIndex) error {
 	header := "# Auto-generated file list by: go run ./cmd/gen-index\n# Metadata (purpose, source_system, description) is preserved and should be edited manually.\n\n"
 	content := header + string(data)
 
-	return os.WriteFile(filepath.Join(domainPath, "index.yaml"), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(domainPath, "index.yaml"), []byte(content), 0o600)
 }

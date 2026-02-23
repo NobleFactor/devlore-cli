@@ -5,7 +5,7 @@
 Phase 0 (single-operation nodes) is merged in devlore-cli (PR #97). Phase 1 extends
 the GoReceiver in noblefactor-ops so `go.methods()` and `go.funcs()` return parameter
 information. This is a prerequisite for Phase 2 (code generation), which needs method
-signatures to generate plan receivers, graph operations, and real-time receivers.
+signatures to generate planned receivers, graph operations, and immediate receivers.
 
 **Repo**: noblefactor-ops
 **Files**:

@@ -165,7 +165,7 @@ func cmdGenerate(yamlPath string) {
 	}
 
 	goPath := def.Name + "_gen.go"
-	if err := os.WriteFile(goPath, []byte(goCode), 0644); err != nil {
+	if err := os.WriteFile(goPath, []byte(goCode), 0644); err != nil { //nolint:gosec // G705: template output is for code generation
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", goPath, err)
 		os.Exit(1)
 	}
@@ -180,7 +180,7 @@ func cmdGenerate(yamlPath string) {
 	}
 
 	stubPath := def.Name + "_gen.star"
-	if err := os.WriteFile(stubPath, []byte(stubCode), 0644); err != nil {
+	if err := os.WriteFile(stubPath, []byte(stubCode), 0644); err != nil { //nolint:gosec // G705: template output is for code generation
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", stubPath, err)
 		os.Exit(1)
 	}
@@ -230,7 +230,7 @@ func cmdScaffold(command string, subcommands []string) {
 	}
 
 	goPath := filepath.Join(".", def.Name+"_gen.go")
-	if err := os.WriteFile(goPath, []byte(goCode), 0644); err != nil {
+	if err := os.WriteFile(goPath, []byte(goCode), 0644); err != nil { //nolint:gosec // G705: template output is for code generation
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", goPath, err)
 		os.Exit(1)
 	}
@@ -245,7 +245,7 @@ func cmdScaffold(command string, subcommands []string) {
 	}
 
 	stubPath := filepath.Join(".", def.Name+"_gen.star")
-	if err := os.WriteFile(stubPath, []byte(stubCode), 0644); err != nil {
+	if err := os.WriteFile(stubPath, []byte(stubCode), 0644); err != nil { //nolint:gosec // G705: template output is for code generation
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", stubPath, err)
 		os.Exit(1)
 	}

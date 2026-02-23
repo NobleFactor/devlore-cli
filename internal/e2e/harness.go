@@ -191,7 +191,7 @@ type TestReport struct {
 
 // WriteReport writes the test report to a directory.
 func (r *TestReport) WriteReport(outDir string) error {
-	if err := os.MkdirAll(outDir, 0755); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
 
@@ -201,7 +201,7 @@ func (r *TestReport) WriteReport(outDir string) error {
 	if err != nil {
 		return fmt.Errorf("marshaling JSON: %w", err)
 	}
-	if err := os.WriteFile(jsonPath, jsonData, 0644); err != nil {
+	if err := os.WriteFile(jsonPath, jsonData, 0o600); err != nil {
 		return fmt.Errorf("writing JSON report: %w", err)
 	}
 
@@ -211,14 +211,14 @@ func (r *TestReport) WriteReport(outDir string) error {
 	if err != nil {
 		return fmt.Errorf("marshaling YAML: %w", err)
 	}
-	if err := os.WriteFile(yamlPath, yamlData, 0644); err != nil {
+	if err := os.WriteFile(yamlPath, yamlData, 0o600); err != nil {
 		return fmt.Errorf("writing YAML report: %w", err)
 	}
 
 	// Write summary markdown
 	summaryPath := filepath.Join(outDir, "summary.md")
 	summary := r.GenerateSummary()
-	if err := os.WriteFile(summaryPath, []byte(summary), 0644); err != nil {
+	if err := os.WriteFile(summaryPath, []byte(summary), 0o600); err != nil {
 		return fmt.Errorf("writing summary: %w", err)
 	}
 
@@ -236,7 +236,8 @@ func (r *TestReport) GenerateSummary() string {
 		sb.WriteString("| Provider | Model | Success | Latency (ms) | Tokens | F1 Score |\n")
 		sb.WriteString("|----------|-------|---------|--------------|--------|----------|\n")
 
-		for _, result := range suite.Results {
+		for i := range suite.Results {
+			result := &suite.Results[i]
 			status := "✓"
 			if !result.Success {
 				status = "✗"
@@ -253,7 +254,8 @@ func (r *TestReport) GenerateSummary() string {
 		sb.WriteString("\n")
 
 		// Add failure details
-		for _, result := range suite.Results {
+		for i := range suite.Results {
+			result := &suite.Results[i]
 			if !result.Success && result.Error != "" {
 				sb.WriteString(fmt.Sprintf("### %s Failure\n\n", result.Provider))
 				sb.WriteString(fmt.Sprintf("```\n%s\n```\n\n", result.Error))

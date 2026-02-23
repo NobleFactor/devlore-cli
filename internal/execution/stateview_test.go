@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,7 +27,7 @@ func TestPackageEntryLastAction(t *testing.T) {
 		e := &PackageEntry{
 			Name: "docker",
 			History: []HistoryRecord{
-				{Receipt: "a.yaml", Status: projection.StatusCompleted},
+				{Receipt: "a.yaml", Status: op.StatusCompleted},
 			},
 		}
 		last := e.LastAction()
@@ -43,9 +43,9 @@ func TestPackageEntryLastAction(t *testing.T) {
 		e := &PackageEntry{
 			Name: "docker",
 			History: []HistoryRecord{
-				{Receipt: "a.yaml", Status: projection.StatusCompleted},
-				{Receipt: "b.yaml", Status: projection.StatusCompleted},
-				{Receipt: "c.yaml", Status: projection.StatusFailed},
+				{Receipt: "a.yaml", Status: op.StatusCompleted},
+				{Receipt: "b.yaml", Status: op.StatusCompleted},
+				{Receipt: "c.yaml", Status: op.StatusFailed},
 			},
 		}
 		last := e.LastAction()
@@ -337,32 +337,32 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 	earlier := now.Add(-time.Hour)
 
 	// Helper to create nodes with source slot
-	makeNode := func(id string, op string, source, project, layer string) *projection.Node {
-		n := &projection.Node{
+	makeNode := func(id string, action string, source, project, layer string) *op.Node {
+		n := &op.Node{
 			ID:      id,
-			Action:  projection.StubAction(op),
+			Action:  op.StubAction(action),
 			Project: project,
 			Layer:   layer,
-			Status:  projection.StatusCompleted,
+			Status:  op.StatusCompleted,
 		}
 		n.SetSlotImmediate("source", source)
 		return n
 	}
 
-	graphs := []*projection.Graph{
+	graphs := []*op.Graph{
 		{
 			Tool:      "writ",
 			Timestamp: earlier,
-			Context:   projection.GraphContext{TargetRoot: "/home/user"},
-			Nodes: []*projection.Node{
+			Context:   op.GraphContext{TargetRoot: "/home/user"},
+			Nodes: []*op.Node{
 				makeNode(".bashrc", "file.link", "/repo/.bashrc", "shell", "base"),
 			},
 		},
 		{
 			Tool:      "writ",
 			Timestamp: now,
-			Context:   projection.GraphContext{TargetRoot: "/home/user"},
-			Nodes: []*projection.Node{
+			Context:   op.GraphContext{TargetRoot: "/home/user"},
+			Nodes: []*op.Node{
 				makeNode(".bashrc", "file.copy", "/repo/.bashrc", "shell", "personal"),
 				makeNode(".gitconfig", "file.link", "/repo/.gitconfig", "git", ""),
 			},
@@ -412,42 +412,42 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 func TestStateViewBuilderPackageNodes(t *testing.T) {
 	now := time.Now()
 
-	graphs := []*projection.Graph{
+	graphs := []*op.Graph{
 		{
 			Tool:      "lore",
 			Timestamp: now.Add(-2 * time.Hour),
-			Nodes: []*projection.Node{
+			Nodes: []*op.Node{
 				{
 					ID:     "docker",
-					Action: projection.StubAction("pkg.install"),
-					Status: projection.StatusCompleted,
+					Action: op.StubAction("pkg.install"),
+					Status: op.StatusCompleted,
 				},
 			},
 		},
 		{
 			Tool:      "lore",
 			Timestamp: now.Add(-time.Hour),
-			Nodes: []*projection.Node{
+			Nodes: []*op.Node{
 				{
 					ID:     "docker",
-					Action: projection.StubAction("pkg.verify"),
-					Status: projection.StatusCompleted,
+					Action: op.StubAction("pkg.verify"),
+					Status: op.StatusCompleted,
 				},
 				{
 					ID:     "golang",
-					Action: projection.StubAction("pkg.install"),
-					Status: projection.StatusCompleted,
+					Action: op.StubAction("pkg.install"),
+					Status: op.StatusCompleted,
 				},
 			},
 		},
 		{
 			Tool:      "lore",
 			Timestamp: now,
-			Nodes: []*projection.Node{
+			Nodes: []*op.Node{
 				{
 					ID:     "docker",
-					Action: projection.StubAction("pkg.upgrade"),
-					Status: projection.StatusCompleted,
+					Action: op.StubAction("pkg.upgrade"),
+					Status: op.StatusCompleted,
 				},
 			},
 		},
@@ -494,11 +494,11 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 func TestStateViewBuilderTimeFilter(t *testing.T) {
 	now := time.Now()
 
-	graphs := []*projection.Graph{
-		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*projection.Node{{ID: "a", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*projection.Node{{ID: "b", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*projection.Node{{ID: "c", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*projection.Node{{ID: "d", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
+	graphs := []*op.Graph{
+		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*op.Node{{ID: "a", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*op.Node{{ID: "b", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
+		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*op.Node{{ID: "c", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
+		{Tool: "writ", Timestamp: now, Nodes: []*op.Node{{ID: "d", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
 	}
 
 	// Filter to middle two
@@ -523,10 +523,10 @@ func TestStateViewBuilderTimeFilter(t *testing.T) {
 func TestStateViewBuilderToolFilter(t *testing.T) {
 	now := time.Now()
 
-	graphs := []*projection.Graph{
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*projection.Node{{ID: ".bashrc", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
-		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*projection.Node{{ID: "docker", Action: projection.StubAction("pkg.install"), Status: projection.StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*projection.Node{{ID: ".zshrc", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted}}},
+	graphs := []*op.Graph{
+		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*op.Node{{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
+		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*op.Node{{ID: "docker", Action: op.StubAction("pkg.install"), Status: op.StatusCompleted}}},
+		{Tool: "writ", Timestamp: now, Nodes: []*op.Node{{ID: ".zshrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
 	}
 
 	t.Run("writ only", func(t *testing.T) {
@@ -564,14 +564,14 @@ func TestStateViewBuilderToolFilter(t *testing.T) {
 func TestStateViewBuilderSkipsSkipped(t *testing.T) {
 	now := time.Now()
 
-	graphs := []*projection.Graph{
+	graphs := []*op.Graph{
 		{
 			Tool:      "writ",
 			Timestamp: now,
-			Nodes: []*projection.Node{
-				{ID: "a", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted},
-				{ID: "b", Action: projection.StubAction("file.link"), Status: projection.StatusSkipped},
-				{ID: "c", Action: projection.StubAction("file.link"), Status: projection.StatusFailed},
+			Nodes: []*op.Node{
+				{ID: "a", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+				{ID: "b", Action: op.StubAction("file.link"), Status: op.StatusSkipped},
+				{ID: "c", Action: op.StubAction("file.link"), Status: op.StatusFailed},
 			},
 		},
 	}
@@ -603,31 +603,31 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 	// Create test receipt files
 	receipts := []struct {
 		name  string
-		graph *projection.Graph
+		graph *op.Graph
 	}{
 		{
 			name: "writ-2025-01-01T10-00-00.yaml",
-			graph: &projection.Graph{
+			graph: &op.Graph{
 				Version:   "1",
 				Tool:      "writ",
 				Timestamp: now.Add(-time.Hour),
-				State:     projection.StateExecuted,
-				Context:   projection.GraphContext{TargetRoot: "/home/user"},
-				Nodes: []*projection.Node{
-					{ID: ".bashrc", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted},
+				State:     op.StateExecuted,
+				Context:   op.GraphContext{TargetRoot: "/home/user"},
+				Nodes: []*op.Node{
+					{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
 				},
 			},
 		},
 		{
 			name: "writ-2025-01-01T11-00-00.yaml",
-			graph: &projection.Graph{
+			graph: &op.Graph{
 				Version:   "1",
 				Tool:      "writ",
 				Timestamp: now,
-				State:     projection.StateExecuted,
-				Context:   projection.GraphContext{TargetRoot: "/home/user"},
-				Nodes: []*projection.Node{
-					{ID: ".gitconfig", Action: projection.StubAction("file.link"), Status: projection.StatusCompleted},
+				State:     op.StateExecuted,
+				Context:   op.GraphContext{TargetRoot: "/home/user"},
+				Nodes: []*op.Node{
+					{ID: ".gitconfig", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
 				},
 			},
 		},
@@ -639,7 +639,7 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal %s: %v", r.name, err)
 		}
-		if err := os.WriteFile(path, data, 0644); err != nil {
+		if err := os.WriteFile(path, data, 0o644); err != nil {
 			t.Fatalf("write %s: %v", r.name, err)
 		}
 	}
@@ -650,7 +650,7 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 	}
 
 	// Create a non-yaml file that should be skipped
-	if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("test"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
 
@@ -702,7 +702,7 @@ func TestIsPackageNode(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		node := &projection.Node{Action: projection.StubAction(tt.operation)}
+		node := &op.Node{Action: op.StubAction(tt.operation)}
 		got := builder.isPackageNode(node)
 		if got != tt.want {
 			t.Errorf("isPackageNode(%q) = %v, want %v", tt.operation, got, tt.want)

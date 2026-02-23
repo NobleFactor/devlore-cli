@@ -36,7 +36,7 @@ type GatherInput struct {
 // GatherInputs walks the directory tree and collects structure and executable contents.
 // maxDepth limits how deep to recurse (0 = root only, -1 = unlimited).
 // maxScriptBytes limits total script content (0 = unlimited).
-func GatherInputs(root string, maxDepth int, maxScriptBytes int) (*GatherInput, error) {
+func GatherInputs(root string, maxDepth, maxScriptBytes int) (*GatherInput, error) {
 	root = filepath.Clean(root)
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -61,7 +61,7 @@ func GatherInputs(root string, maxDepth int, maxScriptBytes int) (*GatherInput, 
 
 // buildTree walks the directory and builds the TreeNode structure.
 // Returns the tree and a list of executable paths found.
-func buildTree(root string, maxDepth int) (*TreeNode, []string, error) {
+func buildTree(root string, maxDepth int) (*TreeNode, []string, error) { //nolint:gocognit
 	var executables []string
 
 	rootNode := &TreeNode{
@@ -74,7 +74,7 @@ func buildTree(root string, maxDepth int) (*TreeNode, []string, error) {
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // Skip errors, continue walking
+			return nil //nolint:nilerr // intentional: skip unreadable entries during walk
 		}
 
 		// Skip .git directory
@@ -83,7 +83,10 @@ func buildTree(root string, maxDepth int) (*TreeNode, []string, error) {
 		}
 
 		// Calculate depth
-		relPath, _ := filepath.Rel(root, path)
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil //nolint:nilerr // intentionally skip entries with unresolvable paths
+		}
 		if relPath == "." {
 			return nil // Skip root itself
 		}
@@ -146,7 +149,7 @@ func isExecutable(path string, d fs.DirEntry) bool {
 	if err != nil {
 		return false
 	}
-	return info.Mode()&0111 != 0
+	return info.Mode()&0o111 != 0
 }
 
 // readExecutables reads script contents with prioritization and budget.
@@ -266,7 +269,11 @@ func (g *GatherInput) FormatForPrompt() string {
 
 	// Tree structure
 	sb.WriteString("### Directory Structure\n")
-	treeJSON, _ := json.MarshalIndent(g.Tree, "", "  ")
+	treeJSON, err := json.MarshalIndent(g.Tree, "", "  ")
+	if err != nil {
+		sb.WriteString("(error marshaling tree: " + err.Error() + ")\n")
+		return sb.String()
+	}
 	sb.WriteString("```json\n")
 	sb.Write(treeJSON)
 	sb.WriteString("\n```\n\n")

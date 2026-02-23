@@ -28,7 +28,7 @@ completed as part of the builder changes.
 
 Flow package created: `flow/choose.go`, `flow/gather.go`, `flow/elevate.go`,
 `flow/register.go`. All 29 action `Name()` methods already return dotted names.
-Plan receivers, platform bindings, tree builder, ComputeSummary, Preflight
+Planned receivers, platform bindings, tree builder, ComputeSummary, Preflight
 updated to dotted names. Tests not yet updated.
 
 ## Design
@@ -491,7 +491,7 @@ go test ./internal/lore/... -count=1
 - Phase-level compensation (compensating phases stay as is)
 - No engine/build subpackage restructuring
 - Checksums stay on Context (move to structured Result is a future PR)
-- No new Starlark builtins or plan receiver APIs
+- No new Starlark builtins or planned receiver APIs
 
 ## Critical Files
 

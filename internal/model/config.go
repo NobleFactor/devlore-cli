@@ -89,7 +89,7 @@ import (
 // CLIFlags holds model configuration from command-line flags.
 // Fields are sorted alphabetically to match documentation.
 type CLIFlags struct {
-	APIKey   string // --model-api-key
+	APIKey   string //nolint:gosec // G101: field name is intentional, not a credential
 	Endpoint string // --model-endpoint
 	Model    string // --model
 	Provider string // --model-provider
@@ -132,7 +132,7 @@ func autoDetectProvider(ctx context.Context) Provider {
 
 		// Fall back to keystore
 		if apiKey == "" {
-			apiKey, _ = credentials.Get(check.name)
+			apiKey, _ = credentials.Get(check.name) //nolint:errcheck // fallback: continue without value
 		}
 
 		if apiKey != "" {
@@ -221,9 +221,9 @@ func EnsureProvider(ctx context.Context, interactive bool, cliFlags CLIFlags) (P
 
 // promptForProvider interactively configures an AI provider.
 // In non-interactive mode (no TTY), defaults to Ollama.
-func promptForProvider(ctx context.Context) (Provider, error) {
+func promptForProvider(ctx context.Context) (Provider, error) { //nolint:gocyclo
 	// Non-interactive: default to Ollama
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: terminal width fits in int
 		cli.Note("No AI provider configured. Defaulting to Ollama.")
 		modelCfg := config.ModelConfig{}.WithDefaults()
 		provider := NewOllamaProvider(modelCfg.Endpoint, modelCfg.Name)
@@ -231,7 +231,7 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 			return nil, fmt.Errorf("ollama not available; install from https://ollama.ai, run 'ollama serve', then 'ollama pull %s'", modelCfg.Name)
 		}
 		// Save config with Ollama defaults
-		cfg, _ := config.Load()
+		cfg, _ := config.Load() //nolint:errcheck // fallback: continue without value
 		cfg.Model = modelCfg
 		if err := config.Save(cfg); err != nil {
 			cli.Warn("could not save config: %v", err)
@@ -325,7 +325,7 @@ func promptForProvider(ctx context.Context) (Provider, error) {
 	}
 
 	// Save config with new model settings
-	cfg, _ := config.Load()
+	cfg, _ := config.Load() //nolint:errcheck // fallback: continue without value
 	cfg.Model = modelCfg
 	if err := config.Save(cfg); err != nil {
 		cli.Warn("could not save config: %v", err)

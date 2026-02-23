@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -68,8 +69,9 @@ Examples:
 			// Find the command to document
 			targetCmd := rootCmd
 			if len(args) == 1 {
-				targetCmd, _, _ = rootCmd.Find(args)
-				if targetCmd == nil {
+				var err error
+				targetCmd, _, err = rootCmd.Find(args)
+				if err != nil || targetCmd == nil {
 					return fmt.Errorf("unknown command: %s", args[0])
 				}
 			}
@@ -105,7 +107,7 @@ func DisplayManPage(cmd *cobra.Command, header *doc.GenManHeader) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	defer func() { os.Remove(tmpFile.Name()) }() //nolint:errcheck // best-effort cleanup
 
 	// Generate man page to temp file
 	if err := doc.GenMan(cmd, header, tmpFile); err != nil {
@@ -114,7 +116,7 @@ func DisplayManPage(cmd *cobra.Command, header *doc.GenManHeader) error {
 	_ = tmpFile.Close()
 
 	// Display with man command
-	manCmd := exec.Command("man", tmpFile.Name())
+	manCmd := exec.CommandContext(context.Background(), "man", tmpFile.Name()) //nolint:gosec // G204: argument is a temp file we created
 	manCmd.Stdout = os.Stdout
 	manCmd.Stderr = os.Stderr
 	manCmd.Stdin = os.Stdin
@@ -131,7 +133,7 @@ func isManAvailable() bool {
 // installManPages installs man pages for all commands to the specified directory.
 func installManPages(rootCmd *cobra.Command, header *doc.GenManHeader, path string) error {
 	// Create directory if needed
-	if err := os.MkdirAll(path, 0755); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", path, err)
 	}
 

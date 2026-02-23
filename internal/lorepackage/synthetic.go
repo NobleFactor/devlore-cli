@@ -157,7 +157,7 @@ func (c *SyntheticCache) List() ([]SyntheticPackageInfo, error) {
 	return packages, nil
 }
 
-// Stats returns cache statistics.
+// CacheStats holds cache statistics.
 type CacheStats struct {
 	TotalPackages    int
 	VerifiedPackages int
@@ -177,7 +177,8 @@ func (c *SyntheticCache) Stats() (*CacheStats, error) {
 	}
 
 	now := time.Now()
-	for _, pkg := range packages {
+	for i := range packages {
+		pkg := &packages[i]
 		stats.TotalPackages++
 		stats.BySource[pkg.Source]++
 

@@ -3,22 +3,13 @@
 
 package execution
 
-// ProviderRegistrar registers a provider's actions with an ActionRegistry.
-type ProviderRegistrar func(*ActionRegistry)
+import "github.com/NobleFactor/devlore-cli/pkg/op"
 
-// providerRegistrars collects self-registration functions from provider
-// packages. Populated by init() in generated actions_gen.go files.
-var providerRegistrars []ProviderRegistrar
+// ProviderRegistrar is the interface for registering providers, re-exported from pkg/op.
+type ProviderRegistrar = op.ProviderRegistrar
 
-// RegisterProvider adds a provider registrar. Called from init() in each
-// provider's generated actions_gen.go.
-func RegisterProvider(fn ProviderRegistrar) {
-	providerRegistrars = append(providerRegistrars, fn)
-}
+// RegisterProvider registers a single provider, re-exported from pkg/op.
+var RegisterProvider = op.RegisterProvider
 
-// RegisterAllProviders calls all registered provider registrars.
-func RegisterAllProviders(reg *ActionRegistry) {
-	for _, fn := range providerRegistrars {
-		fn(reg)
-	}
-}
+// RegisterAllProviders registers all built-in providers, re-exported from pkg/op.
+var RegisterAllProviders = op.RegisterAllProviders

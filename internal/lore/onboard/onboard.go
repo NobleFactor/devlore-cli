@@ -171,10 +171,14 @@ type discoveryResult struct {
 }
 
 // fetchContent fetches content from a URL or file.
-func fetchContent(ctx context.Context, source string) (string, string, error) {
+func fetchContent(ctx context.Context, source string) (content string, sourceURL string, err error) {
 	// Check if it's a URL
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		resp, err := http.Get(source)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil) //nolint:gosec // G107: URL from config
+		if err != nil {
+			return "", "", err
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return "", "", err
 		}
@@ -269,7 +273,7 @@ func parseDocuments(ctx context.Context, opts Options, docs []documentContent) (
 	// Build combined document content
 	var sb strings.Builder
 	for i, doc := range docs {
-		sb.WriteString(fmt.Sprintf("## Document %d: %s\n\n", i+1, doc.URL))
+		fmt.Fprintf(&sb, "## Document %d: %s\n\n", i+1, doc.URL)
 		sb.WriteString(truncateContent(doc.Content, 30000))
 		sb.WriteString("\n\n---\n\n")
 	}
@@ -303,16 +307,16 @@ func parseDocuments(ctx context.Context, opts Options, docs []documentContent) (
 }
 
 // generateManifest creates a packages-manifest.yaml from discovery and slots.
-func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, format string) string {
+func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, format string) string { //nolint:gocognit,gocyclo
 	var sb strings.Builder
 
 	if discovery.Product != nil {
-		sb.WriteString(fmt.Sprintf("# Package: %s\n", discovery.Product.Name))
+		fmt.Fprintf(&sb, "# Package: %s\n", discovery.Product.Name)
 		if discovery.Product.Vendor != "" {
-			sb.WriteString(fmt.Sprintf("# Vendor: %s\n", discovery.Product.Vendor))
+			fmt.Fprintf(&sb, "# Vendor: %s\n", discovery.Product.Vendor)
 		}
 		if discovery.Product.Version != "" {
-			sb.WriteString(fmt.Sprintf("# Version: %s\n", discovery.Product.Version))
+			fmt.Fprintf(&sb, "# Version: %s\n", discovery.Product.Version)
 		}
 		sb.WriteString("#\n")
 	}
@@ -321,7 +325,7 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, format 
 	if discovery.Complexity != nil && discovery.Complexity.Rating == "complex" {
 		sb.WriteString("# WARNING: Complex installation\n")
 		for _, concern := range discovery.Complexity.Concerns {
-			sb.WriteString(fmt.Sprintf("#   - %s\n", concern))
+			fmt.Fprintf(&sb, "#   - %s\n", concern)
 		}
 		sb.WriteString("#\n")
 	}
@@ -332,12 +336,12 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, format 
 	for _, slot := range slots {
 		if slot.Name == "install_command" || slot.Name == "package_manager" {
 			if slot.Platform != "" && slot.Platform != "all" {
-				sb.WriteString(fmt.Sprintf("# Platform: %s\n", slot.Platform))
+				fmt.Fprintf(&sb, "# Platform: %s\n", slot.Platform)
 			}
-			sb.WriteString(fmt.Sprintf("%s\n", slot.Value))
+			fmt.Fprintf(&sb, "%s\n", slot.Value)
 			if len(slot.Annotations) > 0 {
 				for _, ann := range slot.Annotations {
-					sb.WriteString(fmt.Sprintf("  # %s\n", ann))
+					fmt.Fprintf(&sb, "  # %s\n", ann)
 				}
 			}
 			sb.WriteString("\n")
@@ -346,8 +350,8 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, format 
 
 	// If no install commands found, use canonical name as placeholder
 	if discovery.Product != nil && !strings.Contains(sb.String(), discovery.Product.CanonicalName) {
-		sb.WriteString(fmt.Sprintf("# TODO: Add installation method for %s\n", discovery.Product.CanonicalName))
-		sb.WriteString(fmt.Sprintf("# %s\n", discovery.Product.CanonicalName))
+		fmt.Fprintf(&sb, "# TODO: Add installation method for %s\n", discovery.Product.CanonicalName)
+		fmt.Fprintf(&sb, "# %s\n", discovery.Product.CanonicalName)
 	}
 
 	return sb.String()
@@ -364,5 +368,5 @@ func truncateContent(content string, maxLen int) string {
 // WriteManifest writes the manifest to a file.
 func WriteManifest(result *Result, outputDir string) error {
 	path := filepath.Join(outputDir, "packages-manifest.yaml")
-	return os.WriteFile(path, []byte(result.Manifest), 0644)
+	return os.WriteFile(path, []byte(result.Manifest), 0o600)
 }

@@ -61,7 +61,7 @@ Key architectural decisions that change the approach:
 | Services | Don't exist | `FileService`, `PackageService`, `ServiceManagerService` |
 | Generated ops interface | Doesn't exist | `fileOps`, `packageOps`, `serviceManagerOps` |
 | Generated graph ops | Don't exist | All ops generated as `_gen.go` files |
-| Generated plan receivers | Don't exist | GitPlan, ArchivePlan generated |
+| Generated planned receivers | Don't exist | GitPlan, ArchivePlan generated |
 | Generated execute receivers | Don't exist | Archive, ServiceManager generated |
 
 ## Step 1: Typed Slot Infrastructure (devlore-cli)
@@ -149,7 +149,7 @@ Currently `FillSlot` converts everything to strings via `starlark.AsString`,
 | `starlark.Float` | `float64` | `Sprintf("%f")` → string | `float64(v)` → float64 |
 | `*starlark.Dict` | `map[string]any` | Not supported | Recursive conversion |
 | `*starlark.List` (of strings) | `[]string` | Index slots + `.len` | `[]string` slice |
-| `os.FileMode` via `starlark.Int` | `os.FileMode` | N/A (plan receiver handles) | Direct storage |
+| `os.FileMode` via `starlark.Int` | `os.FileMode` | N/A (planned receiver handles) | Direct storage |
 
 The `*Output` (promise) and `*Gather` paths are unchanged — they create edges,
 not immediate values.
@@ -388,7 +388,7 @@ Add to `typeMappings`:
 | `[]string` | `node.GetSlot("x").([]string)` | `list` |
 
 Function-typed slots are never filled from Starlark. They come exclusively
-from Context.Data at runtime. The generator skips them in plan receiver templates
+from Context.Data at runtime. The generator skips them in planned receiver templates
 (no UnpackArgs entry) but includes them in graph ops templates (slot assertion).
 
 ### 6f: Skip framework params in slot generation
@@ -515,13 +515,13 @@ go build ./internal/execution/...
 go test ./internal/execution/ -count=1
 ```
 
-## Step 8: Generate Plan Receivers (devlore-cli)
+## Step 8: Generate Planned Receivers (devlore-cli)
 
 ### 8a: Generate plan_git_gen.go
 
 From GitPlan's 3 methods (clone, checkout, pull). Delete `plan_git.go`.
 
-The generated plan receiver:
+The generated planned receiver:
 - Embeds `Receiver` via `NewReceiver("plan.git")`
 - `Attr` dispatch uses `MakeAttr`
 - `AttrNames` sorted alphabetically
@@ -534,7 +534,7 @@ The generated plan receiver:
 
 From ArchivePlan's 1 method (extract). Delete `plan_archive.go`.
 
-### 8c: Hand-written plan receivers stay
+### 8c: Hand-written planned receivers stay
 
 - `plan_file.go`: `configure()` creates two nodes (render → copy). Multi-node
   pattern cannot be generated mechanically.
@@ -647,13 +647,13 @@ Keep in noblefactor-ops (generic):
 - `go.mapping(descriptor)` — produces mapping YAML
 - Descriptor types (`generateDescriptor`, `methodInfo`, `paramInfo`)
 - `camelToSnake`, `validateReturnSignature`, `validateParamTypes`
-- The `realtime_receiver` template — it only references noblefactor-ops types
+- The `immediate_receiver` template — it only references noblefactor-ops types
   (`Receiver`, `MakeAttr`, `NoSuchAttrError`, `starlark.UnpackArgs`)
 
 ### 11b: Move devlore-specific templates to devlore-cli
 
 Move to devlore-cli's Starlark extension resources:
-- `plan_receiver` template — references `execution.Graph`, `execution.Node`,
+- `planned_receiver` template — references `execution.Graph`, `execution.Node`,
   `host.Host`, `FillSlot`, `NewOutput`, `generateNodeID`
 - `graph_ops` template — references `*Context`, `*Node`, `Operation`,
   `node.GetSlot()`, `ctx.DryRun`, `ctx.Logger`
@@ -697,7 +697,7 @@ Step 1 (typed slots)
 Step 6 (template updates, noblefactor-ops) — parallel with Steps 1-5
 
 Step 7 (generate graph ops) requires Steps 5 + 6
-Step 8 (generate plan receivers) requires Step 6
+Step 8 (generate planned receivers) requires Step 6
 Step 9 (generate execute receivers) requires Step 6
 Step 10 (key normalization) — can run anytime after Step 4
 Step 11 (template separation) — after Steps 7-9 complete
@@ -713,7 +713,7 @@ Step 11 separates concerns between repos.
 |---|---|---|
 | Ops interface (unexported) | All | - |
 | Graph ops (typed slot assertions + delegation) | All 21 | - |
-| Plan receivers (standard 1:1 method → node) | GitPlan, ArchivePlan | FilePlan, PackagePlan |
+| Planned receivers (standard 1:1 method → node) | GitPlan, ArchivePlan | FilePlan, PackagePlan |
 | Execute receivers (typed params) | Archive, ServiceManager | Git/Npm/Docker/Shell/Env/HTTP/Log/Package |
 | Receiver embedding + MakeAttr + AttrNames | All generated | All hand-written use same pattern |
 | Slot readers + dry-run logging | All generated | - |
@@ -770,8 +770,8 @@ After all steps, validate the nuke-and-regenerate workflow:
 ```bash
 # Delete all generated files
 rm internal/execution/ops_*_gen.go
-rm internal/starlark/plan_*_gen.go
-rm internal/starlark/receiver_*_gen.go
+rm internal/starlark/planned_*_gen.go
+rm internal/starlark/immediate_*_gen.go
 
 # Regenerate all
 star devlore ops generate

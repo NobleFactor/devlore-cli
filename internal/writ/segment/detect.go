@@ -105,7 +105,7 @@ func capitalizeOS(goos string) string {
 		return "NetBSD"
 	default:
 		// Capitalize first letter for unknown OS
-		if len(goos) == 0 {
+		if goos == "" {
 			return goos
 		}
 		return strings.ToUpper(goos[:1]) + goos[1:]
@@ -159,7 +159,7 @@ func capitalizeDistro(id string) string {
 		return "OpenSUSE"
 	default:
 		// Capitalize first letter for unknown distro
-		if len(id) == 0 {
+		if id == "" {
 			return id
 		}
 		return strings.ToUpper(id[:1]) + id[1:]

@@ -7,7 +7,7 @@ extraction) is merged in noblefactor-ops (PR #65). Phase 2 adds the `go.generate
 method to GoReceiver that produces Go source code from analyzed method descriptors.
 
 The generator reads method signatures (now available from Phase 1) and produces three
-kinds of boilerplate: plan receivers, graph operations, and real-time receivers. Each
+kinds of boilerplate: planned receivers, graph operations, and immediate receivers. Each
 template follows the exact patterns already established by hand-written code in
 devlore-cli.
 
@@ -115,7 +115,7 @@ The `go.generate()` method receives a Starlark dict and converts it to:
 
 ```go
 type generateDescriptor struct {
-    Template    string       // "plan_receiver", "graph_ops", "realtime_receiver"
+    Template    string       // "planned_receiver", "graph_ops", "immediate_receiver"
     Package     string       // Go package name for generated file
     Category    string       // snake_case struct name (e.g., "file")
     StructName  string       // Go struct name (e.g., "FileOps")
@@ -139,7 +139,7 @@ type paramInfo struct {
 }
 ```
 
-## Step 5: Template 1 -- Plan Receiver
+## Step 5: Template 1 -- Planned Receiver
 
 Generates `plan_xxx_gen.go`. Pattern matches `plan_file.go`:
 
@@ -262,7 +262,7 @@ implementation call. The generator produces the structural scaffold; the
 actual implementation dispatch (calling the Go struct's method) is wired
 in Phase 3 or by hand.
 
-## Step 7: Template 3 -- Real-Time Receiver
+## Step 7: Template 3 -- Immediate Receiver
 
 Generates `receiver_xxx_gen.go`. Pattern matches `receiver_git.go`:
 
@@ -316,7 +316,7 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin,
 ```
 
 Parameters:
-- `template` (string): one of `"plan_receiver"`, `"graph_ops"`, `"realtime_receiver"`
+- `template` (string): one of `"planned_receiver"`, `"graph_ops"`, `"immediate_receiver"`
 - `descriptor` (dict): Starlark dict matching `generateDescriptor` shape
 
 Steps:
@@ -355,7 +355,7 @@ mixed valid+invalid (reports all invalid).
 
 ### `TestGeneratePlanReceiver`
 Build a descriptor with 2 methods (`Copy(source, path string)` and
-`Remove(path string)`), call `go.generate("plan_receiver", desc)`.
+`Remove(path string)`), call `go.generate("planned_receiver", desc)`.
 Validate output:
 - Contains `type FilePlan struct`
 - Contains `case "copy":` and `case "remove":` in Attr switch
@@ -371,7 +371,7 @@ Same descriptor, template `"graph_ops"`. Validate:
 - Valid Go syntax
 
 ### `TestGenerateRealtimeReceiver`
-Same descriptor, template `"realtime_receiver"`. Validate:
+Same descriptor, template `"immediate_receiver"`. Validate the immediate receiver:
 - Contains `type FileReceiver struct`
 - Contains `NewReceiver("file")`
 - Contains `MakeAttr("file.copy"`
@@ -386,7 +386,7 @@ Descriptor with a method that returns `error` (not `(T, error)`). Verify
 `go.generate()` returns an error.
 
 ### `TestGenerateVariadicParam`
-Method with `items ...string`. Verify the generated plan receiver unpacks it
+Method with `items ...string`. Verify the generated planned receiver unpacks it
 correctly (variadic becomes `*args` or joined slot).
 
 ### `TestGoGenerateAttr`

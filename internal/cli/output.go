@@ -17,13 +17,14 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/ui"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )
 
 // =============================================================================
 // Exit Codes (BSD sysexits.h)
 // =============================================================================
 
+// Exit codes follow BSD sysexits.h conventions for portable process status.
 const (
 	ExitOK          = 0  // Success
 	ExitError       = 1  // Generic error
@@ -181,7 +182,7 @@ func renderJSON(w io.Writer, data interface{}) error {
 func renderYAML(w io.Writer, data interface{}) error {
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
-	defer func() { _ = enc.Close() }()
+	defer func() { _ = enc.Close() }() //nolint:errcheck // Close error on yaml encoder is not actionable
 	return enc.Encode(data)
 }
 
@@ -204,7 +205,7 @@ func renderTable(w io.Writer, data interface{}) error {
 	for i, f := range fields {
 		headers[i] = strings.ToUpper(f)
 	}
-	_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t")) //nolint:errcheck // tabwriter accumulates errors
 
 	// Rows
 	for _, item := range items {
@@ -212,7 +213,7 @@ func renderTable(w io.Writer, data interface{}) error {
 		for i, f := range fields {
 			values[i] = formatFieldValue(getFieldValue(item, f))
 		}
-		_, _ = fmt.Fprintln(tw, strings.Join(values, "\t"))
+		_, _ = fmt.Fprintln(tw, strings.Join(values, "\t")) //nolint:errcheck // tabwriter accumulates errors
 	}
 
 	return tw.Flush()
@@ -230,7 +231,7 @@ func renderTemplate(w io.Writer, data interface{}, tmplStr string) error {
 		if err := tmpl.Execute(w, item); err != nil {
 			return fmt.Errorf("template execution: %w", err)
 		}
-		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w) //nolint:errcheck // tabwriter accumulates errors
 	}
 	return nil
 }
@@ -393,7 +394,7 @@ func formatFieldValue(v interface{}) string {
 //
 // Thin wrappers around ui.Provider. All 136 call sites remain unchanged.
 // The ui.Provider is the single implementation for both Go callers and
-// Starlark realtime receivers.
+// Starlark immediate receivers.
 
 // output is the package-level ui.Provider instance.
 var output = &ui.Provider{

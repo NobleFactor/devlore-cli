@@ -152,7 +152,7 @@ Three variants, mutually exclusive:
 ### Plan-Time Recording
 
 The `do` lambda receives a proxy object (`starlark.HasAttrs`). Field access
-records the path and returns a `FieldRef` marker. The plan receiver stores it
+records the path and returns a `FieldRef` marker. The planned receiver stores it
 as `SlotValue{GatherRef, Field}`. The lambda builds nodes — it does not compute
 values. Computed values use template nodes in the subtree.
 
@@ -168,7 +168,7 @@ plan.gather(
 ```
 
 When the Starlark runtime evaluates `item.name`, the proxy object records the
-access path and returns a `FieldRef` marker. The plan receiver for
+access path and returns a `FieldRef` marker. The planned receiver for
 `plan.service.stop()` sees the `FieldRef` and creates the node with:
 
 ```go

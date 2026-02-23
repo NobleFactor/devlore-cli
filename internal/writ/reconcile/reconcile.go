@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package reconcile implements drift detection and repair for writ deployments.
 package reconcile
 
 import (
@@ -133,24 +134,26 @@ func FromBuildResult(result *tree.BuildResult) *Report {
 		}
 
 		info, err := os.Lstat(f.Target)
-		if os.IsNotExist(err) {
+		switch {
+		case os.IsNotExist(err):
 			entry.State = StateMissing
 			entry.Message = "not deployed"
-		} else if err != nil {
+		case err != nil:
 			entry.State = StateConflict
 			entry.Message = err.Error()
-		} else if info.Mode()&os.ModeSymlink != 0 {
-			linkTarget, err := os.Readlink(f.Target)
-			if err != nil {
+		case info.Mode()&os.ModeSymlink != 0:
+			linkTarget, readErr := os.Readlink(f.Target)
+			switch {
+			case readErr != nil:
 				entry.State = StateConflict
 				entry.Message = "cannot read symlink"
-			} else if filepath.Clean(linkTarget) == filepath.Clean(f.Source) {
+			case filepath.Clean(linkTarget) == filepath.Clean(f.Source):
 				entry.State = StateLinked
-			} else {
+			default:
 				entry.State = StateConflict
 				entry.Message = "symlink points to " + linkTarget
 			}
-		} else {
+		default:
 			entry.State = StateCopied
 		}
 
@@ -171,9 +174,9 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 		SourceRoot: sourceRoot,
 	}
 
-	_ = filepath.Walk(targetRoot, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(targetRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // intentional: skip unreadable entries during walk
 		}
 		if info.Mode()&os.ModeSymlink == 0 {
 			return nil
@@ -181,7 +184,7 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 
 		linkTarget, err := os.Readlink(path)
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // intentional: skip unreadable symlinks during walk
 		}
 
 		if !filepath.IsAbs(linkTarget) {
@@ -193,7 +196,10 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 			return nil
 		}
 
-		relTarget, _ := filepath.Rel(targetRoot, path)
+		relTarget, relErr := filepath.Rel(targetRoot, path)
+		if relErr != nil {
+			relTarget = path // use absolute path as fallback
+		}
 		entry := Entry{
 			RelTarget: relTarget,
 			Source:    linkTarget,
@@ -211,6 +217,13 @@ func ScanTarget(targetRoot, sourceRoot string) *Report {
 		report.Entries = append(report.Entries, entry)
 		return nil
 	})
+	if err != nil {
+		report.Entries = append(report.Entries, Entry{
+			RelTarget: targetRoot,
+			State:     StateConflict,
+			Message:   "walk error: " + err.Error(),
+		})
+	}
 
 	return report
 }

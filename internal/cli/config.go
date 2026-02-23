@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package cli provides shared CLI infrastructure for writ and lore commands.
 package cli
 
 import (
@@ -183,7 +184,7 @@ Examples:
 	return cmd
 }
 
-func newConfigListCmd(info ConfigInfo) *cobra.Command {
+func newConfigListCmd(_ ConfigInfo) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all configuration settings",
@@ -241,7 +242,7 @@ func newConfigSchemaCmd(info ConfigInfo) *cobra.Command {
 	}
 }
 
-func newConfigPathCmd(info ConfigInfo) *cobra.Command {
+func newConfigPathCmd(_ ConfigInfo) *cobra.Command {
 	return &cobra.Command{
 		Use:   "path",
 		Short: "Show configuration file location",
@@ -288,7 +289,7 @@ func loadConfig(path string) (map[string]interface{}, error) {
 func saveConfig(path string, config map[string]interface{}) error {
 	// Create directory if needed
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
@@ -309,7 +310,7 @@ func saveConfig(path string, config map[string]interface{}) error {
 		}
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // configFormat returns "json" or "yaml" based on the file extension.
@@ -326,10 +327,10 @@ func configEdit(path string, defaultConfig []byte) error {
 	// Create config with defaults if it doesn't exist
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		dir := filepath.Dir(path)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
-		if err := os.WriteFile(path, defaultConfig, 0644); err != nil {
+		if err := os.WriteFile(path, defaultConfig, 0o600); err != nil {
 			return fmt.Errorf("failed to create config: %w", err)
 		}
 	}

@@ -14,15 +14,15 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/encryption"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/file"
-	"github.com/NobleFactor/devlore-cli/internal/execution/provider/template"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
 
 // slotsFrom extracts immediate slot values from a node for direct action testing.
-func slotsFrom(node *projection.Node) map[string]any {
+func slotsFrom(node *op.Node) map[string]any {
 	slots := make(map[string]any)
 	if node.Slots != nil {
 		for k, sv := range node.Slots {
@@ -35,13 +35,13 @@ func slotsFrom(node *projection.Node) map[string]any {
 }
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
-func runGraph(ctx context.Context, e *execution.GraphExecutor, g *projection.Graph) ([]*execution.NodeResult, error) {
+func runGraph(ctx context.Context, e *execution.GraphExecutor, g *op.Graph) ([]*execution.NodeResult, error) {
 	return e.RunNodes(ctx, g.Nodes, g.Edges)
 }
 
 // testNode creates a node with the given action and source/path slots for testing.
-func testNode(id string, action any, source, path string) *projection.Node {
-	node := &projection.Node{ID: id, Action: action}
+func testNode(id string, action op.Action, source, path string) *op.Node {
+	node := &op.Node{ID: id, Action: action}
 	if source != "" {
 		node.SetSlotImmediate("source", source)
 	}
@@ -56,12 +56,12 @@ func TestRegistryRegisterAndGet(t *testing.T) {
 	reg := execution.NewActionRegistry()
 	file.Register(reg)
 
-	op, ok := reg.Get("file.link")
+	act, ok := reg.Get("file.link")
 	if !ok {
 		t.Fatal("expected file.link action to be registered")
 	}
-	if op.Name() != "file.link" {
-		t.Errorf("expected name 'file.link', got %q", op.Name())
+	if act.Name() != "file.link" {
+		t.Errorf("expected name 'file.link', got %q", act.Name())
 	}
 
 	_, ok = reg.Get("nonexistent")
@@ -122,13 +122,13 @@ func TestLinkAction(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Link{Impl: p}
+	action := &file.Link{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("link: %v", err)
 	}
 
@@ -154,13 +154,13 @@ func TestLinkActionIdempotent(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Link{Impl: p}
+	action := &file.Link{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("idempotent link: %v", err)
 	}
 }
@@ -170,14 +170,14 @@ func TestCopyAction(t *testing.T) {
 	target := filepath.Join(tmpDir, "output.txt")
 
 	p := &file.Provider{}
-	op := &file.Copy{Impl: p}
+	action := &file.Copy{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("content", []byte("file content"))
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("mode", os.FileMode(0644))
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("copy: %v", err)
 	}
 
@@ -195,14 +195,14 @@ func TestCopyActionCreatesParentDirs(t *testing.T) {
 	target := filepath.Join(tmpDir, "deep", "nested", "output.txt")
 
 	p := &file.Provider{}
-	op := &file.Copy{Impl: p}
+	action := &file.Copy{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("content", []byte("nested content"))
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("mode", os.FileMode(0644))
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("copy with nested dirs: %v", err)
 	}
 
@@ -225,16 +225,16 @@ func TestRenderAction(t *testing.T) {
 	}
 
 	p := &template.Provider{}
-	op := &template.Render{Impl: p}
+	action := &template.Render{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: ".bashrc", Project: "all"}
+	node := &op.Node{ID: ".bashrc", Project: "all"}
 	node.SetSlotImmediate("template_data", map[string]any{"Username": "testuser", "Shell": "/bin/zsh"})
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", []byte(templateContent))
 	node.SetSlotImmediate("project", "all")
 
-	result, _, err := op.Do(ctx, slotsFrom(node))
+	result, _, err := action.Do(ctx, slotsFrom(node))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestDecryptAction(t *testing.T) {
 	}
 
 	ep := &encryption.Provider{}
-	op := &encryption.Decrypt{Impl: ep}
+	action := &encryption.Decrypt{Impl: ep}
 
 	// Provide a mock decryptor
 	mockDecrypt := func(source string, ciphertext []byte) ([]byte, error) {
@@ -265,12 +265,12 @@ func TestDecryptAction(t *testing.T) {
 	}
 
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "secret.txt"}
+	node := &op.Node{ID: "secret.txt"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("decryptor", mockDecrypt)
 	node.SetSlotImmediate("content", []byte("encrypted-data"))
 
-	result, _, err := op.Do(ctx, slotsFrom(node))
+	result, _, err := action.Do(ctx, slotsFrom(node))
 	if err != nil {
 		t.Fatalf("decrypt: %v", err)
 	}
@@ -307,14 +307,14 @@ func TestUnlinkAction(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Unlink{Impl: p}
+	action := &file.Unlink{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)
 	node.SetSlotImmediate("prune_boundary", "")
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("unlink: %v", err)
 	}
 
@@ -331,14 +331,14 @@ func TestRemoveAction(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Remove{Impl: p}
+	action := &file.Remove{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)
 	node.SetSlotImmediate("prune_boundary", "")
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -353,14 +353,14 @@ func TestWriteAction(t *testing.T) {
 	content := "hello world"
 
 	p := &file.Provider{}
-	op := &file.Write{Impl: p}
+	action := &file.Write{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
 	node.SetSlotImmediate("mode", os.FileMode(0644))
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -379,14 +379,14 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 	content := "nested content"
 
 	p := &file.Provider{}
-	op := &file.Write{Impl: p}
+	action := &file.Write{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
 	node.SetSlotImmediate("mode", os.FileMode(0644))
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -415,14 +415,14 @@ func TestWriteDryRun(t *testing.T) {
 	target := filepath.Join(tmpDir, "should-not-exist.txt")
 
 	p := &file.Provider{}
-	op := &file.Write{Impl: p}
+	action := &file.Write{Impl: p}
 	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: io.Discard}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", "test")
 	node.SetSlotImmediate("mode", os.FileMode(0644))
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("write dry-run: %v", err)
 	}
 
@@ -441,8 +441,8 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 
 	fp := &file.Provider{}
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{
+	graph := &op.Graph{
+		Nodes: []*op.Node{
 			testNode(".bashrc", &file.Link{Impl: fp}, source, target),
 		},
 	}
@@ -490,9 +490,9 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 	copyNode.SetSlotImmediate("mode", os.FileMode(0644))
 	// Content flows from render to copy via promise slot
 	copyNode.SetSlotPromise("content", ".greeting:render", "")
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{renderNode, copyNode},
-		Edges: []projection.Edge{{From: ".greeting:render", To: ".greeting"}},
+	graph := &op.Graph{
+		Nodes: []*op.Node{renderNode, copyNode},
+		Edges: []op.Edge{{From: ".greeting:render", To: ".greeting"}},
 	}
 
 	results, err := runGraph(context.Background(), engine, graph)
@@ -551,9 +551,9 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 	// Content flows from render to copy via promise slot
 	copyNode.SetSlotPromise("content", ".secret:render", "")
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{decryptNode, renderNode, copyNode},
-		Edges: []projection.Edge{
+	graph := &op.Graph{
+		Nodes: []*op.Node{decryptNode, renderNode, copyNode},
+		Edges: []op.Edge{
 			{From: ".secret:decrypt", To: ".secret:render"},
 			{From: ".secret:render", To: ".secret"},
 		},
@@ -594,8 +594,8 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 
 	fp := &file.Provider{}
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{
+	graph := &op.Graph{
+		Nodes: []*op.Node{
 			testNode("tgt1.txt", &file.Link{Impl: fp}, source1, target1),
 			testNode("sub/tgt2.txt", &file.Link{Impl: fp}, source2, target2),
 		},
@@ -618,9 +618,9 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 
 func TestEngineRunUnknownAction(t *testing.T) {
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{
-			{ID: "test", Action: projection.StubAction("unknown_op")},
+	graph := &op.Graph{
+		Nodes: []*op.Node{
+			{ID: "test", Action: op.StubAction("unknown_op")},
 		},
 	}
 
@@ -651,13 +651,13 @@ func TestEngineTopologicalSort(t *testing.T) {
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
 
 	// B depends on A, C depends on B
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{
+	graph := &op.Graph{
+		Nodes: []*op.Node{
 			testNode("c", &file.Link{Impl: fp}, srcC, filepath.Join(tmpDir, "out_c")),
 			testNode("a", &file.Link{Impl: fp}, srcA, filepath.Join(tmpDir, "out_a")),
 			testNode("b", &file.Link{Impl: fp}, srcB, filepath.Join(tmpDir, "out_b")),
 		},
-		Edges: []projection.Edge{
+		Edges: []op.Edge{
 			{From: "a", To: "b"},
 			{From: "b", To: "c"},
 		},
@@ -690,8 +690,8 @@ func TestEngineDryRun(t *testing.T) {
 
 	fp := &file.Provider{}
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{
+	graph := &op.Graph{
+		Nodes: []*op.Node{
 			testNode(".bashrc", &file.Link{Impl: fp}, source, target),
 		},
 	}
@@ -719,9 +719,9 @@ func TestPreflightNoConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{
-			testNode("test", projection.StubAction("file.link"), source, target),
+	graph := &op.Graph{
+		Nodes: []*op.Node{
+			testNode("test", op.StubAction("file.link"), source, target),
 		},
 	}
 
@@ -745,9 +745,9 @@ func TestPreflightConflictRegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{
-			testNode("test", projection.StubAction("file.link"), source, target),
+	graph := &op.Graph{
+		Nodes: []*op.Node{
+			testNode("test", op.StubAction("file.link"), source, target),
 		},
 	}
 
@@ -771,9 +771,9 @@ func TestPreflightAlreadyDeployed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	graph := &projection.Graph{
-		Nodes: []*projection.Node{
-			testNode("test", projection.StubAction("file.link"), source, target),
+	graph := &op.Graph{
+		Nodes: []*op.Node{
+			testNode("test", op.StubAction("file.link"), source, target),
 		},
 	}
 
@@ -794,13 +794,13 @@ func TestBackupAction(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Backup{Impl: p}
+	action := &file.Backup{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("backup_suffix", ".writ-backup")
 
-	result, _, err := op.Do(ctx, slotsFrom(node))
+	result, _, err := action.Do(ctx, slotsFrom(node))
 	if err != nil {
 		t.Fatalf("backup: %v", err)
 	}
@@ -831,14 +831,14 @@ func TestCopyActionWithMode(t *testing.T) {
 	target := filepath.Join(tmpDir, "script.sh")
 
 	p := &file.Provider{}
-	op := &file.Copy{Impl: p}
+	action := &file.Copy{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("content", []byte("#!/bin/sh\necho hello"))
 	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("mode", os.FileMode(0755))
+	node.SetSlotImmediate("mode", os.FileMode(0o755))
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("copy with mode: %v", err)
 	}
 
@@ -846,8 +846,8 @@ func TestCopyActionWithMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0755 {
-		t.Errorf("expected mode 0755, got %04o", info.Mode().Perm())
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("expected mode 0o755, got %04o", info.Mode().Perm())
 	}
 }
 
@@ -883,14 +883,14 @@ func TestRemoveActionPrunesEmptyDirs(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Remove{Impl: p}
+	action := &file.Remove{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -927,14 +927,14 @@ func TestRemoveActionPruneStopsAtNonEmpty(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Remove{Impl: p}
+	action := &file.Remove{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -972,14 +972,14 @@ func TestUnlinkActionPrunesEmptyDirs(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Unlink{Impl: p}
+	action := &file.Unlink{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
 	node.SetSlotImmediate("prune_boundary", tmpDir)
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("unlink: %v", err)
 	}
 
@@ -994,7 +994,7 @@ func TestUnlinkActionPrunesEmptyDirs(t *testing.T) {
 
 func TestRequireStringSlot(t *testing.T) {
 	t.Run("correct value", func(t *testing.T) {
-		node := &projection.Node{ID: "test"}
+		node := &op.Node{ID: "test"}
 		node.SetSlotImmediate("path", "hello")
 		val, err := node.RequireStringSlot("path")
 		if err != nil {
@@ -1006,7 +1006,7 @@ func TestRequireStringSlot(t *testing.T) {
 	})
 
 	t.Run("not set", func(t *testing.T) {
-		node := &projection.Node{ID: "test"}
+		node := &op.Node{ID: "test"}
 		_, err := node.RequireStringSlot("path")
 		if err == nil {
 			t.Fatal("expected error for unset slot")
@@ -1017,7 +1017,7 @@ func TestRequireStringSlot(t *testing.T) {
 	})
 
 	t.Run("wrong type", func(t *testing.T) {
-		node := &projection.Node{ID: "test"}
+		node := &op.Node{ID: "test"}
 		node.SetSlotImmediate("count", 42)
 		_, err := node.RequireStringSlot("count")
 		if err == nil {
@@ -1029,7 +1029,7 @@ func TestRequireStringSlot(t *testing.T) {
 	})
 
 	t.Run("empty string is valid", func(t *testing.T) {
-		node := &projection.Node{ID: "test"}
+		node := &op.Node{ID: "test"}
 		node.SetSlotImmediate("path", "")
 		val, err := node.RequireStringSlot("path")
 		if err != nil {
@@ -1051,14 +1051,14 @@ func TestMoveAction(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Move{Impl: p}
+	action := &file.Move{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("git_mv", func(string, string) error { return fmt.Errorf("no git") })
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("move: %v", err)
 	}
 
@@ -1087,14 +1087,14 @@ func TestMoveActionCreatesParentDirs(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Move{Impl: p}
+	action := &file.Move{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("git_mv", func(string, string) error { return fmt.Errorf("no git") })
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("move: %v", err)
 	}
 
@@ -1112,13 +1112,13 @@ func TestMkdirAction(t *testing.T) {
 	target := filepath.Join(tmpDir, "new", "dir")
 
 	p := &file.Provider{}
-	op := &file.Mkdir{Impl: p}
+	action := &file.Mkdir{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("mode", os.FileMode(0750))
+	node.SetSlotImmediate("mode", os.FileMode(0o750))
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -1129,7 +1129,7 @@ func TestMkdirAction(t *testing.T) {
 	if !info.IsDir() {
 		t.Error("expected directory")
 	}
-	if info.Mode().Perm() != 0750 {
+	if info.Mode().Perm() != 0o750 {
 		t.Errorf("expected mode 0750, got %04o", info.Mode().Perm())
 	}
 }
@@ -1139,13 +1139,13 @@ func TestMkdirActionDefaultMode(t *testing.T) {
 	target := filepath.Join(tmpDir, "default-mode-dir")
 
 	p := &file.Provider{}
-	op := &file.Mkdir{Impl: p}
+	action := &file.Mkdir{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("mode", os.FileMode(0755))
+	node.SetSlotImmediate("mode", os.FileMode(0o755))
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -1171,12 +1171,12 @@ func TestSourceAction(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Source{Impl: p}
+	action := &file.Source{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", source)
 
-	result, _, err := op.Do(ctx, slotsFrom(node))
+	result, _, err := action.Do(ctx, slotsFrom(node))
 	if err != nil {
 		t.Fatalf("source: %v", err)
 	}
@@ -1202,14 +1202,14 @@ func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	op := &file.Remove{Impl: p}
+	action := &file.Remove{Impl: p}
 	ctx := &execution.Context{Context: context.Background()}
-	node := &projection.Node{ID: "test"}
+	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)
 	node.SetSlotImmediate("prune_boundary", "")
 
-	if _, _, err := op.Do(ctx, slotsFrom(node)); err != nil {
+	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 

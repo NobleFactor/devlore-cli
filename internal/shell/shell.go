@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -58,7 +59,10 @@ func (r *Result) String() string {
 
 // JSON returns the result as indented JSON.
 func (r *Result) JSON() string {
-	b, _ := json.MarshalIndent(r, "", "  ")
+	b, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err)
+	}
 	return string(b)
 }
 
@@ -133,7 +137,7 @@ func (s *Session) RunContext(ctx context.Context, command string) *Result {
 		Start:   time.Now(),
 	}
 
-	cmd := exec.CommandContext(ctx, s.shellCmd, "-c", command)
+	cmd := exec.CommandContext(ctx, s.shellCmd, "-c", command) //nolint:gosec // G204: shell execution is the purpose of this function
 
 	if s.dir != "" {
 		cmd.Dir = s.dir
@@ -157,7 +161,8 @@ func (s *Session) RunContext(ctx context.Context, command string) *Result {
 	result.Stderr = stderr.String()
 
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
 		} else {
 			result.Error = err.Error()
@@ -168,7 +173,7 @@ func (s *Session) RunContext(ctx context.Context, command string) *Result {
 	s.history = append(s.history, result)
 
 	if s.audit != nil {
-		_, _ = fmt.Fprintln(s.audit, result.JSON())
+		_, _ = fmt.Fprintln(s.audit, result.JSON()) //nolint:errcheck
 	}
 
 	return result

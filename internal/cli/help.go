@@ -39,8 +39,9 @@ Examples:
 			// Find target command
 			targetCmd := rootCmd
 			if len(args) > 0 {
-				targetCmd, _, _ = rootCmd.Find(args)
-				if targetCmd == nil {
+				var err error
+				targetCmd, _, err = rootCmd.Find(args)
+				if err != nil || targetCmd == nil {
 					// Unknown command - show root help
 					return rootCmd.Help()
 				}

@@ -166,7 +166,7 @@ func parentCommandName(cmd *cobra.Command) string {
 	return ""
 }
 
-func commandPath(cmd *cobra.Command, toolName string) string {
+func commandPath(cmd *cobra.Command, _ string) string {
 	parts := []string{}
 	for c := cmd; c != nil; c = c.Parent() {
 		parts = append([]string{c.Name()}, parts...)

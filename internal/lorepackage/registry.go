@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package registry provides the client interface for accessing the devlore registry.
+// Package lorepackage provides the client interface for accessing the devlore registry.
 // It abstracts the underlying transport (git for demo, OCI for scale) and provides
 // a sync-based API where the registry is cloned/pulled locally and accessed from cache.
 package lorepackage

@@ -9,26 +9,26 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
-	"github.com/NobleFactor/devlore-cli/pkg/projection"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("template", func(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("template", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
 		return NewTemplatePlan(graph, h, project, reg)
 	})
 }
 
 type TemplatePlan struct {
-	projection.Receiver
-	graph   *projection.Graph
+	op.Receiver
+	graph   *op.Graph
 	host    host.Host
 	project string
 	reg     *execution.ActionRegistry
 }
 
-func NewTemplatePlan(graph *projection.Graph, h host.Host, project string, reg *execution.ActionRegistry) *TemplatePlan {
+func NewTemplatePlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *TemplatePlan {
 	return &TemplatePlan{
-		Receiver: projection.NewReceiver("plan.template"),
+		Receiver: op.NewReceiver("plan.template"),
 		graph:    graph,
 		host:     h,
 		project:  project,
@@ -39,9 +39,9 @@ func NewTemplatePlan(graph *projection.Graph, h host.Host, project string, reg *
 func (p *TemplatePlan) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "render":
-		return projection.MakeAttr("plan.template.render", p.render), nil
+		return op.MakeAttr("plan.template.render", p.render), nil
 	default:
-		return nil, projection.NoSuchAttrError("plan.template", name)
+		return nil, op.NoSuchAttrError("plan.template", name)
 	}
 }
 
@@ -62,8 +62,8 @@ func (p *TemplatePlan) render(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	node := &projection.Node{
-		ID:      projection.GenerateNodeID("template-render"),
+	node := &op.Node{
+		ID:      op.GenerateNodeID("template-render"),
 		Action:  p.reg.MustGet("template.render"),
 		Project: p.project,
 	}
@@ -81,5 +81,5 @@ func (p *TemplatePlan) render(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return projection.NewOutput(node, p.graph, ""), nil
+	return op.NewOutput(node, p.graph, ""), nil
 }
