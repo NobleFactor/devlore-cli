@@ -369,7 +369,7 @@ func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 
 // buildGraphFromRegistry constructs an execution.Graph from registry prompt output.
 func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *op.Graph {
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 	plan := execution.NewPlan(reg, "migrate")
 	nodeMap := make(map[string]*op.Node)

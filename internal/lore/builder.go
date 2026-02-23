@@ -10,7 +10,6 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
@@ -61,14 +60,14 @@ type BuildConfig struct {
 
 	// ActionRegistry provides access to execution actions.
 	// Must be set before calling Build.
-	ActionRegistry *execution.ActionRegistry
+	ActionRegistry *op.ActionRegistry
 }
 
 // Planner encapsulates package resolution for adding installation nodes
 // and phases to an execution graph. Used by both lore.Build() and writ deploy.
 type Planner struct {
 	Platform       string
-	ActionRegistry *execution.ActionRegistry
+	ActionRegistry *op.ActionRegistry
 	RegistryClient *lorepackage.Registry
 	Features       []string
 	Settings       map[string]string
@@ -149,7 +148,7 @@ func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, erro
 
 // resolve returns the resolved platform, action registry, and registry client,
 // auto-creating any that are nil on the Planner.
-func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *execution.ActionRegistry, resolvedRegistry *lorepackage.Registry, retErr error) {
+func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegistry, resolvedRegistry *lorepackage.Registry, retErr error) {
 	plat := p.Platform
 	if plat == "" {
 		plat = detectPlatform()
@@ -157,7 +156,7 @@ func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *execution.Act
 
 	reg := p.ActionRegistry
 	if reg == nil {
-		reg = execution.NewActionRegistry()
+		reg = op.NewActionRegistry()
 		provider.RegisterAll(reg)
 	}
 
@@ -236,7 +235,7 @@ func BuildFromPackages(packages []string, plat string) (*BuildResult, error) {
 // buildPackageNodes adds execution nodes and phases for a package to the graph.
 // Each lifecycle phase becomes a Phase entry in the graph. Compensation is
 // handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
-func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig, reg *execution.ActionRegistry) error { //nolint:gocognit
+func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig, reg *op.ActionRegistry) error { //nolint:gocognit
 	action := lorepackage.Deploy
 	phases := lorepackage.PhaseOrder(action)
 
@@ -289,7 +288,7 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, h host.Host, p
 // executeScriptAction runs a Starlark phase script's entry point function
 // (named for the lifecycle phase, e.g., "install", "provision") and returns
 // the retry policy if one was configured via phase.retry().
-func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (*op.RetryPolicy, error) {
+func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (*op.RetryPolicy, error) {
 	thread, globals, pkgContext, _, err := prepareScriptEnv(graph, pkg, h, action, cfg, reg)
 	if err != nil {
 		return nil, err
@@ -338,7 +337,7 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host,
 
 // prepareScriptEnv creates the Starlark thread and globals needed to execute
 // a phase script. plan and ui are injected as globals.
-func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *execution.ActionRegistry) (
+func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (
 	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, *loreStar.PlanRoot, error, //nolint:unparam // error return reserved for future use
 ) {
 	planBindings := loreStar.NewPlanRoot(graph, h, pkg.Name, reg)
@@ -379,7 +378,7 @@ func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, ac
 // addNativePMNodes adds nodes for a native package manager action.
 // Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that work on all platforms.
 // The actual package manager is determined at execution time by host.PackageManager().
-func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *execution.ActionRegistry) error { //nolint:unparam // error return reserved for future use
+func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *op.ActionRegistry) error { //nolint:unparam // error return reserved for future use
 	// Determine the dotted action name
 	var actionName string
 	switch action.Command {

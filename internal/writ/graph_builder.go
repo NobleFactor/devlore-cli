@@ -48,7 +48,7 @@ func NewGraph(cfg *Config) *op.Graph {
 // BuildTree walks the source directories and populates the graph with file nodes.
 // This processes layers in order (base → team → personal) with collision detection.
 // Returns discovered manifest source paths instead of creating nodes for them.
-func BuildTree(g *op.Graph, cfg *Config, reg *execution.ActionRegistry) (manifests []string, err error) { //nolint:gocognit
+func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []string, err error) { //nolint:gocognit
 	result, err := tree.Build(tree.BuildConfig{
 		SourceRoot: cfg.SourceRoot,
 		TargetRoot: cfg.TargetRoot,
@@ -191,12 +191,12 @@ func graphBuiltinTemplateData(segments map[string]string) map[string]any {
 // DeployGraphBuilder builds execution graphs for deploy operations.
 type DeployGraphBuilder struct {
 	config  *Config
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 	Planner *lore.Planner // nil means skip manifest resolution
 }
 
 // NewDeployGraphBuilder creates a new deploy graph builder.
-func NewDeployGraphBuilder(cfg *DeployConfig, reg *execution.ActionRegistry) *DeployGraphBuilder {
+func NewDeployGraphBuilder(cfg *DeployConfig, reg *op.ActionRegistry) *DeployGraphBuilder {
 	return &DeployGraphBuilder{config: &cfg.Config, reg: reg}
 }
 
@@ -230,13 +230,13 @@ func (b *DeployGraphBuilder) Build() (*op.Graph, error) {
 // DecommissionGraphBuilder builds execution graphs for decommission operations.
 type DecommissionGraphBuilder struct {
 	config *Config
-	reg    *execution.ActionRegistry
+	reg    *op.ActionRegistry
 	view   *execution.StateView
 	force  bool
 }
 
 // NewDecommissionGraphBuilder creates a new decommission graph builder.
-func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateView, reg *execution.ActionRegistry) *DecommissionGraphBuilder {
+func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateView, reg *op.ActionRegistry) *DecommissionGraphBuilder {
 	return &DecommissionGraphBuilder{
 		config: &cfg.Config,
 		reg:    reg,

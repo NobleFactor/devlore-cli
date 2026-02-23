@@ -17,14 +17,14 @@ import (
 // flowAction is a simple action for flow tests.
 type flowAction struct {
 	name   string
-	result execution.Result
+	result op.Result
 }
 
 func (a *flowAction) Name() string { return a.name }
-func (a *flowAction) Do(_ *execution.Context, _ map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+func (a *flowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return a.result, "undo:" + a.name, nil
 }
-func (a *flowAction) Undo(_ execution.UndoState) error {
+func (a *flowAction) Undo(_ op.UndoState) error {
 	return nil
 }
 
@@ -40,7 +40,7 @@ func TestFlowChooseDoWhenTrue(t *testing.T) {
 		},
 	}
 
-	ctx := &execution.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{Context: context.Background(), Graph: graph}
 	act := &flow.Choose{}
 
 	result, undo, err := act.Do(ctx, map[string]any{
@@ -68,7 +68,7 @@ func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
 		},
 	}
 
-	ctx := &execution.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{Context: context.Background(), Graph: graph}
 	act := &flow.Choose{}
 
 	result, _, err := act.Do(ctx, map[string]any{
@@ -85,7 +85,7 @@ func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
 
 func TestFlowChooseDoWhenFalseNoElse(t *testing.T) {
 	graph := &op.Graph{}
-	ctx := &execution.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{Context: context.Background(), Graph: graph}
 	action := &flow.Choose{}
 
 	result, _, err := action.Do(ctx, map[string]any{
@@ -121,7 +121,7 @@ func TestFlowGatherDo(t *testing.T) {
 		},
 	}
 
-	ctx := &execution.Context{
+	ctx := &op.Context{
 		Context: context.Background(),
 		Graph:   graph,
 		NodeID:  "gather-1",
@@ -154,7 +154,7 @@ func TestFlowGatherDo(t *testing.T) {
 }
 
 func TestFlowGatherDoEmpty(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	action := &flow.Gather{}
 
 	result, undo, err := action.Do(ctx, map[string]any{
@@ -186,7 +186,7 @@ func TestFlowGatherDoConcurrent(t *testing.T) {
 		},
 	}
 
-	ctx := &execution.Context{
+	ctx := &op.Context{
 		Context: context.Background(),
 		Graph:   graph,
 		NodeID:  "gather-concurrent",
@@ -228,7 +228,7 @@ func TestFlowGatherDoProxySlots(t *testing.T) {
 		},
 	}
 
-	ctx := &execution.Context{
+	ctx := &op.Context{
 		Context: context.Background(),
 		Graph:   graph,
 		NodeID:  "gather-proxy",
@@ -269,7 +269,7 @@ func TestFlowGatherUndo(t *testing.T) {
 // --- Elevate tests ---
 
 func TestFlowElevateDo(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	action := &flow.Elevate{}
 
 	result, undo, err := action.Do(ctx, nil)
@@ -285,8 +285,8 @@ func TestFlowElevateDo(t *testing.T) {
 }
 
 func TestFlowElevateNotCompensableAction(t *testing.T) {
-	var action execution.Action = &flow.Elevate{}
-	if _, ok := action.(execution.CompensableAction); ok {
+	var action op.Action = &flow.Elevate{}
+	if _, ok := action.(op.CompensableAction); ok {
 		t.Error("Elevate should not implement CompensableAction")
 	}
 }
@@ -294,7 +294,7 @@ func TestFlowElevateNotCompensableAction(t *testing.T) {
 // --- WaitUntil tests ---
 
 func TestFlowWaitUntilDoImmediate(t *testing.T) {
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	action := &flow.WaitUntil{}
 
 	result, _, err := action.Do(ctx, map[string]any{
@@ -311,8 +311,8 @@ func TestFlowWaitUntilDoImmediate(t *testing.T) {
 }
 
 func TestFlowWaitUntilNotCompensableAction(t *testing.T) {
-	var action execution.Action = &flow.WaitUntil{}
-	if _, ok := action.(execution.CompensableAction); ok {
+	var action op.Action = &flow.WaitUntil{}
+	if _, ok := action.(op.CompensableAction); ok {
 		t.Error("WaitUntil should not implement CompensableAction")
 	}
 }

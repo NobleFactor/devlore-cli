@@ -66,10 +66,10 @@ func (p *ArchivePlan) extract(_ *starlark.Thread, _ *starlark.Builtin, args star
 		Action:  p.reg.MustGet("archive.extract"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "source", source); err != nil {
+	if err := op.FillSlot(node, p.graph, "source", source); err != nil {
 		return nil, fmt.Errorf("source: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "prefix", prefix); err != nil {
+	if err := op.FillSlot(node, p.graph, "prefix", prefix); err != nil {
 		return nil, fmt.Errorf("prefix: %w", err)
 	}
 

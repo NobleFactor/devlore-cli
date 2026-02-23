@@ -78,7 +78,7 @@ func (p *ServicePlan) start(_ *starlark.Thread, _ *starlark.Builtin, args starla
 		Action:  p.reg.MustGet("service.start"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -102,7 +102,7 @@ func (p *ServicePlan) stop(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 		Action:  p.reg.MustGet("service.stop"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -126,7 +126,7 @@ func (p *ServicePlan) restart(_ *starlark.Thread, _ *starlark.Builtin, args star
 		Action:  p.reg.MustGet("service.restart"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -150,7 +150,7 @@ func (p *ServicePlan) enable(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		Action:  p.reg.MustGet("service.enable"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -174,7 +174,7 @@ func (p *ServicePlan) disable(_ *starlark.Thread, _ *starlark.Builtin, args star
 		Action:  p.reg.MustGet("service.disable"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -197,7 +197,7 @@ func (p *ServicePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		Action:  p.reg.MustGet("service.exists"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -220,7 +220,7 @@ func (p *ServicePlan) running(_ *starlark.Thread, _ *starlark.Builtin, args star
 		Action:  p.reg.MustGet("service.running"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -243,7 +243,7 @@ func (p *ServicePlan) enabled(_ *starlark.Thread, _ *starlark.Builtin, args star
 		Action:  p.reg.MustGet("service.enabled"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 

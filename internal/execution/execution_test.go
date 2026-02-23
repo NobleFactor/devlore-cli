@@ -52,7 +52,7 @@ func testNode(id string, action op.Action, source, path string) *op.Node {
 }
 
 func TestRegistryRegisterAndGet(t *testing.T) {
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	file.Register(reg)
 
 	act, ok := reg.Get("file.link")
@@ -70,7 +70,7 @@ func TestRegistryRegisterAndGet(t *testing.T) {
 }
 
 func TestRegistryNames(t *testing.T) {
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	file.Register(reg)
 
 	names := reg.Names()
@@ -80,7 +80,7 @@ func TestRegistryNames(t *testing.T) {
 }
 
 func TestAllProvidersCount(t *testing.T) {
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 
 	names := reg.Names()
@@ -122,7 +122,7 @@ func TestLinkAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Link{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
@@ -154,7 +154,7 @@ func TestLinkActionIdempotent(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Link{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
@@ -170,7 +170,7 @@ func TestCopyAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Copy{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("content", []byte("file content"))
 	node.SetSlotImmediate("path", target)
@@ -195,7 +195,7 @@ func TestCopyActionCreatesParentDirs(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Copy{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("content", []byte("nested content"))
 	node.SetSlotImmediate("path", target)
@@ -225,7 +225,7 @@ func TestRenderAction(t *testing.T) {
 
 	p := &template.Provider{}
 	action := &template.Render{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: ".bashrc", Project: "all"}
 	node.SetSlotImmediate("template_data", map[string]any{"Username": "testuser", "Shell": "/bin/zsh"})
 	node.SetSlotImmediate("source", source)
@@ -263,7 +263,7 @@ func TestDecryptAction(t *testing.T) {
 		return []byte("decrypted:" + string(ciphertext)), nil
 	}
 
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "secret.txt"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("decryptor", mockDecrypt)
@@ -307,7 +307,7 @@ func TestUnlinkAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Unlink{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)
@@ -331,7 +331,7 @@ func TestRemoveAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Remove{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)
@@ -353,7 +353,7 @@ func TestWriteAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Write{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
@@ -379,7 +379,7 @@ func TestWriteCreatesParentDirs(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Write{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", content)
@@ -415,7 +415,7 @@ func TestWriteDryRun(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Write{Impl: p}
-	ctx := &execution.Context{Context: context.Background(), DryRun: true, Writer: io.Discard}
+	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: io.Discard}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("content", "test")
@@ -794,7 +794,7 @@ func TestBackupAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Backup{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("backup_suffix", ".writ-backup")
@@ -831,7 +831,7 @@ func TestCopyActionWithMode(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Copy{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("content", []byte("#!/bin/sh\necho hello"))
 	node.SetSlotImmediate("path", target)
@@ -883,7 +883,7 @@ func TestRemoveActionPrunesEmptyDirs(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Remove{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
@@ -927,7 +927,7 @@ func TestRemoveActionPruneStopsAtNonEmpty(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Remove{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
@@ -972,7 +972,7 @@ func TestUnlinkActionPrunesEmptyDirs(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Unlink{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
@@ -1051,7 +1051,7 @@ func TestMoveAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Move{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
@@ -1087,7 +1087,7 @@ func TestMoveActionCreatesParentDirs(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Move{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("source", source)
 	node.SetSlotImmediate("path", target)
@@ -1112,7 +1112,7 @@ func TestMkdirAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Mkdir{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("mode", os.FileMode(0o750))
@@ -1139,7 +1139,7 @@ func TestMkdirActionDefaultMode(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Mkdir{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("mode", os.FileMode(0o755))
@@ -1171,7 +1171,7 @@ func TestSourceAction(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Source{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", source)
 
@@ -1202,7 +1202,7 @@ func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 
 	p := &file.Provider{}
 	action := &file.Remove{Impl: p}
-	ctx := &execution.Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)

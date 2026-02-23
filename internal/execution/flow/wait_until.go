@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // PredicateFunc is a re-evaluable condition for polling actions.
@@ -31,7 +31,7 @@ func (a *WaitUntil) Name() string { return "flow.wait_until" }
 
 // Do polls the predicate at the configured interval until it returns true
 // or the timeout expires.
-func (a *WaitUntil) Do(ctx *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+func (a *WaitUntil) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	target := slots["target"]
 
 	pred, ok := slots["predicate"].(PredicateFunc)

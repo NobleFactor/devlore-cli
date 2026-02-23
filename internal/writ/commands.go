@@ -74,7 +74,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	}
 
 	// 2. Build execution graph
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 	builder := NewDeployGraphBuilder(cfg, reg)
 	builder.Planner = &lore.Planner{
@@ -218,7 +218,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build execution graph
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 	g, err := NewDecommissionGraphBuilder(cfg, view, reg).Build()
 	if err != nil {
@@ -468,7 +468,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 
 	if hasDecryptAction(actions) && len(identities) == 0 {
@@ -503,7 +503,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 }
 
 // buildUpgradeChain builds the node chain for a multi-action upgrade pipeline.
-func buildUpgradeChain(reg *execution.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*op.Node, []op.Edge) {
+func buildUpgradeChain(reg *op.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*op.Node, []op.Edge) {
 	hasDecrypt := hasDecryptAction(actions)
 	var nodes []*op.Node
 	var edges []op.Edge

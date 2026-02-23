@@ -14,14 +14,14 @@ import (
 // testUndoAction implements CompensableAction with controllable Undo behavior.
 type testUndoAction struct {
 	name   string
-	undoFn func(state UndoState) error
+	undoFn func(state op.UndoState) error
 }
 
 func (a *testUndoAction) Name() string { return a.name }
-func (a *testUndoAction) Do(_ *Context, _ map[string]any) (result Result, undo UndoState, retErr error) {
+func (a *testUndoAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return nil, nil, nil
 }
-func (a *testUndoAction) Undo(state UndoState) error {
+func (a *testUndoAction) Undo(state op.UndoState) error {
 	if a.undoFn != nil {
 		return a.undoFn(state)
 	}
@@ -50,7 +50,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	s.Push(RecoveryEntry{
 		Node: &op.Node{ID: "prepare", Action: &testUndoAction{
 			name: "prepare",
-			undoFn: func(_ UndoState) error {
+			undoFn: func(_ op.UndoState) error {
 				order = append(order, "prepare")
 				return nil
 			},
@@ -59,7 +59,7 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	s.Push(RecoveryEntry{
 		Node: &op.Node{ID: "install", Action: &testUndoAction{
 			name: "install",
-			undoFn: func(_ UndoState) error {
+			undoFn: func(_ op.UndoState) error {
 				order = append(order, "install")
 				return nil
 			},
@@ -68,14 +68,14 @@ func TestRecoveryStackUnwindLIFO(t *testing.T) {
 	s.Push(RecoveryEntry{
 		Node: &op.Node{ID: "provision", Action: &testUndoAction{
 			name: "provision",
-			undoFn: func(_ UndoState) error {
+			undoFn: func(_ op.UndoState) error {
 				order = append(order, "provision")
 				return nil
 			},
 		}},
 	})
 
-	ctx := &Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	errs := s.Unwind(ctx)
 
 	if len(errs) != 0 {
@@ -110,7 +110,7 @@ func TestRecoveryStackUnwindCompensateError(t *testing.T) {
 	s.Push(RecoveryEntry{
 		Node: &op.Node{ID: "install", Action: &testUndoAction{
 			name: "install",
-			undoFn: func(_ UndoState) error {
+			undoFn: func(_ op.UndoState) error {
 				return fmt.Errorf("compensate install failed")
 			},
 		}},
@@ -121,7 +121,7 @@ func TestRecoveryStackUnwindCompensateError(t *testing.T) {
 		}},
 	})
 
-	ctx := &Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	errs := s.Unwind(ctx)
 
 	// Should have 1 error but all three were executed
@@ -140,7 +140,7 @@ func TestRecoveryStackUnwindNilCompensate(t *testing.T) {
 		Node: &op.Node{ID: "prepare", Action: nil}, // No action — should be skipped
 	})
 
-	ctx := &Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	errs := s.Unwind(ctx)
 
 	if len(errs) != 0 {
@@ -151,7 +151,7 @@ func TestRecoveryStackUnwindNilCompensate(t *testing.T) {
 func TestRecoveryStackUnwindEmpty(t *testing.T) {
 	s := &RecoveryStack{}
 
-	ctx := &Context{Context: context.Background()}
+	ctx := &op.Context{Context: context.Background()}
 	errs := s.Unwind(ctx)
 
 	if len(errs) != 0 {

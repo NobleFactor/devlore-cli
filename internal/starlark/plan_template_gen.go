@@ -66,16 +66,16 @@ func (p *TemplatePlan) render(_ *starlark.Thread, _ *starlark.Builtin, args star
 		Action:  p.reg.MustGet("template.render"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "template_data", templateData); err != nil {
+	if err := op.FillSlot(node, p.graph, "template_data", templateData); err != nil {
 		return nil, fmt.Errorf("template_data: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "source", source); err != nil {
+	if err := op.FillSlot(node, p.graph, "source", source); err != nil {
 		return nil, fmt.Errorf("source: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "project", project); err != nil {
+	if err := op.FillSlot(node, p.graph, "project", project); err != nil {
 		return nil, fmt.Errorf("project: %w", err)
 	}
 

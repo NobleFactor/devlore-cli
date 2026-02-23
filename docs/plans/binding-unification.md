@@ -91,7 +91,7 @@ constructor sets these. Actions continue using slots.
 
 | Repo | File | Action |
 |------|------|--------|
-| noblefactor-ops | `internal/starlark/receiver_go_gen.go` | Modify: new `realtimeProviderBody` template helper |
+| noblefactor-ops | `internal/starlark/receiver_go_gen.go` | Modify: new `immediateProviderBody` template helper |
 | noblefactor-ops | `internal/starlark/receiver_go_gen_test.go` | Add test for new helper |
 | devlore-cli | `star/extensions/com.noblefactor.devlore.Actions/templates/immediate_receiver.go.template` | Create: local template replacing builtin |
 | devlore-cli | `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` | Update LOCAL_TEMPLATES |

@@ -63,7 +63,7 @@ func (p *NetPlan) download(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 		Action:  p.reg.MustGet("net.download"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "url", url); err != nil {
+	if err := op.FillSlot(node, p.graph, "url", url); err != nil {
 		return nil, fmt.Errorf("url: %w", err)
 	}
 

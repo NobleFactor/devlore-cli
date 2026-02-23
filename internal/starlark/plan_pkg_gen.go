@@ -78,13 +78,13 @@ func (p *PkgPlan) install(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		Action:  p.reg.MustGet("pkg.install"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "packages", packages); err != nil {
+	if err := op.FillSlot(node, p.graph, "packages", packages); err != nil {
 		return nil, fmt.Errorf("packages: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "manager", manager); err != nil {
+	if err := op.FillSlot(node, p.graph, "manager", manager); err != nil {
 		return nil, fmt.Errorf("manager: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "cask", cask); err != nil {
+	if err := op.FillSlot(node, p.graph, "cask", cask); err != nil {
 		return nil, fmt.Errorf("cask: %w", err)
 	}
 
@@ -110,13 +110,13 @@ func (p *PkgPlan) upgrade(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		Action:  p.reg.MustGet("pkg.upgrade"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "packages", packages); err != nil {
+	if err := op.FillSlot(node, p.graph, "packages", packages); err != nil {
 		return nil, fmt.Errorf("packages: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "manager", manager); err != nil {
+	if err := op.FillSlot(node, p.graph, "manager", manager); err != nil {
 		return nil, fmt.Errorf("manager: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "cask", cask); err != nil {
+	if err := op.FillSlot(node, p.graph, "cask", cask); err != nil {
 		return nil, fmt.Errorf("cask: %w", err)
 	}
 
@@ -142,13 +142,13 @@ func (p *PkgPlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		Action:  p.reg.MustGet("pkg.remove"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "packages", packages); err != nil {
+	if err := op.FillSlot(node, p.graph, "packages", packages); err != nil {
 		return nil, fmt.Errorf("packages: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "manager", manager); err != nil {
+	if err := op.FillSlot(node, p.graph, "manager", manager); err != nil {
 		return nil, fmt.Errorf("manager: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "cask", cask); err != nil {
+	if err := op.FillSlot(node, p.graph, "cask", cask); err != nil {
 		return nil, fmt.Errorf("cask: %w", err)
 	}
 
@@ -171,7 +171,7 @@ func (p *PkgPlan) update(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		Action:  p.reg.MustGet("pkg.update"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "manager", manager); err != nil {
+	if err := op.FillSlot(node, p.graph, "manager", manager); err != nil {
 		return nil, fmt.Errorf("manager: %w", err)
 	}
 
@@ -194,7 +194,7 @@ func (p *PkgPlan) installed(_ *starlark.Thread, _ *starlark.Builtin, args starla
 		Action:  p.reg.MustGet("pkg.installed"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -217,7 +217,7 @@ func (p *PkgPlan) not_installed(_ *starlark.Thread, _ *starlark.Builtin, args st
 		Action:  p.reg.MustGet("pkg.not_installed"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
 
@@ -241,10 +241,10 @@ func (p *PkgPlan) version_gte(_ *starlark.Thread, _ *starlark.Builtin, args star
 		Action:  p.reg.MustGet("pkg.version_gte"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "name", name); err != nil {
+	if err := op.FillSlot(node, p.graph, "name", name); err != nil {
 		return nil, fmt.Errorf("name: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "version", version); err != nil {
+	if err := op.FillSlot(node, p.graph, "version", version); err != nil {
 		return nil, fmt.Errorf("version: %w", err)
 	}
 

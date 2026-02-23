@@ -217,7 +217,7 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 	fp := &file.Provider{}
 	failAction := &testRetryAction{
 		name: "fail-provision",
-		fn: func(ctx *execution.Context, slots map[string]any) error {
+		fn: func(ctx *op.Context, slots map[string]any) error {
 			return fmt.Errorf("permission denied")
 		},
 	}
@@ -344,7 +344,7 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 
 	retryAction := &testRetryAction{
 		name: "retry-test",
-		fn: func(ctx *execution.Context, slots map[string]any) error {
+		fn: func(ctx *op.Context, slots map[string]any) error {
 			attemptCount++
 			if attemptCount == 1 {
 				return fmt.Errorf("transient failure")
@@ -414,7 +414,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 	fp := &file.Provider{}
 	failAction := &testRetryAction{
 		name: "always-fail",
-		fn: func(ctx *execution.Context, slots map[string]any) error {
+		fn: func(ctx *op.Context, slots map[string]any) error {
 			return fmt.Errorf("permanent failure")
 		},
 	}
@@ -573,13 +573,13 @@ func TestPhaseByID(t *testing.T) {
 // testRetryAction is a test-only action that executes a function.
 type testRetryAction struct {
 	name string
-	fn   func(ctx *execution.Context, slots map[string]any) error
+	fn   func(ctx *op.Context, slots map[string]any) error
 }
 
 func (o *testRetryAction) Name() string { return o.name }
-func (o *testRetryAction) Do(ctx *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+func (o *testRetryAction) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return nil, nil, o.fn(ctx, slots)
 }
-func (o *testRetryAction) Undo(_ execution.UndoState) error {
+func (o *testRetryAction) Undo(_ op.UndoState) error {
 	return nil
 }

@@ -85,10 +85,10 @@ func (p *FilePlan) link(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		Action:  p.reg.MustGet("file.link"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "source", source); err != nil {
+	if err := op.FillSlot(node, p.graph, "source", source); err != nil {
 		return nil, fmt.Errorf("source: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
 
@@ -113,10 +113,10 @@ func (p *FilePlan) copy(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		Action:  p.reg.MustGet("file.copy"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "mode", mode); err != nil {
+	if err := op.FillSlot(node, p.graph, "mode", mode); err != nil {
 		return nil, fmt.Errorf("mode: %w", err)
 	}
 
@@ -141,10 +141,10 @@ func (p *FilePlan) backup(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		Action:  p.reg.MustGet("file.backup"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "backup_suffix", backupSuffix); err != nil {
+	if err := op.FillSlot(node, p.graph, "backup_suffix", backupSuffix); err != nil {
 		return nil, fmt.Errorf("backup_suffix: %w", err)
 	}
 
@@ -171,13 +171,13 @@ func (p *FilePlan) unlink(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		Action:  p.reg.MustGet("file.unlink"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "prune", prune); err != nil {
+	if err := op.FillSlot(node, p.graph, "prune", prune); err != nil {
 		return nil, fmt.Errorf("prune: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "prune_boundary", pruneBoundary); err != nil {
+	if err := op.FillSlot(node, p.graph, "prune_boundary", pruneBoundary); err != nil {
 		return nil, fmt.Errorf("prune_boundary: %w", err)
 	}
 
@@ -204,13 +204,13 @@ func (p *FilePlan) remove(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		Action:  p.reg.MustGet("file.remove"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "prune", prune); err != nil {
+	if err := op.FillSlot(node, p.graph, "prune", prune); err != nil {
 		return nil, fmt.Errorf("prune: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "prune_boundary", pruneBoundary); err != nil {
+	if err := op.FillSlot(node, p.graph, "prune_boundary", pruneBoundary); err != nil {
 		return nil, fmt.Errorf("prune_boundary: %w", err)
 	}
 
@@ -236,13 +236,13 @@ func (p *FilePlan) write(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		Action:  p.reg.MustGet("file.write"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "content", content); err != nil {
+	if err := op.FillSlot(node, p.graph, "content", content); err != nil {
 		return nil, fmt.Errorf("content: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "mode", mode); err != nil {
+	if err := op.FillSlot(node, p.graph, "mode", mode); err != nil {
 		return nil, fmt.Errorf("mode: %w", err)
 	}
 
@@ -268,10 +268,10 @@ func (p *FilePlan) move(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		Action:  p.reg.MustGet("file.move"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "source", source); err != nil {
+	if err := op.FillSlot(node, p.graph, "source", source); err != nil {
 		return nil, fmt.Errorf("source: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
 
@@ -294,7 +294,7 @@ func (p *FilePlan) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		Action:  p.reg.MustGet("file.source"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
 
@@ -318,10 +318,10 @@ func (p *FilePlan) mkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		Action:  p.reg.MustGet("file.mkdir"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "mode", mode); err != nil {
+	if err := op.FillSlot(node, p.graph, "mode", mode); err != nil {
 		return nil, fmt.Errorf("mode: %w", err)
 	}
 
@@ -344,7 +344,7 @@ func (p *FilePlan) exists(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		Action:  p.reg.MustGet("file.exists"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
 
@@ -367,7 +367,7 @@ func (p *FilePlan) is_dir(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		Action:  p.reg.MustGet("file.is_dir"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
 

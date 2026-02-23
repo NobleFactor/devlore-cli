@@ -174,7 +174,7 @@ func TestGraphDeserializeYAML(t *testing.T) {
 
 	// Verify stub actions return an error when executed (stubs are not runnable).
 	_, _, err := loaded.Nodes[0].Action.Do(
-		&execution.Context{Context: context.Background()}, nil)
+		&op.Context{Context: context.Background()}, nil)
 	if err == nil {
 		t.Error("expected stub action Do to return an error")
 	}
@@ -299,16 +299,16 @@ func TestGraphHydrate(t *testing.T) {
 
 	// Verify stub before hydration — stubs return an error from Do.
 	_, _, stubErr := loaded.Nodes[0].Action.Do(
-		&execution.Context{Context: context.Background()}, nil)
+		&op.Context{Context: context.Background()}, nil)
 	if stubErr == nil {
 		t.Error("expected stub action Do to return an error before hydration")
 	}
 
 	// Hydrate with real registry
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 
-	if err := execution.HydrateGraph(&loaded, reg); err != nil {
+	if err := op.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}
 
@@ -322,7 +322,7 @@ func TestGraphHydrate(t *testing.T) {
 
 	// After hydration, Do should succeed (dry-run)
 	_, _, err := loaded.Nodes[0].Action.Do(
-		&execution.Context{Context: context.Background(), DryRun: true, Writer: os.Stdout},
+		&op.Context{Context: context.Background(), DryRun: true, Writer: os.Stdout},
 		map[string]any{"source": "/x", "path": "/y"})
 	if err != nil {
 		t.Errorf("expected hydrated action to succeed in dry-run, got: %v", err)
@@ -336,10 +336,10 @@ func TestGraphHydrateUnknownAction(t *testing.T) {
 		},
 	}
 
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 
-	err := execution.HydrateGraph(g, reg)
+	err := op.HydrateGraph(g, reg)
 	if err == nil {
 		t.Fatal("expected error for unknown action during hydration")
 	}
@@ -425,9 +425,9 @@ func TestGraphLifecycle(t *testing.T) {
 	}
 
 	// Step 3: Hydrate with real actions
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
-	if err := execution.HydrateGraph(&loaded, reg); err != nil {
+	if err := op.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}
 
@@ -557,9 +557,9 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 		t.Fatalf("deserialize: %v", err)
 	}
 
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
-	if err := execution.HydrateGraph(&loaded, reg); err != nil {
+	if err := op.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}
 

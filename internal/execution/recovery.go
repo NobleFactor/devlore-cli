@@ -18,7 +18,7 @@ type RecoveryEntry struct {
 	Node *op.Node
 
 	// UndoState is the state captured by Do, passed to Undo during rollback.
-	UndoState UndoState
+	UndoState op.UndoState
 }
 
 // RecoveryStack is a LIFO stack of recovery entries.
@@ -41,17 +41,17 @@ func (s *RecoveryStack) Len() int {
 // Unwind executes Undo on all entries in LIFO order.
 // Undo failures do not stop the unwind — all entries are processed.
 // Non-compensable actions (ErrNotCompensable) are logged and skipped.
-func (s *RecoveryStack) Unwind(ctx *Context) []error {
+func (s *RecoveryStack) Unwind(ctx *op.Context) []error {
 	var errs []error
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
 		entry := s.entries[i]
-		undoable, ok := entry.Node.Action.(CompensableAction)
+		undoable, ok := entry.Node.Action.(op.CompensableAction)
 		if !ok {
 			continue
 		}
 		if err := undoable.Undo(entry.UndoState); err != nil {
-			if errors.Is(err, ErrNotCompensable) {
+			if errors.Is(err, op.ErrNotCompensable) {
 				if ctx.Writer != nil {
 					fmt.Fprintf(ctx.Writer, "  [warn] %s: not compensable, skipping\n", undoable.Name()) //nolint:errcheck // status output to writer
 				}

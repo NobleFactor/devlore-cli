@@ -133,7 +133,7 @@ func (e *GraphExecutor) Run(ctx context.Context, g *op.Graph) error {
 func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 	ordered := OrderNodes(g.Nodes, g.Edges)
 
-	execCtx := &Context{
+	execCtx := &op.Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
 		Writer:  e.options.Writer,
@@ -178,7 +178,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 // Phases referenced as compensating actions (via Compensate fields) are
 // skipped during the forward pass — they execute only during rollback.
 func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
-	execCtx := &Context{
+	execCtx := &op.Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
 		Writer:  e.options.Writer,
@@ -301,7 +301,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 }
 
 // executePhase runs a single phase with retry logic.
-func (e *GraphExecutor) executePhase(ctx *Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *RecoveryStack) error {
+func (e *GraphExecutor) executePhase(ctx *op.Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *RecoveryStack) error {
 	maxAttempts := 1
 	if phase.Retry != nil {
 		maxAttempts += phase.Retry.MaxAttempts
@@ -365,7 +365,7 @@ func (e *GraphExecutor) resetPhaseNodes(g *op.Graph, phase *op.Phase) {
 }
 
 // ExecutePhaseInner runs the inner nodes of a phase.
-func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *RecoveryStack) error {
+func (e *GraphExecutor) ExecutePhaseInner(ctx *op.Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *RecoveryStack) error {
 	phaseNodes, phaseEdges := g.CollectPhaseNodes(phase)
 	ordered := OrderNodes(phaseNodes, phaseEdges)
 
@@ -388,7 +388,7 @@ func (e *GraphExecutor) ExecutePhaseInner(ctx *Context, g *op.Graph, phase *op.P
 func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []op.Edge) ([]*NodeResult, error) {
 	ordered := OrderNodes(nodes, edges)
 
-	execCtx := &Context{
+	execCtx := &op.Context{
 		Context: ctx,
 		DryRun:  e.options.DryRun,
 		Writer:  e.options.Writer,
@@ -412,7 +412,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 }
 
 // executeNode resolves slots, calls Do, stores the result, and pushes a recovery entry.
-func (e *GraphExecutor) executeNode(ctx *Context, node *op.Node, results map[string]any, stack *RecoveryStack) *NodeResult {
+func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[string]any, stack *RecoveryStack) *NodeResult {
 	if node.Action == nil {
 		node.Status = op.StatusFailed
 		return &NodeResult{
@@ -454,7 +454,7 @@ func (e *GraphExecutor) executeNode(ctx *Context, node *op.Node, results map[str
 	}
 
 	// Push recovery entry only for compensable actions.
-	if _, ok := node.Action.(CompensableAction); ok {
+	if _, ok := node.Action.(op.CompensableAction); ok {
 		stack.Push(RecoveryEntry{Node: node, UndoState: undoState})
 	}
 

@@ -69,10 +69,10 @@ func (p *GitPlan) clone(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 		Action:  p.reg.MustGet("git.clone"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "url", url); err != nil {
+	if err := op.FillSlot(node, p.graph, "url", url); err != nil {
 		return nil, fmt.Errorf("url: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "path", path); err != nil {
+	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
 
@@ -96,10 +96,10 @@ func (p *GitPlan) checkout(_ *starlark.Thread, _ *starlark.Builtin, args starlar
 		Action:  p.reg.MustGet("git.checkout"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "repo", repo); err != nil {
+	if err := op.FillSlot(node, p.graph, "repo", repo); err != nil {
 		return nil, fmt.Errorf("repo: %w", err)
 	}
-	if err := FillSlot(node, p.graph, "ref", ref); err != nil {
+	if err := op.FillSlot(node, p.graph, "ref", ref); err != nil {
 		return nil, fmt.Errorf("ref: %w", err)
 	}
 
@@ -122,7 +122,7 @@ func (p *GitPlan) pull(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tu
 		Action:  p.reg.MustGet("git.pull"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "repo", repo); err != nil {
+	if err := op.FillSlot(node, p.graph, "repo", repo); err != nil {
 		return nil, fmt.Errorf("repo: %w", err)
 	}
 

@@ -175,7 +175,7 @@ func TestBuild_MutuallyExclusiveConfig(t *testing.T) {
 
 func TestEngineRunsPackageInstallActions(t *testing.T) {
 	// Integration test: build graph and run through engine with DryRun
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 
 	// Register all actions (file + package)
 	provider.RegisterAll(reg)
@@ -210,7 +210,7 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 
 func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	// Test that all namespaced package actions can execute in dry-run mode
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
@@ -600,7 +600,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 
 	planner := &Planner{
@@ -633,7 +633,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 }
 
 func TestPlanner_PlanByName(t *testing.T) {
-	reg := execution.NewActionRegistry()
+	reg := op.NewActionRegistry()
 	provider.RegisterAll(reg)
 
 	planner := &Planner{

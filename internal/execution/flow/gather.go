@@ -41,7 +41,7 @@ type Gather struct{}
 func (a *Gather) Name() string { return "flow.gather" }
 
 // Do executes the referenced phase once per item, with per-iteration isolation.
-func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
+func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
 	items, err := extractItems(slots)
 	if err != nil {
 		return nil, nil, err
@@ -115,7 +115,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (result execut
 				defer func() { <-sem }()
 
 				// Per-iteration context with its own mutable fields.
-				iterCtx := &execution.Context{
+				iterCtx := &op.Context{
 					Context: iterCtxBase,
 					DryRun:  ctx.DryRun,
 					Writer:  ctx.Writer,
@@ -164,7 +164,7 @@ func (a *Gather) Do(ctx *execution.Context, slots map[string]any) (result execut
 }
 
 // Undo walks iterations in reverse and calls Action.Undo per entry.
-func (a *Gather) Undo(state execution.UndoState) error {
+func (a *Gather) Undo(state op.UndoState) error {
 	gs, ok := state.(*gatherUndoState)
 	if !ok || gs == nil {
 		return nil
@@ -179,12 +179,12 @@ func (a *Gather) undoCompleted(gs *gatherUndoState) error {
 		iter := gs.Iterations[i]
 		for j := len(iter.Entries) - 1; j >= 0; j-- {
 			entry := iter.Entries[j]
-			undoable, ok := entry.Node.Action.(execution.CompensableAction)
+			undoable, ok := entry.Node.Action.(op.CompensableAction)
 			if !ok {
 				continue
 			}
 			if err := undoable.Undo(entry.UndoState); err != nil {
-				if errors.Is(err, execution.ErrNotCompensable) {
+				if errors.Is(err, op.ErrNotCompensable) {
 					continue
 				}
 				errs = append(errs, err)
@@ -195,7 +195,7 @@ func (a *Gather) undoCompleted(gs *gatherUndoState) error {
 }
 
 // executeIteration runs the phase body for a single item.
-func executeIteration(ctx *execution.Context, ordered []*op.Node, gatherID string, item any) struct {
+func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item any) struct {
 	result any
 	undo   iterationUndo
 	err    error
@@ -234,7 +234,7 @@ func executeIteration(ctx *execution.Context, ordered []*op.Node, gatherID strin
 		if result != nil {
 			results[node.ID] = result
 		}
-		if _, ok := node.Action.(execution.CompensableAction); ok {
+		if _, ok := node.Action.(op.CompensableAction); ok {
 			stack.Push(execution.RecoveryEntry{Node: node, UndoState: undoState})
 		}
 	}

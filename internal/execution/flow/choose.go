@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // chooseUndoState preserves the selected branch's recovery state.
@@ -33,7 +34,7 @@ type Choose struct{}
 func (a *Choose) Name() string { return "flow.choose" }
 
 // Do reads the boolean condition and executes the matching branch phase.
-func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	when, _ := slots["when"].(bool)          //nolint:errcheck // zero value (false) is acceptable default
 	thenPhaseID, _ := slots["then"].(string) //nolint:errcheck // zero value (empty) is acceptable
 	elsePhaseID, _ := slots["else"].(string) //nolint:errcheck // zero value (empty) is acceptable
@@ -83,7 +84,7 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (result execut
 		if result != nil {
 			results[node.ID] = result
 		}
-		if _, ok := node.Action.(execution.CompensableAction); ok {
+		if _, ok := node.Action.(op.CompensableAction); ok {
 			stack.Push(execution.RecoveryEntry{Node: node, UndoState: undoState})
 		}
 	}
@@ -103,7 +104,7 @@ func (a *Choose) Do(ctx *execution.Context, slots map[string]any) (result execut
 }
 
 // Undo walks the selected branch's entries in reverse and calls CompensableAction.Undo.
-func (a *Choose) Undo(state execution.UndoState) error {
+func (a *Choose) Undo(state op.UndoState) error {
 	cs, ok := state.(*chooseUndoState)
 	if !ok || cs == nil {
 		return nil
@@ -112,12 +113,12 @@ func (a *Choose) Undo(state execution.UndoState) error {
 	var errs []error
 	for i := len(cs.Entries) - 1; i >= 0; i-- {
 		entry := cs.Entries[i]
-		undoable, ok := entry.Node.Action.(execution.CompensableAction)
+		undoable, ok := entry.Node.Action.(op.CompensableAction)
 		if !ok {
 			continue
 		}
 		if err := undoable.Undo(entry.UndoState); err != nil {
-			if errors.Is(err, execution.ErrNotCompensable) {
+			if errors.Is(err, op.ErrNotCompensable) {
 				continue
 			}
 			errs = append(errs, err)

@@ -3,10 +3,10 @@
 
 package flow
 
-import "github.com/NobleFactor/devlore-cli/internal/execution"
+import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Register registers all flow actions into the given registry.
-func Register(reg *execution.ActionRegistry) {
+func Register(reg *op.ActionRegistry) {
 	reg.Register(&Choose{})
 	reg.Register(&Gather{})
 	reg.Register(&Elevate{})

@@ -65,7 +65,7 @@ func (p *ShellPlan) exec(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 		Action:  p.reg.MustGet("shell.exec"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "command", command); err != nil {
+	if err := op.FillSlot(node, p.graph, "command", command); err != nil {
 		return nil, fmt.Errorf("command: %w", err)
 	}
 
@@ -88,7 +88,7 @@ func (p *ShellPlan) power_shell(_ *starlark.Thread, _ *starlark.Builtin, args st
 		Action:  p.reg.MustGet("shell.power_shell"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "command", command); err != nil {
+	if err := op.FillSlot(node, p.graph, "command", command); err != nil {
 		return nil, fmt.Errorf("command: %w", err)
 	}
 

@@ -65,7 +65,7 @@ func (p *EncryptionPlan) decrypt(_ *starlark.Thread, _ *starlark.Builtin, args s
 		Action:  p.reg.MustGet("encryption.decrypt"),
 		Project: p.project,
 	}
-	if err := FillSlot(node, p.graph, "source", source); err != nil {
+	if err := op.FillSlot(node, p.graph, "source", source); err != nil {
 		return nil, fmt.Errorf("source: %w", err)
 	}
 

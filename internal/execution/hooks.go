@@ -3,14 +3,16 @@
 
 package execution
 
+import "github.com/NobleFactor/devlore-cli/pkg/op"
+
 // LifecycleHook receives events at phase and node boundaries during execution.
 // Hooks are fire-and-forget — a hook panic is recovered and logged but does not
 // fail the node or phase. Hooks run synchronously and must not block.
 type LifecycleHook interface {
-	OnNodeStart(ctx *Context, nodeID string, slots map[string]any)
-	OnNodeComplete(ctx *Context, nodeID string, result Result, err error)
-	OnPhaseStart(ctx *Context, phaseID string)
-	OnPhaseComplete(ctx *Context, phaseID string, err error)
+	OnNodeStart(ctx *op.Context, nodeID string, slots map[string]any)
+	OnNodeComplete(ctx *op.Context, nodeID string, result op.Result, err error)
+	OnPhaseStart(ctx *op.Context, phaseID string)
+	OnPhaseComplete(ctx *op.Context, phaseID string, err error)
 }
 
 // HookRegistry holds registered lifecycle hooks and provides fire methods.
@@ -30,7 +32,7 @@ func (r *HookRegistry) Register(hook LifecycleHook) {
 }
 
 // FireNodeStart notifies all hooks that a node is about to execute.
-func (r *HookRegistry) FireNodeStart(ctx *Context, nodeID string, slots map[string]any) {
+func (r *HookRegistry) FireNodeStart(ctx *op.Context, nodeID string, slots map[string]any) {
 	if r == nil {
 		return
 	}
@@ -43,7 +45,7 @@ func (r *HookRegistry) FireNodeStart(ctx *Context, nodeID string, slots map[stri
 }
 
 // FireNodeComplete notifies all hooks that a node has finished.
-func (r *HookRegistry) FireNodeComplete(ctx *Context, nodeID string, result Result, err error) {
+func (r *HookRegistry) FireNodeComplete(ctx *op.Context, nodeID string, result op.Result, err error) {
 	if r == nil {
 		return
 	}
@@ -56,7 +58,7 @@ func (r *HookRegistry) FireNodeComplete(ctx *Context, nodeID string, result Resu
 }
 
 // FirePhaseStart notifies all hooks that a phase is about to execute.
-func (r *HookRegistry) FirePhaseStart(ctx *Context, phaseID string) {
+func (r *HookRegistry) FirePhaseStart(ctx *op.Context, phaseID string) {
 	if r == nil {
 		return
 	}
@@ -69,7 +71,7 @@ func (r *HookRegistry) FirePhaseStart(ctx *Context, phaseID string) {
 }
 
 // FirePhaseComplete notifies all hooks that a phase has finished.
-func (r *HookRegistry) FirePhaseComplete(ctx *Context, phaseID string, err error) {
+func (r *HookRegistry) FirePhaseComplete(ctx *op.Context, phaseID string, err error) {
 	if r == nil {
 		return
 	}

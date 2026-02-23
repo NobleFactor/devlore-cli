@@ -24,7 +24,7 @@ import (
 type failAction struct{}
 
 func (a *failAction) Name() string { return "test.fail" }
-func (a *failAction) Do(_ *execution.Context, _ map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+func (a *failAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return nil, nil, fmt.Errorf("deliberate failure")
 }
 
@@ -36,10 +36,10 @@ type trackAction struct {
 }
 
 func (a *trackAction) Name() string { return "test.track." + a.label }
-func (a *trackAction) Do(_ *execution.Context, _ map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+func (a *trackAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return nil, a.label, nil
 }
-func (a *trackAction) Undo(state execution.UndoState) error {
+func (a *trackAction) Undo(state op.UndoState) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	*a.log = append(*a.log, state.(string))
@@ -50,7 +50,7 @@ func (a *trackAction) Undo(state execution.UndoState) error {
 type noopAction struct{}
 
 func (a *noopAction) Name() string { return "test.noop" }
-func (a *noopAction) Do(_ *execution.Context, _ map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+func (a *noopAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return nil, nil, nil
 }
 
@@ -60,7 +60,7 @@ type conditionalFailAction struct {
 }
 
 func (a *conditionalFailAction) Name() string { return "test.conditional_fail" }
-func (a *conditionalFailAction) Do(_ *execution.Context, slots map[string]any) (result execution.Result, undo execution.UndoState, retErr error) {
+func (a *conditionalFailAction) Do(_ *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	path, _ := slots["path"].(string)
 	if path == a.failPath {
 		return nil, nil, fmt.Errorf("deliberate failure on %s", path)
@@ -320,7 +320,7 @@ func TestCompensationGather(t *testing.T) {
 		}},
 	}
 
-	ctx := &execution.Context{
+	ctx := &op.Context{
 		Context: context.Background(),
 		Writer:  io.Discard,
 		Graph:   g,

@@ -22,14 +22,14 @@ import (
 //	    plan.file.link("/usr/local/bin/foo", source="/path/to/foo")
 type Plan struct {
 	mu      sync.Mutex
-	reg     *ActionRegistry
+	reg     *op.ActionRegistry
 	graph   *op.Graph
 	project string // default project for new nodes
 	nodeID  int    // auto-incrementing node ID
 }
 
 // NewPlan creates a new plan for building an execution graph.
-func NewPlan(reg *ActionRegistry, project string) *Plan {
+func NewPlan(reg *op.ActionRegistry, project string) *Plan {
 	return &Plan{
 		reg:     reg,
 		graph:   &op.Graph{Nodes: []*op.Node{}, Edges: []op.Edge{}},
@@ -227,17 +227,6 @@ func (p *Plan) Rename(source, path string) *op.Node {
 
 // DependsOn adds an ordering edge: from must complete before to begins.
 func (p *Plan) DependsOn(from, to *op.Node) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.graph.Edges = append(p.graph.Edges, op.Edge{
-		From: from.ID,
-		To:   to.ID,
-	})
-}
-
-// Orders adds an ordering constraint between nodes.
-func (p *Plan) Orders(from, to *op.Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
