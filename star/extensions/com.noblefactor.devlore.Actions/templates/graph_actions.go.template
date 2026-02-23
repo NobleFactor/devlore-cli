@@ -8,11 +8,11 @@ import (
 	"os"
 {{- end}}
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	execution.RegisterProvider(Register)
+	op.RegisterProvider(Register)
 }
 {{range .Methods}}
 // {{.GoName}} — {{docSummary .Doc}}
@@ -20,7 +20,7 @@ type {{.GoName}} struct{ Impl *Provider }
 
 func (o *{{.GoName}}) Name() string { return "{{$.Provider}}.{{.SnakeName}}" }
 
-func (o *{{.GoName}}) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+func (o *{{.GoName}}) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
 {{graphReaders .}}
 
 	if ctx.DryRun {
@@ -33,7 +33,7 @@ func (o *{{.GoName}}) Do(ctx *execution.Context, slots map[string]any) (executio
 {{graphUndo .}}
 {{end}}
 // Register registers all {{.Provider}} actions with the given registry.
-func Register(reg *execution.ActionRegistry) {
+func Register(reg *op.ActionRegistry) {
 	p := &Provider{}
 {{- range .Methods}}
 	reg.Register(&{{.GoName}}{Impl: p})

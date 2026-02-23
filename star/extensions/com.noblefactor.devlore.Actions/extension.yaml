@@ -34,7 +34,7 @@ commands:
       - name: templates
         type: string
         default: ""
-        help: "Comma-separated templates (default: auto-detected from //devlore:plannable directive)"
+        help: "Comma-separated templates (default: auto-detected from //+devlore:access= directives)"
       - name: output
         type: string
         default: ""

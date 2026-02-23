@@ -7,13 +7,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("service", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("service", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
 		return NewServicePlan(graph, h, project, reg)
 	})
 }
@@ -23,10 +22,10 @@ type ServicePlan struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 }
 
-func NewServicePlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ServicePlan {
+func NewServicePlan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *ServicePlan {
 	return &ServicePlan{
 		Receiver: op.NewReceiver("plan.service"),
 		graph:    graph,

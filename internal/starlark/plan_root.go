@@ -9,7 +9,6 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -21,7 +20,7 @@ type PlanRoot struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 
 	// Sub-namespaces built from planRegistry.
 	plans map[string]starlark.Value
@@ -29,7 +28,7 @@ type PlanRoot struct {
 
 // NewPlanRoot creates a new PlanRoot for the given graph and host.
 // Sub-namespaces are built dynamically from the plan registry.
-func NewPlanRoot(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PlanRoot {
+func NewPlanRoot(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *PlanRoot {
 	plans := make(map[string]starlark.Value, len(planRegistry))
 	for name, factory := range planRegistry {
 		plans[name] = factory(graph, h, project, reg)

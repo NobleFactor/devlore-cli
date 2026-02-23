@@ -7,13 +7,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("template", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("template", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
 		return NewTemplatePlan(graph, h, project, reg)
 	})
 }
@@ -23,10 +22,10 @@ type TemplatePlan struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 }
 
-func NewTemplatePlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *TemplatePlan {
+func NewTemplatePlan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *TemplatePlan {
 	return &TemplatePlan{
 		Receiver: op.NewReceiver("plan.template"),
 		graph:    graph,

@@ -7,13 +7,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("encryption", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("encryption", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
 		return NewEncryptionPlan(graph, h, project, reg)
 	})
 }
@@ -23,10 +22,10 @@ type EncryptionPlan struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 }
 
-func NewEncryptionPlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *EncryptionPlan {
+func NewEncryptionPlan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *EncryptionPlan {
 	return &EncryptionPlan{
 		Receiver: op.NewReceiver("plan.encryption"),
 		graph:    graph,

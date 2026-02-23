@@ -7,13 +7,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("shell", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("shell", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
 		return NewShellPlan(graph, h, project, reg)
 	})
 }
@@ -23,10 +22,10 @@ type ShellPlan struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 }
 
-func NewShellPlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ShellPlan {
+func NewShellPlan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *ShellPlan {
 	return &ShellPlan{
 		Receiver: op.NewReceiver("plan.shell"),
 		graph:    graph,

@@ -7,13 +7,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("git", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("git", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
 		return NewGitPlan(graph, h, project, reg)
 	})
 }
@@ -23,10 +22,10 @@ type GitPlan struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 }
 
-func NewGitPlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *GitPlan {
+func NewGitPlan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *GitPlan {
 	return &GitPlan{
 		Receiver: op.NewReceiver("plan.git"),
 		graph:    graph,

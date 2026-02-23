@@ -7,13 +7,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("file", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("file", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
 		return NewFilePlan(graph, h, project, reg)
 	})
 }
@@ -23,10 +22,10 @@ type FilePlan struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 }
 
-func NewFilePlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *FilePlan {
+func NewFilePlan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *FilePlan {
 	return &FilePlan{
 		Receiver: op.NewReceiver("plan.file"),
 		graph:    graph,

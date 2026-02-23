@@ -8,13 +8,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // PlanFactory creates a plan sub-namespace for the given graph context.
-type PlanFactory func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value
+type PlanFactory func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value
 
 // planRegistry maps namespace names to plan factories. Populated by init()
 // functions in generated planned_*_gen.go files.

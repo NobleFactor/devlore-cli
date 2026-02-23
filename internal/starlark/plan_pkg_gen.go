@@ -7,13 +7,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("pkg", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("pkg", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
 		return NewPkgPlan(graph, h, project, reg)
 	})
 }
@@ -23,10 +22,10 @@ type PkgPlan struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 }
 
-func NewPkgPlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *PkgPlan {
+func NewPkgPlan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *PkgPlan {
 	return &PkgPlan{
 		Receiver: op.NewReceiver("plan.pkg"),
 		graph:    graph,

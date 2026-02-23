@@ -1,12 +1,18 @@
 # The Projected Provider API — Full Realization
 
-## Status: In Progress
+## Status: Implemented
 
-Phase 1 (type ownership extraction to `pkg/projection/`) was completed in the
-`feature/binding-unification` branch. This plan covers the remaining work:
-moving Action types, providers, and the registry into the projection library,
-and replacing the struct-level `//devlore:plannable` directive with method-level
-`//+devlore:access=[immediate|planned|both]`.
+All phases are complete on the `feature/binding-unification` branch:
+
+1. Type ownership extraction to `pkg/op/` (formerly `pkg/projection/`)
+2. Action/Context/Registry types moved to `pkg/op/`
+3. All 10 providers moved to `pkg/op/provider/`
+4. Method-level `//+devlore:access=` directives on all provider methods
+5. Code generator updated to parse per-method directives
+6. Templates updated for `pkg/op` imports and per-method filtering
+
+Known limitation: `pkg/op/provider/pkg/helpers.go` imports `internal/host`
+for package manager resolution — extracting `host` is a separate effort.
 
 ## Context
 

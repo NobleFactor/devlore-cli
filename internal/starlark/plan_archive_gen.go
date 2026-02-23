@@ -7,13 +7,12 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("archive", func(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) starlark.Value {
+	registerPlan("archive", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
 		return NewArchivePlan(graph, h, project, reg)
 	})
 }
@@ -23,10 +22,10 @@ type ArchivePlan struct {
 	graph   *op.Graph
 	host    host.Host
 	project string
-	reg     *execution.ActionRegistry
+	reg     *op.ActionRegistry
 }
 
-func NewArchivePlan(graph *op.Graph, h host.Host, project string, reg *execution.ActionRegistry) *ArchivePlan {
+func NewArchivePlan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *ArchivePlan {
 	return &ArchivePlan{
 		Receiver: op.NewReceiver("plan.archive"),
 		graph:    graph,
