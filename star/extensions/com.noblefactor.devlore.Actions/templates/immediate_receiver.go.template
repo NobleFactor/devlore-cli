@@ -49,7 +49,7 @@ func (r *{{.StructName}}Receiver) AttrNames() []string {
 {{range .Methods}}
 {{docComment .SnakeName .Doc}}{{slotDocs .}}
 func (r *{{$.StructName}}Receiver) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-{{realtimeUnpackArgs .}}
-{{realtimeProviderBody .}}
+{{immediateUnpackArgs .}}
+{{immediateProviderBody .}}
 }
 {{end}}
