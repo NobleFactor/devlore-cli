@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
@@ -162,6 +163,7 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
+		Host:               execution.NewHostProvider(host.NewHost()),
 		ConflictResolution: cfg.ConflictResolution,
 	})
 

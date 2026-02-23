@@ -39,7 +39,7 @@ func (a *trackAction) Name() string { return "test.track." + a.label }
 func (a *trackAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return nil, a.label, nil
 }
-func (a *trackAction) Undo(state op.UndoState) error {
+func (a *trackAction) Undo(_ *op.Context, state op.UndoState) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	*a.log = append(*a.log, state.(string))

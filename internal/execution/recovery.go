@@ -50,7 +50,7 @@ func (s *RecoveryStack) Unwind(ctx *op.Context) []error {
 		if !ok {
 			continue
 		}
-		if err := undoable.Undo(entry.UndoState); err != nil {
+		if err := undoable.Undo(ctx, entry.UndoState); err != nil {
 			if errors.Is(err, op.ErrNotCompensable) {
 				if ctx.Writer != nil {
 					fmt.Fprintf(ctx.Writer, "  [warn] %s: not compensable, skipping\n", undoable.Name()) //nolint:errcheck // status output to writer

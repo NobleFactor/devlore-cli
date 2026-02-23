@@ -31,7 +31,7 @@ func (o *Link) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoStat
 	return result, state, err
 }
 
-func (o *Link) Undo(state op.UndoState) error {
+func (o *Link) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
@@ -60,7 +60,7 @@ func (o *Copy) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoStat
 	return result, state, nil
 }
 
-func (o *Copy) Undo(state op.UndoState) error {
+func (o *Copy) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
@@ -85,7 +85,7 @@ func (o *Backup) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 	return result, state, err
 }
 
-func (o *Backup) Undo(state op.UndoState) error {
+func (o *Backup) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
@@ -111,7 +111,7 @@ func (o *Unlink) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 	return result, state, err
 }
 
-func (o *Unlink) Undo(state op.UndoState) error {
+func (o *Unlink) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
@@ -137,7 +137,7 @@ func (o *Remove) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 	return result, state, err
 }
 
-func (o *Remove) Undo(state op.UndoState) error {
+func (o *Remove) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
@@ -163,7 +163,7 @@ func (o *Write) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSta
 	return result, state, err
 }
 
-func (o *Write) Undo(state op.UndoState) error {
+func (o *Write) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
@@ -189,7 +189,7 @@ func (o *Move) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoStat
 	return result, state, err
 }
 
-func (o *Move) Undo(state op.UndoState) error {
+func (o *Move) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}

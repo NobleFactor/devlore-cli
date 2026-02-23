@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides git actions.
@@ -37,12 +39,12 @@ func (p *Provider) Clone(url, path string, output io.Writer) (string, map[string
 
 // CompensateClone removes the cloned directory.
 func (p *Provider) CompensateClone(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	path, ok := s["path"].(string)
-	if !ok || path == "" {
+	path := op.StateString(s, "path")
+	if path == "" {
 		return nil
 	}
 	return os.RemoveAll(path)

@@ -82,6 +82,10 @@ type ExecutorOptions struct {
 	// Data holds tool-provided context (template vars, SOPS config, etc.).
 	Data map[string]any
 
+	// Host provides platform abstractions (package manager, service manager)
+	// to action providers. Create with NewHostProvider(host.NewHost()).
+	Host op.HostProvider
+
 	// ConflictResolution specifies how to handle conflicts detected during preflight.
 	ConflictResolution ConflictResolution
 
@@ -139,6 +143,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 		Writer:  e.options.Writer,
 		Data:    e.options.Data,
 		Graph:   g,
+		Host:    e.options.Host,
 	}
 
 	results := make(map[string]any)
@@ -184,6 +189,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 		Writer:  e.options.Writer,
 		Data:    e.options.Data,
 		Graph:   g,
+		Host:    e.options.Host,
 	}
 
 	// Collect compensating phase IDs so we skip them in the forward pass.
@@ -393,6 +399,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 		DryRun:  e.options.DryRun,
 		Writer:  e.options.Writer,
 		Data:    e.options.Data,
+		Host:    e.options.Host,
 	}
 
 	results := make(map[string]any)

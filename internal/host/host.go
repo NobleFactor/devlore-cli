@@ -86,6 +86,12 @@ type ServiceManager interface {
 	// Exists checks if a service exists.
 	Exists(name string) bool
 
+	// IsRunning returns true if the named service is currently running.
+	IsRunning(name string) bool
+
+	// IsEnabled returns true if the named service is enabled to start at boot.
+	IsEnabled(name string) bool
+
 	// Status returns the service status.
 	Status(name string) string
 

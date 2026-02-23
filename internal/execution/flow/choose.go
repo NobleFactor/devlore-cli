@@ -104,7 +104,7 @@ func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 }
 
 // Undo walks the selected branch's entries in reverse and calls CompensableAction.Undo.
-func (a *Choose) Undo(state op.UndoState) error {
+func (a *Choose) Undo(ctx *op.Context, state op.UndoState) error {
 	cs, ok := state.(*chooseUndoState)
 	if !ok || cs == nil {
 		return nil
@@ -117,7 +117,7 @@ func (a *Choose) Undo(state op.UndoState) error {
 		if !ok {
 			continue
 		}
-		if err := undoable.Undo(entry.UndoState); err != nil {
+		if err := undoable.Undo(ctx, entry.UndoState); err != nil {
 			if errors.Is(err, op.ErrNotCompensable) {
 				continue
 			}

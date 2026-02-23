@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
@@ -240,6 +241,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	provider.RegisterAll(registry)
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun: cfg.DryRun,
+		Host:   execution.NewHostProvider(host.NewHost()),
 	})
 
 	var lastErr error

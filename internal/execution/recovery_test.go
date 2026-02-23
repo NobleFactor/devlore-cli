@@ -21,7 +21,7 @@ func (a *testUndoAction) Name() string { return a.name }
 func (a *testUndoAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return nil, nil, nil
 }
-func (a *testUndoAction) Undo(state op.UndoState) error {
+func (a *testUndoAction) Undo(_ *op.Context, state op.UndoState) error {
 	if a.undoFn != nil {
 		return a.undoFn(state)
 	}

@@ -437,6 +437,14 @@ func (m *systemdManager) Exists(name string) bool {
 	return result.OK
 }
 
+func (m *systemdManager) IsRunning(name string) bool {
+	return runShellCommand("systemctl is-active --quiet "+name, false).OK
+}
+
+func (m *systemdManager) IsEnabled(name string) bool {
+	return runShellCommand("systemctl is-enabled --quiet "+name, false).OK
+}
+
 func (m *systemdManager) Status(name string) string {
 	result := runShellCommand("systemctl is-active "+name, false)
 	return strings.TrimSpace(result.Stdout)

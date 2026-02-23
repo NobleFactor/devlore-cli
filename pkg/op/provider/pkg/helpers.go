@@ -9,113 +9,74 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // resolvePMForInstall returns the package manager for install actions.
-func resolvePMForInstall(managerOverride string) host.PackageManager {
-	h := host.NewHost()
-
+func resolvePMForInstall(host op.HostProvider, managerOverride string) op.PackageManagerProvider {
 	if managerOverride != "" {
-		pm := h.GetPackageManager(managerOverride)
+		pm := host.GetPackageManager(managerOverride)
 		if pm != nil {
 			return pm
 		}
 	}
-
-	return h.PackageManager()
+	return host.PackageManager()
 }
 
 // resolvePMForUpgrade returns the package manager for upgrade actions.
-func resolvePMForUpgrade(managerOverride string, packages []string) host.PackageManager {
-	h := host.NewHost()
-
+func resolvePMForUpgrade(host op.HostProvider, managerOverride string, packages []string) op.PackageManagerProvider {
 	if managerOverride != "" {
-		pm := h.GetPackageManager(managerOverride)
+		pm := host.GetPackageManager(managerOverride)
 		if pm != nil {
 			return pm
 		}
 	}
 
 	if len(packages) > 0 {
-		pm := h.InstalledBy(packages[0])
+		pm := host.InstalledBy(packages[0])
 		if pm != nil {
 			return pm
 		}
 	}
 
-	return h.PackageManager()
+	return host.PackageManager()
 }
 
 // resolvePMForRemove returns the package manager for remove actions.
-func resolvePMForRemove(managerOverride, p string) (pm host.PackageManager, otherPMs []host.PackageManager) {
-	h := host.NewHost()
-
-	allPMs := h.AllInstalledBy(p)
-
+func resolvePMForRemove(host op.HostProvider, managerOverride, p string) op.PackageManagerProvider {
 	if managerOverride != "" {
-		pm = h.GetPackageManager(managerOverride)
+		pm := host.GetPackageManager(managerOverride)
 		if pm != nil {
-			for _, other := range allPMs {
-				if other.Name() != pm.Name() {
-					otherPMs = append(otherPMs, other)
-				}
-			}
-			return pm, otherPMs
+			return pm
 		}
 	}
 
-	pm = h.InstalledBy(p)
+	pm := host.InstalledBy(p)
 	if pm != nil {
-		for _, other := range allPMs {
-			if other.Name() != pm.Name() {
-				otherPMs = append(otherPMs, other)
-			}
-		}
-		return pm, otherPMs
+		return pm
 	}
 
-	return h.PackageManager(), nil
+	return host.PackageManager()
 }
 
-// runBrewCaskInstall installs packages via Homebrew Cask.
-func runBrewCaskInstall(packages []string) host.Result {
-	cmd := exec.CommandContext(context.Background(), "brew", append([]string{"install", "--cask"}, packages...)...) //nolint:gosec // G204: command built from provider inputs
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
+// runBrewCask executes a brew cask command (install, upgrade, or uninstall).
+func runBrewCask(action string, packages ...string) error {
+	args := append([]string{action, "--cask"}, packages...)
+	cmd := exec.CommandContext(context.Background(), "brew", args...) //nolint:gosec // G204: command built from provider inputs
+	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return host.Result{
-		OK:     err == nil,
-		Stdout: stdout.String(),
-		Stderr: stderr.String(),
+	if err := cmd.Run(); err != nil {
+		return &brewCaskError{action: action, stderr: stderr.String()}
 	}
+	return nil
 }
 
-// runBrewCaskUpgrade upgrades packages via Homebrew Cask.
-func runBrewCaskUpgrade(packages []string) host.Result {
-	cmd := exec.CommandContext(context.Background(), "brew", append([]string{"upgrade", "--cask"}, packages...)...) //nolint:gosec // G204: command built from provider inputs
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return host.Result{
-		OK:     err == nil,
-		Stdout: stdout.String(),
-		Stderr: stderr.String(),
-	}
+// brewCaskError wraps a failed brew cask command.
+type brewCaskError struct {
+	action string
+	stderr string
 }
 
-// runBrewCaskRemove removes a package via Homebrew Cask.
-func runBrewCaskRemove(p string) host.Result {
-	cmd := exec.CommandContext(context.Background(), "brew", "uninstall", "--cask", p) //nolint:gosec // G204: command built from provider inputs
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return host.Result{
-		OK:     err == nil,
-		Stdout: stdout.String(),
-		Stderr: stderr.String(),
-	}
+func (e *brewCaskError) Error() string {
+	return "brew " + e.action + " --cask failed: " + e.stderr
 }

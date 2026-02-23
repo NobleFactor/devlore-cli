@@ -30,7 +30,7 @@ func (o *Extract) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 	return result, state, err
 }
 
-func (o *Extract) Undo(state op.UndoState) error {
+func (o *Extract) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}

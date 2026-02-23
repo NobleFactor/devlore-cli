@@ -12,6 +12,18 @@ func init() {
 	op.RegisterProvider(Register)
 }
 
+// serviceManager extracts the ServiceManagerProvider from the execution context.
+func serviceManager(ctx *op.Context) (op.ServiceManagerProvider, error) {
+	if ctx.Host == nil {
+		return nil, fmt.Errorf("service actions require Host in execution context")
+	}
+	svc := ctx.Host.ServiceManager()
+	if svc == nil {
+		return nil, fmt.Errorf("no service manager available on this platform")
+	}
+	return svc, nil
+}
+
 // Start — Start starts a service. Returns compensation state with pre-action running status.
 type Start struct{ Impl *Provider }
 
@@ -26,15 +38,24 @@ func (o *Start) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSta
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Start(name, output)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, state, err := o.Impl.Start(svc, name, output)
 	return result, state, err
 }
 
-func (o *Start) Undo(state op.UndoState) error {
+func (o *Start) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateStart(state)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return err
+	}
+	return o.Impl.CompensateStart(svc, state)
 }
 
 // Stop — Stop stops a service. Returns compensation state with pre-action running status.
@@ -51,15 +72,24 @@ func (o *Stop) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoStat
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Stop(name, output)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, state, err := o.Impl.Stop(svc, name, output)
 	return result, state, err
 }
 
-func (o *Stop) Undo(state op.UndoState) error {
+func (o *Stop) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateStop(state)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return err
+	}
+	return o.Impl.CompensateStop(svc, state)
 }
 
 // Restart — Restart restarts a service. Returns compensation state. Compensation is a no-op — if the service was restarted, it was already running.
@@ -76,11 +106,16 @@ func (o *Restart) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Restart(name, output)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, state, err := o.Impl.Restart(svc, name, output)
 	return result, state, err
 }
 
-func (o *Restart) Undo(state op.UndoState) error {
+func (o *Restart) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
@@ -101,15 +136,24 @@ func (o *Enable) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Enable(name, output)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, state, err := o.Impl.Enable(svc, name, output)
 	return result, state, err
 }
 
-func (o *Enable) Undo(state op.UndoState) error {
+func (o *Enable) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateEnable(state)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return err
+	}
+	return o.Impl.CompensateEnable(svc, state)
 }
 
 // Disable — Disable disables a service from starting at boot. Returns compensation state with pre-action enabled status.
@@ -126,15 +170,24 @@ func (o *Disable) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Disable(name, output)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, state, err := o.Impl.Disable(svc, name, output)
 	return result, state, err
 }
 
-func (o *Disable) Undo(state op.UndoState) error {
+func (o *Disable) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateDisable(state)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return err
+	}
+	return o.Impl.CompensateDisable(svc, state)
 }
 
 // Exists — Exists returns true if the named service exists on the system.
@@ -150,7 +203,12 @@ func (o *Exists) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 		return nil, nil, nil
 	}
 
-	result, err := o.Impl.Exists(name)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, err := o.Impl.Exists(svc, name)
 	return result, nil, err
 }
 
@@ -167,7 +225,12 @@ func (o *Running) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	result, err := o.Impl.Running(name)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, err := o.Impl.Running(svc, name)
 	return result, nil, err
 }
 
@@ -184,7 +247,12 @@ func (o *Enabled) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	result, err := o.Impl.Enabled(name)
+	svc, err := serviceManager(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, err := o.Impl.Enabled(svc, name)
 	return result, nil, err
 }
 

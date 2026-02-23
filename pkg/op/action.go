@@ -42,7 +42,9 @@ type CompensableAction interface {
 	Action
 
 	// Undo performs the compensating action using the state captured by Do.
-	Undo(state UndoState) error
+	// The context provides access to platform abstractions (Host) needed
+	// for compensation.
+	Undo(ctx *Context, state UndoState) error
 }
 
 // Context provides execution context to actions.
@@ -67,4 +69,9 @@ type Context struct {
 	// NodeID is the ID of the currently executing node. Flow actions use
 	// this to identify themselves (e.g., gather uses it for proxy context).
 	NodeID string
+
+	// Host provides platform abstractions (package manager, service
+	// manager) to action providers. Nil when running in environments
+	// where host access is not needed (e.g., pure data transforms).
+	Host HostProvider
 }

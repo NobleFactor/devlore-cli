@@ -173,17 +173,17 @@ func buildIndex(domain, domainPath string) (*KnowledgeIndex, error) { //nolint:u
 
 		switch assetType {
 		case "prompts":
-			index.Prompts = mergePrompts(files, existing.Prompts)
+			index.Prompts = mergeEntries(files, existing.Prompts, func(n string) PromptEntry { return PromptEntry{Name: n} })
 		case "schemas":
-			index.Schemas = mergeSchemas(files, existing.Schemas)
+			index.Schemas = mergeEntries(files, existing.Schemas, func(n string) SchemaEntry { return SchemaEntry{Name: n} })
 		case "examples":
-			index.Examples = mergeExamples(files, existing.Examples)
+			index.Examples = mergeEntries(files, existing.Examples, func(n string) ExampleEntry { return ExampleEntry{Name: n} })
 		case "transforms":
-			index.Transforms = mergeTransforms(files, existing.Transforms)
+			index.Transforms = mergeEntries(files, existing.Transforms, func(n string) TransformEntry { return TransformEntry{Name: n} })
 		case "signatures":
-			index.Signatures = mergeSignatures(files, existing.Signatures)
+			index.Signatures = mergeEntries(files, existing.Signatures, func(n string) SignatureEntry { return SignatureEntry{Name: n} })
 		case "slots":
-			index.Slots = mergeSlots(files, existing.Slots)
+			index.Slots = mergeEntries(files, existing.Slots, func(n string) SlotEntry { return SlotEntry{Name: n} })
 		}
 	}
 
@@ -226,106 +226,33 @@ func listFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-// Merge functions preserve existing metadata for files that still exist,
-// add new files with empty metadata, and remove entries for deleted files.
-
-func mergePrompts(files []string, existing []PromptEntry) []PromptEntry {
-	existingMap := make(map[string]PromptEntry)
-	for _, e := range existing {
-		existingMap[e.Name] = e
-	}
-
-	var result []PromptEntry
-	for _, f := range files {
-		if e, ok := existingMap[f]; ok {
-			result = append(result, e)
-		} else {
-			result = append(result, PromptEntry{Name: f})
-		}
-	}
-	return result
+// named is the constraint for entry types with a Name field.
+type named interface {
+	PromptEntry | SchemaEntry | ExampleEntry | TransformEntry | SignatureEntry | SlotEntry
+	getName() string
 }
 
-func mergeSchemas(files []string, existing []SchemaEntry) []SchemaEntry {
-	existingMap := make(map[string]SchemaEntry)
+func (e PromptEntry) getName() string    { return e.Name }
+func (e SchemaEntry) getName() string    { return e.Name }
+func (e ExampleEntry) getName() string   { return e.Name }
+func (e TransformEntry) getName() string { return e.Name }
+func (e SignatureEntry) getName() string { return e.Name }
+func (e SlotEntry) getName() string      { return e.Name }
+
+// mergeEntries preserves existing metadata for files that still exist,
+// adds new files via newFn, and removes entries for deleted files.
+func mergeEntries[T named](files []string, existing []T, newFn func(string) T) []T {
+	existingMap := make(map[string]T)
 	for _, e := range existing {
-		existingMap[e.Name] = e
+		existingMap[e.getName()] = e
 	}
 
-	var result []SchemaEntry
+	var result []T
 	for _, f := range files {
 		if e, ok := existingMap[f]; ok {
 			result = append(result, e)
 		} else {
-			result = append(result, SchemaEntry{Name: f})
-		}
-	}
-	return result
-}
-
-func mergeExamples(files []string, existing []ExampleEntry) []ExampleEntry {
-	existingMap := make(map[string]ExampleEntry)
-	for _, e := range existing {
-		existingMap[e.Name] = e
-	}
-
-	var result []ExampleEntry
-	for _, f := range files {
-		if e, ok := existingMap[f]; ok {
-			result = append(result, e)
-		} else {
-			result = append(result, ExampleEntry{Name: f})
-		}
-	}
-	return result
-}
-
-func mergeTransforms(files []string, existing []TransformEntry) []TransformEntry {
-	existingMap := make(map[string]TransformEntry)
-	for _, e := range existing {
-		existingMap[e.Name] = e
-	}
-
-	var result []TransformEntry
-	for _, f := range files {
-		if e, ok := existingMap[f]; ok {
-			result = append(result, e)
-		} else {
-			result = append(result, TransformEntry{Name: f})
-		}
-	}
-	return result
-}
-
-func mergeSignatures(files []string, existing []SignatureEntry) []SignatureEntry {
-	existingMap := make(map[string]SignatureEntry)
-	for _, e := range existing {
-		existingMap[e.Name] = e
-	}
-
-	var result []SignatureEntry
-	for _, f := range files {
-		if e, ok := existingMap[f]; ok {
-			result = append(result, e)
-		} else {
-			result = append(result, SignatureEntry{Name: f})
-		}
-	}
-	return result
-}
-
-func mergeSlots(files []string, existing []SlotEntry) []SlotEntry {
-	existingMap := make(map[string]SlotEntry)
-	for _, e := range existing {
-		existingMap[e.Name] = e
-	}
-
-	var result []SlotEntry
-	for _, f := range files {
-		if e, ok := existingMap[f]; ok {
-			result = append(result, e)
-		} else {
-			result = append(result, SlotEntry{Name: f})
+			result = append(result, newFn(f))
 		}
 	}
 	return result

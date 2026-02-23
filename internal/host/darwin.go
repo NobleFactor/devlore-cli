@@ -316,6 +316,21 @@ func (m *launchdManager) Exists(name string) bool {
 	return result.OK
 }
 
+func (m *launchdManager) IsRunning(name string) bool {
+	out, err := exec.CommandContext(context.Background(), "launchctl", "list", name).Output() //nolint:gosec // G204: command built from provider inputs
+	if err != nil {
+		return false
+	}
+	// launchctl list <name> shows PID in first column; "-" means not running
+	fields := strings.Fields(string(out))
+	return len(fields) > 0 && fields[0] != "-"
+}
+
+func (m *launchdManager) IsEnabled(_ string) bool {
+	// macOS launchd has no clean is-enabled query — conservative default
+	return false
+}
+
 func (m *launchdManager) Status(name string) string {
 	result := runShellCommand("launchctl list "+name, false)
 	if result.OK {

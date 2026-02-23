@@ -31,7 +31,7 @@ func (o *Clone) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSta
 	return result, state, err
 }
 
-func (o *Clone) Undo(state op.UndoState) error {
+func (o *Clone) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}

@@ -12,6 +12,14 @@ func init() {
 	op.RegisterProvider(Register)
 }
 
+// packageHost extracts the HostProvider from the execution context.
+func packageHost(ctx *op.Context) (op.HostProvider, error) {
+	if ctx.Host == nil {
+		return nil, fmt.Errorf("pkg actions require Host in execution context")
+	}
+	return ctx.Host, nil
+}
+
 // Install — Install installs packages using the platform's package manager. Returns compensation state with pre-install status per package.
 type Install struct{ Impl *Provider }
 
@@ -27,15 +35,24 @@ func (o *Install) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Install(packages, manager, cask)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, state, err := o.Impl.Install(host, packages, manager, cask)
 	return result, state, err
 }
 
-func (o *Install) Undo(state op.UndoState) error {
+func (o *Install) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateInstall(state)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return err
+	}
+	return o.Impl.CompensateInstall(host, state)
 }
 
 // Upgrade — Upgrade upgrades packages using the platform's package manager. Returns compensation state with pre-upgrade versions per package.
@@ -53,11 +70,16 @@ func (o *Upgrade) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Upgrade(packages, manager, cask)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, state, err := o.Impl.Upgrade(host, packages, manager, cask)
 	return result, state, err
 }
 
-func (o *Upgrade) Undo(state op.UndoState) error {
+func (o *Upgrade) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
@@ -79,15 +101,24 @@ func (o *Remove) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Remove(packages, manager, cask)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, state, err := o.Impl.Remove(host, packages, manager, cask)
 	return result, state, err
 }
 
-func (o *Remove) Undo(state op.UndoState) error {
+func (o *Remove) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateRemove(state)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return err
+	}
+	return o.Impl.CompensateRemove(host, state)
 }
 
 // Update — Update refreshes the package manager index.
@@ -103,7 +134,12 @@ func (o *Update) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 		return nil, nil, nil
 	}
 
-	result, err := o.Impl.Update(manager)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, err := o.Impl.Update(host, manager)
 	return result, nil, err
 }
 
@@ -120,7 +156,12 @@ func (o *Installed) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Und
 		return nil, nil, nil
 	}
 
-	result, err := o.Impl.Installed(name)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, err := o.Impl.Installed(host, name)
 	return result, nil, err
 }
 
@@ -137,7 +178,12 @@ func (o *NotInstalled) Do(ctx *op.Context, slots map[string]any) (op.Result, op.
 		return nil, nil, nil
 	}
 
-	result, err := o.Impl.NotInstalled(name)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, err := o.Impl.NotInstalled(host, name)
 	return result, nil, err
 }
 
@@ -155,7 +201,12 @@ func (o *VersionGTE) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Un
 		return nil, nil, nil
 	}
 
-	result, err := o.Impl.VersionGTE(name, version)
+	host, err := packageHost(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result, err := o.Impl.VersionGTE(host, name, version)
 	return result, nil, err
 }
 

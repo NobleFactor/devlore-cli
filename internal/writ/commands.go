@@ -23,6 +23,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
@@ -482,6 +483,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
+		Host:               execution.NewHostProvider(host.NewHost()),
 		ConflictResolution: execution.ResolutionOverwrite,
 	})
 

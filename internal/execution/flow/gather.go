@@ -152,7 +152,7 @@ func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 
 	if gatherErr != nil {
 		// Unwind all completed iterations.
-		_ = a.undoCompleted(undoState) //nolint:errcheck // compensation is best-effort during error unwind
+		_ = a.undoCompleted(ctx, undoState) //nolint:errcheck // compensation is best-effort during error unwind
 		return nil, nil, gatherErr
 	}
 
@@ -164,16 +164,16 @@ func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 }
 
 // Undo walks iterations in reverse and calls Action.Undo per entry.
-func (a *Gather) Undo(state op.UndoState) error {
+func (a *Gather) Undo(ctx *op.Context, state op.UndoState) error {
 	gs, ok := state.(*gatherUndoState)
 	if !ok || gs == nil {
 		return nil
 	}
-	return a.undoCompleted(gs)
+	return a.undoCompleted(ctx, gs)
 }
 
 // undoCompleted unwinds all iterations that have recovery entries.
-func (a *Gather) undoCompleted(gs *gatherUndoState) error {
+func (a *Gather) undoCompleted(ctx *op.Context, gs *gatherUndoState) error {
 	var errs []error
 	for i := len(gs.Iterations) - 1; i >= 0; i-- {
 		iter := gs.Iterations[i]
@@ -183,7 +183,7 @@ func (a *Gather) undoCompleted(gs *gatherUndoState) error {
 			if !ok {
 				continue
 			}
-			if err := undoable.Undo(entry.UndoState); err != nil {
+			if err := undoable.Undo(ctx, entry.UndoState); err != nil {
 				if errors.Is(err, op.ErrNotCompensable) {
 					continue
 				}

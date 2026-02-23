@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides file system actions. Each method receives all
@@ -69,21 +71,20 @@ func (p *Provider) Link(source, path string) (result string, state map[string]an
 
 // CompensateLink undoes a Link action using the captured state.
 func (p *Provider) CompensateLink(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	path, ok := s["path"].(string)
-	if !ok || path == "" {
+	path := op.StateString(s, "path")
+	if path == "" {
 		return nil
 	}
-	existed, ok := s["existed_before"].(bool)
-	if !ok || !existed {
+	if !op.StateBool(s, "existed_before") {
 		return os.Remove(path)
 	}
-	prevTarget, ok := s["previous_target"].(string)
-	if !ok || prevTarget == "" {
-		// Was a non-symlink — can't restore, just remove the new symlink
+	prevTarget := op.StateString(s, "previous_target")
+	if prevTarget == "" {
+		// Was a non-symlink — can't restore, just remove the new symlink.
 		return os.Remove(path)
 	}
 	if err := os.Remove(path); err != nil {
@@ -139,24 +140,23 @@ func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (checksum
 
 // CompensateCopy undoes a Copy action using the captured state.
 func (p *Provider) CompensateCopy(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	path, ok := s["path"].(string)
-	if !ok || path == "" {
+	path := op.StateString(s, "path")
+	if path == "" {
 		return nil
 	}
-	existed, ok := s["existed_before"].(bool)
-	if !ok || !existed {
+	if !op.StateBool(s, "existed_before") {
 		return os.Remove(path)
 	}
-	prev, ok := s["previous_content"].([]byte)
-	if !ok {
-		return nil // Can't restore without content
+	prev := op.StateBytes(s, "previous_content")
+	if prev == nil {
+		return nil // Can't restore without content.
 	}
-	prevMode, ok := s["previous_mode"].(os.FileMode)
-	if !ok || prevMode == 0 {
+	prevMode := op.StateFileMode(s, "previous_mode")
+	if prevMode == 0 {
 		prevMode = 0o644
 	}
 	return os.WriteFile(path, prev, prevMode)
@@ -192,16 +192,13 @@ func (p *Provider) Backup(path, backupSuffix string) (result string, state map[s
 // CompensateBackup undoes a Backup by moving the backup back to the
 // original path.
 func (p *Provider) CompensateBackup(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	originalPath, ok := s["original_path"].(string)
-	if !ok {
-		return nil
-	}
-	backupPath, ok := s["backup_path"].(string)
-	if !ok || originalPath == "" || backupPath == "" {
+	originalPath := op.StateString(s, "original_path")
+	backupPath := op.StateString(s, "backup_path")
+	if originalPath == "" || backupPath == "" {
 		return nil
 	}
 	return os.Rename(backupPath, originalPath)
@@ -250,16 +247,13 @@ func (p *Provider) Unlink(path string, prune bool, pruneBoundary string) (result
 
 // CompensateUnlink undoes an Unlink by re-creating the symlink.
 func (p *Provider) CompensateUnlink(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	path, ok := s["path"].(string)
-	if !ok {
-		return nil
-	}
-	target, ok := s["target"].(string)
-	if !ok || path == "" || target == "" {
+	path := op.StateString(s, "path")
+	target := op.StateString(s, "target")
+	if path == "" || target == "" {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -306,20 +300,20 @@ func (p *Provider) Remove(path string, prune bool, pruneBoundary string) (result
 // CompensateRemove undoes a Remove by re-creating the file with saved
 // content and mode.
 func (p *Provider) CompensateRemove(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	path, ok := s["path"].(string)
-	if !ok || path == "" {
+	path := op.StateString(s, "path")
+	if path == "" {
 		return nil
 	}
-	content, ok := s["content"].([]byte)
-	if !ok {
-		return nil // Can't restore without content
+	content := op.StateBytes(s, "content")
+	if content == nil {
+		return nil // Can't restore without content.
 	}
-	mode, ok := s["mode"].(os.FileMode)
-	if !ok || mode == 0 {
+	mode := op.StateFileMode(s, "mode")
+	if mode == 0 {
 		mode = 0o644
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -377,24 +371,23 @@ func (p *Provider) Write(content, path string, mode os.FileMode) (result string,
 
 // CompensateWrite undoes a Write action using the captured state.
 func (p *Provider) CompensateWrite(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	path, ok := s["path"].(string)
-	if !ok || path == "" {
+	path := op.StateString(s, "path")
+	if path == "" {
 		return nil
 	}
-	existed, ok := s["existed_before"].(bool)
-	if !ok || !existed {
+	if !op.StateBool(s, "existed_before") {
 		return os.Remove(path)
 	}
-	prev, ok := s["previous_content"].([]byte)
-	if !ok {
-		return nil // Can't restore without content
+	prev := op.StateBytes(s, "previous_content")
+	if prev == nil {
+		return nil // Can't restore without content.
 	}
-	prevMode, ok := s["previous_mode"].(os.FileMode)
-	if !ok || prevMode == 0 {
+	prevMode := op.StateFileMode(s, "previous_mode")
+	if prevMode == 0 {
 		prevMode = 0o644
 	}
 	return os.WriteFile(path, prev, prevMode)
@@ -439,16 +432,13 @@ func (p *Provider) Move(gitMv func(src, dst string) error, source, path string) 
 // CompensateMove undoes a Move by moving the file back from path to
 // source.
 func (p *Provider) CompensateMove(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	source, ok := s["source"].(string)
-	if !ok {
-		return nil
-	}
-	path, ok := s["path"].(string)
-	if !ok || source == "" || path == "" {
+	source := op.StateString(s, "source")
+	path := op.StateString(s, "path")
+	if source == "" || path == "" {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(source), 0o750); err != nil {

@@ -26,6 +26,19 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
 )
 
+// mockServiceManager is a stub ServiceManagerProvider for tests.
+type mockServiceManager struct {
+	startErr error
+}
+
+func (m *mockServiceManager) Exists(_ string) bool    { return false }
+func (m *mockServiceManager) IsRunning(_ string) bool { return false }
+func (m *mockServiceManager) IsEnabled(_ string) bool { return false }
+func (m *mockServiceManager) Start(name string) error { return m.startErr }
+func (m *mockServiceManager) Stop(_ string) error     { return nil }
+func (m *mockServiceManager) Enable(_ string) error   { return nil }
+func (m *mockServiceManager) Disable(_ string) error  { return nil }
+
 // --- pkg action dry-run tests ---
 
 func TestPkgInstallDryRun(t *testing.T) {
@@ -231,7 +244,8 @@ func TestServiceDisableDryRun(t *testing.T) {
 
 func TestServiceEmptyName(t *testing.T) {
 	p := &service.Provider{}
-	_, _, err := p.Start("", os.Stdout)
+	svc := &mockServiceManager{startErr: fmt.Errorf("empty service name")}
+	_, _, err := p.Start(svc, "", os.Stdout)
 	if err == nil {
 		t.Fatal("expected error for empty service name")
 	}

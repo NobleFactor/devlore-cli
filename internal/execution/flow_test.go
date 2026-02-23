@@ -24,7 +24,7 @@ func (a *flowAction) Name() string { return a.name }
 func (a *flowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
 	return a.result, "undo:" + a.name, nil
 }
-func (a *flowAction) Undo(_ op.UndoState) error {
+func (a *flowAction) Undo(_ *op.Context, _ op.UndoState) error {
 	return nil
 }
 
@@ -103,7 +103,7 @@ func TestFlowChooseDoWhenFalseNoElse(t *testing.T) {
 func TestFlowChooseUndo(t *testing.T) {
 	action := &flow.Choose{}
 
-	err := action.Undo(nil)
+	err := action.Undo(nil, nil)
 	if err != nil {
 		t.Fatalf("flow.choose Undo: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestFlowGatherDoProxySlots(t *testing.T) {
 func TestFlowGatherUndo(t *testing.T) {
 	action := &flow.Gather{}
 
-	err := action.Undo(nil)
+	err := action.Undo(nil, nil)
 	if err != nil {
 		t.Fatalf("flow.gather Undo: %v", err)
 	}

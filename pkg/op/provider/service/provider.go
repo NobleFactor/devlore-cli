@@ -5,28 +5,21 @@
 package service
 
 import (
-	"context"
 	"fmt"
 	"io"
-	"os/exec"
-	"runtime"
-	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides platform-agnostic service management.
-// Platform detection happens at runtime — callers don't need to know
-// whether launchd, systemd, or Windows services are being used.
+// All platform-specific behavior is delegated to the ServiceManagerProvider
+// injected via op.Context.Host.
 //
 // Compensable Forward methods return (string, map[string]any, error):
 // the service name, the compensation receipt, and an error. The map is
 // opaque to the executor, meaningful only to the corresponding
 // Compensate* Backward method.
-type Provider struct {
-	// Test hooks. Nil means use real platform implementation.
-	runFn       func(io.Writer, string, ...string) error
-	isRunningFn func(string) bool
-	isEnabledFn func(string) bool
-}
+type Provider struct{}
 
 // Start starts a service. Returns compensation state with pre-action
 // running status.
@@ -35,12 +28,13 @@ type Provider struct {
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
 // +devlore:access=planned
-func (p *Provider) Start(name string, output io.Writer) (result string, state map[string]any, retErr error) {
-	wasRunning := p.isRunning(name)
+func (p *Provider) Start(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+	wasRunning := svc.IsRunning(name)
 
-	if err := p.run(output, startArgs(name)...); err != nil {
+	if err := svc.Start(name); err != nil {
 		return "", nil, err
 	}
+	_, _ = fmt.Fprintf(output, "started service %s\n", name) //nolint:errcheck // status output to writer
 	return name, map[string]any{
 		"name":        name,
 		"was_running": wasRunning,
@@ -49,20 +43,19 @@ func (p *Provider) Start(name string, output io.Writer) (result string, state ma
 
 // CompensateStart undoes a Start by stopping the service if it wasn't
 // running before.
-func (p *Provider) CompensateStart(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+func (p *Provider) CompensateStart(svc op.ServiceManagerProvider, state any) error {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	name, ok := s["name"].(string)
-	if !ok || name == "" {
+	name := op.StateString(s, "name")
+	if name == "" {
 		return nil
 	}
-	wasRunning, ok := s["was_running"].(bool)
-	if ok && wasRunning {
+	if op.StateBool(s, "was_running") {
 		return nil // Was already running — no-op
 	}
-	return p.run(io.Discard, stopArgs(name)...)
+	return svc.Stop(name)
 }
 
 // Stop stops a service. Returns compensation state with pre-action
@@ -72,12 +65,13 @@ func (p *Provider) CompensateStart(state any) error {
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
 // +devlore:access=planned
-func (p *Provider) Stop(name string, output io.Writer) (result string, state map[string]any, retErr error) {
-	wasRunning := p.isRunning(name)
+func (p *Provider) Stop(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+	wasRunning := svc.IsRunning(name)
 
-	if err := p.run(output, stopArgs(name)...); err != nil {
+	if err := svc.Stop(name); err != nil {
 		return "", nil, err
 	}
+	_, _ = fmt.Fprintf(output, "stopped service %s\n", name) //nolint:errcheck // status output to writer
 	return name, map[string]any{
 		"name":        name,
 		"was_running": wasRunning,
@@ -86,20 +80,19 @@ func (p *Provider) Stop(name string, output io.Writer) (result string, state map
 
 // CompensateStop undoes a Stop by starting the service if it was
 // running before.
-func (p *Provider) CompensateStop(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+func (p *Provider) CompensateStop(svc op.ServiceManagerProvider, state any) error {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	name, ok := s["name"].(string)
-	if !ok || name == "" {
+	name := op.StateString(s, "name")
+	if name == "" {
 		return nil
 	}
-	wasRunning, ok := s["was_running"].(bool)
-	if !ok || !wasRunning {
+	if !op.StateBool(s, "was_running") {
 		return nil // Wasn't running — no-op
 	}
-	return p.run(io.Discard, startArgs(name)...)
+	return svc.Start(name)
 }
 
 // Restart restarts a service. Returns compensation state. Compensation
@@ -109,10 +102,14 @@ func (p *Provider) CompensateStop(state any) error {
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
 // +devlore:access=planned
-func (p *Provider) Restart(name string, output io.Writer) (result string, state map[string]any, retErr error) {
-	if err := p.run(output, restartArgs(name)...); err != nil {
-		return "", nil, err
+func (p *Provider) Restart(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+	if err := svc.Stop(name); err != nil {
+		return "", nil, fmt.Errorf("stop before restart: %w", err)
 	}
+	if err := svc.Start(name); err != nil {
+		return "", nil, fmt.Errorf("start after restart: %w", err)
+	}
+	_, _ = fmt.Fprintf(output, "restarted service %s\n", name) //nolint:errcheck // status output to writer
 	return name, map[string]any{
 		"name": name,
 	}, nil
@@ -131,12 +128,13 @@ func (p *Provider) CompensateRestart(_ any) error {
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
 // +devlore:access=planned
-func (p *Provider) Enable(name string, output io.Writer) (result string, state map[string]any, retErr error) {
-	wasEnabled := p.isEnabled(name)
+func (p *Provider) Enable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+	wasEnabled := svc.IsEnabled(name)
 
-	if err := p.run(output, enableArgs(name)...); err != nil {
+	if err := svc.Enable(name); err != nil {
 		return "", nil, err
 	}
+	_, _ = fmt.Fprintf(output, "enabled service %s\n", name) //nolint:errcheck // status output to writer
 	return name, map[string]any{
 		"name":        name,
 		"was_enabled": wasEnabled,
@@ -145,20 +143,19 @@ func (p *Provider) Enable(name string, output io.Writer) (result string, state m
 
 // CompensateEnable undoes an Enable by disabling the service if it
 // wasn't enabled before.
-func (p *Provider) CompensateEnable(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+func (p *Provider) CompensateEnable(svc op.ServiceManagerProvider, state any) error {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	name, ok := s["name"].(string)
-	if !ok || name == "" {
+	name := op.StateString(s, "name")
+	if name == "" {
 		return nil
 	}
-	wasEnabled, ok := s["was_enabled"].(bool)
-	if ok && wasEnabled {
+	if op.StateBool(s, "was_enabled") {
 		return nil // Was already enabled — no-op
 	}
-	return p.run(io.Discard, disableArgs(name)...)
+	return svc.Disable(name)
 }
 
 // Disable disables a service from starting at boot. Returns
@@ -168,12 +165,13 @@ func (p *Provider) CompensateEnable(state any) error {
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
 //
 // +devlore:access=planned
-func (p *Provider) Disable(name string, output io.Writer) (result string, state map[string]any, retErr error) {
-	wasEnabled := p.isEnabled(name)
+func (p *Provider) Disable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+	wasEnabled := svc.IsEnabled(name)
 
-	if err := p.run(output, disableArgs(name)...); err != nil {
+	if err := svc.Disable(name); err != nil {
 		return "", nil, err
 	}
+	_, _ = fmt.Fprintf(output, "disabled service %s\n", name) //nolint:errcheck // status output to writer
 	return name, map[string]any{
 		"name":        name,
 		"was_enabled": wasEnabled,
@@ -182,20 +180,19 @@ func (p *Provider) Disable(name string, output io.Writer) (result string, state 
 
 // CompensateDisable undoes a Disable by enabling the service if it was
 // enabled before.
-func (p *Provider) CompensateDisable(state any) error {
-	s, ok := state.(map[string]any)
-	if !ok || s == nil {
+func (p *Provider) CompensateDisable(svc op.ServiceManagerProvider, state any) error {
+	s := op.AsStateMap(state)
+	if s == nil {
 		return nil
 	}
-	name, ok := s["name"].(string)
-	if !ok || name == "" {
+	name := op.StateString(s, "name")
+	if name == "" {
 		return nil
 	}
-	wasEnabled, ok := s["was_enabled"].(bool)
-	if !ok || !wasEnabled {
+	if !op.StateBool(s, "was_enabled") {
 		return nil // Wasn't enabled — no-op
 	}
-	return p.run(io.Discard, enableArgs(name)...)
+	return svc.Enable(name)
 }
 
 // --- Predicates ---
@@ -206,18 +203,8 @@ func (p *Provider) CompensateDisable(state any) error {
 //   - name: Service name to check
 //
 // +devlore:access=both
-func (p *Provider) Exists(name string) (bool, error) {
-	switch runtime.GOOS {
-	case "linux":
-		return exec.CommandContext(context.Background(), "systemctl", "cat", name).Run() == nil, nil //nolint:gosec // G204: command built from provider inputs
-	case "darwin":
-		_, err := exec.CommandContext(context.Background(), "launchctl", "list", name).Output() //nolint:gosec // G204: command built from provider inputs
-		return err == nil, nil
-	case "windows":
-		return exec.CommandContext(context.Background(), "sc", "query", name).Run() == nil, nil //nolint:gosec // G204: command built from provider inputs
-	default:
-		return false, nil
-	}
+func (p *Provider) Exists(svc op.ServiceManagerProvider, name string) (bool, error) {
+	return svc.Exists(name), nil
 }
 
 // Running returns true if the named service is currently running.
@@ -226,8 +213,8 @@ func (p *Provider) Exists(name string) (bool, error) {
 //   - name: Service name to check
 //
 // +devlore:access=both
-func (p *Provider) Running(name string) (bool, error) {
-	return p.isRunning(name), nil
+func (p *Provider) Running(svc op.ServiceManagerProvider, name string) (bool, error) {
+	return svc.IsRunning(name), nil
 }
 
 // Enabled returns true if the named service is enabled to start at boot.
@@ -236,134 +223,6 @@ func (p *Provider) Running(name string) (bool, error) {
 //   - name: Service name to check
 //
 // +devlore:access=both
-func (p *Provider) Enabled(name string) (bool, error) {
-	return p.isEnabled(name), nil
-}
-
-// --- Platform-specific command builders ---
-
-func startArgs(name string) []string {
-	switch runtime.GOOS {
-	case "darwin":
-		return []string{"launchctl", "start", name}
-	case "linux":
-		return []string{"sudo", "systemctl", "start", name}
-	case "windows":
-		return []string{"sc", "start", name}
-	default:
-		return nil
-	}
-}
-
-func stopArgs(name string) []string {
-	switch runtime.GOOS {
-	case "darwin":
-		return []string{"launchctl", "stop", name}
-	case "linux":
-		return []string{"sudo", "systemctl", "stop", name}
-	case "windows":
-		return []string{"sc", "stop", name}
-	default:
-		return nil
-	}
-}
-
-func restartArgs(name string) []string {
-	switch runtime.GOOS {
-	case "darwin":
-		return []string{"launchctl", "kickstart", "-k", "gui/" + name}
-	case "linux":
-		return []string{"sudo", "systemctl", "restart", name}
-	case "windows":
-		// Windows has no native restart — handled in run()
-		return []string{"sc", "start", name}
-	default:
-		return nil
-	}
-}
-
-func enableArgs(name string) []string {
-	switch runtime.GOOS {
-	case "darwin":
-		return []string{"launchctl", "enable", "gui/" + name}
-	case "linux":
-		return []string{"sudo", "systemctl", "enable", name}
-	case "windows":
-		return []string{"sc", "config", name, "start=auto"}
-	default:
-		return nil
-	}
-}
-
-func disableArgs(name string) []string {
-	switch runtime.GOOS {
-	case "darwin":
-		return []string{"launchctl", "disable", "gui/" + name}
-	case "linux":
-		return []string{"sudo", "systemctl", "disable", name}
-	case "windows":
-		return []string{"sc", "config", name, "start=disabled"}
-	default:
-		return nil
-	}
-}
-
-// --- Internal helpers ---
-
-func (p *Provider) run(output io.Writer, args ...string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-	if p.runFn != nil {
-		return p.runFn(output, args[0], args[1:]...)
-	}
-	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...) //nolint:gosec // G204: service management requires dynamic command construction
-	cmd.Stdout = output
-	cmd.Stderr = output
-	return cmd.Run()
-}
-
-func (p *Provider) isRunning(name string) bool {
-	if p.isRunningFn != nil {
-		return p.isRunningFn(name)
-	}
-	switch runtime.GOOS {
-	case "linux":
-		return exec.CommandContext(context.Background(), "systemctl", "is-active", "--quiet", name).Run() == nil //nolint:gosec // G204: command built from provider inputs
-	case "darwin":
-		out, err := exec.CommandContext(context.Background(), "launchctl", "list", name).Output() //nolint:gosec // G204: command built from provider inputs
-		if err != nil {
-			return false
-		}
-		// launchctl list <name> shows PID in first column; "-" means not running
-		fields := strings.Fields(string(out))
-		return len(fields) > 0 && fields[0] != "-"
-	case "windows":
-		out, err := exec.CommandContext(context.Background(), "sc", "query", name).Output() //nolint:gosec // G204: command built from provider inputs
-		if err != nil {
-			return false
-		}
-		return strings.Contains(string(out), "RUNNING")
-	default:
-		return false
-	}
-}
-
-func (p *Provider) isEnabled(name string) bool {
-	if p.isEnabledFn != nil {
-		return p.isEnabledFn(name)
-	}
-	switch runtime.GOOS {
-	case "linux":
-		return exec.CommandContext(context.Background(), "systemctl", "is-enabled", "--quiet", name).Run() == nil //nolint:gosec // G204: command built from provider inputs
-	case "windows":
-		out, err := exec.CommandContext(context.Background(), "sc", "qc", name).Output() //nolint:gosec // G204: command built from provider inputs
-		if err != nil {
-			return false
-		}
-		return strings.Contains(string(out), "AUTO_START")
-	default:
-		// macOS launchd has no clean is-enabled query — conservative default
-		return false
-	}
+func (p *Provider) Enabled(svc op.ServiceManagerProvider, name string) (bool, error) {
+	return svc.IsEnabled(name), nil
 }

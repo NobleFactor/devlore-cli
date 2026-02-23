@@ -261,6 +261,16 @@ func (m *windowsServiceManager) Exists(name string) bool {
 	return result.OK
 }
 
+func (m *windowsServiceManager) IsRunning(name string) bool {
+	result := runWindowsCommand("sc query "+name, false)
+	return result.OK && strings.Contains(result.Stdout, "RUNNING")
+}
+
+func (m *windowsServiceManager) IsEnabled(name string) bool {
+	result := runWindowsCommand("sc qc "+name, false)
+	return result.OK && strings.Contains(result.Stdout, "AUTO_START")
+}
+
 func (m *windowsServiceManager) Status(name string) string {
 	result := runWindowsCommand("sc query "+name, false)
 	if !result.OK {
