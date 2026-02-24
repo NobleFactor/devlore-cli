@@ -19,6 +19,8 @@ import (
 // the resource path, the compensation receipt, and an error. The map is
 // opaque to the executor, meaningful only to the corresponding
 // Compensate* Backward method.
+//
+// +devlore:access=both
 type Provider struct{}
 
 // Link creates a symlink at path pointing to source. Idempotent: if the
@@ -27,8 +29,6 @@ type Provider struct{}
 // Parameters:
 //   - source: Absolute path to the symlink target
 //   - path: Absolute path where the symlink will be created
-//
-// +devlore:access=planned
 func (p *Provider) Link(source, path string) (result string, state map[string]any, retErr error) {
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -99,8 +99,6 @@ func (p *Provider) CompensateLink(state any) error {
 // Parameters:
 //   - path: Absolute path where the file will be written
 //   - mode: File permission bits (e.g., 0o644)
-//
-// +devlore:access=planned
 func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (checksum string, state map[string]any, retErr error) {
 	if info, err := os.Lstat(path); err == nil {
 		state = map[string]any{
@@ -168,8 +166,6 @@ func (p *Provider) CompensateCopy(state any) error {
 // Parameters:
 //   - path: Absolute path to the file to back up
 //   - backupSuffix: Suffix appended before the timestamp (default: .writ-backup)
-//
-// +devlore:access=planned
 func (p *Provider) Backup(path, backupSuffix string) (result string, state map[string]any, retErr error) {
 	if backupSuffix == "" {
 		backupSuffix = ".writ-backup"
@@ -212,8 +208,6 @@ func (p *Provider) CompensateBackup(state any) error {
 //   - path: Absolute path to the symlink to remove
 //   - prune: If true, remove empty parent directories after unlinking
 //   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
-//
-// +devlore:access=planned
 func (p *Provider) Unlink(path string, prune bool, pruneBoundary string) (result string, compState map[string]any, retErr error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -270,8 +264,6 @@ func (p *Provider) CompensateUnlink(state any) error {
 //   - path: Absolute path to the file to delete
 //   - prune: If true, remove empty parent directories after deletion
 //   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
-//
-// +devlore:access=planned
 func (p *Provider) Remove(path string, prune bool, pruneBoundary string) (result string, compState map[string]any, retErr error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -329,8 +321,6 @@ func (p *Provider) CompensateRemove(state any) error {
 //   - content: String content to write to the file
 //   - path: Absolute path where the file will be written
 //   - mode: File permission bits (e.g., 0o644)
-//
-// +devlore:access=planned
 func (p *Provider) Write(content, path string, mode os.FileMode) (result string, compState map[string]any, retErr error) {
 	if content == "" {
 		return "", nil, fmt.Errorf("write: no content specified")
@@ -400,8 +390,6 @@ func (p *Provider) CompensateWrite(state any) error {
 // Parameters:
 //   - source: Absolute path to the file to move
 //   - path: Absolute destination path
-//
-// +devlore:access=planned
 func (p *Provider) Move(gitMv func(src, dst string) error, source, path string) (result string, compState map[string]any, retErr error) {
 	if _, err := os.Stat(source); err != nil {
 		return "", nil, fmt.Errorf("source does not exist: %w", err)
@@ -451,8 +439,6 @@ func (p *Provider) CompensateMove(state any) error {
 //
 // Parameters:
 //   - path: Absolute path to the file to read
-//
-// +devlore:access=planned
 func (p *Provider) Source(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
@@ -462,8 +448,6 @@ func (p *Provider) Source(path string) ([]byte, error) {
 // Parameters:
 //   - path: Absolute path of the directory to create
 //   - mode: Directory permission bits (e.g., 0o755)
-//
-// +devlore:access=planned
 func (p *Provider) Mkdir(path string, mode os.FileMode) (string, error) {
 	return path, os.MkdirAll(path, mode)
 }
@@ -472,8 +456,6 @@ func (p *Provider) Mkdir(path string, mode os.FileMode) (string, error) {
 //
 // Parameters:
 //   - path: Absolute path to check
-//
-// +devlore:access=both
 func (p *Provider) Exists(path string) (bool, error) {
 	_, err := os.Lstat(path)
 	return err == nil, nil
@@ -483,8 +465,6 @@ func (p *Provider) Exists(path string) (bool, error) {
 //
 // Parameters:
 //   - path: Absolute path to check
-//
-// +devlore:access=both
 func (p *Provider) IsDir(path string) (bool, error) {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir(), nil

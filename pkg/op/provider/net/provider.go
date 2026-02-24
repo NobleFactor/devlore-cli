@@ -12,14 +12,14 @@ import (
 )
 
 // Provider provides network actions.
+//
+// +devlore:access=planned
 type Provider struct{}
 
 // Download fetches the content at the given URL and returns the response body.
 //
 // Parameters:
 //   - url: HTTP(S) URL to fetch
-//
-// +devlore:access=planned
 func (p *Provider) Download(url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 	if err != nil {

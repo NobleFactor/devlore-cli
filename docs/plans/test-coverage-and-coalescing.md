@@ -233,15 +233,12 @@ clean mocking instead of unexported function hooks.
 
 ## Cross-Repo Work (noblefactor-ops.binding-unification)
 
-The code generator templates need updating so future regeneration produces the
-refactored patterns:
-
-1. **`internal/starlark/receiver_go_gen.go`** — update `tplPlanFillSlots` to emit
-   `op.FillSlot(` (already identified in prior plan, not yet done)
-2. **Action template** — update generated `Do()` methods to extract
-   `HostProvider` from `ctx.Host` and pass to provider methods
-3. **Service/Pkg action templates** — provider methods receive interface instead
-   of calling `host.NewHost()` directly
+1. ~~**`internal/starlark/codegen.go`** — `templateFuncPlanFillSlots` emits
+   `op.FillSlot(`~~ ✅ Done (committed in `c53865c`)
+2. ~~**`tpl` → `templateFunc`** — rename all template function prefixes~~ ✅ Done
+3. ~~**`config-show.star` / `config-sync.star`** — `success(` → `ui.success(`~~ ✅ Done
+4. **File rename** — `receiver_go_gen.go` → `codegen.go` (pending)
+5. **Host injection into `typeMappings`** — deferred; GoReceiver moving to provider model
 
 ---
 

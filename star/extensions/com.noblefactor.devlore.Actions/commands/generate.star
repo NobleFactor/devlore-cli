@@ -7,8 +7,8 @@
 # go.generate() to produce planned receivers, graph actions, and
 # immediate receivers.
 #
-# Each provider method carries a //+devlore:access= directive that
-# controls which artifacts it appears in:
+# The Provider struct carries a single // +devlore:access= directive
+# that controls which artifacts ALL its methods appear in:
 #   access=immediate  — immediate receiver only (default if no directive)
 #   access=planned    — planned receiver + graph action wrapper
 #   access=both       — all three artifacts
@@ -41,9 +41,6 @@ LOCAL_TEMPLATES = {
     "immediate_receiver": "immediate_receiver.go.template",
 }
 
-# Valid access levels for the +devlore:access directive.
-VALID_ACCESS_LEVELS = ["immediate", "planned", "both"]
-
 def load_template(name, ext_dir):
     """Load template content by name.
 
@@ -72,20 +69,19 @@ def to_snake(name):
             result.append(ch)
     return "".join(result)
 
-def parse_access(doc):
-    """Extract the +devlore:access level from a method's doc comment.
+def struct_access(path):
+    """Extract the +devlore:access level from the Provider struct's doc comment.
 
-    Scans for a line containing '+devlore:access=' and returns the value.
     Returns 'immediate' if no directive is found (the default).
     """
+    doc = go.type_doc(path)
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
         if "+devlore:access=" in line:
-            # Extract value after the = sign
             idx = line.index("+devlore:access=")
             value = line[idx + len("+devlore:access="):].strip()
-            if value not in VALID_ACCESS_LEVELS:
-                fail("invalid +devlore:access value %r on method (valid: %s)" % (value, ", ".join(VALID_ACCESS_LEVELS)))
+            if value not in ["immediate", "planned", "both"]:
+                fail("invalid +devlore:access value %r on Provider struct (valid: immediate, planned, both)" % value)
             return value
     return "immediate"
 
@@ -143,16 +139,17 @@ def run(ctx):
     note("Found " + str(len(filtered)) + " methods for " + struct_name)
 
     # -------------------------------------------------------------------------
-    # Derive names and build descriptors with per-method access levels
+    # Derive names and build descriptors with struct-level access
     # -------------------------------------------------------------------------
 
     # Provider identity comes from the source path, not the struct name
     provider = path.split("/")[-1]
     struct_short = provider.title()
+    access = struct_access(path)
 
     pkg_override = ctx.args.get("package", "")
 
-    # Build method descriptors with compensation pair detection and access level
+    # Build method descriptors with compensation pair detection
     all_descriptors = []
     planned_methods = []
     immediate_methods = []
@@ -167,7 +164,6 @@ def run(ctx):
                 "doc": p.doc,
             })
         compensable = ("Compensate" + m.name) in all_method_names
-        access = parse_access(m.doc)
 
         desc = {
             "name": m.name,
@@ -177,25 +173,19 @@ def run(ctx):
             "compensable": compensable,
             "file": m.file,
             "line": m.line,
-            "access": access,
         }
         all_descriptors.append(desc)
 
-        # Route to the appropriate template sets
-        if access == "planned":
-            planned_methods.append(desc)
-        elif access == "both":
-            planned_methods.append(desc)
-            immediate_methods.append(desc)
-        else:
-            # access == "immediate" (default)
-            immediate_methods.append(desc)
+    # Route all methods based on struct-level access
+    if access == "planned":
+        planned_methods = all_descriptors
+    elif access == "both":
+        planned_methods = all_descriptors
+        immediate_methods = all_descriptors
+    else:  # immediate
+        immediate_methods = all_descriptors
 
-    # Log access distribution
-    n_planned = len([d for d in all_descriptors if d["access"] == "planned"])
-    n_both = len([d for d in all_descriptors if d["access"] == "both"])
-    n_immediate = len([d for d in all_descriptors if d["access"] == "immediate"])
-    note("Access levels: %d planned, %d both, %d immediate" % (n_planned, n_both, n_immediate))
+    note("Provider access: " + access)
 
     # -------------------------------------------------------------------------
     # Determine which templates to generate
@@ -205,15 +195,15 @@ def run(ctx):
         # Explicit --templates overrides auto-detection
         templates = templates_str.split(",")
     else:
-        # Auto-detect from per-method access directives
+        # Auto-detect from struct-level access directive
         templates = []
         if planned_methods:
             templates.append("planned_receiver")
             templates.append("graph_actions")
-            note("Methods with planned/both access found — generating planned_receiver + graph_actions")
+            note("Planned access — generating planned_receiver + graph_actions")
         if immediate_methods:
             templates.append("immediate_receiver")
-            note("Methods with immediate/both access found — generating immediate_receiver")
+            note("Immediate access — generating immediate_receiver")
         if not templates:
             fail("no templates to generate — all methods filtered out")
 

@@ -19,6 +19,8 @@ import (
 // the service name, the compensation receipt, and an error. The map is
 // opaque to the executor, meaningful only to the corresponding
 // Compensate* Backward method.
+//
+// +devlore:access=both
 type Provider struct{}
 
 // Start starts a service. Returns compensation state with pre-action
@@ -26,8 +28,6 @@ type Provider struct{}
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-//
-// +devlore:access=planned
 func (p *Provider) Start(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	wasRunning := svc.IsRunning(name)
 
@@ -63,8 +63,6 @@ func (p *Provider) CompensateStart(svc op.ServiceManagerProvider, state any) err
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-//
-// +devlore:access=planned
 func (p *Provider) Stop(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	wasRunning := svc.IsRunning(name)
 
@@ -100,8 +98,6 @@ func (p *Provider) CompensateStop(svc op.ServiceManagerProvider, state any) erro
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-//
-// +devlore:access=planned
 func (p *Provider) Restart(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	if err := svc.Stop(name); err != nil {
 		return "", nil, fmt.Errorf("stop before restart: %w", err)
@@ -126,8 +122,6 @@ func (p *Provider) CompensateRestart(_ any) error {
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-//
-// +devlore:access=planned
 func (p *Provider) Enable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	wasEnabled := svc.IsEnabled(name)
 
@@ -163,8 +157,6 @@ func (p *Provider) CompensateEnable(svc op.ServiceManagerProvider, state any) er
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-//
-// +devlore:access=planned
 func (p *Provider) Disable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
 	wasEnabled := svc.IsEnabled(name)
 
@@ -201,8 +193,6 @@ func (p *Provider) CompensateDisable(svc op.ServiceManagerProvider, state any) e
 //
 // Parameters:
 //   - name: Service name to check
-//
-// +devlore:access=both
 func (p *Provider) Exists(svc op.ServiceManagerProvider, name string) (bool, error) {
 	return svc.Exists(name), nil
 }
@@ -211,8 +201,6 @@ func (p *Provider) Exists(svc op.ServiceManagerProvider, name string) (bool, err
 //
 // Parameters:
 //   - name: Service name to check
-//
-// +devlore:access=both
 func (p *Provider) Running(svc op.ServiceManagerProvider, name string) (bool, error) {
 	return svc.IsRunning(name), nil
 }
@@ -221,8 +209,6 @@ func (p *Provider) Running(svc op.ServiceManagerProvider, name string) (bool, er
 //
 // Parameters:
 //   - name: Service name to check
-//
-// +devlore:access=both
 func (p *Provider) Enabled(svc op.ServiceManagerProvider, name string) (bool, error) {
 	return svc.IsEnabled(name), nil
 }

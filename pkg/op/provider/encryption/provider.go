@@ -9,6 +9,8 @@ import "fmt"
 // Provider provides encryption and decryption actions.
 // The actual crypto backend (SOPS, age, etc.) is injected via function
 // parameters, keeping this provider independent of specific libraries.
+//
+// +devlore:access=planned
 type Provider struct{}
 
 // Decrypt decrypts content using the provided decryptor function.
@@ -17,8 +19,6 @@ type Provider struct{}
 //
 // Parameters:
 //   - source: Path to the encrypted file (enables format detection)
-//
-// +devlore:access=planned
 func (p *Provider) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error) {
 	if decryptor == nil {
 		return nil, fmt.Errorf("no decryptor configured")

@@ -18,6 +18,8 @@ import (
 // a summary of affected packages, the compensation receipt, and an error.
 // The map is opaque to the executor, meaningful only to the corresponding
 // Compensate* Backward method.
+//
+// +devlore:access=both
 type Provider struct{}
 
 // Install installs packages using the platform's package manager.
@@ -27,8 +29,6 @@ type Provider struct{}
 //   - packages: List of package names to install
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-//
-// +devlore:access=planned
 func (p *Provider) Install(host op.HostProvider, packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
 	if len(packages) == 0 {
 		return "", nil, fmt.Errorf("no packages specified")
@@ -121,8 +121,6 @@ func (p *Provider) CompensateInstall(host op.HostProvider, state any) error {
 //   - packages: List of package names to upgrade
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-//
-// +devlore:access=planned
 func (p *Provider) Upgrade(host op.HostProvider, packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
 	if len(packages) == 0 {
 		return "", nil, fmt.Errorf("no packages specified")
@@ -173,8 +171,6 @@ func (p *Provider) CompensateUpgrade(_ any) error {
 //   - packages: List of package names to remove
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-//
-// +devlore:access=planned
 func (p *Provider) Remove(host op.HostProvider, packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
 	if len(packages) == 0 {
 		return "", nil, fmt.Errorf("no packages specified")
@@ -232,8 +228,6 @@ func (p *Provider) CompensateRemove(host op.HostProvider, state any) error {
 //
 // Parameters:
 //   - manager: Package manager override (empty for auto-detect)
-//
-// +devlore:access=planned
 func (p *Provider) Update(host op.HostProvider, manager string) (string, error) {
 	pm := resolvePMForInstall(host, manager)
 	if pm == nil {
@@ -252,8 +246,6 @@ func (p *Provider) Update(host op.HostProvider, manager string) (string, error) 
 //
 // Parameters:
 //   - name: Package name to check
-//
-// +devlore:access=both
 func (p *Provider) Installed(host op.HostProvider, name string) (bool, error) {
 	pm := host.PackageManager()
 	if pm == nil {
@@ -266,8 +258,6 @@ func (p *Provider) Installed(host op.HostProvider, name string) (bool, error) {
 //
 // Parameters:
 //   - name: Package name to check
-//
-// +devlore:access=both
 func (p *Provider) NotInstalled(host op.HostProvider, name string) (bool, error) {
 	pm := host.PackageManager()
 	if pm == nil {
@@ -281,8 +271,6 @@ func (p *Provider) NotInstalled(host op.HostProvider, name string) (bool, error)
 // Parameters:
 //   - name: Package name to check
 //   - version: Minimum version string to compare against
-//
-// +devlore:access=both
 func (p *Provider) VersionGTE(host op.HostProvider, name, version string) (bool, error) {
 	pm := host.PackageManager()
 	if pm == nil {

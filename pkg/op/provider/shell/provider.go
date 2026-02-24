@@ -12,14 +12,14 @@ import (
 )
 
 // Provider provides shell command execution.
+//
+// +devlore:access=planned
 type Provider struct{}
 
 // Exec executes a POSIX shell command.
 //
 // Parameters:
 //   - command: Shell command string to execute via sh -c
-//
-// +devlore:access=planned
 func (p *Provider) Exec(command string, output io.Writer) (string, error) {
 	if command == "" {
 		return "", fmt.Errorf("no command specified")
@@ -34,8 +34,6 @@ func (p *Provider) Exec(command string, output io.Writer) (string, error) {
 //
 // Parameters:
 //   - command: PowerShell command string to execute
-//
-// +devlore:access=planned
 func (p *Provider) PowerShell(command string, output io.Writer) (string, error) {
 	cmd := exec.CommandContext(context.Background(), "powershell", "-Command", command) //nolint:gosec // G204: command built from provider inputs
 	cmd.Stdout = output

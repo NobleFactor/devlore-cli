@@ -23,6 +23,8 @@ import (
 // the extraction directory, the compensation receipt, and an error.
 // The map is opaque to the executor, meaningful only to the
 // corresponding Compensate* Backward method.
+//
+// +devlore:access=planned
 type Provider struct{}
 
 // Extract extracts an archive (tar.gz or zip) from source into the prefix directory.
@@ -32,8 +34,6 @@ type Provider struct{}
 // Parameters:
 //   - source: Path to the archive file (tar.gz, tgz, or zip)
 //   - prefix: Directory to extract into
-//
-// +devlore:access=planned
 func (p *Provider) Extract(source, prefix string) (dest string, state map[string]any, retErr error) {
 	if err := os.MkdirAll(prefix, 0o750); err != nil {
 		return "", nil, fmt.Errorf("create prefix dir: %w", err)
