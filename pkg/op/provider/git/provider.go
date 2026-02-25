@@ -24,6 +24,8 @@ type Provider struct {
 	cloneFn func(url, path string, output io.Writer) error
 }
 
+// ── Compensable Pairs ────────────────────────────────────────────────
+
 // Clone clones a repository from url into path.
 // Returns compensation state with the cloned path.
 //
@@ -49,6 +51,8 @@ func (p *Provider) CompensateClone(state any) error {
 	}
 	return os.RemoveAll(path)
 }
+
+// ── Standalone Methods ───────────────────────────────────────────────
 
 // Checkout checks out a ref in the given repository directory.
 //

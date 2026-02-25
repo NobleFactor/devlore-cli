@@ -62,28 +62,28 @@ func (p *Provider) colorize(color, text string) string {
 	return text
 }
 
-// Note informs the user of progress.
-func (p *Provider) Note(msg string) {
-	if p.Silent {
-		return
-	}
-	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGray, symbolNote), msg) //nolint:errcheck // write to stderr
-}
-
-// Warn alerts the user to a potential issue.
-func (p *Provider) Warn(msg string) {
-	if p.Silent {
-		return
-	}
-	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorYellow, symbolWarn), msg) //nolint:errcheck // write to stderr
-}
-
 // Error reports a non-fatal problem to the user.
 func (p *Provider) Error(msg string) {
 	if p.Silent {
 		return
 	}
 	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg) //nolint:errcheck // write to stderr
+}
+
+// Fail prints an error message and returns an error.
+func (p *Provider) Fail(msg string) error {
+	if !p.Silent {
+		fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg) //nolint:errcheck // write to stderr
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+// Note informs the user of progress.
+func (p *Provider) Note(msg string) {
+	if p.Silent {
+		return
+	}
+	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGray, symbolNote), msg) //nolint:errcheck // write to stderr
 }
 
 // Success confirms completion to the user.
@@ -94,10 +94,10 @@ func (p *Provider) Success(msg string) {
 	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGreen, symbolSuccess), msg) //nolint:errcheck // write to stderr
 }
 
-// Fail prints an error message and returns an error.
-func (p *Provider) Fail(msg string) error {
-	if !p.Silent {
-		fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg) //nolint:errcheck // write to stderr
+// Warn alerts the user to a potential issue.
+func (p *Provider) Warn(msg string) {
+	if p.Silent {
+		return
 	}
-	return fmt.Errorf("%s", msg)
+	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorYellow, symbolWarn), msg) //nolint:errcheck // write to stderr
 }

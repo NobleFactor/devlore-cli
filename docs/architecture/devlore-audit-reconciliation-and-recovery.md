@@ -3,7 +3,7 @@ title: "Audit, Reconciliation, and Recovery in the Execution Graph"
 issue: https://github.com/NobleFactor/devlore-cli/issues/156
 status: draft
 created: 2026-02-21
-updated: 2026-02-22
+updated: 2026-02-24
 ---
 
 # Plan: Audit, Reconciliation, and Recovery in the Execution Graph
@@ -225,9 +225,22 @@ outcome decides how to present it.
 
 #### API
 
-**`Push`** adds an entry to the stack. The caller invokes the action and
-passes the outcome's undo/reconcile state along with the compensate and
-reconcile functions:
+**`Do`** invokes an action closure, and on success pushes the resulting
+undo/reconcile state onto the stack. On failure it returns the error
+without unwinding — the caller inspects the error and decides whether to
+call `Unwind`, retry, or escalate.
+
+```go
+func (s *RecoveryStack) Do(
+    invoke         func() (undoState any, reconcileState any, err error),
+    compensate     func(any) error,
+    reconcile      func(any) (bool, error),
+) error
+```
+
+**`Push`** adds an entry to the stack directly. Used when the caller
+invokes the action itself and wants to record the outcome manually
+(e.g., the executor, which already has the `ActionOutcome`):
 
 ```go
 func (s *RecoveryStack) Push(

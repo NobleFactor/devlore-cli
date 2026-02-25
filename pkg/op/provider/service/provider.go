@@ -23,6 +23,102 @@ import (
 // +devlore:access=both
 type Provider struct{}
 
+// ── Compensable Pairs ────────────────────────────────────────────────
+
+// Disable disables a service from starting at boot. Returns
+// compensation state with pre-action enabled status.
+//
+// Parameters:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
+func (p *Provider) Disable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
+	wasEnabled := svc.IsEnabled(name)
+
+	if err := svc.Disable(name); err != nil {
+		return "", nil, err
+	}
+	_, _ = fmt.Fprintf(output, "disabled service %s\n", name) //nolint:errcheck // status output to writer
+	return name, map[string]any{
+		"name":        name,
+		"was_enabled": wasEnabled,
+	}, nil
+}
+
+// CompensateDisable undoes a Disable by enabling the service if it was
+// enabled before.
+func (p *Provider) CompensateDisable(svc op.ServiceManagerProvider, state any) error {
+	s := op.AsStateMap(state)
+	if s == nil {
+		return nil
+	}
+	name := op.StateString(s, "name")
+	if name == "" {
+		return nil
+	}
+	if !op.StateBool(s, "was_enabled") {
+		return nil // Wasn't enabled — no-op
+	}
+	return svc.Enable(name)
+}
+
+// Enable enables a service to start at boot. Returns compensation state
+// with pre-action enabled status.
+//
+// Parameters:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
+func (p *Provider) Enable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
+	wasEnabled := svc.IsEnabled(name)
+
+	if err := svc.Enable(name); err != nil {
+		return "", nil, err
+	}
+	_, _ = fmt.Fprintf(output, "enabled service %s\n", name) //nolint:errcheck // status output to writer
+	return name, map[string]any{
+		"name":        name,
+		"was_enabled": wasEnabled,
+	}, nil
+}
+
+// CompensateEnable undoes an Enable by disabling the service if it
+// wasn't enabled before.
+func (p *Provider) CompensateEnable(svc op.ServiceManagerProvider, state any) error {
+	s := op.AsStateMap(state)
+	if s == nil {
+		return nil
+	}
+	name := op.StateString(s, "name")
+	if name == "" {
+		return nil
+	}
+	if op.StateBool(s, "was_enabled") {
+		return nil // Was already enabled — no-op
+	}
+	return svc.Disable(name)
+}
+
+// Restart restarts a service. Returns compensation state. Compensation
+// is a no-op — if the service was restarted, it was already running.
+//
+// Parameters:
+//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
+func (p *Provider) Restart(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
+	if err := svc.Stop(name); err != nil {
+		return "", nil, fmt.Errorf("stop before restart: %w", err)
+	}
+	if err := svc.Start(name); err != nil {
+		return "", nil, fmt.Errorf("start after restart: %w", err)
+	}
+	_, _ = fmt.Fprintf(output, "restarted service %s\n", name) //nolint:errcheck // status output to writer
+	return name, map[string]any{
+		"name": name,
+	}, nil
+}
+
+// CompensateRestart is a no-op. A restarted service was already running;
+// the service is still running after restart — nothing to undo.
+func (p *Provider) CompensateRestart(_ any) error {
+	return nil
+}
+
 // Start starts a service. Returns compensation state with pre-action
 // running status.
 //
@@ -93,101 +189,15 @@ func (p *Provider) CompensateStop(svc op.ServiceManagerProvider, state any) erro
 	return svc.Start(name)
 }
 
-// Restart restarts a service. Returns compensation state. Compensation
-// is a no-op — if the service was restarted, it was already running.
+// ── Predicates ───────────────────────────────────────────────────────
+
+// Enabled returns true if the named service is enabled to start at boot.
 //
 // Parameters:
-//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Restart(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
-	if err := svc.Stop(name); err != nil {
-		return "", nil, fmt.Errorf("stop before restart: %w", err)
-	}
-	if err := svc.Start(name); err != nil {
-		return "", nil, fmt.Errorf("start after restart: %w", err)
-	}
-	_, _ = fmt.Fprintf(output, "restarted service %s\n", name) //nolint:errcheck // status output to writer
-	return name, map[string]any{
-		"name": name,
-	}, nil
+//   - name: Service name to check
+func (p *Provider) Enabled(svc op.ServiceManagerProvider, name string) (bool, error) {
+	return svc.IsEnabled(name), nil
 }
-
-// CompensateRestart is a no-op. A restarted service was already running;
-// the service is still running after restart — nothing to undo.
-func (p *Provider) CompensateRestart(_ any) error {
-	return nil
-}
-
-// Enable enables a service to start at boot. Returns compensation state
-// with pre-action enabled status.
-//
-// Parameters:
-//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Enable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
-	wasEnabled := svc.IsEnabled(name)
-
-	if err := svc.Enable(name); err != nil {
-		return "", nil, err
-	}
-	_, _ = fmt.Fprintf(output, "enabled service %s\n", name) //nolint:errcheck // status output to writer
-	return name, map[string]any{
-		"name":        name,
-		"was_enabled": wasEnabled,
-	}, nil
-}
-
-// CompensateEnable undoes an Enable by disabling the service if it
-// wasn't enabled before.
-func (p *Provider) CompensateEnable(svc op.ServiceManagerProvider, state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	name := op.StateString(s, "name")
-	if name == "" {
-		return nil
-	}
-	if op.StateBool(s, "was_enabled") {
-		return nil // Was already enabled — no-op
-	}
-	return svc.Disable(name)
-}
-
-// Disable disables a service from starting at boot. Returns
-// compensation state with pre-action enabled status.
-//
-// Parameters:
-//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Disable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
-	wasEnabled := svc.IsEnabled(name)
-
-	if err := svc.Disable(name); err != nil {
-		return "", nil, err
-	}
-	_, _ = fmt.Fprintf(output, "disabled service %s\n", name) //nolint:errcheck // status output to writer
-	return name, map[string]any{
-		"name":        name,
-		"was_enabled": wasEnabled,
-	}, nil
-}
-
-// CompensateDisable undoes a Disable by enabling the service if it was
-// enabled before.
-func (p *Provider) CompensateDisable(svc op.ServiceManagerProvider, state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	name := op.StateString(s, "name")
-	if name == "" {
-		return nil
-	}
-	if !op.StateBool(s, "was_enabled") {
-		return nil // Wasn't enabled — no-op
-	}
-	return svc.Enable(name)
-}
-
-// --- Predicates ---
 
 // Exists returns true if the named service exists on the system.
 //
@@ -203,12 +213,4 @@ func (p *Provider) Exists(svc op.ServiceManagerProvider, name string) (bool, err
 //   - name: Service name to check
 func (p *Provider) Running(svc op.ServiceManagerProvider, name string) (bool, error) {
 	return svc.IsRunning(name), nil
-}
-
-// Enabled returns true if the named service is enabled to start at boot.
-//
-// Parameters:
-//   - name: Service name to check
-func (p *Provider) Enabled(svc op.ServiceManagerProvider, name string) (bool, error) {
-	return svc.IsEnabled(name), nil
 }

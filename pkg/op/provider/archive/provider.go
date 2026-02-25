@@ -27,6 +27,8 @@ import (
 // +devlore:access=both
 type Provider struct{}
 
+// ── Compensable Pairs ────────────────────────────────────────────────
+
 // Extract extracts an archive (tar.gz or zip) from source into the prefix directory.
 // The archive format is detected from the file extension.
 // Returns compensation state with the list of created files.

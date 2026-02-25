@@ -21,6 +21,8 @@ import (
 // +devlore:access=both
 type Provider struct{}
 
+// ── Compensable Pairs ────────────────────────────────────────────────
+
 // Install installs packages using the platform's package manager.
 // Returns compensation state with pre-install status per package.
 //
@@ -113,56 +115,6 @@ func (p *Provider) CompensateInstall(host op.HostProvider, state any) error {
 	return nil
 }
 
-// Upgrade upgrades packages using the platform's package manager.
-// Returns compensation state with pre-upgrade versions per package.
-//
-// Parameters:
-//   - packages: List of package names to upgrade
-//   - manager: Package manager override (empty for auto-detect)
-//   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Upgrade(host op.HostProvider, packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
-	if len(packages) == 0 {
-		return nil, nil, fmt.Errorf("no packages specified")
-	}
-
-	pm := resolvePMForUpgrade(host, manager, packages)
-	if pm == nil {
-		return nil, nil, fmt.Errorf("no package manager available")
-	}
-
-	// Capture current versions before upgrading.
-	previousVersions := make(map[string]string)
-	for _, pkg := range packages {
-		if v := pm.Version(pkg); v != "" {
-			previousVersions[pkg] = v
-		}
-	}
-
-	if cask {
-		if err := runBrewCask("upgrade", packages...); err != nil {
-			return nil, nil, err
-		}
-	} else {
-		if err := pm.Install(packages...); err != nil {
-			return nil, nil, fmt.Errorf("%s upgrade failed: %w", pm.Name(), err)
-		}
-	}
-
-	return packages, map[string]any{
-		"packages":          packages,
-		"manager":           manager,
-		"cask":              cask,
-		"previous_versions": previousVersions,
-	}, nil
-}
-
-// CompensateUpgrade is a diagnostic no-op. Previous versions are captured
-// in state for manual recovery, but automatic downgrade is not reliable
-// across package managers.
-func (p *Provider) CompensateUpgrade(_ any) error {
-	return nil
-}
-
 // Remove removes packages using the platform's package manager.
 // Returns compensation state for reinstallation.
 //
@@ -223,6 +175,58 @@ func (p *Provider) CompensateRemove(host op.HostProvider, state any) error {
 	return pm.Install(packages...)
 }
 
+// Upgrade upgrades packages using the platform's package manager.
+// Returns compensation state with pre-upgrade versions per package.
+//
+// Parameters:
+//   - packages: List of package names to upgrade
+//   - manager: Package manager override (empty for auto-detect)
+//   - cask: If true, use Homebrew cask for macOS GUI apps
+func (p *Provider) Upgrade(host op.HostProvider, packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
+	if len(packages) == 0 {
+		return nil, nil, fmt.Errorf("no packages specified")
+	}
+
+	pm := resolvePMForUpgrade(host, manager, packages)
+	if pm == nil {
+		return nil, nil, fmt.Errorf("no package manager available")
+	}
+
+	// Capture current versions before upgrading.
+	previousVersions := make(map[string]string)
+	for _, pkg := range packages {
+		if v := pm.Version(pkg); v != "" {
+			previousVersions[pkg] = v
+		}
+	}
+
+	if cask {
+		if err := runBrewCask("upgrade", packages...); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if err := pm.Install(packages...); err != nil {
+			return nil, nil, fmt.Errorf("%s upgrade failed: %w", pm.Name(), err)
+		}
+	}
+
+	return packages, map[string]any{
+		"packages":          packages,
+		"manager":           manager,
+		"cask":              cask,
+		"previous_versions": previousVersions,
+	}, nil
+}
+
+// CompensateUpgrade is a diagnostic no-op. Previous versions are captured
+// in state for manual recovery, but automatic downgrade is not reliable
+// across package managers.
+func (p *Provider) CompensateUpgrade(_ any) error {
+	return nil
+}
+
+// ── Standalone Methods ───────────────────────────────────────────────
+
 // Update refreshes the package manager index.
 //
 // Parameters:
@@ -239,7 +243,7 @@ func (p *Provider) Update(host op.HostProvider, manager string) (string, error) 
 	return pm.Name(), nil
 }
 
-// --- Predicates ---
+// ── Predicates ───────────────────────────────────────────────────────
 
 // Installed returns true if the named package is installed.
 //
