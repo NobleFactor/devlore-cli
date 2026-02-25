@@ -7,29 +7,30 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func init() {
-	registerPlan("{{.Provider}}", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
-		return New{{.StructName}}Plan(graph, h, project, reg)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:   "{{.Provider}}",
+		Access: op.Access{{.AccessTitle}},
+		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
+			return New{{.StructName}}Plan(graph, project, reg)
+		},
 	})
 }
 
 type {{.StructName}}Plan struct {
 	op.Receiver
 	graph   *op.Graph
-	host    host.Host
 	project string
 	reg     *op.ActionRegistry
 }
 
-func New{{.StructName}}Plan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *{{.StructName}}Plan {
+func New{{.StructName}}Plan(graph *op.Graph, project string, reg *op.ActionRegistry) *{{.StructName}}Plan {
 	return &{{.StructName}}Plan{
 		Receiver: op.NewReceiver("{{.Namespace}}"),
 		graph:    graph,
-		host:     h,
 		project:  project,
 		reg:      reg,
 	}

@@ -9,7 +9,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "service",
+		ActionRegistrar: Register,
+	})
 }
 
 // serviceManager extracts the ServiceManagerProvider from the execution context.

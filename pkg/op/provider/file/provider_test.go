@@ -231,15 +231,13 @@ func TestCopy_WritesNewFile(t *testing.T) {
 	content := []byte("hello world")
 
 	p := Provider{}
-	checksum, state, err := p.Copy(path, 0o600, content)
+	result, state, err := p.Copy(path, 0o600, content)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
 
-	h := sha256.Sum256(content)
-	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
-	if checksum != wantChecksum {
-		t.Errorf("checksum = %q, want %q", checksum, wantChecksum)
+	if result != path {
+		t.Errorf("result = %q, want %q", result, path)
 	}
 
 	s := op.AsStateMap(state)
@@ -424,6 +422,13 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	if op.StateString(s, "backup_path") != result {
 		t.Errorf("state backup_path = %q, want %q", op.StateString(s, "backup_path"), result)
 	}
+
+	// Checksum should match the original file content.
+	h := sha256.Sum256([]byte("backup me"))
+	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
+	if got := op.StateString(s, "written_checksum"); got != wantChecksum {
+		t.Errorf("state written_checksum = %q, want %q", got, wantChecksum)
+	}
 }
 
 func TestBackup_DefaultSuffix(t *testing.T) {
@@ -474,6 +479,39 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 
 	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
 		t.Error("backup file still exists after compensation")
+	}
+}
+
+func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
+	tmp := t.TempDir()
+	originalPath := filepath.Join(tmp, "myfile.txt")
+	backupPath := filepath.Join(tmp, "myfile.txt.bak.20250101-120000")
+	if err := os.WriteFile(backupPath, []byte("tampered content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Checksum computed from different content than what's on disk.
+	h := sha256.Sum256([]byte("original content"))
+	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
+
+	state := map[string]any{
+		"original_path":    originalPath,
+		"backup_path":      backupPath,
+		"written_checksum": wrongChecksum,
+	}
+
+	p := Provider{}
+	err := p.CompensateBackup(state)
+	if err == nil {
+		t.Fatal("CompensateBackup() should return error on checksum mismatch")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("error = %q, want message containing 'checksum mismatch'", err)
+	}
+
+	// Backup file should NOT have been moved.
+	if _, err := os.Stat(backupPath); err != nil {
+		t.Error("backup file should still exist when compensation is skipped")
 	}
 }
 
@@ -614,6 +652,13 @@ func TestWrite_WritesContentToNewFile(t *testing.T) {
 		t.Error("existed_before = true, want false")
 	}
 
+	// Checksum should match the written content.
+	wh := sha256.Sum256([]byte("hello world"))
+	wantChecksum := "sha256:" + hex.EncodeToString(wh[:])
+	if got := op.StateString(s, "written_checksum"); got != wantChecksum {
+		t.Errorf("state written_checksum = %q, want %q", got, wantChecksum)
+	}
+
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
@@ -662,6 +707,13 @@ func TestMove_FallsBackToOsRename(t *testing.T) {
 	}
 	if op.StateString(s, "path") != dst {
 		t.Errorf("state path = %q, want %q", op.StateString(s, "path"), dst)
+	}
+
+	// Checksum should match the original file content.
+	h := sha256.Sum256([]byte("move me"))
+	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
+	if got := op.StateString(s, "written_checksum"); got != wantChecksum {
+		t.Errorf("state written_checksum = %q, want %q", got, wantChecksum)
 	}
 
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
@@ -736,6 +788,87 @@ func TestMove_FallsBackWhenGitMvFails(t *testing.T) {
 	}
 	if string(got) != "fallback" {
 		t.Errorf("dest content = %q, want %q", got, "fallback")
+	}
+}
+
+// --- CompensateMove ---
+
+func TestCompensateMove_NilState(t *testing.T) {
+	p := Provider{}
+	if err := p.CompensateMove(nil); err != nil {
+		t.Errorf("CompensateMove(nil) = %v, want nil", err)
+	}
+}
+
+func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "source.txt")
+	dst := filepath.Join(tmp, "dest.txt")
+	if err := os.WriteFile(dst, []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := sha256.Sum256([]byte("original"))
+	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
+
+	state := map[string]any{
+		"source":           src,
+		"path":             dst,
+		"written_checksum": wrongChecksum,
+	}
+
+	p := Provider{}
+	err := p.CompensateMove(state)
+	if err == nil {
+		t.Fatal("CompensateMove() should return error on checksum mismatch")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("error = %q, want message containing 'checksum mismatch'", err)
+	}
+
+	// File should NOT have been moved back.
+	if _, err := os.Stat(dst); err != nil {
+		t.Error("dest file should still exist when compensation is skipped")
+	}
+}
+
+// --- CompensateWrite ---
+
+func TestCompensateWrite_NilState(t *testing.T) {
+	p := Provider{}
+	if err := p.CompensateWrite(nil); err != nil {
+		t.Errorf("CompensateWrite(nil) = %v, want nil", err)
+	}
+}
+
+func TestCompensateWrite_ChecksumMismatch_ReturnsError(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "output.txt")
+	if err := os.WriteFile(path, []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := sha256.Sum256([]byte("original write"))
+	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
+
+	state := map[string]any{
+		"path":             path,
+		"existed_before":   false,
+		"written_checksum": wrongChecksum,
+	}
+
+	p := Provider{}
+	err := p.CompensateWrite(state)
+	if err == nil {
+		t.Fatal("CompensateWrite() should return error on checksum mismatch")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("error = %q, want message containing 'checksum mismatch'", err)
+	}
+
+	// File should NOT have been removed.
+	if _, err := os.Stat(path); err != nil {
+		t.Error("file should still exist when compensation is skipped")
 	}
 }
 

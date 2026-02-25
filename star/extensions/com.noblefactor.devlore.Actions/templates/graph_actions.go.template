@@ -12,7 +12,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "{{.Provider}}",
+		ActionRegistrar: Register,
+	})
 }
 {{range .Methods}}
 // {{.GoName}} — {{docSummary .Doc}}

@@ -9,7 +9,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "shell",
+		ActionRegistrar: Register,
+	})
 }
 
 // Exec — Exec executes a POSIX shell command.

@@ -46,3 +46,13 @@ func checksumBytes(data []byte) string {
 	h := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(h[:])
 }
+
+// checksumFile reads path and returns its "sha256:<hex>" checksum.
+// Returns empty string if the file cannot be read (e.g., directory, permission error).
+func checksumFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return checksumBytes(data)
+}

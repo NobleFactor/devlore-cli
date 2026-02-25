@@ -577,7 +577,7 @@ type testRetryAction struct {
 }
 
 func (o *testRetryAction) Name() string { return o.name }
-func (o *testRetryAction) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) {
+func (o *testRetryAction) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, err error) {
 	return nil, nil, o.fn(ctx, slots)
 }
 func (o *testRetryAction) Undo(_ *op.Context, _ op.UndoState) error {

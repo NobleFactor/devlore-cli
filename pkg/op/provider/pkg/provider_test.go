@@ -98,12 +98,12 @@ func TestInstall(t *testing.T) {
 	host := newMockHost(pm)
 	p := &Provider{}
 
-	summary, state, err := p.Install(host, []string{"vim", "git"}, "", false)
+	result, state, err := p.Install(host, []string{"vim", "git"}, "", false)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if summary != "vim, git" {
-		t.Errorf("Install() summary = %q, want %q", summary, "vim, git")
+	if len(result) != 2 || result[0] != "vim" || result[1] != "git" {
+		t.Errorf("Install() result = %v, want [vim git]", result)
 	}
 	if state == nil {
 		t.Fatal("Install() state is nil")
@@ -215,12 +215,12 @@ func TestUpgrade(t *testing.T) {
 	host := newMockHost(pm)
 	p := &Provider{}
 
-	summary, state, err := p.Upgrade(host, []string{"vim"}, "", false)
+	result, state, err := p.Upgrade(host, []string{"vim"}, "", false)
 	if err != nil {
 		t.Fatalf("Upgrade() error = %v", err)
 	}
-	if summary != "vim" {
-		t.Errorf("Upgrade() summary = %q, want %q", summary, "vim")
+	if len(result) != 1 || result[0] != "vim" {
+		t.Errorf("Upgrade() result = %v, want [vim]", result)
 	}
 	if state == nil {
 		t.Fatal("Upgrade() state is nil")
@@ -261,12 +261,12 @@ func TestRemove(t *testing.T) {
 	host := newMockHost(pm)
 	p := &Provider{}
 
-	summary, state, err := p.Remove(host, []string{"vim", "git"}, "", false)
+	result, state, err := p.Remove(host, []string{"vim", "git"}, "", false)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if summary != "vim, git" {
-		t.Errorf("Remove() summary = %q, want %q", summary, "vim, git")
+	if len(result) != 2 || result[0] != "vim" || result[1] != "git" {
+		t.Errorf("Remove() result = %v, want [vim git]", result)
 	}
 	if state == nil {
 		t.Fatal("Remove() state is nil")

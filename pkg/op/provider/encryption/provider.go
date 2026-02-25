@@ -10,7 +10,7 @@ import "fmt"
 // The actual crypto backend (SOPS, age, etc.) is injected via function
 // parameters, keeping this provider independent of specific libraries.
 //
-// +devlore:access=planned
+// +devlore:access=both
 type Provider struct{}
 
 // Decrypt decrypts content using the provided decryptor function.

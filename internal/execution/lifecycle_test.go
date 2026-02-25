@@ -497,7 +497,7 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 
 	sourceNode := &op.Node{
 		ID:     "greeting:source",
-		Action: &file.Source{Impl: fp},
+		Action: &file.Read{Impl: fp},
 		Status: op.StatusPending,
 	}
 	sourceNode.SetSlotImmediate("path", tmplPath)

@@ -9,14 +9,17 @@ import (
 	"strings"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/host"
+
+	// Blank import triggers init() in all provider packages,
+	// populating the binding registry via op.RegisterBinding().
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 // BuildResult contains the built execution graph and metadata for packages.
@@ -148,7 +151,7 @@ func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, erro
 
 // resolve returns the resolved platform, action registry, and registry client,
 // auto-creating any that are nil on the Planner.
-func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegistry, resolvedRegistry *lorepackage.Registry, retErr error) {
+func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegistry, resolvedRegistry *lorepackage.Registry, err error) {
 	plat := p.Platform
 	if plat == "" {
 		plat = detectPlatform()
@@ -157,7 +160,7 @@ func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegi
 	reg := p.ActionRegistry
 	if reg == nil {
 		reg = op.NewActionRegistry()
-		provider.RegisterAll(reg)
+		loreStar.NewBindingSet(op.BindingConfig{}).RegisterActions(reg)
 	}
 
 	regClient := p.RegistryClient
@@ -289,7 +292,7 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, h host.Host, p
 // (named for the lifecycle phase, e.g., "install", "provision") and returns
 // the retry policy if one was configured via phase.retry().
 func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (*op.RetryPolicy, error) {
-	thread, globals, pkgContext, _, err := prepareScriptEnv(graph, pkg, h, action, cfg, reg)
+	thread, globals, pkgContext, err := prepareScriptEnv(graph, pkg, h, action, cfg, reg)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +302,13 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host,
 		return nil, fmt.Errorf("reading script %s: %w", action.Path, err)
 	}
 
-	scriptGlobals, err := starlark.ExecFile(thread, action.Path, data, globals)
+	scriptGlobals, err := starlark.ExecFileOptions(&syntax.FileOptions{
+		Set:             true,
+		While:           true,
+		TopLevelControl: true,
+		GlobalReassign:  true,
+		Recursion:       true,
+	}, thread, action.Path, data, globals)
 	if err != nil {
 		return nil, fmt.Errorf("executing script: %w", err)
 	}
@@ -336,11 +345,16 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host,
 }
 
 // prepareScriptEnv creates the Starlark thread and globals needed to execute
-// a phase script. plan and ui are injected as globals.
+// a phase script. plan and ui are injected as globals via BindingSet.
 func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (
-	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, *loreStar.PlanRoot, error, //nolint:unparam // error return reserved for future use
+	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, error, //nolint:unparam // error return reserved for future use
 ) {
-	planBindings := loreStar.NewPlanRoot(graph, h, pkg.Name, reg)
+	bs := loreStar.NewBindingSet(op.BindingConfig{
+		Writer:      os.Stdout,
+		ProgramName: "lore",
+		Color:       true,
+	})
+	globals := bs.BuildGlobals(graph, pkg.Name, reg)
 
 	lifecycle := pkg.Lifecycle()
 	features := lifecycle.EnabledFeatures(cfg.Features)
@@ -363,16 +377,7 @@ func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, ac
 		},
 	}
 
-	globals := starlark.StringDict{
-		"plan": planBindings,
-		"ui": loreStar.NewUiReceiver(&ui.Provider{
-			Writer:      os.Stdout,
-			ProgramName: "lore",
-			Color:       true,
-		}),
-	}
-
-	return thread, globals, pkgContext, planBindings, nil
+	return thread, globals, pkgContext, nil
 }
 
 // addNativePMNodes adds nodes for a native package manager action.

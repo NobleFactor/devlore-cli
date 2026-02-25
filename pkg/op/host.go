@@ -4,7 +4,7 @@
 package op
 
 // HostProvider exposes platform abstractions to action providers.
-// Implemented by the adapter in internal/execution wrapping internal/host.Host.
+// Implemented by the adapter in internal/execution wrapping pkg/op/provider/host.Host.
 type HostProvider interface {
 	// PackageManager returns the preferred package manager.
 	PackageManager() PackageManagerProvider

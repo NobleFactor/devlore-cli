@@ -10,7 +10,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "file",
+		ActionRegistrar: Register,
+	})
 }
 
 // Link — Link creates a symlink at path pointing to source. Idempotent: if the symlink already points correctly, it's a no-op (returns nil state).
@@ -196,20 +199,20 @@ func (o *Move) Undo(_ *op.Context, state op.UndoState) error {
 	return o.Impl.CompensateMove(state)
 }
 
-// Source — Source reads a file and returns its contents.
-type Source struct{ Impl *Provider }
+// Read — Read reads a file and returns its contents.
+type Read struct{ Impl *Provider }
 
-func (o *Source) Name() string { return "file.source" }
+func (o *Read) Name() string { return "file.read" }
 
-func (o *Source) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
+func (o *Read) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
 	path := slots["path"].(string)
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.source %v\n", path)
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.read %v\n", path)
 		return nil, nil, nil
 	}
 
-	result, err := o.Impl.Source(path)
+	result, err := o.Impl.Read(path)
 	return result, nil, err
 }
 
@@ -275,7 +278,7 @@ func Register(reg *op.ActionRegistry) {
 	reg.Register(&Remove{Impl: p})
 	reg.Register(&Write{Impl: p})
 	reg.Register(&Move{Impl: p})
-	reg.Register(&Source{Impl: p})
+	reg.Register(&Read{Impl: p})
 	reg.Register(&Mkdir{Impl: p})
 	reg.Register(&Exists{Impl: p})
 	reg.Register(&IsDir{Impl: p})

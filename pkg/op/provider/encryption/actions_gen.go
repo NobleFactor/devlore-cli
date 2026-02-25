@@ -9,7 +9,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "encryption",
+		ActionRegistrar: Register,
+	})
 }
 
 // Decrypt — Decrypt decrypts content using the provided decryptor function. The source path enables format detection (e.g., .sops.yaml vs .sops.json). Returns the decrypted bytes.

@@ -18,7 +18,7 @@ import (
 // opaque to the executor, meaningful only to the corresponding
 // Compensate* Backward method.
 //
-// +devlore:access=planned
+// +devlore:access=both
 type Provider struct {
 	// Test hooks. Nil means use real git commands.
 	cloneFn func(url, path string, output io.Writer) error

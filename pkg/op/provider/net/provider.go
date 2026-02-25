@@ -13,7 +13,7 @@ import (
 
 // Provider provides network actions.
 //
-// +devlore:access=planned
+// +devlore:access=both
 type Provider struct{}
 
 // Download fetches the content at the given URL and returns the response body.

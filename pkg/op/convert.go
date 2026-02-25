@@ -33,6 +33,15 @@ func GoToStarlarkValue(v any) (starlark.Value, error) {
 	}
 }
 
+// StringSliceToList converts a Go []string to a Starlark list of strings.
+func StringSliceToList(s []string) *starlark.List {
+	elems := make([]starlark.Value, len(s))
+	for i, v := range s {
+		elems[i] = starlark.String(v)
+	}
+	return starlark.NewList(elems)
+}
+
 // StarlarkValueToGo converts a Starlark value to a native Go value.
 func StarlarkValueToGo(v starlark.Value) (any, error) {
 	switch val := v.(type) {

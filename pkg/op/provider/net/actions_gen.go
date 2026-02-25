@@ -9,7 +9,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "net",
+		ActionRegistrar: Register,
+	})
 }
 
 // Download — Download fetches the content at the given URL and returns the response body.

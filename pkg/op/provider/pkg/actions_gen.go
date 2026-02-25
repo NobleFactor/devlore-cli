@@ -9,7 +9,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "pkg",
+		ActionRegistrar: Register,
+	})
 }
 
 // packageHost extracts the HostProvider from the execution context.

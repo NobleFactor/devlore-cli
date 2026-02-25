@@ -6,8 +6,8 @@ package execution
 import (
 	"fmt"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/host"
 )
 
 // NewHostProvider wraps a host.Host in the op.HostProvider interface.

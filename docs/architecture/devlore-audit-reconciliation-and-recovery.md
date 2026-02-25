@@ -27,6 +27,42 @@ The action knows the resource, its identity, and its state. The coordinator know
 the timeline, the correlation, and the outcome. Neither trespasses on the other's
 domain.
 
+### Provider Access Contexts
+
+The provider is the same code in every context — it is the boundary that
+changes. A provider returns clean errors and clean results. It never knows
+which context called it. It never prefixes errors with "compensate" or
+"plan-time" because those words belong to the caller. The boundary layer adds
+meaning; the provider reports facts.
+
+| Context | Boundary Layer | What the Boundary Knows | Error Context It Adds |
+|---------|---------------|------------------------|----------------------|
+| **Application** | Go call site | CLI command, user intent | Feature-appropriate wrapping (e.g., `"backup failed: %w"`) |
+| **Planning** | Starlark receiver | Plan file, line number, function name, slot bindings | Plan-time location and validation context (e.g., `"deploy.star:42 file.copy: %w"`) |
+| **Executing** | Executor / coordinator | Node ID, action name, phase (do/undo/reconcile), timing | `ExecutionEvent` envelope |
+
+**Application** — Go code calls a provider method directly. There is no graph,
+no executor, no event envelope. The CLI might use `ui.Provider` for
+user-facing messages, or `file.Provider` for a one-off operation inside
+`lore`, `star`, or `writ`. Error wrapping is the caller's responsibility.
+
+**Planning** — Starlark receivers call provider methods to build or validate
+the execution graph. Methods marked `+devlore:access=immediate` execute during
+planning; methods marked `+devlore:access=planned` record nodes for later
+execution. Errors carry plan-file location, the Starlark function name, and
+slot bindings — context the provider cannot and should not know.
+
+**Executing** — The executor runs graph nodes. This is where `ExecutionEvent`
+lives. The coordinator wraps the action's raw error in an envelope that carries
+the node ID, action name, execution phase, timing, and outcome status. The
+provider never encodes phase names like "compensate" because it does not know
+whether it is being called as a forward action, a compensation, or a
+reconciliation — the executor does.
+
+The `+devlore:access` annotation already models which providers are available
+in which contexts. Error wrapping follows the same boundary: the provider is
+context-agnostic, the caller is context-aware.
+
 ## Goals
 
 1. **Recovery**: Preserve LIFO undo state for saga rollback (what we have today,
@@ -148,6 +184,116 @@ The generator verifies that the **third return type** of `ActionX` matches the
 **first input type** of `ReconcileActionX`. This creates a compile-time safety
 chain — if the reconciliation contract is broken, the build fails.
 
+### 1d. The RecoveryStack — Shared Coordination Primitive
+
+The `RecoveryStack` lives in `pkg/op`, not `internal/execution`. It is the
+shared primitive for the invoke→reconcile→undo lifecycle, available to all
+three access contexts.
+
+**Principle: the stack records; the caller controls.** The stack does not
+auto-unwind on invoke failure. The caller inspects the error and decides
+whether to unwind, retry, or escalate.
+
+```go
+// RecoveryStack manages a LIFO stack of compensable operations.
+// It orchestrates the reconcile→undo dance on unwind.
+type RecoveryStack struct { ... }
+
+func NewRecoveryStack() *RecoveryStack
+```
+
+#### ActionOutcome
+
+Every operation — whether invoked by the `RecoveryStack`, the executor, or
+application code — produces a typed outcome:
+
+```go
+// ActionOutcome is the complete result of invoking a compensable action.
+type ActionOutcome[T any, U any, V any] struct {
+    Result         T
+    UndoState      U
+    ReconcileState V
+    Error          error
+}
+```
+
+The type parameters carry through from the provider method signature.
+For `file.Copy`: `T` is `string` (the path), `U` is the undo state type,
+`V` is the reconcile state type. The `Error` field carries the raw provider
+error — no prefixes, no context. The boundary layer that receives the
+outcome decides how to present it.
+
+#### API
+
+**`Push`** adds an entry to the stack. The caller invokes the action and
+passes the outcome's undo/reconcile state along with the compensate and
+reconcile functions:
+
+```go
+func (s *RecoveryStack) Push(
+    compensate     func(any) error,
+    reconcile      func(any) (bool, error),
+    undoState      any,
+    reconcileState any,
+)
+```
+
+**`Unwind`** walks the stack in LIFO order. For each entry, it calls
+reconcile first. If the resource has drifted, it skips the undo for that
+entry and records the error. If reconcile confirms the resource is
+unchanged, it calls compensate. Returns joined errors from all entries.
+
+```go
+func (s *RecoveryStack) Unwind() error
+```
+
+The reconcile→undo dance inside `Unwind`:
+
+```
+for each entry (LIFO):
+    drifted, err := entry.reconcile(entry.reconcileState)
+    if err != nil  → record error, continue
+    if drifted     → record ErrDrifted for this entry, skip undo, continue
+    err = entry.compensate(entry.undoState)
+    if err != nil  → record error, continue
+```
+
+Unwind is best-effort: a failure in one entry does not stop the remaining
+entries from being unwound. All errors are collected and returned via
+`errors.Join`.
+
+**`Discard`** drops all entries without unwinding. Called on success when
+undo state is no longer needed.
+
+```go
+func (s *RecoveryStack) Discard()
+```
+
+#### Reconcile as the Safety Gate for Undo
+
+Compensation methods (`CompensateX`) are pure mechanical reversal. They do
+not verify resource state — that is reconciliation's job. The
+`RecoveryStack.Unwind` method enforces this by always calling reconcile
+before compensate.
+
+This means:
+
+- `CompensateCopy` does not check checksums. It restores previous content.
+- `CompensateBackup` does not verify the backup file. It renames it back.
+- `CompensateMove` does not read the destination. It renames it back.
+
+The checksum verification that previously lived inside each `CompensateX`
+method moves to the corresponding `ReconcileX` method. The stack is the
+only place where reconcile and compensate meet.
+
+#### Usage Across Contexts
+
+| Context | How it uses the stack |
+|---------|----------------------|
+| **Application** | Go code creates a `RecoveryStack`, invokes provider methods directly, and calls `Push` with the undo/reconcile state from each `ActionOutcome`. On failure, calls `Unwind`. On success, calls `Discard`. |
+| **Planning** | Not used. Planning records nodes; it does not execute or undo them. |
+| **Executing** | The executor creates a `RecoveryStack` per phase. After each node's `Do`, it calls `Push` with the recovery and reconciliation payloads from the `ExecutionEvent`. On failure, it calls `Unwind`. On success, it calls `Discard`. |
+
 ### 2. The Coordinator Wraps It in an Envelope
 
 The executor produces an `ExecutionEvent` for every node it executes. This
@@ -260,21 +406,28 @@ the fields it cares about.
 
 #### Consumer A: Recovery Stack
 
-The recovery stack reads `event.Recovery`. It pushes `RecoveryPayload` entries
-and unwinds them on failure. Once the graph completes successfully, the stack
-is discarded (undo state is no longer needed).
+The executor feeds the `RecoveryStack` (see §1d) from the event's recovery
+and reconciliation payloads. After each successful node, the executor calls
+`Push` with the compensate function, reconcile function, undo state, and
+reconciliation state.
 
 ```
-executeNode() --> event.Recovery --> RecoveryStack.Push()
-                                       |
-                                  (on failure)
-                                       |
-                                  RecoveryStack.Unwind() --> CompensableAction.Undo()
+executeNode() --> event.Recovery + event.Reconciliation
+                      |
+                      v
+                  RecoveryStack.Push(compensate, reconcile, undoState, reconcileState)
+                      |
+                 (on failure)
+                      |
+                  RecoveryStack.Unwind()
+                      |
+                  for each entry (LIFO):
+                      Reconcile(reconcileState) --> drifted?
+                          if clean --> Compensate(undoState)
+                          if drifted --> skip, record ErrDrifted
 ```
 
-The recovery stack becomes simpler: it stores `RecoveryPayload` instead of
-`RecoveryEntry{Node, UndoState}`. No more carrying `*Node` references --
-the payload has everything it needs.
+On success, the executor calls `Discard` — undo state is no longer needed.
 
 #### Consumer B: Audit Ledger
 
@@ -330,9 +483,9 @@ pipeline works like this:
    Reconcile method re-reads the file, computes the current hash, and
    compares against the stored hash. Returns `(true, nil)` if drifted.
 
-3. **Safety gate**: Before `Undo`, the Coordinator can call `Reconcile`.
-   If drifted, a human or another agent modified the resource — automated
-   undo is dangerous. The system halts and alerts.
+3. **Safety gate**: `RecoveryStack.Unwind` calls `Reconcile` before each
+   `Undo` (see §1d). If drifted, a human or another agent modified the
+   resource — the entry is skipped and `ErrDrifted` is recorded.
 
 4. **Repair**: If drift is detected and `--fix` is requested, the reconcile
    command re-executes the deploy graph for drifted resources.
@@ -374,23 +527,32 @@ hook.
 ### Phase 1: Action Interface Evolution
 
 Extend the `Action.Do` signature to return reconciliation data as a 4th value.
-Define the `ExecutionEvent` and `ReconcilableAction` interface.
+Define the `ExecutionEvent`, `ReconcilableAction` interface, and move the
+`RecoveryStack` to `pkg/op` as a shared coordination primitive.
 
 - [ ] Add `ReconciliationState` type alias (currently `any`)
 - [ ] Update `Action.Do` to return `(Result, UndoState, ReconciliationState, error)`
 - [ ] Add `ReconcilableAction` interface with `Reconcile(ReconciliationState) (bool, error)`
 - [ ] Add `ExecutionEvent`, `RecoveryPayload`, `ReconciliationPayload` types
-- [ ] Update `executeNode` to handle the 4-value return
-- [ ] Refactor `RecoveryStack` to accept `RecoveryPayload` instead of `RecoveryEntry`
+- [ ] Move `RecoveryStack` to `pkg/op` with `Do`, `Push`, `Unwind`, `Discard` API
+- [ ] `Unwind` implements the reconcile→undo dance (reconcile before each compensate)
+- [ ] `Do` invokes via closure, pushes on success, does not auto-unwind on failure
+- [ ] Add `ErrDrifted` sentinel for reconcile-detected drift during unwind
+- [ ] Update `executeNode` to handle the 4-value return and use the new `RecoveryStack.Push`
+- [ ] Strip checksum verification from all `CompensateX` methods (moves to `ReconcileX` in Phase 2)
+- [ ] Add `ActionOutcome[T, U, V]` generic type
+- [ ] Strip hardcoded error prefixes from provider methods (context added by boundary layer)
 
 **Files**:
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `execution/action.go` | Modify | Extend `Action.Do` signature, add `ReconcilableAction` |
-| `execution/event.go` | Create | `ExecutionEvent`, payloads |
-| `execution/recovery.go` | Modify | Accept `RecoveryPayload` |
-| `execution/executor.go` | Modify | Handle 4-value return, produce `ExecutionEvent` |
+| `pkg/op/action.go` | Modify | Extend `Action.Do` signature, add `ReconcilableAction` |
+| `pkg/op/recovery.go` | Create | `RecoveryStack` with `Do`/`Push`/`Unwind`/`Discard`, `ErrDrifted` |
+| `pkg/op/event.go` | Create | `ExecutionEvent`, payloads |
+| `internal/execution/executor.go` | Modify | Handle 4-value return, produce `ExecutionEvent`, use `op.RecoveryStack` |
+| `internal/execution/recovery.go` | Delete | Replaced by `pkg/op/recovery.go` |
+| `pkg/op/provider/*/provider.go` | Modify | Strip checksum verification from `CompensateX`, strip error prefixes |
 
 ### Phase 2: Provider Reconcile Methods
 
@@ -479,8 +641,10 @@ Update the code generator to enforce the three-method triangle: `ActionX`,
   `Node.Status` approach), or should it be a separate artifact?
 - [ ] Can the `EventSink` pattern replace `LifecycleHook` entirely, or do hooks
   serve a distinct purpose (external observation vs internal coordination)?
-- [ ] Should the `Reconcile` safety gate before `Undo` be opt-in or default?
-  Default is safer but adds latency to rollback. Opt-in risks silent data loss.
+- [x] ~~Should the `Reconcile` safety gate before `Undo` be opt-in or default?~~
+  **Resolved**: Default. `RecoveryStack.Unwind` always reconciles before
+  compensating (§1d). The stack is the only place where reconcile and
+  compensate meet — `CompensateX` methods are pure mechanical reversal.
 - [ ] Self-healing loop: should the Coordinator run periodic `Reconcile` sweeps
   automatically, or only on explicit `writ reconcile` invocation?
 

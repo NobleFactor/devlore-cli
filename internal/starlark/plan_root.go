@@ -9,33 +9,31 @@ import (
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // PlanRoot implements the top-level plan namespace using the slot-based model.
-// Sub-namespaces are dynamically populated from the plan registry (each
-// planned_*_gen.go registers via init()).
+// Sub-namespaces are populated from PlannedFactory functions selected by
+// BindingSet. Flow actions (choose, source, gather) are built-in.
 type PlanRoot struct {
 	graph   *op.Graph
-	host    host.Host
 	project string
 	reg     *op.ActionRegistry
 
-	// Sub-namespaces built from planRegistry.
+	// Sub-namespaces built from PlannedFactory bindings.
 	plans map[string]starlark.Value
 }
 
-// NewPlanRoot creates a new PlanRoot for the given graph and host.
-// Sub-namespaces are built dynamically from the plan registry.
-func NewPlanRoot(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *PlanRoot {
-	plans := make(map[string]starlark.Value, len(planRegistry))
-	for name, factory := range planRegistry {
-		plans[name] = factory(graph, h, project, reg)
+// NewPlanRootFromFactories creates a PlanRoot using filtered PlannedFactory
+// functions from the binding registry. Consumers select providers via
+// BindingSet, which passes the filtered factory map here.
+func NewPlanRootFromFactories(graph *op.Graph, project string, reg *op.ActionRegistry, factories map[string]op.PlannedFactory) *PlanRoot {
+	plans := make(map[string]starlark.Value, len(factories))
+	for name, factory := range factories {
+		plans[name] = factory(graph, project, reg)
 	}
 	return &PlanRoot{
 		graph:   graph,
-		host:    h,
 		project: project,
 		reg:     reg,
 		plans:   plans,
@@ -171,7 +169,7 @@ func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 
 	node := &op.Node{
 		ID:      op.GenerateNodeID("source"),
-		Action:  p.reg.MustGet("file.source"),
+		Action:  p.reg.MustGet("file.read"),
 		Project: p.project,
 	}
 

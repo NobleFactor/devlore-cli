@@ -34,7 +34,7 @@ type Choose struct{}
 func (a *Choose) Name() string { return "flow.choose" }
 
 // Do reads the boolean condition and executes the matching branch phase.
-func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) {
+func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, err error) {
 	when, _ := slots["when"].(bool)          //nolint:errcheck // zero value (false) is acceptable default
 	thenPhaseID, _ := slots["then"].(string) //nolint:errcheck // zero value (empty) is acceptable
 	elsePhaseID, _ := slots["else"].(string) //nolint:errcheck // zero value (empty) is acceptable

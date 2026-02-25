@@ -28,7 +28,7 @@ type Provider struct{}
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Start(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+func (p *Provider) Start(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
 	wasRunning := svc.IsRunning(name)
 
 	if err := svc.Start(name); err != nil {
@@ -63,7 +63,7 @@ func (p *Provider) CompensateStart(svc op.ServiceManagerProvider, state any) err
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Stop(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+func (p *Provider) Stop(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
 	wasRunning := svc.IsRunning(name)
 
 	if err := svc.Stop(name); err != nil {
@@ -98,7 +98,7 @@ func (p *Provider) CompensateStop(svc op.ServiceManagerProvider, state any) erro
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Restart(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+func (p *Provider) Restart(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
 	if err := svc.Stop(name); err != nil {
 		return "", nil, fmt.Errorf("stop before restart: %w", err)
 	}
@@ -122,7 +122,7 @@ func (p *Provider) CompensateRestart(_ any) error {
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Enable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+func (p *Provider) Enable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
 	wasEnabled := svc.IsEnabled(name)
 
 	if err := svc.Enable(name); err != nil {
@@ -157,7 +157,7 @@ func (p *Provider) CompensateEnable(svc op.ServiceManagerProvider, state any) er
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Disable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, retErr error) {
+func (p *Provider) Disable(svc op.ServiceManagerProvider, name string, output io.Writer) (result string, state map[string]any, err error) {
 	wasEnabled := svc.IsEnabled(name)
 
 	if err := svc.Disable(name); err != nil {

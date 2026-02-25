@@ -176,7 +176,7 @@ func StubAction(name string) Action { return &stubAction{name: name} }
 type stubAction struct{ name string }
 
 func (s *stubAction) Name() string { return s.name }
-func (s *stubAction) Do(_ *Context, _ map[string]any) (result Result, undoState UndoState, retErr error) {
+func (s *stubAction) Do(_ *Context, _ map[string]any) (result Result, undoState UndoState, err error) {
 	return nil, nil, fmt.Errorf("stub action %q cannot be executed — call HydrateGraph first", s.name)
 }
 

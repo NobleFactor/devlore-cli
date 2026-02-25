@@ -6,19 +6,13 @@ package op
 // ProviderRegistrar registers a provider's actions with an ActionRegistry.
 type ProviderRegistrar func(*ActionRegistry)
 
-// providerRegistrars collects self-registration functions from provider
-// packages. Populated by init() in generated actions_gen.go files.
-var providerRegistrars []ProviderRegistrar
-
-// RegisterProvider adds a provider registrar. Called from init() in each
-// provider's generated actions_gen.go.
-func RegisterProvider(fn ProviderRegistrar) {
-	providerRegistrars = append(providerRegistrars, fn)
-}
-
-// RegisterAllProviders calls all registered provider registrars.
+// RegisterAllProviders calls ActionRegistrar for every registered provider
+// binding. Used by consumers that only need action registration without
+// Starlark globals (tests, migrate, execution engine).
 func RegisterAllProviders(reg *ActionRegistry) {
-	for _, fn := range providerRegistrars {
-		fn(reg)
+	for _, b := range AllBindings() {
+		if b.ActionRegistrar != nil {
+			b.ActionRegistrar(reg)
+		}
 	}
 }

@@ -21,7 +21,7 @@ type flowAction struct {
 }
 
 func (a *flowAction) Name() string { return a.name }
-func (a *flowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, retErr error) {
+func (a *flowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
 	return a.result, "undo:" + a.name, nil
 }
 func (a *flowAction) Undo(_ *op.Context, _ op.UndoState) error {

@@ -90,7 +90,7 @@ func TestAllProvidersCount(t *testing.T) {
 	}
 
 	expected := []string{
-		"file.link", "file.copy", "file.backup", "file.unlink", "file.remove", "file.write", "file.move", "file.mkdir", "file.source", "file.exists", "file.is_dir",
+		"file.link", "file.copy", "file.backup", "file.unlink", "file.remove", "file.write", "file.move", "file.mkdir", "file.read", "file.exists", "file.is_dir",
 		"encryption.decrypt",
 		"template.render",
 		"pkg.install", "pkg.upgrade", "pkg.remove", "pkg.update", "pkg.installed", "pkg.not_installed", "pkg.version_gte",
@@ -1170,7 +1170,7 @@ func TestSourceAction(t *testing.T) {
 	}
 
 	p := &file.Provider{}
-	action := &file.Source{Impl: p}
+	action := &file.Read{Impl: p}
 	ctx := &op.Context{Context: context.Background()}
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", source)

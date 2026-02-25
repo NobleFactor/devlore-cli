@@ -296,6 +296,46 @@ def install(package, phase):
     plan.gather(items=list, do=lambda item: ...)
 ```
 
+## Provider Method Contracts
+
+Provider methods follow one of two return contracts:
+
+| Contract | Signature | Expectation |
+|----------|-----------|-------------|
+| **Compensable** | `(T, U, error)` | `CompensateAction` and `ReconcileAction` companion methods exist |
+| **Non-compensable** | `(T, error)` | No companion methods. Predicates, queries, or pure transforms |
+
+T, U are concrete types chosen by the provider — not type aliases.
+
+### Return value: the object of the action
+
+The first return value (T) is the **object** of the action — the thing acted
+upon. It answers "to whom or what?" in the sentence "the engine _verbed_ the
+_object_."
+
+| Method | Returns | Object |
+|--------|---------|--------|
+| `Link(source, path)` | `path` | The symlink created |
+| `Copy(path, mode, content)` | `path` | The file written |
+| `Backup(path, suffix)` | `backupPath` | The backup created |
+| `Remove(path, ...)` | `path` | The file deleted |
+| `Install(packages, ...)` | `packages` | The packages installed |
+| `Start(name)` | `name` | The service started |
+| `Clone(url, path)` | `path` | The directory cloned into |
+| `Extract(source, prefix)` | `prefix` | The extraction directory |
+| `Exists(path)` | `bool` | Whether the path exists |
+| `Read(path)` | `[]byte` | The file content read |
+
+Do not return derived or summary values (checksums, formatted strings). Return
+the resource that was acted upon.
+
+### Undo state: the compensation receipt
+
+The second return value (U) in compensable methods is the **undo state** — an
+opaque receipt that the corresponding `CompensateAction` method uses to reverse
+the action. The executor stores it as-is; only the Compensate method interprets
+it.
+
 ## Naming Conventions
 
 | Layer | Convention | Example |

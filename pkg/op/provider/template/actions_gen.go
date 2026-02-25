@@ -9,7 +9,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "template",
+		ActionRegistrar: Register,
+	})
 }
 
 // Render — Render processes content as a Go text/template. Returns the rendered bytes.

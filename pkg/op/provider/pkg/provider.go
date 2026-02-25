@@ -5,7 +5,6 @@ package pkg
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -14,8 +13,8 @@ import (
 // All platform-specific behavior is delegated to the HostProvider
 // injected via op.Context.Host.
 //
-// Compensable Forward methods return (string, map[string]any, error):
-// a summary of affected packages, the compensation receipt, and an error.
+// Compensable Forward methods return ([]string, map[string]any, error):
+// the packages acted upon, the compensation receipt, and an error.
 // The map is opaque to the executor, meaningful only to the corresponding
 // Compensate* Backward method.
 //
@@ -29,14 +28,14 @@ type Provider struct{}
 //   - packages: List of package names to install
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Install(host op.HostProvider, packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
+func (p *Provider) Install(host op.HostProvider, packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
 	if len(packages) == 0 {
-		return "", nil, fmt.Errorf("no packages specified")
+		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
 	pm := resolvePMForInstall(host, manager)
 	if pm == nil {
-		return "", nil, fmt.Errorf("no package manager available")
+		return nil, nil, fmt.Errorf("no package manager available")
 	}
 
 	// Query which packages are already installed before acting.
@@ -49,15 +48,15 @@ func (p *Provider) Install(host op.HostProvider, packages []string, manager stri
 
 	if cask {
 		if err := runBrewCask("install", packages...); err != nil {
-			return "", nil, err
+			return nil, nil, err
 		}
 	} else {
 		if err := pm.Install(packages...); err != nil {
-			return "", nil, fmt.Errorf("%s install failed: %w", pm.Name(), err)
+			return nil, nil, fmt.Errorf("%s install failed: %w", pm.Name(), err)
 		}
 	}
 
-	return strings.Join(packages, ", "), map[string]any{
+	return packages, map[string]any{
 		"packages":          packages,
 		"manager":           manager,
 		"cask":              cask,
@@ -121,14 +120,14 @@ func (p *Provider) CompensateInstall(host op.HostProvider, state any) error {
 //   - packages: List of package names to upgrade
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Upgrade(host op.HostProvider, packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
+func (p *Provider) Upgrade(host op.HostProvider, packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
 	if len(packages) == 0 {
-		return "", nil, fmt.Errorf("no packages specified")
+		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
 	pm := resolvePMForUpgrade(host, manager, packages)
 	if pm == nil {
-		return "", nil, fmt.Errorf("no package manager available")
+		return nil, nil, fmt.Errorf("no package manager available")
 	}
 
 	// Capture current versions before upgrading.
@@ -141,15 +140,15 @@ func (p *Provider) Upgrade(host op.HostProvider, packages []string, manager stri
 
 	if cask {
 		if err := runBrewCask("upgrade", packages...); err != nil {
-			return "", nil, err
+			return nil, nil, err
 		}
 	} else {
 		if err := pm.Install(packages...); err != nil {
-			return "", nil, fmt.Errorf("%s upgrade failed: %w", pm.Name(), err)
+			return nil, nil, fmt.Errorf("%s upgrade failed: %w", pm.Name(), err)
 		}
 	}
 
-	return strings.Join(packages, ", "), map[string]any{
+	return packages, map[string]any{
 		"packages":          packages,
 		"manager":           manager,
 		"cask":              cask,
@@ -171,28 +170,28 @@ func (p *Provider) CompensateUpgrade(_ any) error {
 //   - packages: List of package names to remove
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Remove(host op.HostProvider, packages []string, manager string, cask bool) (summary string, state map[string]any, retErr error) {
+func (p *Provider) Remove(host op.HostProvider, packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
 	if len(packages) == 0 {
-		return "", nil, fmt.Errorf("no packages specified")
+		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
 	for _, pkg := range packages {
 		if cask {
 			if err := runBrewCask("uninstall", pkg); err != nil {
-				return "", nil, err
+				return nil, nil, err
 			}
 		} else {
 			pm := resolvePMForRemove(host, manager, pkg)
 			if pm == nil {
-				return "", nil, fmt.Errorf("no package manager available")
+				return nil, nil, fmt.Errorf("no package manager available")
 			}
 			if err := pm.Remove(pkg); err != nil {
-				return "", nil, fmt.Errorf("%s remove %s failed: %w", pm.Name(), pkg, err)
+				return nil, nil, fmt.Errorf("%s remove %s failed: %w", pm.Name(), pkg, err)
 			}
 		}
 	}
 
-	return strings.Join(packages, ", "), map[string]any{
+	return packages, map[string]any{
 		"packages": packages,
 		"manager":  manager,
 		"cask":     cask,

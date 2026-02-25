@@ -9,7 +9,10 @@ import (
 )
 
 func init() {
-	op.RegisterProvider(Register)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:            "git",
+		ActionRegistrar: Register,
+	})
 }
 
 // Clone — Clone clones a repository from url into path. Returns compensation state with the cloned path.

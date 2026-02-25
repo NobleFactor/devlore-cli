@@ -15,13 +15,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/host"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -238,7 +238,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	// Create action registry and executor
 	registry := op.NewActionRegistry()
-	provider.RegisterAll(registry)
+	loreStar.NewBindingSet(op.BindingConfig{}).RegisterActions(registry)
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun: cfg.DryRun,
 		Host:   execution.NewHostProvider(host.NewHost()),

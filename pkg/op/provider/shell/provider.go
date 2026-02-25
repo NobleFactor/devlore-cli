@@ -13,7 +13,7 @@ import (
 
 // Provider provides shell command execution.
 //
-// +devlore:access=planned
+// +devlore:access=both
 type Provider struct{}
 
 // Exec executes a POSIX shell command.
