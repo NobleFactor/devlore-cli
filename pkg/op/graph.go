@@ -57,12 +57,6 @@ const (
 	StatusFailed NodeStatus = "failed"
 )
 
-// Platform records the OS and architecture.
-type Platform struct {
-	OS   string `json:"os" yaml:"os"`
-	Arch string `json:"arch" yaml:"arch"`
-}
-
 // GraphContext contains tool-specific metadata stored in the graph.
 // Both writ and lore populate this with their relevant context.
 type GraphContext struct {

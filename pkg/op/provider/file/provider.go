@@ -5,38 +5,68 @@ package file
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file/ignore"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 )
 
-// Provider provides file system actions. Each method receives all
-// inputs as parameters — no execution context, no node access.
+// Provider provides file system actions.
 //
-// Compensable Forward methods return (string, map[string]any, error):
-// the resource path, the compensation receipt, and an error. The map is
-// opaque to the executor, meaningful only to the corresponding
-// Compensate* Backward method.
+// Compensable forward methods return (string, map[string]any, error): the resource path, the compensation receipt, and
+// an error. The map is opaque to the executor, meaningful only to the corresponding "Compensate*" backward method.
 //
 // +devlore:access=both
+// +devlore:bind Root=WorkDir
 type Provider struct {
 	Root string // Working directory for Glob and WalkTree
 }
 
-// ── Compensable Pairs ────────────────────────────────────────────────
+// Actor returns a Reducer that calls the given function for each file or directory in a WalkTree operation.
+//
+// This is a convenience function for creating Reducers from simple functions that don't accumulate results or need to
+// access the recovery stack.
+func Actor(fn func(path string, dirEntry os.DirEntry) error) Reducer {
+	return func(result any, path string, dirEntry os.DirEntry, stack *op.RecoveryStack) (any, error) {
+		var zero any
+		return zero, fn(path, dirEntry)
+	}
+}
 
-// Backup moves the file at path to a timestamped backup location.
-// Returns the backup path and compensation state.
+// Reducer is a function called for each file or directory in a WalkTree operation.
+// +devlore:callable swallow=stack handle=DirEntry:Name,IsDir
+type Reducer func(initial any, path string, dirEntry os.DirEntry, stack *op.RecoveryStack) (result any, err error)
+
+type Tombstone struct {
+	RecoveryPath string // Where it is now
+	OriginalPath string // Where it used to be
+}
+
+var (
+	// SkipDir indicates that the current directory should be skipped.
+	SkipDir = fs.SkipDir
+
+	// SkipAll signals the walker to terminate immediately (success).
+	SkipAll = fs.SkipAll
+)
+
+// ── Compensable Pairs ────────────────────────────────────────────────────────────────────────────────────────────────
+
+// Backup moves the file at "path" to a timestamped backup location.
 //
 // Parameters:
 //   - path: Absolute path to the file to back up
-//   - backupSuffix: Suffix appended before the timestamp (default: .writ-backup)
-func (p *Provider) Backup(path, backupSuffix string) (result string, state map[string]any, err error) {
+//   - backupSuffix: Suffix appended before the timestamp (default: .devlore-backup)
+//
+// Returns:
+//   - The backup path and compensation state.
+func (p *Provider) Backup(path, backupSuffix string) (result string, undo map[string]any, err error) {
+
 	if backupSuffix == "" {
-		backupSuffix = ".writ-backup"
+		backupSuffix = ".devlore-backup"
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
@@ -48,33 +78,34 @@ func (p *Provider) Backup(path, backupSuffix string) (result string, state map[s
 		return "", nil, err
 	}
 
-	state = map[string]any{
+	undo = map[string]any{
 		"original_path": path,
 		"backup_path":   backupPath,
 	}
+
 	if checksum != "" {
-		state["written_checksum"] = checksum
+		undo["written_checksum"] = checksum
 	}
-	return backupPath, state, nil
+
+	return backupPath, undo, nil
 }
 
-// CompensateBackup undoes a Backup by moving the backup back to the
-// original path. If a written_checksum is present, the backup file is
-// verified before restoring; a mismatch indicates external modification
-// and the compensation is skipped.
-func (p *Provider) CompensateBackup(state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	originalPath := op.StateString(s, "original_path")
-	backupPath := op.StateString(s, "backup_path")
+// CompensateBackup undoes a Backup by moving the backup back to the original path.
+//
+// If a written_checksum is present, the backup file is verified before restoring; a mismatch indicates external
+// modification and the compensation is skipped.
+func (p *Provider) CompensateBackup(undo map[string]any) error {
+
+	originalPath := op.StateString(undo, "original_path")
+	backupPath := op.StateString(undo, "backup_path")
+
 	if originalPath == "" || backupPath == "" {
 		return nil
 	}
 
 	// Verify the backup hasn't been modified since we created it.
-	if expected := op.StateString(s, "written_checksum"); expected != "" {
+
+	if expected := op.StateString(undo, "written_checksum"); expected != "" {
 		actual := checksumFile(backupPath)
 		if actual == "" {
 			return fmt.Errorf("cannot read %s for verification", backupPath)
@@ -87,29 +118,41 @@ func (p *Provider) CompensateBackup(state any) error {
 	return os.Rename(backupPath, originalPath)
 }
 
-// Copy writes content to path with the given mode. Returns the destination
-// path and compensation state.
+// Copy writes content to the file at "path" with the given mode.
 //
 // Parameters:
 //   - path: Absolute path where the file will be written
 //   - mode: File permission bits (e.g., 0o644)
-func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (result string, state map[string]any, err error) {
+//   - content: Byte slice containing the content to write to the file
+//
+// Returns:
+//   - result: the path to the copied file
+//   - undo: a state map with the following keys:
+//     > path: the path to the copied file
+//     > existed_before: true if the file already existed before
+//     > previous_content: the content of the file before it was created if it existed
+//     > previous_mode: the mode of the file before it was created if it existed
+//     > written_checksum: the checksum of the copied file (if available)
+func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (
+
+	result string, undo map[string]any, err error) {
+
 	if info, err := os.Lstat(path); err == nil {
-		state = map[string]any{
+		undo = map[string]any{
 			"path":           path,
 			"existed_before": true,
 		}
 		if info.Mode().IsRegular() {
 			if prev, readErr := os.ReadFile(path); readErr == nil {
-				state["previous_content"] = prev
-				state["previous_mode"] = info.Mode().Perm()
+				undo["previous_content"] = prev
+				undo["previous_mode"] = info.Mode().Perm()
 			}
 		}
 		if err := os.Remove(path); err != nil {
 			return "", nil, err
 		}
 	} else {
-		state = map[string]any{
+		undo = map[string]any{
 			"path":           path,
 			"existed_before": false,
 		}
@@ -127,25 +170,29 @@ func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (result s
 		return "", nil, err
 	}
 
-	state["written_checksum"] = checksumBytes(content)
-	return path, state, nil
+	undo["written_checksum"] = checksumBytes(content)
+	return path, undo, nil
 }
 
 // CompensateCopy undoes a Copy action using the captured state.
-// If a written_checksum is present, the file is verified before reverting;
-// a mismatch indicates external modification and the compensation is skipped.
-func (p *Provider) CompensateCopy(state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	path := op.StateString(s, "path")
+//
+// If a written_checksum is present, the file is verified before reverting; a mismatch indicates external modification
+// and the compensation is skipped.
+//
+// Parameters:
+//   - state: The state map returned by Copy
+//
+// Returns:
+//   - err: any error that occurred during the compensation
+func (p *Provider) CompensateCopy(undo map[string]any) error {
+
+	path := op.StateString(undo, "path")
 	if path == "" {
 		return nil
 	}
 
 	// Verify the file hasn't been modified since we wrote it.
-	if expected := op.StateString(s, "written_checksum"); expected != "" {
+	if expected := op.StateString(undo, "written_checksum"); expected != "" {
 		current, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("cannot read %s for verification: %w", path, err)
@@ -155,42 +202,51 @@ func (p *Provider) CompensateCopy(state any) error {
 		}
 	}
 
-	if !op.StateBool(s, "existed_before") {
+	if !op.StateBool(undo, "existed_before") {
 		return os.Remove(path)
 	}
-	prev := op.StateBytes(s, "previous_content")
+	prev := op.StateBytes(undo, "previous_content")
 	if prev == nil {
 		return nil // Can't restore without content.
 	}
-	prevMode := op.StateFileMode(s, "previous_mode")
+	prevMode := op.StateFileMode(undo, "previous_mode")
 	if prevMode == 0 {
 		prevMode = 0o644
 	}
 	return os.WriteFile(path, prev, prevMode)
 }
 
-// Link creates a symlink at path pointing to source. Idempotent: if the
-// symlink already points correctly, it's a no-op (returns nil state).
+// Link creates a symlink at a path pointing to a source file.
+//
+// Idempotent: if the symlink already points correctly, it's a no-op.
 //
 // Parameters:
 //   - source: Absolute path to the symlink target
 //   - path: Absolute path where the symlink will be created
-func (p *Provider) Link(source, path string) (result string, state map[string]any, err error) {
+//
+// Returns:
+//   - result: the path to the symlink
+//   - undo: a state map with the following keys:
+//     > path: the path to the symlink
+//     > existed_before: true if the symlink already existed before
+//     > previous_target: the target of the symlink before it was created if it existed
+func (p *Provider) Link(source, path string) (result string, undo map[string]any, err error) {
+
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			existing, readErr := os.Readlink(path)
 			if readErr == nil && existing == source {
 				return path, nil, nil // Already correct — no change
 			}
-			state = map[string]any{
+			undo = map[string]any{
 				"path":           path,
 				"existed_before": true,
 			}
 			if readErr == nil {
-				state["previous_target"] = existing
+				undo["previous_target"] = existing
 			}
 		} else {
-			state = map[string]any{
+			undo = map[string]any{
 				"path":           path,
 				"existed_before": true,
 			}
@@ -199,7 +255,7 @@ func (p *Provider) Link(source, path string) (result string, state map[string]an
 			return "", nil, err
 		}
 	} else {
-		state = map[string]any{
+		undo = map[string]any{
 			"path":           path,
 			"existed_before": false,
 		}
@@ -212,41 +268,59 @@ func (p *Provider) Link(source, path string) (result string, state map[string]an
 	if err := os.Symlink(source, path); err != nil {
 		return "", nil, err
 	}
-	return path, state, nil
+
+	return path, undo, nil
 }
 
 // CompensateLink undoes a Link action using the captured state.
-func (p *Provider) CompensateLink(state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	path := op.StateString(s, "path")
+//
+// If the symlink existed before, it is removed. Otherwise, it is recreated.
+//
+// Parameters:
+//   - state: The state map returned by Link
+//
+// Returns:
+//   - err: any error that occurred during the compensation
+func (p *Provider) CompensateLink(undo map[string]any) error {
+
+	path := op.StateString(undo, "path")
+
 	if path == "" {
 		return nil
 	}
-	if !op.StateBool(s, "existed_before") {
+
+	if !op.StateBool(undo, "existed_before") {
 		return os.Remove(path)
 	}
-	prevTarget := op.StateString(s, "previous_target")
+
+	prevTarget := op.StateString(undo, "previous_target")
+
 	if prevTarget == "" {
 		// Was a non-symlink — can't restore, just remove the new symlink.
 		return os.Remove(path)
 	}
+
 	if err := os.Remove(path); err != nil {
 		return err
 	}
+
 	return os.Symlink(prevTarget, path)
 }
 
-// Move moves a file from source to path. Uses gitMv if provided
-// (preserves git history), falling back to os.Rename.
-// Returns compensation state with paths for reverse move.
+// Move moves a file from source to path using "os.Rename".
 //
 // Parameters:
-//   - source: Absolute path to the file to move
-//   - path: Absolute destination path
-func (p *Provider) Move(gitMv func(src, dst string) error, source, path string) (result string, compState map[string]any, err error) {
+//   - source: Absolute path to the source file
+//   - destination: Absolute path to the destination file
+//
+// Returns:
+//   - result: the path to the moved file
+//   - undo: a state map with the following keys:
+//     > source: the source path of the move
+//     > path: the destination path of the move
+//     > written_checksum: the checksum of the moved file (if available)
+func (p *Provider) Move(source, destination string) (result string, undo map[string]any, err error) {
+
 	if _, err := os.Stat(source); err != nil {
 		return "", nil, err
 	}
@@ -254,293 +328,396 @@ func (p *Provider) Move(gitMv func(src, dst string) error, source, path string) 
 	// Capture content checksum before the rename.
 	checksum := checksumFile(source)
 
-	if gitMv != nil {
-		if err := gitMv(source, path); err == nil {
-			state := map[string]any{
-				"source": source,
-				"path":   path,
-			}
-			if checksum != "" {
-				state["written_checksum"] = checksum
-			}
-			return path, state, nil
-		}
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
 		return "", nil, err
 	}
 
-	if err := os.Rename(source, path); err != nil {
+	if err := os.Rename(source, destination); err != nil {
 		return "", nil, err
 	}
+
 	state := map[string]any{
-		"source": source,
-		"path":   path,
+		"source":      source,
+		"destination": destination,
 	}
+
 	if checksum != "" {
 		state["written_checksum"] = checksum
 	}
-	return path, state, nil
+
+	return destination, state, nil
 }
 
-// CompensateMove undoes a Move by moving the file back from path to
-// source. If a written_checksum is present, the destination file is
-// verified before restoring; a mismatch indicates external modification
-// and the compensation is skipped.
-func (p *Provider) CompensateMove(state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	source := op.StateString(s, "source")
-	path := op.StateString(s, "path")
-	if source == "" || path == "" {
+// CompensateMove undoes a Move by moving the file back from path to source.
+//
+// If a written_checksum is present, the destination file is verified before restoring; a mismatch indicates external
+// modification and the compensation is skipped.
+//
+// Parameters:
+//   - undo: The state map returned by Move
+//
+// Returns:
+//   - err: any error that occurred during the compensation
+func (p *Provider) CompensateMove(undo map[string]any) error {
+
+	source := op.StateString(undo, "source")
+	destination := op.StateString(undo, "destination")
+
+	if source == "" || destination == "" {
 		return nil
 	}
 
 	// Verify the file hasn't been modified since we moved it.
-	if expected := op.StateString(s, "written_checksum"); expected != "" {
-		actual := checksumFile(path)
+	if expected := op.StateString(undo, "written_checksum"); expected != "" {
+		actual := checksumFile(destination)
 		if actual == "" {
-			return fmt.Errorf("cannot read %s for verification", path)
+			return fmt.Errorf("cannot read %s for verification", destination)
 		}
 		if actual != expected {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", path)
+			return fmt.Errorf("%s has been modified (checksum mismatch)", destination)
 		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(source), 0o750); err != nil {
 		return err
 	}
-	return os.Rename(path, source)
+	return os.Rename(destination, source)
 }
 
-// Remove deletes the file at path. If prune is true and pruneBoundary
-// is set, empty parent directories are removed up to the boundary.
-// Returns compensation state with file content for re-creation.
+// Remove deletes the file at "path".
+//
+// If prune is true and pruneBoundary is set, empty parent directories are removed up to the boundary.
 //
 // Parameters:
 //   - path: Absolute path to the file to delete
 //   - prune: If true, remove empty parent directories after deletion
 //   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
-func (p *Provider) Remove(path string, prune bool, pruneBoundary string) (result string, compState map[string]any, err error) {
-	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return path, nil, nil // Already gone — no change
-	}
+//
+// Returns:
+//   - result: the path to the deleted file
+//   - compState: a state map with the following keys:
+//     > path: the path to the deleted file
+//     > content: the content of the deleted file (if available)
+//     > mode: the file mode of the deleted file (if available)
+func (p *Provider) Remove(path string, prune bool, pruneBoundary string) (result Tombstone, undo map[string]any, err error) {
+
+	nonEmptyDirectory, err := isDirAndNotEmpty(path)
+
 	if err != nil {
-		return "", nil, err
-	}
-
-	state := map[string]any{"path": path}
-	if info.Mode().IsRegular() {
-		if content, readErr := os.ReadFile(path); readErr == nil {
-			state["content"] = content
-			state["mode"] = info.Mode().Perm()
+		if os.IsNotExist(err) {
+			return Tombstone{}, nil, nil
 		}
+		return Tombstone{}, nil, err
 	}
 
-	if err := os.Remove(path); err != nil {
-		return "", nil, err
+	if nonEmptyDirectory {
+		return Tombstone{}, nil, fmt.Errorf("directory %s is not empty", path)
 	}
 
-	pruneParents(path, prune, pruneBoundary)
-	return path, state, nil
+	return p.moveToRecovery(path, prune, pruneBoundary)
 }
 
-// CompensateRemove undoes a Remove by re-creating the file with saved
-// content and mode.
-func (p *Provider) CompensateRemove(state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	path := op.StateString(s, "path")
-	if path == "" {
-		return nil
-	}
-	content := op.StateBytes(s, "content")
-	if content == nil {
-		return nil // Can't restore without content.
-	}
-	mode := op.StateFileMode(s, "mode")
-	if mode == 0 {
-		mode = 0o644
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+// CompensateRemove undoes a Remove by re-creating the file with saved content and mode.
+//
+// If content is not available, the file is recreated with default permissions.
+//
+// Parameters:
+//   - undo: The state map returned by Remove
+//
+// Returns:
+//   - err: any error that occurred during the compensation
+func (p *Provider) CompensateRemove(undo map[string]any) error {
+	tombstone, err := op.ExtractUndo[Tombstone](undo, "tombstone")
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, content, mode)
+	return p.restoreFromRecovery(tombstone)
 }
 
-// Unlink removes a symlink at path. If prune is true and pruneBoundary
-// is set, empty parent directories are removed up to the boundary.
-// Returns compensation state with the symlink target for re-creation.
+// RemoveAll removes the file at "path" and any children it contains.
+//
+// Parameters:
+//   - path: Absolute path to the file or directory to remove
+//   - prune: If true, remove empty parent directories after deletion
+//   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
+//
+// Returns:
+//   - result: the path to the deleted file or directory
+//   - undo: a state map with the following keys:
+//     > path: the path to the deleted file or directory
+//     > files_moved: the number of files moved to the recovery directory
+//     > recovery_dir: the path to the recovery directory
+//   - err: any error that occurred during the removal
+func (p *Provider) RemoveAll(path string, prune bool, pruneBoundary string) (result Tombstone, undo map[string]any, err error) {
+	return p.moveToRecovery(path, prune, pruneBoundary)
+}
+
+// CompensateRemoveAll is the compensating action for RemoveAll.
+//
+// It moves the files from the recovery site back to the original location.
+//
+// Parameters:
+//   - undo: The state map returned by RemoveAll
+//
+// Returns:
+//   - err: any error that occurred during the compensation
+func (p *Provider) CompensateRemoveAll(undo map[string]any) error {
+	tombstone, err := op.ExtractUndo[Tombstone](undo, "tombstone")
+	if err != nil {
+		return err
+	}
+	return p.restoreFromRecovery(tombstone)
+}
+
+// Unlink removes the symlink at "path".
+//
+// If prune is true and pruneBoundary is set, empty parent directories are removed up to the boundary.
 //
 // Parameters:
 //   - path: Absolute path to the symlink to remove
 //   - prune: If true, remove empty parent directories after unlinking
 //   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
-func (p *Provider) Unlink(path string, prune bool, pruneBoundary string) (result string, compState map[string]any, err error) {
+//
+// Returns:
+//   - result: the path to the deleted symlink
+//   - compState: a state map with the following keys:
+//     > path: the path to the deleted symlink
+//     > target: the target of the deleted symlink
+func (p *Provider) Unlink(path string, prune bool, pruneBoundary string) (result Tombstone, undo map[string]any, err error) {
+
 	info, err := os.Lstat(path)
+
 	if os.IsNotExist(err) {
-		return path, nil, nil // Already gone — no change
+		return Tombstone{}, nil, nil // Already gone — no change
 	}
+
 	if err != nil {
-		return "", nil, err
+		return Tombstone{}, nil, err
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
-		return "", nil, fmt.Errorf("%s is not a symlink", path)
+		return Tombstone{}, nil, fmt.Errorf("%s is not a symlink", path)
 	}
 
-	target, err := os.Readlink(path)
-	if err != nil {
-		return "", nil, err
-	}
-
-	if err := os.Remove(path); err != nil {
-		return "", nil, err
-	}
-
-	pruneParents(path, prune, pruneBoundary)
-
-	state := map[string]any{
-		"path":   path,
-		"target": target,
-	}
-	return path, state, nil
+	return p.moveToRecovery(path, prune, pruneBoundary)
 }
 
 // CompensateUnlink undoes an Unlink by re-creating the symlink.
-func (p *Provider) CompensateUnlink(state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	path := op.StateString(s, "path")
-	target := op.StateString(s, "target")
-	if path == "" || target == "" {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+//
+// Parameters:
+//   - state: The state map returned by Unlink
+//
+// Returns:
+//   - err: any error that occurred during the compensation
+func (p *Provider) CompensateUnlink(undo map[string]any) error {
+	tombstone, err := op.ExtractUndo[Tombstone](undo, "tombstone")
+	if err != nil {
 		return err
 	}
-	return os.Symlink(target, path)
+	return p.restoreFromRecovery(tombstone)
 }
 
-// Write writes inline content to path with the given mode.
-// Returns compensation state for undo.
+// WalkTree performs a depth-first traversal with an accumulator and a RecoveryStack for compensable operations.
+//
+// The visitor can push compensable operations onto the stack during traversal. On error mid-walk, the stack
+// is unwound automatically and errors are joined. On success, the accumulated result and the stack are returned--the
+// stack serves as the undo receipt.
+//
+// +devlore:defaults root="",honorGitignore=true
+//
+// Parameters:
+//   - root: Root directory to start traversal from
+//   - fn: Reducer function to call for each file or directory
+//   - gitignore: If true, filter results using gitignore rules
+//
+// Returns:
+//   - result: The accumulated result from the visitor function
+//   - stack: The compensable operations stack
+//   - err: The first error encountered during traversal, if any
+func (p *Provider) WalkTree(root string, fn Reducer, honorGitignore bool) (result any, stack *op.RecoveryStack, err error) {
+
+	stack = op.NewRecoveryStack()
+
+	walkFn := func(path string, entry os.DirEntry) error {
+		var err error
+		result, err = fn(result, path, entry, stack)
+		return err
+	}
+
+	var tracker *gitignore.Tracker
+
+	if honorGitignore {
+		value, err := gitignore.NewTracker(root)
+		if err != nil {
+			return nil, nil, err
+		}
+		tracker = value
+	}
+
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if _, err := os.Stat(absoluteRoot); err != nil {
+		return nil, nil, err
+	}
+
+	walkErr := filepath.WalkDir(absoluteRoot, func(path string, d fs.DirEntry, walkDirErr error) error {
+
+		if walkDirErr != nil {
+			return walkDirErr
+		}
+
+		relativePath, relativeErr := filepath.Rel(absoluteRoot, path)
+
+		if relativeErr != nil {
+			return relativeErr
+		}
+
+		if relativePath == "." {
+			return nil
+		}
+
+		isDir := d.IsDir()
+
+		if isDir && d.Name() == ".git" {
+			return SkipDir
+		}
+
+		if tracker != nil {
+			if isDir {
+				tracker.Push(relativePath)
+			}
+			ignored, _ := tracker.IsIgnored(relativePath, isDir)
+			if ignored && isDir {
+				return SkipDir
+			}
+			if ignored {
+				return nil
+			}
+		}
+
+		return walkFn(relativePath, d)
+	})
+
+	if walkErr != nil {
+		return nil, stack, walkErr
+	}
+
+	return result, stack, nil
+}
+
+// CompensateWalkTree unwinds the RecoveryStack returned by WalkTree in LIFO order.
+//
+// Best-effort: all entries are attempted, errors are joined.
+//
+// Parameters:
+//   - stack: The stack returned by WalkTree
+//
+// Returns:
+//   - err: The first error encountered during compensation, if any
+func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
+	if stack == nil {
+		return nil
+	}
+	return stack.Unwind()
+}
+
+// WriteBytes writes inline content to the file at "path" with the given mode.
 //
 // Parameters:
 //   - content: String content to write to the file
 //   - path: Absolute path where the file will be written
 //   - mode: File permission bits (e.g., 0o644)
-func (p *Provider) Write(content, path string, mode os.FileMode) (result string, compState map[string]any, err error) {
-	if content == "" {
-		return "", nil, fmt.Errorf("no content specified")
-	}
-
-	var state map[string]any
-	if info, err := os.Lstat(path); err == nil {
-		state = map[string]any{
-			"path":           path,
-			"existed_before": true,
-		}
-		if info.Mode().IsRegular() {
-			if prev, readErr := os.ReadFile(path); readErr == nil {
-				state["previous_content"] = prev
-				state["previous_mode"] = info.Mode().Perm()
-			}
-		}
-	} else {
-		state = map[string]any{
-			"path":           path,
-			"existed_before": false,
-		}
-	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return "", nil, err
-	}
-
-	if mode == 0 {
-		mode = 0o644
-	}
-
-	if err := os.WriteFile(path, []byte(content), mode); err != nil {
-		return "", nil, err
-	}
-	state["written_checksum"] = checksumBytes([]byte(content))
-	return path, state, nil
+//
+// Returns:
+//   - result: the path to the written file
+//   - undo: a state map with the following keys:
+//     > tombstone: a [Tombstone]
+//   - err: any error that occurred while writing
+func (p *Provider) WriteBytes(destination, content string, mode os.FileMode) (result string, undo map[string]any, err error) {
+	return p.write(destination, []byte(content), mode)
 }
 
-// CompensateWrite undoes a Write action using the captured state.
-// If a written_checksum is present, the file is verified before reverting;
-// a mismatch indicates external modification and the compensation is skipped.
-func (p *Provider) CompensateWrite(state any) error {
-	s := op.AsStateMap(state)
-	if s == nil {
-		return nil
-	}
-	path := op.StateString(s, "path")
-	if path == "" {
-		return nil
-	}
-
-	// Verify the file hasn't been modified since we wrote it.
-	if expected := op.StateString(s, "written_checksum"); expected != "" {
-		current, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("cannot read %s for verification: %w", path, err)
-		}
-		if checksumBytes(current) != expected {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", path)
-		}
-	}
-
-	if !op.StateBool(s, "existed_before") {
-		return os.Remove(path)
-	}
-	prev := op.StateBytes(s, "previous_content")
-	if prev == nil {
-		return nil // Can't restore without content.
-	}
-	prevMode := op.StateFileMode(s, "previous_mode")
-	if prevMode == 0 {
-		prevMode = 0o644
-	}
-	return os.WriteFile(path, prev, prevMode)
+// CompensateWriteBytes restores the previous state of written bytes using the provided undo map data.
+//
+// It delegates to the internal [compensateWrite] method to perform the actual compensation operation.
+//
+// Parameters:
+//   - undo: The state map returned by [WriteBytes]
+//
+// Returns:
+//   - err: any error that occurred during the compensation
+func (p *Provider) CompensateWriteBytes(undo map[string]any) error {
+	return p.compensateWrite(undo)
 }
 
-// ── Standalone Methods ───────────────────────────────────────────────
+// WriteText writes inline content to the file at "path" with the given mode.
+//
+// Parameters:
+//   - content: String content to write to the file
+//   - path: Absolute path where the file will be written
+//   - mode: File permission bits (e.g., 0o644)
+//
+// Returns:
+//   - result: the path to the written file
+//   - undo: a state map with the following keys:
+//     > tombstone: a [Tombstone]
+//   - err: any error that occurred while writing
+func (p *Provider) WriteText(destination, content string, mode os.FileMode) (result string, undo map[string]any, err error) {
+	return p.write(destination, []byte(content), mode)
+}
 
-// Exists returns true if path exists on the filesystem.
+// CompensateWriteText undoes a WriteText action using the captured state.
+//
+// It delegates to the internal [compensateWrite] method to perform the actual compensation operation.
+//
+// Parameters:
+//   - undo: The state map returned by [WriteText]
+//
+// Returns:
+//   - err: any error that occurred during the compensation
+func (p *Provider) CompensateWriteText(undo map[string]any) error {
+	return p.compensateWrite(undo)
+}
+
+// ── Non-compensable Methods (pure functions) ─────────────────────────────────────────────────────────────────────────
+
+// Exists returns true if the file at "path" exists.
 //
 // Parameters:
 //   - path: Absolute path to check
-func (p *Provider) Exists(path string) (bool, error) {
+//
+// Returns:
+//   - bool: true if the file at "path" exists, false otherwise
+func (p *Provider) Exists(path string) bool {
 	_, err := os.Lstat(path)
-	return err == nil, nil
+	return err == nil
 }
 
 // Glob returns file paths matching a pattern relative to Root.
 //
 // Parameters:
 //   - pattern: Glob pattern (e.g., "*.go", "**/*.yaml")
-//   - gitignore: If true, filter results using gitignore rules
-func (p *Provider) Glob(pattern string, gitignore bool) ([]string, error) {
+//   - honorGitignore: If true, filter results using gitignore rules
+//
+// Returns:
+//   - []string: List of matching file paths
+func (p *Provider) Glob(pattern string, honorGitignore bool) ([]string, error) {
+
 	matches, err := filepath.Glob(pattern)
+
 	if err != nil {
 		return nil, err
 	}
 
-	if !gitignore || p.Root == "" {
+	if !honorGitignore || p.Root == "" {
 		return matches, nil
 	}
 
-	tracker, trackerErr := ignore.NewTracker(p.Root)
+	tracker, trackerErr := gitignore.NewTracker(p.Root)
+
 	if trackerErr != nil {
 		return matches, nil //nolint:nilerr // graceful degradation: return unfiltered if gitignore unavailable
 	}
@@ -555,6 +732,7 @@ func (p *Provider) Glob(pattern string, gitignore bool) ([]string, error) {
 		info, statErr := os.Stat(m)
 		isDir := statErr == nil && info.IsDir()
 		ignored, _ := tracker.IsIgnored(relPath, isDir)
+
 		if !ignored {
 			filtered = append(filtered, m)
 		}
@@ -562,28 +740,37 @@ func (p *Provider) Glob(pattern string, gitignore bool) ([]string, error) {
 	return filtered, nil
 }
 
-// IsDir returns true if path exists and is a directory.
+// IsDir returns true if the file at "path" exists and is a directory.
 //
 // Parameters:
 //   - path: Absolute path to check
-func (p *Provider) IsDir(path string) (bool, error) {
+//
+// Returns:
+//   - bool: true if the file at "path "is a directory, false otherwise
+func (p *Provider) IsDir(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && info.IsDir(), nil
+	return err == nil && info.IsDir()
 }
 
-// IsFile returns true if path exists and is a regular file.
+// IsFile returns true if the file at "path" exists and is a regular file.
 //
 // Parameters:
 //   - path: Absolute path to check
-func (p *Provider) IsFile(path string) (bool, error) {
+//
+// Returns:
+//   - bool: true if the file at "path" is a regular file, false otherwise
+func (p *Provider) IsFile(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular(), nil
+	return err == nil && info.Mode().IsRegular()
 }
 
 // Join joins path components using the OS path separator.
 //
 // Parameters:
 //   - parts: Path components to join
+//
+// Returns:
+//   - string: The joined path or an empty string, if no parts are provided or all parts are empty
 func (p *Provider) Join(parts ...string) string {
 	return filepath.Join(parts...)
 }
@@ -593,62 +780,132 @@ func (p *Provider) Join(parts ...string) string {
 // Parameters:
 //   - path: Absolute path of the directory to create
 //   - mode: Directory permission bits (e.g., 0o755)
+//
+// Returns:
+//   - string: The absolute path of the created directory
 func (p *Provider) Mkdir(path string, mode os.FileMode) (string, error) {
 	return path, os.MkdirAll(path, mode)
 }
 
-// Name returns the last element of path (the file or directory name).
+// Name returns the last element of "path" (a file or directory name).
 //
 // Parameters:
 //   - path: Path to extract the name from
+//
+// Returns:
+//   - string: The name of the file or directory
+
 func (p *Provider) Name(path string) string {
 	return filepath.Base(path)
 }
 
-// Parent returns the directory containing path.
+// Parent returns the directory containing the file at "path".
 //
 // Parameters:
-//   - path: Path to get the parent of
+//   - path: Path to a file
+//
+// Returns:
+//   - string: The parent directory of the file
 func (p *Provider) Parent(path string) string {
 	return filepath.Dir(path)
 }
 
-// Read reads a file and returns its contents.
+// Read creates a Blob from the file at "path" for reading the contents of the file at "path".
 //
 // Parameters:
 //   - path: Absolute path to the file to read
-func (p *Provider) Read(path string) ([]byte, error) {
-	return os.ReadFile(path)
+//
+// Returns:
+//   - result: the contents of the file
+func (p *Provider) Read(path string) (result Blob, err error) {
+	return NewBlob(path)
 }
 
-// RemoveAll removes path and any children it contains.
-//
-// Parameters:
-//   - path: Path to remove recursively
-func (p *Provider) RemoveAll(path string) error {
-	return os.RemoveAll(path)
-}
+// region Internal
 
-// WalkTree performs a depth-first traversal of root, calling fn for each
-// entry. If gitignore is true, ignored files and directories are skipped.
+// compensateWrite reverts a write operation by restoring the original file state from the tombstone record.
 //
 // Parameters:
-//   - root: Directory to walk
-//   - fn: Callback receiving (relativePath, isDir)
-//   - gitignore: If true, respect gitignore rules
-func (p *Provider) WalkTree(root string, fn func(string, bool) error, gitignore bool) error {
-	opts := ignore.WalkOptions{
-		Root:     root,
-		Callback: fn,
+//   - undo: The state map returned by Write
+//
+// Returns:
+//   - err: Any error that occurred during the compensation
+func (p *Provider) compensateWrite(undo map[string]any) error {
+
+	tombstone, err := op.ExtractUndo[Tombstone](undo, "tombstone")
+
+	if err != nil {
+		return err
 	}
 
-	if gitignore {
-		tracker, err := ignore.NewTracker(root)
-		if err != nil {
+	if err := os.Remove(tombstone.OriginalPath); err != nil {
+		if !os.IsNotExist(err) {
 			return err
 		}
-		opts.Tracker = tracker
 	}
 
-	return ignore.WalkTree(opts)
+	if tombstone.RecoveryPath != "" {
+		return os.Rename(tombstone.RecoveryPath, tombstone.OriginalPath)
+	}
+
+	return nil
 }
+
+// prepareWrite handles the "Undo" logic for destructive actions.
+//
+// It moves the entity to a recovery site before performing the action.
+//
+// Parameters:
+//   - path: The path to the file to write
+//
+// Returns:
+//   - undo: A state map with the following keys:
+//     > action: The action that was performed (e.g., "overwrite", "create")
+//     > tombstone: The tombstone returned by RemoveAll
+//   - err: Any error that occurred during the preparation
+func (p *Provider) prepareWrite(path string) (undo map[string]any, err error) {
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return nil, err
+		}
+		undo = map[string]any{"tombstone": Tombstone{OriginalPath: path}}
+		return undo, nil
+	}
+
+	tombstone, undo, err := p.Remove(path, false, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to backup existing file: %w", err)
+	}
+
+	// We store the tombstone in the undo state
+
+	undo = map[string]any{"tombstone": tombstone}
+	return undo, nil
+}
+
+// write writes data to the specified path after preparing the write operation and returns a tombstone, undo metadata,
+// and any error encountered during the operation.
+//
+// Parameters:
+//   - path: The path to the file to write
+//   - data: The data to write to the file
+//
+// Returns:
+func (p *Provider) write(path string, data []byte, mode os.FileMode) (result string, undo map[string]any, err error) {
+
+	undo, err = p.prepareWrite(path)
+
+	if err != nil {
+		return "", nil, err
+	}
+
+	if mode == 0 {
+		mode = 0o644
+	}
+
+	err = os.WriteFile(path, data, mode)
+	return path, undo, err
+}
+
+// endregion

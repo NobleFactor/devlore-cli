@@ -18,7 +18,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/host"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
 // SessionState represents a state in the migration session.
@@ -504,8 +504,8 @@ func (s *Session) processPlanResponse(input string) error {
 func (s *Session) executeStep() *console.Step {
 	// Execute the graph
 	opts := execution.ExecutorOptions{
-		DryRun: false,
-		Host:   execution.NewHostProvider(host.NewHost()),
+		DryRun:   false,
+		Platform: platform.New(),
 	}
 	eng := execution.NewGraphExecutor(opts)
 

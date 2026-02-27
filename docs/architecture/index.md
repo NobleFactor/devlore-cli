@@ -16,6 +16,7 @@ Internal engineering documentation for devlore-cli developers.
 - [Orchestration Primitives](devlore-orchestration-primitives.md) - Gather, Choose, WaitUntil, SlotProxy, ActivationState, Sidecar hooks
 - [Graph Operations](devlore-graph-convergence-operations.md) - Original convergence and control flow (partially superseded by Orchestration Primitives)
 - [Action Namespaces](devlore-operation-namespaces.md) - How to add new action namespaces to the execution engine
+- [Provider Loading and Lifetime](devlore-provider-loading.md) - Module loading via `@devlore//`, `With()` opt-in, three-level provider lifetime model (stateless, phase, session)
 - [Receipt Integrity](devlore-receipt-integrity.md) - Checksum and signature verification for receipts
 
 ### Tooling

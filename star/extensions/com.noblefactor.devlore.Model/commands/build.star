@@ -131,7 +131,7 @@ def _resolve_target(ctx):
         sibling = file.join("..", "devlore-registry")
         if file.is_directory(sibling):
             target = sibling
-            note("Using sibling registry: " + target)
+            ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
     if not file.is_directory(target):
@@ -162,12 +162,12 @@ def _build_domain(target, domain, model):
     output_path = file.join(target, "Modelfile." + domain)
 
     file.write(output_path, content)
-    success("Generated: " + output_path)
+    ui.success("Generated: " + output_path)
 
     # Show stats
     lines = content.count("\n")
-    note("  Model: " + model)
-    note("  Lines: " + str(lines))
+    ui.note("  Model: " + model)
+    ui.note("  Lines: " + str(lines))
 
 
 # =============================================================================

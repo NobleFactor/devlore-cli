@@ -4,43 +4,54 @@
 package starlark
 
 import (
+	"fmt"
+	"strings"
+
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// BindingSet selects which provider bindings a consumer uses and builds
-// Starlark globals from them. Consumers call Without() to exclude providers
-// they don't need.
+// BindingSet selects which provider bindings a consumer uses and builds Starlark globals from them.
+// Consumers call With() to include specific providers as pre-injected globals.
+// All other providers remain available via load("@devlore//name", "name") in scripts.
 type BindingSet struct {
 	cfg      op.BindingConfig
-	excluded map[string]bool
+	included map[string]bool
+	cache    map[string]*loaderEntry
+}
+
+// loaderEntry caches the result of resolving a provider module.
+type loaderEntry struct {
+	globals starlark.StringDict
+	err     error
 }
 
 // NewBindingSet creates a BindingSet with the given configuration.
-// All registered providers are included by default.
+// No providers are included as globals by default.
 func NewBindingSet(cfg op.BindingConfig) *BindingSet {
 	return &BindingSet{
 		cfg:      cfg,
-		excluded: make(map[string]bool),
+		included: make(map[string]bool),
+		cache:    make(map[string]*loaderEntry),
 	}
 }
 
-// Without excludes one or more providers by name.
+// With includes one or more providers as pre-injected globals.
+// "plan" is a special name that includes the PlanRoot aggregate.
 // Returns the BindingSet for chaining.
-func (bs *BindingSet) Without(names ...string) *BindingSet {
+func (bs *BindingSet) With(names ...string) *BindingSet {
 	for _, name := range names {
-		bs.excluded[name] = true
+		bs.included[name] = true
 	}
 	return bs
 }
 
-// RegisterActions registers all included providers' actions with the registry.
+// RegisterActions registers all providers' actions with the registry.
+// All providers' actions are always registered regardless of With() selections — the action registry is for the
+// executor, not the script environment.
 func (bs *BindingSet) RegisterActions(reg *op.ActionRegistry) {
 	for _, b := range op.AllBindings() {
-		if bs.excluded[b.Name] {
-			continue
-		}
 		if b.ActionRegistrar != nil {
 			b.ActionRegistrar(reg)
 		}
@@ -48,29 +59,27 @@ func (bs *BindingSet) RegisterActions(reg *op.ActionRegistry) {
 }
 
 // BuildGlobals constructs the Starlark globals dict for a consumer.
-// The "plan" global is a PlanRoot built from included PlannedFactory bindings.
-// Each included ImmediateFactory binding becomes a top-level global (e.g., "ui").
+// Only providers named in With() appear as globals.
+// If "plan" was included via With(), a PlanRoot is built from all registered PlannedFactory bindings.
 func (bs *BindingSet) BuildGlobals(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.StringDict {
 	globals := starlark.StringDict{}
 
-	// Collect planned factories for PlanRoot sub-namespaces.
-	factories := make(map[string]op.PlannedFactory)
-	for _, b := range op.AllBindings() {
-		if bs.excluded[b.Name] {
-			continue
+	// Build "plan" if requested via With("plan").
+	if bs.included["plan"] {
+		factories := make(map[string]op.PlannedFactory)
+		for _, b := range op.AllBindings() {
+			if b.PlannedFactory != nil {
+				factories[b.Name] = b.PlannedFactory
+			}
 		}
-		if b.PlannedFactory != nil {
-			factories[b.Name] = b.PlannedFactory
+		if len(factories) > 0 {
+			globals["plan"] = NewPlanRootFromFactories(graph, project, reg, factories)
 		}
 	}
 
-	if len(factories) > 0 {
-		globals["plan"] = NewPlanRootFromFactories(graph, project, reg, factories)
-	}
-
-	// Add immediate receivers as top-level globals.
+	// Add immediate receivers for explicitly included providers.
 	for _, b := range op.AllBindings() {
-		if bs.excluded[b.Name] {
+		if !bs.included[b.Name] {
 			continue
 		}
 		if b.ImmediateFactory != nil {
@@ -79,4 +88,65 @@ func (bs *BindingSet) BuildGlobals(graph *op.Graph, project string, reg *op.Acti
 	}
 
 	return globals
+}
+
+// ConfigureThread sets thread.Load to the @devlore// module loader.
+// The loader resolves provider names from the binding registry and caches instances on the BindingSet.
+// Must be called before starlark.ExecFileOptions.
+func (bs *BindingSet) ConfigureThread(thread *starlark.Thread, graph *op.Graph, project string, reg *op.ActionRegistry) {
+	thread.Load = bs.makeLoader(graph, project, reg)
+}
+
+// makeLoader creates the thread.Load function for @devlore// modules.
+func (bs *BindingSet) makeLoader(graph *op.Graph, project string, reg *op.ActionRegistry) func(*starlark.Thread, string) (starlark.StringDict, error) {
+	return func(_ *starlark.Thread, module string) (starlark.StringDict, error) {
+		if !strings.HasPrefix(module, "@devlore//") {
+			return nil, fmt.Errorf("unknown module: %s (use @devlore// prefix)", module)
+		}
+
+		name := strings.TrimPrefix(module, "@devlore//")
+
+		if e, ok := bs.cache[name]; ok {
+			return e.globals, e.err
+		}
+
+		globals, err := bs.resolveProvider(name, graph, project, reg)
+		bs.cache[name] = &loaderEntry{globals, err}
+		return globals, err
+	}
+}
+
+// resolveProvider creates a Starlark module dict for a single provider.
+func (bs *BindingSet) resolveProvider(name string, graph *op.Graph, project string, reg *op.ActionRegistry) (starlark.StringDict, error) {
+	// Special case: plan aggregate
+	if name == "plan" {
+		return bs.buildPlanModule(graph, project, reg)
+	}
+
+	binding, ok := op.BindingByName(name)
+	if !ok {
+		return nil, fmt.Errorf("no provider %q registered", name)
+	}
+
+	if binding.ImmediateFactory == nil {
+		return nil, fmt.Errorf("provider %q has no immediate factory", name)
+	}
+
+	value := binding.ImmediateFactory(bs.cfg)
+	return starlark.StringDict{name: value}, nil
+}
+
+// buildPlanModule constructs a plan module from all registered PlannedFactory bindings.
+func (bs *BindingSet) buildPlanModule(graph *op.Graph, project string, reg *op.ActionRegistry) (starlark.StringDict, error) {
+	factories := make(map[string]op.PlannedFactory)
+	for _, b := range op.AllBindings() {
+		if b.PlannedFactory != nil {
+			factories[b.Name] = b.PlannedFactory
+		}
+	}
+	if len(factories) == 0 {
+		return nil, fmt.Errorf("no planned providers registered")
+	}
+	plan := NewPlanRootFromFactories(graph, project, reg, factories)
+	return starlark.StringDict{"plan": plan}, nil
 }

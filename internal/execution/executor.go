@@ -82,9 +82,9 @@ type ExecutorOptions struct {
 	// Data holds tool-provided context (template vars, SOPS config, etc.).
 	Data map[string]any
 
-	// Host provides platform abstractions (package manager, service manager)
-	// to action providers. Create with NewHostProvider(host.NewHost()).
-	Host op.HostProvider
+	// Platform provides platform abstractions (package manager, service manager)
+	// to action providers. Create with platform.New().
+	Platform *op.Platform
 
 	// ConflictResolution specifies how to handle conflicts detected during preflight.
 	ConflictResolution ConflictResolution
@@ -138,12 +138,12 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 	ordered := OrderNodes(g.Nodes, g.Edges)
 
 	execCtx := &op.Context{
-		Context: ctx,
-		DryRun:  e.options.DryRun,
-		Writer:  e.options.Writer,
-		Data:    e.options.Data,
-		Graph:   g,
-		Host:    e.options.Host,
+		Context:  ctx,
+		DryRun:   e.options.DryRun,
+		Writer:   e.options.Writer,
+		Data:     e.options.Data,
+		Graph:    g,
+		Platform: e.options.Platform,
 	}
 
 	results := make(map[string]any)
@@ -184,12 +184,12 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 // skipped during the forward pass — they execute only during rollback.
 func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
 	execCtx := &op.Context{
-		Context: ctx,
-		DryRun:  e.options.DryRun,
-		Writer:  e.options.Writer,
-		Data:    e.options.Data,
-		Graph:   g,
-		Host:    e.options.Host,
+		Context:  ctx,
+		DryRun:   e.options.DryRun,
+		Writer:   e.options.Writer,
+		Data:     e.options.Data,
+		Graph:    g,
+		Platform: e.options.Platform,
 	}
 
 	// Collect compensating phase IDs so we skip them in the forward pass.
@@ -395,11 +395,11 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 	ordered := OrderNodes(nodes, edges)
 
 	execCtx := &op.Context{
-		Context: ctx,
-		DryRun:  e.options.DryRun,
-		Writer:  e.options.Writer,
-		Data:    e.options.Data,
-		Host:    e.options.Host,
+		Context:  ctx,
+		DryRun:   e.options.DryRun,
+		Writer:   e.options.Writer,
+		Data:     e.options.Data,
+		Platform: e.options.Platform,
 	}
 
 	results := make(map[string]any)

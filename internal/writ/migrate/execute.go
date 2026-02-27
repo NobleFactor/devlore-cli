@@ -69,7 +69,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 		if err != nil {
 			return fmt.Errorf("rename node %s: %w", node.ID, err)
 		}
-		if _, _, err := fp.Move(nil, source, target); err != nil {
+		if _, _, err := fp.Move(source, target); err != nil {
 			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
 			return fmt.Errorf("rename %s -> %s: %w", source, target, err)
 		}

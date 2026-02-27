@@ -1,0 +1,618 @@
+# Provider Loading and Lifetime
+
+How Starlark scripts acquire provider bindings, and how the runtime manages
+provider lifecycle based on lifetime declarations.
+
+See also:
+
+- [Projected Provider API](devlore-projected-provider-api.md) — Provider
+  projection into immediate and planned namespaces
+- [Phase Execution](devlore-phase-execution.md) — Phase boundaries, retry,
+  compensation
+- [Action Namespaces](devlore-operation-namespaces.md) — Adding new providers
+
+## Overview
+
+Providers are Go structs projected into Starlark namespaces. The question this
+document addresses is: **how does a Starlark script get access to a provider?**
+
+There are two mechanisms:
+
+| Mechanism | When resolved | Who controls | Typical use |
+| --- | --- | --- | --- |
+| **`With()`** | Before script execution | Consumer (Go code) | Core providers the script always needs |
+| **`load()`** | During script execution | Script author | Optional providers for specific tasks |
+
+Both mechanisms produce identical Starlark values. The difference is who
+decides and when.
+
+## The Two Mechanisms
+
+### Pre-Injection via `With()`
+
+The consumer (lore, writ, star) declares which providers it wants as
+pre-injected globals:
+
+```go
+bs := loreStar.NewBindingSet(op.BindingConfig{
+    Writer:      os.Stdout,
+    ProgramName: "lore",
+    Color:       true,
+    WorkDir:     projectDir,
+}).With("ui", "plan")
+
+globals := bs.BuildGlobals(graph, project, reg)
+```
+
+`BuildGlobals` calls `ImmediateFactory(cfg)` for each named provider and adds
+the resulting value to the globals dict. Scripts receive these as predeclared
+names — available without any import.
+
+```python
+# ui is predeclared — no load() needed
+ui.note("Starting deployment")
+
+# plan is predeclared — no load() needed
+plan.file.copy(source, target)
+```
+
+### On-Demand via `load()`
+
+Scripts import additional providers using the `@devlore//` module namespace:
+
+```python
+load("@devlore//starcode", "starcode")
+load("@devlore//file", "file")
+
+sources = starcode.capture("**/*.star")
+report = sources.analyze(hotspots=True, cyclomatic_threshold=10)
+
+if file.exists("override.toml"):
+    ui.note("Override config detected")
+```
+
+The `@devlore//` prefix identifies the devlore provider registry. The loader
+resolves the provider name against registered `ProviderBinding` entries,
+calls `ImmediateFactory(cfg)`, caches the result, and returns it.
+
+### Consumer Provider Sets
+
+| Consumer | Pre-injected via `With()` | Available via `load()` |
+| --- | --- | --- |
+| **star** (extensions) | `ui` | All registered providers |
+| **lore** (packages) | `ui`, `plan` | All registered providers |
+| **writ** (environments) | `ui`, `plan` | All registered providers |
+
+`plan` is a special name. It is not a single provider — it is an aggregate
+of all registered `PlannedFactory` bindings, assembled into a `PlanRoot` with
+sub-namespaces (`plan.file`, `plan.shell`, `plan.pkg`, etc.).
+
+## The `@devlore//` Module Namespace
+
+### Module Resolution
+
+```
+load("@devlore//<name>", "<name>")
+         │          │        │
+         │          │        └─ Starlark binding name in script scope
+         │          └─ Provider name in binding registry
+         └─ Namespace prefix (required)
+```
+
+The loader performs these steps:
+
+1. Verify the `@devlore//` prefix. Reject unknown prefixes.
+2. Extract the provider name after the prefix.
+3. Check the loader cache. If hit, return cached result.
+4. If `name == "plan"`, construct the `PlanRoot` aggregate.
+5. Otherwise, look up `ProviderBinding` by name.
+6. Call `ImmediateFactory(cfg)` to create the receiver.
+7. Cache and return.
+
+### Aliasing
+
+Starlark's `load()` supports aliasing:
+
+```python
+load("@devlore//starcode", sc="starcode")
+
+# sc is now the starcode receiver
+sources = sc.capture("**/*.star")
+```
+
+This is standard Starlark syntax — no special handling needed.
+
+### Error Messages
+
+| Condition | Error |
+| --- | --- |
+| Unknown prefix | `unknown module: foo (use @devlore// prefix)` |
+| Unknown provider | `no provider "foo" registered` |
+| No immediate factory | `provider "file" has no immediate factory` |
+
+### Interaction with `With()`
+
+A provider can be both pre-injected via `With()` and loaded via `load()`. The
+loaded name shadows the predeclared one within the module scope. Both are
+valid receivers. This is harmless but redundant — if a consumer pre-injects a
+provider, scripts should not also `load()` it.
+
+## Load and Call Interaction
+
+Starlark's `load()` is a top-level statement processed during
+`starlark.ExecFileOptions()`. Loaded names enter the module scope. Functions
+defined in the script close over the module scope and retain access to loaded
+names when later invoked via `starlark.Call()`.
+
+```python
+load("@devlore//starcode", "starcode")
+
+def install(package, phase):
+    # starcode is accessible here through the module scope closure.
+    # This works even when install() is invoked via starlark.Call()
+    # from Go code after ExecFileOptions() returns.
+    sources = starcode.capture("star/**/*.star")
+    report = sources.analyze(hotspots=True)
+```
+
+The execution flow:
+
+```
+ExecFileOptions(opts, thread, path, data, globals)
+    │
+    ├─ processes load("@devlore//starcode", "starcode")
+    │   └─ calls thread.Load("@devlore//starcode")
+    │       └─ loader returns {starcode: <receiver>}
+    │           └─ "starcode" bound in module scope
+    │
+    ├─ processes def install(package, phase): ...
+    │   └─ creates function closure over module scope
+    │
+    └─ returns scriptGlobals = {"install": <function>}
+
+starlark.Call(thread, scriptGlobals["install"], args, nil)
+    │
+    └─ function executes with access to module scope
+        └─ "starcode" is accessible via closure
+```
+
+No tricks. No special handling. Standard Starlark scoping.
+
+## Loader Cache
+
+The loader caches provider instances to avoid redundant `ImmediateFactory`
+calls. The cache lives on the `BindingSet`.
+
+```
+Thread A ─────┐
+              ├──→ BindingSet.cache
+Thread B ─────┘         │
+                        ├─ "starcode" → loaderEntry{globals, nil}
+                        ├─ "file"         → loaderEntry{globals, nil}
+                        └─ "plan"         → loaderEntry{globals, nil}
+```
+
+Cache behavior depends on provider lifetime:
+
+| Lifetime | Cache behavior |
+| --- | --- |
+| `LifetimeStateless` | Cached for the lifetime of the `BindingSet`. Never cleared. |
+| `LifetimePhase` | Cached within a phase. Cleared at phase boundaries. `Close()` called if implemented. |
+| `LifetimeSession` | Cached for the lifetime of the `BindingSet`. `Close()` called at session end. |
+
+For the current architecture (Option A: fresh thread per phase), the cache
+effectively scopes to a single phase execution. Cross-phase sharing is a
+future optimization that the `Lifetime` field enables without code changes
+to providers.
+
+### Script Chaining
+
+In a deploy pipeline (prepare → install → provision → verify), each phase
+is a separate script execution. The cache behavior during chaining:
+
+```
+Phase: prepare
+  load("@devlore//starcode")  → cache MISS  → create instance
+  load("@devlore//file")          → cache MISS  → create instance
+  load("@devlore//dbconn")        → cache MISS  → create instance
+
+Phase: install
+  load("@devlore//starcode")  → cache HIT   → reuse (stateless)
+  load("@devlore//file")          → cache HIT   → reuse (stateless)
+  load("@devlore//dbconn")        → cache MISS  → new instance (phase — old one closed)
+
+Phase: provision
+  load("@devlore//starcode")  → cache HIT   → reuse (stateless)
+  load("@devlore//dbconn")        → cache MISS  → new instance (phase — old one closed)
+```
+
+Same `BindingSet` across phases means:
+
+- **Stateless providers** are created once, reused across all phases.
+- **Phase-scoped providers** are cleared and closed between phases, fresh
+  instance per phase.
+- **Session-scoped providers** are created once, shared across all phases,
+  closed at session end.
+
+## Provider Lifetime
+
+Every `ProviderBinding` declares the lifecycle semantics of its immediate
+receiver. This declaration is a contract between the provider author and
+the runtime.
+
+### Declaration Model
+
+Provider lifetime is declared via a doc-comment directive on the Provider
+struct, alongside the existing access directive:
+
+```go
+// Provider performs Starlark source analysis.
+// +devlore:access=immediate
+// +devlore:lifetime=stateless
+type Provider struct {
+    Root string
+}
+```
+
+The code generator reads both directives and emits them into the generated
+`ProviderBinding` registration:
+
+```go
+func init() {
+    op.RegisterBinding(&op.ProviderBinding{
+        Name:     "starcode",
+        Access:   op.AccessImmediate,
+        Lifetime: op.LifetimeStateless,
+        ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
+            return NewStarcodeReceiver(&Provider{Root: cfg.WorkDir})
+        },
+    })
+}
+```
+
+Both `Access` and `Lifetime` follow the same declaration model:
+
+| Field | Directive | Values | Default |
+| --- | --- | --- | --- |
+| `Access` | `// +devlore:access=` | `immediate`, `planned`, `both` | (required) |
+| `Lifetime` | `// +devlore:lifetime=` | `stateless`, `phase`, `session` | `stateless` |
+
+### Runtime Types
+
+```go
+// ProviderLifetime declares a provider's lifecycle semantics.
+type ProviderLifetime string
+
+const (
+    LifetimeStateless ProviderLifetime = "stateless"
+    LifetimePhase     ProviderLifetime = "phase"
+    LifetimeSession   ProviderLifetime = "session"
+)
+```
+
+```go
+type ProviderBinding struct {
+    Name             string
+    Access           AccessType
+    Lifetime         ProviderLifetime
+    ActionRegistrar  ProviderRegistrar
+    PlannedFactory   PlannedFactory
+    ImmediateFactory ImmediateFactory
+}
+```
+
+### Stateless (`LifetimeStateless`)
+
+The zero value. The default. The common case.
+
+A stateless provider's `ImmediateFactory` produces a receiver that is a pure
+function of `BindingConfig`. The receiver holds configuration but no mutable
+state. Method calls are independent — calling `analyze()` does not affect the
+result of a subsequent `index()` call. The receiver is a lens onto the world,
+not an accumulator of history.
+
+#### What "Stateless" Means Precisely
+
+A stateless receiver MAY hold:
+
+- **Immutable configuration**: root directory paths, writer references, color
+  flags, program names. These are set once at construction and never change.
+- **References to external mutable state**: the filesystem, environment
+  variables, network. The receiver does not own this state — it reads it fresh
+  on each call. Two calls to `file.exists("x")` may return different results
+  if the file was created between calls. This is correct behavior, not state.
+
+A stateless receiver MUST NOT hold:
+
+- **Mutable fields** that accumulate across calls: maps that grow, slices that
+  append, counters that increment.
+- **Open resources** that require cleanup: database connections, file handles,
+  network sockets, goroutines.
+- **Caches** whose contents depend on prior method calls. (A cache keyed
+  solely by method arguments — a memo cache — is acceptable if it does not
+  affect correctness when cleared.)
+
+#### The Stateless Contract
+
+1. **Idempotent construction**: `ImmediateFactory(cfg)` called twice with the
+   same `cfg` produces functionally identical receivers.
+2. **Safe to cache**: The loader may return the same instance for repeated
+   `load()` calls. The receiver does not detect or care about sharing.
+3. **Safe to share**: Multiple scripts executing against the same receiver
+   produce correct results. No locking needed.
+4. **No cleanup**: The receiver requires no teardown between phases or at
+   execution end. If the Go garbage collector reclaims it, nothing leaks.
+5. **Call-order independence**: The result of method B does not depend on
+   whether method A was called first.
+
+#### Examples
+
+| Provider | Holds | Why stateless |
+| --- | --- | --- |
+| `starcode` | `Root string` | Reads files fresh on each analysis call |
+| `ui` | `Writer io.Writer`, `ProgramName string`, `Color bool` | Each write is independent |
+| `template` | (nothing) | Pure transform: input → output |
+| `file` (immediate) | `Root string` | Queries like `exists()` read filesystem on demand |
+| `git` (immediate) | (nothing) | Runs git commands on demand |
+
+### Phase-Scoped (`LifetimePhase`)
+
+A phase-scoped provider accumulates state within a single phase execution. Its
+receiver is an active participant in the phase, not a passive lens. At phase
+boundaries, the runtime discards the instance (calling `Close()` if
+implemented) and creates a fresh one for the next phase.
+
+#### What "Phase-Scoped" Means Precisely
+
+A phase-scoped receiver MAY hold:
+
+- **Transaction contexts**: a database transaction opened by `begin()` and
+  closed by `commit()` or `rollback()` within a single phase.
+- **Accumulated buffers**: a log collector that gathers entries across calls
+  within a phase and flushes at the end.
+- **Mutable caches**: a cache whose contents depend on prior method calls and
+  affect the results of subsequent calls within the phase.
+
+A phase-scoped receiver MUST NOT hold:
+
+- **State that must survive phase boundaries**: if the state is needed in the
+  next phase, use `LifetimeSession` instead.
+- **Shared mutable state**: two phase-scoped instances (one per phase) must be
+  fully independent.
+
+#### The Phase-Scoped Contract
+
+1. **Independent construction**: Two calls to `ImmediateFactory(cfg)` produce
+   independent instances with independent state. No shared mutable state
+   between instances.
+2. **NOT safe to share across phases**: The runtime MUST create a fresh
+   instance at each phase boundary.
+3. **Cleanup at phase end**: If the receiver implements `io.Closer`, the
+   runtime calls `Close()` at phase end. If it does not implement `io.Closer`
+   but holds resources, it must clean up via finalizers or the resource will
+   leak.
+4. **Call-order dependence**: The result of method B may depend on whether
+   method A was called first. This is expected and correct.
+
+#### Examples (Hypothetical — None Exist Today)
+
+| Provider | Would hold | Why phase-scoped |
+| --- | --- | --- |
+| Log collector | `[]LogEntry` buffer | Entries accumulate within phase, flushed at phase end |
+| Transaction | `*sql.Tx` | Transaction spans one phase; commit/rollback at boundary |
+| Metrics batch | Counter maps | Counters increment within a phase; reported at phase end |
+
+### Session-Scoped (`LifetimeSession`)
+
+A session-scoped provider persists across phases within a single execution
+session. It is created once when first loaded, shared across all phases, and
+cleaned up only when the entire session ends.
+
+#### What "Session-Scoped" Means Precisely
+
+A session-scoped receiver MAY hold:
+
+- **Open connections**: database connection pools, HTTP clients with persistent
+  connections, WebSocket connections that span the entire execution.
+- **Cross-phase accumulators**: an audit log that records events from all phases.
+- **Expensive resources**: resources whose setup cost justifies sharing across
+  phases (connection handshakes, authentication flows).
+
+A session-scoped receiver MUST:
+
+- **Be safe for sequential phase access**: the runtime will use the same
+  instance across phases, but phases execute sequentially (for now). If future
+  parallel phase execution is introduced, session-scoped providers must
+  implement their own synchronization.
+
+#### The Session-Scoped Contract
+
+1. **Single instance**: The runtime creates one instance per `BindingSet` and
+   reuses it across all phases.
+2. **Cross-phase state is expected**: State accumulated in phase N is visible
+   in phase N+1. This is the intended use case.
+3. **Cleanup at session end**: If the receiver implements `io.Closer`, the
+   runtime calls `Close()` after all phases complete. This is the only cleanup
+   point — there is no per-phase cleanup.
+4. **Not safe for concurrent access** (unless provider implements locking):
+   The runtime does not synchronize access to session-scoped providers. If
+   parallel phase execution is introduced, the provider must handle its own
+   concurrency.
+
+#### Examples (Hypothetical — None Exist Today)
+
+| Provider | Would hold | Why session-scoped |
+| --- | --- | --- |
+| Database pool | `*sql.DB` connection pool | Connection reuse across phases; close at session end |
+| HTTP client | `*http.Client` with cookies | Session state accumulates across phases |
+| Audit logger | Append-only log | Records events across all phases; flush at session end |
+
+### Choosing the Right Lifetime
+
+```
+Does ImmediateFactory produce a receiver that is a pure function of BindingConfig?
+  │
+  ├─ YES → Does the receiver hold mutable fields that change across calls?
+  │   │
+  │   ├─ NO  → LifetimeStateless
+  │   │
+  │   └─ YES → Does correctness depend on those fields persisting?
+  │       │
+  │       ├─ NO (just a perf cache) → LifetimeStateless
+  │       │
+  │       └─ YES → Must the state persist across phase boundaries?
+  │           │
+  │           ├─ NO  → LifetimePhase
+  │           │
+  │           └─ YES → LifetimeSession
+  │
+  └─ NO (factory has side effects) → Must the side effects persist across phases?
+      │
+      ├─ NO  → LifetimePhase
+      │
+      └─ YES → LifetimeSession
+```
+
+When in doubt, declare `lifetime=phase`. The cost is per-phase recreation,
+which is cheap. The risk of incorrectly declaring `stateless` is shared mutable
+state across phases — a correctness bug that may be subtle and intermittent.
+The risk of declaring `phase` when `session` is correct is redundant
+recreation — a performance issue, not a correctness issue.
+
+### Registration Examples
+
+**Stateless (default — directive can be omitted):**
+
+```go
+// Provider performs Starlark source analysis.
+// +devlore:access=immediate
+// +devlore:lifetime=stateless
+type Provider struct {
+    Root string
+}
+```
+
+Generated registration:
+
+```go
+func init() {
+    op.RegisterBinding(&op.ProviderBinding{
+        Name:     "starcode",
+        Access:   op.AccessImmediate,
+        Lifetime: op.LifetimeStateless,
+        ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
+            return NewStarcodeReceiver(&Provider{Root: cfg.WorkDir})
+        },
+    })
+}
+```
+
+**Phase-scoped (explicit declaration):**
+
+```go
+// Provider manages per-phase transaction state.
+// +devlore:access=immediate
+// +devlore:lifetime=phase
+type Provider struct {
+    tx *sql.Tx
+}
+```
+
+Generated registration:
+
+```go
+func init() {
+    op.RegisterBinding(&op.ProviderBinding{
+        Name:     "txn",
+        Access:   op.AccessImmediate,
+        Lifetime: op.LifetimePhase,
+        ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
+            return NewTxnReceiver(&Provider{})
+        },
+    })
+}
+```
+
+**Session-scoped (explicit declaration):**
+
+```go
+// Provider manages a database connection pool shared across phases.
+// +devlore:access=immediate
+// +devlore:lifetime=session
+type Provider struct {
+    db *sql.DB
+}
+```
+
+Generated registration:
+
+```go
+func init() {
+    op.RegisterBinding(&op.ProviderBinding{
+        Name:     "dbpool",
+        Access:   op.AccessImmediate,
+        Lifetime: op.LifetimeSession,
+        ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
+            db, _ := sql.Open("postgres", cfg.DSN)
+            return NewDBPoolReceiver(&Provider{db: db})
+        },
+    })
+}
+```
+
+### Impact on Future Architecture
+
+The `Lifetime` field is a lightweight annotation today. It becomes a critical
+gate for several future capabilities:
+
+| Capability | Stateless | Phase-Scoped | Session-Scoped |
+| --- | --- | --- | --- |
+| **Cross-phase cache sharing** | Shared freely | Fresh per phase | Shared (single instance) |
+| **Parallel phase execution** | Shared across goroutines | Per-goroutine instance | Shared with provider-managed locking |
+| **Phase boundary cleanup** | No cleanup | `Close()` at phase end | No per-phase cleanup |
+| **Session end cleanup** | No cleanup | N/A (already cleaned up) | `Close()` at session end |
+| **Warm restart after failure** | Reusable | Re-created (state may be corrupt) | Provider decides (may need reset) |
+| **Resource budgeting** | ~Free | Counts against phase budget | Counts against session budget |
+| **Health checks** | Never needed | Optional between phases | Optional between phases |
+| **Observability** | Nothing to monitor | Monitor within phase | Monitor across session |
+
+## Design Properties
+
+**No auto-injection.** Scripts declare their dependencies. The consumer
+controls the baseline (via `With()`); the script controls the extras (via
+`load()`). No surprises in the global namespace.
+
+**Universal availability.** Every registered provider is available to every
+script via `load()`. The `With()` mechanism is a convenience, not a gate.
+A script can always import what it needs.
+
+**Lazy creation.** Providers are only instantiated when loaded. A script that
+never `load("@devlore//starcode")` pays no cost for the starcode
+provider existing in the registry.
+
+**Cache safety via declaration.** The `Lifetime` field lets the runtime cache
+aggressively (stateless), conservatively (phase-scoped), or carefully
+(session-scoped) without the provider author thinking about caching. The
+directive is the contract; the runtime enforces it.
+
+**Directive as source of truth.** Both `Access` and `Lifetime` are declared on
+the Provider struct via doc-comment directives. The code generator reads the
+directives and emits the values into the `ProviderBinding` registration. This
+keeps the declaration close to the code it describes, eliminates manual
+registration errors, and makes the lifecycle semantics visible at a glance
+when reading the Provider struct.
+
+**Forward compatible.** The `@devlore//` namespace leaves room for future
+module schemes: `@stdlib//json` for standard library modules, `@file//path`
+for local file modules, `@registry//name` for registry-hosted modules.
+
+## Related Documents
+
+- [Projected Provider API](devlore-projected-provider-api.md) — How providers
+  are projected into immediate and planned namespaces
+- [Phase Execution](devlore-phase-execution.md) — Phase boundaries where
+  phase-scoped provider caches are cleared
+- [Action Namespaces](devlore-operation-namespaces.md) — How to add new
+  provider namespaces
+- [BindingSet Redesign Plan](../plans/binding-set-redesign.md) — Implementation
+  plan for this design

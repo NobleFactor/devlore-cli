@@ -15,20 +15,8 @@ func init() {
 	})
 }
 
-// serviceManager extracts the ServiceManagerProvider from the execution context.
-func serviceManager(ctx *op.Context) (op.ServiceManagerProvider, error) {
-	if ctx.Host == nil {
-		return nil, fmt.Errorf("service actions require Host in execution context")
-	}
-	svc := ctx.Host.ServiceManager()
-	if svc == nil {
-		return nil, fmt.Errorf("no service manager available on this platform")
-	}
-	return svc, nil
-}
-
 // Start — Start starts a service. Returns compensation state with pre-action running status.
-type Start struct{ Impl *Provider }
+type Start struct{}
 
 func (o *Start) Name() string { return "service.start" }
 
@@ -41,12 +29,12 @@ func (o *Start) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSta
 		return nil, nil, nil
 	}
 
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("service actions require Platform in execution context")
 	}
 
-	result, state, err := o.Impl.Start(svc, name, output)
+	provider := &Provider{Platform: ctx.Platform}
+	result, state, err := provider.Start(name, output)
 	return result, state, err
 }
 
@@ -54,15 +42,15 @@ func (o *Start) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return err
+	if ctx.Platform == nil {
+		return fmt.Errorf("service actions require Platform in execution context")
 	}
-	return o.Impl.CompensateStart(svc, state)
+	provider := &Provider{Platform: ctx.Platform}
+	return provider.CompensateStart(state)
 }
 
 // Stop — Stop stops a service. Returns compensation state with pre-action running status.
-type Stop struct{ Impl *Provider }
+type Stop struct{}
 
 func (o *Stop) Name() string { return "service.stop" }
 
@@ -75,12 +63,12 @@ func (o *Stop) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoStat
 		return nil, nil, nil
 	}
 
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("service actions require Platform in execution context")
 	}
 
-	result, state, err := o.Impl.Stop(svc, name, output)
+	provider := &Provider{Platform: ctx.Platform}
+	result, state, err := provider.Stop(name, output)
 	return result, state, err
 }
 
@@ -88,15 +76,15 @@ func (o *Stop) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return err
+	if ctx.Platform == nil {
+		return fmt.Errorf("service actions require Platform in execution context")
 	}
-	return o.Impl.CompensateStop(svc, state)
+	provider := &Provider{Platform: ctx.Platform}
+	return provider.CompensateStop(state)
 }
 
 // Restart — Restart restarts a service. Returns compensation state. Compensation is a no-op — if the service was restarted, it was already running.
-type Restart struct{ Impl *Provider }
+type Restart struct{}
 
 func (o *Restart) Name() string { return "service.restart" }
 
@@ -109,12 +97,12 @@ func (o *Restart) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("service actions require Platform in execution context")
 	}
 
-	result, state, err := o.Impl.Restart(svc, name, output)
+	provider := &Provider{Platform: ctx.Platform}
+	result, state, err := provider.Restart(name, output)
 	return result, state, err
 }
 
@@ -122,11 +110,12 @@ func (o *Restart) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateRestart(state)
+	provider := &Provider{}
+	return provider.CompensateRestart(state)
 }
 
 // Enable — Enable enables a service to start at boot. Returns compensation state with pre-action enabled status.
-type Enable struct{ Impl *Provider }
+type Enable struct{}
 
 func (o *Enable) Name() string { return "service.enable" }
 
@@ -139,12 +128,12 @@ func (o *Enable) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 		return nil, nil, nil
 	}
 
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("service actions require Platform in execution context")
 	}
 
-	result, state, err := o.Impl.Enable(svc, name, output)
+	provider := &Provider{Platform: ctx.Platform}
+	result, state, err := provider.Enable(name, output)
 	return result, state, err
 }
 
@@ -152,15 +141,15 @@ func (o *Enable) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return err
+	if ctx.Platform == nil {
+		return fmt.Errorf("service actions require Platform in execution context")
 	}
-	return o.Impl.CompensateEnable(svc, state)
+	provider := &Provider{Platform: ctx.Platform}
+	return provider.CompensateEnable(state)
 }
 
 // Disable — Disable disables a service from starting at boot. Returns compensation state with pre-action enabled status.
-type Disable struct{ Impl *Provider }
+type Disable struct{}
 
 func (o *Disable) Name() string { return "service.disable" }
 
@@ -173,12 +162,12 @@ func (o *Disable) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("service actions require Platform in execution context")
 	}
 
-	result, state, err := o.Impl.Disable(svc, name, output)
+	provider := &Provider{Platform: ctx.Platform}
+	result, state, err := provider.Disable(name, output)
 	return result, state, err
 }
 
@@ -186,15 +175,15 @@ func (o *Disable) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return err
+	if ctx.Platform == nil {
+		return fmt.Errorf("service actions require Platform in execution context")
 	}
-	return o.Impl.CompensateDisable(svc, state)
+	provider := &Provider{Platform: ctx.Platform}
+	return provider.CompensateDisable(state)
 }
 
 // Exists — Exists returns true if the named service exists on the system.
-type Exists struct{ Impl *Provider }
+type Exists struct{}
 
 func (o *Exists) Name() string { return "service.exists" }
 
@@ -206,17 +195,17 @@ func (o *Exists) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 		return nil, nil, nil
 	}
 
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("service actions require Platform in execution context")
 	}
 
-	result, err := o.Impl.Exists(svc, name)
+	provider := &Provider{Platform: ctx.Platform}
+	result, err := provider.Exists(name)
 	return result, nil, err
 }
 
 // Running — Running returns true if the named service is currently running.
-type Running struct{ Impl *Provider }
+type Running struct{}
 
 func (o *Running) Name() string { return "service.running" }
 
@@ -228,17 +217,17 @@ func (o *Running) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("service actions require Platform in execution context")
 	}
 
-	result, err := o.Impl.Running(svc, name)
+	provider := &Provider{Platform: ctx.Platform}
+	result, err := provider.Running(name)
 	return result, nil, err
 }
 
 // Enabled — Enabled returns true if the named service is enabled to start at boot.
-type Enabled struct{ Impl *Provider }
+type Enabled struct{}
 
 func (o *Enabled) Name() string { return "service.enabled" }
 
@@ -250,24 +239,23 @@ func (o *Enabled) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	svc, err := serviceManager(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("service actions require Platform in execution context")
 	}
 
-	result, err := o.Impl.Enabled(svc, name)
+	provider := &Provider{Platform: ctx.Platform}
+	result, err := provider.Enabled(name)
 	return result, nil, err
 }
 
 // Register registers all service actions with the given registry.
 func Register(reg *op.ActionRegistry) {
-	p := &Provider{}
-	reg.Register(&Start{Impl: p})
-	reg.Register(&Stop{Impl: p})
-	reg.Register(&Restart{Impl: p})
-	reg.Register(&Enable{Impl: p})
-	reg.Register(&Disable{Impl: p})
-	reg.Register(&Exists{Impl: p})
-	reg.Register(&Running{Impl: p})
-	reg.Register(&Enabled{Impl: p})
+	reg.Register(&Start{})
+	reg.Register(&Stop{})
+	reg.Register(&Restart{})
+	reg.Register(&Enable{})
+	reg.Register(&Disable{})
+	reg.Register(&Exists{})
+	reg.Register(&Running{})
+	reg.Register(&Enabled{})
 }

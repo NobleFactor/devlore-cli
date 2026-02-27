@@ -32,7 +32,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/host"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 
 	// Blank import triggers init() in all provider packages,
 	// populating the binding registry via op.RegisterBinding().
@@ -487,7 +487,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
-		Host:               execution.NewHostProvider(host.NewHost()),
+		Platform:           platform.New(),
 		ConflictResolution: execution.ResolutionOverwrite,
 	})
 
@@ -516,7 +516,7 @@ func buildUpgradeChain(reg *op.ActionRegistry, actions []string, relTarget strin
 	var prevNodeID string
 
 	for i, opName := range actions {
-		isLast := (i == len(actions)-1)
+		isLast := i == len(actions)-1
 		nodeID := relTarget
 		if !isLast {
 			nodeID = relTarget + ":" + opName
@@ -1220,7 +1220,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 	}
 
 	// Move file to repo
-	if _, _, err := fp.Move(nil, filePath, destPath); err != nil {
+	if _, _, err := fp.Move(filePath, destPath); err != nil {
 		// Move may fail across filesystems, try copy+remove
 		if err := copyFile(filePath, destPath); err != nil {
 			return 0, fmt.Errorf("moving file: %w", err)

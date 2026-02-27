@@ -12,8 +12,9 @@ import (
 
 func init() {
 	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "net",
-		Access: op.AccessBoth,
+		Name:     "net",
+		Access:   op.AccessBoth,
+		Lifetime: op.LifetimeStateless,
 		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
 			return NewNetPlan(graph, project, reg)
 		},

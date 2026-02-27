@@ -12,8 +12,9 @@ import (
 
 func init() {
 	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "encryption",
-		Access: op.AccessBoth,
+		Name:     "encryption",
+		Access:   op.AccessBoth,
+		Lifetime: op.LifetimeStateless,
 		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
 			return NewEncryptionPlan(graph, project, reg)
 		},

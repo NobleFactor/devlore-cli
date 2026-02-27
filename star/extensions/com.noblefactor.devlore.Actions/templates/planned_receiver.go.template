@@ -12,8 +12,9 @@ import (
 
 func init() {
 	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "{{.Provider}}",
-		Access: op.Access{{.AccessTitle}},
+		Name:     "{{.Provider}}",
+		Access:   op.Access{{.AccessTitle}},
+		Lifetime: op.Lifetime{{.LifetimeTitle}},
 		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
 			return New{{.StructName}}Plan(graph, project, reg)
 		},

@@ -315,7 +315,7 @@ func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 	if verbose {
 		cli.Note("Moving: %s -> %s", sourceRoot, layerDir)
 	}
-	_, _, err := fp.Move(nil, sourceRoot, layerDir)
+	_, _, err := fp.Move(sourceRoot, layerDir)
 	return err
 }
 

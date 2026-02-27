@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
 // TestRetryPolicyComputeDelay tests backoff delay computation.
@@ -164,10 +165,10 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 			},
 		},
 		Nodes: []*op.Node{
-			testNode("probe", &file.Link{Impl: fp}, sources["probe.txt"], filepath.Join(tmpDir, "out-probe")),
-			testNode("pkg", &file.Link{Impl: fp}, sources["pkg.txt"], filepath.Join(tmpDir, "out-pkg")),
-			testNode("config", &file.Link{Impl: fp}, sources["config.txt"], filepath.Join(tmpDir, "out-config")),
-			testNode("check", &file.Link{Impl: fp}, sources["verify.txt"], filepath.Join(tmpDir, "out-verify")),
+			testNode("probe", &filegen.Link{Impl: fp}, sources["probe.txt"], filepath.Join(tmpDir, "out-probe")),
+			testNode("pkg", &filegen.Link{Impl: fp}, sources["pkg.txt"], filepath.Join(tmpDir, "out-pkg")),
+			testNode("config", &filegen.Link{Impl: fp}, sources["config.txt"], filepath.Join(tmpDir, "out-config")),
+			testNode("check", &filegen.Link{Impl: fp}, sources["verify.txt"], filepath.Join(tmpDir, "out-verify")),
 		},
 	}
 
@@ -275,13 +276,13 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 			},
 		},
 		Nodes: []*op.Node{
-			testNode("node-prepare", &file.Link{Impl: fp}, src1, filepath.Join(tmpDir, "out1")),
-			testNode("node-install", &file.Link{Impl: fp}, src2, filepath.Join(tmpDir, "out2")),
+			testNode("node-prepare", &filegen.Link{Impl: fp}, src1, filepath.Join(tmpDir, "out1")),
+			testNode("node-install", &filegen.Link{Impl: fp}, src2, filepath.Join(tmpDir, "out2")),
 			{ID: "node-provision", Action: failAction},
-			testNode("node-verify", &file.Link{Impl: fp}, src1, filepath.Join(tmpDir, "out4")),
-			testNode("comp-prepare", &file.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out1")),
-			testNode("comp-install", &file.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out2")),
-			testNode("comp-provision", &file.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out3")),
+			testNode("node-verify", &filegen.Link{Impl: fp}, src1, filepath.Join(tmpDir, "out4")),
+			testNode("comp-prepare", &filegen.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out1")),
+			testNode("comp-install", &filegen.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out2")),
+			testNode("comp-provision", &filegen.Link{Impl: fp}, compensateSrc, filepath.Join(tmpDir, "comp-out3")),
 		},
 	}
 
@@ -443,7 +444,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 			},
 		},
 		Nodes: []*op.Node{
-			testNode("prepare-node", &file.Link{Impl: fp}, src, filepath.Join(tmpDir, "out1")),
+			testNode("prepare-node", &filegen.Link{Impl: fp}, src, filepath.Join(tmpDir, "out1")),
 			{ID: "fail-node", Action: failAction},
 		},
 	}
@@ -483,7 +484,7 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 	graph := &op.Graph{
 		State: op.StatePending,
 		Nodes: []*op.Node{
-			testNode("test", &file.Link{Impl: fp}, source, target),
+			testNode("test", &filegen.Link{Impl: fp}, source, target),
 		},
 	}
 

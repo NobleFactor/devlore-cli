@@ -15,7 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/host"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 
 	// Blank import triggers init() in all provider packages,
 	// populating the binding registry via op.RegisterBinding().
@@ -85,18 +85,16 @@ func (p *Planner) PlanPackages(graph *op.Graph, manifestPath string) ([]string, 
 		return nil, fmt.Errorf("parsing manifest: %w", err)
 	}
 
-	plat, reg, regClient, err := p.resolve()
+	targetPlatform, reg, regClient, err := p.resolve()
 	if err != nil {
 		return nil, err
 	}
-
-	h := host.NewHost()
 
 	var names []string
 	for _, entry := range m.Packages {
 		features := mergeFeatures(entry.With, p.Features)
 
-		pkg, err := regClient.Resolve(entry.Name, plat)
+		pkg, err := regClient.Resolve(entry.Name, targetPlatform)
 		if err != nil {
 			return nil, fmt.Errorf("resolving package %q: %w", entry.Name, err)
 		}
@@ -106,7 +104,7 @@ func (p *Planner) PlanPackages(graph *op.Graph, manifestPath string) ([]string, 
 			Settings: p.Settings,
 			DryRun:   p.DryRun,
 		}
-		if err := buildPackageNodes(graph, pkg, h, plat, cfg, reg); err != nil {
+		if err := buildPackageNodes(graph, pkg, targetPlatform, cfg, reg); err != nil {
 			return nil, fmt.Errorf("building nodes for %q: %w", entry.Name, err)
 		}
 
@@ -119,12 +117,10 @@ func (p *Planner) PlanPackages(graph *op.Graph, manifestPath string) ([]string, 
 // PlanByName resolves explicit package names and adds installation nodes
 // to the graph. Returns the resolved package names.
 func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, error) {
-	plat, reg, regClient, err := p.resolve()
+	targetPlatform, reg, regClient, err := p.resolve()
 	if err != nil {
 		return nil, err
 	}
-
-	h := host.NewHost()
 
 	cfg := BuildConfig{
 		Features: p.Features,
@@ -134,12 +130,12 @@ func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, erro
 
 	var names []string
 	for _, pkgName := range packages {
-		pkg, err := regClient.Resolve(pkgName, plat)
+		pkg, err := regClient.Resolve(pkgName, targetPlatform)
 		if err != nil {
 			return nil, fmt.Errorf("resolving package %q: %w", pkgName, err)
 		}
 
-		if err := buildPackageNodes(graph, pkg, h, plat, cfg, reg); err != nil {
+		if err := buildPackageNodes(graph, pkg, targetPlatform, cfg, reg); err != nil {
 			return nil, fmt.Errorf("building nodes for %q: %w", pkgName, err)
 		}
 
@@ -152,9 +148,9 @@ func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, erro
 // resolve returns the resolved platform, action registry, and registry client,
 // auto-creating any that are nil on the Planner.
 func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegistry, resolvedRegistry *lorepackage.Registry, err error) {
-	plat := p.Platform
-	if plat == "" {
-		plat = detectPlatform()
+	targetPlatform := p.Platform
+	if targetPlatform == "" {
+		targetPlatform = detectPlatform()
 	}
 
 	reg := p.ActionRegistry
@@ -172,7 +168,7 @@ func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegi
 		}
 	}
 
-	return plat, reg, regClient, nil
+	return targetPlatform, reg, regClient, nil
 }
 
 // Build creates an execution graph from the given configuration.
@@ -185,13 +181,13 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		return nil, fmt.Errorf("must specify either ManifestPath or Packages")
 	}
 
-	plat := cfg.Platform
-	if plat == "" {
-		plat = detectPlatform()
+	targetPlatform := cfg.Platform
+	if targetPlatform == "" {
+		targetPlatform = detectPlatform()
 	}
 
 	p := &Planner{
-		Platform:       plat,
+		Platform:       targetPlatform,
 		ActionRegistry: cfg.ActionRegistry,
 		RegistryClient: cfg.RegistryClient,
 		Features:       cfg.Features,
@@ -215,35 +211,35 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 	return &BuildResult{
 		Graph:    graph,
 		Packages: packages,
-		Platform: plat,
+		Platform: targetPlatform,
 	}, nil
 }
 
 // BuildFromManifest creates an execution graph from a packages-manifest.yaml file.
-func BuildFromManifest(manifestPath, plat string) (*BuildResult, error) {
+func BuildFromManifest(manifestPath, targetPlatform string) (*BuildResult, error) {
 	return Build(BuildConfig{
 		ManifestPath: manifestPath,
-		Platform:     plat,
+		Platform:     targetPlatform,
 	})
 }
 
 // BuildFromPackages creates an execution graph from a list of package names.
-func BuildFromPackages(packages []string, plat string) (*BuildResult, error) {
+func BuildFromPackages(packages []string, targetPlatform string) (*BuildResult, error) {
 	return Build(BuildConfig{
 		Packages: packages,
-		Platform: plat,
+		Platform: targetPlatform,
 	})
 }
 
 // buildPackageNodes adds execution nodes and phases for a package to the graph.
-// Each lifecycle phase becomes a Phase entry in the graph. Compensation is
-// handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
-func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, h host.Host, plat string, cfg BuildConfig, reg *op.ActionRegistry) error { //nolint:gocognit
+// Each lifecycle phase becomes a Phase entry in the graph.
+// Compensation is handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
+func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform string, cfg BuildConfig, reg *op.ActionRegistry) error { //nolint:gocognit
 	action := lorepackage.Deploy
 	phases := lorepackage.PhaseOrder(action)
 
 	for _, phaseName := range phases {
-		actions := pkg.PhaseActions(plat, action, phaseName)
+		actions := pkg.PhaseActions(targetPlatform, action, phaseName)
 		if len(actions) == 0 {
 			continue
 		}
@@ -261,7 +257,7 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, h host.Host, p
 		for _, action := range actions {
 			switch a := action.(type) {
 			case *lorepackage.ScriptAction:
-				retryPolicy, err := executeScriptAction(graph, pkg, h, plat, a, cfg, reg)
+				retryPolicy, err := executeScriptAction(graph, pkg, targetPlatform, a, cfg, reg)
 				if err != nil {
 					return fmt.Errorf("phase %q: %w", phaseName, err)
 				}
@@ -288,11 +284,10 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, h host.Host, p
 	return nil
 }
 
-// executeScriptAction runs a Starlark phase script's entry point function
-// (named for the lifecycle phase, e.g., "install", "provision") and returns
-// the retry policy if one was configured via phase.retry().
-func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (*op.RetryPolicy, error) {
-	thread, globals, pkgContext, err := prepareScriptEnv(graph, pkg, h, action, cfg, reg)
+// executeScriptAction runs a Starlark phase script's entry point function (named for the lifecycle phase, e.g.,
+// "install", "provision") and returns the retry policy if one was configured via phase.retry().
+func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (*op.RetryPolicy, error) {
+	thread, globals, pkgContext, err := prepareScriptEnv(graph, pkg, action, cfg, reg)
 	if err != nil {
 		return nil, err
 	}
@@ -344,17 +339,27 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, h host.Host,
 	return phaseCtx.Retry, nil
 }
 
-// prepareScriptEnv creates the Starlark thread and globals needed to execute
-// a phase script. plan and ui are injected as globals via BindingSet.
-func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (
-	*starlark.Thread, starlark.StringDict, *loreStar.PackageContext, error, //nolint:unparam // error return reserved for future use
+// prepareScriptEnv creates the Starlark thread and globals needed to execute a phase script.
+// plan and ui are injected as globals via BindingSet.
+func prepareScriptEnv(
+	graph *op.Graph,
+	pkg *lorepackage.Release,
+	action *lorepackage.ScriptAction,
+	cfg BuildConfig,
+	reg *op.ActionRegistry,
+) (
+	*starlark.Thread,
+	starlark.StringDict,
+	*loreStar.PackageContext,
+	error, //nolint:unparam // error return reserved for future use
 ) {
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	bindingSet := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      os.Stdout,
 		ProgramName: "lore",
 		Color:       true,
-	})
-	globals := bs.BuildGlobals(graph, pkg.Name, reg)
+	}).With("ui", "plan")
+
+	globals := bindingSet.BuildGlobals(graph, pkg.Name, reg)
 
 	lifecycle := pkg.Lifecycle()
 	features := lifecycle.EnabledFeatures(cfg.Features)
@@ -367,7 +372,7 @@ func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, ac
 		Settings:   settings,
 		DryRun:     cfg.DryRun,
 		SourceRoot: pkg.Dir,
-		TargetRoot: h.HomeDir(),
+		TargetRoot: userHomeDir(),
 	}
 
 	thread := &starlark.Thread{
@@ -377,12 +382,13 @@ func prepareScriptEnv(graph *op.Graph, pkg *lorepackage.Release, h host.Host, ac
 		},
 	}
 
+	bindingSet.ConfigureThread(thread, graph, pkg.Name, reg)
 	return thread, globals, pkgContext, nil
 }
 
 // addNativePMNodes adds nodes for a native package manager action.
 // Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that work on all platforms.
-// The actual package manager is determined at execution time by host.PackageManager().
+// The actual package manager is determined at execution time via op.Context.Platform.
 func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *op.ActionRegistry) error { //nolint:unparam // error return reserved for future use
 	// Determine the dotted action name
 	var actionName string
@@ -410,9 +416,17 @@ func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepac
 	return nil
 }
 
-// detectPlatform converts host.Platform to registry platform string.
+// userHomeDir returns the user's home directory.
+func userHomeDir() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return os.Getenv("HOME")
+}
+
+// detectPlatform converts platform info to registry platform string.
 func detectPlatform() string {
-	p := host.DetectPlatform()
+	p := platform.New()
 	switch p.OS {
 	case "darwin":
 		return "Darwin"

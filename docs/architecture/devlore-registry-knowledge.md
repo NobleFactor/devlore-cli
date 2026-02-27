@@ -127,7 +127,7 @@ systems:
     description: "GNU Stow uses package directories with home-relative paths"
     markers:
       - type: file
-        path: ".stow-local-ignore"
+        path: ".stow-local-gitignore"
         confidence: 1.0
       - type: script_content
         pattern: "stow -t ~"

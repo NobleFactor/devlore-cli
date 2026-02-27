@@ -3,7 +3,10 @@
 
 package op
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
 
 // AsStateMap performs a nil-safe type assertion of compensation state
 // to map[string]any. Returns nil if state is nil or not a map.
@@ -63,4 +66,15 @@ func StateStringSlice(m map[string]any, key string) []string {
 		return nil
 	}
 	return v
+}
+
+// ExtractUndo extracts a typed value from an undo state map, returning an error
+// if the key is missing or the value is the wrong type.
+func ExtractUndo[T any](undo map[string]any, key string) (T, error) {
+	val, ok := undo[key].(T)
+	if !ok {
+		var zero T
+		return zero, fmt.Errorf("invalid undo state: expected %T for key %q", zero, key)
+	}
+	return val, nil
 }

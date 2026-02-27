@@ -12,8 +12,9 @@ import (
 
 func init() {
 	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "pkg",
-		Access: op.AccessBoth,
+		Name:     "pkg",
+		Access:   op.AccessBoth,
+		Lifetime: op.LifetimeStateless,
 		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
 			return NewPkgPlan(graph, project, reg)
 		},

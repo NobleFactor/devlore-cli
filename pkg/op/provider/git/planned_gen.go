@@ -12,8 +12,9 @@ import (
 
 func init() {
 	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "git",
-		Access: op.AccessBoth,
+		Name:     "git",
+		Access:   op.AccessBoth,
+		Lifetime: op.LifetimeStateless,
 		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
 			return NewGitPlan(graph, project, reg)
 		},

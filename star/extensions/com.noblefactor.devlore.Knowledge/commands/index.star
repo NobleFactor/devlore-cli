@@ -62,7 +62,7 @@ def _resolve_target(ctx):
         sibling = file.join("..", "devlore-registry")
         if file.is_directory(sibling):
             target = sibling
-            note("Using sibling registry: " + target)
+            ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
     if not file.is_directory(target):
@@ -100,21 +100,21 @@ def run(ctx):
                 asset_count = asset_count + len(index[asset_type])
 
         if asset_count == 0:
-            note("Skipping empty domain: " + domain_name)
+            ui.note("Skipping empty domain: " + domain_name)
             continue
 
         index_content = yaml.encode(index)
         index_path = file.join(domain_path, "index.yaml")
 
         if dry_run:
-            note("Would write: " + index_path + " (" + str(asset_count) + " assets)")
+            ui.note("Would write: " + index_path + " (" + str(asset_count) + " assets)")
             print(index_content)
             print("---")
         else:
             file.write(index_path, index_content)
-            success("Wrote: " + index_path + " (" + str(asset_count) + " assets)")
+            ui.success("Wrote: " + index_path + " (" + str(asset_count) + " assets)")
 
         domains_processed = domains_processed + 1
         total_assets = total_assets + asset_count
 
-    note("Indexed " + str(total_assets) + " assets across " + str(domains_processed) + " domain(s)")
+    ui.note("Indexed " + str(total_assets) + " assets across " + str(domains_processed) + " domain(s)")

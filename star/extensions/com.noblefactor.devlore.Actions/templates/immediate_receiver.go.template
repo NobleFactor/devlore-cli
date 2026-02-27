@@ -6,63 +6,84 @@ import (
 {{- if needsFmt .Methods}}
 	"fmt"
 {{- end}}
-{{- if needsImport .Methods "os.FileMode"}}
+{{- if or (needsImport .Methods "os.FileMode") (needsImport .Methods "os.DirEntry")}}
 	"os"
 {{- end}}
 
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+{{- if .ProviderImport}}
+	provider "{{.ProviderImport}}"
+{{- end}}
+{{- range .CrossPackageImports}}
+	{{.Alias}} "{{.Path}}"
+{{- end}}
 )
-
+{{if .Registered}}
 func init() {
 	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "{{.Provider}}",
-		Access: op.Access{{.AccessTitle}},
+		Name:     "{{.Provider}}",
+		Access:   op.Access{{.AccessTitle}},
+		Lifetime: op.Lifetime{{.LifetimeTitle}},
 		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return New{{.StructName}}Receiver(&Provider{
+{{- if .ProviderFields}}
+{{providerFieldInit .}}
+{{- else}}
+			return New{{.StructName}}{{.WrapperSuffix}}(&{{providerTypePrefix .}}Provider{
 				Writer:      cfg.Writer,
 				ProgramName: cfg.ProgramName,
 				Color:       cfg.Color,
 			})
+{{- end}}
 		},
 	})
 }
-
-type {{.StructName}}Receiver struct {
+{{end}}
+// {{.StructName}}{{.WrapperSuffix}} wraps a *{{.ImplType}} for Starlark consumption.
+type {{.StructName}}{{.WrapperSuffix}} struct {
 	op.Receiver
-	provider *Provider
+	provider *{{providerTypePrefix .}}{{.ImplType}}
 }
 
-func New{{.StructName}}Receiver(provider *Provider) *{{.StructName}}Receiver {
-	return &{{.StructName}}Receiver{
-		Receiver: op.NewReceiver("{{.Provider}}"),
-		provider: provider,
+// New{{.StructName}}{{.WrapperSuffix}} creates a new wrapper for the given {{.ImplType}}.
+func New{{.StructName}}{{.WrapperSuffix}}(p *{{providerTypePrefix .}}{{.ImplType}}) *{{.StructName}}{{.WrapperSuffix}} {
+	return &{{.StructName}}{{.WrapperSuffix}}{
+		Receiver: op.NewReceiver("{{.Namespace}}"),
+		provider: p,
 	}
 }
 
-func (r *{{.StructName}}Receiver) Attr(name string) (starlark.Value, error) {
+// Attr returns the named attribute of the {{.Namespace}} namespace.
+func (r *{{.StructName}}{{.WrapperSuffix}}) Attr(name string) (starlark.Value, error) {
 	switch name {
 {{- range .Methods}}
+{{- if .Property}}
 	case "{{.SnakeName}}":
-		return op.MakeAttr("{{$.Provider}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
+		return {{propertyAttrExpr .}}, nil
+{{- else}}
+	case "{{.SnakeName}}":
+		return op.MakeAttr("{{$.Namespace}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
+{{- end}}
 {{- end}}
 	default:
 {{- if hasExtraAttrs .}}
 		return r.queryAttr(name)
 {{- else}}
-		return nil, op.NoSuchAttrError("{{.Provider}}", name)
+		return nil, op.NoSuchAttrError("{{.Namespace}}", name)
 {{- end}}
 	}
 }
 
-func (r *{{.StructName}}Receiver) AttrNames() []string {
+// AttrNames returns the available attribute names for the {{.Namespace}} namespace.
+func (r *{{.StructName}}{{.WrapperSuffix}}) AttrNames() []string {
 	return []string{{"{"}}{{allAttrNames .}}{{"}"}}
 }
-{{range .Methods}}
+{{range .Methods}}{{if not .Property}}
 {{docComment .SnakeName .Doc}}{{slotDocs .}}
-func (r *{{$.StructName}}Receiver) {{.SnakeName}}({{if needsThread .}}thread{{else}}_{{end}} *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (r *{{$.StructName}}{{$.WrapperSuffix}}) {{.SnakeName}}({{if needsThread .}}thread{{else}}_{{end}} *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 {{immediateUnpackArgs .}}
 {{immediateProviderBody .}}
 }
-{{end}}
+{{end}}{{end}}
+{{handleTypes .Methods}}

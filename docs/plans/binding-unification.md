@@ -66,7 +66,7 @@ type {{.StructName}}Receiver struct {
 }
 
 func (r *{{.StructName}}Receiver) methodName(...) (starlark.Value, error) {
-    result, _, err := r.provider.MethodName(args...)  // ignore compensation receipt
+    result, _, err := r.provider.MethodName(args...)  // gitignore compensation receipt
     // convert result to Starlark value
 }
 ```

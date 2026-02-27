@@ -10,8 +10,9 @@ import (
 
 func init() {
 	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "ui",
-		Access: op.AccessImmediate,
+		Name:     "ui",
+		Access:   op.AccessImmediate,
+		Lifetime: op.LifetimeStateless,
 		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
 			return NewUiReceiver(&Provider{
 				Writer:      cfg.Writer,

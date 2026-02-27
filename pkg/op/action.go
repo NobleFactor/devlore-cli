@@ -70,8 +70,8 @@ type Context struct {
 	// this to identify themselves (e.g., gather uses it for proxy context).
 	NodeID string
 
-	// Host provides platform abstractions (package manager, service
+	// Platform provides platform abstractions (package manager, service
 	// manager) to action providers. Nil when running in environments
 	// where host access is not needed (e.g., pure data transforms).
-	Host HostProvider
+	Platform *Platform
 }

@@ -10,23 +10,25 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// PlannedFactory creates a plan sub-namespace (e.g., plan.file) for a given
-// graph context. Returned by generated planned_gen.go init() functions.
+// PlannedFactory creates a plan sub-namespace (e.g., plan.file) for a given graph context.
+// Returned by generated planned_gen.go init() functions.
 type PlannedFactory func(graph *Graph, project string, reg *ActionRegistry) starlark.Value
 
-// ImmediateFactory creates an immediate receiver (e.g., ui) for direct calls
-// during plan construction. Returned by generated immediate_gen.go init() functions.
+// ImmediateFactory creates an immediate receiver (e.g., ui) for direct calls during plan construction.
+// Returned by generated immediate_gen.go init() functions.
 type ImmediateFactory func(cfg BindingConfig) starlark.Value
 
 // ProviderBinding collects all registration data for a single provider.
-// Each generated file's init() calls RegisterBinding with its subset of fields;
-// the registry merges them by Name.
+// Each generated file's init() calls RegisterBinding with its subset of fields; the registry merges them by Name.
 type ProviderBinding struct {
 	// Name is the provider identifier (e.g., "file", "ui", "host").
 	Name string
 
 	// Access defines when this provider's methods are available.
 	Access AccessType
+
+	// Lifetime declares the provider's lifecycle semantics for caching and cleanup.
+	Lifetime ProviderLifetime
 
 	// ActionRegistrar registers graph actions from actions_gen.go.
 	ActionRegistrar ProviderRegistrar
@@ -44,8 +46,8 @@ var (
 )
 
 // RegisterBinding merges a partial ProviderBinding into the registry.
-// Multiple init() functions may register for the same provider name;
-// non-nil fields are merged into the existing entry.
+// Multiple init() functions may register for the same provider name; non-nil fields are merged into the
+// existing entry.
 func RegisterBinding(b *ProviderBinding) {
 	bindingMu.Lock()
 	defer bindingMu.Unlock()
@@ -59,6 +61,9 @@ func RegisterBinding(b *ProviderBinding) {
 	// Merge non-zero fields.
 	if b.Access != "" {
 		existing.Access = b.Access
+	}
+	if b.Lifetime != "" {
+		existing.Lifetime = b.Lifetime
 	}
 	if b.ActionRegistrar != nil {
 		existing.ActionRegistrar = b.ActionRegistrar

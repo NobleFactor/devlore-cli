@@ -10,8 +10,8 @@ import (
 )
 
 // Provider provides platform-independent package management.
-// All platform-specific behavior is delegated to the HostProvider
-// injected via op.Context.Host.
+// All platform-specific behavior is delegated to the Platform
+// injected at construction time from op.Context.Platform.
 //
 // Compensable Forward methods return ([]string, map[string]any, error):
 // the packages acted upon, the compensation receipt, and an error.
@@ -19,7 +19,9 @@ import (
 // Compensate* Backward method.
 //
 // +devlore:access=both
-type Provider struct{}
+type Provider struct {
+	Platform *op.Platform
+}
 
 // ── Compensable Pairs ────────────────────────────────────────────────
 
@@ -30,21 +32,21 @@ type Provider struct{}
 //   - packages: List of package names to install
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Install(host op.HostProvider, packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
+func (p *Provider) Install(packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
 	if len(packages) == 0 {
 		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
-	pm := resolvePMForInstall(host, manager)
-	if pm == nil {
+	packageManager := resolvePlatformManagerForInstall(p.Platform, manager)
+	if packageManager == nil {
 		return nil, nil, fmt.Errorf("no package manager available")
 	}
 
 	// Query which packages are already installed before acting.
 	var alreadyInstalled []string
-	for _, pkg := range packages {
-		if pm.Installed(pkg) {
-			alreadyInstalled = append(alreadyInstalled, pkg)
+	for _, packageName := range packages {
+		if packageManager.Installed(packageName) {
+			alreadyInstalled = append(alreadyInstalled, packageName)
 		}
 	}
 
@@ -53,8 +55,9 @@ func (p *Provider) Install(host op.HostProvider, packages []string, manager stri
 			return nil, nil, err
 		}
 	} else {
-		if err := pm.Install(packages...); err != nil {
-			return nil, nil, fmt.Errorf("%s install failed: %w", pm.Name(), err)
+		r := packageManager.Install(packages...)
+		if !r.OK {
+			return nil, nil, fmt.Errorf("%s install failed: %s", packageManager.Name(), r.Stderr)
 		}
 	}
 
@@ -68,7 +71,7 @@ func (p *Provider) Install(host op.HostProvider, packages []string, manager stri
 
 // CompensateInstall undoes an Install by removing packages that weren't
 // already installed before the action.
-func (p *Provider) CompensateInstall(host op.HostProvider, state any) error {
+func (p *Provider) CompensateInstall(state any) error {
 	s := op.AsStateMap(state)
 	if s == nil {
 		return nil
@@ -79,14 +82,14 @@ func (p *Provider) CompensateInstall(host op.HostProvider, state any) error {
 	cask := op.StateBool(s, "cask")
 
 	installed := make(map[string]bool)
-	for _, pkg := range alreadyInstalled {
-		installed[pkg] = true
+	for _, packageName := range alreadyInstalled {
+		installed[packageName] = true
 	}
 
 	var toRemove []string
-	for _, pkg := range packages {
-		if !installed[pkg] {
-			toRemove = append(toRemove, pkg)
+	for _, packageName := range packages {
+		if !installed[packageName] {
+			toRemove = append(toRemove, packageName)
 		}
 	}
 
@@ -95,21 +98,22 @@ func (p *Provider) CompensateInstall(host op.HostProvider, state any) error {
 	}
 
 	if cask {
-		for _, pkg := range toRemove {
-			if err := runBrewCask("uninstall", pkg); err != nil {
+		for _, packageName := range toRemove {
+			if err := runBrewCask("uninstall", packageName); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 
-	pm := resolvePMForInstall(host, manager)
-	if pm == nil {
+	packageManager := resolvePlatformManagerForInstall(p.Platform, manager)
+	if packageManager == nil {
 		return fmt.Errorf("no package manager available for compensation")
 	}
-	for _, pkg := range toRemove {
-		if err := pm.Remove(pkg); err != nil {
-			return fmt.Errorf("%s remove %s failed: %w", pm.Name(), pkg, err)
+	for _, packageName := range toRemove {
+		r := packageManager.Remove(packageName)
+		if !r.OK {
+			return fmt.Errorf("%s remove %s failed: %s", packageManager.Name(), packageName, r.Stderr)
 		}
 	}
 	return nil
@@ -122,23 +126,24 @@ func (p *Provider) CompensateInstall(host op.HostProvider, state any) error {
 //   - packages: List of package names to remove
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Remove(host op.HostProvider, packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
+func (p *Provider) Remove(packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
 	if len(packages) == 0 {
 		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
-	for _, pkg := range packages {
+	for _, packageName := range packages {
 		if cask {
-			if err := runBrewCask("uninstall", pkg); err != nil {
+			if err := runBrewCask("uninstall", packageName); err != nil {
 				return nil, nil, err
 			}
 		} else {
-			pm := resolvePMForRemove(host, manager, pkg)
-			if pm == nil {
+			packageManager := resolvePlatformManagerForRemove(p.Platform, manager, packageName)
+			if packageManager == nil {
 				return nil, nil, fmt.Errorf("no package manager available")
 			}
-			if err := pm.Remove(pkg); err != nil {
-				return nil, nil, fmt.Errorf("%s remove %s failed: %w", pm.Name(), pkg, err)
+			r := packageManager.Remove(packageName)
+			if !r.OK {
+				return nil, nil, fmt.Errorf("%s remove %s failed: %s", packageManager.Name(), packageName, r.Stderr)
 			}
 		}
 	}
@@ -151,7 +156,7 @@ func (p *Provider) Remove(host op.HostProvider, packages []string, manager strin
 }
 
 // CompensateRemove undoes a Remove by reinstalling the removed packages.
-func (p *Provider) CompensateRemove(host op.HostProvider, state any) error {
+func (p *Provider) CompensateRemove(state any) error {
 	s := op.AsStateMap(state)
 	if s == nil {
 		return nil
@@ -168,11 +173,15 @@ func (p *Provider) CompensateRemove(host op.HostProvider, state any) error {
 		return runBrewCask("install", packages...)
 	}
 
-	pm := resolvePMForInstall(host, manager)
-	if pm == nil {
+	packageManager := resolvePlatformManagerForInstall(p.Platform, manager)
+	if packageManager == nil {
 		return fmt.Errorf("no package manager available for compensation")
 	}
-	return pm.Install(packages...)
+	r := packageManager.Install(packages...)
+	if !r.OK {
+		return fmt.Errorf("%s install failed: %s", packageManager.Name(), r.Stderr)
+	}
+	return nil
 }
 
 // Upgrade upgrades packages using the platform's package manager.
@@ -182,21 +191,21 @@ func (p *Provider) CompensateRemove(host op.HostProvider, state any) error {
 //   - packages: List of package names to upgrade
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Upgrade(host op.HostProvider, packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
+func (p *Provider) Upgrade(packages []string, manager string, cask bool) (result []string, state map[string]any, err error) {
 	if len(packages) == 0 {
 		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
-	pm := resolvePMForUpgrade(host, manager, packages)
-	if pm == nil {
+	packageManager := resolvePlatformManagerForUpgrade(p.Platform, manager, packages)
+	if packageManager == nil {
 		return nil, nil, fmt.Errorf("no package manager available")
 	}
 
 	// Capture current versions before upgrading.
 	previousVersions := make(map[string]string)
-	for _, pkg := range packages {
-		if v := pm.Version(pkg); v != "" {
-			previousVersions[pkg] = v
+	for _, packageName := range packages {
+		if v := packageManager.Version(packageName); v != "" {
+			previousVersions[packageName] = v
 		}
 	}
 
@@ -205,8 +214,9 @@ func (p *Provider) Upgrade(host op.HostProvider, packages []string, manager stri
 			return nil, nil, err
 		}
 	} else {
-		if err := pm.Install(packages...); err != nil {
-			return nil, nil, fmt.Errorf("%s upgrade failed: %w", pm.Name(), err)
+		r := packageManager.Install(packages...)
+		if !r.OK {
+			return nil, nil, fmt.Errorf("%s upgrade failed: %s", packageManager.Name(), r.Stderr)
 		}
 	}
 
@@ -231,16 +241,17 @@ func (p *Provider) CompensateUpgrade(_ any) error {
 //
 // Parameters:
 //   - manager: Package manager override (empty for auto-detect)
-func (p *Provider) Update(host op.HostProvider, manager string) (string, error) {
-	pm := resolvePMForInstall(host, manager)
-	if pm == nil {
+func (p *Provider) Update(manager string) (string, error) {
+	packageManager := resolvePlatformManagerForInstall(p.Platform, manager)
+	if packageManager == nil {
 		return "", fmt.Errorf("no package manager available")
 	}
 
-	if err := pm.Update(); err != nil {
-		return "", fmt.Errorf("%s update failed: %w", pm.Name(), err)
+	r := packageManager.Update()
+	if !r.OK {
+		return "", fmt.Errorf("%s update failed: %s", packageManager.Name(), r.Stderr)
 	}
-	return pm.Name(), nil
+	return packageManager.Name(), nil
 }
 
 // ── Predicates ───────────────────────────────────────────────────────
@@ -249,24 +260,24 @@ func (p *Provider) Update(host op.HostProvider, manager string) (string, error) 
 //
 // Parameters:
 //   - name: Package name to check
-func (p *Provider) Installed(host op.HostProvider, name string) (bool, error) {
-	pm := host.PackageManager()
-	if pm == nil {
+func (p *Provider) Installed(name string) (bool, error) {
+	packageManager := p.Platform.PackageManager
+	if packageManager == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
-	return pm.Installed(name), nil
+	return packageManager.Installed(name), nil
 }
 
 // NotInstalled returns true if the named package is not installed.
 //
 // Parameters:
 //   - name: Package name to check
-func (p *Provider) NotInstalled(host op.HostProvider, name string) (bool, error) {
-	pm := host.PackageManager()
-	if pm == nil {
+func (p *Provider) NotInstalled(name string) (bool, error) {
+	packageManager := p.Platform.PackageManager
+	if packageManager == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
-	return !pm.Installed(name), nil
+	return !packageManager.Installed(name), nil
 }
 
 // VersionGTE returns true if the installed version of name is >= version.
@@ -274,12 +285,12 @@ func (p *Provider) NotInstalled(host op.HostProvider, name string) (bool, error)
 // Parameters:
 //   - name: Package name to check
 //   - version: Minimum version string to compare against
-func (p *Provider) VersionGTE(host op.HostProvider, name, version string) (bool, error) {
-	pm := host.PackageManager()
-	if pm == nil {
+func (p *Provider) VersionGTE(name, version string) (bool, error) {
+	packageManager := p.Platform.PackageManager
+	if packageManager == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
-	current := pm.Version(name)
+	current := packageManager.Version(name)
 	if current == "" {
 		return false, nil
 	}

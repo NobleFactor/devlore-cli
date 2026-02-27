@@ -4,7 +4,6 @@
 package pkg
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -12,93 +11,79 @@ import (
 
 // --- Mocks ---
 
-type mockPM struct {
+type mockPackageManager struct {
 	name       string
 	installed  map[string]bool
 	versions   map[string]string
-	installErr error
-	removeErr  error
-	updateErr  error
+	installErr string
+	removeErr  string
+	updateErr  string
 }
 
-func (m *mockPM) Name() string            { return m.name }
-func (m *mockPM) Installed(n string) bool { return m.installed[n] }
-func (m *mockPM) Version(n string) string { return m.versions[n] }
-func (m *mockPM) Available(_ string) bool { return true }
+func (m *mockPackageManager) Name() string            { return m.name }
+func (m *mockPackageManager) Installed(n string) bool { return m.installed[n] }
+func (m *mockPackageManager) Version(n string) string { return m.versions[n] }
+func (m *mockPackageManager) Available(_ string) bool { return true }
 
-func (m *mockPM) Install(packages ...string) error {
-	if m.installErr != nil {
-		return m.installErr
+func (m *mockPackageManager) Search(_ string, _ int) []op.SearchResult { return nil }
+
+func (m *mockPackageManager) Install(packages ...string) op.PlatformResult {
+	if m.installErr != "" {
+		return op.PlatformResult{OK: false, Stderr: m.installErr, Code: 1}
 	}
-	for _, p := range packages {
-		m.installed[p] = true
+	for _, packageName := range packages {
+		m.installed[packageName] = true
 	}
-	return nil
+	return op.PlatformResult{OK: true}
 }
 
-func (m *mockPM) Remove(name string) error {
-	if m.removeErr != nil {
-		return m.removeErr
+func (m *mockPackageManager) Remove(name string) op.PlatformResult {
+	if m.removeErr != "" {
+		return op.PlatformResult{OK: false, Stderr: m.removeErr, Code: 1}
 	}
 	delete(m.installed, name)
-	return nil
+	return op.PlatformResult{OK: true}
 }
 
-func (m *mockPM) Update() error   { return m.updateErr }
-func (m *mockPM) NeedsSudo() bool { return false }
-
-type mockHost struct {
-	pm  *mockPM
-	svc op.ServiceManagerProvider
-}
-
-func (h *mockHost) PackageManager() op.PackageManagerProvider { return h.pm }
-
-func (h *mockHost) InstalledBy(name string) op.PackageManagerProvider {
-	if h.pm.Installed(name) {
-		return h.pm
+func (m *mockPackageManager) Update() op.PlatformResult {
+	if m.updateErr != "" {
+		return op.PlatformResult{OK: false, Stderr: m.updateErr, Code: 1}
 	}
-	return nil
+	return op.PlatformResult{OK: true}
 }
 
-func (h *mockHost) AllInstalledBy(name string) []op.PackageManagerProvider {
-	if h.pm.Installed(name) {
-		return []op.PackageManagerProvider{h.pm}
-	}
-	return nil
+func (m *mockPackageManager) AddRepo(_, _, _ string) op.PlatformResult {
+	return op.PlatformResult{OK: true}
 }
 
-func (h *mockHost) GetPackageManager(name string) op.PackageManagerProvider {
-	if h.pm.Name() == name {
-		return h.pm
-	}
-	return nil
-}
-
-func (h *mockHost) ServiceManager() op.ServiceManagerProvider { return h.svc }
+func (m *mockPackageManager) NeedsSudo() bool { return false }
 
 // --- Helpers ---
 
-func newMockPM() *mockPM {
-	return &mockPM{
+func newMockPackageManager() *mockPackageManager {
+	return &mockPackageManager{
 		name:      "apt",
 		installed: make(map[string]bool),
 		versions:  make(map[string]string),
 	}
 }
 
-func newMockHost(pm *mockPM) *mockHost {
-	return &mockHost{pm: pm}
+func newTestProvider(packageManager *mockPackageManager) *Provider {
+	return &Provider{
+		Platform: &op.Platform{
+			PackageManager:  packageManager,
+			PackageManagers: map[string]op.PackageManager{packageManager.Name(): packageManager},
+		},
+	}
 }
 
 // --- Install Tests ---
 
 func TestInstall(t *testing.T) {
-	pm := newMockPM()
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
 
-	result, state, err := p.Install(host, []string{"vim", "git"}, "", false)
+	result, state, err := p.Install([]string{"vim", "git"}, "", false)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -116,17 +101,16 @@ func TestInstall(t *testing.T) {
 	if len(alreadyInstalled) != 0 {
 		t.Errorf("Install() state.already_installed = %v, want empty", alreadyInstalled)
 	}
-	if !pm.installed["vim"] || !pm.installed["git"] {
-		t.Error("Install() packages not marked installed in pm")
+	if !packageManager.installed["vim"] || !packageManager.installed["git"] {
+		t.Error("Install() packages not marked installed in package manager")
 	}
 }
 
 func TestInstallEmptyPackages(t *testing.T) {
-	pm := newMockPM()
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
 
-	_, _, err := p.Install(host, nil, "", false)
+	_, _, err := p.Install(nil, "", false)
 	if err == nil {
 		t.Fatal("Install(nil) expected error")
 	}
@@ -136,12 +120,11 @@ func TestInstallEmptyPackages(t *testing.T) {
 }
 
 func TestInstallWithAlreadyInstalled(t *testing.T) {
-	pm := newMockPM()
-	pm.installed["vim"] = true
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	packageManager.installed["vim"] = true
+	p := newTestProvider(packageManager)
 
-	_, state, err := p.Install(host, []string{"vim", "git"}, "", false)
+	_, state, err := p.Install([]string{"vim", "git"}, "", false)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -152,14 +135,13 @@ func TestInstallWithAlreadyInstalled(t *testing.T) {
 }
 
 func TestInstallError(t *testing.T) {
-	pm := newMockPM()
-	pm.installErr = fmt.Errorf("disk full")
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	packageManager.installErr = "disk full"
+	p := newTestProvider(packageManager)
 
-	_, _, err := p.Install(host, []string{"vim"}, "", false)
+	_, _, err := p.Install([]string{"vim"}, "", false)
 	if err == nil {
-		t.Fatal("Install() expected error when pm.Install fails")
+		t.Fatal("Install() expected error when package manager fails")
 	}
 	want := "apt install failed: disk full"
 	if err.Error() != want {
@@ -170,11 +152,10 @@ func TestInstallError(t *testing.T) {
 // --- CompensateInstall Tests ---
 
 func TestCompensateInstall(t *testing.T) {
-	pm := newMockPM()
-	pm.installed["vim"] = true
-	pm.installed["git"] = true
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	packageManager.installed["vim"] = true
+	packageManager.installed["git"] = true
+	p := newTestProvider(packageManager)
 
 	state := map[string]any{
 		"packages":          []string{"vim", "git"},
@@ -182,25 +163,25 @@ func TestCompensateInstall(t *testing.T) {
 		"cask":              false,
 		"already_installed": []string{"vim"},
 	}
-	err := p.CompensateInstall(host, state)
+	err := p.CompensateInstall(state)
 	if err != nil {
 		t.Fatalf("CompensateInstall() error = %v", err)
 	}
 	// vim was already installed, so it should remain.
-	if !pm.installed["vim"] {
+	if !packageManager.installed["vim"] {
 		t.Error("CompensateInstall() removed vim (was already_installed)")
 	}
 	// git was newly installed, so it should be removed.
-	if pm.installed["git"] {
+	if packageManager.installed["git"] {
 		t.Error("CompensateInstall() did not remove git (was newly installed)")
 	}
 }
 
 func TestCompensateInstallNilState(t *testing.T) {
-	host := newMockHost(newMockPM())
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
 
-	err := p.CompensateInstall(host, nil)
+	err := p.CompensateInstall(nil)
 	if err != nil {
 		t.Fatalf("CompensateInstall(nil) error = %v", err)
 	}
@@ -209,13 +190,12 @@ func TestCompensateInstallNilState(t *testing.T) {
 // --- Upgrade Tests ---
 
 func TestUpgrade(t *testing.T) {
-	pm := newMockPM()
-	pm.installed["vim"] = true
-	pm.versions["vim"] = "8.2"
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	packageManager.installed["vim"] = true
+	packageManager.versions["vim"] = "8.2"
+	p := newTestProvider(packageManager)
 
-	result, state, err := p.Upgrade(host, []string{"vim"}, "", false)
+	result, state, err := p.Upgrade([]string{"vim"}, "", false)
 	if err != nil {
 		t.Fatalf("Upgrade() error = %v", err)
 	}
@@ -239,11 +219,10 @@ func TestUpgrade(t *testing.T) {
 }
 
 func TestUpgradeEmptyPackages(t *testing.T) {
-	pm := newMockPM()
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
 
-	_, _, err := p.Upgrade(host, nil, "", false)
+	_, _, err := p.Upgrade(nil, "", false)
 	if err == nil {
 		t.Fatal("Upgrade(nil) expected error")
 	}
@@ -255,13 +234,12 @@ func TestUpgradeEmptyPackages(t *testing.T) {
 // --- Remove Tests ---
 
 func TestRemove(t *testing.T) {
-	pm := newMockPM()
-	pm.installed["vim"] = true
-	pm.installed["git"] = true
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	packageManager.installed["vim"] = true
+	packageManager.installed["git"] = true
+	p := newTestProvider(packageManager)
 
-	result, state, err := p.Remove(host, []string{"vim", "git"}, "", false)
+	result, state, err := p.Remove([]string{"vim", "git"}, "", false)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -275,28 +253,27 @@ func TestRemove(t *testing.T) {
 	if len(packages) != 2 || packages[0] != "vim" || packages[1] != "git" {
 		t.Errorf("Remove() state.packages = %v, want [vim git]", packages)
 	}
-	if pm.installed["vim"] || pm.installed["git"] {
-		t.Error("Remove() packages still marked installed in pm")
+	if packageManager.installed["vim"] || packageManager.installed["git"] {
+		t.Error("Remove() packages still marked installed in package manager")
 	}
 }
 
 // --- CompensateRemove Tests ---
 
 func TestCompensateRemove(t *testing.T) {
-	pm := newMockPM()
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
 
 	state := map[string]any{
 		"packages": []string{"vim", "git"},
 		"manager":  "",
 		"cask":     false,
 	}
-	err := p.CompensateRemove(host, state)
+	err := p.CompensateRemove(state)
 	if err != nil {
 		t.Fatalf("CompensateRemove() error = %v", err)
 	}
-	if !pm.installed["vim"] || !pm.installed["git"] {
+	if !packageManager.installed["vim"] || !packageManager.installed["git"] {
 		t.Error("CompensateRemove() did not reinstall packages")
 	}
 }
@@ -304,11 +281,10 @@ func TestCompensateRemove(t *testing.T) {
 // --- Update Tests ---
 
 func TestUpdate(t *testing.T) {
-	pm := newMockPM()
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
 
-	name, err := p.Update(host, "")
+	name, err := p.Update("")
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -317,17 +293,31 @@ func TestUpdate(t *testing.T) {
 	}
 }
 
+func TestUpdateError(t *testing.T) {
+	packageManager := newMockPackageManager()
+	packageManager.updateErr = "network error"
+	p := newTestProvider(packageManager)
+
+	_, err := p.Update("")
+	if err == nil {
+		t.Fatal("Update() expected error")
+	}
+	want := "apt update failed: network error"
+	if err.Error() != want {
+		t.Errorf("Update() error = %q, want %q", err, want)
+	}
+}
+
 // --- Predicate Tests ---
 
 func TestPredicates(t *testing.T) {
-	pm := newMockPM()
-	pm.installed["vim"] = true
-	pm.versions["vim"] = "9.0"
-	host := newMockHost(pm)
-	p := &Provider{}
+	packageManager := newMockPackageManager()
+	packageManager.installed["vim"] = true
+	packageManager.versions["vim"] = "9.0"
+	p := newTestProvider(packageManager)
 
 	t.Run("Installed true", func(t *testing.T) {
-		got, err := p.Installed(host, "vim")
+		got, err := p.Installed("vim")
 		if err != nil {
 			t.Fatalf("Installed() error = %v", err)
 		}
@@ -337,7 +327,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Installed false", func(t *testing.T) {
-		got, err := p.Installed(host, "emacs")
+		got, err := p.Installed("emacs")
 		if err != nil {
 			t.Fatalf("Installed() error = %v", err)
 		}
@@ -347,7 +337,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("NotInstalled true", func(t *testing.T) {
-		got, err := p.NotInstalled(host, "emacs")
+		got, err := p.NotInstalled("emacs")
 		if err != nil {
 			t.Fatalf("NotInstalled() error = %v", err)
 		}
@@ -357,7 +347,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("NotInstalled false", func(t *testing.T) {
-		got, err := p.NotInstalled(host, "vim")
+		got, err := p.NotInstalled("vim")
 		if err != nil {
 			t.Fatalf("NotInstalled() error = %v", err)
 		}
@@ -367,7 +357,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE true", func(t *testing.T) {
-		got, err := p.VersionGTE(host, "vim", "8.0")
+		got, err := p.VersionGTE("vim", "8.0")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}
@@ -377,7 +367,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE false", func(t *testing.T) {
-		got, err := p.VersionGTE(host, "vim", "9.1")
+		got, err := p.VersionGTE("vim", "9.1")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}
@@ -387,7 +377,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE not installed", func(t *testing.T) {
-		got, err := p.VersionGTE(host, "emacs", "1.0")
+		got, err := p.VersionGTE("emacs", "1.0")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}

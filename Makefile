@@ -17,11 +17,62 @@ LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/internal/cli.Version=
 # Platforms for cross-compilation
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 
-.PHONY: all build clean test vet lint shell-lint complexity check dev docs dist dist-all
+# Code generator (star binary from sibling repo)
+STAR_REPO ?= ../noblefactor-ops.binding-unification
+STAR ?= $(STAR_REPO)/bin/star
+
+# Provider source root
+P := pkg/op/provider
+
+.PHONY: all build clean test vet lint shell-lint complexity check dev docs dist dist-all star generate
 
 all: build
 
-build:
+star:
+	cd $(STAR_REPO) && go build -o bin/star ./cmd/star
+
+# ── Provider code generation ────────────────────────────────────────────────────
+# Each grouped target (&:) fires one star invocation that produces all gen files.
+# Generation runs only when provider.go is newer than the gen outputs.
+
+$(P)/file/gen/actions.gen.go \
+$(P)/file/gen/immediate.gen.go \
+$(P)/file/gen/planned.gen.go &: $(P)/file/provider.go | star
+	$(STAR) devlore actions generate --source=$(P)/file --gen=true --write=true --output=$(P)/file
+
+$(P)/staranalysis/gen/convert.gen.go \
+$(P)/staranalysis/gen/immediate.gen.go &: $(P)/staranalysis/provider.go | star
+	$(STAR) devlore actions generate --source=$(P)/staranalysis --gen=true --write=true --output=$(P)/staranalysis
+
+$(P)/starcode/gen/immediate.gen.go \
+$(P)/starcode/gen/sources.gen.go &: $(P)/starcode/provider.go | star
+	$(STAR) devlore actions generate --source=$(P)/starcode --gen=true --write=true --output=$(P)/starcode
+
+$(P)/starcomplexity/gen/convert.gen.go \
+$(P)/starcomplexity/gen/immediate.gen.go &: $(P)/starcomplexity/provider.go | star
+	$(STAR) devlore actions generate --source=$(P)/starcomplexity --gen=true --write=true --output=$(P)/starcomplexity
+
+$(P)/starindex/gen/convert.gen.go \
+$(P)/starindex/gen/immediate.gen.go &: $(P)/starindex/provider.go | star
+	$(STAR) devlore actions generate --source=$(P)/starindex --gen=true --write=true --output=$(P)/starindex
+
+$(P)/starsources/gen/sources.gen.go &: $(P)/starsources/provider.go | star
+	$(STAR) devlore actions generate --source=$(P)/starsources --gen=true --write=true --output=$(P)/starsources
+
+$(P)/starstats/gen/convert.gen.go \
+$(P)/starstats/gen/immediate.gen.go &: $(P)/starstats/provider.go | star
+	$(STAR) devlore actions generate --source=$(P)/starstats --gen=true --write=true --output=$(P)/starstats
+
+generate: \
+	$(P)/file/gen/immediate.gen.go \
+	$(P)/staranalysis/gen/immediate.gen.go \
+	$(P)/starcode/gen/immediate.gen.go \
+	$(P)/starcomplexity/gen/immediate.gen.go \
+	$(P)/starindex/gen/immediate.gen.go \
+	$(P)/starsources/gen/sources.gen.go \
+	$(P)/starstats/gen/immediate.gen.go
+
+build: generate
 	go build $(LDFLAGS) -o build/lore ./cmd/lore
 	go build $(LDFLAGS) -o build/writ ./cmd/writ
 

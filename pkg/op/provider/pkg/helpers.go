@@ -12,51 +12,51 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// resolvePMForInstall returns the package manager for install actions.
-func resolvePMForInstall(host op.HostProvider, managerOverride string) op.PackageManagerProvider {
+// resolvePlatformManagerForInstall returns the package manager for install actions.
+func resolvePlatformManagerForInstall(platform *op.Platform, managerOverride string) op.PackageManager { //nolint:ireturn // returns concrete behind interface
 	if managerOverride != "" {
-		pm := host.GetPackageManager(managerOverride)
-		if pm != nil {
-			return pm
+		packageManager := platform.GetPackageManager(managerOverride)
+		if packageManager != nil {
+			return packageManager
 		}
 	}
-	return host.PackageManager()
+	return platform.PackageManager
 }
 
-// resolvePMForUpgrade returns the package manager for upgrade actions.
-func resolvePMForUpgrade(host op.HostProvider, managerOverride string, packages []string) op.PackageManagerProvider {
+// resolvePlatformManagerForUpgrade returns the package manager for upgrade actions.
+func resolvePlatformManagerForUpgrade(platform *op.Platform, managerOverride string, packages []string) op.PackageManager { //nolint:ireturn // returns concrete behind interface
 	if managerOverride != "" {
-		pm := host.GetPackageManager(managerOverride)
-		if pm != nil {
-			return pm
+		packageManager := platform.GetPackageManager(managerOverride)
+		if packageManager != nil {
+			return packageManager
 		}
 	}
 
 	if len(packages) > 0 {
-		pm := host.InstalledBy(packages[0])
-		if pm != nil {
-			return pm
+		packageManager := platform.InstalledBy(packages[0])
+		if packageManager != nil {
+			return packageManager
 		}
 	}
 
-	return host.PackageManager()
+	return platform.PackageManager
 }
 
-// resolvePMForRemove returns the package manager for remove actions.
-func resolvePMForRemove(host op.HostProvider, managerOverride, p string) op.PackageManagerProvider {
+// resolvePlatformManagerForRemove returns the package manager for remove actions.
+func resolvePlatformManagerForRemove(platform *op.Platform, managerOverride, name string) op.PackageManager { //nolint:ireturn // returns concrete behind interface
 	if managerOverride != "" {
-		pm := host.GetPackageManager(managerOverride)
-		if pm != nil {
-			return pm
+		packageManager := platform.GetPackageManager(managerOverride)
+		if packageManager != nil {
+			return packageManager
 		}
 	}
 
-	pm := host.InstalledBy(p)
-	if pm != nil {
-		return pm
+	packageManager := platform.InstalledBy(name)
+	if packageManager != nil {
+		return packageManager
 	}
 
-	return host.PackageManager()
+	return platform.PackageManager
 }
 
 // runBrewCask executes a brew cask command (install, upgrade, or uninstall).

@@ -15,16 +15,8 @@ func init() {
 	})
 }
 
-// packageHost extracts the HostProvider from the execution context.
-func packageHost(ctx *op.Context) (op.HostProvider, error) {
-	if ctx.Host == nil {
-		return nil, fmt.Errorf("pkg actions require Host in execution context")
-	}
-	return ctx.Host, nil
-}
-
 // Install — Install installs packages using the platform's package manager. Returns compensation state with pre-install status per package.
-type Install struct{ Impl *Provider }
+type Install struct{}
 
 func (o *Install) Name() string { return "pkg.install" }
 
@@ -38,12 +30,12 @@ func (o *Install) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	host, err := packageHost(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("pkg actions require Platform in execution context")
 	}
 
-	result, state, err := o.Impl.Install(host, packages, manager, cask)
+	provider := &Provider{Platform: ctx.Platform}
+	result, state, err := provider.Install(packages, manager, cask)
 	return result, state, err
 }
 
@@ -51,15 +43,15 @@ func (o *Install) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	host, err := packageHost(ctx)
-	if err != nil {
-		return err
+	if ctx.Platform == nil {
+		return fmt.Errorf("pkg actions require Platform in execution context")
 	}
-	return o.Impl.CompensateInstall(host, state)
+	provider := &Provider{Platform: ctx.Platform}
+	return provider.CompensateInstall(state)
 }
 
 // Upgrade — Upgrade upgrades packages using the platform's package manager. Returns compensation state with pre-upgrade versions per package.
-type Upgrade struct{ Impl *Provider }
+type Upgrade struct{}
 
 func (o *Upgrade) Name() string { return "pkg.upgrade" }
 
@@ -73,12 +65,12 @@ func (o *Upgrade) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoS
 		return nil, nil, nil
 	}
 
-	host, err := packageHost(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("pkg actions require Platform in execution context")
 	}
 
-	result, state, err := o.Impl.Upgrade(host, packages, manager, cask)
+	provider := &Provider{Platform: ctx.Platform}
+	result, state, err := provider.Upgrade(packages, manager, cask)
 	return result, state, err
 }
 
@@ -86,11 +78,12 @@ func (o *Upgrade) Undo(_ *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	return o.Impl.CompensateUpgrade(state)
+	provider := &Provider{}
+	return provider.CompensateUpgrade(state)
 }
 
 // Remove — Remove removes packages using the platform's package manager. Returns compensation state for reinstallation.
-type Remove struct{ Impl *Provider }
+type Remove struct{}
 
 func (o *Remove) Name() string { return "pkg.remove" }
 
@@ -104,12 +97,12 @@ func (o *Remove) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 		return nil, nil, nil
 	}
 
-	host, err := packageHost(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("pkg actions require Platform in execution context")
 	}
 
-	result, state, err := o.Impl.Remove(host, packages, manager, cask)
+	provider := &Provider{Platform: ctx.Platform}
+	result, state, err := provider.Remove(packages, manager, cask)
 	return result, state, err
 }
 
@@ -117,15 +110,15 @@ func (o *Remove) Undo(ctx *op.Context, state op.UndoState) error {
 	if state == nil {
 		return nil
 	}
-	host, err := packageHost(ctx)
-	if err != nil {
-		return err
+	if ctx.Platform == nil {
+		return fmt.Errorf("pkg actions require Platform in execution context")
 	}
-	return o.Impl.CompensateRemove(host, state)
+	provider := &Provider{Platform: ctx.Platform}
+	return provider.CompensateRemove(state)
 }
 
 // Update — Update refreshes the package manager index.
-type Update struct{ Impl *Provider }
+type Update struct{}
 
 func (o *Update) Name() string { return "pkg.update" }
 
@@ -137,17 +130,17 @@ func (o *Update) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoSt
 		return nil, nil, nil
 	}
 
-	host, err := packageHost(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("pkg actions require Platform in execution context")
 	}
 
-	result, err := o.Impl.Update(host, manager)
+	provider := &Provider{Platform: ctx.Platform}
+	result, err := provider.Update(manager)
 	return result, nil, err
 }
 
 // Installed — Installed returns true if the named package is installed.
-type Installed struct{ Impl *Provider }
+type Installed struct{}
 
 func (o *Installed) Name() string { return "pkg.installed" }
 
@@ -159,17 +152,17 @@ func (o *Installed) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Und
 		return nil, nil, nil
 	}
 
-	host, err := packageHost(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("pkg actions require Platform in execution context")
 	}
 
-	result, err := o.Impl.Installed(host, name)
+	provider := &Provider{Platform: ctx.Platform}
+	result, err := provider.Installed(name)
 	return result, nil, err
 }
 
 // NotInstalled — NotInstalled returns true if the named package is not installed.
-type NotInstalled struct{ Impl *Provider }
+type NotInstalled struct{}
 
 func (o *NotInstalled) Name() string { return "pkg.not_installed" }
 
@@ -181,17 +174,17 @@ func (o *NotInstalled) Do(ctx *op.Context, slots map[string]any) (op.Result, op.
 		return nil, nil, nil
 	}
 
-	host, err := packageHost(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("pkg actions require Platform in execution context")
 	}
 
-	result, err := o.Impl.NotInstalled(host, name)
+	provider := &Provider{Platform: ctx.Platform}
+	result, err := provider.NotInstalled(name)
 	return result, nil, err
 }
 
 // VersionGTE — VersionGTE returns true if the installed version of name is >= version.
-type VersionGTE struct{ Impl *Provider }
+type VersionGTE struct{}
 
 func (o *VersionGTE) Name() string { return "pkg.version_gte" }
 
@@ -204,23 +197,22 @@ func (o *VersionGTE) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Un
 		return nil, nil, nil
 	}
 
-	host, err := packageHost(ctx)
-	if err != nil {
-		return nil, nil, err
+	if ctx.Platform == nil {
+		return nil, nil, fmt.Errorf("pkg actions require Platform in execution context")
 	}
 
-	result, err := o.Impl.VersionGTE(host, name, version)
+	provider := &Provider{Platform: ctx.Platform}
+	result, err := provider.VersionGTE(name, version)
 	return result, nil, err
 }
 
 // Register registers all pkg actions with the given registry.
 func Register(reg *op.ActionRegistry) {
-	p := &Provider{}
-	reg.Register(&Install{Impl: p})
-	reg.Register(&Upgrade{Impl: p})
-	reg.Register(&Remove{Impl: p})
-	reg.Register(&Update{Impl: p})
-	reg.Register(&Installed{Impl: p})
-	reg.Register(&NotInstalled{Impl: p})
-	reg.Register(&VersionGTE{Impl: p})
+	reg.Register(&Install{})
+	reg.Register(&Upgrade{})
+	reg.Register(&Remove{})
+	reg.Register(&Update{})
+	reg.Register(&Installed{})
+	reg.Register(&NotInstalled{})
+	reg.Register(&VersionGTE{})
 }

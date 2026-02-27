@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
 // --- Test helpers ---
@@ -108,17 +109,17 @@ func TestCompensationFileActions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeNode := &op.Node{ID: "write", Action: &file.Write{Impl: fp}}
+	writeNode := &op.Node{ID: "write", Action: &filegen.WriteText{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
-	writeNode.SetSlotImmediate("path", writePath)
+	writeNode.SetSlotImmediate("destination", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
-	copyNode := &op.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
+	copyNode := &op.Node{ID: "copy", Action: &filegen.Copy{Impl: fp}}
 	copyNode.SetSlotImmediate("content", []byte("copied content"))
 	copyNode.SetSlotImmediate("path", copyPath)
 	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
-	linkNode := &op.Node{ID: "link", Action: &file.Link{Impl: fp}}
+	linkNode := &op.Node{ID: "link", Action: &filegen.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
 	linkNode.SetSlotImmediate("path", linkPath)
 
@@ -184,17 +185,17 @@ func TestCompensationDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeNode := &op.Node{ID: "write", Action: &file.Write{Impl: fp}}
+	writeNode := &op.Node{ID: "write", Action: &filegen.WriteText{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
-	writeNode.SetSlotImmediate("path", writePath)
+	writeNode.SetSlotImmediate("destination", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
-	copyNode := &op.Node{ID: "copy", Action: &file.Copy{Impl: fp}}
+	copyNode := &op.Node{ID: "copy", Action: &filegen.Copy{Impl: fp}}
 	copyNode.SetSlotImmediate("content", []byte("dry-run content"))
 	copyNode.SetSlotImmediate("path", copyPath)
 	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
-	linkNode := &op.Node{ID: "link", Action: &file.Link{Impl: fp}}
+	linkNode := &op.Node{ID: "link", Action: &filegen.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
 	linkNode.SetSlotImmediate("path", linkPath)
 
@@ -227,9 +228,9 @@ func TestCompensationNilState(t *testing.T) {
 
 	noopNode := &op.Node{ID: "noop", Action: &noopAction{}}
 
-	writeNode := &op.Node{ID: "write", Action: &file.Write{Impl: fp}}
+	writeNode := &op.Node{ID: "write", Action: &filegen.WriteText{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "hello")
-	writeNode.SetSlotImmediate("path", writePath)
+	writeNode.SetSlotImmediate("destination", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
@@ -256,16 +257,16 @@ func TestCompensationPartialFailure(t *testing.T) {
 	firstPath := filepath.Join(tmpDir, "first.txt")
 	thirdPath := filepath.Join(tmpDir, "third.txt")
 
-	firstNode := &op.Node{ID: "first", Action: &file.Write{Impl: fp}}
+	firstNode := &op.Node{ID: "first", Action: &filegen.WriteText{Impl: fp}}
 	firstNode.SetSlotImmediate("content", "first")
-	firstNode.SetSlotImmediate("path", firstPath)
+	firstNode.SetSlotImmediate("destination", firstPath)
 	firstNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
 
-	thirdNode := &op.Node{ID: "third", Action: &file.Write{Impl: fp}}
+	thirdNode := &op.Node{ID: "third", Action: &filegen.WriteText{Impl: fp}}
 	thirdNode.SetSlotImmediate("content", "third")
-	thirdNode.SetSlotImmediate("path", thirdPath)
+	thirdNode.SetSlotImmediate("destination", thirdPath)
 	thirdNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	g := phasedGraph([]*op.Node{firstNode, failNode, thirdNode})
@@ -299,10 +300,10 @@ func TestCompensationGather(t *testing.T) {
 		filepath.Join(tmpDir, "c.txt"),
 	}
 
-	writeNode := &op.Node{ID: "write", Action: &file.Write{Impl: fp}}
+	writeNode := &op.Node{ID: "write", Action: &filegen.WriteText{Impl: fp}}
 	writeNode.SetSlotImmediate("content", "gather test")
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
-	writeNode.SetSlotProxy("path", "gather", "")
+	writeNode.SetSlotProxy("destination", "gather", "")
 
 	cfail := &conditionalFailAction{failPath: paths[2]}
 	cfailNode := &op.Node{ID: "cfail", Action: cfail}

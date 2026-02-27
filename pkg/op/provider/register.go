@@ -11,12 +11,13 @@ import (
 	// which call op.RegisterBinding() to self-register.
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )

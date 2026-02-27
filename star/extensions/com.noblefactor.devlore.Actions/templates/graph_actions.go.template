@@ -9,6 +9,9 @@ import (
 {{- end}}
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+{{- if .ProviderImport}}
+	provider "{{.ProviderImport}}"
+{{- end}}
 )
 
 func init() {
@@ -19,7 +22,7 @@ func init() {
 }
 {{range .Methods}}
 // {{.GoName}} — {{docSummary .Doc}}
-type {{.GoName}} struct{ Impl *Provider }
+type {{.GoName}} struct{ Impl *{{providerTypePrefix $}}Provider }
 
 func (o *{{.GoName}}) Name() string { return "{{$.Provider}}.{{.SnakeName}}" }
 
@@ -37,7 +40,7 @@ func (o *{{.GoName}}) Do(ctx *op.Context, slots map[string]any) (op.Result, op.U
 {{end}}
 // Register registers all {{.Provider}} actions with the given registry.
 func Register(reg *op.ActionRegistry) {
-	p := &Provider{}
+	p := &{{providerTypePrefix .}}Provider{}
 {{- range .Methods}}
 	reg.Register(&{{.GoName}}{Impl: p})
 {{- end}}

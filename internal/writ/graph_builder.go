@@ -14,7 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/host"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
 // CurrentVersion is the graph format version.
@@ -92,7 +92,7 @@ func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []st
 			// Multi-action pipeline → node chain
 			var prevNode *op.Node
 			for i, action := range actions {
-				isLast := (i == len(actions)-1)
+				isLast := i == len(actions)-1
 				nodeID := f.ID
 				if !isLast {
 					nodeID = f.ID + ":" + action
@@ -163,7 +163,7 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
-		Host:               execution.NewHostProvider(host.NewHost()),
+		Platform:           platform.New(),
 		ConflictResolution: cfg.ConflictResolution,
 	})
 

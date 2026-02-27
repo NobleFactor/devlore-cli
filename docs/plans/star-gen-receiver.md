@@ -541,6 +541,117 @@ while the one-line registration serves as an explicit manifest.
 4. `gofmt -e /tmp/gen/plan_file_gen.go` — no syntax errors
 5. Diff generated vs hand-written — structure matches
 
+### Phase 5: Decompose starlarkcode into Per-Domain Packages (devlore-cli + noblefactor-ops)
+
+The monolithic `starlarkcode` provider bundles capture, indexing, stats, complexity, and analysis into one package. Every other provider gets its own package under `pkg/op/provider/`. This phase decomposes `starlarkcode/` into 6 focused packages and renames `starlarkcode` to `starcode` for brevity.
+
+The chained Starlark API (`starcode.capture(...).index(...)`) is preserved. Leaf packages contain Go domain types and logic. `starsources` has thin delegation methods that the generator wraps for Starlark consumption.
+
+#### Target Layout
+
+```
+pkg/op/provider/
+    starcode/
+        provider.go              ← Provider{Root} + Capture → *starsources.Sources
+        gen/immediate.gen.go     ← StarcodeReceiver + init()
+
+    starsources/
+        provider.go              ← Sources{Root, Files} + Paths, Count + delegation
+        gen/sources.gen.go       ← SourcesValue wrapper (imports leaf gen/ converters)
+
+    starindex/
+        provider.go              ← types + IndexFiles()
+        gen/convert.gen.go       ← IndexToStarlark, IndexedFileToStarlark, ... (exported)
+
+    starstats/
+        provider.go              ← types + ComputeStats()
+        gen/convert.gen.go       ← StatsToStarlark, FileStatsToStarlark, ... (exported)
+
+    starcomplexity/
+        provider.go              ← types + ComputeComplexity()
+        gen/convert.gen.go       ← ComplexityReportToStarlark, ... (exported)
+
+    staranalysis/
+        provider.go              ← types + Analyze() (imports starindex, starstats, starcomplexity)
+        gen/convert.gen.go       ← AnalysisReportToStarlark, HotspotToStarlark (exported)
+```
+
+#### Dependency Graph
+
+```
+starcode → starsources
+starsources → starindex, starstats, staranalysis
+staranalysis → starindex, starstats, starcomplexity
+```
+
+No cycles. Leaf packages (starindex, starstats, starcomplexity) have zero intra-module dependencies.
+
+#### New Files (devlore-cli)
+
+| File | Content |
+|---|---|
+| `pkg/op/provider/starcode/provider.go` | `Provider{Root}` + `Capture()` + private helpers. Returns `*starsources.Sources`. Directives: `+devlore:access=immediate`, `+devlore:bind Root=WorkDir` |
+| `pkg/op/provider/starsources/provider.go` | `Sources{Root, Files}` + `Paths()`, `Count()` + delegation: `Index()` → `starindex.IndexFiles()`, `Stats()` → `starstats.ComputeStats()`, `Analyze()` → `staranalysis.Analyze()`. Same `+devlore:defaults` and `+devlore:struct_param` directives as current |
+| `pkg/op/provider/starindex/provider.go` | Types: Index, IndexedFile, IndexTotals, IndexedFunction, IndexedLoad, IndexedGlobal. Function: `IndexFiles(root, files, withDocstrings, withGlobals)`. Private helpers: indexFile, indexStmts, extractDocstring, extractAssignName. No external imports |
+| `pkg/op/provider/starstats/provider.go` | Types: Stats, FileStats, StatsTotals. Function: `ComputeStats(root, files, withBytes, withLOC)`. Private helpers: countLines. No external imports |
+| `pkg/op/provider/starcomplexity/provider.go` | Types: ComplexityReport, FileComplexity, FunctionComplexity, complexityWalker. Function: `ComputeComplexity(root, files)`. Private helpers: analyzeFileComplexity, countFunctionLOC, walker methods. No external imports |
+| `pkg/op/provider/staranalysis/provider.go` | Types: AnalysisReport, AnalysisConfig, Hotspot. Function: `Analyze(root, files, cfg)`. Imports: starindex, starstats, starcomplexity. `AnalysisReport.Stats` is `*starstats.Stats`, `.Complexity` is `*starcomplexity.ComplexityReport`, `.Index` is `*starindex.Index` |
+
+#### Delete (devlore-cli)
+
+| Directory | Reason |
+|---|---|
+| `pkg/op/provider/starlarkcode/` | All code moved to 6 new packages above |
+
+#### Generator Changes (noblefactor-ops)
+
+Three new generator capabilities in `internal/starlark/codegen.go` and `star/.../commands/generate.star`:
+
+1. **Converter-only mode** (`--converters-only=true`): For leaf packages with no Provider/receiver. Runs `go.structs()`, builds converter descriptors, generates only `gen/convert.gen.go`. No receiver, no init(), no methods.
+
+2. **Exported converter names**: Leaf converters must be PascalCase (`IndexToStarlark`) since `starsources/gen` calls them cross-package. Add `exported: true` flag to converter descriptors.
+
+3. **Cross-package converter imports**: `starsources/gen/sources.gen.go` imports leaf gen packages:
+   - `starindexgen "...starindex/gen"` for `starindexgen.IndexToStarlark()`
+   - `starstatsgen "...starstats/gen"` for `starstatsgen.StatsToStarlark()`
+   - `staranalysisgen "...staranalysis/gen"` for `staranalysisgen.AnalysisReportToStarlark()`
+
+| File | Action |
+|---|---|
+| `internal/starlark/codegen.go` | Modify: converter-only template path, exported converter names, cross-package import aliases |
+| `star/.../commands/generate.star` | Modify: `--converters-only` flag, exported converter naming, cross-package import collection |
+
+#### Generation Commands
+
+```bash
+# Leaf packages: converter-only mode (order: leaves first)
+star devlore actions generate --source=pkg/op/provider/starindex --gen=true --converters-only=true
+star devlore actions generate --source=pkg/op/provider/starstats --gen=true --converters-only=true
+star devlore actions generate --source=pkg/op/provider/starcomplexity --gen=true --converters-only=true
+star devlore actions generate --source=pkg/op/provider/staranalysis --gen=true --converters-only=true
+
+# Provider packages: full receiver + converter generation
+star devlore actions generate --source=pkg/op/provider/starcode --gen=true
+star devlore actions generate --source=pkg/op/provider/starsources --gen=true
+```
+
+#### Update Existing Files (devlore-cli)
+
+| File | Change |
+|---|---|
+| `internal/starlark/integration_test.go` | Side-effect import: `_ "...starlarkcode/gen"` → `_ "...starcode/gen"` |
+| `internal/starlark/testdata/load_test.star` | `load("@devlore//starlarkcode", ...)` → `load("@devlore//starcode", ...)` |
+| `pkg/op/provider/register.go` | Side-effect import: `_ "...starlarkcode/gen"` → `_ "...starcode/gen"` |
+
+#### Verification
+
+- [ ] `make build` — both repos
+- [ ] `make test` — both repos; integration test exercises full capture → index/stats/analyze chain
+- [ ] `make vet` — both repos
+- [ ] Grep for `starlarkcode` — no matches outside deletion candidates
+- [ ] Verify old `starlarkcode/` directory deleted
+- [ ] Verify chained Starlark API: `starcode.capture(...).index(...)` etc.
+
 ## Related Documents
 
 - `noblefactor-ops/docs/architecture/star-file-tree-walking.md` — Prior receiver work
