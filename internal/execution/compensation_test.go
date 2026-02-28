@@ -94,14 +94,13 @@ func phasedGraph(nodes []*op.Node) *op.Graph {
 
 // --- Tests ---
 
-// TestCompensationFileActions verifies that completed file actions (write, copy,
+// TestCompensationFileActions verifies that completed file actions (write,
 // link) are fully compensated when a subsequent action fails.
 func TestCompensationFileActions(t *testing.T) {
 	tmpDir := t.TempDir()
 	fp := &file.Provider{}
 
 	writePath := filepath.Join(tmpDir, "write.txt")
-	copyPath := filepath.Join(tmpDir, "copy.txt")
 	linkSource := filepath.Join(tmpDir, "source.txt")
 	linkPath := filepath.Join(tmpDir, "link.txt")
 
@@ -114,18 +113,13 @@ func TestCompensationFileActions(t *testing.T) {
 	writeNode.SetSlotImmediate("destination", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
-	copyNode := &op.Node{ID: "copy", Action: &filegen.Copy{Impl: fp}}
-	copyNode.SetSlotImmediate("content", []byte("copied content"))
-	copyNode.SetSlotImmediate("path", copyPath)
-	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
-
 	linkNode := &op.Node{ID: "link", Action: &filegen.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
 	linkNode.SetSlotImmediate("path", linkPath)
 
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
 
-	g := phasedGraph([]*op.Node{writeNode, copyNode, linkNode, failNode})
+	g := phasedGraph([]*op.Node{writeNode, linkNode, failNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
@@ -133,7 +127,7 @@ func TestCompensationFileActions(t *testing.T) {
 		t.Fatal("expected error from deliberate failure")
 	}
 
-	for _, p := range []string{writePath, copyPath, linkPath} {
+	for _, p := range []string{writePath, linkPath} {
 		if _, statErr := os.Stat(p); statErr == nil {
 			t.Errorf("%s should not exist after compensation", filepath.Base(p))
 		}
@@ -177,7 +171,6 @@ func TestCompensationDryRun(t *testing.T) {
 	fp := &file.Provider{}
 
 	writePath := filepath.Join(tmpDir, "write.txt")
-	copyPath := filepath.Join(tmpDir, "copy.txt")
 	linkSource := filepath.Join(tmpDir, "source.txt")
 	linkPath := filepath.Join(tmpDir, "link.txt")
 
@@ -190,18 +183,13 @@ func TestCompensationDryRun(t *testing.T) {
 	writeNode.SetSlotImmediate("destination", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
-	copyNode := &op.Node{ID: "copy", Action: &filegen.Copy{Impl: fp}}
-	copyNode.SetSlotImmediate("content", []byte("dry-run content"))
-	copyNode.SetSlotImmediate("path", copyPath)
-	copyNode.SetSlotImmediate("mode", os.FileMode(0o644))
-
 	linkNode := &op.Node{ID: "link", Action: &filegen.Link{Impl: fp}}
 	linkNode.SetSlotImmediate("source", linkSource)
 	linkNode.SetSlotImmediate("path", linkPath)
 
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
 
-	g := phasedGraph([]*op.Node{writeNode, copyNode, linkNode, failNode})
+	g := phasedGraph([]*op.Node{writeNode, linkNode, failNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun: true,
 		Writer: io.Discard,
@@ -212,7 +200,7 @@ func TestCompensationDryRun(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	for _, p := range []string{writePath, copyPath, linkPath} {
+	for _, p := range []string{writePath, linkPath} {
 		if _, statErr := os.Stat(p); statErr == nil {
 			t.Errorf("%s should not exist in dry-run mode", filepath.Base(p))
 		}

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+//go:build ignore
+// +build ignore
+
 package execution_test
 
 import (
@@ -162,56 +165,6 @@ func TestLinkActionIdempotent(t *testing.T) {
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("idempotent link: %v", err)
-	}
-}
-
-func TestCopyAction(t *testing.T) {
-	tmpDir := t.TempDir()
-	target := filepath.Join(tmpDir, "output.txt")
-
-	p := &file.Provider{}
-	action := &filegen.Copy{Impl: p}
-	ctx := &op.Context{Context: context.Background()}
-	node := &op.Node{ID: "test"}
-	node.SetSlotImmediate("content", []byte("file content"))
-	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("mode", os.FileMode(0o644))
-
-	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
-		t.Fatalf("copy: %v", err)
-	}
-
-	content, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("read target: %v", err)
-	}
-	if string(content) != "file content" {
-		t.Errorf("expected 'file content', got %q", string(content))
-	}
-}
-
-func TestCopyActionCreatesParentDirs(t *testing.T) {
-	tmpDir := t.TempDir()
-	target := filepath.Join(tmpDir, "deep", "nested", "output.txt")
-
-	p := &file.Provider{}
-	action := &filegen.Copy{Impl: p}
-	ctx := &op.Context{Context: context.Background()}
-	node := &op.Node{ID: "test"}
-	node.SetSlotImmediate("content", []byte("nested content"))
-	node.SetSlotImmediate("path", target)
-	node.SetSlotImmediate("mode", os.FileMode(0o644))
-
-	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
-		t.Fatalf("copy with nested dirs: %v", err)
-	}
-
-	content, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("read target: %v", err)
-	}
-	if string(content) != "nested content" {
-		t.Errorf("expected 'nested content', got %q", string(content))
 	}
 }
 

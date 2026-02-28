@@ -76,18 +76,18 @@ func TestImmediateBindings(t *testing.T) {
 	assertBool(t, result, "result_mkdir")
 	assertBool(t, result, "result_mkdir_nested")
 	assertIntGE(t, result, "result_glob_count", 1)
-	assertBool(t, result, "result_read_is_none")
+	assertBool(t, result, "result_read_has_path")
 
 	// Compensable actions
 	assertBool(t, result, "result_write_text")
 	assertBool(t, result, "result_write_bytes")
 	assertBool(t, result, "result_write_text_nested")
-	assertBool(t, result, "result_copy")
 	assertBool(t, result, "result_link")
 	assertBool(t, result, "result_move_dest_exists")
 	assertBool(t, result, "result_move_src_gone")
 	assertBool(t, result, "result_backup_created")
 	assertBool(t, result, "result_backup_src_gone")
+	assertBool(t, result, "result_copy")
 
 	// walk_tree
 	assertBool(t, result, "result_walk_simple")
@@ -142,7 +142,6 @@ func TestPlannedBindings(t *testing.T) {
 	// All bindings return Output type
 	assertBool(t, result, "result_write_text_type")
 	assertBool(t, result, "result_write_bytes_type")
-	assertBool(t, result, "result_copy_type")
 	assertBool(t, result, "result_link_type")
 	assertBool(t, result, "result_move_type")
 	assertBool(t, result, "result_backup_type")
@@ -152,6 +151,12 @@ func TestPlannedBindings(t *testing.T) {
 	assertBool(t, result, "result_mkdir_type")
 	assertBool(t, result, "result_glob_type")
 	assertBool(t, result, "result_read_type")
+	assertBool(t, result, "result_copy_type")
+	assertBool(t, result, "result_exists_type")
+	assertBool(t, result, "result_is_dir_type")
+	assertBool(t, result, "result_is_file_type")
+	assertBool(t, result, "result_name_type")
+	assertBool(t, result, "result_parent_type")
 
 	// Promise chaining
 	assertBool(t, result, "result_chain_done")
@@ -165,9 +170,9 @@ func TestPlannedBindings(t *testing.T) {
 
 	// ── Graph structure verification ──────────────────────────────────────────
 
-	// 12 standalone calls + 4 chained calls = 16 nodes total
-	if len(graph.Nodes) != 16 {
-		t.Errorf("graph.Nodes = %d, want 16", len(graph.Nodes))
+	// 17 standalone calls + 4 chained calls = 21 nodes total
+	if len(graph.Nodes) != 21 {
+		t.Errorf("graph.Nodes = %d, want 21", len(graph.Nodes))
 	}
 
 	// Verify action names are present for all expected actions.
@@ -180,9 +185,14 @@ func TestPlannedBindings(t *testing.T) {
 		"file.write_text":  3, // 1 standalone + 2 chain sources
 		"file.write_bytes": 1,
 		"file.copy":        1,
+		"file.exists":      1,
+		"file.is_dir":      1,
+		"file.is_file":     1,
 		"file.link":        1,
 		"file.move":        2, // 1 standalone + 1 chained
 		"file.backup":      2, // 1 standalone + 1 chained
+		"file.name":        1,
+		"file.parent":      1,
 		"file.remove":      1,
 		"file.remove_all":  1,
 		"file.unlink":      1,

@@ -42,26 +42,27 @@ func (o *Backup) Undo(_ *op.Context, state op.UndoState) error {
 	return o.Impl.CompensateBackup(state.(map[string]any))
 }
 
-// Copy — Copy writes content to the file at "path" with the given mode.
+// Copy — Copy copies a blob to the file at "destination" with the given mode.
 type Copy struct{ Impl *provider.Provider }
 
 func (o *Copy) Name() string { return "file.copy" }
 
 func (o *Copy) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
-	path := slots["path"].(string)
+	destination := slots["destination"].(string)
+	source := slots["source"].(string)
 	mode := slots["mode"].(os.FileMode)
-	content, _ := slots["content"].([]byte)
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.copy %v %v\n", path, mode)
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.copy %v %v %v\n", destination, source, mode)
 		return nil, nil, nil
 	}
 
-	result, state, err := o.Impl.Copy(path, mode, content)
+	sourceVal, err := op.Construct[provider.Blob](source)
 	if err != nil {
 		return nil, nil, err
 	}
-	return result, state, nil
+	result, state, err := o.Impl.Copy(sourceVal, destination, mode)
+	return result, state, err
 }
 
 func (o *Copy) Undo(_ *op.Context, state op.UndoState) error {
@@ -304,11 +305,118 @@ func (o *Read) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoStat
 	return result, nil, err
 }
 
+// Exists — Exists returns true if the file at "path" exists.
+type Exists struct{ Impl *provider.Provider }
+
+func (o *Exists) Name() string { return "file.exists" }
+
+func (o *Exists) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
+	path := slots["path"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.exists %v\n", path)
+		return nil, nil, nil
+	}
+
+	pathVal, err := op.Construct[provider.Blob](path)
+	if err != nil {
+		return nil, nil, err
+	}
+	result := o.Impl.Exists(pathVal)
+	return result, nil, nil
+}
+
+// IsDir — IsDir returns true if the file at "path" exists and is a directory.
+type IsDir struct{ Impl *provider.Provider }
+
+func (o *IsDir) Name() string { return "file.is_dir" }
+
+func (o *IsDir) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
+	path := slots["path"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.is_dir %v\n", path)
+		return nil, nil, nil
+	}
+
+	result := o.Impl.IsDir(path)
+	return result, nil, nil
+}
+
+// IsFile — IsFile returns true if the file at "path" exists and is a regular file.
+type IsFile struct{ Impl *provider.Provider }
+
+func (o *IsFile) Name() string { return "file.is_file" }
+
+func (o *IsFile) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
+	path := slots["path"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.is_file %v\n", path)
+		return nil, nil, nil
+	}
+
+	result := o.Impl.IsFile(path)
+	return result, nil, nil
+}
+
+// Join — Join joins path components using the OS path separator.
+type Join struct{ Impl *provider.Provider }
+
+func (o *Join) Name() string { return "file.join" }
+
+func (o *Join) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
+	parts := slots["parts"].([]string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.join %v\n", parts)
+		return nil, nil, nil
+	}
+
+	result := o.Impl.Join(parts...)
+	return result, nil, nil
+}
+
+// NameAction — Name returns the last element of "path".
+type NameAction struct{ Impl *provider.Provider }
+
+func (o *NameAction) Name() string { return "file.name" }
+
+func (o *NameAction) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
+	path := slots["path"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.name %v\n", path)
+		return nil, nil, nil
+	}
+
+	result := o.Impl.Name(path)
+	return result, nil, nil
+}
+
+// Parent — Parent returns the directory containing the file at "path".
+type Parent struct{ Impl *provider.Provider }
+
+func (o *Parent) Name() string { return "file.parent" }
+
+func (o *Parent) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) {
+	path := slots["path"].(string)
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] file.parent %v\n", path)
+		return nil, nil, nil
+	}
+
+	result := o.Impl.Parent(path)
+	return result, nil, nil
+}
+
 // Register registers all file actions with the given registry.
 func Register(reg *op.ActionRegistry) {
 	p := &provider.Provider{}
 	reg.Register(&Backup{Impl: p})
 	reg.Register(&Copy{Impl: p})
+	reg.Register(&Exists{Impl: p})
 	reg.Register(&Link{Impl: p})
 	reg.Register(&Move{Impl: p})
 	reg.Register(&Remove{Impl: p})
@@ -317,6 +425,11 @@ func Register(reg *op.ActionRegistry) {
 	reg.Register(&WriteBytes{Impl: p})
 	reg.Register(&WriteText{Impl: p})
 	reg.Register(&Glob{Impl: p})
+	reg.Register(&IsDir{Impl: p})
+	reg.Register(&IsFile{Impl: p})
+	reg.Register(&Join{Impl: p})
 	reg.Register(&Mkdir{Impl: p})
+	reg.Register(&NameAction{Impl: p})
+	reg.Register(&Parent{Impl: p})
 	reg.Register(&Read{Impl: p})
 }

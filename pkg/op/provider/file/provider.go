@@ -4,6 +4,7 @@
 package file
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -37,7 +38,7 @@ func Actor(fn func(path string, dirEntry os.DirEntry) error) Reducer {
 }
 
 // Reducer is a function called for each file or directory in a WalkTree operation.
-// +devlore:callable swallow=stack handle=DirEntry:Name,IsDir
+// +devlore:callable swallow=stack handle=DirEntry:Name, IsDir
 type Reducer func(initial any, path string, dirEntry os.DirEntry, stack *op.RecoveryStack) (result any, err error)
 
 type Tombstone struct {
@@ -118,102 +119,55 @@ func (p *Provider) CompensateBackup(undo map[string]any) error {
 	return os.Rename(backupPath, originalPath)
 }
 
-// Copy writes content to the file at "path" with the given mode.
+// Copy copies a blob to the file at "destination" with the given mode.
+//
+// If the destination already exists, it is moved to the recovery path before writing.
 //
 // Parameters:
-//   - path: Absolute path where the file will be written
-//   - mode: File permission bits (e.g., 0o644)
-//   - content: Byte slice containing the content to write to the file
+//   - destination: Absolute path to the file to write
+//   - source: The content to copy (a Blob wrapping a file path)
+//   - mode: The file mode to use (default: 0644)
 //
 // Returns:
-//   - result: the path to the copied file
-//   - undo: a state map with the following keys:
-//     > path: the path to the copied file
-//     > existed_before: true if the file already existed before
-//     > previous_content: the content of the file before it was created if it existed
-//     > previous_mode: the mode of the file before it was created if it existed
-//     > written_checksum: the checksum of the copied file (if available)
-func (p *Provider) Copy(path string, mode os.FileMode, content []byte) (
+//   - result: the path to the written file
+//   - undo: a state map containing the tombstone for recovery
+//   - err: any error that occurred during the copy
+func (p *Provider) Copy(sourceFile Blob, destinationFilename string, destinationFileMode os.FileMode) (result Blob, undo map[string]any, err error) {
 
-	result string, undo map[string]any, err error) {
+	result, undo, err = p.prepareWrite(destinationFilename)
 
-	if info, err := os.Lstat(path); err == nil {
-		undo = map[string]any{
-			"path":           path,
-			"existed_before": true,
-		}
-		if info.Mode().IsRegular() {
-			if prev, readErr := os.ReadFile(path); readErr == nil {
-				undo["previous_content"] = prev
-				undo["previous_mode"] = info.Mode().Perm()
-			}
-		}
-		if err := os.Remove(path); err != nil {
-			return "", nil, err
-		}
-	} else {
-		undo = map[string]any{
-			"path":           path,
-			"existed_before": false,
-		}
+	if err != nil {
+		return Blob{}, nil, err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return "", nil, err
+	if destinationFileMode == 0 {
+		destinationFileMode = 0o644
 	}
 
-	if mode == 0 {
-		mode = 0o644
+	f, err := os.OpenFile(destinationFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
+
+	if err != nil {
+		return Blob{}, nil, err
 	}
 
-	if err := os.WriteFile(path, content, mode); err != nil {
-		return "", nil, err
+	defer f.Close()
+
+	if _, err := sourceFile.WriteTo(f); err != nil {
+		return result, nil, err
 	}
 
-	undo["written_checksum"] = checksumBytes(content)
-	return path, undo, nil
+	return result, undo, nil
 }
 
-// CompensateCopy undoes a Copy action using the captured state.
-//
-// If a written_checksum is present, the file is verified before reverting; a mismatch indicates external modification
-// and the compensation is skipped.
+// CompensateCopy undoes a Copy action by restoring the original file from the recovery path.
 //
 // Parameters:
-//   - state: The state map returned by Copy
+//   - undo: The state map returned by Copy
 //
 // Returns:
 //   - err: any error that occurred during the compensation
 func (p *Provider) CompensateCopy(undo map[string]any) error {
-
-	path := op.StateString(undo, "path")
-	if path == "" {
-		return nil
-	}
-
-	// Verify the file hasn't been modified since we wrote it.
-	if expected := op.StateString(undo, "written_checksum"); expected != "" {
-		current, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("cannot read %s for verification: %w", path, err)
-		}
-		if checksumBytes(current) != expected {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", path)
-		}
-	}
-
-	if !op.StateBool(undo, "existed_before") {
-		return os.Remove(path)
-	}
-	prev := op.StateBytes(undo, "previous_content")
-	if prev == nil {
-		return nil // Can't restore without content.
-	}
-	prevMode := op.StateFileMode(undo, "previous_mode")
-	if prevMode == 0 {
-		prevMode = 0o644
-	}
-	return os.WriteFile(path, prev, prevMode)
+	return p.compensateWrite(undo)
 }
 
 // Link creates a symlink at a path pointing to a source file.
@@ -636,7 +590,7 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 //   - undo: a state map with the following keys:
 //     > tombstone: a [Tombstone]
 //   - err: any error that occurred while writing
-func (p *Provider) WriteBytes(destination, content string, mode os.FileMode) (result string, undo map[string]any, err error) {
+func (p *Provider) WriteBytes(destination, content string, mode os.FileMode) (result Blob, undo map[string]any, err error) {
 	return p.write(destination, []byte(content), mode)
 }
 
@@ -665,7 +619,7 @@ func (p *Provider) CompensateWriteBytes(undo map[string]any) error {
 //   - undo: a state map with the following keys:
 //     > tombstone: a [Tombstone]
 //   - err: any error that occurred while writing
-func (p *Provider) WriteText(destination, content string, mode os.FileMode) (result string, undo map[string]any, err error) {
+func (p *Provider) WriteText(destination, content string, mode os.FileMode) (result Blob, undo map[string]any, err error) {
 	return p.write(destination, []byte(content), mode)
 }
 
@@ -691,8 +645,8 @@ func (p *Provider) CompensateWriteText(undo map[string]any) error {
 //
 // Returns:
 //   - bool: true if the file at "path" exists, false otherwise
-func (p *Provider) Exists(path string) bool {
-	_, err := os.Lstat(path)
+func (p *Provider) Exists(blob Blob) bool {
+	_, err := os.Lstat(blob.SourcePath)
 	return err == nil
 }
 
@@ -719,7 +673,7 @@ func (p *Provider) Glob(pattern string, honorGitignore bool) ([]string, error) {
 	tracker, trackerErr := gitignore.NewTracker(p.Root)
 
 	if trackerErr != nil {
-		return matches, nil //nolint:nilerr // graceful degradation: return unfiltered if gitignore unavailable
+		return matches, nil //nolint:nile`rr // graceful degradation: return unfiltered if gitignore unavailable
 	}
 
 	var filtered []string
@@ -863,49 +817,68 @@ func (p *Provider) compensateWrite(undo map[string]any) error {
 //     > action: The action that was performed (e.g., "overwrite", "create")
 //     > tombstone: The tombstone returned by RemoveAll
 //   - err: Any error that occurred during the preparation
-func (p *Provider) prepareWrite(path string) (undo map[string]any, err error) {
+func (p *Provider) prepareWrite(path string) (result Blob, undo map[string]any, err error) {
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return nil, err
-		}
-		undo = map[string]any{"tombstone": Tombstone{OriginalPath: path}}
-		return undo, nil
-	}
+	result, err = NewBlob(path)
 
-	tombstone, undo, err := p.Remove(path, false, "")
 	if err != nil {
-		return nil, fmt.Errorf("failed to backup existing file: %w", err)
+		return Blob{}, nil, err
 	}
 
-	// We store the tombstone in the undo state
+	if !result.Exists() {
+
+		err = os.MkdirAll(filepath.Dir(result.SourcePath), 0o750)
+
+		if err != nil {
+			return Blob{}, nil, errors.Join(os.ErrNotExist, err)
+		}
+
+		undo = map[string]any{"tombstone": Tombstone{OriginalPath: result.SourcePath}}
+		return result, undo, nil
+	}
+
+	tombstone, _, err := p.Remove(result.SourcePath, false, "")
+
+	if err != nil {
+		return Blob{}, nil, fmt.Errorf("failed to backup existing file: %w", err)
+	}
 
 	undo = map[string]any{"tombstone": tombstone}
-	return undo, nil
+	return result, undo, nil
 }
 
-// write writes data to the specified path after preparing the write operation and returns a tombstone, undo metadata,
-// and any error encountered during the operation.
+// write writes data to the specified path after preparing the write operation.
 //
 // Parameters:
 //   - path: The path to the file to write
 //   - data: The data to write to the file
 //
 // Returns:
-func (p *Provider) write(path string, data []byte, mode os.FileMode) (result string, undo map[string]any, err error) {
+func (p *Provider) write(path string, data []byte, mode os.FileMode) (result Blob, undo map[string]any, err error) {
 
-	undo, err = p.prepareWrite(path)
+	result, undo, err = p.prepareWrite(path)
 
 	if err != nil {
-		return "", nil, err
+		return result, nil, err
 	}
 
 	if mode == 0 {
 		mode = 0o644
 	}
 
-	err = os.WriteFile(path, data, mode)
-	return path, undo, err
+	err = os.WriteFile(result.SourcePath, data, mode)
+
+	if err != nil {
+		info, err := os.Stat(path)
+		if err == nil {
+			result.Size = info.Size()
+		}
+	}
+
+	// TODO (david-noble) On error, do we need to recover the file on path or should we depend on the caller?
+	//  We can rely on the graph executor when the caller is an action, not when called from Go or Starlark.
+
+	return result, undo, err
 }
 
 // endregion

@@ -51,9 +51,9 @@ result_mkdir_nested = file.is_dir(path=nested_path)
 glob_results = file.glob(pattern=tmp_dir + sep + "*.txt", honor_gitignore=False)
 result_glob_count = len(glob_results)
 
-# read — returns None in immediate mode
+# read — returns a blob struct with source_path and size
 read_result = file.read(path=fixture)
-result_read_is_none = read_result == None
+result_read_has_path = hasattr(read_result, "source_path")
 
 # ── Compensable (no recovery needed) ────────────────────────────────────────────
 
@@ -73,10 +73,6 @@ wt_nested = file.write_text(
 )
 result_write_text_nested = file.exists(path=wt_nested)
 
-# copy (immediate mode: nil content, creates empty file)
-copy_path = file.copy(path=tmp_dir + sep + "copied.txt", mode=0o644)
-result_copy = file.exists(path=copy_path)
-
 # link
 link_path = file.link(source=fixture, path=tmp_dir + sep + "symlink.txt")
 result_link = file.exists(path=link_path)
@@ -95,6 +91,11 @@ file.write_text(destination=backup_src, content="backupme", mode=0o644)
 backup_path = file.backup(path=backup_src, backup_suffix=".bak")
 result_backup_created = file.exists(path=backup_path)
 result_backup_src_gone = file.exists(path=backup_src) == False
+
+# copy
+copy_dest = tmp_dir + sep + "copied.txt"
+copy_result = file.copy(destination=copy_dest, source=fixture, mode=0o644)
+result_copy = file.exists(path=copy_dest)
 
 # ── walk_tree ───────────────────────────────────────────────────────────────────
 

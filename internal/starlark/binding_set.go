@@ -58,6 +58,14 @@ func (bs *BindingSet) RegisterActions(reg *op.ActionRegistry) {
 	}
 }
 
+// NewPopulatedRegistry creates an ActionRegistry with all provider actions registered.
+// Shorthand for NewActionRegistry() + RegisterActions().
+func (bs *BindingSet) NewPopulatedRegistry() *op.ActionRegistry {
+	reg := op.NewActionRegistry()
+	bs.RegisterActions(reg)
+	return reg
+}
+
 // BuildGlobals constructs the Starlark globals dict for a consumer.
 // Only providers named in With() appear as globals.
 // If "plan" was included via With(), a PlanRoot is built from all registered PlannedFactory bindings.
@@ -66,12 +74,7 @@ func (bs *BindingSet) BuildGlobals(graph *op.Graph, project string, reg *op.Acti
 
 	// Build "plan" if requested via With("plan").
 	if bs.included["plan"] {
-		factories := make(map[string]op.PlannedFactory)
-		for _, b := range op.AllBindings() {
-			if b.PlannedFactory != nil {
-				factories[b.Name] = b.PlannedFactory
-			}
-		}
+		factories := collectPlannedFactories()
 		if len(factories) > 0 {
 			globals["plan"] = NewPlanRootFromFactories(graph, project, reg, factories)
 		}
@@ -138,15 +141,21 @@ func (bs *BindingSet) resolveProvider(name string, graph *op.Graph, project stri
 
 // buildPlanModule constructs a plan module from all registered PlannedFactory bindings.
 func (bs *BindingSet) buildPlanModule(graph *op.Graph, project string, reg *op.ActionRegistry) (starlark.StringDict, error) {
+	factories := collectPlannedFactories()
+	if len(factories) == 0 {
+		return nil, fmt.Errorf("no planned providers registered")
+	}
+	plan := NewPlanRootFromFactories(graph, project, reg, factories)
+	return starlark.StringDict{"plan": plan}, nil
+}
+
+// collectPlannedFactories returns all registered PlannedFactory bindings.
+func collectPlannedFactories() map[string]op.PlannedFactory {
 	factories := make(map[string]op.PlannedFactory)
 	for _, b := range op.AllBindings() {
 		if b.PlannedFactory != nil {
 			factories[b.Name] = b.PlannedFactory
 		}
 	}
-	if len(factories) == 0 {
-		return nil, fmt.Errorf("no planned providers registered")
-	}
-	plan := NewPlanRootFromFactories(graph, project, reg, factories)
-	return starlark.StringDict{"plan": plan}, nil
+	return factories
 }

@@ -1,19 +1,23 @@
 # Known Bugs
 
-## #164: isSameDevice stats non-existent recovery path
+## #165: compensateWrite missing nil guard on undo parameter — RESOLVED
 
-`isSameDevice` in `pkg/op/provider/file/recovery_unix.go:52-59` calls `os.Stat` on a path that does not yet exist (`~/Library/Caches/devlore/recovery`). The stat fails, `isSameDevice` returns false, and `getRecoveryBase` falls back to `/.devlore_recovery` which is read-only on macOS (SIP).
+`compensateWrite` correctly uses `op.ExtractUndo[Tombstone]`, which handles nil maps without panic and returns an error on missing/invalid state. This is the intended behavior — silent no-ops on bad compensation state hide real problems.
 
-**Blocks**: 8 tests (Remove, RemoveAll, Unlink round-trips and their compensations)
+The original bug report compared `compensateWrite` against `CompensateBackup`, which silently returns nil on empty state. `CompensateBackup` is the anachronistic one — it predates the `ExtractUndo` pattern and should be updated to match. See issue #168.
 
-## #165: compensateWrite missing nil guard on undo parameter
+## #166: CompensateCopy does not restore file mode on existing files — RESOLVED
 
-`compensateWrite` in `pkg/op/provider/file/provider.go` does not guard against a nil `undo` map, unlike all other `Compensate*` methods which return nil early.
+Resolved by the tombstone recovery rewrite. `CompensateCopy` now delegates to `compensateWrite`, which uses `os.Rename` (move-to-recovery / restore-from-recovery) instead of `os.WriteFile`. `os.Rename` preserves the original file's metadata including permissions.
 
-**Blocks**: 2 tests (CompensateWriteText_NilState, CompensateWriteBytes_NilState)
+## #167: TestBuild_WithNativePMPackage panics — unregistered action: pkg.install
 
-## #166: CompensateCopy does not restore file mode on existing files
+`internal/lore.TestBuild_WithNativePMPackage` panics at `builder.go:408` with `unregistered action: pkg.install`. The `pkg` provider's `ActionRegistrar` is not loaded in the test context. The test creates a `Planner` without registering the `pkg` provider actions, then calls `PlanByName` which reaches `addNativePMNodes` → `reg.MustGet("pkg.install")` → panic.
 
-`CompensateCopy` in `pkg/op/provider/file/provider.go:216` uses `os.WriteFile(path, prev, prevMode)` to restore content and permissions. When the file already exists, `os.WriteFile` truncates and writes but does not change permissions (the mode argument only applies when `O_CREATE` creates a new file). The restored file keeps the mode from the Copy operation instead of reverting to the original.
+**Branch**: `feature/binding-unification`
 
-**Blocks**: 1 test (TestCopy_CompensateCopy_RoundTrip_Overwrite)
+## #168: TestLoadIntegration fails — undefined: ui
+
+`internal/starlark.TestLoadIntegration` fails at `load_test.star:11:31` with `undefined: ui`. The test's Starlark globals do not include the `ui` provider binding. The `ui` provider was removed from the old hand-coded global set during binding unification but is not yet re-registered via the new `BindingSet` API in the test harness.
+
+**Branch**: `feature/binding-unification`

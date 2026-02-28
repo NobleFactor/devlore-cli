@@ -24,10 +24,31 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// GraphFormatVersion is the current graph serialization format version.
+const GraphFormatVersion = "6"
+
+// NewGraph creates a Graph with common metadata populated.
+// Tool identifies which tool created the graph ("writ" or "lore").
+// Callers populate Context and add Nodes/Edges after creation.
+func NewGraph(tool string) *Graph {
+	return &Graph{
+		Version:   GraphFormatVersion,
+		Tool:      tool,
+		Timestamp: time.Now(),
+		State:     StatePending,
+		Platform: Platform{
+			OS:   runtime.GOOS,
+			Arch: runtime.GOARCH,
+		},
+		Nodes: make([]*Node, 0),
+	}
+}
 
 // GraphState represents the execution state of the graph.
 type GraphState string

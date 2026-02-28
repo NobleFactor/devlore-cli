@@ -1,7 +1,9 @@
 package file
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -12,8 +14,17 @@ func (p *Provider) moveToRecovery(path string, prune bool, pruneBoundary string)
 
 	// Get the absolute path of the file to remove as well as the recovery base directory (on the same partition)
 
-	absolutePath, _ := filepath.Abs(path)
-	recoveryBase := p.getRecoveryBase(absolutePath)
+	absolutePath, err := filepath.Abs(path)
+
+	if err != nil {
+		return Tombstone{}, nil, err
+	}
+
+	recoveryBase, err := p.getRecoveryBase(absolutePath)
+
+	if err != nil {
+		return Tombstone{}, nil, err
+	}
 
 	// Create a unique ID for this specific removal operation
 
@@ -67,7 +78,7 @@ func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
 
 	// Verify the recovery site still exists
 
-	if _, err := os.Stat(tombstone.RecoveryPath); os.IsNotExist(err) {
+	if _, err := os.Stat(tombstone.RecoveryPath); errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("recovery source not found: %s (perhaps it was purged?)", tombstone.RecoveryPath)
 	}
 

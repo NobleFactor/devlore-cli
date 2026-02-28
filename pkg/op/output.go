@@ -64,7 +64,7 @@ func (o *Output) Attr(name string) (starlark.Value, error) {
 		if slotVal == nil {
 			return nil, starlark.NoSuchAttrError(fmt.Sprintf("Output has no attribute %q", name))
 		}
-		sv, err := GoToStarlarkValue(slotVal)
+		sv, err := Marshal(slotVal)
 		if err != nil {
 			return nil, fmt.Errorf("slot %q: %w", name, err)
 		}
@@ -131,49 +131,18 @@ func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) e
 		return nil
 	}
 
-	// Immediate: store directly
-	if str, ok := starlark.AsString(value); ok {
-		node.SetSlotImmediate(slotName, str)
+	// None: skip (optional parameter not provided)
+	if _, ok := value.(starlark.NoneType); ok {
 		return nil
 	}
 
-	// List: store as native []string (homogeneous) or []any (mixed)
-	if list, ok := value.(*starlark.List); ok {
-		result, err := StarlarkListToSlice(list)
-		if err != nil {
-			return fmt.Errorf("slot %q: %w", slotName, err)
-		}
-		node.SetSlotImmediate(slotName, result)
-		return nil
+	// Immediate: unmarshal Starlark value to native Go type
+	var goVal any
+	if err := Unmarshal(value, &goVal); err != nil {
+		return fmt.Errorf("slot %q: %w", slotName, err)
 	}
-
-	// Dict: store as native map[string]any
-	if dict, ok := value.(*starlark.Dict); ok {
-		result, err := StarlarkDictToMap(dict)
-		if err != nil {
-			return fmt.Errorf("slot %q: %w", slotName, err)
-		}
-		node.SetSlotImmediate(slotName, result)
-		return nil
-	}
-
-	// Other immediate types — store as native Go types
-	switch v := value.(type) {
-	case starlark.Int:
-		i, _ := v.Int64()
-		node.SetSlotImmediate(slotName, int(i))
-		return nil
-	case starlark.Bool:
-		node.SetSlotImmediate(slotName, bool(v))
-		return nil
-	case starlark.Float:
-		node.SetSlotImmediate(slotName, float64(v))
-		return nil
-	case starlark.NoneType:
-		return nil
-	}
-
-	return fmt.Errorf("unsupported value type %s for slot %q", value.Type(), slotName)
+	node.SetSlotImmediate(slotName, goVal)
+	return nil
 }
 
 // Path returns a path from the node's slots.

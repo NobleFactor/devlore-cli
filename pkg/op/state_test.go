@@ -5,6 +5,7 @@ package op_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -115,6 +116,50 @@ func TestStateFileMode(t *testing.T) {
 	}
 	if got := op.StateFileMode(m, "wrong"); got != 0 {
 		t.Errorf("StateFileMode(wrong) = %v, want 0 (wrong type)", got)
+	}
+}
+
+func TestExtractUndo_NilMap_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("ExtractUndo(nil, ...) did not panic")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("panic value is %T, want string", r)
+		}
+		if !strings.Contains(msg, "BUG") || !strings.Contains(msg, "nil undo state") {
+			t.Errorf("panic message = %q, want to contain 'BUG' and 'nil undo state'", msg)
+		}
+	}()
+	op.ExtractUndo[string](nil, "tombstone")
+}
+
+func TestExtractUndo_ValidKey(t *testing.T) {
+	m := map[string]any{"name": "test"}
+	got, err := op.ExtractUndo[string](m, "name")
+	if err != nil {
+		t.Fatalf("ExtractUndo() error = %v", err)
+	}
+	if got != "test" {
+		t.Errorf("ExtractUndo() = %q, want %q", got, "test")
+	}
+}
+
+func TestExtractUndo_WrongType(t *testing.T) {
+	m := map[string]any{"name": 42}
+	_, err := op.ExtractUndo[string](m, "name")
+	if err == nil {
+		t.Fatal("ExtractUndo() error = nil, want error for wrong type")
+	}
+}
+
+func TestExtractUndo_MissingKey(t *testing.T) {
+	m := map[string]any{"other": "val"}
+	_, err := op.ExtractUndo[string](m, "name")
+	if err == nil {
+		t.Fatal("ExtractUndo() error = nil, want error for missing key")
 	}
 }
 

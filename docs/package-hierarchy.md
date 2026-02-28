@@ -379,9 +379,6 @@ TUI console for interactive operations (Console, Model, Styles).
 ### internal/credentials
 Credential storage (Get, Set, Delete).
 
-### internal/bindgen
-CLI binding generation (BindingDef, Command, LoadYAML).
-
 ### internal/model
 AI model configuration (Config, Provider, LoadConfig, SelectModel).
 

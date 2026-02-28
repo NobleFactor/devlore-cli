@@ -43,6 +43,7 @@ func TestActionNames(t *testing.T) {
 	}{
 		{&filegen.Backup{Impl: p}, "file.backup"},
 		{&filegen.Copy{Impl: p}, "file.copy"},
+		{&filegen.Exists{Impl: p}, "file.exists"},
 		{&filegen.Link{Impl: p}, "file.link"},
 		{&filegen.Move{Impl: p}, "file.move"},
 		{&filegen.Remove{Impl: p}, "file.remove"},
@@ -51,7 +52,12 @@ func TestActionNames(t *testing.T) {
 		{&filegen.WriteBytes{Impl: p}, "file.write_bytes"},
 		{&filegen.WriteText{Impl: p}, "file.write_text"},
 		{&filegen.Glob{Impl: p}, "file.glob"},
+		{&filegen.IsDir{Impl: p}, "file.is_dir"},
+		{&filegen.IsFile{Impl: p}, "file.is_file"},
+		{&filegen.Join{Impl: p}, "file.join"},
 		{&filegen.Mkdir{Impl: p}, "file.mkdir"},
+		{&filegen.NameAction{Impl: p}, "file.name"},
+		{&filegen.Parent{Impl: p}, "file.parent"},
 		{&filegen.Read{Impl: p}, "file.read"},
 	}
 	for _, tt := range tests {
@@ -68,9 +74,11 @@ func TestRegister(t *testing.T) {
 	filegen.Register(reg)
 
 	expected := []string{
-		"file.backup", "file.copy", "file.glob", "file.link",
-		"file.mkdir", "file.move", "file.read", "file.remove",
-		"file.remove_all", "file.unlink", "file.write_bytes", "file.write_text",
+		"file.backup", "file.copy", "file.exists", "file.glob",
+		"file.is_dir", "file.is_file", "file.join", "file.link",
+		"file.mkdir", "file.move", "file.name", "file.parent",
+		"file.read", "file.remove", "file.remove_all", "file.unlink",
+		"file.write_bytes", "file.write_text",
 	}
 	for _, name := range expected {
 		if _, ok := reg.Get(name); !ok {
@@ -97,8 +105,12 @@ func TestWriteTextAction_Do(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
-	if result != path {
-		t.Errorf("result = %v, want %q", result, path)
+	blob, ok := result.(provider.Blob)
+	if !ok {
+		t.Fatalf("result type = %T, want provider.Blob", result)
+	}
+	if blob.SourcePath != path {
+		t.Errorf("result.SourcePath = %q, want %q", blob.SourcePath, path)
 	}
 	if undo == nil {
 		t.Fatal("undo is nil, want non-nil")
@@ -197,8 +209,12 @@ func TestWriteBytesAction_Do(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
-	if result != path {
-		t.Errorf("result = %v, want %q", result, path)
+	blob, ok := result.(provider.Blob)
+	if !ok {
+		t.Fatalf("result type = %T, want provider.Blob", result)
+	}
+	if blob.SourcePath != path {
+		t.Errorf("result.SourcePath = %q, want %q", blob.SourcePath, path)
 	}
 	if undo == nil {
 		t.Fatal("undo is nil")
@@ -269,46 +285,58 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 
 func TestCopyAction_Do(t *testing.T) {
 	tmp := t.TempDir()
-	path := filepath.Join(tmp, "action-copy.txt")
+	source := filepath.Join(tmp, "copy-source.txt")
+	if err := os.WriteFile(source, []byte("copy me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(tmp, "copy-dest.txt")
 
 	action := &filegen.Copy{Impl: &provider.Provider{}}
 	ctx := newCtx(t)
 	slots := map[string]any{
-		"path":    path,
-		"mode":    os.FileMode(0o644),
-		"content": []byte("copy content"),
+		"destination": dest,
+		"source":      source,
+		"mode":        os.FileMode(0o644),
 	}
 
 	result, undo, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
-	if result != path {
-		t.Errorf("result = %v, want %q", result, path)
+	blob, ok := result.(provider.Blob)
+	if !ok {
+		t.Fatalf("result type = %T, want provider.Blob", result)
+	}
+	if blob.SourcePath != dest {
+		t.Errorf("result.SourcePath = %q, want %q", blob.SourcePath, dest)
 	}
 	if undo == nil {
-		t.Fatal("undo is nil")
+		t.Fatal("undo is nil, want non-nil")
 	}
 
-	got, err := os.ReadFile(path)
+	got, err := os.ReadFile(dest)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	if string(got) != "copy content" {
-		t.Errorf("content = %q, want %q", got, "copy content")
+	if string(got) != "copy me" {
+		t.Errorf("file content = %q, want %q", got, "copy me")
 	}
 }
 
-func TestCopyAction_Undo_NewFile(t *testing.T) {
+func TestCopyAction_Undo(t *testing.T) {
 	tmp := t.TempDir()
-	path := filepath.Join(tmp, "action-copy-undo.txt")
+	source := filepath.Join(tmp, "copy-undo-src.txt")
+	if err := os.WriteFile(source, []byte("undo copy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(tmp, "copy-undo-dst.txt")
 
 	action := &filegen.Copy{Impl: &provider.Provider{}}
 	ctx := newCtx(t)
 	slots := map[string]any{
-		"path":    path,
-		"mode":    os.FileMode(0o644),
-		"content": []byte("to undo"),
+		"destination": dest,
+		"source":      source,
+		"mode":        os.FileMode(0o644),
 	}
 
 	_, undo, err := action.Do(ctx, slots)
@@ -320,7 +348,7 @@ func TestCopyAction_Undo_NewFile(t *testing.T) {
 		t.Fatalf("Undo() error = %v", err)
 	}
 
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
 		t.Error("file still exists after Undo")
 	}
 }
@@ -329,16 +357,20 @@ func TestCopyAction_DryRun(t *testing.T) {
 	action := &filegen.Copy{Impl: &provider.Provider{}}
 	ctx := dryRunCtx(t)
 	slots := map[string]any{
-		"path": "/tmp/dryrun.txt",
-		"mode": os.FileMode(0o644),
+		"destination": "/tmp/copy-dst.txt",
+		"source":      "/tmp/copy-src.txt",
+		"mode":        os.FileMode(0o644),
 	}
 
-	result, _, err := action.Do(ctx, slots)
+	result, undo, err := action.Do(ctx, slots)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
 	if result != nil {
 		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
 	output := ctx.Writer.(*bytes.Buffer).String()
@@ -871,6 +903,330 @@ func TestReadAction_DryRun(t *testing.T) {
 	output := ctx.Writer.(*bytes.Buffer).String()
 	if !strings.Contains(output, "[dry-run] file.read") {
 		t.Errorf("dry-run output = %q, want to contain [dry-run] file.read", output)
+	}
+}
+
+// ── Exists ───────────────────────────────────────────────────────────────────────
+
+func TestExistsAction_Do(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "action-exists.txt")
+	if err := os.WriteFile(path, []byte("exists"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	action := &filegen.Exists{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path": path,
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if undo != nil {
+		t.Errorf("undo = %v, want nil (Exists is not compensable)", undo)
+	}
+	if result != true {
+		t.Errorf("result = %v, want true", result)
+	}
+}
+
+func TestExistsAction_DoMissing(t *testing.T) {
+	action := &filegen.Exists{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path": "/nonexistent/file.txt",
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != false {
+		t.Errorf("result = %v, want false for non-existent file", result)
+	}
+}
+
+func TestExistsAction_DryRun(t *testing.T) {
+	action := &filegen.Exists{Impl: &provider.Provider{}}
+	ctx := dryRunCtx(t)
+	slots := map[string]any{
+		"path": "/tmp/dryrun-exists.txt",
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.exists") {
+		t.Errorf("dry-run output = %q, want to contain [dry-run] file.exists", output)
+	}
+}
+
+// ── IsDir ────────────────────────────────────────────────────────────────────────
+
+func TestIsDirAction_Do(t *testing.T) {
+	tmp := t.TempDir()
+
+	action := &filegen.IsDir{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path": tmp,
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if undo != nil {
+		t.Errorf("undo = %v, want nil (IsDir is not compensable)", undo)
+	}
+	if result != true {
+		t.Errorf("result = %v, want true for directory", result)
+	}
+}
+
+func TestIsDirAction_DoFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "file.txt")
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	action := &filegen.IsDir{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path": path,
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != false {
+		t.Errorf("result = %v, want false for regular file", result)
+	}
+}
+
+func TestIsDirAction_DryRun(t *testing.T) {
+	action := &filegen.IsDir{Impl: &provider.Provider{}}
+	ctx := dryRunCtx(t)
+	slots := map[string]any{
+		"path": "/tmp",
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.is_dir") {
+		t.Errorf("dry-run output = %q, want to contain [dry-run] file.is_dir", output)
+	}
+}
+
+// ── IsFile ───────────────────────────────────────────────────────────────────────
+
+func TestIsFileAction_Do(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "regular.txt")
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	action := &filegen.IsFile{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path": path,
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if undo != nil {
+		t.Errorf("undo = %v, want nil (IsFile is not compensable)", undo)
+	}
+	if result != true {
+		t.Errorf("result = %v, want true for regular file", result)
+	}
+}
+
+func TestIsFileAction_DoDir(t *testing.T) {
+	tmp := t.TempDir()
+
+	action := &filegen.IsFile{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path": tmp,
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != false {
+		t.Errorf("result = %v, want false for directory", result)
+	}
+}
+
+func TestIsFileAction_DryRun(t *testing.T) {
+	action := &filegen.IsFile{Impl: &provider.Provider{}}
+	ctx := dryRunCtx(t)
+	slots := map[string]any{
+		"path": "/tmp/dryrun-isfile.txt",
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.is_file") {
+		t.Errorf("dry-run output = %q, want to contain [dry-run] file.is_file", output)
+	}
+}
+
+// ── Join ─────────────────────────────────────────────────────────────────────────
+
+func TestJoinAction_Do(t *testing.T) {
+	action := &filegen.Join{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"parts": []string{"a", "b", "c"},
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if undo != nil {
+		t.Errorf("undo = %v, want nil (Join is not compensable)", undo)
+	}
+
+	want := filepath.Join("a", "b", "c")
+	if result != want {
+		t.Errorf("result = %v, want %q", result, want)
+	}
+}
+
+func TestJoinAction_DryRun(t *testing.T) {
+	action := &filegen.Join{Impl: &provider.Provider{}}
+	ctx := dryRunCtx(t)
+	slots := map[string]any{
+		"parts": []string{"a", "b"},
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.join") {
+		t.Errorf("dry-run output = %q, want to contain [dry-run] file.join", output)
+	}
+}
+
+// ── Name ─────────────────────────────────────────────────────────────────────────
+
+func TestNameAction_Do(t *testing.T) {
+	action := &filegen.NameAction{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path": "/foo/bar/baz.txt",
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if undo != nil {
+		t.Errorf("undo = %v, want nil (Name is not compensable)", undo)
+	}
+	if result != "baz.txt" {
+		t.Errorf("result = %v, want %q", result, "baz.txt")
+	}
+}
+
+func TestNameAction_DryRun(t *testing.T) {
+	action := &filegen.NameAction{Impl: &provider.Provider{}}
+	ctx := dryRunCtx(t)
+	slots := map[string]any{
+		"path": "/foo/bar.txt",
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.name") {
+		t.Errorf("dry-run output = %q, want to contain [dry-run] file.name", output)
+	}
+}
+
+// ── Parent ───────────────────────────────────────────────────────────────────────
+
+func TestParentAction_Do(t *testing.T) {
+	action := &filegen.Parent{Impl: &provider.Provider{}}
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path": "/foo/bar/baz.txt",
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if undo != nil {
+		t.Errorf("undo = %v, want nil (Parent is not compensable)", undo)
+	}
+	if result != "/foo/bar" {
+		t.Errorf("result = %v, want %q", result, "/foo/bar")
+	}
+}
+
+func TestParentAction_DryRun(t *testing.T) {
+	action := &filegen.Parent{Impl: &provider.Provider{}}
+	ctx := dryRunCtx(t)
+	slots := map[string]any{
+		"path": "/foo/bar.txt",
+	}
+
+	result, _, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.parent") {
+		t.Errorf("dry-run output = %q, want to contain [dry-run] file.parent", output)
 	}
 }
 

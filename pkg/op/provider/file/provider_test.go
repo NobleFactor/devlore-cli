@@ -228,21 +228,16 @@ func TestCompensateLink_ExistedBeforeTrue_NoPreviousTarget_RemovesSymlink(t *tes
 func TestCopy_WritesNewFile(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
-	content := []byte("hello world")
+	blob := testBlob(t, []byte("hello world"))
 
 	p := Provider{}
-	result, state, err := p.Copy(path, 0o600, content)
+	result, _, err := p.Copy(blob, path, 0o600)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
 
-	if result != path {
-		t.Errorf("result = %q, want %q", result, path)
-	}
-
-	s := op.AsStateMap(state)
-	if op.StateBool(s, "existed_before") {
-		t.Error("existed_before = true, want false")
+	if result.SourcePath != path {
+		t.Errorf("result.SourcePath = %q, want %q", result.SourcePath, path)
 	}
 
 	got, err := os.ReadFile(path)
@@ -269,21 +264,11 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := Provider{}
-	_, state, err := p.Copy(path, 0o644, []byte("replaced"))
+	p := Provider{Root: tmp}
+	blob := testBlob(t, []byte("replaced"))
+	_, _, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
-	}
-
-	s := op.AsStateMap(state)
-	if !op.StateBool(s, "existed_before") {
-		t.Error("existed_before = false, want true")
-	}
-	if prev := op.StateBytes(s, "previous_content"); string(prev) != "original" {
-		t.Errorf("previous_content = %q, want %q", prev, "original")
-	}
-	if prevMode := op.StateFileMode(s, "previous_mode"); prevMode != 0o755 {
-		t.Errorf("previous_mode = %o, want %o", prevMode, 0o755)
 	}
 
 	got, err := os.ReadFile(path)
@@ -300,7 +285,8 @@ func TestCopy_DefaultModeWhenZero(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	p := Provider{}
-	_, _, err := p.Copy(path, 0, []byte("content"))
+	blob := testBlob(t, []byte("content"))
+	_, _, err := p.Copy(blob, path, 0)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -316,23 +302,34 @@ func TestCopy_DefaultModeWhenZero(t *testing.T) {
 
 // --- CompensateCopy ---
 
-func TestCompensateCopy_NilState(t *testing.T) {
+func TestCompensateCopy_NilState_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("CompensateCopy(nil) did not panic — nil undo state is a bug")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("panic value is %T, want string", r)
+		}
+		if !strings.Contains(msg, "BUG") {
+			t.Errorf("panic message = %q, want to contain 'BUG'", msg)
+		}
+	}()
 	p := Provider{}
-	if err := p.CompensateCopy(nil); err != nil {
-		t.Errorf("CompensateCopy(nil) = %v, want nil", err)
-	}
+	_ = p.CompensateCopy(nil)
 }
 
-func TestCompensateCopy_ExistedBeforeFalse_RemovesFile(t *testing.T) {
+func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
 	if err := os.WriteFile(path, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
+	// Tombstone with no RecoveryPath — file didn't exist before Copy created it.
 	state := map[string]any{
-		"path":           path,
-		"existed_before": false,
+		"tombstone": Tombstone{OriginalPath: path},
 	}
 
 	p := Provider{}
@@ -344,20 +341,29 @@ func TestCompensateCopy_ExistedBeforeFalse_RemovesFile(t *testing.T) {
 	}
 }
 
-func TestCompensateCopy_ExistedBeforeTrue_RestoresContent(t *testing.T) {
+func TestCompensateCopy_Overwrite_RestoresFromRecovery(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
+	recoveryPath := filepath.Join(tmp, "recovery", "output.txt")
 
-	// File does not exist on disk — simulates that the forward Copy
-	// created it and we are now compensating (the forward Copy already
-	// removed the old file and wrote the new one; compensation restores
-	// the original content by writing a fresh file).
+	// Create the "new" file at destination (simulates forward Copy wrote it).
+	if err := os.WriteFile(path, []byte("replaced content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a recovery file with original content (simulates prepareWrite moved it).
+	if err := os.MkdirAll(filepath.Dir(recoveryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(recoveryPath, []byte("original content"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	state := map[string]any{
-		"path":             path,
-		"existed_before":   true,
-		"previous_content": []byte("original content"),
-		"previous_mode":    os.FileMode(0o755),
+		"tombstone": Tombstone{
+			OriginalPath: path,
+			RecoveryPath: recoveryPath,
+		},
 	}
 
 	p := Provider{}
@@ -370,15 +376,7 @@ func TestCompensateCopy_ExistedBeforeTrue_RestoresContent(t *testing.T) {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 	if string(got) != "original content" {
-		t.Errorf("file content = %q, want %q", got, "original content")
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o755 {
-		t.Errorf("file mode = %o, want %o", info.Mode().Perm(), 0o755)
+		t.Errorf("restored content = %q, want %q", got, "original content")
 	}
 }
 
@@ -644,8 +642,8 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
-	if result != path {
-		t.Errorf("result = %q, want %q", result, path)
+	if result.SourcePath != path {
+		t.Errorf("result.SourcePath = %q, want %q", result.SourcePath, path)
 	}
 
 	if state == nil {
@@ -670,8 +668,8 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
-	if result != path {
-		t.Errorf("result = %q, want %q", result, path)
+	if result.SourcePath != path {
+		t.Errorf("result.SourcePath = %q, want %q", result.SourcePath, path)
 	}
 
 	if state == nil {
@@ -903,8 +901,8 @@ func TestWriteText_CreatesParentDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
-	if result != path {
-		t.Errorf("result = %q, want %q", result, path)
+	if result.SourcePath != path {
+		t.Errorf("result.SourcePath = %q, want %q", result.SourcePath, path)
 	}
 
 	got, err := os.ReadFile(path)
@@ -976,7 +974,7 @@ func TestExists_FileExists(t *testing.T) {
 	}
 
 	p := Provider{}
-	if !p.Exists(path) {
+	if !p.Exists(Blob{SourcePath: path}) {
 		t.Error("Exists() = false, want true for existing file")
 	}
 }
@@ -986,7 +984,7 @@ func TestExists_FileDoesNotExist(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent.txt")
 
 	p := Provider{}
-	if p.Exists(path) {
+	if p.Exists(Blob{SourcePath: path}) {
 		t.Error("Exists() = true, want false for non-existent file")
 	}
 }
@@ -1003,7 +1001,7 @@ func TestExists_Symlink(t *testing.T) {
 	}
 
 	p := Provider{}
-	if !p.Exists(link) {
+	if !p.Exists(Blob{SourcePath: link}) {
 		t.Error("Exists() = false, want true for symlink")
 	}
 }
@@ -1012,7 +1010,7 @@ func TestExists_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := Provider{}
-	if !p.Exists(tmp) {
+	if !p.Exists(Blob{SourcePath: tmp}) {
 		t.Error("Exists() = false, want true for existing directory")
 	}
 }
@@ -1245,11 +1243,17 @@ func TestRead_ReturnsBlob(t *testing.T) {
 	}
 }
 
-func TestRead_NonExistent_ReturnsError(t *testing.T) {
+func TestRead_NonExistent_ReturnsBlobThatDoesNotExist(t *testing.T) {
 	p := Provider{}
-	_, err := p.Read("/nonexistent/file.txt")
-	if err == nil {
-		t.Fatal("Read() on non-existent file should return error")
+	blob, err := p.Read("/nonexistent/file.txt")
+	if err != nil {
+		t.Fatalf("Read() error = %v, want nil for non-existent file", err)
+	}
+	if blob.Exists() {
+		t.Error("blob.Exists() = true, want false for non-existent file")
+	}
+	if blob.SourcePath != "/nonexistent/file.txt" {
+		t.Errorf("blob.SourcePath = %q, want %q", blob.SourcePath, "/nonexistent/file.txt")
 	}
 }
 
@@ -1390,7 +1394,8 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "new.txt")
 
 	p := Provider{}
-	_, state, err := p.Copy(path, 0o644, []byte("new content"))
+	blob := testBlob(t, []byte("new content"))
+	_, state, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -1406,15 +1411,15 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 }
 
 func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
-	t.Skip("blocked: CompensateCopy does not restore file mode on existing files (#166)")
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "existing.txt")
 	if err := os.WriteFile(path, []byte("original"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	p := Provider{}
-	_, state, err := p.Copy(path, 0o644, []byte("replaced"))
+	p := Provider{Root: tmp}
+	blob := testBlob(t, []byte("replaced"))
+	_, state, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -1438,6 +1443,27 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 	if info.Mode().Perm() != 0o755 {
 		t.Errorf("restored mode = %o, want %o", info.Mode().Perm(), 0o755)
 	}
+}
+
+// --- Test Helpers ---
+
+// testBlob creates a Blob backed by a temp file with the given content.
+func testBlob(t *testing.T, content []byte) Blob {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "blob-*")
+	if err != nil {
+		t.Fatalf("creating temp blob: %v", err)
+	}
+	if _, err := f.Write(content); err != nil {
+		f.Close()
+		t.Fatalf("writing temp blob: %v", err)
+	}
+	f.Close()
+	blob, err := NewBlob(f.Name())
+	if err != nil {
+		t.Fatalf("NewBlob: %v", err)
+	}
+	return blob
 }
 
 // --- Helpers ---

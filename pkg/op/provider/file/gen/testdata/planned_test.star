@@ -16,10 +16,6 @@ result_write_text_type = type(wt_output) == "Output"
 wb_output = file.write_bytes(destination="/tmp/planned.bin", content="binary", mode=0o600)
 result_write_bytes_type = type(wb_output) == "Output"
 
-# copy — creates a node with path/mode slots
-copy_output = file.copy(path="/tmp/copied.txt", mode=0o644)
-result_copy_type = type(copy_output) == "Output"
-
 # link — creates a node with source/path slots
 link_output = file.link(source="/tmp/source.txt", path="/tmp/link.txt")
 result_link_type = type(link_output) == "Output"
@@ -44,6 +40,10 @@ result_remove_all_type = type(remove_all_output) == "Output"
 unlink_output = file.unlink(path="/tmp/to-unlink.txt", prune=False, prune_boundary="")
 result_unlink_type = type(unlink_output) == "Output"
 
+# copy — creates a node with destination/source/mode slots
+copy_output = file.copy(destination="/tmp/copy-target.txt", source="/tmp/source.txt", mode=0o644)
+result_copy_type = type(copy_output) == "Output"
+
 # ── Non-compensable actions ─────────────────────────────────────────────────────
 
 # mkdir — creates a node with path/mode slots
@@ -57,6 +57,26 @@ result_glob_type = type(glob_output) == "Output"
 # read — creates a node with path slot
 read_output = file.read(path="/tmp/read-target.txt")
 result_read_type = type(read_output) == "Output"
+
+# exists — creates a node with path slot
+exists_output = file.exists(path="/tmp/exists-check.txt")
+result_exists_type = type(exists_output) == "Output"
+
+# is_dir — creates a node with path slot
+is_dir_output = file.is_dir(path="/tmp")
+result_is_dir_type = type(is_dir_output) == "Output"
+
+# is_file — creates a node with path slot
+is_file_output = file.is_file(path="/tmp/check.txt")
+result_is_file_type = type(is_file_output) == "Output"
+
+# name — creates a node with path slot
+name_output = file.name(path="/tmp/foo/bar.txt")
+result_name_type = type(name_output) == "Output"
+
+# parent — creates a node with path slot
+parent_output = file.parent(path="/tmp/foo/bar.txt")
+result_parent_type = type(parent_output) == "Output"
 
 # ── Promise chaining (edge creation) ───────────────────────────────────────────
 

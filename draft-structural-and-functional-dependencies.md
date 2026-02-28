@@ -1,4 +1,4 @@
-Tell me about a phase in this system. Do you recall what that is?
+can wethoseTell me about a phase in this system. Do you recall what that is?
 Gemini said
 I certainly do. In your architecture, the lifecycle of a node's deployment isn't just a single "run" command; it’s a structured sequence of four distinct phases within the execution subgraph.
 

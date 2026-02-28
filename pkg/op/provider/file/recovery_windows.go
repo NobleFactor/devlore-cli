@@ -3,37 +3,36 @@
 package file
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// getRecoveryBase uses the Volume Name (Drive Letter) to anchor the recovery site.
-func (p *Provider) getRecoveryBase(absPath string) string {
+// getRecoveryBase finds a same-volume directory for zero-copy recovery via Rename.
+//
+// Parameters:
+//   - absolutePath: Absolute path of the file to recover
+//
+// Returns:
+//   - string: The recovery base path
+//   - error: Error if any occurred during recovery base calculation
+func (p *Provider) getRecoveryBase(absolutePath string) (string, error) {
+
 	const folderName = ".devlore_recovery"
 
-	vol := filepath.VolumeName(absPath)
+	vol := filepath.VolumeName(absolutePath)
+	if vol == "" {
+		return "", fmt.Errorf("unable to determine volume for %q", absolutePath)
+	}
 
-	// If it's a standard drive letter (e.g., "C:"), ensure we have a backslash.
-	// If it's a UNC path (e.g., "\\server\share"), VolumeName handles it.
-	base := vol + string(filepath.Separator)
-
-	// Check if we can use a more "hidden" user-level path on the same drive.
 	if cacheDir, err := os.UserCacheDir(); err == nil {
 		if strings.HasPrefix(strings.ToUpper(cacheDir), strings.ToUpper(vol)) {
-			return filepath.Join(cacheDir, "devlore", "recovery")
+			return filepath.Join(cacheDir, "devlore", "recovery"), nil
 		}
 	}
 
-	return filepath.Join(base, folderName)
-}
-
-// isSameDevice on Windows simply checks if the Volume/Drive is identical.
-func isSameDevice(path1, path2 string) bool {
-	v1 := filepath.VolumeName(path1)
-	v2 := filepath.VolumeName(path2)
-	if v1 == "" || v2 == "" {
-		return false
-	}
-	return strings.EqualFold(v1, v2)
+	// Fall back to volume root
+	base := vol + string(filepath.Separator)
+	return filepath.Join(base, folderName), nil
 }

@@ -48,7 +48,7 @@ GEN_TEMPLATE_FILES = {
     "planned_receiver": "gen/planned.gen.go",
     "graph_actions": "gen/actions.gen.go",
     "immediate_receiver": "gen/immediate.gen.go",
-    "struct_converter": "gen/convert.gen.go",
+    "params": "gen/params.gen.go",
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
@@ -56,7 +56,7 @@ LOCAL_TEMPLATES = {
     "planned_receiver": "planned_receiver.go.template",
     "graph_actions": "graph_actions.go.template",
     "immediate_receiver": "immediate_receiver.go.template",
-    "struct_converter": "struct_converter.go.template",
+    "params": "params.go.template",
 }
 
 # Known BindingConfig fields and their zero values.
@@ -1076,6 +1076,8 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     if provider_cross_imports:
         provider_desc["cross_package_imports"] = provider_cross_imports
 
+    gen_file(ctx, "params", provider_desc, "gen/params.gen.go",
+             struct_short, len(provider_method_descs), output_dir, write_files)
     gen_file(ctx, "immediate_receiver", provider_desc, "gen/immediate.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
 
@@ -1135,31 +1137,8 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
                  type_short, len(descs), output_dir, write_files)
         generated_count += 1
 
-    # -------------------------------------------------------------------------
-    # Generate: Struct converters (gen/convert.gen.go)
-    # -------------------------------------------------------------------------
-    if all_data_structs:
-        pointer_types = collect_pointer_types(all_data_structs, structs_by_name, dependent_descriptors, provider_method_descs)
-        converters = []
-        for struct_name_key in sorted(all_data_structs.keys()):
-            conv = build_converter(struct_name_key, structs_by_name, pointer_types)
-            if conv:
-                converters.append(conv)
-
-        if converters:
-            # Collect cross-package imports from converter fields
-            conv_cross_imports = collect_cross_pkg_imports(provider_import, converters, [])
-            converter_desc = {
-                "package": pkg,
-                "provider": provider,
-                "provider_import": provider_import,
-                "converters": converters,
-            }
-            if conv_cross_imports:
-                converter_desc["cross_package_imports"] = conv_cross_imports
-            gen_file(ctx, "struct_converter", converter_desc, "gen/convert.gen.go",
-                     "converters", len(converters), output_dir, write_files)
-            generated_count += 1
+    # Struct converters are no longer generated — op.Marshal handles all
+    # struct-to-Starlark conversion via reflection.
 
     ui.success("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
 

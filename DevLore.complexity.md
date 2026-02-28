@@ -23,11 +23,10 @@ Generated: 2026-01-29 | Updated: 2026-02-17
 
 **Source/Test Ratio:** 4.0:1 (26,101 source : 6,534 test)
 
-### Internal Packages (13)
+### Internal Packages (12)
 
 | Package | Description |
 |---------|-------------|
-| `bindgen` | Starlark binding generation |
 | `cli` | Terminal UI, colors, prompts |
 | `credentials` | Credential management |
 | `execution` | Execution graph, actions, phases, recovery |

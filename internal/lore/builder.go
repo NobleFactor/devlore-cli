@@ -155,8 +155,7 @@ func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegi
 
 	reg := p.ActionRegistry
 	if reg == nil {
-		reg = op.NewActionRegistry()
-		loreStar.NewBindingSet(op.BindingConfig{}).RegisterActions(reg)
+		reg = loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
 	}
 
 	regClient := p.RegistryClient
@@ -195,7 +194,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		DryRun:         cfg.DryRun,
 	}
 
-	graph := &op.Graph{}
+	graph := op.NewGraph("lore")
 
 	var packages []string
 	var err error

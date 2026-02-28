@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
-	"time"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
@@ -17,8 +16,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
-// CurrentVersion is the graph format version.
-const CurrentVersion = "6"
+// CurrentVersion is the graph format version (delegates to op.GraphFormatVersion).
+const CurrentVersion = op.GraphFormatVersion
 
 // GraphBuilder is the interface for all graph builders.
 type GraphBuilder interface {
@@ -27,23 +26,14 @@ type GraphBuilder interface {
 
 // NewGraph creates a op.Graph with common fields populated for writ.
 func NewGraph(cfg *Config) *op.Graph {
-	return &op.Graph{
-		Version:   CurrentVersion,
-		Tool:      cfg.Tool,
-		Timestamp: time.Now(),
-		State:     op.StatePending,
-		Platform: op.Platform{
-			OS:   runtime.GOOS,
-			Arch: runtime.GOARCH,
-		},
-		Context: op.GraphContext{
-			SourceRoot: cfg.SourceRoot,
-			TargetRoot: cfg.TargetRoot,
-			Projects:   cfg.Projects,
-			Segments:   cfg.SegmentMap(),
-		},
-		Nodes: make([]*op.Node, 0),
+	g := op.NewGraph(cfg.Tool)
+	g.Context = op.GraphContext{
+		SourceRoot: cfg.SourceRoot,
+		TargetRoot: cfg.TargetRoot,
+		Projects:   cfg.Projects,
+		Segments:   cfg.SegmentMap(),
 	}
+	return g
 }
 
 // BuildTree walks the source directories and populates the graph with file nodes.

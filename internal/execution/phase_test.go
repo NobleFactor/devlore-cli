@@ -18,6 +18,18 @@ import (
 	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
+// testNode creates a node with the given action and source/path slots for testing.
+func testNode(id string, action op.Action, source, path string) *op.Node {
+	node := &op.Node{ID: id, Action: action}
+	if source != "" {
+		node.SetSlotImmediate("source", source)
+	}
+	if path != "" {
+		node.SetSlotImmediate("path", path)
+	}
+	return node
+}
+
 // TestRetryPolicyComputeDelay tests backoff delay computation.
 func TestRetryPolicyComputeDelay(t *testing.T) {
 	t.Run("none backoff", func(t *testing.T) {
