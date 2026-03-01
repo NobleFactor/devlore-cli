@@ -228,10 +228,10 @@ func TestCompensateLink_ExistedBeforeTrue_NoPreviousTarget_RemovesSymlink(t *tes
 func TestCopy_WritesNewFile(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
-	blob := testBlob(t, []byte("hello world"))
+	fileResource := testFileResource(t, []byte("hello world"))
 
 	p := Provider{}
-	result, _, err := p.Copy(blob, path, 0o600)
+	result, _, err := p.Copy(fileResource, path, 0o600)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -265,7 +265,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 	}
 
 	p := Provider{Root: tmp}
-	blob := testBlob(t, []byte("replaced"))
+	blob := testFileResource(t, []byte("replaced"))
 	_, _, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
@@ -285,7 +285,7 @@ func TestCopy_DefaultModeWhenZero(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	p := Provider{}
-	blob := testBlob(t, []byte("content"))
+	blob := testFileResource(t, []byte("content"))
 	_, _, err := p.Copy(blob, path, 0)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
@@ -974,7 +974,7 @@ func TestExists_FileExists(t *testing.T) {
 	}
 
 	p := Provider{}
-	if !p.Exists(Blob{SourcePath: path}) {
+	if !p.Exists(Resource{SourcePath: path}) {
 		t.Error("Exists() = false, want true for existing file")
 	}
 }
@@ -984,7 +984,7 @@ func TestExists_FileDoesNotExist(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent.txt")
 
 	p := Provider{}
-	if p.Exists(Blob{SourcePath: path}) {
+	if p.Exists(Resource{SourcePath: path}) {
 		t.Error("Exists() = true, want false for non-existent file")
 	}
 }
@@ -1001,7 +1001,7 @@ func TestExists_Symlink(t *testing.T) {
 	}
 
 	p := Provider{}
-	if !p.Exists(Blob{SourcePath: link}) {
+	if !p.Exists(Resource{SourcePath: link}) {
 		t.Error("Exists() = false, want true for symlink")
 	}
 }
@@ -1010,7 +1010,7 @@ func TestExists_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := Provider{}
-	if !p.Exists(Blob{SourcePath: tmp}) {
+	if !p.Exists(Resource{SourcePath: tmp}) {
 		t.Error("Exists() = false, want true for existing directory")
 	}
 }
@@ -1394,7 +1394,7 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "new.txt")
 
 	p := Provider{}
-	blob := testBlob(t, []byte("new content"))
+	blob := testFileResource(t, []byte("new content"))
 	_, state, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
@@ -1418,7 +1418,7 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 	}
 
 	p := Provider{Root: tmp}
-	blob := testBlob(t, []byte("replaced"))
+	blob := testFileResource(t, []byte("replaced"))
 	_, state, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
@@ -1447,23 +1447,23 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 
 // --- Test Helpers ---
 
-// testBlob creates a Blob backed by a temp file with the given content.
-func testBlob(t *testing.T, content []byte) Blob {
+// testFileResource creates a Resource backed by a temp file with the given content.
+func testFileResource(t *testing.T, content []byte) Resource {
 	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "blob-*")
+	f, err := os.CreateTemp(t.TempDir(), "file-*")
 	if err != nil {
-		t.Fatalf("creating temp blob: %v", err)
+		t.Fatalf("creating temp file: %v", err)
 	}
 	if _, err := f.Write(content); err != nil {
 		f.Close()
-		t.Fatalf("writing temp blob: %v", err)
+		t.Fatalf("writing temp file: %v", err)
 	}
 	f.Close()
-	blob, err := NewBlob(f.Name())
+	fileResource, err := NewResource(f.Name())
 	if err != nil {
-		t.Fatalf("NewBlob: %v", err)
+		t.Fatalf("NewResource: %v", err)
 	}
-	return blob
+	return fileResource
 }
 
 // --- Helpers ---

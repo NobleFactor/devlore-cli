@@ -146,7 +146,12 @@ func buildMethodBridge(
 		}
 
 		// 3. Call the Go method.
-		results := method.Func.Call(goArgs)
+		var results []reflect.Value
+		if methodType.IsVariadic() {
+			results = method.Func.CallSlice(goArgs)
+		} else {
+			results = method.Func.Call(goArgs)
+		}
 
 		// 4. Classify and marshal return values.
 		return classifyReturn(results)
@@ -185,4 +190,3 @@ func classifyReturn(results []reflect.Value) (starlark.Value, error) {
 	// Additional returns (compensation state) are discarded in immediate mode.
 	return marshalReflect(results[0])
 }
-

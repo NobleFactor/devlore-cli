@@ -19,26 +19,26 @@ import (
 // +devlore:access=both
 type Provider struct{}
 
-// DecryptSopsFile takes a file.Blob, reads it into memory, and decrypts it via SOPS.
+// DecryptSopsFile takes a file.Resource, reads it into memory, and decrypts it via SOPS.
 //
 // Parameters:
 //
-//	sourceFile: The file.Blob to decrypt.
+//	sourceFile: The file.Resource to decrypt.
 //	destinationFilename: The filename to write the decrypted content to.
 //
 // Returns:
 //
-//   - result: a file.Blob containing the decrypted content.
+//   - result: a file.Resource containing the decrypted content.
 //   - undo: a map of compensation receipts.
 //   - err: an error, if any.
-func (p *Provider) DecryptSopsFile(sourceFile file.Blob, destinationFilename string) (result file.Blob, undo map[string]any, err error) {
+func (p *Provider) DecryptSopsFile(sourceFile file.Resource, destinationFilename string) (result file.Resource, undo map[string]any, err error) {
 
 	// 1. Read the source file into memory
 
 	buffer := bytes.NewBuffer(make([]byte, 0, sourceFile.Size))
 
 	if _, err := sourceFile.WriteTo(buffer); err != nil {
-		return file.Blob{}, nil, fmt.Errorf("failed to read source: %w", err)
+		return file.Resource{}, nil, fmt.Errorf("failed to read source: %w", err)
 	}
 
 	// 2. Decrypt the file
@@ -46,21 +46,21 @@ func (p *Provider) DecryptSopsFile(sourceFile file.Blob, destinationFilename str
 	cleartext, err := decrypt.Data(buffer.Bytes(), "yaml")
 
 	if err != nil {
-		return file.Blob{}, nil, fmt.Errorf("sops decryption failed: %w", err)
+		return file.Resource{}, nil, fmt.Errorf("sops decryption failed: %w", err)
 	}
 
 	// 3. Write cleartext to the destination path
 
 	if err := os.WriteFile(destinationFilename, cleartext, 0600); err != nil {
-		return file.Blob{}, nil, fmt.Errorf("failed to write destination: %w", err)
+		return file.Resource{}, nil, fmt.Errorf("failed to write destination: %w", err)
 	}
 
-	// 4. Wrap the new file in a Blob
+	// 4. Wrap the new file in a Resource
 
-	result, err = file.NewBlob(destinationFilename)
+	result, err = file.NewResource(destinationFilename)
 
 	if err != nil {
-		return file.Blob{}, nil, fmt.Errorf("failed to initialize destination blob: %w", err)
+		return file.Resource{}, nil, fmt.Errorf("failed to initialize destination: %w", err)
 	}
 
 	// 5. Parse Metadata (Optional/Context Dependent)
@@ -72,4 +72,8 @@ func (p *Provider) DecryptSopsFile(sourceFile file.Blob, destinationFilename str
 	}
 
 	return result, data, nil
+}
+
+func (p *Provider) CompensateDecryptSopsFile(undo map[string]any) error {
+	panic("not implemented: encryption.CompensateDecryptSopsFile")
 }

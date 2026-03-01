@@ -24,44 +24,7 @@ func init() {
 	})
 }
 
-// StarcomplexityReceiver wraps a *Provider for Starlark consumption.
-type StarcomplexityReceiver struct {
-	op.Receiver
-	provider *provider.Provider
-}
-
-// NewStarcomplexityReceiver creates a new wrapper for the given Provider.
-func NewStarcomplexityReceiver(p *provider.Provider) *StarcomplexityReceiver {
-	return &StarcomplexityReceiver{
-		Receiver: op.NewReceiver("starcomplexity"),
-		provider: p,
-	}
-}
-
-// Attr returns the named attribute of the starcomplexity namespace.
-func (r *StarcomplexityReceiver) Attr(name string) (starlark.Value, error) {
-	switch name {
-	case "compute_complexity":
-		return op.MakeAttr("starcomplexity.compute_complexity", r.compute_complexity), nil
-	default:
-		return nil, op.NoSuchAttrError("starcomplexity", name)
-	}
-}
-
-// AttrNames returns the available attribute names for the starcomplexity namespace.
-func (r *StarcomplexityReceiver) AttrNames() []string {
-	return []string{"compute_complexity"}
-}
-
-// compute_complexity ComputeComplexity analyzes the given files for function complexity.
-func (r *StarcomplexityReceiver) compute_complexity(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var files *starlark.List
-	if err := starlark.UnpackArgs("compute_complexity", args, kwargs, "files", &files); err != nil {
-		return nil, err
-	}
-	result, err := r.provider.ComputeComplexity(op.ListToStringSlice(files))
-	if err != nil {
-		return nil, err
-	}
-	return ComplexityReportToStarlark(result), nil
+// NewStarcomplexityReceiver creates a wrapped starcomplexity provider for Starlark consumption.
+func NewStarcomplexityReceiver(p *provider.Provider) *op.ReflectedReceiver {
+	return op.WrapReceiver("starcomplexity", p, Params)
 }

@@ -24,48 +24,7 @@ func init() {
 	})
 }
 
-// StarindexReceiver wraps a *Provider for Starlark consumption.
-type StarindexReceiver struct {
-	op.Receiver
-	provider *provider.Provider
-}
-
-// NewStarindexReceiver creates a new wrapper for the given Provider.
-func NewStarindexReceiver(p *provider.Provider) *StarindexReceiver {
-	return &StarindexReceiver{
-		Receiver: op.NewReceiver("starindex"),
-		provider: p,
-	}
-}
-
-// Attr returns the named attribute of the starindex namespace.
-func (r *StarindexReceiver) Attr(name string) (starlark.Value, error) {
-	switch name {
-	case "index_files":
-		return op.MakeAttr("starindex.index_files", r.index_files), nil
-	default:
-		return nil, op.NoSuchAttrError("starindex", name)
-	}
-}
-
-// AttrNames returns the available attribute names for the starindex namespace.
-func (r *StarindexReceiver) AttrNames() []string {
-	return []string{"index_files"}
-}
-
-// index_files IndexFiles parses all files and extracts functions, loads, and globals.
-// If withDocstrings is true, function docstrings are extracted.
-// If withGlobals is true, top-level assignments are captured.
-func (r *StarindexReceiver) index_files(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var files *starlark.List
-	var withDocstrings bool
-	var withGlobals bool
-	if err := starlark.UnpackArgs("index_files", args, kwargs, "files", &files, "with_docstrings", &withDocstrings, "with_globals", &withGlobals); err != nil {
-		return nil, err
-	}
-	result, err := r.provider.IndexFiles(op.ListToStringSlice(files), withDocstrings, withGlobals)
-	if err != nil {
-		return nil, err
-	}
-	return IndexToStarlark(result), nil
+// NewStarindexReceiver creates a wrapped starindex provider for Starlark consumption.
+func NewStarindexReceiver(p *provider.Provider) *op.ReflectedReceiver {
+	return op.WrapReceiver("starindex", p, Params)
 }

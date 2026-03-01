@@ -36,7 +36,7 @@ result_index_first_file_path = idx.files[0].path
 result_index_first_file_fn_count = len(idx.files[0].functions)
 
 # --- analyze with hotspots ---
-report = sources.analyze(hotspots=True, cyclomatic_threshold=3, cognitive_threshold=3, with_index=True)
+report = sources.analyze(cfg={"hotspots": True, "cyclomatic_threshold": 3, "cognitive_threshold": 3, "with_index": True})
 
 result_report_has_stats = report.stats != None
 result_report_has_complexity = report.complexity != None
@@ -44,7 +44,7 @@ result_report_has_index = report.index != None
 result_hotspot_count = len(report.hotspots)
 
 # --- analyze without index ---
-report_no_idx = sources.analyze(hotspots=True, with_index=False)
+report_no_idx = sources.analyze(cfg={"hotspots": True, "with_index": False})
 result_report_no_idx_index_is_none = (report_no_idx.index == None)
 
 # --- index without docstrings ---

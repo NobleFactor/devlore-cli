@@ -3,21 +3,13 @@
 package {{.Package}}
 
 import (
-{{- if needsFmt .Methods}}
-	"fmt"
-{{- end}}
-{{- if or (needsImport .Methods "os.FileMode") (needsImport .Methods "os.DirEntry")}}
-	"os"
-{{- end}}
-
+{{- if .Registered}}
 	"go.starlark.net/starlark"
+{{- end}}
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 {{- if .ProviderImport}}
 	provider "{{.ProviderImport}}"
-{{- end}}
-{{- range .CrossPackageImports}}
-	{{.Alias}} "{{.Path}}"
 {{- end}}
 )
 {{if .Registered}}
@@ -34,11 +26,7 @@ func init() {
 
 // New{{.StructName}}{{.WrapperSuffix}} creates a wrapped {{.Provider}} provider for Starlark consumption.
 func New{{.StructName}}{{.WrapperSuffix}}(p *{{providerTypePrefix .}}{{.ImplType}}) *op.ReflectedReceiver {
-	r := op.WrapReceiver("{{.Namespace}}", p, Params)
-{{- range .Methods}}{{if needsOverride .}}
-{{overrideClosure .}}
-{{- end}}{{end}}
-	return r
+	return op.WrapReceiver("{{.Namespace}}", p, Params)
 }
 {{else}}
 // {{.StructName}}Params maps Go method names to Starlark parameter name lists.
@@ -50,11 +38,6 @@ var {{.StructName}}Params = op.MethodParams{
 
 // New{{.StructName}}{{.WrapperSuffix}} creates a new wrapper for the given {{.ImplType}}.
 func New{{.StructName}}{{.WrapperSuffix}}(p *{{providerTypePrefix .}}{{.ImplType}}) *op.ReflectedReceiver {
-	r := op.WrapReceiver("{{.Namespace}}", p, {{.StructName}}Params)
-{{- range .Methods}}{{if needsOverride .}}
-{{overrideClosure .}}
-{{- end}}{{end}}
-	return r
+	return op.WrapReceiver("{{.Namespace}}", p, {{.StructName}}Params)
 }
 {{end}}
-{{handleTypes .Methods}}

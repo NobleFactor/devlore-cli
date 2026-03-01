@@ -7,7 +7,7 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 // Params maps Go method names to Starlark parameter name lists.
 var Params = op.MethodParams{
 	"Backup":     {"path", "backup_suffix"},
-	"Copy":       {"source", "destination", "mode"},
+	"Copy":       {"source_file", "destination_filename", "destination_file_mode"},
 	"Link":       {"source", "path"},
 	"Move":       {"source", "destination"},
 	"Remove":     {"path", "prune", "prune_boundary"},
@@ -15,7 +15,7 @@ var Params = op.MethodParams{
 	"Unlink":     {"path", "prune", "prune_boundary"},
 	"WriteBytes": {"destination", "content", "mode"},
 	"WriteText":  {"destination", "content", "mode"},
-	"Exists":     {"path"},
+	"Exists":     {"blob"},
 	"Glob":       {"pattern", "honor_gitignore"},
 	"IsDir":      {"path"},
 	"IsFile":     {"path"},

@@ -24,50 +24,7 @@ func init() {
 	})
 }
 
-// StarcodeReceiver wraps a *Provider for Starlark consumption.
-type StarcodeReceiver struct {
-	op.Receiver
-	provider *provider.Provider
-}
-
-// NewStarcodeReceiver creates a new wrapper for the given Provider.
-func NewStarcodeReceiver(p *provider.Provider) *StarcodeReceiver {
-	return &StarcodeReceiver{
-		Receiver: op.NewReceiver("starcode"),
-		provider: p,
-	}
-}
-
-// Attr returns the named attribute of the starcode namespace.
-func (r *StarcodeReceiver) Attr(name string) (starlark.Value, error) {
-	switch name {
-	case "capture":
-		return op.MakeAttr("starcode.capture", r.capture), nil
-	default:
-		return nil, op.NoSuchAttrError("starcode", name)
-	}
-}
-
-// AttrNames returns the available attribute names for the starcode namespace.
-func (r *StarcodeReceiver) AttrNames() []string {
-	return []string{"capture"}
-}
-
-// capture Capture collects Starlark source files matching the given pattern.
-// If gitignore is true, files excluded by .gitignore rules are skipped.
-// If includeBzl is true, .bzl files are included alongside .star files.
-//
-// +devlore:defaults gitignore=true,includeBzl=true
-func (r *StarcodeReceiver) capture(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var pattern string
-	gitignore := true
-	includeBzl := true
-	if err := starlark.UnpackArgs("capture", args, kwargs, "pattern", &pattern, "gitignore?", &gitignore, "include_bzl?", &includeBzl); err != nil {
-		return nil, err
-	}
-	result, err := r.provider.Capture(pattern, gitignore, includeBzl)
-	if err != nil {
-		return nil, err
-	}
-	return NewSourcesValue(result), nil
+// NewStarcodeReceiver creates a wrapped starcode provider for Starlark consumption.
+func NewStarcodeReceiver(p *provider.Provider) *op.ReflectedReceiver {
+	return op.WrapReceiver("starcode", p, Params)
 }

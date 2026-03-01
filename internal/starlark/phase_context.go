@@ -12,13 +12,14 @@ import (
 )
 
 // PhaseContext provides phase metadata to lifecycle scripts.
+//
 // Passed as the second call argument: def install(package, phase):
 //
 // Starlark API:
 //
-//	phase.name         # Phase name (e.g., "install", "provision")
-//	phase.action       # Lifecycle action (e.g., "deploy", "remove")
-//	phase.retry(max_attempts=3, backoff="exponential")
+//	phase.name # Phase name (e.g., "install", "provision")
+//	phase.action # Lifecycle action (e.g., "deploy", "remove")
+//	phase.retry(max_attempts=3, backoff="exponential") # Configures retry policy
 type PhaseContext struct {
 	// PhaseName is the lifecycle phase (e.g., "install", "provision").
 	PhaseName string

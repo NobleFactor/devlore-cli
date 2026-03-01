@@ -24,48 +24,7 @@ func init() {
 	})
 }
 
-// StarstatsReceiver wraps a *Provider for Starlark consumption.
-type StarstatsReceiver struct {
-	op.Receiver
-	provider *provider.Provider
-}
-
-// NewStarstatsReceiver creates a new wrapper for the given Provider.
-func NewStarstatsReceiver(p *provider.Provider) *StarstatsReceiver {
-	return &StarstatsReceiver{
-		Receiver: op.NewReceiver("starstats"),
-		provider: p,
-	}
-}
-
-// Attr returns the named attribute of the starstats namespace.
-func (r *StarstatsReceiver) Attr(name string) (starlark.Value, error) {
-	switch name {
-	case "compute_stats":
-		return op.MakeAttr("starstats.compute_stats", r.compute_stats), nil
-	default:
-		return nil, op.NoSuchAttrError("starstats", name)
-	}
-}
-
-// AttrNames returns the available attribute names for the starstats namespace.
-func (r *StarstatsReceiver) AttrNames() []string {
-	return []string{"compute_stats"}
-}
-
-// compute_stats ComputeStats computes line and byte statistics for the given files.
-// If withBytes is true, byte counts are included.
-// If withLOC is true, line counts (LOC, SLOC, comments, blanks) are included.
-func (r *StarstatsReceiver) compute_stats(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var files *starlark.List
-	var withBytes bool
-	var withLOC bool
-	if err := starlark.UnpackArgs("compute_stats", args, kwargs, "files", &files, "with_bytes", &withBytes, "with_loc", &withLOC); err != nil {
-		return nil, err
-	}
-	result, err := r.provider.ComputeStats(op.ListToStringSlice(files), withBytes, withLOC)
-	if err != nil {
-		return nil, err
-	}
-	return StatsToStarlark(result), nil
+// NewStarstatsReceiver creates a wrapped starstats provider for Starlark consumption.
+func NewStarstatsReceiver(p *provider.Provider) *op.ReflectedReceiver {
+	return op.WrapReceiver("starstats", p, Params)
 }

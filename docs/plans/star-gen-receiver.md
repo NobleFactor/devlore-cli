@@ -561,19 +561,15 @@ pkg/op/provider/
 
     starindex/
         provider.go              ← types + IndexFiles()
-        gen/convert.gen.go       ← IndexToStarlark, IndexedFileToStarlark, ... (exported)
 
     starstats/
         provider.go              ← types + ComputeStats()
-        gen/convert.gen.go       ← StatsToStarlark, FileStatsToStarlark, ... (exported)
 
     starcomplexity/
         provider.go              ← types + ComputeComplexity()
-        gen/convert.gen.go       ← ComplexityReportToStarlark, ... (exported)
 
     staranalysis/
         provider.go              ← types + Analyze() (imports starindex, starstats, starcomplexity)
-        gen/convert.gen.go       ← AnalysisReportToStarlark, HotspotToStarlark (exported)
 ```
 
 #### Dependency Graph
@@ -607,7 +603,7 @@ No cycles. Leaf packages (starindex, starstats, starcomplexity) have zero intra-
 
 Three new generator capabilities in `internal/starlark/codegen.go` and `star/.../commands/generate.star`:
 
-1. **Converter-only mode** (`--converters-only=true`): For leaf packages with no Provider/receiver. Runs `go.structs()`, builds converter descriptors, generates only `gen/convert.gen.go`. No receiver, no init(), no methods.
+1. **Converter-only mode** (`--converters-only=true`): For leaf packages with no Provider/receiver. Runs `go.structs()`, builds converter descriptors. No receiver, no init(), no methods. Struct conversion is handled by `op.Marshal` via reflection.
 
 2. **Exported converter names**: Leaf converters must be PascalCase (`IndexToStarlark`) since `starsources/gen` calls them cross-package. Add `exported: true` flag to converter descriptors.
 

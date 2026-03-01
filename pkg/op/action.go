@@ -27,40 +27,51 @@ type UndoState = any
 // Actions receive resolved slots — they never touch *Node. The executor
 // resolves all promise slots before calling Do.
 type Action interface {
+
 	// Name returns the action identifier (e.g., "file.link", "template.render").
 	Name() string
 
-	// Do performs the forward action using resolved slot values.
-	// Returns a result (flows to downstream nodes via promise slots) and undo
-	// state (stored on recovery stack for rollback).
+	// Do executes the action with the given context and resolved slot values.
+	//
+	// Parameters:
+	//   - ctx: execution context
+	//   - slots: resolved slot values
+	//
+	// Returns:
+	//   - result: A result for downstream nodes
+	//   - undo: undo state for saga rollback
+	//   - err: any error encountered during execution
 	Do(ctx *Context, slots map[string]any) (Result, UndoState, error)
 }
 
-// CompensableAction extends Action with compensation. Only actions that
-// participate in rollback implement this interface.
+// CompensableAction is the backward-only interface.
+//
+// All actions that can be undone implement this.
 type CompensableAction interface {
 	Action
 
 	// Undo performs the compensating action using the state captured by Do.
-	// The context provides access to platform abstractions (Host) needed
-	// for compensation.
-	Undo(ctx *Context, state UndoState) error
+	//
+	// Parameters:
+	//   - ctx: execution context
+	//   - state: undo state captured by Do
+	//
+	// Returns:
+	//   - err: any error encountered during compensation
+	Undo(ctx *Context, undo UndoState) error
 }
 
 // Context provides execution context to actions.
 type Context struct {
-	context.Context
-
-	// DryRun prevents filesystem modifications when true.
-	DryRun bool
-
-	// Writer receives user-facing output messages.
-	Writer io.Writer
+	context.Context // https://pkg.go.dev/context
 
 	// Data holds tool-provided context: template variables, SOPS config,
 	// identities, segment maps, etc. Each tool populates this before
 	// calling GraphExecutor.Run().
 	Data map[string]any
+
+	// DryRun prevents filesystem modifications when true.
+	DryRun bool
 
 	// Graph is the graph being executed. Flow actions use this to look up
 	// phases referenced by their slots (e.g., gather body, choose branch).
@@ -74,4 +85,7 @@ type Context struct {
 	// manager) to action providers. Nil when running in environments
 	// where host access is not needed (e.g., pure data transforms).
 	Platform *Platform
+
+	// Writer receives user-facing output messages.
+	Writer io.Writer
 }

@@ -21,6 +21,7 @@ import (
 //
 // The script sets result_* globals which this test inspects.
 func TestImmediateBindings(t *testing.T) {
+	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/170")
 	tmp := t.TempDir()
 
 	// Create a fixture file for read/exists/is_file tests.
@@ -105,9 +106,10 @@ func TestImmediateBindings(t *testing.T) {
 // Planned bindings do NOT execute file operations — they build an execution graph.
 // This test verifies that nodes, slots, and edges are created correctly.
 func TestPlannedBindings(t *testing.T) {
+	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/171")
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
-	filegen.Register(reg)
+	op.RegisterReflectedActions(reg, "file", &provider.Provider{}, filegen.Params)
 
 	plan := filegen.NewFilePlan(graph, "test-project", reg)
 

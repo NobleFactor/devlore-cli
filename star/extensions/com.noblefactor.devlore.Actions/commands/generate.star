@@ -202,11 +202,11 @@ def parse_struct_param(doc):
 def parse_callable_directive(doc):
     """Parse +devlore:callable from a function type's doc comment.
 
-    Returns a dict with 'swallow' (list of param names) and 'handles' (list of
-    handle specs). Returns empty dict if no directive found.
+    Returns a dict with 'swallow' (list of param names to hide from Starlark).
+    Returns empty dict if no directive found.
 
-    Example: '+devlore:callable swallow=stack handle=DirEntry:Name,IsDir'
-    → {"swallow": ["stack"], "handles": [{"type": "DirEntry", "methods": ["Name", "IsDir"]}]}
+    Example: '+devlore:callable swallow=stack'
+    → {"swallow": ["stack"]}
     """
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
@@ -217,26 +217,12 @@ def parse_callable_directive(doc):
         rest = line[idx + len("+devlore:callable"):].strip()
 
         swallow = []
-        handles = []
 
         for token in rest.split():
             if token.startswith("swallow="):
                 swallow = token[len("swallow="):].split(",")
-            elif token.startswith("handle="):
-                spec = token[len("handle="):]
-                if ":" in spec:
-                    type_name, methods_str = spec.split(":", 1)
-                    handles.append({
-                        "type": type_name,
-                        "methods": methods_str.split(","),
-                    })
-                else:
-                    handles.append({
-                        "type": spec,
-                        "methods": [],
-                    })
 
-        return {"swallow": swallow, "handles": handles}
+        return {"swallow": swallow}
 
     return {}
 
@@ -252,7 +238,7 @@ def classify_callable_params(callable_info, directive):
     - Named in swallow list → 'swallowed' (invisible to Starlark)
     - Go type is 'any' → 'pass_through' (carries starlark.Value directly)
     - Go type in typeMappings → 'projected' (auto-converted)
-    - Otherwise → 'handle' (wrapped in a generated handle type)
+    - Otherwise → 'handle' (wrapped via op.WrapReceiver at runtime)
 
     Returns a list of dicts: {"go_name", "go_type", "role"}.
     """
@@ -335,60 +321,15 @@ def resolve_callable_params(path, descriptors, type_prefix=""):
             # Classify params
             classified = classify_callable_params(callable_info, directive)
 
-            # Build handle type specs
-            handle_types = _build_handle_types(directive, classified)
-
             # Build callable annotation
             annotation = {
                 "type_name": type_prefix + type_name,
                 "returns": callable_info.returns,
                 "params": classified,
-                "handle_types": handle_types,
             }
 
             callable_cache[type_name] = annotation
             p["callable"] = annotation
-
-def _build_handle_types(directive, classified):
-    """Build handle type specs from directive and classified params."""
-    handle_types = []
-    for h in directive.get("handles", []):
-        handle_name = h["type"] + "Handle"
-        methods = []
-        for method_name in h.get("methods", []):
-            methods.append({
-                "go_name": method_name,
-                "snake_name": to_snake(method_name),
-                "return_type": _infer_handle_method_return(method_name),
-            })
-        # Find the Go type for this handle from the classified params
-        go_handle_type = ""
-        for cp in classified:
-            if cp["role"] == "handle":
-                cp_type = cp["go_type"]
-                bare = cp_type.split(".")[-1] if "." in cp_type else cp_type
-                if bare == h["type"]:
-                    go_handle_type = cp_type
-                    break
-        handle_types.append({
-            "go_type": go_handle_type,
-            "handle_name": handle_name,
-            "methods": methods,
-        })
-    return handle_types
-
-def _infer_handle_method_return(method_name):
-    """Infer the return type of a common handle method by name.
-
-    DirEntry interface methods have well-known signatures.
-    """
-    if method_name == "Name":
-        return "string"
-    if method_name == "IsDir":
-        return "bool"
-    if method_name == "Type":
-        return "fs.FileMode"
-    return "string"
 
 def parse_bind_directives(path):
     """Parse +devlore:bind directives from the Provider struct's doc comment.
@@ -500,23 +441,17 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
 
         params = []
         for p in m.params:
-            # Check if this param is a struct param to expand
+            # Struct param: emit the Go param name (not expanded fields).
+            # The marshaler handles dict → struct conversion.
             if p.name in method_struct_params:
-                struct_type = method_struct_params[p.name]
-                struct_info, resolved_type = resolve_struct_param(struct_type, structs_by_name, path)
-                for field in struct_info.fields:
-                    field_name = lc_first(field.name)
-                    field_default = ""
-                    # Struct fields are always optional (struct zero value is default)
-                    params.append({
-                        "name": field_name,
-                        "type": field.type,
-                        "variadic": False,
-                        "doc": field.description,
-                        "optional": True,
-                        "default": field_default,
-                        "struct_type": resolved_type,
-                    })
+                params.append({
+                    "name": p.name,
+                    "type": method_struct_params[p.name],
+                    "variadic": False,
+                    "doc": "",
+                    "optional": True,
+                    "default": "",
+                })
             else:
                 is_optional = p.name in method_defaults
                 default_val = method_defaults.get(p.name, "")
@@ -1015,9 +950,8 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     all_data_structs = collect_all_data_structs(dependent_descriptors, data_structs, structs_by_name)
     ui.note("All data structs for converters: " + str(list(all_data_structs.keys())))
 
-    # Annotate dependent type methods returning data structs with converter expressions.
-    for type_name in dependent_types:
-        annotate_result_exprs(dependent_descriptors[type_name], all_data_structs, "")
+    # Data struct returns are handled by WrapReceiver's auto-bridging via
+    # classifyReturn → marshalReflect → marshalStruct. No converter annotation needed.
 
     # -------------------------------------------------------------------------
     # Re-build Provider method descriptors with defaults/struct_param applied
@@ -1032,8 +966,8 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     # In gen mode, callable types are in the provider package (imported as "provider.").
     resolve_callable_params(path, provider_method_descs, type_prefix="provider.")
 
-    # Annotate methods returning data structs with converter expressions.
-    annotate_result_exprs(provider_method_descs, all_data_structs, "")
+    # Data struct returns are handled by WrapReceiver's auto-bridging via
+    # classifyReturn → marshalReflect → marshalStruct. No converter annotation needed.
 
     # -------------------------------------------------------------------------
     # Generate: Provider immediate receiver (gen/immediate.gen.go)

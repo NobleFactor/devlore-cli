@@ -21,6 +21,18 @@ import (
 
 // --- Test helpers ---
 
+// fileAction returns a reflected action from the file provider registry.
+func fileAction(t *testing.T, p *file.Provider, name string) op.Action {
+	t.Helper()
+	reg := op.NewActionRegistry()
+	op.RegisterReflectedActions(reg, "file", p, filegen.Params)
+	a, ok := reg.Get(name)
+	if !ok {
+		t.Fatalf("action %q not registered", name)
+	}
+	return a
+}
+
 // failAction always returns error from Do. Action-only (no Undo).
 type failAction struct{}
 
@@ -108,12 +120,12 @@ func TestCompensationFileActions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeNode := &op.Node{ID: "write", Action: &filegen.WriteText{Impl: fp}}
+	writeNode := &op.Node{ID: "write", Action: fileAction(t, fp, "file.write_text")}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("destination", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
-	linkNode := &op.Node{ID: "link", Action: &filegen.Link{Impl: fp}}
+	linkNode := &op.Node{ID: "link", Action: fileAction(t, fp, "file.link")}
 	linkNode.SetSlotImmediate("source", linkSource)
 	linkNode.SetSlotImmediate("path", linkPath)
 
@@ -178,12 +190,12 @@ func TestCompensationDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeNode := &op.Node{ID: "write", Action: &filegen.WriteText{Impl: fp}}
+	writeNode := &op.Node{ID: "write", Action: fileAction(t, fp, "file.write_text")}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("destination", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
-	linkNode := &op.Node{ID: "link", Action: &filegen.Link{Impl: fp}}
+	linkNode := &op.Node{ID: "link", Action: fileAction(t, fp, "file.link")}
 	linkNode.SetSlotImmediate("source", linkSource)
 	linkNode.SetSlotImmediate("path", linkPath)
 
@@ -216,7 +228,7 @@ func TestCompensationNilState(t *testing.T) {
 
 	noopNode := &op.Node{ID: "noop", Action: &noopAction{}}
 
-	writeNode := &op.Node{ID: "write", Action: &filegen.WriteText{Impl: fp}}
+	writeNode := &op.Node{ID: "write", Action: fileAction(t, fp, "file.write_text")}
 	writeNode.SetSlotImmediate("content", "hello")
 	writeNode.SetSlotImmediate("destination", writePath)
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
@@ -245,14 +257,14 @@ func TestCompensationPartialFailure(t *testing.T) {
 	firstPath := filepath.Join(tmpDir, "first.txt")
 	thirdPath := filepath.Join(tmpDir, "third.txt")
 
-	firstNode := &op.Node{ID: "first", Action: &filegen.WriteText{Impl: fp}}
+	firstNode := &op.Node{ID: "first", Action: fileAction(t, fp, "file.write_text")}
 	firstNode.SetSlotImmediate("content", "first")
 	firstNode.SetSlotImmediate("destination", firstPath)
 	firstNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
 
-	thirdNode := &op.Node{ID: "third", Action: &filegen.WriteText{Impl: fp}}
+	thirdNode := &op.Node{ID: "third", Action: fileAction(t, fp, "file.write_text")}
 	thirdNode.SetSlotImmediate("content", "third")
 	thirdNode.SetSlotImmediate("destination", thirdPath)
 	thirdNode.SetSlotImmediate("mode", os.FileMode(0o644))
@@ -288,7 +300,7 @@ func TestCompensationGather(t *testing.T) {
 		filepath.Join(tmpDir, "c.txt"),
 	}
 
-	writeNode := &op.Node{ID: "write", Action: &filegen.WriteText{Impl: fp}}
+	writeNode := &op.Node{ID: "write", Action: fileAction(t, fp, "file.write_text")}
 	writeNode.SetSlotImmediate("content", "gather test")
 	writeNode.SetSlotImmediate("mode", os.FileMode(0o644))
 	writeNode.SetSlotProxy("destination", "gather", "")

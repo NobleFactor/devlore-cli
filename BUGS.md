@@ -10,14 +10,30 @@ The original bug report compared `compensateWrite` against `CompensateBackup`, w
 
 Resolved by the tombstone recovery rewrite. `CompensateCopy` now delegates to `compensateWrite`, which uses `os.Rename` (move-to-recovery / restore-from-recovery) instead of `os.WriteFile`. `os.Rename` preserves the original file's metadata including permissions.
 
-## #167: TestBuild_WithNativePMPackage panics — unregistered action: pkg.install
+## #167: TestBuild_WithNativePMPackage panics — unregistered action: pkg.install — RESOLVED
 
-`internal/lore.TestBuild_WithNativePMPackage` panics at `builder.go:408` with `unregistered action: pkg.install`. The `pkg` provider's `ActionRegistrar` is not loaded in the test context. The test creates a `Planner` without registering the `pkg` provider actions, then calls `PlanByName` which reaches `addNativePMNodes` → `reg.MustGet("pkg.install")` → panic.
-
-**Branch**: `feature/binding-unification`
+Resolved by updating `register.go` to import `provider/pkg/gen` instead of `provider/pkg`. The `init()` registrations moved to `gen/` subdirectories during binding unification but the import paths were not updated.
 
 ## #168: TestLoadIntegration fails — undefined: ui
 
 `internal/starlark.TestLoadIntegration` fails at `load_test.star:11:31` with `undefined: ui`. The test's Starlark globals do not include the `ui` provider binding. The `ui` provider was removed from the old hand-coded global set during binding unification but is not yet re-registered via the new `BindingSet` API in the test harness.
+
+**Branch**: `feature/binding-unification`
+
+## #169: TestBuildPhased_LorePackageMultiPhase fails — shell.exec missing argument for output
+
+`internal/lore.TestBuildPhased_LorePackageMultiPhase` fails with `exec: missing argument for output`. The shell provider's reflected planned binding requires all params from the `Params` map (including `output`), but the Starlark test script only passes `command=`.
+
+**Branch**: `feature/binding-unification`
+
+## #170: WrapReceiver does not expose WalkTree — callback params unsupported
+
+`TestImmediateBindings` fails with `file has no .walk_tree attribute`. `WalkTree` takes a Starlark callable (`fn`) as a parameter, which the params generator cannot handle. Methods with callable params need an `Override` or the reflection bridge needs `starlark.Callable` support.
+
+**Branch**: `feature/binding-unification`
+
+## #171: Planned bindings missing for non-error methods (Exists, IsDir, IsFile, Name, Parent, Join)
+
+`TestPlannedBindings` fails with `plan.file has no .exists attribute`. `RegisterReflectedActions` skips methods without `error` return. These methods are immediate-only but the old planned receiver exposed them as graph node creators. The planned layer needs an alternative path for non-error methods.
 
 **Branch**: `feature/binding-unification`

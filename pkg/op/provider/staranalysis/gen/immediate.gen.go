@@ -24,60 +24,7 @@ func init() {
 	})
 }
 
-// StaranalysisReceiver wraps a *Provider for Starlark consumption.
-type StaranalysisReceiver struct {
-	op.Receiver
-	provider *provider.Provider
-}
-
-// NewStaranalysisReceiver creates a new wrapper for the given Provider.
-func NewStaranalysisReceiver(p *provider.Provider) *StaranalysisReceiver {
-	return &StaranalysisReceiver{
-		Receiver: op.NewReceiver("staranalysis"),
-		provider: p,
-	}
-}
-
-// Attr returns the named attribute of the staranalysis namespace.
-func (r *StaranalysisReceiver) Attr(name string) (starlark.Value, error) {
-	switch name {
-	case "analyze":
-		return op.MakeAttr("staranalysis.analyze", r.analyze), nil
-	default:
-		return nil, op.NoSuchAttrError("staranalysis", name)
-	}
-}
-
-// AttrNames returns the available attribute names for the staranalysis namespace.
-func (r *StaranalysisReceiver) AttrNames() []string {
-	return []string{"analyze"}
-}
-
-// analyze Analyze performs a combined analysis of all files.
-//
-// +devlore:struct_param cfg=AnalysisConfig
-//
-// Slots:
-//   - cyclomatic_threshold: default 10
-//   - cognitive_threshold: default 15
-func (r *StaranalysisReceiver) analyze(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var files *starlark.List
-	var hotspots bool
-	var cyclomaticThreshold int
-	var cognitiveThreshold int
-	var withIndex bool
-	if err := starlark.UnpackArgs("analyze", args, kwargs, "files", &files, "hotspots?", &hotspots, "cyclomatic_threshold?", &cyclomaticThreshold, "cognitive_threshold?", &cognitiveThreshold, "with_index?", &withIndex); err != nil {
-		return nil, err
-	}
-	analysisConfig := provider.AnalysisConfig{
-		Hotspots:            hotspots,
-		CyclomaticThreshold: cyclomaticThreshold,
-		CognitiveThreshold:  cognitiveThreshold,
-		WithIndex:           withIndex,
-	}
-	result, err := r.provider.Analyze(op.ListToStringSlice(files), analysisConfig)
-	if err != nil {
-		return nil, err
-	}
-	return AnalysisReportToStarlark(result), nil
+// NewStaranalysisReceiver creates a wrapped staranalysis provider for Starlark consumption.
+func NewStaranalysisReceiver(p *provider.Provider) *op.ReflectedReceiver {
+	return op.WrapReceiver("staranalysis", p, Params)
 }

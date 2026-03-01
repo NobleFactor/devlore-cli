@@ -4,8 +4,11 @@
 package file
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -38,7 +41,7 @@ func Actor(fn func(path string, dirEntry os.DirEntry) error) Reducer {
 }
 
 // Reducer is a function called for each file or directory in a WalkTree operation.
-// +devlore:callable swallow=stack handle=DirEntry:Name, IsDir
+// +devlore:callable swallow=stack
 type Reducer func(initial any, path string, dirEntry os.DirEntry, stack *op.RecoveryStack) (result any, err error)
 
 type Tombstone struct {
@@ -125,19 +128,19 @@ func (p *Provider) CompensateBackup(undo map[string]any) error {
 //
 // Parameters:
 //   - destination: Absolute path to the file to write
-//   - source: The content to copy (a Blob wrapping a file path)
+//   - source: The content to copy (a Resource wrapping a file path)
 //   - mode: The file mode to use (default: 0644)
 //
 // Returns:
 //   - result: the path to the written file
 //   - undo: a state map containing the tombstone for recovery
 //   - err: any error that occurred during the copy
-func (p *Provider) Copy(sourceFile Blob, destinationFilename string, destinationFileMode os.FileMode) (result Blob, undo map[string]any, err error) {
+func (p *Provider) Copy(sourceFile Resource, destinationFilename string, destinationFileMode os.FileMode) (result Resource, undo map[string]any, err error) {
 
 	result, undo, err = p.prepareWrite(destinationFilename)
 
 	if err != nil {
-		return Blob{}, nil, err
+		return Resource{}, nil, err
 	}
 
 	if destinationFileMode == 0 {
@@ -147,7 +150,7 @@ func (p *Provider) Copy(sourceFile Blob, destinationFilename string, destination
 	f, err := os.OpenFile(destinationFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
 
 	if err != nil {
-		return Blob{}, nil, err
+		return Resource{}, nil, err
 	}
 
 	defer f.Close()
@@ -590,7 +593,7 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 //   - undo: a state map with the following keys:
 //     > tombstone: a [Tombstone]
 //   - err: any error that occurred while writing
-func (p *Provider) WriteBytes(destination, content string, mode os.FileMode) (result Blob, undo map[string]any, err error) {
+func (p *Provider) WriteBytes(destination, content string, mode os.FileMode) (result Resource, undo map[string]any, err error) {
 	return p.write(destination, []byte(content), mode)
 }
 
@@ -619,7 +622,7 @@ func (p *Provider) CompensateWriteBytes(undo map[string]any) error {
 //   - undo: a state map with the following keys:
 //     > tombstone: a [Tombstone]
 //   - err: any error that occurred while writing
-func (p *Provider) WriteText(destination, content string, mode os.FileMode) (result Blob, undo map[string]any, err error) {
+func (p *Provider) WriteText(destination, content string, mode os.FileMode) (result Resource, undo map[string]any, err error) {
 	return p.write(destination, []byte(content), mode)
 }
 
@@ -645,7 +648,7 @@ func (p *Provider) CompensateWriteText(undo map[string]any) error {
 //
 // Returns:
 //   - bool: true if the file at "path" exists, false otherwise
-func (p *Provider) Exists(blob Blob) bool {
+func (p *Provider) Exists(blob Resource) bool {
 	_, err := os.Lstat(blob.SourcePath)
 	return err == nil
 }
@@ -764,15 +767,15 @@ func (p *Provider) Parent(path string) string {
 	return filepath.Dir(path)
 }
 
-// Read creates a Blob from the file at "path" for reading the contents of the file at "path".
+// Read creates a Resource from the file at "path" for reading the contents of the file at "path".
 //
 // Parameters:
 //   - path: Absolute path to the file to read
 //
 // Returns:
 //   - result: the contents of the file
-func (p *Provider) Read(path string) (result Blob, err error) {
-	return NewBlob(path)
+func (p *Provider) Read(path string) (result Resource, err error) {
+	return NewResource(path)
 }
 
 // region Internal
@@ -817,12 +820,12 @@ func (p *Provider) compensateWrite(undo map[string]any) error {
 //     > action: The action that was performed (e.g., "overwrite", "create")
 //     > tombstone: The tombstone returned by RemoveAll
 //   - err: Any error that occurred during the preparation
-func (p *Provider) prepareWrite(path string) (result Blob, undo map[string]any, err error) {
+func (p *Provider) prepareWrite(path string) (result Resource, undo map[string]any, err error) {
 
-	result, err = NewBlob(path)
+	result, err = NewResource(path)
 
 	if err != nil {
-		return Blob{}, nil, err
+		return Resource{}, nil, err
 	}
 
 	if !result.Exists() {
@@ -830,7 +833,7 @@ func (p *Provider) prepareWrite(path string) (result Blob, undo map[string]any, 
 		err = os.MkdirAll(filepath.Dir(result.SourcePath), 0o750)
 
 		if err != nil {
-			return Blob{}, nil, errors.Join(os.ErrNotExist, err)
+			return Resource{}, nil, errors.Join(os.ErrNotExist, err)
 		}
 
 		undo = map[string]any{"tombstone": Tombstone{OriginalPath: result.SourcePath}}
@@ -840,7 +843,7 @@ func (p *Provider) prepareWrite(path string) (result Blob, undo map[string]any, 
 	tombstone, _, err := p.Remove(result.SourcePath, false, "")
 
 	if err != nil {
-		return Blob{}, nil, fmt.Errorf("failed to backup existing file: %w", err)
+		return Resource{}, nil, fmt.Errorf("failed to backup existing file: %w", err)
 	}
 
 	undo = map[string]any{"tombstone": tombstone}
@@ -854,7 +857,9 @@ func (p *Provider) prepareWrite(path string) (result Blob, undo map[string]any, 
 //   - data: The data to write to the file
 //
 // Returns:
-func (p *Provider) write(path string, data []byte, mode os.FileMode) (result Blob, undo map[string]any, err error) {
+func (p *Provider) write(path string, data []byte, mode os.FileMode) (result Resource, undo map[string]any, err error) {
+
+	// Prepare the write operation
 
 	result, undo, err = p.prepareWrite(path)
 
@@ -866,18 +871,34 @@ func (p *Provider) write(path string, data []byte, mode os.FileMode) (result Blo
 		mode = 0o644
 	}
 
-	err = os.WriteFile(result.SourcePath, data, mode)
+	// Perform the write operation with a hasher and a MultiWriter
+
+	f, err := os.OpenFile(result.SourcePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, mode)
 
 	if err != nil {
-		info, err := os.Stat(path)
-		if err == nil {
-			result.Size = info.Size()
-		}
+		return result, undo, err
+	}
+	defer f.Close()
+
+	var size int
+	hasher := sha256.New()
+	mw := io.MultiWriter(f, hasher)
+
+	size, err = mw.Write(data)
+
+	if err != nil {
+		return result, undo, err
 	}
 
-	// TODO (david-noble) On error, do we need to recover the file on path or should we depend on the caller?
-	//  We can rely on the graph executor when the caller is an action, not when called from Go or Starlark.
+	// Finalize
 
+	if err = f.Sync(); err != nil {
+		return result, undo, err
+	}
+
+	// Update metadata using the pre-computed hash
+
+	err = result.RefreshMetadataWith(hex.EncodeToString(hasher.Sum(nil)), int64(size))
 	return result, undo, err
 }
 

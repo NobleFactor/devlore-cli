@@ -48,6 +48,26 @@ func Construct[T any](v any) (T, error) {
 	return result.(T), nil
 }
 
+// --- Receiver params registry ---
+
+// receiverParamsRegistry maps reflect.Type (struct, not pointer) to
+// receiverEntry. When marshalReflect encounters a pointer to a registered
+// type, it calls WrapReceiver instead of flattening to fields.
+var receiverParamsRegistry sync.Map
+
+type receiverEntry struct {
+	name   string
+	params MethodParams
+}
+
+// RegisterReceiverParams registers a Go struct type as a Starlark receiver.
+// When marshalReflect encounters *T, it wraps it with WrapReceiver using
+// the given name and params instead of flattening to a field-only struct.
+func RegisterReceiverParams[T any](name string, params MethodParams) {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	receiverParamsRegistry.Store(t, receiverEntry{name: name, params: params})
+}
+
 // --- Type cache ---
 
 // typeCache stores struct introspection results, keyed by reflect.Type.
@@ -159,6 +179,16 @@ func Marshal(v any) (starlark.Value, error) {
 }
 
 func marshalReflect(rv reflect.Value) (starlark.Value, error) {
+	// Check receiver params registry for pointer-to-struct types.
+	// Registered types get wrapped as ReflectedReceivers (with methods)
+	// instead of flattened to field-only structs.
+	if rv.Kind() == reflect.Pointer && !rv.IsNil() {
+		if entry, ok := receiverParamsRegistry.Load(rv.Type().Elem()); ok {
+			e := entry.(receiverEntry)
+			return WrapReceiver(e.name, rv.Interface(), e.params), nil
+		}
+	}
+
 	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
 		if rv.IsNil() {
 			return starlark.None, nil

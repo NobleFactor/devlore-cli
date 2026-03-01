@@ -64,7 +64,7 @@ Every provider gets a grouped make target. `make build` depends on `make generat
 | --- | --- | --- |
 | `pkg/op/convert.go` | Working | 134 lines, primitive type switches only |
 | File provider gen/ | Working | 1,266 lines (actions + immediate + planned) |
-| Star* providers gen/ | Working | convert.gen.go + immediate.gen.go per provider |
+| Star* providers gen/ | Working | immediate.gen.go + params.gen.go per provider |
 | 9 legacy providers | Broken | Blank imports in register.go but no init() functions |
 | JSON/YAML/Regexp | Missing | No providers exist yet |
 
@@ -97,7 +97,6 @@ Already done (git status shows deletions staged).
 - [ ] `gen/params.gen.go` — new output: parameter name table from AST
 - [ ] `gen/immediate.gen.go` — simplified: init() + WrapReceiver + Override() calls
 - [ ] `gen/planned.gen.go` — simplified: init() + WrapPlanned
-- [ ] `gen/convert.gen.go` — no longer generated (Marshal handles struct conversion)
 - [ ] `gen/actions.gen.go` — unchanged (explicit Do/Undo logic)
 
 ### Phase 4: Planned mode wrapper
@@ -153,8 +152,7 @@ For ALL 19 providers:
 3. Verify gen/planned.gen.go calls WrapPlanned (access=both only)
 4. Verify gen/actions.gen.go has correct Do/Undo (access=both only)
 5. Verify gen/params.gen.go has correct parameter table
-6. Delete gen/convert.gen.go (replaced by Marshal)
-7. Verify Makefile has grouped target for the provider
+6. Verify Makefile has grouped target for the provider
 8. `make check` passes
 
 ## Related Documents

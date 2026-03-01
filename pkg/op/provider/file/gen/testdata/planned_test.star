@@ -41,7 +41,7 @@ unlink_output = file.unlink(path="/tmp/to-unlink.txt", prune=False, prune_bounda
 result_unlink_type = type(unlink_output) == "Output"
 
 # copy — creates a node with destination/source/mode slots
-copy_output = file.copy(destination="/tmp/copy-target.txt", source="/tmp/source.txt", mode=0o644)
+copy_output = file.copy(source_file="/tmp/source.txt", destination_filename="/tmp/copy-target.txt", destination_file_mode=0o644)
 result_copy_type = type(copy_output) == "Output"
 
 # ── Non-compensable actions ─────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ read_output = file.read(path="/tmp/read-target.txt")
 result_read_type = type(read_output) == "Output"
 
 # exists — creates a node with path slot
-exists_output = file.exists(path="/tmp/exists-check.txt")
+exists_output = file.exists(blob="/tmp/exists-check.txt")
 result_exists_type = type(exists_output) == "Output"
 
 # is_dir — creates a node with path slot

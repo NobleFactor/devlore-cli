@@ -3,9 +3,6 @@
 package file
 
 import (
-	"fmt"
-	"os"
-
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -29,72 +26,5 @@ func init() {
 
 // NewFileReceiver creates a wrapped file provider for Starlark consumption.
 func NewFileReceiver(p *provider.Provider) *op.ReflectedReceiver {
-	r := op.WrapReceiver("file", p, Params)
-	r.Override("walk_tree", func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		root := ""
-		var fn starlark.Callable
-		honorGitignore := true
-		if err := starlark.UnpackArgs("walk_tree", args, kwargs, "root?", &root, "fn", &fn, "honor_gitignore?", &honorGitignore); err != nil {
-			return nil, err
-		}
-		fnGo := provider.Reducer(func(initial any, path string, dirEntry os.DirEntry, stack *op.RecoveryStack) (any, error) {
-			args := starlark.Tuple{starlark.String(path), NewDirEntryHandle(dirEntry)}
-			var kwargs []starlark.Tuple
-			if initial != nil {
-				kwargs = append(kwargs, starlark.Tuple{starlark.String("initial"), initial.(starlark.Value)})
-			}
-			ret, err := starlark.Call(thread, fn, args, kwargs)
-			if err != nil {
-				return nil, err
-			}
-			return ret, nil
-		})
-		result, _, err := p.WalkTree(root, fnGo, honorGitignore)
-		if err != nil {
-			return nil, err
-		}
-		return op.AnyToStarlarkValue(result), nil
-	})
-	r.Override("join", func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var parts []string
-		for _, arg := range args {
-			s, ok := starlark.AsString(arg)
-			if !ok {
-				return nil, fmt.Errorf("join: expected string argument, got %s", arg.Type())
-			}
-			parts = append(parts, s)
-		}
-		result := p.Join(parts...)
-		return starlark.String(result), nil
-	})
-	return r
-}
-
-// DirEntryHandle wraps a os.DirEntry for Starlark consumption.
-type DirEntryHandle struct {
-	dirEntry os.DirEntry
-}
-
-// NewDirEntryHandle creates a new handle wrapper.
-func NewDirEntryHandle(v os.DirEntry) *DirEntryHandle { return &DirEntryHandle{dirEntry: v} }
-
-func (h *DirEntryHandle) String() string        { return h.dirEntry.Name() }
-func (h *DirEntryHandle) Type() string          { return "dir_entry" }
-func (h *DirEntryHandle) Freeze()               {}
-func (h *DirEntryHandle) Truth() starlark.Bool  { return true }
-func (h *DirEntryHandle) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: dir_entry") }
-
-func (h *DirEntryHandle) Attr(name string) (starlark.Value, error) {
-	switch name {
-	case "name":
-		return starlark.String(h.dirEntry.Name()), nil
-	case "is_dir":
-		return starlark.Bool(h.dirEntry.IsDir()), nil
-	default:
-		return nil, op.NoSuchAttrError("dir_entry", name)
-	}
-}
-
-func (h *DirEntryHandle) AttrNames() []string {
-	return []string{"is_dir", "name"}
+	return op.WrapReceiver("file", p, Params)
 }
