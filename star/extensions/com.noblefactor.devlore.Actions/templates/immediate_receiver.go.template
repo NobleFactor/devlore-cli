@@ -3,53 +3,41 @@
 package {{.Package}}
 
 import (
-	"io"
-{{- if needsImport .Methods "os.FileMode"}}
-	"os"
-{{- end}}
-
+{{- if .Registered}}
 	"go.starlark.net/starlark"
+{{- end}}
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/{{.Provider}}"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+{{- if .ProviderImport}}
+	provider "{{.ProviderImport}}"
+{{- end}}
 )
-
-type {{.StructName}}Receiver struct {
-	op.Receiver
-	provider *{{.Provider}}.Provider
-	output   io.Writer
+{{if .Registered}}
+func init() {
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:     "{{.Provider}}",
+		Access:   op.Access{{.AccessTitle}},
+		Lifetime: op.Lifetime{{.LifetimeTitle}},
+		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
+{{providerInit .}}
+		},
+	})
 }
 
-func New{{.StructName}}Receiver(provider *{{.Provider}}.Provider, output io.Writer) *{{.StructName}}Receiver {
-	return &{{.StructName}}Receiver{
-		Receiver: op.NewReceiver("{{.Provider}}"),
-		provider: provider,
-		output:   output,
-	}
+// New{{.StructName}}{{.WrapperSuffix}} creates a wrapped {{.Provider}} provider for Starlark consumption.
+func New{{.StructName}}{{.WrapperSuffix}}(p *{{providerTypePrefix .}}{{.ImplType}}) *op.ReflectedReceiver {
+	return op.WrapReceiver("{{.Namespace}}", p, Params)
 }
-
-func (r *{{.StructName}}Receiver) Attr(name string) (starlark.Value, error) {
-	switch name {
+{{else}}
+// {{.StructName}}Params maps Go method names to Starlark parameter name lists.
+var {{.StructName}}Params = op.MethodParams{
 {{- range .Methods}}
-	case "{{.SnakeName}}":
-		return op.MakeAttr("{{$.Provider}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
+	"{{.GoName}}": { {{paramNamesList .}} },
 {{- end}}
-	default:
-{{- if hasExtraAttrs .}}
-		return r.queryAttr(name)
-{{- else}}
-		return nil, op.NoSuchAttrError("{{.Provider}}", name)
-{{- end}}
-	}
 }
 
-func (r *{{.StructName}}Receiver) AttrNames() []string {
-	return []string{{"{"}}{{allAttrNames .}}{{"}"}}
-}
-{{range .Methods}}
-{{docComment .SnakeName .Doc}}{{slotDocs .}}
-func (r *{{$.StructName}}Receiver) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-{{immediateUnpackArgs .}}
-{{immediateProviderBody .}}
+// New{{.StructName}}{{.WrapperSuffix}} creates a new wrapper for the given {{.ImplType}}.
+func New{{.StructName}}{{.WrapperSuffix}}(p *{{providerTypePrefix .}}{{.ImplType}}) *op.ReflectedReceiver {
+	return op.WrapReceiver("{{.Namespace}}", p, {{.StructName}}Params)
 }
 {{end}}

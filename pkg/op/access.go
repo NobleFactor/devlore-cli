@@ -3,9 +3,12 @@
 
 package op
 
+// AccessType defines when a provider's methods are available.
+type AccessType string
+
 // Access level constants define when a provider method is available.
 const (
-	AccessImmediate = "immediate" // query only — no graph node
-	AccessPlanned   = "planned"   // graph node only — no immediate call
-	AccessBoth      = "both"      // available in both projections
+	AccessImmediate AccessType = "immediate" // direct call during plan construction
+	AccessPlanned   AccessType = "planned"   // graph node only — executed at runtime
+	AccessBoth      AccessType = "both"      // available in both projections
 )

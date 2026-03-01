@@ -4,6 +4,12 @@
 extension: com.noblefactor.devlore.Model
 description: Devlore model management - build Ollama Modelfiles from knowledge domains
 
+receivers:
+  - name: ui
+    builtin: true
+    type: UiReceiver
+    description: Status output (note, warn, success, fail)
+
 commands:
   - name: devlore.model.build
     help: Generate Ollama Modelfile from knowledge domain

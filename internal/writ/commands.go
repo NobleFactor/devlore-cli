@@ -23,16 +23,20 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
+	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
+
+	// Blank import triggers init() in all provider packages,
+	// populating the binding registry via op.RegisterBinding().
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -75,8 +79,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	}
 
 	// 2. Build execution graph
-	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg)
+	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
 	builder := NewDeployGraphBuilder(cfg, reg)
 	builder.Planner = &lore.Planner{
 		ActionRegistry: reg,
@@ -219,8 +222,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build execution graph
-	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg)
+	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
 	g, err := NewDecommissionGraphBuilder(cfg, view, reg).Build()
 	if err != nil {
 		return err
@@ -469,8 +471,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
-	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg)
+	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
 
 	if hasDecryptAction(actions) && len(identities) == 0 {
 		cli.Error("%s: identities required for encrypted files", relTarget)
@@ -483,7 +484,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
-		Host:               execution.NewHostProvider(host.NewHost()),
+		Platform:           platform.New(),
 		ConflictResolution: execution.ResolutionOverwrite,
 	})
 
@@ -512,7 +513,7 @@ func buildUpgradeChain(reg *op.ActionRegistry, actions []string, relTarget strin
 	var prevNodeID string
 
 	for i, opName := range actions {
-		isLast := (i == len(actions)-1)
+		isLast := i == len(actions)-1
 		nodeID := relTarget
 		if !isLast {
 			nodeID = relTarget + ":" + opName
@@ -1216,7 +1217,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 	}
 
 	// Move file to repo
-	if _, _, err := fp.Move(nil, filePath, destPath); err != nil {
+	if _, _, err := fp.Move(filePath, destPath); err != nil {
 		// Move may fail across filesystems, try copy+remove
 		if err := copyFile(filePath, destPath); err != nil {
 			return 0, fmt.Errorf("moving file: %w", err)

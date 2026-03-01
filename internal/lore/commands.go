@@ -15,13 +15,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/internal/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -150,7 +150,7 @@ func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
 		return nil, fmt.Errorf("creating registry client: %w", err)
 	}
 
-	platform := detectPlatform()
+	targetPlatform := detectPlatform()
 
 	fmt.Println("\nResolving packages...")
 	fmt.Printf("%-30s %-10s %-8s %s\n", "PACKAGE", "SOURCE", "CONF", "STATUS")
@@ -158,7 +158,7 @@ func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
 
 	var resolved []resolvedPackage
 	for _, req := range cfg.Packages {
-		pkg, confidence, err := regClient.ResolveWithConfidence(req.Name, platform)
+		pkg, confidence, err := regClient.ResolveWithConfidence(req.Name, targetPlatform)
 		if err != nil {
 			cli.Error("Error resolving package %q: %v", req.Name, err)
 			continue
@@ -237,11 +237,10 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	fmt.Println("\nDeploying packages...")
 
 	// Create action registry and executor
-	registry := op.NewActionRegistry()
-	provider.RegisterAll(registry)
+	registry := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
-		DryRun: cfg.DryRun,
-		Host:   execution.NewHostProvider(host.NewHost()),
+		DryRun:   cfg.DryRun,
+		Platform: platform.New(),
 	})
 
 	var lastErr error

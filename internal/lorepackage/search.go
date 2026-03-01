@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
 // Confidence indicates how reliably a package can be installed.
@@ -128,13 +128,13 @@ func (r *Registry) searchLore(query string, limit int) ([]SearchResultItem, erro
 
 // searchNative searches the native package manager.
 func (r *Registry) searchNative(query string, limit int) []SearchResultItem {
-	h := host.NewHost()
-	pm := h.PackageManager()
-	if pm == nil {
+	p := platform.New()
+	packageManager := p.PackageManager
+	if packageManager == nil {
 		return nil
 	}
 
-	// Map PM name to source
+	// Map package manager name to source.
 	sourceMap := map[string]PackageSource{
 		"brew":   SourceBrew,
 		"port":   SourcePort,
@@ -143,33 +143,33 @@ func (r *Registry) searchNative(query string, limit int) []SearchResultItem {
 		"winget": SourceWinget,
 	}
 
-	source := sourceMap[pm.Name()]
+	source := sourceMap[packageManager.Name()]
 	if source == "" {
 		source = SourceApt // Default fallback
 	}
 
-	// Search the native PM
-	pmResults := pm.Search(query, limit)
-	if pmResults == nil {
+	// Search the native package manager.
+	searchResults := packageManager.Search(query, limit)
+	if searchResults == nil {
 		return nil
 	}
 
-	results := make([]SearchResultItem, 0, len(pmResults))
-	for _, pr := range pmResults {
-		// Check if it's installed
-		installed := pm.Installed(pr.Name)
+	results := make([]SearchResultItem, 0, len(searchResults))
+	for _, sr := range searchResults {
+		// Check if it's installed.
+		installed := packageManager.Installed(sr.Name)
 
-		// Check if available (for confidence)
-		available := pm.Available(pr.Name)
+		// Check if available (for confidence).
+		available := packageManager.Available(sr.Name)
 		confidence := ConfidenceLow
 		if available {
 			confidence = ConfidenceMedium
 		}
 
 		results = append(results, SearchResultItem{
-			Name:        pr.Name,
-			Version:     pr.Version,
-			Description: pr.Description,
+			Name:        sr.Name,
+			Version:     sr.Version,
+			Description: sr.Description,
 			Source:      source,
 			Confidence:  confidence,
 			Installed:   installed,
@@ -213,23 +213,22 @@ func (r *Registry) ListPackages() ([]SearchResultItem, error) {
 }
 
 // ResolveWithConfidence resolves a package and returns confidence information.
-func (r *Registry) ResolveWithConfidence(name, platform string) (*Release, Confidence, error) {
-	pkg, err := r.Resolve(name, platform)
+func (r *Registry) ResolveWithConfidence(name, targetPlatform string) (*Release, Confidence, error) {
+	release, err := r.Resolve(name, targetPlatform)
 	if err != nil {
 		return nil, ConfidenceLow, err
 	}
 
-	// Lore packages have high confidence
-	if pkg.Source == SourceLore {
-		return pkg, ConfidenceHigh, nil
+	// Lore packages have high confidence.
+	if release.Source == SourceLore {
+		return release, ConfidenceHigh, nil
 	}
 
-	// Native packages: check if available
-	h := host.NewHost()
-	pm := h.PackageManager()
-	if pm != nil && pm.Available(name) {
-		return pkg, ConfidenceMedium, nil
+	// Native packages: check if available.
+	detected := platform.New()
+	if detected.PackageManager != nil && detected.PackageManager.Available(name) {
+		return release, ConfidenceMedium, nil
 	}
 
-	return pkg, ConfidenceLow, nil
+	return release, ConfidenceLow, nil
 }

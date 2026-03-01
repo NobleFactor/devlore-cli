@@ -7,17 +7,19 @@ package provider
 import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 
-	// Blank imports trigger init() in each provider's actions_gen.go,
-	// which calls op.RegisterProvider(Register).
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
+	// Blank imports trigger init() in each provider's gen package,
+	// which call op.RegisterBinding() to self-register.
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/net/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/template/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 )
 
 // RegisterAll registers all provider actions with the given registry.

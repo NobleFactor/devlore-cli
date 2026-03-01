@@ -17,10 +17,14 @@ import (
 // the resource path, the compensation receipt, and an error. The map is
 // opaque to the executor, meaningful only to the corresponding
 // Compensate* Backward method.
+//
+// +devlore:access=both
 type Provider struct {
 	// Test hooks. Nil means use real git commands.
 	cloneFn func(url, path string, output io.Writer) error
 }
+
+// ── Compensable Pairs ────────────────────────────────────────────────
 
 // Clone clones a repository from url into path.
 // Returns compensation state with the cloned path.
@@ -28,8 +32,6 @@ type Provider struct {
 // Parameters:
 //   - url: Git repository URL to clone
 //   - path: Local directory path for the clone
-//
-//+devlore:access=planned
 func (p *Provider) Clone(url, path string, output io.Writer) (string, map[string]any, error) {
 	if err := p.doClone(url, path, output); err != nil {
 		return "", nil, err
@@ -50,13 +52,13 @@ func (p *Provider) CompensateClone(state any) error {
 	return os.RemoveAll(path)
 }
 
+// ── Standalone Methods ───────────────────────────────────────────────
+
 // Checkout checks out a ref in the given repository directory.
 //
 // Parameters:
 //   - repo: Local path to the git repository
 //   - ref: Branch, tag, or commit to check out
-//
-//+devlore:access=planned
 func (p *Provider) Checkout(repo, ref string, output io.Writer) (string, error) {
 	cmd := exec.Command("git", "-C", repo, "checkout", ref)
 	cmd.Stdout = output
@@ -68,8 +70,6 @@ func (p *Provider) Checkout(repo, ref string, output io.Writer) (string, error) 
 //
 // Parameters:
 //   - repo: Local path to the git repository
-//
-//+devlore:access=planned
 func (p *Provider) Pull(repo string, output io.Writer) (string, error) {
 	cmd := exec.Command("git", "-C", repo, "pull")
 	cmd.Stdout = output

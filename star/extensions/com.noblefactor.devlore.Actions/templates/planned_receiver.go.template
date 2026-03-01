@@ -3,65 +3,28 @@
 package {{.Package}}
 
 import (
-	"fmt"
+	"reflect"
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+{{- if .ProviderImport}}
+	provider "{{.ProviderImport}}"
+{{- end}}
 )
 
 func init() {
-	registerPlan("{{.Provider}}", func(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) starlark.Value {
-		return New{{.StructName}}Plan(graph, h, project, reg)
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:     "{{.Provider}}",
+		Access:   op.Access{{.AccessTitle}},
+		Lifetime: op.Lifetime{{.LifetimeTitle}},
+		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
+			return New{{.StructName}}Plan(graph, project, reg)
+		},
 	})
 }
 
-type {{.StructName}}Plan struct {
-	op.Receiver
-	graph   *op.Graph
-	host    host.Host
-	project string
-	reg     *op.ActionRegistry
+// New{{.StructName}}Plan creates a wrapped {{.Provider}} provider for planned-mode Starlark consumption.
+func New{{.StructName}}Plan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {
+	return op.WrapPlanned("{{.Provider}}", reflect.TypeOf((*{{providerTypePrefix .}}Provider)(nil)), graph, project, reg, Params)
 }
-
-func New{{.StructName}}Plan(graph *op.Graph, h host.Host, project string, reg *op.ActionRegistry) *{{.StructName}}Plan {
-	return &{{.StructName}}Plan{
-		Receiver: op.NewReceiver("{{.Namespace}}"),
-		graph:    graph,
-		host:     h,
-		project:  project,
-		reg:      reg,
-	}
-}
-
-func (p *{{.StructName}}Plan) Attr(name string) (starlark.Value, error) {
-	switch name {
-{{- range .Methods}}
-	case "{{.SnakeName}}":
-		return op.MakeAttr("{{$.Namespace}}.{{.SnakeName}}", p.{{.SnakeName}}), nil
-{{- end}}
-	default:
-		return nil, op.NoSuchAttrError("{{.Namespace}}", name)
-	}
-}
-
-func (p *{{.StructName}}Plan) AttrNames() []string {
-	return []string{{"{"}}{{attrNamesList .Methods}}{{"}"}}
-}
-{{range .Methods}}
-{{docComment .SnakeName .Doc}}{{slotDocs .}}
-func (p *{{$.StructName}}Plan) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-{{planUnpackArgs .}}
-
-	node := &op.Node{
-		ID:      op.GenerateNodeID("{{$.Provider}}-{{.SnakeName}}"),
-		Action:  p.reg.MustGet("{{$.Provider}}.{{.SnakeName}}"),
-		Project: p.project,
-	}
-{{planFillSlots .}}
-
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return op.NewOutput(node, p.graph, ""), nil
-}
-{{end}}

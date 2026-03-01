@@ -23,7 +23,11 @@ import (
 // the extraction directory, the compensation receipt, and an error.
 // The map is opaque to the executor, meaningful only to the
 // corresponding Compensate* Backward method.
+//
+// +devlore:access=both
 type Provider struct{}
+
+// ── Compensable Pairs ────────────────────────────────────────────────
 
 // Extract extracts an archive (tar.gz or zip) from source into the prefix directory.
 // The archive format is detected from the file extension.
@@ -32,15 +36,12 @@ type Provider struct{}
 // Parameters:
 //   - source: Path to the archive file (tar.gz, tgz, or zip)
 //   - prefix: Directory to extract into
-//
-// +devlore:access=planned
-func (p *Provider) Extract(source, prefix string) (dest string, state map[string]any, retErr error) {
+func (p *Provider) Extract(source, prefix string) (dest string, state map[string]any, err error) {
 	if err := os.MkdirAll(prefix, 0o750); err != nil {
 		return "", nil, fmt.Errorf("create prefix dir: %w", err)
 	}
 
 	var created []string
-	var err error
 
 	lower := strings.ToLower(source)
 	switch {
@@ -96,7 +97,7 @@ func removeEmptyDirs(root string) error {
 	})
 }
 
-func extractTarGz(source, prefix string) (created []string, retErr error) { //nolint:gocognit
+func extractTarGz(source, prefix string) (created []string, err error) { //nolint:gocognit
 	f, err := os.Open(source)
 	if err != nil {
 		return nil, err
@@ -108,8 +109,8 @@ func extractTarGz(source, prefix string) (created []string, retErr error) { //no
 		return nil, fmt.Errorf("gzip: %w", err)
 	}
 	defer func() {
-		if closeErr := gz.Close(); closeErr != nil && retErr == nil {
-			retErr = fmt.Errorf("gzip close: %w", closeErr)
+		if closeErr := gz.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("gzip close: %w", closeErr)
 		}
 	}()
 
@@ -152,14 +153,14 @@ func extractTarGz(source, prefix string) (created []string, retErr error) { //no
 	return created, nil
 }
 
-func extractZip(source, prefix string) (created []string, retErr error) {
+func extractZip(source, prefix string) (created []string, err error) {
 	r, err := zip.OpenReader(source)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if closeErr := r.Close(); closeErr != nil && retErr == nil {
-			retErr = fmt.Errorf("zip close: %w", closeErr)
+		if closeErr := r.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("zip close: %w", closeErr)
 		}
 	}()
 

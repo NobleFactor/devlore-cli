@@ -31,7 +31,7 @@ func (a *WaitUntil) Name() string { return "flow.wait_until" }
 
 // Do polls the predicate at the configured interval until it returns true
 // or the timeout expires.
-func (a *WaitUntil) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) {
+func (a *WaitUntil) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, err error) {
 	target := slots["target"]
 
 	pred, ok := slots["predicate"].(PredicateFunc)

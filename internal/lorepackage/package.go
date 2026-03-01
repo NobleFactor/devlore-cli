@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
 // PackageSource indicates where a package was resolved from.
@@ -74,16 +74,16 @@ func (rel *Release) Lifecycle() *Lifecycle {
 // most general to most specific for chained execution.
 //
 // For native PM packages, returns empty (the engine handles install directly).
-func (rel *Release) DiscoverPhaseScripts(platform string, action Action, phase string) []string {
+func (rel *Release) DiscoverPhaseScripts(targetPlatform string, action Action, phase string) []string {
 	if rel.Source != SourceLore || rel.Dir == "" {
 		return nil // Native PM packages don't have scripts
 	}
-	return rel.Lifecycle().DiscoverPhaseScripts(rel.Dir, platform, action, phase)
+	return rel.Lifecycle().DiscoverPhaseScripts(rel.Dir, targetPlatform, action, phase)
 }
 
 // HasPhase returns true if at least one phase script exists for this phase.
-func (rel *Release) HasPhase(platform string, action Action, phase string) bool {
-	return len(rel.DiscoverPhaseScripts(platform, action, phase)) > 0
+func (rel *Release) HasPhase(targetPlatform string, action Action, phase string) bool {
+	return len(rel.DiscoverPhaseScripts(targetPlatform, action, phase)) > 0
 }
 
 // PhaseActions returns the executable actions for a phase.
@@ -91,10 +91,10 @@ func (rel *Release) HasPhase(platform string, action Action, phase string) bool 
 //
 // For lore packages: returns ScriptAction items for each discovered script.
 // For native PM packages: returns a NativePMAction for install/uninstall phases.
-func (rel *Release) PhaseActions(platform string, action Action, phase string) []PhaseAction {
+func (rel *Release) PhaseActions(targetPlatform string, action Action, phase string) []PhaseAction {
 	if rel.Source == SourceLore && rel.Dir != "" {
 		// Lore package: return script actions
-		scripts := rel.DiscoverPhaseScripts(platform, action, phase)
+		scripts := rel.DiscoverPhaseScripts(targetPlatform, action, phase)
 		actions := make([]PhaseAction, 0, len(scripts))
 		for _, script := range scripts {
 			actions = append(actions, &ScriptAction{
@@ -175,7 +175,7 @@ func (rel *Release) IsSynthetic() bool {
 
 // Resolve looks up a package by name in the registry.
 // It checks the lore registry first, then falls back to native package managers.
-func (r *Registry) Resolve(name, platform string) (*Release, error) {
+func (r *Registry) Resolve(name, targetPlatform string) (*Release, error) {
 	// First, check lore registry
 	pkgDir := filepath.Join(r.cacheDir, "packages", name)
 	if dirExists(pkgDir) {
@@ -194,21 +194,21 @@ func (r *Registry) Resolve(name, platform string) (*Release, error) {
 	}
 
 	// Fall back to native package manager based on platform
-	return r.resolveNative(name, platform)
+	return r.resolveNative(name, targetPlatform)
 }
 
 // resolveNative creates a synthetic Release for a native PM package.
 // It uses the synthetic cache to avoid repeated lookups and store verification results.
-func (r *Registry) resolveNative(name, platform string) (*Release, error) {
+func (r *Registry) resolveNative(name, targetPlatform string) (*Release, error) {
 	var source PackageSource
 	switch {
-	case strings.HasPrefix(platform, "Linux.Debian") || platform == "Linux":
+	case strings.HasPrefix(targetPlatform, "Linux.Debian") || targetPlatform == "Linux":
 		source = SourceApt
-	case strings.HasPrefix(platform, "Linux.Fedora"):
+	case strings.HasPrefix(targetPlatform, "Linux.Fedora"):
 		source = SourceDnf
-	case platform == "Darwin":
+	case targetPlatform == "Darwin":
 		source = SourceBrew
-	case platform == "Windows":
+	case targetPlatform == "Windows":
 		source = SourceWinget
 	default:
 		source = SourceApt // Default fallback
@@ -260,14 +260,13 @@ func (r *Registry) VerifySyntheticPackage(pkg *Release) bool {
 		return true
 	}
 
-	// Verify with the package manager
-	h := host.NewHost()
-	pm := h.PackageManager()
-	if pm == nil {
+	// Verify with the package manager.
+	p := platform.New()
+	if p.PackageManager == nil {
 		return false
 	}
 
-	available := pm.Available(pkg.Name)
+	available := p.PackageManager.Available(pkg.Name)
 
 	// Update cache with verification result
 	info := &SyntheticPackageInfo{

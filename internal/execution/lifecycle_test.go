@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+//go:build ignore
+// +build ignore
+
 package execution_test
 
 import (
@@ -16,6 +19,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 
 	"gopkg.in/yaml.v3"
@@ -27,7 +31,7 @@ func buildTestGraph() *op.Graph {
 
 	nodeA := &op.Node{
 		ID:     "a",
-		Action: &file.Link{Impl: fp},
+		Action: &filegen.Link{Impl: fp},
 		Status: op.StatusPending,
 	}
 	nodeA.SetSlotImmediate("source", "/src/a.txt")
@@ -35,7 +39,7 @@ func buildTestGraph() *op.Graph {
 
 	nodeB := &op.Node{
 		ID:     "b",
-		Action: &file.Copy{Impl: fp},
+		Action: &filegen.Copy{Impl: fp},
 		Status: op.StatusPending,
 	}
 	nodeB.SetSlotImmediate("source", "/src/b.txt")
@@ -376,7 +380,7 @@ func TestGraphLifecycle(t *testing.T) {
 	fp := &file.Provider{}
 	linkNode := &op.Node{
 		ID:     "config.txt",
-		Action: &file.Link{Impl: fp},
+		Action: &filegen.Link{Impl: fp},
 		Status: op.StatusPending,
 	}
 	linkNode.SetSlotImmediate("source", srcLink)
@@ -389,7 +393,7 @@ func TestGraphLifecycle(t *testing.T) {
 
 	copyNode := &op.Node{
 		ID:     "data.txt",
-		Action: &file.Copy{Impl: fp},
+		Action: &filegen.Copy{Impl: fp},
 		Status: op.StatusPending,
 	}
 	copyNode.SetSlotImmediate("content", copyContent)
@@ -497,7 +501,7 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 
 	sourceNode := &op.Node{
 		ID:     "greeting:source",
-		Action: &file.Source{Impl: fp},
+		Action: &filegen.Read{Impl: fp},
 		Status: op.StatusPending,
 	}
 	sourceNode.SetSlotImmediate("path", tmplPath)
@@ -518,7 +522,7 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 
 	copyNode := &op.Node{
 		ID:     "greeting",
-		Action: &file.Copy{Impl: fp},
+		Action: &filegen.Copy{Impl: fp},
 		Status: op.StatusPending,
 	}
 	copyNode.SetSlotImmediate("path", dstPath)

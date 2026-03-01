@@ -25,6 +25,13 @@ type iterationUndo struct {
 	Entries  []execution.RecoveryEntry // shared node refs + per-node undo state
 }
 
+// iterOutcome captures the result of a single gather iteration.
+type iterOutcome struct {
+	result any
+	undo   iterationUndo
+	err    error
+}
+
 // Gather is a parallel comprehension flow action. It executes a phase body
 // once per item with configurable concurrency, collecting terminal results.
 //
@@ -41,7 +48,7 @@ type Gather struct{}
 func (a *Gather) Name() string { return "flow.gather" }
 
 // Do executes the referenced phase once per item, with per-iteration isolation.
-func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, retErr error) { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
+func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, err error) { //nolint:gocyclo // validation + sequential/concurrent branching is inherent
 	items, err := extractItems(slots)
 	if err != nil {
 		return nil, nil, err
@@ -71,11 +78,6 @@ func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 
 	gatherID := ctx.NodeID
 
-	type iterOutcome struct {
-		result any
-		undo   iterationUndo
-		err    error
-	}
 	outcomes := make([]iterOutcome, len(items))
 
 	if limit <= 1 || len(items) <= 1 {
@@ -87,55 +89,7 @@ func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 			}
 		}
 	} else {
-		// Concurrent execution with semaphore and cancellation.
-		iterCtxBase, cancel := context.WithCancel(ctx.Context)
-		defer cancel()
-
-		sem := make(chan struct{}, limit)
-		var wg sync.WaitGroup
-		var firstErr error
-		var mu sync.Mutex
-
-	iterLoop:
-		for i, item := range items {
-			// Check for cancellation before starting a new iteration.
-			select {
-			case <-iterCtxBase.Done():
-				break iterLoop
-			default:
-			}
-			if iterCtxBase.Err() != nil {
-				break
-			}
-
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(idx int, val any) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				// Per-iteration context with its own mutable fields.
-				iterCtx := &op.Context{
-					Context: iterCtxBase,
-					DryRun:  ctx.DryRun,
-					Writer:  ctx.Writer,
-					Data:    ctx.Data,
-					Graph:   ctx.Graph,
-					NodeID:  ctx.NodeID,
-				}
-
-				outcomes[idx] = executeIteration(iterCtx, ordered, gatherID, val)
-				if outcomes[idx].err != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = outcomes[idx].err
-					}
-					mu.Unlock()
-					cancel()
-				}
-			}(i, item)
-		}
-		wg.Wait()
+		executeConcurrent(ctx, ordered, gatherID, items, limit, outcomes)
 	}
 
 	// Collect results and build undo state.
@@ -194,18 +148,60 @@ func (a *Gather) undoCompleted(ctx *op.Context, gs *gatherUndoState) error {
 	return errors.Join(errs...)
 }
 
-// executeIteration runs the phase body for a single item.
-func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item any) struct {
-	result any
-	undo   iterationUndo
-	err    error
-} {
-	type outcome = struct {
-		result any
-		undo   iterationUndo
-		err    error
-	}
+// executeConcurrent runs gather iterations with bounded concurrency.
+func executeConcurrent(ctx *op.Context, ordered []*op.Node, gatherID string, items []any, limit int, outcomes []iterOutcome) {
+	iterCtxBase, cancel := context.WithCancel(ctx.Context)
+	defer cancel()
 
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	var firstErr error
+	var mu sync.Mutex
+
+iterLoop:
+	for i, item := range items {
+		// Check for cancellation before starting a new iteration.
+		select {
+		case <-iterCtxBase.Done():
+			break iterLoop
+		default:
+		}
+		if iterCtxBase.Err() != nil {
+			break
+		}
+
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int, val any) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			// Per-iteration context with its own mutable fields.
+			iterCtx := &op.Context{
+				Context: iterCtxBase,
+				DryRun:  ctx.DryRun,
+				Writer:  ctx.Writer,
+				Data:    ctx.Data,
+				Graph:   ctx.Graph,
+				NodeID:  ctx.NodeID,
+			}
+
+			outcomes[idx] = executeIteration(iterCtx, ordered, gatherID, val)
+			if outcomes[idx].err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = outcomes[idx].err
+				}
+				mu.Unlock()
+				cancel()
+			}
+		}(i, item)
+	}
+	wg.Wait()
+}
+
+// executeIteration runs the phase body for a single item.
+func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item any) iterOutcome {
 	results := make(map[string]any)
 	stack := &execution.RecoveryStack{}
 	proxyCtx := map[string]any{gatherID: item}
@@ -222,7 +218,7 @@ func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item
 		if err != nil {
 			// Unwind this iteration's completed nodes.
 			stack.Unwind(ctx)
-			return outcome{
+			return iterOutcome{
 				undo: iterationUndo{
 					ProxyCtx: proxyCtx,
 					Results:  results,
@@ -245,7 +241,7 @@ func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item
 		terminalResult = results[ordered[len(ordered)-1].ID]
 	}
 
-	return outcome{
+	return iterOutcome{
 		result: terminalResult,
 		undo: iterationUndo{
 			ProxyCtx: proxyCtx,

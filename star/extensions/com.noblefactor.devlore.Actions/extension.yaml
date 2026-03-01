@@ -13,6 +13,10 @@ receivers:
     builtin: true
     type: FileReceiver
     description: Filesystem operations
+  - name: ui
+    builtin: true
+    type: UiReceiver
+    description: Status output (note, warn, success, fail)
 
 commands:
   - name: devlore.actions.generate
@@ -43,6 +47,14 @@ commands:
         type: bool
         default: "false"
         help: Write files to output directory instead of stdout
+      - name: gen
+        type: bool
+        default: "false"
+        help: Enable gen/ subpackage mode with type graph walking and struct converters
+      - name: extra-attrs
+        type: string
+        default: ""
+        help: Comma-separated extra attribute names from companion query files
 
   - name: devlore.actions.validate
     help: Validate Starlark API contract against resource provider source

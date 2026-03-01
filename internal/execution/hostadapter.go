@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+//go:build ignore
+// +build ignore
+
+// hostadapter.go is excluded from the build: the pkg/op/provider/host package
+// was deleted as part of binding-unification. See docs/plans/devlore-op-platform-struct.md
+// for the replacement (op.Platform struct).
+
 package execution
 
 import (
 	"fmt"
 
-	"github.com/NobleFactor/devlore-cli/internal/host"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/host"
 )
 
 // NewHostProvider wraps a host.Host in the op.HostProvider interface.

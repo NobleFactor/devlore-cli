@@ -3,7 +3,10 @@
 
 package op
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
 
 // AsStateMap performs a nil-safe type assertion of compensation state
 // to map[string]any. Returns nil if state is nil or not a map.
@@ -63,4 +66,20 @@ func StateStringSlice(m map[string]any, key string) []string {
 		return nil
 	}
 	return v
+}
+
+// ExtractUndo extracts a typed value from an undo state map.
+//
+// A nil map is a programming error — it means the action layer's nil guard was bypassed.
+// This panics immediately so the bug is unmistakable in logs and crash reports.
+func ExtractUndo[T any](undo map[string]any, key string) (T, error) {
+	if undo == nil {
+		panic(fmt.Sprintf("BUG: nil undo state passed to ExtractUndo (key %q) — the action layer must guard nil before calling Compensate*", key))
+	}
+	val, ok := undo[key].(T)
+	if !ok {
+		var zero T
+		return zero, fmt.Errorf("invalid undo state: expected %T for key %q", zero, key)
+	}
+	return val, nil
 }

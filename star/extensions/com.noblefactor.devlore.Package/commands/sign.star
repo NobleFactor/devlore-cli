@@ -20,7 +20,7 @@ def _resolve_target(ctx):
         sibling = file.join("..", "devlore-registry")
         if file.is_directory(sibling):
             target = sibling
-            note("Using sibling registry: " + target)
+            ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
     if not file.is_directory(target):

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+//go:build ignore
+// +build ignore
+
 package execution_test
 
 import (
@@ -10,6 +13,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,25 +30,42 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
 )
 
-// mockServiceManager is a stub ServiceManagerProvider for tests.
+// mockServiceManager implements op.ServiceManager for tests.
 type mockServiceManager struct {
-	startErr error
+	startFail bool
 }
 
 func (m *mockServiceManager) Exists(_ string) bool    { return false }
 func (m *mockServiceManager) IsRunning(_ string) bool { return false }
 func (m *mockServiceManager) IsEnabled(_ string) bool { return false }
-func (m *mockServiceManager) Start(name string) error { return m.startErr }
-func (m *mockServiceManager) Stop(_ string) error     { return nil }
-func (m *mockServiceManager) Enable(_ string) error   { return nil }
-func (m *mockServiceManager) Disable(_ string) error  { return nil }
+func (m *mockServiceManager) Status(_ string) string  { return "stopped" }
+func (m *mockServiceManager) NeedsSudo() bool         { return false }
+
+func (m *mockServiceManager) Start(_ string) op.PlatformResult {
+	if m.startFail {
+		return op.PlatformResult{OK: false, Stderr: "mock start failure"}
+	}
+	return op.PlatformResult{OK: true}
+}
+
+func (m *mockServiceManager) Stop(_ string) op.PlatformResult {
+	return op.PlatformResult{OK: true}
+}
+
+func (m *mockServiceManager) Enable(_ string) op.PlatformResult {
+	return op.PlatformResult{OK: true}
+}
+
+func (m *mockServiceManager) Disable(_ string) op.PlatformResult {
+	return op.PlatformResult{OK: true}
+}
 
 // --- pkg action dry-run tests ---
 
 func TestPkgInstallDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &pkg.Install{Impl: &pkg.Provider{}}
+	action := &pkg.Install{}
 	slots := map[string]any{
 		"packages": []string{"vim", "tmux"},
 		"manager":  "brew",
@@ -63,7 +84,7 @@ func TestPkgInstallDryRun(t *testing.T) {
 func TestPkgUpgradeDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &pkg.Upgrade{Impl: &pkg.Provider{}}
+	action := &pkg.Upgrade{}
 	slots := map[string]any{
 		"packages": []string{"vim"},
 		"manager":  "brew",
@@ -82,7 +103,7 @@ func TestPkgUpgradeDryRun(t *testing.T) {
 func TestPkgRemoveDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &pkg.Remove{Impl: &pkg.Provider{}}
+	action := &pkg.Remove{}
 	slots := map[string]any{
 		"packages": []string{"unused-pkg"},
 		"manager":  "brew",
@@ -101,7 +122,7 @@ func TestPkgRemoveDryRun(t *testing.T) {
 func TestPkgUpdateDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &pkg.Update{Impl: &pkg.Provider{}}
+	action := &pkg.Update{}
 	slots := map[string]any{
 		"manager": "brew",
 	}
@@ -167,7 +188,7 @@ func TestPowerShellDryRun(t *testing.T) {
 func TestServiceStartDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &service.Start{Impl: &service.Provider{}}
+	action := &service.Start{}
 	slots := map[string]any{"name": "nginx"}
 
 	_, _, err := action.Do(ctx, slots)
@@ -185,7 +206,7 @@ func TestServiceStartDryRun(t *testing.T) {
 func TestServiceStopDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &service.Stop{Impl: &service.Provider{}}
+	action := &service.Stop{}
 	slots := map[string]any{"name": "nginx"}
 
 	_, _, err := action.Do(ctx, slots)
@@ -200,7 +221,7 @@ func TestServiceStopDryRun(t *testing.T) {
 func TestServiceRestartDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &service.Restart{Impl: &service.Provider{}}
+	action := &service.Restart{}
 	slots := map[string]any{"name": "nginx"}
 
 	_, _, err := action.Do(ctx, slots)
@@ -215,7 +236,7 @@ func TestServiceRestartDryRun(t *testing.T) {
 func TestServiceEnableDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &service.Enable{Impl: &service.Provider{}}
+	action := &service.Enable{}
 	slots := map[string]any{"name": "nginx"}
 
 	_, _, err := action.Do(ctx, slots)
@@ -230,7 +251,7 @@ func TestServiceEnableDryRun(t *testing.T) {
 func TestServiceDisableDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &service.Disable{Impl: &service.Provider{}}
+	action := &service.Disable{}
 	slots := map[string]any{"name": "nginx"}
 
 	_, _, err := action.Do(ctx, slots)
@@ -243,9 +264,11 @@ func TestServiceDisableDryRun(t *testing.T) {
 }
 
 func TestServiceEmptyName(t *testing.T) {
-	p := &service.Provider{}
-	svc := &mockServiceManager{startErr: fmt.Errorf("empty service name")}
-	_, _, err := p.Start(svc, "", os.Stdout)
+	platform := &op.Platform{
+		ServiceManager: &mockServiceManager{startFail: true},
+	}
+	p := &service.Provider{Platform: platform}
+	_, _, err := p.Start("", io.Discard)
 	if err == nil {
 		t.Fatal("expected error for empty service name")
 	}

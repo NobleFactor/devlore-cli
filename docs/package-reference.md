@@ -4,14 +4,6 @@ Two-tiered list of all Go packages. Public elements (uppercase) listed first, th
 
 ---
 
-## cmd/bindgen
-- **main** (func): Entry point for bindgen CLI tool
-- **cmdExtractCobra** (func): Extract commands from Go/Cobra source
-- **cmdGenerate** (func): Generate Go and Starlark code from YAML
-- **cmdParse** (func): Parse CLI help and output YAML definition
-- **cmdScaffold** (func): Parse and generate in one step
-- usage (func): Display usage information
-
 ## cmd/docgen
 - **main** (func): Entry point for docgen CLI tool
 - countCommands (func): Count commands recursively
@@ -42,52 +34,6 @@ Two-tiered list of all Go packages. Public elements (uppercase) listed first, th
 
 ## cmd/writ
 - **main** (func): Entry point for writ CLI tool
-
-## internal/bindgen
-- **Arg** (struct): Defines a positional argument
-- **BindingDef** (struct): Defines a CLI tool's Starlark binding
-- **Command** (struct): Defines a single CLI command or subcommand
-- **Flag** (struct): Defines a named flag/option
-- **GoGenerator** (struct): Produces Go source code for Starlark bindings
-- **GoType** (func): Returns the Go type for a flag/arg type
-- **HelpParser** (struct): Extracts binding metadata from CLI --help output
-- **ListSubcommands** (func): Attempts to extract subcommand names from help
-- **LoadYAML** (func): Loads a binding definition from YAML file
-- **Merge** (func): Combines two binding definitions
-- **NewGoGenerator** (func): Creates a new Go code generator
-- **NewHelpParser** (func): Creates a parser for given command
-- **NewStubGenerator** (func): Creates new Starlark stub generator
-- **Return** (struct): Defines what a command returns
-- **SaveYAML** (func): Saves a binding definition to YAML file
-- **StarlarkType** (func): Returns the Starlark type annotation
-- **StubGenerator** (struct): Produces Starlark stub code for IDE completion
-- buildCmd (func): Generates code to build command arguments
-- extractDescription (func): Gets command description from help text
-- extractFlags (func): Parses flag definitions from help text
-- flagArgs (func): Generates function parameter parsing for flags
-- inferType (func): Guesses type from help text hints
-- kwargSwitch (func): Generates switch statement for parsing kwargs
-- mergeCommand (func): Combines two command definitions
-- mergeFlags (func): Combines flag lists with override precedence
-- parseHelp (func): Extracts command metadata from help text
-
-## internal/bindgen/cobra
-- **Extractor** (struct): Parses Go source files to find Cobra command definitions
-- **NewExtractor** (func): Creates new Cobra extractor
-- boolValue (func): Extracts bool value from AST expression
-- calculatePrefix (func): Determines command prefix from package directory
-- defaultValue (func): Extracts default value as string
-- extractCmdName (func): Extracts command name from Use string
-- extractCommand (func): Extracts command metadata from cobra.Command literal
-- extractFlagArgs (func): Extracts flag details from call arguments
-- extractFlagFromCall (func): Extracts flag metadata from method calls
-- extractFromFunction (func): Extracts commands and flags from single function
-- extractFromPackage (func): Extracts commands from a loaded package
-- findPackages (func): Finds all Go package patterns in directory tree
-- isCobraCommand (func): Checks if composite literal is cobra.Command
-- isFlagReceiver (func): Checks if expression is flag-related receiver
-- parseFlagMethod (func): Determines flag type and whether it has short form
-- stringValue (func): Extracts string value from AST expression
 
 ## internal/cli
 - **AddMutationFlags** (func): Adds --passthru and --format flags for mutating commands
@@ -497,4 +443,4 @@ Two-tiered list of all Go packages. Public elements (uppercase) listed first, th
 
 ---
 
-**Summary**: 5 cmd packages, 20+ internal packages with subpackages, 1 schema package.
+**Summary**: 4 cmd packages, 20+ internal packages with subpackages, 1 schema package.
