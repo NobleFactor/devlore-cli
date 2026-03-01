@@ -44,11 +44,6 @@ func Actor(fn func(path string, dirEntry os.DirEntry) error) Reducer {
 // +devlore:callable swallow=stack
 type Reducer func(initial any, path string, dirEntry os.DirEntry, stack *op.RecoveryStack) (result any, err error)
 
-type Tombstone struct {
-	RecoveryPath string // Where it is now
-	OriginalPath string // Where it used to be
-}
-
 var (
 	// SkipDir indicates that the current directory should be skipped.
 	SkipDir = fs.SkipDir
@@ -880,17 +875,17 @@ func (p *Provider) write(path string, data []byte, mode os.FileMode) (result Res
 	}
 	defer f.Close()
 
-	var size int
 	hasher := sha256.New()
 	mw := io.MultiWriter(f, hasher)
 
+	var size int
 	size, err = mw.Write(data)
 
 	if err != nil {
 		return result, undo, err
 	}
 
-	// Finalize
+	// Finalize (to catch write errors early)
 
 	if err = f.Sync(); err != nil {
 		return result, undo, err

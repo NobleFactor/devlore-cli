@@ -18,6 +18,7 @@ Internal engineering documentation for devlore-cli developers.
 - [Action Namespaces](devlore-operation-namespaces.md) - How to add new action namespaces to the execution engine
 - [Provider Loading and Lifetime](devlore-provider-loading.md) - Module loading via `@devlore//`, `With()` opt-in, three-level provider lifetime model (stateless, phase, session)
 - [Receipt Integrity](devlore-receipt-integrity.md) - Checksum and signature verification for receipts
+- [Resource Management](devlore-resource-management.md) - URI-based resource tracking, lineage, shadowing, tombstone unification
 
 ### Tooling
 

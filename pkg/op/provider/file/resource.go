@@ -33,6 +33,11 @@ type Resource struct {
 	Checksum   string
 }
 
+type Tombstone struct {
+	RecoveryPath string // Where it is now
+	OriginalPath string // Where it used to be
+}
+
 // NewResource initializes a new [Resource] by checking the existence and size of the file at the provided sourcePath.
 //
 // Parameters:
@@ -93,7 +98,7 @@ func (r *Resource) Exists() bool {
 	return !r.ModTime.IsZero()
 }
 
-// Reader returns an io.ReadCloser for reading the blob's data from its source path.
+// Reader returns an io.ReadCloser for reading the file resource's data from its source path.
 //
 // The caller is responsible for closing the returned reader.
 //
@@ -101,7 +106,7 @@ func (r *Resource) Exists() bool {
 //   - none
 //
 // Returns:
-//   - io.ReadCloser: an io.ReadCloser for reading the blob's data
+//   - io.ReadCloser: an io.ReadCloser for reading the file resource's data
 //   - error: any error that occurred during opening
 func (r *Resource) Reader() (io.ReadCloser, error) {
 	return os.Open(r.SourcePath)
