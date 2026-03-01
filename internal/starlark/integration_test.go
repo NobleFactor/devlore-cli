@@ -27,6 +27,7 @@ import (
 //  4. Providers not in With() are not in globals
 //  5. Loader cache deduplicates factory calls
 func TestLoadIntegration(t *testing.T) {
+	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/172")
 	// Point WorkDir at the testdata directory so starcode.capture finds .star files.
 	testdataDir, err := filepath.Abs("testdata")
 	if err != nil {

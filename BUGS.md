@@ -14,7 +14,7 @@ Resolved by the tombstone recovery rewrite. `CompensateCopy` now delegates to `c
 
 Resolved by updating `register.go` to import `provider/pkg/gen` instead of `provider/pkg`. The `init()` registrations moved to `gen/` subdirectories during binding unification but the import paths were not updated.
 
-## #168: TestLoadIntegration fails — undefined: ui
+## #172: TestLoadIntegration fails — undefined: ui
 
 `internal/starlark.TestLoadIntegration` fails at `load_test.star:11:31` with `undefined: ui`. The test's Starlark globals do not include the `ui` provider binding. The `ui` provider was removed from the old hand-coded global set during binding unification but is not yet re-registered via the new `BindingSet` API in the test harness.
 
