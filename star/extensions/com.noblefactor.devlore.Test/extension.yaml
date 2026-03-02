@@ -1,0 +1,37 @@
+extension: com.noblefactor.devlore.Test
+description: Test harness for Starlark graph planning and execution
+
+receivers:
+  - name: ui
+    builtin: true
+    type: UiReceiver
+    description: Status output (note, warn, success, fail)
+
+commands:
+  - name: devlore.test.run
+    help: Run a Starlark test script that plans and executes a graph
+    implementation: commands/run.star
+    flags:
+      - name: script
+        type: string
+        required: true
+        help: Path to the test script (.star)
+      - name: dry-run
+        type: bool
+        default: "false"
+        help: "Plan only, no side effects"
+      - name: trace
+        type: bool
+        default: "false"
+        help: "Enable Starlark step trace"
+      - name: tool-path
+        type: string
+        default: ""
+        help: "Path to devlore-test binary (overrides config and env)"
+
+config:
+  path: "test"
+  fields:
+    tool_path: string
+  defaults:
+    tool_path: "build/devlore-test"

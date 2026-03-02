@@ -3,7 +3,9 @@
 
 package execution
 
-import "github.com/NobleFactor/devlore-cli/pkg/op"
+import (
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+)
 
 // LifecycleHook receives events at phase and node boundaries during execution.
 // Hooks are fire-and-forget — a hook panic is recovered and logged but does not

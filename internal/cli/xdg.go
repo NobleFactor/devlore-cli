@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-// XDG Base Directory Specification paths.
+// XDG ProviderBase Directory Specification paths.
 // See: https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
 
 // ConfigHome returns XDG_CONFIG_HOME or ~/.config

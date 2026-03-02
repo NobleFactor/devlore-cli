@@ -8,9 +8,10 @@ Monorepo for the **lore** and **writ** command-line tools.
 ## Building
 
 ```bash
-make build          # Build both binaries to bin/
-make lore           # Build lore only
-make writ           # Build writ only
+make build # Build both binaries to bin/
+make lore  # Build lore only
+make writ  # Build writ only
+
 ```
 
 ## Installing
@@ -39,22 +40,23 @@ writ man deploy                   # Display man page for subcommand
 
 ## XDG Compliance
 
-All paths follow the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
+All paths follow
+the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
 
-| Artifact | Default Path |
-|----------|--------------|
-| Shared config | `$XDG_CONFIG_HOME/devlore/config.yaml` |
-| Tool configs | `$XDG_CONFIG_HOME/devlore/config.d/{writ,lore}.yaml` |
-| Registry cache | `$XDG_CACHE_HOME/devlore/registry/` |
-| Downloads cache | `$XDG_CACHE_HOME/devlore/downloads/` |
-| Writ layers | `$XDG_DATA_HOME/devlore/writ/layers/` |
-| Writ receipts | `$XDG_STATE_HOME/devlore/writ/receipts/` |
-| Lore receipts | `$XDG_STATE_HOME/devlore/lore/receipts/` |
-| Man pages | `<prefix>/share/man/man1/` |
-| Bash completions | `<prefix>/share/bash-completion/completions/` |
-| Zsh completions | `<prefix>/share/zsh/site-functions/` |
-| Fish completions | `<prefix>/share/fish/vendor_completions.d/` |
-| PowerShell completions | `<prefix>/share/powershell/completions/` |
+| Artifact               | Default Path                                         |
+|------------------------|------------------------------------------------------|
+| Shared config          | `$XDG_CONFIG_HOME/devlore/config.yaml`               |
+| Tool configs           | `$XDG_CONFIG_HOME/devlore/config.d/{writ,lore}.yaml` |
+| Registry cache         | `$XDG_CACHE_HOME/devlore/registry/`                  |
+| Downloads cache        | `$XDG_CACHE_HOME/devlore/downloads/`                 |
+| Writ layers            | `$XDG_DATA_HOME/devlore/writ/layers/`                |
+| Writ receipts          | `$XDG_STATE_HOME/devlore/writ/receipts/`             |
+| Lore receipts          | `$XDG_STATE_HOME/devlore/lore/receipts/`             |
+| Man pages              | `<prefix>/share/man/man1/`                           |
+| Bash completions       | `<prefix>/share/bash-completion/completions/`        |
+| Zsh completions        | `<prefix>/share/zsh/site-functions/`                 |
+| Fish completions       | `<prefix>/share/fish/vendor_completions.d/`          |
+| PowerShell completions | `<prefix>/share/powershell/completions/`             |
 
 ## Project Structure
 

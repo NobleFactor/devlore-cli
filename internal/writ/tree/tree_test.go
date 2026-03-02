@@ -525,7 +525,7 @@ func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
 	personalDir := t.TempDir()
 	targetDir := t.TempDir()
 
-	// Base layer with high specificity (all.Darwin)
+	// ProviderBase layer with high specificity (all.Darwin)
 	if err := os.MkdirAll(filepath.Join(baseDir, "all.Darwin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +582,7 @@ func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
 		if c.WinnerSpecificity != 0 {
 			t.Errorf("winner specificity = %d, want 0 (personal/all)", c.WinnerSpecificity)
 		}
-		// Base loses with specificity 1
+		// ProviderBase loses with specificity 1
 		if c.LoserSpecificity != 1 {
 			t.Errorf("loser specificity = %d, want 1 (base/all.Darwin)", c.LoserSpecificity)
 		}

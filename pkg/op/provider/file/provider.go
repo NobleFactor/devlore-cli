@@ -18,6 +18,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 )
 
+var _ op.Provider = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.Provider.
+
 // Provider provides file system actions.
 //
 // Compensable forward methods return (string, map[string]any, error): the resource path, the compensation receipt, and
@@ -26,7 +28,8 @@ import (
 // +devlore:access=both
 // +devlore:bind Root=WorkDir
 type Provider struct {
-	Root string // Working directory for Glob and WalkTree
+	op.ProviderBase
+	Root string
 }
 
 // Actor returns a Reducer that calls the given function for each file or directory in a WalkTree operation.
@@ -643,8 +646,8 @@ func (p *Provider) CompensateWriteText(undo map[string]any) error {
 //
 // Returns:
 //   - bool: true if the file at "path" exists, false otherwise
-func (p *Provider) Exists(blob Resource) bool {
-	_, err := os.Lstat(blob.SourcePath)
+func (p *Provider) Exists(fileResource Resource) bool {
+	_, err := os.Lstat(fileResource.SourcePath)
 	return err == nil
 }
 
