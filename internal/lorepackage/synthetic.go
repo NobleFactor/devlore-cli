@@ -15,7 +15,7 @@ import (
 // Synthetic packages are created for native PM packages that aren't in the lore registry.
 // The cache reduces repeated package manager queries and provides persistence.
 type SyntheticCache struct {
-	cacheDir string // Base cache directory (e.g., ~/.cache/devlore/registry)
+	cacheDir string // ProviderBase cache directory (e.g., ~/.cache/devlore/registry)
 }
 
 // SyntheticPackageInfo is the cached metadata for a synthetic package.

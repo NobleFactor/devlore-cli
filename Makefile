@@ -18,7 +18,7 @@ LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/internal/cli.Version=
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 
 # Code generator (star binary from sibling repo)
-STAR_REPO ?= ../noblefactor-ops.binding-unification
+STAR_REPO ?= ../noblefactor-ops
 STAR ?= $(STAR_REPO)/bin/star
 
 # Provider source root
@@ -157,6 +157,7 @@ generate: \
 build: generate
 	go build $(LDFLAGS) -o build/lore ./cmd/lore
 	go build $(LDFLAGS) -o build/writ ./cmd/writ
+	go build $(LDFLAGS) -o build/devlore-test ./cmd/devlore-test
 
 clean:
 	rm -rf build/

@@ -3,7 +3,9 @@
 
 package flow
 
-import "github.com/NobleFactor/devlore-cli/pkg/op"
+import (
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+)
 
 // Elevate is a privilege transition flow action. It marks the boundary between
 // unprivileged and privileged execution as an explicit graph node. In dry-run

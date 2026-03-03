@@ -45,7 +45,16 @@ path was modified by node A, so node B must wait."
 ## 2. Architectural Summary
 
 The resource management architecture separates **intent** (planning) from
-**reality** (execution) using three core components and a shadowing mechanism.
+**reality** (execution). A graph is planned once and can be executed on
+many machines — local or remote. This forces a clean separation:
+
+- **Coercion** (plan time): Type-tagging raw values to typed Resources.
+  Pure — no I/O, no `os.Stat`. The planner knows *what type* a slot
+  should hold.
+- **Resolution** (execution time): Metadata population against a target
+  machine. The executor knows *what exists* on each target.
+
+Three core components and a shadowing mechanism:
 
 ```
                          ┌──────────────────────────────┐
@@ -79,11 +88,12 @@ type Resource struct {
 }
 ```
 
-**Ledger** — An append-only list of every `Resource` created during planning.
-Each entry records its producer (`OriginNodeID`) or marks itself as
-pre-existing (discovered). The ledger is the audit trail for the entire plan.
-It stores `any` because Go generics do not allow `[]Resource[T]` for mixed `T`
-in a single slice.
+**Ledger** — An append-only collection of every `Resource` created during
+planning, keyed by resource ID. Each entry records its producer
+(`OriginNodeID`) or marks itself as pre-existing (discovered). The ledger
+is the plan-time skeleton — URIs and relationships, no metadata. It is
+portable across machines. Metadata is populated per-execution by the
+executor's pre-flight resolution pass against the target machine.
 
 **NamespaceMap** — A mutable URI-to-ResourceID lookup used during planning.
 When a provider method reads a path, it calls `Resolve` to get the current
@@ -134,10 +144,21 @@ Each field serves a specific purpose:
 | `ModTime` | `os.FileInfo.ModTime()` | Last modification time |
 | `Checksum` | `checksumFile()` (SHA-256) | Content integrity |
 
+**Three resource states:**
+
+- **Unresolved** — Source input. URI and type set, metadata empty. Created
+  at plan time by `namespace.Resolve()`. Resolved by the executor's
+  pre-flight pass (os.Stat against target machine).
+- **Pending** — Output. URI and type set, metadata empty. Created at plan
+  time by `namespace.Shadow()`. Resolved by node execution results — the
+  provider populates metadata after creating the entity.
+- **Resolved** — Metadata populated (inode, device, size, mode, modtime,
+  checksum). Either resolved by pre-flight or by node execution.
+
 **Discovery**: `NewResource` (`resource.go:47`) performs `os.Stat` and
-populates all metadata fields. If the file does not exist, it returns a
-partial resource with only `URI` and `SourcePath` set — a "known path but no
-data" state that the executor must fulfill via a node later.
+populates all metadata fields. In the target architecture, `NewResource` is
+called only during execution (on the target machine), never during planning.
+At plan time, `ResourceFromPath` creates a typed but metadata-empty Resource.
 
 **Post-write refresh**: After a successful mutation, `RefreshMetadataWith`
 (`resource.go:146`) re-stats the file to capture kernel-assigned identity
@@ -321,11 +342,31 @@ it walks through five coercion steps:
  6. Error         → "cannot coerce %T to %s"
 ```
 
-Step 5 is where string-to-Resource conversion happens. The coercion is
+Step 5 is where string-to-Resource conversion happens today. The coercion is
 transparent to Starlark scripts and provider code — Starlark passes a string
-path, the constructor calls `NewResource`, and the provider method receives a
-fully populated `file.Resource` with Inode, Size, Mode, and Checksum already
-filled in.
+path, the constructor calls `NewResource` (which does `os.Stat`), and the
+provider method receives a fully populated `file.Resource`.
+
+**Target architecture — planner coerces, executor resolves:**
+
+The constructor registry evolves into a coercion table with two kinds of
+entries:
+
+- **Plan-time coercions** (pure, no I/O): `string → file.Resource{URI
+  only}`. Called by `buildPlannedBridge` when a Starlark string is passed
+  to a slot expecting `file.Resource`. Creates a typed but unresolved
+  Resource — URI and type set, metadata empty. The planner is pure because
+  a graph is planned once and executed on many machines; `os.Stat` at plan
+  time gives the wrong machine's metadata.
+- **Execution-time resolvers**: `file.Resource{unresolved} →
+  file.Resource{resolved}`. Called by the executor's pre-flight pass
+  against the target machine. These do I/O (os.Stat, service status
+  check, package version query).
+
+The coercion table also supports cross-provider conversions:
+`(mem.Resource, file.Resource) → converter`. The provider never sees a
+foreign resource type — coercion is the only place where cross-provider
+type bridging happens.
 
 ## 5. The Recovery Model Today
 
@@ -461,26 +502,35 @@ management plan is fully implemented.
 ### 6.1 ResourceManager
 
 The `ResourceManager` is a graph-level object that owns the ledger. One
-`ResourceManager` per plan session. The ledger stores `any` because Go
-generics do not allow mixed type parameters in a single slice.
+`ResourceManager` per plan session. The ledger is the plan-time skeleton —
+URIs, relationships, and resource states, but no target-machine-specific
+metadata. Metadata is populated per-execution by the executor's pre-flight
+resolution pass.
 
 ```
 ResourceManager
-├── ledger: []any             ← append-only, mixed Resource types
-├── metadata: map[ID]Metadata ← physical state (hash, inode, size)
+├── ledger: map[ID]Resource   ← append-only, keyed by resource ID
 └── methods:
     ├── EnsureCataloged(uri, producerID) → Resource
-    └── LookupResource[T](id) → T, bool
+    ├── Lookup(id) → Resource, bool
+    ├── Unresolved() → []Resource   ← entries needing pre-flight resolution
+    └── Resolve(id, metadata)       ← called by executor after stat
 ```
 
-Type-safe access is via `LookupResource[T]`:
+The ledger stores `Resource` values (with `op.Resource` embedded). The
+`NamespaceMap` deduplicates by URI — if 5 nodes reference the same source
+path, `namespace.Resolve()` returns the same resource ID. Pre-flight
+resolution stat's each unique URI once.
 
-```go
-// Target API — type-safe access to the any-typed ledger
-func LookupResource[T any](mgr *ResourceManager, id string) (T, bool) {
-    // Iterate ledger, type-assert to Resource wrapper containing T metadata
-}
-```
+**Plan-time vs execution-time ownership:**
+
+| Concern | Owner | When |
+| --- | --- | --- |
+| URIs and relationships | Planner (ResourceManager + NamespaceMap) | Plan time |
+| Implicit edges via shadowing | Planner | Plan time |
+| Resource state (unresolved/pending/resolved) | ResourceManager | Both |
+| Metadata (inode, size, checksum) | Executor pre-flight | Execution time, per target |
+| Pending → resolved transitions | Node execution results | Execution time |
 
 ### 6.2 NamespaceMap
 
@@ -524,24 +574,50 @@ Step 2: plan.file.read(path="/etc/foo")
 Result: write happens before read. No explicit Output passing needed.
 ```
 
-### 6.4 Planning Data Flow
+### 6.4 Planning Data Flow (Pure — No I/O)
+
+The planner is pure. It coerces strings to typed Resources (URI only, no
+metadata) and builds the ledger skeleton. No `os.Stat`, no filesystem
+access. This is required because a graph is planned once and executed on
+many machines.
 
 ```
 Starlark call: plan.file.write_text(destination="/etc/foo", content="v2", mode=0o644)
     │
     ▼
-PlannedReceiver.write_text()
-    ├─ uri = "file://" + destination
-    ├─ namespace.Shadow(uri, node.ID)    ← new Resource in ledger
-    ├─ createNode("file.write_text")     ← graph node with slots
-    ├─ fillSlots(node, {destination, content, mode})
-    └─ return Resource (carries Output promise internally)
+buildPlannedBridge.write_text()
+    ├─ coerce "/etc/foo" → file.Resource{URI: "file:///etc/foo", state: pending}
+    ├─ namespace.Shadow("file:///etc/foo", node.ID)  ← new entry in ledger
+    ├─ createNode("file.write_text")                 ← graph node
+    ├─ fillSlots(node, {destination: file.Resource{pending}, content, mode})
+    └─ return Output (promise)
+
+Starlark call: plan.file.read(path="/etc/foo")
+    │
+    ▼
+buildPlannedBridge.read()
+    ├─ coerce "/etc/foo" → file.Resource (type-tag only)
+    ├─ namespace.Resolve("file:///etc/foo")
+    │   └─ returns resource from Shadow above → OriginNodeID = write node
+    ├─ createNode("file.read") with implicit edge from write node
+    └─ return Output (promise)
 ```
 
-### 6.5 Execution Data Flow
+### 6.5 Execution Data Flow (Per Target Machine)
+
+The executor resolves the plan-time skeleton against a specific target
+machine. Pre-flight resolution populates metadata for unresolved entries.
+Node execution populates metadata for pending entries.
 
 ```
-Executor.executeNode(node)
+Executor.Run(ctx, graph)  — on target machine
+    │
+    ├─ Pre-flight: resolution pass (flat iteration over ledger)
+    │   ├─ For each entry with state=unresolved:
+    │   │   ├─ os.Stat on target machine → populate metadata
+    │   │   ├─ Mark entry as resolved
+    │   │   └─ Fail-fast if source does not exist
+    │   └─ Pending entries skipped (don't exist yet)
     │
     ├─ Pre-flight: tombstone scan
     │   ├─ For each resource slot with OriginNodeID:
@@ -549,15 +625,93 @@ Executor.executeNode(node)
     │   │   └─ URI unoccupied? → no action
     │   └─ Inject physical state into slots
     │
-    ├─ action.Do(ctx, resolvedSlots) → result, undoState, error
+    ├─ For each node (topological order):
+    │   ├─ action.Do(ctx, resolvedSlots) → result, undoState, error
+    │   ├─ Post-flight: metadata update
+    │   │   ├─ Re-stat file for kernel-assigned identity
+    │   │   ├─ Record actual hash, inode, size in ledger
+    │   │   ├─ Mark pending resource as resolved
+    │   │   └─ Fulfill resource slot for downstream nodes
+    │   └─ Push recovery entry onto stack
     │
-    ├─ Post-flight: metadata update
-    │   ├─ Re-stat file for kernel-assigned identity
-    │   ├─ Record actual hash, inode, size in ledger
-    │   └─ Fulfill resource slot for downstream nodes
-    │
-    └─ Push recovery entry onto stack
+    └─ Same graph can be executed again on a different target
 ```
+
+### 6.6 Platform Provider — Data Provider
+
+The platform provider (`pkg/op/provider/platform/`) is a data provider, not
+an action provider. It is the Starlark surface for `op.Context.Platform` —
+no independent state, no side effects, no compensation pairs.
+
+Access type is `both`:
+
+- **Immediate** — `platform.distro` returns a string from the local
+  machine's Platform. Useful for single-machine local plans.
+- **Planned** — `plan.platform.distro` returns a promise (`Output`) that
+  the executor resolves against the target machine's Platform at execution
+  time. This is the mechanism by which a single graph targets many machines.
+
+```python
+# Immediate: branch on local machine's distro (single-target plans)
+if platform.distro == "Debian":
+    plan.pkg.install(packages=["nginx"])
+
+# Planned: branch at execution time (multi-target graphs)
+distro = plan.platform.distro
+plan.choose(distro, {
+    "Debian": lambda: plan.pkg.install(packages=["nginx"]),
+    "Fedora": lambda: plan.pkg.install(packages=["nginx"]),
+})
+```
+
+The executor populates `op.Context.Platform` before running any node. For
+remote targets, a different `*op.Platform` is constructed with the remote
+machine's OS, Arch, Distro, and its package/service manager implementations.
+The planned projection's promises resolve against whichever Platform the
+executor provides — the graph itself is target-agnostic.
+
+Because the provider is read-only, it requires no codegen (no actions, no
+params, no compensation). It will evolve as the Starlark receiver surface
+takes shape.
+
+### 6.7 Provider Lifecycle and Context Injection
+
+Providers are singletons. In a graph, a provider follows the lifetime of
+the graph. In a Starlark script, a provider follows the lifetime of the
+script. Every provider needs context — and context is provided at
+construction time. Every provider needs a constructor that accepts a
+context object by reference.
+
+**Current state** — Providers are zero-value structs with no constructor:
+
+```go
+// Generated code — no context, no lifecycle
+op.RegisterReflectedActions(reg, "pkg", &provider.Provider{}, Params)
+NewPkgReceiver(&provider.Provider{})
+```
+
+Context arrives per-call via `op.Context` in `action.Do(ctx, slots)`, but
+providers have no access to it at construction time. This forces providers
+that need platform info (pkg, service) to take manager arguments on every
+method call or to call `host.NewHost()` on every invocation.
+
+**Target state** — Every provider has a constructor that accepts context:
+
+```go
+// Target — context-injected singleton
+p := provider.New(ctx)
+op.RegisterReflectedActions(reg, "pkg", p, Params)
+NewPkgReceiver(p)
+```
+
+The provider holds a reference to the context and reads from it for the
+duration of the graph or script. For the platform provider, this means
+reading `ctx.Platform` directly. For file, pkg, and service providers,
+this means accessing Platform's managers without method-level arguments.
+
+This is a codegen change: the generated binding registrars and receiver
+factories must call a provider constructor with context instead of
+creating zero-value structs.
 
 ## 7. Integration with Current Architecture
 
@@ -594,16 +748,31 @@ create tombstones: the executor's pre-flight pass instead of each provider's
 ### 7.3 Relationship to Constructor Registry
 
 The existing `RegisterConstructor`/`Construct`/`coerceSlotValue` chain
-(`marshal.go:27-48`, `action_reflect.go:82-112`) already handles
-string-to-Resource coercion. When a Starlark script passes `"/etc/foo"` to a
-provider method expecting `file.Resource`, the constructor calls `NewResource`
-and returns a fully populated resource.
+(`marshal.go:27-48`, `action_reflect.go:82-112`) handles string-to-Resource
+coercion at execution time. When a Starlark script passes `"/etc/foo"` to a
+method expecting `file.Resource`, the constructor calls `NewResource` (which
+does `os.Stat`) and returns a fully populated resource.
 
-Resources formalize what the constructor registry does informally. Today, the
-constructor converts a path string to a `file.Resource` with discovery
-metadata. With the full resource architecture, the constructor becomes the
-entry point for namespace resolution — converting a string path into a
-namespace-tracked resource handle with lineage.
+**Target architecture**: The constructor registry evolves into a coercion
+table with two concerns:
+
+1. **Plan-time coercion** (pure, no I/O) — `string → file.Resource{URI
+   only}`. Called by `buildPlannedBridge` during planning. Creates typed
+   but metadata-empty Resources. This is the entry point for namespace
+   resolution — the coerced Resource is tracked in the ledger via
+   `namespace.Resolve()` or `namespace.Shadow()`.
+
+2. **Execution-time resolution** — `file.Resource{unresolved} →
+   file.Resource{resolved}`. Called by the executor's pre-flight pass on
+   the target machine. Populates metadata via `os.Stat`. This cannot
+   happen at plan time because a graph is planned once and executed on
+   many machines with different filesystem state.
+
+The coercion table also supports cross-provider conversions:
+`(mem.Resource, file.Resource) → converter`. Provider methods are
+monomorphic in their resource types — they never see a foreign resource
+type. The coercion table is the only place where cross-provider type
+bridging happens.
 
 ## 8. Provider Signature Migration
 
@@ -700,38 +869,50 @@ ResourceTombstone
    that shadows a `svc://nginx` resource causes the executor to capture the
    current service state before the node executes.
 
-## 10. Open Questions
+## 10. Open Questions and Resolved Decisions
 
-1. **Go generics constraint** — `Resource[T]` with mixed `T` in a single
-   ledger requires `any`-typed storage. Current code leans toward non-generic
-   `Resource` with embedding (as `file.Resource` already does).
+### Resolved
 
-2. **URI canonicalization** — Should `file:///etc/foo` and
-   `file:///etc/../etc/foo` resolve to the same resource? Current leaning:
-   yes — `filepath.Clean` before URI creation (already effectively done by
-   `os.Stat` in `NewResource`).
+1. **Go generics constraint** — Non-generic `Resource` with embedding.
+   `file.Resource` embeds `op.Resource`. The ledger stores `Resource` values
+   keyed by ID.
 
-3. **Immediate mode** — Immediate receivers (non-plan) have no graph and
-   nothing to shadow. Resources may be unnecessary for
-   `file.exists(path="/tmp/foo")`. Current leaning: immediate mode passes
-   through raw values; resources are planning-only.
+2. **URI canonicalization** — Yes. `filepath.Abs` + `filepath.Clean` before
+   URI creation. Applied at plan time (no `os.Stat` needed for
+   canonicalization).
 
-4. **Namespace scope** — One namespace per graph or one per phase? Per-graph
-   means phase boundaries don't reset visibility. Per-phase means phase A's
-   writes aren't visible to phase B unless explicitly passed. Current leaning:
-   per-graph, since phases are saga boundaries (compensation), not isolation
-   boundaries (visibility).
+3. **Immediate mode** — Immediate receivers pass through raw values;
+   resources are planning-only.
 
-5. **Tombstone ownership** — Should the executor own ALL tombstone logic, or
-   should providers retain the option for domain-specific compensation?
-   `service.Stop` → `service.Start` has no filesystem tombstone. Current
-   leaning: executor owns the *decision* of when to tombstone; providers own
-   the *mechanism* for their resource type.
+4. **Namespace scope** — Per-graph. Phases are saga boundaries
+   (compensation), not visibility boundaries.
 
-6. **Gather + resources** — When a gather produces N outputs at the same URI
+5. **Tombstone ownership** — Executor owns the *decision*; providers own
+   the *mechanism*.
+
+6. **Coercion vs resolution** — Planner coerces (pure type-tagging, no
+   I/O). Executor resolves (metadata population per target machine).
+   Required because a graph is planned once and executed on many machines.
+
+7. **Resolution timing** — Executor pre-flight pass resolves all unresolved
+   entries as a flat iteration over the ledger before any node executes.
+   Fail-fast: missing source files detected before partial execution.
+   Pending entries are resolved by node execution results.
+
+### Open
+
+1. **Gather + resources** — When a gather produces N outputs at the same URI
    scheme, how does the namespace handle uniqueness? Current leaning: each
    iteration gets a unique URI suffix (e.g., `file:///etc/foo.0`,
    `file:///etc/foo.1`).
+
+2. **Remote execution transport** — The graph is portable (planned once,
+   executed on many machines). The platform provider (section 6.6) resolves
+   target-machine identity via `op.Context.Platform`, but the execution
+   transport itself — how the executor runs nodes and stats files on a
+   remote machine — is not yet defined. The pre-flight resolution pass
+   needs a filesystem abstraction for remote targets (Platform carries
+   package/service managers but not filesystem operations).
 
 ## 11. Implementation Phases
 
@@ -749,7 +930,8 @@ details, requirements, and file listings.
 
 Phases 1-2 are pure additions (no existing code changes). Phase 3 is the
 pilot migration using the file provider as reference implementation. Phase 4
-extracts tombstone logic from the file provider to the executor. Phases 5-6
-propagate the pattern to all providers and generated code. During migration,
-the system runs in mixed mode: resource-aware providers coexist with raw-type
-providers.
+extracts tombstone logic from the file provider to the executor. Phase 5
+propagates the pattern to all providers. Phase 6 updates the codegen pipeline
+(`MethodParams` → `ParamSpec`, `generate.star` resource detection,
+`params.go.template`). During migration, the system runs in mixed mode:
+resource-aware providers coexist with raw-type providers.

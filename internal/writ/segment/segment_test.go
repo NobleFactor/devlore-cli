@@ -303,7 +303,7 @@ func TestUnassignedSegmentMatching(t *testing.T) {
 		t.Error("noblefactor.desktop should not match when ROLE is empty")
 	}
 
-	// Base directory should match
+	// ProviderBase directory should match
 	if !segs.Match("noblefactor") {
 		t.Error("noblefactor should match")
 	}

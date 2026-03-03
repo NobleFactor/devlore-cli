@@ -2,7 +2,7 @@
 title: "Resource Management: URI-Based Resource Tracking for Providers"
 status: draft
 created: 2026-02-27
-updated: 2026-03-01
+updated: 2026-03-03
 ---
 
 # Plan: Resource Management
@@ -13,9 +13,11 @@ Add a `ResourceManager` (append-only ledger) and `NamespaceMap`
 (URI-to-resource-ID lookup with Resolve/Shadow) to the execution graph so that
 providers track external state through typed resource handles instead of raw
 strings. The file provider already implements the resource pattern — `op.Resource`
-with URI/ID/OriginNodeID, `file.Resource` with filesystem metadata, constructor
-registry coercion from string to Resource. This plan extends that foundation to
-the graph, the executor, and all providers.
+with URI/ID/OriginNodeID, `file.Resource` with filesystem metadata. This plan
+extends that foundation to the graph, the executor, and all providers. Resource
+coercion (e.g., `string → file.Resource`) moves from provider init-time
+registration to the executor's planner boundary — providers always receive their
+own typed Resource, possibly in an unresolved state.
 
 ## Goals
 
@@ -96,8 +98,8 @@ What exists today, grounded in code:
 | `op.Resource` | Implemented | `pkg/op/resource.go:6` — `{URI, ID, OriginNodeID}` |
 | `file.Resource` | Implemented | `pkg/op/provider/file/resource.go:25` — embeds `op.Resource` + Inode, Device, Size, Mode, ModTime, Checksum |
 | `file.Tombstone` | Implemented | `pkg/op/provider/file/resource.go:36` — `{RecoveryPath, OriginalPath}` |
-| Constructor registry | Implemented | `pkg/op/marshal.go:23` — `RegisterConstructor`, `Construct`, `constructorRegistry` sync.Map |
-| String→Resource coercion | Implemented | `pkg/op/provider/file/resource.go:14` — `init()` registers `string → file.Resource` via `NewResource` |
+| Constructor registry | Implemented (moving) | `pkg/op/marshal.go:23` — `RegisterConstructor`, `Construct`, `constructorRegistry` sync.Map. Per Decision #7, ownership moves from provider init() to the executor's coercion layer. |
+| String→Resource coercion | Implemented (moving) | `pkg/op/provider/file/resource.go:14` — `init()` registers `string → file.Resource` via `NewResource`. Will move to executor boundary. |
 | Coercion chain | Implemented | `pkg/op/action_reflect.go:82` — nil → assignable → convertible → map→struct → constructor → error |
 | `NewResource` (discovery) | Implemented | `pkg/op/provider/file/resource.go:47` — `os.Stat` + `checksumFile` + `syscall.Stat_t` |
 | `RefreshMetadataWith` | Implemented | `pkg/op/provider/file/resource.go:146` — post-write metadata update |
@@ -107,12 +109,14 @@ What exists today, grounded in code:
 | Node slots | Working | `map[string]SlotValue` — immediate values or promises |
 | Output/FillSlot | Working | `pkg/op/output.go:121` — routes Output/Gather/immediate/None into slots |
 | Graph edges | Working | Created by FillSlot when it sees an Output |
-| ResourceManager | **Missing** | No ledger, no ID generation, no EnsureCataloged |
-| NamespaceMap | **Missing** | No Resolve/Shadow, no URI-to-ID tracking |
+| ResourceManager | Implemented | `pkg/op/resource.go` — append-only ledger, `EnsureCataloged`/`Lookup`/`LedgerLen`, mutex-guarded monotonic `res-<N>` IDs |
+| NamespaceMap | Implemented | `pkg/op/namespace.go` — `Resolve`/`Shadow`/`Current`, URI→ResourceID mapping |
+| URI helpers | Implemented | `pkg/op/resource.go` — `SchemeFile`/`SchemeGit`/`SchemePackage`/`SchemeService`/`SchemeMem`, `ResourceURI()` with file path canonicalization |
 | Implicit edges | **Missing** | Only explicit Output passing creates edges |
 | Conflict detection | **Missing** | Two nodes targeting same path = silent race |
 | Executor tombstone layer | **Missing** | Only file provider has recovery; others have none |
 | Other provider resources | **Missing** | Only file provider has a Resource type |
+| Provider lifecycle | **Gap** | Providers are zero-value structs (`&Provider{}`). No constructor, no context injection. Context arrives per-call via `op.Context` in `Do()`. See Decision #8. |
 
 ## Design Decisions (Resolved)
 
@@ -175,6 +179,398 @@ gather body derive from per-iteration data and are naturally unique. If
 collisions arise in practice, the namespace will report the conflict. No
 special handling needed until a concrete case demands it.
 
+### 7. Resource Coercion at the Planner/Executor Boundary
+
+**Decision**: Coercion from raw values (strings) to typed Resources is an
+executor concern, not a provider concern. Providers always receive their own
+typed `Resource` — possibly unresolved (path exists but not yet stat'd) or
+pending (destination that doesn't exist yet), but always typed.
+
+#### What Is: Current Coercion Chain
+
+The coercion chain spans three time boundaries, with type knowledge locked
+in Go reflection:
+
+**Registration time** — Provider `init()` registers constructors:
+
+```
+file/resource.go:init()
+    → op.RegisterConstructor(func(v any) (file.Resource, error) { ... })
+    → constructorRegistry sync.Map: reflect.Type(file.Resource) → func
+```
+
+**Plan time** — `buildPlannedBridge` stores raw Starlark values in slots:
+
+```
+plan.file.copy(source_file="src.txt", destination_filename="dst.txt")
+    → starlark.UnpackArgs → vals[0] = starlark.String("src.txt")
+    → FillSlot(node, graph, "source_file", starlark.String("src.txt"))
+    → Unmarshal → node.SetSlotImmediate("source_file", "src.txt")  // string
+```
+
+No type checking. No Resource creation. Strings stay as strings.
+
+**Execution time** — `reflectedAction.Do()` coerces slots to method types:
+
+```
+reflectedAction.Do(ctx, slots{"source_file": "src.txt", ...})
+    → paramType := method.Type.In(1)  // file.Resource (via reflection)
+    → coerceSlotValue("src.txt", file.Resource)
+        Level 1: nil?                No
+        Level 2: assignable?         No (string ≠ file.Resource)
+        Level 3: convertible?        No
+        Level 4: map → struct?       No
+        Level 5: constructor?        YES → NewResource("src.txt")
+            → os.Stat("src.txt") → inode, size, checksum, mode, modtime
+            → file.Resource{SourcePath: "src.txt", Inode: ..., ...}
+    → Provider.Copy receives file.Resource
+```
+
+**Generated code carries NO type metadata.** `MethodParams` is
+`map[string][]string` — just param names. The 4-file codegen pattern:
+
+| File | Type info | What it does |
+| --- | --- | --- |
+| `params.gen.go` | None — names only | `MethodParams{"Copy": {"source_file", "destination_filename", ...}}` |
+| `actions.gen.go` | Implicit — Go reflection | `RegisterReflectedActions` reflects on `Provider` struct at runtime |
+| `planned.gen.go` | None | `WrapPlanned` → `buildPlannedBridge` → `FillSlot` stores raw values |
+| `immediate.gen.go` | Implicit — Go reflection | `WrapReceiver` → `buildMethodBridge` → `unmarshalValue` at call time |
+
+**Problems with current design:**
+
+1. **Late coercion** — `os.Stat` discovery happens inside `coerceSlotValue`
+   during execution. Errors surface at execution time, not planning time.
+2. **No cross-provider coercion** — the constructor registry maps
+   `target_type → func(any)`. There's no path from `mem.Resource` →
+   `file.Resource` — only `string → file.Resource`.
+3. **Scattered registration** — each provider's `resource.go:init()`
+   registers its constructor independently. The executor has no visibility
+   into what coercions are available.
+4. **No type validation at plan time** — passing an `int` to a Resource
+   slot silently stores it. The error surfaces in `coerceSlotValue` during
+   execution.
+
+#### What Will Be: Planner Coerces, Executor Resolves
+
+Two distinct operations, cleanly separated:
+
+- **Coercion** (plan time): Type-tagging. `string → file.Resource{URI,
+  state=unresolved}`. Pure — no I/O, no `os.Stat`. The planner knows
+  *what type* a slot value should be.
+- **Resolution** (execution time): Metadata population. `file.Resource
+  {unresolved} → file.Resource{resolved, inode, size, checksum}`. I/O
+  against the *target machine*. The executor knows *what exists*.
+
+This separation is forced by a hard constraint: **a graph can be planned
+once and executed on many machines**. A graph can target the local host or
+any number of remote machines. `os.Stat` at plan time gives the planning
+machine's metadata, not the target's. `/etc/nginx/nginx.conf` has different
+inode, size, and checksum on every machine. The planner must be pure.
+
+**Registration time** — the registry evolves from a constructor registry
+to a **coercion table** that maps `(source_type, target_type)` pairs:
+
+```
+// Current: target_type → constructor (does I/O via NewResource → os.Stat)
+constructorRegistry: reflect.Type(file.Resource) → func(any) (any, error)
+
+// Target: (source_type, target_type) → coercion_func (pure, no I/O)
+coercionTable:
+    (string, file.Resource)        → file.ResourceFromPath(s)  // URI only, no stat
+    (string, service.Resource)     → service.ResourceFromName(s)
+    (string, pkg.Resource)         → pkg.ResourceFromName(s)
+    (mem.Resource, file.Resource)  → file.ResourceFromMem(m)
+```
+
+**Plan time** — `buildPlannedBridge` coerces slot values to typed
+Resources using the coercion table. This requires `buildPlannedBridge` to
+know param types — either via `reflect.Method` (passed from `WrapPlanned`)
+or via enriched `MethodParams`. The result is typed but metadata-empty:
+
+```
+plan.file.copy(source_file="src.txt", destination_filename="dst.txt")
+    → buildPlannedBridge knows: param 0 expects file.Resource
+    → coercionTable.Coerce("src.txt", file.Resource)
+        → file.Resource{URI: "file:///src.txt", state: unresolved}  // no os.Stat
+    → namespace.Resolve("file:///src.txt") → resource-1 (cataloged, unresolved)
+    → node.SetSlotImmediate("source_file", file.Resource{...})
+```
+
+The graph now contains typed Resources in its slots. The ledger contains
+URIs and relationships. No metadata. Portable across machines.
+
+**Executor pre-flight** (NEW, per execution target) — resolves all
+unresolved resources against the target machine before any node runs:
+
+```
+for each entry in resourceManager.Ledger():
+    if entry.State == unresolved:
+        metadata := resolve(entry)  // os.Stat on target machine
+        if err:
+            fail-fast: "source file not found: /etc/foo"
+        entry.State = resolved
+        entry.Metadata = metadata
+    // pending entries (outputs) skip — they don't exist yet
+```
+
+This is a flat iteration over the ledger — O(unique source URIs), not a
+graph traversal. The namespace deduplicates by URI: if 5 nodes reference
+the same source path, `namespace.Resolve()` returns the same resource ID,
+and pre-flight stat's it once.
+
+**Execution time** — `reflectedAction.Do()` receives typed, resolved
+Resources. `coerceSlotValue` Level 2 (assignable) matches immediately.
+Level 5 (constructor) never fires. Pending Resources (outputs) are
+populated by node results and flow downstream via promise resolution.
+
+**Example flow:**
+
+```
+PLAN (pure, no I/O):
+    plan.file.copy("source.txt", "dest.txt")
+        → slot: source_file = file.Resource{URI: "file:///src.txt", state: unresolved}
+        → slot: destination_filename = "dst.txt"  (string, not a Resource)
+        → ledger: [resource-1: file:///src.txt, unresolved]
+
+EXECUTE on machine A:
+    pre-flight:
+        → resolve resource-1 against machine A
+        → os.Stat("/src.txt") → inode=42, size=1024, checksum=abc...
+        → resource-1.State = resolved, resource-1.Metadata = {...}
+
+    reflectedAction.Do():
+        → slot source_file: file.Resource{resolved} → Level 2: assignable ✓
+        → Provider.Copy receives (file.Resource, string, os.FileMode)
+
+EXECUTE on machine B (same graph, different target):
+    pre-flight:
+        → resolve resource-1 against machine B
+        → os.Stat("/src.txt") → inode=99, size=1024, checksum=def...
+        → resource-1.State = resolved, resource-1.Metadata = {...}  // different inode, checksum
+```
+
+#### Ledger Structure
+
+The ledger is an append-only collection keyed by resource ID. The
+`NamespaceMap` deduplicates by URI — multiple nodes referencing the same
+path share a single ledger entry. Multiple entries per URI exist only from
+shadowing (a write creates a new version).
+
+**Three resource states:**
+- **Unresolved**: Source input — the external entity should exist but
+  hasn't been stat'd. URI and type are set, metadata is empty. Created by
+  `namespace.Resolve()` when the planner encounters a source path.
+  Resolved by the executor's pre-flight pass against the target machine.
+- **Pending**: Output — the external entity does not yet exist. URI and
+  type are set, metadata is empty. Created by `namespace.Shadow()` when
+  the planner encounters a destination. Resolved by the node's execution
+  result — the provider populates metadata after creating the entity.
+- **Resolved**: Metadata populated. For files: inode, device, size, mode,
+  modtime, checksum. For services: status. For packages: version.
+
+```
+Ledger (plan-time skeleton — portable):
+  resource-1: URI=file:///src.txt,  state=unresolved, origin=""
+  resource-2: URI=file:///dst.txt,  state=pending,    origin=copy-node
+
+Namespace:
+  file:///src.txt → resource-1
+  file:///dst.txt → resource-2
+
+After pre-flight on target machine (execution-scoped):
+  resource-1: URI=file:///src.txt,  state=resolved, metadata={inode:42, ...}
+  resource-2: URI=file:///dst.txt,  state=pending   (still pending — not yet created)
+
+After copy-node executes:
+  resource-2: URI=file:///dst.txt,  state=resolved, metadata={inode:87, ...}
+```
+
+#### Codegen Tool Changes
+
+Three layers of change, in dependency order:
+
+**Layer 1: Action interface — `SlotTypes()` (devlore-cli, no codegen)**
+
+Add `SlotTypes() map[string]reflect.Type` to the `Action` interface.
+`reflectedAction` implements it by reflecting on `method.Type.In(i+1)` for
+each param name. `WrapPlanned` passes the `reflect.Method` to
+`buildPlannedBridge` so it can coerce at plan time.
+
+```go
+func (a *reflectedAction) SlotTypes() map[string]reflect.Type {
+    types := make(map[string]reflect.Type, len(a.paramNames))
+    for i, name := range a.paramNames {
+        types[name] = a.method.Type.In(i + 1) // skip receiver
+    }
+    return types
+}
+```
+
+**Layer 2: Coercion table (devlore-cli, replaces constructor registry)**
+
+Evolve `constructorRegistry` in `marshal.go` to a coercion table. Two
+kinds of entries:
+
+- **Plan-time coercions** (pure, no I/O): `string → file.Resource{URI
+  only}`, `mem.Resource → file.Resource`. Called by `buildPlannedBridge`.
+- **Execution-time resolvers**: `file.Resource{unresolved} → file.Resource
+  {resolved}`. Called by the executor's pre-flight pass. These do I/O
+  (os.Stat, service status check, package version query).
+
+**Layer 3: `MethodParams` type evolution (devlore-cli + noblefactor-ops)**
+
+Extend `MethodParams` to carry type metadata:
+
+```go
+// Current:
+type MethodParams map[string][]string
+
+// Target:
+type ParamSpec struct {
+    Name       string
+    TypeName   string // Go type as string: "string", "file.Resource", "os.FileMode"
+    IsResource bool   // true if type embeds op.Resource
+}
+type MethodParams map[string][]ParamSpec
+```
+
+This requires changes to:
+
+| Component | Repo | Change |
+| --- | --- | --- |
+| `MethodParams` type | devlore-cli `pkg/op/receiver_reflect.go` | `[]string` → `[]ParamSpec` |
+| `params.go.template` | devlore-cli `star/extensions/.../templates/` | Emit `ParamSpec` structs |
+| `generate.star` | devlore-cli `star/extensions/.../commands/` | Detect Resource types, set `IsResource` |
+| `go.type_embeds()` | noblefactor-ops GoReceiver | New introspection: does type T embed type U? |
+| `WrapPlanned` | devlore-cli `pkg/op/planned_reflect.go` | Pass `reflect.Method` to `buildPlannedBridge` for plan-time coercion |
+| `WrapReceiver` | devlore-cli `pkg/op/receiver_reflect.go` | Extract param names from `ParamSpec` |
+| `RegisterReflectedActions` | devlore-cli `pkg/op/action_reflect.go` | Extract param names from `ParamSpec` |
+
+**Layer 4: Provider constructors (devlore-cli + codegen)**
+
+Per Decision #8, every provider needs a constructor that accepts context.
+The generated binding code must change from zero-value struct creation to
+constructor calls:
+
+| Component | Repo | Change |
+| --- | --- | --- |
+| `actions.gen.go` | devlore-cli (generated) | `&provider.Provider{}` → `provider.New(ctx)` |
+| `immediate.gen.go` | devlore-cli (generated) | `&provider.Provider{}` → `provider.New(ctx)` |
+| `graph_actions.go.template` | devlore-cli templates | Emit constructor call with context |
+| `immediate_receiver.go.template` | devlore-cli templates | Emit constructor call with context |
+| `ProviderBinding` | devlore-cli `pkg/op/binding.go` | `ActionRegistrar` and `ImmediateFactory` closures receive context |
+| Each `provider.go` | devlore-cli `pkg/op/provider/*/` | Add `func New(ctx) *Provider` constructor |
+
+#### `generate.star` Changes
+
+`build_method_descriptors()` already receives param type strings from
+`go.methods()` AST introspection. It currently stores `p.type` but only
+uses it for struct_param and callable detection. Changes:
+
+1. **Resource detection** — for each param, check if its Go type embeds
+   `op.Resource`. This requires a new `go.type_embeds(path, type_name,
+   target_type)` introspection method on the GoReceiver (noblefactor-ops).
+   Alternatively, maintain a known-Resource-types list in the generator,
+   since all Resource types are defined in devlore-cli and their names are
+   predictable (`file.Resource`, `git.Resource`, `service.Resource`,
+   `pkg.Resource`).
+
+2. **Param descriptor annotation** — add `is_resource: true` to param
+   descriptors for Resource-typed params. The `params.go.template` uses
+   this to emit `IsResource: true` in the generated `ParamSpec`.
+
+3. **Plan-time type name** — include the Go type name in the param
+   descriptor so `params.go.template` can emit `TypeName: "file.Resource"`.
+
+#### Implementation Order
+
+| Step | What | Where | Depends on |
+| --- | --- | --- | --- |
+| 1 | `Action.SlotTypes()` + pass `reflect.Method` to planned bridge | devlore-cli `pkg/op/` | Nothing |
+| 2 | Coercion table (plan-time coercions + execution-time resolvers) | devlore-cli `pkg/op/marshal.go` | Step 1 |
+| 3 | Plan-time coercion in `buildPlannedBridge` | devlore-cli `pkg/op/planned_reflect.go` | Steps 1-2 |
+| 4 | Executor pre-flight resolution pass | devlore-cli `internal/execution/` | Step 2 |
+| 5 | `go.type_embeds()` | noblefactor-ops GoReceiver | Nothing |
+| 6 | `ParamSpec` type + template | devlore-cli + templates | Step 5 |
+| 7 | `generate.star` annotations | devlore-cli extension | Steps 5-6 |
+| 8 | Provider constructors + context injection | devlore-cli providers + templates | Steps 6-7 |
+
+Steps 1-4 can ship independently (reflection-only, no codegen changes).
+Steps 5-7 ship together (codegen pipeline update).
+Step 8 ships after codegen — it changes every provider and every generated
+binding.
+
+### 9. Ledger Is the Sole Source of Truth — No Node Annotations
+
+**Decision**: The `ResourceManager` ledger is the single source of truth
+for resource identity and lineage. Node annotations (`resource.input`,
+`resource.output`) are eliminated.
+
+The ledger already records URI, origin node ID, and version lineage through
+`EnsureCataloged` (called by `NamespaceMap.Resolve` and `Shadow`).
+Annotations would duplicate information the ledger already holds and cannot
+represent resources produced at runtime — globs returning N files, dynamic
+template expansions, gather iterations producing unknown resource sets.
+
+The executor's pre-flight pass (Phase 4) queries the ledger directly:
+resources with non-empty `OriginNodeID` whose URI matches a previously
+discovered resource need tombstones. No annotation scanning required.
+
+**Impact**: Phase 2c (Resource Annotations on Nodes) is removed from the
+plan. Phase 2 consists of 2a (Graph owns Manager and Namespace) and 2b
+(FillSlot detects resource identity). The `extractResource` reflection
+helper moves to `resource.go` without annotation constants.
+
+### 8. Provider Lifecycle: Singletons with Context Injection
+
+**Decision**: Providers are singletons. In a graph, a provider follows the
+lifetime of the graph. In a Starlark script, a provider follows the lifetime
+of the script. Every provider needs context, and context is provided at
+construction time — every provider needs a constructor that accepts a
+context object by reference.
+
+**Current state** — Providers are zero-value structs with no constructor:
+
+```go
+// Generated actions.gen.go — zero-value, no context
+op.RegisterReflectedActions(reg, "pkg", &provider.Provider{}, Params)
+
+// Generated immediate.gen.go — zero-value, no context
+NewPkgReceiver(&provider.Provider{})
+```
+
+Context arrives per-call via `op.Context` in `action.Do(ctx, slots)`. The
+provider cannot access Platform, Writer, or Data at construction time.
+Providers that need platform info (pkg, service) take manager arguments on
+every method call or call `host.NewHost()` on every invocation.
+
+**Target state** — Every provider has a constructor that accepts context:
+
+```go
+// Target — context-injected singleton
+p := provider.New(ctx)
+op.RegisterReflectedActions(reg, "pkg", p, Params)
+NewPkgReceiver(p)
+```
+
+The provider holds a reference to the context and reads from it for its
+entire lifetime. For the platform provider, this means reading
+`ctx.Platform` directly — the provider is just a Starlark surface for
+Platform data. For file, pkg, and service providers, this means accessing
+Platform's managers without method-level arguments.
+
+**Codegen impact**: The generated `actions.gen.go` and `immediate.gen.go`
+files currently create `&provider.Provider{}`. These must change to call a
+provider constructor with context. The `ProviderBinding` struct's
+`ActionRegistrar` and `ImmediateFactory` closures both need access to a
+context parameter. This affects every generated binding for every provider.
+
+**Relationship to Design Decision #7**: Context injection and resource
+coercion are complementary. The provider receives context at construction
+(Decision #8) and receives typed Resources in its method params (Decision
+#7). Together, they eliminate both the "providers can't access platform"
+problem and the "providers receive raw strings" problem.
+
 ## Implementation Phases
 
 ### Phase 0: `star devlore test` Extension
@@ -204,10 +600,37 @@ Today's test infrastructure has a gap between planning and execution:
 No test currently does the full loop: **Starlark plan → graph → execute →
 verify results → verify compensation**.
 
-#### Extension Structure
+#### Architecture
 
-The extension follows the same pattern as the existing four extensions in
-`star/extensions/`:
+`devlore-test` is a **separate binary** (`cmd/devlore-test/`) with
+process-level isolation, not an embedded receiver. It runs under `star`
+command control via an extension that shells out to the binary (CLI args +
+stdout + exit code). No noblefactor-ops spec changes — the `.star` command
+resolves the binary path by convention.
+
+```
+star devlore test run --script path.star
+        |
+        v
+   run.star (extension command)
+        |  shells out to devlore-test binary
+        v
+   devlore-test --script path.star [--dry-run] [--trace]
+        |
+        |  1. Creates temp dir
+        |  2. Sets up BindingSet -> plan namespace
+        |  3. Injects `t` namespace (expectations)
+        |  4. Executes .star script (plan.* builds graph)
+        |  5. Wraps nodes in a Phase for RunPhased compensation
+        |  6. Executes graph via GraphExecutor
+        |  7. Checks queued expectations
+        |  8. Writes structured results to stdout
+        |  9. Exit code: 0 = pass, 1 = fail, 2 = error
+        v
+   run.star reads stdout, reports via ui.*
+```
+
+#### Extension Structure
 
 ```
 star/extensions/com.noblefactor.devlore.Test/
@@ -216,68 +639,48 @@ star/extensions/com.noblefactor.devlore.Test/
     └── run.star
 ```
 
-**extension.yaml**:
+**extension.yaml** declares the command with flags for `--script`,
+`--dry-run`, `--trace`, and `--tool-path` (path to the `devlore-test`
+binary, resolved via flag → env var → config default `build/devlore-test`).
 
-```yaml
-extension: com.noblefactor.devlore.Test
-description: Test harness for Starlark graph planning and execution
+#### Runner Package (`internal/e2e/testrunner/`)
 
-receivers:
-  - name: test
-    builtin: true
-    type: TestReceiver
-    description: Graph planning, execution, and expectation verification
-  - name: ui
-    builtin: true
-    type: UiReceiver
-    description: Status output (note, warn, success, fail)
-
-commands:
-  - name: devlore.test.run
-    help: Run a Starlark test script that plans and executes a graph
-    implementation: commands/run.star
-    flags:
-      - name: script
-        type: string
-        required: true
-        help: Path to the test script (.star)
-      - name: provider
-        type: string
-        default: ""
-        help: "Restrict to a specific provider (default: all)"
-      - name: dry-run
-        type: bool
-        default: "false"
-        help: Execute in dry-run mode (plan only, no side effects)
-```
-
-#### TestReceiver
-
-A builtin Go receiver that wraps `BindingSet` (planned receivers) +
-`GraphExecutor`. It implements the full plan→execute→verify pipeline as
-a single `test.run()` call.
+Core orchestration lives in `internal/e2e/testrunner/`, sibling to the
+existing LLM accuracy harness in `internal/e2e/`. The LLM harness tests
+migrate/onboard via provider configs and F1 metrics. This package tests
+the graph pipeline: Starlark plan → graph → execute → verify.
 
 ```go
-// TestReceiver implements the star devlore test harness.
-// It loads a test script, sets up the plan namespace via BindingSet,
-// executes the script to build a graph, runs the graph through
-// GraphExecutor, and checks expectations registered during script
-// execution.
-type TestReceiver struct {
-    // ...
+type Runner struct {
+    script   string
+    dryRun   bool
+    trace    bool
+    provider string
+    writer   io.Writer
 }
+
+func New(script string, opts ...Option) *Runner
+func (r *Runner) Start(ctx context.Context) (*Result, error)
 ```
 
-`test.run(script, opts)` does the following:
+`Runner.Start()` does the following:
 
 1. Creates a temp directory for filesystem operations
-2. Sets up `BindingSet` with all planned receivers → `plan` namespace
-3. Injects a `t` namespace into the script environment (see below)
-4. Executes the test script — `plan.*` calls build graph nodes,
+2. Creates `BindingSet` with `op.BindingConfig{}` + `.With("plan", "file")`
+3. Creates `ActionRegistry` via `bs.NewPopulatedRegistry()`
+4. Creates `Platform` via `platform.New()`
+5. Creates `op.Graph("devlore-test")`
+6. Builds Starlark globals from `bs.BuildGlobals(graph, project, reg)`
+7. Injects a `t` namespace into the script environment (see below)
+8. Configures Starlark `Thread` with trace handler
+9. Executes the test script — `plan.*` calls build graph nodes,
    `t.expect_*` calls register post-execution expectations
-5. Executes the graph through `GraphExecutor`
-6. Checks all queued expectations against actual results
-7. Returns a result struct with pass/fail, assertion details, node count
+10. Wraps all nodes in a single `phase.test` Phase for RunPhased
+    compensation semantics (without phases, `runFlat` executes but does
+    not unwind the recovery stack on failure)
+11. Executes the graph through `GraphExecutor`
+12. Checks all queued expectations against actual results
+13. Returns a `Result` struct with pass/fail, assertion details, node count
 
 #### The `t` Namespace
 
@@ -302,30 +705,35 @@ separated by the `plan.*` vs `t.expect_*` convention.
 
 #### The Star Command
 
-The command (`commands/run.star`) is a thin wrapper:
+The command (`commands/run.star`) resolves the `devlore-test` binary via a
+3-tier lookup: `--tool-path` flag → `DEVLORE_TEST_TOOL_PATH` env var →
+extension config `test.tool_path` (default: `build/devlore-test` relative
+to the git worktree root). It shells out with flags, parses JSON stdout,
+and reports via `ui.*`.
 
-```starlark
-def run(ctx):
-    result = test.run(
-        script = ctx.args["script"],
-        provider = ctx.args.get("provider", ""),
-        dry_run = ctx.args.get("dry-run", False),
-    )
-    if result.passed:
-        success(
-            "All expectations met ("
-            + str(result.expectation_count) + " expectations, "
-            + str(result.node_count) + " nodes)"
-        )
-    else:
-        for f in result.failures:
-            error(f.expectation + ": " + f.message)
-        fail(str(len(result.failures)) + " expectation(s) failed")
+Note: Direct exec from Starlark requires a future `host.exec()` receiver
+in noblefactor-ops. Until then, the `run.star` command documents the
+intended flow but cannot shell out natively.
+
+#### Stdout Protocol
+
+JSON object on stdout:
+
+```json
+{
+  "passed": true,
+  "node_count": 3,
+  "expectation_count": 2,
+  "failures": [],
+  "trace": ["script: test.star", "tmpdir: /tmp/...", "..."]
+}
 ```
+
+Exit codes: `0` = all pass, `1` = expectation failure, `2` = harness error.
 
 #### Test Script Convention
 
-Test scripts live in `testdata/` directories. They follow a naming
+Test scripts live in `internal/e2e/testrunner/data/`. They follow a naming
 convention: `test_<scenario>.star`.
 
 ```starlark
@@ -387,14 +795,18 @@ its new functionality.
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `star/extensions/com.noblefactor.devlore.Test/extension.yaml` | Create | Extension spec with TestReceiver and run command |
-| `star/extensions/com.noblefactor.devlore.Test/commands/run.star` | Create | Thin wrapper calling `test.run()` |
-| `internal/starlark/test_receiver.go` | Create | `TestReceiver` — BindingSet + GraphExecutor + expectation checking |
-| `internal/starlark/test_receiver_test.go` | Create | Unit tests for TestReceiver |
-| `internal/starlark/testdata/test_write_text.star` | Create | Baseline: write text |
-| `internal/starlark/testdata/test_copy.star` | Create | Baseline: copy file |
-| `internal/starlark/testdata/test_write_and_read.star` | Create | Baseline: write then read |
-| `internal/starlark/testdata/test_compensation.star` | Create | Baseline: write + fail → compensate |
+| `cmd/devlore-test/main.go` | Create | Binary entry point (flags, JSON output, exit codes) |
+| `internal/e2e/testrunner/runner.go` | Create | Runner orchestration (BindingSet + GraphExecutor + phase wrapping) |
+| `internal/e2e/testrunner/runner_test.go` | Create | Go-level test entry points (GoLand-debuggable) |
+| `internal/e2e/testrunner/test_context.go` | Create | `t` namespace (Starlark receiver for expectations) |
+| `internal/e2e/testrunner/trace.go` | Create | Starlark trace mode (step callback + variable inspection) |
+| `internal/e2e/testrunner/data/test_write_text.star` | Create | Baseline: write text |
+| `internal/e2e/testrunner/data/test_copy.star` | Create | Baseline: copy file |
+| `internal/e2e/testrunner/data/test_write_and_read.star` | Create | Baseline: write then read |
+| `internal/e2e/testrunner/data/test_compensation.star` | Create | Baseline: write + fail → compensate |
+| `star/extensions/com.noblefactor.devlore.Test/extension.yaml` | Create | Extension spec with run command |
+| `star/extensions/com.noblefactor.devlore.Test/commands/run.star` | Create | Star command (shells out to devlore-test binary) |
+| `Makefile` | Modify | Add devlore-test build target |
 | `pkg/op/provider/file/gen/integration_test.go` | Modify | Un-skip #170, #171 |
 
 ### Phase 1: ResourceManager and NamespaceMap
@@ -532,9 +944,11 @@ func NewGraph(tool string) *Graph {
 #### 2b. FillSlot Detects Resource Identity
 
 Extend `FillSlot` (`output.go:121`) to handle the case where a slot value
-carries resource identity. When an `Output`'s producer node has a resource
-annotation (`resource.output`), the consumer node gets an implicit edge
-even without explicit Output passing.
+carries resource identity. When a slot value embeds `op.Resource` with a
+non-empty `OriginNodeID` (set by `NamespaceMap.Shadow`), the consumer node
+gets an implicit edge from the origin node — even without explicit Output
+passing. The ledger is the sole source of truth (Decision #9); no node
+annotations are needed.
 
 The current flow is unchanged — `Output` still creates edges via
 `output.FillSlot`. The new behavior adds a check: if a Starlark value
@@ -564,28 +978,13 @@ func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) e
 
 `extractResource` uses reflection to check if the value embeds `op.Resource`.
 
-#### 2c. Resource Annotations on Nodes
-
-Add annotation helpers so planned receivers can tag nodes with resource IDs:
-
-```go
-const (
-    AnnotationResourceInput  = "resource.input"   // Comma-separated input resource IDs
-    AnnotationResourceOutput = "resource.output"   // Output resource ID
-)
-```
-
-These annotations are metadata — they don't affect execution, but they enable
-the executor's pre-flight binding pass (Phase 4) to know which nodes produce
-which resources.
-
 #### Files
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `pkg/op/graph.go` | Modify | Add Resources/Namespace fields, init in NewGraph |
+| `pkg/op/graph.go` | Modify | Add Resources/Namespace fields, init in NewGraph; remove dead `backup` annotation check and `BackedUp` summary field |
 | `pkg/op/output.go` | Modify | Resource-aware FillSlot with implicit edges |
-| `pkg/op/resource.go` | Modify | Add `extractResource` reflection helper, annotation constants |
+| `pkg/op/resource.go` | Modify | Add `extractResource` reflection helper |
 | `pkg/op/graph_test.go` | Modify | Tests for resource fields on Graph |
 | `pkg/op/output_test.go` | Modify | Tests for implicit edge creation in FillSlot |
 
@@ -593,10 +992,11 @@ which resources.
 
 Finish migrating all file provider method inputs to `Resource`. The outputs
 are already `Resource` for Copy, WriteText, WriteBytes, and Read. This phase
-converts the remaining string inputs. The constructor registry ensures
-backward compatibility — Starlark scripts passing string paths still work
-because `coerceSlotValue` calls the registered `string → file.Resource`
-constructor.
+converts the remaining string inputs. Per Design Decision #7, the executor's
+coercion layer converts strings to typed `file.Resource` values at the
+planner/executor boundary — provider methods always receive `file.Resource`,
+either resolved (existing file with metadata) or pending (destination path
+with empty metadata).
 
 **Repo**: devlore-cli
 
@@ -793,7 +1193,8 @@ type Resource struct {
 }
 ```
 
-Each registers a constructor in `init()` following the file provider pattern:
+Each registers a resource constructor in `init()` following the file
+provider pattern:
 
 ```go
 func init() {
@@ -804,6 +1205,16 @@ func init() {
         }
         return NewResource(s)
     })
+}
+```
+
+Each provider also gains a provider constructor per Decision #8:
+
+```go
+// New creates a Provider with context injected at construction time.
+// The provider is a singleton — one per graph or script lifetime.
+func New(ctx *op.Context) *Provider {
+    return &Provider{ctx: ctx}
 }
 ```
 
@@ -896,10 +1307,11 @@ after provider signatures change. That is the only interaction with codegen.
 2. **Phase 2**: Graph gains Resources/Namespace fields. `FillSlot` gains
    resource-aware edge creation. Legacy graphs (nil Resources) work unchanged.
    Test scripts verify implicit edge creation via shadowing.
-3. **Phase 3**: File provider completes its input migration. Constructor
-   registry ensures Starlark scripts passing strings still work. Generated
-   code regenerated. Harness tests verify every file provider method with
-   Resource inputs, including compensation round-trips.
+3. **Phase 3**: File provider completes its input migration. The executor's
+   coercion layer converts strings to `file.Resource` at the planner boundary
+   (Design Decision #7). Generated code regenerated. Harness tests verify
+   every file provider method with Resource inputs, including compensation
+   round-trips.
 4. **Phase 4**: Executor gains pre-flight tombstone pass. File provider's
    internal `prepareWrite` calls migrate to the executor. Legacy graphs
    without resources skip the pre-flight pass. Test scripts verify tombstone
@@ -913,10 +1325,14 @@ after provider signatures change. That is the only interaction with codegen.
 
 | File | Phase | Action | Purpose |
 | --- | --- | --- | --- |
+| `cmd/devlore-test/main.go` | 0 | Create | Binary entry point |
+| `internal/e2e/testrunner/runner.go` | 0 | Create | Runner orchestration (plan + execute + verify) |
+| `internal/e2e/testrunner/runner_test.go` | 0 | Create | Go-level test entry points |
+| `internal/e2e/testrunner/test_context.go` | 0 | Create | `t` namespace |
+| `internal/e2e/testrunner/trace.go` | 0 | Create | Starlark trace mode |
+| `internal/e2e/testrunner/data/test_*.star` | 0 | Create | Baseline test scripts |
 | `star/extensions/com.noblefactor.devlore.Test/` | 0 | Create | Extension spec + star command |
-| `internal/starlark/test_receiver.go` | 0 | Create | TestReceiver (plan + execute + verify) |
-| `internal/starlark/test_receiver_test.go` | 0 | Create | TestReceiver unit tests |
-| `internal/starlark/testdata/test_*.star` | 0 | Create | Baseline test scripts |
+| `Makefile` | 0 | Modify | Add devlore-test build target |
 | `pkg/op/provider/file/gen/integration_test.go` | 0 | Modify | Un-skip #170, #171 |
 | `pkg/op/resource.go` | 1 | Modify | ResourceManager, URI helpers |
 | `pkg/op/resource_test.go` | 1 | Create | Manager and URI tests |
@@ -950,7 +1366,7 @@ conflicts in `action.go`, every `provider.go`, and `executor.go`.
 
 ## Debugging Strategy: JetBrains + Starlark
 
-The `star devlore test` extension must be debuggable in GoLand (or IntelliJ
+The `devlore-test` harness must be debuggable in GoLand (or IntelliJ
 with the Go plugin). The goal: set a breakpoint in a `.star` test script and
 step through into the graph builder and executor Go code.
 
@@ -963,13 +1379,13 @@ us the building blocks.
 
 ### Layer 1: Go Test Entry Point (Day 1)
 
-The `TestReceiver` has a Go test file (`test_receiver_test.go`) with tests
-that call `TestReceiver.Run()` directly. Run these in GoLand's debugger:
+The runner package has a Go test file (`runner_test.go`) with tests
+that call `Runner.Start()` directly. Run these in GoLand's debugger:
 
 ```go
 func TestWriteAndRead(t *testing.T) {
-    r := NewTestReceiver(/* ... */)
-    result := r.Run("testdata/test_write_and_read.star", TestOptions{})
+    runner := testrunner.New(filepath.Join(testdataDir, "test_write_and_read.star"))
+    result, err := runner.Start(context.Background())
     // ...
 }
 ```
@@ -990,9 +1406,9 @@ This gives full visibility into the graph builder and executor from day 1.
 
 ### Layer 2: Starlark Trace Mode (Phase 0)
 
-Add a `--trace` flag to `star devlore test run`. When enabled, the
-`TestReceiver` installs a step callback on the Starlark `Thread` that logs
-each statement with file, line, and local variables:
+The `--trace` flag on `devlore-test` enables the `Tracer` which records
+each Starlark statement with file, line, and local variables via the
+thread's print handler:
 
 ```
 [trace] test_write_and_read.star:4  dest = t.tmp("foo.txt")
@@ -1010,12 +1426,12 @@ each statement with file, line, and local variables:
 [verify] file_content("hello") → PASS
 ```
 
-The step callback uses `thread.CallStack()` for position and
+The trace uses `thread.CallStack()` for position and
 `thread.DebugFrame(0)` for local variable inspection. The trace output
-goes to `ui.note()` so it appears in the star command's output.
+appears in the JSON result's `trace` array.
 
-In GoLand, combine trace mode with a conditional breakpoint on the step
-callback — break when `pos.Filename` and `pos.Line` match a specific
+In GoLand, combine trace mode with a conditional breakpoint on the
+`Tracer.RecordThread` method — break when position matches a specific
 `.star` location. This gives you "breakpoints in Starlark" via Go.
 
 ### Layer 3: Bazel Plugin Starlark Support
@@ -1026,12 +1442,12 @@ navigation, and structure view for `.star` / `.bzl` files. Install it for
 `.star` editing comfort.
 
 The plugin also includes a Starlark debug adapter, but it speaks Bazel's
-debug protocol (not go.starlark.net). To bridge this gap, the `TestReceiver`
+debug protocol (not go.starlark.net). To bridge this gap, the `Runner`
 can optionally expose a **DAP (Debug Adapter Protocol)** server using
 `DebugFrame`:
 
-- `--debug-port <port>` flag on `star devlore test run`
-- The receiver starts a DAP server before executing the script
+- `--debug-port <port>` flag on `devlore-test`
+- The runner starts a DAP server before executing the script
 - GoLand connects to the DAP server as a "Remote Debug" run configuration
 - Breakpoints set in `.star` files are honored via the step callback
 - Variable inspection uses `DebugFrame.Local(i)` to report Starlark locals

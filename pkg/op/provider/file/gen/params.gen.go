@@ -15,7 +15,7 @@ var Params = op.MethodParams{
 	"Unlink":     {"path", "prune", "prune_boundary"},
 	"WriteBytes": {"destination", "content", "mode"},
 	"WriteText":  {"destination", "content", "mode"},
-	"Exists":     {"blob"},
+	"Exists":     {"file_resource"},
 	"Glob":       {"pattern", "honor_gitignore"},
 	"IsDir":      {"path"},
 	"IsFile":     {"path"},
