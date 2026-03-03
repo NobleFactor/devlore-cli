@@ -80,6 +80,26 @@ URI→ResourceID mapping with version tracking:
 | `pkg/op/namespace.go` | Create | NamespaceMap with Resolve/Shadow/Current |
 | `pkg/op/namespace_test.go` | Create | Tests for namespace operations |
 
+## Design Decisions
+
+### Ledger Is the Sole Source of Truth (Decision #9)
+
+Node annotations (`resource.input`, `resource.output`) were originally
+planned for Phase 2c to tag nodes with resource IDs so the executor's
+pre-flight pass could identify which nodes produce which resources.
+
+**Decision**: Drop annotations entirely. The `ResourceManager` ledger
+already records URI, origin node ID, and version lineage through
+`Resolve`/`Shadow`. Annotations would duplicate what the ledger already
+knows and cannot represent resources produced at runtime (globs, dynamic
+template expansions, gather iterations). There should always be one source
+of truth — the ledger is it.
+
+**Impact on Phase 2**: Phase 2c (Resource Annotations on Nodes) is removed.
+The executor's pre-flight pass (Phase 4) queries the ledger directly via
+`OriginNodeID` to determine which resources were shadowed and by which
+node.
+
 ## What This Does NOT Touch
 
 - `graph.go` — Graph gets Resources/Namespace fields in Phase 2

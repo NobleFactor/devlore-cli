@@ -2,7 +2,7 @@
 title: "Resource Management: URI-Based Resource Tracking for Providers"
 status: draft
 created: 2026-02-27
-updated: 2026-03-02
+updated: 2026-03-03
 ---
 
 # Plan: Resource Management
@@ -109,8 +109,9 @@ What exists today, grounded in code:
 | Node slots | Working | `map[string]SlotValue` — immediate values or promises |
 | Output/FillSlot | Working | `pkg/op/output.go:121` — routes Output/Gather/immediate/None into slots |
 | Graph edges | Working | Created by FillSlot when it sees an Output |
-| ResourceManager | **Missing** | No ledger, no ID generation, no EnsureCataloged |
-| NamespaceMap | **Missing** | No Resolve/Shadow, no URI-to-ID tracking |
+| ResourceManager | Implemented | `pkg/op/resource.go` — append-only ledger, `EnsureCataloged`/`Lookup`/`LedgerLen`, mutex-guarded monotonic `res-<N>` IDs |
+| NamespaceMap | Implemented | `pkg/op/namespace.go` — `Resolve`/`Shadow`/`Current`, URI→ResourceID mapping |
+| URI helpers | Implemented | `pkg/op/resource.go` — `SchemeFile`/`SchemeGit`/`SchemePackage`/`SchemeService`/`SchemeMem`, `ResourceURI()` with file path canonicalization |
 | Implicit edges | **Missing** | Only explicit Output passing creates edges |
 | Conflict detection | **Missing** | Two nodes targeting same path = silent race |
 | Executor tombstone layer | **Missing** | Only file provider has recovery; others have none |
@@ -498,6 +499,27 @@ Steps 1-4 can ship independently (reflection-only, no codegen changes).
 Steps 5-7 ship together (codegen pipeline update).
 Step 8 ships after codegen — it changes every provider and every generated
 binding.
+
+### 9. Ledger Is the Sole Source of Truth — No Node Annotations
+
+**Decision**: The `ResourceManager` ledger is the single source of truth
+for resource identity and lineage. Node annotations (`resource.input`,
+`resource.output`) are eliminated.
+
+The ledger already records URI, origin node ID, and version lineage through
+`EnsureCataloged` (called by `NamespaceMap.Resolve` and `Shadow`).
+Annotations would duplicate information the ledger already holds and cannot
+represent resources produced at runtime — globs returning N files, dynamic
+template expansions, gather iterations producing unknown resource sets.
+
+The executor's pre-flight pass (Phase 4) queries the ledger directly:
+resources with non-empty `OriginNodeID` whose URI matches a previously
+discovered resource need tombstones. No annotation scanning required.
+
+**Impact**: Phase 2c (Resource Annotations on Nodes) is removed from the
+plan. Phase 2 consists of 2a (Graph owns Manager and Namespace) and 2b
+(FillSlot detects resource identity). The `extractResource` reflection
+helper moves to `resource.go` without annotation constants.
 
 ### 8. Provider Lifecycle: Singletons with Context Injection
 
@@ -922,9 +944,11 @@ func NewGraph(tool string) *Graph {
 #### 2b. FillSlot Detects Resource Identity
 
 Extend `FillSlot` (`output.go:121`) to handle the case where a slot value
-carries resource identity. When an `Output`'s producer node has a resource
-annotation (`resource.output`), the consumer node gets an implicit edge
-even without explicit Output passing.
+carries resource identity. When a slot value embeds `op.Resource` with a
+non-empty `OriginNodeID` (set by `NamespaceMap.Shadow`), the consumer node
+gets an implicit edge from the origin node — even without explicit Output
+passing. The ledger is the sole source of truth (Decision #9); no node
+annotations are needed.
 
 The current flow is unchanged — `Output` still creates edges via
 `output.FillSlot`. The new behavior adds a check: if a Starlark value
@@ -954,28 +978,13 @@ func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) e
 
 `extractResource` uses reflection to check if the value embeds `op.Resource`.
 
-#### 2c. Resource Annotations on Nodes
-
-Add annotation helpers so planned receivers can tag nodes with resource IDs:
-
-```go
-const (
-    AnnotationResourceInput  = "resource.input"   // Comma-separated input resource IDs
-    AnnotationResourceOutput = "resource.output"   // Output resource ID
-)
-```
-
-These annotations are metadata — they don't affect execution, but they enable
-the executor's pre-flight binding pass (Phase 4) to know which nodes produce
-which resources.
-
 #### Files
 
 | File | Action | Purpose |
 | --- | --- | --- |
 | `pkg/op/graph.go` | Modify | Add Resources/Namespace fields, init in NewGraph |
 | `pkg/op/output.go` | Modify | Resource-aware FillSlot with implicit edges |
-| `pkg/op/resource.go` | Modify | Add `extractResource` reflection helper, annotation constants |
+| `pkg/op/resource.go` | Modify | Add `extractResource` reflection helper |
 | `pkg/op/graph_test.go` | Modify | Tests for resource fields on Graph |
 | `pkg/op/output_test.go` | Modify | Tests for implicit edge creation in FillSlot |
 
