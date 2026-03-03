@@ -148,3 +148,111 @@ func TestResourceManager_ConcurrentAccess(t *testing.T) {
 		t.Errorf("expected %d unique IDs, got %d", goroutines, len(seen))
 	}
 }
+
+// --- extractResource tests ---
+
+// testEmbeddingResource is a type that embeds op.Resource, like file.Resource.
+type testEmbeddingResource struct {
+	Resource
+	Extra string
+}
+
+func TestExtractResource_DirectResource(t *testing.T) {
+	r := Resource{URI: "file:///foo", ID: "res-1", OriginNodeID: "node-1"}
+	got, ok := extractResource(r)
+	if !ok {
+		t.Fatal("extractResource(Resource) returned false")
+	}
+	if got.URI != "file:///foo" {
+		t.Errorf("URI = %q, want file:///foo", got.URI)
+	}
+	if got.OriginNodeID != "node-1" {
+		t.Errorf("OriginNodeID = %q, want node-1", got.OriginNodeID)
+	}
+}
+
+func TestExtractResource_EmbeddedResource(t *testing.T) {
+	r := testEmbeddingResource{
+		Resource: Resource{URI: "file:///bar", ID: "res-2", OriginNodeID: "writer"},
+		Extra:    "metadata",
+	}
+	got, ok := extractResource(r)
+	if !ok {
+		t.Fatal("extractResource(embedded) returned false")
+	}
+	if got.URI != "file:///bar" {
+		t.Errorf("URI = %q, want file:///bar", got.URI)
+	}
+	if got.OriginNodeID != "writer" {
+		t.Errorf("OriginNodeID = %q, want writer", got.OriginNodeID)
+	}
+}
+
+func TestExtractResource_PointerToEmbedded(t *testing.T) {
+	r := &testEmbeddingResource{
+		Resource: Resource{URI: "file:///ptr", ID: "res-3", OriginNodeID: "node-3"},
+	}
+	got, ok := extractResource(r)
+	if !ok {
+		t.Fatal("extractResource(*embedded) returned false")
+	}
+	if got.URI != "file:///ptr" {
+		t.Errorf("URI = %q, want file:///ptr", got.URI)
+	}
+}
+
+func TestExtractResource_MapFromUnmarshal(t *testing.T) {
+	m := map[string]any{
+		"uri":            "file:///mapped",
+		"id":             "res-5",
+		"origin_node_id": "origin-node",
+		"source_path":    "/mapped",
+	}
+	got, ok := extractResource(m)
+	if !ok {
+		t.Fatal("extractResource(map) returned false")
+	}
+	if got.URI != "file:///mapped" {
+		t.Errorf("URI = %q, want file:///mapped", got.URI)
+	}
+	if got.OriginNodeID != "origin-node" {
+		t.Errorf("OriginNodeID = %q, want origin-node", got.OriginNodeID)
+	}
+}
+
+func TestExtractResource_MapWithoutResourceFields(t *testing.T) {
+	m := map[string]any{"key": "value", "count": 42}
+	_, ok := extractResource(m)
+	if ok {
+		t.Error("extractResource(unrelated map) should return false")
+	}
+}
+
+func TestExtractResource_NonResource(t *testing.T) {
+	tests := []struct {
+		name string
+		v    any
+	}{
+		{"nil", nil},
+		{"string", "hello"},
+		{"int", 42},
+		{"map", map[string]any{"key": "val"}},
+		{"slice", []string{"a", "b"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := extractResource(tt.v)
+			if ok {
+				t.Errorf("extractResource(%v) should return false", tt.v)
+			}
+		})
+	}
+}
+
+func TestExtractResource_NilPointer(t *testing.T) {
+	var r *testEmbeddingResource
+	_, ok := extractResource(r)
+	if ok {
+		t.Error("extractResource(nil pointer) should return false")
+	}
+}

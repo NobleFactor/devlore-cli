@@ -6,6 +6,7 @@ package op
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sync"
 )
 
@@ -92,4 +93,69 @@ func (m *ResourceManager) LedgerLen() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.entries)
+}
+
+// resourceType is the reflect.Type for Resource, used by extractResource.
+var resourceType = reflect.TypeOf(Resource{})
+
+// extractResource checks whether v carries resource identity and returns
+// the embedded Resource if found.
+//
+// It handles three forms:
+//   - Direct op.Resource value
+//   - Go struct embedding op.Resource (e.g., file.Resource)
+//   - map[string]any with "uri"/"id"/"origin_node_id" keys (produced by
+//     Unmarshal when a starlarkstruct.Struct is decoded to *any)
+func extractResource(v any) (Resource, bool) {
+	if v == nil {
+		return Resource{}, false
+	}
+	// Direct type match.
+	if r, ok := v.(Resource); ok {
+		return r, true
+	}
+
+	// map[string]any from Unmarshal of a starlark struct.
+	if m, ok := v.(map[string]any); ok {
+		// Direct Resource fields at top level (plain op.Resource).
+		uri, _ := m["uri"].(string)
+		id, _ := m["id"].(string)
+		origin, _ := m["origin_node_id"].(string)
+		if uri != "" || id != "" {
+			return Resource{URI: uri, ID: id, OriginNodeID: origin}, true
+		}
+		// Embedded Resource (struct embedding op.Resource serializes as
+		// a nested "resource" key).
+		if nested, ok := m["resource"].(map[string]any); ok {
+			uri, _ = nested["uri"].(string)
+			id, _ = nested["id"].(string)
+			origin, _ = nested["origin_node_id"].(string)
+			if uri != "" || id != "" {
+				return Resource{URI: uri, ID: id, OriginNodeID: origin}, true
+			}
+		}
+		return Resource{}, false
+	}
+
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return Resource{}, false
+		}
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return Resource{}, false
+	}
+
+	// Walk the struct fields looking for an embedded Resource.
+	rt := rv.Type()
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if f.Anonymous && f.Type == resourceType {
+			res := rv.Field(i).Interface().(Resource)
+			return res, true
+		}
+	}
+	return Resource{}, false
 }

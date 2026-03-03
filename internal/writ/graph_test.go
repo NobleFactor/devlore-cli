@@ -165,15 +165,6 @@ func TestSummaryString(t *testing.T) {
 			},
 			contains: []string{"5 files", "1 failed"},
 		},
-		{
-			name: "with backups",
-			summary: op.Summary{
-				TotalFiles: 5,
-				Links:      5,
-				BackedUp:   3,
-			},
-			contains: []string{"3 backed up"},
-		},
 	}
 
 	for _, tt := range tests {
@@ -360,7 +351,7 @@ func TestComputeSummary(t *testing.T) {
 			{ID: "5", Action: op.StubAction("file.copy"), Status: op.StatusCompleted},
 			{ID: "6", Status: op.StatusSkipped},
 			{ID: "7", Action: op.StubAction("file.link"), Status: op.StatusFailed},
-			{ID: "8", Action: op.StubAction("file.link"), Status: op.StatusCompleted, Annotations: map[string]string{"backup": "/path/to/backup"}},
+			{ID: "8", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
 		},
 	}
 
@@ -387,19 +378,16 @@ func TestComputeSummary(t *testing.T) {
 	if g.Summary.Failed != 1 {
 		t.Errorf("expected Failed 1, got %d", g.Summary.Failed)
 	}
-	if g.Summary.BackedUp != 1 {
-		t.Errorf("expected BackedUp 1, got %d", g.Summary.BackedUp)
-	}
 }
 
 func TestNodeAnnotations(t *testing.T) {
 	node := &op.Node{
 		ID:          ".bashrc",
-		Annotations: map[string]string{"backup": "/backup/path"},
+		Annotations: map[string]string{"provider": "file"},
 	}
 
-	if node.Annotations["backup"] != "/backup/path" {
-		t.Errorf("expected backup annotation, got %v", node.Annotations)
+	if node.Annotations["provider"] != "file" {
+		t.Errorf("expected provider annotation, got %v", node.Annotations)
 	}
 }
 
