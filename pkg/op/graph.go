@@ -46,7 +46,9 @@ func NewGraph(tool string) *Graph {
 			OS:   runtime.GOOS,
 			Arch: runtime.GOARCH,
 		},
-		Nodes: make([]*Node, 0),
+		Nodes:     make([]*Node, 0),
+		Resources: NewResourceManager(),
+		Namespace: NewNamespaceMap(),
 	}
 }
 
@@ -119,7 +121,6 @@ type Summary struct {
 	Packages   int `json:"packages,omitempty" yaml:"packages,omitempty"`
 	Skipped    int `json:"skipped,omitempty" yaml:"skipped,omitempty"`
 	Failed     int `json:"failed,omitempty" yaml:"failed,omitempty"`
-	BackedUp   int `json:"backed_up,omitempty" yaml:"backed_up,omitempty"`
 }
 
 // Signature contains the cryptographic signature of a graph.
@@ -461,6 +462,14 @@ type Graph struct {
 
 	// Signature contains the cryptographic signature (optional).
 	Signature *Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
+
+	// Resources is the append-only ledger of all resources created during
+	// planning. One per Graph. Not serialized — planning-only state.
+	Resources *ResourceManager `json:"-" yaml:"-"`
+
+	// Namespace maps URIs to the most recent resource ID during planning.
+	// Not serialized — planning-only state.
+	Namespace *NamespaceMap `json:"-" yaml:"-"`
 }
 
 // String returns a human-readable summary.
@@ -497,9 +506,6 @@ func (s Summary) String() string {
 	}
 	if s.Failed > 0 {
 		result += fmt.Sprintf(", %d failed", s.Failed)
-	}
-	if s.BackedUp > 0 {
-		result += fmt.Sprintf(", %d backed up", s.BackedUp)
 	}
 	return result
 }
@@ -608,11 +614,6 @@ func (g *Graph) ComputeSummary() {
 			g.Summary.Copies++
 		case "pkg.install", "pkg.upgrade", "pkg.remove":
 			g.Summary.Packages++
-		}
-
-		// Check for backup annotation
-		if n.Annotations != nil && n.Annotations["backup"] != "" {
-			g.Summary.BackedUp++
 		}
 	}
 }

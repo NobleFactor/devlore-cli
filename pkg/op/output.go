@@ -141,6 +141,15 @@ func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) e
 	if err := Unmarshal(value, &goVal); err != nil {
 		return fmt.Errorf("slot %q: %w", slotName, err)
 	}
+
+	// Resource identity: if the immediate value embeds op.Resource with
+	// a non-empty OriginNodeID, create an implicit edge from the origin
+	// node to the consumer. This enables automatic dependency ordering
+	// when a resource produced by one node flows to another.
+	if res, ok := extractResource(goVal); ok && res.OriginNodeID != "" {
+		graph.Edges = append(graph.Edges, Edge{From: res.OriginNodeID, To: node.ID})
+	}
+
 	node.SetSlotImmediate(slotName, goVal)
 	return nil
 }

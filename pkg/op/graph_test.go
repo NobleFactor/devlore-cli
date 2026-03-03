@@ -479,7 +479,7 @@ func TestNode_YAML_RoundTrip(t *testing.T) {
 			"package": {Immediate: "vim"},
 		},
 		Annotations: map[string]string{
-			"backup": "/tmp/backup",
+			"provider": "pkg",
 		},
 	}
 
@@ -710,8 +710,7 @@ func TestGraph_ComputeSummary(t *testing.T) {
 	g := &Graph{
 		Nodes: []*Node{
 			{ID: "link1", Action: StubAction("file.link"), Status: StatusCompleted},
-			{ID: "link2", Action: StubAction("file.link"), Status: StatusCompleted,
-				Annotations: map[string]string{"backup": "/tmp/bak"}},
+			{ID: "link2", Action: StubAction("file.link"), Status: StatusCompleted},
 			{ID: "tmpl1", Action: StubAction("template.render"), Status: StatusCompleted},
 			{ID: "sec1", Action: StubAction("encryption.decrypt"), Status: StatusCompleted},
 			{ID: "copy1", Action: StubAction("file.copy"), Status: StatusCompleted},
@@ -750,9 +749,6 @@ func TestGraph_ComputeSummary(t *testing.T) {
 	}
 	if s.Failed != 1 {
 		t.Errorf("Failed = %d, want 1", s.Failed)
-	}
-	if s.BackedUp != 1 {
-		t.Errorf("BackedUp = %d, want 1", s.BackedUp)
 	}
 }
 
@@ -927,7 +923,6 @@ func TestSummary_String_Writ(t *testing.T) {
 		Copies:     1,
 		Skipped:    2,
 		Failed:     1,
-		BackedUp:   3,
 	}
 	got := s.String()
 	if !strings.Contains(got, "10 files") {
@@ -950,9 +945,6 @@ func TestSummary_String_Writ(t *testing.T) {
 	}
 	if !strings.Contains(got, "1 failed") {
 		t.Errorf("missing failed in %q", got)
-	}
-	if !strings.Contains(got, "3 backed up") {
-		t.Errorf("missing backed up in %q", got)
 	}
 }
 
@@ -979,6 +971,40 @@ func TestSummary_String_MinimalWrit(t *testing.T) {
 	got := s.String()
 	if got != "0 files" {
 		t.Errorf("String() = %q, want %q", got, "0 files")
+	}
+}
+
+// --- NewGraph resource fields ---
+
+func TestNewGraph_InitializesResources(t *testing.T) {
+	g := NewGraph("test")
+	if g.Resources == nil {
+		t.Fatal("NewGraph().Resources is nil")
+	}
+	if g.Namespace == nil {
+		t.Fatal("NewGraph().Namespace is nil")
+	}
+	if g.Resources.LedgerLen() != 0 {
+		t.Errorf("new graph ledger len = %d, want 0", g.Resources.LedgerLen())
+	}
+}
+
+func TestGraph_ResourcesNotSerialized(t *testing.T) {
+	g := NewGraph("test")
+	g.Resources.EnsureCataloged("file:///foo", "")
+	g.Namespace.Resolve(g.Resources, "file:///bar")
+
+	data, err := json.Marshal(g)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	// Resources and Namespace should not appear in JSON.
+	if strings.Contains(string(data), "resources") {
+		t.Error("Resources should not be serialized to JSON")
+	}
+	if strings.Contains(string(data), "namespace") {
+		t.Error("Namespace should not be serialized to JSON")
 	}
 }
 

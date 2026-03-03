@@ -620,6 +620,87 @@ func TestFillSlotUnsupportedType(t *testing.T) {
 	}
 }
 
+// --- FillSlot implicit resource edge tests ----------------------------------
+
+// testFileResource embeds op.Resource for testing implicit edge creation.
+type testFileResource struct {
+	Resource
+	SourcePath string
+}
+
+func TestFillSlotImplicitEdge_ResourceWithOrigin(t *testing.T) {
+	g := makeTestGraph()
+	consumer := makeTestNode("reader", "file.read")
+
+	// A resource produced by "writer" node — FillSlot should create an implicit edge.
+	res := testFileResource{
+		Resource:   Resource{URI: "file:///foo", ID: "res-1", OriginNodeID: "writer"},
+		SourcePath: "/foo",
+	}
+	val, err := Marshal(res)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	if err := FillSlot(consumer, g, "source_file", val); err != nil {
+		t.Fatalf("FillSlot error: %v", err)
+	}
+
+	// Should create an implicit edge from writer → reader.
+	if len(g.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(g.Edges))
+	}
+	if g.Edges[0].From != "writer" || g.Edges[0].To != "reader" {
+		t.Errorf("edge = %v → %v, want writer → reader", g.Edges[0].From, g.Edges[0].To)
+	}
+}
+
+func TestFillSlotImplicitEdge_ResourceWithoutOrigin(t *testing.T) {
+	g := makeTestGraph()
+	consumer := makeTestNode("reader", "file.read")
+
+	// A discovered resource (no origin) — FillSlot should NOT create an edge.
+	res := testFileResource{
+		Resource:   Resource{URI: "file:///bar", ID: "res-2", OriginNodeID: ""},
+		SourcePath: "/bar",
+	}
+	val, err := Marshal(res)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	if err := FillSlot(consumer, g, "source_file", val); err != nil {
+		t.Fatalf("FillSlot error: %v", err)
+	}
+
+	if len(g.Edges) != 0 {
+		t.Errorf("expected 0 edges for resource without origin, got %d", len(g.Edges))
+	}
+}
+
+func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
+	g := makeTestGraph()
+	consumer := makeTestNode("reader", "file.read")
+
+	// A plain op.Resource with origin.
+	res := Resource{URI: "file:///baz", ID: "res-3", OriginNodeID: "producer"}
+	val, err := Marshal(res)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	if err := FillSlot(consumer, g, "input", val); err != nil {
+		t.Fatalf("FillSlot error: %v", err)
+	}
+
+	if len(g.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(g.Edges))
+	}
+	if g.Edges[0].From != "producer" || g.Edges[0].To != "reader" {
+		t.Errorf("edge = %v → %v, want producer → reader", g.Edges[0].From, g.Edges[0].To)
+	}
+}
+
 // --- ResolveInput tests -----------------------------------------------------
 
 func TestResolveInput(t *testing.T) {
