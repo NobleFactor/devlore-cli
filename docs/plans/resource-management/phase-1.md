@@ -100,6 +100,14 @@ The executor's pre-flight pass (Phase 4) queries the ledger directly via
 `OriginNodeID` to determine which resources were shadowed and by which
 node.
 
+### Remove Legacy `backup` Annotation (Phase 2)
+
+The `Annotations["backup"]` check in `graph.go:613` and the
+`Summary.BackedUp` counter predate the resource model. No production code
+ever sets this annotation — it only appears in test fixtures. Phase 2
+already modifies `graph.go` to add `Resources`/`Namespace` fields, so the
+removal belongs there.
+
 ## What This Does NOT Touch
 
 - `graph.go` — Graph gets Resources/Namespace fields in Phase 2

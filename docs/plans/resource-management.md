@@ -982,7 +982,7 @@ func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) e
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `pkg/op/graph.go` | Modify | Add Resources/Namespace fields, init in NewGraph |
+| `pkg/op/graph.go` | Modify | Add Resources/Namespace fields, init in NewGraph; remove dead `backup` annotation check and `BackedUp` summary field |
 | `pkg/op/output.go` | Modify | Resource-aware FillSlot with implicit edges |
 | `pkg/op/resource.go` | Modify | Add `extractResource` reflection helper |
 | `pkg/op/graph_test.go` | Modify | Tests for resource fields on Graph |
