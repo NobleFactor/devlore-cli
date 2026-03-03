@@ -24,7 +24,7 @@ STAR ?= $(STAR_REPO)/bin/star
 # Provider source root
 P := pkg/op/provider
 
-.PHONY: all build clean test vet lint shell-lint complexity check dev docs dist dist-all star generate
+.PHONY: all build clean test test-race vet lint shell-lint complexity check dev docs dist dist-all star generate
 
 all: build
 
@@ -164,6 +164,9 @@ clean:
 
 test: generate
 	go test ./... -timeout 60s
+
+test-race: generate
+	go test ./... -count=1 -race -timeout 120s
 
 vet:
 	go vet ./...
