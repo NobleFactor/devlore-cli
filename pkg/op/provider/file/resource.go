@@ -62,10 +62,6 @@ func NewResource(path string) (Resource, error) {
 		return Resource{}, fmt.Errorf("failed to stat blob source: %w", err)
 	}
 
-	if info.IsDir() {
-		return Resource{}, fmt.Errorf("source path is a directory: %s", path)
-	}
-
 	// Extract syscall.Stat_t to get the Inode and Device
 	var inode, device uint64
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
@@ -79,7 +75,7 @@ func NewResource(path string) (Resource, error) {
 		Device:     device,
 		SourcePath: path,
 		Size:       info.Size(),
-		Mode:       info.Mode().Perm(),
+		Mode:       info.Mode(),
 		ModTime:    info.ModTime(),
 		Checksum:   checksumFile(path),
 	}, nil
@@ -210,7 +206,7 @@ func (r *Resource) refreshMetadataWith(info os.FileInfo, checksum string, size i
 	r.Inode = inode
 	r.Device = device
 	r.Size = info.Size()
-	r.Mode = info.Mode().Perm()
+	r.Mode = info.Mode()
 	r.ModTime = info.ModTime()
 
 	// We re-calculate the checksum because the content has changed
@@ -223,10 +219,6 @@ func (r *Resource) verifyMetadata(info os.FileInfo, err error) error {
 
 	if err != nil {
 		return err
-	}
-
-	if info.IsDir() {
-		return fmt.Errorf("source path is a directory: %s", r.SourcePath)
 	}
 
 	return nil

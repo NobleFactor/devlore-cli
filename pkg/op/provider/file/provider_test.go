@@ -26,12 +26,12 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 	linkPath := filepath.Join(tmp, "link")
 
 	p := Provider{}
-	result, state, err := p.Link(source, linkPath)
+	result, state, err := p.Link(Resource{SourcePath: source}, Resource{SourcePath: linkPath})
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result != linkPath {
-		t.Errorf("result = %q, want %q", result, linkPath)
+	if result.SourcePath != linkPath {
+		t.Errorf("result = %q, want %q", result.SourcePath, linkPath)
 	}
 
 	s := op.AsStateMap(state)
@@ -67,12 +67,12 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 	}
 
 	p := Provider{}
-	result, state, err := p.Link(newTarget, linkPath)
+	result, state, err := p.Link(Resource{SourcePath: newTarget}, Resource{SourcePath: linkPath})
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result != linkPath {
-		t.Errorf("result = %q, want %q", result, linkPath)
+	if result.SourcePath != linkPath {
+		t.Errorf("result = %q, want %q", result.SourcePath, linkPath)
 	}
 
 	s := op.AsStateMap(state)
@@ -107,12 +107,12 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 	}
 
 	p := Provider{}
-	result, state, err := p.Link(source, linkPath)
+	result, state, err := p.Link(Resource{SourcePath: source}, Resource{SourcePath: linkPath})
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result != linkPath {
-		t.Errorf("result = %q, want %q", result, linkPath)
+	if result.SourcePath != linkPath {
+		t.Errorf("result = %q, want %q", result.SourcePath, linkPath)
 	}
 	if state != nil {
 		t.Errorf("state = %v, want nil (no-op)", state)
@@ -128,7 +128,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 	linkPath := filepath.Join(tmp, "deep", "nested", "link")
 
 	p := Provider{}
-	_, _, err := p.Link(source, linkPath)
+	_, _, err := p.Link(Resource{SourcePath: source}, Resource{SourcePath: linkPath})
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -231,7 +231,7 @@ func TestCopy_WritesNewFile(t *testing.T) {
 	fileResource := testFileResource(t, []byte("hello world"))
 
 	p := Provider{}
-	result, _, err := p.Copy(fileResource, path, 0o600)
+	result, _, err := p.Copy(fileResource, Resource{SourcePath: path}, 0o600)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -266,7 +266,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 
 	p := Provider{Root: tmp}
 	blob := testFileResource(t, []byte("replaced"))
-	_, _, err := p.Copy(blob, path, 0o644)
+	_, _, err := p.Copy(blob, Resource{SourcePath: path}, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -286,7 +286,7 @@ func TestCopy_DefaultModeWhenZero(t *testing.T) {
 
 	p := Provider{}
 	blob := testFileResource(t, []byte("content"))
-	_, _, err := p.Copy(blob, path, 0)
+	_, _, err := p.Copy(blob, Resource{SourcePath: path}, 0)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -389,14 +389,19 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	res, err := NewResource(path)
+	if err != nil {
+		t.Fatalf("NewResource() error = %v", err)
+	}
+
 	p := Provider{}
-	result, state, err := p.Backup(path, ".bak")
+	result, state, err := p.Backup(res, ".bak")
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
 
-	if !strings.HasPrefix(result, path+".bak.") {
-		t.Errorf("backup path = %q, want prefix %q", result, path+".bak.")
+	if !strings.HasPrefix(result.SourcePath, path+".bak.") {
+		t.Errorf("backup path = %q, want prefix %q", result.SourcePath, path+".bak.")
 	}
 
 	// Original should be gone.
@@ -405,7 +410,7 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	}
 
 	// Backup should exist with correct content.
-	got, err := os.ReadFile(result)
+	got, err := os.ReadFile(result.SourcePath)
 	if err != nil {
 		t.Fatalf("ReadFile(backup) error = %v", err)
 	}
@@ -417,8 +422,8 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	if op.StateString(s, "original_path") != path {
 		t.Errorf("state original_path = %q, want %q", op.StateString(s, "original_path"), path)
 	}
-	if op.StateString(s, "backup_path") != result {
-		t.Errorf("state backup_path = %q, want %q", op.StateString(s, "backup_path"), result)
+	if op.StateString(s, "backup_path") != result.SourcePath {
+		t.Errorf("state backup_path = %q, want %q", op.StateString(s, "backup_path"), result.SourcePath)
 	}
 
 	// Checksum should match the original file content.
@@ -437,13 +442,13 @@ func TestBackup_DefaultSuffix(t *testing.T) {
 	}
 
 	p := Provider{}
-	result, _, err := p.Backup(path, "")
+	result, _, err := p.Backup(Resource{SourcePath: path}, "")
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
 
-	if !strings.HasPrefix(result, path+".devlore-backup.") {
-		t.Errorf("backup path = %q, want prefix %q (default suffix)", result, path+".devlore-backup.")
+	if !strings.HasPrefix(result.SourcePath, path+".devlore-backup.") {
+		t.Errorf("backup path = %q, want prefix %q (default suffix)", result.SourcePath, path+".devlore-backup.")
 	}
 }
 
@@ -528,7 +533,7 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 
 	p := Provider{}
-	result, state, err := p.Unlink(linkPath, false, "")
+	result, state, err := p.Unlink(Resource{SourcePath: linkPath}, false, Resource{})
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -550,7 +555,7 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 	linkPath := filepath.Join(tmp, "nonexistent")
 
 	p := Provider{}
-	result, state, err := p.Unlink(linkPath, false, "")
+	result, state, err := p.Unlink(Resource{SourcePath: linkPath}, false, Resource{})
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -570,7 +575,7 @@ func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
 	}
 
 	p := Provider{}
-	_, _, err := p.Unlink(path, false, "")
+	_, _, err := p.Unlink(Resource{SourcePath: path}, false, Resource{})
 	if err == nil {
 		t.Fatal("Unlink() on regular file should return error")
 	}
@@ -590,7 +595,7 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 
 	p := Provider{}
-	result, state, err := p.Remove(path, false, "")
+	result, state, err := p.Remove(Resource{SourcePath: path}, false, Resource{})
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -619,7 +624,7 @@ func TestRemove_AlreadyGone(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent")
 
 	p := Provider{}
-	result, state, err := p.Remove(path, false, "")
+	result, state, err := p.Remove(Resource{SourcePath: path}, false, Resource{})
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -638,7 +643,7 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	p := Provider{}
-	result, state, err := p.WriteText(path, "hello world", 0o644)
+	result, state, err := p.WriteText(Resource{SourcePath: path}, "hello world", 0o644)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -664,7 +669,7 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.bin")
 
 	p := Provider{}
-	result, state, err := p.WriteBytes(path, "binary data", 0o600)
+	result, state, err := p.WriteBytes(Resource{SourcePath: path}, "binary data", 0o600)
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -703,13 +708,18 @@ func TestMove(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	srcRes, resErr := NewResource(src)
+	if resErr != nil {
+		t.Fatalf("NewResource() error = %v", resErr)
+	}
+
 	p := Provider{}
-	result, state, err := p.Move(src, dst)
+	result, state, err := p.Move(srcRes, Resource{SourcePath: dst})
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
-	if result != dst {
-		t.Errorf("result = %q, want %q", result, dst)
+	if result.SourcePath != dst {
+		t.Errorf("result = %q, want %q", result.SourcePath, dst)
 	}
 
 	s := op.AsStateMap(state)
@@ -788,8 +798,13 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	srcRes, resErr := NewResource(src)
+	if resErr != nil {
+		t.Fatalf("NewResource() error = %v", resErr)
+	}
+
 	p := Provider{}
-	_, state, err := p.Move(src, dst)
+	_, state, err := p.Move(srcRes, Resource{SourcePath: dst})
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -859,7 +874,7 @@ func TestWriteText_DefaultModeWhenZero(t *testing.T) {
 	path := filepath.Join(tmp, "default-mode.txt")
 
 	p := Provider{}
-	_, _, err := p.WriteText(path, "content", 0)
+	_, _, err := p.WriteText(Resource{SourcePath: path}, "content", 0)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -878,7 +893,7 @@ func TestWriteBytes_DefaultModeWhenZero(t *testing.T) {
 	path := filepath.Join(tmp, "default-mode.bin")
 
 	p := Provider{}
-	_, _, err := p.WriteBytes(path, "content", 0)
+	_, _, err := p.WriteBytes(Resource{SourcePath: path}, "content", 0)
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -897,7 +912,7 @@ func TestWriteText_CreatesParentDirectories(t *testing.T) {
 	path := filepath.Join(tmp, "nested", "deep", "file.txt")
 
 	p := Provider{}
-	result, _, err := p.WriteText(path, "nested content", 0o644)
+	result, _, err := p.WriteText(Resource{SourcePath: path}, "nested content", 0o644)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -919,7 +934,7 @@ func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.txt")
 
 	p := Provider{}
-	_, state, err := p.WriteText(path, "to be undone", 0o644)
+	_, state, err := p.WriteText(Resource{SourcePath: path}, "to be undone", 0o644)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -944,7 +959,7 @@ func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.bin")
 
 	p := Provider{}
-	_, state, err := p.WriteBytes(path, "to be undone", 0o600)
+	_, state, err := p.WriteBytes(Resource{SourcePath: path}, "to be undone", 0o600)
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -1021,7 +1036,7 @@ func TestIsDir_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := Provider{}
-	if !p.IsDir(tmp) {
+	if !p.IsDir(Resource{SourcePath: tmp}) {
 		t.Error("IsDir() = false, want true for directory")
 	}
 }
@@ -1034,14 +1049,14 @@ func TestIsDir_File(t *testing.T) {
 	}
 
 	p := Provider{}
-	if p.IsDir(path) {
+	if p.IsDir(Resource{SourcePath: path}) {
 		t.Error("IsDir() = true, want false for regular file")
 	}
 }
 
 func TestIsDir_NonExistent(t *testing.T) {
 	p := Provider{}
-	if p.IsDir("/nonexistent/path") {
+	if p.IsDir(Resource{SourcePath: "/nonexistent/path"}) {
 		t.Error("IsDir() = true, want false for non-existent path")
 	}
 }
@@ -1056,7 +1071,7 @@ func TestIsFile_RegularFile(t *testing.T) {
 	}
 
 	p := Provider{}
-	if !p.IsFile(path) {
+	if !p.IsFile(Resource{SourcePath: path}) {
 		t.Error("IsFile() = false, want true for regular file")
 	}
 }
@@ -1065,14 +1080,14 @@ func TestIsFile_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := Provider{}
-	if p.IsFile(tmp) {
+	if p.IsFile(Resource{SourcePath: tmp}) {
 		t.Error("IsFile() = true, want false for directory")
 	}
 }
 
 func TestIsFile_NonExistent(t *testing.T) {
 	p := Provider{}
-	if p.IsFile("/nonexistent/path") {
+	if p.IsFile(Resource{SourcePath: "/nonexistent/path"}) {
 		t.Error("IsFile() = true, want false for non-existent path")
 	}
 }
@@ -1090,7 +1105,7 @@ func TestIsFile_Symlink(t *testing.T) {
 
 	p := Provider{}
 	// Symlink to regular file resolves via os.Stat, so IsFile returns true.
-	if !p.IsFile(link) {
+	if !p.IsFile(Resource{SourcePath: link}) {
 		t.Error("IsFile() = false, want true for symlink to regular file")
 	}
 }
@@ -1170,12 +1185,12 @@ func TestMkdir_CreatesDirectory(t *testing.T) {
 	path := filepath.Join(tmp, "newdir")
 
 	p := Provider{}
-	result, err := p.Mkdir(path, 0o755)
+	result, err := p.Mkdir(Resource{SourcePath: path}, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
-	if result != path {
-		t.Errorf("result = %q, want %q", result, path)
+	if result.SourcePath != path {
+		t.Errorf("result.SourcePath = %q, want %q", result.SourcePath, path)
 	}
 
 	info, err := os.Stat(path)
@@ -1192,7 +1207,7 @@ func TestMkdir_CreatesParents(t *testing.T) {
 	path := filepath.Join(tmp, "a", "b", "c")
 
 	p := Provider{}
-	_, err := p.Mkdir(path, 0o755)
+	_, err := p.Mkdir(Resource{SourcePath: path}, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1214,7 +1229,7 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 
 	p := Provider{}
-	_, err := p.Mkdir(path, 0o755)
+	_, err := p.Mkdir(Resource{SourcePath: path}, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() on existing directory error = %v", err)
 	}
@@ -1230,7 +1245,7 @@ func TestRead_ReturnsBlob(t *testing.T) {
 	}
 
 	p := Provider{}
-	blob, err := p.Read(path)
+	blob, err := p.Read(Resource{SourcePath: path})
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
@@ -1245,7 +1260,7 @@ func TestRead_ReturnsBlob(t *testing.T) {
 
 func TestRead_NonExistent_ReturnsBlobThatDoesNotExist(t *testing.T) {
 	p := Provider{}
-	blob, err := p.Read("/nonexistent/file.txt")
+	blob, err := p.Read(Resource{SourcePath: "/nonexistent/file.txt"})
 	if err != nil {
 		t.Fatalf("Read() error = %v, want nil for non-existent file", err)
 	}
@@ -1257,13 +1272,16 @@ func TestRead_NonExistent_ReturnsBlobThatDoesNotExist(t *testing.T) {
 	}
 }
 
-func TestRead_Directory_ReturnsError(t *testing.T) {
+func TestRead_Directory_ReturnsResource(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := Provider{}
-	_, err := p.Read(tmp)
-	if err == nil {
-		t.Fatal("Read() on directory should return error")
+	result, err := p.Read(Resource{SourcePath: tmp})
+	if err != nil {
+		t.Fatalf("Read() on directory error = %v", err)
+	}
+	if result.SourcePath != tmp {
+		t.Errorf("result.SourcePath = %q, want %q", result.SourcePath, tmp)
 	}
 }
 
@@ -1311,7 +1329,7 @@ func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "data")
 
 	p := Provider{}
-	_, _, err := p.Remove(dir, false, "")
+	_, _, err := p.Remove(Resource{SourcePath: dir}, false, Resource{})
 	if err == nil {
 		t.Fatal("Remove() on non-empty directory should return error")
 	}
@@ -1357,7 +1375,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	}
 
 	p := Provider{}
-	backupPath, state, err := p.Backup(path, ".bak")
+	result, state, err := p.Backup(Resource{SourcePath: path}, ".bak")
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
@@ -1366,7 +1384,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("original file still exists after Backup")
 	}
-	if _, err := os.Stat(backupPath); err != nil {
+	if _, err := os.Stat(result.SourcePath); err != nil {
 		t.Fatalf("backup file does not exist: %v", err)
 	}
 
@@ -1382,7 +1400,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	if string(got) != "original content" {
 		t.Errorf("restored content = %q, want %q", got, "original content")
 	}
-	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(result.SourcePath); !os.IsNotExist(err) {
 		t.Error("backup file still exists after compensation")
 	}
 }
@@ -1395,7 +1413,7 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 
 	p := Provider{}
 	blob := testFileResource(t, []byte("new content"))
-	_, state, err := p.Copy(blob, path, 0o644)
+	_, state, err := p.Copy(blob, Resource{SourcePath: path}, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -1419,7 +1437,7 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 
 	p := Provider{Root: tmp}
 	blob := testFileResource(t, []byte("replaced"))
-	_, state, err := p.Copy(blob, path, 0o644)
+	_, state, err := p.Copy(blob, Resource{SourcePath: path}, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -1517,7 +1535,7 @@ func TestWalkTree_BasicTraversal(t *testing.T) {
 
 	p := Provider{}
 	var walked []string
-	_, stack, err := p.WalkTree(root, Actor(func(path string, entry os.DirEntry) error {
+	_, stack, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
 		walked = append(walked, path)
 		return nil
 	}), false)
@@ -1543,7 +1561,7 @@ func TestWalkTree_GitignoreFiltering(t *testing.T) {
 
 	p := Provider{}
 	var walked []string
-	_, _, err := p.WalkTree(root, Actor(func(path string, entry os.DirEntry) error {
+	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
 		walked = append(walked, path)
 		return nil
 	}), true)
@@ -1570,8 +1588,8 @@ func TestWalkTree_NestedGitignore(t *testing.T) {
 
 	p := Provider{}
 	var walked []string
-	_, _, err := p.WalkTree(root, Actor(func(path string, entry os.DirEntry) error {
-		if !entry.IsDir() {
+	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
+		if !resource.Mode.IsDir() {
 			walked = append(walked, path)
 		}
 		return nil
@@ -1598,9 +1616,9 @@ func TestWalkTree_SkipDir(t *testing.T) {
 
 	p := Provider{}
 	var walked []string
-	_, _, err := p.WalkTree(root, Actor(func(path string, entry os.DirEntry) error {
+	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
 		walked = append(walked, path)
-		if entry.IsDir() && path == "b" {
+		if resource.Mode.IsDir() && path == "b" {
 			return SkipDir
 		}
 		return nil
@@ -1626,9 +1644,9 @@ func TestWalkTree_SkipAll(t *testing.T) {
 
 	p := Provider{}
 	var walked []string
-	_, _, err := p.WalkTree(root, Actor(func(path string, entry os.DirEntry) error {
+	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
 		walked = append(walked, path)
-		if entry.IsDir() && path == "b" {
+		if resource.Mode.IsDir() && path == "b" {
 			return SkipAll
 		}
 		return nil
@@ -1650,7 +1668,7 @@ func TestWalkTree_SkipsGitDir(t *testing.T) {
 
 	p := Provider{}
 	var walked []string
-	_, _, err := p.WalkTree(root, Actor(func(path string, entry os.DirEntry) error {
+	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
 		walked = append(walked, path)
 		return nil
 	}), false)
@@ -1671,12 +1689,12 @@ func TestWalkTree_FoldAccumulates(t *testing.T) {
 	writeTestFile(t, root, "sub/c.txt", "!")
 
 	p := Provider{}
-	result, _, err := p.WalkTree(root, func(result any, path string, entry os.DirEntry, stack *op.RecoveryStack) (any, error) {
+	result, _, err := p.WalkTree(Resource{SourcePath: root}, func(result any, resource Resource, path string, stack *op.RecoveryStack) (any, error) {
 		count := 0
 		if result != nil {
 			count = result.(int)
 		}
-		if !entry.IsDir() {
+		if !resource.Mode.IsDir() {
 			count++
 		}
 		return count, nil
@@ -1701,8 +1719,8 @@ func TestWalkTree_RecoveryStackIntegration(t *testing.T) {
 
 	p := Provider{}
 	var pushed []string
-	_, stack, err := p.WalkTree(root, func(result any, path string, entry os.DirEntry, stack *op.RecoveryStack) (any, error) {
-		if !entry.IsDir() {
+	_, stack, err := p.WalkTree(Resource{SourcePath: root}, func(result any, resource Resource, path string, stack *op.RecoveryStack) (any, error) {
+		if !resource.Mode.IsDir() {
 			pushed = append(pushed, path)
 			stack.Push(
 				func(state any) error { return nil },
@@ -1734,8 +1752,8 @@ func TestWalkTree_ErrorUnwindsStack(t *testing.T) {
 	p := Provider{}
 	var compensated []string
 
-	_, stack, err := p.WalkTree(root, func(result any, path string, entry os.DirEntry, stack *op.RecoveryStack) (any, error) {
-		if entry.IsDir() {
+	_, stack, err := p.WalkTree(Resource{SourcePath: root}, func(result any, resource Resource, path string, stack *op.RecoveryStack) (any, error) {
+		if resource.Mode.IsDir() {
 			return nil, nil
 		}
 		stack.Push(
@@ -1783,8 +1801,8 @@ func TestWalkTree_CompensateWalkTree(t *testing.T) {
 	p := Provider{}
 	var compensated []string
 
-	_, stack, err := p.WalkTree(root, func(result any, path string, entry os.DirEntry, stack *op.RecoveryStack) (any, error) {
-		if !entry.IsDir() {
+	_, stack, err := p.WalkTree(Resource{SourcePath: root}, func(result any, resource Resource, path string, stack *op.RecoveryStack) (any, error) {
+		if !resource.Mode.IsDir() {
 			stack.Push(
 				func(state any) error {
 					compensated = append(compensated, state.(string))
@@ -1834,8 +1852,8 @@ func TestWalkTree_DirsAndFiles(t *testing.T) {
 
 	p := Provider{}
 	var dirs, files []string
-	_, _, err := p.WalkTree(root, Actor(func(path string, entry os.DirEntry) error {
-		if entry.IsDir() {
+	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
+		if resource.Mode.IsDir() {
 			dirs = append(dirs, path)
 		} else {
 			files = append(files, path)

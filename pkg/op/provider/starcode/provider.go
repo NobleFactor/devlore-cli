@@ -122,8 +122,8 @@ func (s *Sources) Analyze(cfg staranalysis.AnalysisConfig) (*staranalysis.Analys
 func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) ([]string, error) {
 	var files []string
 
-	visitor := file.Actor(func(relPath string, entry os.DirEntry) error {
-		if entry.IsDir() {
+	visitor := file.Actor(func(resource file.Resource, relPath string) error {
+		if resource.Mode.IsDir() {
 			return nil
 		}
 		if !isStarlarkFile(relPath, includeBzl) {
@@ -143,7 +143,7 @@ func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) 
 		return nil
 	})
 
-	_, _, err := (&file.Provider{}).WalkTree(absRoot, visitor, honorGitignore)
+	_, _, err := (&file.Provider{}).WalkTree(file.Resource{SourcePath: absRoot}, visitor, honorGitignore)
 	if err != nil {
 		return nil, err
 	}
