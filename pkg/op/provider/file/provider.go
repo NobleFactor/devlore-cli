@@ -36,16 +36,16 @@ type Provider struct {
 //
 // This is a convenience function for creating Reducers from simple functions that don't accumulate results or need to
 // access the recovery stack.
-func Actor(fn func(path string, dirEntry os.DirEntry) error) Reducer {
-	return func(result any, path string, dirEntry os.DirEntry, stack *op.RecoveryStack) (any, error) {
+func Actor(fn func(resource Resource, relativePath string) error) Reducer {
+	return func(result any, resource Resource, relativePath string, stack *op.RecoveryStack) (any, error) {
 		var zero any
-		return zero, fn(path, dirEntry)
+		return zero, fn(resource, relativePath)
 	}
 }
 
 // Reducer is a function called for each file or directory in a WalkTree operation.
 // +devlore:callable swallow=stack
-type Reducer func(initial any, path string, dirEntry os.DirEntry, stack *op.RecoveryStack) (result any, err error)
+type Reducer func(initial any, resource Resource, relativePath string, stack *op.RecoveryStack) (result any, err error)
 
 var (
 	// SkipDir indicates that the current directory should be skipped.
@@ -65,31 +65,32 @@ var (
 //
 // Returns:
 //   - The backup path and compensation state.
-func (p *Provider) Backup(path, backupSuffix string) (result string, undo map[string]any, err error) {
+func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, undo map[string]any, err error) {
 
 	if backupSuffix == "" {
 		backupSuffix = ".devlore-backup"
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
-	backupPath := path + backupSuffix + "." + timestamp
+	backupPath := path.SourcePath + backupSuffix + "." + timestamp
 
-	checksum := checksumFile(path)
-
-	if err := os.Rename(path, backupPath); err != nil {
-		return "", nil, err
+	if err := os.Rename(path.SourcePath, backupPath); err != nil {
+		return Resource{}, nil, err
 	}
 
 	undo = map[string]any{
-		"original_path": path,
+		"original_path": path.SourcePath,
 		"backup_path":   backupPath,
 	}
 
-	if checksum != "" {
-		undo["written_checksum"] = checksum
+	if path.Checksum != "" {
+		undo["written_checksum"] = path.Checksum
 	}
 
-	return backupPath, undo, nil
+	result = path
+	result.SourcePath = backupPath
+
+	return result, undo, nil
 }
 
 // CompensateBackup undoes a Backup by moving the backup back to the original path.
@@ -133,7 +134,7 @@ func (p *Provider) CompensateBackup(undo map[string]any) error {
 //   - result: the path to the written file
 //   - undo: a state map containing the tombstone for recovery
 //   - err: any error that occurred during the copy
-func (p *Provider) Copy(sourceFile Resource, destinationFilename string, destinationFileMode os.FileMode) (result Resource, undo map[string]any, err error) {
+func (p *Provider) Copy(sourceFile Resource, destinationFilename Resource, destinationFileMode os.FileMode) (result Resource, undo map[string]any, err error) {
 
 	result, undo, err = p.prepareWrite(destinationFilename)
 
@@ -145,7 +146,7 @@ func (p *Provider) Copy(sourceFile Resource, destinationFilename string, destina
 		destinationFileMode = 0o644
 	}
 
-	f, err := os.OpenFile(destinationFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
+	f, err := os.OpenFile(destinationFilename.SourcePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
 
 	if err != nil {
 		return Resource{}, nil, err
@@ -185,16 +186,16 @@ func (p *Provider) CompensateCopy(undo map[string]any) error {
 //     > path: the path to the symlink
 //     > existed_before: true if the symlink already existed before
 //     > previous_target: the target of the symlink before it was created if it existed
-func (p *Provider) Link(source, path string) (result string, undo map[string]any, err error) {
+func (p *Provider) Link(source, path Resource) (result Resource, undo map[string]any, err error) {
 
-	if info, err := os.Lstat(path); err == nil {
+	if info, err := os.Lstat(path.SourcePath); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			existing, readErr := os.Readlink(path)
-			if readErr == nil && existing == source {
+			existing, readErr := os.Readlink(path.SourcePath)
+			if readErr == nil && existing == source.SourcePath {
 				return path, nil, nil // Already correct — no change
 			}
 			undo = map[string]any{
-				"path":           path,
+				"path":           path.SourcePath,
 				"existed_before": true,
 			}
 			if readErr == nil {
@@ -202,29 +203,33 @@ func (p *Provider) Link(source, path string) (result string, undo map[string]any
 			}
 		} else {
 			undo = map[string]any{
-				"path":           path,
+				"path":           path.SourcePath,
 				"existed_before": true,
 			}
 		}
-		if err := os.Remove(path); err != nil {
-			return "", nil, err
+		if err := os.Remove(path.SourcePath); err != nil {
+			return Resource{}, nil, err
 		}
 	} else {
 		undo = map[string]any{
-			"path":           path,
+			"path":           path.SourcePath,
 			"existed_before": false,
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return "", nil, err
+	if err := os.MkdirAll(filepath.Dir(path.SourcePath), 0o750); err != nil {
+		return Resource{}, nil, err
 	}
 
-	if err := os.Symlink(source, path); err != nil {
-		return "", nil, err
+	if err := os.Symlink(source.SourcePath, path.SourcePath); err != nil {
+		return Resource{}, nil, err
 	}
 
-	return path, undo, nil
+	result, err = NewResource(path.SourcePath)
+	if err != nil {
+		return Resource{}, undo, err
+	}
+	return result, undo, nil
 }
 
 // CompensateLink undoes a Link action using the captured state.
@@ -274,33 +279,35 @@ func (p *Provider) CompensateLink(undo map[string]any) error {
 //     > source: the source path of the move
 //     > path: the destination path of the move
 //     > written_checksum: the checksum of the moved file (if available)
-func (p *Provider) Move(source, destination string) (result string, undo map[string]any, err error) {
+func (p *Provider) Move(source, destination Resource) (result Resource, undo map[string]any, err error) {
 
-	if _, err := os.Stat(source); err != nil {
-		return "", nil, err
+	if _, err := os.Stat(source.SourcePath); err != nil {
+		return Resource{}, nil, err
 	}
 
-	// Capture content checksum before the rename.
-	checksum := checksumFile(source)
+	// Use the pre-computed checksum from the source resource.
+	checksum := source.Checksum
 
-	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
-		return "", nil, err
+	if err := os.MkdirAll(filepath.Dir(destination.SourcePath), 0o750); err != nil {
+		return Resource{}, nil, err
 	}
 
-	if err := os.Rename(source, destination); err != nil {
-		return "", nil, err
+	if err := os.Rename(source.SourcePath, destination.SourcePath); err != nil {
+		return Resource{}, nil, err
 	}
 
 	state := map[string]any{
-		"source":      source,
-		"destination": destination,
+		"source":      source.SourcePath,
+		"destination": destination.SourcePath,
 	}
 
 	if checksum != "" {
 		state["written_checksum"] = checksum
 	}
 
-	return destination, state, nil
+	result = source
+	result.SourcePath = destination.SourcePath
+	return result, state, nil
 }
 
 // CompensateMove undoes a Move by moving the file back from path to source.
@@ -354,9 +361,9 @@ func (p *Provider) CompensateMove(undo map[string]any) error {
 //     > path: the path to the deleted file
 //     > content: the content of the deleted file (if available)
 //     > mode: the file mode of the deleted file (if available)
-func (p *Provider) Remove(path string, prune bool, pruneBoundary string) (result Tombstone, undo map[string]any, err error) {
+func (p *Provider) Remove(path Resource, prune bool, pruneBoundary Resource) (result Tombstone, undo map[string]any, err error) {
 
-	nonEmptyDirectory, err := isDirAndNotEmpty(path)
+	nonEmptyDirectory, err := isDirAndNotEmpty(path.SourcePath)
 
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -366,10 +373,10 @@ func (p *Provider) Remove(path string, prune bool, pruneBoundary string) (result
 	}
 
 	if nonEmptyDirectory {
-		return Tombstone{}, nil, fmt.Errorf("directory %s is not empty", path)
+		return Tombstone{}, nil, fmt.Errorf("directory %s is not empty", path.SourcePath)
 	}
 
-	return p.moveToRecovery(path, prune, pruneBoundary)
+	return p.moveToRecovery(path.SourcePath, prune, pruneBoundary.SourcePath)
 }
 
 // CompensateRemove undoes a Remove by re-creating the file with saved content and mode.
@@ -403,8 +410,8 @@ func (p *Provider) CompensateRemove(undo map[string]any) error {
 //     > files_moved: the number of files moved to the recovery directory
 //     > recovery_dir: the path to the recovery directory
 //   - err: any error that occurred during the removal
-func (p *Provider) RemoveAll(path string, prune bool, pruneBoundary string) (result Tombstone, undo map[string]any, err error) {
-	return p.moveToRecovery(path, prune, pruneBoundary)
+func (p *Provider) RemoveAll(path Resource, prune bool, pruneBoundary Resource) (result Tombstone, undo map[string]any, err error) {
+	return p.moveToRecovery(path.SourcePath, prune, pruneBoundary.SourcePath)
 }
 
 // CompensateRemoveAll is the compensating action for RemoveAll.
@@ -438,9 +445,9 @@ func (p *Provider) CompensateRemoveAll(undo map[string]any) error {
 //   - compState: a state map with the following keys:
 //     > path: the path to the deleted symlink
 //     > target: the target of the deleted symlink
-func (p *Provider) Unlink(path string, prune bool, pruneBoundary string) (result Tombstone, undo map[string]any, err error) {
+func (p *Provider) Unlink(path Resource, prune bool, pruneBoundary Resource) (result Tombstone, undo map[string]any, err error) {
 
-	info, err := os.Lstat(path)
+	info, err := os.Lstat(path.SourcePath)
 
 	if os.IsNotExist(err) {
 		return Tombstone{}, nil, nil // Already gone — no change
@@ -451,10 +458,10 @@ func (p *Provider) Unlink(path string, prune bool, pruneBoundary string) (result
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
-		return Tombstone{}, nil, fmt.Errorf("%s is not a symlink", path)
+		return Tombstone{}, nil, fmt.Errorf("%s is not a symlink", path.SourcePath)
 	}
 
-	return p.moveToRecovery(path, prune, pruneBoundary)
+	return p.moveToRecovery(path.SourcePath, prune, pruneBoundary.SourcePath)
 }
 
 // CompensateUnlink undoes an Unlink by re-creating the symlink.
@@ -489,27 +496,21 @@ func (p *Provider) CompensateUnlink(undo map[string]any) error {
 //   - result: The accumulated result from the visitor function
 //   - stack: The compensable operations stack
 //   - err: The first error encountered during traversal, if any
-func (p *Provider) WalkTree(root string, fn Reducer, honorGitignore bool) (result any, stack *op.RecoveryStack, err error) {
+func (p *Provider) WalkTree(root Resource, fn Reducer, honorGitignore bool) (result any, stack *op.RecoveryStack, err error) {
 
 	stack = op.NewRecoveryStack()
-
-	walkFn := func(path string, entry os.DirEntry) error {
-		var err error
-		result, err = fn(result, path, entry, stack)
-		return err
-	}
 
 	var tracker *gitignore.Tracker
 
 	if honorGitignore {
-		value, err := gitignore.NewTracker(root)
+		value, err := gitignore.NewTracker(root.SourcePath)
 		if err != nil {
 			return nil, nil, err
 		}
 		tracker = value
 	}
 
-	absoluteRoot, err := filepath.Abs(root)
+	absoluteRoot, err := filepath.Abs(root.SourcePath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -553,7 +554,13 @@ func (p *Provider) WalkTree(root string, fn Reducer, honorGitignore bool) (resul
 			}
 		}
 
-		return walkFn(relativePath, d)
+		resource, resErr := NewResource(path)
+		if resErr != nil {
+			return resErr
+		}
+
+		result, err = fn(result, resource, relativePath, stack)
+		return err
 	})
 
 	if walkErr != nil {
@@ -591,7 +598,7 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 //   - undo: a state map with the following keys:
 //     > tombstone: a [Tombstone]
 //   - err: any error that occurred while writing
-func (p *Provider) WriteBytes(destination, content string, mode os.FileMode) (result Resource, undo map[string]any, err error) {
+func (p *Provider) WriteBytes(destination Resource, content string, mode os.FileMode) (result Resource, undo map[string]any, err error) {
 	return p.write(destination, []byte(content), mode)
 }
 
@@ -620,7 +627,7 @@ func (p *Provider) CompensateWriteBytes(undo map[string]any) error {
 //   - undo: a state map with the following keys:
 //     > tombstone: a [Tombstone]
 //   - err: any error that occurred while writing
-func (p *Provider) WriteText(destination, content string, mode os.FileMode) (result Resource, undo map[string]any, err error) {
+func (p *Provider) WriteText(destination Resource, content string, mode os.FileMode) (result Resource, undo map[string]any, err error) {
 	return p.write(destination, []byte(content), mode)
 }
 
@@ -646,8 +653,8 @@ func (p *Provider) CompensateWriteText(undo map[string]any) error {
 //
 // Returns:
 //   - bool: true if the file at "path" exists, false otherwise
-func (p *Provider) Exists(fileResource Resource) bool {
-	_, err := os.Lstat(fileResource.SourcePath)
+func (p *Provider) Exists(resource Resource) bool {
+	_, err := os.Lstat(resource.SourcePath)
 	return err == nil
 }
 
@@ -702,8 +709,8 @@ func (p *Provider) Glob(pattern string, honorGitignore bool) ([]string, error) {
 //
 // Returns:
 //   - bool: true if the file at "path "is a directory, false otherwise
-func (p *Provider) IsDir(path string) bool {
-	info, err := os.Stat(path)
+func (p *Provider) IsDir(resource Resource) bool {
+	info, err := os.Stat(resource.SourcePath)
 	return err == nil && info.IsDir()
 }
 
@@ -714,8 +721,8 @@ func (p *Provider) IsDir(path string) bool {
 //
 // Returns:
 //   - bool: true if the file at "path" is a regular file, false otherwise
-func (p *Provider) IsFile(path string) bool {
-	info, err := os.Stat(path)
+func (p *Provider) IsFile(resource Resource) bool {
+	info, err := os.Stat(resource.SourcePath)
 	return err == nil && info.Mode().IsRegular()
 }
 
@@ -738,8 +745,8 @@ func (p *Provider) Join(parts ...string) string {
 //
 // Returns:
 //   - string: The absolute path of the created directory
-func (p *Provider) Mkdir(path string, mode os.FileMode) (string, error) {
-	return path, os.MkdirAll(path, mode)
+func (p *Provider) Mkdir(resource Resource, mode os.FileMode) (Resource, error) {
+	return resource, os.MkdirAll(resource.SourcePath, mode)
 }
 
 // Name returns the last element of "path" (a file or directory name).
@@ -772,8 +779,8 @@ func (p *Provider) Parent(path string) string {
 //
 // Returns:
 //   - result: the contents of the file
-func (p *Provider) Read(path string) (result Resource, err error) {
-	return NewResource(path)
+func (p *Provider) Read(path Resource) (result Resource, err error) {
+	return NewResource(path.SourcePath)
 }
 
 // region Internal
@@ -818,9 +825,9 @@ func (p *Provider) compensateWrite(undo map[string]any) error {
 //     > action: The action that was performed (e.g., "overwrite", "create")
 //     > tombstone: The tombstone returned by RemoveAll
 //   - err: Any error that occurred during the preparation
-func (p *Provider) prepareWrite(path string) (result Resource, undo map[string]any, err error) {
+func (p *Provider) prepareWrite(resource Resource) (result Resource, undo map[string]any, err error) {
 
-	result, err = NewResource(path)
+	result, err = NewResource(resource.SourcePath)
 
 	if err != nil {
 		return Resource{}, nil, err
@@ -838,7 +845,7 @@ func (p *Provider) prepareWrite(path string) (result Resource, undo map[string]a
 		return result, undo, nil
 	}
 
-	tombstone, _, err := p.Remove(result.SourcePath, false, "")
+	tombstone, _, err := p.Remove(result, false, Resource{})
 
 	if err != nil {
 		return Resource{}, nil, fmt.Errorf("failed to backup existing file: %w", err)
@@ -855,11 +862,11 @@ func (p *Provider) prepareWrite(path string) (result Resource, undo map[string]a
 //   - data: The data to write to the file
 //
 // Returns:
-func (p *Provider) write(path string, data []byte, mode os.FileMode) (result Resource, undo map[string]any, err error) {
+func (p *Provider) write(resource Resource, data []byte, mode os.FileMode) (result Resource, undo map[string]any, err error) {
 
 	// Prepare the write operation
 
-	result, undo, err = p.prepareWrite(path)
+	result, undo, err = p.prepareWrite(resource)
 
 	if err != nil {
 		return result, nil, err

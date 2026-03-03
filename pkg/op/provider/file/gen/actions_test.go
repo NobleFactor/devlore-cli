@@ -418,8 +418,10 @@ func TestLinkAction_Do(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
-	if result != linkPath {
-		t.Errorf("result = %v, want %q", result, linkPath)
+	if linkResult, ok := result.(provider.Resource); !ok {
+		t.Errorf("result type = %T, want provider.Resource", result)
+	} else if linkResult.SourcePath != linkPath {
+		t.Errorf("result.SourcePath = %q, want %q", linkResult.SourcePath, linkPath)
 	}
 	if undo == nil {
 		t.Fatal("undo is nil")
@@ -509,8 +511,10 @@ func TestMoveAction_Do(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
-	if result != dest {
-		t.Errorf("result = %v, want %q", result, dest)
+	if moveResult, ok := result.(provider.Resource); !ok {
+		t.Errorf("result type = %T, want provider.Resource", result)
+	} else if moveResult.SourcePath != dest {
+		t.Errorf("result.SourcePath = %q, want %q", moveResult.SourcePath, dest)
 	}
 	if undo == nil {
 		t.Fatal("undo is nil")
@@ -608,9 +612,13 @@ func TestBackupAction_Do(t *testing.T) {
 		t.Fatalf("Do() error = %v", err)
 	}
 
-	backupPath, ok := result.(string)
-	if !ok || backupPath == "" {
-		t.Fatalf("result = %v, want non-empty string", result)
+	backupResult, ok := result.(provider.Resource)
+	if !ok {
+		t.Fatalf("result type = %T, want provider.Resource", result)
+	}
+	backupPath := backupResult.SourcePath
+	if backupPath == "" {
+		t.Fatal("result.SourcePath is empty, want non-empty")
 	}
 	if undo == nil {
 		t.Fatal("undo is nil")
@@ -839,8 +847,8 @@ func TestMkdirAction_Do(t *testing.T) {
 	action := getAction(t, reg, "file.mkdir")
 	ctx := newCtx(t)
 	slots := map[string]any{
-		"path": path,
-		"mode": os.FileMode(0o755),
+		"resource": path,
+		"mode":     os.FileMode(0o755),
 	}
 
 	result, undo, err := action.Do(ctx, slots)
@@ -851,12 +859,12 @@ func TestMkdirAction_Do(t *testing.T) {
 		t.Errorf("undo = %v, want nil (Mkdir is not compensable)", undo)
 	}
 
-	resultStr, ok := result.(string)
+	resultRes, ok := result.(provider.Resource)
 	if !ok {
-		t.Fatalf("result type = %T, want string", result)
+		t.Fatalf("result type = %T, want provider.Resource", result)
 	}
-	if resultStr == "" {
-		t.Error("result is empty")
+	if resultRes.SourcePath == "" {
+		t.Error("result.SourcePath is empty")
 	}
 
 	info, err := os.Stat(path)
@@ -873,8 +881,8 @@ func TestMkdirAction_DryRun(t *testing.T) {
 	action := getAction(t, reg, "file.mkdir")
 	ctx := dryRunCtx(t)
 	slots := map[string]any{
-		"path": "/tmp/dryrun-dir",
-		"mode": os.FileMode(0o755),
+		"resource": "/tmp/dryrun-dir",
+		"mode":     os.FileMode(0o755),
 	}
 
 	result, _, err := action.Do(ctx, slots)
