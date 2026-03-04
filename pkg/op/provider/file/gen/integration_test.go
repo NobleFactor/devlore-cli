@@ -30,7 +30,8 @@ func TestImmediateBindings(t *testing.T) {
 		t.Fatalf("creating fixture: %v", err)
 	}
 
-	receiver := filegen.NewFileReceiver(&provider.Provider{Root: tmp})
+	rootResource, _ := provider.NewResource(tmp)
+	receiver := filegen.NewFileReceiver(&provider.Provider{Root: rootResource})
 
 	globals := starlark.StringDict{
 		"file":    receiver,

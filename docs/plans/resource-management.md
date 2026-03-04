@@ -2,22 +2,21 @@
 title: "Resource Management: URI-Based Resource Tracking for Providers"
 status: draft
 created: 2026-02-27
-updated: 2026-03-03
+updated: 2026-03-04
 ---
 
 # Plan: Resource Management
 
 ## Summary
 
-Add a `ResourceManager` (append-only ledger) and `NamespaceMap`
-(URI-to-resource-ID lookup with Resolve/Shadow) to the execution graph so that
-providers track external state through typed resource handles instead of raw
-strings. The file provider already implements the resource pattern — `op.Resource`
-with URI/ID/OriginNodeID, `file.Resource` with filesystem metadata. This plan
-extends that foundation to the graph, the executor, and all providers. Resource
-coercion (e.g., `string → file.Resource`) moves from provider init-time
-registration to the executor's planner boundary — providers always receive their
-own typed Resource, possibly in an unresolved state.
+Track external state through typed resource handles instead of raw strings.
+`op.Resource` is a sealed interface backed by `ResourceBase` (URI + identity
+fields). `ResourceCatalog` (append-only ledger + URI→ID namespace with
+Resolve/Shadow) lives on the graph. The file provider is fully migrated:
+`file.Resource` embeds `ResourceBase`, every method accepts and returns
+`Resource`, and compensation uses typed `file.Tombstone` (embedding
+`op.TombstoneBase`). The remaining work is executor integration, other
+provider migrations, and codegen updates.
 
 ## Goals
 
@@ -95,28 +94,35 @@ What exists today, grounded in code:
 
 | Component | Status | Code |
 | --- | --- | --- |
-| `op.Resource` | Implemented | `pkg/op/resource.go:6` — `{URI, ID, OriginNodeID}` |
-| `file.Resource` | Implemented | `pkg/op/provider/file/resource.go:25` — embeds `op.Resource` + Inode, Device, Size, Mode, ModTime, Checksum |
-| `file.Tombstone` | Implemented | `pkg/op/provider/file/resource.go:36` — `{RecoveryPath, OriginalPath}` |
-| Constructor registry | Implemented (moving) | `pkg/op/marshal.go:23` — `RegisterConstructor`, `Construct`, `constructorRegistry` sync.Map. Per Decision #7, ownership moves from provider init() to the executor's coercion layer. |
-| String→Resource coercion | Implemented (moving) | `pkg/op/provider/file/resource.go:14` — `init()` registers `string → file.Resource` via `NewResource`. Will move to executor boundary. |
-| Coercion chain | Implemented | `pkg/op/action_reflect.go:82` — nil → assignable → convertible → map→struct → constructor → error |
-| `NewResource` (discovery) | Implemented | `pkg/op/provider/file/resource.go:47` — `os.Stat` + `checksumFile` + `syscall.Stat_t` |
-| `RefreshMetadataWith` | Implemented | `pkg/op/provider/file/resource.go:146` — post-write metadata update |
-| `prepareWrite` | Implemented | `pkg/op/provider/file/provider.go:818` — discovery + preemptive recovery |
-| Same-partition recovery | Implemented | `pkg/op/provider/file/recovery.go:13` + `recovery_unix.go:21` — `os.Rename` to UUID-keyed path |
+| `op.Resource` interface | Implemented | `pkg/op/resource.go` — sealed interface with `URI()` + `resourceBase()` |
+| `op.ResourceBase` | Implemented | `pkg/op/resource.go` — private `uri`, `id`, `originID`; implements `starvalue.Marshaler` |
+| `op.Tombstone` interface | Implemented | `pkg/op/resource.go` — sealed interface with `Resource()` + `tombstoneBase()` |
+| `op.TombstoneBase` | Implemented | `pkg/op/resource.go` — holds `Resource`, value receivers (no post-construction mutation) |
+| `op.Provider` interface | Implemented | `pkg/op/provider.go` — sealed with `providerBase() *ProviderBase` |
+| `ResourceCatalog` | Implemented | `pkg/op/resource_catalog.go` — ledger + namespace (`Resolve`/`Shadow`/`Lookup`/`Current`) |
+| `file.Resource` | Implemented | `pkg/op/provider/file/resource.go` — embeds `ResourceBase` + SourcePath, Inode, Device, Size, Mode, ModTime, Checksum |
+| `file.Tombstone` | Implemented | `pkg/op/provider/file/resource.go` — embeds `TombstoneBase` + RecoveryPath |
+| `file.Provider` | Implemented | All 19 methods accept `Resource` params; 9 compensable methods return typed `Tombstone`; `Root` is `Resource` |
+| Constructor registry | Implemented | `pkg/op/starvalue_marshal.go` — `RegisterConstructor`, `Construct`, `constructorRegistry` sync.Map |
+| String→Resource coercion | Implemented | `pkg/op/provider/file/resource.go:14` — `init()` registers `string → file.Resource` via `NewResource` |
+| Coercion chain | Implemented | `pkg/op/action_reflect.go` — nil → assignable → convertible → map→struct → constructor → error |
+| `starvalue` package | Implemented | `pkg/op/starvalue/starvalue.go` — `Marshaler`/`Unmarshaler` interfaces |
+| Marshal implementation | Implemented | `pkg/op/starvalue_marshal.go` — `marshalReflect` checks `Marshaler` before reflection walk |
+| `extractResource` | Implemented | `pkg/op/resource_catalog.go` — handles direct `Resource`, flat `map[string]any`, and nested `resource_base` forms |
+| `FillSlot` implicit edges | Implemented | `pkg/op/output.go` — calls `extractResource`, creates edges from `originID` |
+| `Graph.Catalog` | Implemented | `pkg/op/graph.go` — `*ResourceCatalog`, initialized by `NewGraph()`, excluded from JSON/YAML |
+| URI helpers | Implemented | `pkg/op/resource.go` — `SchemeFile`/`SchemeGit`/`SchemePackage`/`SchemeService`/`SchemeMem`, `ResourceURI()` |
+| Same-partition recovery | Implemented | `pkg/op/provider/file/recovery.go` + `recovery_unix.go` — `os.Rename` to UUID-keyed path |
 | `RecoveryStack` (pkg/op) | Implemented | `pkg/op/recovery.go` — Do/Push/Unwind/Discard with reconcile hooks |
-| Node slots | Working | `map[string]SlotValue` — immediate values or promises |
-| Output/FillSlot | Working | `pkg/op/output.go:121` — routes Output/Gather/immediate/None into slots |
-| Graph edges | Working | Created by FillSlot when it sees an Output |
-| ResourceManager | Implemented | `pkg/op/resource.go` — append-only ledger, `EnsureCataloged`/`Lookup`/`LedgerLen`, mutex-guarded monotonic `res-<N>` IDs |
-| NamespaceMap | Implemented | `pkg/op/namespace.go` — `Resolve`/`Shadow`/`Current`, URI→ResourceID mapping |
-| URI helpers | Implemented | `pkg/op/resource.go` — `SchemeFile`/`SchemeGit`/`SchemePackage`/`SchemeService`/`SchemeMem`, `ResourceURI()` with file path canonicalization |
-| Implicit edges | **Missing** | Only explicit Output passing creates edges |
+| Test harness | Implemented | `internal/e2e/testrunner/` — Runner, TestContext (`t` namespace), Tracer; 4 baseline `.star` scripts pass |
+| `devlore-test` binary | Implemented | `cmd/devlore-test/main.go` |
+| Planned bridge catalog calls | **Missing** | `buildPlannedBridge` does not call `catalog.Resolve`/`Shadow` during planning |
+| Executor pre-flight | **Missing** | `internal/execution/preflight.go` still uses raw string slots |
 | Conflict detection | **Missing** | Two nodes targeting same path = silent race |
-| Executor tombstone layer | **Missing** | Only file provider has recovery; others have none |
 | Other provider resources | **Missing** | Only file provider has a Resource type |
-| Provider lifecycle | **Gap** | Providers are zero-value structs (`&Provider{}`). No constructor, no context injection. Context arrives per-call via `op.Context` in `Do()`. See Decision #8. |
+| Provider lifecycle | **Gap** | Providers are zero-value structs. No constructor, no context injection. See Decision #8. |
+| Skipped tests | **Gap** | `gen/integration_test.go` (#170, #171) and `gen/actions_test.go` (#164) still skipped |
+| Codegen template | **Gap** | `immediate.gen.go` template assigns `string` to `Root Resource` field — needs noblefactor-ops update |
 
 ## Design Decisions (Resolved)
 
@@ -124,13 +130,14 @@ These were open questions in the original draft. The code has answered them.
 
 ### 1. Non-generic Resource with Embedding
 
-**Decision**: `op.Resource` is non-generic. Provider-specific types embed it.
+**Decision**: `op.Resource` is a sealed interface. Provider-specific types
+embed `op.ResourceBase`.
 
-The code already implements this pattern: `file.Resource` embeds `op.Resource`
-and adds `SourcePath`, `Inode`, `Device`, `Size`, `Mode`, `ModTime`, `Checksum`.
-Go generics don't allow `[]Resource[T]` for mixed `T` in a single ledger.
-The embedding pattern avoids this entirely — the ledger stores `op.Resource`
-values and each provider's metadata is accessed through the concrete type.
+`file.Resource` embeds `ResourceBase` and adds `SourcePath`, `Inode`,
+`Device`, `Size`, `Mode`, `ModTime`, `Checksum`. Go generics don't allow
+`[]Resource[T]` for mixed `T` in a single ledger. The interface pattern
+avoids this — the ledger stores `op.Resource` values and each provider's
+metadata is accessed through type assertion to the concrete type.
 
 ### 2. URI Canonicalization
 
@@ -809,369 +816,139 @@ its new functionality.
 | `Makefile` | Modify | Add devlore-test build target |
 | `pkg/op/provider/file/gen/integration_test.go` | Modify | Un-skip #170, #171 |
 
-### Phase 1: ResourceManager and NamespaceMap
+### Phase 1: ResourceManager and NamespaceMap — DONE
 
-Pure additions. No existing code changes. The `op.Resource` struct already
-exists — this phase adds the manager that assigns IDs, the ledger that tracks
-versions, and the namespace that resolves/shadows URIs.
+**DONE** — Merged in PR #176. Originally implemented as `ResourceManager` +
+`NamespaceMap`. Phase 4 consolidated both into `ResourceCatalog`.
+
+See [phase-1.md](resource-management/phase-1.md).
+
+### Phase 2: Graph Integration — DONE
+
+**DONE** — Merged in PR #177. `Graph.Catalog *ResourceCatalog` (was two
+fields, consolidated in Phase 4). `FillSlot` creates implicit edges via
+`extractResource`. `backup` annotation removed.
+
+See [phase-2.md](resource-management/phase-2.md).
+
+### Phase 3: File Provider — Complete Input Migration — DONE
+
+**DONE** — Merged in PRs #177 (Phases 0–2) and #178 (Phase 3b).
+
+All file provider methods accept `Resource` for path parameters. All
+compensable methods return `Resource` results. The Reducer/Actor signatures
+use `Resource`. `pruneBoundary` is `Resource`. Mode uses full `os.FileMode`.
+`Provider.Root` is `Resource`.
+
+See [phase-3.md](resource-management/phase-3.md) and
+[phase-3b.md](resource-management/phase-3b.md) for details.
+
+### Phase 4: Resource Type System + Tombstone Interface — DONE
+
+**DONE** — On branch `feature/resource-management-phase-4` (not yet merged).
+
+The foundational type system is complete:
+
+- `Resource` is a sealed interface (`URI()` + `resourceBase()`),
+  `ResourceBase` is the embedded struct with private identity fields.
+- `Tombstone` is a sealed interface (`Resource()` + `tombstoneBase()`),
+  `TombstoneBase` is the embedded struct carrying the affected `Resource`.
+- `Provider` interface is sealed (`providerBase() *ProviderBase`).
+- `ResourceCatalog` replaces `ResourceManager` + `NamespaceMap` as a single
+  compositor. `namespace.go` and `state.go` deleted.
+- `starvalue` package with `Marshaler`/`Unmarshaler` interfaces.
+  `ResourceBase.MarshalStarvalue()` serializes private fields.
+- `extractResource` handles marshal round-trip (direct, flat map, nested
+  `resource_base` form).
+- `file.Tombstone` embeds `TombstoneBase` + `RecoveryPath`. All 9 compensable
+  file methods use typed `Tombstone` instead of `map[string]any`.
+
+See [phase-4.md](resource-management/phase-4.md) for the type system plan.
+
+#### Files
+
+| File | Action | Step |
+| --- | --- | --- |
+| `pkg/op/resource.go` | Rewrite | Resource/Tombstone interfaces, ResourceBase, TombstoneBase |
+| `pkg/op/resource_catalog.go` | Create | ResourceCatalog (ledger + namespace + extractResource) |
+| `pkg/op/provider.go` | Modify | Sealed Provider interface |
+| `pkg/op/namespace.go` | Delete | Merged into ResourceCatalog |
+| `pkg/op/state.go` | Delete | Consolidated |
+| `pkg/op/graph.go` | Modify | `Catalog *ResourceCatalog` field |
+| `pkg/op/output.go` | Modify | Implicit edges via extractResource |
+| `pkg/op/starvalue/starvalue.go` | Create | Marshaler/Unmarshaler interfaces |
+| `pkg/op/starvalue_marshal.go` | Rename | Was `marshal.go` |
+| `pkg/op/provider/file/resource.go` | Modify | Embed ResourceBase, new Tombstone struct |
+| `pkg/op/provider/file/provider.go` | Modify | All compensable methods use Tombstone |
+| `pkg/op/provider/file/recovery.go` | Modify | Typed Tombstone, `os.Lstat` for symlinks |
+
+### Phase 5: Executor Catalog Integration — NEEDS DESIGN
+
+The planned bridge does not currently interact with the catalog during
+planning. The executor pre-flight does not resolve resources against the
+target machine. This phase connects the catalog to both planning and
+execution.
+
+**Status**: Needs design. The original plan proposed moving `prepareWrite`
+from the file provider to the executor's pre-flight pass. This is being
+reconsidered — `prepareWrite` is provider-specific logic that belongs in
+the provider, not the executor. The executor should own the *decision*
+(which resources need protection), but the *mechanism* (how to protect
+them) stays in the provider.
 
 **Repo**: devlore-cli
 
-#### 1a. ResourceManager
+#### 5a. Planned Bridge Catalog Calls
 
-Extend `pkg/op/resource.go` with the manager. The existing `Resource` struct
-gains automatic ID assignment via the manager.
+`buildPlannedBridge` (`planned_reflect.go`) must call `catalog.Resolve`
+for source parameters and `catalog.Shadow` for destination parameters
+during planning. This creates the resource lineage that enables implicit
+edges and conflict detection.
 
-```go
-// ResourceManager owns the append-only ledger of all resources created
-// during a single planning session. One per Graph.
-type ResourceManager struct {
-    mu     sync.Mutex
-    ledger []Resource  // Append-only; index = sequence number
-    nextID int         // Monotonic counter for ID generation
-}
+Requires `SlotTypes()` on `Action` (or passing `reflect.Method` to
+`buildPlannedBridge`) so the planner knows which params are Resources.
 
-// EnsureCataloged creates a new Resource in the ledger with a unique ID.
-// The URI is canonicalized (filepath.Abs + filepath.Clean for file:// URIs).
-// Returns the assigned resource ID.
-func (m *ResourceManager) EnsureCataloged(uri string, originNodeID string) string
+#### 5b. Executor Pre-Flight Resolution
 
-// Lookup returns the Resource with the given ID, or false if not found.
-func (m *ResourceManager) Lookup(id string) (Resource, bool)
+Before executing any node, the executor iterates the catalog ledger.
+Unresolved resources (sources) are stat'd against the target machine.
+Shadowed resources (destinations) are identified for protection.
 
-// LedgerLen returns the number of resources in the ledger.
-func (m *ResourceManager) LedgerLen() int
-```
+The executor tells the provider "protect this resource" — the provider
+decides how (file: `moveToRecovery`; service: record current state;
+package: record current version).
 
-#### 1b. NamespaceMap
+#### 5c. Conflict Detection
 
-Create `pkg/op/namespace.go` with Resolve and Shadow.
-
-```go
-// NamespaceMap maps URIs to the most recent resource ID during planning.
-type NamespaceMap struct {
-    current map[string]string // URI → resource ID
-}
-
-// NewNamespaceMap creates an empty namespace.
-func NewNamespaceMap() *NamespaceMap
-
-// Resolve returns the current resource ID for a URI. If the URI has never
-// been seen, it catalogs a discovery in the manager (originNodeID = "")
-// and returns the new ID. If the URI was previously shadowed, returns the
-// shadowed version's ID.
-func (ns *NamespaceMap) Resolve(mgr *ResourceManager, uri string) string
-
-// Shadow creates a new resource version in the manager, updates the
-// namespace to point to it, and returns the new resource ID. The new
-// resource's OriginNodeID is set to producerNodeID.
-func (ns *NamespaceMap) Shadow(mgr *ResourceManager, uri string, producerNodeID string) string
-
-// Current returns the resource ID currently mapped to a URI, or "" if
-// the URI has never been resolved or shadowed.
-func (ns *NamespaceMap) Current(uri string) string
-```
-
-#### 1c. URI Helpers
-
-Add URI scheme constants and a builder to `resource.go`:
-
-```go
-const (
-    SchemeFile    = "file"
-    SchemeGit     = "git"
-    SchemePackage = "pkg"
-    SchemeService = "svc"
-    SchemeMem     = "mem"
-)
-
-// ResourceURI builds a canonicalized URI from a scheme and path.
-// For file:// URIs, the path is resolved via filepath.Abs + filepath.Clean.
-func ResourceURI(scheme, path string) string
-```
-
-#### 1d. Tests
-
-- Ledger append, ID monotonicity
-- Namespace Resolve: first access catalogs discovery, second returns same ID
-- Namespace Shadow: creates new version, subsequent Resolve returns shadowed
-- Implicit dependency detection: Shadow by node A, then Resolve by node B →
-  returned resource has `OriginNodeID = A`
-- URI canonicalization: `file:///etc/../etc/foo` → `file:///etc/foo`
-- Concurrent access safety (ResourceManager is mutex-protected)
+URI-keyed namespace catches conflicts across providers. Two nodes
+targeting the same URI in the same phase = conflict error at plan time.
 
 #### Files
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `pkg/op/resource.go` | Modify | Add ResourceManager, URI helpers |
-| `pkg/op/resource_test.go` | Create | Unit tests for manager and URI helpers |
-| `pkg/op/namespace.go` | Create | NamespaceMap with Resolve/Shadow |
-| `pkg/op/namespace_test.go` | Create | Unit tests for namespace operations |
+| `pkg/op/planned_reflect.go` | Modify | Catalog Resolve/Shadow during planning |
+| `pkg/op/action.go` | Modify | `SlotTypes()` on Action interface |
+| `pkg/op/action_reflect.go` | Modify | Implement `SlotTypes()` via reflection |
+| `internal/execution/preflight.go` | Rewrite | Resource-aware pre-flight |
+| `internal/execution/executor.go` | Modify | Pre-flight resolution pass |
 
-### Phase 2: Graph Integration
-
-Wire ResourceManager and NamespaceMap into the Graph lifecycle. After this
-phase, planned receivers can call Resolve/Shadow during planning, and FillSlot
-creates implicit edges from resource identity.
-
-**Repo**: devlore-cli
-
-#### 2a. Graph Owns the Manager and Namespace
-
-Add fields to `Graph` (`pkg/op/graph.go:20`):
-
-```go
-type Graph struct {
-    // ... existing fields ...
-    Resources *ResourceManager  // Ledger of all resources (nil for legacy graphs)
-    Namespace *NamespaceMap     // URI → current resource ID (nil for legacy graphs)
-}
-```
-
-Initialize both in `NewGraph` (`graph.go:39`):
-
-```go
-func NewGraph(tool string) *Graph {
-    return &Graph{
-        // ... existing fields ...
-        Resources: NewResourceManager(),
-        Namespace: NewNamespaceMap(),
-    }
-}
-```
-
-#### 2b. FillSlot Detects Resource Identity
-
-Extend `FillSlot` (`output.go:121`) to handle the case where a slot value
-carries resource identity. When a slot value embeds `op.Resource` with a
-non-empty `OriginNodeID` (set by `NamespaceMap.Shadow`), the consumer node
-gets an implicit edge from the origin node — even without explicit Output
-passing. The ledger is the sole source of truth (Decision #9); no node
-annotations are needed.
-
-The current flow is unchanged — `Output` still creates edges via
-`output.FillSlot`. The new behavior adds a check: if a Starlark value
-resolves to a `file.Resource` (or any type embedding `op.Resource`), and
-that resource's `OriginNodeID` is non-empty, create an edge from the origin
-node to the consumer.
-
-This requires adding a resource-aware path to `FillSlot`:
-
-```go
-func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) error {
-    // ... existing Output/Gather/None cases ...
-
-    // Resource identity: if the immediate value embeds op.Resource with
-    // a non-empty OriginNodeID, create an implicit edge.
-    var goVal any
-    if err := Unmarshal(value, &goVal); err != nil {
-        return fmt.Errorf("slot %q: %w", slotName, err)
-    }
-    if res, ok := extractResource(goVal); ok && res.OriginNodeID != "" {
-        graph.Edges = append(graph.Edges, Edge{From: res.OriginNodeID, To: node.ID})
-    }
-    node.SetSlotImmediate(slotName, goVal)
-    return nil
-}
-```
-
-`extractResource` uses reflection to check if the value embeds `op.Resource`.
-
-#### Files
-
-| File | Action | Purpose |
-| --- | --- | --- |
-| `pkg/op/graph.go` | Modify | Add Resources/Namespace fields, init in NewGraph; remove dead `backup` annotation check and `BackedUp` summary field |
-| `pkg/op/output.go` | Modify | Resource-aware FillSlot with implicit edges |
-| `pkg/op/resource.go` | Modify | Add `extractResource` reflection helper |
-| `pkg/op/graph_test.go` | Modify | Tests for resource fields on Graph |
-| `pkg/op/output_test.go` | Modify | Tests for implicit edge creation in FillSlot |
-
-### Phase 3: File Provider — Complete Input Migration
-
-Finish migrating all file provider method inputs to `Resource`. The outputs
-are already `Resource` for Copy, WriteText, WriteBytes, and Read. This phase
-converts the remaining string inputs. Per Design Decision #7, the executor's
-coercion layer converts strings to typed `file.Resource` values at the
-planner/executor boundary — provider methods always receive `file.Resource`,
-either resolved (existing file with metadata) or pending (destination path
-with empty metadata).
-
-**Repo**: devlore-cli
-
-#### Current Signatures vs. Target
-
-| Method | Current Input | Target Input | Output (unchanged) |
-| --- | --- | --- | --- |
-| `Copy` | `Resource, string, FileMode` | `Resource, Resource, FileMode` | `Resource` |
-| `WriteText` | `string, string, FileMode` | `Resource, string, FileMode` | `Resource` |
-| `WriteBytes` | `string, string, FileMode` | `Resource, string, FileMode` | `Resource` |
-| `Read` | `string` | `Resource` | `Resource` |
-| `Exists` | `Resource` | No change | `bool` |
-| `Link` | `string, string` | `Resource, Resource` | `Resource` |
-| `Move` | `string, string` | `Resource, Resource` | `Resource` |
-| `Backup` | `string, string` | `Resource, string` | `Resource` |
-| `Remove` | `string, bool, string` | `Resource, bool, string` | `Tombstone` |
-| `RemoveAll` | `string, bool, string` | `Resource, bool, string` | `Tombstone` |
-| `Unlink` | `string, bool, string` | `Resource, bool, string` | `Tombstone` |
-
-The pattern: every parameter identifying an external entity (a path) becomes
-`Resource`. Configuration values (mode, prune, pruneBoundary, backupSuffix)
-stay unchanged.
-
-#### Migration Strategy
-
-Each method change follows the same steps:
-
-1. Change the parameter type from `string` to `Resource`
-2. Replace internal `path` usage with `param.SourcePath`
-3. For compensable methods returning `string`: change return to `Resource`
-4. Update the corresponding `params.gen.go` parameter names (via code gen)
-5. Update tests
-
-For methods that currently return `string` (Link, Move, Backup): the result
-becomes `Resource` with discovery metadata from the destination path. This
-is the same pattern Copy already uses — `prepareWrite` returns a `Resource`.
-
-#### Output Migration for Link, Move, Backup
-
-These three methods currently return `(string, map[string]any, error)`. The
-result `string` is the destination path. They change to return
-`(Resource, map[string]any, error)`, calling `NewResource` on the destination
-after the operation succeeds:
-
-```go
-// Move: before
-func (p *Provider) Move(source, destination string) (result string, undo map[string]any, err error)
-
-// Move: after
-func (p *Provider) Move(source, destination Resource) (result Resource, undo map[string]any, err error)
-```
-
-#### Tests
-
-Every method that changes signature gets its tests updated. Specifically:
-
-- **Go-level**: Each compensable method tested with Resource input (Copy, Link,
-  Move, Backup, Remove, RemoveAll, Unlink, WriteText, WriteBytes). Each
-  non-compensable method tested with Resource input (Read, Exists).
-- **Constructor round-trip**: `string → file.Resource → verify SourcePath,
-  URI, Inode, Size, Checksum`.
-- **Coercion path**: Starlark string → `coerceSlotValue` → `file.Resource`
-  (verifies the constructor registry fires for the new parameter positions).
-- **Compensation round-trip**: Forward with Resource input → compensate →
-  verify original state restored.
-
-#### Code Generation
-
-Generated files (`gen/*.gen.go`) are regenerated via `star devlore actions
-generate`. No hand edits. If the generator doesn't handle the new signatures,
-the fix is in the generator (noblefactor-ops), not in the generated output.
-
-#### Files
-
-| File | Action | Purpose |
-| --- | --- | --- |
-| `pkg/op/provider/file/provider.go` | Modify | Convert all method inputs to Resource |
-| `pkg/op/provider/file/resource.go` | Modify | Any helpers needed for the migration |
-| `pkg/op/provider/file/provider_test.go` | Modify | Update all test call sites |
-| `pkg/op/provider/file/gen/*.gen.go` | Regenerate | No hand edits — regenerate via `star` |
-
-### Phase 4: Executor Tombstone Layer
-
-Extract the tombstone *decision* from the file provider to the executor.
-The provider retains the *mechanism* (same-device rename via
-`moveToRecovery`/`restoreFromRecovery`). The executor's pre-flight pass
-uses namespace analysis to determine which resources need tombstones.
-
-**Repo**: devlore-cli
-
-#### 4a. ResourceTombstone Type
-
-Create `pkg/op/tombstone.go` as a peer of `resource.go`:
-
-```go
-// ResourceTombstone records pre-write state for a resource that will be
-// overwritten by a graph node. Created by the executor's pre-flight pass.
-type ResourceTombstone struct {
-    ResourceID string // Which resource was shadowed
-    URI        string // Logical address
-    // Provider-specific recovery data. For file resources, this is
-    // file.Tombstone{RecoveryPath, OriginalPath}. For non-filesystem
-    // resources, this carries the state needed for compensation.
-    Recovery any
-}
-```
-
-#### 4b. Executor Pre-Flight Binding
-
-Before executing any node, the executor scans the graph's resource ledger.
-For each resource with a non-empty `OriginNodeID` whose URI matches a
-previously discovered resource, the executor:
-
-1. Calls the provider's recovery mechanism (e.g., `moveToRecovery` for files)
-2. Stores a `ResourceTombstone` keyed by resource ID
-3. On rollback, restores from the tombstone
-
-This replaces the per-method `prepareWrite` pattern. Currently, every write
-method in the file provider calls `prepareWrite` internally. After this phase,
-write methods receive a pre-cleared destination — the executor has already
-backed up what was there.
-
-#### 4c. File Provider Simplification
-
-`prepareWrite` (`provider.go:818`) becomes a thin wrapper that the executor
-calls, not each method internally. The method flow changes from:
-
-```
-method → prepareWrite → discovery + backup → write
-```
-
-to:
-
-```
-executor pre-flight → prepareWrite (once per shadowed URI)
-executor dispatch → method → write (no backup logic)
-```
-
-The file provider's `moveToRecovery`, `getRecoveryBase`, `findMountPoint`,
-`restoreFromRecovery` remain unchanged — they are the *mechanism*. Only the
-call site moves from inside each method to the executor.
-
-#### 4d. Backward Compatibility
-
-During the transition, the executor detects whether a graph has a
-`ResourceManager` (non-nil `graph.Resources`). Legacy graphs without resources
-skip the pre-flight pass, and providers retain their existing `prepareWrite`
-behavior. This allows mixed-mode operation.
-
-#### Files
-
-| File | Action | Purpose |
-| --- | --- | --- |
-| `pkg/op/tombstone.go` | Create | `ResourceTombstone` type |
-| `internal/execution/executor.go` | Modify | Pre-flight binding pass |
-| `pkg/op/provider/file/provider.go` | Modify | Remove `prepareWrite` from method bodies |
-| `pkg/op/provider/file/recovery.go` | Modify | Expose `moveToRecovery`/`restoreFromRecovery` as public API for executor |
-| `internal/execution/executor_test.go` | Modify | Tests for pre-flight tombstone creation |
-| `pkg/op/provider/file/provider_test.go` | Modify | Verify methods work without internal prepareWrite |
-
-### Phase 5: Remaining Providers and Code Generation
+### Phase 6: Remaining Providers and Code Generation
 
 Migrate remaining providers and update the code generator. Each provider
-creates a resource type embedding `op.Resource` and registers a constructor.
+creates a resource type embedding `op.ResourceBase` and registers a
+constructor.
 
 **Repo**: devlore-cli + noblefactor-ops (templates)
 
-#### 5a. Provider Resource Types
+#### 6a. Provider Resource Types
 
 Each provider that manages external state creates its own resource type:
 
 ```go
 // pkg/op/provider/git/resource.go
 type Resource struct {
-    op.Resource
+    op.ResourceBase
     URL    string
     Commit string
     Branch string
@@ -1179,14 +956,14 @@ type Resource struct {
 
 // pkg/op/provider/service/resource.go
 type Resource struct {
-    op.Resource
+    op.ResourceBase
     Name   string
     Status string // "running", "stopped", "enabled", "disabled"
 }
 
 // pkg/op/provider/pkg/resource.go
 type Resource struct {
-    op.Resource
+    op.ResourceBase
     Name    string
     Version string
     Manager string
@@ -1218,7 +995,7 @@ func New(ctx *op.Context) *Provider {
 }
 ```
 
-#### 5b. Provider Method Migration
+#### 6b. Provider Method Migration
 
 | Provider | Resource params | Config params (unchanged) |
 | --- | --- | --- |
@@ -1234,7 +1011,7 @@ func New(ctx *op.Context) *Provider {
 Note: `net`, `template`, `archive`, and `encryption` all produce files, so
 they use `file.Resource`. They don't need their own resource types.
 
-#### 5c. Tests for Every Resource Type
+#### 6c. Tests for Every Resource Type
 
 Each new resource type gets a dedicated test file:
 
@@ -1256,7 +1033,7 @@ Each provider that changes method signatures gets updated tests:
 | archive | Extract with `file.Resource` input/output |
 | encryption | DecryptSopsFile with `file.Resource` input/output |
 
-#### 5d. Code Generation Updates
+#### 6d. Code Generation Updates
 
 No special-casing in codegen. No hand edits to generated files. If the
 generator needs changes to support resource types in planned/immediate
@@ -1270,6 +1047,12 @@ insufficient (in which case the bridge is fixed, not the templates).
 
 Generated `*.gen.go` files are regenerated via `star devlore actions generate`
 after provider signatures change. That is the only interaction with codegen.
+
+**Known blocker**: The `immediate.go.template` in noblefactor-ops emits
+`provider.Provider{Root: root}` where `root` is a `string` from
+`cfg.WorkDir`. Now that `file.Provider.Root` is `Resource`, this is a type
+mismatch. The template must construct a `Resource` from the string, or the
+provider must expose a constructor. This requires a noblefactor-ops PR.
 
 #### Files
 
@@ -1298,57 +1081,88 @@ after provider signatures change. That is the only interaction with codegen.
 
 ## Migration Path
 
-0. **Phase 0**: Build the `star devlore test` extension. Un-skip planned
-   binding tests. Establish baseline coverage: plan → execute → verify for
-   file provider. This extension is used by every subsequent phase.
-1. **Phase 1**: Pure additions. `ResourceManager` and `NamespaceMap` exist
-   alongside the current Graph/Node/Slot model. No existing tests break.
-   Test scripts verify manager/namespace don't interfere with existing flow.
-2. **Phase 2**: Graph gains Resources/Namespace fields. `FillSlot` gains
-   resource-aware edge creation. Legacy graphs (nil Resources) work unchanged.
-   Test scripts verify implicit edge creation via shadowing.
-3. **Phase 3**: File provider completes its input migration. The executor's
-   coercion layer converts strings to `file.Resource` at the planner boundary
-   (Design Decision #7). Generated code regenerated. Harness tests verify
-   every file provider method with Resource inputs, including compensation
-   round-trips.
-4. **Phase 4**: Executor gains pre-flight tombstone pass. File provider's
-   internal `prepareWrite` calls migrate to the executor. Legacy graphs
-   without resources skip the pre-flight pass. Test scripts verify tombstone
-   creation and restoration via executor.
-5. **Phase 5**: Remaining providers + code generation. Each provider is
-   independently testable. Test scripts for every provider that gains
-   resource parameters. The system runs in mixed mode throughout — resource
-   and raw-type providers coexist.
+0. **Phase 0**: ~~Build the `star devlore test` extension.~~ **~90% DONE**
+   — Harness built, baseline tests pass. Remaining: un-skip planned binding
+   tests (#170, #171) and recovery site tests (#164).
+1. **Phase 1**: ~~ResourceManager and NamespaceMap.~~ **DONE** —
+   Implemented as `ResourceCatalog`. See
+   [phase-1.md](resource-management/phase-1.md). Merged in PR #176.
+2. **Phase 2**: ~~Graph integration.~~ **DONE** — `Graph.Catalog
+   *ResourceCatalog`, `FillSlot` implicit edges. See
+   [phase-2.md](resource-management/phase-2.md). Merged in PR #177.
+3. **Phase 3**: ~~File provider migration.~~ **DONE** — All methods accept
+   `Resource`. Reducer/Actor signatures. `Provider.Root` is `Resource`.
+   See [phase-3.md](resource-management/phase-3.md),
+   [phase-3b.md](resource-management/phase-3b.md). Merged in PRs #177, #178.
+4. **Phase 4 (type system + tombstone interface)**: ~~Resource type system,
+   starvalue marshaling, Tombstone interface.~~ **DONE** — `Resource` and
+   `Tombstone` are sealed interfaces. `ResourceBase` and `TombstoneBase`
+   are embedded structs. `Provider` interface sealed. `ResourceCatalog`
+   replaces manager + namespace. File provider uses typed `Tombstone`.
+   See [phase-4.md](resource-management/phase-4.md). On branch
+   `feature/resource-management-phase-4` (not yet merged).
+5. **Phase 5 (executor catalog integration)**: **NEEDS DESIGN** — Connect
+   catalog to planning (`buildPlannedBridge` calls Resolve/Shadow) and
+   execution (pre-flight resolution). Conflict detection. `prepareWrite`
+   stays in the provider — executor owns the decision, provider owns the
+   mechanism.
+6. **Phase 6 (remaining providers)**: Remaining providers + code
+   generation. Each provider creates a resource type embedding
+   `ResourceBase` and registers a constructor. Provider constructors with
+   context injection. Codegen template update for Resource-typed fields.
+7. **Phase 7 (generated bridge tests)**: Extend the star generator to
+   produce `actions_test.gen.go` — bridge verification tests that
+   regenerate automatically when method signatures change.
+   See [phase-6.md](resource-management/phase-6.md).
 
 ## Files to Create/Modify
 
+### Completed
+
+| File | Phase | Action | Status |
+| --- | --- | --- | --- |
+| `cmd/devlore-test/main.go` | 0 | Create | **DONE** |
+| `internal/e2e/testrunner/runner.go` | 0 | Create | **DONE** |
+| `internal/e2e/testrunner/runner_test.go` | 0 | Create | **DONE** |
+| `internal/e2e/testrunner/test_context.go` | 0 | Create | **DONE** |
+| `internal/e2e/testrunner/trace.go` | 0 | Create | **DONE** |
+| `internal/e2e/testrunner/data/test_*.star` | 0 | Create | **DONE** |
+| `star/extensions/com.noblefactor.devlore.Test/` | 0 | Create | **DONE** |
+| `Makefile` | 0 | Modify | **DONE** |
+| `pkg/op/resource.go` | 1, 4 | Rewrite | **DONE** — Resource/Tombstone interfaces, ResourceBase, TombstoneBase |
+| `pkg/op/resource_catalog.go` | 1, 4 | Create | **DONE** — Replaces ResourceManager + NamespaceMap |
+| `pkg/op/resource_test.go` | 1 | Create | **DONE** |
+| `pkg/op/resource_catalog_test.go` | 1 | Create | **DONE** |
+| `pkg/op/namespace.go` | 4 | Delete | **DONE** — Merged into ResourceCatalog |
+| `pkg/op/state.go` | 4 | Delete | **DONE** — Consolidated |
+| `pkg/op/graph.go` | 2 | Modify | **DONE** — `Catalog *ResourceCatalog` |
+| `pkg/op/output.go` | 2 | Modify | **DONE** — Implicit edges via extractResource |
+| `pkg/op/provider.go` | 4 | Modify | **DONE** — Sealed Provider interface |
+| `pkg/op/starvalue/starvalue.go` | 4 | Create | **DONE** — Marshaler/Unmarshaler |
+| `pkg/op/starvalue_marshal.go` | 4 | Rename | **DONE** — Was `marshal.go` |
+| `pkg/op/provider/file/resource.go` | 3, 4 | Modify | **DONE** — ResourceBase embedding, Tombstone struct |
+| `pkg/op/provider/file/provider.go` | 3 | Modify | **DONE** — All methods use Resource/Tombstone |
+| `pkg/op/provider/file/provider_test.go` | 3 | Modify | **DONE** — All tests updated |
+| `pkg/op/provider/file/recovery.go` | 4 | Modify | **DONE** — Typed Tombstone |
+
+### Remaining
+
 | File | Phase | Action | Purpose |
 | --- | --- | --- | --- |
-| `cmd/devlore-test/main.go` | 0 | Create | Binary entry point |
-| `internal/e2e/testrunner/runner.go` | 0 | Create | Runner orchestration (plan + execute + verify) |
-| `internal/e2e/testrunner/runner_test.go` | 0 | Create | Go-level test entry points |
-| `internal/e2e/testrunner/test_context.go` | 0 | Create | `t` namespace |
-| `internal/e2e/testrunner/trace.go` | 0 | Create | Starlark trace mode |
-| `internal/e2e/testrunner/data/test_*.star` | 0 | Create | Baseline test scripts |
-| `star/extensions/com.noblefactor.devlore.Test/` | 0 | Create | Extension spec + star command |
-| `Makefile` | 0 | Modify | Add devlore-test build target |
 | `pkg/op/provider/file/gen/integration_test.go` | 0 | Modify | Un-skip #170, #171 |
-| `pkg/op/resource.go` | 1 | Modify | ResourceManager, URI helpers |
-| `pkg/op/resource_test.go` | 1 | Create | Manager and URI tests |
-| `pkg/op/namespace.go` | 1 | Create | NamespaceMap |
-| `pkg/op/namespace_test.go` | 1 | Create | Namespace tests |
-| `pkg/op/graph.go` | 2 | Modify | Resources/Namespace fields |
-| `pkg/op/output.go` | 2 | Modify | Resource-aware FillSlot |
-| `pkg/op/provider/file/provider.go` | 3 | Modify | Complete input migration |
-| `pkg/op/provider/file/provider_test.go` | 3 | Modify | Updated test calls |
-| `pkg/op/tombstone.go` | 4 | Create | ResourceTombstone type |
-| `internal/execution/executor.go` | 4 | Modify | Pre-flight binding pass |
-| `pkg/op/provider/file/recovery.go` | 4 | Modify | Public API for executor |
-| `pkg/op/provider/git/resource.go` | 5 | Create | git.Resource |
-| `pkg/op/provider/service/resource.go` | 5 | Create | service.Resource |
-| `pkg/op/provider/pkg/resource.go` | 5 | Create | pkg.Resource |
-| `pkg/op/provider/*/provider.go` | 5 | Modify | Resource params |
+| `pkg/op/provider/file/gen/actions_test.go` | 0 | Modify | Un-skip #164 |
+| `pkg/op/planned_reflect.go` | 5 | Modify | Catalog Resolve/Shadow during planning |
+| `pkg/op/action.go` | 5 | Modify | `SlotTypes()` on Action interface |
+| `pkg/op/action_reflect.go` | 5 | Modify | Implement SlotTypes() |
+| `internal/execution/preflight.go` | 5 | Rewrite | Resource-aware pre-flight |
+| `internal/execution/executor.go` | 5 | Modify | Pre-flight resolution pass |
+| `pkg/op/provider/git/resource.go` | 6 | Create | git.Resource |
+| `pkg/op/provider/service/resource.go` | 6 | Create | service.Resource |
+| `pkg/op/provider/pkg/resource.go` | 6 | Create | pkg.Resource |
+| `pkg/op/provider/*/provider.go` | 6 | Modify | Resource params |
+| noblefactor-ops templates | 6 | Modify | Resource-typed provider field support |
+| `pkg/op/provider/*/gen/actions_test.gen.go` | 7 | Create | Generated bridge tests |
+| noblefactor-ops star generator | 7 | Modify | `actions_test` template |
 
 ## Relationship to Reconciliation
 

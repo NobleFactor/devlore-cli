@@ -19,7 +19,8 @@ func init() {
 			if root == "" {
 				root = "."
 			}
-			return NewFileReceiver(&provider.Provider{Root: root})
+			rootResource, _ := provider.NewResource(root)
+			return NewFileReceiver(&provider.Provider{Root: rootResource})
 		},
 	})
 }

@@ -93,11 +93,11 @@ func TestInstall(t *testing.T) {
 	if state == nil {
 		t.Fatal("Install() state is nil")
 	}
-	packages := op.StateStringSlice(state, "packages")
+	packages, _ := state["packages"].([]string)
 	if len(packages) != 2 || packages[0] != "vim" || packages[1] != "git" {
 		t.Errorf("Install() state.packages = %v, want [vim git]", packages)
 	}
-	alreadyInstalled := op.StateStringSlice(state, "already_installed")
+	alreadyInstalled, _ := state["already_installed"].([]string)
 	if len(alreadyInstalled) != 0 {
 		t.Errorf("Install() state.already_installed = %v, want empty", alreadyInstalled)
 	}
@@ -128,7 +128,7 @@ func TestInstallWithAlreadyInstalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	alreadyInstalled := op.StateStringSlice(state, "already_installed")
+	alreadyInstalled, _ := state["already_installed"].([]string)
 	if len(alreadyInstalled) != 1 || alreadyInstalled[0] != "vim" {
 		t.Errorf("Install() state.already_installed = %v, want [vim]", alreadyInstalled)
 	}
@@ -249,7 +249,7 @@ func TestRemove(t *testing.T) {
 	if state == nil {
 		t.Fatal("Remove() state is nil")
 	}
-	packages := op.StateStringSlice(state, "packages")
+	packages, _ := state["packages"].([]string)
 	if len(packages) != 2 || packages[0] != "vim" || packages[1] != "git" {
 		t.Errorf("Remove() state.packages = %v, want [vim git]", packages)
 	}

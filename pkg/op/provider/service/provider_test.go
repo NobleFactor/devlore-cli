@@ -96,7 +96,8 @@ func TestStart(t *testing.T) {
 	if name != "nginx" {
 		t.Errorf("Start() name = %q, want %q", name, "nginx")
 	}
-	if op.StateBool(state, "was_running") {
+	wasRunning, _ := state["was_running"].(bool)
+	if wasRunning {
 		t.Error("Start() was_running = true, want false")
 	}
 	if !serviceManager.running["nginx"] {
@@ -117,7 +118,8 @@ func TestStartAlreadyRunning(t *testing.T) {
 	if name != "nginx" {
 		t.Errorf("Start() name = %q, want %q", name, "nginx")
 	}
-	if !op.StateBool(state, "was_running") {
+	wasRunning, _ := state["was_running"].(bool)
+	if !wasRunning {
 		t.Error("Start() was_running = false, want true")
 	}
 }
@@ -183,7 +185,8 @@ func TestStop(t *testing.T) {
 	if name != "nginx" {
 		t.Errorf("Stop() name = %q, want %q", name, "nginx")
 	}
-	if !op.StateBool(state, "was_running") {
+	wasRunning, _ := state["was_running"].(bool)
+	if !wasRunning {
 		t.Error("Stop() was_running = false, want true")
 	}
 	if serviceManager.running["nginx"] {
@@ -236,8 +239,9 @@ func TestRestart(t *testing.T) {
 	if state == nil {
 		t.Fatal("Restart() state is nil")
 	}
-	if op.StateString(state, "name") != "nginx" {
-		t.Errorf("Restart() state name = %q, want %q", op.StateString(state, "name"), "nginx")
+	stateName, _ := state["name"].(string)
+	if stateName != "nginx" {
+		t.Errorf("Restart() state name = %q, want %q", stateName, "nginx")
 	}
 	if !serviceManager.running["nginx"] {
 		t.Error("service should be running after Restart()")
@@ -280,7 +284,8 @@ func TestEnable(t *testing.T) {
 	if name != "nginx" {
 		t.Errorf("Enable() name = %q, want %q", name, "nginx")
 	}
-	if op.StateBool(state, "was_enabled") {
+	wasEnabled, _ := state["was_enabled"].(bool)
+	if wasEnabled {
 		t.Error("Enable() was_enabled = true, want false")
 	}
 	if !serviceManager.enabled["nginx"] {
@@ -330,7 +335,8 @@ func TestDisable(t *testing.T) {
 	if name != "nginx" {
 		t.Errorf("Disable() name = %q, want %q", name, "nginx")
 	}
-	if !op.StateBool(state, "was_enabled") {
+	wasEnabled, _ := state["was_enabled"].(bool)
+	if !wasEnabled {
 		t.Error("Disable() was_enabled = false, want true")
 	}
 	if serviceManager.enabled["nginx"] {

@@ -16,7 +16,7 @@ import (
 
 // makeTestGraph creates a minimal graph for testing.
 func makeTestGraph() *Graph {
-	return &Graph{Version: "1", Tool: "test"}
+	return &Graph{Version: "1", Tool: "test", Catalog: NewResourceCatalog()}
 }
 
 // makeTestNode creates a node with the given ID and an optional stub action.
@@ -622,9 +622,9 @@ func TestFillSlotUnsupportedType(t *testing.T) {
 
 // --- FillSlot implicit resource edge tests ----------------------------------
 
-// testFileResource embeds op.Resource for testing implicit edge creation.
+// testFileResource embeds op.ResourceBase for testing implicit edge creation.
 type testFileResource struct {
-	Resource
+	ResourceBase
 	SourcePath string
 }
 
@@ -633,11 +633,13 @@ func TestFillSlotImplicitEdge_ResourceWithOrigin(t *testing.T) {
 	consumer := makeTestNode("reader", "file.read")
 
 	// A resource produced by "writer" node — FillSlot should create an implicit edge.
-	res := testFileResource{
-		Resource:   Resource{URI: "file:///foo", ID: "res-1", OriginNodeID: "writer"},
-		SourcePath: "/foo",
+	res := &testFileResource{
+		ResourceBase: NewResourceBase("file:///foo"),
+		SourcePath:   "/foo",
 	}
-	val, err := Marshal(res)
+	g.Catalog.Shadow(res, "writer")
+
+	val, err := marshal(res)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
@@ -660,11 +662,14 @@ func TestFillSlotImplicitEdge_ResourceWithoutOrigin(t *testing.T) {
 	consumer := makeTestNode("reader", "file.read")
 
 	// A discovered resource (no origin) — FillSlot should NOT create an edge.
-	res := testFileResource{
-		Resource:   Resource{URI: "file:///bar", ID: "res-2", OriginNodeID: ""},
-		SourcePath: "/bar",
+	res := &testFileResource{
+		ResourceBase: NewResourceBase("file:///bar"),
+		SourcePath:   "/bar",
 	}
-	val, err := Marshal(res)
+	// Resolve creates a discovery entry with no origin.
+	g.Catalog.Resolve("file:///bar")
+
+	val, err := marshal(res)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
@@ -682,9 +687,12 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 	g := makeTestGraph()
 	consumer := makeTestNode("reader", "file.read")
 
-	// A plain op.Resource with origin.
-	res := Resource{URI: "file:///baz", ID: "res-3", OriginNodeID: "producer"}
-	val, err := Marshal(res)
+	// A plain ResourceBase with origin.
+	base := NewResourceBase("file:///baz")
+	res := &base
+	g.Catalog.Shadow(res, "producer")
+
+	val, err := marshal(res)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}

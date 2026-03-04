@@ -23,7 +23,7 @@ func init() {
 
 // Resource represents a handle to data that can be streamed.
 type Resource struct {
-	op.Resource
+	op.ResourceBase
 	SourcePath string
 	Inode      uint64
 	Device     uint64
@@ -33,9 +33,11 @@ type Resource struct {
 	Checksum   string
 }
 
+// Tombstone holds file-specific compensation state. The embedded [op.TombstoneBase] carries the affected [Resource]
+// (whose SourcePath is the original location). RecoveryPath is where the file was stashed for safe keeping.
 type Tombstone struct {
-	RecoveryPath string // Where it is now
-	OriginalPath string // Where it used to be
+	op.TombstoneBase
+	RecoveryPath string
 }
 
 // NewResource initializes a new [Resource] by checking the existence and size of the file at the provided sourcePath.
@@ -55,8 +57,8 @@ func NewResource(path string) (Resource, error) {
 			// This is a "Known Path but No Data" state.
 			// The Executor will need to fulfill this via a Node later.
 			return Resource{
-				Resource:   op.Resource{URI: uri},
-				SourcePath: path,
+				ResourceBase: op.NewResourceBase(uri),
+				SourcePath:   path,
 			}, nil
 		}
 		return Resource{}, fmt.Errorf("failed to stat blob source: %w", err)
@@ -70,14 +72,14 @@ func NewResource(path string) (Resource, error) {
 	}
 
 	return Resource{
-		Resource:   op.Resource{URI: uri},
-		Inode:      inode,
-		Device:     device,
-		SourcePath: path,
-		Size:       info.Size(),
-		Mode:       info.Mode(),
-		ModTime:    info.ModTime(),
-		Checksum:   checksumFile(path),
+		ResourceBase: op.NewResourceBase(uri),
+		Inode:        inode,
+		Device:       device,
+		SourcePath:   path,
+		Size:         info.Size(),
+		Mode:         info.Mode(),
+		ModTime:      info.ModTime(),
+		Checksum:     checksumFile(path),
 	}, nil
 }
 

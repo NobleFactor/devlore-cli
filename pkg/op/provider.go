@@ -11,6 +11,7 @@ package op
 // Types should satisfy this interface by embedding [ProviderBase].
 type Provider interface {
 	Context() Context
+	providerBase() *ProviderBase
 }
 
 // ProviderBase provides a standardized implementation of the [Provider] interface.
@@ -32,3 +33,5 @@ func NewProviderBase(ctx Context) ProviderBase {
 func (b ProviderBase) Context() Context {
 	return b.ctx
 }
+
+func (b *ProviderBase) providerBase() *ProviderBase { return b }

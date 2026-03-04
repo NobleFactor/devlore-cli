@@ -28,7 +28,7 @@ type ReflectedPlanned struct {
 
 type plannedBridge struct {
 	name   string
-	bridge BuiltinFunc
+	bridge builtinFunc
 }
 
 // WrapPlanned wraps a provider for planned-mode use. Only methods with
@@ -42,7 +42,7 @@ func WrapPlanned(
 	params MethodParams,
 ) *ReflectedPlanned {
 	p := &ReflectedPlanned{
-		Receiver:     NewReceiver("plan." + name),
+		Receiver:     newReceiver("plan." + name),
 		providerName: name,
 		graph:        graph,
 		project:      project,
@@ -57,7 +57,7 @@ func WrapPlanned(
 			continue
 		}
 
-		snakeName := CamelToSnake(m.Name)
+		snakeName := camelToSnake(m.Name)
 		actionName := name + "." + snakeName
 
 		// Only expose methods that have a registered action.
@@ -88,7 +88,7 @@ func WrapPlanned(
 
 // Override replaces a method's auto-generated planned bridge with a
 // custom one.
-func (p *ReflectedPlanned) Override(name string, fn BuiltinFunc) {
+func (p *ReflectedPlanned) Override(name string, fn builtinFunc) {
 	p.methods[name] = &plannedBridge{
 		name:   name,
 		bridge: fn,
@@ -112,14 +112,14 @@ func (p *ReflectedPlanned) AttrNames() []string {
 	return p.attrList
 }
 
-// buildPlannedBridge creates a BuiltinFunc that creates a graph Node.
+// buildPlannedBridge creates a builtinFunc that creates a graph Node.
 func buildPlannedBridge(
 	providerName, snakeName, actionName string,
 	paramNames []string,
 	graph *Graph,
 	project string,
 	reg *ActionRegistry,
-) BuiltinFunc {
+) builtinFunc {
 	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		// 1. Unpack args as raw starlark.Value (slots store Starlark
 		//    values for deferred execution — NOT Go types).

@@ -2,9 +2,7 @@
 
 ## #165: compensateWrite missing nil guard on undo parameter — RESOLVED
 
-`compensateWrite` correctly uses `op.ExtractUndo[Tombstone]`, which handles nil maps without panic and returns an error on missing/invalid state. This is the intended behavior — silent no-ops on bad compensation state hide real problems.
-
-The original bug report compared `compensateWrite` against `CompensateBackup`, which silently returns nil on empty state. `CompensateBackup` is the anachronistic one — it predates the `ExtractUndo` pattern and should be updated to match. See issue #168.
+`compensateWrite` uses an inline type assertion (`undo["tombstone"].(Tombstone)`) with an error on missing/invalid state. This is the intended behavior — silent no-ops on bad compensation state hide real problems.
 
 ## #166: CompensateCopy does not restore file mode on existing files — RESOLVED
 

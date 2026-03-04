@@ -15,9 +15,9 @@ import (
 	"go.starlark.net/starlarkstruct"
 )
 
-// --- CamelToSnake tests ---
+// --- camelToSnake tests ---
 
-func TestCamelToSnake(t *testing.T) {
+func Test_camelToSnake(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -41,9 +41,9 @@ func TestCamelToSnake(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := CamelToSnake(tt.input)
+			got := camelToSnake(tt.input)
 			if got != tt.want {
-				t.Errorf("CamelToSnake(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("camelToSnake(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -52,23 +52,23 @@ func TestCamelToSnake(t *testing.T) {
 // --- Marshal tests ---
 
 func TestMarshal_Nil(t *testing.T) {
-	got, err := Marshal(nil)
+	got, err := marshal(nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != starlark.None {
-		t.Errorf("Marshal(nil) = %v, want None", got)
+		t.Errorf("marshal(nil) = %v, want None", got)
 	}
 }
 
 func TestMarshal_StarlarkValue(t *testing.T) {
 	sv := starlark.String("pass-through")
-	got, err := Marshal(sv)
+	got, err := marshal(sv)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != sv {
-		t.Errorf("Marshal(starlark.Value) did not pass through")
+		t.Errorf("marshal(starlark.Value) did not pass through")
 	}
 }
 
@@ -89,9 +89,9 @@ func TestMarshal_Primitives(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Marshal(tt.input)
+			got, err := marshal(tt.input)
 			if err != nil {
-				t.Fatalf("Marshal(%v) error: %v", tt.input, err)
+				t.Fatalf("marshal(%v) error: %v", tt.input, err)
 			}
 			if got.Type() != tt.wantType {
 				t.Errorf("type = %q, want %q", got.Type(), tt.wantType)
@@ -105,9 +105,9 @@ func TestMarshal_Primitives(t *testing.T) {
 
 func TestMarshal_FileMode(t *testing.T) {
 	mode := os.FileMode(0o755)
-	got, err := Marshal(mode)
+	got, err := marshal(mode)
 	if err != nil {
-		t.Fatalf("Marshal(FileMode) error: %v", err)
+		t.Fatalf("marshal(FileMode) error: %v", err)
 	}
 	si, ok := got.(starlark.Int)
 	if !ok {
@@ -120,7 +120,7 @@ func TestMarshal_FileMode(t *testing.T) {
 }
 
 func TestMarshal_Bytes(t *testing.T) {
-	got, err := Marshal([]byte("raw data"))
+	got, err := marshal([]byte("raw data"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestMarshal_Bytes(t *testing.T) {
 }
 
 func TestMarshal_StringSlice(t *testing.T) {
-	got, err := Marshal([]string{"a", "b", "c"})
+	got, err := marshal([]string{"a", "b", "c"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestMarshal_StringSlice(t *testing.T) {
 }
 
 func TestMarshal_IntSlice(t *testing.T) {
-	got, err := Marshal([]int{1, 2, 3})
+	got, err := marshal([]int{1, 2, 3})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestMarshal_IntSlice(t *testing.T) {
 
 func TestMarshal_NilSlice(t *testing.T) {
 	var s []string
-	got, err := Marshal(s)
+	got, err := marshal(s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestMarshal_NilSlice(t *testing.T) {
 }
 
 func TestMarshal_Map(t *testing.T) {
-	got, err := Marshal(map[string]any{"name": "test", "count": 5})
+	got, err := marshal(map[string]any{"name": "test", "count": 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestMarshal_Map(t *testing.T) {
 
 func TestMarshal_NilMap(t *testing.T) {
 	var m map[string]any
-	got, err := Marshal(m)
+	got, err := marshal(m)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestMarshal_NilMap(t *testing.T) {
 
 func TestMarshal_Pointer(t *testing.T) {
 	s := "hello"
-	got, err := Marshal(&s)
+	got, err := marshal(&s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestMarshal_Pointer(t *testing.T) {
 
 func TestMarshal_NilPointer(t *testing.T) {
 	var s *string
-	got, err := Marshal(s)
+	got, err := marshal(s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -259,7 +259,7 @@ type testWithTag struct {
 
 func TestMarshal_SimpleStruct(t *testing.T) {
 	p := testPoint{X: 10, Y: 20}
-	got, err := Marshal(p)
+	got, err := marshal(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestMarshal_NestedStruct(t *testing.T) {
 		Location: &testPoint{X: 1, Y: 2},
 		Tags:     []string{"dev", "go"},
 	}
-	got, err := Marshal(p)
+	got, err := marshal(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestMarshal_NilNestedStruct(t *testing.T) {
 		Age:      25,
 		Location: nil,
 	}
-	got, err := Marshal(p)
+	got, err := marshal(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestMarshal_StructTags(t *testing.T) {
 		Hidden:   "secret",
 		Normal:   42,
 	}
-	got, err := Marshal(v)
+	got, err := marshal(v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestMarshal_StructTags(t *testing.T) {
 
 func TestMarshal_UnsupportedType(t *testing.T) {
 	ch := make(chan int)
-	_, err := Marshal(ch)
+	_, err := marshal(ch)
 	if err == nil {
 		t.Fatal("expected error for unsupported type")
 	}
@@ -411,7 +411,7 @@ func TestMarshal_UnsupportedType(t *testing.T) {
 
 func TestUnmarshal_ToString(t *testing.T) {
 	var s string
-	if err := Unmarshal(starlark.String("hello"), &s); err != nil {
+	if err := unmarshal(starlark.String("hello"), &s); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if s != "hello" {
@@ -421,7 +421,7 @@ func TestUnmarshal_ToString(t *testing.T) {
 
 func TestUnmarshal_ToInt(t *testing.T) {
 	var i int
-	if err := Unmarshal(starlark.MakeInt(42), &i); err != nil {
+	if err := unmarshal(starlark.MakeInt(42), &i); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if i != 42 {
@@ -431,7 +431,7 @@ func TestUnmarshal_ToInt(t *testing.T) {
 
 func TestUnmarshal_ToBool(t *testing.T) {
 	var b bool
-	if err := Unmarshal(starlark.True, &b); err != nil {
+	if err := unmarshal(starlark.True, &b); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !b {
@@ -441,7 +441,7 @@ func TestUnmarshal_ToBool(t *testing.T) {
 
 func TestUnmarshal_ToFloat(t *testing.T) {
 	var f float64
-	if err := Unmarshal(starlark.Float(3.14), &f); err != nil {
+	if err := unmarshal(starlark.Float(3.14), &f); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if f != 3.14 {
@@ -451,7 +451,7 @@ func TestUnmarshal_ToFloat(t *testing.T) {
 
 func TestUnmarshal_IntToFloat(t *testing.T) {
 	var f float64
-	if err := Unmarshal(starlark.MakeInt(5), &f); err != nil {
+	if err := unmarshal(starlark.MakeInt(5), &f); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if f != 5.0 {
@@ -461,7 +461,7 @@ func TestUnmarshal_IntToFloat(t *testing.T) {
 
 func TestUnmarshal_ToUint32(t *testing.T) {
 	var u uint32
-	if err := Unmarshal(starlark.MakeInt(0o644), &u); err != nil {
+	if err := unmarshal(starlark.MakeInt(0o644), &u); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if u != 0o644 {
@@ -471,7 +471,7 @@ func TestUnmarshal_ToUint32(t *testing.T) {
 
 func TestUnmarshal_ToFileMode(t *testing.T) {
 	var mode os.FileMode
-	if err := Unmarshal(starlark.MakeInt(0o755), &mode); err != nil {
+	if err := unmarshal(starlark.MakeInt(0o755), &mode); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if mode != 0o755 {
@@ -481,7 +481,7 @@ func TestUnmarshal_ToFileMode(t *testing.T) {
 
 func TestUnmarshal_ToBytes(t *testing.T) {
 	var b []byte
-	if err := Unmarshal(starlark.Bytes("data"), &b); err != nil {
+	if err := unmarshal(starlark.Bytes("data"), &b); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if string(b) != "data" {
@@ -495,7 +495,7 @@ func TestUnmarshal_ToStringSlice(t *testing.T) {
 		starlark.String("b"),
 	})
 	var s []string
-	if err := Unmarshal(list, &s); err != nil {
+	if err := unmarshal(list, &s); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(s) != 2 || s[0] != "a" || s[1] != "b" {
@@ -510,7 +510,7 @@ func TestUnmarshal_ToIntSlice(t *testing.T) {
 		starlark.MakeInt(3),
 	})
 	var s []int
-	if err := Unmarshal(list, &s); err != nil {
+	if err := unmarshal(list, &s); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !reflect.DeepEqual(s, []int{1, 2, 3}) {
@@ -524,7 +524,7 @@ func TestUnmarshal_ToMap(t *testing.T) {
 	_ = dict.SetKey(starlark.String("count"), starlark.MakeInt(5))
 
 	var m map[string]any
-	if err := Unmarshal(dict, &m); err != nil {
+	if err := unmarshal(dict, &m); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if m["name"] != "test" {
@@ -550,7 +550,7 @@ func TestUnmarshal_ToAny(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got any
-			if err := Unmarshal(tt.input, &got); err != nil {
+			if err := unmarshal(tt.input, &got); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
@@ -566,7 +566,7 @@ func TestUnmarshal_ToAnyList(t *testing.T) {
 		starlark.String("b"),
 	})
 	var got any
-	if err := Unmarshal(list, &got); err != nil {
+	if err := unmarshal(list, &got); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	ss, ok := got.([]string)
@@ -584,7 +584,7 @@ func TestUnmarshal_ToAnyMixedList(t *testing.T) {
 		starlark.MakeInt(1),
 	})
 	var got any
-	if err := Unmarshal(list, &got); err != nil {
+	if err := unmarshal(list, &got); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	sl, ok := got.([]any)
@@ -602,7 +602,7 @@ func TestUnmarshal_ToStruct(t *testing.T) {
 		"y": starlark.MakeInt(20),
 	})
 	var p testPoint
-	if err := Unmarshal(sv, &p); err != nil {
+	if err := unmarshal(sv, &p); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if p.X != 10 || p.Y != 20 {
@@ -616,7 +616,7 @@ func TestUnmarshal_StructFromDict(t *testing.T) {
 	_ = dict.SetKey(starlark.String("y"), starlark.MakeInt(7))
 
 	var p testPoint
-	if err := Unmarshal(dict, &p); err != nil {
+	if err := unmarshal(dict, &p); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if p.X != 5 || p.Y != 7 {
@@ -629,7 +629,7 @@ func TestUnmarshal_StructMissingFields(t *testing.T) {
 		"x": starlark.MakeInt(10),
 	})
 	var p testPoint
-	if err := Unmarshal(sv, &p); err != nil {
+	if err := unmarshal(sv, &p); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if p.X != 10 || p.Y != 0 {
@@ -643,7 +643,7 @@ func TestUnmarshal_StructWithTag(t *testing.T) {
 		"normal": starlark.MakeInt(99),
 	})
 	var v testWithTag
-	if err := Unmarshal(sv, &v); err != nil {
+	if err := unmarshal(sv, &v); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if v.FullName != "Alice" {
@@ -669,7 +669,7 @@ func TestUnmarshal_NestedStruct(t *testing.T) {
 		"tags":     starlark.NewList([]starlark.Value{starlark.String("dev")}),
 	})
 	var p testPerson
-	if err := Unmarshal(outer, &p); err != nil {
+	if err := unmarshal(outer, &p); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if p.Name != "Alice" {
@@ -688,7 +688,7 @@ func TestUnmarshal_NestedStruct(t *testing.T) {
 
 func TestUnmarshal_NoneToPointer(t *testing.T) {
 	var p *testPoint
-	if err := Unmarshal(starlark.None, &p); err != nil {
+	if err := unmarshal(starlark.None, &p); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if p != nil {
@@ -698,7 +698,7 @@ func TestUnmarshal_NoneToPointer(t *testing.T) {
 
 func TestUnmarshal_NonPointerTarget(t *testing.T) {
 	var s string
-	err := Unmarshal(starlark.String("hello"), s)
+	err := unmarshal(starlark.String("hello"), s)
 	if err == nil {
 		t.Fatal("expected error for non-pointer target")
 	}
@@ -708,12 +708,12 @@ func TestUnmarshal_NonPointerTarget(t *testing.T) {
 
 func TestRoundTrip_SimpleStruct(t *testing.T) {
 	original := testPoint{X: 42, Y: 99}
-	sv, err := Marshal(original)
+	sv, err := marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
 	var result testPoint
-	if err := Unmarshal(sv, &result); err != nil {
+	if err := unmarshal(sv, &result); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 	if result != original {
@@ -728,12 +728,12 @@ func TestRoundTrip_NestedStruct(t *testing.T) {
 		Location: &testPoint{X: 3, Y: 4},
 		Tags:     []string{"go", "dev"},
 	}
-	sv, err := Marshal(original)
+	sv, err := marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
 	var result testPerson
-	if err := Unmarshal(sv, &result); err != nil {
+	if err := unmarshal(sv, &result); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 	if result.Name != original.Name || result.Age != original.Age {
@@ -753,12 +753,12 @@ func TestRoundTrip_Map(t *testing.T) {
 		"count": 5,
 		"flag":  true,
 	}
-	sv, err := Marshal(original)
+	sv, err := marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
 	var result map[string]any
-	if err := Unmarshal(sv, &result); err != nil {
+	if err := unmarshal(sv, &result); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 	if result["name"] != "test" {
@@ -823,36 +823,6 @@ type testConstructable struct {
 	Extra int
 }
 
-func TestRegisterConstructor(t *testing.T) {
-	RegisterConstructor(func(v any) (testConstructable, error) {
-		s, ok := v.(string)
-		if !ok {
-			return testConstructable{}, fmt.Errorf("expected string, got %T", v)
-		}
-		return testConstructable{Value: s, Extra: len(s)}, nil
-	})
-	defer constructorRegistry.Delete(reflect.TypeOf(testConstructable{}))
-
-	got, err := Construct[testConstructable]("hello")
-	if err != nil {
-		t.Fatalf("Construct() error = %v", err)
-	}
-	if got.Value != "hello" || got.Extra != 5 {
-		t.Errorf("Construct() = %+v, want {hello, 5}", got)
-	}
-}
-
-func TestConstruct_Unregistered(t *testing.T) {
-	type unregistered struct{ X int }
-	_, err := Construct[unregistered]("anything")
-	if err == nil {
-		t.Fatal("Construct() expected error for unregistered type")
-	}
-	if !strings.Contains(err.Error(), "no constructor registered") {
-		t.Errorf("error = %q, want to contain %q", err, "no constructor registered")
-	}
-}
-
 func TestUnmarshal_WithConstructor(t *testing.T) {
 	RegisterConstructor(func(v any) (testConstructable, error) {
 		s, ok := v.(string)
@@ -864,11 +834,11 @@ func TestUnmarshal_WithConstructor(t *testing.T) {
 	defer constructorRegistry.Delete(reflect.TypeOf(testConstructable{}))
 
 	var got testConstructable
-	if err := Unmarshal(starlark.String("world"), &got); err != nil {
-		t.Fatalf("Unmarshal() error = %v", err)
+	if err := unmarshal(starlark.String("world"), &got); err != nil {
+		t.Fatalf("unmarshal() error = %v", err)
 	}
 	if got.Value != "world" || got.Extra != 5 {
-		t.Errorf("Unmarshal() = %+v, want {world, 5}", got)
+		t.Errorf("unmarshal() = %+v, want {world, 5}", got)
 	}
 }
 
@@ -883,9 +853,9 @@ func TestUnmarshal_Constructor_InvalidInput(t *testing.T) {
 	defer constructorRegistry.Delete(reflect.TypeOf(testConstructable{}))
 
 	var got testConstructable
-	err := Unmarshal(starlark.MakeInt(42), &got)
+	err := unmarshal(starlark.MakeInt(42), &got)
 	if err == nil {
-		t.Fatal("Unmarshal() expected error for wrong starlark type")
+		t.Fatal("unmarshal() expected error for wrong starlark type")
 	}
 	if !strings.Contains(err.Error(), "expected string") {
 		t.Errorf("error = %q, want to contain %q", err, "expected string")
@@ -900,7 +870,7 @@ func TestUnmarshal_StarlarkStructToAny(t *testing.T) {
 		"y": starlark.MakeInt(20),
 	})
 	var got any
-	if err := Unmarshal(sv, &got); err != nil {
+	if err := unmarshal(sv, &got); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	m, ok := got.(map[string]any)

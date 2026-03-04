@@ -789,7 +789,8 @@ func TestGlobAction_Do(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := makeRegistry(t, &provider.Provider{Root: tmp})
+	rootResource, _ := provider.NewResource(tmp)
+	reg := makeRegistry(t, &provider.Provider{Root: rootResource})
 	action := getAction(t, reg, "file.glob")
 	ctx := newCtx(t)
 	slots := map[string]any{

@@ -13,8 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides archive extraction actions.
@@ -66,11 +64,11 @@ func (p *Provider) Extract(source, prefix string) (dest string, state map[string
 // CompensateExtract removes files created during extraction, then cleans up
 // empty directories under dest.
 func (p *Provider) CompensateExtract(state any) error {
-	s := op.AsStateMap(state)
+	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	created := op.StateStringSlice(s, "created_files")
+	created, _ := s["created_files"].([]string)
 
 	// Remove files in reverse order (deepest first).
 	for i := len(created) - 1; i >= 0; i-- {
@@ -78,7 +76,7 @@ func (p *Provider) CompensateExtract(state any) error {
 	}
 
 	// Clean up empty directories under dest.
-	dest := op.StateString(s, "dest")
+	dest, _ := s["dest"].(string)
 	if dest != "" {
 		return removeEmptyDirs(dest)
 	}

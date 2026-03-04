@@ -142,20 +142,10 @@ package manager instead of creating their own.
 
 ---
 
-## Phase 4: Coalesce — State Extraction Helpers
+## Phase 4: Coalesce — State Extraction Helpers (REMOVED)
 
-**New file: `pkg/op/state.go`** — typed extraction helpers for compensation state:
-
-- `AsStateMap(state any) (map[string]any, bool)` — nil-safe type assertion
-- `StateString(m map[string]any, key string) string`
-- `StateBool(m map[string]any, key string) bool`
-- `StateBytes(m map[string]any, key string) []byte`
-- `StateFileMode(m map[string]any, key string) os.FileMode`
-- `StateStringSlice(m map[string]any, key string) []string`
-
-**New file: `pkg/op/state_test.go`** — table-driven tests.
-
-Update 14 `Compensate*` methods across 5 providers to use helpers.
+State extraction helpers (`pkg/op/state.go`) were removed as unnecessary abstraction.
+All `Compensate*` methods use inline type assertions directly on `map[string]any` undo state.
 
 ## Phase 5: Coalesce — Indexgen Merge
 

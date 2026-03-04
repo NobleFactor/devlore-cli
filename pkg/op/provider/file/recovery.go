@@ -7,23 +7,24 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/google/uuid"
 )
 
-func (p *Provider) moveToRecovery(path string, prune bool, pruneBoundary string) (result Tombstone, undoState map[string]any, err error) {
+func (p *Provider) moveToRecovery(resource Resource, prune bool, pruneBoundary string) (Tombstone, error) {
 
-	// Get the absolute path of the file to remove as well as the recovery base directory (on the same partition)
+	// Normalize to absolute path for reliable recovery regardless of working directory at restore time.
 
-	absolutePath, err := filepath.Abs(path)
-
+	absolutePath, err := filepath.Abs(resource.SourcePath)
 	if err != nil {
-		return Tombstone{}, nil, err
+		return Tombstone{}, err
 	}
 
-	recoveryBase, err := p.getRecoveryBase(absolutePath)
+	resource.SourcePath = absolutePath
 
+	recoveryBase, err := p.getRecoveryBase(absolutePath)
 	if err != nil {
-		return Tombstone{}, nil, err
+		return Tombstone{}, err
 	}
 
 	// Create a unique ID for this specific removal operation
@@ -34,57 +35,45 @@ func (p *Provider) moveToRecovery(path string, prune bool, pruneBoundary string)
 	// Ensure the recovery container exists
 
 	if err := os.MkdirAll(recoveryBase, 0700); err != nil {
-		return Tombstone{}, nil, fmt.Errorf("failed to create recovery site: %w", err)
+		return Tombstone{}, fmt.Errorf("failed to create recovery site: %w", err)
 	}
 
 	// Perform the removal in O(1) time with no data movement because it's on the same partition
 
 	if err := os.Rename(absolutePath, recoveryPath); err != nil {
-		return Tombstone{}, nil, err
+		return Tombstone{}, err
 	}
 
-	pruneEmptyParents(path, prune, pruneBoundary)
+	pruneEmptyParents(resource.SourcePath, prune, pruneBoundary)
 
-	// Formulate return values
-
-	result = Tombstone{
-		OriginalPath: absolutePath,
-		RecoveryPath: recoveryPath,
-	}
-
-	undoState = map[string]any{
-		"tombstone": result,
-	}
-
-	return result, undoState, nil
+	return Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&resource),
+		RecoveryPath:  recoveryPath,
+	}, nil
 }
 
 // restoreFromRecovery is the compensating action (undo) for any removal operation.
 //
-// It moves the entity back to its original location from the tombstone site.
-//
-// Parameters:
-//   - t: The tombstone returned by RemoveAll
-//
-// Returns:
-//   - err: any error that occurred during the compensation
+// It moves the entity back to its original location from the recovery site.
 func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
+
+	originalPath := tombstone.Resource().(*Resource).SourcePath
 
 	// Validate the tombstone
 
-	if tombstone.RecoveryPath == "" || tombstone.OriginalPath == "" {
+	if tombstone.RecoveryPath == "" || originalPath == "" {
 		return fmt.Errorf("invalid tombstone: missing path metadata")
 	}
 
 	// Verify the recovery site still exists
 
-	if _, err := os.Stat(tombstone.RecoveryPath); errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("recovery source not found: %s (perhaps it was purged?)", tombstone.RecoveryPath)
+	if _, err := os.Lstat(tombstone.RecoveryPath); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("recovery source not found: %s. Was it purged?", tombstone.RecoveryPath)
 	}
 
 	// Ensure the original destination's parent exists
 
-	parentDir := filepath.Dir(tombstone.OriginalPath)
+	parentDir := filepath.Dir(originalPath)
 
 	if err := os.MkdirAll(parentDir, 0755); err != nil {
 		return fmt.Errorf("failed to recreate original parent directory: %w", err)
@@ -92,7 +81,7 @@ func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
 
 	// Relocate with no data movement since we guaranteed we are on the same partition as the original file
 
-	if err := os.Rename(tombstone.RecoveryPath, tombstone.OriginalPath); err != nil {
+	if err := os.Rename(tombstone.RecoveryPath, originalPath); err != nil {
 		return fmt.Errorf("failed to restore from tombstone: %w", err)
 	}
 

@@ -46,9 +46,8 @@ func NewGraph(tool string) *Graph {
 			OS:   runtime.GOOS,
 			Arch: runtime.GOARCH,
 		},
-		Nodes:     make([]*Node, 0),
-		Resources: NewResourceManager(),
-		Namespace: NewNamespaceMap(),
+		Nodes:   make([]*Node, 0),
+		Catalog: NewResourceCatalog(),
 	}
 }
 
@@ -463,13 +462,9 @@ type Graph struct {
 	// Signature contains the cryptographic signature (optional).
 	Signature *Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
 
-	// Resources is the append-only ledger of all resources created during
-	// planning. One per Graph. Not serialized — planning-only state.
-	Resources *ResourceManager `json:"-" yaml:"-"`
-
-	// Namespace maps URIs to the most recent resource ID during planning.
-	// Not serialized — planning-only state.
-	Namespace *NamespaceMap `json:"-" yaml:"-"`
+	// Catalog is the append-only resource catalog for planning.
+	// One per Graph. Not serialized — planning-only state.
+	Catalog *ResourceCatalog `json:"-" yaml:"-"`
 }
 
 // String returns a human-readable summary.

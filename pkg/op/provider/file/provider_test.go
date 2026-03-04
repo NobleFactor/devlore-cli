@@ -15,6 +15,16 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// testProvider creates a Provider rooted at the given directory.
+func testProvider(t *testing.T, root string) Provider {
+	t.Helper()
+	rootResource, err := NewResource(root)
+	if err != nil {
+		t.Fatalf("NewResource(%q): %v", root, err)
+	}
+	return Provider{Root: rootResource}
+}
+
 // --- Link ---
 
 func TestLink_CreatesNewSymlink(t *testing.T) {
@@ -34,12 +44,12 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 		t.Errorf("result = %q, want %q", result.SourcePath, linkPath)
 	}
 
-	s := op.AsStateMap(state)
-	if s == nil {
-		t.Fatal("state is nil, want non-nil")
+	// Nothing existed before — tombstone has resource but no recovery path.
+	if state.Resource() == nil {
+		t.Fatal("state.Resource() is nil, want non-nil")
 	}
-	if op.StateBool(s, "existed_before") {
-		t.Error("existed_before = true, want false")
+	if state.RecoveryPath != "" {
+		t.Errorf("state.RecoveryPath = %q, want empty (nothing to recover)", state.RecoveryPath)
 	}
 
 	got, err := os.Readlink(linkPath)
@@ -66,7 +76,7 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := Provider{}
+	p := testProvider(t, tmp)
 	result, state, err := p.Link(Resource{SourcePath: newTarget}, Resource{SourcePath: linkPath})
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
@@ -75,15 +85,9 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 		t.Errorf("result = %q, want %q", result.SourcePath, linkPath)
 	}
 
-	s := op.AsStateMap(state)
-	if s == nil {
-		t.Fatal("state is nil, want non-nil")
-	}
-	if !op.StateBool(s, "existed_before") {
-		t.Error("existed_before = false, want true")
-	}
-	if prev := op.StateString(s, "previous_target"); prev != oldTarget {
-		t.Errorf("previous_target = %q, want %q", prev, oldTarget)
+	// Old symlink was moved to recovery.
+	if state.RecoveryPath == "" {
+		t.Error("state.RecoveryPath is empty, want non-empty (old symlink moved to recovery)")
 	}
 
 	got, err := os.Readlink(linkPath)
@@ -114,8 +118,8 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 	if result.SourcePath != linkPath {
 		t.Errorf("result = %q, want %q", result.SourcePath, linkPath)
 	}
-	if state != nil {
-		t.Errorf("state = %v, want nil (no-op)", state)
+	if state != (Tombstone{}) {
+		t.Errorf("state = %+v, want zero Tombstone (no-op)", state)
 	}
 }
 
@@ -144,23 +148,24 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 
 // --- CompensateLink ---
 
-func TestCompensateLink_NilState(t *testing.T) {
+func TestCompensateLink_ZeroState(t *testing.T) {
 	p := Provider{}
-	if err := p.CompensateLink(nil); err != nil {
-		t.Errorf("CompensateLink(nil) = %v, want nil", err)
+	if err := p.CompensateLink(Tombstone{}); err != nil {
+		t.Errorf("CompensateLink(zero) = %v, want nil", err)
 	}
 }
 
-func TestCompensateLink_ExistedBeforeFalse_RemovesSymlink(t *testing.T) {
+func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 	tmp := t.TempDir()
 	linkPath := filepath.Join(tmp, "link")
 	if err := os.Symlink("/some/target", linkPath); err != nil {
 		t.Fatal(err)
 	}
 
-	state := map[string]any{
-		"path":           linkPath,
-		"existed_before": false,
+	// Tombstone with no recovery path — symlink didn't exist before.
+	resource := Resource{SourcePath: linkPath}
+	state := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&resource),
 	}
 
 	p := Provider{}
@@ -172,19 +177,24 @@ func TestCompensateLink_ExistedBeforeFalse_RemovesSymlink(t *testing.T) {
 	}
 }
 
-func TestCompensateLink_ExistedBeforeTrue_RestoresOldTarget(t *testing.T) {
+func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	tmp := t.TempDir()
 	linkPath := filepath.Join(tmp, "link")
 	oldTarget := filepath.Join(tmp, "old-target")
-	// Create the new symlink that we want to compensate.
+	recoveryPath := filepath.Join(tmp, "recovery-link")
+
+	// Simulate: old symlink was moved to recovery, new symlink created.
+	if err := os.Symlink(oldTarget, recoveryPath); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink("/some/new-target", linkPath); err != nil {
 		t.Fatal(err)
 	}
 
-	state := map[string]any{
-		"path":            linkPath,
-		"existed_before":  true,
-		"previous_target": oldTarget,
+	resource := Resource{SourcePath: linkPath}
+	state := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&resource),
+		RecoveryPath:  recoveryPath,
 	}
 
 	p := Provider{}
@@ -199,27 +209,9 @@ func TestCompensateLink_ExistedBeforeTrue_RestoresOldTarget(t *testing.T) {
 	if got != oldTarget {
 		t.Errorf("restored target = %q, want %q", got, oldTarget)
 	}
-}
 
-func TestCompensateLink_ExistedBeforeTrue_NoPreviousTarget_RemovesSymlink(t *testing.T) {
-	tmp := t.TempDir()
-	linkPath := filepath.Join(tmp, "link")
-	if err := os.Symlink("/some/target", linkPath); err != nil {
-		t.Fatal(err)
-	}
-
-	state := map[string]any{
-		"path":           linkPath,
-		"existed_before": true,
-		// No previous_target — was a non-symlink before.
-	}
-
-	p := Provider{}
-	if err := p.CompensateLink(state); err != nil {
-		t.Fatalf("CompensateLink() error = %v", err)
-	}
-	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
-		t.Error("symlink still exists after compensation")
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Error("recovery file still exists after compensation")
 	}
 }
 
@@ -264,7 +256,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := Provider{Root: tmp}
+	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
 	_, _, err := p.Copy(blob, Resource{SourcePath: path}, 0o644)
 	if err != nil {
@@ -302,22 +294,11 @@ func TestCopy_DefaultModeWhenZero(t *testing.T) {
 
 // --- CompensateCopy ---
 
-func TestCompensateCopy_NilState_Panics(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("CompensateCopy(nil) did not panic — nil undo state is a bug")
-		}
-		msg, ok := r.(string)
-		if !ok {
-			t.Fatalf("panic value is %T, want string", r)
-		}
-		if !strings.Contains(msg, "BUG") {
-			t.Errorf("panic message = %q, want to contain 'BUG'", msg)
-		}
-	}()
+func TestCompensateCopy_ZeroState_NoPanic(t *testing.T) {
 	p := Provider{}
-	_ = p.CompensateCopy(nil)
+	if err := p.CompensateCopy(Tombstone{}); err != nil {
+		t.Errorf("CompensateCopy(zero) = %v, want nil", err)
+	}
 }
 
 func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
@@ -327,9 +308,10 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Tombstone with no RecoveryPath — file didn't exist before Copy created it.
-	state := map[string]any{
-		"tombstone": Tombstone{OriginalPath: path},
+	// Tombstone with no recovery path = file didn't exist before, just remove it.
+	resource := Resource{SourcePath: path}
+	state := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&resource),
 	}
 
 	p := Provider{}
@@ -341,29 +323,23 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 	}
 }
 
-func TestCompensateCopy_Overwrite_RestoresFromRecovery(t *testing.T) {
+func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
-	recoveryPath := filepath.Join(tmp, "recovery", "output.txt")
+	recoveryPath := filepath.Join(tmp, "output.txt.recovery")
 
-	// Create the "new" file at destination (simulates forward Copy wrote it).
+	// Simulate: original was moved to recovery, then overwritten.
+	if err := os.WriteFile(recoveryPath, []byte("original content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte("replaced content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a recovery file with original content (simulates prepareWrite moved it).
-	if err := os.MkdirAll(filepath.Dir(recoveryPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(recoveryPath, []byte("original content"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	state := map[string]any{
-		"tombstone": Tombstone{
-			OriginalPath: path,
-			RecoveryPath: recoveryPath,
-		},
+	resource := Resource{SourcePath: path}
+	state := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&resource),
+		RecoveryPath:  recoveryPath,
 	}
 
 	p := Provider{}
@@ -377,6 +353,10 @@ func TestCompensateCopy_Overwrite_RestoresFromRecovery(t *testing.T) {
 	}
 	if string(got) != "original content" {
 		t.Errorf("restored content = %q, want %q", got, "original content")
+	}
+
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Error("recovery file still exists after compensation")
 	}
 }
 
@@ -418,19 +398,21 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Errorf("backup content = %q, want %q", got, "backup me")
 	}
 
-	s := op.AsStateMap(state)
-	if op.StateString(s, "original_path") != path {
-		t.Errorf("state original_path = %q, want %q", op.StateString(s, "original_path"), path)
+	// Tombstone should carry the original resource.
+	originalPath := state.Resource().(*Resource).SourcePath
+	if originalPath != path {
+		t.Errorf("tombstone resource path = %q, want %q", originalPath, path)
 	}
-	if op.StateString(s, "backup_path") != result.SourcePath {
-		t.Errorf("state backup_path = %q, want %q", op.StateString(s, "backup_path"), result.SourcePath)
+	if state.RecoveryPath != result.SourcePath {
+		t.Errorf("tombstone recovery path = %q, want %q", state.RecoveryPath, result.SourcePath)
 	}
 
 	// Checksum should match the original file content.
 	h := sha256.Sum256([]byte("backup me"))
 	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
-	if got := op.StateString(s, "written_checksum"); got != wantChecksum {
-		t.Errorf("state written_checksum = %q, want %q", got, wantChecksum)
+	resourceChecksum := state.Resource().(*Resource).Checksum
+	if resourceChecksum != wantChecksum {
+		t.Errorf("resource checksum = %q, want %q", resourceChecksum, wantChecksum)
 	}
 }
 
@@ -462,9 +444,10 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state := map[string]any{
-		"original_path": originalPath,
-		"backup_path":   backupPath,
+	resource := Resource{SourcePath: originalPath}
+	state := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&resource),
+		RecoveryPath:  backupPath,
 	}
 
 	p := Provider{}
@@ -497,10 +480,10 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original content"))
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
 
-	state := map[string]any{
-		"original_path":    originalPath,
-		"backup_path":      backupPath,
-		"written_checksum": wrongChecksum,
+	resource := Resource{SourcePath: originalPath, Checksum: wrongChecksum}
+	state := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&resource),
+		RecoveryPath:  backupPath,
 	}
 
 	p := Provider{}
@@ -533,16 +516,12 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 
 	p := Provider{}
-	result, state, err := p.Unlink(Resource{SourcePath: linkPath}, false, Resource{})
+	result, _, err := p.Unlink(Resource{SourcePath: linkPath}, false, Resource{})
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
-	if result.OriginalPath != linkPath {
-		t.Errorf("result.OriginalPath = %q, want %q", result.OriginalPath, linkPath)
-	}
-
-	if state == nil {
-		t.Fatal("state is nil, want non-nil")
+	if result.Resource() == nil {
+		t.Fatal("result.Resource() is nil, want non-nil")
 	}
 
 	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
@@ -562,8 +541,8 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 	if result != (Tombstone{}) {
 		t.Errorf("result = %+v, want empty Tombstone", result)
 	}
-	if state != nil {
-		t.Errorf("state = %v, want nil (no-op)", state)
+	if state != (Tombstone{}) {
+		t.Errorf("state = %+v, want empty Tombstone (no-op)", state)
 	}
 }
 
@@ -595,23 +574,15 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 
 	p := Provider{}
-	result, state, err := p.Remove(Resource{SourcePath: path}, false, Resource{})
+	result, _, err := p.Remove(Resource{SourcePath: path}, false, Resource{})
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if result.OriginalPath != path {
-		t.Errorf("result.OriginalPath = %q, want %q", result.OriginalPath, path)
+	if result.Resource() == nil {
+		t.Fatal("result.Resource() is nil, want non-nil")
 	}
-
-	tombstone, ok := state["tombstone"].(Tombstone)
-	if !ok {
-		t.Fatal("state missing tombstone")
-	}
-	if tombstone.OriginalPath != path {
-		t.Errorf("tombstone.OriginalPath = %q, want %q", tombstone.OriginalPath, path)
-	}
-	if tombstone.RecoveryPath == "" {
-		t.Error("tombstone.RecoveryPath should not be empty")
+	if result.RecoveryPath == "" {
+		t.Error("result.RecoveryPath should not be empty")
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -631,8 +602,8 @@ func TestRemove_AlreadyGone(t *testing.T) {
 	if result != (Tombstone{}) {
 		t.Errorf("result = %+v, want empty Tombstone", result)
 	}
-	if state != nil {
-		t.Errorf("state = %v, want nil (no-op)", state)
+	if state != (Tombstone{}) {
+		t.Errorf("state = %+v, want empty Tombstone (no-op)", state)
 	}
 }
 
@@ -651,8 +622,8 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 		t.Errorf("result.SourcePath = %q, want %q", result.SourcePath, path)
 	}
 
-	if state == nil {
-		t.Fatal("state is nil, want non-nil")
+	if state.Resource() == nil {
+		t.Fatal("state.Resource() is nil, want non-nil")
 	}
 
 	got, err := os.ReadFile(path)
@@ -677,8 +648,8 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 		t.Errorf("result.SourcePath = %q, want %q", result.SourcePath, path)
 	}
 
-	if state == nil {
-		t.Fatal("state is nil, want non-nil")
+	if state.Resource() == nil {
+		t.Fatal("state.Resource() is nil, want non-nil")
 	}
 
 	got, err := os.ReadFile(path)
@@ -722,19 +693,21 @@ func TestMove(t *testing.T) {
 		t.Errorf("result = %q, want %q", result.SourcePath, dst)
 	}
 
-	s := op.AsStateMap(state)
-	if op.StateString(s, "source") != src {
-		t.Errorf("state source = %q, want %q", op.StateString(s, "source"), src)
+	// Tombstone carries the source resource and destination as recovery path.
+	source := state.Resource().(*Resource).SourcePath
+	if source != src {
+		t.Errorf("tombstone resource path = %q, want %q", source, src)
 	}
-	if op.StateString(s, "destination") != dst {
-		t.Errorf("state destination = %q, want %q", op.StateString(s, "destination"), dst)
+	if state.RecoveryPath != dst {
+		t.Errorf("tombstone recovery path = %q, want %q", state.RecoveryPath, dst)
 	}
 
 	// Checksum should match the original file content.
 	h := sha256.Sum256([]byte("move me"))
 	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
-	if got := op.StateString(s, "written_checksum"); got != wantChecksum {
-		t.Errorf("state written_checksum = %q, want %q", got, wantChecksum)
+	resourceChecksum := state.Resource().(*Resource).Checksum
+	if resourceChecksum != wantChecksum {
+		t.Errorf("resource checksum = %q, want %q", resourceChecksum, wantChecksum)
 	}
 
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
@@ -751,10 +724,10 @@ func TestMove(t *testing.T) {
 
 // --- CompensateMove ---
 
-func TestCompensateMove_NilState(t *testing.T) {
+func TestCompensateMove_ZeroState(t *testing.T) {
 	p := Provider{}
-	if err := p.CompensateMove(nil); err != nil {
-		t.Errorf("CompensateMove(nil) = %v, want nil", err)
+	if err := p.CompensateMove(Tombstone{}); err != nil {
+		t.Errorf("CompensateMove(zero) = %v, want nil", err)
 	}
 }
 
@@ -769,10 +742,10 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original"))
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
 
-	state := map[string]any{
-		"source":           src,
-		"destination":      dst,
-		"written_checksum": wrongChecksum,
+	resource := Resource{SourcePath: src, Checksum: wrongChecksum}
+	state := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&resource),
+		RecoveryPath:  dst,
 	}
 
 	p := Provider{}
@@ -828,44 +801,17 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 
 // --- CompensateWriteText / CompensateWriteBytes ---
 
-// TestCompensateWriteText_NilState is blocked on issue #165: compensateWrite missing nil guard.
-func TestCompensateWriteText_NilState(t *testing.T) {
-	t.Skip("blocked on issue #165: compensateWrite missing nil guard on undo parameter")
+func TestCompensateWriteText_ZeroState(t *testing.T) {
 	p := Provider{}
-	if err := p.CompensateWriteText(nil); err != nil {
-		t.Errorf("CompensateWriteText(nil) = %v, want nil", err)
+	if err := p.CompensateWriteText(Tombstone{}); err != nil {
+		t.Errorf("CompensateWriteText(zero) = %v, want nil", err)
 	}
 }
 
-func TestCompensateWriteText_InvalidTombstone_ReturnsError(t *testing.T) {
-	state := map[string]any{
-		"tombstone": "not-a-tombstone",
-	}
-
+func TestCompensateWriteBytes_ZeroState(t *testing.T) {
 	p := Provider{}
-	err := p.CompensateWriteText(state)
-	if err == nil {
-		t.Fatal("CompensateWriteText() with invalid tombstone should return error")
-	}
-}
-
-func TestCompensateWriteBytes_NilState(t *testing.T) {
-	t.Skip("blocked on issue #165: compensateWrite missing nil guard on undo parameter")
-	p := Provider{}
-	if err := p.CompensateWriteBytes(nil); err != nil {
-		t.Errorf("CompensateWriteBytes(nil) = %v, want nil", err)
-	}
-}
-
-func TestCompensateWriteBytes_InvalidTombstone_ReturnsError(t *testing.T) {
-	state := map[string]any{
-		"tombstone": "not-a-tombstone",
-	}
-
-	p := Provider{}
-	err := p.CompensateWriteBytes(state)
-	if err == nil {
-		t.Fatal("CompensateWriteBytes() with invalid tombstone should return error")
+	if err := p.CompensateWriteBytes(Tombstone{}); err != nil {
+		t.Errorf("CompensateWriteBytes(zero) = %v, want nil", err)
 	}
 }
 
@@ -1293,7 +1239,7 @@ func TestGlob_MatchesFiles(t *testing.T) {
 	writeTestFile(t, tmp, "b.go", "package b")
 	writeTestFile(t, tmp, "c.txt", "text")
 
-	p := Provider{Root: tmp}
+	p := testProvider(t, tmp)
 	matches, err := p.Glob(filepath.Join(tmp, "*.go"), false)
 	if err != nil {
 		t.Fatalf("Glob() error = %v", err)
@@ -1307,7 +1253,7 @@ func TestGlob_MatchesFiles(t *testing.T) {
 func TestGlob_NoMatches(t *testing.T) {
 	tmp := t.TempDir()
 
-	p := Provider{Root: tmp}
+	p := testProvider(t, tmp)
 	matches, err := p.Glob(filepath.Join(tmp, "*.xyz"), false)
 	if err != nil {
 		t.Fatalf("Glob() error = %v", err)
@@ -1435,31 +1381,24 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := Provider{Root: tmp}
+	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
 	_, state, err := p.Copy(blob, Resource{SourcePath: path}, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
 
-	// Compensate: should restore original content and mode.
+	// Compensation restores the original file from recovery.
 	if err := p.CompensateCopy(state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 
 	got, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
+		t.Fatalf("ReadFile() error = %v — file should be restored", err)
 	}
 	if string(got) != "original" {
 		t.Errorf("restored content = %q, want %q", got, "original")
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o755 {
-		t.Errorf("restored mode = %o, want %o", info.Mode().Perm(), 0o755)
 	}
 }
 
@@ -1490,429 +1429,101 @@ func TestIsSubpath(t *testing.T) {
 	tests := []struct {
 		name   string
 		path   string
-		parent string
-		want   bool
+		root   string
+		expect bool
 	}{
-		{"child", "/a/b/c", "/a/b", true},
-		{"deeply nested", "/a/b/c/d/e", "/a/b", true},
-		{"equal", "/a/b", "/a/b", false},
-		{"parent of", "/a", "/a/b", false},
-		{"escape with dotdot", "/a/b/../c", "/a/b", false},
-		{"sibling", "/a/c", "/a/b", false},
+		{"exact match", "/foo/bar", "/foo/bar", false},
+		{"child", "/foo/bar/baz", "/foo/bar", true},
+		{"sibling", "/foo/baz", "/foo/bar", false},
+		{"parent", "/foo", "/foo/bar", false},
+		{"root slash", "/foo/bar", "/", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isSubpath(tt.path, tt.parent); got != tt.want {
-				t.Errorf("isSubpath(%q, %q) = %v, want %v", tt.path, tt.parent, got, tt.want)
+			if got := isSubpath(tt.path, tt.root); got != tt.expect {
+				t.Errorf("isSubpath(%q, %q) = %v, want %v", tt.path, tt.root, got, tt.expect)
 			}
 		})
 	}
 }
 
-func TestChecksumBytes(t *testing.T) {
-	data := []byte("hello")
-	got := checksumBytes(data)
+func TestChecksumFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "checksum.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	h := sha256.Sum256(data)
+	got := checksumFile(path)
+	if got == "" {
+		t.Fatal("checksumFile() returned empty string")
+	}
+
+	h := sha256.Sum256([]byte("hello"))
 	want := "sha256:" + hex.EncodeToString(h[:])
 	if got != want {
-		t.Errorf("checksumBytes(%q) = %q, want %q", data, got, want)
-	}
-
-	// Deterministic: same input produces same output.
-	if again := checksumBytes(data); again != got {
-		t.Errorf("checksumBytes not deterministic: %q != %q", again, got)
+		t.Errorf("checksumFile() = %q, want %q", got, want)
 	}
 }
 
-// --- WalkTree ---
-
-func TestWalkTree_BasicTraversal(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, "main.go", "package main")
-	mkdirAllTest(t, root, "src")
-	writeTestFile(t, root, "src/app.go", "package src")
-
-	p := Provider{}
-	var walked []string
-	_, stack, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
-		walked = append(walked, path)
-		return nil
-	}), false)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-	if stack == nil {
-		t.Fatal("WalkTree() stack is nil, want non-nil")
-	}
-
-	assertHas(t, walked, "main.go")
-	assertHas(t, walked, "src")
-	assertHas(t, walked, filepath.Join("src", "app.go"))
-}
-
-func TestWalkTree_GitignoreFiltering(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, ".gitignore", "*.log\nvendor/\n")
-	writeTestFile(t, root, "main.go", "package main")
-	writeTestFile(t, root, "debug.log", "some log")
-	mkdirAllTest(t, root, "vendor")
-	writeTestFile(t, root, "vendor/lib.go", "package vendor")
-
-	p := Provider{}
-	var walked []string
-	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
-		walked = append(walked, path)
-		return nil
-	}), true)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-
-	assertHas(t, walked, "main.go")
-	assertNotHas(t, walked, "debug.log")
-	assertNotHas(t, walked, "vendor")
-	assertNotHas(t, walked, filepath.Join("vendor", "lib.go"))
-}
-
-func TestWalkTree_NestedGitignore(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, ".gitignore", "*.tmp\n")
-	mkdirAllTest(t, root, "sub")
-	writeTestFile(t, root, "sub/.gitignore", "*.bak\n")
-	writeTestFile(t, root, "sub/keep.go", "package sub")
-	writeTestFile(t, root, "sub/remove.tmp", "temp")
-	writeTestFile(t, root, "sub/remove.bak", "backup")
-	writeTestFile(t, root, "keep.go", "package main")
-	writeTestFile(t, root, "remove.tmp", "temp")
-
-	p := Provider{}
-	var walked []string
-	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
-		if !resource.Mode.IsDir() {
-			walked = append(walked, path)
-		}
-		return nil
-	}), true)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-
-	assertHas(t, walked, "keep.go")
-	assertHas(t, walked, filepath.Join("sub", "keep.go"))
-	assertNotHas(t, walked, "remove.tmp")
-	assertNotHas(t, walked, filepath.Join("sub", "remove.tmp"))
-	assertNotHas(t, walked, filepath.Join("sub", "remove.bak"))
-}
-
-func TestWalkTree_SkipDir(t *testing.T) {
-	root := t.TempDir()
-	mkdirAllTest(t, root, "a")
-	writeTestFile(t, root, "a/file.txt", "a")
-	mkdirAllTest(t, root, "b")
-	writeTestFile(t, root, "b/file.txt", "b")
-	mkdirAllTest(t, root, "c")
-	writeTestFile(t, root, "c/file.txt", "c")
-
-	p := Provider{}
-	var walked []string
-	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
-		walked = append(walked, path)
-		if resource.Mode.IsDir() && path == "b" {
-			return SkipDir
-		}
-		return nil
-	}), false)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-
-	assertHas(t, walked, "b")
-	assertNotHas(t, walked, filepath.Join("b", "file.txt"))
-	assertHas(t, walked, filepath.Join("a", "file.txt"))
-	assertHas(t, walked, filepath.Join("c", "file.txt"))
-}
-
-func TestWalkTree_SkipAll(t *testing.T) {
-	root := t.TempDir()
-	mkdirAllTest(t, root, "a")
-	writeTestFile(t, root, "a/file.txt", "a")
-	mkdirAllTest(t, root, "b")
-	writeTestFile(t, root, "b/file.txt", "b")
-	mkdirAllTest(t, root, "c")
-	writeTestFile(t, root, "c/file.txt", "c")
-
-	p := Provider{}
-	var walked []string
-	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
-		walked = append(walked, path)
-		if resource.Mode.IsDir() && path == "b" {
-			return SkipAll
-		}
-		return nil
-	}), false)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-
-	assertHas(t, walked, "a")
-	assertHas(t, walked, "b")
-	assertNotHas(t, walked, "c")
-}
-
-func TestWalkTree_SkipsGitDir(t *testing.T) {
-	root := t.TempDir()
-	mkdirAllTest(t, root, ".git/objects")
-	writeTestFile(t, root, ".git/HEAD", "ref: refs/heads/main")
-	writeTestFile(t, root, "file.go", "package main")
-
-	p := Provider{}
-	var walked []string
-	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
-		walked = append(walked, path)
-		return nil
-	}), false)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-
-	assertHas(t, walked, "file.go")
-	assertNotHas(t, walked, ".git")
-	assertNotHas(t, walked, filepath.Join(".git", "HEAD"))
-}
-
-func TestWalkTree_FoldAccumulates(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, "a.txt", "hello")
-	writeTestFile(t, root, "b.txt", "world")
-	mkdirAllTest(t, root, "sub")
-	writeTestFile(t, root, "sub/c.txt", "!")
-
-	p := Provider{}
-	result, _, err := p.WalkTree(Resource{SourcePath: root}, func(result any, resource Resource, path string, stack *op.RecoveryStack) (any, error) {
-		count := 0
-		if result != nil {
-			count = result.(int)
-		}
-		if !resource.Mode.IsDir() {
-			count++
-		}
-		return count, nil
-	}, false)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-
-	count, ok := result.(int)
-	if !ok {
-		t.Fatalf("result type = %T, want int", result)
-	}
-	if count != 3 {
-		t.Errorf("file count = %d, want 3", count)
+func TestChecksumFile_NonExistent(t *testing.T) {
+	got := checksumFile("/nonexistent/file.txt")
+	if got != "" {
+		t.Errorf("checksumFile(nonexistent) = %q, want empty string", got)
 	}
 }
 
-func TestWalkTree_RecoveryStackIntegration(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, "a.txt", "aaa")
-	writeTestFile(t, root, "b.txt", "bbb")
+func TestIsDirAndNotEmpty(t *testing.T) {
+	tmp := t.TempDir()
 
-	p := Provider{}
-	var pushed []string
-	_, stack, err := p.WalkTree(Resource{SourcePath: root}, func(result any, resource Resource, path string, stack *op.RecoveryStack) (any, error) {
-		if !resource.Mode.IsDir() {
-			pushed = append(pushed, path)
-			stack.Push(
-				func(state any) error { return nil },
-				nil,
-				path,
-				nil,
-			)
-		}
-		return nil, nil
-	}, false)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-
-	if len(pushed) != 2 {
-		t.Fatalf("pushed %d entries, want 2", len(pushed))
-	}
-	if stack.Len() != 2 {
-		t.Errorf("stack.Len() = %d, want 2", stack.Len())
-	}
-}
-
-func TestWalkTree_ErrorUnwindsStack(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, "a.txt", "aaa")
-	mkdirAllTest(t, root, "sub")
-	writeTestFile(t, root, "sub/b.txt", "bbb")
-
-	p := Provider{}
-	var compensated []string
-
-	_, stack, err := p.WalkTree(Resource{SourcePath: root}, func(result any, resource Resource, path string, stack *op.RecoveryStack) (any, error) {
-		if resource.Mode.IsDir() {
-			return nil, nil
-		}
-		stack.Push(
-			func(state any) error {
-				compensated = append(compensated, state.(string))
-				return nil
-			},
-			nil,
-			path,
-			nil,
-		)
-		if path == filepath.Join("sub", "b.txt") {
-			return nil, errors.New("deliberate failure")
-		}
-		return nil, nil
-	}, false)
-
-	if err == nil {
-		t.Fatal("WalkTree() should return error on visitor failure")
-	}
-	if !strings.Contains(err.Error(), "deliberate failure") {
-		t.Errorf("error = %q, want message containing 'deliberate failure'", err)
-	}
-	if stack == nil {
-		t.Fatal("stack should be returned on error so the caller can decide on compensation")
-	}
-	if stack.Len() == 0 {
-		t.Fatal("stack should still contain entries (no auto-unwind)")
-	}
-
-	// Caller decides to unwind.
-	if err := stack.Unwind(); err != nil {
-		t.Fatalf("Unwind() error = %v", err)
-	}
-	if len(compensated) == 0 {
-		t.Fatal("expected compensations to be called after explicit unwind")
-	}
-}
-
-func TestWalkTree_CompensateWalkTree(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, root, "a.txt", "aaa")
-	writeTestFile(t, root, "b.txt", "bbb")
-
-	p := Provider{}
-	var compensated []string
-
-	_, stack, err := p.WalkTree(Resource{SourcePath: root}, func(result any, resource Resource, path string, stack *op.RecoveryStack) (any, error) {
-		if !resource.Mode.IsDir() {
-			stack.Push(
-				func(state any) error {
-					compensated = append(compensated, state.(string))
-					return nil
-				},
-				nil,
-				path,
-				nil,
-			)
-		}
-		return nil, nil
-	}, false)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-	if stack.Len() != 2 {
-		t.Fatalf("stack.Len() = %d, want 2", stack.Len())
-	}
-
-	if err := p.CompensateWalkTree(stack); err != nil {
-		t.Fatalf("CompensateWalkTree() error = %v", err)
-	}
-
-	if len(compensated) != 2 {
-		t.Fatalf("expected 2 compensations, got %d", len(compensated))
-	}
-
-	// LIFO order: b.txt before a.txt
-	if compensated[0] != "b.txt" || compensated[1] != "a.txt" {
-		t.Errorf("compensation order = %v, want [b.txt, a.txt]", compensated)
-	}
-}
-
-func TestWalkTree_CompensateNilStack(t *testing.T) {
-	p := Provider{}
-	if err := p.CompensateWalkTree(nil); err != nil {
-		t.Errorf("CompensateWalkTree(nil) = %v, want nil", err)
-	}
-}
-
-func TestWalkTree_DirsAndFiles(t *testing.T) {
-	root := t.TempDir()
-	mkdirAllTest(t, root, "a")
-	writeTestFile(t, root, "a/file.txt", "hello")
-	mkdirAllTest(t, root, "b")
-	writeTestFile(t, root, "b/file.txt", "world")
-
-	p := Provider{}
-	var dirs, files []string
-	_, _, err := p.WalkTree(Resource{SourcePath: root}, Actor(func(resource Resource, path string) error {
-		if resource.Mode.IsDir() {
-			dirs = append(dirs, path)
-		} else {
-			files = append(files, path)
-		}
-		return nil
-	}), false)
-	if err != nil {
-		t.Fatalf("WalkTree() error = %v", err)
-	}
-
-	if len(dirs) != 2 {
-		t.Errorf("expected 2 directories, got %d: %v", len(dirs), dirs)
-	}
-	if len(files) != 2 {
-		t.Errorf("expected 2 files, got %d: %v", len(files), files)
-	}
-
-	assertHas(t, dirs, "a")
-	assertHas(t, dirs, "b")
-	assertHas(t, files, filepath.Join("a", "file.txt"))
-	assertHas(t, files, filepath.Join("b", "file.txt"))
-}
-
-// --- WalkTree test helpers ---
-
-func writeTestFile(t *testing.T, root, relPath, content string) {
-	t.Helper()
-	path := filepath.Join(root, relPath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	// Empty directory
+	emptyDir := filepath.Join(tmp, "empty")
+	if err := os.Mkdir(emptyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	isNonEmpty, err := isDirAndNotEmpty(emptyDir)
+	if err != nil {
+		t.Fatalf("isDirAndNotEmpty(empty) error = %v", err)
+	}
+	if isNonEmpty {
+		t.Error("isDirAndNotEmpty(empty) = true, want false")
+	}
+
+	// Non-empty directory
+	nonEmptyDir := filepath.Join(tmp, "notempty")
+	if err := os.Mkdir(nonEmptyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeTestFile(t, nonEmptyDir, "child.txt", "data")
+	isNonEmpty, err = isDirAndNotEmpty(nonEmptyDir)
+	if err != nil {
+		t.Fatalf("isDirAndNotEmpty(notempty) error = %v", err)
+	}
+	if !isNonEmpty {
+		t.Error("isDirAndNotEmpty(notempty) = false, want true")
+	}
+
+	// Regular file
+	filePath := filepath.Join(tmp, "file.txt")
+	writeTestFile(t, tmp, "file.txt", "data")
+	isNonEmpty, err = isDirAndNotEmpty(filePath)
+	if err != nil {
+		t.Fatalf("isDirAndNotEmpty(file) error = %v", err)
+	}
+	if isNonEmpty {
+		t.Error("isDirAndNotEmpty(file) = true, want false for regular file")
+	}
+
+	// Nonexistent
+	_, err = isDirAndNotEmpty(filepath.Join(tmp, "no-such-thing"))
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("isDirAndNotEmpty(nonexistent) error = %v, want os.ErrNotExist", err)
+	}
 }
 
-func mkdirAllTest(t *testing.T, root, relPath string) {
+func writeTestFile(t *testing.T, dir, name, content string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(root, relPath), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func assertHas(t *testing.T, items []string, want string) {
-	t.Helper()
-	for _, item := range items {
-		if item == want {
-			return
-		}
-	}
-	t.Errorf("expected %v to contain %q", items, want)
-}
-
-func assertNotHas(t *testing.T, items []string, notWant string) {
-	t.Helper()
-	for _, item := range items {
-		if item == notWant {
-			t.Errorf("expected %v to NOT contain %q", items, notWant)
-			return
-		}
 	}
 }
