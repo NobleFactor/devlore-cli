@@ -72,14 +72,14 @@ func (p *Provider) Install(packages []string, manager string, cask bool) (result
 // CompensateInstall undoes an Install by removing packages that weren't
 // already installed before the action.
 func (p *Provider) CompensateInstall(state any) error {
-	s := op.AsStateMap(state)
+	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	packages := op.StateStringSlice(s, "packages")
-	alreadyInstalled := op.StateStringSlice(s, "already_installed")
-	manager := op.StateString(s, "manager")
-	cask := op.StateBool(s, "cask")
+	packages, _ := s["packages"].([]string)
+	alreadyInstalled, _ := s["already_installed"].([]string)
+	manager, _ := s["manager"].(string)
+	cask, _ := s["cask"].(bool)
 
 	installed := make(map[string]bool)
 	for _, packageName := range alreadyInstalled {
@@ -157,13 +157,13 @@ func (p *Provider) Remove(packages []string, manager string, cask bool) (result 
 
 // CompensateRemove undoes a Remove by reinstalling the removed packages.
 func (p *Provider) CompensateRemove(state any) error {
-	s := op.AsStateMap(state)
+	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	packages := op.StateStringSlice(s, "packages")
-	manager := op.StateString(s, "manager")
-	cask := op.StateBool(s, "cask")
+	packages, _ := s["packages"].([]string)
+	manager, _ := s["manager"].(string)
+	cask, _ := s["cask"].(bool)
 
 	if len(packages) == 0 {
 		return nil

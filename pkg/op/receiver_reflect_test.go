@@ -19,11 +19,18 @@ type testProvider struct {
 }
 
 // Simple return patterns.
-func (p *testProvider) Greet(name string) string            { return "hello " + name }
-func (p *testProvider) Exists(path string) bool             { return path == "/exists" }
-func (p *testProvider) Count(items []string) int            { return len(items) }
-func (p *testProvider) Divide(a, b int) (int, error)        { if b == 0 { return 0, errors.New("division by zero") }; return a / b, nil }
-func (p *testProvider) ListFiles(dir string) ([]string, error) { return []string{dir + "/a", dir + "/b"}, nil }
+func (p *testProvider) Greet(name string) string { return "hello " + name }
+func (p *testProvider) Exists(path string) bool  { return path == "/exists" }
+func (p *testProvider) Count(items []string) int { return len(items) }
+func (p *testProvider) Divide(a, b int) (int, error) {
+	if b == 0 {
+		return 0, errors.New("division by zero")
+	}
+	return a / b, nil
+}
+func (p *testProvider) ListFiles(dir string) ([]string, error) {
+	return []string{dir + "/a", dir + "/b"}, nil
+}
 
 // Void return.
 func (p *testProvider) Noop() {}
@@ -289,7 +296,7 @@ func TestCall_CompensableReturn(t *testing.T) {
 	r := WrapReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "write", starlark.String("/tmp/f"), starlark.String("data"))
 
-	// Compensable methods return (T, map, error). Bridge returns Marshal(T),
+	// Compensable methods return (T, map, error). Bridge returns marshal(T),
 	// discarding the compensation state.
 	s, ok := starlark.AsString(result)
 	if !ok || s != "/tmp/f" {

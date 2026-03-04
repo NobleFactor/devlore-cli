@@ -976,35 +976,29 @@ func TestSummary_String_MinimalWrit(t *testing.T) {
 
 // --- NewGraph resource fields ---
 
-func TestNewGraph_InitializesResources(t *testing.T) {
+func TestNewGraph_InitializesCatalog(t *testing.T) {
 	g := NewGraph("test")
-	if g.Resources == nil {
-		t.Fatal("NewGraph().Resources is nil")
+	if g.Catalog == nil {
+		t.Fatal("NewGraph().Catalog is nil")
 	}
-	if g.Namespace == nil {
-		t.Fatal("NewGraph().Namespace is nil")
-	}
-	if g.Resources.LedgerLen() != 0 {
-		t.Errorf("new graph ledger len = %d, want 0", g.Resources.LedgerLen())
+	if g.Catalog.Len() != 0 {
+		t.Errorf("new graph catalog length = %d, want 0", g.Catalog.Len())
 	}
 }
 
-func TestGraph_ResourcesNotSerialized(t *testing.T) {
+func TestGraph_CatalogNotSerialized(t *testing.T) {
 	g := NewGraph("test")
-	g.Resources.EnsureCataloged("file:///foo", "")
-	g.Namespace.Resolve(g.Resources, "file:///bar")
+	g.Catalog.Resolve("file:///foo")
+	g.Catalog.Resolve("file:///bar")
 
 	data, err := json.Marshal(g)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
 
-	// Resources and Namespace should not appear in JSON.
-	if strings.Contains(string(data), "resources") {
-		t.Error("Resources should not be serialized to JSON")
-	}
-	if strings.Contains(string(data), "namespace") {
-		t.Error("Namespace should not be serialized to JSON")
+	// Catalog should not appear in JSON.
+	if strings.Contains(string(data), "catalog") {
+		t.Error("Catalog should not be serialized to JSON")
 	}
 }
 

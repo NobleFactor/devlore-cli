@@ -10,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // createTarGz builds a tar.gz archive at archivePath containing the given entries.
@@ -103,11 +101,10 @@ func TestExtractTarGz(t *testing.T) {
 	}
 
 	// Verify state contains created_files.
-	s := op.AsStateMap(state)
-	if s == nil {
+	if state == nil {
 		t.Fatal("state is nil")
 	}
-	created := op.StateStringSlice(s, "created_files")
+	created, _ := state["created_files"].([]string)
 	if len(created) != len(entries) {
 		t.Errorf("created_files has %d entries, want %d", len(created), len(entries))
 	}
@@ -144,11 +141,10 @@ func TestExtractZip(t *testing.T) {
 		}
 	}
 
-	s := op.AsStateMap(state)
-	if s == nil {
+	if state == nil {
 		t.Fatal("state is nil")
 	}
-	created := op.StateStringSlice(s, "created_files")
+	created, _ := state["created_files"].([]string)
 	if len(created) != len(entries) {
 		t.Errorf("created_files has %d entries, want %d", len(created), len(entries))
 	}

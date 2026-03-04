@@ -13,6 +13,8 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op/starvalue"
 )
 
 // --- Constructor registry ---
@@ -29,23 +31,6 @@ func RegisterConstructor[T any](fn func(any) (T, error)) {
 	constructorRegistry.Store(t, func(v any) (any, error) {
 		return fn(v)
 	})
-}
-
-// Construct builds a value of type T using its registered constructor.
-// Used by generated action Do() methods for params with mapped types.
-func Construct[T any](v any) (T, error) {
-	t := reflect.TypeOf((*T)(nil)).Elem()
-	ctor, ok := constructorRegistry.Load(t)
-	if !ok {
-		var zero T
-		return zero, fmt.Errorf("no constructor registered for %s", t)
-	}
-	result, err := ctor.(func(any) (any, error))(v)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	return result.(T), nil
 }
 
 // --- Receiver params registry ---
@@ -113,7 +98,7 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 
 		name := tag
 		if name == "" {
-			name = CamelToSnake(f.Name)
+			name = camelToSnake(f.Name)
 		}
 
 		fi := fieldInfo{
@@ -137,9 +122,9 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 
 // --- CamelCase → snake_case ---
 
-// CamelToSnake converts a CamelCase identifier to snake_case.
+// camelToSnake converts a CamelCase identifier to snake_case.
 // Consecutive uppercase letters are treated as an acronym (e.g., "XMLParser" → "xml_parser").
-func CamelToSnake(s string) string {
+func camelToSnake(s string) string {
 	runes := []rune(s)
 	var b strings.Builder
 	b.Grow(len(s) + 4)
@@ -164,11 +149,11 @@ func CamelToSnake(s string) string {
 
 // --- Marshal (Go → Starlark) ---
 
-// Marshal converts a Go value to a starlark.Value.
+// marshal converts a Go value to a starlark.Value.
 // Structs become starlarkstruct.Struct. Primitives, slices, maps, and
 // pointers are handled recursively. Values already implementing
 // starlark.Value pass through unchanged.
-func Marshal(v any) (starlark.Value, error) {
+func marshal(v any) (starlark.Value, error) {
 	if v == nil {
 		return starlark.None, nil
 	}
@@ -194,6 +179,18 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 			return starlark.None, nil
 		}
 		rv = rv.Elem()
+	}
+
+	// Check starvalue.Marshaler for non-struct types. Struct types are
+	// handled inside the struct case to avoid short-circuiting when
+	// Marshaler is promoted from an embedded field (e.g., file.Resource
+	// embeds ResourceBase which implements Marshaler — we want the outer
+	// struct's exported fields to be marshaled normally, with only the
+	// embedded ResourceBase using its Marshaler).
+	if rv.Kind() != reflect.Struct && rv.CanInterface() {
+		if m, ok := rv.Interface().(starvalue.Marshaler); ok {
+			return m.MarshalStarvalue()
+		}
 	}
 
 	switch rv.Kind() {
@@ -222,6 +219,16 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 		return marshalMap(rv)
 
 	case reflect.Struct:
+		// If the struct has no exported fields but implements Marshaler,
+		// use custom serialization (e.g., ResourceBase with private fields).
+		// Structs WITH exported fields go through marshalStruct, where each
+		// embedded field gets its own Marshaler check via recursive calls.
+		info := getTypeInfo(rv.Type())
+		if len(info.fields) == 0 && rv.CanInterface() {
+			if m, ok := rv.Interface().(starvalue.Marshaler); ok {
+				return m.MarshalStarvalue()
+			}
+		}
 		return marshalStruct(rv)
 
 	default:
@@ -277,17 +284,17 @@ func marshalStruct(rv reflect.Value) (starlark.Value, error) {
 		}
 		dict[fi.starName] = val
 	}
-	typeName := CamelToSnake(rv.Type().Name())
+	typeName := camelToSnake(rv.Type().Name())
 	return starlarkstruct.FromStringDict(starlark.String(typeName), dict), nil
 }
 
 // --- Unmarshal (Starlark → Go) ---
 
-// Unmarshal populates a Go value from a starlark.Value.
+// unmarshal populates a Go value from a starlark.Value.
 // target must be a non-nil pointer. For *any targets, native Go types
 // (string, int, bool, float64, nil, []any, map[string]any) are returned.
 // For struct targets, starlarkstruct.Struct fields are matched by name.
-func Unmarshal(sv starlark.Value, target any) error {
+func unmarshal(sv starlark.Value, target any) error {
 	rv := reflect.ValueOf(target)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("unmarshal: target must be a non-nil pointer, got %T", target)
@@ -335,7 +342,7 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 		alreadyTarget := false
 		if ss, ok := sv.(*starlarkstruct.Struct); ok {
 			if name, ok := ss.Constructor().(starlark.String); ok {
-				alreadyTarget = string(name) == CamelToSnake(rv.Type().Name())
+				alreadyTarget = string(name) == camelToSnake(rv.Type().Name())
 			}
 		}
 		if !alreadyTarget {

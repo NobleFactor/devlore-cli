@@ -189,7 +189,7 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 			continue
 		}
 
-		snakeName := CamelToSnake(goName)
+		snakeName := camelToSnake(goName)
 		actionName := name + "." + snakeName
 
 		base := reflectedAction{

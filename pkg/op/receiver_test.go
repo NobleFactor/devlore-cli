@@ -10,36 +10,36 @@ import (
 	"go.starlark.net/starlark"
 )
 
-func TestNewReceiver(t *testing.T) {
-	r := NewReceiver("test_ns")
+func Test_newReceiver(t *testing.T) {
+	r := newReceiver("test_ns")
 	if r.name != "test_ns" {
-		t.Errorf("NewReceiver name = %q, want %q", r.name, "test_ns")
+		t.Errorf("newReceiver name = %q, want %q", r.name, "test_ns")
 	}
 }
 
 func TestReceiverString(t *testing.T) {
-	r := NewReceiver("my.namespace")
+	r := newReceiver("my.namespace")
 	if got := r.String(); got != "my.namespace" {
 		t.Errorf("String() = %q, want %q", got, "my.namespace")
 	}
 }
 
 func TestReceiverType(t *testing.T) {
-	r := NewReceiver("pkg.receiver")
+	r := newReceiver("pkg.receiver")
 	if got := r.Type(); got != "pkg.receiver" {
 		t.Errorf("Type() = %q, want %q", got, "pkg.receiver")
 	}
 }
 
 func TestReceiverTruth(t *testing.T) {
-	r := NewReceiver("any")
+	r := newReceiver("any")
 	if got := r.Truth(); got != starlark.True {
 		t.Errorf("Truth() = %v, want True", got)
 	}
 }
 
 func TestReceiverHash(t *testing.T) {
-	r := NewReceiver("unhashable")
+	r := newReceiver("unhashable")
 	_, err := r.Hash()
 	if err == nil {
 		t.Fatal("Hash() expected error, got nil")
@@ -50,54 +50,9 @@ func TestReceiverHash(t *testing.T) {
 }
 
 func TestReceiverFreeze(t *testing.T) {
-	r := NewReceiver("freezable")
+	r := newReceiver("freezable")
 	// Freeze should not panic
 	r.Freeze()
-}
-
-func TestListToStringSlice_AllStrings(t *testing.T) {
-	list := starlark.NewList([]starlark.Value{
-		starlark.String("alpha"),
-		starlark.String("beta"),
-		starlark.String("gamma"),
-	})
-	got := ListToStringSlice(list)
-	want := []string{"alpha", "beta", "gamma"}
-	if len(got) != len(want) {
-		t.Fatalf("len = %d, want %d", len(got), len(want))
-	}
-	for i, s := range want {
-		if got[i] != s {
-			t.Errorf("element %d = %q, want %q", i, got[i], s)
-		}
-	}
-}
-
-func TestListToStringSlice_MixedTypes(t *testing.T) {
-	list := starlark.NewList([]starlark.Value{
-		starlark.String("hello"),
-		starlark.MakeInt(42),
-		starlark.Bool(true),
-	})
-	got := ListToStringSlice(list)
-	// Non-string elements produce empty string via AsString failure
-	if got[0] != "hello" {
-		t.Errorf("element 0 = %q, want %q", got[0], "hello")
-	}
-	if got[1] != "" {
-		t.Errorf("element 1 = %q, want empty (int cannot be AsString)", got[1])
-	}
-	if got[2] != "" {
-		t.Errorf("element 2 = %q, want empty (bool cannot be AsString)", got[2])
-	}
-}
-
-func TestListToStringSlice_Empty(t *testing.T) {
-	list := starlark.NewList(nil)
-	got := ListToStringSlice(list)
-	if len(got) != 0 {
-		t.Errorf("len = %d, want 0", len(got))
-	}
 }
 
 func TestMakeAttr(t *testing.T) {

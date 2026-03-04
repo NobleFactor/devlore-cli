@@ -4,19 +4,48 @@
 package op
 
 import (
-	"fmt"
+	"net/url"
 	"path/filepath"
-	"reflect"
-	"sync"
+
+	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
 )
 
-// Resource represents a logical data item identified by a URI and tracked across distributed nodes.
+// Resource is the interface for all resource types.
 //
-// It serves as a reference entry in the ResourceLedger with origin tracking information.
-type Resource struct {
-	URI          string // logical address of the resource (e.g., a file URL)
-	ID           string // unique identifier in the flat ResourceLedger
-	OriginNodeID string // ID of the node that created this resource
+// Every provider-specific resource (e.g., file.Resource) must embed [ResourceBase] to satisfy it. The unexported
+// resourceBase method seals the interface to package op. Only types embedding [ResourceBase] can implement [Resource].
+type Resource interface {
+	URI() string
+	resourceBase() *ResourceBase
+}
+
+// ResourceBase holds the identity fields common to all resources. Provider-
+// specific resource types must embed it by value.
+//
+// The uri field is set at construction via [NewResourceBase]. The id and
+// originID fields are stamped by the [ResourceCatalog] when the resource
+// is cataloged; they are not a concern of the resource itself.
+type ResourceBase struct {
+	uri      string
+	id       string
+	originID string
+}
+
+// NewResourceBase creates a ResourceBase with the given URI.
+func NewResourceBase(uri string) ResourceBase {
+	return ResourceBase{uri: uri}
+}
+
+// URI returns the canonical URI of this resource.
+func (b ResourceBase) URI() string {
+	return b.uri
+}
+
+// resourceBase returns a pointer to the embedded ResourceBase, allowing the
+// catalog to stamp id and originID. This method seals the Resource interface.
+func (b *ResourceBase) resourceBase() *ResourceBase {
+	return b
 }
 
 // URI scheme constants.
@@ -28,134 +57,57 @@ const (
 	SchemeMem     = "mem"
 )
 
-// ResourceURI builds a canonicalized URI from a scheme and path.
-// For file:// URIs, path is resolved via filepath.Abs + filepath.Clean.
-// Other schemes use the path as-is.
-func ResourceURI(scheme, path string) string {
-	if scheme == SchemeFile {
-		abs, err := filepath.Abs(path)
-		if err == nil {
-			path = abs
-		}
-		path = filepath.Clean(path)
-	}
-	return fmt.Sprintf("%s://%s", scheme, path)
+// MarshalStarvalue implements [starvalue.Marshaler]. It serializes the
+// private identity fields (uri, id, originID) so they survive the
+// Go → Starlark → Go round-trip used by [FillSlot].
+func (b ResourceBase) MarshalStarvalue() (starlark.Value, error) {
+	return starlarkstruct.FromStringDict(starlark.String("resource_base"), starlark.StringDict{
+		"uri":       starlark.String(b.uri),
+		"id":        starlark.String(b.id),
+		"origin_id": starlark.String(b.originID),
+	}), nil
 }
 
-// ResourceManager owns the append-only ledger of all resources created
-// during a single planning session. One per Graph.
-type ResourceManager struct {
-	mu      sync.Mutex
-	entries []Resource     // append-only ledger; index = sequence number
-	byID    map[string]int // resource ID → index in entries
-	nextID  int            // monotonic counter
-}
-
-// NewResourceManager creates an empty resource manager.
-func NewResourceManager() *ResourceManager {
-	return &ResourceManager{
-		byID: make(map[string]int),
-	}
-}
-
-// EnsureCataloged creates a new Resource in the ledger with a unique ID.
-// Returns the new resource's ID.
-func (m *ResourceManager) EnsureCataloged(uri string, originNodeID string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.nextID++
-	id := fmt.Sprintf("res-%d", m.nextID)
-	r := Resource{
-		URI:          uri,
-		ID:           id,
-		OriginNodeID: originNodeID,
-	}
-	m.byID[id] = len(m.entries)
-	m.entries = append(m.entries, r)
-	return id
-}
-
-// Lookup returns the Resource with the given ID, or false.
-func (m *ResourceManager) Lookup(id string) (Resource, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	idx, ok := m.byID[id]
-	if !ok {
-		return Resource{}, false
-	}
-	return m.entries[idx], true
-}
-
-// LedgerLen returns the count of resources in the ledger.
-func (m *ResourceManager) LedgerLen() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.entries)
-}
-
-// resourceType is the reflect.Type for Resource, used by extractResource.
-var resourceType = reflect.TypeOf(Resource{})
-
-// extractResource checks whether v carries resource identity and returns
-// the embedded Resource if found.
+// Tombstone is the interface for all compensation state types.
 //
-// It handles three forms:
-//   - Direct op.Resource value
-//   - Go struct embedding op.Resource (e.g., file.Resource)
-//   - map[string]any with "uri"/"id"/"origin_node_id" keys (produced by
-//     Unmarshal when a starlarkstruct.Struct is decoded to *any)
-func extractResource(v any) (Resource, bool) {
-	if v == nil {
-		return Resource{}, false
-	}
-	// Direct type match.
-	if r, ok := v.(Resource); ok {
-		return r, true
-	}
+// Every provider-specific tombstone (e.g., file.Tombstone) must embed [TombstoneBase] to satisfy it. The unexported
+// tombstoneBase method seals the interface to types that embed [TombstoneBase].
+type Tombstone interface {
+	Resource() Resource
+	tombstoneBase()
+}
 
-	// map[string]any from Unmarshal of a starlark struct.
-	if m, ok := v.(map[string]any); ok {
-		// Direct Resource fields at top level (plain op.Resource).
-		uri, _ := m["uri"].(string)
-		id, _ := m["id"].(string)
-		origin, _ := m["origin_node_id"].(string)
-		if uri != "" || id != "" {
-			return Resource{URI: uri, ID: id, OriginNodeID: origin}, true
-		}
-		// Embedded Resource (struct embedding op.Resource serializes as
-		// a nested "resource" key).
-		if nested, ok := m["resource"].(map[string]any); ok {
-			uri, _ = nested["uri"].(string)
-			id, _ = nested["id"].(string)
-			origin, _ = nested["origin_node_id"].(string)
-			if uri != "" || id != "" {
-				return Resource{URI: uri, ID: id, OriginNodeID: origin}, true
-			}
-		}
-		return Resource{}, false
-	}
+// TombstoneBase holds the resource that was affected by a compensable action. Provider-specific tombstone types must
+// embed it by value.
+type TombstoneBase struct {
+	resource Resource
+}
 
-	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
-		if rv.IsNil() {
-			return Resource{}, false
-		}
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return Resource{}, false
-	}
+// NewTombstoneBase creates a TombstoneBase anchored to the given resource.
+func NewTombstoneBase(resource Resource) TombstoneBase {
+	return TombstoneBase{resource: resource}
+}
 
-	// Walk the struct fields looking for an embedded Resource.
-	rt := rv.Type()
-	for i := 0; i < rt.NumField(); i++ {
-		f := rt.Field(i)
-		if f.Anonymous && f.Type == resourceType {
-			res := rv.Field(i).Interface().(Resource)
-			return res, true
+// Resource returns the resource affected by the compensable action.
+func (b TombstoneBase) Resource() Resource {
+	return b.resource
+}
+
+func (b TombstoneBase) tombstoneBase() {}
+
+// ResourceURI builds a canonicalized URI from a scheme and an identifier.
+// For file:// URIs, id is resolved via filepath.Abs + filepath.Clean.
+// All URIs use the authority form with an empty host: scheme:///id.
+func ResourceURI(scheme, id string) string {
+	if scheme == SchemeFile {
+		abs, err := filepath.Abs(id)
+		if err == nil {
+			id = abs
 		}
+		id = filepath.Clean(id)
 	}
-	return Resource{}, false
+	if len(id) == 0 || id[0] != '/' {
+		id = "/" + id
+	}
+	return (&url.URL{Scheme: scheme, Path: id}).String()
 }

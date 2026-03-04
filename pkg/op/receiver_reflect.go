@@ -29,7 +29,7 @@ type ReflectedReceiver struct {
 
 type methodBridge struct {
 	name   string
-	bridge BuiltinFunc
+	bridge builtinFunc
 }
 
 // errorType is cached for return-type classification.
@@ -41,7 +41,7 @@ var errorType = reflect.TypeOf((*error)(nil)).Elem()
 func WrapReceiver(name string, provider any, params MethodParams) *ReflectedReceiver {
 	rv := reflect.ValueOf(provider)
 	r := &ReflectedReceiver{
-		Receiver:      NewReceiver(name),
+		Receiver:      newReceiver(name),
 		providerValue: rv,
 		methods:       make(map[string]*methodBridge),
 	}
@@ -58,7 +58,7 @@ func WrapReceiver(name string, provider any, params MethodParams) *ReflectedRece
 			continue
 		}
 
-		snakeName := CamelToSnake(m.Name)
+		snakeName := camelToSnake(m.Name)
 		bridge := buildMethodBridge(name, rv, m, snakeName, paramNames)
 		r.methods[snakeName] = &methodBridge{
 			name:   snakeName,
@@ -78,7 +78,7 @@ func WrapReceiver(name string, provider any, params MethodParams) *ReflectedRece
 // Override replaces a method's auto-generated bridge with a custom one.
 // Used for methods with unusual signatures (Callable params, variadic
 // args, non-zero defaults).
-func (r *ReflectedReceiver) Override(name string, fn BuiltinFunc) {
+func (r *ReflectedReceiver) Override(name string, fn builtinFunc) {
 	r.methods[name] = &methodBridge{
 		name:   name,
 		bridge: fn,
@@ -103,14 +103,14 @@ func (r *ReflectedReceiver) AttrNames() []string {
 	return r.attrList
 }
 
-// buildMethodBridge creates a BuiltinFunc that bridges a Go method to Starlark.
+// buildMethodBridge creates a builtinFunc that bridges a Go method to Starlark.
 func buildMethodBridge(
 	receiverName string,
 	providerVal reflect.Value,
 	method reflect.Method,
 	snakeName string,
 	paramNames []string,
-) BuiltinFunc {
+) builtinFunc {
 	methodType := method.Type
 	numParams := len(paramNames)
 
@@ -164,10 +164,10 @@ func buildMethodBridge(
 //
 //	()                         → None
 //	(error)                    → None or error
-//	(T)                        → Marshal(T)
-//	(T, error)                 → Marshal(T) or error
-//	(T, map[string]any, error) → Marshal(T), discard undo state, or error
-//	(T, *RecoveryStack, error) → Marshal(T), discard stack, or error
+//	(T)                        → marshal(T)
+//	(T, error)                 → marshal(T) or error
+//	(T, map[string]any, error) → marshal(T), discard undo state, or error
+//	(T, *RecoveryStack, error) → marshal(T), discard stack, or error
 func classifyReturn(results []reflect.Value) (starlark.Value, error) {
 	n := len(results)
 	if n == 0 {

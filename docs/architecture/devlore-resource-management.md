@@ -54,73 +54,73 @@ many machines — local or remote. This forces a clean separation:
 - **Resolution** (execution time): Metadata population against a target
   machine. The executor knows *what exists* on each target.
 
-Three core components and a shadowing mechanism:
+Two core components and a shadowing mechanism:
 
 ```
-                         ┌──────────────────────────────┐
-                         │        ResourceManager        │
-                         │                                │
-                         │  ledger: []any (append-only)  │
-                         │  metadata: map[ID]Metadata     │
-                         └──────────┬───────────────────┘
-                                    │ owns
-                    ┌───────────────┴───────────────┐
-                    │                               │
-              ┌─────┴─────┐                 ┌───────┴───────┐
-              │  Resource  │                │ NamespaceMap  │
-              │            │                │               │
-              │  URI       │◄───────────────│ URI → ID      │
-              │  ID        │   resolves to  │ Resolve()     │
-              │  OriginID  │                │ Shadow()      │
-              └────────────┘                └───────────────┘
+              ┌─────────────────────────────────────────────┐
+              │           ResourceCatalog                     │
+              │                                               │
+              │  entries: []Resource  (append-only ledger)    │
+              │  byID:    map[ID]int  (id → index)           │
+              │  ns:      map[URI]ID  (namespace)             │
+              │  nextID:  int         (monotonic counter)     │
+              │                                               │
+              │  Resolve(uri) → id                            │
+              │  Shadow(resource, originID) → id              │
+              │  Lookup(id) → Resource, bool                  │
+              │  Current(uri) → id                            │
+              │  Len() → int                                  │
+              └─────────────────────────────────────────────┘
+                                    │
+                                    │ stores
+                                    ▼
+              ┌─────────────────────────────────────────────┐
+              │  Resource (interface)                        │
+              │    URI() string                              │
+              │    resourceBase() *ResourceBase  (sealed)    │
+              │                                               │
+              │  ResourceBase (embedded struct)               │
+              │    uri      string                           │
+              │    id       string                           │
+              │    originID string                           │
+              └─────────────────────────────────────────────┘
 ```
 
-**Resource** (`pkg/op/resource.go:6`) — A typed handle with three identity
-fields: `URI` (logical address), `ID` (unique ledger key), and `OriginNodeID`
-(the node that produced it, empty if pre-existing). The current implementation:
+**Resource** (`pkg/op/resource.go`) — An interface sealed by the unexported
+`resourceBase()` method. Only types embedding `ResourceBase` can implement
+it. `ResourceBase` holds three private identity fields: `uri` (logical
+address), `id` (unique catalog key), and `originID` (the node that produced
+it, empty if pre-existing). Provider resources embed `ResourceBase` and add
+domain-specific fields (e.g., `file.Resource` adds `SourcePath`, `Inode`,
+etc.).
 
-```go
-// pkg/op/resource.go:6-10
-type Resource struct {
-    URI          string // logical address of the resource (e.g., a file URL)
-    ID           string // unique identifier in the flat ResourceLedger
-    OriginNodeID string // ID of the node that created this resource
-}
-```
-
-**Ledger** — An append-only collection of every `Resource` created during
-planning, keyed by resource ID. Each entry records its producer
-(`OriginNodeID`) or marks itself as pre-existing (discovered). The ledger
-is the plan-time skeleton — URIs and relationships, no metadata. It is
-portable across machines. Metadata is populated per-execution by the
-executor's pre-flight resolution pass against the target machine.
-
-**NamespaceMap** — A mutable URI-to-ResourceID lookup used during planning.
-When a provider method reads a path, it calls `Resolve` to get the current
-resource version. When it writes, it calls `Shadow` to create a new version
-and update the map. This is how implicit dependency edges form.
+**ResourceCatalog** (`pkg/op/resource_catalog.go`) — A single compositor
+that owns both the append-only ledger and the URI→ID namespace. One per
+Graph. The catalog stamps `id` and `originID` on the `ResourceBase` when
+a resource is cataloged. The ledger stores `Resource` interface values,
+enabling polymorphic access to the actual typed resources.
 
 **Shadowing** — When `plan.file.write_text(destination="/etc/foo", ...)`
 executes during planning:
 
 1. A new Node is created in the graph
-2. `namespace.Shadow("file:///etc/foo", nodeID)` creates a new Resource in the ledger
-3. The namespace updates: `file:///etc/foo` now points to the new Resource ID
-4. Any later `plan.file.read(path="/etc/foo")` calls `namespace.Resolve`, gets
+2. `catalog.Shadow(resource, nodeID)` catalogs the resource and updates the namespace
+3. The namespace now maps `file:///etc/foo` to the new resource ID
+4. Any later `plan.file.read(path="/etc/foo")` calls `catalog.Resolve`, gets
    the shadowed version, and the executor knows it depends on the write node
-   via `OriginNodeID`
+   via `originID`
 
 ## 3. Resource Types
 
 ### 3.1 File Resource (Implemented)
 
-The file provider embeds `op.Resource` and adds filesystem-specific metadata.
-This is the reference implementation for all future resource types.
+The file provider embeds `op.ResourceBase` and adds filesystem-specific
+metadata. This is the reference implementation for all future resource types.
 
 ```go
-// pkg/op/provider/file/resource.go:25-34
+// pkg/op/provider/file/resource.go
 type Resource struct {
-    op.Resource
+    op.ResourceBase
     SourcePath string
     Inode      uint64
     Device     uint64
@@ -135,7 +135,7 @@ Each field serves a specific purpose:
 
 | Field | Source | Purpose |
 |-------|--------|---------|
-| `op.Resource` | Embedded | URI, ID, OriginNodeID — identity tracking |
+| `op.ResourceBase` | Embedded | uri, id, originID — identity tracking (private, stamped by catalog) |
 | `SourcePath` | `NewResource` arg | Filesystem path for I/O operations |
 | `Inode` | `syscall.Stat_t.Ino` | Physical identity (survives rename) |
 | `Device` | `syscall.Stat_t.Dev` | Partition identity (same-device rename guarantee) |
@@ -147,10 +147,10 @@ Each field serves a specific purpose:
 **Three resource states:**
 
 - **Unresolved** — Source input. URI and type set, metadata empty. Created
-  at plan time by `namespace.Resolve()`. Resolved by the executor's
+  at plan time by `catalog.Resolve()`. Resolved by the executor's
   pre-flight pass (os.Stat against target machine).
 - **Pending** — Output. URI and type set, metadata empty. Created at plan
-  time by `namespace.Shadow()`. Resolved by node execution results — the
+  time by `catalog.Shadow()`. Resolved by node execution results — the
   provider populates metadata after creating the entity.
 - **Resolved** — Metadata populated (inode, device, size, mode, modtime,
   checksum). Either resolved by pre-flight or by node execution.
@@ -180,7 +180,7 @@ type Tombstone struct {
 
 Tombstones are the undo receipts for destructive operations. They are stored
 in the compensation state map under the `"tombstone"` key and extracted via
-`op.ExtractUndo[Tombstone](undo, "tombstone")`.
+inline type assertion: `undo["tombstone"].(Tombstone)`.
 
 ### 3.3 Resource Types by URI Scheme
 
@@ -299,12 +299,12 @@ Every file provider method and its current migration state:
 
 ### 4.5 Constructor Registry and Coercion
 
-The constructor registry (`pkg/op/marshal.go:23-48`) enables automatic
+The constructor registry (`pkg/op/starvalue_marshal.go`) enables automatic
 type conversion from Starlark slot values to Go provider parameters. When a
 Starlark script passes a string path to a method expecting `file.Resource`,
 the reflection bridge coerces it automatically.
 
-**Registration** (`pkg/op/marshal.go:27-32`):
+**Registration** (`pkg/op/starvalue_marshal.go`):
 
 ```go
 func RegisterConstructor[T any](fn func(any) (T, error)) {
@@ -315,7 +315,7 @@ func RegisterConstructor[T any](fn func(any) (T, error)) {
 }
 ```
 
-**File Resource registration** (`pkg/op/provider/file/resource.go:14-22`):
+**File Resource registration** (`pkg/op/provider/file/resource.go`):
 
 ```go
 func init() {
@@ -329,7 +329,7 @@ func init() {
 }
 ```
 
-**Coercion chain** — When the reflection bridge in `action_reflect.go:82-112`
+**Coercion chain** — When the reflection bridge in `action_reflect.go`
 encounters a slot value that doesn't directly match the target parameter type,
 it walks through five coercion steps:
 
@@ -442,8 +442,7 @@ func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
 
 All compensable file operations (Remove, RemoveAll, Unlink, Copy, WriteText,
 WriteBytes) use the same pattern: extract the `Tombstone` from the undo state
-via `op.ExtractUndo[Tombstone](undo, "tombstone")`, then call
-`restoreFromRecovery`.
+via `undo["tombstone"].(Tombstone)`, then call `restoreFromRecovery`.
 
 ### 5.3 The prepareWrite Pattern
 
@@ -499,76 +498,79 @@ there is no "snapshot the previous state" step.
 This section describes what the system will look like when the resource
 management plan is fully implemented.
 
-### 6.1 ResourceManager
+### 6.1 ResourceCatalog
 
-The `ResourceManager` is a graph-level object that owns the ledger. One
-`ResourceManager` per plan session. The ledger is the plan-time skeleton —
-URIs, relationships, and resource states, but no target-machine-specific
-metadata. Metadata is populated per-execution by the executor's pre-flight
-resolution pass.
+The `ResourceCatalog` (`pkg/op/resource_catalog.go`) is a graph-level
+compositor that owns both the append-only ledger and the URI→ID namespace.
+One `ResourceCatalog` per Graph. The ledger is the plan-time skeleton —
+URIs and relationships, but no target-machine-specific metadata. Metadata
+is populated per-execution by the executor's pre-flight resolution pass.
 
 ```
-ResourceManager
-├── ledger: map[ID]Resource   ← append-only, keyed by resource ID
+ResourceCatalog
+├── entries: []Resource         ← append-only ledger (interface values)
+├── byID:    map[string]int     ← id → index
+├── ns:      map[string]string  ← URI → current id (namespace)
+├── nextID:  int                ← monotonic counter
 └── methods:
-    ├── EnsureCataloged(uri, producerID) → Resource
+    ├── Resolve(uri) → id       ← discover or return existing
+    ├── Shadow(resource, originID) → id  ← new version, update namespace
     ├── Lookup(id) → Resource, bool
-    ├── Unresolved() → []Resource   ← entries needing pre-flight resolution
-    └── Resolve(id, metadata)       ← called by executor after stat
+    ├── Current(uri) → id
+    └── Len() → int
 ```
 
-The ledger stores `Resource` values (with `op.Resource` embedded). The
-`NamespaceMap` deduplicates by URI — if 5 nodes reference the same source
-path, `namespace.Resolve()` returns the same resource ID. Pre-flight
-resolution stat's each unique URI once.
+The catalog stores `Resource` interface values, enabling polymorphic
+access to actual typed resources (e.g., `file.Resource`). It deduplicates
+by URI — if 5 nodes reference the same source path, `Resolve()` returns
+the same resource ID. Pre-flight resolution stats each unique URI once.
 
 **Plan-time vs execution-time ownership:**
 
 | Concern | Owner | When |
 | --- | --- | --- |
-| URIs and relationships | Planner (ResourceManager + NamespaceMap) | Plan time |
+| URIs and relationships | Planner (ResourceCatalog) | Plan time |
 | Implicit edges via shadowing | Planner | Plan time |
-| Resource state (unresolved/pending/resolved) | ResourceManager | Both |
+| Resource state (unresolved/pending/resolved) | ResourceCatalog | Both |
 | Metadata (inode, size, checksum) | Executor pre-flight | Execution time, per target |
 | Pending → resolved transitions | Node execution results | Execution time |
 
-### 6.2 NamespaceMap
+### 6.2 Catalog Operations
 
-The `NamespaceMap` provides two operations during planning:
+The `ResourceCatalog` provides two core operations during planning:
 
-- **Resolve(uri)** — Returns the current resource for a URI. If the URI has
-  never been seen, catalogs a discovery (pre-existing resource with no
-  `OriginNodeID`). If the URI was previously shadowed, returns the shadowed
+- **Resolve(uri)** — Returns the current resource ID for a URI. If the URI
+  has never been seen, catalogs a discovery (`ResourceBase` with URI only,
+  no `originID`). If the URI was previously shadowed, returns the shadowed
   version.
 
-- **Shadow(uri, producerNodeID)** — Creates a new resource version in the
-  ledger, updates the namespace to point to it. The new resource's
-  `OriginNodeID` is set to the producer node. Any subsequent `Resolve` for
-  this URI returns the shadowed version.
+- **Shadow(resource, originID)** — Catalogs a new resource version in the
+  ledger, stamps its `id` and `originID`, updates the namespace to point
+  to it. Any subsequent `Resolve` for this URI returns the shadowed version.
 
 ### 6.3 Shadowing Walkthrough
 
-Step-by-step namespace state for a write-then-read of the same path:
+Step-by-step catalog state for a write-then-read of the same path:
 
 ```
 Initial state:
-  namespace = {}
-  ledger = []
+  catalog.entries = []
+  catalog.ns = {}
 
 Step 1: plan.file.write_text(destination="/etc/foo", content="v2", mode=0o644)
   ├─ Node A created
   ├─ uri = "file:///etc/foo"
-  ├─ Shadow("file:///etc/foo", nodeA.ID)
-  │   ├─ ledger = [Resource{ID:"res_0", URI:"file:///etc/foo", OriginNodeID:"A"}]
-  │   └─ namespace = {"file:///etc/foo" → "res_0"}
-  └─ return Resource{ID:"res_0"} as Output
+  ├─ catalog.Shadow(resource, nodeA.ID)
+  │   ├─ entries = [file.Resource{uri:"file:///etc/foo", id:"res-1", originID:"A"}]
+  │   └─ ns = {"file:///etc/foo" → "res-1"}
+  └─ return id "res-1"
 
 Step 2: plan.file.read(path="/etc/foo")
   ├─ Node B created
   ├─ uri = "file:///etc/foo"
-  ├─ Resolve("file:///etc/foo")
-  │   └─ returns "res_0" (produced by node A)
-  ├─ Node B depends on Node A (via res_0.OriginNodeID = "A")
+  ├─ catalog.Resolve("file:///etc/foo")
+  │   └─ returns "res-1" (produced by node A)
+  ├─ Node B depends on Node A (via originID = "A")
   └─ Executor guarantees: A runs before B
 
 Result: write happens before read. No explicit Output passing needed.
@@ -586,8 +588,8 @@ Starlark call: plan.file.write_text(destination="/etc/foo", content="v2", mode=0
     │
     ▼
 buildPlannedBridge.write_text()
-    ├─ coerce "/etc/foo" → file.Resource{URI: "file:///etc/foo", state: pending}
-    ├─ namespace.Shadow("file:///etc/foo", node.ID)  ← new entry in ledger
+    ├─ coerce "/etc/foo" → file.Resource{uri: "file:///etc/foo", state: pending}
+    ├─ catalog.Shadow(resource, node.ID)             ← new entry in ledger
     ├─ createNode("file.write_text")                 ← graph node
     ├─ fillSlots(node, {destination: file.Resource{pending}, content, mode})
     └─ return Output (promise)
@@ -597,8 +599,8 @@ Starlark call: plan.file.read(path="/etc/foo")
     ▼
 buildPlannedBridge.read()
     ├─ coerce "/etc/foo" → file.Resource (type-tag only)
-    ├─ namespace.Resolve("file:///etc/foo")
-    │   └─ returns resource from Shadow above → OriginNodeID = write node
+    ├─ catalog.Resolve("file:///etc/foo")
+    │   └─ returns id from Shadow above → originID = write node
     ├─ createNode("file.read") with implicit edge from write node
     └─ return Output (promise)
 ```
@@ -620,7 +622,7 @@ Executor.Run(ctx, graph)  — on target machine
     │   └─ Pending entries skipped (don't exist yet)
     │
     ├─ Pre-flight: tombstone scan
-    │   ├─ For each resource slot with OriginNodeID:
+    │   ├─ For each resource slot with originID:
     │   │   ├─ URI occupied by different resource? → create tombstone
     │   │   └─ URI unoccupied? → no action
     │   └─ Inject physical state into slots
@@ -723,11 +725,11 @@ on top.
 
 | Aspect | Current | With Resources |
 |--------|---------|----------------|
-| Slot values | `"/etc/foo"` (string) | `Resource{ID:"res_3", URI:"file:///etc/foo"}` |
-| Edge creation | Explicit `*Output` passing only | Also implicit via shadowing (`OriginNodeID`) |
+| Slot values | `"/etc/foo"` (string) | `file.Resource{uri:"file:///etc/foo", id:"res-3"}` |
+| Edge creation | Explicit `*Output` passing only | Also implicit via shadowing (`originID`) |
 | Provider params | `path string` | `Resource` (extracts path from `SourcePath`) |
 | Tombstone logic | Per-provider (`prepareWrite`) | Executor pre-flight, keyed by resource ID |
-| Conflict detection | None | NamespaceMap detects two nodes claiming same URI |
+| Conflict detection | None | ResourceCatalog detects two nodes claiming same URI |
 
 ### 7.2 Relationship to Compensation Model
 
@@ -736,7 +738,7 @@ Recovery. Resources map cleanly to each:
 
 | Layer | Current | With Resources |
 |-------|---------|----------------|
-| **Definition** (planning) | Nodes created with string slots | Nodes created with Resource slots; namespace tracks shadowing |
+| **Definition** (planning) | Nodes created with string slots | Nodes created with Resource slots; catalog tracks shadowing |
 | **Activation** (execution) | Provider method called with slot values | Provider method called with Resource; metadata updated post-write |
 | **Recovery** (compensation) | Per-provider tombstone (`moveToRecovery`) | Executor-owned tombstone layer; providers retain same-device logic |
 
@@ -748,7 +750,7 @@ create tombstones: the executor's pre-flight pass instead of each provider's
 ### 7.3 Relationship to Constructor Registry
 
 The existing `RegisterConstructor`/`Construct`/`coerceSlotValue` chain
-(`marshal.go:27-48`, `action_reflect.go:82-112`) handles string-to-Resource
+(`starvalue_marshal.go`, `action_reflect.go`) handles string-to-Resource
 coercion at execution time. When a Starlark script passes `"/etc/foo"` to a
 method expecting `file.Resource`, the constructor calls `NewResource` (which
 does `os.Stat`) and returns a fully populated resource.
@@ -760,7 +762,7 @@ table with two concerns:
    only}`. Called by `buildPlannedBridge` during planning. Creates typed
    but metadata-empty Resources. This is the entry point for namespace
    resolution — the coerced Resource is tracked in the ledger via
-   `namespace.Resolve()` or `namespace.Shadow()`.
+   `catalog.Resolve()` or `catalog.Shadow()`.
 
 2. **Execution-time resolution** — `file.Resource{unresolved} →
    file.Resource{resolved}`. Called by the executor's pre-flight pass on
@@ -829,7 +831,7 @@ No other provider has equivalent recovery logic.
 ### 9.2 Target: Executor-Owned Tombstone Layer
 
 The executor's pre-flight binding pass scans the resource ledger for shadowed
-URIs (a resource with `OriginNodeID` shadows a discovered resource at the same
+URIs (a resource with `originID` shadows a discovered resource at the same
 URI). For each shadowed URI, it creates a tombstone before any node executes.
 
 The target tombstone type lives in `pkg/op/tombstone.go` as a peer of
@@ -837,9 +839,9 @@ The target tombstone type lives in `pkg/op/tombstone.go` as a peer of
 
 ```
 pkg/op/
-├── resource.go     ← Resource (identity)
-├── tombstone.go    ← ResourceTombstone (recovery)
-├── namespace.go    ← NamespaceMap (planning)
+├── resource.go          ← Resource interface, ResourceBase (identity)
+├── resource_catalog.go  ← ResourceCatalog (ledger + namespace)
+├── tombstone.go         ← ResourceTombstone (recovery) [planned]
 └── ...
 ```
 
@@ -873,9 +875,9 @@ ResourceTombstone
 
 ### Resolved
 
-1. **Go generics constraint** — Non-generic `Resource` with embedding.
-   `file.Resource` embeds `op.Resource`. The ledger stores `Resource` values
-   keyed by ID.
+1. **Go generics constraint** — `Resource` is a sealed interface.
+   `file.Resource` embeds `op.ResourceBase`. The catalog stores `Resource`
+   interface values, enabling polymorphic access to typed resources.
 
 2. **URI canonicalization** — Yes. `filepath.Abs` + `filepath.Clean` before
    URI creation. Applied at plan time (no `os.Stat` needed for
@@ -884,7 +886,7 @@ ResourceTombstone
 3. **Immediate mode** — Immediate receivers pass through raw values;
    resources are planning-only.
 
-4. **Namespace scope** — Per-graph. Phases are saga boundaries
+4. **Catalog scope** — Per-graph. Phases are saga boundaries
    (compensation), not visibility boundaries.
 
 5. **Tombstone ownership** — Executor owns the *decision*; providers own
@@ -919,19 +921,20 @@ ResourceTombstone
 See [Resource Management Plan](../plans/resource-management.md) for full
 details, requirements, and file listings.
 
-| Phase | Focus | Key Files |
-|-------|-------|-----------|
-| 1 | Core types | `pkg/op/resource.go`, `pkg/op/namespace.go` (new) |
-| 2 | Graph integration | `pkg/op/graph.go`, `pkg/op/output.go` |
-| 3 | File provider migration | `pkg/op/provider/file/provider.go`, `resource.go` |
-| 4 | Tombstone layer | `internal/execution/executor.go`, `pkg/op/tombstone.go` (new) |
-| 5 | Remaining providers | `pkg/op/provider/*/provider.go` |
-| 6 | Code generation | Templates and generator |
+| Phase | Focus | Key Files | Status |
+|-------|-------|-----------|--------|
+| 0–2 | Core types + graph integration | `pkg/op/resource.go`, `pkg/op/graph.go`, `pkg/op/output.go` | Done |
+| 3 | File provider migration + catalog | `pkg/op/provider/file/resource.go`, `pkg/op/resource_catalog.go` | Done |
+| 4 | Resource type system + starvalue | `pkg/op/resource.go`, `pkg/op/starvalue/`, `pkg/op/starvalue_marshal.go` | Done |
+| 5 | Tombstone layer | `internal/execution/executor.go`, `pkg/op/tombstone.go` (planned) | Planned |
+| 6 | Remaining providers | `pkg/op/provider/*/provider.go` | Planned |
+| 7 | Code generation | Templates and generator | Planned |
 
-Phases 1-2 are pure additions (no existing code changes). Phase 3 is the
-pilot migration using the file provider as reference implementation. Phase 4
-extracts tombstone logic from the file provider to the executor. Phase 5
-propagates the pattern to all providers. Phase 6 updates the codegen pipeline
-(`MethodParams` → `ParamSpec`, `generate.star` resource detection,
-`params.go.template`). During migration, the system runs in mixed mode:
-resource-aware providers coexist with raw-type providers.
+Phases 0–4 are complete. Phase 4 established the `Resource` interface with
+`ResourceBase`, consolidated `ResourceManager` + `NamespaceMap` into
+`ResourceCatalog`, and extracted `starvalue.Marshaler`/`Unmarshaler`
+interfaces for custom Starlark serialization. Phase 5 extracts tombstone
+logic from the file provider to the executor. Phase 6 propagates the
+pattern to all providers. Phase 7 updates the codegen pipeline. During
+migration, the system runs in mixed mode: resource-aware providers coexist
+with raw-type providers.

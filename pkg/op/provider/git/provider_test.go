@@ -9,8 +9,6 @@ import (
 	"io"
 	"os"
 	"testing"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func TestCloneViaHook(t *testing.T) {
@@ -45,11 +43,10 @@ func TestCloneViaHook(t *testing.T) {
 		t.Errorf("result = %q, want %q", result, "/tmp/clone-dest")
 	}
 
-	s := op.AsStateMap(state)
-	if s == nil {
+	if state == nil {
 		t.Fatal("state is nil")
 	}
-	if path := op.StateString(s, "path"); path != "/tmp/clone-dest" {
+	if path, _ := state["path"].(string); path != "/tmp/clone-dest" {
 		t.Errorf("state path = %q, want %q", path, "/tmp/clone-dest")
 	}
 }

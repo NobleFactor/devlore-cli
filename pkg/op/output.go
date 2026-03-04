@@ -64,7 +64,7 @@ func (o *Output) Attr(name string) (starlark.Value, error) {
 		if slotVal == nil {
 			return nil, starlark.NoSuchAttrError(fmt.Sprintf("Output has no attribute %q", name))
 		}
-		sv, err := Marshal(slotVal)
+		sv, err := marshal(slotVal)
 		if err != nil {
 			return nil, fmt.Errorf("slot %q: %w", name, err)
 		}
@@ -138,16 +138,16 @@ func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) e
 
 	// Immediate: unmarshal Starlark value to native Go type
 	var goVal any
-	if err := Unmarshal(value, &goVal); err != nil {
+	if err := unmarshal(value, &goVal); err != nil {
 		return fmt.Errorf("slot %q: %w", slotName, err)
 	}
 
-	// Resource identity: if the immediate value embeds op.Resource with
-	// a non-empty OriginNodeID, create an implicit edge from the origin
-	// node to the consumer. This enables automatic dependency ordering
-	// when a resource produced by one node flows to another.
-	if res, ok := extractResource(goVal); ok && res.OriginNodeID != "" {
-		graph.Edges = append(graph.Edges, Edge{From: res.OriginNodeID, To: node.ID})
+	// Resource identity: if the immediate value carries resource origin,
+	// create an implicit edge from the origin node to the consumer. This
+	// enables automatic dependency ordering when a resource produced by
+	// one node flows to another.
+	if originID, ok := extractResource(goVal); ok {
+		graph.Edges = append(graph.Edges, Edge{From: originID, To: node.ID})
 	}
 
 	node.SetSlotImmediate(slotName, goVal)

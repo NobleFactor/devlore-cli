@@ -54,15 +54,16 @@ func (p *Provider) Disable(name string, output io.Writer) (result string, state 
 // CompensateDisable undoes a Disable by enabling the service if it was
 // enabled before.
 func (p *Provider) CompensateDisable(state any) error {
-	s := op.AsStateMap(state)
+	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	name := op.StateString(s, "name")
+	name, _ := s["name"].(string)
 	if name == "" {
 		return nil
 	}
-	if !op.StateBool(s, "was_enabled") {
+	wasEnabled, _ := s["was_enabled"].(bool)
+	if !wasEnabled {
 		return nil // Wasn't enabled — no-op
 	}
 
@@ -104,15 +105,16 @@ func (p *Provider) Enable(name string, output io.Writer) (result string, state m
 // CompensateEnable undoes an Enable by disabling the service if it
 // wasn't enabled before.
 func (p *Provider) CompensateEnable(state any) error {
-	s := op.AsStateMap(state)
+	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	name := op.StateString(s, "name")
+	name, _ := s["name"].(string)
 	if name == "" {
 		return nil
 	}
-	if op.StateBool(s, "was_enabled") {
+	wasEnabled, _ := s["was_enabled"].(bool)
+	if wasEnabled {
 		return nil // Was already enabled — no-op
 	}
 
@@ -185,15 +187,16 @@ func (p *Provider) Start(name string, output io.Writer) (result string, state ma
 // CompensateStart undoes a Start by stopping the service if it wasn't
 // running before.
 func (p *Provider) CompensateStart(state any) error {
-	s := op.AsStateMap(state)
+	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	name := op.StateString(s, "name")
+	name, _ := s["name"].(string)
 	if name == "" {
 		return nil
 	}
-	if op.StateBool(s, "was_running") {
+	wasRunning, _ := s["was_running"].(bool)
+	if wasRunning {
 		return nil // Was already running — no-op
 	}
 
@@ -235,15 +238,16 @@ func (p *Provider) Stop(name string, output io.Writer) (result string, state map
 // CompensateStop undoes a Stop by starting the service if it was
 // running before.
 func (p *Provider) CompensateStop(state any) error {
-	s := op.AsStateMap(state)
+	s, _ := state.(map[string]any)
 	if s == nil {
 		return nil
 	}
-	name := op.StateString(s, "name")
+	name, _ := s["name"].(string)
 	if name == "" {
 		return nil
 	}
-	if !op.StateBool(s, "was_running") {
+	wasRunning, _ := s["was_running"].(bool)
+	if !wasRunning {
 		return nil // Wasn't running — no-op
 	}
 
