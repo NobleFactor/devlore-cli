@@ -933,7 +933,7 @@ targeting the same URI in the same phase = conflict error at plan time.
 | `internal/execution/preflight.go` | Rewrite | Resource-aware pre-flight |
 | `internal/execution/executor.go` | Modify | Pre-flight resolution pass |
 
-### Phase 6: Remaining Providers and Code Generation
+### Phase 7: Remaining Providers and Code Generation
 
 Migrate remaining providers and update the code generator. Each provider
 creates a resource type embedding `op.ResourceBase` and registers a
@@ -1106,7 +1106,7 @@ provider must expose a constructor. This requires a noblefactor-ops PR.
    execution (pre-flight resolution). Conflict detection. `prepareWrite`
    stays in the provider — executor owns the decision, provider owns the
    mechanism.
-5.5. **Phase 5.5 (provider context + resource types)**: **DONE** — All
+6. **Phase 6 (provider context + resource types)**: **DONE** — All
    providers embed `op.ProviderBase` (codegen-enforced). Resource types
    created for git (`git.Resource`), service (`service.Resource`), pkg
    (`pkg.Resource`). Typed tombstones for git/service/pkg. `output
@@ -1115,15 +1115,15 @@ provider must expose a constructor. This requires a noblefactor-ops PR.
    via `ActionRegistrar(reg, ctx)`. `BindingConfig` includes `Platform`.
    Codegen dead code removed (`--extra-attrs`, `--methods`, `--package`,
    `--templates`, standard mode). See
-   [phase-5.5.md](resource-management/phase-5.5.md).
-6. **Phase 6 (remaining provider method migration)**: Remaining provider
+   [phase-6.md](resource-management/phase-6.md).
+7. **Phase 7 (remaining provider method migration)**: Remaining provider
    methods migrate to Resource-typed parameters. Each parameter that
    identifies an external entity (path, URL, package name) becomes a
    Resource. Configuration parameters (modes, flags) remain unchanged.
-7. **Phase 7 (generated bridge tests)**: Extend the star generator to
-   produce `actions_test.gen.go` — bridge verification tests that
-   regenerate automatically when method signatures change.
-   See [phase-6.md](resource-management/phase-6.md).
+8. **Phase 8 (generated bridge tests)**: **DONE** — Extend the star
+   generator to produce `actions_test.gen.go` — bridge verification tests
+   that regenerate automatically when method signatures change.
+   See [phase-8.md](resource-management/phase-8.md). Merged in PR #182.
 
 ## Files to Create/Modify
 

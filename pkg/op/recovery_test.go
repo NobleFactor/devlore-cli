@@ -187,3 +187,71 @@ func TestRecoveryStack_Len(t *testing.T) {
 		t.Errorf("Len() = %d, want 2", s.Len())
 	}
 }
+
+// testCompensableAction implements CompensableAction for PushAction tests.
+type testCompensableAction struct {
+	undoFn func(UndoState) error
+}
+
+func (a *testCompensableAction) Name() string { return "test.compensable" }
+
+func (a *testCompensableAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
+	return nil, nil, nil
+}
+
+func (a *testCompensableAction) Undo(_ *Context, state UndoState) error {
+	if a.undoFn != nil {
+		return a.undoFn(state)
+	}
+	return nil
+}
+
+func TestRecoveryStack_PushAction_CompensableAction(t *testing.T) {
+	s := NewRecoveryStack()
+	var undone bool
+
+	action := &testCompensableAction{
+		undoFn: func(_ UndoState) error { undone = true; return nil },
+	}
+
+	ctx := &Context{}
+	s.PushAction(ctx, action, "state")
+
+	if s.Len() != 1 {
+		t.Fatalf("Len() = %d, want 1", s.Len())
+	}
+
+	if err := s.Unwind(); err != nil {
+		t.Fatalf("Unwind() error = %v", err)
+	}
+	if !undone {
+		t.Error("compensable action was not called")
+	}
+}
+
+func TestRecoveryStack_PushAction_NonCompensable(t *testing.T) {
+	s := NewRecoveryStack()
+
+	// A plain Action (not CompensableAction) should be silently ignored.
+	action := StubAction("test.plain")
+	s.PushAction(&Context{}, action, "state")
+
+	if s.Len() != 0 {
+		t.Errorf("Len() = %d, want 0 (non-compensable should be ignored)", s.Len())
+	}
+}
+
+func TestRecoveryStack_PushAction_FiltersErrNotCompensable(t *testing.T) {
+	s := NewRecoveryStack()
+
+	action := &testCompensableAction{
+		undoFn: func(_ UndoState) error { return ErrNotCompensable },
+	}
+
+	s.PushAction(&Context{}, action, nil)
+
+	// Unwind should return nil — ErrNotCompensable is filtered.
+	if err := s.Unwind(); err != nil {
+		t.Errorf("Unwind() error = %v, want nil (ErrNotCompensable should be filtered)", err)
+	}
+}

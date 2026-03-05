@@ -99,7 +99,7 @@ type RetryPolicy struct {
 
 // ParseInitialDelay parses the InitialDelay string into a time.Duration.
 // Returns 0 if the string is empty or unparseable.
-func (r *RetryPolicy) ParseInitialDelay() time.Duration {
+func (r RetryPolicy) ParseInitialDelay() time.Duration {
 	if r.InitialDelay == "" {
 		return 0
 	}
@@ -112,7 +112,7 @@ func (r *RetryPolicy) ParseInitialDelay() time.Duration {
 
 // ParseMaxDelay parses the MaxDelay string into a time.Duration.
 // Returns 0 if the string is empty or unparseable.
-func (r *RetryPolicy) ParseMaxDelay() time.Duration {
+func (r RetryPolicy) ParseMaxDelay() time.Duration {
 	if r.MaxDelay == "" {
 		return 0
 	}
@@ -124,7 +124,7 @@ func (r *RetryPolicy) ParseMaxDelay() time.Duration {
 }
 
 // ComputeDelay returns the delay for a given attempt number (0-based).
-func (r *RetryPolicy) ComputeDelay(attempt int) time.Duration {
+func (r RetryPolicy) ComputeDelay(attempt int) time.Duration {
 	initial := r.ParseInitialDelay()
 	if initial == 0 {
 		return 0
