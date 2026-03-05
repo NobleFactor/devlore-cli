@@ -48,8 +48,8 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 	if state.Resource() == nil {
 		t.Fatal("state.Resource() is nil, want non-nil")
 	}
-	if state.RecoveryPath != "" {
-		t.Errorf("state.RecoveryPath = %q, want empty (nothing to recover)", state.RecoveryPath)
+	if state.OriginalPath != "" {
+		t.Errorf("state.OriginalPath = %q, want empty (nothing to recover)", state.OriginalPath)
 	}
 
 	got, err := os.Readlink(linkPath)
@@ -86,8 +86,8 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 	}
 
 	// Old symlink was moved to recovery.
-	if state.RecoveryPath == "" {
-		t.Error("state.RecoveryPath is empty, want non-empty (old symlink moved to recovery)")
+	if state.OriginalPath == "" {
+		t.Error("state.OriginalPath is empty, want non-empty (old symlink moved to recovery)")
 	}
 
 	got, err := os.Readlink(linkPath)
@@ -191,10 +191,11 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource := Resource{SourcePath: linkPath}
+	// Resource.SourcePath = where data IS (recovery). OriginalPath = where it WAS.
+	resource := Resource{SourcePath: recoveryPath}
 	state := Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryPath:  recoveryPath,
+		OriginalPath:  linkPath,
 	}
 
 	p := Provider{}
@@ -336,10 +337,10 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource := Resource{SourcePath: path}
+	resource := Resource{SourcePath: recoveryPath}
 	state := Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryPath:  recoveryPath,
+		OriginalPath:  path,
 	}
 
 	p := Provider{}
@@ -398,13 +399,14 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Errorf("backup content = %q, want %q", got, "backup me")
 	}
 
-	// Tombstone should carry the original resource.
-	originalPath := state.Resource().(*Resource).SourcePath
-	if originalPath != path {
-		t.Errorf("tombstone resource path = %q, want %q", originalPath, path)
+	// Tombstone resource reflects where data IS (backup path).
+	// OriginalPath records where data WAS (original location).
+	resourcePath := state.Resource().(*Resource).SourcePath
+	if resourcePath != result.SourcePath {
+		t.Errorf("tombstone resource path = %q, want %q", resourcePath, result.SourcePath)
 	}
-	if state.RecoveryPath != result.SourcePath {
-		t.Errorf("tombstone recovery path = %q, want %q", state.RecoveryPath, result.SourcePath)
+	if state.OriginalPath != path {
+		t.Errorf("tombstone original path = %q, want %q", state.OriginalPath, path)
 	}
 
 	// Checksum should match the original file content.
@@ -444,10 +446,10 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource := Resource{SourcePath: originalPath}
+	resource := Resource{SourcePath: backupPath}
 	state := Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryPath:  backupPath,
+		OriginalPath:  originalPath,
 	}
 
 	p := Provider{}
@@ -480,10 +482,10 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original content"))
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
 
-	resource := Resource{SourcePath: originalPath, Checksum: wrongChecksum}
+	resource := Resource{SourcePath: backupPath, Checksum: wrongChecksum}
 	state := Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryPath:  backupPath,
+		OriginalPath:  originalPath,
 	}
 
 	p := Provider{}
@@ -581,8 +583,8 @@ func TestRemove_RemovesFile(t *testing.T) {
 	if result.Resource() == nil {
 		t.Fatal("result.Resource() is nil, want non-nil")
 	}
-	if result.RecoveryPath == "" {
-		t.Error("result.RecoveryPath should not be empty")
+	if result.OriginalPath == "" {
+		t.Error("result.OriginalPath should not be empty")
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -693,13 +695,14 @@ func TestMove(t *testing.T) {
 		t.Errorf("result = %q, want %q", result.SourcePath, dst)
 	}
 
-	// Tombstone carries the source resource and destination as recovery path.
-	source := state.Resource().(*Resource).SourcePath
-	if source != src {
-		t.Errorf("tombstone resource path = %q, want %q", source, src)
+	// Tombstone resource reflects where data IS (destination).
+	// OriginalPath records where data WAS (source).
+	resourcePath := state.Resource().(*Resource).SourcePath
+	if resourcePath != dst {
+		t.Errorf("tombstone resource path = %q, want %q", resourcePath, dst)
 	}
-	if state.RecoveryPath != dst {
-		t.Errorf("tombstone recovery path = %q, want %q", state.RecoveryPath, dst)
+	if state.OriginalPath != src {
+		t.Errorf("tombstone original path = %q, want %q", state.OriginalPath, src)
 	}
 
 	// Checksum should match the original file content.
@@ -742,10 +745,10 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original"))
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
 
-	resource := Resource{SourcePath: src, Checksum: wrongChecksum}
+	resource := Resource{SourcePath: dst, Checksum: wrongChecksum}
 	state := Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryPath:  dst,
+		OriginalPath:  src,
 	}
 
 	p := Provider{}

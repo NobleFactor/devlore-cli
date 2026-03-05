@@ -45,10 +45,7 @@ func TestCatalog_Shadow(t *testing.T) {
 	cat := NewResourceCatalog()
 
 	origID := cat.Resolve("file:///target")
-	res := &testEmbeddingResource{
-		ResourceBase: NewResourceBase("file:///target"),
-		Extra:        "shadowed",
-	}
+	res := &testEmbeddingResource{SourcePath: "/target"}
 	shadowID := cat.Shadow(res, "writer-node")
 
 	if origID == shadowID {
@@ -72,9 +69,7 @@ func TestCatalog_Shadow_OverwritesResolve(t *testing.T) {
 	cat := NewResourceCatalog()
 
 	cat.Resolve("file:///overwrite")
-	res := &testEmbeddingResource{
-		ResourceBase: NewResourceBase("file:///overwrite"),
-	}
+	res := &testEmbeddingResource{SourcePath: "/overwrite"}
 	cat.Shadow(res, "nodeA")
 	resolvedID := cat.Resolve("file:///overwrite")
 
@@ -90,9 +85,7 @@ func TestCatalog_ImplicitDependency(t *testing.T) {
 	cat := NewResourceCatalog()
 
 	// Shadow by nodeA creates a resource version owned by nodeA
-	res := &testEmbeddingResource{
-		ResourceBase: NewResourceBase("file:///dep"),
-	}
+	res := &testEmbeddingResource{SourcePath: "/dep"}
 	cat.Shadow(res, "nodeA")
 
 	// Resolve (as if nodeB is reading) returns nodeA's version
@@ -126,9 +119,7 @@ func TestCatalog_Current_AfterShadow(t *testing.T) {
 	cat := NewResourceCatalog()
 
 	cat.Resolve("file:///shadowed")
-	res := &testEmbeddingResource{
-		ResourceBase: NewResourceBase("file:///shadowed"),
-	}
+	res := &testEmbeddingResource{SourcePath: "/shadowed"}
 	shadowID := cat.Shadow(res, "node-1")
 
 	if got := cat.Current("file:///shadowed"); got != shadowID {
@@ -209,6 +200,43 @@ func TestCatalog_ConcurrentAccess(t *testing.T) {
 
 	if len(seen) != goroutines {
 		t.Errorf("expected %d unique IDs, got %d", goroutines, len(seen))
+	}
+}
+
+func TestCatalog_DiscoveryURIs_ReturnsUnshadowed(t *testing.T) {
+	cat := NewResourceCatalog()
+
+	cat.Resolve("file:///source1")
+	cat.Resolve("file:///source2")
+	// Shadow a different URI — not a supersede.
+	res := &testEmbeddingResource{SourcePath: "/target"}
+	cat.Shadow(res, "node-1")
+
+	uris := cat.DiscoveryURIs()
+	if len(uris) != 2 {
+		t.Fatalf("DiscoveryURIs() returned %d, want 2", len(uris))
+	}
+}
+
+func TestCatalog_DiscoveryURIs_ShadowSupersedes(t *testing.T) {
+	cat := NewResourceCatalog()
+
+	cat.Resolve("file:///source")
+	res := &testEmbeddingResource{SourcePath: "/source"}
+	cat.Shadow(res, "node-1")
+
+	uris := cat.DiscoveryURIs()
+	if len(uris) != 0 {
+		t.Fatalf("DiscoveryURIs() returned %d, want 0 (shadow superseded)", len(uris))
+	}
+}
+
+func TestCatalog_DiscoveryURIs_Empty(t *testing.T) {
+	cat := NewResourceCatalog()
+
+	uris := cat.DiscoveryURIs()
+	if len(uris) != 0 {
+		t.Fatalf("DiscoveryURIs() returned %d, want 0", len(uris))
 	}
 }
 

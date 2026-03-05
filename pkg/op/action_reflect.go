@@ -46,7 +46,13 @@ func (a *reflectedAction) Do(ctx *Context, slots map[string]any) (Result, UndoSt
 	}
 
 	results := a.method.Func.Call(goArgs)
-	return classifyActionReturn(results)
+	result, undoState, err := classifyActionReturn(results)
+
+	if err == nil {
+		result = shadowResult(result, ctx.Catalog, ctx.NodeID)
+	}
+
+	return result, undoState, err
 }
 
 // reflectedCompensableAction extends reflectedAction with Undo.
@@ -137,11 +143,13 @@ func coerceMapToStruct(mapVal reflect.Value, targetType reflect.Type) (reflect.V
 // classifyActionReturn interprets Go method return values for the action layer.
 // Unlike classifyReturn (which marshals to Starlark), this keeps Go-native values.
 //
-// Patterns (error always consumed from last position):
+// Arity (after stripping trailing error):
 //
-//	(error)          → (nil, nil, error)
-//	(T, error)       → (T, nil, error)
-//	(T, U, error)    → (T, U, error)
+//	0 → (nil, nil, error)            — error-only method
+//	1 → (result, nil, error)         — Action
+//	2 → (result, undoState, error)   — CompensableAction
+//
+// NoResult at position 0 yields nil Result.
 func classifyActionReturn(results []reflect.Value) (Result, UndoState, error) {
 	n := len(results)
 	if n == 0 {
@@ -160,7 +168,10 @@ func classifyActionReturn(results []reflect.Value) (Result, UndoState, error) {
 	var undoState UndoState
 
 	if n > 0 {
-		result = results[0].Interface()
+		v := results[0].Interface()
+		if _, isNoResult := v.(NoResult); !isNoResult {
+			result = v
+		}
 	}
 	if n > 1 {
 		undoState = results[1].Interface()
@@ -169,11 +180,72 @@ func classifyActionReturn(results []reflect.Value) (Result, UndoState, error) {
 	return result, undoState, err
 }
 
+// resourceType is cached for result-type classification.
+var resourceType = reflect.TypeOf((*Resource)(nil)).Elem()
+
+// shadowResult shadows Resource results in the catalog without changing the
+// result type. Provider methods return resources by value (e.g., file.Resource).
+// The Resource interface requires pointer receivers (resourceBase), so a
+// temporary pointer is created for the Shadow call. The catalog stamps
+// id/originID on the underlying ResourceBase; the stamped value is returned.
+func shadowResult(result Result, catalog *ResourceCatalog, originID string) Result {
+	if result == nil || catalog == nil {
+		return result
+	}
+
+	rv := reflect.ValueOf(result)
+	t := rv.Type()
+
+	// Already satisfies Resource (pointer type or interface).
+	if t.Implements(resourceType) {
+		catalog.Shadow(result.(Resource), originID)
+		return result
+	}
+
+	// Struct whose pointer satisfies Resource (common case: file.Resource value).
+	// Create a temporary pointer for the Shadow call, then return the
+	// stamped value (same type as original).
+	if t.Kind() == reflect.Struct && reflect.PointerTo(t).Implements(resourceType) {
+		ptr := reflect.New(t)
+		ptr.Elem().Set(rv)
+		catalog.Shadow(ptr.Interface().(Resource), originID)
+		return ptr.Elem().Interface()
+	}
+
+	// Slice where elements satisfy Resource.
+	if t.Kind() == reflect.Slice {
+		et := t.Elem()
+		directImpl := et.Implements(resourceType)
+		ptrImpl := et.Kind() == reflect.Struct && reflect.PointerTo(et).Implements(resourceType)
+		if directImpl || ptrImpl {
+			for i := 0; i < rv.Len(); i++ {
+				if directImpl {
+					catalog.Shadow(rv.Index(i).Interface().(Resource), originID)
+				} else {
+					ptr := reflect.New(et)
+					ptr.Elem().Set(rv.Index(i))
+					catalog.Shadow(ptr.Interface().(Resource), originID)
+				}
+			}
+		}
+	}
+
+	return result
+}
+
 // RegisterReflectedActions registers all action methods on a provider.
 // Methods must return error as their last value to qualify as actions.
 // Methods without error returns (e.g., Exists, IsDir) are skipped —
 // they are immediate-only, not graph actions.
-// A Compensate<GoName> companion method upgrades the action to CompensableAction.
+//
+// Arity determines action type:
+//
+//   - 1 return  (error)             → Action (error-only, no result)
+//   - 2 returns (result, error)     → Action
+//   - 3 returns (result, undo, error) → CompensableAction
+//
+// Every CompensableAction (3 returns) must have a Compensate<GoName>
+// companion method. Missing pairs panic at registration time.
 func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, params MethodParams) {
 	pv := reflect.ValueOf(provider)
 	pt := pv.Type()
@@ -199,8 +271,24 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 			paramNames: paramNames,
 		}
 
+		// 3 returns (result, undo, error) → CompensableAction.
+		// The companion Compensate<GoName> method is mandatory.
 		compensateName := "Compensate" + goName
-		if cm, ok := pt.MethodByName(compensateName); ok {
+		numNonError := mt.NumOut() - 1 // subtract trailing error
+		if numNonError >= 2 {
+			cm, ok := pt.MethodByName(compensateName)
+			if !ok {
+				panic(fmt.Sprintf(
+					"%s: method %s returns (result, undo, error) but %s.%s is missing",
+					actionName, goName, pt.Elem().Name(), compensateName,
+				))
+			}
+			reg.Register(&reflectedCompensableAction{
+				reflectedAction: base,
+				compensate:      cm,
+			})
+		} else if cm, ok := pt.MethodByName(compensateName); ok {
+			// 1-2 returns but has a Compensate companion — allow it.
 			reg.Register(&reflectedCompensableAction{
 				reflectedAction: base,
 				compensate:      cm,

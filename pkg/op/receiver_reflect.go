@@ -20,20 +20,37 @@ type MethodParams map[string][]string
 // ReflectedReceiver wraps a Go struct for immediate-mode Starlark use.
 // Exported methods become Starlark builtins; method dispatch, argument
 // unpacking, and return value marshaling are handled by reflection.
+//
+// Optional catalog and stack fields enable resource management
+// integration. When set, Resource results are shadowed in the catalog
+// after successful dispatch.
 type ReflectedReceiver struct {
 	Receiver
 	providerValue reflect.Value
 	methods       map[string]*methodBridge
 	attrList      []string
+	catalog       *ResourceCatalog // optional; set via SetCatalog
+	stack         *RecoveryStack   // optional; set via SetStack
 }
+
+// SetCatalog sets the resource catalog for immediate-mode dispatch.
+// When set, Resource results are shadowed in the catalog after each
+// successful method call.
+func (r *ReflectedReceiver) SetCatalog(c *ResourceCatalog) { r.catalog = c }
+
+// SetStack sets the recovery stack for immediate-mode dispatch.
+func (r *ReflectedReceiver) SetStack(s *RecoveryStack) { r.stack = s }
 
 type methodBridge struct {
 	name   string
 	bridge builtinFunc
 }
 
-// errorType is cached for return-type classification.
-var errorType = reflect.TypeOf((*error)(nil)).Elem()
+// errorType and noResultType are cached for return-type classification.
+var (
+	errorType    = reflect.TypeOf((*error)(nil)).Elem()
+	noResultType = reflect.TypeOf(NoResult{})
+)
 
 // WrapReceiver wraps a Go struct for immediate-mode Starlark use.
 // Only methods listed in params are exposed. Compensate* methods are
@@ -59,7 +76,7 @@ func WrapReceiver(name string, provider any, params MethodParams) *ReflectedRece
 		}
 
 		snakeName := camelToSnake(m.Name)
-		bridge := buildMethodBridge(name, rv, m, snakeName, paramNames)
+		bridge := buildMethodBridge(name, rv, m, snakeName, paramNames, r)
 		r.methods[snakeName] = &methodBridge{
 			name:   snakeName,
 			bridge: bridge,
@@ -104,12 +121,15 @@ func (r *ReflectedReceiver) AttrNames() []string {
 }
 
 // buildMethodBridge creates a builtinFunc that bridges a Go method to Starlark.
+// The receiver parameter provides optional catalog/stack integration —
+// Resource results are shadowed in the catalog after successful dispatch.
 func buildMethodBridge(
 	receiverName string,
 	providerVal reflect.Value,
 	method reflect.Method,
 	snakeName string,
 	paramNames []string,
+	receiver *ReflectedReceiver,
 ) builtinFunc {
 	methodType := method.Type
 	numParams := len(paramNames)
@@ -153,7 +173,16 @@ func buildMethodBridge(
 			results = method.Func.Call(goArgs)
 		}
 
-		// 4. Classify and marshal return values.
+		// 4. Shadow Resource results in catalog (success path only).
+		if receiver.catalog != nil && len(results) > 0 {
+			lastIdx := len(results) - 1
+			isErr := results[lastIdx].Type().Implements(errorType) && !results[lastIdx].IsNil()
+			if !isErr && results[0].Type() != noResultType {
+				shadowResult(results[0].Interface(), receiver.catalog, "")
+			}
+		}
+
+		// 5. Classify and marshal return values.
 		return classifyReturn(results)
 	}
 }
@@ -168,6 +197,7 @@ func buildMethodBridge(
 //	(T, error)                 → marshal(T) or error
 //	(T, map[string]any, error) → marshal(T), discard undo state, or error
 //	(T, *RecoveryStack, error) → marshal(T), discard stack, or error
+//	(NoResult, ...)            → None (sentinel for no-output methods)
 func classifyReturn(results []reflect.Value) (starlark.Value, error) {
 	n := len(results)
 	if n == 0 {
@@ -183,6 +213,11 @@ func classifyReturn(results []reflect.Value) (starlark.Value, error) {
 	}
 
 	if n == 0 {
+		return starlark.None, nil
+	}
+
+	// NoResult sentinel → starlark.None.
+	if results[0].Type() == noResultType {
 		return starlark.None, nil
 	}
 

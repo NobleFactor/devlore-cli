@@ -70,7 +70,7 @@ func WrapPlanned(
 			continue
 		}
 
-		bridge := buildPlannedBridge(name, snakeName, actionName, paramNames, graph, project, reg)
+		bridge := buildPlannedBridge(name, snakeName, actionName, paramNames, m, graph, project, reg)
 		p.methods[snakeName] = &plannedBridge{
 			name:   snakeName,
 			bridge: bridge,
@@ -113,9 +113,13 @@ func (p *ReflectedPlanned) AttrNames() []string {
 }
 
 // buildPlannedBridge creates a builtinFunc that creates a graph Node.
+// The reflect.Method is used to inspect parameter types for catalog
+// resolution: immediate values passed to Resource-typed parameters
+// are resolved in the graph's catalog at plan time.
 func buildPlannedBridge(
 	providerName, snakeName, actionName string,
 	paramNames []string,
+	method reflect.Method,
 	graph *Graph,
 	project string,
 	reg *ActionRegistry,
@@ -139,7 +143,8 @@ func buildPlannedBridge(
 			Project: project,
 		}
 
-		// 3. Fill slots from Starlark values.
+		// 3. Fill slots from Starlark values and resolve Resource params.
+		mt := method.Type
 		for i, name := range paramNames {
 			cleanName := strings.TrimSuffix(name, "?")
 			sv := vals[i]
@@ -149,10 +154,56 @@ func buildPlannedBridge(
 			if err := FillSlot(node, graph, cleanName, sv); err != nil {
 				return nil, fmt.Errorf("%s: %w", cleanName, err)
 			}
+
+			// Resolve immediate Resource parameters in the catalog.
+			// Skip promises — they're shadowed at execution time (step 5f).
+			if i+1 < mt.NumIn() {
+				resolveResourceParam(graph, sv, mt.In(i+1))
+			}
 		}
 
 		// 4. Append to graph and return promise.
 		graph.Nodes = append(graph.Nodes, node)
 		return NewOutput(node, graph, ""), nil
+	}
+}
+
+// resolveResourceParam checks if a Starlark slot value targets a Resource-typed
+// parameter. For immediate (non-promise) values, it constructs a plan-time
+// Resource and calls catalog.Resolve to register the URI.
+func resolveResourceParam(graph *Graph, sv starlark.Value, paramType reflect.Type) {
+	if graph.Catalog == nil {
+		return
+	}
+
+	// Skip promises and gathers — they'll be shadowed at execution time.
+	if _, ok := sv.(*Output); ok {
+		return
+	}
+	if _, ok := sv.(*Gather); ok {
+		return
+	}
+
+	// Check if the parameter type satisfies Resource.
+	if !paramType.Implements(resourceType) &&
+		!(paramType.Kind() == reflect.Struct && reflect.PointerTo(paramType).Implements(resourceType)) {
+		return
+	}
+
+	// Unmarshal the Starlark value to get the Go representation.
+	var goVal any
+	if err := unmarshal(sv, &goVal); err != nil {
+		return // best-effort; errors are caught later during execution
+	}
+
+	// Use the plan-time constructor to create a URI-only Resource.
+	r, ok := constructPlanTimeResource(paramType, goVal)
+	if !ok {
+		return
+	}
+
+	uri := r.URI()
+	if uri != "" {
+		graph.Catalog.Resolve(uri)
 	}
 }

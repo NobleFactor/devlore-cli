@@ -5,6 +5,7 @@ package op
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 )
 
@@ -79,6 +80,28 @@ func (c *ResourceCatalog) Current(uri string) string {
 	return c.ns[uri]
 }
 
+// DiscoveryURIs returns the URIs of catalog entries that were discovered
+// (created by Resolve) but not yet shadowed. These are inputs that should
+// exist on the target machine before execution begins. URIs whose current
+// entry has been superseded by Shadow are excluded.
+func (c *ResourceCatalog) DiscoveryURIs() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var uris []string
+	for uri, id := range c.ns {
+		idx, ok := c.byID[id]
+		if !ok {
+			continue
+		}
+		base := c.entries[idx].resourceBase()
+		if base.originID == "" {
+			uris = append(uris, uri)
+		}
+	}
+	return uris
+}
+
 // catalogLocked adds a resource to the ledger, stamps its id and originID,
 // updates the namespace, and returns the assigned ID. Caller must hold c.mu.
 func (c *ResourceCatalog) catalogLocked(r Resource, originID string) string {
@@ -99,8 +122,10 @@ func (c *ResourceCatalog) catalogLocked(r Resource, originID string) string {
 // the originID if found. It is used by [FillSlot] to create implicit edges
 // when a resource produced by one node flows to another.
 //
-// It handles two forms:
-//   - Values implementing the [Resource] interface
+// It handles three forms:
+//   - Values implementing the [Resource] interface (pointer types)
+//   - Struct values whose pointer type implements [Resource] (value types
+//     returned by provider methods, stamped by [shadowResult])
 //   - map[string]any with "uri"/"id"/"origin_id" keys (produced by
 //     unmarshal when a starlarkstruct.Struct is decoded to *any)
 func extractResource(v any) (originID string, ok bool) {
@@ -108,8 +133,20 @@ func extractResource(v any) (originID string, ok bool) {
 		return "", false
 	}
 
-	// Interface match — the normal path.
+	// Interface match — pointer types.
 	if r, ok := v.(Resource); ok {
+		base := r.resourceBase()
+		return base.originID, base.originID != ""
+	}
+
+	// Struct value whose pointer satisfies Resource. Provider methods
+	// return resources by value; shadowResult stamps id/originID on the
+	// embedded ResourceBase. Create a temporary pointer to access it.
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Struct && reflect.PointerTo(rv.Type()).Implements(resourceType) {
+		ptr := reflect.New(rv.Type())
+		ptr.Elem().Set(rv)
+		r := ptr.Interface().(Resource)
 		base := r.resourceBase()
 		return base.originID, base.originID != ""
 	}

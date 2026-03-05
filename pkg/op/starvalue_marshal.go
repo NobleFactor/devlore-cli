@@ -33,6 +33,48 @@ func RegisterConstructor[T any](fn func(any) (T, error)) {
 	})
 }
 
+// planTimeConstructorRegistry maps reflect.Type → func(any) (any, error).
+// Plan-time constructors create URI-only resources with no I/O.
+// Used by buildPlannedBridge for catalog resolution at plan time.
+var planTimeConstructorRegistry sync.Map
+
+// RegisterPlanTimeConstructor registers a function that constructs a
+// URI-only resource from a simpler representation (e.g., string → Resource).
+// Unlike RegisterConstructor, the plan-time constructor must not perform I/O.
+func RegisterPlanTimeConstructor[T any](fn func(any) (T, error)) {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	planTimeConstructorRegistry.Store(t, func(v any) (any, error) {
+		return fn(v)
+	})
+}
+
+// constructPlanTimeResource creates a Resource for plan-time catalog
+// resolution using the plan-time constructor registry. Returns nil, false
+// if no plan-time constructor exists for the given type.
+func constructPlanTimeResource(targetType reflect.Type, value any) (Resource, bool) {
+	ctor, ok := planTimeConstructorRegistry.Load(targetType)
+	if !ok {
+		return nil, false
+	}
+	result, err := ctor.(func(any) (any, error))(value)
+	if err != nil {
+		return nil, false
+	}
+
+	// The result is typically a value type. Create a temporary pointer
+	// to satisfy the Resource interface (pointer receivers).
+	rv := reflect.ValueOf(result)
+	if rv.Kind() == reflect.Struct && reflect.PointerTo(rv.Type()).Implements(resourceType) {
+		ptr := reflect.New(rv.Type())
+		ptr.Elem().Set(rv)
+		return ptr.Interface().(Resource), true
+	}
+	if r, ok := result.(Resource); ok {
+		return r, true
+	}
+	return nil, false
+}
+
 // --- Receiver params registry ---
 
 // receiverParamsRegistry maps reflect.Type (struct, not pointer) to
