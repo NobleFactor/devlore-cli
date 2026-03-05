@@ -662,6 +662,7 @@ evaluating `starlark-rust`. Write a minimal provider with `StarlarkValue`,
 `HasAttrs`, and thread-local context passing. If that works cleanly, the
 estimate holds. If not, add 5–10 days or reconsider the migration.
 
+
 ---
 
 ## 12. Migration Deferral Rationale (March 2026)

@@ -15,7 +15,11 @@ func init() {
 		Access:   op.AccessBoth,
 		Lifetime: op.LifetimeStateless,
 		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewShellReceiver(&provider.Provider{})
+			return NewShellReceiver(&provider.Provider{
+				ProviderBase: op.NewProviderBase(op.Context{
+					Writer: cfg.Writer,
+				}),
+			})
 		},
 	})
 }

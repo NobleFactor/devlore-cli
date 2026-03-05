@@ -15,7 +15,12 @@ func init() {
 		Access:   op.AccessBoth,
 		Lifetime: op.LifetimeStateless,
 		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewPkgReceiver(&provider.Provider{})
+			return NewPkgReceiver(&provider.Provider{
+				ProviderBase: op.NewProviderBase(op.Context{
+					Writer:   cfg.Writer,
+					Platform: cfg.Platform,
+				}),
+			})
 		},
 	})
 }

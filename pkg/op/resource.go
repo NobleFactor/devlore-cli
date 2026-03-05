@@ -49,13 +49,13 @@ func NewResourceBase(uri string) ResourceBase {
 
 // URI returns the canonical URI of this resource. Concrete types should
 // shadow this with: func (r *Resource) URI() string { return r.NewURI(r) }
-func (b ResourceBase) URI() string {
+func (b *ResourceBase) URI() string {
 	return b.uri
 }
 
 // Scheme returns the URI scheme by parsing the stored uri. Concrete types
 // should shadow this with a constant (e.g., "file").
-func (b ResourceBase) Scheme() string {
+func (b *ResourceBase) Scheme() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
 		return ""
@@ -65,7 +65,7 @@ func (b ResourceBase) Scheme() string {
 
 // Host returns the URI host by parsing the stored uri. Concrete types
 // should shadow this with their authority component (often empty).
-func (b ResourceBase) Host() string {
+func (b *ResourceBase) Host() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
 		return ""
@@ -75,7 +75,7 @@ func (b ResourceBase) Host() string {
 
 // Path returns the URI path by parsing the stored uri. Concrete types
 // should shadow this with their provider-specific identifier.
-func (b ResourceBase) Path() string {
+func (b *ResourceBase) Path() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
 		return ""
@@ -109,7 +109,7 @@ const (
 // MarshalStarvalue implements [starvalue.Marshaler]. It serializes the
 // private identity fields (uri, id, originID) so they survive the
 // Go → Starlark → Go round-trip used by [FillSlot].
-func (b ResourceBase) MarshalStarvalue() (starlark.Value, error) {
+func (b *ResourceBase) MarshalStarvalue() (starlark.Value, error) {
 	return starlarkstruct.FromStringDict(starlark.String("resource_base"), starlark.StringDict{
 		"uri":       starlark.String(b.uri),
 		"id":        starlark.String(b.id),
@@ -144,11 +144,11 @@ func NewTombstoneBase(resource Resource) TombstoneBase {
 }
 
 // Resource returns the resource affected by the compensable action.
-func (b TombstoneBase) Resource() Resource {
+func (b *TombstoneBase) Resource() Resource {
 	return b.resource
 }
 
-func (b TombstoneBase) tombstoneBase() {}
+func (b *TombstoneBase) tombstoneBase() {}
 
 // NoResult signals that a provider method produces no output. Used by
 // CompensableAction methods like Remove and RemoveAll that can be undone
