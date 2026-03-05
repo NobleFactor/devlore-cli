@@ -32,10 +32,10 @@ jobs:
         run: ./scripts/Test-GuideFrontmatter.sh
 
       - name: Build
-        run: go build ./...
+        run: make build
 
       - name: Vet
-        run: go vet ./...
+        run: make vet
 
       - name: Generate app token
         id: app-token
@@ -66,7 +66,7 @@ jobs:
           go run ./cmd/star lint go --path=${{ github.workspace }}/...
 
       - name: Test
-        run: go test ./... -timeout 60s
+        run: make test-race
 
       - name: Lint Shell
         run: |

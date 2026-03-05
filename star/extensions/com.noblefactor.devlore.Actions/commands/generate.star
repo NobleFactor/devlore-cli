@@ -49,6 +49,8 @@ GEN_TEMPLATE_FILES = {
     "graph_actions": "gen/actions.gen.go",
     "immediate_receiver": "gen/immediate.gen.go",
     "params": "gen/params.gen.go",
+    "actions_test": "gen/actions_gen_test.go",
+    "immediate_test": "gen/immediate_gen_test.go",
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
@@ -57,6 +59,8 @@ LOCAL_TEMPLATES = {
     "graph_actions": "graph_actions.go.template",
     "immediate_receiver": "immediate_receiver.go.template",
     "params": "params.go.template",
+    "actions_test": "actions_test.go.template",
+    "immediate_test": "immediate_test.go.template",
 }
 
 # Known BindingConfig fields and their zero values.
@@ -1023,6 +1027,24 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
                  struct_short, len(provider_method_descs), output_dir, write_files)
         gen_file(ctx, "graph_actions", planned_desc, "gen/actions.gen.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # Generate bridge tests for action-eligible methods (those with error returns).
+    # Methods without error returns (Exists, IsDir, etc.) are not registered as
+    # actions by RegisterReflectedActions, so they must be excluded.
+    if access in ["planned", "both"]:
+        action_methods = []
+        for d in provider_method_descs:
+            if "error" in d.get("returns", ""):
+                action_methods.append(d)
+        if action_methods:
+            test_desc = dict(provider_desc)
+            test_desc["methods"] = action_methods
+            gen_file(ctx, "actions_test", test_desc, "gen/actions_gen_test.go",
+                     struct_short, len(action_methods), output_dir, write_files)
+
+    # Generate immediate receiver tests for all methods.
+    gen_file(ctx, "immediate_test", provider_desc, "gen/immediate_gen_test.go",
+             struct_short, len(provider_method_descs), output_dir, write_files)
 
     generated_count = 1
 
