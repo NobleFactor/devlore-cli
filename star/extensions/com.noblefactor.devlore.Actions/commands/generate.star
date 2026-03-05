@@ -49,6 +49,8 @@ GEN_TEMPLATE_FILES = {
     "graph_actions": "gen/actions.gen.go",
     "immediate_receiver": "gen/immediate.gen.go",
     "params": "gen/params.gen.go",
+    "actions_test": "gen/actions_gen_test.go",
+    "immediate_test": "gen/immediate_gen_test.go",
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
@@ -57,6 +59,8 @@ LOCAL_TEMPLATES = {
     "graph_actions": "graph_actions.go.template",
     "immediate_receiver": "immediate_receiver.go.template",
     "params": "params.go.template",
+    "actions_test": "actions_test.go.template",
+    "immediate_test": "immediate_test.go.template",
 }
 
 # Known BindingConfig fields and their zero values.
@@ -481,11 +485,12 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
         descriptors.append(desc)
     return descriptors
 
-def build_provider_fields(bindings, default_map):
+def build_provider_fields(bindings, default_map, type_map = {}):
     """Build provider_fields list from bind directives.
 
     bindings: list from parse_bind_directives()
     default_map: field_name → default_value (e.g. {"Root": "."})
+    type_map: field_name → Go type string (e.g. {"Root": "Resource"})
     """
     result = []
     for b in bindings:
@@ -494,12 +499,19 @@ def build_provider_fields(bindings, default_map):
             fail("+devlore:bind references unknown BindingConfig field: " + cfg_field)
         cfg_info = BINDING_CONFIG_FIELDS[cfg_field]
         default_val = default_map.get(b["name"], "")
-        result.append({
+        go_type = type_map.get(b["name"], "")
+        cfg_type = cfg_info["type"]
+        entry = {
             "go_name": b["name"],
             "cfg_field": cfg_field,
             "zero_value": cfg_info["zero"],
             "default": default_val,
-        })
+        }
+        # Include type fields only when construction is needed (type mismatch).
+        if go_type and go_type != cfg_type:
+            entry["go_type"] = go_type
+            entry["cfg_type"] = cfg_type
+        result.append(entry)
     return result
 
 # =============================================================================
@@ -880,20 +892,20 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     bindings = parse_bind_directives(path)
     provider_fields = []
     if bindings:
-        # Build default map from Provider struct inspection
-        # For now, defaults come from the bind directive or are empty
+        # Build default and type maps from Provider struct inspection
         default_map = {}
-        # Check Provider struct fields for common defaults
+        type_map = {}
         structs = go.structs(path)
         for s in structs:
             if s.name == "Provider":
                 for f in s.fields:
                     for b in bindings:
                         if f.name == b["name"]:
+                            type_map[f.name] = f.type
                             # WorkDir fields default to "."
                             if b["cfg_field"] == "WorkDir":
                                 default_map[f.name] = '"."'
-        provider_fields = build_provider_fields(bindings, default_map)
+        provider_fields = build_provider_fields(bindings, default_map, type_map)
         ui.note("Provider fields: " + str(len(provider_fields)))
 
     # -------------------------------------------------------------------------
@@ -1023,6 +1035,24 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
                  struct_short, len(provider_method_descs), output_dir, write_files)
         gen_file(ctx, "graph_actions", planned_desc, "gen/actions.gen.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # Generate bridge tests for action-eligible methods (those with error returns).
+    # Methods without error returns (Exists, IsDir, etc.) are not registered as
+    # actions by RegisterReflectedActions, so they must be excluded.
+    if access in ["planned", "both"]:
+        action_methods = []
+        for d in provider_method_descs:
+            if "error" in d.get("returns", ""):
+                action_methods.append(d)
+        if action_methods:
+            test_desc = dict(provider_desc)
+            test_desc["methods"] = action_methods
+            gen_file(ctx, "actions_test", test_desc, "gen/actions_gen_test.go",
+                     struct_short, len(action_methods), output_dir, write_files)
+
+    # Generate immediate receiver tests for all methods.
+    gen_file(ctx, "immediate_test", provider_desc, "gen/immediate_gen_test.go",
+             struct_short, len(provider_method_descs), output_dir, write_files)
 
     generated_count = 1
 

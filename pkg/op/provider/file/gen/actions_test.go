@@ -1,98 +1,18 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Behavior tests for file provider actions. Bridge tests (registration,
+// dry-run, undo-nil, compensable interface) are in actions_test.gen.go.
+
 package file_test
 
 import (
-	"bytes"
-	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
-
-func newCtx(t *testing.T) *op.Context {
-	t.Helper()
-	return &op.Context{
-		Context: context.Background(),
-		Writer:  &bytes.Buffer{},
-	}
-}
-
-func dryRunCtx(t *testing.T) *op.Context {
-	t.Helper()
-	return &op.Context{
-		Context: context.Background(),
-		DryRun:  true,
-		Writer:  &bytes.Buffer{},
-	}
-}
-
-func makeRegistry(t *testing.T, p *provider.Provider) *op.ActionRegistry {
-	t.Helper()
-	reg := op.NewActionRegistry()
-	op.RegisterReflectedActions(reg, "file", p, filegen.Params)
-	return reg
-}
-
-func getAction(t *testing.T, reg *op.ActionRegistry, name string) op.Action {
-	t.Helper()
-	a, ok := reg.Get(name)
-	if !ok {
-		t.Fatalf("action %q not registered", name)
-	}
-	return a
-}
-
-func getCompensable(t *testing.T, reg *op.ActionRegistry, name string) op.CompensableAction {
-	t.Helper()
-	a := getAction(t, reg, name)
-	ca, ok := a.(op.CompensableAction)
-	if !ok {
-		t.Fatalf("action %q does not implement CompensableAction", name)
-	}
-	return ca
-}
-
-// ── Name ────────────────────────────────────────────────────────────────────────
-
-func TestActionNames(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	tests := []string{
-		"file.backup", "file.copy", "file.glob", "file.link",
-		"file.mkdir", "file.move", "file.read", "file.remove",
-		"file.remove_all", "file.unlink", "file.write_bytes", "file.write_text",
-	}
-	for _, name := range tests {
-		a := getAction(t, reg, name)
-		if got := a.Name(); got != name {
-			t.Errorf("Name() = %q, want %q", got, name)
-		}
-	}
-}
-
-// ── Register ────────────────────────────────────────────────────────────────────
-
-func TestRegister(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-
-	expected := []string{
-		"file.backup", "file.copy", "file.glob",
-		"file.link", "file.mkdir", "file.move",
-		"file.read", "file.remove", "file.remove_all",
-		"file.unlink", "file.write_bytes", "file.write_text",
-	}
-	for _, name := range expected {
-		if _, ok := reg.Get(name); !ok {
-			t.Errorf("action %q not registered", name)
-		}
-	}
-}
 
 // ── WriteText ───────────────────────────────────────────────────────────────────
 
@@ -160,48 +80,6 @@ func TestWriteTextAction_Undo(t *testing.T) {
 	}
 }
 
-func TestWriteTextAction_UndoNil(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getCompensable(t, reg, "file.write_text")
-	if err := action.Undo(newCtx(t), nil); err != nil {
-		t.Errorf("Undo(nil) = %v, want nil", err)
-	}
-}
-
-func TestWriteTextAction_DryRun(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "dryrun.txt")
-
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.write_text")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"destination": path,
-		"content":     "dry",
-		"mode":        os.FileMode(0o644),
-	}
-
-	result, undo, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Error("file created during dry-run")
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.write_text") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.write_text", output)
-	}
-}
-
 // ── WriteBytes ──────────────────────────────────────────────────────────────────
 
 func TestWriteBytesAction_Do(t *testing.T) {
@@ -265,33 +143,6 @@ func TestWriteBytesAction_Undo(t *testing.T) {
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("file still exists after Undo")
-	}
-}
-
-func TestWriteBytesAction_DryRun(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "dryrun.bin")
-
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.write_bytes")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"destination": path,
-		"content":     "dry",
-		"mode":        os.FileMode(0o600),
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.write_bytes") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.write_bytes", output)
 	}
 }
 
@@ -369,33 +220,6 @@ func TestCopyAction_Undo(t *testing.T) {
 	}
 }
 
-func TestCopyAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.copy")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"source_file":           "/tmp/copy-src.txt",
-		"destination_filename":  "/tmp/copy-dst.txt",
-		"destination_file_mode": os.FileMode(0o644),
-	}
-
-	result, undo, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.copy") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.copy", output)
-	}
-}
-
 // ── Link ────────────────────────────────────────────────────────────────────────
 
 func TestLinkAction_Do(t *testing.T) {
@@ -463,29 +287,6 @@ func TestLinkAction_Undo(t *testing.T) {
 
 	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
 		t.Error("symlink still exists after Undo")
-	}
-}
-
-func TestLinkAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.link")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"source": "/tmp/source",
-		"path":   "/tmp/link",
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.link") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.link", output)
 	}
 }
 
@@ -567,29 +368,6 @@ func TestMoveAction_Undo(t *testing.T) {
 	}
 }
 
-func TestMoveAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.move")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"source":      "/tmp/src",
-		"destination": "/tmp/dst",
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.move") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.move", output)
-	}
-}
-
 // ── Backup ──────────────────────────────────────────────────────────────────────
 
 func TestBackupAction_Do(t *testing.T) {
@@ -665,57 +443,10 @@ func TestBackupAction_Undo(t *testing.T) {
 	}
 }
 
-func TestBackupAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.backup")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"path":          "/tmp/backup.txt",
-		"backup_suffix": ".bak",
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.backup") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.backup", output)
-	}
-}
-
 // ── Remove ──────────────────────────────────────────────────────────────────────
 
 func TestRemoveAction_Do(t *testing.T) {
 	t.Skip("blocked: recovery site bug (#164)")
-}
-
-func TestRemoveAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.remove")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"path":           "/tmp/remove.txt",
-		"prune":          false,
-		"prune_boundary": "",
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.remove") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.remove", output)
-	}
 }
 
 // ── RemoveAll ───────────────────────────────────────────────────────────────────
@@ -724,58 +455,10 @@ func TestRemoveAllAction_Do(t *testing.T) {
 	t.Skip("blocked: recovery site bug (#164)")
 }
 
-func TestRemoveAllAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.remove_all")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"path":           "/tmp/remove-all",
-		"prune":          false,
-		"prune_boundary": "",
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.remove_all") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.remove_all", output)
-	}
-}
-
 // ── Unlink ──────────────────────────────────────────────────────────────────────
 
 func TestUnlinkAction_Do(t *testing.T) {
 	t.Skip("blocked: recovery site bug (#164)")
-}
-
-func TestUnlinkAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.unlink")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"path":           "/tmp/unlink.txt",
-		"prune":          false,
-		"prune_boundary": "",
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.unlink") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.unlink", output)
-	}
 }
 
 // ── Glob ────────────────────────────────────────────────────────────────────────
@@ -812,29 +495,6 @@ func TestGlobAction_Do(t *testing.T) {
 	}
 	if len(matches) != 2 {
 		t.Errorf("len(matches) = %d, want 2", len(matches))
-	}
-}
-
-func TestGlobAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.glob")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"pattern":         "/tmp/*.txt",
-		"honor_gitignore": false,
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.glob") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.glob", output)
 	}
 }
 
@@ -877,29 +537,6 @@ func TestMkdirAction_Do(t *testing.T) {
 	}
 }
 
-func TestMkdirAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.mkdir")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"resource": "/tmp/dryrun-dir",
-		"mode":     os.FileMode(0o755),
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.mkdir") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.mkdir", output)
-	}
-}
-
 // ── Read ────────────────────────────────────────────────────────────────────────
 
 func TestReadAction_Do(t *testing.T) {
@@ -925,49 +562,5 @@ func TestReadAction_Do(t *testing.T) {
 	}
 	if result == nil {
 		t.Error("result is nil, want Resource")
-	}
-}
-
-func TestReadAction_DryRun(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	action := getAction(t, reg, "file.read")
-	ctx := dryRunCtx(t)
-	slots := map[string]any{
-		"path": "/tmp/dryrun-read.txt",
-	}
-
-	result, _, err := action.Do(ctx, slots)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.read") {
-		t.Errorf("dry-run output = %q, want to contain [dry-run] file.read", output)
-	}
-}
-
-// ── Nil Undo for all compensable actions ────────────────────────────────────────
-
-func TestCompensableActions_UndoNil(t *testing.T) {
-	reg := makeRegistry(t, &provider.Provider{})
-	ctx := newCtx(t)
-
-	names := []string{
-		"file.backup", "file.copy", "file.link",
-		"file.move", "file.remove", "file.remove_all",
-		"file.unlink", "file.write_bytes", "file.write_text",
-	}
-
-	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
-			ca := getCompensable(t, reg, name)
-			if err := ca.Undo(ctx, nil); err != nil {
-				t.Errorf("Undo(nil) = %v, want nil", err)
-			}
-		})
 	}
 }

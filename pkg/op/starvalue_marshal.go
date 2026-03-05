@@ -48,6 +48,24 @@ func RegisterPlanTimeConstructor[T any](fn func(any) (T, error)) {
 	})
 }
 
+// Construct uses the constructor registry to convert value to type T.
+// Returns an error if no constructor is registered for T or if the
+// constructor rejects the value.
+func Construct[T any](value any) (T, error) {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	ctor, ok := constructorRegistry.Load(t)
+	if !ok {
+		var zero T
+		return zero, fmt.Errorf("no constructor registered for %s", t)
+	}
+	result, err := ctor.(func(any) (any, error))(value)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return result.(T), nil
+}
+
 // constructPlanTimeResource creates a Resource for plan-time catalog
 // resolution using the plan-time constructor registry. Returns nil, false
 // if no plan-time constructor exists for the given type.

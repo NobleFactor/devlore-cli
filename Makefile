@@ -42,55 +42,73 @@ star:
 # ── access=both providers ─────────────────────────────────────────────────────
 
 $(P)/archive/gen/actions.gen.go \
+$(P)/archive/gen/actions_gen_test.go \
 $(P)/archive/gen/immediate.gen.go \
+$(P)/archive/gen/immediate_gen_test.go \
 $(P)/archive/gen/params.gen.go \
 $(P)/archive/gen/planned.gen.go &: $(P)/archive/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/archive --gen=true --write=true --output=$(P)/archive
 
 $(P)/encryption/gen/actions.gen.go \
+$(P)/encryption/gen/actions_gen_test.go \
 $(P)/encryption/gen/immediate.gen.go \
+$(P)/encryption/gen/immediate_gen_test.go \
 $(P)/encryption/gen/params.gen.go \
 $(P)/encryption/gen/planned.gen.go &: $(P)/encryption/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/encryption --gen=true --write=true --output=$(P)/encryption
 
 $(P)/file/gen/actions.gen.go \
+$(P)/file/gen/actions_gen_test.go \
 $(P)/file/gen/immediate.gen.go \
+$(P)/file/gen/immediate_gen_test.go \
 $(P)/file/gen/params.gen.go \
 $(P)/file/gen/planned.gen.go &: $(P)/file/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/file --gen=true --write=true --output=$(P)/file
 
 $(P)/git/gen/actions.gen.go \
+$(P)/git/gen/actions_gen_test.go \
 $(P)/git/gen/immediate.gen.go \
+$(P)/git/gen/immediate_gen_test.go \
 $(P)/git/gen/params.gen.go \
 $(P)/git/gen/planned.gen.go &: $(P)/git/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/git --gen=true --write=true --output=$(P)/git
 
 $(P)/net/gen/actions.gen.go \
+$(P)/net/gen/actions_gen_test.go \
 $(P)/net/gen/immediate.gen.go \
+$(P)/net/gen/immediate_gen_test.go \
 $(P)/net/gen/params.gen.go \
 $(P)/net/gen/planned.gen.go &: $(P)/net/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/net --gen=true --write=true --output=$(P)/net
 
 $(P)/pkg/gen/actions.gen.go \
+$(P)/pkg/gen/actions_gen_test.go \
 $(P)/pkg/gen/immediate.gen.go \
+$(P)/pkg/gen/immediate_gen_test.go \
 $(P)/pkg/gen/params.gen.go \
 $(P)/pkg/gen/planned.gen.go &: $(P)/pkg/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/pkg --gen=true --write=true --output=$(P)/pkg
 
 $(P)/service/gen/actions.gen.go \
+$(P)/service/gen/actions_gen_test.go \
 $(P)/service/gen/immediate.gen.go \
+$(P)/service/gen/immediate_gen_test.go \
 $(P)/service/gen/params.gen.go \
 $(P)/service/gen/planned.gen.go &: $(P)/service/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/service --gen=true --write=true --output=$(P)/service
 
 $(P)/shell/gen/actions.gen.go \
+$(P)/shell/gen/actions_gen_test.go \
 $(P)/shell/gen/immediate.gen.go \
+$(P)/shell/gen/immediate_gen_test.go \
 $(P)/shell/gen/params.gen.go \
 $(P)/shell/gen/planned.gen.go &: $(P)/shell/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/shell --gen=true --write=true --output=$(P)/shell
 
 $(P)/template/gen/actions.gen.go \
+$(P)/template/gen/actions_gen_test.go \
 $(P)/template/gen/immediate.gen.go \
+$(P)/template/gen/immediate_gen_test.go \
 $(P)/template/gen/params.gen.go \
 $(P)/template/gen/planned.gen.go &: $(P)/template/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/template --gen=true --write=true --output=$(P)/template
@@ -98,39 +116,48 @@ $(P)/template/gen/planned.gen.go &: $(P)/template/provider.go | star
 # ── access=immediate providers ────────────────────────────────────────────────
 
 $(P)/json/gen/immediate.gen.go \
+$(P)/json/gen/immediate_gen_test.go \
 $(P)/json/gen/params.gen.go &: $(P)/json/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/json --gen=true --write=true --output=$(P)/json
 
 $(P)/regexp/gen/immediate.gen.go \
+$(P)/regexp/gen/immediate_gen_test.go \
 $(P)/regexp/gen/params.gen.go &: $(P)/regexp/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/regexp --gen=true --write=true --output=$(P)/regexp
 
 $(P)/staranalysis/gen/immediate.gen.go \
+$(P)/staranalysis/gen/immediate_gen_test.go \
 $(P)/staranalysis/gen/params.gen.go &: $(P)/staranalysis/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/staranalysis --gen=true --write=true --output=$(P)/staranalysis
 
 $(P)/starcode/gen/immediate.gen.go \
+$(P)/starcode/gen/immediate_gen_test.go \
 $(P)/starcode/gen/params.gen.go \
 $(P)/starcode/gen/sources.gen.go &: $(P)/starcode/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/starcode --gen=true --write=true --output=$(P)/starcode
 
 $(P)/starcomplexity/gen/immediate.gen.go \
+$(P)/starcomplexity/gen/immediate_gen_test.go \
 $(P)/starcomplexity/gen/params.gen.go &: $(P)/starcomplexity/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/starcomplexity --gen=true --write=true --output=$(P)/starcomplexity
 
 $(P)/starindex/gen/immediate.gen.go \
+$(P)/starindex/gen/immediate_gen_test.go \
 $(P)/starindex/gen/params.gen.go &: $(P)/starindex/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/starindex --gen=true --write=true --output=$(P)/starindex
 
 $(P)/starstats/gen/immediate.gen.go \
+$(P)/starstats/gen/immediate_gen_test.go \
 $(P)/starstats/gen/params.gen.go &: $(P)/starstats/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/starstats --gen=true --write=true --output=$(P)/starstats
 
 $(P)/ui/gen/immediate.gen.go \
+$(P)/ui/gen/immediate_gen_test.go \
 $(P)/ui/gen/params.gen.go &: $(P)/ui/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/ui --gen=true --write=true --output=$(P)/ui
 
 $(P)/yaml/gen/immediate.gen.go \
+$(P)/yaml/gen/immediate_gen_test.go \
 $(P)/yaml/gen/params.gen.go &: $(P)/yaml/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/yaml --gen=true --write=true --output=$(P)/yaml
 
