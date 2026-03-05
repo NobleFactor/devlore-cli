@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/getsops/sops/v3/decrypt"
 	"gopkg.in/yaml.v3"
@@ -17,7 +18,9 @@ import (
 // Provider provides encryption and decryption actions.
 //
 // +devlore:access=both
-type Provider struct{}
+type Provider struct {
+	op.ProviderBase
+}
 
 // DecryptSopsFile takes a file.Resource, reads it into memory, and decrypts it via SOPS.
 //

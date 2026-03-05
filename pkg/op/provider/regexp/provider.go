@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"regexp"
 	"sync"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides regular expression operations with compiled pattern caching.
 //
 // +devlore:access=immediate
 type Provider struct {
+	op.ProviderBase
 	cache sync.Map // pattern string → *regexp.Regexp
 }
 

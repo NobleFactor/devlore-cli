@@ -186,6 +186,12 @@ type Node struct {
 // The stub is not executable — the executor replaces stubs via HydrateGraph.
 func StubAction(name string) Action { return &stubAction{name: name} }
 
+// IsStubAction reports whether an action is a stub (from deserialization).
+func IsStubAction(a Action) bool {
+	_, ok := a.(*stubAction)
+	return ok
+}
+
 // stubAction stores only a name for receipt deserialization.
 // Do panics because stubs must be replaced via HydrateGraph before execution.
 type stubAction struct{ name string }

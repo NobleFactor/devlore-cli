@@ -155,7 +155,7 @@ func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegi
 
 	reg := p.ActionRegistry
 	if reg == nil {
-		reg = loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
+		reg = loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
 	}
 
 	regClient := p.RegistryClient

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	ignore "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/staranalysis"
@@ -23,6 +24,7 @@ import (
 // +devlore:access=immediate
 // +devlore:bind Root=WorkDir
 type Provider struct {
+	op.ProviderBase
 	Root string
 }
 

@@ -7,29 +7,38 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func TestExecSuccess(t *testing.T) {
-	p := &Provider{}
-	buf := &bytes.Buffer{}
+func newTestProvider() *Provider {
+	return &Provider{
+		ProviderBase: op.NewProviderBase(op.Context{
+			Writer: &bytes.Buffer{},
+		}),
+	}
+}
 
-	summary, err := p.Exec("echo hello", buf)
+func TestExecSuccess(t *testing.T) {
+	p := newTestProvider()
+
+	summary, err := p.Exec("echo hello")
 	if err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
 	if summary != "echo hello" {
 		t.Errorf("summary = %q, want %q", summary, "echo hello")
 	}
+	buf := p.Context().Writer.(*bytes.Buffer)
 	if !strings.Contains(buf.String(), "hello") {
 		t.Errorf("output = %q, want it to contain %q", buf.String(), "hello")
 	}
 }
 
 func TestExecEmptyCommand(t *testing.T) {
-	p := &Provider{}
-	buf := &bytes.Buffer{}
+	p := newTestProvider()
 
-	summary, err := p.Exec("", buf)
+	summary, err := p.Exec("")
 	if err == nil {
 		t.Fatal("Exec() with empty command should return error")
 	}
@@ -42,10 +51,9 @@ func TestExecEmptyCommand(t *testing.T) {
 }
 
 func TestExecFailure(t *testing.T) {
-	p := &Provider{}
-	buf := &bytes.Buffer{}
+	p := newTestProvider()
 
-	_, err := p.Exec("exit 1", buf)
+	_, err := p.Exec("exit 1")
 	if err == nil {
 		t.Fatal("Exec() with 'exit 1' should return non-nil error")
 	}

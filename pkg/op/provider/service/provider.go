@@ -6,258 +6,200 @@ package service
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides platform-agnostic service management.
-// All platform-specific behavior is delegated to the Platform
-// injected at construction time from op.Context.Platform.
-//
-// Compensable Forward methods return (string, map[string]any, error):
-// the service name, the compensation receipt, and an error. The map is
-// opaque to the executor, meaningful only to the corresponding
-// Compensate* Backward method.
+// Platform-specific behavior is delegated to p.Context().Platform.ServiceManager.
 //
 // +devlore:access=both
 type Provider struct {
-	Platform *op.Platform
+	op.ProviderBase
+}
+
+func (p *Provider) serviceManager() (op.ServiceManager, error) {
+	plat := p.Context().Platform
+	if plat == nil || plat.ServiceManager == nil {
+		return nil, fmt.Errorf("no service manager available")
+	}
+	return plat.ServiceManager, nil
 }
 
 // ── Compensable Pairs ────────────────────────────────────────────────
 
-// Disable disables a service from starting at boot. Returns
-// compensation state with pre-action enabled status.
+// Disable disables a service from starting at boot.
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Disable(name string, output io.Writer) (result string, state map[string]any, err error) {
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return "", nil, fmt.Errorf("no service manager available")
+func (p *Provider) Disable(name string) (result string, state Tombstone, err error) {
+	sm, err := p.serviceManager()
+	if err != nil {
+		return "", Tombstone{}, err
 	}
 
-	wasEnabled := serviceManager.IsEnabled(name)
+	wasEnabled := sm.IsEnabled(name)
 
-	r := serviceManager.Disable(name)
+	r := sm.Disable(name)
 	if !r.OK {
-		return "", nil, fmt.Errorf("disable %s failed: %s", name, r.Stderr)
+		return "", Tombstone{}, fmt.Errorf("disable %s failed: %s", name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(output, "disabled service %s\n", name) //nolint:errcheck // status output to writer
-	return name, map[string]any{
-		"name":        name,
-		"was_enabled": wasEnabled,
-	}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "disabled service %s\n", name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name, WasEnabled: wasEnabled}, nil
 }
 
 // CompensateDisable undoes a Disable by enabling the service if it was
 // enabled before.
-func (p *Provider) CompensateDisable(state any) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (p *Provider) CompensateDisable(state Tombstone) error {
+	if state.Name == "" || !state.WasEnabled {
 		return nil
 	}
-	name, _ := s["name"].(string)
-	if name == "" {
-		return nil
+	sm, err := p.serviceManager()
+	if err != nil {
+		return err
 	}
-	wasEnabled, _ := s["was_enabled"].(bool)
-	if !wasEnabled {
-		return nil // Wasn't enabled — no-op
-	}
-
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return fmt.Errorf("no service manager available for compensation")
-	}
-	r := serviceManager.Enable(name)
+	r := sm.Enable(state.Name)
 	if !r.OK {
-		return fmt.Errorf("compensate disable (enable %s) failed: %s", name, r.Stderr)
+		return fmt.Errorf("compensate disable (enable %s) failed: %s", state.Name, r.Stderr)
 	}
 	return nil
 }
 
-// Enable enables a service to start at boot. Returns compensation state
-// with pre-action enabled status.
+// Enable enables a service to start at boot.
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Enable(name string, output io.Writer) (result string, state map[string]any, err error) {
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return "", nil, fmt.Errorf("no service manager available")
+func (p *Provider) Enable(name string) (result string, state Tombstone, err error) {
+	sm, err := p.serviceManager()
+	if err != nil {
+		return "", Tombstone{}, err
 	}
 
-	wasEnabled := serviceManager.IsEnabled(name)
+	wasEnabled := sm.IsEnabled(name)
 
-	r := serviceManager.Enable(name)
+	r := sm.Enable(name)
 	if !r.OK {
-		return "", nil, fmt.Errorf("enable %s failed: %s", name, r.Stderr)
+		return "", Tombstone{}, fmt.Errorf("enable %s failed: %s", name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(output, "enabled service %s\n", name) //nolint:errcheck // status output to writer
-	return name, map[string]any{
-		"name":        name,
-		"was_enabled": wasEnabled,
-	}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "enabled service %s\n", name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name, WasEnabled: wasEnabled}, nil
 }
 
 // CompensateEnable undoes an Enable by disabling the service if it
 // wasn't enabled before.
-func (p *Provider) CompensateEnable(state any) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (p *Provider) CompensateEnable(state Tombstone) error {
+	if state.Name == "" || state.WasEnabled {
 		return nil
 	}
-	name, _ := s["name"].(string)
-	if name == "" {
-		return nil
+	sm, err := p.serviceManager()
+	if err != nil {
+		return err
 	}
-	wasEnabled, _ := s["was_enabled"].(bool)
-	if wasEnabled {
-		return nil // Was already enabled — no-op
-	}
-
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return fmt.Errorf("no service manager available for compensation")
-	}
-	r := serviceManager.Disable(name)
+	r := sm.Disable(state.Name)
 	if !r.OK {
-		return fmt.Errorf("compensate enable (disable %s) failed: %s", name, r.Stderr)
+		return fmt.Errorf("compensate enable (disable %s) failed: %s", state.Name, r.Stderr)
 	}
 	return nil
 }
 
-// Restart restarts a service. Returns compensation state. Compensation
-// is a no-op — if the service was restarted, it was already running.
+// Restart restarts a service. Compensation is a no-op — if the service
+// was restarted, it was already running.
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Restart(name string, output io.Writer) (result string, state map[string]any, err error) {
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return "", nil, fmt.Errorf("no service manager available")
+func (p *Provider) Restart(name string) (result string, state Tombstone, err error) {
+	sm, err := p.serviceManager()
+	if err != nil {
+		return "", Tombstone{}, err
 	}
 
-	r := serviceManager.Stop(name)
+	r := sm.Stop(name)
 	if !r.OK {
-		return "", nil, fmt.Errorf("stop before restart: %s", r.Stderr)
+		return "", Tombstone{}, fmt.Errorf("stop before restart: %s", r.Stderr)
 	}
-	r = serviceManager.Start(name)
+	r = sm.Start(name)
 	if !r.OK {
-		return "", nil, fmt.Errorf("start after restart: %s", r.Stderr)
+		return "", Tombstone{}, fmt.Errorf("start after restart: %s", r.Stderr)
 	}
-	_, _ = fmt.Fprintf(output, "restarted service %s\n", name) //nolint:errcheck // status output to writer
-	return name, map[string]any{
-		"name": name,
-	}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "restarted service %s\n", name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name}, nil
 }
 
-// CompensateRestart is a no-op. A restarted service was already running;
-// the service is still running after restart — nothing to undo.
-func (p *Provider) CompensateRestart(_ any) error {
+// CompensateRestart is a no-op. A restarted service was already running.
+func (p *Provider) CompensateRestart(_ Tombstone) error {
 	return nil
 }
 
-// Start starts a service. Returns compensation state with pre-action
-// running status.
+// Start starts a service.
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Start(name string, output io.Writer) (result string, state map[string]any, err error) {
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return "", nil, fmt.Errorf("no service manager available")
+func (p *Provider) Start(name string) (result string, state Tombstone, err error) {
+	sm, err := p.serviceManager()
+	if err != nil {
+		return "", Tombstone{}, err
 	}
 
-	wasRunning := serviceManager.IsRunning(name)
+	wasRunning := sm.IsRunning(name)
 
-	r := serviceManager.Start(name)
+	r := sm.Start(name)
 	if !r.OK {
-		return "", nil, fmt.Errorf("start %s failed: %s", name, r.Stderr)
+		return "", Tombstone{}, fmt.Errorf("start %s failed: %s", name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(output, "started service %s\n", name) //nolint:errcheck // status output to writer
-	return name, map[string]any{
-		"name":        name,
-		"was_running": wasRunning,
-	}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "started service %s\n", name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name, WasRunning: wasRunning}, nil
 }
 
 // CompensateStart undoes a Start by stopping the service if it wasn't
 // running before.
-func (p *Provider) CompensateStart(state any) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (p *Provider) CompensateStart(state Tombstone) error {
+	if state.Name == "" || state.WasRunning {
 		return nil
 	}
-	name, _ := s["name"].(string)
-	if name == "" {
-		return nil
+	sm, err := p.serviceManager()
+	if err != nil {
+		return err
 	}
-	wasRunning, _ := s["was_running"].(bool)
-	if wasRunning {
-		return nil // Was already running — no-op
-	}
-
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return fmt.Errorf("no service manager available for compensation")
-	}
-	r := serviceManager.Stop(name)
+	r := sm.Stop(state.Name)
 	if !r.OK {
-		return fmt.Errorf("compensate start (stop %s) failed: %s", name, r.Stderr)
+		return fmt.Errorf("compensate start (stop %s) failed: %s", state.Name, r.Stderr)
 	}
 	return nil
 }
 
-// Stop stops a service. Returns compensation state with pre-action
-// running status.
+// Stop stops a service.
 //
 // Parameters:
 //   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Stop(name string, output io.Writer) (result string, state map[string]any, err error) {
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return "", nil, fmt.Errorf("no service manager available")
+func (p *Provider) Stop(name string) (result string, state Tombstone, err error) {
+	sm, err := p.serviceManager()
+	if err != nil {
+		return "", Tombstone{}, err
 	}
 
-	wasRunning := serviceManager.IsRunning(name)
+	wasRunning := sm.IsRunning(name)
 
-	r := serviceManager.Stop(name)
+	r := sm.Stop(name)
 	if !r.OK {
-		return "", nil, fmt.Errorf("stop %s failed: %s", name, r.Stderr)
+		return "", Tombstone{}, fmt.Errorf("stop %s failed: %s", name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(output, "stopped service %s\n", name) //nolint:errcheck // status output to writer
-	return name, map[string]any{
-		"name":        name,
-		"was_running": wasRunning,
-	}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "stopped service %s\n", name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name, WasRunning: wasRunning}, nil
 }
 
 // CompensateStop undoes a Stop by starting the service if it was
 // running before.
-func (p *Provider) CompensateStop(state any) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (p *Provider) CompensateStop(state Tombstone) error {
+	if state.Name == "" || !state.WasRunning {
 		return nil
 	}
-	name, _ := s["name"].(string)
-	if name == "" {
-		return nil
+	sm, err := p.serviceManager()
+	if err != nil {
+		return err
 	}
-	wasRunning, _ := s["was_running"].(bool)
-	if !wasRunning {
-		return nil // Wasn't running — no-op
-	}
-
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return fmt.Errorf("no service manager available for compensation")
-	}
-	r := serviceManager.Start(name)
+	r := sm.Start(state.Name)
 	if !r.OK {
-		return fmt.Errorf("compensate stop (start %s) failed: %s", name, r.Stderr)
+		return fmt.Errorf("compensate stop (start %s) failed: %s", state.Name, r.Stderr)
 	}
 	return nil
 }
@@ -269,11 +211,11 @@ func (p *Provider) CompensateStop(state any) error {
 // Parameters:
 //   - name: Service name to check
 func (p *Provider) Enabled(name string) (bool, error) {
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return false, fmt.Errorf("no service manager available")
+	sm, err := p.serviceManager()
+	if err != nil {
+		return false, err
 	}
-	return serviceManager.IsEnabled(name), nil
+	return sm.IsEnabled(name), nil
 }
 
 // Exists returns true if the named service exists on the system.
@@ -281,11 +223,11 @@ func (p *Provider) Enabled(name string) (bool, error) {
 // Parameters:
 //   - name: Service name to check
 func (p *Provider) Exists(name string) (bool, error) {
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return false, fmt.Errorf("no service manager available")
+	sm, err := p.serviceManager()
+	if err != nil {
+		return false, err
 	}
-	return serviceManager.Exists(name), nil
+	return sm.Exists(name), nil
 }
 
 // Running returns true if the named service is currently running.
@@ -293,9 +235,9 @@ func (p *Provider) Exists(name string) (bool, error) {
 // Parameters:
 //   - name: Service name to check
 func (p *Provider) Running(name string) (bool, error) {
-	serviceManager := p.Platform.ServiceManager
-	if serviceManager == nil {
-		return false, fmt.Errorf("no service manager available")
+	sm, err := p.serviceManager()
+	if err != nil {
+		return false, err
 	}
-	return serviceManager.IsRunning(name), nil
+	return sm.IsRunning(name), nil
 }

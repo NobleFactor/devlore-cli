@@ -6,6 +6,6 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Params maps Go method names to Starlark parameter name lists.
 var Params = op.MethodParams{
-	"Exec":       {"command", "output"},
-	"PowerShell": {"command", "output"},
+	"Exec":       {"command"},
+	"PowerShell": {"command"},
 }

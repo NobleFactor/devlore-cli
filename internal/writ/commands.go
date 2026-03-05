@@ -79,7 +79,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	}
 
 	// 2. Build execution graph
-	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
+	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
 	builder := NewDeployGraphBuilder(cfg, reg)
 	builder.Planner = &lore.Planner{
 		ActionRegistry: reg,
@@ -222,7 +222,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build execution graph
-	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
+	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
 	g, err := NewDecommissionGraphBuilder(cfg, view, reg).Build()
 	if err != nil {
 		return err
@@ -471,7 +471,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
-	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
+	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
 
 	if hasDecryptAction(actions) && len(identities) == 0 {
 		cli.Error("%s: identities required for encrypted files", relTarget)

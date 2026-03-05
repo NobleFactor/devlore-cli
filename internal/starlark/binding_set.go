@@ -50,19 +50,19 @@ func (bs *BindingSet) With(names ...string) *BindingSet {
 // RegisterActions registers all providers' actions with the registry.
 // All providers' actions are always registered regardless of With() selections — the action registry is for the
 // executor, not the script environment.
-func (bs *BindingSet) RegisterActions(reg *op.ActionRegistry) {
+func (bs *BindingSet) RegisterActions(reg *op.ActionRegistry, ctx op.Context) {
 	for _, b := range op.AllBindings() {
 		if b.ActionRegistrar != nil {
-			b.ActionRegistrar(reg)
+			b.ActionRegistrar(reg, ctx)
 		}
 	}
 }
 
 // NewPopulatedRegistry creates an ActionRegistry with all provider actions registered.
 // Shorthand for NewActionRegistry() + RegisterActions().
-func (bs *BindingSet) NewPopulatedRegistry() *op.ActionRegistry {
+func (bs *BindingSet) NewPopulatedRegistry(ctx op.Context) *op.ActionRegistry {
 	reg := op.NewActionRegistry()
-	bs.RegisterActions(reg)
+	bs.RegisterActions(reg, ctx)
 	return reg
 }
 

@@ -9,12 +9,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides network actions.
 //
 // +devlore:access=both
-type Provider struct{}
+type Provider struct {
+	op.ProviderBase
+}
 
 // Download fetches the content at the given URL and returns the response body.
 //

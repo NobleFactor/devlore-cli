@@ -85,7 +85,7 @@ func TestRegistryNames(t *testing.T) {
 
 func TestAllProvidersCount(t *testing.T) {
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg)
+	provider.RegisterAll(reg, op.Context{})
 
 	names := reg.Names()
 	sort.Strings(names)

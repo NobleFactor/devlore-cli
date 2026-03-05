@@ -75,197 +75,189 @@ func (m *mockServiceManager) Disable(name string) op.PlatformResult {
 func (m *mockServiceManager) NeedsSudo() bool { return false }
 
 // newTestProvider creates a Provider wired to the given mock.
-func newTestProvider(serviceManager *mockServiceManager) *Provider {
+func newTestProvider(sm *mockServiceManager) *Provider {
 	return &Provider{
-		Platform: &op.Platform{
-			ServiceManager: serviceManager,
-		},
+		ProviderBase: op.NewProviderBase(op.Context{
+			Writer: io.Discard,
+			Platform: &op.Platform{
+				ServiceManager: sm,
+			},
+		}),
 	}
 }
 
 func TestStart(t *testing.T) {
-	serviceManager := newMockServiceManager()
-	serviceManager.exists["nginx"] = true
-	serviceManager.running["nginx"] = false
+	sm := newMockServiceManager()
+	sm.exists["nginx"] = true
+	sm.running["nginx"] = false
 
-	p := newTestProvider(serviceManager)
-	name, state, err := p.Start("nginx", io.Discard)
+	p := newTestProvider(sm)
+	name, state, err := p.Start("nginx")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 	if name != "nginx" {
 		t.Errorf("Start() name = %q, want %q", name, "nginx")
 	}
-	wasRunning, _ := state["was_running"].(bool)
-	if wasRunning {
-		t.Error("Start() was_running = true, want false")
+	if state.WasRunning {
+		t.Error("Start() WasRunning = true, want false")
 	}
-	if !serviceManager.running["nginx"] {
+	if !sm.running["nginx"] {
 		t.Error("service should be running after Start()")
 	}
 }
 
 func TestStartAlreadyRunning(t *testing.T) {
-	serviceManager := newMockServiceManager()
-	serviceManager.exists["nginx"] = true
-	serviceManager.running["nginx"] = true
+	sm := newMockServiceManager()
+	sm.exists["nginx"] = true
+	sm.running["nginx"] = true
 
-	p := newTestProvider(serviceManager)
-	name, state, err := p.Start("nginx", io.Discard)
+	p := newTestProvider(sm)
+	name, state, err := p.Start("nginx")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 	if name != "nginx" {
 		t.Errorf("Start() name = %q, want %q", name, "nginx")
 	}
-	wasRunning, _ := state["was_running"].(bool)
-	if !wasRunning {
-		t.Error("Start() was_running = false, want true")
+	if !state.WasRunning {
+		t.Error("Start() WasRunning = false, want true")
 	}
 }
 
 func TestStartError(t *testing.T) {
-	serviceManager := newMockServiceManager()
-	serviceManager.startFail = true
+	sm := newMockServiceManager()
+	sm.startFail = true
 
-	p := newTestProvider(serviceManager)
-	_, _, err := p.Start("nginx", io.Discard)
+	p := newTestProvider(sm)
+	_, _, err := p.Start("nginx")
 	if err == nil {
 		t.Fatal("Start() expected error, got nil")
 	}
 }
 
 func TestCompensateStart(t *testing.T) {
-	t.Run("was_running false calls Stop", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.running["nginx"] = true
+	t.Run("WasRunning false calls Stop", func(t *testing.T) {
+		sm := newMockServiceManager()
+		sm.running["nginx"] = true
 
-		p := newTestProvider(serviceManager)
-		state := map[string]any{"name": "nginx", "was_running": false}
-		if err := p.CompensateStart(state); err != nil {
+		p := newTestProvider(sm)
+		if err := p.CompensateStart(Tombstone{Name: "nginx", WasRunning: false}); err != nil {
 			t.Fatalf("CompensateStart() error = %v", err)
 		}
-		if serviceManager.running["nginx"] {
+		if sm.running["nginx"] {
 			t.Error("service should be stopped after compensating a fresh start")
 		}
 	})
 
-	t.Run("was_running true is no-op", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.running["nginx"] = true
+	t.Run("WasRunning true is no-op", func(t *testing.T) {
+		sm := newMockServiceManager()
+		sm.running["nginx"] = true
 
-		p := newTestProvider(serviceManager)
-		state := map[string]any{"name": "nginx", "was_running": true}
-		if err := p.CompensateStart(state); err != nil {
+		p := newTestProvider(sm)
+		if err := p.CompensateStart(Tombstone{Name: "nginx", WasRunning: true}); err != nil {
 			t.Fatalf("CompensateStart() error = %v", err)
 		}
-		if !serviceManager.running["nginx"] {
-			t.Error("service should still be running when was_running=true")
+		if !sm.running["nginx"] {
+			t.Error("service should still be running when WasRunning=true")
 		}
 	})
 
-	t.Run("nil state is no-op", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		p := newTestProvider(serviceManager)
-		if err := p.CompensateStart(nil); err != nil {
-			t.Fatalf("CompensateStart(nil) error = %v", err)
+	t.Run("empty name is no-op", func(t *testing.T) {
+		sm := newMockServiceManager()
+		p := newTestProvider(sm)
+		if err := p.CompensateStart(Tombstone{}); err != nil {
+			t.Fatalf("CompensateStart(empty) error = %v", err)
 		}
 	})
 }
 
 func TestStop(t *testing.T) {
-	serviceManager := newMockServiceManager()
-	serviceManager.running["nginx"] = true
+	sm := newMockServiceManager()
+	sm.running["nginx"] = true
 
-	p := newTestProvider(serviceManager)
-	name, state, err := p.Stop("nginx", io.Discard)
+	p := newTestProvider(sm)
+	name, state, err := p.Stop("nginx")
 	if err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
 	if name != "nginx" {
 		t.Errorf("Stop() name = %q, want %q", name, "nginx")
 	}
-	wasRunning, _ := state["was_running"].(bool)
-	if !wasRunning {
-		t.Error("Stop() was_running = false, want true")
+	if !state.WasRunning {
+		t.Error("Stop() WasRunning = false, want true")
 	}
-	if serviceManager.running["nginx"] {
+	if sm.running["nginx"] {
 		t.Error("service should be stopped after Stop()")
 	}
 }
 
 func TestCompensateStop(t *testing.T) {
-	t.Run("was_running true calls Start", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.running["nginx"] = false
+	t.Run("WasRunning true calls Start", func(t *testing.T) {
+		sm := newMockServiceManager()
+		sm.running["nginx"] = false
 
-		p := newTestProvider(serviceManager)
-		state := map[string]any{"name": "nginx", "was_running": true}
-		if err := p.CompensateStop(state); err != nil {
+		p := newTestProvider(sm)
+		if err := p.CompensateStop(Tombstone{Name: "nginx", WasRunning: true}); err != nil {
 			t.Fatalf("CompensateStop() error = %v", err)
 		}
-		if !serviceManager.running["nginx"] {
+		if !sm.running["nginx"] {
 			t.Error("service should be running after compensating a stop")
 		}
 	})
 
-	t.Run("was_running false is no-op", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.running["nginx"] = false
+	t.Run("WasRunning false is no-op", func(t *testing.T) {
+		sm := newMockServiceManager()
+		sm.running["nginx"] = false
 
-		p := newTestProvider(serviceManager)
-		state := map[string]any{"name": "nginx", "was_running": false}
-		if err := p.CompensateStop(state); err != nil {
+		p := newTestProvider(sm)
+		if err := p.CompensateStop(Tombstone{Name: "nginx", WasRunning: false}); err != nil {
 			t.Fatalf("CompensateStop() error = %v", err)
 		}
-		if serviceManager.running["nginx"] {
-			t.Error("service should remain stopped when was_running=false")
+		if sm.running["nginx"] {
+			t.Error("service should remain stopped when WasRunning=false")
 		}
 	})
 }
 
 func TestRestart(t *testing.T) {
-	serviceManager := newMockServiceManager()
-	serviceManager.running["nginx"] = true
+	sm := newMockServiceManager()
+	sm.running["nginx"] = true
 
-	p := newTestProvider(serviceManager)
-	name, state, err := p.Restart("nginx", io.Discard)
+	p := newTestProvider(sm)
+	name, state, err := p.Restart("nginx")
 	if err != nil {
 		t.Fatalf("Restart() error = %v", err)
 	}
 	if name != "nginx" {
 		t.Errorf("Restart() name = %q, want %q", name, "nginx")
 	}
-	if state == nil {
-		t.Fatal("Restart() state is nil")
+	if state.Name != "nginx" {
+		t.Errorf("Restart() state.Name = %q, want %q", state.Name, "nginx")
 	}
-	stateName, _ := state["name"].(string)
-	if stateName != "nginx" {
-		t.Errorf("Restart() state name = %q, want %q", stateName, "nginx")
-	}
-	if !serviceManager.running["nginx"] {
+	if !sm.running["nginx"] {
 		t.Error("service should be running after Restart()")
 	}
 }
 
 func TestRestartError(t *testing.T) {
 	t.Run("Stop fails", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.stopFail = true
+		sm := newMockServiceManager()
+		sm.stopFail = true
 
-		p := newTestProvider(serviceManager)
-		_, _, err := p.Restart("nginx", io.Discard)
+		p := newTestProvider(sm)
+		_, _, err := p.Restart("nginx")
 		if err == nil {
 			t.Fatal("Restart() expected error from Stop, got nil")
 		}
 	})
 
 	t.Run("Stop OK but Start fails", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.startFail = true
+		sm := newMockServiceManager()
+		sm.startFail = true
 
-		p := newTestProvider(serviceManager)
-		_, _, err := p.Restart("nginx", io.Discard)
+		p := newTestProvider(sm)
+		_, _, err := p.Restart("nginx")
 		if err == nil {
 			t.Fatal("Restart() expected error from Start, got nil")
 		}
@@ -273,117 +265,111 @@ func TestRestartError(t *testing.T) {
 }
 
 func TestEnable(t *testing.T) {
-	serviceManager := newMockServiceManager()
-	serviceManager.enabled["nginx"] = false
+	sm := newMockServiceManager()
+	sm.enabled["nginx"] = false
 
-	p := newTestProvider(serviceManager)
-	name, state, err := p.Enable("nginx", io.Discard)
+	p := newTestProvider(sm)
+	name, state, err := p.Enable("nginx")
 	if err != nil {
 		t.Fatalf("Enable() error = %v", err)
 	}
 	if name != "nginx" {
 		t.Errorf("Enable() name = %q, want %q", name, "nginx")
 	}
-	wasEnabled, _ := state["was_enabled"].(bool)
-	if wasEnabled {
-		t.Error("Enable() was_enabled = true, want false")
+	if state.WasEnabled {
+		t.Error("Enable() WasEnabled = true, want false")
 	}
-	if !serviceManager.enabled["nginx"] {
+	if !sm.enabled["nginx"] {
 		t.Error("service should be enabled after Enable()")
 	}
 }
 
 func TestCompensateEnable(t *testing.T) {
-	t.Run("was_enabled false calls Disable", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.enabled["nginx"] = true
+	t.Run("WasEnabled false calls Disable", func(t *testing.T) {
+		sm := newMockServiceManager()
+		sm.enabled["nginx"] = true
 
-		p := newTestProvider(serviceManager)
-		state := map[string]any{"name": "nginx", "was_enabled": false}
-		if err := p.CompensateEnable(state); err != nil {
+		p := newTestProvider(sm)
+		if err := p.CompensateEnable(Tombstone{Name: "nginx", WasEnabled: false}); err != nil {
 			t.Fatalf("CompensateEnable() error = %v", err)
 		}
-		if serviceManager.enabled["nginx"] {
+		if sm.enabled["nginx"] {
 			t.Error("service should be disabled after compensating a fresh enable")
 		}
 	})
 
-	t.Run("was_enabled true is no-op", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.enabled["nginx"] = true
+	t.Run("WasEnabled true is no-op", func(t *testing.T) {
+		sm := newMockServiceManager()
+		sm.enabled["nginx"] = true
 
-		p := newTestProvider(serviceManager)
-		state := map[string]any{"name": "nginx", "was_enabled": true}
-		if err := p.CompensateEnable(state); err != nil {
+		p := newTestProvider(sm)
+		if err := p.CompensateEnable(Tombstone{Name: "nginx", WasEnabled: true}); err != nil {
 			t.Fatalf("CompensateEnable() error = %v", err)
 		}
-		if !serviceManager.enabled["nginx"] {
-			t.Error("service should still be enabled when was_enabled=true")
+		if !sm.enabled["nginx"] {
+			t.Error("service should still be enabled when WasEnabled=true")
 		}
 	})
 }
 
 func TestDisable(t *testing.T) {
-	serviceManager := newMockServiceManager()
-	serviceManager.enabled["nginx"] = true
+	sm := newMockServiceManager()
+	sm.enabled["nginx"] = true
 
-	p := newTestProvider(serviceManager)
-	name, state, err := p.Disable("nginx", io.Discard)
+	p := newTestProvider(sm)
+	name, state, err := p.Disable("nginx")
 	if err != nil {
 		t.Fatalf("Disable() error = %v", err)
 	}
 	if name != "nginx" {
 		t.Errorf("Disable() name = %q, want %q", name, "nginx")
 	}
-	wasEnabled, _ := state["was_enabled"].(bool)
-	if !wasEnabled {
-		t.Error("Disable() was_enabled = false, want true")
+	if !state.WasEnabled {
+		t.Error("Disable() WasEnabled = false, want true")
 	}
-	if serviceManager.enabled["nginx"] {
+	if sm.enabled["nginx"] {
 		t.Error("service should be disabled after Disable()")
 	}
 }
 
 func TestCompensateDisable(t *testing.T) {
-	t.Run("was_enabled true calls Enable", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.enabled["nginx"] = false
+	t.Run("WasEnabled true calls Enable", func(t *testing.T) {
+		sm := newMockServiceManager()
+		sm.enabled["nginx"] = false
 
-		p := newTestProvider(serviceManager)
-		state := map[string]any{"name": "nginx", "was_enabled": true}
-		if err := p.CompensateDisable(state); err != nil {
+		p := newTestProvider(sm)
+		if err := p.CompensateDisable(Tombstone{Name: "nginx", WasEnabled: true}); err != nil {
 			t.Fatalf("CompensateDisable() error = %v", err)
 		}
-		if !serviceManager.enabled["nginx"] {
+		if !sm.enabled["nginx"] {
 			t.Error("service should be enabled after compensating a disable")
 		}
 	})
 
-	t.Run("was_enabled false is no-op", func(t *testing.T) {
-		serviceManager := newMockServiceManager()
-		serviceManager.enabled["nginx"] = false
+	t.Run("WasEnabled false is no-op", func(t *testing.T) {
+		sm := newMockServiceManager()
+		sm.enabled["nginx"] = false
 
-		p := newTestProvider(serviceManager)
-		state := map[string]any{"name": "nginx", "was_enabled": false}
-		if err := p.CompensateDisable(state); err != nil {
+		p := newTestProvider(sm)
+		if err := p.CompensateDisable(Tombstone{Name: "nginx", WasEnabled: false}); err != nil {
 			t.Fatalf("CompensateDisable() error = %v", err)
 		}
-		if serviceManager.enabled["nginx"] {
-			t.Error("service should remain disabled when was_enabled=false")
+		if sm.enabled["nginx"] {
+			t.Error("service should remain disabled when WasEnabled=false")
 		}
 	})
 }
 
 func TestPredicates(t *testing.T) {
-	serviceManager := newMockServiceManager()
-	serviceManager.exists["nginx"] = true
-	serviceManager.exists["missing"] = false
-	serviceManager.running["nginx"] = true
-	serviceManager.running["stopped"] = false
-	serviceManager.enabled["nginx"] = true
-	serviceManager.enabled["disabled"] = false
+	sm := newMockServiceManager()
+	sm.exists["nginx"] = true
+	sm.exists["missing"] = false
+	sm.running["nginx"] = true
+	sm.running["stopped"] = false
+	sm.enabled["nginx"] = true
+	sm.enabled["disabled"] = false
 
-	p := newTestProvider(serviceManager)
+	p := newTestProvider(sm)
 
 	t.Run("Exists true", func(t *testing.T) {
 		got, err := p.Exists("nginx")

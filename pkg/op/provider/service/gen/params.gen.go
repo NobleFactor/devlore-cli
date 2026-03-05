@@ -6,11 +6,11 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Params maps Go method names to Starlark parameter name lists.
 var Params = op.MethodParams{
-	"Disable": {"name", "output"},
-	"Enable":  {"name", "output"},
-	"Restart": {"name", "output"},
-	"Start":   {"name", "output"},
-	"Stop":    {"name", "output"},
+	"Disable": {"name"},
+	"Enable":  {"name"},
+	"Restart": {"name"},
+	"Start":   {"name"},
+	"Stop":    {"name"},
 	"Enabled": {"name"},
 	"Exists":  {"name"},
 	"Running": {"name"},

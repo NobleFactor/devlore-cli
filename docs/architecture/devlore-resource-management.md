@@ -187,9 +187,9 @@ inline type assertion: `undo["tombstone"].(Tombstone)`.
 | Scheme | Provider | Type Name | Key Metadata | Status |
 |--------|----------|-----------|-------------|--------|
 | `file://` | file, template, archive, encryption | `file.Resource` | Path, Inode, Device, Size, Mode, ModTime, Checksum | Implemented |
-| `git://` | git | `GitState` | URL, Commit, Branch | Planned |
-| `pkg://` | pkg | `PackageState` | Name, Version, Manager | Planned |
-| `svc://` | service | `ServiceState` | Name, Status (running/stopped/enabled/disabled) | Planned |
+| `git://` | git | `git.Resource` | URL, Path, Ref | Implemented |
+| `pkg://` | pkg | `pkg.Resource` | Name, Manager, Version | Implemented |
+| `svc://` | service | `service.Resource` | Name | Implemented |
 | `mem://` | (internal) | `Literal` | In-memory data (template payloads, JSON content) | Planned |
 
 ## 4. How Resource Flows Through the System Today
@@ -684,36 +684,38 @@ script. Every provider needs context — and context is provided at
 construction time. Every provider needs a constructor that accepts a
 context object by reference.
 
-**Current state** — Providers are zero-value structs with no constructor:
+**Current state** — Every provider embeds `op.ProviderBase` and receives
+context at construction time. The codegen enforces this as a hard
+requirement — `generate.star` fails if ProviderBase is not embedded.
+
+In **immediate mode**, the generated `ImmediateFactory` creates a provider
+with a partial `op.Context` populated from `BindingConfig`:
 
 ```go
-// Generated code — no context, no lifecycle
-op.RegisterReflectedActions(reg, "pkg", &provider.Provider{}, Params)
-NewPkgReceiver(&provider.Provider{})
+ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
+    return NewPkgReceiver(&provider.Provider{
+        ProviderBase: op.NewProviderBase(op.Context{
+            Writer:   cfg.Writer,
+            Platform: cfg.Platform,
+        }),
+    })
+}
 ```
 
-Context arrives per-call via `op.Context` in `action.Do(ctx, slots)`, but
-providers have no access to it at construction time. This forces providers
-that need platform info (pkg, service) to take manager arguments on every
-method call or to call `host.NewHost()` on every invocation.
-
-**Target state** — Every provider has a constructor that accepts context:
+In **action/graph mode**, the `ActionRegistrar` creates a provider with
+the full execution `op.Context`:
 
 ```go
-// Target — context-injected singleton
-p := provider.New(ctx)
-op.RegisterReflectedActions(reg, "pkg", p, Params)
-NewPkgReceiver(p)
+ActionRegistrar: func(reg *op.ActionRegistry, ctx op.Context) {
+    p := &provider.Provider{
+        ProviderBase: op.NewProviderBase(ctx),
+    }
+    provider.RegisterReflectedActions(reg, p)
+}
 ```
 
-The provider holds a reference to the context and reads from it for the
-duration of the graph or script. For the platform provider, this means
-reading `ctx.Platform` directly. For file, pkg, and service providers,
-this means accessing Platform's managers without method-level arguments.
-
-This is a codegen change: the generated binding registrars and receiver
-factories must call a provider constructor with context instead of
-creating zero-value structs.
+The provider reads `p.Context().Writer`, `p.Context().Platform`, etc.
+for the duration of the graph or script. No per-method context parameters.
 
 ## 7. Integration with Current Architecture
 
@@ -927,14 +929,17 @@ details, requirements, and file listings.
 | 3 | File provider migration + catalog | `pkg/op/provider/file/resource.go`, `pkg/op/resource_catalog.go` | Done |
 | 4 | Resource type system + starvalue | `pkg/op/resource.go`, `pkg/op/starvalue/`, `pkg/op/starvalue_marshal.go` | Done |
 | 5 | Tombstone layer | `internal/execution/executor.go`, `pkg/op/tombstone.go` (planned) | Planned |
-| 6 | Remaining providers | `pkg/op/provider/*/provider.go` | Planned |
+| 5.5 | Provider context + resource types | `pkg/op/provider/*/provider.go`, `*/resource.go` | Done |
+| 6 | Remaining provider method migration | `pkg/op/provider/*/provider.go` | Planned |
 | 7 | Code generation | Templates and generator | Planned |
 
-Phases 0–4 are complete. Phase 4 established the `Resource` interface with
-`ResourceBase`, consolidated `ResourceManager` + `NamespaceMap` into
-`ResourceCatalog`, and extracted `starvalue.Marshaler`/`Unmarshaler`
-interfaces for custom Starlark serialization. Phase 5 extracts tombstone
-logic from the file provider to the executor. Phase 6 propagates the
-pattern to all providers. Phase 7 updates the codegen pipeline. During
-migration, the system runs in mixed mode: resource-aware providers coexist
-with raw-type providers.
+Phases 0–4 and 5.5 are complete. Phase 4 established the `Resource`
+interface with `ResourceBase`, consolidated `ResourceManager` +
+`NamespaceMap` into `ResourceCatalog`, and extracted
+`starvalue.Marshaler`/`Unmarshaler` interfaces for custom Starlark
+serialization. Phase 5.5 embedded `op.ProviderBase` in all providers,
+created resource types for git/service/pkg, introduced typed tombstones,
+removed `output io.Writer` and direct `Platform` fields, and established
+per-graph provider lifecycle via `ActionRegistrar`. Phase 5 extracts
+tombstone logic from the file provider to the executor. Phase 6 migrates
+remaining provider method signatures to accept Resource-typed parameters.

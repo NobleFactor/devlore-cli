@@ -4,6 +4,7 @@
 package pkg
 
 import (
+	"io"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -70,10 +71,13 @@ func newMockPackageManager() *mockPackageManager {
 
 func newTestProvider(packageManager *mockPackageManager) *Provider {
 	return &Provider{
-		Platform: &op.Platform{
-			PackageManager:  packageManager,
-			PackageManagers: map[string]op.PackageManager{packageManager.Name(): packageManager},
-		},
+		ProviderBase: op.NewProviderBase(op.Context{
+			Writer: io.Discard,
+			Platform: &op.Platform{
+				PackageManager:  packageManager,
+				PackageManagers: map[string]op.PackageManager{packageManager.Name(): packageManager},
+			},
+		}),
 	}
 }
 
@@ -90,16 +94,11 @@ func TestInstall(t *testing.T) {
 	if len(result) != 2 || result[0] != "vim" || result[1] != "git" {
 		t.Errorf("Install() result = %v, want [vim git]", result)
 	}
-	if state == nil {
-		t.Fatal("Install() state is nil")
+	if len(state.Packages) != 2 || state.Packages[0] != "vim" || state.Packages[1] != "git" {
+		t.Errorf("Install() state.Packages = %v, want [vim git]", state.Packages)
 	}
-	packages, _ := state["packages"].([]string)
-	if len(packages) != 2 || packages[0] != "vim" || packages[1] != "git" {
-		t.Errorf("Install() state.packages = %v, want [vim git]", packages)
-	}
-	alreadyInstalled, _ := state["already_installed"].([]string)
-	if len(alreadyInstalled) != 0 {
-		t.Errorf("Install() state.already_installed = %v, want empty", alreadyInstalled)
+	if len(state.AlreadyInstalled) != 0 {
+		t.Errorf("Install() state.AlreadyInstalled = %v, want empty", state.AlreadyInstalled)
 	}
 	if !packageManager.installed["vim"] || !packageManager.installed["git"] {
 		t.Error("Install() packages not marked installed in package manager")
@@ -128,9 +127,8 @@ func TestInstallWithAlreadyInstalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	alreadyInstalled, _ := state["already_installed"].([]string)
-	if len(alreadyInstalled) != 1 || alreadyInstalled[0] != "vim" {
-		t.Errorf("Install() state.already_installed = %v, want [vim]", alreadyInstalled)
+	if len(state.AlreadyInstalled) != 1 || state.AlreadyInstalled[0] != "vim" {
+		t.Errorf("Install() state.AlreadyInstalled = %v, want [vim]", state.AlreadyInstalled)
 	}
 }
 
@@ -157,11 +155,11 @@ func TestCompensateInstall(t *testing.T) {
 	packageManager.installed["git"] = true
 	p := newTestProvider(packageManager)
 
-	state := map[string]any{
-		"packages":          []string{"vim", "git"},
-		"manager":           "",
-		"cask":              false,
-		"already_installed": []string{"vim"},
+	state := Tombstone{
+		Packages:         []string{"vim", "git"},
+		Manager:          "",
+		Cask:             false,
+		AlreadyInstalled: []string{"vim"},
 	}
 	err := p.CompensateInstall(state)
 	if err != nil {
@@ -177,13 +175,13 @@ func TestCompensateInstall(t *testing.T) {
 	}
 }
 
-func TestCompensateInstallNilState(t *testing.T) {
+func TestCompensateInstallEmptyState(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	err := p.CompensateInstall(nil)
+	err := p.CompensateInstall(Tombstone{})
 	if err != nil {
-		t.Fatalf("CompensateInstall(nil) error = %v", err)
+		t.Fatalf("CompensateInstall(empty) error = %v", err)
 	}
 }
 
@@ -202,19 +200,8 @@ func TestUpgrade(t *testing.T) {
 	if len(result) != 1 || result[0] != "vim" {
 		t.Errorf("Upgrade() result = %v, want [vim]", result)
 	}
-	if state == nil {
-		t.Fatal("Upgrade() state is nil")
-	}
-	prevRaw, ok := state["previous_versions"]
-	if !ok {
-		t.Fatal("Upgrade() state missing previous_versions")
-	}
-	prev, ok := prevRaw.(map[string]string)
-	if !ok {
-		t.Fatalf("Upgrade() previous_versions type = %T, want map[string]string", prevRaw)
-	}
-	if prev["vim"] != "8.2" {
-		t.Errorf("Upgrade() previous_versions[vim] = %q, want %q", prev["vim"], "8.2")
+	if state.PreviousVersions["vim"] != "8.2" {
+		t.Errorf("Upgrade() state.PreviousVersions[vim] = %q, want %q", state.PreviousVersions["vim"], "8.2")
 	}
 }
 
@@ -246,12 +233,8 @@ func TestRemove(t *testing.T) {
 	if len(result) != 2 || result[0] != "vim" || result[1] != "git" {
 		t.Errorf("Remove() result = %v, want [vim git]", result)
 	}
-	if state == nil {
-		t.Fatal("Remove() state is nil")
-	}
-	packages, _ := state["packages"].([]string)
-	if len(packages) != 2 || packages[0] != "vim" || packages[1] != "git" {
-		t.Errorf("Remove() state.packages = %v, want [vim git]", packages)
+	if len(state.Packages) != 2 || state.Packages[0] != "vim" || state.Packages[1] != "git" {
+		t.Errorf("Remove() state.Packages = %v, want [vim git]", state.Packages)
 	}
 	if packageManager.installed["vim"] || packageManager.installed["git"] {
 		t.Error("Remove() packages still marked installed in package manager")
@@ -264,10 +247,10 @@ func TestCompensateRemove(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	state := map[string]any{
-		"packages": []string{"vim", "git"},
-		"manager":  "",
-		"cask":     false,
+	state := Tombstone{
+		Packages: []string{"vim", "git"},
+		Manager:  "",
+		Cask:     false,
 	}
 	err := p.CompensateRemove(state)
 	if err != nil {

@@ -6,6 +6,7 @@
 package staranalysis
 
 import (
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/starcomplexity"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/starindex"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/starstats"
@@ -43,6 +44,7 @@ type AnalysisReport struct {
 // +devlore:access=immediate
 // +devlore:bind Root=WorkDir
 type Provider struct {
+	op.ProviderBase
 	Root string
 }
 

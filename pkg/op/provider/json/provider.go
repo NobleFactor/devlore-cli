@@ -7,12 +7,16 @@ package json
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides JSON encoding and decoding operations.
 //
 // +devlore:access=immediate
-type Provider struct{}
+type Provider struct {
+	op.ProviderBase
+}
 
 // Encode marshals a Go value to a compact JSON string.
 func (p *Provider) Encode(value any) (string, error) {

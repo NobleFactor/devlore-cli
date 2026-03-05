@@ -7,13 +7,16 @@ package yaml
 import (
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"gopkg.in/yaml.v3"
 )
 
 // Provider provides YAML encoding and decoding operations.
 //
 // +devlore:access=immediate
-type Provider struct{}
+type Provider struct {
+	op.ProviderBase
+}
 
 // Encode marshals a Go value to a YAML string.
 func (p *Provider) Encode(value any) (result string, err error) {

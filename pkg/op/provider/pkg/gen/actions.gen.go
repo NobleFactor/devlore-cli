@@ -10,8 +10,10 @@ import (
 func init() {
 	op.RegisterBinding(&op.ProviderBinding{
 		Name: "pkg",
-		ActionRegistrar: func(reg *op.ActionRegistry) {
-			op.RegisterReflectedActions(reg, "pkg", &provider.Provider{}, Params)
+		ActionRegistrar: func(reg *op.ActionRegistry, ctx op.Context) {
+			p := &provider.Provider{}
+			op.InitProvider(p, ctx)
+			op.RegisterReflectedActions(reg, "pkg", p, Params)
 		},
 	})
 }

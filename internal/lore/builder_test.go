@@ -178,7 +178,7 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 	reg := op.NewActionRegistry()
 
 	// Register all actions (file + package)
-	provider.RegisterAll(reg)
+	provider.RegisterAll(reg, op.Context{})
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
@@ -211,7 +211,7 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	// Test that all namespaced package actions can execute in dry-run mode
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg)
+	provider.RegisterAll(reg, op.Context{})
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
@@ -602,7 +602,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 	}
 
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg)
+	provider.RegisterAll(reg, op.Context{})
 
 	planner := &Planner{
 		Platform:       "Linux.Debian",
@@ -635,7 +635,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 
 func TestPlanner_PlanByName(t *testing.T) {
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg)
+	provider.RegisterAll(reg, op.Context{})
 
 	planner := &Planner{
 		Platform:       "Darwin",

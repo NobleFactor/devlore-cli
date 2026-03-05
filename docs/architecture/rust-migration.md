@@ -545,3 +545,119 @@ different execution host:
 | Cloud KMS SDKs less mature in Rust | Medium | REST APIs via `reqwest` as fallback |
 | TUI paradigm difference (Elm → immediate) | Medium | Match UX, not code structure |
 | Long-lived branch diverges from Go | High | Freeze Go feature development during port |
+
+## 11. Effort Estimate
+
+### 11.1 Codebase Scope
+
+| Component | Source LOC | Test LOC | Gen LOC |
+| --- | --- | --- | --- |
+| `pkg/op/` core (non-provider) | 3,716 | — | — |
+| `pkg/op/provider/` (20 providers) | ~5,292 | ~9,000 | 1,150 |
+| `internal/execution/` | 2,914 | 6,891 | — |
+| `internal/writ/` | 6,676 | 3,154 | — |
+| `internal/cli/` | 2,346 | 1,320 | — |
+| `internal/lorepackage/` | 2,114 | 994 | — |
+| `internal/lore/` | 1,781 | 882 | — |
+| `internal/model/` | 1,245 | 97 | — |
+| `internal/signing/` | 1,146 | 329 | — |
+| Other internal packages | 4,791 | 3,159 | — |
+| `cmd/` binaries | ~2,100 | — | — |
+| **Total** | **33,404** | **32,791** | **1,150** |
+
+### 11.2 Per-Phase Estimates (Active Working Days with Claude Code)
+
+| Phase | Description | Source to Port | Key Challenge | Days |
+| --- | --- | --- | --- | --- |
+| **0** | Workspace bootstrap | Config only | CI, cross-compilation | 0.5–1 |
+| **1** | Runtime trait library | 3,716 (minus ~1,400 reflection) | Foundation design; graph round-trip validation | 3–5 |
+| **2** | Proc macro crate | ~530 new (dense `syn`/`quote`) | Hardest phase — proc macro dev is intricate, debugging is slow (`cargo expand`, `trybuild`) | 5–8 |
+| **3** | File provider (reference) | 1,745 src + 3,094 test | First real validation; may expose Phase 2 bugs | 2–3 |
+| **4** | `star` Rust backend | In noblefactor-ops | tree-sitter-rust in Go; annotation emitter | 2–3 |
+| **5** | 19 remaining providers | ~3,547 src + ~5,906 test | Tier breadth; platform/service OS-specific code | 8–12 |
+| **6** | Execution engine | 2,914 src + 6,891 test | Complex state machine; massive test suite | 4–6 |
+| **7** | Internal packages | ~14,577 src + ~8,515 test | writ (6.7K LOC), TUI paradigm shift (bubbletea→ratatui), 5 LLM providers | 8–12 |
+| **8** | CLI binaries | ~2,100 + cli shared (2,346) | clap command trees, man pages, self-install | 3–5 |
+| **9** | Starlark extensions | Embedded in provider/starlark layers | starlark-rust API surface fit | 1–2 |
+| **10** | Validation & cutover | — | Cross-platform, graph compat, CI | 2–3 |
+
+### 11.3 Scenario Summary
+
+| Scenario | Active Days | Calendar Weeks |
+| --- | --- | --- |
+| **Optimistic** — experienced Rustacean, starlark-rust just works | 35–40 | 7–8 |
+| **Realistic** — moderate Rust experience, some starlark-rust workarounds | 50–60 | 10–12 |
+| **Pessimistic** — starlark-rust API gaps require forking, cloud KMS issues, TUI rework | 65–80 | 13–16 |
+
+Best estimate: **~55 active working days (~11 weeks)**.
+
+### 11.4 Acceleration Factors
+
+What makes Claude Code fast here:
+
+- Architecture doc and migration plan already exist — no exploration phase.
+- Go source is readable as a spec — Claude reads Go, writes Rust directly.
+- 1,150 LOC of `.gen.go` disappear entirely (replaced by ~400 lines of
+  annotations).
+- 1,400 LOC of reflection code disappear (replaced by ~930 lines of
+  compile-time infrastructure).
+- Bulk provider porting (19 providers, most under 200 LOC) is highly
+  parallelizable across sessions.
+- serde replaces Go struct tags and manual marshal/unmarshal — less code.
+- Test generation via macro means less hand-written test code.
+
+### 11.5 Drag Factors
+
+What prevents it from being faster:
+
+1. **Proc macro crate (5–8 days)**: The hardest single piece. `syn` AST
+   manipulation, `quote` code generation, and `trybuild` testing require
+   tight iteration cycles. Claude Code can write the macro, but verifying
+   expansion correctness requires `cargo expand` → read → fix → repeat.
+
+2. **starlark-rust is the biggest risk**: The Go codebase relies heavily on
+   `go.starlark.net`'s specific APIs (`StarlarkValue`, `HasAttrs`,
+   thread-local state). If `starlark-rust`'s API surface doesn't cover
+   these, the options are upstream issues, forks, or adapter layers. This
+   could add 0 days (it just works) or 10+ days (it doesn't).
+
+3. **The `writ` CLI is enormous** (6,676 LOC source + 3,154 test). It is
+   the single largest component and will require multiple focused sessions.
+
+4. **The execution engine test suite** (6,891 LOC) is massive relative to
+   its source (2,914 LOC). Porting the tests faithfully is time-consuming.
+
+5. **TUI paradigm shift**: bubbletea (Elm architecture) → ratatui
+   (immediate mode) is not a line-for-line port. The rendering model is
+   fundamentally different. The console package (838 LOC) and UI provider
+   (103 LOC) need rethinking.
+
+6. **Human remains the bottleneck**: Claude Code accelerates writing but
+   the review-compile-test-debug cycle is still sequential and human-gated.
+
+### 11.6 Comparison to Original Development
+
+The Go codebase was built in 30 active days (~2,157 LOC/day total). The
+Rust port benefits from a proven architecture to follow, but Rust's compile
+times, borrow checker, and the proc macro innovation add friction. Expect
+roughly 1.5–2× the original development time, which aligns with ~50–60
+days.
+
+### 11.7 Critical Path
+
+```
+Phase 0 (1d) → Phase 1 (4d) → Phase 2 (7d) → Phase 3 (3d) → Phase 5 (10d) → Phase 8 (5d) → Phase 10 (3d)
+                                                    ↘ Phase 4 (3d) ↗
+                                               Phase 6 (5d) ──────────↗
+                                               Phase 7 (10d) → Phase 8 ↗
+```
+
+Critical path minimum: ~33 days. The remainder is parallel work that a
+single developer handles sequentially, hence the ~55 day total.
+
+### 11.8 Recommended Pre-Commitment Spike
+
+Before committing to the full port, invest 2–3 days on a Phase 1 spike
+evaluating `starlark-rust`. Write a minimal provider with `StarlarkValue`,
+`HasAttrs`, and thread-local context passing. If that works cleanly, the
+estimate holds. If not, add 5–10 days or reconsider the migration.
