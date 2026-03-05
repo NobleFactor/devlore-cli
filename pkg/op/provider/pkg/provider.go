@@ -25,16 +25,25 @@ func (p *Provider) platform() (*op.Platform, error) {
 	return plat, nil
 }
 
+// packageNames extracts the Name field from each Resource.
+func packageNames(resources []Resource) []string {
+	names := make([]string, len(resources))
+	for i, r := range resources {
+		names[i] = r.Name
+	}
+	return names
+}
+
 // ── Compensable Pairs ────────────────────────────────────────────────
 
 // Install installs packages using the platform's package manager.
 // Returns compensation state with pre-install status per package.
 //
 // Parameters:
-//   - packages: List of package names to install
+//   - packages: package resources to install
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Install(packages []string, manager string, cask bool) (result []string, state Tombstone, err error) {
+func (p *Provider) Install(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
 	if len(packages) == 0 {
 		return nil, Tombstone{}, fmt.Errorf("no packages specified")
 	}
@@ -44,6 +53,8 @@ func (p *Provider) Install(packages []string, manager string, cask bool) (result
 		return nil, Tombstone{}, err
 	}
 
+	names := packageNames(packages)
+
 	packageManager := resolvePlatformManagerForInstall(plat, manager)
 	if packageManager == nil {
 		return nil, Tombstone{}, fmt.Errorf("no package manager available")
@@ -51,25 +62,25 @@ func (p *Provider) Install(packages []string, manager string, cask bool) (result
 
 	// Query which packages are already installed before acting.
 	var alreadyInstalled []string
-	for _, packageName := range packages {
+	for _, packageName := range names {
 		if packageManager.Installed(packageName) {
 			alreadyInstalled = append(alreadyInstalled, packageName)
 		}
 	}
 
 	if cask {
-		if err := runBrewCask("install", packages...); err != nil {
+		if err := runBrewCask("install", names...); err != nil {
 			return nil, Tombstone{}, err
 		}
 	} else {
-		r := packageManager.Install(packages...)
+		r := packageManager.Install(names...)
 		if !r.OK {
 			return nil, Tombstone{}, fmt.Errorf("%s install failed: %s", packageManager.Name(), r.Stderr)
 		}
 	}
 
 	return packages, Tombstone{
-		Packages:         packages,
+		Packages:         names,
 		Manager:          manager,
 		Cask:             cask,
 		AlreadyInstalled: alreadyInstalled,
@@ -129,10 +140,10 @@ func (p *Provider) CompensateInstall(state Tombstone) error {
 // Returns compensation state for reinstallation.
 //
 // Parameters:
-//   - packages: List of package names to remove
+//   - packages: package resources to remove
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Remove(packages []string, manager string, cask bool) (result []string, state Tombstone, err error) {
+func (p *Provider) Remove(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
 	if len(packages) == 0 {
 		return nil, Tombstone{}, fmt.Errorf("no packages specified")
 	}
@@ -142,7 +153,9 @@ func (p *Provider) Remove(packages []string, manager string, cask bool) (result 
 		return nil, Tombstone{}, err
 	}
 
-	for _, packageName := range packages {
+	names := packageNames(packages)
+
+	for _, packageName := range names {
 		if cask {
 			if err := runBrewCask("uninstall", packageName); err != nil {
 				return nil, Tombstone{}, err
@@ -160,7 +173,7 @@ func (p *Provider) Remove(packages []string, manager string, cask bool) (result 
 	}
 
 	return packages, Tombstone{
-		Packages: packages,
+		Packages: names,
 		Manager:  manager,
 		Cask:     cask,
 	}, nil
@@ -195,10 +208,10 @@ func (p *Provider) CompensateRemove(state Tombstone) error {
 // Returns compensation state with pre-upgrade versions per package.
 //
 // Parameters:
-//   - packages: List of package names to upgrade
+//   - packages: package resources to upgrade
 //   - manager: Package manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Upgrade(packages []string, manager string, cask bool) (result []string, state Tombstone, err error) {
+func (p *Provider) Upgrade(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
 	if len(packages) == 0 {
 		return nil, Tombstone{}, fmt.Errorf("no packages specified")
 	}
@@ -208,32 +221,34 @@ func (p *Provider) Upgrade(packages []string, manager string, cask bool) (result
 		return nil, Tombstone{}, err
 	}
 
-	packageManager := resolvePlatformManagerForUpgrade(plat, manager, packages)
+	names := packageNames(packages)
+
+	packageManager := resolvePlatformManagerForUpgrade(plat, manager, names)
 	if packageManager == nil {
 		return nil, Tombstone{}, fmt.Errorf("no package manager available")
 	}
 
 	// Capture current versions before upgrading.
 	previousVersions := make(map[string]string)
-	for _, packageName := range packages {
+	for _, packageName := range names {
 		if v := packageManager.Version(packageName); v != "" {
 			previousVersions[packageName] = v
 		}
 	}
 
 	if cask {
-		if err := runBrewCask("upgrade", packages...); err != nil {
+		if err := runBrewCask("upgrade", names...); err != nil {
 			return nil, Tombstone{}, err
 		}
 	} else {
-		r := packageManager.Install(packages...)
+		r := packageManager.Install(names...)
 		if !r.OK {
 			return nil, Tombstone{}, fmt.Errorf("%s upgrade failed: %s", packageManager.Name(), r.Stderr)
 		}
 	}
 
 	return packages, Tombstone{
-		Packages:         packages,
+		Packages:         names,
 		Manager:          manager,
 		Cask:             cask,
 		PreviousVersions: previousVersions,
@@ -276,8 +291,8 @@ func (p *Provider) Update(manager string) (string, error) {
 // Installed returns true if the named package is installed.
 //
 // Parameters:
-//   - name: Package name to check
-func (p *Provider) Installed(name string) (bool, error) {
+//   - name: package resource to check
+func (p *Provider) Installed(name Resource) (bool, error) {
 	plat, err := p.platform()
 	if err != nil {
 		return false, err
@@ -285,14 +300,14 @@ func (p *Provider) Installed(name string) (bool, error) {
 	if plat.PackageManager == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
-	return plat.PackageManager.Installed(name), nil
+	return plat.PackageManager.Installed(name.Name), nil
 }
 
 // NotInstalled returns true if the named package is not installed.
 //
 // Parameters:
-//   - name: Package name to check
-func (p *Provider) NotInstalled(name string) (bool, error) {
+//   - name: package resource to check
+func (p *Provider) NotInstalled(name Resource) (bool, error) {
 	plat, err := p.platform()
 	if err != nil {
 		return false, err
@@ -300,15 +315,15 @@ func (p *Provider) NotInstalled(name string) (bool, error) {
 	if plat.PackageManager == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
-	return !plat.PackageManager.Installed(name), nil
+	return !plat.PackageManager.Installed(name.Name), nil
 }
 
 // VersionGTE returns true if the installed version of name is >= version.
 //
 // Parameters:
-//   - name: Package name to check
+//   - name: package resource to check
 //   - version: Minimum version string to compare against
-func (p *Provider) VersionGTE(name, version string) (bool, error) {
+func (p *Provider) VersionGTE(name Resource, version string) (bool, error) {
 	plat, err := p.platform()
 	if err != nil {
 		return false, err
@@ -316,7 +331,7 @@ func (p *Provider) VersionGTE(name, version string) (bool, error) {
 	if plat.PackageManager == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
-	current := plat.PackageManager.Version(name)
+	current := plat.PackageManager.Version(name.Name)
 	if current == "" {
 		return false, nil
 	}

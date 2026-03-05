@@ -12,7 +12,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/getsops/sops/v3/decrypt"
-	"gopkg.in/yaml.v3"
 )
 
 // Provider provides encryption and decryption actions.
@@ -25,58 +24,39 @@ type Provider struct {
 // DecryptSopsFile takes a file.Resource, reads it into memory, and decrypts it via SOPS.
 //
 // Parameters:
-//
-//	sourceFile: The file.Resource to decrypt.
-//	destinationFilename: The filename to write the decrypted content to.
-//
-// Returns:
-//
-//   - result: a file.Resource containing the decrypted content.
-//   - undo: a map of compensation receipts.
-//   - err: an error, if any.
-func (p *Provider) DecryptSopsFile(sourceFile file.Resource, destinationFilename string) (result file.Resource, undo map[string]any, err error) {
-
+//   - source: file resource identifying the encrypted SOPS file
+//   - destination: file resource identifying where to write the decrypted content
+func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resource) (file.Resource, Tombstone, error) {
 	// 1. Read the source file into memory
-
-	buffer := bytes.NewBuffer(make([]byte, 0, sourceFile.Size))
-
-	if _, err := sourceFile.WriteTo(buffer); err != nil {
-		return file.Resource{}, nil, fmt.Errorf("failed to read source: %w", err)
+	buffer := bytes.NewBuffer(make([]byte, 0, source.Size))
+	if _, err := source.WriteTo(buffer); err != nil {
+		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to read source: %w", err)
 	}
 
 	// 2. Decrypt the file
-
 	cleartext, err := decrypt.Data(buffer.Bytes(), "yaml")
-
 	if err != nil {
-		return file.Resource{}, nil, fmt.Errorf("sops decryption failed: %w", err)
+		return file.Resource{}, Tombstone{}, fmt.Errorf("sops decryption failed: %w", err)
 	}
 
 	// 3. Write cleartext to the destination path
-
-	if err := os.WriteFile(destinationFilename, cleartext, 0600); err != nil {
-		return file.Resource{}, nil, fmt.Errorf("failed to write destination: %w", err)
+	if err := os.WriteFile(destination.SourcePath, cleartext, 0o600); err != nil {
+		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to write destination: %w", err)
 	}
 
 	// 4. Wrap the new file in a Resource
-
-	result, err = file.NewResource(destinationFilename)
-
+	result, err := file.NewResource(destination.SourcePath)
 	if err != nil {
-		return file.Resource{}, nil, fmt.Errorf("failed to initialize destination: %w", err)
+		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to initialize destination: %w", err)
 	}
 
-	// 5. Parse Metadata (Optional/Context Dependent)
-
-	var data map[string]any
-
-	if err := yaml.Unmarshal(cleartext, &data); err != nil {
-		return result, nil, fmt.Errorf("failed to parse decrypted metadata: %w", err)
-	}
-
-	return result, data, nil
+	return result, Tombstone{DestinationPath: destination.SourcePath}, nil
 }
 
-func (p *Provider) CompensateDecryptSopsFile(undo map[string]any) error {
-	panic("not implemented: encryption.CompensateDecryptSopsFile")
+// CompensateDecryptSopsFile removes the decrypted file created by DecryptSopsFile.
+func (p *Provider) CompensateDecryptSopsFile(state Tombstone) error {
+	if state.DestinationPath == "" {
+		return nil
+	}
+	return os.Remove(state.DestinationPath)
 }

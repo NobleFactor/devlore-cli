@@ -31,21 +31,21 @@ func (p *Provider) serviceManager() (op.ServiceManager, error) {
 // Disable disables a service from starting at boot.
 //
 // Parameters:
-//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Disable(name string) (result string, state Tombstone, err error) {
+//   - name: service resource identifying the service
+func (p *Provider) Disable(name Resource) (Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return "", Tombstone{}, err
+		return Resource{}, Tombstone{}, err
 	}
 
-	wasEnabled := sm.IsEnabled(name)
+	wasEnabled := sm.IsEnabled(name.Name)
 
-	r := sm.Disable(name)
+	r := sm.Disable(name.Name)
 	if !r.OK {
-		return "", Tombstone{}, fmt.Errorf("disable %s failed: %s", name, r.Stderr)
+		return Resource{}, Tombstone{}, fmt.Errorf("disable %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "disabled service %s\n", name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name, WasEnabled: wasEnabled}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "disabled service %s\n", name.Name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name.Name, WasEnabled: wasEnabled}, nil
 }
 
 // CompensateDisable undoes a Disable by enabling the service if it was
@@ -68,21 +68,21 @@ func (p *Provider) CompensateDisable(state Tombstone) error {
 // Enable enables a service to start at boot.
 //
 // Parameters:
-//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Enable(name string) (result string, state Tombstone, err error) {
+//   - name: service resource identifying the service
+func (p *Provider) Enable(name Resource) (Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return "", Tombstone{}, err
+		return Resource{}, Tombstone{}, err
 	}
 
-	wasEnabled := sm.IsEnabled(name)
+	wasEnabled := sm.IsEnabled(name.Name)
 
-	r := sm.Enable(name)
+	r := sm.Enable(name.Name)
 	if !r.OK {
-		return "", Tombstone{}, fmt.Errorf("enable %s failed: %s", name, r.Stderr)
+		return Resource{}, Tombstone{}, fmt.Errorf("enable %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "enabled service %s\n", name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name, WasEnabled: wasEnabled}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "enabled service %s\n", name.Name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name.Name, WasEnabled: wasEnabled}, nil
 }
 
 // CompensateEnable undoes an Enable by disabling the service if it
@@ -106,23 +106,23 @@ func (p *Provider) CompensateEnable(state Tombstone) error {
 // was restarted, it was already running.
 //
 // Parameters:
-//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Restart(name string) (result string, state Tombstone, err error) {
+//   - name: service resource identifying the service
+func (p *Provider) Restart(name Resource) (Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return "", Tombstone{}, err
+		return Resource{}, Tombstone{}, err
 	}
 
-	r := sm.Stop(name)
+	r := sm.Stop(name.Name)
 	if !r.OK {
-		return "", Tombstone{}, fmt.Errorf("stop before restart: %s", r.Stderr)
+		return Resource{}, Tombstone{}, fmt.Errorf("stop before restart: %s", r.Stderr)
 	}
-	r = sm.Start(name)
+	r = sm.Start(name.Name)
 	if !r.OK {
-		return "", Tombstone{}, fmt.Errorf("start after restart: %s", r.Stderr)
+		return Resource{}, Tombstone{}, fmt.Errorf("start after restart: %s", r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "restarted service %s\n", name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "restarted service %s\n", name.Name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name.Name}, nil
 }
 
 // CompensateRestart is a no-op. A restarted service was already running.
@@ -133,21 +133,21 @@ func (p *Provider) CompensateRestart(_ Tombstone) error {
 // Start starts a service.
 //
 // Parameters:
-//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Start(name string) (result string, state Tombstone, err error) {
+//   - name: service resource identifying the service
+func (p *Provider) Start(name Resource) (Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return "", Tombstone{}, err
+		return Resource{}, Tombstone{}, err
 	}
 
-	wasRunning := sm.IsRunning(name)
+	wasRunning := sm.IsRunning(name.Name)
 
-	r := sm.Start(name)
+	r := sm.Start(name.Name)
 	if !r.OK {
-		return "", Tombstone{}, fmt.Errorf("start %s failed: %s", name, r.Stderr)
+		return Resource{}, Tombstone{}, fmt.Errorf("start %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "started service %s\n", name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name, WasRunning: wasRunning}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "started service %s\n", name.Name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name.Name, WasRunning: wasRunning}, nil
 }
 
 // CompensateStart undoes a Start by stopping the service if it wasn't
@@ -170,21 +170,21 @@ func (p *Provider) CompensateStart(state Tombstone) error {
 // Stop stops a service.
 //
 // Parameters:
-//   - name: Service name (e.g., launchd label, systemd unit, Windows service)
-func (p *Provider) Stop(name string) (result string, state Tombstone, err error) {
+//   - name: service resource identifying the service
+func (p *Provider) Stop(name Resource) (Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return "", Tombstone{}, err
+		return Resource{}, Tombstone{}, err
 	}
 
-	wasRunning := sm.IsRunning(name)
+	wasRunning := sm.IsRunning(name.Name)
 
-	r := sm.Stop(name)
+	r := sm.Stop(name.Name)
 	if !r.OK {
-		return "", Tombstone{}, fmt.Errorf("stop %s failed: %s", name, r.Stderr)
+		return Resource{}, Tombstone{}, fmt.Errorf("stop %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "stopped service %s\n", name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name, WasRunning: wasRunning}, nil
+	_, _ = fmt.Fprintf(p.Context().Writer, "stopped service %s\n", name.Name) //nolint:errcheck // status output
+	return name, Tombstone{Name: name.Name, WasRunning: wasRunning}, nil
 }
 
 // CompensateStop undoes a Stop by starting the service if it was
@@ -209,35 +209,35 @@ func (p *Provider) CompensateStop(state Tombstone) error {
 // Enabled returns true if the named service is enabled to start at boot.
 //
 // Parameters:
-//   - name: Service name to check
-func (p *Provider) Enabled(name string) (bool, error) {
+//   - name: service resource to check
+func (p *Provider) Enabled(name Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err
 	}
-	return sm.IsEnabled(name), nil
+	return sm.IsEnabled(name.Name), nil
 }
 
 // Exists returns true if the named service exists on the system.
 //
 // Parameters:
-//   - name: Service name to check
-func (p *Provider) Exists(name string) (bool, error) {
+//   - name: service resource to check
+func (p *Provider) Exists(name Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err
 	}
-	return sm.Exists(name), nil
+	return sm.Exists(name.Name), nil
 }
 
 // Running returns true if the named service is currently running.
 //
 // Parameters:
-//   - name: Service name to check
-func (p *Provider) Running(name string) (bool, error) {
+//   - name: service resource to check
+func (p *Provider) Running(name Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err
 	}
-	return sm.IsRunning(name), nil
+	return sm.IsRunning(name.Name), nil
 }

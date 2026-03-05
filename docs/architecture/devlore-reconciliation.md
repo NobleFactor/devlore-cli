@@ -3,7 +3,7 @@ title: "Audit, Reconciliation, and Recovery in the Execution Graph"
 issue: https://github.com/NobleFactor/devlore-cli/issues/156
 status: draft
 created: 2026-02-21
-updated: 2026-02-24
+updated: 2026-03-05
 ---
 
 # Plan: Audit, Reconciliation, and Recovery in the Execution Graph
@@ -75,9 +75,9 @@ context-agnostic, the caller is context-aware.
 
 ## Current State
 
-| Concern | Mechanism | Problems |
-|---------|-----------|----------|
-| Recovery | `RecoveryStack` (LIFO of `RecoveryEntry{Node, UndoState}`) | Works. Transient -- destroyed after unwind. No audit trail. |
+| Concern | Mechanism | Status |
+|---------|-----------|--------|
+| Recovery | `op.RecoveryStack` — closure-based LIFO stack with `PushAction`, `Push`, `Do`, `Unwind`, `Discard`. Executor uses `PushAction` to bind `CompensableAction.Undo` at push time. `Unwind` implements the reconcile→undo dance. | **Implemented** in `pkg/op/recovery.go`. Executor and flow actions migrated. Transient — destroyed after unwind. No audit trail yet. |
 | Audit | Graph receipt (serialized `Graph` with node statuses) | Captures status but not duration, not resource identity. Mixes node metadata with execution outcome. |
 | Reconciliation | **Removed** (was `ctx.TargetChecksum`/`ctx.SourceChecksum`) | Checksums were framework plumbing that violated action encapsulation. Actions know their resources; the framework does not. |
 | Observation | `LifecycleHook` (fire-and-forget at node/phase boundaries) | No return channel. Cannot contribute data back to the execution record. |
@@ -238,9 +238,19 @@ func (s *RecoveryStack) Do(
 ) error
 ```
 
-**`Push`** adds an entry to the stack directly. Used when the caller
-invokes the action itself and wants to record the outcome manually
-(e.g., the executor, which already has the `ActionOutcome`):
+**`PushAction`** pushes a `CompensableAction` onto the stack. If the
+action does not implement `CompensableAction`, the call is a no-op.
+`ErrNotCompensable` responses are filtered during compensation. This is
+the ergonomic path for the common case — the executor and flow actions
+use it exclusively.
+
+```go
+func (s *RecoveryStack) PushAction(ctx *Context, action Action, undoState any)
+```
+
+**`Push`** adds an entry with explicit closures. Used when the caller
+needs custom compensate/reconcile logic beyond the standard
+`CompensableAction.Undo` pattern:
 
 ```go
 func (s *RecoveryStack) Push(
@@ -547,25 +557,30 @@ Define the `ExecutionEvent`, `ReconcilableAction` interface, and move the
 - [ ] Update `Action.Do` to return `(Result, UndoState, ReconciliationState, error)`
 - [ ] Add `ReconcilableAction` interface with `Reconcile(ReconciliationState) (bool, error)`
 - [ ] Add `ExecutionEvent`, `RecoveryPayload`, `ReconciliationPayload` types
-- [ ] Move `RecoveryStack` to `pkg/op` with `Do`, `Push`, `Unwind`, `Discard` API
-- [ ] `Unwind` implements the reconcile→undo dance (reconcile before each compensate)
-- [ ] `Do` invokes via closure, pushes on success, does not auto-unwind on failure
-- [ ] Add `ErrDrifted` sentinel for reconcile-detected drift during unwind
-- [ ] Update `executeNode` to handle the 4-value return and use the new `RecoveryStack.Push`
+- [x] Move `RecoveryStack` to `pkg/op` with `Do`, `Push`, `Unwind`, `Discard` API
+- [x] Add `PushAction` convenience method — binds `CompensableAction.Undo` in a closure, filters `ErrNotCompensable`
+- [x] `Unwind` implements the reconcile→undo dance (reconcile before each compensate)
+- [x] `Do` invokes via closure, pushes on success, does not auto-unwind on failure
+- [x] Add `ErrDrifted` sentinel for reconcile-detected drift during unwind
+- [x] Migrate executor to use `op.RecoveryStack.PushAction`; delete `internal/execution/recovery.go`
+- [x] Migrate flow actions (`Choose`, `Gather`) to use `op.RecoveryStack.PushAction`
+- [ ] Update `executeNode` to handle the 4-value return and produce `ExecutionEvent`
 - [ ] Strip checksum verification from all `CompensateX` methods (moves to `ReconcileX` in Phase 2)
 - [ ] Add `ActionOutcome[T, U, V]` generic type
 - [ ] Strip hardcoded error prefixes from provider methods (context added by boundary layer)
 
 **Files**:
 
-| File | Action | Purpose |
-|------|--------|---------|
-| `pkg/op/action.go` | Modify | Extend `Action.Do` signature, add `ReconcilableAction` |
-| `pkg/op/recovery.go` | Create | `RecoveryStack` with `Do`/`Push`/`Unwind`/`Discard`, `ErrDrifted` |
-| `pkg/op/event.go` | Create | `ExecutionEvent`, payloads |
-| `internal/execution/executor.go` | Modify | Handle 4-value return, produce `ExecutionEvent`, use `op.RecoveryStack` |
-| `internal/execution/recovery.go` | Delete | Replaced by `pkg/op/recovery.go` |
-| `pkg/op/provider/*/provider.go` | Modify | Strip checksum verification from `CompensateX`, strip error prefixes |
+| File | Action | Status | Purpose |
+|------|--------|--------|---------|
+| `pkg/op/action.go` | Modify | | Extend `Action.Do` signature, add `ReconcilableAction` |
+| `pkg/op/recovery.go` | Create | **Done** | `RecoveryStack` with `Do`/`Push`/`PushAction`/`Unwind`/`Discard`, `ErrDrifted` |
+| `pkg/op/event.go` | Create | | `ExecutionEvent`, payloads |
+| `internal/execution/executor.go` | Modify | **Partial** | Migrated to `op.RecoveryStack.PushAction`. Remaining: 4-value return, `ExecutionEvent` |
+| `internal/execution/recovery.go` | Delete | **Done** | Replaced by `pkg/op/recovery.go` |
+| `internal/execution/flow/choose.go` | Modify | **Done** | Migrated to `op.RecoveryStack.PushAction` |
+| `internal/execution/flow/gather.go` | Modify | **Done** | Migrated to `op.RecoveryStack.PushAction` |
+| `pkg/op/provider/*/provider.go` | Modify | | Strip checksum verification from `CompensateX`, strip error prefixes |
 
 ### Phase 2: Provider Reconcile Methods
 
@@ -586,8 +601,8 @@ as the 3rd return value.
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `execution/provider/{file,pkg,service,git,archive}/provider.go` | Modify | Add `ReconcileX` methods, update `Do` returns |
-| `execution/provider/*/actions_gen.go` | Regenerate | Wire 4th return value and `Reconcile` method |
+| `pkg/op/provider/{file,pkg,service,git}/provider.go` | Modify | Add `ReconcileX` methods, update `Do` returns |
+| `pkg/op/provider/*/actions_gen.go` | Regenerate | Wire 4th return value and `Reconcile` method |
 
 ### Phase 3: Event Stream and Audit Ledger
 
@@ -602,9 +617,9 @@ Expose the event stream from the executor so consumers can subscribe.
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `execution/event.go` | Modify | Add `EventSink` interface |
-| `execution/executor.go` | Modify | Wire event emission |
-| `execution/audit.go` | Create | `AuditLedger` implementation |
+| `pkg/op/event.go` | Modify | Add `EventSink` interface |
+| `internal/execution/executor.go` | Modify | Wire event emission |
+| `internal/execution/audit.go` | Create | `AuditLedger` implementation |
 
 ### Phase 4: Reconciliation Engine
 
@@ -614,15 +629,22 @@ Build the reconciliation store and reconcile command.
 - [ ] Wire as an `EventSink` during deploy/upgrade
 - [ ] Implement `writ reconcile` using the store + action Reconcile methods
 - [ ] Add safety gate: `Reconcile` before `Undo` to detect dangerous undos
-- [ ] Remove the stub reconcile package created during checksum removal
+- [ ] Determine relationship between `internal/writ/reconcile` (filesystem-based drift detection) and the action-based reconciliation engine (see note below)
+
+> **Note**: `internal/writ/reconcile` is a working filesystem-based drift
+> detection implementation (`State`, `Entry`, `Report`, `FromBuildResult`,
+> `ScanTarget`). It operates without an execution graph receipt — scanning
+> the filesystem directly to detect state/link/copy/conflict status. This
+> may need to coexist with the action-based reconciliation engine for the
+> case where no receipt exists (e.g., receipts directory was deleted).
 
 **Files**:
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `execution/reconcile.go` | Create | `ReconciliationStore` |
-| `writ/reconcile/reconcile.go` | Rewrite | Drift detection via stored reconciliation data + Reconcile methods |
-| `writ/commands.go` | Modify | Wire reconciliation into deploy/reconcile/upgrade |
+| `internal/execution/reconcile.go` | Create | `ReconciliationStore` |
+| `internal/writ/reconcile/reconcile.go` | Evolve | Integrate action-based reconciliation; preserve filesystem-based fallback |
+| `internal/writ/commands.go` | Modify | Wire reconciliation into deploy/reconcile/upgrade |
 
 ### Phase 5: Code Generation — The Type Signature Triangle
 
@@ -724,6 +746,7 @@ When replicating to the Sidecar, Reconciliation Data must be indexed by the
 
 ## Related Documents
 
+- [Implementation Plan](../plans/reconciliation.md) -- phased implementation plan
 - [Binding Unification](./binding-unification.md) -- parent plan
 - [Phase 8](./binding-unification/phase-8.md) -- compensation classification, provider contracts
 - Issue #156 -- Audit, Reconciliation, and Recovery in the Execution Graph

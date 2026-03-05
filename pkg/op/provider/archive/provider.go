@@ -15,14 +15,10 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // Provider provides archive extraction actions.
-//
-// Compensable Forward methods return (string, map[string]any, error):
-// the extraction directory, the compensation receipt, and an error.
-// The map is opaque to the executor, meaningful only to the
-// corresponding Compensate* Backward method.
 //
 // +devlore:access=both
 type Provider struct {
@@ -36,55 +32,50 @@ type Provider struct {
 // Returns compensation state with the list of created files.
 //
 // Parameters:
-//   - source: Path to the archive file (tar.gz, tgz, or zip)
-//   - prefix: Directory to extract into
-func (p *Provider) Extract(source, prefix string) (dest string, state map[string]any, err error) {
-	if err := os.MkdirAll(prefix, 0o750); err != nil {
-		return "", nil, fmt.Errorf("create prefix dir: %w", err)
+//   - source: file resource identifying the archive file (tar.gz, tgz, or zip)
+//   - prefix: file resource identifying the extraction directory
+func (p *Provider) Extract(source, prefix file.Resource) (file.Resource, Tombstone, error) {
+	if err := os.MkdirAll(prefix.SourcePath, 0o750); err != nil {
+		return file.Resource{}, Tombstone{}, fmt.Errorf("create prefix dir: %w", err)
 	}
 
 	var created []string
+	var err error
 
-	lower := strings.ToLower(source)
+	lower := strings.ToLower(source.SourcePath)
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		created, err = extractTarGz(source, prefix)
+		created, err = extractTarGz(source.SourcePath, prefix.SourcePath)
 	case strings.HasSuffix(lower, ".zip"):
-		created, err = extractZip(source, prefix)
+		created, err = extractZip(source.SourcePath, prefix.SourcePath)
 	default:
-		return "", nil, fmt.Errorf("unsupported archive format: %s", source)
+		return file.Resource{}, Tombstone{}, fmt.Errorf("unsupported archive format: %s", source.SourcePath)
 	}
 
 	if err != nil {
-		return "", nil, err
+		return file.Resource{}, Tombstone{}, err
 	}
 
-	return prefix, map[string]any{
-		"dest":          prefix,
-		"created_files": created,
+	return prefix, Tombstone{
+		Dest:         prefix.SourcePath,
+		CreatedFiles: created,
 	}, nil
 }
 
 // CompensateExtract removes files created during extraction, then cleans up
 // empty directories under dest.
-func (p *Provider) CompensateExtract(state any) error {
-	s, _ := state.(map[string]any)
-	if s == nil {
+func (p *Provider) CompensateExtract(state Tombstone) error {
+	if state.Dest == "" {
 		return nil
 	}
-	created, _ := s["created_files"].([]string)
 
 	// Remove files in reverse order (deepest first).
-	for i := len(created) - 1; i >= 0; i-- {
-		os.Remove(created[i]) //nolint:errcheck // best-effort cleanup
+	for i := len(state.CreatedFiles) - 1; i >= 0; i-- {
+		os.Remove(state.CreatedFiles[i]) //nolint:errcheck // best-effort cleanup
 	}
 
 	// Clean up empty directories under dest.
-	dest, _ := s["dest"].(string)
-	if dest != "" {
-		return removeEmptyDirs(dest)
-	}
-	return nil
+	return removeEmptyDirs(state.Dest)
 }
 
 // removeEmptyDirs walks dest bottom-up removing empty directories.
