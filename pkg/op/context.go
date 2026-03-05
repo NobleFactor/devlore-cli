@@ -9,6 +9,11 @@ import (
 type Context struct {
 	context.Context // https://pkg.go.dev/context
 
+	// Catalog is the resource catalog for the current execution session.
+	// The action layer uses it to shadow Resource results after dispatch.
+	// Nil when running without catalog integration (e.g., tests).
+	Catalog *ResourceCatalog
+
 	// Data holds tool-provided context: template variables, SOPS config,
 	// identities, segment maps, etc. Each tool populates this before
 	// calling GraphExecutor.Run().

@@ -4,8 +4,12 @@
 package execution
 
 import (
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -142,4 +146,48 @@ func detectConflict(node *op.Node) Conflict {
 		Type:    ConflictRegularFile,
 		Message: fmt.Sprintf("file exists at %s (%d bytes)", path, info.Size()),
 	}
+}
+
+// ResolveResources verifies that all discovered resources in the catalog
+// exist on the target machine. Discovery entries are created by
+// catalog.Resolve during planning — they represent URIs referenced as
+// Resource-typed parameters.
+//
+// Only file:// scheme URIs are checked (os.Stat). Other schemes (git,
+// pkg, svc) are skipped — their resolution requires provider-specific
+// logic that runs during execution.
+//
+// Returns an error listing all missing sources. Callers should invoke
+// this explicitly when they know all discovery entries represent genuine
+// sources (inputs that must already exist). The executor does NOT call
+// this automatically because the planned bridge currently registers both
+// source and destination parameters via catalog.Resolve — destination
+// files may not exist yet (they will be created by the graph).
+func ResolveResources(catalog *op.ResourceCatalog) error {
+	if catalog == nil {
+		return nil
+	}
+
+	uris := catalog.DiscoveryURIs()
+	sort.Strings(uris) // deterministic error messages
+
+	var missing []string
+	for _, rawURI := range uris {
+		u, err := url.Parse(rawURI)
+		if err != nil {
+			continue
+		}
+		if u.Scheme != op.SchemeFile {
+			continue
+		}
+		if _, err := os.Stat(u.Path); errors.Is(err, os.ErrNotExist) {
+			missing = append(missing, u.Path)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("pre-flight: %d missing source(s): %s",
+			len(missing), strings.Join(missing, ", "))
+	}
+	return nil
 }

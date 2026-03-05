@@ -628,6 +628,11 @@ type testFileResource struct {
 	SourcePath string
 }
 
+func (r *testFileResource) URI() string    { return r.NewURI(r) }
+func (r *testFileResource) Scheme() string { return SchemeFile }
+func (r *testFileResource) Host() string   { return "" }
+func (r *testFileResource) Path() string   { return r.SourcePath }
+
 func TestFillSlotImplicitEdge_ResourceWithOrigin(t *testing.T) {
 	g := makeTestGraph()
 	consumer := makeTestNode("reader", "file.read")

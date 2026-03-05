@@ -4,6 +4,7 @@
 package op
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -239,6 +240,86 @@ func TestWrapPlanned_Override(t *testing.T) {
 
 	if !called {
 		t.Error("override was not called")
+	}
+}
+
+func TestWrapPlanned_ResolvesResourceParams(t *testing.T) {
+	// Register plan-time constructor for actionResource.
+	RegisterPlanTimeConstructor(func(v any) (actionResource, error) {
+		s, ok := v.(string)
+		if !ok {
+			return actionResource{}, fmt.Errorf("expected string, got %T", v)
+		}
+		return actionResource{SourcePath: s}, nil
+	})
+	defer planTimeConstructorRegistry.Delete(reflect.TypeOf(actionResource{}))
+
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	// Touch takes an actionResource parameter — should trigger catalog resolution.
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Touch": {"res"},
+	})
+
+	attr, _ := p.Attr("touch")
+	builtin := attr.(*starlark.Builtin)
+	_, err := builtin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("res"), starlark.String("/tmp/new-file")},
+	})
+	if err != nil {
+		t.Fatalf("touch() error: %v", err)
+	}
+
+	// The res parameter is actionResource-typed. The plan-time constructor
+	// should have created a URI-only Resource and resolved it in the catalog.
+	uri := "file:///tmp/new-file"
+	id := graph.Catalog.Current(uri)
+	if id == "" {
+		t.Errorf("catalog has no entry for %q — resolveResourceParam did not fire", uri)
+	}
+}
+
+func TestWrapPlanned_SkipsPromiseResolution(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Create": {"path"},
+		"Delete": {"path"},
+	})
+
+	// First call: create returns a promise.
+	createAttr, _ := p.Attr("create")
+	createBuiltin := createAttr.(*starlark.Builtin)
+	promise, err := createBuiltin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("path"), starlark.String("/tmp/x")},
+	})
+	if err != nil {
+		t.Fatalf("create() error: %v", err)
+	}
+
+	// Second call: pass promise to delete — should NOT resolve.
+	catalogBefore := graph.Catalog.Len()
+	deleteAttr, _ := p.Attr("delete")
+	deleteBuiltin := deleteAttr.(*starlark.Builtin)
+	_, err = deleteBuiltin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("path"), promise},
+	})
+	if err != nil {
+		t.Fatalf("delete() error: %v", err)
+	}
+
+	// Catalog should not have grown (promise is deferred, not resolved).
+	if graph.Catalog.Len() != catalogBefore {
+		t.Errorf("catalog grew from %d to %d — promise should not be resolved at plan time",
+			catalogBefore, graph.Catalog.Len())
 	}
 }
 

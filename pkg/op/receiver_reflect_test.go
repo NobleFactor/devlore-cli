@@ -51,6 +51,14 @@ func (p *testProvider) Write(path, content string) (string, map[string]any, erro
 // Compensate method — should be excluded.
 func (p *testProvider) CompensateWrite(_ map[string]any) error { return nil }
 
+// NoResult pattern: (NoResult, map[string]any, error).
+func (p *testProvider) Remove(path string) (NoResult, map[string]any, error) {
+	return NoResult{}, map[string]any{"path": path}, nil
+}
+
+// Compensate method for Remove.
+func (p *testProvider) CompensateRemove(_ map[string]any) error { return nil }
+
 // Struct return.
 func (p *testProvider) GetPoint() testPoint { return testPoint{X: 10, Y: 20} }
 
@@ -83,6 +91,7 @@ var testParams = MethodParams{
 	"Noop":      {},
 	"Validate":  {"s"},
 	"Write":     {"path", "content"},
+	"Remove":    {"path"},
 	"GetPoint":  {},
 	"Search":    {"query", "limit?"},
 	"TryParse":  {"s"},
@@ -98,7 +107,7 @@ func TestWrapReceiver_MethodDiscovery(t *testing.T) {
 	// Verify expected methods are present.
 	expected := []string{
 		"count", "divide", "exists", "get_point", "greet",
-		"list_files", "noop", "search", "try_parse", "validate", "write",
+		"list_files", "noop", "remove", "search", "try_parse", "validate", "write",
 	}
 	if len(names) != len(expected) {
 		t.Fatalf("AttrNames() = %v (len %d), want %v (len %d)", names, len(names), expected, len(expected))
@@ -444,5 +453,81 @@ func TestReflectedReceiver_StarlarkValue(t *testing.T) {
 	}
 	if r.Truth() != starlark.True {
 		t.Error("Truth() should be True")
+	}
+}
+
+// --- NoResult tests ---
+
+func TestCall_NoResultReturn(t *testing.T) {
+	r := WrapReceiver("test", &testProvider{}, testParams)
+	result := callMethod(t, r, "remove", starlark.String("/tmp/file"))
+
+	if result != starlark.None {
+		t.Errorf("remove() = %v, want None", result)
+	}
+}
+
+// --- Catalog integration tests ---
+
+func TestWrapReceiver_CatalogShadow(t *testing.T) {
+	catalog := NewResourceCatalog()
+	r := WrapReceiver("test", &actionProvider{}, MethodParams{
+		"Create": {"path"},
+	})
+	r.SetCatalog(catalog)
+
+	callMethod(t, r, "create", starlark.String("/tmp/new"))
+
+	if catalog.Len() != 1 {
+		t.Errorf("catalog len = %d, want 1 (Resource result should be shadowed)", catalog.Len())
+	}
+}
+
+func TestWrapReceiver_NoCatalog_NoShadow(t *testing.T) {
+	r := WrapReceiver("test", &actionProvider{}, MethodParams{
+		"Create": {"path"},
+	})
+	// No catalog set — should not panic.
+	callMethod(t, r, "create", starlark.String("/tmp/new"))
+}
+
+func TestWrapReceiver_CatalogError_NoShadow(t *testing.T) {
+	catalog := NewResourceCatalog()
+	r := WrapReceiver("test", &testProvider{}, testParams)
+	r.SetCatalog(catalog)
+
+	// Validate("") returns error — should not shadow.
+	err := callMethodErr(t, r, "validate", starlark.String(""))
+	if err == nil {
+		t.Fatal("validate('') should return error")
+	}
+	if catalog.Len() != 0 {
+		t.Errorf("catalog len = %d, want 0 (error result should not be shadowed)", catalog.Len())
+	}
+}
+
+func TestWrapReceiver_CatalogNonResource_NoShadow(t *testing.T) {
+	catalog := NewResourceCatalog()
+	r := WrapReceiver("test", &testProvider{}, testParams)
+	r.SetCatalog(catalog)
+
+	// Greet returns string — not a Resource, should not be shadowed.
+	callMethod(t, r, "greet", starlark.String("world"))
+
+	if catalog.Len() != 0 {
+		t.Errorf("catalog len = %d, want 0 (non-Resource result should not be shadowed)", catalog.Len())
+	}
+}
+
+func TestWrapReceiver_CatalogNoResult_NoShadow(t *testing.T) {
+	catalog := NewResourceCatalog()
+	r := WrapReceiver("test", &testProvider{}, testParams)
+	r.SetCatalog(catalog)
+
+	// Remove returns NoResult — nothing to shadow.
+	callMethod(t, r, "remove", starlark.String("/tmp/file"))
+
+	if catalog.Len() != 0 {
+		t.Errorf("catalog len = %d, want 0 (NoResult should not be shadowed)", catalog.Len())
 	}
 }

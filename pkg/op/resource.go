@@ -5,7 +5,6 @@ package op
 
 import (
 	"net/url"
-	"path/filepath"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -15,8 +14,19 @@ import (
 //
 // Every provider-specific resource (e.g., file.Resource) must embed [ResourceBase] to satisfy it. The unexported
 // resourceBase method seals the interface to package op. Only types embedding [ResourceBase] can implement [Resource].
+//
+// Concrete types must implement [Scheme], [Host], and [Path] to provide URI components. [URI] should be implemented
+// as a one-liner delegating to [ResourceBase.NewURI]:
+//
+//	func (r *Resource) URI() string { return r.NewURI(r) }
+//
+// [ResourceBase] provides default implementations of all four methods by parsing the stored uri field. Concrete types
+// shadow these with efficient, component-based implementations.
 type Resource interface {
 	URI() string
+	Scheme() string
+	Host() string
+	Path() string
 	resourceBase() *ResourceBase
 }
 
@@ -37,9 +47,48 @@ func NewResourceBase(uri string) ResourceBase {
 	return ResourceBase{uri: uri}
 }
 
-// URI returns the canonical URI of this resource.
+// URI returns the canonical URI of this resource. Concrete types should
+// shadow this with: func (r *Resource) URI() string { return r.NewURI(r) }
 func (b ResourceBase) URI() string {
 	return b.uri
+}
+
+// Scheme returns the URI scheme by parsing the stored uri. Concrete types
+// should shadow this with a constant (e.g., "file").
+func (b ResourceBase) Scheme() string {
+	u, err := url.Parse(b.uri)
+	if err != nil {
+		return ""
+	}
+	return u.Scheme
+}
+
+// Host returns the URI host by parsing the stored uri. Concrete types
+// should shadow this with their authority component (often empty).
+func (b ResourceBase) Host() string {
+	u, err := url.Parse(b.uri)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+// Path returns the URI path by parsing the stored uri. Concrete types
+// should shadow this with their provider-specific identifier.
+func (b ResourceBase) Path() string {
+	u, err := url.Parse(b.uri)
+	if err != nil {
+		return ""
+	}
+	return u.Path
+}
+
+// NewURI builds a canonical URI from a concrete Resource's component methods.
+// Concrete types call this to implement URI():
+//
+//	func (r *Resource) URI() string { return r.NewURI(r) }
+func (b *ResourceBase) NewURI(r Resource) string {
+	return (&url.URL{Scheme: r.Scheme(), Host: r.Host(), Path: r.Path()}).String()
 }
 
 // resourceBase returns a pointer to the embedded ResourceBase, allowing the
@@ -77,8 +126,14 @@ type Tombstone interface {
 	tombstoneBase()
 }
 
-// TombstoneBase holds the resource that was affected by a compensable action. Provider-specific tombstone types must
-// embed it by value.
+// TombstoneBase holds the resource that was affected by a compensable action.
+// Provider-specific tombstone types must embed it by value.
+//
+// The embedded Resource reflects post-operation state: its identity fields
+// (e.g., SourcePath for file resources) point to where the data physically
+// IS after the operation, not where it was before. Provider-specific fields
+// on the tombstone (e.g., file.Tombstone.OriginalPath) record where the
+// data came from — the restoration target.
 type TombstoneBase struct {
 	resource Resource
 }
@@ -95,19 +150,8 @@ func (b TombstoneBase) Resource() Resource {
 
 func (b TombstoneBase) tombstoneBase() {}
 
-// ResourceURI builds a canonicalized URI from a scheme and an identifier.
-// For file:// URIs, id is resolved via filepath.Abs + filepath.Clean.
-// All URIs use the authority form with an empty host: scheme:///id.
-func ResourceURI(scheme, id string) string {
-	if scheme == SchemeFile {
-		abs, err := filepath.Abs(id)
-		if err == nil {
-			id = abs
-		}
-		id = filepath.Clean(id)
-	}
-	if len(id) == 0 || id[0] != '/' {
-		id = "/" + id
-	}
-	return (&url.URL{Scheme: scheme, Path: id}).String()
-}
+// NoResult signals that a provider method produces no output. Used by
+// CompensableAction methods like Remove and RemoveAll that can be undone
+// but produce no result for downstream nodes. classifyActionReturn maps
+// NoResult to nil Result; classifyReturn maps it to starlark.None.
+type NoResult struct{}

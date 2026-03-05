@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -12,12 +13,23 @@ import (
 )
 
 func init() {
+	// Execution-time constructor: creates a Resource with full metadata (os.Stat).
 	op.RegisterConstructor(func(v any) (Resource, error) {
 		s, ok := v.(string)
 		if !ok {
 			return Resource{}, fmt.Errorf("file.Resource: expected string path, got %T", v)
 		}
 		return NewResource(s)
+	})
+
+	// Plan-time constructor: creates a URI-only Resource with no I/O.
+	// Used by the planned bridge for catalog resolution.
+	op.RegisterPlanTimeConstructor(func(v any) (Resource, error) {
+		s, ok := v.(string)
+		if !ok {
+			return Resource{}, fmt.Errorf("file.Resource: expected string path, got %T", v)
+		}
+		return Resource{SourcePath: s}, nil
 	})
 }
 
@@ -33,11 +45,33 @@ type Resource struct {
 	Checksum   string
 }
 
-// Tombstone holds file-specific compensation state. The embedded [op.TombstoneBase] carries the affected [Resource]
-// (whose SourcePath is the original location). RecoveryPath is where the file was stashed for safe keeping.
+// URI returns the canonical file:// URI for this resource.
+func (r *Resource) URI() string { return r.NewURI(r) }
+
+// Scheme returns "file".
+func (r *Resource) Scheme() string { return op.SchemeFile }
+
+// Host returns empty string — file URIs have no authority.
+func (r *Resource) Host() string { return "" }
+
+// Path returns the canonicalized absolute path.
+func (r *Resource) Path() string {
+	abs, err := filepath.Abs(r.SourcePath)
+	if err != nil {
+		return filepath.Clean(r.SourcePath)
+	}
+	return filepath.Clean(abs)
+}
+
+// Tombstone holds file-specific compensation state.
+//
+// The embedded [op.TombstoneBase] carries the affected [Resource] whose
+// SourcePath reflects where the data physically IS after the operation
+// (e.g., the recovery path after moveToRecovery). OriginalPath records
+// where the data WAS before the operation — the restoration target.
 type Tombstone struct {
 	op.TombstoneBase
-	RecoveryPath string
+	OriginalPath string
 }
 
 // NewResource initializes a new [Resource] by checking the existence and size of the file at the provided sourcePath.
@@ -47,40 +81,30 @@ type Tombstone struct {
 //
 // Returns: an error if the path does not exist or is a directory
 func NewResource(path string) (Resource, error) {
-
-	// Generate a URI for the resource
-	uri := fmt.Sprintf("file://%s", path)
+	r := Resource{SourcePath: path}
 
 	info, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			// This is a "Known Path but No Data" state.
-			// The Executor will need to fulfill this via a Node later.
-			return Resource{
-				ResourceBase: op.NewResourceBase(uri),
-				SourcePath:   path,
-			}, nil
+			// Known path but no data — the executor will resolve this later.
+			return r, nil
 		}
 		return Resource{}, fmt.Errorf("failed to stat blob source: %w", err)
 	}
 
-	// Extract syscall.Stat_t to get the Inode and Device
 	var inode, device uint64
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		inode = stat.Ino
 		device = uint64(stat.Dev)
 	}
 
-	return Resource{
-		ResourceBase: op.NewResourceBase(uri),
-		Inode:        inode,
-		Device:       device,
-		SourcePath:   path,
-		Size:         info.Size(),
-		Mode:         info.Mode(),
-		ModTime:      info.ModTime(),
-		Checksum:     checksumFile(path),
-	}, nil
+	r.Inode = inode
+	r.Device = device
+	r.Size = info.Size()
+	r.Mode = info.Mode()
+	r.ModTime = info.ModTime()
+	r.Checksum = checksumFile(path)
+	return r, nil
 }
 
 // Exists returns true if the Resource references a file that existed when the Resource was created.
@@ -211,8 +235,7 @@ func (r *Resource) refreshMetadataWith(info os.FileInfo, checksum string, size i
 	r.Mode = info.Mode()
 	r.ModTime = info.ModTime()
 
-	// We re-calculate the checksum because the content has changed
-	r.Checksum = checksumFile(r.SourcePath)
+	r.Checksum = checksum
 
 	return nil
 }

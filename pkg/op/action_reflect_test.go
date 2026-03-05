@@ -40,6 +40,18 @@ type actionConfig struct {
 	Label     string
 }
 
+// actionResource embeds ResourceBase and satisfies Resource via pointer receivers.
+// Used to test that promoteAndShadow correctly promotes value results to pointers.
+type actionResource struct {
+	ResourceBase
+	SourcePath string
+}
+
+func (r *actionResource) URI() string    { return r.NewURI(r) }
+func (r *actionResource) Scheme() string { return SchemeFile }
+func (r *actionResource) Host() string   { return "" }
+func (r *actionResource) Path() string   { return r.SourcePath }
+
 // actionProvider exercises all action patterns.
 type actionProvider struct{}
 
@@ -83,6 +95,29 @@ func (p *actionProvider) Configure(name string, cfg actionConfig) (string, error
 	return fmt.Sprintf("%s:enabled=%v,threshold=%d,label=%s", name, cfg.Enabled, cfg.Threshold, cfg.Label), nil
 }
 
+// Returns a Resource by value — tests shadowResult.
+func (p *actionProvider) Create(path string) (actionResource, string, error) {
+	return actionResource{SourcePath: path}, "undo:" + path, nil
+}
+
+func (p *actionProvider) CompensateCreate(state string) error {
+	return nil
+}
+
+// Takes a Resource parameter — tests plan-time catalog resolution.
+func (p *actionProvider) Touch(res actionResource) (actionResource, error) {
+	return res, nil
+}
+
+// Compensable with NoResult: (NoResult, map[string]any, error).
+func (p *actionProvider) Delete(path string) (NoResult, map[string]any, error) {
+	return NoResult{}, map[string]any{"path": path}, nil
+}
+
+func (p *actionProvider) CompensateDelete(state map[string]any) error {
+	return nil
+}
+
 // Immediate-only (no error return, should be skipped).
 func (p *actionProvider) Exists(path string) bool {
 	return path != ""
@@ -96,7 +131,10 @@ func (p *actionProvider) Noop() error {
 var actionParams = MethodParams{
 	"Configure": {"name", "cfg"},
 	"Copy":      {"source", "dest"},
+	"Create":    {"path"},
+	"Delete":    {"path"},
 	"Read":      {"path"},
+	"Touch":     {"res"},
 	"Validate":  {"path"},
 	"Mkdir":     {"path", "mode"},
 	"Deploy":    {"res"},
@@ -324,14 +362,17 @@ func TestRegisterReflectedActions_ActionNames(t *testing.T) {
 	names := reg.Names()
 	sort.Strings(names)
 
-	// Exists is skipped (no error return). Configure, Noop, Validate, Read, Copy, Mkdir, Deploy qualify.
+	// Exists is skipped (no error return). Configure, Copy, Create, Delete, Deploy, Mkdir, Noop, Read, Touch, Validate qualify.
 	expected := []string{
 		"test.configure",
 		"test.copy",
+		"test.create",
+		"test.delete",
 		"test.deploy",
 		"test.mkdir",
 		"test.noop",
 		"test.read",
+		"test.touch",
 		"test.validate",
 	}
 	if len(names) != len(expected) {
@@ -692,4 +733,230 @@ func TestReflectedCompensableAction_UndoError(t *testing.T) {
 	if err.Error() != "compensate failed" {
 		t.Errorf("err = %q, want 'compensate failed'", err)
 	}
+}
+
+// --- NoResult tests ---
+
+func TestClassifyActionReturn_NoResult(t *testing.T) {
+	results := []reflect.Value{
+		reflect.ValueOf(NoResult{}),
+		reflect.Zero(errorType),
+	}
+	result, undo, err := classifyActionReturn(results)
+	if result != nil {
+		t.Errorf("result = %v, want nil (NoResult sentinel)", result)
+	}
+	if undo != nil || err != nil {
+		t.Errorf("undo = %v, err = %v, want (nil, nil)", undo, err)
+	}
+}
+
+func TestClassifyActionReturn_NoResult_WithUndo(t *testing.T) {
+	state := map[string]any{"path": "/removed"}
+	results := []reflect.Value{
+		reflect.ValueOf(NoResult{}),
+		reflect.ValueOf(state),
+		reflect.Zero(errorType),
+	}
+	result, undo, err := classifyActionReturn(results)
+	if result != nil {
+		t.Errorf("result = %v, want nil (NoResult sentinel)", result)
+	}
+	undoMap, ok := undo.(map[string]any)
+	if !ok || undoMap["path"] != "/removed" {
+		t.Errorf("undo = %v, want map with path=/removed", undo)
+	}
+	if err != nil {
+		t.Errorf("err = %v, want nil", err)
+	}
+}
+
+func TestReflectedAction_Do_NoResult(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	action := reg.MustGet("test.delete")
+	ctx := &Context{
+		Context: context.Background(),
+		Writer:  io.Discard,
+	}
+
+	result, undo, err := action.Do(ctx, map[string]any{"path": "/tmp/gone"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("result = %v, want nil (NoResult)", result)
+	}
+	undoMap, ok := undo.(map[string]any)
+	if !ok || undoMap["path"] != "/tmp/gone" {
+		t.Errorf("undo = %v, want map with path=/tmp/gone", undo)
+	}
+}
+
+func TestReflectedAction_Delete_IsCompensable(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	action, ok := reg.Get("test.delete")
+	if !ok {
+		t.Fatal("test.delete not registered")
+	}
+	if _, ok := action.(CompensableAction); !ok {
+		t.Error("test.delete should implement CompensableAction")
+	}
+}
+
+// --- Catalog shadow tests ---
+
+func TestReflectedAction_Do_ShadowsResource(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	catalog := NewResourceCatalog()
+	action := reg.MustGet("test.create")
+	ctx := &Context{
+		Context: context.Background(),
+		Catalog: catalog,
+		NodeID:  "node-1",
+		Writer:  io.Discard,
+	}
+
+	result, _, err := action.Do(ctx, map[string]any{"path": "/tmp/new"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Result should remain a value type (not promoted to pointer).
+	ar, ok := result.(actionResource)
+	if !ok {
+		t.Fatalf("result type = %T, want actionResource", result)
+	}
+	if ar.SourcePath != "/tmp/new" {
+		t.Errorf("SourcePath = %q, want %q", ar.SourcePath, "/tmp/new")
+	}
+
+	// Catalog should have the shadowed entry.
+	if catalog.Len() != 1 {
+		t.Fatalf("catalog.Len() = %d, want 1", catalog.Len())
+	}
+	id := catalog.Current("file:///tmp/new")
+	if id == "" {
+		t.Fatal("catalog has no entry for file:///tmp/new")
+	}
+	entry, ok := catalog.Lookup(id)
+	if !ok {
+		t.Fatalf("catalog.Lookup(%q) failed", id)
+	}
+	base := entry.resourceBase()
+	if base.originID != "node-1" {
+		t.Errorf("originID = %q, want %q", base.originID, "node-1")
+	}
+
+	// extractResource should find the stamped originID on the value result.
+	origin, found := extractResource(result)
+	if !found {
+		t.Fatal("extractResource did not find resource identity on value result")
+	}
+	if origin != "node-1" {
+		t.Errorf("extractResource originID = %q, want %q", origin, "node-1")
+	}
+}
+
+func TestReflectedAction_Do_NoCatalog_Unchanged(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	// No catalog — result should be returned unchanged.
+	action := reg.MustGet("test.create")
+	ctx := &Context{
+		Context: context.Background(),
+		Writer:  io.Discard,
+	}
+
+	result, _, err := action.Do(ctx, map[string]any{"path": "/tmp/file"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result.(actionResource); !ok {
+		t.Errorf("result type = %T, want actionResource", result)
+	}
+}
+
+func TestReflectedAction_Do_NonResource_Unchanged(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	catalog := NewResourceCatalog()
+	action := reg.MustGet("test.read")
+	ctx := &Context{
+		Context: context.Background(),
+		Catalog: catalog,
+		NodeID:  "node-2",
+		Writer:  io.Discard,
+	}
+
+	result, _, err := action.Do(ctx, map[string]any{"path": "/tmp/f"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "content:/tmp/f" {
+		t.Errorf("result = %v, want 'content:/tmp/f'", result)
+	}
+	// Non-resource result should not shadow.
+	if catalog.Len() != 0 {
+		t.Errorf("catalog.Len() = %d, want 0 (non-resource)", catalog.Len())
+	}
+}
+
+func TestReflectedAction_Do_NoResult_NotShadowed(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	catalog := NewResourceCatalog()
+	action := reg.MustGet("test.delete")
+	ctx := &Context{
+		Context: context.Background(),
+		Catalog: catalog,
+		NodeID:  "node-3",
+		Writer:  io.Discard,
+	}
+
+	result, _, err := action.Do(ctx, map[string]any{"path": "/tmp/gone"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("result = %v, want nil (NoResult)", result)
+	}
+	if catalog.Len() != 0 {
+		t.Errorf("catalog.Len() = %d, want 0 (NoResult)", catalog.Len())
+	}
+}
+
+// --- Pairing validation tests ---
+
+// unpairedProvider has a method with 3 returns but no Compensate companion.
+type unpairedProvider struct{}
+
+func (p *unpairedProvider) Destroy(path string) (string, map[string]any, error) {
+	return "", nil, nil
+}
+
+func TestRegisterReflectedActions_MissingCompensate_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for missing Compensate method")
+		}
+		msg := fmt.Sprint(r)
+		if !strings.Contains(msg, "CompensateDestroy") {
+			t.Errorf("panic message = %q, want mention of CompensateDestroy", msg)
+		}
+	}()
+
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &unpairedProvider{}, MethodParams{
+		"Destroy": {"path"},
+	})
 }

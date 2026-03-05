@@ -139,6 +139,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 
 	execCtx := &op.Context{
 		Context:  ctx,
+		Catalog:  g.Catalog,
 		DryRun:   e.options.DryRun,
 		Writer:   e.options.Writer,
 		Data:     e.options.Data,
@@ -185,6 +186,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
 	execCtx := &op.Context{
 		Context:  ctx,
+		Catalog:  g.Catalog,
 		DryRun:   e.options.DryRun,
 		Writer:   e.options.Writer,
 		Data:     e.options.Data,
