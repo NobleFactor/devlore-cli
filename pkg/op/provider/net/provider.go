@@ -23,25 +23,26 @@ type Provider struct {
 // Download fetches the content at the given URL and returns the response body.
 //
 // Parameters:
-//   - url: HTTP(S) URL to fetch
-func (p *Provider) Download(url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
+//   - url: network resource identifying the URL to fetch
+func (p *Provider) Download(url Resource) ([]byte, error) {
+	rawURL := url.SourceURL.String()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("download %s: %w", url, err)
+		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
 	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL comes from plan configuration
 	if err != nil {
-		return nil, fmt.Errorf("download %s: %w", url, err)
+		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("download %s: HTTP %d", rawURL, resp.StatusCode)
 	}
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("download %s: read body: %w", url, err)
+		return nil, fmt.Errorf("download %s: read body: %w", rawURL, err)
 	}
 	return data, nil
 }

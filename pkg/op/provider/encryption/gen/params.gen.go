@@ -6,5 +6,5 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Params maps Go method names to Starlark parameter name lists.
 var Params = op.MethodParams{
-	"DecryptSopsFile": {"source_file", "destination_filename"},
+	"DecryptSopsFile": {"source", "destination"},
 }

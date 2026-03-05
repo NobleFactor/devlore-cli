@@ -8,6 +8,8 @@ import (
 	"os/exec"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	netprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
 )
 
 // Provider provides git actions.
@@ -21,17 +23,24 @@ type Provider struct {
 
 // ── Compensable Pairs ────────────────────────────────────────────────
 
-// Clone clones a repository from url into path.
-// Returns the cloned path and a Tombstone for compensation.
+// Clone clones a repository from url into destination.
+// Returns the cloned git.Resource and a Tombstone for compensation.
 //
 // Parameters:
-//   - url: Git repository URL to clone
-//   - path: Local directory path for the clone
-func (p *Provider) Clone(url, path string) (string, Tombstone, error) {
-	if err := p.doClone(url, path); err != nil {
-		return "", Tombstone{}, err
+//   - url: network resource identifying the git repository
+//   - destination: file resource identifying the local clone directory
+func (p *Provider) Clone(url netprov.Resource, destination file.Resource) (Resource, Tombstone, error) {
+	if err := p.doClone(url.SourceURL.String(), destination.SourcePath); err != nil {
+		return Resource{}, Tombstone{}, err
 	}
-	return path, Tombstone{ClonedPath: path}, nil
+	r := &Resource{
+		URL:       url.SourceURL.String(),
+		ClonePath: destination.SourcePath,
+	}
+	return *r, Tombstone{
+		TombstoneBase: op.NewTombstoneBase(r),
+		ClonedPath:    destination.SourcePath,
+	}, nil
 }
 
 // CompensateClone removes the cloned directory.
@@ -47,24 +56,31 @@ func (p *Provider) CompensateClone(state Tombstone) error {
 // Checkout checks out a ref in the given repository directory.
 //
 // Parameters:
-//   - repo: Local path to the git repository
+//   - repo: git resource identifying the local repository
 //   - ref: Branch, tag, or commit to check out
-func (p *Provider) Checkout(repo, ref string) (string, error) {
-	cmd := exec.Command("git", "-C", repo, "checkout", ref)
+func (p *Provider) Checkout(repo Resource, ref string) (Resource, error) {
+	cmd := exec.Command("git", "-C", repo.ClonePath, "checkout", ref)
 	cmd.Stdout = p.Context().Writer
 	cmd.Stderr = p.Context().Writer
-	return ref, cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return Resource{}, err
+	}
+	repo.Ref = ref
+	return repo, nil
 }
 
 // Pull pulls the latest changes in the given repository directory.
 //
 // Parameters:
-//   - repo: Local path to the git repository
-func (p *Provider) Pull(repo string) (string, error) {
-	cmd := exec.Command("git", "-C", repo, "pull")
+//   - repo: git resource identifying the local repository
+func (p *Provider) Pull(repo Resource) (Resource, error) {
+	cmd := exec.Command("git", "-C", repo.ClonePath, "pull")
 	cmd.Stdout = p.Context().Writer
 	cmd.Stderr = p.Context().Writer
-	return repo, cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return Resource{}, err
+	}
+	return repo, nil
 }
 
 func (p *Provider) doClone(url, path string) error {

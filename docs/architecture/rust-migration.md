@@ -838,7 +838,7 @@ consumers than Rust consumers. The gap is closing but has not closed.
 
 The following features are planned or in progress in the Go codebase:
 
-1. **Reconciliation** (`docs/architecture/devlore-audit-reconciliation-and-recovery.md`):
+1. **Reconciliation** (`docs/architecture/devlore-reconciliation.md`):
    Changes `Action.Do` from 3 returns to 4, adds `ReconcilableAction`
    interface, moves `RecoveryStack` to `pkg/op`. This is a fundamental
    interface change that would be expensive to port mid-migration.

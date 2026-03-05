@@ -106,6 +106,11 @@ func coerceSlotValue(slotValue any, targetType reflect.Type) (reflect.Value, err
 		return coerceMapToStruct(sv, targetType)
 	}
 
+	// []T → []U: coerce each element individually (e.g. []string → []Resource).
+	if sv.Type().Kind() == reflect.Slice && targetType.Kind() == reflect.Slice {
+		return coerceSlice(sv, targetType)
+	}
+
 	if ctor, ok := constructorRegistry.Load(targetType); ok {
 		result, err := ctor.(func(any) (any, error))(slotValue)
 		if err != nil {
@@ -136,6 +141,22 @@ func coerceMapToStruct(mapVal reflect.Value, targetType reflect.Type) (reflect.V
 			return reflect.Value{}, fmt.Errorf("field %s: %w", key, err)
 		}
 		result.Field(fi.index).Set(fieldVal)
+	}
+	return result, nil
+}
+
+// coerceSlice converts a source slice to a target slice type by coercing each
+// element individually (e.g. []string → []pkg.Resource via constructors).
+func coerceSlice(srcSlice reflect.Value, targetType reflect.Type) (reflect.Value, error) {
+	elemType := targetType.Elem()
+	n := srcSlice.Len()
+	result := reflect.MakeSlice(targetType, n, n)
+	for i := range n {
+		coerced, err := coerceSlotValue(srcSlice.Index(i).Interface(), elemType)
+		if err != nil {
+			return reflect.Value{}, fmt.Errorf("element %d: %w", i, err)
+		}
+		result.Index(i).Set(coerced)
 	}
 	return result, nil
 }

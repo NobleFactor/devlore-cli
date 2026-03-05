@@ -104,6 +104,7 @@ const (
 	SchemePackage = "pkg"
 	SchemeService = "svc"
 	SchemeMem     = "mem"
+	SchemeNet     = "net"
 )
 
 // MarshalStarvalue implements [starvalue.Marshaler]. It serializes the

@@ -92,12 +92,12 @@ func TestStart(t *testing.T) {
 	sm.running["nginx"] = false
 
 	p := newTestProvider(sm)
-	name, state, err := p.Start("nginx")
+	result, state, err := p.Start(Resource{Name: "nginx"})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if name != "nginx" {
-		t.Errorf("Start() name = %q, want %q", name, "nginx")
+	if result.Name != "nginx" {
+		t.Errorf("Start() result.Name = %q, want %q", result.Name, "nginx")
 	}
 	if state.WasRunning {
 		t.Error("Start() WasRunning = true, want false")
@@ -113,12 +113,12 @@ func TestStartAlreadyRunning(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	name, state, err := p.Start("nginx")
+	result, state, err := p.Start(Resource{Name: "nginx"})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if name != "nginx" {
-		t.Errorf("Start() name = %q, want %q", name, "nginx")
+	if result.Name != "nginx" {
+		t.Errorf("Start() result.Name = %q, want %q", result.Name, "nginx")
 	}
 	if !state.WasRunning {
 		t.Error("Start() WasRunning = false, want true")
@@ -130,7 +130,7 @@ func TestStartError(t *testing.T) {
 	sm.startFail = true
 
 	p := newTestProvider(sm)
-	_, _, err := p.Start("nginx")
+	_, _, err := p.Start(Resource{Name: "nginx"})
 	if err == nil {
 		t.Fatal("Start() expected error, got nil")
 	}
@@ -177,12 +177,12 @@ func TestStop(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	name, state, err := p.Stop("nginx")
+	result, state, err := p.Stop(Resource{Name: "nginx"})
 	if err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
-	if name != "nginx" {
-		t.Errorf("Stop() name = %q, want %q", name, "nginx")
+	if result.Name != "nginx" {
+		t.Errorf("Stop() result.Name = %q, want %q", result.Name, "nginx")
 	}
 	if !state.WasRunning {
 		t.Error("Stop() WasRunning = false, want true")
@@ -225,12 +225,12 @@ func TestRestart(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	name, state, err := p.Restart("nginx")
+	result, state, err := p.Restart(Resource{Name: "nginx"})
 	if err != nil {
 		t.Fatalf("Restart() error = %v", err)
 	}
-	if name != "nginx" {
-		t.Errorf("Restart() name = %q, want %q", name, "nginx")
+	if result.Name != "nginx" {
+		t.Errorf("Restart() result.Name = %q, want %q", result.Name, "nginx")
 	}
 	if state.Name != "nginx" {
 		t.Errorf("Restart() state.Name = %q, want %q", state.Name, "nginx")
@@ -246,7 +246,7 @@ func TestRestartError(t *testing.T) {
 		sm.stopFail = true
 
 		p := newTestProvider(sm)
-		_, _, err := p.Restart("nginx")
+		_, _, err := p.Restart(Resource{Name: "nginx"})
 		if err == nil {
 			t.Fatal("Restart() expected error from Stop, got nil")
 		}
@@ -257,7 +257,7 @@ func TestRestartError(t *testing.T) {
 		sm.startFail = true
 
 		p := newTestProvider(sm)
-		_, _, err := p.Restart("nginx")
+		_, _, err := p.Restart(Resource{Name: "nginx"})
 		if err == nil {
 			t.Fatal("Restart() expected error from Start, got nil")
 		}
@@ -269,12 +269,12 @@ func TestEnable(t *testing.T) {
 	sm.enabled["nginx"] = false
 
 	p := newTestProvider(sm)
-	name, state, err := p.Enable("nginx")
+	result, state, err := p.Enable(Resource{Name: "nginx"})
 	if err != nil {
 		t.Fatalf("Enable() error = %v", err)
 	}
-	if name != "nginx" {
-		t.Errorf("Enable() name = %q, want %q", name, "nginx")
+	if result.Name != "nginx" {
+		t.Errorf("Enable() result.Name = %q, want %q", result.Name, "nginx")
 	}
 	if state.WasEnabled {
 		t.Error("Enable() WasEnabled = true, want false")
@@ -317,12 +317,12 @@ func TestDisable(t *testing.T) {
 	sm.enabled["nginx"] = true
 
 	p := newTestProvider(sm)
-	name, state, err := p.Disable("nginx")
+	result, state, err := p.Disable(Resource{Name: "nginx"})
 	if err != nil {
 		t.Fatalf("Disable() error = %v", err)
 	}
-	if name != "nginx" {
-		t.Errorf("Disable() name = %q, want %q", name, "nginx")
+	if result.Name != "nginx" {
+		t.Errorf("Disable() result.Name = %q, want %q", result.Name, "nginx")
 	}
 	if !state.WasEnabled {
 		t.Error("Disable() WasEnabled = false, want true")
@@ -372,7 +372,7 @@ func TestPredicates(t *testing.T) {
 	p := newTestProvider(sm)
 
 	t.Run("Exists true", func(t *testing.T) {
-		got, err := p.Exists("nginx")
+		got, err := p.Exists(Resource{Name: "nginx"})
 		if err != nil {
 			t.Fatalf("Exists() error = %v", err)
 		}
@@ -382,7 +382,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Exists false", func(t *testing.T) {
-		got, err := p.Exists("missing")
+		got, err := p.Exists(Resource{Name: "missing"})
 		if err != nil {
 			t.Fatalf("Exists() error = %v", err)
 		}
@@ -392,7 +392,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Running true", func(t *testing.T) {
-		got, err := p.Running("nginx")
+		got, err := p.Running(Resource{Name: "nginx"})
 		if err != nil {
 			t.Fatalf("Running() error = %v", err)
 		}
@@ -402,7 +402,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Running false", func(t *testing.T) {
-		got, err := p.Running("stopped")
+		got, err := p.Running(Resource{Name: "stopped"})
 		if err != nil {
 			t.Fatalf("Running() error = %v", err)
 		}
@@ -412,7 +412,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Enabled true", func(t *testing.T) {
-		got, err := p.Enabled("nginx")
+		got, err := p.Enabled(Resource{Name: "nginx"})
 		if err != nil {
 			t.Fatalf("Enabled() error = %v", err)
 		}
@@ -422,7 +422,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Enabled false", func(t *testing.T) {
-		got, err := p.Enabled("disabled")
+		got, err := p.Enabled(Resource{Name: "disabled"})
 		if err != nil {
 			t.Fatalf("Enabled() error = %v", err)
 		}

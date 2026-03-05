@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // createTarGz builds a tar.gz archive at archivePath containing the given entries.
@@ -79,12 +81,12 @@ func TestExtractTarGz(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	dest, state, err := p.Extract(archivePath, prefix)
+	dest, state, err := p.Extract(file.Resource{SourcePath: archivePath}, file.Resource{SourcePath: prefix})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if dest != prefix {
-		t.Errorf("dest = %q, want %q", dest, prefix)
+	if dest.SourcePath != prefix {
+		t.Errorf("dest = %q, want %q", dest.SourcePath, prefix)
 	}
 
 	// Verify files exist.
@@ -100,13 +102,9 @@ func TestExtractTarGz(t *testing.T) {
 		}
 	}
 
-	// Verify state contains created_files.
-	if state == nil {
-		t.Fatal("state is nil")
-	}
-	created, _ := state["created_files"].([]string)
-	if len(created) != len(entries) {
-		t.Errorf("created_files has %d entries, want %d", len(created), len(entries))
+	// Verify state contains created files.
+	if len(state.CreatedFiles) != len(entries) {
+		t.Errorf("CreatedFiles has %d entries, want %d", len(state.CreatedFiles), len(entries))
 	}
 }
 
@@ -121,12 +119,12 @@ func TestExtractZip(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	dest, state, err := p.Extract(archivePath, prefix)
+	dest, state, err := p.Extract(file.Resource{SourcePath: archivePath}, file.Resource{SourcePath: prefix})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if dest != prefix {
-		t.Errorf("dest = %q, want %q", dest, prefix)
+	if dest.SourcePath != prefix {
+		t.Errorf("dest = %q, want %q", dest.SourcePath, prefix)
 	}
 
 	for name, wantContent := range entries {
@@ -141,18 +139,14 @@ func TestExtractZip(t *testing.T) {
 		}
 	}
 
-	if state == nil {
-		t.Fatal("state is nil")
-	}
-	created, _ := state["created_files"].([]string)
-	if len(created) != len(entries) {
-		t.Errorf("created_files has %d entries, want %d", len(created), len(entries))
+	if len(state.CreatedFiles) != len(entries) {
+		t.Errorf("CreatedFiles has %d entries, want %d", len(state.CreatedFiles), len(entries))
 	}
 }
 
 func TestExtractUnsupportedFormat(t *testing.T) {
 	p := &Provider{}
-	_, _, err := p.Extract("foo.rar", t.TempDir())
+	_, _, err := p.Extract(file.Resource{SourcePath: "foo.rar"}, file.Resource{SourcePath: t.TempDir()})
 	if err == nil {
 		t.Fatal("expected error for unsupported format")
 	}
@@ -175,7 +169,7 @@ func TestZipSlipProtectionTarGz(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	_, _, err := p.Extract(archivePath, prefix)
+	_, _, err := p.Extract(file.Resource{SourcePath: archivePath}, file.Resource{SourcePath: prefix})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -205,7 +199,7 @@ func TestZipSlipProtectionZip(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	_, _, err := p.Extract(archivePath, prefix)
+	_, _, err := p.Extract(file.Resource{SourcePath: archivePath}, file.Resource{SourcePath: prefix})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -237,9 +231,9 @@ func TestCompensateExtractRemovesFiles(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	state := map[string]any{
-		"dest":          tmp,
-		"created_files": []string{file1, file2},
+	state := Tombstone{
+		Dest:         tmp,
+		CreatedFiles: []string{file1, file2},
 	}
 
 	p := &Provider{}
@@ -255,10 +249,10 @@ func TestCompensateExtractRemovesFiles(t *testing.T) {
 	}
 }
 
-func TestCompensateExtractNilState(t *testing.T) {
+func TestCompensateExtractEmptyState(t *testing.T) {
 	p := &Provider{}
-	if err := p.CompensateExtract(nil); err != nil {
-		t.Fatalf("CompensateExtract(nil) = %v, want nil", err)
+	if err := p.CompensateExtract(Tombstone{}); err != nil {
+		t.Fatalf("CompensateExtract(empty) = %v, want nil", err)
 	}
 }
 
@@ -269,14 +263,14 @@ func TestCompensateExtractCleansEmptyDirs(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	file := filepath.Join(deepDir, "only.txt")
-	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
+	f := filepath.Join(deepDir, "only.txt")
+	if err := os.WriteFile(f, []byte("data"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	state := map[string]any{
-		"dest":          tmp,
-		"created_files": []string{file},
+	state := Tombstone{
+		Dest:         tmp,
+		CreatedFiles: []string{f},
 	}
 
 	p := &Provider{}

@@ -57,6 +57,100 @@ These three issues are all manifestations of the same root cause: Go's type
 system forces runtime workarounds for things that should be compile-time
 guarantees. The code quality is high *within* those constraints.
 
+## External Evaluation
+
+Independent architectural evaluation of devlore-cli's design and
+implementation.
+
+### Architecture
+
+The core architectural strength is the **Provider/Operation Graph**. Instead
+of hardcoding system calls, the project defines platform-agnostic provider
+interfaces (Git, Service, Package Manager, Filesystem, Shell) that decompose
+complex system tasks into discrete, compensable operations.
+
+**Planner/Executor separation** is the structural backbone. The planner acts
+as a graph builder — it performs dry runs, impact analysis, and dependency
+resolution before a single side effect occurs. The executor is the state
+enforcer — it traverses the graph, evaluates current state against desired
+state, and skips resources already converged. This makes the process
+idempotent by default.
+
+**Generated abstraction** eliminates the "n+1" problem. By generating
+boilerplate from Provider/Resource pairs, the system guarantees that every
+resource type satisfies the same scaffolding. Contributors focus on
+reconciliation logic without worrying about logging, auditing, or graph
+traversal. The interface between user-defined "lore" and the execution engine
+is strictly typed and consistent.
+
+**Compensability** across all providers indicates a design focused on
+transactional integrity — the ability to roll back state if an orchestration
+task fails partway through. The `moveToRecovery` / `restoreFromRecovery`
+pattern with platform-specific recovery bases and same-device rename
+guarantees shows deliberate thought about failure modes.
+
+### Design
+
+**Starlark sandboxing** is a strong choice for registry logic. Unlike
+executing arbitrary shell scripts, Starlark provides a restricted,
+deterministic environment that prevents lore from spawning runaway processes
+or accessing sensitive files without explicit permission. It is fast to load
+and evaluate — critical for CLI responsiveness — and enables a central library
+of versioned, shareable actions.
+
+**Standardized configuration** via JSON schemas (`schema` package) provides a
+predictable interface for users and developers, enforcing validation before
+system-level changes are attempted.
+
+**Registry-based knowledge** (`indexgen`, knowledge domains) positions devlore
+as a framework for sharing codified tribal knowledge, not just a static set of
+shell scripts.
+
+**Implementation** follows standard Go best practices: clean `pkg/`/`cmd/`/
+`schema/` structure, dependency injection via context and platform drivers for
+testability and extensibility, and thoughtful details like `go-git`'s
+`.gitignore` awareness in the `starcode` package.
+
+### Summary
+
+| Perspective | Rating | Notes |
+| --- | --- | --- |
+| **Architecture** | **High** | The operation graph / compensation model addresses the "partial failure" problem common in automation. Aligns with Terraform and Kubernetes patterns. |
+| **Design** | **Strong** | Schema-validated config, clear separation of concerns, Starlark sandboxing, registry-as-framework. |
+| **Implementation** | **Solid** | Idiomatic Go, good use of the type system for provider interfaces, exceptional test ratio. |
+
+This system is technically superior to a traditional shell-scripting automation
+suite. The architectural pivot to a reconciliation engine — where the planner
+constructs an immutable graph and the executor enforces it — aligns devlore
+with modern platform engineering patterns.
+
+### Risks and Hardening
+
+**Complexity vs. value.** The Provider layer must not become so complex that it
+is harder to use than simple shell scripts. Preventing abstraction rot is the
+primary adoption challenge.
+
+**Journal atomicity.** The journal must describe exactly where the executor
+failed and what the compensation path is. A checkpoint system that saves state
+after every successful resource transition would strengthen reliability.
+
+**Cycle detection.** As the registry grows and lore becomes more complex,
+circular dependencies become likely. The planner needs robust static analysis
+that validates the graph for cycles before execution begins.
+
+**Orphaned resource cleanup.** A true reconciliation system (like Kubernetes)
+includes garbage collection — removing resources no longer present in the
+config. The current design should account for detecting and removing
+unreferenced resources.
+
+**Drift detection.** A natural extension of the reconciliation architecture:
+compare actual system state against desired state without applying changes
+(`devlore check`).
+
+**State management.** While `Compensate` methods exist, ensuring these
+operations are truly atomic and side-effect-free in edge cases is the true
+test of the implementation.
+
 ---
 
 ## Repositories

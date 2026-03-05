@@ -7,9 +7,19 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
+
+func mustResource(t *testing.T, raw string) Resource {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("url.Parse(%q): %v", raw, err)
+	}
+	return Resource{SourceURL: u}
+}
 
 func TestDownloadSuccess(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -19,7 +29,7 @@ func TestDownloadSuccess(t *testing.T) {
 	defer ts.Close()
 
 	p := &Provider{}
-	data, err := p.Download(ts.URL)
+	data, err := p.Download(mustResource(t, ts.URL))
 	if err != nil {
 		t.Fatalf("Download() error = %v", err)
 	}
@@ -37,7 +47,7 @@ func TestDownloadNotFound(t *testing.T) {
 	defer ts.Close()
 
 	p := &Provider{}
-	_, err := p.Download(ts.URL)
+	_, err := p.Download(mustResource(t, ts.URL))
 	if err == nil {
 		t.Fatal("Download() expected error for 404, got nil")
 	}
@@ -53,7 +63,7 @@ func TestDownloadServerError(t *testing.T) {
 	defer ts.Close()
 
 	p := &Provider{}
-	_, err := p.Download(ts.URL)
+	_, err := p.Download(mustResource(t, ts.URL))
 	if err == nil {
 		t.Fatal("Download() expected error for 500, got nil")
 	}
@@ -64,7 +74,8 @@ func TestDownloadServerError(t *testing.T) {
 
 func TestDownloadInvalidURL(t *testing.T) {
 	p := &Provider{}
-	_, err := p.Download("://bad")
+	// A URL that url.Parse accepts but HTTP cannot connect to.
+	_, err := p.Download(mustResource(t, "http://invalid.test:0/bad"))
 	if err == nil {
 		t.Fatal("Download() expected error for invalid URL, got nil")
 	}

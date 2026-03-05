@@ -6,7 +6,7 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Params maps Go method names to Starlark parameter name lists.
 var Params = op.MethodParams{
-	"Clone":    {"url", "path"},
+	"Clone":    {"url", "destination"},
 	"Checkout": {"repo", "ref"},
 	"Pull":     {"repo"},
 }

@@ -1176,7 +1176,7 @@ provider must expose a constructor. This requires a noblefactor-ops PR.
 
 ## Relationship to Reconciliation
 
-The [Audit, Reconciliation, and Recovery](../architecture/devlore-audit-reconciliation-and-recovery.md)
+The [Audit, Reconciliation, and Recovery](../architecture/devlore-reconciliation.md)
 plan depends on resource management. Reconciliation adds a 4th return value
 (`ReconciliationState`) to `Action.Do` — a fingerprint of the resource at
 completion. That fingerprint *is* the resource's post-write metadata (hash,
@@ -1304,4 +1304,4 @@ resource management work is complete.
 - [Resource Management Architecture](../architecture/devlore-resource-management.md)
 - [Binding Unification Plan](./binding-unification.md) — Provider binding architecture
 - [Compensation Plan](./compensation.md) — Compensation/recovery architecture
-- [Audit, Reconciliation, and Recovery](../architecture/devlore-audit-reconciliation-and-recovery.md)
+- [Audit, Reconciliation, and Recovery](../architecture/devlore-reconciliation.md)
