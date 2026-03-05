@@ -19,8 +19,11 @@ func init() {
 			if root == "" {
 				root = "."
 			}
-			rootResource, _ := provider.NewResource(root)
-			return NewFileReceiver(&provider.Provider{Root: rootResource})
+			rootVal, err := op.Construct[provider.Resource](root)
+			if err != nil {
+				panic("file: construct Root: " + err.Error())
+			}
+			return NewFileReceiver(&provider.Provider{Root: rootVal})
 		},
 	})
 }

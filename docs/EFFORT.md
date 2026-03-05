@@ -2,6 +2,63 @@
 
 Generated: 2026-03-04
 
+## Code Quality Assessment
+
+The architecture is a 9, the implementation is an 8, dragged down by type
+erasure that the language forces on the codebase.
+
+**Architecture discipline is high.** The provider/action/resource/graph
+separation is clean. The three-mode split (action/immediate/planned) is
+consistent across all 20 providers. The compensation pattern is
+well-executed — `moveToRecovery` / `restoreFromRecovery` with
+platform-specific recovery bases, same-device rename guarantees,
+UUID-named recovery paths. This isn't accidental — someone thought about
+failure modes.
+
+**The reflection code is the best it can be given Go's constraints.**
+`coerceSlotValue` has a clear coercion chain with well-ordered fallbacks.
+`classifyActionReturn` and `classifyReturn` are the same logic split
+correctly for two contexts (Go-native vs Starlark). `shadowResult` handles
+value types, pointer types, and slices of resources — all the cases that
+actually arise. The code comments explain *why*, not *what*.
+
+**Test ratio is exceptional.** 32,791 test LOC against 34,533 source LOC —
+nearly 1:1. The W08 refactoring (source dropped 3,400 lines, tests grew
+6,000) shows willingness to delete code and backfill coverage. That's rare.
+
+**The codegen boundary is respected.** Generated files are never hand-edited.
+The `star` tool is the source of truth. `Compensate*` methods are required
+to exist (panic at registration if missing). These are guardrails that
+prevent drift.
+
+**The "no legacy" principle is enforced.** No backward compatibility shims,
+deprecated paths, or fallback behavior. The code does one thing.
+
+**Where it's weaker:**
+
+- **The `Result = any` / `UndoState = any` problem.** Type information is
+  destroyed at the reflection boundary and recovered via runtime assertions
+  that can fail silently or with unhelpful errors. This is the single
+  biggest quality issue — and it's forced by Go's type system, not by
+  design intent.
+
+- **The `init()` registration pattern** is invisible coupling. Constructor
+  registrations in `resource.go` `init()` functions are
+  action-at-a-distance — if someone forgets to import a package, the
+  constructor silently doesn't register, and the error surfaces later as a
+  coercion failure. Go has no way to make this visible.
+
+- **`sync.Map` for registries** is correct but obscures intent. The
+  type-erased `func(any) (any, error)` stored in `constructorRegistry` is
+  a consequence of Go's generics limitations — the `RegisterConstructor[T]`
+  generic wrapper hides it, but the underlying storage is still untyped.
+
+These three issues are all manifestations of the same root cause: Go's type
+system forces runtime workarounds for things that should be compile-time
+guarantees. The code quality is high *within* those constraints.
+
+---
+
 ## Repositories
 
 - **noblefactor** — Product design documentation (ADRs, strategy, PRDs, architecture)
