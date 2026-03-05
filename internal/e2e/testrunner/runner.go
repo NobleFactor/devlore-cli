@@ -91,7 +91,7 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	}).With("plan", "file")
 
 	// 3. Create ActionRegistry with all provider actions
-	reg := bs.NewPopulatedRegistry()
+	reg := bs.NewPopulatedRegistry(op.Context{})
 
 	// 4. Create Platform
 	plat := platform.New()

@@ -35,3 +35,11 @@ func (b ProviderBase) Context() Context {
 }
 
 func (b *ProviderBase) providerBase() *ProviderBase { return b }
+
+// InitProvider sets the execution [Context] on any provider that embeds [ProviderBase].
+// For providers that do not embed ProviderBase, this is a no-op.
+func InitProvider(p any, ctx Context) {
+	if provider, ok := p.(Provider); ok {
+		provider.providerBase().ctx = ctx
+	}
+}

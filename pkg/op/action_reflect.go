@@ -298,3 +298,22 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 		}
 	}
 }
+
+// InitActionProvider injects the execution Context into the provider backing a reflected action.
+// For actions that are not reflection-based or whose provider does not embed ProviderBase, this is a no-op.
+func InitActionProvider(action Action, ctx Context) {
+	var pv reflect.Value
+
+	switch a := action.(type) {
+	case *reflectedAction:
+		pv = a.provider
+	case *reflectedCompensableAction:
+		pv = a.provider
+	default:
+		return
+	}
+
+	if pv.Kind() == reflect.Ptr && !pv.IsNil() {
+		InitProvider(pv.Interface(), ctx)
+	}
+}

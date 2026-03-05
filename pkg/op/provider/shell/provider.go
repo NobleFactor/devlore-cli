@@ -7,26 +7,30 @@ package shell
 import (
 	"context"
 	"fmt"
-	"io"
 	"os/exec"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides shell command execution.
 //
 // +devlore:access=both
-type Provider struct{}
+type Provider struct {
+	op.ProviderBase
+}
 
 // Exec executes a POSIX shell command.
 //
 // Parameters:
 //   - command: Shell command string to execute via sh -c
-func (p *Provider) Exec(command string, output io.Writer) (string, error) {
+func (p *Provider) Exec(command string) (string, error) {
 	if command == "" {
 		return "", fmt.Errorf("no command specified")
 	}
+	w := p.Context().Writer
 	cmd := exec.CommandContext(context.Background(), "sh", "-c", command) //nolint:gosec // G204: command built from provider inputs
-	cmd.Stdout = output
-	cmd.Stderr = output
+	cmd.Stdout = w
+	cmd.Stderr = w
 	return command, cmd.Run()
 }
 
@@ -34,9 +38,10 @@ func (p *Provider) Exec(command string, output io.Writer) (string, error) {
 //
 // Parameters:
 //   - command: PowerShell command string to execute
-func (p *Provider) PowerShell(command string, output io.Writer) (string, error) {
+func (p *Provider) PowerShell(command string) (string, error) {
+	w := p.Context().Writer
 	cmd := exec.CommandContext(context.Background(), "powershell", "-Command", command) //nolint:gosec // G204: command built from provider inputs
-	cmd.Stdout = output
-	cmd.Stderr = output
+	cmd.Stdout = w
+	cmd.Stderr = w
 	return command, cmd.Run()
 }

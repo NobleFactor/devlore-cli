@@ -18,7 +18,7 @@ func TestBindingSetRegisterActions(t *testing.T) {
 	op.RegisterBinding(&op.ProviderBinding{
 		Name:   "_test_actions",
 		Access: op.AccessPlanned,
-		ActionRegistrar: func(reg *op.ActionRegistry) {
+		ActionRegistrar: func(reg *op.ActionRegistry, _ op.Context) {
 			reg.Register(testAction{name: "_test_actions.do"})
 		},
 	})
@@ -30,7 +30,7 @@ func TestBindingSetRegisterActions(t *testing.T) {
 	})
 
 	reg := op.NewActionRegistry()
-	bs.RegisterActions(reg)
+	bs.RegisterActions(reg, op.Context{})
 
 	if _, ok := reg.Get("_test_actions.do"); !ok {
 		t.Error("expected _test_actions.do action to be registered")
@@ -42,7 +42,7 @@ func TestBindingSetRegisterActionsAlwaysRegistersAll(t *testing.T) {
 	op.RegisterBinding(&op.ProviderBinding{
 		Name:   "_test_all_acts",
 		Access: op.AccessPlanned,
-		ActionRegistrar: func(reg *op.ActionRegistry) {
+		ActionRegistrar: func(reg *op.ActionRegistry, _ op.Context) {
 			reg.Register(testAction{name: "_test_all_acts.do"})
 		},
 	})
@@ -55,7 +55,7 @@ func TestBindingSetRegisterActionsAlwaysRegistersAll(t *testing.T) {
 	})
 
 	reg := op.NewActionRegistry()
-	bs.RegisterActions(reg)
+	bs.RegisterActions(reg, op.Context{})
 
 	if _, ok := reg.Get("_test_all_acts.do"); !ok {
 		t.Error("expected _test_all_acts.do to be registered even without With()")

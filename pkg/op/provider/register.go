@@ -24,6 +24,6 @@ import (
 
 // RegisterAll registers all provider actions with the given registry.
 // Provider packages self-register via init() when imported above.
-func RegisterAll(reg *op.ActionRegistry) {
-	op.RegisterAllProviders(reg)
+func RegisterAll(reg *op.ActionRegistry, ctx op.Context) {
+	op.RegisterAllProviders(reg, ctx)
 }

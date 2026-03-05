@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Provider provides archive extraction actions.
@@ -23,7 +25,9 @@ import (
 // corresponding Compensate* Backward method.
 //
 // +devlore:access=both
-type Provider struct{}
+type Provider struct {
+	op.ProviderBase
+}
 
 // ── Compensable Pairs ────────────────────────────────────────────────
 

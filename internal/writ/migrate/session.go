@@ -446,7 +446,7 @@ func (s *Session) addRenameToGraph(source, target string) {
 
 	// Add new rename node
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg)
+	provider.RegisterAll(reg, op.Context{})
 	plan := execution.NewPlan(reg, "migrate")
 	newNode := plan.Rename(source, target)
 	s.graph.Nodes = append(s.graph.Nodes, newNode)

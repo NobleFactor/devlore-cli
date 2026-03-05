@@ -147,6 +147,12 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 		Platform: e.options.Platform,
 	}
 
+	// Create a fresh ActionRegistry with per-graph provider instances
+	// and hydrate any stub actions from deserialized graphs.
+	if err := e.hydrateProviders(g, *execCtx); err != nil {
+		return err
+	}
+
 	results := make(map[string]any)
 	stack := &RecoveryStack{}
 	var nodeResults []*NodeResult
@@ -192,6 +198,12 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 		Data:     e.options.Data,
 		Graph:    g,
 		Platform: e.options.Platform,
+	}
+
+	// Create a fresh ActionRegistry with per-graph provider instances
+	// and hydrate any stub actions from deserialized graphs.
+	if err := e.hydrateProviders(g, *execCtx); err != nil {
+		return err
 	}
 
 	// Collect compensating phase IDs so we skip them in the forward pass.
@@ -404,6 +416,23 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 		Platform: e.options.Platform,
 	}
 
+	// Hydrate stub actions and inject context into provider-backed actions.
+	freshReg := op.NewActionRegistry()
+	op.RegisterAllProviders(freshReg, *execCtx)
+	for _, n := range nodes {
+		if op.IsStubAction(n.Action) {
+			name := n.ActionName()
+			if name == "" {
+				continue
+			}
+			if action, ok := freshReg.Get(name); ok {
+				n.Action = action
+			}
+		} else {
+			op.InitActionProvider(n.Action, *execCtx)
+		}
+	}
+
 	results := make(map[string]any)
 	stack := &RecoveryStack{}
 	var nodeResults []*NodeResult
@@ -578,6 +607,31 @@ func pathDepth(path string) int {
 		return 0
 	}
 	return strings.Count(path, string(filepath.Separator))
+}
+
+// hydrateProviders creates a fresh ActionRegistry with per-graph provider instances.
+// Stub actions (from deserialized graphs) are replaced with real actions.
+// Non-stub actions (from planning) get their provider's context updated.
+func (e *GraphExecutor) hydrateProviders(g *op.Graph, ctx op.Context) error {
+	freshReg := op.NewActionRegistry()
+	op.RegisterAllProviders(freshReg, ctx)
+
+	for _, n := range g.Nodes {
+		if op.IsStubAction(n.Action) {
+			name := n.ActionName()
+			if name == "" {
+				continue
+			}
+			action, ok := freshReg.Get(name)
+			if !ok {
+				return fmt.Errorf("hydrate: unknown action %q on node %q", name, n.ID)
+			}
+			n.Action = action
+		} else {
+			op.InitActionProvider(n.Action, ctx)
+		}
+	}
+	return nil
 }
 
 // ApplyResults updates node states from execution results.

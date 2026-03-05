@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/syntax"
 )
 
@@ -47,6 +48,7 @@ type complexityWalker struct {
 // +devlore:access=immediate
 // +devlore:bind Root=WorkDir
 type Provider struct {
+	op.ProviderBase
 	Root string
 }
 

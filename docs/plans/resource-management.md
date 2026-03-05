@@ -1106,10 +1106,20 @@ provider must expose a constructor. This requires a noblefactor-ops PR.
    execution (pre-flight resolution). Conflict detection. `prepareWrite`
    stays in the provider — executor owns the decision, provider owns the
    mechanism.
-6. **Phase 6 (remaining providers)**: Remaining providers + code
-   generation. Each provider creates a resource type embedding
-   `ResourceBase` and registers a constructor. Provider constructors with
-   context injection. Codegen template update for Resource-typed fields.
+5.5. **Phase 5.5 (provider context + resource types)**: **DONE** — All
+   providers embed `op.ProviderBase` (codegen-enforced). Resource types
+   created for git (`git.Resource`), service (`service.Resource`), pkg
+   (`pkg.Resource`). Typed tombstones for git/service/pkg. `output
+   io.Writer` removed from git/service/shell signatures. `Platform`
+   removed as direct field from service/pkg. Per-graph provider lifecycle
+   via `ActionRegistrar(reg, ctx)`. `BindingConfig` includes `Platform`.
+   Codegen dead code removed (`--extra-attrs`, `--methods`, `--package`,
+   `--templates`, standard mode). See
+   [phase-5.5.md](resource-management/phase-5.5.md).
+6. **Phase 6 (remaining provider method migration)**: Remaining provider
+   methods migrate to Resource-typed parameters. Each parameter that
+   identifies an external entity (path, URL, package name) becomes a
+   Resource. Configuration parameters (modes, flags) remain unchanged.
 7. **Phase 7 (generated bridge tests)**: Extend the star generator to
    produce `actions_test.gen.go` — bridge verification tests that
    regenerate automatically when method signatures change.

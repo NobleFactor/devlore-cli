@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // ANSI color codes.
@@ -31,6 +33,7 @@ const (
 //
 // +devlore:access=immediate
 type Provider struct {
+	op.ProviderBase
 	// Writer is the output destination. Defaults to os.Stderr.
 	Writer io.Writer
 	// ProgramName is the prefix for messages. Defaults to "devlore".

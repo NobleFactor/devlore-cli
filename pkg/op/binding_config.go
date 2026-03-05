@@ -21,4 +21,8 @@ type BindingConfig struct {
 	// WorkDir is the working directory for providers that operate on files.
 	// If empty, providers should default to the current working directory.
 	WorkDir string
+
+	// Platform provides platform abstractions (package manager, service manager)
+	// for providers that need them in immediate mode.
+	Platform *Platform
 }

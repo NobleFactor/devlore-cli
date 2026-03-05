@@ -237,7 +237,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	fmt.Println("\nDeploying packages...")
 
 	// Create action registry and executor
-	registry := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry()
+	registry := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:   cfg.DryRun,
 		Platform: platform.New(),

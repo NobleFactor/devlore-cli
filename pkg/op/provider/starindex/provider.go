@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/syntax"
 )
 
@@ -62,6 +63,7 @@ type Index struct {
 // +devlore:access=immediate
 // +devlore:bind Root=WorkDir
 type Provider struct {
+	op.ProviderBase
 	Root string
 }
 
