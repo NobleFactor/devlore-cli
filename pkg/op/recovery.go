@@ -43,6 +43,26 @@ func (s *RecoveryStack) Do(
 	return nil
 }
 
+// PushAction pushes a CompensableAction onto the stack. If action does not
+// implement CompensableAction, the call is a no-op. ErrNotCompensable
+// responses are filtered during compensation.
+func (s *RecoveryStack) PushAction(ctx *Context, action Action, undoState any) {
+	comp, ok := action.(CompensableAction)
+	if !ok {
+		return
+	}
+	s.Push(
+		func(state any) error {
+			err := comp.Undo(ctx, state)
+			if errors.Is(err, ErrNotCompensable) {
+				return nil
+			}
+			return err
+		},
+		nil, undoState, nil,
+	)
+}
+
 // Push manually adds a recovery entry to the stack.
 func (s *RecoveryStack) Push(
 	compensate func(any) error,

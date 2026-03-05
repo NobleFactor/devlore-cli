@@ -5,6 +5,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -154,7 +155,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 	}
 
 	results := make(map[string]any)
-	stack := &RecoveryStack{}
+	stack := op.NewRecoveryStack()
 	var nodeResults []*NodeResult
 
 	for _, node := range ordered {
@@ -232,11 +233,11 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 	var phaseStack []phaseRecovery
 
 	// Node-level recovery stack spans all phases.
-	nodeStack := &RecoveryStack{}
+	recoveryStack := op.NewRecoveryStack()
 	results := make(map[string]any)
 
 	for _, phase := range forwardPhases {
-		err := e.executePhase(execCtx, g, phase, results, nodeStack)
+		err := e.executePhase(execCtx, g, phase, results, recoveryStack)
 		if err != nil {
 			// Phase failed after retries — unwind
 			phase.Status = op.PhaseFailed
@@ -254,7 +255,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 			}
 
 			// Unwind node-level recovery stack
-			nodeStack.Unwind(execCtx)
+			unwindErr := recoveryStack.Unwind()
 
 			// Execute compensating phases in LIFO order
 			var rollbackLog []op.RollbackEntry
@@ -280,7 +281,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 				}
 
 				compResults := make(map[string]any)
-				compStack := &RecoveryStack{}
+				compStack := op.NewRecoveryStack()
 				if compErr := e.ExecutePhaseInner(execCtx, g, compPhase, compResults, compStack); compErr != nil {
 					rollback.Status = "failed"
 					rollback.Error = compErr.Error()
@@ -301,7 +302,8 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 			g.Rollback = rollbackLog
 			g.ComputeSummary()
 			g.State = op.StateFailed
-			return fmt.Errorf("phase %s failed: %w", phase.Name, err)
+			phaseErr := fmt.Errorf("phase %s failed: %w", phase.Name, err)
+			return errors.Join(phaseErr, unwindErr)
 		}
 
 		// Push phase-level recovery entry
@@ -321,7 +323,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 }
 
 // executePhase runs a single phase with retry logic.
-func (e *GraphExecutor) executePhase(ctx *op.Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *RecoveryStack) error {
+func (e *GraphExecutor) executePhase(ctx *op.Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *op.RecoveryStack) error {
 	maxAttempts := 1
 	if phase.Retry != nil {
 		maxAttempts += phase.Retry.MaxAttempts
@@ -385,7 +387,7 @@ func (e *GraphExecutor) resetPhaseNodes(g *op.Graph, phase *op.Phase) {
 }
 
 // ExecutePhaseInner runs the inner nodes of a phase.
-func (e *GraphExecutor) ExecutePhaseInner(ctx *op.Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *RecoveryStack) error {
+func (e *GraphExecutor) ExecutePhaseInner(ctx *op.Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *op.RecoveryStack) error {
 	phaseNodes, phaseEdges := g.CollectPhaseNodes(phase)
 	ordered := OrderNodes(phaseNodes, phaseEdges)
 
@@ -434,7 +436,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 	}
 
 	results := make(map[string]any)
-	stack := &RecoveryStack{}
+	stack := op.NewRecoveryStack()
 	var nodeResults []*NodeResult
 
 	for _, node := range ordered {
@@ -450,7 +452,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 }
 
 // executeNode resolves slots, calls Do, stores the result, and pushes a recovery entry.
-func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[string]any, stack *RecoveryStack) *NodeResult {
+func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[string]any, stack *op.RecoveryStack) *NodeResult {
 	if node.Action == nil {
 		node.Status = op.StatusFailed
 		return &NodeResult{
@@ -491,10 +493,7 @@ func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[
 		results[node.ID] = result
 	}
 
-	// Push recovery entry only for compensable actions.
-	if _, ok := node.Action.(op.CompensableAction); ok {
-		stack.Push(RecoveryEntry{Node: node, UndoState: undoState})
-	}
+	stack.PushAction(ctx, node.Action, undoState)
 
 	node.Status = op.StatusCompleted
 

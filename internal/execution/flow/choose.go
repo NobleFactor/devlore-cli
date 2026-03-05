@@ -5,7 +5,6 @@
 package flow
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
@@ -14,8 +13,8 @@ import (
 
 // chooseUndoState preserves the selected branch's recovery state.
 type chooseUndoState struct {
-	Results map[string]any            // node results for promise re-resolution
-	Entries []execution.RecoveryEntry // branch node refs + per-node undo state
+	Results map[string]any    // node results for promise re-resolution
+	Stack   *op.RecoveryStack // branch compensation closures
 }
 
 // Choose is a conditional branch selector. It reads a boolean from its
@@ -65,7 +64,7 @@ func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 	ordered := execution.OrderNodes(phaseNodes, phaseEdges)
 
 	results := make(map[string]any)
-	stack := &execution.RecoveryStack{}
+	stack := op.NewRecoveryStack()
 
 	for _, node := range ordered {
 		if node.Action == nil {
@@ -77,16 +76,14 @@ func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 
 		result, undoState, doErr := node.Action.Do(ctx, nodeSlots)
 		if doErr != nil {
-			stack.Unwind(ctx)
+			_ = stack.Unwind()
 			return nil, nil, fmt.Errorf("choose: phase %s node %s: %w", selectedPhaseID, node.ID, doErr)
 		}
 
 		if result != nil {
 			results[node.ID] = result
 		}
-		if _, ok := node.Action.(op.CompensableAction); ok {
-			stack.Push(execution.RecoveryEntry{Node: node, UndoState: undoState})
-		}
+		stack.PushAction(ctx, node.Action, undoState)
 	}
 
 	// Terminal result is the last ordered node's result.
@@ -95,34 +92,14 @@ func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 		terminalResult = results[ordered[len(ordered)-1].ID]
 	}
 
-	undoState := &chooseUndoState{
-		Results: results,
-		Entries: stack.Entries(),
-	}
-
-	return terminalResult, undoState, nil
+	return terminalResult, &chooseUndoState{Results: results, Stack: stack}, nil
 }
 
-// Undo walks the selected branch's entries in reverse and calls CompensableAction.Undo.
-func (a *Choose) Undo(ctx *op.Context, state op.UndoState) error {
+// Undo unwinds the selected branch's recovery stack in LIFO order.
+func (a *Choose) Undo(_ *op.Context, state op.UndoState) error {
 	cs, ok := state.(*chooseUndoState)
 	if !ok || cs == nil {
 		return nil
 	}
-
-	var errs []error
-	for i := len(cs.Entries) - 1; i >= 0; i-- {
-		entry := cs.Entries[i]
-		undoable, ok := entry.Node.Action.(op.CompensableAction)
-		if !ok {
-			continue
-		}
-		if err := undoable.Undo(ctx, entry.UndoState); err != nil {
-			if errors.Is(err, op.ErrNotCompensable) {
-				continue
-			}
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return cs.Stack.Unwind()
 }

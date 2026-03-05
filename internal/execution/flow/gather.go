@@ -20,9 +20,9 @@ type gatherUndoState struct {
 
 // iterationUndo captures one gather iteration's undo state.
 type iterationUndo struct {
-	ProxyCtx map[string]any            // {gatherID: item} for slot re-resolution
-	Results  map[string]any            // node results for promise re-resolution
-	Entries  []execution.RecoveryEntry // shared node refs + per-node undo state
+	ProxyCtx map[string]any    // {gatherID: item} for slot re-resolution
+	Results  map[string]any    // node results for promise re-resolution
+	Stack    *op.RecoveryStack // per-iteration compensation closures
 }
 
 // iterOutcome captures the result of a single gather iteration.
@@ -126,21 +126,12 @@ func (a *Gather) Undo(ctx *op.Context, state op.UndoState) error {
 	return a.undoCompleted(ctx, gs)
 }
 
-// undoCompleted unwinds all iterations that have recovery entries.
-func (a *Gather) undoCompleted(ctx *op.Context, gs *gatherUndoState) error {
+// undoCompleted unwinds all iterations that have recovery stacks.
+func (a *Gather) undoCompleted(_ *op.Context, gs *gatherUndoState) error {
 	var errs []error
 	for i := len(gs.Iterations) - 1; i >= 0; i-- {
-		iter := gs.Iterations[i]
-		for j := len(iter.Entries) - 1; j >= 0; j-- {
-			entry := iter.Entries[j]
-			undoable, ok := entry.Node.Action.(op.CompensableAction)
-			if !ok {
-				continue
-			}
-			if err := undoable.Undo(ctx, entry.UndoState); err != nil {
-				if errors.Is(err, op.ErrNotCompensable) {
-					continue
-				}
+		if stack := gs.Iterations[i].Stack; stack != nil {
+			if err := stack.Unwind(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -203,7 +194,7 @@ iterLoop:
 // executeIteration runs the phase body for a single item.
 func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item any) iterOutcome {
 	results := make(map[string]any)
-	stack := &execution.RecoveryStack{}
+	stack := op.NewRecoveryStack()
 	proxyCtx := map[string]any{gatherID: item}
 
 	for _, node := range ordered {
@@ -217,11 +208,12 @@ func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item
 		result, undoState, err := node.Action.Do(ctx, nodeSlots)
 		if err != nil {
 			// Unwind this iteration's completed nodes.
-			stack.Unwind(ctx)
+			_ = stack.Unwind()
 			return iterOutcome{
 				undo: iterationUndo{
 					ProxyCtx: proxyCtx,
 					Results:  results,
+					Stack:    stack,
 				},
 				err: err,
 			}
@@ -230,9 +222,7 @@ func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item
 		if result != nil {
 			results[node.ID] = result
 		}
-		if _, ok := node.Action.(op.CompensableAction); ok {
-			stack.Push(execution.RecoveryEntry{Node: node, UndoState: undoState})
-		}
+		stack.PushAction(ctx, node.Action, undoState)
 	}
 
 	// Terminal result is the last ordered node's result.
@@ -246,7 +236,7 @@ func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item
 		undo: iterationUndo{
 			ProxyCtx: proxyCtx,
 			Results:  results,
-			Entries:  stack.Entries(),
+			Stack:    stack,
 		},
 	}
 }

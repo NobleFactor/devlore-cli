@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -411,16 +410,14 @@ func TestChooseUndoReverseOrder(t *testing.T) {
 	actionB := &echoAction{name: "b", undoOrder: &order}
 	actionC := &echoAction{name: "c", undoOrder: &order}
 
-	state := &chooseUndoState{
-		Entries: []execution.RecoveryEntry{
-			{Node: &op.Node{ID: "n1", Action: actionA}, UndoState: "sa"},
-			{Node: &op.Node{ID: "n2", Action: actionB}, UndoState: "sb"},
-			{Node: &op.Node{ID: "n3", Action: actionC}, UndoState: "sc"},
-		},
-	}
+	ctx := &op.Context{Context: context.Background()}
+	stack := op.NewRecoveryStack()
+	stack.PushAction(ctx, actionA, "sa")
+	stack.PushAction(ctx, actionB, "sb")
+	stack.PushAction(ctx, actionC, "sc")
 
 	act := &Choose{}
-	err := act.Undo(&op.Context{Context: context.Background()}, state)
+	err := act.Undo(ctx, &chooseUndoState{Stack: stack})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -437,16 +434,14 @@ func TestChooseUndoSkipsNotCompensable(t *testing.T) {
 	actionNC := &notCompensableAction{name: "nc"}
 	actionC := &echoAction{name: "c", undoOrder: &order}
 
-	state := &chooseUndoState{
-		Entries: []execution.RecoveryEntry{
-			{Node: &op.Node{ID: "n1", Action: actionA}},
-			{Node: &op.Node{ID: "n2", Action: actionNC}},
-			{Node: &op.Node{ID: "n3", Action: actionC}},
-		},
-	}
+	ctx := &op.Context{Context: context.Background()}
+	stack := op.NewRecoveryStack()
+	stack.PushAction(ctx, actionA, nil)
+	stack.PushAction(ctx, actionNC, nil)
+	stack.PushAction(ctx, actionC, nil)
 
 	act := &Choose{}
-	err := act.Undo(&op.Context{Context: context.Background()}, state)
+	err := act.Undo(ctx, &chooseUndoState{Stack: stack})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -461,15 +456,13 @@ func TestChooseUndoCollectsErrors(t *testing.T) {
 	errA := errors.New("undo-a failed")
 	errB := errors.New("undo-b failed")
 
-	state := &chooseUndoState{
-		Entries: []execution.RecoveryEntry{
-			{Node: &op.Node{ID: "n1", Action: &failUndoAction{name: "a", err: errA}}},
-			{Node: &op.Node{ID: "n2", Action: &failUndoAction{name: "b", err: errB}}},
-		},
-	}
+	ctx := &op.Context{Context: context.Background()}
+	stack := op.NewRecoveryStack()
+	stack.PushAction(ctx, &failUndoAction{name: "a", err: errA}, nil)
+	stack.PushAction(ctx, &failUndoAction{name: "b", err: errB}, nil)
 
 	act := &Choose{}
-	err := act.Undo(&op.Context{Context: context.Background()}, state)
+	err := act.Undo(ctx, &chooseUndoState{Stack: stack})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -778,16 +771,24 @@ func TestGatherUndoReverseOrder(t *testing.T) {
 	actionB := &echoAction{name: "b", undoOrder: &order}
 	actionC := &echoAction{name: "c", undoOrder: &order}
 
+	ctx := &op.Context{Context: context.Background()}
+	stackA := op.NewRecoveryStack()
+	stackA.PushAction(ctx, actionA, "sa")
+	stackB := op.NewRecoveryStack()
+	stackB.PushAction(ctx, actionB, "sb")
+	stackC := op.NewRecoveryStack()
+	stackC.PushAction(ctx, actionC, "sc")
+
 	state := &gatherUndoState{
 		Iterations: []iterationUndo{
-			{Entries: []execution.RecoveryEntry{{Node: &op.Node{ID: "n1", Action: actionA}, UndoState: "sa"}}},
-			{Entries: []execution.RecoveryEntry{{Node: &op.Node{ID: "n2", Action: actionB}, UndoState: "sb"}}},
-			{Entries: []execution.RecoveryEntry{{Node: &op.Node{ID: "n3", Action: actionC}, UndoState: "sc"}}},
+			{Stack: stackA},
+			{Stack: stackB},
+			{Stack: stackC},
 		},
 	}
 
 	act := &Gather{}
-	err := act.Undo(&op.Context{Context: context.Background()}, state)
+	err := act.Undo(ctx, state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -804,16 +805,24 @@ func TestGatherUndoSkipsNotCompensable(t *testing.T) {
 	actionNC := &notCompensableAction{name: "nc"}
 	actionC := &echoAction{name: "c", undoOrder: &order}
 
+	ctx := &op.Context{Context: context.Background()}
+	stackA := op.NewRecoveryStack()
+	stackA.PushAction(ctx, actionA, nil)
+	stackNC := op.NewRecoveryStack()
+	stackNC.PushAction(ctx, actionNC, nil)
+	stackC := op.NewRecoveryStack()
+	stackC.PushAction(ctx, actionC, nil)
+
 	state := &gatherUndoState{
 		Iterations: []iterationUndo{
-			{Entries: []execution.RecoveryEntry{{Node: &op.Node{ID: "n1", Action: actionA}}}},
-			{Entries: []execution.RecoveryEntry{{Node: &op.Node{ID: "n2", Action: actionNC}}}},
-			{Entries: []execution.RecoveryEntry{{Node: &op.Node{ID: "n3", Action: actionC}}}},
+			{Stack: stackA},
+			{Stack: stackNC},
+			{Stack: stackC},
 		},
 	}
 
 	act := &Gather{}
-	err := act.Undo(&op.Context{Context: context.Background()}, state)
+	err := act.Undo(ctx, state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -828,19 +837,21 @@ func TestGatherUndoCollectsErrors(t *testing.T) {
 	errA := errors.New("undo-a failed")
 	errB := errors.New("undo-b failed")
 
+	ctx := &op.Context{Context: context.Background()}
+	stackA := op.NewRecoveryStack()
+	stackA.PushAction(ctx, &failUndoAction{name: "a", err: errA}, nil)
+	stackB := op.NewRecoveryStack()
+	stackB.PushAction(ctx, &failUndoAction{name: "b", err: errB}, nil)
+
 	state := &gatherUndoState{
 		Iterations: []iterationUndo{
-			{Entries: []execution.RecoveryEntry{
-				{Node: &op.Node{ID: "n1", Action: &failUndoAction{name: "a", err: errA}}},
-			}},
-			{Entries: []execution.RecoveryEntry{
-				{Node: &op.Node{ID: "n2", Action: &failUndoAction{name: "b", err: errB}}},
-			}},
+			{Stack: stackA},
+			{Stack: stackB},
 		},
 	}
 
 	act := &Gather{}
-	err := act.Undo(&op.Context{Context: context.Background()}, state)
+	err := act.Undo(ctx, state)
 	if err == nil {
 		t.Fatal("expected error")
 	}

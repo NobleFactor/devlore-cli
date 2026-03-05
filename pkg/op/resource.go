@@ -144,11 +144,11 @@ func NewTombstoneBase(resource Resource) TombstoneBase {
 }
 
 // Resource returns the resource affected by the compensable action.
-func (b *TombstoneBase) Resource() Resource {
+func (b TombstoneBase) Resource() Resource {
 	return b.resource
 }
 
-func (b *TombstoneBase) tombstoneBase() {}
+func (b TombstoneBase) tombstoneBase() {}
 
 // NoResult signals that a provider method produces no output. Used by
 // CompensableAction methods like Remove and RemoveAll that can be undone

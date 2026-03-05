@@ -3,7 +3,7 @@ title: "Audit, Reconciliation, and Recovery in the Execution Graph"
 issue: https://github.com/NobleFactor/devlore-cli/issues/156
 status: draft
 created: 2026-02-21
-updated: 2026-02-24
+updated: 2026-03-05
 ---
 
 # Plan: Audit, Reconciliation, and Recovery in the Execution Graph
@@ -75,9 +75,9 @@ context-agnostic, the caller is context-aware.
 
 ## Current State
 
-| Concern | Mechanism | Problems |
-|---------|-----------|----------|
-| Recovery | `RecoveryStack` (LIFO of `RecoveryEntry{Node, UndoState}`) | Works. Transient -- destroyed after unwind. No audit trail. |
+| Concern | Mechanism | Status |
+|---------|-----------|--------|
+| Recovery | `op.RecoveryStack` — closure-based LIFO stack with `PushAction`, `Push`, `Do`, `Unwind`, `Discard`. Executor uses `PushAction` to bind `CompensableAction.Undo` at push time. `Unwind` implements the reconcile→undo dance. | **Implemented** in `pkg/op/recovery.go`. Executor and flow actions migrated. Transient — destroyed after unwind. No audit trail yet. |
 | Audit | Graph receipt (serialized `Graph` with node statuses) | Captures status but not duration, not resource identity. Mixes node metadata with execution outcome. |
 | Reconciliation | **Removed** (was `ctx.TargetChecksum`/`ctx.SourceChecksum`) | Checksums were framework plumbing that violated action encapsulation. Actions know their resources; the framework does not. |
 | Observation | `LifecycleHook` (fire-and-forget at node/phase boundaries) | No return channel. Cannot contribute data back to the execution record. |
@@ -238,9 +238,19 @@ func (s *RecoveryStack) Do(
 ) error
 ```
 
-**`Push`** adds an entry to the stack directly. Used when the caller
-invokes the action itself and wants to record the outcome manually
-(e.g., the executor, which already has the `ActionOutcome`):
+**`PushAction`** pushes a `CompensableAction` onto the stack. If the
+action does not implement `CompensableAction`, the call is a no-op.
+`ErrNotCompensable` responses are filtered during compensation. This is
+the ergonomic path for the common case — the executor and flow actions
+use it exclusively.
+
+```go
+func (s *RecoveryStack) PushAction(ctx *Context, action Action, undoState any)
+```
+
+**`Push`** adds an entry with explicit closures. Used when the caller
+needs custom compensate/reconcile logic beyond the standard
+`CompensableAction.Undo` pattern:
 
 ```go
 func (s *RecoveryStack) Push(
@@ -547,25 +557,30 @@ Define the `ExecutionEvent`, `ReconcilableAction` interface, and move the
 - [ ] Update `Action.Do` to return `(Result, UndoState, ReconciliationState, error)`
 - [ ] Add `ReconcilableAction` interface with `Reconcile(ReconciliationState) (bool, error)`
 - [ ] Add `ExecutionEvent`, `RecoveryPayload`, `ReconciliationPayload` types
-- [ ] Move `RecoveryStack` to `pkg/op` with `Do`, `Push`, `Unwind`, `Discard` API
-- [ ] `Unwind` implements the reconcile→undo dance (reconcile before each compensate)
-- [ ] `Do` invokes via closure, pushes on success, does not auto-unwind on failure
-- [ ] Add `ErrDrifted` sentinel for reconcile-detected drift during unwind
-- [ ] Update `executeNode` to handle the 4-value return and use the new `RecoveryStack.Push`
+- [x] Move `RecoveryStack` to `pkg/op` with `Do`, `Push`, `Unwind`, `Discard` API
+- [x] Add `PushAction` convenience method — binds `CompensableAction.Undo` in a closure, filters `ErrNotCompensable`
+- [x] `Unwind` implements the reconcile→undo dance (reconcile before each compensate)
+- [x] `Do` invokes via closure, pushes on success, does not auto-unwind on failure
+- [x] Add `ErrDrifted` sentinel for reconcile-detected drift during unwind
+- [x] Migrate executor to use `op.RecoveryStack.PushAction`; delete `internal/execution/recovery.go`
+- [x] Migrate flow actions (`Choose`, `Gather`) to use `op.RecoveryStack.PushAction`
+- [ ] Update `executeNode` to handle the 4-value return and produce `ExecutionEvent`
 - [ ] Strip checksum verification from all `CompensateX` methods (moves to `ReconcileX` in Phase 2)
 - [ ] Add `ActionOutcome[T, U, V]` generic type
 - [ ] Strip hardcoded error prefixes from provider methods (context added by boundary layer)
 
 **Files**:
 
-| File | Action | Purpose |
-|------|--------|---------|
-| `pkg/op/action.go` | Modify | Extend `Action.Do` signature, add `ReconcilableAction` |
-| `pkg/op/recovery.go` | Create | `RecoveryStack` with `Do`/`Push`/`Unwind`/`Discard`, `ErrDrifted` |
-| `pkg/op/event.go` | Create | `ExecutionEvent`, payloads |
-| `internal/execution/executor.go` | Modify | Handle 4-value return, produce `ExecutionEvent`, use `op.RecoveryStack` |
-| `internal/execution/recovery.go` | Delete | Replaced by `pkg/op/recovery.go` |
-| `pkg/op/provider/*/provider.go` | Modify | Strip checksum verification from `CompensateX`, strip error prefixes |
+| File | Action | Status | Purpose |
+|------|--------|--------|---------|
+| `pkg/op/action.go` | Modify | | Extend `Action.Do` signature, add `ReconcilableAction` |
+| `pkg/op/recovery.go` | Create | **Done** | `RecoveryStack` with `Do`/`Push`/`PushAction`/`Unwind`/`Discard`, `ErrDrifted` |
+| `pkg/op/event.go` | Create | | `ExecutionEvent`, payloads |
+| `internal/execution/executor.go` | Modify | **Partial** | Migrated to `op.RecoveryStack.PushAction`. Remaining: 4-value return, `ExecutionEvent` |
+| `internal/execution/recovery.go` | Delete | **Done** | Replaced by `pkg/op/recovery.go` |
+| `internal/execution/flow/choose.go` | Modify | **Done** | Migrated to `op.RecoveryStack.PushAction` |
+| `internal/execution/flow/gather.go` | Modify | **Done** | Migrated to `op.RecoveryStack.PushAction` |
+| `pkg/op/provider/*/provider.go` | Modify | | Strip checksum verification from `CompensateX`, strip error prefixes |
 
 ### Phase 2: Provider Reconcile Methods
 

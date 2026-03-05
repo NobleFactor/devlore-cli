@@ -1,160 +1,281 @@
-# Phase 6: Generated Bridge Tests for Provider Actions
+# Phase 6: Provider Resource Types, Context Injection, and Method Migration
 
 ## Context
 
-Every provider method signature change (Phases 3, 3b) requires hand-updating `gen/actions_test.go` — slot names, result type assertions, dry-run tests, undo-nil tests. These are mechanical tests that verify the reflection bridge, not provider behavior. They break predictably and are tedious to fix.
+Phases 0–5 and 8 are complete. Phase 7 (master plan numbering) is the last
+remaining piece of resource management: create resource types for the git,
+service, and pkg providers; embed `ProviderBase` in all providers that lack
+it; inject execution context at action dispatch time; remove the leaked
+`output io.Writer` parameter from method signatures; and migrate compensable
+methods to typed Tombstones.
 
-The star generator already produces `params.gen.go`, `immediate.gen.go`, `planned.gen.go`, and `actions.gen.go` from method signatures. This phase extends it to produce `actions_test.gen.go` — bridge verification tests that are regenerated on every `make build`.
+The file provider is the reference implementation — it has `file.Resource`,
+`file.Tombstone`, `ProviderBase` embedding, and constructor registration.
+This phase replicates that pattern across the remaining providers.
 
-Currently only `pkg/op/provider/file/gen/` has a hand-written `actions_test.go` (~950 lines). The pattern applies to all providers.
+## What will be true when this phase is complete
 
-**Repo**: devlore-cli + noblefactor-ops (star generator)
-**Branch**: TBD
+1. **Every stateful provider embeds `op.ProviderBase`** — git, service, pkg,
+   shell all embed it. They access Platform, Writer, and other execution
+   state through `p.Context()` instead of per-method parameters or
+   directly-held fields.
 
-## Goals
+2. **Three new resource types exist** — `git.Resource` (scheme `git://`),
+   `service.Resource` (scheme `svc://`), `pkg.Resource` (scheme `pkg://`).
+   Each embeds `op.ResourceBase`, implements `URI()/Scheme()/Host()/Path()`,
+   and registers both execution-time and plan-time constructors.
 
-1. **Eliminate signature-change churn** — bridge tests regenerate automatically when method signatures change
-2. **Ensure coverage across all providers** — every provider with generated actions gets bridge tests for free
-3. **Separate bridge tests from behavior tests** — generated tests verify the bridge; hand-written tests verify provider semantics
+3. **Three new tombstone types exist** — `git.Tombstone`, `service.Tombstone`,
+   `pkg.Tombstone`. Each embeds `op.TombstoneBase`. Compensate methods accept
+   typed tombstones instead of `any`/`map[string]any`.
 
-## What Gets Generated
+4. **`output io.Writer` is gone from all method signatures** — git, service,
+   and shell providers no longer take `output` as a parameter. They read
+   `p.Context().Writer` instead. The `Params` maps no longer list `"output"`.
 
-### Fully derivable from method signatures
+5. **`Platform` is gone from provider structs** — service and pkg providers
+   no longer hold `Platform *op.Platform` directly. They access it via
+   `p.Context().Platform`. In immediate mode, the ImmediateFactory creates
+   a ProviderBase with a partial Context. In action mode, the ActionRegistrar
+   creates the provider with the full execution Context.
 
-| Test pattern | Derived from | Current example |
-|---|---|---|
-| **Registration** | Method list | `TestActionNames`, `TestRegister` |
-| **Slot name mapping** | `params.gen.go` entries | `slots := map[string]any{"resource": path, ...}` |
-| **Result type assertion** | Return type | `result.(provider.Resource)` vs `result.(string)` |
-| **Dry-run** | Action name | Assert `result == nil`, output contains `[dry-run] file.action_name` |
-| **Undo nil** | Compensable pair exists | `action.Undo(ctx, nil)` → no error |
-| **Compensable interface** | `Compensate*` method exists | Cast to `op.CompensableAction` succeeds |
+6. **Provider instances are per-graph** — `ActionRegistrar` signature changes
+   to `func(reg *ActionRegistry, ctx Context)`. The executor creates a fresh
+   ActionRegistry per graph, calling each registrar with the full execution
+   Context. Each provider gets its own instance scoped to the graph.
 
-### Derivable with conventions
+7. **`BindingConfig` includes `Platform`** — for immediate-mode providers
+   that need platform access. The ImmediateFactory maps `cfg.Platform` into
+   the ProviderBase's Context (not via `+devlore:bind`).
 
-**Fixture setup** follows from parameter names and types:
+8. **pkg inputs are `[]pkg.Resource`** — `Install`, `Remove`, `Upgrade`
+   accept `[]pkg.Resource` instead of `[]string`. Each package is a tracked
+   resource with a URI (`pkg://brew/htop`).
 
-| Parameter pattern | Fixture action |
-|---|---|
-| `Resource` named `source*` | Create temp file with test content |
-| `Resource` named `destination*`, `path` | Temp path, no pre-existing file |
-| `string` named `content` | Literal `"test-content"` |
-| `os.FileMode` | `0o644` |
-| `bool` named `prune` | `false` |
-| `Resource` named `prune_boundary` | `Resource{}` (empty) |
-| `string` named `backup_suffix` | `".test-backup"` |
-| `bool` named `honor_gitignore` | `false` |
+9. **All generated code is regenerated** — `params.gen.go`, `immediate.gen.go`,
+   `planned.gen.go`, `actions.gen.go`, and `actions_test.gen.go` for all
+   affected providers reflect the new signatures.
 
-The generator already knows parameter names (params.gen.go), types (method reflection), and compensable pairs (Compensate* naming convention).
+10. **`make check` passes** — build, vet, lint, and all tests green.
 
-## What Stays Hand-Written
+## Design Decisions
 
-Behavior tests that verify provider semantics beyond the bridge:
+### D1: Platform and Writer via ProviderBase.ctx — no direct fields
 
-- Content verification after Write/Copy (`os.ReadFile` + assert content)
-- `os.Readlink` verification for Link
-- Source-gone assertion for Move
-- Checksum verification in compensation
-- Error path tests (checksum mismatch, non-symlink Unlink, non-empty dir Remove)
-- Round-trip tests (Do → Undo → verify original state)
+Platform and Writer are NOT direct fields on provider structs. They are
+accessed via `p.Context().Platform` and `p.Context().Writer`.
 
-These belong in `actions_test.go` (hand-written), not in the generated file. The file provider already has comprehensive behavior tests in `provider_test.go`.
-
-## File Layout (per provider)
-
-```
-pkg/op/provider/<name>/gen/
-  actions.gen.go          # existing — action registration
-  actions_test.gen.go     # NEW — generated bridge tests
-  actions_test.go         # hand-written behavior tests (shrinks significantly)
-  params.gen.go           # existing — slot name mapping
-  immediate.gen.go        # existing — immediate receiver
-  planned.gen.go          # existing — planned receiver
-```
-
-## Changes
-
-### 1. Star generator — new template (`noblefactor-ops`)
-
-Add an `actions_test` template to the star generator that produces `actions_test.gen.go` for each provider. The template receives:
-
-- Method list with parameter names, types, return types
-- Compensable pairs (method → Compensate* mapping)
-- Provider import path and type name
-- Params map (from params.gen.go generation)
-
-The template emits:
-
-- Package declaration and imports
-- `TestActionNames` — all action names are registered
-- Per-method `Test<Method>Action_Do` — fixture setup, slot construction, Do call, result type assertion
-- Per-compensable `Test<Method>Action_Undo_Nil` — Undo with nil state
-- Per-method `Test<Method>Action_DryRun` — dry-run output assertion
-- Test helpers: `newCtx`, `dryRunCtx`, `makeRegistry`, `getAction`, `getCompensable`
-
-### 2. Fixture conventions
-
-The generator uses parameter name conventions to construct test fixtures:
+In **immediate mode**, the generated ImmediateFactory creates a ProviderBase
+with a partial Context populated from BindingConfig:
 
 ```go
-// For a method: Move(source Resource, destination Resource) (Resource, map[string]any, error)
-// Generator produces:
-func TestMoveAction_Do(t *testing.T) {
-    tmp := t.TempDir()
-    source := filepath.Join(tmp, "test-source.txt")
-    if err := os.WriteFile(source, []byte("test-content"), 0o644); err != nil {
-        t.Fatal(err)
+ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
+    p := &provider.Provider{
+        ProviderBase: op.NewProviderBase(op.Context{
+            Writer:   cfg.Writer,
+            Platform: cfg.Platform,
+        }),
     }
-    dest := filepath.Join(tmp, "test-destination.txt")
-    // ...
-    slots := map[string]any{
-        "source":      source,
-        "destination": dest,
-    }
-    // ...
+    return NewServiceReceiver(p)
 }
 ```
 
-Fixture rules are encoded as a small mapping in the generator, not as annotations on the provider methods.
+In **action/graph mode**, the `ActionRegistrar` creates a provider instance
+with the full execution Context (see D2). No per-call injection is needed.
 
-### 3. Migrate file provider (`devlore-cli`)
+This requires:
+- `Platform *Platform` added to `BindingConfig`
+- Codegen template change: when a provider embeds ProviderBase, emit
+  `ProviderBase: op.NewProviderBase(op.Context{Writer: cfg.Writer, Platform: cfg.Platform})`
+- `+devlore:bind Platform=Platform` is NOT used — Platform flows through Context
 
-- Run `make build` to generate `actions_test.gen.go`
-- Remove bridge-only tests from `actions_test.go`
-- Keep behavior tests that verify content, symlinks, checksums, error paths
-- Rename remaining file to clarify its purpose (or keep as `actions_test.go` with a comment header)
+### D2: Per-graph provider allocation via ActionRegistrar
 
-### 4. Apply to other providers
+Provider instances are scoped to their owner (graph or script). The
+`ActionRegistrar` signature changes from `func(reg *ActionRegistry)` to
+`func(reg *ActionRegistry, ctx Context)`.
 
-Once the template is proven on the file provider, enable generation for all providers that have `actions.gen.go`. Each provider gets bridge tests automatically without writing any test code.
+In **action/graph mode**, the executor creates a fresh `ActionRegistry` per
+graph by calling each `ActionRegistrar(reg, ctx)` with the full execution
+Context. The registrar creates a new provider instance with that Context:
 
-## Execution Order
+```go
+ActionRegistrar: func(reg *op.ActionRegistry, ctx op.Context) {
+    p := &provider.Provider{
+        ProviderBase: op.NewProviderBase(ctx),
+    }
+    provider.RegisterReflectedActions(reg, p)
+}
+```
 
-1. Implement the `actions_test` template in the star generator (noblefactor-ops)
-2. Test with the file provider — verify generated output matches current bridge tests
-3. Migrate file provider: generated bridge tests + trimmed hand-written behavior tests
-4. Enable for remaining providers
-5. `make check` across all providers
+The planner does NOT need provider instances — it validates action names
+against the binding registry metadata (Params maps, etc.).
+
+In **immediate/script mode**, `ImmediateFactory` creates a separate instance
+with a partial Context from `BindingConfig` (see D1). Scripts and graphs
+have separate provider instances at the provider level.
+
+### D3: io.Writer removal
+
+The `output io.Writer` parameter on git, service, and shell methods is an
+implementation leak. Starlark cannot provide an `io.Writer`, so it's always
+nil in immediate mode. Providers read `p.Context().Writer` instead.
+Removing `output` from signatures also removes it from `Params` and gen files.
+
+### D4: Resource types are lightweight
+
+- `git.Resource`: URL, Path, Ref fields. Constructor from string → path.
+- `service.Resource`: Name field. Constructor from string → name.
+- `pkg.Resource`: Name, Manager, Version fields. Constructor from string → name.
+
+### D5: pkg inputs become []pkg.Resource
+
+The pkg provider's `Install`, `Remove`, `Upgrade` accept `[]pkg.Resource`
+instead of `[]string`. Each package is a tracked resource with a URI
+(`pkg://brew/htop`). This enables catalog deduplication and lineage tracking.
+
+### D6: Starlark callbacks are immediate-mode only (no changes needed)
+
+Callbacks (e.g., `file.Reducer` used by `WalkTree`) are already gated to
+immediate receivers only by codegen (`codegen.go` Gate 1: "callable
+parameter not supported in <template> template"). They cannot be serialized
+into graph slots, so they never appear in planned/actions templates.
+
+In immediate mode, the callback's lifetime is bounded by the script
+execution — the provider instance, the Starlark `Callable`, and the thread
+all share the same scope. This phase's changes (ProviderBase embedding,
+Context via factory) strengthen this by ensuring `p.Context()` is always
+populated even in immediate mode.
+
+**Note:** The callback mechanism is currently broken. Fixing it is out of
+scope for this phase.
+
+## Implementation Steps
+
+### Step 1: Infrastructure (no provider changes yet)
+
+**`pkg/op/binding_config.go`** — Add `Platform *Platform` field.
+
+**`pkg/op/binding_registry.go`** — Change `ProviderRegistrar` type from
+`func(reg *ActionRegistry)` to `func(reg *ActionRegistry, ctx Context)`.
+
+**`internal/execution/executor.go`** — Create per-graph ActionRegistry by
+calling each ActionRegistrar with the execution Context.
+
+**`internal/starlark/binding_set.go`** — Update `NewPopulatedRegistry()` to
+pass a zero/partial Context when calling ActionRegistrars (or adapt the call
+site to the new signature).
+
+**`star/.../commands/generate.star`** — Add to `BINDING_CONFIG_FIELDS`:
+```python
+"Platform": {"zero": "nil", "type": "*op.Platform"},
+```
+
+**Codegen template** — When a provider embeds ProviderBase, emit
+`ProviderBase: op.NewProviderBase(op.Context{Writer: cfg.Writer, Platform: cfg.Platform})`
+in the ImmediateFactory. This requires a template change in noblefactor-ops
+(`templateFuncProviderInit` in `codegen.go`).
+
+**Callers of `BindingConfig{}`** — Add `Platform: platform.New()` where
+appropriate (~12 sites in `internal/lore/`, `internal/writ/`,
+`internal/starlark/`, `internal/e2e/`).
+
+### Step 2: git provider
+
+**`pkg/op/provider/git/provider.go`**:
+- Embed `op.ProviderBase`
+- Remove `output io.Writer` from Clone, Checkout, Pull signatures
+- Use `p.Context().Writer` for command output
+- Keep `cloneFn` test hook but update its signature (remove output param)
+
+**`pkg/op/provider/git/resource.go`** (new):
+- `Resource` struct: `op.ResourceBase`, URL, Path, Ref
+- `Tombstone` struct: `op.TombstoneBase`, ClonedPath
+- URI/Scheme/Host/Path methods
+- `RegisterConstructor` and `RegisterPlanTimeConstructor` in init()
+
+**`pkg/op/provider/git/resource_test.go`** (new):
+- URI generation, constructor round-trip, interface satisfaction
+
+**`pkg/op/provider/git/provider_test.go`** — Update for new signatures.
+
+### Step 3: service provider
+
+**`pkg/op/provider/service/provider.go`**:
+- Embed `op.ProviderBase`
+- Remove `Platform *op.Platform` field
+- Remove `output io.Writer` from all compensable method signatures
+- Use `p.Context().Platform.ServiceManager` and `p.Context().Writer`
+- Change compensate methods to accept typed `Tombstone` instead of `any`
+
+**`pkg/op/provider/service/resource.go`** (new):
+- `Resource` struct: `op.ResourceBase`, Name
+- `Tombstone` struct: `op.TombstoneBase`, WasRunning, WasEnabled
+
+**`pkg/op/provider/service/resource_test.go`** (new)
+
+**`pkg/op/provider/service/provider_test.go`** — Update for new signatures.
+
+### Step 4: pkg provider
+
+**`pkg/op/provider/pkg/provider.go`**:
+- Embed `op.ProviderBase`
+- Remove `Platform *op.Platform` field
+- Use `p.Context().Platform` for package manager resolution
+- Change `Install`, `Remove`, `Upgrade` inputs to `[]pkg.Resource`
+- Change compensate methods to accept typed `Tombstone` instead of `any`
+
+**`pkg/op/provider/pkg/resource.go`** (new):
+- `Resource` struct: `op.ResourceBase`, Name, Manager, Version
+- `Tombstone` struct: `op.TombstoneBase`, Packages, Manager, Cask,
+  AlreadyInstalled, PreviousVersions
+
+**`pkg/op/provider/pkg/resource_test.go`** (new)
+
+**`pkg/op/provider/pkg/provider_test.go`** — Update for new signatures.
+
+### Step 5: shell provider
+
+**`pkg/op/provider/shell/provider.go`**:
+- Embed `op.ProviderBase`
+- Remove `output io.Writer` from Exec, PowerShell
+- Use `p.Context().Writer`
+
+**`pkg/op/provider/shell/provider_test.go`** — Update.
+
+### Step 6: Regenerate all codegen + docs
+
+- Run `make build` to regenerate all `gen/` files
+- Verify `make check` passes
+- Update `docs/architecture/devlore-resource-management.md` Section 3.3
+  and Section 11 to mark git, service, pkg as "Implemented"
+- Update `docs/plans/resource-management.md` phase status
+
+## Key Files
+
+| File | Action |
+|------|--------|
+| `pkg/op/binding_config.go` | Add Platform field |
+| `pkg/op/binding_registry.go` | Change ProviderRegistrar signature |
+| `internal/execution/executor.go` | Per-graph ActionRegistry creation |
+| `internal/starlark/binding_set.go` | Update ActionRegistrar call sites |
+| `pkg/op/provider.go` | Reference: ProviderBase, Provider interface |
+| `pkg/op/resource.go` | Reference: Resource interface, scheme constants |
+| `pkg/op/provider/file/resource.go` | Reference: file.Resource pattern |
+| `pkg/op/provider/git/provider.go` | Embed ProviderBase, remove output |
+| `pkg/op/provider/git/resource.go` | New — git.Resource + Tombstone |
+| `pkg/op/provider/service/provider.go` | Embed ProviderBase, remove output/Platform |
+| `pkg/op/provider/service/resource.go` | New — service.Resource + Tombstone |
+| `pkg/op/provider/pkg/provider.go` | Embed ProviderBase, remove Platform |
+| `pkg/op/provider/pkg/resource.go` | New — pkg.Resource + Tombstone |
+| `pkg/op/provider/shell/provider.go` | Embed ProviderBase, remove output |
+| `star/.../commands/generate.star` | Add Platform to BINDING_CONFIG_FIELDS |
 
 ## Verification
 
 ```bash
-make build    # regenerates all gen files including new actions_test.gen.go
+make build    # regenerates all gen files
 make vet      # no vet issues
 make test     # all tests pass
 make check    # full quality gate
 ```
-
-## Design Decisions
-
-### Why not annotations on provider methods?
-
-The fixture conventions (source → create file, destination → path only) are derivable from parameter names and types. Adding `+devlore:test_fixture` annotations would be redundant with information the generator already has. If a method's fixture needs don't fit the convention, it gets a hand-written test instead.
-
-### Why a separate generated test file?
-
-Go allows multiple test files in the same package. `actions_test.gen.go` contains bridge tests (mechanical, regenerated). `actions_test.go` contains behavior tests (semantic, hand-written). The `// Code generated` header prevents editors and linters from suggesting modifications to generated code.
-
-### Why not generate behavior tests?
-
-Behavior tests encode domain expectations (file content matches, symlink targets are correct, checksums verify). These are the tests that catch real bugs. Generating them would either produce trivial tests (just call Do and check no error) or require encoding domain semantics in the generator — which is the provider author's job, not the generator's.
