@@ -87,11 +87,11 @@ func TestInstall(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Install([]string{"vim", "git"}, "", false)
+	result, state, err := p.Install([]Resource{{Name: "vim"}, {Name: "git"}}, "", false)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if len(result) != 2 || result[0] != "vim" || result[1] != "git" {
+	if len(result) != 2 || result[0].Name != "vim" || result[1].Name != "git" {
 		t.Errorf("Install() result = %v, want [vim git]", result)
 	}
 	if len(state.Packages) != 2 || state.Packages[0] != "vim" || state.Packages[1] != "git" {
@@ -123,7 +123,7 @@ func TestInstallWithAlreadyInstalled(t *testing.T) {
 	packageManager.installed["vim"] = true
 	p := newTestProvider(packageManager)
 
-	_, state, err := p.Install([]string{"vim", "git"}, "", false)
+	_, state, err := p.Install([]Resource{{Name: "vim"}, {Name: "git"}}, "", false)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestInstallError(t *testing.T) {
 	packageManager.installErr = "disk full"
 	p := newTestProvider(packageManager)
 
-	_, _, err := p.Install([]string{"vim"}, "", false)
+	_, _, err := p.Install([]Resource{{Name: "vim"}}, "", false)
 	if err == nil {
 		t.Fatal("Install() expected error when package manager fails")
 	}
@@ -193,11 +193,11 @@ func TestUpgrade(t *testing.T) {
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Upgrade([]string{"vim"}, "", false)
+	result, state, err := p.Upgrade([]Resource{{Name: "vim"}}, "", false)
 	if err != nil {
 		t.Fatalf("Upgrade() error = %v", err)
 	}
-	if len(result) != 1 || result[0] != "vim" {
+	if len(result) != 1 || result[0].Name != "vim" {
 		t.Errorf("Upgrade() result = %v, want [vim]", result)
 	}
 	if state.PreviousVersions["vim"] != "8.2" {
@@ -226,11 +226,11 @@ func TestRemove(t *testing.T) {
 	packageManager.installed["git"] = true
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Remove([]string{"vim", "git"}, "", false)
+	result, state, err := p.Remove([]Resource{{Name: "vim"}, {Name: "git"}}, "", false)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if len(result) != 2 || result[0] != "vim" || result[1] != "git" {
+	if len(result) != 2 || result[0].Name != "vim" || result[1].Name != "git" {
 		t.Errorf("Remove() result = %v, want [vim git]", result)
 	}
 	if len(state.Packages) != 2 || state.Packages[0] != "vim" || state.Packages[1] != "git" {
@@ -300,7 +300,7 @@ func TestPredicates(t *testing.T) {
 	p := newTestProvider(packageManager)
 
 	t.Run("Installed true", func(t *testing.T) {
-		got, err := p.Installed("vim")
+		got, err := p.Installed(Resource{Name: "vim"})
 		if err != nil {
 			t.Fatalf("Installed() error = %v", err)
 		}
@@ -310,7 +310,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Installed false", func(t *testing.T) {
-		got, err := p.Installed("emacs")
+		got, err := p.Installed(Resource{Name: "emacs"})
 		if err != nil {
 			t.Fatalf("Installed() error = %v", err)
 		}
@@ -320,7 +320,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("NotInstalled true", func(t *testing.T) {
-		got, err := p.NotInstalled("emacs")
+		got, err := p.NotInstalled(Resource{Name: "emacs"})
 		if err != nil {
 			t.Fatalf("NotInstalled() error = %v", err)
 		}
@@ -330,7 +330,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("NotInstalled false", func(t *testing.T) {
-		got, err := p.NotInstalled("vim")
+		got, err := p.NotInstalled(Resource{Name: "vim"})
 		if err != nil {
 			t.Fatalf("NotInstalled() error = %v", err)
 		}
@@ -340,7 +340,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE true", func(t *testing.T) {
-		got, err := p.VersionGTE("vim", "8.0")
+		got, err := p.VersionGTE(Resource{Name: "vim"}, "8.0")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}
@@ -350,7 +350,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE false", func(t *testing.T) {
-		got, err := p.VersionGTE("vim", "9.1")
+		got, err := p.VersionGTE(Resource{Name: "vim"}, "9.1")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}
@@ -360,7 +360,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE not installed", func(t *testing.T) {
-		got, err := p.VersionGTE("emacs", "1.0")
+		got, err := p.VersionGTE(Resource{Name: "emacs"}, "1.0")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}

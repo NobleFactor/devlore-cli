@@ -601,8 +601,8 @@ as the 3rd return value.
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `execution/provider/{file,pkg,service,git,archive}/provider.go` | Modify | Add `ReconcileX` methods, update `Do` returns |
-| `execution/provider/*/actions_gen.go` | Regenerate | Wire 4th return value and `Reconcile` method |
+| `pkg/op/provider/{file,pkg,service,git}/provider.go` | Modify | Add `ReconcileX` methods, update `Do` returns |
+| `pkg/op/provider/*/actions_gen.go` | Regenerate | Wire 4th return value and `Reconcile` method |
 
 ### Phase 3: Event Stream and Audit Ledger
 
@@ -617,9 +617,9 @@ Expose the event stream from the executor so consumers can subscribe.
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `execution/event.go` | Modify | Add `EventSink` interface |
-| `execution/executor.go` | Modify | Wire event emission |
-| `execution/audit.go` | Create | `AuditLedger` implementation |
+| `pkg/op/event.go` | Modify | Add `EventSink` interface |
+| `internal/execution/executor.go` | Modify | Wire event emission |
+| `internal/execution/audit.go` | Create | `AuditLedger` implementation |
 
 ### Phase 4: Reconciliation Engine
 
@@ -629,15 +629,22 @@ Build the reconciliation store and reconcile command.
 - [ ] Wire as an `EventSink` during deploy/upgrade
 - [ ] Implement `writ reconcile` using the store + action Reconcile methods
 - [ ] Add safety gate: `Reconcile` before `Undo` to detect dangerous undos
-- [ ] Remove the stub reconcile package created during checksum removal
+- [ ] Determine relationship between `internal/writ/reconcile` (filesystem-based drift detection) and the action-based reconciliation engine (see note below)
+
+> **Note**: `internal/writ/reconcile` is a working filesystem-based drift
+> detection implementation (`State`, `Entry`, `Report`, `FromBuildResult`,
+> `ScanTarget`). It operates without an execution graph receipt — scanning
+> the filesystem directly to detect state/link/copy/conflict status. This
+> may need to coexist with the action-based reconciliation engine for the
+> case where no receipt exists (e.g., receipts directory was deleted).
 
 **Files**:
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `execution/reconcile.go` | Create | `ReconciliationStore` |
-| `writ/reconcile/reconcile.go` | Rewrite | Drift detection via stored reconciliation data + Reconcile methods |
-| `writ/commands.go` | Modify | Wire reconciliation into deploy/reconcile/upgrade |
+| `internal/execution/reconcile.go` | Create | `ReconciliationStore` |
+| `internal/writ/reconcile/reconcile.go` | Evolve | Integrate action-based reconciliation; preserve filesystem-based fallback |
+| `internal/writ/commands.go` | Modify | Wire reconciliation into deploy/reconcile/upgrade |
 
 ### Phase 5: Code Generation — The Type Signature Triangle
 
@@ -739,6 +746,7 @@ When replicating to the Sidecar, Reconciliation Data must be indexed by the
 
 ## Related Documents
 
+- [Implementation Plan](../plans/reconciliation.md) -- phased implementation plan
 - [Binding Unification](./binding-unification.md) -- parent plan
 - [Phase 8](./binding-unification/phase-8.md) -- compensation classification, provider contracts
 - Issue #156 -- Audit, Reconciliation, and Recovery in the Execution Graph
