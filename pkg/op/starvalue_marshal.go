@@ -288,6 +288,11 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 			if m, ok := rv.Interface().(starvalue.Marshaler); ok {
 				return m.MarshalStarvalue()
 			}
+			if rv.CanAddr() {
+				if m, ok := rv.Addr().Interface().(starvalue.Marshaler); ok {
+					return m.MarshalStarvalue()
+				}
+			}
 		}
 		return marshalStruct(rv)
 

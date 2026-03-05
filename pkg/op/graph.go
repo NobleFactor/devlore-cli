@@ -211,10 +211,10 @@ type nodeJSONWire struct {
 }
 
 // MarshalJSON serializes the node with Action as its name string.
-func (n Node) MarshalJSON() ([]byte, error) {
+func (n *Node) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&nodeJSONWire{
 		Action:   n.ActionName(),
-		nodeJSON: (*nodeJSON)(&n),
+		nodeJSON: (*nodeJSON)(n),
 	})
 }
 
@@ -235,7 +235,7 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 // panics on unexported concrete types behind interfaces in shadowed embedded
 // fields, and fails to decode embedded fields when names collide (unlike
 // encoding/json which handles both correctly). We round-trip through JSON instead.
-func (n Node) MarshalYAML() (any, error) {
+func (n *Node) MarshalYAML() (any, error) {
 	data, err := json.Marshal(n)
 	if err != nil {
 		return nil, err

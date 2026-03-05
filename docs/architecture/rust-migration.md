@@ -661,3 +661,222 @@ Before committing to the full port, invest 2–3 days on a Phase 1 spike
 evaluating `starlark-rust`. Write a minimal provider with `StarlarkValue`,
 `HasAttrs`, and thread-local context passing. If that works cleanly, the
 estimate holds. If not, add 5–10 days or reconsider the migration.
+
+
+---
+
+## 12. Migration Deferral Rationale (March 2026)
+
+This section records the analysis and decision to defer the Rust migration
+until the Go feature set is complete. It documents the dependency risks,
+ecosystem health, alternative language evaluation, and the reasoning behind
+staying on Go+Starlark for now.
+
+### 12.1 starlark-rust Dependency Risk
+
+The highest-risk dependency in the migration is
+[`starlark-rust`](https://github.com/facebook/starlark-rust) (crate:
+`starlark`). Analysis as of March 2026:
+
+| Metric                  | Value                                    |
+|-------------------------|------------------------------------------|
+| Last crate release      | v0.13.0, December 2024 (15 months ago)   |
+| Release cadence         | Irregular — Dec 2022, Dec 2024           |
+| crates.io dependents    | 13                                       |
+| GitHub stars            | ~700                                     |
+| Primary consumer        | Buck2 (Meta's internal build system)     |
+| Maintenance posture     | Internal-first; external use incidental  |
+
+**Key concerns:**
+
+1. **15-month release gap.** The crate has not published a release since
+   December 2024. Commits continue on `main` for Buck2's needs, but these
+   are not cut into releases on any predictable schedule. Consumers must
+   either pin to stale releases or track `main` via git dependency.
+
+2. **13 dependents.** For comparison, `go.starlark.net` has 1,158
+   importers. The Rust Starlark ecosystem is two orders of magnitude
+   smaller. Community pressure for stability, documentation, and API
+   compatibility is negligible.
+
+3. **Internal-first maintenance.** Meta maintains `starlark-rust` for
+   Buck2. Breaking changes that serve Buck2 ship without regard for
+   external consumers. There is no external stability commitment and no
+   published deprecation policy.
+
+4. **Context passing difference.** Go Starlark uses `thread.SetLocal(key,
+   value)` — a keyed map that allows multiple independent subsystems to
+   store context. Rust Starlark uses `Evaluator.extra` — a single
+   `Option<&dyn AnyLifetime>`, requiring all context to be bundled into one
+   struct. This is workable but requires a different design pattern for
+   provider context injection.
+
+5. **No external governance.** Unlike projects with independent foundations
+   or diverse maintainer pools, `starlark-rust` lives under
+   `facebook/` on GitHub with Meta employees as sole maintainers.
+
+**Risk assessment:** The dependency is usable but fragile for production
+use outside Meta's ecosystem. A pre-commitment spike (Section 11.8) is
+essential before committing engineering time.
+
+### 12.2 Go Starlark Ecosystem Health
+
+By contrast, `go.starlark.net` is a healthy dependency:
+
+| Metric              | Value                                         |
+|---------------------|-----------------------------------------------|
+| Importers           | 1,158 (pkg.go.dev)                            |
+| Release model       | Zero tagged releases; pseudo-version pinning   |
+| Maintenance         | Active commits from Google engineers           |
+| Governance          | `google/` GitHub org, multiple contributors    |
+| Notable consumers   | Bazel, Skycfg, Tilt, CUE, many others         |
+
+The lack of tagged releases is a Go ecosystem convention — not a warning
+sign. The module is imported by over a thousand projects, ensuring that
+breaking changes are caught quickly by the community. devlore pins to a
+specific commit hash via Go's pseudo-version mechanism
+(`v0.0.0-20260210143700-b62fd896b91b`), which is deterministic and
+reproducible.
+
+### 12.3 Embeddable Language Ecosystem Comparison
+
+To evaluate alternatives, we surveyed embeddable scripting languages across
+both Go and Rust:
+
+**Go ecosystem (by GitHub importers):**
+
+| Language    | Library         | Importers |
+|-------------|-----------------|-----------|
+| JavaScript  | goja            | 3,915     |
+| Lua         | gopher-lua      | 2,345     |
+| Starlark    | go.starlark.net | 1,158     |
+| Lua (cgo)   | golua           | ~400      |
+| Tengo       | tengo           | ~350      |
+
+**Rust ecosystem (by crates.io dependents):**
+
+| Language    | Library         | Dependents |
+|-------------|-----------------|------------|
+| Lua         | mlua            | 284        |
+| Rhai        | rhai            | 220        |
+| JavaScript  | boa_engine      | ~100       |
+| Starlark    | starlark        | 13         |
+| Lua (older) | rlua            | ~50        |
+
+**Observation:** The Rust embeddable language ecosystem is 10–30× smaller
+than Go's across every language. This is not specific to Starlark — it
+reflects Rust's younger ecosystem and smaller user base for this class of
+application. Lua (`mlua` at 284 dependents) is the healthiest embeddable
+language option in Rust, but still an order of magnitude behind Go's
+options.
+
+### 12.4 Lua as an Alternative: Evaluation and Rejection
+
+Lua was evaluated as a potential replacement for Starlark, either as the
+sole embedded language or as a second language alongside Starlark.
+
+**Lua advantages over Starlark:**
+
+- Richer feature set: coroutines, `pcall`/`xpcall` error handling,
+  metatables, pattern matching, string library
+- Stable specification (Lua 5.4, published standard)
+- Larger ecosystem in both Go and Rust
+- Battle-tested in gamedev, networking, and embedded systems
+
+**Starlark advantages over Lua:**
+
+- **Python syntax.** devlore targets DevOps and infrastructure engineers.
+  Python is the lingua franca of this audience — far more familiar than
+  Lua's `local`, `then`/`end`, 1-based indexing, and `~=` for inequality.
+- **Determinism.** Starlark is hermetic by design: no I/O, no
+  non-deterministic operations, frozen modules. This aligns with devlore's
+  declarative provider model.
+- **Frozen modules.** Loaded modules are immutable — no accidental global
+  state mutation between providers.
+- **Dict ordering.** Starlark dicts are insertion-ordered (like Python
+  3.7+). Lua tables have undefined iteration order.
+
+**Scenarios evaluated:**
+
+| Scenario                        | Go | Rust | Assessment                                  |
+|---------------------------------|----|------|---------------------------------------------|
+| Starlark only (current)         | ✓  | —    | Healthy ecosystem, Python syntax, hermetic   |
+| Lua only                        | ✓  | ✓    | Larger ecosystem but unfamiliar syntax        |
+| Starlark + Lua                  | ✓  | ✓    | Maximum flexibility but doubled surface area  |
+| Starlark only (Rust migration)  | —  | ✓    | Fragile dependency (13 dependents)            |
+| Lua only (Rust migration)       | —  | ✓    | Healthy dependency but syntax trade-off       |
+
+**Decision: familiarity wins.** devlore's users are infrastructure
+engineers who think in Python. Starlark's Python syntax is a feature, not
+an accident. Forcing users to learn Lua's idioms (1-based indexing,
+`local` scoping, `then`/`end` blocks, `~=` for not-equal) adds friction
+that outweighs Lua's technical advantages. The cost is borne by every user
+on every script they write, forever.
+
+Lua remains a viable fallback if `starlark-rust` proves unmaintainable
+during a future migration attempt. The `mlua` crate (284 dependents) is
+healthy enough for production use.
+
+### 12.5 Language Adoption Context
+
+Stack Overflow survey data (2019–2025) on professional developer usage
+provides context for the Go-vs-Rust ecosystem size difference:
+
+| Language | 2019   | 2021   | 2023   | 2025   | Trend      |
+|----------|--------|--------|--------|--------|------------|
+| Java     | 39.2%  | 35.4%  | 30.5%  | 28.0%  | Declining  |
+| C#       | 31.4%  | 27.9%  | 27.6%  | 28.8%  | Stable     |
+| Go       | 8.8%   | 9.4%   | 13.2%  | 16.1%  | Doubling   |
+| Rust     | 3.2%   | 7.0%   | 13.1%  | 16.3%  | Quintupling|
+
+Go and Rust have converged in developer adoption (~16% each in 2025), but
+Go's 6-year head start means its library ecosystem is significantly more
+mature. This explains why every embeddable language has 10–30× more Go
+consumers than Rust consumers. The gap is closing but has not closed.
+
+### 12.6 Remaining Go Work
+
+The following features are planned or in progress in the Go codebase:
+
+1. **Reconciliation** (`docs/architecture/devlore-audit-reconciliation-and-recovery.md`):
+   Changes `Action.Do` from 3 returns to 4, adds `ReconcilableAction`
+   interface, moves `RecoveryStack` to `pkg/op`. This is a fundamental
+   interface change that would be expensive to port mid-migration.
+
+2. **Orchestration primitives** (`docs/architecture/devlore-orchestration-primitives.md`):
+   `Gather`, `Choose`, `WaitUntil`, `SlotProxy`, `RuntimePredicate`.
+
+3. **Graph convergence operations** (`docs/architecture/devlore-graph-convergence-operations.md`):
+   `Elevate` and related operations.
+
+4. **Receipt integrity** (`docs/architecture/devlore-receipt-integrity.md`).
+
+Completing these features in Go first means the Rust port has a stable,
+proven API surface to target — rather than porting a moving target.
+
+### 12.7 Decision
+
+**Defer the Rust migration.** The rationale:
+
+1. **Go Starlark is healthy.** 1,158 importers, active maintenance, stable
+   API. There is no urgency to leave.
+
+2. **starlark-rust is fragile.** 13 dependents, 15-month release gap,
+   internal-only maintenance. Viable but risky for a production foundation.
+
+3. **Familiarity wins.** Starlark's Python syntax is a core product
+   feature for devlore's DevOps audience. No alternative language matches
+   it.
+
+4. **Finish Go features first.** Reconciliation, orchestration primitives,
+   and convergence operations change fundamental interfaces. Port a stable
+   API, not a moving target.
+
+5. **The migration remains viable.** Nothing in this analysis makes the
+   Rust migration impossible — only premature. When Go features stabilize,
+   revisit with the Phase 1 spike (Section 11.8). If `starlark-rust` has
+   improved by then, proceed. If not, evaluate `mlua` as a fallback.
+
+**Estimated timeline:** Complete remaining Go features (~25–35 days of
+active development), then reassess. The Rust migration itself is estimated
+at ~55 days (Section 11.4) once started.

@@ -4,7 +4,7 @@
 # generate.star - Generate receivers and actions from provider structs
 #
 # Reads a provider struct's methods via go.methods(), then calls
-# go.generate() to produce planned receivers, graph actions, and
+# go.render() to produce planned receivers, graph actions, and
 # immediate receivers.
 #
 # The Provider struct carries directives:
@@ -73,15 +73,11 @@ PRIMITIVE_RETURNS = [
 ]
 
 def load_template(name, ext_dir):
-    """Load template content by name.
-
-    Local templates are read from the extension's templates/ directory.
-    Builtin templates are retrieved from the go receiver.
-    """
-    if name in LOCAL_TEMPLATES:
-        path = file.join(ext_dir, "templates", LOCAL_TEMPLATES[name])
-        return file.read(path)
-    return go.template(name)
+    """Load template content by name from the extension's templates/ directory."""
+    if name not in LOCAL_TEMPLATES:
+        fail("unknown template: " + name)
+    path = file.join(ext_dir, "templates", LOCAL_TEMPLATES[name])
+    return file.read(path)
 
 def to_snake(name):
     """Convert CamelCase to snake_case."""
@@ -1112,14 +1108,146 @@ def annotate_result_exprs(descriptors, data_structs, provider_prefix):
             converter = type_name + "ToStarlark"
             desc["result_expr"] = converter + "(%s)"
 
+# =============================================================================
+# Pre-computation Helpers for go.render()
+# =============================================================================
+
+def compute_provider_type_prefix(desc):
+    """Return 'provider.' for gen/ subpackage mode, '' for same-package."""
+    if desc.get("provider_import", ""):
+        return "provider."
+    return ""
+
+def compute_param_names_list(method):
+    """Pre-compute the quoted, comma-separated parameter name list for a method.
+
+    Replicates templateFuncParamNamesList from codegen.go.
+    Callable params are excluded. Optional params get '?' suffix.
+    """
+    parts = []
+    for p in method.get("params", []):
+        if p.get("callable"):
+            continue
+        name = to_snake(p["name"])
+        if p.get("optional") or p.get("default", ""):
+            name += "?"
+        parts.append('"' + name + '"')
+    return ", ".join(parts)
+
+def compute_provider_init(desc):
+    """Pre-compute the ImmediateFactory body code.
+
+    Replicates templateFuncProviderInit from codegen.go.
+    Generates the Go code that constructs the provider from BindingConfig
+    and delegates to New<StructName><WrapperSuffix>.
+    """
+    prefix = compute_provider_type_prefix(desc)
+    struct_name = desc["struct_name"]
+    wrapper_suffix = desc.get("wrapper_suffix", "Receiver")
+    provider_name = desc["provider"]
+    fields = desc.get("provider_fields", [])
+
+    lines = []
+    if fields:
+        constructed = {}  # go_name → converted var name
+        for pf in fields:
+            local_var = lc_first(pf["go_name"])
+            lines.append("\t\t\t%s := cfg.%s" % (local_var, pf["cfg_field"]))
+            if pf.get("default", ""):
+                lines.append("\t\t\tif %s == %s {" % (local_var, pf["zero_value"]))
+                lines.append("\t\t\t\t%s = %s" % (local_var, pf["default"]))
+                lines.append("\t\t\t}")
+            if pf.get("go_type", ""):
+                converted_var = local_var + "Val"
+                qualified_type = prefix + pf["go_type"]
+                lines.append("\t\t\t%s, err := op.Construct[%s](%s)" % (converted_var, qualified_type, local_var))
+                lines.append("\t\t\tif err != nil {")
+                lines.append('\t\t\t\tpanic("%s: construct %s: " + err.Error())' % (provider_name, pf["go_name"]))
+                lines.append("\t\t\t}")
+                constructed[pf["go_name"]] = converted_var
+
+        # Build return with inline struct fields
+        field_parts = []
+        for pf in fields:
+            local_var = lc_first(pf["go_name"])
+            if pf["go_name"] in constructed:
+                local_var = constructed[pf["go_name"]]
+            field_parts.append("%s: %s" % (pf["go_name"], local_var))
+        lines.append("\t\t\treturn New%s%s(&%sProvider{%s})" % (
+            struct_name, wrapper_suffix, prefix, ", ".join(field_parts)))
+    else:
+        lines.append("\t\t\treturn New%s%s(&%sProvider{})" % (
+            struct_name, wrapper_suffix, prefix))
+
+    return "\n".join(lines)
+
+def filter_callable_methods(methods, template_name):
+    """Filter out methods with callable params for non-immediate templates.
+
+    Returns (filtered_methods, flagged_names).
+    Immediate/params/test templates keep all methods.
+    """
+    if template_name in ["immediate_receiver", "params", "immediate_test"]:
+        return methods, []
+
+    filtered = []
+    flagged = []
+    for m in methods:
+        has_callable = False
+        for p in m.get("params", []):
+            if p.get("callable"):
+                has_callable = True
+                break
+        if has_callable:
+            flagged.append(m["name"])
+        else:
+            filtered.append(m)
+    return filtered, flagged
+
+def prepare_render_data(descriptor, template_name):
+    """Prepare a descriptor dict for go.render().
+
+    Pre-computes template function values and adds derived fields.
+    Returns (render_data, flagged_method_names).
+    """
+    # Shallow copy to avoid mutating the original
+    desc = dict(descriptor)
+
+    # Apply defaults for optional fields
+    if not desc.get("wrapper_suffix", ""):
+        desc["wrapper_suffix"] = "Receiver"
+
+    # Pre-compute provider type prefix
+    desc["provider_type_prefix"] = compute_provider_type_prefix(desc)
+
+    # Pre-compute provider_init for immediate_receiver template
+    if template_name == "immediate_receiver" and desc.get("registered", False):
+        desc["provider_init"] = compute_provider_init(desc)
+
+    # Filter callable methods for non-immediate templates
+    methods = list(desc.get("methods", []))
+    methods, flagged = filter_callable_methods(methods, template_name)
+
+    # Add derived fields to each method
+    enriched = []
+    for m in methods:
+        md = dict(m)
+        md["snake_name"] = to_snake(m["name"])
+        md["param_names_list"] = compute_param_names_list(m)
+        enriched.append(md)
+    desc["methods"] = enriched
+
+    return desc, flagged
+
 def gen_file(ctx, template_name, descriptor, filename, label, method_count, output_dir, write_files):
     """Generate a single file from a template and descriptor."""
     ui.note("Generating %s for %s (%d items)..." % (template_name, label, method_count))
     template_content = load_template(template_name, ctx.extension.dir)
-    descriptor["template"] = template_name
-    result = go.generate(template_content, descriptor)
-    code = result.code
-    for flag in result.flagged:
+
+    # Pre-compute template values and render via go.render()
+    render_data, flagged = prepare_render_data(descriptor, template_name)
+    code = go.render(template=template_content, data=render_data)
+    for flag in flagged:
         ui.warn("FLAGGED (unprojectable): " + flag)
 
     if write_files and output_dir:

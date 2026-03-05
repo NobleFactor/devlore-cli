@@ -30,13 +30,14 @@ func NewProviderBase(ctx Context) ProviderBase {
 }
 
 // Context returns the context associated with this provider's lifetime.
-func (b ProviderBase) Context() Context {
-	return b.ctx
+func (p *ProviderBase) Context() Context {
+	return p.ctx
 }
 
-func (b *ProviderBase) providerBase() *ProviderBase { return b }
+func (p *ProviderBase) providerBase() *ProviderBase { return p }
 
 // InitProvider sets the execution [Context] on any provider that embeds [ProviderBase].
+//
 // For providers that do not embed ProviderBase, this is a no-op.
 func InitProvider(p any, ctx Context) {
 	if provider, ok := p.(Provider); ok {

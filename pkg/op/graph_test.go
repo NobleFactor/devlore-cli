@@ -455,7 +455,7 @@ func TestNode_JSON_ActionFieldPresent(t *testing.T) {
 		Action: StubAction("template.render"),
 		Status: StatusCompleted,
 	}
-	data, err := json.Marshal(n)
+	data, err := json.Marshal(&n)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
