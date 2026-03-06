@@ -4,6 +4,7 @@
 package op
 
 import (
+	"strings"
 	"sync"
 	"testing"
 )
@@ -46,7 +47,10 @@ func TestCatalog_Shadow(t *testing.T) {
 
 	origID := cat.Resolve("file:///target")
 	res := &testEmbeddingResource{SourcePath: "/target"}
-	shadowID := cat.Shadow(res, "writer-node")
+	shadowID, err := cat.Shadow(res, "writer-node")
+	if err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 
 	if origID == shadowID {
 		t.Error("Shadow should create a new resource ID, got same as original")
@@ -70,7 +74,9 @@ func TestCatalog_Shadow_OverwritesResolve(t *testing.T) {
 
 	cat.Resolve("file:///overwrite")
 	res := &testEmbeddingResource{SourcePath: "/overwrite"}
-	cat.Shadow(res, "nodeA")
+	if _, err := cat.Shadow(res, "nodeA"); err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 	resolvedID := cat.Resolve("file:///overwrite")
 
 	// Resolve after Shadow should return the shadow's ID
@@ -86,7 +92,9 @@ func TestCatalog_ImplicitDependency(t *testing.T) {
 
 	// Shadow by nodeA creates a resource version owned by nodeA
 	res := &testEmbeddingResource{SourcePath: "/dep"}
-	cat.Shadow(res, "nodeA")
+	if _, err := cat.Shadow(res, "nodeA"); err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 
 	// Resolve (as if nodeB is reading) returns nodeA's version
 	id := cat.Resolve("file:///dep")
@@ -120,7 +128,10 @@ func TestCatalog_Current_AfterShadow(t *testing.T) {
 
 	cat.Resolve("file:///shadowed")
 	res := &testEmbeddingResource{SourcePath: "/shadowed"}
-	shadowID := cat.Shadow(res, "node-1")
+	shadowID, err := cat.Shadow(res, "node-1")
+	if err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 
 	if got := cat.Current("file:///shadowed"); got != shadowID {
 		t.Errorf("Current after Shadow = %q, want %q", got, shadowID)
@@ -182,7 +193,7 @@ func TestCatalog_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			base := NewResourceBase("file:///concurrent")
-			id := cat.Shadow(&base, "")
+			id, _ := cat.Shadow(&base, "")
 			ids <- id
 		}()
 	}
@@ -210,7 +221,9 @@ func TestCatalog_DiscoveryURIs_ReturnsUnshadowed(t *testing.T) {
 	cat.Resolve("file:///source2")
 	// Shadow a different URI — not a supersede.
 	res := &testEmbeddingResource{SourcePath: "/target"}
-	cat.Shadow(res, "node-1")
+	if _, err := cat.Shadow(res, "node-1"); err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 
 	uris := cat.DiscoveryURIs()
 	if len(uris) != 2 {
@@ -223,7 +236,9 @@ func TestCatalog_DiscoveryURIs_ShadowSupersedes(t *testing.T) {
 
 	cat.Resolve("file:///source")
 	res := &testEmbeddingResource{SourcePath: "/source"}
-	cat.Shadow(res, "node-1")
+	if _, err := cat.Shadow(res, "node-1"); err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 
 	uris := cat.DiscoveryURIs()
 	if len(uris) != 0 {
@@ -249,7 +264,10 @@ func TestCatalog_IDsAreMonotonic(t *testing.T) {
 	}
 
 	base := NewResourceBase("file:///b")
-	id2 := cat.Shadow(&base, "node-1")
+	id2, err := cat.Shadow(&base, "node-1")
+	if err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 	if id2 != "res-2" {
 		t.Errorf("second ID = %q, want res-2", id2)
 	}
@@ -257,5 +275,77 @@ func TestCatalog_IDsAreMonotonic(t *testing.T) {
 	id3 := cat.Resolve("file:///c")
 	if id3 != "res-3" {
 		t.Errorf("third ID = %q, want res-3", id3)
+	}
+}
+
+func TestCatalog_Shadow_ConflictDetection(t *testing.T) {
+	cat := NewResourceCatalog()
+
+	// First shadow by nodeA — should succeed.
+	res1 := &testEmbeddingResource{SourcePath: "/conflict"}
+	_, err := cat.Shadow(res1, "nodeA")
+	if err != nil {
+		t.Fatalf("first Shadow error: %v", err)
+	}
+
+	// Second shadow by nodeB on the same URI — should conflict.
+	res2 := &testEmbeddingResource{SourcePath: "/conflict"}
+	_, err = cat.Shadow(res2, "nodeB")
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	if !strings.Contains(err.Error(), "resource conflict") {
+		t.Errorf("error = %q, want 'resource conflict' substring", err)
+	}
+	if !strings.Contains(err.Error(), "nodeA") || !strings.Contains(err.Error(), "nodeB") {
+		t.Errorf("error = %q, want both node IDs mentioned", err)
+	}
+}
+
+func TestCatalog_Shadow_SameOriginNoConflict(t *testing.T) {
+	cat := NewResourceCatalog()
+
+	// Same origin shadowing twice — should NOT conflict.
+	res1 := &testEmbeddingResource{SourcePath: "/same"}
+	_, err := cat.Shadow(res1, "nodeA")
+	if err != nil {
+		t.Fatalf("first Shadow error: %v", err)
+	}
+
+	res2 := &testEmbeddingResource{SourcePath: "/same"}
+	_, err = cat.Shadow(res2, "nodeA")
+	if err != nil {
+		t.Errorf("same-origin Shadow should not conflict, got: %v", err)
+	}
+}
+
+func TestCatalog_Shadow_DiscoveryThenShadowNoConflict(t *testing.T) {
+	cat := NewResourceCatalog()
+
+	// Resolve creates a discovery entry (empty originID).
+	cat.Resolve("file:///discovered")
+
+	// Shadow by nodeA should NOT conflict with discovery.
+	res := &testEmbeddingResource{SourcePath: "/discovered"}
+	_, err := cat.Shadow(res, "nodeA")
+	if err != nil {
+		t.Errorf("shadow after discovery should not conflict, got: %v", err)
+	}
+}
+
+func TestCatalog_Shadow_EmptyOriginNoConflict(t *testing.T) {
+	cat := NewResourceCatalog()
+
+	// Shadow with empty originID (discovery-like) should never conflict.
+	res1 := &testEmbeddingResource{SourcePath: "/empty-origin"}
+	_, err := cat.Shadow(res1, "nodeA")
+	if err != nil {
+		t.Fatalf("first Shadow error: %v", err)
+	}
+
+	res2 := &testEmbeddingResource{SourcePath: "/empty-origin"}
+	_, err = cat.Shadow(res2, "")
+	if err != nil {
+		t.Errorf("empty-origin Shadow should not conflict, got: %v", err)
 	}
 }

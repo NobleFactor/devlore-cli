@@ -481,6 +481,20 @@ func TestWrapReceiver_CatalogShadow(t *testing.T) {
 	if catalog.Len() != 1 {
 		t.Errorf("catalog len = %d, want 1 (Resource result should be shadowed)", catalog.Len())
 	}
+
+	// Verify the originID is the qualified method name, not empty.
+	id := catalog.Current("file:///tmp/new")
+	if id == "" {
+		t.Fatal("catalog has no entry for file:///tmp/new")
+	}
+	entry, ok := catalog.Lookup(id)
+	if !ok {
+		t.Fatalf("catalog.Lookup(%q) failed", id)
+	}
+	base := entry.resourceBase()
+	if base.originID != "test.create" {
+		t.Errorf("originID = %q, want %q", base.originID, "test.create")
+	}
 }
 
 func TestWrapReceiver_NoCatalog_NoShadow(t *testing.T) {

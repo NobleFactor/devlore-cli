@@ -1,8 +1,8 @@
 ---
 title: "Resource Management: URI-Based Resource Tracking for Providers"
-status: draft
+status: active
 created: 2026-02-27
-updated: 2026-03-04
+updated: 2026-03-05
 ---
 
 # Plan: Resource Management
@@ -12,11 +12,15 @@ updated: 2026-03-04
 Track external state through typed resource handles instead of raw strings.
 `op.Resource` is a sealed interface backed by `ResourceBase` (URI + identity
 fields). `ResourceCatalog` (append-only ledger + URI→ID namespace with
-Resolve/Shadow) lives on the graph. The file provider is fully migrated:
-`file.Resource` embeds `ResourceBase`, every method accepts and returns
-`Resource`, and compensation uses typed `file.Tombstone` (embedding
-`op.TombstoneBase`). The remaining work is executor integration, other
-provider migrations, and codegen updates.
+Resolve/Shadow) lives on the graph. All providers are fully migrated:
+every method that identifies an external entity (file path, URL, package
+name, service name) accepts typed Resource parameters. Typed Tombstones
+replace `map[string]any` across all providers. The executor integrates
+with the catalog for shadow/resolve during execution and pre-flight
+resolution. Generated bridge tests auto-regenerate when signatures change.
+
+Remaining gaps: CompensableAction pairing validation at registration time,
+immediate-mode catalog integration, and planned-bridge output shadowing.
 
 ## Goals
 
@@ -116,13 +120,16 @@ What exists today, grounded in code:
 | `RecoveryStack` (pkg/op) | Implemented | `pkg/op/recovery.go` — Do/Push/Unwind/Discard with reconcile hooks |
 | Test harness | Implemented | `internal/e2e/testrunner/` — Runner, TestContext (`t` namespace), Tracer; 4 baseline `.star` scripts pass |
 | `devlore-test` binary | Implemented | `cmd/devlore-test/main.go` |
-| Planned bridge catalog calls | **Missing** | `buildPlannedBridge` does not call `catalog.Resolve`/`Shadow` during planning |
-| Executor pre-flight | **Missing** | `internal/execution/preflight.go` still uses raw string slots |
-| Conflict detection | **Missing** | Two nodes targeting same path = silent race |
-| Other provider resources | **Missing** | Only file provider has a Resource type |
-| Provider lifecycle | **Gap** | Providers are zero-value structs. No constructor, no context injection. See Decision #8. |
+| Planned bridge catalog calls | **Partial** | `resolveResourceParam` calls `catalog.Resolve` for inputs; output shadowing not yet in planned bridge |
+| Executor pre-flight | Implemented | `preflight.go:ResolveResources` — iterates discovery URIs, stat checks file:// resources |
+| Action layer catalog.Shadow | Implemented | `action_reflect.go:shadowResult` — shadows results after dispatch |
+| Conflict detection | **Gap** | Two nodes targeting same URI = silent race (no plan-time conflict error) |
+| Other provider resources | Implemented | `net.Resource`, `git.Resource`, `service.Resource`, `pkg.Resource` all created with URI, constructors, tests |
+| Provider lifecycle | Implemented | All providers embed `op.ProviderBase`, constructed via `op.NewProviderBase(ctx)` |
+| Slice coercion | Implemented | `coerceSlice` in `action_reflect.go` enables `[]string` → `[]Resource` via constructors |
+| CompensableAction validation | **Gap** | No validation that every `Compensate*` method is paired at registration time |
+| Immediate mode catalog | **Gap** | Immediate mode does not call `catalog.Shadow` on results |
 | Skipped tests | **Gap** | `gen/integration_test.go` (#170, #171) and `gen/actions_test.go` (#164) still skipped |
-| Codegen template | **Gap** | `immediate.gen.go` template assigns `string` to `Root Resource` field — needs noblefactor-ops update |
 
 ## Design Decisions (Resolved)
 
@@ -845,7 +852,7 @@ See [phase-3.md](resource-management/phase-3.md) and
 
 ### Phase 4: Resource Type System + Tombstone Interface — DONE
 
-**DONE** — On branch `feature/resource-management-phase-4` (not yet merged).
+**DONE** — Merged in PR #179.
 
 The foundational type system is complete:
 
@@ -882,202 +889,109 @@ See [phase-4.md](resource-management/phase-4.md) for the type system plan.
 | `pkg/op/provider/file/provider.go` | Modify | All compensable methods use Tombstone |
 | `pkg/op/provider/file/recovery.go` | Modify | Typed Tombstone, `os.Lstat` for symlinks |
 
-### Phase 5: Executor Catalog Integration — NEEDS DESIGN
+### Phase 5: Executor Catalog Integration — MOSTLY DONE
 
-The planned bridge does not currently interact with the catalog during
-planning. The executor pre-flight does not resolve resources against the
-target machine. This phase connects the catalog to both planning and
-execution.
+Connects the catalog to both planning and execution. The executor
+integrates with the catalog for shadow/resolve during execution and
+pre-flight resolution.
 
-**Status**: Needs design. The original plan proposed moving `prepareWrite`
-from the file provider to the executor's pre-flight pass. This is being
-reconsidered — `prepareWrite` is provider-specific logic that belongs in
-the provider, not the executor. The executor should own the *decision*
-(which resources need protection), but the *mechanism* (how to protect
-them) stays in the provider.
+**Status**: Substantially complete. Implemented across PRs #177–#184.
+Three gaps remain (see below).
 
 **Repo**: devlore-cli
 
-#### 5a. Planned Bridge Catalog Calls
+#### 5a. URI Construction (Scheme/Host/Path) — DONE
 
-`buildPlannedBridge` (`planned_reflect.go`) must call `catalog.Resolve`
-for source parameters and `catalog.Shadow` for destination parameters
-during planning. This creates the resource lineage that enables implicit
-edges and conflict detection.
+`Resource` interface gains `Scheme()`, `Host()`, `Path()` component
+methods. `ResourceBase.NewURI(r)` constructs canonical URIs. All
+provider resource types implement these methods.
 
-Requires `SlotTypes()` on `Action` (or passing `reflect.Method` to
-`buildPlannedBridge`) so the planner knows which params are Resources.
+#### 5b. NoResult Sentinel — DONE
 
-#### 5b. Executor Pre-Flight Resolution
+`NoResult` type defined. `classifyActionReturn` detects it at position 0
+and yields nil Result.
 
-Before executing any node, the executor iterates the catalog ledger.
-Unresolved resources (sources) are stat'd against the target machine.
-Shadowed resources (destinations) are identified for protection.
+#### 5c. Tombstone Semantics — DONE
 
-The executor tells the provider "protect this resource" — the provider
-decides how (file: `moveToRecovery`; service: record current state;
-package: record current version).
+`TombstoneBase` holds the affected `Resource`. `Resource.SourcePath`
+reflects WHERE DATA IS AFTER operation (polarity correct).
 
-#### 5c. Conflict Detection
+#### 5d. classifyActionReturn Arity Dispatch — DONE
+
+Two-arity dispatch: 2 returns = Action, 3 returns = CompensableAction.
+`NoResult` detection. Error must be last.
+
+#### 5e. CompensableAction Pairing Validation — GAP
+
+No validation that every `Compensate*` method is paired with its forward
+method at registration time. Should fail fast on missing compensators.
+
+#### 5f. Action Layer catalog.Shadow — DONE
+
+`reflectedAction.Do()` calls `shadowResult()` after dispatch. Handles
+direct Resources, struct values, and slices of Resources.
+
+#### 5g. Planned Bridge Catalog Calls — PARTIAL
+
+`resolveResourceParam()` calls `catalog.Resolve` for input parameters
+during planning. **Gap**: No `catalog.Shadow` for output/result types
+in the planned bridge.
+
+#### 5h. Executor Pre-Flight Resolution — DONE
+
+`ResolveResources()` in `preflight.go` iterates discovery URIs, stat
+checks `file://` resources, skips other schemes, fails fast on missing
+sources.
+
+#### 5i. Immediate Mode Catalog Integration — GAP
+
+Immediate mode does not call `catalog.Shadow` on results. No
+`RecoveryStack` wiring to Starlark.
+
+#### 5j. Plan-Time Coercion Split — DONE
+
+`RegisterConstructor` (execution-time, with I/O) and
+`RegisterPlanTimeConstructor` (plan-time, no I/O) are separate
+registries. Planned bridge uses plan-time constructors for URI-only
+Resources.
+
+#### 5k. Conflict Detection — GAP
 
 URI-keyed namespace catches conflicts across providers. Two nodes
-targeting the same URI in the same phase = conflict error at plan time.
+targeting the same URI in the same phase should be a conflict error
+at plan time. Not yet implemented.
 
-#### Files
+### Phase 7: Remaining Provider Method Migration — DONE
 
-| File | Action | Purpose |
-| --- | --- | --- |
-| `pkg/op/planned_reflect.go` | Modify | Catalog Resolve/Shadow during planning |
-| `pkg/op/action.go` | Modify | `SlotTypes()` on Action interface |
-| `pkg/op/action_reflect.go` | Modify | Implement `SlotTypes()` via reflection |
-| `internal/execution/preflight.go` | Rewrite | Resource-aware pre-flight |
-| `internal/execution/executor.go` | Modify | Pre-flight resolution pass |
+**DONE** — Merged in PR #185. All provider methods that identify external
+entities (file paths, URLs, package names, service names) now accept typed
+Resource parameters. Typed Tombstones replace `map[string]any` across all
+providers. `coerceSlice` enables `[]string` → `[]Resource` automatic
+coercion via the constructor registry.
 
-### Phase 7: Remaining Providers and Code Generation
+See [phase-7.md](resource-management/phase-7.md).
 
-Migrate remaining providers and update the code generator. Each provider
-creates a resource type embedding `op.ResourceBase` and registers a
-constructor.
-
-**Repo**: devlore-cli + noblefactor-ops (templates)
-
-#### 6a. Provider Resource Types
-
-Each provider that manages external state creates its own resource type:
-
-```go
-// pkg/op/provider/git/resource.go
-type Resource struct {
-    op.ResourceBase
-    URL    string
-    Commit string
-    Branch string
-}
-
-// pkg/op/provider/service/resource.go
-type Resource struct {
-    op.ResourceBase
-    Name   string
-    Status string // "running", "stopped", "enabled", "disabled"
-}
-
-// pkg/op/provider/pkg/resource.go
-type Resource struct {
-    op.ResourceBase
-    Name    string
-    Version string
-    Manager string
-}
-```
-
-Each registers a resource constructor in `init()` following the file
-provider pattern:
-
-```go
-func init() {
-    op.RegisterConstructor(func(v any) (Resource, error) {
-        s, ok := v.(string)
-        if !ok {
-            return Resource{}, fmt.Errorf("service.Resource: expected string name, got %T", v)
-        }
-        return NewResource(s)
-    })
-}
-```
-
-Each provider also gains a provider constructor per Decision #8:
-
-```go
-// New creates a Provider with context injected at construction time.
-// The provider is a singleton — one per graph or script lifetime.
-func New(ctx *op.Context) *Provider {
-    return &Provider{ctx: ctx}
-}
-```
-
-#### 6b. Provider Method Migration
+#### Provider Migration Summary
 
 | Provider | Resource params | Config params (unchanged) |
 | --- | --- | --- |
-| git | url, path → `git.Resource` | ref, branch |
-| net | url → `file.Resource` (downloaded to filesystem) | (none) |
-| pkg | packages → `pkg.Resource` | manager, cask |
-| service | name → `service.Resource` | (none) |
-| template | source, path → `file.Resource` | templateData, project |
-| archive | source, prefix → `file.Resource` | (none) |
-| encryption | source → `file.Resource` | decryptor |
-| shell | No change (commands are strings, not external state) | command |
+| git | `Clone(url net.Resource, dest file.Resource)`, `Checkout/Pull(repo git.Resource)` | ref |
+| net | `Download(url net.Resource)` | (none) |
+| pkg | `Install/Remove/Upgrade(packages []pkg.Resource)`, predicates take `pkg.Resource` | manager, cask |
+| service | All methods take `service.Resource` | (none) |
+| archive | `Extract(source, prefix file.Resource)` + typed `Tombstone` | (none) |
+| encryption | `DecryptSopsFile(source, dest file.Resource)` + typed `Tombstone` | (none) |
+| template | No change — `source`/`path`/`project` are template variables, not file paths | templateData |
+| shell | No change — commands are strings, not external state | command |
 
-Note: `net`, `template`, `archive`, and `encryption` all produce files, so
-they use `file.Resource`. They don't need their own resource types.
+#### Infrastructure
 
-#### 6c. Tests for Every Resource Type
-
-Each new resource type gets a dedicated test file:
-
-| Type | Test File | Test Coverage |
-| --- | --- | --- |
-| `git.Resource` | `pkg/op/provider/git/resource_test.go` | `NewResource`, constructor round-trip (`string → git.Resource`), URI generation (`git://...`), field population |
-| `service.Resource` | `pkg/op/provider/service/resource_test.go` | `NewResource`, constructor round-trip (`string → service.Resource`), URI generation (`svc://...`), field population |
-| `pkg.Resource` | `pkg/op/provider/pkg/resource_test.go` | `NewResource`, constructor round-trip (`string → pkg.Resource`), URI generation (`pkg://...`), field population |
-
-Each provider that changes method signatures gets updated tests:
-
-| Provider | Test Coverage |
-| --- | --- |
-| git | Clone, Pull with `git.Resource` input; compensation round-trip |
-| service | Start, Stop, Enable, Disable, Restart with `service.Resource` input; compensation round-trip |
-| pkg | Install, Remove, Upgrade with `pkg.Resource` input; compensation round-trip |
-| net | Download with `file.Resource` output; no resource input (URL is a string) |
-| template | Render with `file.Resource` input/output |
-| archive | Extract with `file.Resource` input/output |
-| encryption | DecryptSopsFile with `file.Resource` input/output |
-
-#### 6d. Code Generation Updates
-
-No special-casing in codegen. No hand edits to generated files. If the
-generator needs changes to support resource types in planned/immediate
-receivers, those changes are made in noblefactor-ops as separate PRs to the
-`star devlore` tool or its extensions.
-
-The reflection bridge already handles Resource types through the constructor
-registry and `coerceSlotValue`. The generated code dispatches through the
-same bridge — no template changes are needed unless the bridge itself is
-insufficient (in which case the bridge is fixed, not the templates).
-
-Generated `*.gen.go` files are regenerated via `star devlore actions generate`
-after provider signatures change. That is the only interaction with codegen.
-
-**Known blocker**: The `immediate.go.template` in noblefactor-ops emits
-`provider.Provider{Root: root}` where `root` is a `string` from
-`cfg.WorkDir`. Now that `file.Provider.Root` is `Resource`, this is a type
-mismatch. The template must construct a `Resource` from the string, or the
-provider must expose a constructor. This requires a noblefactor-ops PR.
-
-#### Files
-
-| File | Action | Purpose |
-| --- | --- | --- |
-| `pkg/op/provider/git/resource.go` | Create | `git.Resource` type + constructor |
-| `pkg/op/provider/git/resource_test.go` | Create | Resource type tests |
-| `pkg/op/provider/service/resource.go` | Create | `service.Resource` type + constructor |
-| `pkg/op/provider/service/resource_test.go` | Create | Resource type tests |
-| `pkg/op/provider/pkg/resource.go` | Create | `pkg.Resource` type + constructor |
-| `pkg/op/provider/pkg/resource_test.go` | Create | Resource type tests |
-| `pkg/op/provider/git/provider.go` | Modify | Resource params |
-| `pkg/op/provider/git/provider_test.go` | Modify | Updated tests |
-| `pkg/op/provider/service/provider.go` | Modify | Resource params |
-| `pkg/op/provider/service/provider_test.go` | Modify | Updated tests |
-| `pkg/op/provider/pkg/provider.go` | Modify | Resource params |
-| `pkg/op/provider/pkg/provider_test.go` | Modify | Updated tests |
-| `pkg/op/provider/net/provider.go` | Modify | Resource params (uses `file.Resource`) |
-| `pkg/op/provider/net/provider_test.go` | Modify | Updated tests |
-| `pkg/op/provider/template/provider.go` | Modify | Resource params (uses `file.Resource`) |
-| `pkg/op/provider/template/provider_test.go` | Modify | Updated tests |
-| `pkg/op/provider/archive/provider.go` | Modify | Resource params (uses `file.Resource`) |
-| `pkg/op/provider/archive/provider_test.go` | Modify | Updated tests |
-| `pkg/op/provider/encryption/provider.go` | Modify | Resource params (uses `file.Resource`) |
-| `pkg/op/provider/*/gen/*.gen.go` | Regenerate | No hand edits — regenerate via `star` |
+- `net.Resource` with canonical `net://` URI (RFC 3986 normalization:
+  lowercase host, strip default ports, normalize percent-encoding,
+  collapse slashes, sort query params)
+- `coerceSlice` in `action_reflect.go` for `[]T` → `[]U` element-wise coercion
+- `SchemeNet` constant
+- `encryption.CompensateDecryptSopsFile` implemented (was panic)
 
 ## Migration Path
 
@@ -1099,13 +1013,13 @@ provider must expose a constructor. This requires a noblefactor-ops PR.
    `Tombstone` are sealed interfaces. `ResourceBase` and `TombstoneBase`
    are embedded structs. `Provider` interface sealed. `ResourceCatalog`
    replaces manager + namespace. File provider uses typed `Tombstone`.
-   See [phase-4.md](resource-management/phase-4.md). On branch
-   `feature/resource-management-phase-4` (not yet merged).
-5. **Phase 5 (executor catalog integration)**: **NEEDS DESIGN** — Connect
-   catalog to planning (`buildPlannedBridge` calls Resolve/Shadow) and
-   execution (pre-flight resolution). Conflict detection. `prepareWrite`
-   stays in the provider — executor owns the decision, provider owns the
-   mechanism.
+   See [phase-4.md](resource-management/phase-4.md). Merged in PR #179.
+5. **Phase 5 (executor catalog integration)**: **MOSTLY DONE** —
+   Implemented across PRs #177–#184. Catalog integrates with both
+   planning (Resolve for inputs) and execution (Shadow for outputs,
+   pre-flight resolution for file:// URIs). Three gaps remain:
+   CompensableAction pairing validation (5e), immediate mode catalog
+   integration (5i), planned bridge output shadowing (partial 5g).
 6. **Phase 6 (provider context + resource types)**: **DONE** — All
    providers embed `op.ProviderBase` (codegen-enforced). Resource types
    created for git (`git.Resource`), service (`service.Resource`), pkg
@@ -1116,10 +1030,11 @@ provider must expose a constructor. This requires a noblefactor-ops PR.
    Codegen dead code removed (`--extra-attrs`, `--methods`, `--package`,
    `--templates`, standard mode). See
    [phase-6.md](resource-management/phase-6.md).
-7. **Phase 7 (remaining provider method migration)**: Remaining provider
-   methods migrate to Resource-typed parameters. Each parameter that
-   identifies an external entity (path, URL, package name) becomes a
-   Resource. Configuration parameters (modes, flags) remain unchanged.
+7. **Phase 7 (remaining provider method migration)**: **DONE** — All
+   provider methods migrated to Resource-typed parameters. Typed
+   Tombstones replace `map[string]any` across all providers. `coerceSlice`
+   enables `[]string` → `[]Resource` coercion. See
+   [phase-7.md](resource-management/phase-7.md). Merged in PR #185.
 8. **Phase 8 (generated bridge tests)**: **DONE** — Extend the star
    generator to produce `actions_test.gen.go` — bridge verification tests
    that regenerate automatically when method signatures change.
@@ -1155,24 +1070,32 @@ provider must expose a constructor. This requires a noblefactor-ops PR.
 | `pkg/op/provider/file/provider_test.go` | 3 | Modify | **DONE** — All tests updated |
 | `pkg/op/provider/file/recovery.go` | 4 | Modify | **DONE** — Typed Tombstone |
 
+| `pkg/op/planned_reflect.go` | 5 | Modify | **DONE** — Catalog Resolve for inputs during planning |
+| `pkg/op/action_reflect.go` | 5 | Modify | **DONE** — `coerceSlice` for `[]T` → `[]U` coercion |
+| `internal/execution/preflight.go` | 5 | Rewrite | **DONE** — Resource-aware pre-flight (`file://` stat) |
+| `internal/execution/executor.go` | 5 | Modify | **DONE** — Catalog passed to `op.Context`, `shadowResult` after dispatch |
+| `pkg/op/provider/git/resource.go` | 6 | Create | **DONE** — `git.Resource` |
+| `pkg/op/provider/service/resource.go` | 6 | Create | **DONE** — `service.Resource` |
+| `pkg/op/provider/pkg/resource.go` | 6 | Create | **DONE** — `pkg.Resource` |
+| `pkg/op/provider/net/resource.go` | 7 | Create | **DONE** — `net.Resource` with canonical URI normalization |
+| `pkg/op/provider/archive/resource.go` | 7 | Create | **DONE** — `archive.Tombstone` |
+| `pkg/op/provider/encryption/resource.go` | 7 | Create | **DONE** — `encryption.Tombstone` |
+| `pkg/op/provider/*/provider.go` | 7 | Modify | **DONE** — All methods accept typed Resource params |
+| noblefactor-ops templates | 6 | Modify | **DONE** — Resource-typed provider field support |
+| `pkg/op/provider/*/gen/actions_test.gen.go` | 8 | Create | **DONE** — Generated bridge tests |
+| noblefactor-ops star generator | 8 | Modify | **DONE** — `actions_test` template |
+
 ### Remaining
 
 | File | Phase | Action | Purpose |
 | --- | --- | --- | --- |
 | `pkg/op/provider/file/gen/integration_test.go` | 0 | Modify | Un-skip #170, #171 |
 | `pkg/op/provider/file/gen/actions_test.go` | 0 | Modify | Un-skip #164 |
-| `pkg/op/planned_reflect.go` | 5 | Modify | Catalog Resolve/Shadow during planning |
-| `pkg/op/action.go` | 5 | Modify | `SlotTypes()` on Action interface |
-| `pkg/op/action_reflect.go` | 5 | Modify | Implement SlotTypes() |
-| `internal/execution/preflight.go` | 5 | Rewrite | Resource-aware pre-flight |
-| `internal/execution/executor.go` | 5 | Modify | Pre-flight resolution pass |
-| `pkg/op/provider/git/resource.go` | 6 | Create | git.Resource |
-| `pkg/op/provider/service/resource.go` | 6 | Create | service.Resource |
-| `pkg/op/provider/pkg/resource.go` | 6 | Create | pkg.Resource |
-| `pkg/op/provider/*/provider.go` | 6 | Modify | Resource params |
-| noblefactor-ops templates | 6 | Modify | Resource-typed provider field support |
-| `pkg/op/provider/*/gen/actions_test.gen.go` | 7 | Create | Generated bridge tests |
-| noblefactor-ops star generator | 7 | Modify | `actions_test` template |
+| `pkg/op/action.go` | 5 | Modify | `SlotTypes()` on Action interface (5e pairing validation) |
+| `pkg/op/action_reflect.go` | 5 | Modify | CompensableAction pairing validation at registration (5e) |
+| `pkg/op/planned_reflect.go` | 5 | Modify | `catalog.Shadow` for output types in planned bridge (5g gap) |
+| `pkg/op/receiver_reflect.go` | 5 | Modify | Immediate mode catalog integration (5i) |
+| `pkg/op/resource_catalog.go` | 5 | Modify | Conflict detection — same URI in same phase (5k) |
 
 ## Relationship to Reconciliation
 
