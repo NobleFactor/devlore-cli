@@ -23,11 +23,12 @@ type flowAction struct {
 	result op.Result
 }
 
-func (a *flowAction) Name() string { return a.name }
-func (a *flowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *flowAction) Name() string           { return a.name }
+func (a *flowAction) Params() []op.ParamInfo { return nil }
+func (a *flowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.Complement, err error) {
 	return a.result, "undo:" + a.name, nil
 }
-func (a *flowAction) Undo(_ *op.Context, _ op.UndoState) error {
+func (a *flowAction) Undo(_ *op.Context, _ op.Complement) error {
 	return nil
 }
 
@@ -37,11 +38,12 @@ type failingFlowAction struct {
 	err  error
 }
 
-func (a *failingFlowAction) Name() string { return a.name }
-func (a *failingFlowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *failingFlowAction) Name() string           { return a.name }
+func (a *failingFlowAction) Params() []op.ParamInfo { return nil }
+func (a *failingFlowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.Complement, err error) {
 	return nil, nil, a.err
 }
-func (a *failingFlowAction) Undo(_ *op.Context, _ op.UndoState) error {
+func (a *failingFlowAction) Undo(_ *op.Context, _ op.Complement) error {
 	return nil
 }
 
@@ -52,11 +54,12 @@ type trackingFlowAction struct {
 	undone bool
 }
 
-func (a *trackingFlowAction) Name() string { return a.name }
-func (a *trackingFlowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *trackingFlowAction) Name() string           { return a.name }
+func (a *trackingFlowAction) Params() []op.ParamInfo { return nil }
+func (a *trackingFlowAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.Complement, err error) {
 	return a.result, "undo:" + a.name, nil
 }
-func (a *trackingFlowAction) Undo(_ *op.Context, _ op.UndoState) error {
+func (a *trackingFlowAction) Undo(_ *op.Context, _ op.Complement) error {
 	a.undone = true
 	return nil
 }
@@ -688,15 +691,12 @@ func TestFlowElevateDo(t *testing.T) {
 	ctx := &op.Context{Context: context.Background()}
 	action := &flow.Elevate{}
 
-	result, undo, err := action.Do(ctx, nil)
+	result, _, err := action.Do(ctx, nil)
 	if err != nil {
 		t.Fatalf("flow.elevate Do: %v", err)
 	}
 	if result != nil {
 		t.Errorf("expected nil result, got %v", result)
-	}
-	if undo != nil {
-		t.Errorf("expected nil undo state, got %v", undo)
 	}
 }
 

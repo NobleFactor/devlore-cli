@@ -12,8 +12,7 @@ import (
 )
 
 func init() {
-	// Both constructors are identical — no I/O for URLs.
-	ctor := func(v any) (Resource, error) {
+	op.RegisterConstructor(func(v any) (Resource, error) {
 		s, ok := v.(string)
 		if !ok {
 			return Resource{}, fmt.Errorf("net.Resource: expected string URL, got %T", v)
@@ -23,9 +22,7 @@ func init() {
 			return Resource{}, fmt.Errorf("net.Resource: invalid URL %q: %w", s, err)
 		}
 		return Resource{SourceURL: u}, nil
-	}
-	op.RegisterConstructor(ctor)
-	op.RegisterPlanTimeConstructor(ctor)
+	})
 }
 
 // Resource represents a network resource identified by a URL.

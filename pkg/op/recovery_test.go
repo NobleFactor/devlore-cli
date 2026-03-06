@@ -190,16 +190,17 @@ func TestRecoveryStack_Len(t *testing.T) {
 
 // testCompensableAction implements CompensableAction for PushAction tests.
 type testCompensableAction struct {
-	undoFn func(UndoState) error
+	undoFn func(Complement) error
 }
 
-func (a *testCompensableAction) Name() string { return "test.compensable" }
+func (a *testCompensableAction) Name() string        { return "test.compensable" }
+func (a *testCompensableAction) Params() []ParamInfo { return nil }
 
-func (a *testCompensableAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
+func (a *testCompensableAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
 	return nil, nil, nil
 }
 
-func (a *testCompensableAction) Undo(_ *Context, state UndoState) error {
+func (a *testCompensableAction) Undo(_ *Context, state Complement) error {
 	if a.undoFn != nil {
 		return a.undoFn(state)
 	}
@@ -211,7 +212,7 @@ func TestRecoveryStack_PushAction_CompensableAction(t *testing.T) {
 	var undone bool
 
 	action := &testCompensableAction{
-		undoFn: func(_ UndoState) error { undone = true; return nil },
+		undoFn: func(_ Complement) error { undone = true; return nil },
 	}
 
 	ctx := &Context{}
@@ -245,7 +246,7 @@ func TestRecoveryStack_PushAction_FiltersErrNotCompensable(t *testing.T) {
 	s := NewRecoveryStack()
 
 	action := &testCompensableAction{
-		undoFn: func(_ UndoState) error { return ErrNotCompensable },
+		undoFn: func(_ Complement) error { return ErrNotCompensable },
 	}
 
 	s.PushAction(&Context{}, action, nil)

@@ -155,6 +155,19 @@ func buildPlannedBridge(
 				return nil, fmt.Errorf("%s: %w", cleanName, err)
 			}
 
+			// Plan-time type validation for immediate values.
+			if i+1 < mt.NumIn() {
+				if _, isOutput := sv.(*Output); !isOutput {
+					if _, isGather := sv.(*Gather); !isGather {
+						if goVal := node.GetSlot(cleanName); goVal != nil {
+							if err := validateSlotType(goVal, mt.In(i+1)); err != nil {
+								return nil, fmt.Errorf("%s: param %s: %w", snakeName, cleanName, err)
+							}
+						}
+					}
+				}
+			}
+
 			// Resolve immediate Resource parameters in the catalog.
 			// Skip promises — they're shadowed at execution time (step 5f).
 			if i+1 < mt.NumIn() {
@@ -163,10 +176,10 @@ func buildPlannedBridge(
 		}
 
 		// 4. Shadow output Resource for compensable methods.
-		// For methods with 2+ Resource-typed parameters that return a
-		// Resource, shadow the last Resource param (the write target).
-		// This supersedes the earlier Resolve, removing the destination
-		// from DiscoveryURIs so pre-flight won't reject missing targets.
+		// For methods that return a Resource, shadow the last
+		// Resource-typed param (the write target). This supersedes the
+		// earlier Resolve, removing the destination from DiscoveryURIs
+		// so pre-flight won't reject missing targets.
 		if err := shadowOutputParam(graph, mt, vals, paramNames, node.ID); err != nil {
 			return nil, err
 		}
@@ -180,13 +193,8 @@ func buildPlannedBridge(
 // shadowOutputParam shadows the output Resource parameter in the catalog at
 // plan time. For compensable methods (3+ returns) that return a Resource type,
 // the last Resource-typed parameter (conventionally the destination) is
-// shadowed with the node's ID. This is only applied when the method has 2+
-// Resource-typed parameters so we can distinguish source from destination.
-//
-// Methods with a single Resource parameter are not shadowed at plan time
-// because we cannot distinguish source (Copy) from destination (WriteText)
-// without explicit metadata. Those are handled at execution time by
-// shadowResult in action_reflect.go.
+// shadowed with the node's ID. This removes the destination from
+// DiscoveryURIs so pre-flight won't reject files that don't exist yet.
 func shadowOutputParam(graph *Graph, mt reflect.Type, vals []starlark.Value, paramNames []string, nodeID string) error {
 	if graph.Catalog == nil {
 		return nil
@@ -222,8 +230,7 @@ func shadowOutputParam(graph *Graph, mt reflect.Type, vals []starlark.Value, par
 		}
 	}
 
-	// Need 2+ Resource params to distinguish source from destination.
-	if len(resourceParamIndices) < 2 {
+	if len(resourceParamIndices) == 0 {
 		return nil
 	}
 
@@ -248,7 +255,7 @@ func shadowOutputParam(graph *Graph, mt reflect.Type, vals []starlark.Value, par
 		return nil
 	}
 
-	r, ok := constructPlanTimeResource(paramType, goVal)
+	r, ok := constructResource(paramType, goVal)
 	if !ok {
 		return nil
 	}
@@ -300,7 +307,7 @@ func resolveResourceParam(graph *Graph, sv starlark.Value, paramType reflect.Typ
 	}
 
 	// Use the plan-time constructor to create a URI-only Resource.
-	r, ok := constructPlanTimeResource(paramType, goVal)
+	r, ok := constructResource(paramType, goVal)
 	if !ok {
 		return
 	}

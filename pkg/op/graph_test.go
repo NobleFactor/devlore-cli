@@ -782,13 +782,14 @@ func TestGraph_ComputeSummary_ResetsOnRecompute(t *testing.T) {
 
 // --- HydrateGraph ---
 
-// testAction is a minimal Action implementation for testing HydrateGraph.
+// testAction is a minimal FallibleAction implementation for testing HydrateGraph.
 type testAction struct {
 	name string
 }
 
-func (a *testAction) Name() string { return a.name }
-func (a *testAction) Do(_ *Context, _ map[string]any) (result Result, state UndoState, err error) {
+func (a *testAction) Name() string        { return a.name }
+func (a *testAction) Params() []ParamInfo { return nil }
+func (a *testAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
 	return nil, nil, nil
 }
 

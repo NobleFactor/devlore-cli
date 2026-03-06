@@ -11,17 +11,7 @@ import (
 )
 
 func init() {
-	// Execution-time constructor: creates a Resource from a clone path string.
 	op.RegisterConstructor(func(v any) (Resource, error) {
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("git.Resource: expected string path, got %T", v)
-		}
-		return Resource{ClonePath: s}, nil
-	})
-
-	// Plan-time constructor: creates a URI-only Resource with no I/O.
-	op.RegisterPlanTimeConstructor(func(v any) (Resource, error) {
 		s, ok := v.(string)
 		if !ok {
 			return Resource{}, fmt.Errorf("git.Resource: expected string path, got %T", v)
@@ -47,13 +37,17 @@ func (r *Resource) Scheme() string { return op.SchemeGit }
 // Host returns empty string — git URIs use path-only identification.
 func (r *Resource) Host() string { return "" }
 
-// Path returns the canonicalized absolute clone path.
-func (r *Resource) Path() string {
+// Path returns the clone path. Before Resolve(), this is the raw path as
+// given. After Resolve(), it is the canonicalized absolute path.
+func (r *Resource) Path() string { return r.ClonePath }
+
+// Resolve canonicalizes the clone path to an absolute path.
+func (r *Resource) Resolve() error {
 	abs, err := filepath.Abs(r.ClonePath)
-	if err != nil {
-		return filepath.Clean(r.ClonePath)
+	if err == nil {
+		r.ClonePath = filepath.Clean(abs)
 	}
-	return filepath.Clean(abs)
+	return nil
 }
 
 // Tombstone holds git-specific compensation state.

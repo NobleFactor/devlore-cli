@@ -45,9 +45,9 @@ func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resour
 	}
 
 	// 4. Wrap the new file in a Resource
-	result, err := file.NewResource(destination.SourcePath)
-	if err != nil {
-		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to initialize destination: %w", err)
+	result := file.NewResource(destination.SourcePath)
+	if err := result.Resolve(); err != nil {
+		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to resolve destination: %w", err)
 	}
 
 	return result, Tombstone{DestinationPath: destination.SourcePath}, nil

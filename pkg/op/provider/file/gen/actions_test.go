@@ -446,19 +446,122 @@ func TestBackupAction_Undo(t *testing.T) {
 // ── Remove ──────────────────────────────────────────────────────────────────────
 
 func TestRemoveAction_Do(t *testing.T) {
-	t.Skip("blocked: recovery site bug (#164)")
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "action-remove.txt")
+	if err := os.WriteFile(path, []byte("remove me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.remove")
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path":           path,
+		"prune":          false,
+		"prune_boundary": "",
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	tombstone, ok := result.(provider.Tombstone)
+	if !ok {
+		t.Fatalf("result type = %T, want provider.Tombstone", result)
+	}
+	if tombstone.OriginalPath == "" {
+		t.Error("result.OriginalPath is empty, want the original path")
+	}
+	if undo == nil {
+		t.Fatal("undo is nil, want non-nil")
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("file still exists after Remove")
+	}
 }
 
 // ── RemoveAll ───────────────────────────────────────────────────────────────────
 
 func TestRemoveAllAction_Do(t *testing.T) {
-	t.Skip("blocked: recovery site bug (#164)")
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "action-removedir")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "child.txt"), []byte("child"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.remove_all")
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path":           dir,
+		"prune":          false,
+		"prune_boundary": "",
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	tombstone, ok := result.(provider.Tombstone)
+	if !ok {
+		t.Fatalf("result type = %T, want provider.Tombstone", result)
+	}
+	if tombstone.OriginalPath == "" {
+		t.Error("result.OriginalPath is empty, want the original path")
+	}
+	if undo == nil {
+		t.Fatal("undo is nil, want non-nil")
+	}
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("directory still exists after RemoveAll")
+	}
 }
 
 // ── Unlink ──────────────────────────────────────────────────────────────────────
 
 func TestUnlinkAction_Do(t *testing.T) {
-	t.Skip("blocked: recovery site bug (#164)")
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(tmp, "action-unlink.txt")
+	if err := os.Symlink(target, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.unlink")
+	ctx := newCtx(t)
+	slots := map[string]any{
+		"path":           linkPath,
+		"prune":          false,
+		"prune_boundary": "",
+	}
+
+	result, undo, err := action.Do(ctx, slots)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	tombstone, ok := result.(provider.Tombstone)
+	if !ok {
+		t.Fatalf("result type = %T, want provider.Tombstone", result)
+	}
+	if tombstone.OriginalPath == "" {
+		t.Error("result.OriginalPath is empty, want the original path")
+	}
+	if undo == nil {
+		t.Fatal("undo is nil, want non-nil")
+	}
+
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Error("symlink still exists after Unlink")
+	}
 }
 
 // ── Glob ────────────────────────────────────────────────────────────────────────
@@ -472,7 +575,8 @@ func TestGlobAction_Do(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rootResource, _ := provider.NewResource(tmp)
+	rootResource := provider.NewResource(tmp)
+	_ = rootResource.Resolve()
 	reg := makeRegistry(t, &provider.Provider{Root: rootResource})
 	action := getAction(t, reg, "file.glob")
 	ctx := newCtx(t)

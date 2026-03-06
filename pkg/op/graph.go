@@ -152,7 +152,7 @@ type Node struct {
 	ID string `json:"id" yaml:"id"`
 
 	// Action to perform. Serialized as the action name string; deserialized
-	// as a stubAction. The executor calls Do directly via the Action interface.
+	// as a stubAction. The executor calls Do directly.
 	Action Action `json:"-" yaml:"-"`
 
 	// Status of this node: pending, completed, skipped, failed.
@@ -196,8 +196,9 @@ func IsStubAction(a Action) bool {
 // Do panics because stubs must be replaced via HydrateGraph before execution.
 type stubAction struct{ name string }
 
-func (s *stubAction) Name() string { return s.name }
-func (s *stubAction) Do(_ *Context, _ map[string]any) (result Result, undoState UndoState, err error) {
+func (s *stubAction) Name() string        { return s.name }
+func (s *stubAction) Params() []ParamInfo { return nil }
+func (s *stubAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
 	return nil, nil, fmt.Errorf("stub action %q cannot be executed — call HydrateGraph first", s.name)
 }
 

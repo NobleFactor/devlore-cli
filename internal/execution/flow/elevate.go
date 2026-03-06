@@ -16,9 +16,12 @@ type Elevate struct{}
 // Name returns the dotted action name.
 func (a *Elevate) Name() string { return "flow.elevate" }
 
+// Params returns nil — Elevate takes no typed parameters.
+func (a *Elevate) Params() []op.ParamInfo { return nil }
+
 // Do acquires elevated privilege. Stub implementation — full sudo/privilege
 // integration is a separate plan.
-func (a *Elevate) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *Elevate) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
 	// Stub: privilege acquisition will be wired when the privilege model is
 	// implemented. For now this is a passthrough that makes privilege
 	// boundaries visible in the graph.

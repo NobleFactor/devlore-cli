@@ -27,6 +27,7 @@ type Resource interface {
 	Scheme() string
 	Host() string
 	Path() string
+	Resolve() error
 	resourceBase() *ResourceBase
 }
 
@@ -90,6 +91,13 @@ func (b *ResourceBase) Path() string {
 func (b *ResourceBase) NewURI(r Resource) string {
 	return (&url.URL{Scheme: r.Scheme(), Host: r.Host(), Path: r.Path()}).String()
 }
+
+// Resolve populates provider-specific metadata via I/O (e.g., os.Stat for
+// files). The default implementation is a no-op — providers that need
+// resolution (file, git) override it. Callers that need metadata call
+// Resolve() then check the result. An unresolved resource reports
+// Exists() == false.
+func (b *ResourceBase) Resolve() error { return nil }
 
 // resourceBase returns a pointer to the embedded ResourceBase, allowing the
 // catalog to stamp id and originID. This method seals the Resource interface.

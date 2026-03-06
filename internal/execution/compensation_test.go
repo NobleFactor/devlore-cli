@@ -33,11 +33,12 @@ func fileAction(t *testing.T, p *file.Provider, name string) op.Action {
 	return a
 }
 
-// failAction always returns error from Do. Action-only (no Undo).
+// failAction always returns error from Do. No Undo.
 type failAction struct{}
 
-func (a *failAction) Name() string { return "test.fail" }
-func (a *failAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *failAction) Name() string           { return "test.fail" }
+func (a *failAction) Params() []op.ParamInfo { return nil }
+func (a *failAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
 	return nil, nil, fmt.Errorf("deliberate failure")
 }
 
@@ -48,22 +49,24 @@ type trackAction struct {
 	log   *[]string
 }
 
-func (a *trackAction) Name() string { return "test.track." + a.label }
-func (a *trackAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *trackAction) Name() string           { return "test.track." + a.label }
+func (a *trackAction) Params() []op.ParamInfo { return nil }
+func (a *trackAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.Complement, err error) {
 	return nil, a.label, nil
 }
-func (a *trackAction) Undo(_ *op.Context, state op.UndoState) error {
+func (a *trackAction) Undo(_ *op.Context, state op.Complement) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	*a.log = append(*a.log, state.(string))
 	return nil
 }
 
-// noopAction returns nil UndoState. Action-only (no compensation required).
+// noopAction returns nil result. No compensation required.
 type noopAction struct{}
 
-func (a *noopAction) Name() string { return "test.noop" }
-func (a *noopAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *noopAction) Name() string           { return "test.noop" }
+func (a *noopAction) Params() []op.ParamInfo { return nil }
+func (a *noopAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
 	return nil, nil, nil
 }
 
@@ -72,8 +75,9 @@ type conditionalFailAction struct {
 	failPath string
 }
 
-func (a *conditionalFailAction) Name() string { return "test.conditional_fail" }
-func (a *conditionalFailAction) Do(_ *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *conditionalFailAction) Name() string           { return "test.conditional_fail" }
+func (a *conditionalFailAction) Params() []op.ParamInfo { return nil }
+func (a *conditionalFailAction) Do(_ *op.Context, slots map[string]any) (op.Result, op.Complement, error) {
 	path, _ := slots["path"].(string)
 	if path == a.failPath {
 		return nil, nil, fmt.Errorf("deliberate failure on %s", path)
@@ -176,7 +180,7 @@ func TestCompensationOrdering(t *testing.T) {
 	}
 }
 
-// TestCompensationDryRun verifies that dry-run produces nil UndoState and
+// TestCompensationDryRun verifies that dry-run produces nil complement and
 // that unwinding nil states causes no errors or filesystem changes.
 func TestCompensationDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -219,7 +223,7 @@ func TestCompensationDryRun(t *testing.T) {
 	}
 }
 
-// TestCompensationNilState verifies that a non-compensable action (nil UndoState)
+// TestCompensationNilState verifies that a non-compensable action (nil complement)
 // mixed with compensable actions unwinds cleanly.
 func TestCompensationNilState(t *testing.T) {
 	tmpDir := t.TempDir()

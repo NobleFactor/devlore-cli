@@ -431,6 +431,7 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
         method_defaults = defaults_map.get(m.name, {})
         method_struct_params = struct_param_map.get(m.name, {})
         compensable = ("Compensate" + m.name) in all_names
+        pure = "error" not in m.returns
 
         params = []
         for p in m.params:
@@ -467,6 +468,7 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
             "doc": m.doc,
             "params": params,
             "compensable": compensable,
+            "pure": pure,
             "property": is_property,
             "file": m.file,
             "line": m.line,
@@ -975,19 +977,11 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
         gen_file(ctx, "graph_actions", planned_desc, "gen/actions.gen.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate bridge tests for action-eligible methods (those with error returns).
-    # Methods without error returns (Exists, IsDir, etc.) are not registered as
-    # actions by RegisterReflectedActions, so they must be excluded.
+    # Generate bridge tests for all action methods (pure, fallible, compensable).
+    # RegisterReflectedActions registers all three action types from Params.
     if access in ["planned", "both"]:
-        action_methods = []
-        for d in provider_method_descs:
-            if "error" in d.get("returns", ""):
-                action_methods.append(d)
-        if action_methods:
-            test_desc = dict(provider_desc)
-            test_desc["methods"] = action_methods
-            gen_file(ctx, "actions_test", test_desc, "gen/actions_gen_test.go",
-                     struct_short, len(action_methods), output_dir, write_files)
+        gen_file(ctx, "actions_test", provider_desc, "gen/actions_gen_test.go",
+                 struct_short, len(provider_method_descs), output_dir, write_files)
 
     # Generate immediate receiver tests for all methods.
     gen_file(ctx, "immediate_test", provider_desc, "gen/immediate_gen_test.go",
@@ -1321,6 +1315,7 @@ def run(ctx):
                 "doc": p.doc,
             })
         compensable = ("Compensate" + m.name) in all_method_names
+        pure = "error" not in m.returns
 
         desc = {
             "name": m.name,
@@ -1328,6 +1323,7 @@ def run(ctx):
             "doc": m.doc,
             "params": params,
             "compensable": compensable,
+            "pure": pure,
             "file": m.file,
             "line": m.line,
         }

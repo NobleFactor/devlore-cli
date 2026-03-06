@@ -279,23 +279,31 @@ func (p *Provider) Exists(blob Resource) bool {
 
 Every file provider method and its current migration state:
 
-| Method | Current Input | Current Output | Status |
-|--------|--------------|----------------|--------|
-| `Copy` | `Resource` + `string` + `FileMode` | `Resource` | Partial |
-| `WriteText` | `string` + `string` + `FileMode` | `Resource` | Partial |
-| `WriteBytes` | `string` + `string` + `FileMode` | `Resource` | Partial |
-| `Read` | `string` | `Resource` | Partial |
-| `Exists` | `Resource` | `bool` | Migrated |
-| `Link` | `string` + `string` | `string` | Not started |
-| `Move` | `string` + `string` | `string` | Not started |
-| `Backup` | `string` + `string` | `string` | Not started |
-| `Remove` | `string` + `bool` + `string` | `Tombstone` | Not started |
-| `RemoveAll` | `string` + `bool` + `string` | `Tombstone` | Not started |
-| `Unlink` | `string` + `bool` + `string` | `Tombstone` | Not started |
-| `WalkTree` | `string` + `Reducer` + `bool` | `any` + `*RecoveryStack` | Not started |
+| Method | Action Type | Current Input | Current Output | Status |
+|--------|-------------|--------------|----------------|--------|
+| `Copy` | Compensable | `Resource` + `string` + `FileMode` | `Resource` | Partial |
+| `WriteText` | Compensable | `string` + `string` + `FileMode` | `Resource` | Partial |
+| `WriteBytes` | Compensable | `string` + `string` + `FileMode` | `Resource` | Partial |
+| `Read` | Fallible | `string` | `Resource` | Partial |
+| `Exists` | Fallible | `Resource` | `bool` | Migrated |
+| `IsDir` | Fallible | `Resource` | `bool` | Migrated |
+| `IsFile` | Fallible | `Resource` | `bool` | Migrated |
+| `Glob` | Fallible | `string` + `bool` | `[]string` | Not started |
+| `Mkdir` | Fallible | `string` + `FileMode` | `Resource` | Not started |
+| `Link` | Compensable | `string` + `string` | `string` | Not started |
+| `Move` | Compensable | `string` + `string` | `string` | Not started |
+| `Backup` | Compensable | `string` + `string` | `string` | Not started |
+| `Remove` | Compensable | `string` + `bool` + `string` | `Tombstone` | Not started |
+| `RemoveAll` | Compensable | `string` + `bool` + `string` | `Tombstone` | Not started |
+| `Unlink` | Compensable | `string` + `bool` + `string` | `Tombstone` | Not started |
+| `Name` | Pure | `string` | `string` | N/A |
+| `Parent` | Pure | `string` | `string` | N/A |
+| `Join` | Pure | `...string` | `string` | N/A |
+| `WalkTree` | (flagged) | `string` + `Reducer` + `bool` | `any` + `*RecoveryStack` | Not started |
 
 "Partial" means the output is `Resource` but some inputs remain raw strings.
 "Not started" means both inputs and outputs use raw types.
+"N/A" means the method takes no resource-typed parameters (pure computation).
 
 ### 4.5 Constructor Registry and Coercion
 
@@ -628,7 +636,7 @@ Executor.Run(ctx, graph)  — on target machine
     │   └─ Inject physical state into slots
     │
     ├─ For each node (topological order):
-    │   ├─ action.Do(ctx, resolvedSlots) → result, undoState, error
+    │   ├─ action.Do(ctx, resolvedSlots) → result, complement, error
     │   ├─ Post-flight: metadata update
     │   │   ├─ Re-stat file for kernel-assigned identity
     │   │   ├─ Record actual hash, inode, size in ledger
@@ -744,12 +752,52 @@ Recovery. Resources map cleanly to each:
 | **Activation** (execution) | Provider method called with slot values | Provider method called with Resource; metadata updated post-write |
 | **Recovery** (compensation) | Per-provider tombstone (`moveToRecovery`) | Executor-owned tombstone layer; providers retain same-device logic |
 
-The compensation pairs (`Forward`/`Compensate*`) are unchanged. The undo state
-map still carries `"tombstone"` entries. What changes is *who decides* when to
-create tombstones: the executor's pre-flight pass instead of each provider's
-`prepareWrite`.
+The compensation pairs (`Forward`/`Compensate*`) are unchanged. What changes
+is *who decides* when to create tombstones: the executor's pre-flight pass
+instead of each provider's `prepareWrite`.
 
-### 7.3 Relationship to Constructor Registry
+### 7.3 Action Type Model
+
+Provider methods are classified into three action types based on their Go
+return signature. All three share a unified `Do` interface:
+
+```go
+Do(ctx *Context, slots map[string]any) (Result, Complement, error)
+```
+
+The three types differ in how the reflected adapter normalizes the
+provider method's actual return values into this unified signature:
+
+| Action Type | Provider Return Signature | Normalization | Undo |
+|-------------|--------------------------|---------------|------|
+| **Action** (pure) | `(T)` or `()` | `(result, nil, nil)` | None — side-effect-free |
+| **FallibleAction** | `(T, error)` | `(result, nil, err)` | None — fails cleanly |
+| **CompensableAction** | `(T, U, error)` | `(result, complement, err)` | `Undo(ctx, complement) error` |
+
+**Pure actions** — Methods like `file.Name`, `file.Parent`, `file.Join`
+return a value with no error and no side effects. They are registered as
+graph-mode `Action` nodes and participate in the execution graph like any
+other action. In dry-run mode they log and return nil (consistent with
+fallible and compensable actions). The reflected adapter
+(`reflectedPureAction`) panics on coercion errors since these indicate a
+framework bug, not a runtime failure.
+
+**FallibleAction** — Methods like `file.Read`, `file.Exists`, `file.Glob`
+perform I/O and can fail but have no compensation pair. They return
+`(result, nil, err)` — the `Complement` is always nil.
+
+**CompensableAction** — Methods like `file.WriteText`, `file.Remove` have
+a `Compensate*` companion method. The reflected adapter extracts the
+complement from the second return value and the executor pushes it onto
+the recovery stack for LIFO unwinding on failure.
+
+**Classification happens at registration time** in
+`RegisterReflectedActions` (`action_reflect.go`). The codegen
+(`generate.star`) includes all three types in the generated action tests.
+There is no runtime type-switch dispatcher — each reflected type's `Do`
+method handles its own normalization internally.
+
+### 7.4 Relationship to Constructor Registry
 
 The existing `RegisterConstructor`/`Construct`/`coerceSlotValue` chain
 (`starvalue_marshal.go`, `action_reflect.go`) handles string-to-Resource
@@ -785,23 +833,32 @@ bridging happens.
 Before/after for each method. Configuration parameters (mode, prune,
 pruneBoundary, backupSuffix, honorGitignore) are unchanged.
 
-| Method | Before | After |
-|--------|--------|-------|
-| `Copy` | `(Resource, string, FileMode)` → `Resource` | `(Resource, Resource, FileMode)` → `Resource` |
-| `WriteText` | `(string, string, FileMode)` → `Resource` | `(Resource, string, FileMode)` → `Resource` |
-| `WriteBytes` | `(string, string, FileMode)` → `Resource` | `(Resource, string, FileMode)` → `Resource` |
-| `Read` | `(string)` → `Resource` | `(Resource)` → `Resource` |
-| `Exists` | `(Resource)` → `bool` | No change (already migrated) |
-| `Link` | `(string, string)` → `string` | `(Resource, Resource)` → `Resource` |
-| `Move` | `(string, string)` → `string` | `(Resource, Resource)` → `Resource` |
-| `Backup` | `(string, string)` → `string` | `(Resource, string)` → `Resource` |
-| `Remove` | `(string, bool, string)` → `Tombstone` | `(Resource, bool, string)` → `Tombstone` |
-| `RemoveAll` | `(string, bool, string)` → `Tombstone` | `(Resource, bool, string)` → `Tombstone` |
-| `Unlink` | `(string, bool, string)` → `Tombstone` | `(Resource, bool, string)` → `Tombstone` |
+| Method | Type | Before | After |
+|--------|------|--------|-------|
+| `Copy` | Compensable | `(Resource, string, FileMode)` → `Resource` | `(Resource, Resource, FileMode)` → `Resource` |
+| `WriteText` | Compensable | `(string, string, FileMode)` → `Resource` | `(Resource, string, FileMode)` → `Resource` |
+| `WriteBytes` | Compensable | `(string, string, FileMode)` → `Resource` | `(Resource, string, FileMode)` → `Resource` |
+| `Read` | Fallible | `(string)` → `Resource` | `(Resource)` → `Resource` |
+| `Exists` | Fallible | `(Resource)` → `bool` | No change (already migrated) |
+| `IsDir` | Fallible | `(Resource)` → `bool` | No change |
+| `IsFile` | Fallible | `(Resource)` → `bool` | No change |
+| `Glob` | Fallible | `(string, bool)` → `[]string` | No change |
+| `Mkdir` | Fallible | `(string, FileMode)` → `Resource` | `(Resource, FileMode)` → `Resource` |
+| `Link` | Compensable | `(string, string)` → `string` | `(Resource, Resource)` → `Resource` |
+| `Move` | Compensable | `(string, string)` → `string` | `(Resource, Resource)` → `Resource` |
+| `Backup` | Compensable | `(string, string)` → `string` | `(Resource, string)` → `Resource` |
+| `Remove` | Compensable | `(string, bool, string)` → `Tombstone` | `(Resource, bool, string)` → `Tombstone` |
+| `RemoveAll` | Compensable | `(string, bool, string)` → `Tombstone` | `(Resource, bool, string)` → `Tombstone` |
+| `Unlink` | Compensable | `(string, bool, string)` → `Tombstone` | `(Resource, bool, string)` → `Tombstone` |
+| `Name` | Pure | `(string)` → `string` | No change (no resource params) |
+| `Parent` | Pure | `(string)` → `string` | No change (no resource params) |
+| `Join` | Pure | `(...string)` → `string` | No change (no resource params) |
 
 The pattern: every parameter that identifies an external entity (a path, a
 URL, a package name) becomes a `Resource`. Parameters that are configuration
-values (modes, flags, suffixes) remain unchanged.
+values (modes, flags, suffixes) remain unchanged. Pure methods take and
+return primitive values — they have no resource parameters to migrate but
+participate in the graph as `Action` nodes.
 
 ### 8.2 Other Providers
 
@@ -928,16 +985,22 @@ details, requirements, and file listings.
 | 0–2 | Core types + graph integration | `pkg/op/resource.go`, `pkg/op/graph.go`, `pkg/op/output.go` | Done |
 | 3 | File provider migration + catalog | `pkg/op/provider/file/resource.go`, `pkg/op/resource_catalog.go` | Done |
 | 4 | Resource type system + starvalue | `pkg/op/resource.go`, `pkg/op/starvalue/`, `pkg/op/starvalue_marshal.go` | Done |
+| 4.5 | Action interface unification | `pkg/op/action.go`, `pkg/op/action_reflect.go`, `generate.star` | Done |
 | 5 | Tombstone layer | `internal/execution/executor.go`, `pkg/op/tombstone.go` (planned) | Planned |
 | 5.5 | Provider context + resource types | `pkg/op/provider/*/provider.go`, `*/resource.go` | Done |
 | 6 | Remaining provider method migration | `pkg/op/provider/*/provider.go` | Planned |
 | 7 | Code generation | Templates and generator | Planned |
 
-Phases 0–4 and 5.5 are complete. Phase 4 established the `Resource`
+Phases 0–4, 4.5, and 5.5 are complete. Phase 4 established the `Resource`
 interface with `ResourceBase`, consolidated `ResourceManager` +
 `NamespaceMap` into `ResourceCatalog`, and extracted
 `starvalue.Marshaler`/`Unmarshaler` interfaces for custom Starlark
-serialization. Phase 5.5 embedded `op.ProviderBase` in all providers,
+serialization. Phase 4.5 unified the `Do` return signature to
+`(Result, Complement, error)` across all three action types (pure,
+fallible, compensable), eliminated the `DoAction` type-switch dispatcher,
+moved normalization into each reflected type's `Do` method, and updated
+the codegen to register and test pure actions as graph-mode `Action`
+nodes. Phase 5.5 embedded `op.ProviderBase` in all providers,
 created resource types for git/service/pkg, introduced typed tombstones,
 removed `output io.Writer` and direct `Platform` fields, and established
 per-graph provider lifecycle via `ActionRegistrar`. Phase 5 extracts

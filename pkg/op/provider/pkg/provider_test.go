@@ -94,6 +94,11 @@ func TestInstall(t *testing.T) {
 	if len(result) != 2 || result[0].Name != "vim" || result[1].Name != "git" {
 		t.Errorf("Install() result = %v, want [vim git]", result)
 	}
+	for _, r := range result {
+		if r.Type != "apt" {
+			t.Errorf("Install() result Type = %q, want %q", r.Type, "apt")
+		}
+	}
 	if len(state.Packages) != 2 || state.Packages[0] != "vim" || state.Packages[1] != "git" {
 		t.Errorf("Install() state.Packages = %v, want [vim git]", state.Packages)
 	}
@@ -200,6 +205,9 @@ func TestUpgrade(t *testing.T) {
 	if len(result) != 1 || result[0].Name != "vim" {
 		t.Errorf("Upgrade() result = %v, want [vim]", result)
 	}
+	if result[0].Type != "apt" {
+		t.Errorf("Upgrade() result Type = %q, want %q", result[0].Type, "apt")
+	}
 	if state.PreviousVersions["vim"] != "8.2" {
 		t.Errorf("Upgrade() state.PreviousVersions[vim] = %q, want %q", state.PreviousVersions["vim"], "8.2")
 	}
@@ -232,6 +240,11 @@ func TestRemove(t *testing.T) {
 	}
 	if len(result) != 2 || result[0].Name != "vim" || result[1].Name != "git" {
 		t.Errorf("Remove() result = %v, want [vim git]", result)
+	}
+	for _, r := range result {
+		if r.Type != "apt" {
+			t.Errorf("Remove() result Type = %q, want %q", r.Type, "apt")
+		}
 	}
 	if len(state.Packages) != 2 || state.Packages[0] != "vim" || state.Packages[1] != "git" {
 		t.Errorf("Remove() state.Packages = %v, want [vim git]", state.Packages)

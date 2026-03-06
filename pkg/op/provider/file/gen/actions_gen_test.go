@@ -72,8 +72,14 @@ func TestActionNames(t *testing.T) {
 		"file.unlink",
 		"file.write_bytes",
 		"file.write_text",
+		"file.exists",
 		"file.glob",
+		"file.is_dir",
+		"file.is_file",
+		"file.join",
 		"file.mkdir",
+		"file.name",
+		"file.parent",
 		"file.read",
 	}
 	for _, name := range names {
@@ -96,8 +102,14 @@ func TestRegister(t *testing.T) {
 		"file.unlink",
 		"file.write_bytes",
 		"file.write_text",
+		"file.exists",
 		"file.glob",
+		"file.is_dir",
+		"file.is_file",
+		"file.join",
 		"file.mkdir",
+		"file.name",
+		"file.parent",
 		"file.read",
 	}
 	for _, name := range expected {
@@ -307,6 +319,28 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 	}
 }
 
+func TestExistsAction_DryRun(t *testing.T) {
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.exists")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.exists") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.exists")
+	}
+}
+
 func TestGlobAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t, &provider.Provider{})
 	action := getAction(t, reg, "file.glob")
@@ -329,6 +363,72 @@ func TestGlobAction_DryRun(t *testing.T) {
 	}
 }
 
+func TestIsDirAction_DryRun(t *testing.T) {
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.is_dir")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.is_dir") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.is_dir")
+	}
+}
+
+func TestIsFileAction_DryRun(t *testing.T) {
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.is_file")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.is_file") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.is_file")
+	}
+}
+
+func TestJoinAction_DryRun(t *testing.T) {
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.join")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.join") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.join")
+	}
+}
+
 func TestMkdirAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t, &provider.Provider{})
 	action := getAction(t, reg, "file.mkdir")
@@ -348,6 +448,50 @@ func TestMkdirAction_DryRun(t *testing.T) {
 	output := ctx.Writer.(*bytes.Buffer).String()
 	if !strings.Contains(output, "[dry-run] file.mkdir") {
 		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.mkdir")
+	}
+}
+
+func TestNameAction_DryRun(t *testing.T) {
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.name")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.name") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.name")
+	}
+}
+
+func TestParentAction_DryRun(t *testing.T) {
+	reg := makeRegistry(t, &provider.Provider{})
+	action := getAction(t, reg, "file.parent")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.parent") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.parent")
 	}
 }
 

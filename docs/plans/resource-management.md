@@ -19,8 +19,24 @@ replace `map[string]any` across all providers. The executor integrates
 with the catalog for shadow/resolve during execution and pre-flight
 resolution. Generated bridge tests auto-regenerate when signatures change.
 
-Remaining gaps: CompensableAction pairing validation at registration time,
-immediate-mode catalog integration, and planned-bridge output shadowing.
+Remaining gap: Phase 0 skipped tests (#164, #170, #171).
+
+### Phase Status
+
+| Phase | Status | Work Remaining |
+| --- | --- | --- |
+| 0 | ~85% done | Un-skip 13 tests: #170 (1 immediate binding), #171 (1 planned binding), #164 (11 recovery site tests — macOS SIP) |
+| 1 | Done | — |
+| 2 | Done | — |
+| 3 | Done | — |
+| 4 | Done | — |
+| 5 | Done | — |
+| 6 | Done | — |
+| 7 | Done | — |
+| 8 | Done | — |
+| 9 | Done | — |
+| 10 | Done | `Resolve()` is a skeleton — platform injection required for Type/Version population at execution time |
+| 11 | Done | — |
 
 ## Goals
 
@@ -120,20 +136,24 @@ What exists today, grounded in code:
 | `RecoveryStack` (pkg/op) | Implemented | `pkg/op/recovery.go` — Do/Push/Unwind/Discard with reconcile hooks |
 | Test harness | Implemented | `internal/e2e/testrunner/` — Runner, TestContext (`t` namespace), Tracer; 4 baseline `.star` scripts pass |
 | `devlore-test` binary | Implemented | `cmd/devlore-test/main.go` |
-| Planned bridge catalog calls | **Partial** | `resolveResourceParam` calls `catalog.Resolve` for inputs; output shadowing not yet in planned bridge |
+| Planned bridge catalog calls | Implemented | `resolveResourceParam` calls `catalog.Resolve` for inputs; `shadowOutputParam` shadows the last Resource param (destination convention) for all compensable methods |
 | Executor pre-flight | Implemented | `preflight.go:ResolveResources` — iterates discovery URIs, stat checks file:// resources |
 | Action layer catalog.Shadow | Implemented | `action_reflect.go:shadowResult` — shadows results after dispatch |
-| Conflict detection | **Gap** | Two nodes targeting same URI = silent race (no plan-time conflict error) |
+| Conflict detection | Implemented | `resource_catalog.go:Shadow()` returns error when two different origins target same URI |
 | Other provider resources | Implemented | `net.Resource`, `git.Resource`, `service.Resource`, `pkg.Resource` all created with URI, constructors, tests |
 | Provider lifecycle | Implemented | All providers embed `op.ProviderBase`, constructed via `op.NewProviderBase(ctx)` |
 | Slice coercion | Implemented | `coerceSlice` in `action_reflect.go` enables `[]string` → `[]Resource` via constructors |
-| CompensableAction validation | **Gap** | No validation that every `Compensate*` method is paired at registration time |
-| Immediate mode catalog | **Gap** | Immediate mode does not call `catalog.Shadow` on results |
+| CompensableAction validation | Implemented | `RegisterReflectedActions` panics on missing or orphaned compensators at registration time |
+| Immediate mode catalog | Implemented | `ReflectedReceiver.SetCatalog` + `shadowResult` after dispatch in `receiver_reflect.go` |
 | Skipped tests | **Gap** | `gen/integration_test.go` (#170, #171) and `gen/actions_test.go` (#164) still skipped |
 
-## Design Decisions (Resolved)
+## Design Decisions
 
-These were open questions in the original draft. The code has answered them.
+Decisions 1–6 and 9 are implemented and code-grounded. Decisions 7 and 8
+include aspirational design (coercion table, ParamSpec, provider
+constructors with context injection) that is not yet implemented.
+Decisions 10 and 11 have separate implementation plans in the
+`resource-management/` subdirectory.
 
 ### 1. Non-generic Resource with Embedding
 
@@ -148,23 +168,25 @@ metadata is accessed through type assertion to the concrete type.
 
 ### 2. URI Canonicalization
 
-**Decision**: Yes. `filepath.Abs` + `filepath.Clean` before URI creation.
+**Decision**: Deferred to resolve time. Superseded by Decision #10.
 
-`NewResource` already calls `os.Stat` which resolves the path. The
-`ResourceManager.EnsureCataloged` method will apply `filepath.Abs` +
-`filepath.Clean` before constructing the URI to ensure `file:///etc/foo`
-and `file:///etc/../etc/foo` resolve to the same resource.
+The constructor stores the path as given — `filepath.Abs` and
+`filepath.Clean` produce machine-specific results and cannot run at plan
+time. URI canonicalization happens at `Resolve()` time on the target
+machine, where the working directory and symlink layout are known.
 
 ### 3. Immediate Mode Passthrough
 
 **Decision**: Immediate receivers use Resources via the constructor registry.
-No namespace involvement — shadowing is planning-only.
+Catalog shadowing is optional — `ReflectedReceiver.SetCatalog` injects a
+catalog, and `shadowResult` runs after dispatch when one is present. In
+production, no catalog is wired in; the mechanism exists for testing and
+future use.
 
 The constructor registry (`file.Resource` init) already handles string→Resource
-coercion for immediate calls. Immediate execution has no graph and nothing to
-shadow. The `Exists(blob Resource)` method already works this way — Starlark
-passes a string, the constructor converts it to a `file.Resource`, and the
-method uses `blob.SourcePath`.
+coercion for immediate calls. The `Exists(blob Resource)` method already works
+this way — Starlark passes a string, the constructor converts it to a
+`file.Resource`, and the method uses `blob.SourcePath`.
 
 ### 4. Per-Graph Namespace
 
@@ -195,6 +217,10 @@ special handling needed until a concrete case demands it.
 
 ### 7. Resource Coercion at the Planner/Executor Boundary
 
+**Status**: "What Is" section is implemented. "What Will Be" section
+(coercion table, `SlotTypes()`, `ParamSpec`, `go.type_embeds()`) is
+aspirational design — not yet implemented.
+
 **Decision**: Coercion from raw values (strings) to typed Resources is an
 executor concern, not a provider concern. Providers always receive their own
 typed `Resource` — possibly unresolved (path exists but not yet stat'd) or
@@ -213,16 +239,21 @@ file/resource.go:init()
     → constructorRegistry sync.Map: reflect.Type(file.Resource) → func
 ```
 
-**Plan time** — `buildPlannedBridge` stores raw Starlark values in slots:
+**Plan time** — `buildPlannedBridge` stores raw Starlark values in slots,
+validates types, and resolves Resource URIs in the catalog:
 
 ```
 plan.file.copy(source_file="src.txt", destination_filename="dst.txt")
     → starlark.UnpackArgs → vals[0] = starlark.String("src.txt")
     → FillSlot(node, graph, "source_file", starlark.String("src.txt"))
     → Unmarshal → node.SetSlotImmediate("source_file", "src.txt")  // string
+    → validateSlotType("src.txt", file.Resource)  // passes (constructor exists)
+    → resolveResourceParam → catalog.Resolve("file:///src.txt")
 ```
 
-No type checking. No Resource creation. Strings stay as strings.
+Type validation happens at plan time via `validateSlotType`. Resource URIs
+are cataloged. But strings stay as strings in slots — coercion to typed
+Resources still happens at execution time.
 
 **Execution time** — `reflectedAction.Do()` coerces slots to method types:
 
@@ -235,8 +266,8 @@ reflectedAction.Do(ctx, slots{"source_file": "src.txt", ...})
         Level 3: convertible?        No
         Level 4: map → struct?       No
         Level 5: constructor?        YES → NewResource("src.txt")
-            → os.Stat("src.txt") → inode, size, checksum, mode, modtime
-            → file.Resource{SourcePath: "src.txt", Inode: ..., ...}
+            → file.Resource{SourcePath: "src.txt"}  // no I/O (Decision #10)
+    → Provider method calls Resolve() internally if it needs metadata
     → Provider.Copy receives file.Resource
 ```
 
@@ -250,19 +281,22 @@ reflectedAction.Do(ctx, slots{"source_file": "src.txt", ...})
 | `planned.gen.go` | None | `WrapPlanned` → `buildPlannedBridge` → `FillSlot` stores raw values |
 | `immediate.gen.go` | Implicit — Go reflection | `WrapReceiver` → `buildMethodBridge` → `unmarshalValue` at call time |
 
-**Problems with current design:**
+**Remaining problems with current design:**
 
-1. **Late coercion** — `os.Stat` discovery happens inside `coerceSlotValue`
-   during execution. Errors surface at execution time, not planning time.
+1. **Late coercion** — Resource construction happens inside
+   `coerceSlotValue` during execution. Slots store raw strings, not typed
+   Resources. Constructor no longer does I/O (Decision #10), but coercion
+   is still deferred to execution.
 2. **No cross-provider coercion** — the constructor registry maps
    `target_type → func(any)`. There's no path from `mem.Resource` →
    `file.Resource` — only `string → file.Resource`.
 3. **Scattered registration** — each provider's `resource.go:init()`
    registers its constructor independently. The executor has no visibility
    into what coercions are available.
-4. **No type validation at plan time** — passing an `int` to a Resource
-   slot silently stores it. The error surfaces in `coerceSlotValue` during
-   execution.
+4. ~~**No type validation at plan time**~~ — Resolved.
+   `validateSlotType` in `buildPlannedBridge` validates that slot values
+   can be coerced to the target type. Passing an `int` to a Resource slot
+   now fails at plan time.
 
 #### What Will Be: Planner Coerces, Executor Resolves
 
@@ -285,7 +319,7 @@ inode, size, and checksum on every machine. The planner must be pure.
 to a **coercion table** that maps `(source_type, target_type)` pairs:
 
 ```
-// Current: target_type → constructor (does I/O via NewResource → os.Stat)
+// Current: target_type → constructor (pure, no I/O per Decision #10)
 constructorRegistry: reflect.Type(file.Resource) → func(any) (any, error)
 
 // Target: (source_type, target_type) → coercion_func (pure, no I/O)
@@ -514,28 +548,12 @@ Steps 5-7 ship together (codegen pipeline update).
 Step 8 ships after codegen — it changes every provider and every generated
 binding.
 
-### 9. Ledger Is the Sole Source of Truth — No Node Annotations
-
-**Decision**: The `ResourceManager` ledger is the single source of truth
-for resource identity and lineage. Node annotations (`resource.input`,
-`resource.output`) are eliminated.
-
-The ledger already records URI, origin node ID, and version lineage through
-`EnsureCataloged` (called by `NamespaceMap.Resolve` and `Shadow`).
-Annotations would duplicate information the ledger already holds and cannot
-represent resources produced at runtime — globs returning N files, dynamic
-template expansions, gather iterations producing unknown resource sets.
-
-The executor's pre-flight pass (Phase 4) queries the ledger directly:
-resources with non-empty `OriginNodeID` whose URI matches a previously
-discovered resource need tombstones. No annotation scanning required.
-
-**Impact**: Phase 2c (Resource Annotations on Nodes) is removed from the
-plan. Phase 2 consists of 2a (Graph owns Manager and Namespace) and 2b
-(FillSlot detects resource identity). The `extractResource` reflection
-helper moves to `resource.go` without annotation constants.
-
 ### 8. Provider Lifecycle: Singletons with Context Injection
+
+**Status**: Partially implemented. Providers embed `op.ProviderBase` and
+are constructed via `op.NewProviderBase(ctx)`. Context-injected
+constructors (`provider.New(ctx)`) and codegen changes are not yet
+implemented.
 
 **Decision**: Providers are singletons. In a graph, a provider follows the
 lifetime of the graph. In a Starlark script, a provider follows the lifetime
@@ -584,6 +602,189 @@ coercion are complementary. The provider receives context at construction
 (Decision #8) and receives typed Resources in its method params (Decision
 #7). Together, they eliminate both the "providers can't access platform"
 problem and the "providers receive raw strings" problem.
+
+### 9. Ledger Is the Sole Source of Truth — No Node Annotations
+
+**Decision**: The `ResourceManager` ledger is the single source of truth
+for resource identity and lineage. Node annotations (`resource.input`,
+`resource.output`) are eliminated.
+
+The ledger already records URI, origin node ID, and version lineage through
+`EnsureCataloged` (called by `NamespaceMap.Resolve` and `Shadow`).
+Annotations would duplicate information the ledger already holds and cannot
+represent resources produced at runtime — globs returning N files, dynamic
+template expansions, gather iterations producing unknown resource sets.
+
+The executor's pre-flight pass (Phase 4) queries the ledger directly:
+resources with non-empty `OriginNodeID` whose URI matches a previously
+discovered resource need tombstones. No annotation scanning required.
+
+**Impact**: Phase 2c (Resource Annotations on Nodes) is removed from the
+plan. Phase 2 consists of 2a (Graph owns Manager and Namespace) and 2b
+(FillSlot detects resource identity). The `extractResource` reflection
+helper moves to `resource.go` without annotation constants.
+
+### 10. Infallible Resource Constructors — Construct / Resolve / Refresh
+
+**Status**: Implemented. See [phase-9.md](resource-management/phase-9.md)
+for the implementation plan.
+
+**Decision**: Resource constructors are infallible pure computation. They
+accept the data needed to identify the resource on a target device and
+return a value with no I/O and no error. Resolution (metadata population
+via `os.Stat`) is a separate explicit step owned by the executor or the
+provider method that needs it.
+
+**Rationale**: A graph can be planned on one machine and executed on
+another. `filepath.Abs`, `os.Stat`, and `filepath.Clean` produce
+machine-specific results — inodes, device IDs, symlink resolution, and
+even absolute paths differ across hosts. The constructor must capture
+only the portable identity (the path as given) and defer all
+target-specific work to execution time.
+
+This also eliminates the dual constructor registries
+(`constructorRegistry` for execution-time constructors with I/O,
+`planTimeConstructorRegistry` for plan-time constructors without I/O).
+A single constructor suffices because it is always pure.
+
+**Resource lifecycle** — three distinct phases:
+
+| Phase | Method | I/O | When | Purpose |
+| --- | --- | --- | --- | --- |
+| Construct | `NewResource(path)` | None | Plan time | Save identity (path). Infallible. |
+| Resolve | `Resolve()` | `os.Stat` | Executor pre-flight or provider internals | Populate metadata. Confirm existence. |
+| Refresh | `Refresh()` | `os.Stat` + checksum | After mutation (provider internals) | Re-populate metadata. |
+| Refresh | `RefreshWith(checksum, size)` | `os.Stat` only | After write with known hash | Optimized refresh. |
+
+```go
+// Construct — pure, no I/O, infallible
+r := file.NewResource("/etc/nginx/nginx.conf")
+
+// Resolve — I/O against the target machine
+if err := r.Resolve(); err != nil { ... }
+if r.Exists() { ... }
+
+// After a write operation — refresh metadata
+if err := r.Refresh(); err != nil { ... }
+
+// After a write with known hash — optimized refresh
+if err := r.RefreshWith(checksum, size); err != nil { ... }
+```
+
+**Existence checking**: `Resolve()` populates metadata if the file
+exists and returns nil. If the file does not exist, `Resolve()` returns
+nil and metadata remains empty. `Exists()` checks whether metadata was
+populated — it is a pure check on the resolved state, not an I/O
+operation. Callers that need to know whether a path exists call
+`Resolve()` then `Exists()`. An unresolved resource always reports
+`Exists() == false`.
+
+**Impact on constructor registry**: `RegisterPlanTimeConstructor` is
+eliminated. `RegisterConstructor` registers the single infallible
+constructor. `coerceSlotValue` at execution time produces a constructed
+but unresolved Resource. Provider methods that need metadata call
+`Resolve()` internally. The executor's pre-flight pass calls `Resolve()`
+on catalog discovery entries to validate source existence before
+execution begins.
+
+**Impact on URI canonicalization** (supersedes Decision #2):
+`filepath.Abs` and `filepath.Clean` are NOT called in the constructor —
+they produce machine-specific results. The constructor stores the path
+as given. URI canonicalization is performed at resolve time on the target
+machine, or deferred to the catalog's namespace which deduplicates by
+URI.
+
+### 11. Package URIs — Purl Canonical Form with Hierarchical Catalog Keys
+
+**Status**: Implemented. See [phase-10.md](resource-management/phase-10.md)
+for the implementation plan.
+
+**Decision**: `pkg.Resource` adopts the [package-url (purl)](https://github.com/package-url/purl-spec)
+specification for canonical package identification. The catalog URI
+remains a `url.URL`-compatible hierarchical key; the purl is stored as
+a separate canonical representation on the Resource.
+
+**Rationale**: Purl is an ECMA-427 standard that encodes package
+ecosystem, namespace, name, version, and qualifiers into a single
+string: `pkg:type/namespace/name@version?qualifiers`. It is widely
+adopted by SBOM tools, vulnerability databases, and dependency scanners.
+Adopting purl gives devlore interoperability with the security and
+supply-chain ecosystem for free.
+
+**The problem with purl as a catalog key**: Purl is an opaque URI
+(`pkg:type/...` — no `//`). Go's `net/url.URL` expects hierarchical
+URIs (`scheme://authority/path`). Feeding `pkg:brew/jq@1.7` to
+`url.Parse` produces `Opaque: "brew/jq@1.7"` with empty `Host` and
+`Path`. This breaks `ResourceBase.NewURI` and the catalog's
+URI-keyed namespace.
+
+**Solution**: Same pattern as `file.Resource`. The catalog key is a
+hierarchical URI that works with `url.URL`. The canonical external
+form is stored separately on the Resource:
+
+| | Catalog key (URI) | External representation |
+| --- | --- | --- |
+| file | `file:///etc/nginx/nginx.conf` | `SourcePath` field |
+| pkg | `pkg://brew/jq` | `Purl()` method → `pkg:brew/jq@1.7` |
+| service | `svc:///nginx` | `Name` field |
+| git | `git:///path/to/repo` | `URL` field |
+
+The purl `type` component maps to `url.URL.Host` (the authority). The
+package name maps to `url.URL.Path`. Version is metadata on the
+Resource, not part of the catalog URI — installing `jq@1.6` and
+upgrading to `jq@1.7` is the same resource in the catalog.
+
+```go
+type Resource struct {
+    op.ResourceBase
+    Name    string // "jq"
+    Type    string // "brew", "deb", "rpm", "port", "winget"
+    Version string // populated by Resolve()
+}
+
+// Catalog key — hierarchical, url.URL-compatible.
+func (r *Resource) URI() string    { return r.NewURI(r) }
+func (r *Resource) Scheme() string { return op.SchemePackage }
+func (r *Resource) Host() string   { return r.Type }
+func (r *Resource) Path() string   { return "/" + r.Name }
+// → pkg://brew/jq
+
+// Canonical purl for external consumption.
+func (r *Resource) Purl() string {
+    s := "pkg:" + r.Type + "/" + r.Name
+    if r.Version != "" {
+        s += "@" + r.Version
+    }
+    return s
+}
+// → pkg:brew/jq@1.7
+```
+
+**Purl type mapping**: Three types are official purl types (`deb`,
+`rpm`, `npm`). The rest are custom types following purl conventions.
+The spec explicitly supports custom types and recommends contributing
+them upstream.
+
+| devlore source | purl type | namespace | Example |
+| --- | --- | --- | --- |
+| `brew` | `brew` | — | `pkg:brew/jq` |
+| `brew` (cask) | `brew` | — | `pkg:brew/firefox?cask=true` |
+| `port` | `port` | — | `pkg:port/jq` |
+| `apt` | `deb` | distro | `pkg:deb/debian/curl` |
+| `dnf`/`yum` | `rpm` | — | `pkg:rpm/nginx` |
+| `winget` | `winget` | publisher | `pkg:winget/Microsoft/VisualStudioCode` |
+
+**Winget namespace**: Winget uses reverse-domain IDs
+(`Microsoft.VisualStudioCode`). The publisher portion maps to the purl
+namespace: `pkg:winget/Microsoft/VisualStudioCode`.
+
+**Auto-detected manager**: When the manager is not specified at plan
+time (`manager=""`), the `Type` field is empty. `Resolve()` on the
+target machine populates it from the platform's default package manager.
+The catalog URI for an unresolved package is `pkg:///jq` (no authority).
+After resolution, the URI gains the type: `pkg://brew/jq`. This is
+consistent with Decision #10 — the constructor stores portable identity,
+resolution populates target-specific data.
 
 ## Implementation Phases
 
@@ -889,14 +1090,13 @@ See [phase-4.md](resource-management/phase-4.md) for the type system plan.
 | `pkg/op/provider/file/provider.go` | Modify | All compensable methods use Tombstone |
 | `pkg/op/provider/file/recovery.go` | Modify | Typed Tombstone, `os.Lstat` for symlinks |
 
-### Phase 5: Executor Catalog Integration — MOSTLY DONE
+### Phase 5: Executor Catalog Integration — DONE
 
 Connects the catalog to both planning and execution. The executor
 integrates with the catalog for shadow/resolve during execution and
 pre-flight resolution.
 
-**Status**: Substantially complete. Implemented across PRs #177–#184.
-Three gaps remain (see below).
+**Status**: Complete. Implemented across PRs #177–#186.
 
 **Repo**: devlore-cli
 
@@ -921,21 +1121,25 @@ reflects WHERE DATA IS AFTER operation (polarity correct).
 Two-arity dispatch: 2 returns = Action, 3 returns = CompensableAction.
 `NoResult` detection. Error must be last.
 
-#### 5e. CompensableAction Pairing Validation — GAP
+#### 5e. CompensableAction Pairing Validation — DONE
 
-No validation that every `Compensate*` method is paired with its forward
-method at registration time. Should fail fast on missing compensators.
+`RegisterReflectedActions` validates all compensator pairs at registration
+time. Panics on missing compensators (forward method returns 3 values but
+no `Compensate*` exists) and orphaned compensators (`Compensate*` exists
+but forward method has wrong return arity).
 
 #### 5f. Action Layer catalog.Shadow — DONE
 
 `reflectedAction.Do()` calls `shadowResult()` after dispatch. Handles
 direct Resources, struct values, and slices of Resources.
 
-#### 5g. Planned Bridge Catalog Calls — PARTIAL
+#### 5g. Planned Bridge Catalog Calls — DONE
 
 `resolveResourceParam()` calls `catalog.Resolve` for input parameters
-during planning. **Gap**: No `catalog.Shadow` for output/result types
-in the planned bridge.
+during planning. `shadowOutputParam()` calls `catalog.Shadow` for output
+parameters — the last Resource-typed parameter (destination convention)
+is shadowed with the node's ID. Works for both single-Resource methods
+(WriteText, Append, etc.) and multi-Resource methods (Copy, Link).
 
 #### 5h. Executor Pre-Flight Resolution — DONE
 
@@ -943,23 +1147,38 @@ in the planned bridge.
 checks `file://` resources, skips other schemes, fails fast on missing
 sources.
 
-#### 5i. Immediate Mode Catalog Integration — GAP
+#### 5i. Immediate Mode Catalog Integration — DONE
 
-Immediate mode does not call `catalog.Shadow` on results. No
-`RecoveryStack` wiring to Starlark.
+`ReflectedReceiver.SetCatalog()` injects a catalog. `buildMethodBridge`
+calls `shadowResult()` after successful dispatch when a catalog is
+present. `RecoveryStack` wiring to Starlark is a separate concern.
 
-#### 5j. Plan-Time Coercion Split — DONE
+#### 5j. Plan-Time Coercion Split — DONE (Superseded by Decision #10)
 
-`RegisterConstructor` (execution-time, with I/O) and
-`RegisterPlanTimeConstructor` (plan-time, no I/O) are separate
-registries. Planned bridge uses plan-time constructors for URI-only
-Resources.
+Per Decision #10, constructors are infallible and do no I/O. A single
+`constructorRegistry` (`starvalue_marshal.go`) serves both plan-time
+and execution-time use. The dual-registry approach
+(`planTimeConstructorRegistry`) was eliminated. `constructResource()`
+creates URI-only Resources for plan-time catalog resolution.
 
-#### 5k. Conflict Detection — GAP
+#### 5k. Conflict Detection — DONE
 
-URI-keyed namespace catches conflicts across providers. Two nodes
-targeting the same URI in the same phase should be a conflict error
-at plan time. Not yet implemented.
+`ResourceCatalog.Shadow()` detects write-write conflicts. When two
+different origins target the same URI, Shadow returns an error:
+`"resource conflict: URI %q is targeted by both %q and %q"`.
+Discovery entries (no origin) are silently superseded.
+
+### Phase 6: Provider Context + Resource Types — DONE
+
+**DONE** — All providers embed `op.ProviderBase` (codegen-enforced).
+Resource types created for git (`git.Resource`), service
+(`service.Resource`), pkg (`pkg.Resource`). Typed tombstones for
+git/service/pkg. `output io.Writer` removed from git/service/shell
+signatures. `Platform` removed as direct field from service/pkg.
+Per-graph provider lifecycle via `ActionRegistrar(reg, ctx)`.
+`BindingConfig` includes `Platform`. Codegen dead code removed.
+
+See [phase-6.md](resource-management/phase-6.md).
 
 ### Phase 7: Remaining Provider Method Migration — DONE
 
@@ -993,11 +1212,51 @@ See [phase-7.md](resource-management/phase-7.md).
 - `SchemeNet` constant
 - `encryption.CompensateDecryptSopsFile` implemented (was panic)
 
+### Phase 8: Generated Bridge Tests — DONE
+
+**DONE** — Merged in PR #182. The star generator produces
+`actions_test.gen.go` — bridge verification tests that regenerate
+automatically when method signatures change.
+
+See [phase-8.md](resource-management/phase-8.md).
+
+### Phase 9: Resource Lifecycle — Decision #10 — DONE
+
+**DONE** — Infallible resource constructors. Three-phase lifecycle:
+Construct (pure, no I/O) → Resolve (os.Stat on target) → Refresh
+(re-populate after mutation). Single unified constructor registry.
+`file.NewResource` and `git.NewResource` are infallible.
+`file.Resource.Resolve()` and `git.Resource.Resolve()` do I/O.
+
+See [phase-9.md](resource-management/phase-9.md).
+
+### Phase 10: Purl Package URIs — Decision #11 — DONE
+
+**DONE** — `pkg.Resource` adopts purl (ECMA-427) for canonical package
+identification. `Type` and `Version` fields added. Catalog URI uses Type
+as authority (`pkg://brew/jq`). `Purl()` method returns canonical purl
+format (`pkg:brew/jq@1.7`). Winget namespace handling. Type propagated
+from resolved manager in Install/Remove/Upgrade.
+
+See [phase-10.md](resource-management/phase-10.md).
+
+### Phase 11: Action Interface Unification — DONE
+
+**DONE** — Unified `Do` return signature across all three action types:
+`Action`, `FallibleAction`, `CompensableAction` all return
+`(Result, Complement, error)`. Eliminated the `DoAction()` type-switch
+dispatcher — each reflected type normalizes internally. Codegen updated
+to register and test pure actions (e.g., `file.name`, `file.parent`,
+`file.join`) as first-class graph nodes.
+
+See [phase-11.md](resource-management/phase-11.md).
+
 ## Migration Path
 
-0. **Phase 0**: ~~Build the `star devlore test` extension.~~ **~90% DONE**
-   — Harness built, baseline tests pass. Remaining: un-skip planned binding
-   tests (#170, #171) and recovery site tests (#164).
+0. **Phase 0**: ~~Build the `star devlore test` extension.~~ **~85% DONE**
+   — Harness built, baseline tests pass. Remaining: un-skip 13 tests —
+   #170 (1 immediate binding), #171 (1 planned binding), #164 (11
+   recovery site tests blocked by macOS SIP).
 1. **Phase 1**: ~~ResourceManager and NamespaceMap.~~ **DONE** —
    Implemented as `ResourceCatalog`. See
    [phase-1.md](resource-management/phase-1.md). Merged in PR #176.
@@ -1014,12 +1273,15 @@ See [phase-7.md](resource-management/phase-7.md).
    are embedded structs. `Provider` interface sealed. `ResourceCatalog`
    replaces manager + namespace. File provider uses typed `Tombstone`.
    See [phase-4.md](resource-management/phase-4.md). Merged in PR #179.
-5. **Phase 5 (executor catalog integration)**: **MOSTLY DONE** —
-   Implemented across PRs #177–#184. Catalog integrates with both
-   planning (Resolve for inputs) and execution (Shadow for outputs,
-   pre-flight resolution for file:// URIs). Three gaps remain:
-   CompensableAction pairing validation (5e), immediate mode catalog
-   integration (5i), planned bridge output shadowing (partial 5g).
+5. **Phase 5 (executor catalog integration)**: **DONE** —
+   Implemented across PRs #177–#186. Catalog integrates with both
+   planning (Resolve for inputs, Shadow for all output Resources) and
+   execution (Shadow for results, pre-flight resolution for file://
+   URIs). All substeps complete: URI construction (5a), NoResult (5b),
+   tombstone semantics (5c), arity dispatch (5d), CompensableAction
+   pairing (5e), action-layer shadow (5f), planned-bridge shadow (5g),
+   pre-flight (5h), immediate mode catalog (5i), single constructor
+   registry (5j), conflict detection (5k).
 6. **Phase 6 (provider context + resource types)**: **DONE** — All
    providers embed `op.ProviderBase` (codegen-enforced). Resource types
    created for git (`git.Resource`), service (`service.Resource`), pkg
@@ -1039,6 +1301,16 @@ See [phase-7.md](resource-management/phase-7.md).
    generator to produce `actions_test.gen.go` — bridge verification tests
    that regenerate automatically when method signatures change.
    See [phase-8.md](resource-management/phase-8.md). Merged in PR #182.
+9. **Phase 9 (resource lifecycle — Decision #10)**: **DONE** — Infallible
+   constructors, Construct/Resolve/Refresh lifecycle, single constructor
+   registry. See [phase-9.md](resource-management/phase-9.md).
+10. **Phase 10 (purl package URIs — Decision #11)**: **DONE** — `pkg.Resource`
+    gains `Type`, `Version`, `Purl()`. Catalog URI uses Type as authority.
+    Winget namespace handling. See [phase-10.md](resource-management/phase-10.md).
+11. **Phase 11 (action interface unification)**: **DONE** — Unified `Do`
+    signature `(Result, Complement, error)` across all three action types.
+    `DoAction()` dispatcher eliminated. Codegen registers and tests pure
+    actions as graph nodes. See [phase-11.md](resource-management/phase-11.md).
 
 ## Files to Create/Modify
 
@@ -1091,11 +1363,6 @@ See [phase-7.md](resource-management/phase-7.md).
 | --- | --- | --- | --- |
 | `pkg/op/provider/file/gen/integration_test.go` | 0 | Modify | Un-skip #170, #171 |
 | `pkg/op/provider/file/gen/actions_test.go` | 0 | Modify | Un-skip #164 |
-| `pkg/op/action.go` | 5 | Modify | `SlotTypes()` on Action interface (5e pairing validation) |
-| `pkg/op/action_reflect.go` | 5 | Modify | CompensableAction pairing validation at registration (5e) |
-| `pkg/op/planned_reflect.go` | 5 | Modify | `catalog.Shadow` for output types in planned bridge (5g gap) |
-| `pkg/op/receiver_reflect.go` | 5 | Modify | Immediate mode catalog integration (5i) |
-| `pkg/op/resource_catalog.go` | 5 | Modify | Conflict detection — same URI in same phase (5k) |
 
 ## Relationship to Reconciliation
 
@@ -1228,3 +1495,10 @@ resource management work is complete.
 - [Binding Unification Plan](./binding-unification.md) — Provider binding architecture
 - [Compensation Plan](./compensation.md) — Compensation/recovery architecture
 - [Audit, Reconciliation, and Recovery](../architecture/devlore-reconciliation.md)
+
+### Implementation Plans
+
+- [Resource Lifecycle (Decision #10)](resource-management/phase-9.md) — Infallible constructors, Resolve/Refresh lifecycle
+- [Purl Package URIs (Decision #11)](resource-management/phase-10.md) — Purl adoption for pkg.Resource
+- [Action Interface Unification](resource-management/phase-11.md) — Unified Do signature, pure actions as graph nodes
+- [Gap Analysis](resource-management/gap-analysis.md) — Document review findings (2026-03-05)

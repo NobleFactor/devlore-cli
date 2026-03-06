@@ -13,8 +13,9 @@ type registryTestAction struct {
 	name string
 }
 
-func (a *registryTestAction) Name() string { return a.name }
-func (a *registryTestAction) Do(_ *Context, _ map[string]any) (result Result, state UndoState, err error) {
+func (a *registryTestAction) Name() string        { return a.name }
+func (a *registryTestAction) Params() []ParamInfo { return nil }
+func (a *registryTestAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
 	return nil, nil, nil
 }
 

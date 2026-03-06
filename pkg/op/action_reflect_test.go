@@ -109,6 +109,15 @@ func (p *actionProvider) Touch(res actionResource) (actionResource, error) {
 	return res, nil
 }
 
+// Single Resource param, compensable — tests single-param output shadowing.
+func (p *actionProvider) Stamp(dest actionResource) (actionResource, map[string]any, error) {
+	return dest, map[string]any{"dest": dest.SourcePath}, nil
+}
+
+func (p *actionProvider) CompensateStamp(state map[string]any) error {
+	return nil
+}
+
 // Two Resource params (source + dest) — tests plan-time output shadowing.
 func (p *actionProvider) Transfer(source, dest actionResource) (actionResource, map[string]any, error) {
 	return dest, map[string]any{"source": source.SourcePath, "dest": dest.SourcePath}, nil
@@ -127,7 +136,7 @@ func (p *actionProvider) CompensateDelete(state map[string]any) error {
 	return nil
 }
 
-// Immediate-only (no error return, should be skipped).
+// Pure action (no error return) — registers as Action.
 func (p *actionProvider) Exists(path string) bool {
 	return path != ""
 }
@@ -143,6 +152,7 @@ var actionParams = MethodParams{
 	"Create":    {"path"},
 	"Delete":    {"path"},
 	"Read":      {"path"},
+	"Stamp":     {"dest"},
 	"Touch":     {"res"},
 	"Transfer":  {"source", "dest"},
 	"Validate":  {"path"},
@@ -150,6 +160,131 @@ var actionParams = MethodParams{
 	"Deploy":    {"res"},
 	"Exists":    {"path"},
 	"Noop":      {},
+}
+
+// --- Params tests ---
+
+func TestReflectedAction_Params(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	action := reg.MustGet("test.copy")
+	params := action.Params()
+	if len(params) != 2 {
+		t.Fatalf("Params() returned %d entries, want 2", len(params))
+	}
+	if params[0].Name != "source" {
+		t.Errorf("params[0].Name = %q, want 'source'", params[0].Name)
+	}
+	if params[0].Type != reflect.TypeOf("") {
+		t.Errorf("params[0].Type = %v, want string", params[0].Type)
+	}
+	if params[1].Name != "dest" {
+		t.Errorf("params[1].Name = %q, want 'dest'", params[1].Name)
+	}
+}
+
+func TestReflectedAction_Params_ResourceType(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	action := reg.MustGet("test.touch")
+	params := action.Params()
+	if len(params) != 1 {
+		t.Fatalf("Params() returned %d entries, want 1", len(params))
+	}
+	if params[0].Name != "res" {
+		t.Errorf("params[0].Name = %q, want 'res'", params[0].Name)
+	}
+	if params[0].Type != reflect.TypeOf(actionResource{}) {
+		t.Errorf("params[0].Type = %v, want actionResource", params[0].Type)
+	}
+}
+
+func TestReflectedAction_Params_Compensable(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	// Compensable actions inherit Params from reflectedAction.
+	action := reg.MustGet("test.create")
+	params := action.Params()
+	if len(params) != 1 {
+		t.Fatalf("Params() returned %d entries, want 1", len(params))
+	}
+	if params[0].Name != "path" {
+		t.Errorf("params[0].Name = %q, want 'path'", params[0].Name)
+	}
+}
+
+func TestStubAction_Params_Nil(t *testing.T) {
+	stub := StubAction("test.stub")
+	if stub.Params() != nil {
+		t.Errorf("stubAction.Params() = %v, want nil", stub.Params())
+	}
+}
+
+func TestReflectedAction_Params_NoArgs(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	action := reg.MustGet("test.noop")
+	params := action.Params()
+	if len(params) != 0 {
+		t.Errorf("Params() returned %d entries, want 0", len(params))
+	}
+}
+
+// --- validateSlotType tests ---
+
+func TestValidateSlotType_Nil(t *testing.T) {
+	if err := validateSlotType(nil, reflect.TypeOf("")); err != nil {
+		t.Errorf("nil should be valid for any type, got: %v", err)
+	}
+}
+
+func TestValidateSlotType_DirectAssign(t *testing.T) {
+	if err := validateSlotType("hello", reflect.TypeOf("")); err != nil {
+		t.Errorf("string→string should be valid, got: %v", err)
+	}
+}
+
+func TestValidateSlotType_Convertible(t *testing.T) {
+	if err := validateSlotType(42, reflect.TypeOf(os.FileMode(0))); err != nil {
+		t.Errorf("int→FileMode should be valid, got: %v", err)
+	}
+}
+
+func TestValidateSlotType_MapToStruct(t *testing.T) {
+	m := map[string]any{"enabled": true}
+	if err := validateSlotType(m, reflect.TypeOf(actionConfig{})); err != nil {
+		t.Errorf("map→struct should be valid, got: %v", err)
+	}
+}
+
+func TestValidateSlotType_Constructor(t *testing.T) {
+	// actionTestResource has a registered constructor.
+	if err := validateSlotType("/tmp/file", reflect.TypeOf(actionTestResource{})); err != nil {
+		t.Errorf("string→constructable should be valid, got: %v", err)
+	}
+}
+
+func TestValidateSlotType_Incompatible(t *testing.T) {
+	// bool → string has no coercion path.
+	err := validateSlotType(true, reflect.TypeOf(""))
+	if err == nil {
+		t.Fatal("bool→string should fail validation")
+	}
+	if !strings.Contains(err.Error(), "cannot coerce") {
+		t.Errorf("error = %q, want 'cannot coerce'", err)
+	}
+}
+
+func TestValidateSlotType_MapToString(t *testing.T) {
+	// map → string has no coercion path.
+	err := validateSlotType(map[string]any{"x": 1}, reflect.TypeOf(""))
+	if err == nil {
+		t.Fatal("map→string should fail validation")
+	}
 }
 
 // --- coerceSlotValue tests ---
@@ -288,48 +423,70 @@ func TestCoerceSlotValue_Error(t *testing.T) {
 	}
 }
 
-// --- classifyActionReturn tests ---
+// --- classifyFallibleReturn tests ---
 
-func TestClassifyActionReturn_Empty(t *testing.T) {
-	result, undo, err := classifyActionReturn(nil)
-	if result != nil || undo != nil || err != nil {
-		t.Errorf("got (%v, %v, %v), want (nil, nil, nil)", result, undo, err)
+func TestClassifyFallibleReturn_Empty(t *testing.T) {
+	result, err := classifyFallibleReturn(nil)
+	if result != nil || err != nil {
+		t.Errorf("got (%v, %v), want (nil, nil)", result, err)
 	}
 }
 
-func TestClassifyActionReturn_ErrorOnly(t *testing.T) {
+func TestClassifyFallibleReturn_ErrorOnly(t *testing.T) {
 	// nil error
-	results := []reflect.Value{reflect.ValueOf((*error)(nil)).Elem()}
-	// Simulating a nil error interface value is tricky with reflect.
-	// Use reflect.Zero instead.
-	results = []reflect.Value{reflect.Zero(errorType)}
-	result, undo, err := classifyActionReturn(results)
-	if result != nil || undo != nil || err != nil {
-		t.Errorf("got (%v, %v, %v), want (nil, nil, nil)", result, undo, err)
+	results := []reflect.Value{reflect.Zero(errorType)}
+	result, err := classifyFallibleReturn(results)
+	if result != nil || err != nil {
+		t.Errorf("got (%v, %v), want (nil, nil)", result, err)
 	}
 
 	// non-nil error
 	testErr := errors.New("fail")
 	results = []reflect.Value{reflect.ValueOf(&testErr).Elem()}
-	result, undo, err = classifyActionReturn(results)
-	if result != nil || undo != nil || err != testErr {
-		t.Errorf("got (%v, %v, %v), want (nil, nil, fail)", result, undo, err)
+	result, err = classifyFallibleReturn(results)
+	if result != nil || err != testErr {
+		t.Errorf("got (%v, %v), want (nil, fail)", result, err)
 	}
 }
 
-func TestClassifyActionReturn_ValueError(t *testing.T) {
+func TestClassifyFallibleReturn_ValueError(t *testing.T) {
 	// (string, error) → success
 	results := []reflect.Value{
 		reflect.ValueOf("ok"),
 		reflect.Zero(errorType),
 	}
-	result, undo, err := classifyActionReturn(results)
-	if result != "ok" || undo != nil || err != nil {
-		t.Errorf("got (%v, %v, %v), want ('ok', nil, nil)", result, undo, err)
+	result, err := classifyFallibleReturn(results)
+	if result != "ok" || err != nil {
+		t.Errorf("got (%v, %v), want ('ok', nil)", result, err)
 	}
 }
 
-func TestClassifyActionReturn_ValueUndoError(t *testing.T) {
+func TestClassifyFallibleReturn_ErrorPropagation(t *testing.T) {
+	testErr := errors.New("bad")
+	results := []reflect.Value{
+		reflect.ValueOf("ignored"),
+		reflect.ValueOf(&testErr).Elem(),
+	}
+	result, err := classifyFallibleReturn(results)
+	// Result is still returned even on error (executor decides what to do).
+	if result != "ignored" {
+		t.Errorf("result = %v, want 'ignored'", result)
+	}
+	if err != testErr {
+		t.Errorf("err = %v, want %v", err, testErr)
+	}
+}
+
+// --- classifyCompensableReturn tests ---
+
+func TestClassifyCompensableReturn_Empty(t *testing.T) {
+	result, complement, err := classifyCompensableReturn(nil)
+	if result != nil || complement != nil || err != nil {
+		t.Errorf("got (%v, %v, %v), want (nil, nil, nil)", result, complement, err)
+	}
+}
+
+func TestClassifyCompensableReturn_ValueComplementError(t *testing.T) {
 	// (string, map[string]any, error) → compensable
 	state := map[string]any{"key": "val"}
 	results := []reflect.Value{
@@ -337,29 +494,13 @@ func TestClassifyActionReturn_ValueUndoError(t *testing.T) {
 		reflect.ValueOf(state),
 		reflect.Zero(errorType),
 	}
-	result, undo, err := classifyActionReturn(results)
+	result, complement, err := classifyCompensableReturn(results)
 	if result != "done" || err != nil {
 		t.Errorf("got (%v, _, %v), want ('done', _, nil)", result, err)
 	}
-	undoMap, ok := undo.(map[string]any)
-	if !ok || undoMap["key"] != "val" {
-		t.Errorf("undo = %v, want map with key=val", undo)
-	}
-}
-
-func TestClassifyActionReturn_ErrorPropagation(t *testing.T) {
-	testErr := errors.New("bad")
-	results := []reflect.Value{
-		reflect.ValueOf("ignored"),
-		reflect.ValueOf(&testErr).Elem(),
-	}
-	result, _, err := classifyActionReturn(results)
-	// Result is still returned even on error (executor decides what to do).
-	if result != "ignored" {
-		t.Errorf("result = %v, want 'ignored'", result)
-	}
-	if err != testErr {
-		t.Errorf("err = %v, want %v", err, testErr)
+	cMap, ok := complement.(map[string]any)
+	if !ok || cMap["key"] != "val" {
+		t.Errorf("complement = %v, want map with key=val", complement)
 	}
 }
 
@@ -372,16 +513,18 @@ func TestRegisterReflectedActions_ActionNames(t *testing.T) {
 	names := reg.Names()
 	sort.Strings(names)
 
-	// Exists is skipped (no error return). Configure, Copy, Create, Delete, Deploy, Mkdir, Noop, Read, Touch, Transfer, Validate qualify.
+	// All methods in actionParams are registered. Exists registers as pure Action (no error return).
 	expected := []string{
 		"test.configure",
 		"test.copy",
 		"test.create",
 		"test.delete",
 		"test.deploy",
+		"test.exists",
 		"test.mkdir",
 		"test.noop",
 		"test.read",
+		"test.stamp",
 		"test.touch",
 		"test.transfer",
 		"test.validate",
@@ -396,12 +539,16 @@ func TestRegisterReflectedActions_ActionNames(t *testing.T) {
 	}
 }
 
-func TestRegisterReflectedActions_SkipsImmediateOnly(t *testing.T) {
+func TestRegisterReflectedActions_PureAction(t *testing.T) {
 	reg := NewActionRegistry()
 	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
 
-	if _, ok := reg.Get("test.exists"); ok {
-		t.Error("Exists should not be registered (no error return)")
+	action, ok := reg.Get("test.exists")
+	if !ok {
+		t.Fatal("Exists should be registered as a pure Action (no error return)")
+	}
+	if _, isPure := action.(*reflectedPureAction); !isPure {
+		t.Errorf("Exists should be *reflectedPureAction, got %T", action)
 	}
 }
 
@@ -748,34 +895,34 @@ func TestReflectedCompensableAction_UndoError(t *testing.T) {
 
 // --- NoResult tests ---
 
-func TestClassifyActionReturn_NoResult(t *testing.T) {
+func TestClassifyFallibleReturn_NoResult(t *testing.T) {
 	results := []reflect.Value{
 		reflect.ValueOf(NoResult{}),
 		reflect.Zero(errorType),
 	}
-	result, undo, err := classifyActionReturn(results)
+	result, err := classifyFallibleReturn(results)
 	if result != nil {
 		t.Errorf("result = %v, want nil (NoResult sentinel)", result)
 	}
-	if undo != nil || err != nil {
-		t.Errorf("undo = %v, err = %v, want (nil, nil)", undo, err)
+	if err != nil {
+		t.Errorf("err = %v, want nil", err)
 	}
 }
 
-func TestClassifyActionReturn_NoResult_WithUndo(t *testing.T) {
+func TestClassifyCompensableReturn_NoResult_WithComplement(t *testing.T) {
 	state := map[string]any{"path": "/removed"}
 	results := []reflect.Value{
 		reflect.ValueOf(NoResult{}),
 		reflect.ValueOf(state),
 		reflect.Zero(errorType),
 	}
-	result, undo, err := classifyActionReturn(results)
+	result, complement, err := classifyCompensableReturn(results)
 	if result != nil {
 		t.Errorf("result = %v, want nil (NoResult sentinel)", result)
 	}
-	undoMap, ok := undo.(map[string]any)
-	if !ok || undoMap["path"] != "/removed" {
-		t.Errorf("undo = %v, want map with path=/removed", undo)
+	cMap, ok := complement.(map[string]any)
+	if !ok || cMap["path"] != "/removed" {
+		t.Errorf("complement = %v, want map with path=/removed", complement)
 	}
 	if err != nil {
 		t.Errorf("err = %v, want nil", err)
