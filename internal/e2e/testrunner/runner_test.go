@@ -104,6 +104,82 @@ func TestTrace(t *testing.T) {
 	}
 }
 
+func TestHello(t *testing.T) {
+	runScript(t, "test_hello.star")
+}
+
+func TestFileLifecycle(t *testing.T) {
+	runScript(t, "test_file_lifecycle.star")
+}
+
+func TestMkdirAndRemoveAll(t *testing.T) {
+	runScript(t, "test_mkdir_and_remove_all.star")
+}
+
+func TestShellExec(t *testing.T) {
+	runScript(t, "test_shell_exec.star")
+}
+
+func TestSource(t *testing.T) {
+	runScript(t, "test_source.star")
+}
+
+func TestGather(t *testing.T) {
+	runScript(t, "test_gather.star")
+}
+
+func TestMove(t *testing.T) {
+	runScript(t, "test_move.star")
+}
+
+func TestLink(t *testing.T) {
+	runScript(t, "test_link.star")
+}
+
+func TestWriteBytes(t *testing.T) {
+	runScript(t, "test_write_bytes.star")
+}
+
+func TestBackup(t *testing.T) {
+	runScript(t, "test_backup.star")
+}
+
+func TestChooseExists(t *testing.T) {
+	t.Skip("flow.choose not registered in ActionRegistry (issue #188)")
+	runScript(t, "test_choose_exists.star")
+}
+
+func TestChooseNotExists(t *testing.T) {
+	t.Skip("flow.choose not registered in ActionRegistry (issue #188)")
+	runScript(t, "test_choose_not_exists.star")
+}
+
+func TestIsDir(t *testing.T) {
+	t.Skip("flow.choose not registered in ActionRegistry (issue #188)")
+	runScript(t, "test_is_dir.star")
+}
+
+func TestIsFile(t *testing.T) {
+	t.Skip("flow.choose not registered in ActionRegistry (issue #188)")
+	runScript(t, "test_is_file.star")
+}
+
+// runScript runs a .star test script and fails on any expectation failures.
+func runScript(t *testing.T, name string) {
+	t.Helper()
+	script := filepath.Join(testdataDir(t), name)
+	runner := testrunner.New(script)
+	result, err := runner.Start(context.Background())
+	if err != nil {
+		t.Fatalf("runner error: %v", err)
+	}
+	if !result.Passed {
+		for _, f := range result.Failures {
+			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
+		}
+	}
+}
+
 func TestDryRun(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
 	runner := testrunner.New(script, testrunner.WithDryRun())

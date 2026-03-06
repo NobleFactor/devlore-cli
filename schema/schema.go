@@ -30,6 +30,12 @@ var LoreDefaultConfig []byte
 //go:embed defaults/writ.yaml
 var WritDefaultConfig []byte
 
+// TestDefaultConfig is the default devlore-test-specific configuration.
+// Installed to ~/.config/devlore/config.d/devlore-test.yaml
+//
+//go:embed defaults/devlore-test.yaml
+var TestDefaultConfig []byte
+
 // PackagesManifestSchema is the JSON schema for packages-manifest.{json,yaml} files.
 // These files declare software dependencies for writ projects.
 //

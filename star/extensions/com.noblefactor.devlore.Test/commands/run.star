@@ -34,7 +34,7 @@ def resolve_tool_path(ctx):
 
 def build_args(ctx, tool_path):
     """Build the devlore-test command arguments."""
-    args = [tool_path, "--script", ctx.args["script"]]
+    args = [tool_path, ctx.args["script"]]
 
     if ctx.args.get("dry-run", "false") == "true":
         args.append("--dry-run")
