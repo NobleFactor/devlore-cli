@@ -37,8 +37,8 @@ SKIP_METHODS = [
 
 # Template to output filename mapping.
 GEN_TEMPLATE_FILES = {
+    "provider_descriptor": "gen/provider.gen.go",
     "planned_receiver": "gen/planned.gen.go",
-    "graph_actions": "gen/actions.gen.go",
     "immediate_receiver": "gen/immediate.gen.go",
     "params": "gen/params.gen.go",
     "actions_test": "gen/actions_gen_test.go",
@@ -47,8 +47,8 @@ GEN_TEMPLATE_FILES = {
 
 # Local templates shipped with this extension (loaded from templates/ dir).
 LOCAL_TEMPLATES = {
+    "provider_descriptor": "provider_descriptor.go.template",
     "planned_receiver": "planned_receiver.go.template",
-    "graph_actions": "graph_actions.go.template",
     "immediate_receiver": "immediate_receiver.go.template",
     "params": "params.go.template",
     "actions_test": "actions_test.go.template",
@@ -965,16 +965,16 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
 
     gen_file(ctx, "params", provider_desc, "gen/params.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
+    gen_file(ctx, "provider_descriptor", provider_desc, "gen/provider.gen.go",
+             struct_short, len(provider_method_descs), output_dir, write_files)
     gen_file(ctx, "immediate_receiver", provider_desc, "gen/immediate.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Also generate planned_receiver and graph_actions if access is planned or both
+    # Also generate planned_receiver if access is planned or both
     if access in ["planned", "both"]:
         planned_desc = dict(provider_desc)
         planned_desc["namespace"] = "plan." + provider
         gen_file(ctx, "planned_receiver", planned_desc, "gen/planned.gen.go",
-                 struct_short, len(provider_method_descs), output_dir, write_files)
-        gen_file(ctx, "graph_actions", planned_desc, "gen/actions.gen.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     # Generate bridge tests for all action methods (pure, fallible, compensable).
@@ -1175,6 +1175,52 @@ def compute_provider_init(desc):
 
     return "\n".join(lines)
 
+def compute_descriptor_init(desc):
+    """Pre-compute the NewImmediate method body for the provider descriptor.
+
+    Same logic as compute_provider_init but with single-tab indentation
+    (method body level, not nested inside a closure).
+    """
+    prefix = compute_provider_type_prefix(desc)
+    struct_name = desc["struct_name"]
+    wrapper_suffix = desc.get("wrapper_suffix", "Receiver")
+    provider_name = desc["provider"]
+    fields = desc.get("provider_fields", [])
+
+    lines = []
+    if fields:
+        constructed = {}  # go_name → converted var name
+        for pf in fields:
+            local_var = lc_first(pf["go_name"])
+            lines.append("\t%s := cfg.%s" % (local_var, pf["cfg_field"]))
+            if pf.get("default", ""):
+                lines.append("\tif %s == %s {" % (local_var, pf["zero_value"]))
+                lines.append("\t\t%s = %s" % (local_var, pf["default"]))
+                lines.append("\t}")
+            if pf.get("go_type", ""):
+                converted_var = local_var + "Val"
+                qualified_type = prefix + pf["go_type"]
+                lines.append("\t%s, err := op.Construct[%s](%s)" % (converted_var, qualified_type, local_var))
+                lines.append("\tif err != nil {")
+                lines.append('\t\tpanic("%s: construct %s: " + err.Error())' % (provider_name, pf["go_name"]))
+                lines.append("\t}")
+                constructed[pf["go_name"]] = converted_var
+
+        # Build return with inline struct fields
+        field_parts = []
+        for pf in fields:
+            local_var = lc_first(pf["go_name"])
+            if pf["go_name"] in constructed:
+                local_var = constructed[pf["go_name"]]
+            field_parts.append("%s: %s" % (pf["go_name"], local_var))
+        lines.append("\treturn New%s%s(&%sProvider{%s})" % (
+            struct_name, wrapper_suffix, prefix, ", ".join(field_parts)))
+    else:
+        lines.append("\treturn New%s%s(&%sProvider{})" % (
+            struct_name, wrapper_suffix, prefix))
+
+    return "\n".join(lines)
+
 def filter_callable_methods(methods, template_name):
     """Filter out methods with callable params for non-immediate templates.
 
@@ -1217,6 +1263,13 @@ def prepare_render_data(descriptor, template_name):
     # Pre-compute provider_init for immediate_receiver template
     if template_name == "immediate_receiver" and desc.get("registered", False):
         desc["provider_init"] = compute_provider_init(desc)
+
+    # Pre-compute descriptor fields for provider_descriptor template
+    if template_name == "provider_descriptor":
+        access = desc.get("access", "immediate")
+        desc["has_actions"] = access in ["planned", "both"]
+        desc["has_planned"] = access in ["planned", "both"]
+        desc["descriptor_init"] = compute_descriptor_init(desc)
 
     # Filter callable methods for non-immediate templates
     methods = list(desc.get("methods", []))

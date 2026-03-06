@@ -3,26 +3,9 @@
 package staranalysis
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/staranalysis"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "staranalysis",
-		Access:   op.AccessImmediate,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			root := cfg.WorkDir
-			if root == "" {
-				root = "."
-			}
-			return NewStaranalysisReceiver(&provider.Provider{Root: root})
-		},
-	})
-}
 
 // NewStaranalysisReceiver creates a wrapped staranalysis provider for Starlark consumption.
 func NewStaranalysisReceiver(p *provider.Provider) *op.ReflectedReceiver {

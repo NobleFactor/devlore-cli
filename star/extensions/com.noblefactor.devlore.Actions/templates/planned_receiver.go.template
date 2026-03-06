@@ -5,24 +5,11 @@ package {{.package}}
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
 {{- end}}
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "{{.provider}}",
-		Access:   op.Access{{.access_title}},
-		Lifetime: op.Lifetime{{.lifetime_title}},
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return New{{.struct_name}}Plan(graph, project, reg)
-		},
-	})
-}
 
 // New{{.struct_name}}Plan creates a wrapped {{.provider}} provider for planned-mode Starlark consumption.
 func New{{.struct_name}}Plan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

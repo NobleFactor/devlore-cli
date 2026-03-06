@@ -5,22 +5,9 @@ package net
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "net",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return NewNetPlan(graph, project, reg)
-		},
-	})
-}
 
 // NewNetPlan creates a wrapped net provider for planned-mode Starlark consumption.
 func NewNetPlan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

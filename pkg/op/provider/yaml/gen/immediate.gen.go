@@ -3,22 +3,9 @@
 package yaml
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "yaml",
-		Access:   op.AccessImmediate,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewYamlReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewYamlReceiver creates a wrapped yaml provider for Starlark consumption.
 func NewYamlReceiver(p *provider.Provider) *op.ReflectedReceiver {

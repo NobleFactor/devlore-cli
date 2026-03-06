@@ -53,14 +53,20 @@ func WithWriter(w io.Writer) Option {
 	return func(r *Runner) { r.writer = w }
 }
 
+// WithReceivers sets the Starlark namespaces to expose as globals.
+func WithReceivers(names ...string) Option {
+	return func(r *Runner) { r.receivers = names }
+}
+
 // Runner orchestrates a single test script execution.
 type Runner struct {
-	script   string
-	dryRun   bool
-	trace    bool
-	provider string
-	writer   io.Writer
-	graph    *op.Graph
+	script    string
+	dryRun    bool
+	trace     bool
+	provider  string
+	writer    io.Writer
+	receivers []string
+	graph     *op.Graph
 }
 
 // Graph returns the execution graph after Start completes. Returns nil before Start is called.
@@ -89,15 +95,17 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// 2. Create BindingSet with plan namespace
+	// 2. Create BindingSet with requested receivers
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      r.writer,
 		ProgramName: "devlore-test",
 		WorkDir:     tmpDir,
-	}).With("plan", "file")
+		Receivers:   r.receivers,
+	})
 
 	// 3. Create ActionRegistry with all provider actions
-	reg := bs.NewPopulatedRegistry(op.Context{})
+	reg := op.NewActionRegistry()
+	op.InitAll(reg, op.Context{})
 
 	// 4. Create Platform
 	plat := platform.New()

@@ -13,7 +13,7 @@ import (
 )
 
 // BindingSet selects which provider bindings a consumer uses and builds Starlark globals from them.
-// Consumers call With() to include specific providers as pre-injected globals.
+// Receivers listed in BindingConfig.Receivers are included as pre-injected globals.
 // All other providers remain available via load("@devlore//name", "name") in scripts.
 type BindingSet struct {
 	cfg      op.BindingConfig
@@ -28,34 +28,24 @@ type loaderEntry struct {
 }
 
 // NewBindingSet creates a BindingSet with the given configuration.
-// No providers are included as globals by default.
+// Receivers listed in cfg.Receivers are included as pre-injected globals.
 func NewBindingSet(cfg op.BindingConfig) *BindingSet {
+	included := make(map[string]bool, len(cfg.Receivers))
+	for _, name := range cfg.Receivers {
+		included[name] = true
+	}
 	return &BindingSet{
 		cfg:      cfg,
-		included: make(map[string]bool),
+		included: included,
 		cache:    make(map[string]*loaderEntry),
 	}
-}
-
-// With includes one or more providers as pre-injected globals.
-// "plan" is a special name that includes the PlanRoot aggregate.
-// Returns the BindingSet for chaining.
-func (bs *BindingSet) With(names ...string) *BindingSet {
-	for _, name := range names {
-		bs.included[name] = true
-	}
-	return bs
 }
 
 // RegisterActions registers all providers' actions with the registry.
 // All providers' actions are always registered regardless of With() selections — the action registry is for the
 // executor, not the script environment.
 func (bs *BindingSet) RegisterActions(reg *op.ActionRegistry, ctx op.Context) {
-	for _, b := range op.AllBindings() {
-		if b.ActionRegistrar != nil {
-			b.ActionRegistrar(reg, ctx)
-		}
-	}
+	op.InitAll(reg, ctx)
 }
 
 // NewPopulatedRegistry creates an ActionRegistry with all provider actions registered.
@@ -67,26 +57,26 @@ func (bs *BindingSet) NewPopulatedRegistry(ctx op.Context) *op.ActionRegistry {
 }
 
 // BuildGlobals constructs the Starlark globals dict for a consumer.
-// Only providers named in With() appear as globals.
-// If "plan" was included via With(), a PlanRoot is built from all registered PlannedFactory bindings.
+// Only providers listed in cfg.Receivers appear as globals.
+// If "plan" is listed, a PlanRoot is built from all announced PlannedProvider implementations.
 func (bs *BindingSet) BuildGlobals(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.StringDict {
 	globals := starlark.StringDict{}
 
 	// Build "plan" if requested via With("plan").
 	if bs.included["plan"] {
-		factories := collectPlannedFactories()
-		if len(factories) > 0 {
-			globals["plan"] = NewPlanRootFromFactories(graph, project, reg, factories)
+		planned := collectPlannedProviders()
+		if len(planned) > 0 {
+			globals["plan"] = NewPlanRootFromProviders(graph, project, reg, planned)
 		}
 	}
 
 	// Add immediate receivers for explicitly included providers.
-	for _, b := range op.AllBindings() {
-		if !bs.included[b.Name] {
+	for _, p := range op.Providers() {
+		if !bs.included[p.Name()] {
 			continue
 		}
-		if b.ImmediateFactory != nil {
-			globals[b.Name] = b.ImmediateFactory(bs.cfg)
+		if ip, ok := p.(op.ImmediateProvider); ok {
+			globals[p.Name()] = ip.NewImmediate(bs.cfg)
 		}
 	}
 
@@ -126,36 +116,37 @@ func (bs *BindingSet) resolveProvider(name string, graph *op.Graph, project stri
 		return bs.buildPlanModule(graph, project, reg)
 	}
 
-	binding, ok := op.BindingByName(name)
-	if !ok {
-		return nil, fmt.Errorf("no provider %q registered", name)
+	for _, p := range op.Providers() {
+		if p.Name() != name {
+			continue
+		}
+		ip, ok := p.(op.ImmediateProvider)
+		if !ok {
+			return nil, fmt.Errorf("provider %q has no immediate factory", name)
+		}
+		value := ip.NewImmediate(bs.cfg)
+		return starlark.StringDict{name: value}, nil
 	}
-
-	if binding.ImmediateFactory == nil {
-		return nil, fmt.Errorf("provider %q has no immediate factory", name)
-	}
-
-	value := binding.ImmediateFactory(bs.cfg)
-	return starlark.StringDict{name: value}, nil
+	return nil, fmt.Errorf("no provider %q registered", name)
 }
 
-// buildPlanModule constructs a plan module from all registered PlannedFactory bindings.
+// buildPlanModule constructs a plan module from all announced PlannedProvider implementations.
 func (bs *BindingSet) buildPlanModule(graph *op.Graph, project string, reg *op.ActionRegistry) (starlark.StringDict, error) {
-	factories := collectPlannedFactories()
-	if len(factories) == 0 {
+	planned := collectPlannedProviders()
+	if len(planned) == 0 {
 		return nil, fmt.Errorf("no planned providers registered")
 	}
-	plan := NewPlanRootFromFactories(graph, project, reg, factories)
+	plan := NewPlanRootFromProviders(graph, project, reg, planned)
 	return starlark.StringDict{"plan": plan}, nil
 }
 
-// collectPlannedFactories returns all registered PlannedFactory bindings.
-func collectPlannedFactories() map[string]op.PlannedFactory {
-	factories := make(map[string]op.PlannedFactory)
-	for _, b := range op.AllBindings() {
-		if b.PlannedFactory != nil {
-			factories[b.Name] = b.PlannedFactory
+// collectPlannedProviders returns all announced PlannedProvider implementations.
+func collectPlannedProviders() map[string]op.PlannedProvider {
+	planned := make(map[string]op.PlannedProvider)
+	for _, p := range op.Providers() {
+		if pp, ok := p.(op.PlannedProvider); ok {
+			planned[p.Name()] = pp
 		}
 	}
-	return factories
+	return planned
 }

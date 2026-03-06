@@ -5,22 +5,9 @@ package service
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "service",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return NewServicePlan(graph, project, reg)
-		},
-	})
-}
 
 // NewServicePlan creates a wrapped service provider for planned-mode Starlark consumption.
 func NewServicePlan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

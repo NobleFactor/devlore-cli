@@ -5,22 +5,9 @@ package template
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "template",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return NewTemplatePlan(graph, project, reg)
-		},
-	})
-}
 
 // NewTemplatePlan creates a wrapped template provider for planned-mode Starlark consumption.
 func NewTemplatePlan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

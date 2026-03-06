@@ -13,15 +13,66 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// ---------------------------------------------------------------------------
+// Test provider types implementing the new Provider / PlannedProvider /
+// ImmediateProvider interfaces used by the announce-and-callback model.
+// ---------------------------------------------------------------------------
+
+// bsTestActionProvider registers a single test action.
+type bsTestActionProvider struct {
+	actionName string
+}
+
+func (p *bsTestActionProvider) Name() string { return "_test_actions" }
+func (p *bsTestActionProvider) Register(reg *op.ActionRegistry, _ op.Context) {
+	reg.Register(testAction{name: p.actionName})
+}
+
+// bsTestAllActsProvider registers a single test action (for the "always registers all" test).
+type bsTestAllActsProvider struct{}
+
+func (p *bsTestAllActsProvider) Name() string { return "_test_all_acts" }
+func (p *bsTestAllActsProvider) Register(reg *op.ActionRegistry, _ op.Context) {
+	reg.Register(testAction{name: "_test_all_acts.do"})
+}
+
+// bsTestPlannedProvider implements PlannedProvider.
+type bsTestPlannedProvider struct{ name string }
+
+func (p *bsTestPlannedProvider) Name() string                                { return p.name }
+func (p *bsTestPlannedProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (p *bsTestPlannedProvider) NewPlanned(_ *op.Graph, _ string, _ *op.ActionRegistry) starlark.Value {
+	return starlark.String("test-plan-value")
+}
+
+// bsTestImmediateProvider implements ImmediateProvider.
+type bsTestImmediateProvider struct{ name string }
+
+func (p *bsTestImmediateProvider) Name() string                                { return p.name }
+func (p *bsTestImmediateProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (p *bsTestImmediateProvider) NewImmediate(_ op.BindingConfig) starlark.Value {
+	return starlark.String("test-imm-value")
+}
+
+// bsTestCountingImmProvider implements ImmediateProvider and counts calls.
+type bsTestCountingImmProvider struct {
+	name      string
+	callCount *int
+}
+
+func (p *bsTestCountingImmProvider) Name() string                                { return p.name }
+func (p *bsTestCountingImmProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (p *bsTestCountingImmProvider) NewImmediate(_ op.BindingConfig) starlark.Value {
+	*p.callCount++
+	return starlark.String("cached-value")
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 func TestBindingSetRegisterActions(t *testing.T) {
-	// Register a test binding with an action registrar.
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "_test_actions",
-		Access: op.AccessPlanned,
-		ActionRegistrar: func(reg *op.ActionRegistry, _ op.Context) {
-			reg.Register(testAction{name: "_test_actions.do"})
-		},
-	})
+	op.Announce(&bsTestActionProvider{actionName: "_test_actions.do"})
 
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
@@ -38,16 +89,9 @@ func TestBindingSetRegisterActions(t *testing.T) {
 }
 
 func TestBindingSetRegisterActionsAlwaysRegistersAll(t *testing.T) {
-	// RegisterActions registers all providers' actions regardless of With().
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "_test_all_acts",
-		Access: op.AccessPlanned,
-		ActionRegistrar: func(reg *op.ActionRegistry, _ op.Context) {
-			reg.Register(testAction{name: "_test_all_acts.do"})
-		},
-	})
+	op.Announce(&bsTestAllActsProvider{})
 
-	// No With() — but actions should still be registered.
+	// No Receivers — but actions should still be registered.
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
@@ -63,27 +107,15 @@ func TestBindingSetRegisterActionsAlwaysRegistersAll(t *testing.T) {
 }
 
 func TestBindingSetBuildGlobalsWithPlanAndImmediate(t *testing.T) {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "_test_plan2",
-		Access: op.AccessPlanned,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return starlark.String("test-plan-value")
-		},
-	})
-
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "_test_imm2",
-		Access: op.AccessImmediate,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return starlark.String("test-imm-value")
-		},
-	})
+	op.Announce(&bsTestPlannedProvider{name: "_test_plan2"})
+	op.Announce(&bsTestImmediateProvider{name: "_test_imm2"})
 
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
-	}).With("plan", "_test_imm2")
+		Receivers:   []string{"plan", "_test_imm2"},
+	})
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -114,20 +146,15 @@ func TestBindingSetBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 }
 
 func TestBindingSetBuildGlobalsOnlyIncludesWithProviders(t *testing.T) {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "_test_not_included",
-		Access: op.AccessImmediate,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return starlark.String("should-not-appear")
-		},
-	})
+	op.Announce(&bsTestImmediateProvider{name: "_test_not_included"})
 
-	// Don't include "_test_not_included" in With().
+	// Don't include "_test_not_included" in Receivers.
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
-	}).With("ui")
+		Receivers:   []string{"ui"},
+	})
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -144,13 +171,7 @@ func TestBindingSetBuildGlobalsOnlyIncludesWithProviders(t *testing.T) {
 }
 
 func TestBindingSetConfigureThreadEnablesLoad(t *testing.T) {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "_test_loadable",
-		Access: op.AccessImmediate,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return starlark.String("loaded-value")
-		},
-	})
+	op.Announce(&bsTestImmediateProvider{name: "_test_loadable"})
 
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
@@ -176,8 +197,8 @@ func TestBindingSetConfigureThreadEnablesLoad(t *testing.T) {
 	if !ok {
 		t.Fatal("expected '_test_loadable' in loaded globals")
 	}
-	if v.String() != `"loaded-value"` {
-		t.Errorf("expected loaded-value, got %s", v.String())
+	if v.String() != `"test-imm-value"` {
+		t.Errorf("expected test-imm-value, got %s", v.String())
 	}
 }
 
@@ -219,14 +240,7 @@ func TestBindingSetLoaderRejectsUnknownProvider(t *testing.T) {
 
 func TestBindingSetLoaderCachesResults(t *testing.T) {
 	callCount := 0
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "_test_cached",
-		Access: op.AccessImmediate,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			callCount++
-			return starlark.String("cached-value")
-		},
-	})
+	op.Announce(&bsTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
 
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
@@ -244,18 +258,12 @@ func TestBindingSetLoaderCachesResults(t *testing.T) {
 	_, _ = thread.Load(thread, "@devlore//_test_cached")
 
 	if callCount != 1 {
-		t.Errorf("expected ImmediateFactory called once (cached), got %d", callCount)
+		t.Errorf("expected NewImmediate called once (cached), got %d", callCount)
 	}
 }
 
 func TestBindingSetLoaderLoadsPlan(t *testing.T) {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:   "_test_plan_load",
-		Access: op.AccessPlanned,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return starlark.String("plan-loaded")
-		},
-	})
+	op.Announce(&bsTestPlannedProvider{name: "_test_plan_load"})
 
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      &bytes.Buffer{},

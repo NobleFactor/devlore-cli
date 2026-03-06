@@ -5,22 +5,9 @@ package pkg
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "pkg",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return NewPkgPlan(graph, project, reg)
-		},
-	})
-}
 
 // NewPkgPlan creates a wrapped pkg provider for planned-mode Starlark consumption.
 func NewPkgPlan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

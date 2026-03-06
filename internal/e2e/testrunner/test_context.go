@@ -18,11 +18,13 @@ import (
 
 // Expectation represents a single test assertion queued during script execution.
 type Expectation struct {
-	Kind    string // "file_exists", "no_file", "node_count", "error"
-	Path    string // for file expectations
-	Content string // optional expected content
-	Count   int    // for node_count
-	Pattern string // for error expectations
+	Kind    string         // "file_exists", "no_file", "node_count", "error", "equal"
+	Path    string         // for file expectations
+	Content string         // optional expected content
+	Count   int            // for node_count
+	Pattern string         // for error expectations
+	Got     starlark.Value // for equal expectations
+	Want    starlark.Value // for equal expectations
 }
 
 // Failure records a failed expectation.
@@ -85,6 +87,20 @@ func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 			f := tc.checkError(exp, execErr)
 			if f != nil {
 				failures = append(failures, *f)
+			}
+
+		case "equal":
+			eq, err := starlark.Equal(exp.Got, exp.Want)
+			if err != nil {
+				failures = append(failures, Failure{
+					Expectation: fmt.Sprintf("equal(%s, %s)", exp.Got, exp.Want),
+					Message:     fmt.Sprintf("comparison error: %v", err),
+				})
+			} else if !eq {
+				failures = append(failures, Failure{
+					Expectation: fmt.Sprintf("equal(%s, %s)", exp.Got, exp.Want),
+					Message:     fmt.Sprintf("got %s, want %s", exp.Got, exp.Want),
+				})
 			}
 		}
 	}
@@ -174,6 +190,7 @@ func (tc *TestContext) StarlarkValue() starlark.Value {
 		"expect_no_file":    starlark.NewBuiltin("t.expect_no_file", tc.starExpectNoFile),
 		"expect_node_count": starlark.NewBuiltin("t.expect_node_count", tc.starExpectNodeCount),
 		"expect_error":      starlark.NewBuiltin("t.expect_error", tc.starExpectError),
+		"expect_equal":      starlark.NewBuiltin("t.expect_equal", tc.starExpectEqual),
 	})
 }
 
@@ -264,6 +281,21 @@ func (tc *TestContext) starExpectError(_ *starlark.Thread, _ *starlark.Builtin, 
 	tc.expectations = append(tc.expectations, Expectation{
 		Kind:    "error",
 		Pattern: pattern,
+	})
+	return starlark.None, nil
+}
+
+// starExpectEqual implements t.expect_equal(got, want).
+func (tc *TestContext) starExpectEqual(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var got, want starlark.Value
+	if err := starlark.UnpackPositionalArgs("t.expect_equal", args, kwargs, 2, &got, &want); err != nil {
+		return nil, err
+	}
+
+	tc.expectations = append(tc.expectations, Expectation{
+		Kind: "equal",
+		Got:  got,
+		Want: want,
 	})
 	return starlark.None, nil
 }

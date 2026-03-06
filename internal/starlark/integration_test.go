@@ -39,7 +39,8 @@ func TestLoadIntegration(t *testing.T) {
 		ProgramName: "test",
 		Color:       false,
 		WorkDir:     testdataDir,
-	}).With("ui")
+		Receivers:   []string{"ui"},
+	})
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()

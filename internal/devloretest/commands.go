@@ -111,6 +111,7 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) error {
 	// Build and run.
 	var opts []testrunner.Option
 	opts = append(opts, testrunner.WithWriter(graphOut))
+	opts = append(opts, testrunner.WithReceivers("plan", "file"))
 	if dryRun {
 		opts = append(opts, testrunner.WithDryRun())
 	}

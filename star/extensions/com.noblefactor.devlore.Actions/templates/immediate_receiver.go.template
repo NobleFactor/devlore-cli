@@ -3,27 +3,12 @@
 package {{.package}}
 
 import (
-{{- if .registered}}
-	"go.starlark.net/starlark"
-{{- end}}
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
 {{- end}}
 )
 {{if .registered}}
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "{{.provider}}",
-		Access:   op.Access{{.access_title}},
-		Lifetime: op.Lifetime{{.lifetime_title}},
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-{{.provider_init}}
-		},
-	})
-}
-
 // New{{.struct_name}}{{.wrapper_suffix}} creates a wrapped {{.provider}} provider for Starlark consumption.
 func New{{.struct_name}}{{.wrapper_suffix}}(p *{{.provider_type_prefix}}{{.impl_type}}) *op.ReflectedReceiver {
 	return op.WrapReceiver("{{.namespace}}", p, Params)

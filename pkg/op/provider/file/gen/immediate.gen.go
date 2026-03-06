@@ -3,30 +3,9 @@
 package file
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "file",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			root := cfg.WorkDir
-			if root == "" {
-				root = "."
-			}
-			rootVal, err := op.Construct[provider.Resource](root)
-			if err != nil {
-				panic("file: construct Root: " + err.Error())
-			}
-			return NewFileReceiver(&provider.Provider{Root: rootVal})
-		},
-	})
-}
 
 // NewFileReceiver creates a wrapped file provider for Starlark consumption.
 func NewFileReceiver(p *provider.Provider) *op.ReflectedReceiver {

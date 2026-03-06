@@ -12,7 +12,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
@@ -178,7 +177,7 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 	reg := op.NewActionRegistry()
 
 	// Register all actions (file + package)
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
@@ -211,7 +210,7 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	// Test that all namespaced package actions can execute in dry-run mode
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
 
@@ -602,7 +601,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 	}
 
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 
 	planner := &Planner{
 		Platform:       "Linux.Debian",
@@ -635,7 +634,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 
 func TestPlanner_PlanByName(t *testing.T) {
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 
 	planner := &Planner{
 		Platform:       "Darwin",

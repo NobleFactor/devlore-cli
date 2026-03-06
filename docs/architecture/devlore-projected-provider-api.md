@@ -103,39 +103,184 @@ consumer — the consumer waits for every member to complete.
 - `retry(max_attempts=, backoff=, ...)` — configures retry policy on the node
 - Dynamic slot access — any slot name defined on the node
 
-## Two Registration Paths
+## Provider Registration
 
-Providers register through two parallel systems that converge at runtime:
+All providers — resource providers and flow actions alike — register through
+a single path: **announce, then callback**.
 
-### 1. Action Registration (Execution Binding)
+### The Two Phases
 
-Each provider's generated `actions_gen.go` contains:
-- One wrapper struct per method, implementing the `Action` interface
-- An `init()` function that calls `execution.RegisterProvider(Register)`
-- A `Register` function that instantiates the Provider and registers all actions
+**Phase 1: Announcement.** Each provider's generated code contains a single
+`init()` function that announces the provider's existence. The `init()` does
+zero work — no instantiation, no factory creation, no action registration. It
+appends a zero-value descriptor to a global slice.
 
-At startup, blank imports in `register.go` trigger all `init()` functions. Then
-`RegisterAllProviders(reg)` executes every registrar, populating the
-`ActionRegistry` with name → Action mappings (`"file.link"` → `&Link{Impl: p}`).
+```go
+// Generated init() — announcement only
+func init() {
+    op.Announce(&fileProvider{})
+}
+```
 
-### 2. Plan Registration (Starlark Binding)
+**Phase 2: Callback.** When the framework is ready to build an
+`ActionRegistry`, it calls back to each announced provider through the
+`Provider` interface. The provider creates its instances and registers its
+actions at that point — not before.
 
-Each provider's generated `planned_*_gen.go` contains:
-- A plan struct (e.g., `FilePlan`) embedding `projection.Receiver`
-- An `init()` function that calls `registerPlan("file", factory)`
-- A factory function that creates the plan struct with graph and registry references
+```go
+// Framework drives initialization
+reg := op.NewActionRegistry()
+op.InitAll(reg, ctx)   // single call, every provider, every flow action
+```
 
-When `PlanRoot` is constructed, it iterates the plan registry and calls each
-factory, building the `plan.file`, `plan.net`, etc. sub-namespaces dynamically.
+### The Provider Interface
+
+Every provider implements the core `Provider` interface. Optional interfaces
+declare additional capabilities that the framework checks via type assertion.
+
+```go
+// Required — every provider implements this.
+type Provider interface {
+    Name() string
+    Register(reg *ActionRegistry, ctx Context)
+}
+
+// Optional — provider contributes a plan sub-namespace (plan.file, plan.shell, etc.)
+type PlannedProvider interface {
+    NewPlanned(graph *Graph, project string, reg *ActionRegistry) starlark.Value
+}
+
+// Optional — provider contributes an immediate receiver (file, ui, etc.)
+type ImmediateProvider interface {
+    NewImmediate(cfg BindingConfig) starlark.Value
+}
+```
+
+The `Register` callback is where action wrappers are created and registered.
+The `NewPlanned` callback is where the plan sub-namespace is constructed.
+The `NewImmediate` callback is where the immediate receiver is created.
+
+Each callback is a single method on a generated struct. You read the struct,
+you see the provider. One point of entry for studying, troubleshooting, and
+debugging initialization for each use case.
+
+### Generated Provider Descriptor
+
+The code generator reads the Provider struct and its directives, then emits
+a provider descriptor struct that implements the appropriate interfaces:
+
+```go
+// Generated descriptor — the kernel that the framework calls back to.
+type fileProvider struct{}
+
+func (p *fileProvider) Name() string { return "file" }
+
+func (p *fileProvider) Register(reg *op.ActionRegistry, ctx op.Context) {
+    impl := &Provider{WorkDir: ctx.WorkDir}
+    reg.Register(&Link{Impl: impl})
+    reg.Register(&Copy{Impl: impl})
+    reg.Register(&WriteText{Impl: impl})
+    // ...
+}
+
+func (p *fileProvider) NewPlanned(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
+    return NewFilePlan(graph, project, reg)
+}
+
+func (p *fileProvider) NewImmediate(cfg op.BindingConfig) starlark.Value {
+    return NewFileReceiver(&Provider{WorkDir: cfg.WorkDir})
+}
+```
+
+The `init()` for this provider is one line:
+
+```go
+func init() {
+    op.Announce(&fileProvider{})
+}
+```
+
+### Flow Actions — Handwritten, Same Pattern
+
+Flow actions (`flow.choose`, `flow.gather`, `flow.elevate`, `flow.wait_until`)
+are handwritten — they are control-flow primitives, not resource operations, so
+they are not produced by the code generator. But they register exactly the same
+way. The descriptor struct implements the same `Provider` interface. The
+`init()` calls the same `op.Announce()`. The framework calls back through the
+same `Register` method. There is no difference in the registration path between
+generated and handwritten providers.
+
+```go
+// internal/execution/flow/provider.go — handwritten, same structure as generated descriptors
+type flowProvider struct{}
+
+func (p *flowProvider) Name() string { return "flow" }
+
+func (p *flowProvider) Register(reg *op.ActionRegistry, _ op.Context) {
+    reg.Register(&Choose{})
+    reg.Register(&Gather{})
+    reg.Register(&Elevate{})
+    reg.Register(&WaitUntil{})
+}
+
+func init() {
+    op.Announce(&flowProvider{})
+}
+```
+
+The pattern is identical to a generated provider descriptor — the only
+difference is authorship. A human wrote this file instead of a code generator.
+The framework cannot tell the difference and does not need to.
+
+Flow actions do not implement `PlannedProvider` or `ImmediateProvider` — their
+Starlark bindings are built-in to `PlanRoot` (`plan.choose`, `plan.gather`,
+`plan.source`). The `Provider` interface is all they need.
+
+### The Announce/InitAll Contract
+
+```
+Program startup
+    │
+    ├─ init() functions run (Go runtime)
+    │   ├─ op.Announce(&fileProvider{})      ← zero work, just "here I am"
+    │   ├─ op.Announce(&shellProvider{})
+    │   ├─ op.Announce(&flowProvider{})
+    │   └─ ...
+    │
+    ▼
+Framework ready to build registry
+    │
+    ├─ op.InitAll(reg, ctx)                  ← single call drives all registration
+    │   ├─ fileProvider.Register(reg, ctx)    ← actions registered
+    │   ├─ shellProvider.Register(reg, ctx)
+    │   ├─ flowProvider.Register(reg, ctx)    ← flow actions on the same path
+    │   └─ ...
+    │
+    ▼
+Registry complete — all actions available
+```
+
+**One path.** Resource providers, flow actions, and any future action category
+all announce and register through the same mechanism. There is no parallel
+registration system to keep in sync.
+
+**No initialization in init().** The `init()` function does exactly one thing:
+call `op.Announce()` with a zero-value descriptor. No factories are created,
+no providers are instantiated, no registries are populated. All real work
+happens in the callback.
+
+**Framework controls timing.** The framework decides when to call `InitAll`.
+It can pass different `Context` values for different use cases (test runner
+vs. production executor vs. dry-run). Providers receive their context at
+callback time, not at import time.
 
 ### The Connection
 
-Both registrations happen via `init()` — self-registration triggered by import.
 The planned receiver references the action registry to resolve action names:
 
 ```go
-node := &projection.Node{
-    ID:     projection.GenerateNodeID("file-link"),
+node := &op.Node{
+    ID:     op.GenerateNodeID("file-link"),
     Action: p.reg.MustGet("file.link"),  // ← looks up the Action wrapper
 }
 ```
@@ -404,7 +549,13 @@ and Starlark values. New providers plug in without touching projection code.
 `go.starlark.net` + `gopkg.in/yaml.v3`. It never imports from `internal/`.
 The execution layer imports projection; projection never imports execution.
 
-**Self-registering providers.** Adding a new provider requires writing the Go
-struct and running the generator. The `init()` pattern ensures the provider is
-available everywhere its package is imported — no central registration manifest
-to maintain.
+**Announce-and-callback registration.** All providers register through the same
+path: a descriptor struct implementing `Provider`, announced via `op.Announce()`
+in `init()`, called back by the framework via `op.InitAll()`. Resource providers
+are generated; flow actions are handwritten. Both follow the identical pattern —
+same interface, same announcement, same callback. The framework cannot
+distinguish generated from handwritten providers and does not need to.
+No initialization happens at import time. The announcement is the only thing
+in `init()` — a single `op.Announce()` call with a zero-value descriptor.
+Registration, factory creation, and provider instantiation all happen in the
+callback, where the framework controls timing and passes context.

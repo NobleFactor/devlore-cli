@@ -255,18 +255,21 @@ type Provider struct {
 ```
 
 The code generator reads both directives and emits them into the generated
-`ProviderBinding` registration:
+provider descriptor (see [Projected Provider API — Provider Registration](
+devlore-projected-provider-api.md#provider-registration)):
 
 ```go
+// Generated descriptor — announcement only in init().
+type starcodeProvider struct{}
+
+func (p *starcodeProvider) Name() string { return "starcode" }
+
+func (p *starcodeProvider) NewImmediate(cfg op.BindingConfig) starlark.Value {
+    return NewStarcodeReceiver(&Provider{Root: cfg.WorkDir})
+}
+
 func init() {
-    op.RegisterBinding(&op.ProviderBinding{
-        Name:     "starcode",
-        Access:   op.AccessImmediate,
-        Lifetime: op.LifetimeStateless,
-        ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-            return NewStarcodeReceiver(&Provider{Root: cfg.WorkDir})
-        },
-    })
+    op.Announce(&starcodeProvider{})
 }
 ```
 
@@ -290,16 +293,11 @@ const (
 )
 ```
 
-```go
-type ProviderBinding struct {
-    Name             string
-    Access           AccessType
-    Lifetime         ProviderLifetime
-    ActionRegistrar  ProviderRegistrar
-    PlannedFactory   PlannedFactory
-    ImmediateFactory ImmediateFactory
-}
-```
+The `Access` and `Lifetime` values are fields on the generated provider
+descriptor struct. The framework reads them during `InitAll` to determine
+caching and cleanup behavior. See [Projected Provider API — Provider
+Registration](devlore-projected-provider-api.md#provider-registration) for
+the `Provider`, `PlannedProvider`, and `ImmediateProvider` interfaces.
 
 ### Stateless (`LifetimeStateless`)
 
@@ -481,6 +479,17 @@ recreation — a performance issue, not a correctness issue.
 
 ### Registration Examples
 
+All examples use the announce-and-callback model described in
+[Projected Provider API — Provider Registration](
+devlore-projected-provider-api.md#provider-registration). The `init()`
+function announces the provider; the framework calls back to initialize it.
+
+The examples below show generated descriptors, but handwritten providers
+(such as the `flow` control-flow provider) follow the identical pattern —
+same interface, same `op.Announce()`, same callback. See [Projected
+Provider API — Flow Actions](
+devlore-projected-provider-api.md#flow-actions--handwritten-same-pattern).
+
 **Stateless (default — directive can be omitted):**
 
 ```go
@@ -492,18 +501,19 @@ type Provider struct {
 }
 ```
 
-Generated registration:
+Generated descriptor:
 
 ```go
+type starcodeProvider struct{}
+
+func (p *starcodeProvider) Name() string { return "starcode" }
+
+func (p *starcodeProvider) NewImmediate(cfg op.BindingConfig) starlark.Value {
+    return NewStarcodeReceiver(&Provider{Root: cfg.WorkDir})
+}
+
 func init() {
-    op.RegisterBinding(&op.ProviderBinding{
-        Name:     "starcode",
-        Access:   op.AccessImmediate,
-        Lifetime: op.LifetimeStateless,
-        ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-            return NewStarcodeReceiver(&Provider{Root: cfg.WorkDir})
-        },
-    })
+    op.Announce(&starcodeProvider{})
 }
 ```
 
@@ -518,18 +528,19 @@ type Provider struct {
 }
 ```
 
-Generated registration:
+Generated descriptor:
 
 ```go
+type txnProvider struct{}
+
+func (p *txnProvider) Name() string { return "txn" }
+
+func (p *txnProvider) NewImmediate(cfg op.BindingConfig) starlark.Value {
+    return NewTxnReceiver(&Provider{})
+}
+
 func init() {
-    op.RegisterBinding(&op.ProviderBinding{
-        Name:     "txn",
-        Access:   op.AccessImmediate,
-        Lifetime: op.LifetimePhase,
-        ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-            return NewTxnReceiver(&Provider{})
-        },
-    })
+    op.Announce(&txnProvider{})
 }
 ```
 
@@ -544,19 +555,20 @@ type Provider struct {
 }
 ```
 
-Generated registration:
+Generated descriptor:
 
 ```go
+type dbpoolProvider struct{}
+
+func (p *dbpoolProvider) Name() string { return "dbpool" }
+
+func (p *dbpoolProvider) NewImmediate(cfg op.BindingConfig) starlark.Value {
+    db, _ := sql.Open("postgres", cfg.DSN)
+    return NewDBPoolReceiver(&Provider{db: db})
+}
+
 func init() {
-    op.RegisterBinding(&op.ProviderBinding{
-        Name:     "dbpool",
-        Access:   op.AccessImmediate,
-        Lifetime: op.LifetimeSession,
-        ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-            db, _ := sql.Open("postgres", cfg.DSN)
-            return NewDBPoolReceiver(&Provider{db: db})
-        },
-    })
+    op.Announce(&dbpoolProvider{})
 }
 ```
 
@@ -597,7 +609,7 @@ directive is the contract; the runtime enforces it.
 
 **Directive as source of truth.** Both `Access` and `Lifetime` are declared on
 the Provider struct via doc-comment directives. The code generator reads the
-directives and emits the values into the `ProviderBinding` registration. This
+directives and emits them into the generated provider descriptor. This
 keeps the declaration close to the code it describes, eliminates manual
 registration errors, and makes the lifecycle semantics visible at a glance
 when reading the Provider struct.

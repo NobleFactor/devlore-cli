@@ -19,7 +19,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
@@ -237,7 +236,8 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	fmt.Println("\nDeploying packages...")
 
 	// Create action registry and executor
-	registry := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
+	registry := op.NewActionRegistry()
+	op.InitAll(registry, op.Context{})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:   cfg.DryRun,
 		Platform: platform.New(),

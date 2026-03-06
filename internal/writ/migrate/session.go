@@ -17,7 +17,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
+
+	// Blank import triggers init() in all provider packages.
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
@@ -446,7 +448,7 @@ func (s *Session) addRenameToGraph(source, target string) {
 
 	// Add new rename node
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 	plan := execution.NewPlan(reg, "migrate")
 	newNode := plan.Rename(source, target)
 	s.graph.Nodes = append(s.graph.Nodes, newNode)

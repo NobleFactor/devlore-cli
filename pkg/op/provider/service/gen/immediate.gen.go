@@ -3,22 +3,9 @@
 package service
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "service",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewServiceReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewServiceReceiver creates a wrapped service provider for Starlark consumption.
 func NewServiceReceiver(p *provider.Provider) *op.ReflectedReceiver {

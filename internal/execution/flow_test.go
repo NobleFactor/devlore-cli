@@ -885,11 +885,11 @@ func TestFlowWaitUntilDoPredicateError(t *testing.T) {
 
 func TestFlowRegister(t *testing.T) {
 	reg := op.NewActionRegistry()
-	flow.Register(reg)
+	op.InitAll(reg, op.Context{})
 
 	for _, name := range []string{"flow.choose", "flow.gather", "flow.elevate", "flow.wait_until"} {
 		if _, ok := reg.Get(name); !ok {
-			t.Errorf("expected %q to be registered", name)
+			t.Errorf("expected %q to be registered via InitAll", name)
 		}
 	}
 }
