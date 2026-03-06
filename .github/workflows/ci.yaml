@@ -39,6 +39,9 @@ jobs:
           path: noblefactor-ops
           token: ${{ steps.app-token.outputs.token }}
 
+      - name: Build
+        run: make build STAR_REPO=./noblefactor-ops
+
       - name: Check go.mod tidy
         run: |
           go mod tidy
@@ -46,9 +49,6 @@ jobs:
 
       - name: Validate guide frontmatter
         run: ./scripts/Test-GuideFrontmatter.sh
-
-      - name: Build
-        run: make build STAR_REPO=./noblefactor-ops
 
       - name: Vet
         run: make vet
