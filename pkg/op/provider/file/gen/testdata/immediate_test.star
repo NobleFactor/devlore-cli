@@ -22,30 +22,30 @@ result_name = file.name(path=tmp_dir + sep + "foo" + sep + "bar.txt") == "bar.tx
 result_parent = file.parent(path=tmp_dir + sep + "child.txt") == tmp_dir
 
 # exists — file
-result_exists_file = file.exists(blob=fixture)
+result_exists_file = file.exists(resource=fixture)
 
 # exists — missing
-result_exists_missing = file.exists(blob=tmp_dir + sep + "nonexistent") == False
+result_exists_missing = file.exists(resource=tmp_dir + sep + "nonexistent") == False
 
 # is_dir — directory
-result_is_dir_true = file.is_dir(path=tmp_dir)
+result_is_dir_true = file.is_dir(resource=tmp_dir)
 
 # is_dir — file
-result_is_dir_false = file.is_dir(path=fixture) == False
+result_is_dir_false = file.is_dir(resource=fixture) == False
 
 # is_file — file
-result_is_file_true = file.is_file(path=fixture)
+result_is_file_true = file.is_file(resource=fixture)
 
 # is_file — directory
-result_is_file_false = file.is_file(path=tmp_dir) == False
+result_is_file_false = file.is_file(resource=tmp_dir) == False
 
 # mkdir
-mkdir_path = file.mkdir(path=tmp_dir + sep + "new_subdir", mode=0o755)
-result_mkdir = file.is_dir(path=mkdir_path)
+mkdir_path = file.mkdir(resource=tmp_dir + sep + "new_subdir", mode=0o755)
+result_mkdir = file.is_dir(resource=mkdir_path)
 
 # mkdir nested
-nested_path = file.mkdir(path=tmp_dir + sep + "a" + sep + "b" + sep + "c", mode=0o755)
-result_mkdir_nested = file.is_dir(path=nested_path)
+nested_path = file.mkdir(resource=tmp_dir + sep + "a" + sep + "b" + sep + "c", mode=0o755)
+result_mkdir_nested = file.is_dir(resource=nested_path)
 
 # glob
 glob_results = file.glob(pattern=tmp_dir + sep + "*.txt", honor_gitignore=False)
@@ -59,11 +59,11 @@ result_read_has_path = hasattr(read_result, "source_path")
 
 # write_text
 wt_path = file.write_text(destination=tmp_dir + sep + "written.txt", content="hello starlark", mode=0o644)
-result_write_text = file.exists(blob=wt_path)
+result_write_text = file.exists(resource=wt_path)
 
 # write_bytes
 wb_path = file.write_bytes(destination=tmp_dir + sep + "written.bin", content="binary data", mode=0o600)
-result_write_bytes = file.exists(blob=wb_path)
+result_write_bytes = file.exists(resource=wb_path)
 
 # write_text creates parent directories
 wt_nested = file.write_text(
@@ -71,31 +71,31 @@ wt_nested = file.write_text(
     content="nested",
     mode=0o644,
 )
-result_write_text_nested = file.exists(blob=wt_nested)
+result_write_text_nested = file.exists(resource=wt_nested)
 
 # link
 link_path = file.link(source=fixture, path=tmp_dir + sep + "symlink.txt")
-result_link = file.exists(blob=link_path)
+result_link = file.exists(resource=link_path)
 
 # move
 move_src = tmp_dir + sep + "to_move.txt"
 file.write_text(destination=move_src, content="moveme", mode=0o644)
 move_dest = tmp_dir + sep + "moved.txt"
 move_result = file.move(source=move_src, destination=move_dest)
-result_move_dest_exists = file.exists(blob=move_dest)
-result_move_src_gone = file.exists(blob=move_src) == False
+result_move_dest_exists = file.exists(resource=move_dest)
+result_move_src_gone = file.exists(resource=move_src) == False
 
 # backup
 backup_src = tmp_dir + sep + "to_backup.txt"
 file.write_text(destination=backup_src, content="backupme", mode=0o644)
 backup_path = file.backup(path=backup_src, backup_suffix=".bak")
-result_backup_created = file.exists(blob=backup_path)
-result_backup_src_gone = file.exists(blob=backup_src) == False
+result_backup_created = file.exists(resource=backup_path)
+result_backup_src_gone = file.exists(resource=backup_src) == False
 
 # copy
 copy_dest = tmp_dir + sep + "copied.txt"
 copy_result = file.copy(source_file=fixture, destination_filename=copy_dest, destination_file_mode=0o644)
-result_copy = file.exists(blob=copy_dest)
+result_copy = file.exists(resource=copy_dest)
 
 # ── walk_tree ───────────────────────────────────────────────────────────────────
 

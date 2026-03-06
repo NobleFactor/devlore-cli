@@ -21,7 +21,6 @@ import (
 //
 // The script sets result_* globals which this test inspects.
 func TestImmediateBindings(t *testing.T) {
-	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/170")
 	tmp := t.TempDir()
 
 	// Create a fixture file for read/exists/is_file tests.
@@ -30,7 +29,8 @@ func TestImmediateBindings(t *testing.T) {
 		t.Fatalf("creating fixture: %v", err)
 	}
 
-	rootResource, _ := provider.NewResource(tmp)
+	rootResource := provider.NewResource(tmp)
+	_ = rootResource.Resolve()
 	receiver := filegen.NewFileReceiver(&provider.Provider{Root: rootResource})
 
 	globals := starlark.StringDict{
@@ -107,7 +107,6 @@ func TestImmediateBindings(t *testing.T) {
 // Planned bindings do NOT execute file operations — they build an execution graph.
 // This test verifies that nodes, slots, and edges are created correctly.
 func TestPlannedBindings(t *testing.T) {
-	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/171")
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
 	op.RegisterReflectedActions(reg, "file", &provider.Provider{}, filegen.Params)
@@ -158,9 +157,6 @@ func TestPlannedBindings(t *testing.T) {
 	assertBool(t, result, "result_exists_type")
 	assertBool(t, result, "result_is_dir_type")
 	assertBool(t, result, "result_is_file_type")
-	assertBool(t, result, "result_name_type")
-	assertBool(t, result, "result_parent_type")
-
 	// Promise chaining
 	assertBool(t, result, "result_chain_done")
 	assertBool(t, result, "result_chain_move_done")
@@ -173,9 +169,9 @@ func TestPlannedBindings(t *testing.T) {
 
 	// ── Graph structure verification ──────────────────────────────────────────
 
-	// 17 standalone calls + 4 chained calls = 21 nodes total
-	if len(graph.Nodes) != 21 {
-		t.Errorf("graph.Nodes = %d, want 21", len(graph.Nodes))
+	// 15 standalone calls + 4 chained calls = 19 nodes total
+	if len(graph.Nodes) != 19 {
+		t.Errorf("graph.Nodes = %d, want 19", len(graph.Nodes))
 	}
 
 	// Verify action names are present for all expected actions.
@@ -194,8 +190,6 @@ func TestPlannedBindings(t *testing.T) {
 		"file.link":        1,
 		"file.move":        2, // 1 standalone + 1 chained
 		"file.backup":      2, // 1 standalone + 1 chained
-		"file.name":        1,
-		"file.parent":      1,
 		"file.remove":      1,
 		"file.remove_all":  1,
 		"file.unlink":      1,

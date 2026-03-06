@@ -205,8 +205,8 @@ func (p *Provider) Link(source, path Resource) (result Resource, undo Tombstone,
 		return Resource{}, Tombstone{}, err
 	}
 
-	result, err = NewResource(path.SourcePath)
-	if err != nil {
+	result = NewResource(path.SourcePath)
+	if err = result.Resolve(); err != nil {
 		return Resource{}, undo, err
 	}
 	return result, undo, nil
@@ -447,8 +447,8 @@ func (p *Provider) WalkTree(root Resource, fn Reducer, honorGitignore bool) (res
 			}
 		}
 
-		resource, resErr := NewResource(path)
-		if resErr != nil {
+		resource := NewResource(path)
+		if resErr := resource.Resolve(); resErr != nil {
 			return resErr
 		}
 
@@ -524,13 +524,20 @@ func (p *Provider) CompensateWriteText(undo Tombstone) error {
 // Exists returns true if the file at "path" exists.
 //
 // Parameters:
-//   - path: Absolute path to check
+//   - resource: Resource to check
 //
 // Returns:
-//   - bool: true if the file at "path" exists, false otherwise
-func (p *Provider) Exists(resource Resource) bool {
+//   - bool: true if the resource exists, false otherwise
+//   - error: permission or other I/O errors (not-exist is not an error)
+func (p *Provider) Exists(resource Resource) (bool, error) {
 	_, err := os.Lstat(resource.SourcePath)
-	return err == nil
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // Glob returns file paths matching a pattern relative to Root.
@@ -577,28 +584,42 @@ func (p *Provider) Glob(pattern string, honorGitignore bool) ([]string, error) {
 	return filtered, nil
 }
 
-// IsDir returns true if the file at "path" exists and is a directory.
+// IsDir returns true if the resource exists and is a directory.
 //
 // Parameters:
-//   - path: Absolute path to check
+//   - resource: Resource to check
 //
 // Returns:
-//   - bool: true if the file at "path "is a directory, false otherwise
-func (p *Provider) IsDir(resource Resource) bool {
+//   - bool: true if the resource is a directory, false otherwise
+//   - error: permission or other I/O errors (not-exist is not an error)
+func (p *Provider) IsDir(resource Resource) (bool, error) {
 	info, err := os.Stat(resource.SourcePath)
-	return err == nil && info.IsDir()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return info.IsDir(), nil
 }
 
-// IsFile returns true if the file at "path" exists and is a regular file.
+// IsFile returns true if the resource exists and is a regular file.
 //
 // Parameters:
-//   - path: Absolute path to check
+//   - resource: Resource to check
 //
 // Returns:
-//   - bool: true if the file at "path" is a regular file, false otherwise
-func (p *Provider) IsFile(resource Resource) bool {
+//   - bool: true if the resource is a regular file, false otherwise
+//   - error: permission or other I/O errors (not-exist is not an error)
+func (p *Provider) IsFile(resource Resource) (bool, error) {
 	info, err := os.Stat(resource.SourcePath)
-	return err == nil && info.Mode().IsRegular()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return info.Mode().IsRegular(), nil
 }
 
 // Join joins path components using the OS path separator.
@@ -654,7 +675,11 @@ func (p *Provider) Parent(path string) string {
 // Returns:
 //   - result: the contents of the file
 func (p *Provider) Read(path Resource) (result Resource, err error) {
-	return NewResource(path.SourcePath)
+	r := NewResource(path.SourcePath)
+	if err := r.Resolve(); err != nil {
+		return Resource{}, err
+	}
+	return r, nil
 }
 
 // region Internal
@@ -693,8 +718,8 @@ func (p *Provider) compensateWrite(undo Tombstone) error {
 // will simply remove the newly created file).
 func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombstone, err error) {
 
-	result, err = NewResource(resource.SourcePath)
-	if err != nil {
+	result = NewResource(resource.SourcePath)
+	if err = result.Resolve(); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
@@ -752,7 +777,7 @@ func (p *Provider) write(resource Resource, data []byte, mode os.FileMode) (resu
 		return result, undo, err
 	}
 
-	err = result.RefreshMetadataWith(hex.EncodeToString(hasher.Sum(nil)), int64(size))
+	err = result.RefreshWith(hex.EncodeToString(hasher.Sum(nil)), int64(size))
 	if err != nil {
 		return result, undo, err
 	}

@@ -47,7 +47,7 @@ result_copy_type = type(copy_output) == "Output"
 # ── Non-compensable actions ─────────────────────────────────────────────────────
 
 # mkdir — creates a node with path/mode slots
-mkdir_output = file.mkdir(path="/tmp/new-dir", mode=0o755)
+mkdir_output = file.mkdir(resource="/tmp/new-dir", mode=0o755)
 result_mkdir_type = type(mkdir_output) == "Output"
 
 # glob — creates a node with pattern/honor_gitignore slots
@@ -59,24 +59,16 @@ read_output = file.read(path="/tmp/read-target.txt")
 result_read_type = type(read_output) == "Output"
 
 # exists — creates a node with path slot
-exists_output = file.exists(blob="/tmp/exists-check.txt")
+exists_output = file.exists(resource="/tmp/exists-check.txt")
 result_exists_type = type(exists_output) == "Output"
 
 # is_dir — creates a node with path slot
-is_dir_output = file.is_dir(path="/tmp")
+is_dir_output = file.is_dir(resource="/tmp")
 result_is_dir_type = type(is_dir_output) == "Output"
 
 # is_file — creates a node with path slot
-is_file_output = file.is_file(path="/tmp/check.txt")
+is_file_output = file.is_file(resource="/tmp/check.txt")
 result_is_file_type = type(is_file_output) == "Output"
-
-# name — creates a node with path slot
-name_output = file.name(path="/tmp/foo/bar.txt")
-result_name_type = type(name_output) == "Output"
-
-# parent — creates a node with path slot
-parent_output = file.parent(path="/tmp/foo/bar.txt")
-result_parent_type = type(parent_output) == "Output"
 
 # ── Promise chaining (edge creation) ───────────────────────────────────────────
 

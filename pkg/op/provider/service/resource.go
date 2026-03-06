@@ -17,14 +17,6 @@ func init() {
 		}
 		return Resource{Name: s}, nil
 	})
-
-	op.RegisterPlanTimeConstructor(func(v any) (Resource, error) {
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("service.Resource: expected string name, got %T", v)
-		}
-		return Resource{Name: s}, nil
-	})
 }
 
 // Resource represents a system service.

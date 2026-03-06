@@ -13,23 +13,12 @@ import (
 )
 
 func init() {
-	// Execution-time constructor: creates a Resource with full metadata (os.Stat).
 	op.RegisterConstructor(func(v any) (Resource, error) {
 		s, ok := v.(string)
 		if !ok {
 			return Resource{}, fmt.Errorf("file.Resource: expected string path, got %T", v)
 		}
-		return NewResource(s)
-	})
-
-	// Plan-time constructor: creates a URI-only Resource with no I/O.
-	// Used by the planned bridge for catalog resolution.
-	op.RegisterPlanTimeConstructor(func(v any) (Resource, error) {
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("file.Resource: expected string path, got %T", v)
-		}
-		return Resource{SourcePath: s}, nil
+		return NewResource(s), nil
 	})
 }
 
@@ -54,13 +43,11 @@ func (r *Resource) Scheme() string { return op.SchemeFile }
 // Host returns empty string — file URIs have no authority.
 func (r *Resource) Host() string { return "" }
 
-// Path returns the canonicalized absolute path.
+// Path returns the resource's source path. Before Resolve(), this is the
+// raw path as given to the constructor. After Resolve(), it is the
+// canonicalized absolute path on the target machine.
 func (r *Resource) Path() string {
-	abs, err := filepath.Abs(r.SourcePath)
-	if err != nil {
-		return filepath.Clean(r.SourcePath)
-	}
-	return filepath.Clean(abs)
+	return r.SourcePath
 }
 
 // Tombstone holds file-specific compensation state.
@@ -74,22 +61,29 @@ type Tombstone struct {
 	OriginalPath string
 }
 
-// NewResource initializes a new [Resource] by checking the existence and size of the file at the provided sourcePath.
-//
-// Parameters:
-//   - sourcePath: path to the file to read
-//
-// Returns: an error if the path does not exist or is a directory
-func NewResource(path string) (Resource, error) {
-	r := Resource{SourcePath: path}
+// NewResource creates a [Resource] with the given source path. The constructor
+// is pure computation — no I/O, no error. Metadata (size, mode, checksum)
+// is populated later by [Resource.Resolve].
+func NewResource(path string) Resource {
+	return Resource{SourcePath: path}
+}
 
-	info, err := os.Stat(path)
+// Resolve populates the resource's metadata by canonicalizing the path and
+// performing an os.Stat. If the file does not exist, Resolve returns nil
+// and metadata remains empty ([Resource.Exists] returns false). Other
+// stat errors are returned.
+func (r *Resource) Resolve() error {
+	abs, err := filepath.Abs(r.SourcePath)
+	if err == nil {
+		r.SourcePath = filepath.Clean(abs)
+	}
+
+	info, err := os.Stat(r.SourcePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			// Known path but no data — the executor will resolve this later.
-			return r, nil
+			return nil
 		}
-		return Resource{}, fmt.Errorf("failed to stat blob source: %w", err)
+		return fmt.Errorf("failed to stat: %w", err)
 	}
 
 	var inode, device uint64
@@ -103,19 +97,12 @@ func NewResource(path string) (Resource, error) {
 	r.Size = info.Size()
 	r.Mode = info.Mode()
 	r.ModTime = info.ModTime()
-	r.Checksum = checksumFile(path)
-	return r, nil
+	r.Checksum = checksumFile(r.SourcePath)
+	return nil
 }
 
-// Exists returns true if the Resource references a file that existed when the Resource was created.
-//
-// This method checks if the ModTime is non-zero, indicating that the file existed at the time of Resource creation.
-//
-// Parameters:
-//   - none
-//
-// Returns:
-//   - bool: true if the file exists, false otherwise
+// Exists returns true if the resource has been resolved and the file existed
+// at resolve time. An unresolved resource always reports Exists() == false.
 func (r *Resource) Exists() bool {
 	return !r.ModTime.IsZero()
 }
@@ -134,46 +121,25 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 	return os.Open(r.SourcePath)
 }
 
-// RefreshMetadata updates the Resource's metadata by performing a fresh os.Stat and re-calculating the checksum.
-//
-// This should be called after any successful physical mutation.
-//
-// Parameters:
-//   - none
-//
-// Returns:
-//   - error: any error that occurred during refreshing
-func (r *Resource) RefreshMetadata() error {
-
+// Refresh re-populates the resource's metadata by performing a fresh os.Stat
+// and re-calculating the checksum. Call after any successful physical mutation.
+func (r *Resource) Refresh() error {
 	info, err := os.Stat(r.SourcePath)
-
-	if err = r.verifyMetadata(info, err); err != nil {
+	if err != nil {
 		return err
 	}
-
-	return r.refreshMetadataWith(info, checksumFile(r.SourcePath), info.Size())
+	return r.refreshWith(info, checksumFile(r.SourcePath), info.Size())
 }
 
-// RefreshMetadataWith updates the resource metadata after a write operation.
-//
-// It takes the known size and checksum to avoid redundant I/O but performs an os.Stat to capture Kernel-assigned
-// identity (Device and Inode)
-//
-// Parameters:
-//   - checksum: the checksum of the blob after the write operation
-//   - size: the size of the blob after the write operation
-//
-// Returns:
-//   - error: any error that occurred during finalization
-func (r *Resource) RefreshMetadataWith(checksum string, size int64) error {
-
+// RefreshWith updates metadata after a write operation using a known checksum
+// and size. An os.Stat is still performed to capture kernel-assigned identity
+// (Inode, Device).
+func (r *Resource) RefreshWith(checksum string, size int64) error {
 	info, err := os.Stat(r.SourcePath)
-
-	if err = r.verifyMetadata(info, err); err != nil {
+	if err != nil {
 		return err
 	}
-
-	return r.refreshMetadataWith(info, checksum, size)
+	return r.refreshWith(info, checksum, size)
 }
 
 // WriteTo allows the Resource to be streamed directly to any io.Writer.
@@ -207,45 +173,20 @@ func (r *Resource) WriteTo(writer io.Writer) (int64, error) {
 
 // region Internals
 
-// refreshMetadataWith updates the Resource's metadata with the provided information.
-//
-// Parameters:
-//   - info: os.FileInfo for the blob
-//   - checksum: the checksum of the blob after the write operation
-//   - size: the size of the blob after the write operation
-//
-// Returns:
-//   - error: any error that occurred during refreshing
-func (r *Resource) refreshMetadataWith(info os.FileInfo, checksum string, size int64) error {
-
-	// Capture physical identity (Inode/Device)
-
+// refreshWith updates the Resource's metadata with the provided information.
+func (r *Resource) refreshWith(info os.FileInfo, checksum string, size int64) error {
 	var inode, device uint64
-
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		inode = stat.Ino
 		device = uint64(stat.Dev)
 	}
-
-	// Update fields
 
 	r.Inode = inode
 	r.Device = device
 	r.Size = info.Size()
 	r.Mode = info.Mode()
 	r.ModTime = info.ModTime()
-
 	r.Checksum = checksum
-
-	return nil
-}
-
-func (r *Resource) verifyMetadata(info os.FileInfo, err error) error {
-
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 

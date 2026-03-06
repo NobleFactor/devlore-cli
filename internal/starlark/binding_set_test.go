@@ -284,7 +284,8 @@ func TestBindingSetLoaderLoadsPlan(t *testing.T) {
 // testAction is a minimal Action for testing registration.
 type testAction struct{ name string }
 
-func (a testAction) Name() string { return a.name }
-func (a testAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a testAction) Name() string           { return a.name }
+func (a testAction) Params() []op.ParamInfo { return nil }
+func (a testAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
 	return nil, nil, nil
 }

@@ -23,15 +23,17 @@ type PredicateFunc func(any) (bool, error)
 //   - interval: string — poll interval (Go duration, default "5s")
 //
 // Result: the target value when the predicate returns true.
-// UndoState: nil — WaitUntil observes state but does not modify it.
 type WaitUntil struct{}
 
 // Name returns the dotted action name.
 func (a *WaitUntil) Name() string { return "flow.wait_until" }
 
+// Params returns nil — WaitUntil uses untyped slots.
+func (a *WaitUntil) Params() []op.ParamInfo { return nil }
+
 // Do polls the predicate at the configured interval until it returns true
 // or the timeout expires.
-func (a *WaitUntil) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *WaitUntil) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Complement, error) {
 	target := slots["target"]
 
 	pred, ok := slots["predicate"].(PredicateFunc)

@@ -21,21 +21,22 @@ import (
 // ---------------------------------------------------------------------------
 
 // echoAction is a CompensableAction that returns its name as result and
-// "undo:<name>" as undo state. Undo appends the name to undoOrder (if set)
-// and records the received UndoState in undoneWith.
+// "undo:<name>" as complement. Undo appends the name to undoOrder (if set)
+// and records the received complement in undoneWith.
 type echoAction struct {
 	name       string
 	undoOrder  *[]string // optional shared tracker for undo-order verification
-	undoneWith any       // last UndoState received by Undo
+	undoneWith any       // last complement received by Undo
 }
 
-func (a *echoAction) Name() string { return a.name }
+func (a *echoAction) Name() string           { return a.name }
+func (a *echoAction) Params() []op.ParamInfo { return nil }
 
-func (a *echoAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *echoAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.Complement, err error) {
 	return a.name, "undo:" + a.name, nil
 }
 
-func (a *echoAction) Undo(_ *op.Context, state op.UndoState) error {
+func (a *echoAction) Undo(_ *op.Context, state op.Complement) error {
 	a.undoneWith = state
 	if a.undoOrder != nil {
 		*a.undoOrder = append(*a.undoOrder, a.name)
@@ -43,16 +44,16 @@ func (a *echoAction) Undo(_ *op.Context, state op.UndoState) error {
 	return nil
 }
 
-// failAction is a plain Action (not CompensableAction) whose Do always
-// returns the configured error.
+// failAction is not compensable — its Do always returns the configured error.
 type failAction struct {
 	name string
 	err  error
 }
 
-func (a *failAction) Name() string { return a.name }
+func (a *failAction) Name() string           { return a.name }
+func (a *failAction) Params() []op.ParamInfo { return nil }
 
-func (a *failAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *failAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
 	return nil, nil, a.err
 }
 
@@ -62,13 +63,14 @@ type notCompensableAction struct {
 	name string
 }
 
-func (a *notCompensableAction) Name() string { return a.name }
+func (a *notCompensableAction) Name() string           { return a.name }
+func (a *notCompensableAction) Params() []op.ParamInfo { return nil }
 
-func (a *notCompensableAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *notCompensableAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.Complement, err error) {
 	return a.name, nil, nil
 }
 
-func (a *notCompensableAction) Undo(_ *op.Context, _ op.UndoState) error {
+func (a *notCompensableAction) Undo(_ *op.Context, _ op.Complement) error {
 	return op.ErrNotCompensable
 }
 
@@ -79,13 +81,14 @@ type failUndoAction struct {
 	err  error
 }
 
-func (a *failUndoAction) Name() string { return a.name }
+func (a *failUndoAction) Name() string           { return a.name }
+func (a *failUndoAction) Params() []op.ParamInfo { return nil }
 
-func (a *failUndoAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *failUndoAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.Complement, err error) {
 	return a.name, nil, nil
 }
 
-func (a *failUndoAction) Undo(_ *op.Context, _ op.UndoState) error {
+func (a *failUndoAction) Undo(_ *op.Context, _ op.Complement) error {
 	return a.err
 }
 
@@ -99,9 +102,10 @@ type countAction struct {
 	undone int
 }
 
-func (a *countAction) Name() string { return a.name }
+func (a *countAction) Name() string           { return a.name }
+func (a *countAction) Params() []op.ParamInfo { return nil }
 
-func (a *countAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *countAction) Do(_ *op.Context, _ map[string]any) (result op.Result, undo op.Complement, err error) {
 	a.mu.Lock()
 	a.calls++
 	n := a.calls
@@ -113,7 +117,7 @@ func (a *countAction) Do(_ *op.Context, _ map[string]any) (result op.Result, und
 	return fmt.Sprintf("r%d", n), fmt.Sprintf("u%d", n), nil
 }
 
-func (a *countAction) Undo(_ *op.Context, _ op.UndoState) error {
+func (a *countAction) Undo(_ *op.Context, _ op.Complement) error {
 	a.mu.Lock()
 	a.undone++
 	a.mu.Unlock()
@@ -180,15 +184,12 @@ func TestElevateName(t *testing.T) {
 
 func TestElevateDoReturnsNil(t *testing.T) {
 	act := &Elevate{}
-	result, undo, err := act.Do(&op.Context{Context: context.Background()}, nil)
+	result, _, err := act.Do(&op.Context{Context: context.Background()}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result != nil {
 		t.Errorf("result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("undo = %v, want nil", undo)
 	}
 }
 
@@ -417,7 +418,7 @@ func TestChooseUndoReverseOrder(t *testing.T) {
 	stack.PushAction(ctx, actionC, "sc")
 
 	act := &Choose{}
-	err := act.Undo(ctx, &chooseUndoState{Stack: stack})
+	err := act.Undo(ctx, &chooseComplement{Stack: stack})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -441,7 +442,7 @@ func TestChooseUndoSkipsNotCompensable(t *testing.T) {
 	stack.PushAction(ctx, actionC, nil)
 
 	act := &Choose{}
-	err := act.Undo(ctx, &chooseUndoState{Stack: stack})
+	err := act.Undo(ctx, &chooseComplement{Stack: stack})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -462,7 +463,7 @@ func TestChooseUndoCollectsErrors(t *testing.T) {
 	stack.PushAction(ctx, &failUndoAction{name: "b", err: errB}, nil)
 
 	act := &Choose{}
-	err := act.Undo(ctx, &chooseUndoState{Stack: stack})
+	err := act.Undo(ctx, &chooseComplement{Stack: stack})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -779,7 +780,7 @@ func TestGatherUndoReverseOrder(t *testing.T) {
 	stackC := op.NewRecoveryStack()
 	stackC.PushAction(ctx, actionC, "sc")
 
-	state := &gatherUndoState{
+	state := &gatherComplement{
 		Iterations: []iterationUndo{
 			{Stack: stackA},
 			{Stack: stackB},
@@ -813,7 +814,7 @@ func TestGatherUndoSkipsNotCompensable(t *testing.T) {
 	stackC := op.NewRecoveryStack()
 	stackC.PushAction(ctx, actionC, nil)
 
-	state := &gatherUndoState{
+	state := &gatherComplement{
 		Iterations: []iterationUndo{
 			{Stack: stackA},
 			{Stack: stackNC},
@@ -843,7 +844,7 @@ func TestGatherUndoCollectsErrors(t *testing.T) {
 	stackB := op.NewRecoveryStack()
 	stackB.PushAction(ctx, &failUndoAction{name: "b", err: errB}, nil)
 
-	state := &gatherUndoState{
+	state := &gatherComplement{
 		Iterations: []iterationUndo{
 			{Stack: stackA},
 			{Stack: stackB},

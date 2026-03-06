@@ -9,20 +9,27 @@ import (
 	"strings"
 )
 
-// reflectedAction implements Action via reflection.
-// Slot values (Go-native from FillSlot/unmarshalToAny) are coerced to
-// method parameter types, the method is called, and return values are
-// classified into (Result, UndoState, error).
-type reflectedAction struct {
+// actionBase holds shared fields for all reflected action types.
+type actionBase struct {
 	name       string
 	provider   reflect.Value
 	method     reflect.Method
 	paramNames []string
 }
 
-func (a *reflectedAction) Name() string { return a.name }
+func (a *actionBase) Name() string               { return a.name }
+func (a *actionBase) getProvider() reflect.Value { return a.provider }
 
-func (a *reflectedAction) Do(ctx *Context, slots map[string]any) (Result, UndoState, error) {
+func (a *actionBase) Params() []ParamInfo {
+	params := make([]ParamInfo, len(a.paramNames))
+	for i, name := range a.paramNames {
+		params[i] = ParamInfo{Name: name, Type: a.method.Type.In(i + 1)}
+	}
+	return params
+}
+
+// coerceArgs converts slot values to Go method parameter types.
+func (a *actionBase) coerceArgs(slots map[string]any) ([]reflect.Value, error) {
 	methodType := a.method.Type
 	goArgs := make([]reflect.Value, len(a.paramNames)+1)
 	goArgs[0] = a.provider
@@ -32,37 +39,107 @@ func (a *reflectedAction) Do(ctx *Context, slots map[string]any) (Result, UndoSt
 		paramType := methodType.In(i + 1) // skip receiver
 		val, err := coerceSlotValue(sv, paramType)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: param %s: %w", a.name, name, err)
+			return nil, fmt.Errorf("%s: param %s: %w", a.name, name, err)
 		}
 		goArgs[i+1] = val
 	}
+	return goArgs, nil
+}
+
+// dryRunLog writes dry-run output to the context writer.
+func (a *actionBase) dryRunLog(ctx *Context, slots map[string]any) {
+	_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] %s", a.name)
+	for _, name := range a.paramNames {
+		_, _ = fmt.Fprintf(ctx.Writer, " %v", slots[name])
+	}
+	_, _ = fmt.Fprintln(ctx.Writer)
+}
+
+// reflectedPureAction implements Action via reflection.
+type reflectedPureAction struct {
+	actionBase
+}
+
+func (a *reflectedPureAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+	goArgs, err := a.coerceArgs(slots)
+	if err != nil {
+		// Pure actions cannot fail. Coercion errors indicate a framework bug.
+		panic(fmt.Sprintf("%s: %v", a.name, err))
+	}
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] %s", a.name)
-		for _, name := range a.paramNames {
-			_, _ = fmt.Fprintf(ctx.Writer, " %v", slots[name])
-		}
-		_, _ = fmt.Fprintln(ctx.Writer)
+		a.dryRunLog(ctx, slots)
 		return nil, nil, nil
 	}
 
 	results := a.method.Func.Call(goArgs)
-	result, undoState, err := classifyActionReturn(results)
 
-	if err == nil {
+	var result Result
+	if len(results) > 0 {
+		v := results[0].Interface()
+		if _, isNoResult := v.(NoResult); !isNoResult {
+			result = v
+		}
+	}
+
+	result = shadowResult(result, ctx.Catalog, ctx.NodeID)
+	return result, nil, nil
+}
+
+// reflectedFallibleAction implements FallibleAction via reflection.
+type reflectedFallibleAction struct {
+	actionBase
+}
+
+func (a *reflectedFallibleAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+	goArgs, err := a.coerceArgs(slots)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if ctx.DryRun {
+		a.dryRunLog(ctx, slots)
+		return nil, nil, nil
+	}
+
+	results := a.method.Func.Call(goArgs)
+	result, doErr := classifyFallibleReturn(results)
+
+	if doErr == nil {
 		result = shadowResult(result, ctx.Catalog, ctx.NodeID)
 	}
 
-	return result, undoState, err
+	return result, nil, doErr
 }
 
-// reflectedCompensableAction extends reflectedAction with Undo.
+// reflectedCompensableAction implements CompensableAction via reflection.
 type reflectedCompensableAction struct {
-	reflectedAction
+	actionBase
 	compensate reflect.Method
 }
 
-func (a *reflectedCompensableAction) Undo(_ *Context, state UndoState) error {
+func (a *reflectedCompensableAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+	goArgs, err := a.coerceArgs(slots)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if ctx.DryRun {
+		a.dryRunLog(ctx, slots)
+		return nil, nil, nil
+	}
+
+	results := a.method.Func.Call(goArgs)
+	result, undoState, doErr := classifyCompensableReturn(results)
+
+	if doErr == nil {
+		result = shadowResult(result, ctx.Catalog, ctx.NodeID)
+	}
+
+	return result, undoState, doErr
+}
+
+func (a *reflectedCompensableAction) Undo(_ *Context, state Complement) error {
 	if state == nil {
 		return nil
 	}
@@ -75,6 +152,52 @@ func (a *reflectedCompensableAction) Undo(_ *Context, state UndoState) error {
 		return results[len(results)-1].Interface().(error)
 	}
 	return nil
+}
+
+// errorType and noResultType are cached for return-type classification.
+var (
+	errorType    = reflect.TypeOf((*error)(nil)).Elem()
+	noResultType = reflect.TypeOf(NoResult{})
+)
+
+// validateSlotType checks whether a Go value can be coerced to a target type
+// at plan time. This mirrors the coercion paths in coerceSlotValue without
+// performing the actual coercion. Returns an error for obvious mismatches;
+// returns nil when coercion is plausible.
+func validateSlotType(goVal any, targetType reflect.Type) error {
+	if goVal == nil {
+		return nil
+	}
+
+	sv := reflect.ValueOf(goVal)
+
+	// Direct assignment.
+	if sv.Type().AssignableTo(targetType) {
+		return nil
+	}
+
+	// Convert (int → os.FileMode, int → int64, etc.).
+	if sv.Type().ConvertibleTo(targetType) {
+		return nil
+	}
+
+	// map[string]any → struct coercion.
+	if sv.Type().Kind() == reflect.Map && sv.Type().Key().Kind() == reflect.String &&
+		targetType.Kind() == reflect.Struct {
+		return nil
+	}
+
+	// []T → []U slice coercion.
+	if sv.Type().Kind() == reflect.Slice && targetType.Kind() == reflect.Slice {
+		return nil
+	}
+
+	// Constructor registry.
+	if _, ok := constructorRegistry.Load(targetType); ok {
+		return nil
+	}
+
+	return fmt.Errorf("cannot coerce %T to %s", goVal, targetType)
 }
 
 // coerceSlotValue converts a slot Go value to the target parameter type.
@@ -162,17 +285,45 @@ func coerceSlice(srcSlice reflect.Value, targetType reflect.Type) (reflect.Value
 	return result, nil
 }
 
-// classifyActionReturn interprets Go method return values for the action layer.
-// Unlike classifyReturn (which marshals to Starlark), this keeps Go-native values.
+// classifyFallibleReturn interprets Go method return values for FallibleAction.
 //
 // Arity (after stripping trailing error):
 //
-//	0 → (nil, nil, error)            — error-only method
-//	1 → (result, nil, error)         — Action
-//	2 → (result, undoState, error)   — CompensableAction
+//	0 → (nil, error)
+//	1 → (result, error)
+func classifyFallibleReturn(results []reflect.Value) (Result, error) {
+	n := len(results)
+	if n == 0 {
+		return nil, nil
+	}
+
+	var err error
+	if results[n-1].Type().Implements(errorType) {
+		if !results[n-1].IsNil() {
+			err = results[n-1].Interface().(error)
+		}
+		n--
+	}
+
+	var result Result
+	if n > 0 {
+		v := results[0].Interface()
+		if _, isNoResult := v.(NoResult); !isNoResult {
+			result = v
+		}
+	}
+
+	return result, err
+}
+
+// classifyCompensableReturn interprets Go method return values for CompensableAction.
 //
-// NoResult at position 0 yields nil Result.
-func classifyActionReturn(results []reflect.Value) (Result, UndoState, error) {
+// Arity (after stripping trailing error):
+//
+//	0 → (nil, nil, error)
+//	1 → (result, nil, error)
+//	2 → (result, undoState, error)
+func classifyCompensableReturn(results []reflect.Value) (Result, Complement, error) {
 	n := len(results)
 	if n == 0 {
 		return nil, nil, nil
@@ -187,7 +338,7 @@ func classifyActionReturn(results []reflect.Value) (Result, UndoState, error) {
 	}
 
 	var result Result
-	var undoState UndoState
+	var undoState Complement
 
 	if n > 0 {
 		v := results[0].Interface()
@@ -256,15 +407,11 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 }
 
 // RegisterReflectedActions registers all action methods on a provider.
-// Methods must return error as their last value to qualify as actions.
-// Methods without error returns (e.g., Exists, IsDir) are skipped —
-// they are immediate-only, not graph actions.
+// Method return signature determines action type:
 //
-// Arity determines action type:
-//
-//   - 1 return  (error)             → Action (error-only, no result)
-//   - 2 returns (result, error)     → Action
-//   - 3 returns (result, undo, error) → CompensableAction
+//   - No error return: () or (T) → Action (pure)
+//   - 1 return + error: (error) or (T, error) → FallibleAction
+//   - 2+ returns + error: (T, undo, error) → CompensableAction
 //
 // Every CompensableAction (3 returns) must have a Compensate<GoName>
 // companion method. Missing pairs panic at registration time.
@@ -281,25 +428,30 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 		}
 
 		mt := method.Type
-		if mt.NumOut() == 0 || !mt.Out(mt.NumOut()-1).Implements(errorType) {
-			continue
-		}
-
 		snakeName := camelToSnake(goName)
 		actionName := name + "." + snakeName
 
-		base := reflectedAction{
+		base := actionBase{
 			name:       actionName,
 			provider:   pv,
 			method:     method,
 			paramNames: paramNames,
 		}
 
-		// 3 returns (result, undo, error) → CompensableAction.
-		// The companion Compensate<GoName> method is mandatory.
+		hasError := mt.NumOut() > 0 && mt.Out(mt.NumOut()-1).Implements(errorType)
+
+		if !hasError {
+			// Pure Action — no error return.
+			reg.Register(&reflectedPureAction{actionBase: base})
+			continue
+		}
+
+		// Has error return. Classify by non-error return count.
 		compensateName := "Compensate" + goName
 		numNonError := mt.NumOut() - 1 // subtract trailing error
+
 		if numNonError >= 2 {
+			// 3+ returns (result, undo, error) → CompensableAction.
 			cm, ok := pt.MethodByName(compensateName)
 			if !ok {
 				panic(fmt.Sprintf(
@@ -310,19 +462,20 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 			validateCompensateSignature(actionName, cm)
 			consumedCompensators[compensateName] = true
 			reg.Register(&reflectedCompensableAction{
-				reflectedAction: base,
-				compensate:      cm,
+				actionBase: base,
+				compensate: cm,
 			})
 		} else if cm, ok := pt.MethodByName(compensateName); ok {
-			// 1-2 returns but has a Compensate companion — allow it.
+			// 1-2 returns but has a Compensate companion — allow it as CompensableAction.
 			validateCompensateSignature(actionName, cm)
 			consumedCompensators[compensateName] = true
 			reg.Register(&reflectedCompensableAction{
-				reflectedAction: base,
-				compensate:      cm,
+				actionBase: base,
+				compensate: cm,
 			})
 		} else {
-			reg.Register(&base)
+			// FallibleAction — error return, no Compensate companion.
+			reg.Register(&reflectedFallibleAction{actionBase: base})
 		}
 	}
 
@@ -372,17 +525,12 @@ func validateCompensateSignature(actionName string, cm reflect.Method) {
 // InitActionProvider injects the execution Context into the provider backing a reflected action.
 // For actions that are not reflection-based or whose provider does not embed ProviderBase, this is a no-op.
 func InitActionProvider(action Action, ctx Context) {
-	var pv reflect.Value
-
-	switch a := action.(type) {
-	case *reflectedAction:
-		pv = a.provider
-	case *reflectedCompensableAction:
-		pv = a.provider
-	default:
+	type hasProvider interface{ getProvider() reflect.Value }
+	hp, ok := action.(hasProvider)
+	if !ok {
 		return
 	}
-
+	pv := hp.getProvider()
 	if pv.Kind() == reflect.Ptr && !pv.IsNil() {
 		InitProvider(pv.Interface(), ctx)
 	}

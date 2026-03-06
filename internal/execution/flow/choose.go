@@ -11,8 +11,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// chooseUndoState preserves the selected branch's recovery state.
-type chooseUndoState struct {
+// chooseComplement preserves the selected branch's recovery state.
+type chooseComplement struct {
 	Results map[string]any    // node results for promise re-resolution
 	Stack   *op.RecoveryStack // branch compensation closures
 }
@@ -26,14 +26,17 @@ type chooseUndoState struct {
 //   - else: string — phase ID to execute when false (optional)
 //
 // Result: the selected branch phase's terminal node Result.
-// UndoState: *chooseUndoState — the branch's recovery entries.
+// Complement: *chooseComplement — the branch's recovery entries.
 type Choose struct{}
 
 // Name returns the dotted action name.
 func (a *Choose) Name() string { return "flow.choose" }
 
+// Params returns nil — Choose uses untyped slots.
+func (a *Choose) Params() []op.ParamInfo { return nil }
+
 // Do reads the boolean condition and executes the matching branch phase.
-func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, err error) {
+func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, complement op.Complement, err error) {
 	when, _ := slots["when"].(bool)          //nolint:errcheck // zero value (false) is acceptable default
 	thenPhaseID, _ := slots["then"].(string) //nolint:errcheck // zero value (empty) is acceptable
 	elsePhaseID, _ := slots["else"].(string) //nolint:errcheck // zero value (empty) is acceptable
@@ -74,16 +77,16 @@ func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 		nodeSlots := node.ResolvedSlots(results)
 		execution.FillSlotsFromData(nodeSlots, ctx.Data)
 
-		result, undoState, doErr := node.Action.Do(ctx, nodeSlots)
+		nodeResult, nodeComplement, doErr := node.Action.Do(ctx, nodeSlots)
 		if doErr != nil {
 			_ = stack.Unwind()
 			return nil, nil, fmt.Errorf("choose: phase %s node %s: %w", selectedPhaseID, node.ID, doErr)
 		}
 
-		if result != nil {
-			results[node.ID] = result
+		if nodeResult != nil {
+			results[node.ID] = nodeResult
 		}
-		stack.PushAction(ctx, node.Action, undoState)
+		stack.PushAction(ctx, node.Action, nodeComplement)
 	}
 
 	// Terminal result is the last ordered node's result.
@@ -92,12 +95,12 @@ func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 		terminalResult = results[ordered[len(ordered)-1].ID]
 	}
 
-	return terminalResult, &chooseUndoState{Results: results, Stack: stack}, nil
+	return terminalResult, &chooseComplement{Results: results, Stack: stack}, nil
 }
 
 // Undo unwinds the selected branch's recovery stack in LIFO order.
-func (a *Choose) Undo(_ *op.Context, state op.UndoState) error {
-	cs, ok := state.(*chooseUndoState)
+func (a *Choose) Undo(_ *op.Context, complement op.Complement) error {
+	cs, ok := complement.(*chooseComplement)
 	if !ok || cs == nil {
 		return nil
 	}

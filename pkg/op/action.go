@@ -5,6 +5,7 @@ package op
 
 import (
 	"errors"
+	"reflect"
 )
 
 // ErrNotCompensable signals that an action acknowledges rollback but cannot
@@ -16,45 +17,34 @@ var ErrNotCompensable = errors.New("action is not compensable")
 // ID and resolves promise slots from stored Results before calling downstream Do.
 type Result = any
 
-// UndoState is the state captured by Do and passed to Undo during saga
+// Complement is the state captured by Do and passed to Undo during saga
 // rollback. Each action defines its own state shape. Actions with no rollback
 // return nil from Do; their Undo ignores the state parameter.
-type UndoState = any
+type Complement = any
 
-// Action is the forward-only interface. All executable actions implement this.
-// Actions receive resolved slots — they never touch *Node. The executor
-// resolves all promise slots before calling Do.
-type Action interface {
-
-	// Name returns the action identifier (e.g., "file.link", "template.render").
-	Name() string
-
-	// Do executes the action with the given context and resolved slot values.
-	//
-	// Parameters:
-	//   - ctx: execution context
-	//   - slots: resolved slot values
-	//
-	// Returns:
-	//   - result: A result for downstream nodes
-	//   - undo: undo state for saga rollback
-	//   - err: any error encountered during execution
-	Do(ctx *Context, slots map[string]any) (Result, UndoState, error)
+// ParamInfo describes a single parameter accepted by an action's Do method.
+type ParamInfo struct {
+	Name string
+	Type reflect.Type
 }
 
-// CompensableAction is the backward-only interface.
-//
-// All actions that can be undone implement this.
+// Action is a pure, infallible value transformer. No side effects, cannot fail.
+// Do returns (result, nil, nil).
+type Action interface {
+	Name() string
+	Params() []ParamInfo
+	Do(ctx *Context, slots map[string]any) (Result, Complement, error)
+}
+
+// FallibleAction has side effects and can fail.
+// Do returns (result, nil, error).
+type FallibleAction interface {
+	Action
+}
+
+// CompensableAction has side effects, can fail, and can be undone.
+// Do returns (result, complement, error).
 type CompensableAction interface {
 	Action
-
-	// Undo performs the compensating action using the state captured by Do.
-	//
-	// Parameters:
-	//   - ctx: execution context
-	//   - state: undo state captured by Do
-	//
-	// Returns:
-	//   - err: any error encountered during compensation
-	Undo(ctx *Context, undo UndoState) error
+	Undo(ctx *Context, complement Complement) error
 }

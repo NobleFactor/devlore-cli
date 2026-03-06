@@ -46,12 +46,6 @@ type methodBridge struct {
 	bridge builtinFunc
 }
 
-// errorType and noResultType are cached for return-type classification.
-var (
-	errorType    = reflect.TypeOf((*error)(nil)).Elem()
-	noResultType = reflect.TypeOf(NoResult{})
-)
-
 // WrapReceiver wraps a Go struct for immediate-mode Starlark use.
 // Only methods listed in params are exposed. Compensate* methods are
 // excluded automatically.

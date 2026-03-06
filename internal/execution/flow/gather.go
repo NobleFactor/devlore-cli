@@ -13,8 +13,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// gatherUndoState preserves per-iteration state needed for rollback.
-type gatherUndoState struct {
+// gatherComplement preserves per-iteration state needed for rollback.
+type gatherComplement struct {
 	Iterations []iterationUndo
 }
 
@@ -41,20 +41,23 @@ type iterOutcome struct {
 //   - limit: int — max concurrent iterations (default 1 = sequential)
 //
 // Result: []any — terminal node Result from each iteration, in item order.
-// UndoState: *GatherUndoState — per-iteration entries for rollback.
+// Complement: *gatherComplement — per-iteration entries for rollback.
 type Gather struct{}
 
 // Name returns the dotted action name.
 func (a *Gather) Name() string { return "flow.gather" }
 
+// Params returns nil — Gather uses untyped slots.
+func (a *Gather) Params() []op.ParamInfo { return nil }
+
 // Do executes the referenced phase once per item, with per-iteration isolation.
-func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, undo op.UndoState, err error) { //nolint:gocyclo // validation + sequential/concurrent branching is inherent
+func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, complement op.Complement, err error) { //nolint:gocyclo // validation + sequential/concurrent branching is inherent
 	items, err := extractItems(slots)
 	if err != nil {
 		return nil, nil, err
 	}
 	if len(items) == 0 {
-		return []any{}, &gatherUndoState{}, nil
+		return []any{}, &gatherComplement{}, nil
 	}
 
 	phaseID, ok := slots["do"].(string)
@@ -92,13 +95,13 @@ func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 		executeConcurrent(ctx, ordered, gatherID, items, limit, outcomes)
 	}
 
-	// Collect results and build undo state.
+	// Collect results and build complement.
 	var results []any
-	undoState := &gatherUndoState{}
+	gc := &gatherComplement{}
 	var gatherErr error
 
 	for i, o := range outcomes {
-		undoState.Iterations = append(undoState.Iterations, o.undo)
+		gc.Iterations = append(gc.Iterations, o.undo)
 		if o.err != nil && gatherErr == nil {
 			gatherErr = fmt.Errorf("gather: iteration %d failed: %w", i, o.err)
 		}
@@ -106,7 +109,7 @@ func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 
 	if gatherErr != nil {
 		// Unwind all completed iterations.
-		_ = a.undoCompleted(ctx, undoState) //nolint:errcheck // compensation is best-effort during error unwind
+		_ = a.undoCompleted(ctx, gc) //nolint:errcheck // compensation is best-effort during error unwind
 		return nil, nil, gatherErr
 	}
 
@@ -114,12 +117,12 @@ func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, un
 		results = append(results, o.result)
 	}
 
-	return results, undoState, nil
+	return results, gc, nil
 }
 
 // Undo walks iterations in reverse and calls Action.Undo per entry.
-func (a *Gather) Undo(ctx *op.Context, state op.UndoState) error {
-	gs, ok := state.(*gatherUndoState)
+func (a *Gather) Undo(ctx *op.Context, complement op.Complement) error {
+	gs, ok := complement.(*gatherComplement)
 	if !ok || gs == nil {
 		return nil
 	}
@@ -127,7 +130,7 @@ func (a *Gather) Undo(ctx *op.Context, state op.UndoState) error {
 }
 
 // undoCompleted unwinds all iterations that have recovery stacks.
-func (a *Gather) undoCompleted(_ *op.Context, gs *gatherUndoState) error {
+func (a *Gather) undoCompleted(_ *op.Context, gs *gatherComplement) error {
 	var errs []error
 	for i := len(gs.Iterations) - 1; i >= 0; i-- {
 		if stack := gs.Iterations[i].Stack; stack != nil {
@@ -205,7 +208,7 @@ func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item
 		nodeSlots := node.ResolvedSlots(results, proxyCtx)
 		execution.FillSlotsFromData(nodeSlots, ctx.Data)
 
-		result, undoState, err := node.Action.Do(ctx, nodeSlots)
+		result, complement, err := node.Action.Do(ctx, nodeSlots)
 		if err != nil {
 			// Unwind this iteration's completed nodes.
 			_ = stack.Unwind()
@@ -222,7 +225,7 @@ func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item
 		if result != nil {
 			results[node.ID] = result
 		}
-		stack.PushAction(ctx, node.Action, undoState)
+		stack.PushAction(ctx, node.Action, complement)
 	}
 
 	// Terminal result is the last ordered node's result.

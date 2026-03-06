@@ -16,22 +16,25 @@ import (
 
 type stubWriteAction struct{}
 
-func (a *stubWriteAction) Name() string { return "test.write" }
-func (a *stubWriteAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
+func (a *stubWriteAction) Name() string        { return "test.write" }
+func (a *stubWriteAction) Params() []ParamInfo { return nil }
+func (a *stubWriteAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
 	return nil, nil, nil
 }
 
 type stubReadAction struct{}
 
-func (a *stubReadAction) Name() string { return "test.read" }
-func (a *stubReadAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
+func (a *stubReadAction) Name() string        { return "test.read" }
+func (a *stubReadAction) Params() []ParamInfo { return nil }
+func (a *stubReadAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
 	return nil, nil, nil
 }
 
 type stubValidateAction struct{}
 
-func (a *stubValidateAction) Name() string { return "test.validate" }
-func (a *stubValidateAction) Do(_ *Context, _ map[string]any) (Result, UndoState, error) {
+func (a *stubValidateAction) Name() string        { return "test.validate" }
+func (a *stubValidateAction) Params() []ParamInfo { return nil }
+func (a *stubValidateAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
 	return nil, nil, nil
 }
 
@@ -246,14 +249,14 @@ func TestWrapPlanned_Override(t *testing.T) {
 
 func TestWrapPlanned_ResolvesResourceParams(t *testing.T) {
 	// Register plan-time constructor for actionResource.
-	RegisterPlanTimeConstructor(func(v any) (actionResource, error) {
+	RegisterConstructor(func(v any) (actionResource, error) {
 		s, ok := v.(string)
 		if !ok {
 			return actionResource{}, fmt.Errorf("expected string, got %T", v)
 		}
 		return actionResource{SourcePath: s}, nil
 	})
-	defer planTimeConstructorRegistry.Delete(reflect.TypeOf(actionResource{}))
+	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
 
 	reg := NewActionRegistry()
 	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
@@ -326,14 +329,14 @@ func TestWrapPlanned_SkipsPromiseResolution(t *testing.T) {
 
 func TestWrapPlanned_ShadowsOutputResource(t *testing.T) {
 	// Register plan-time constructor for actionResource.
-	RegisterPlanTimeConstructor(func(v any) (actionResource, error) {
+	RegisterConstructor(func(v any) (actionResource, error) {
 		s, ok := v.(string)
 		if !ok {
 			return actionResource{}, fmt.Errorf("expected string, got %T", v)
 		}
 		return actionResource{SourcePath: s}, nil
 	})
-	defer planTimeConstructorRegistry.Delete(reflect.TypeOf(actionResource{}))
+	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
 
 	reg := NewActionRegistry()
 	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
@@ -392,16 +395,71 @@ func TestWrapPlanned_ShadowsOutputResource(t *testing.T) {
 	}
 }
 
-func TestWrapPlanned_ConflictDetection(t *testing.T) {
+func TestWrapPlanned_ShadowsSingleResourceOutput(t *testing.T) {
 	// Register plan-time constructor for actionResource.
-	RegisterPlanTimeConstructor(func(v any) (actionResource, error) {
+	RegisterConstructor(func(v any) (actionResource, error) {
 		s, ok := v.(string)
 		if !ok {
 			return actionResource{}, fmt.Errorf("expected string, got %T", v)
 		}
 		return actionResource{SourcePath: s}, nil
 	})
-	defer planTimeConstructorRegistry.Delete(reflect.TypeOf(actionResource{}))
+	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
+
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	// Stamp takes 1 actionResource param (dest) and returns
+	// (actionResource, map[string]any, error) — compensable.
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Stamp": {"dest"},
+	})
+
+	attr, _ := p.Attr("stamp")
+	builtin := attr.(*starlark.Builtin)
+	_, err := builtin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("dest"), starlark.String("/tmp/stamped")},
+	})
+	if err != nil {
+		t.Fatalf("stamp() error: %v", err)
+	}
+
+	// Destination should be shadowed (has originID = node ID).
+	dstURI := "file:///tmp/stamped"
+	dstID := graph.Catalog.Current(dstURI)
+	if dstID == "" {
+		t.Fatalf("catalog has no entry for %q", dstURI)
+	}
+	dstEntry, _ := graph.Catalog.Lookup(dstID)
+	dstBase := dstEntry.resourceBase()
+	if dstBase.originID == "" {
+		t.Error("dest originID is empty — single-Resource output was not shadowed")
+	}
+	if dstBase.originID != graph.Nodes[0].ID {
+		t.Errorf("dest originID = %q, want node ID %q", dstBase.originID, graph.Nodes[0].ID)
+	}
+
+	// Destination should NOT appear in DiscoveryURIs (it's shadowed).
+	for _, uri := range graph.Catalog.DiscoveryURIs() {
+		if uri == dstURI {
+			t.Error("destination URI appears in DiscoveryURIs — should be shadowed, not discovered")
+		}
+	}
+}
+
+func TestWrapPlanned_ConflictDetection(t *testing.T) {
+	// Register plan-time constructor for actionResource.
+	RegisterConstructor(func(v any) (actionResource, error) {
+		s, ok := v.(string)
+		if !ok {
+			return actionResource{}, fmt.Errorf("expected string, got %T", v)
+		}
+		return actionResource{SourcePath: s}, nil
+	})
+	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
 
 	reg := NewActionRegistry()
 	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
@@ -436,6 +494,127 @@ func TestWrapPlanned_ConflictDetection(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "resource conflict") {
 		t.Errorf("error = %q, want 'resource conflict' substring", err)
+	}
+}
+
+func TestWrapPlanned_TypeValidation_RejectsWrongType(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	// Validate takes a string param "path".
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Validate": {"path"},
+	})
+
+	attr, _ := p.Attr("validate")
+	builtin := attr.(*starlark.Builtin)
+
+	// Pass a dict where a string is expected — should fail at plan time.
+	dict := starlark.NewDict(1)
+	_ = dict.SetKey(starlark.String("bad"), starlark.True)
+	_, err := builtin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("path"), dict},
+	})
+	if err == nil {
+		t.Fatal("expected type validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cannot coerce") {
+		t.Errorf("error = %q, want 'cannot coerce' substring", err)
+	}
+	if !strings.Contains(err.Error(), "path") {
+		t.Errorf("error = %q, want 'path' mentioned", err)
+	}
+}
+
+func TestWrapPlanned_TypeValidation_AcceptsValid(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	// Mkdir takes (string, os.FileMode) — int is convertible to FileMode.
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Mkdir": {"path", "mode"},
+	})
+
+	attr, _ := p.Attr("mkdir")
+	builtin := attr.(*starlark.Builtin)
+
+	_, err := builtin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("path"), starlark.String("/tmp/dir")},
+		{starlark.String("mode"), starlark.MakeInt(0o755)},
+	})
+	if err != nil {
+		t.Fatalf("mkdir with valid types failed: %v", err)
+	}
+}
+
+func TestWrapPlanned_TypeValidation_AcceptsConstructable(t *testing.T) {
+	RegisterConstructor(func(v any) (actionResource, error) {
+		s, ok := v.(string)
+		if !ok {
+			return actionResource{}, fmt.Errorf("expected string, got %T", v)
+		}
+		return actionResource{SourcePath: s}, nil
+	})
+	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
+
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	// Touch takes an actionResource — string should be accepted (constructor exists).
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Touch": {"res"},
+	})
+
+	attr, _ := p.Attr("touch")
+	builtin := attr.(*starlark.Builtin)
+
+	_, err := builtin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("res"), starlark.String("/tmp/file")},
+	})
+	if err != nil {
+		t.Fatalf("touch with constructable type failed: %v", err)
+	}
+}
+
+func TestWrapPlanned_TypeValidation_SkipsPromises(t *testing.T) {
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Create":   {"path"},
+		"Validate": {"path"},
+	})
+
+	// Create returns a promise.
+	createAttr, _ := p.Attr("create")
+	createBuiltin := createAttr.(*starlark.Builtin)
+	promise, err := createBuiltin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("path"), starlark.String("/tmp/x")},
+	})
+	if err != nil {
+		t.Fatalf("create() error: %v", err)
+	}
+
+	// Pass promise to validate — should NOT trigger type validation.
+	validateAttr, _ := p.Attr("validate")
+	validateBuiltin := validateAttr.(*starlark.Builtin)
+	_, err = validateBuiltin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("path"), promise},
+	})
+	if err != nil {
+		t.Fatalf("validate with promise should not fail, got: %v", err)
 	}
 }
 

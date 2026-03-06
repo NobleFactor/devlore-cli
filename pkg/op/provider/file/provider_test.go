@@ -18,9 +18,9 @@ import (
 // testProvider creates a Provider rooted at the given directory.
 func testProvider(t *testing.T, root string) Provider {
 	t.Helper()
-	rootResource, err := NewResource(root)
-	if err != nil {
-		t.Fatalf("NewResource(%q): %v", root, err)
+	rootResource := NewResource(root)
+	if err := rootResource.Resolve(); err != nil {
+		t.Fatalf("NewResource(%q).Resolve(): %v", root, err)
 	}
 	return Provider{Root: rootResource}
 }
@@ -370,9 +370,9 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := NewResource(path)
-	if err != nil {
-		t.Fatalf("NewResource() error = %v", err)
+	res := NewResource(path)
+	if err := res.Resolve(); err != nil {
+		t.Fatalf("NewResource().Resolve() error = %v", err)
 	}
 
 	p := Provider{}
@@ -506,7 +506,6 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 // --- Unlink ---
 
 func TestUnlink_RemovesSymlink(t *testing.T) {
-	t.Skip("blocked on issue #164: recovery site creation fails on macOS SIP")
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "target")
 	if err := os.WriteFile(target, []byte("data"), 0o644); err != nil {
@@ -568,7 +567,6 @@ func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
 // --- Remove ---
 
 func TestRemove_RemovesFile(t *testing.T) {
-	t.Skip("blocked on issue #164: recovery site creation fails on macOS SIP")
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.txt")
 	if err := os.WriteFile(path, []byte("content"), 0o600); err != nil {
@@ -681,9 +679,9 @@ func TestMove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srcRes, resErr := NewResource(src)
-	if resErr != nil {
-		t.Fatalf("NewResource() error = %v", resErr)
+	srcRes := NewResource(src)
+	if resErr := srcRes.Resolve(); resErr != nil {
+		t.Fatalf("NewResource().Resolve() error = %v", resErr)
 	}
 
 	p := Provider{}
@@ -774,9 +772,9 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srcRes, resErr := NewResource(src)
-	if resErr != nil {
-		t.Fatalf("NewResource() error = %v", resErr)
+	srcRes := NewResource(src)
+	if resErr := srcRes.Resolve(); resErr != nil {
+		t.Fatalf("NewResource().Resolve() error = %v", resErr)
 	}
 
 	p := Provider{}
@@ -938,7 +936,11 @@ func TestExists_FileExists(t *testing.T) {
 	}
 
 	p := Provider{}
-	if !p.Exists(Resource{SourcePath: path}) {
+	got, err := p.Exists(Resource{SourcePath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
 		t.Error("Exists() = false, want true for existing file")
 	}
 }
@@ -948,7 +950,11 @@ func TestExists_FileDoesNotExist(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent.txt")
 
 	p := Provider{}
-	if p.Exists(Resource{SourcePath: path}) {
+	got, err := p.Exists(Resource{SourcePath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
 		t.Error("Exists() = true, want false for non-existent file")
 	}
 }
@@ -965,7 +971,11 @@ func TestExists_Symlink(t *testing.T) {
 	}
 
 	p := Provider{}
-	if !p.Exists(Resource{SourcePath: link}) {
+	got, err := p.Exists(Resource{SourcePath: link})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
 		t.Error("Exists() = false, want true for symlink")
 	}
 }
@@ -974,7 +984,11 @@ func TestExists_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := Provider{}
-	if !p.Exists(Resource{SourcePath: tmp}) {
+	got, err := p.Exists(Resource{SourcePath: tmp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
 		t.Error("Exists() = false, want true for existing directory")
 	}
 }
@@ -985,7 +999,11 @@ func TestIsDir_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := Provider{}
-	if !p.IsDir(Resource{SourcePath: tmp}) {
+	got, err := p.IsDir(Resource{SourcePath: tmp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
 		t.Error("IsDir() = false, want true for directory")
 	}
 }
@@ -998,14 +1016,22 @@ func TestIsDir_File(t *testing.T) {
 	}
 
 	p := Provider{}
-	if p.IsDir(Resource{SourcePath: path}) {
+	got, err := p.IsDir(Resource{SourcePath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
 		t.Error("IsDir() = true, want false for regular file")
 	}
 }
 
 func TestIsDir_NonExistent(t *testing.T) {
 	p := Provider{}
-	if p.IsDir(Resource{SourcePath: "/nonexistent/path"}) {
+	got, err := p.IsDir(Resource{SourcePath: "/nonexistent/path"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
 		t.Error("IsDir() = true, want false for non-existent path")
 	}
 }
@@ -1020,7 +1046,11 @@ func TestIsFile_RegularFile(t *testing.T) {
 	}
 
 	p := Provider{}
-	if !p.IsFile(Resource{SourcePath: path}) {
+	got, err := p.IsFile(Resource{SourcePath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
 		t.Error("IsFile() = false, want true for regular file")
 	}
 }
@@ -1029,14 +1059,22 @@ func TestIsFile_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := Provider{}
-	if p.IsFile(Resource{SourcePath: tmp}) {
+	got, err := p.IsFile(Resource{SourcePath: tmp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
 		t.Error("IsFile() = true, want false for directory")
 	}
 }
 
 func TestIsFile_NonExistent(t *testing.T) {
 	p := Provider{}
-	if p.IsFile(Resource{SourcePath: "/nonexistent/path"}) {
+	got, err := p.IsFile(Resource{SourcePath: "/nonexistent/path"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
 		t.Error("IsFile() = true, want false for non-existent path")
 	}
 }
@@ -1054,7 +1092,11 @@ func TestIsFile_Symlink(t *testing.T) {
 
 	p := Provider{}
 	// Symlink to regular file resolves via os.Stat, so IsFile returns true.
-	if !p.IsFile(Resource{SourcePath: link}) {
+	got, err := p.IsFile(Resource{SourcePath: link})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
 		t.Error("IsFile() = false, want true for symlink to regular file")
 	}
 }
@@ -1291,27 +1333,207 @@ func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
 // These are blocked on issue #164 (recovery site fails on macOS SIP).
 
 func TestRemove_RoundTrip(t *testing.T) {
-	t.Skip("blocked on issue #164: recovery site creation fails on macOS SIP")
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "remove-rt.txt")
+	if err := os.WriteFile(path, []byte("remove round-trip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := Provider{}
+	_, state, err := p.Remove(Resource{SourcePath: path}, false, Resource{})
+	if err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("file still exists after Remove")
+	}
+
+	if err := p.CompensateRemove(state); err != nil {
+		t.Fatalf("CompensateRemove() error = %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v — file should be restored", err)
+	}
+	if string(got) != "remove round-trip" {
+		t.Errorf("restored content = %q, want %q", got, "remove round-trip")
+	}
 }
 
 func TestRemoveAll_RoundTrip(t *testing.T) {
-	t.Skip("blocked on issue #164: recovery site creation fails on macOS SIP")
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "removedir-rt")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, dir, "child.txt", "child content")
+
+	p := Provider{}
+	_, state, err := p.RemoveAll(Resource{SourcePath: dir}, false, Resource{})
+	if err != nil {
+		t.Fatalf("RemoveAll() error = %v", err)
+	}
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("directory still exists after RemoveAll")
+	}
+
+	if err := p.CompensateRemoveAll(state); err != nil {
+		t.Fatalf("CompensateRemoveAll() error = %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "child.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v — child should be restored", err)
+	}
+	if string(got) != "child content" {
+		t.Errorf("restored child content = %q, want %q", got, "child content")
+	}
 }
 
 func TestCompensateRemove_RoundTrip(t *testing.T) {
-	t.Skip("blocked on issue #164: recovery site creation fails on macOS SIP")
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "comp-remove.txt")
+	if err := os.WriteFile(path, []byte("compensate me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := Provider{}
+	_, state, err := p.Remove(Resource{SourcePath: path}, false, Resource{})
+	if err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	// Verify recovery site holds the data.
+	recoveryPath := state.Resource().(*Resource).SourcePath
+	if _, err := os.Stat(recoveryPath); err != nil {
+		t.Fatalf("recovery site missing: %v", err)
+	}
+
+	if err := p.CompensateRemove(state); err != nil {
+		t.Fatalf("CompensateRemove() error = %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v — file should be restored", err)
+	}
+	if string(got) != "compensate me" {
+		t.Errorf("restored content = %q, want %q", got, "compensate me")
+	}
+
+	// Recovery site should be gone after restoration.
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Error("recovery site still exists after compensation")
+	}
 }
 
 func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
-	t.Skip("blocked on issue #164: recovery site creation fails on macOS SIP")
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "comp-removedir")
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(dir, "sub"), "nested.txt", "nested data")
+
+	p := Provider{}
+	_, state, err := p.RemoveAll(Resource{SourcePath: dir}, false, Resource{})
+	if err != nil {
+		t.Fatalf("RemoveAll() error = %v", err)
+	}
+
+	recoveryPath := state.Resource().(*Resource).SourcePath
+	if _, err := os.Stat(recoveryPath); err != nil {
+		t.Fatalf("recovery site missing: %v", err)
+	}
+
+	if err := p.CompensateRemoveAll(state); err != nil {
+		t.Fatalf("CompensateRemoveAll() error = %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "sub", "nested.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v — nested file should be restored", err)
+	}
+	if string(got) != "nested data" {
+		t.Errorf("restored content = %q, want %q", got, "nested data")
+	}
+
+	if _, err := os.Stat(recoveryPath); !os.IsNotExist(err) {
+		t.Error("recovery site still exists after compensation")
+	}
 }
 
 func TestCompensateUnlink_RoundTrip(t *testing.T) {
-	t.Skip("blocked on issue #164: recovery site creation fails on macOS SIP")
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(tmp, "comp-unlink.txt")
+	if err := os.Symlink(target, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	p := Provider{}
+	_, state, err := p.Unlink(Resource{SourcePath: linkPath}, false, Resource{})
+	if err != nil {
+		t.Fatalf("Unlink() error = %v", err)
+	}
+
+	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
+		t.Error("symlink still exists after Unlink")
+	}
+
+	if err := p.CompensateUnlink(state); err != nil {
+		t.Fatalf("CompensateUnlink() error = %v", err)
+	}
+
+	resolved, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink() error = %v — symlink should be restored", err)
+	}
+	if resolved != target {
+		t.Errorf("restored symlink target = %q, want %q", resolved, target)
+	}
 }
 
 func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
-	t.Skip("blocked on issue #164: recovery site creation fails on macOS SIP")
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "overwrite-rt.txt")
+	if err := os.WriteFile(path, []byte("original content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	_, state, err := p.WriteText(Resource{SourcePath: path}, "replaced content", 0o644)
+	if err != nil {
+		t.Fatalf("WriteText() error = %v", err)
+	}
+
+	// Verify the overwrite happened.
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != "replaced content" {
+		t.Errorf("overwritten content = %q, want %q", got, "replaced content")
+	}
+
+	// Compensate: should restore the original.
+	if err := p.CompensateWriteText(state); err != nil {
+		t.Fatalf("CompensateWriteText() error = %v", err)
+	}
+
+	got, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v — file should be restored", err)
+	}
+	if string(got) != "original content" {
+		t.Errorf("restored content = %q, want %q", got, "original content")
+	}
 }
 
 // --- Backup + CompensateBackup round-trip ---
@@ -1419,9 +1641,9 @@ func testFileResource(t *testing.T, content []byte) Resource {
 		t.Fatalf("writing temp file: %v", err)
 	}
 	f.Close()
-	fileResource, err := NewResource(f.Name())
-	if err != nil {
-		t.Fatalf("NewResource: %v", err)
+	fileResource := NewResource(f.Name())
+	if err := fileResource.Resolve(); err != nil {
+		t.Fatalf("NewResource.Resolve: %v", err)
 	}
 	return fileResource
 }

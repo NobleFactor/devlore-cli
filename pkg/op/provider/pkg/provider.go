@@ -79,7 +79,14 @@ func (p *Provider) Install(packages []Resource, manager string, cask bool) (resu
 		}
 	}
 
-	return packages, Tombstone{
+	resolvedType := packageManager.Name()
+	result = make([]Resource, len(packages))
+	for i, pkg := range packages {
+		result[i] = pkg
+		result[i].Type = resolvedType
+	}
+
+	return result, Tombstone{
 		Packages:         names,
 		Manager:          manager,
 		Cask:             cask,
@@ -172,7 +179,21 @@ func (p *Provider) Remove(packages []Resource, manager string, cask bool) (resul
 		}
 	}
 
-	return packages, Tombstone{
+	resolvedType := manager
+	if resolvedType == "" {
+		if cask {
+			resolvedType = "brew"
+		} else if plat.PackageManager != nil {
+			resolvedType = plat.PackageManager.Name()
+		}
+	}
+	result = make([]Resource, len(packages))
+	for i, pkg := range packages {
+		result[i] = pkg
+		result[i].Type = resolvedType
+	}
+
+	return result, Tombstone{
 		Packages: names,
 		Manager:  manager,
 		Cask:     cask,
@@ -247,7 +268,14 @@ func (p *Provider) Upgrade(packages []Resource, manager string, cask bool) (resu
 		}
 	}
 
-	return packages, Tombstone{
+	resolvedType := packageManager.Name()
+	result = make([]Resource, len(packages))
+	for i, pkg := range packages {
+		result[i] = pkg
+		result[i].Type = resolvedType
+	}
+
+	return result, Tombstone{
 		Packages:         names,
 		Manager:          manager,
 		Cask:             cask,

@@ -462,7 +462,6 @@ func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[
 		}
 	}
 
-	action := node.Action
 	actionName := node.ActionName()
 
 	// Resolve promise slots from upstream results
@@ -475,7 +474,7 @@ func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[
 
 	e.hooks.FireNodeStart(ctx, node.ID, slots)
 
-	result, undoState, err := action.Do(ctx, slots)
+	result, complement, err := node.Action.Do(ctx, slots)
 	if err != nil {
 		e.hooks.FireNodeComplete(ctx, node.ID, nil, err)
 		node.Status = op.StatusFailed
@@ -493,7 +492,7 @@ func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[
 		results[node.ID] = result
 	}
 
-	stack.PushAction(ctx, node.Action, undoState)
+	stack.PushAction(ctx, node.Action, complement)
 
 	node.Status = op.StatusCompleted
 

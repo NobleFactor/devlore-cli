@@ -33,21 +33,6 @@ func RegisterConstructor[T any](fn func(any) (T, error)) {
 	})
 }
 
-// planTimeConstructorRegistry maps reflect.Type → func(any) (any, error).
-// Plan-time constructors create URI-only resources with no I/O.
-// Used by buildPlannedBridge for catalog resolution at plan time.
-var planTimeConstructorRegistry sync.Map
-
-// RegisterPlanTimeConstructor registers a function that constructs a
-// URI-only resource from a simpler representation (e.g., string → Resource).
-// Unlike RegisterConstructor, the plan-time constructor must not perform I/O.
-func RegisterPlanTimeConstructor[T any](fn func(any) (T, error)) {
-	t := reflect.TypeOf((*T)(nil)).Elem()
-	planTimeConstructorRegistry.Store(t, func(v any) (any, error) {
-		return fn(v)
-	})
-}
-
 // Construct uses the constructor registry to convert value to type T.
 // Returns an error if no constructor is registered for T or if the
 // constructor rejects the value.
@@ -66,11 +51,10 @@ func Construct[T any](value any) (T, error) {
 	return result.(T), nil
 }
 
-// constructPlanTimeResource creates a Resource for plan-time catalog
-// resolution using the plan-time constructor registry. Returns nil, false
-// if no plan-time constructor exists for the given type.
-func constructPlanTimeResource(targetType reflect.Type, value any) (Resource, bool) {
-	ctor, ok := planTimeConstructorRegistry.Load(targetType)
+// constructResource creates a Resource using the constructor registry.
+// Returns nil, false if no constructor exists for the given type.
+func constructResource(targetType reflect.Type, value any) (Resource, bool) {
+	ctor, ok := constructorRegistry.Load(targetType)
 	if !ok {
 		return nil, false
 	}
