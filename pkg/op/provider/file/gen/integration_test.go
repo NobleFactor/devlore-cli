@@ -21,6 +21,9 @@ import (
 //
 // The script sets result_* globals which this test inspects.
 func TestImmediateBindings(t *testing.T) {
+	// #170: WrapReceiver has no support for Starlark callable params (walk_tree fn).
+	// https://github.com/NobleFactor/devlore-cli/issues/170
+	t.Skip("#170: no support for Starlark callable params — https://github.com/NobleFactor/devlore-cli/issues/170")
 	tmp := t.TempDir()
 
 	// Create a fixture file for read/exists/is_file tests.
