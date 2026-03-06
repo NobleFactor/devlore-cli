@@ -151,18 +151,17 @@ func detectConflict(node *op.Node) Conflict {
 // ResolveResources verifies that all discovered resources in the catalog
 // exist on the target machine. Discovery entries are created by
 // catalog.Resolve during planning — they represent URIs referenced as
-// Resource-typed parameters.
+// Resource-typed parameters (inputs that should already exist).
+//
+// The planned bridge shadows destination parameters for compensable
+// methods with 2+ Resource params (shadowOutputParam), which removes
+// those URIs from DiscoveryURIs. Single-Resource-param methods (e.g.,
+// WriteText) may still have destinations in DiscoveryURIs — callers
+// should be aware of this limitation.
 //
 // Only file:// scheme URIs are checked (os.Stat). Other schemes (git,
 // pkg, svc) are skipped — their resolution requires provider-specific
 // logic that runs during execution.
-//
-// Returns an error listing all missing sources. Callers should invoke
-// this explicitly when they know all discovery entries represent genuine
-// sources (inputs that must already exist). The executor does NOT call
-// this automatically because the planned bridge currently registers both
-// source and destination parameters via catalog.Resolve — destination
-// files may not exist yet (they will be created by the graph).
 func ResolveResources(catalog *op.ResourceCatalog) error {
 	if catalog == nil {
 		return nil

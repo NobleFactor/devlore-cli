@@ -6,6 +6,7 @@ package op
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -320,6 +321,121 @@ func TestWrapPlanned_SkipsPromiseResolution(t *testing.T) {
 	if graph.Catalog.Len() != catalogBefore {
 		t.Errorf("catalog grew from %d to %d — promise should not be resolved at plan time",
 			catalogBefore, graph.Catalog.Len())
+	}
+}
+
+func TestWrapPlanned_ShadowsOutputResource(t *testing.T) {
+	// Register plan-time constructor for actionResource.
+	RegisterPlanTimeConstructor(func(v any) (actionResource, error) {
+		s, ok := v.(string)
+		if !ok {
+			return actionResource{}, fmt.Errorf("expected string, got %T", v)
+		}
+		return actionResource{SourcePath: s}, nil
+	})
+	defer planTimeConstructorRegistry.Delete(reflect.TypeOf(actionResource{}))
+
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	// Transfer takes 2 actionResource params (source, dest) and returns
+	// (actionResource, map[string]any, error) — compensable.
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Transfer": {"source", "dest"},
+	})
+
+	attr, _ := p.Attr("transfer")
+	builtin := attr.(*starlark.Builtin)
+	_, err := builtin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("source"), starlark.String("/tmp/src")},
+		{starlark.String("dest"), starlark.String("/tmp/dst")},
+	})
+	if err != nil {
+		t.Fatalf("transfer() error: %v", err)
+	}
+
+	// Source should be resolved (discovery entry — no originID).
+	srcURI := "file:///tmp/src"
+	srcID := graph.Catalog.Current(srcURI)
+	if srcID == "" {
+		t.Fatalf("catalog has no entry for %q", srcURI)
+	}
+	srcEntry, _ := graph.Catalog.Lookup(srcID)
+	srcBase := srcEntry.resourceBase()
+	if srcBase.originID != "" {
+		t.Errorf("source originID = %q, want empty (discovery entry)", srcBase.originID)
+	}
+
+	// Destination should be shadowed (has originID = node ID).
+	dstURI := "file:///tmp/dst"
+	dstID := graph.Catalog.Current(dstURI)
+	if dstID == "" {
+		t.Fatalf("catalog has no entry for %q", dstURI)
+	}
+	dstEntry, _ := graph.Catalog.Lookup(dstID)
+	dstBase := dstEntry.resourceBase()
+	if dstBase.originID == "" {
+		t.Error("dest originID is empty — shadowOutputParam did not fire")
+	}
+	if dstBase.originID != graph.Nodes[0].ID {
+		t.Errorf("dest originID = %q, want node ID %q", dstBase.originID, graph.Nodes[0].ID)
+	}
+
+	// Destination should NOT appear in DiscoveryURIs (it's shadowed).
+	for _, uri := range graph.Catalog.DiscoveryURIs() {
+		if uri == dstURI {
+			t.Error("destination URI appears in DiscoveryURIs — should be shadowed, not discovered")
+		}
+	}
+}
+
+func TestWrapPlanned_ConflictDetection(t *testing.T) {
+	// Register plan-time constructor for actionResource.
+	RegisterPlanTimeConstructor(func(v any) (actionResource, error) {
+		s, ok := v.(string)
+		if !ok {
+			return actionResource{}, fmt.Errorf("expected string, got %T", v)
+		}
+		return actionResource{SourcePath: s}, nil
+	})
+	defer planTimeConstructorRegistry.Delete(reflect.TypeOf(actionResource{}))
+
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &actionProvider{}, actionParams)
+
+	graph := NewGraph("test")
+	providerType := reflect.TypeOf(&actionProvider{})
+
+	// Transfer takes 2 Resource params — the last (dest) is shadowed.
+	p := WrapPlanned("test", providerType, graph, "proj", reg, MethodParams{
+		"Transfer": {"source", "dest"},
+	})
+
+	attr, _ := p.Attr("transfer")
+	builtin := attr.(*starlark.Builtin)
+
+	// First transfer to /tmp/dst — should succeed.
+	_, err := builtin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("source"), starlark.String("/tmp/src1")},
+		{starlark.String("dest"), starlark.String("/tmp/dst")},
+	})
+	if err != nil {
+		t.Fatalf("first transfer() error: %v", err)
+	}
+
+	// Second transfer to same /tmp/dst from a different node — should conflict.
+	_, err = builtin.CallInternal(nil, nil, []starlark.Tuple{
+		{starlark.String("source"), starlark.String("/tmp/src2")},
+		{starlark.String("dest"), starlark.String("/tmp/dst")},
+	})
+	if err == nil {
+		t.Fatal("expected conflict error for second transfer to same dest, got nil")
+	}
+	if !strings.Contains(err.Error(), "resource conflict") {
+		t.Errorf("error = %q, want 'resource conflict' substring", err)
 	}
 }
 

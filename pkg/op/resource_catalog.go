@@ -45,11 +45,32 @@ func (c *ResourceCatalog) Resolve(uri string) string {
 // Shadow catalogs a new resource version, updates the namespace to point to
 // it, and returns the new resource ID. The resource must embed [ResourceBase]
 // with its URI already set via [NewResourceBase].
-func (c *ResourceCatalog) Shadow(r Resource, originID string) string {
+//
+// Write-write conflict detection: if the URI is already shadowed by a
+// different origin (non-empty originID), Shadow returns an error. This
+// catches plan-time conflicts where two nodes target the same output.
+// Discovery entries (originID == "") are silently superseded.
+func (c *ResourceCatalog) Shadow(r Resource, originID string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.catalogLocked(r, originID)
+	// Detect write-write conflicts.
+	if originID != "" {
+		uri := r.URI()
+		if existingID, ok := c.ns[uri]; ok {
+			if idx, ok := c.byID[existingID]; ok {
+				existingOrigin := c.entries[idx].resourceBase().originID
+				if existingOrigin != "" && existingOrigin != originID {
+					return "", fmt.Errorf(
+						"resource conflict: URI %q is targeted by both %q and %q",
+						uri, existingOrigin, originID,
+					)
+				}
+			}
+		}
+	}
+
+	return c.catalogLocked(r, originID), nil
 }
 
 // Lookup returns the resource with the given ID, or false if not found.

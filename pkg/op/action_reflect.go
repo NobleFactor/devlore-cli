@@ -6,6 +6,7 @@ package op
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // reflectedAction implements Action via reflection.
@@ -219,7 +220,7 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 
 	// Already satisfies Resource (pointer type or interface).
 	if t.Implements(resourceType) {
-		catalog.Shadow(result.(Resource), originID)
+		_, _ = catalog.Shadow(result.(Resource), originID)
 		return result
 	}
 
@@ -229,7 +230,7 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 	if t.Kind() == reflect.Struct && reflect.PointerTo(t).Implements(resourceType) {
 		ptr := reflect.New(t)
 		ptr.Elem().Set(rv)
-		catalog.Shadow(ptr.Interface().(Resource), originID)
+		_, _ = catalog.Shadow(ptr.Interface().(Resource), originID)
 		return ptr.Elem().Interface()
 	}
 
@@ -241,11 +242,11 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 		if directImpl || ptrImpl {
 			for i := 0; i < rv.Len(); i++ {
 				if directImpl {
-					catalog.Shadow(rv.Index(i).Interface().(Resource), originID)
+					_, _ = catalog.Shadow(rv.Index(i).Interface().(Resource), originID)
 				} else {
 					ptr := reflect.New(et)
 					ptr.Elem().Set(rv.Index(i))
-					catalog.Shadow(ptr.Interface().(Resource), originID)
+					_, _ = catalog.Shadow(ptr.Interface().(Resource), originID)
 				}
 			}
 		}
@@ -270,6 +271,8 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, params MethodParams) {
 	pv := reflect.ValueOf(provider)
 	pt := pv.Type()
+
+	consumedCompensators := make(map[string]bool)
 
 	for goName, paramNames := range params {
 		method, ok := pt.MethodByName(goName)
@@ -304,12 +307,16 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 					actionName, goName, pt.Elem().Name(), compensateName,
 				))
 			}
+			validateCompensateSignature(actionName, cm)
+			consumedCompensators[compensateName] = true
 			reg.Register(&reflectedCompensableAction{
 				reflectedAction: base,
 				compensate:      cm,
 			})
 		} else if cm, ok := pt.MethodByName(compensateName); ok {
 			// 1-2 returns but has a Compensate companion — allow it.
+			validateCompensateSignature(actionName, cm)
+			consumedCompensators[compensateName] = true
 			reg.Register(&reflectedCompensableAction{
 				reflectedAction: base,
 				compensate:      cm,
@@ -317,6 +324,48 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 		} else {
 			reg.Register(&base)
 		}
+	}
+
+	// Validate no orphaned Compensate methods exist on the provider.
+	// A Compensate* method whose forward method is in params but was not
+	// consumed indicates a pairing bug (e.g., forward has no error return).
+	// Compensate methods whose forward is not in params are ignored — the
+	// caller may be registering a subset of methods.
+	for i := 0; i < pt.NumMethod(); i++ {
+		m := pt.Method(i)
+		if !strings.HasPrefix(m.Name, "Compensate") {
+			continue
+		}
+		if consumedCompensators[m.Name] {
+			continue
+		}
+		forwardName := strings.TrimPrefix(m.Name, "Compensate")
+		if _, inParams := params[forwardName]; !inParams {
+			continue
+		}
+		panic(fmt.Sprintf(
+			"%s: %s.%s exists but forward method %s was not registered as an action",
+			name, pt.Elem().Name(), m.Name, forwardName,
+		))
+	}
+}
+
+// validateCompensateSignature panics if a Compensate method has a malformed
+// signature. The expected shape is func(receiver, undoState) error.
+func validateCompensateSignature(actionName string, cm reflect.Method) {
+	mt := cm.Type
+	// NumIn includes receiver, so 2 = receiver + undoState.
+	if mt.NumIn() != 2 {
+		panic(fmt.Sprintf(
+			"%s: %s must accept exactly 1 parameter (undo state), got %d",
+			actionName, cm.Name, mt.NumIn()-1,
+		))
+	}
+	if mt.NumOut() != 1 || !mt.Out(0).Implements(errorType) {
+		panic(fmt.Sprintf(
+			"%s: %s must return exactly (error), got %d return values",
+			actionName, cm.Name, mt.NumOut(),
+		))
 	}
 }
 

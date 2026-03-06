@@ -174,11 +174,14 @@ func buildMethodBridge(
 		}
 
 		// 4. Shadow Resource results in catalog (success path only).
+		// The originID is the qualified method name (e.g., "file.copy")
+		// since immediate mode has no graph nodes.
 		if receiver.catalog != nil && len(results) > 0 {
 			lastIdx := len(results) - 1
 			isErr := results[lastIdx].Type().Implements(errorType) && !results[lastIdx].IsNil()
 			if !isErr && results[0].Type() != noResultType {
-				shadowResult(results[0].Interface(), receiver.catalog, "")
+				originID := receiverName + "." + snakeName
+				shadowResult(results[0].Interface(), receiver.catalog, originID)
 			}
 		}
 

@@ -109,6 +109,15 @@ func (p *actionProvider) Touch(res actionResource) (actionResource, error) {
 	return res, nil
 }
 
+// Two Resource params (source + dest) — tests plan-time output shadowing.
+func (p *actionProvider) Transfer(source, dest actionResource) (actionResource, map[string]any, error) {
+	return dest, map[string]any{"source": source.SourcePath, "dest": dest.SourcePath}, nil
+}
+
+func (p *actionProvider) CompensateTransfer(state map[string]any) error {
+	return nil
+}
+
 // Compensable with NoResult: (NoResult, map[string]any, error).
 func (p *actionProvider) Delete(path string) (NoResult, map[string]any, error) {
 	return NoResult{}, map[string]any{"path": path}, nil
@@ -135,6 +144,7 @@ var actionParams = MethodParams{
 	"Delete":    {"path"},
 	"Read":      {"path"},
 	"Touch":     {"res"},
+	"Transfer":  {"source", "dest"},
 	"Validate":  {"path"},
 	"Mkdir":     {"path", "mode"},
 	"Deploy":    {"res"},
@@ -362,7 +372,7 @@ func TestRegisterReflectedActions_ActionNames(t *testing.T) {
 	names := reg.Names()
 	sort.Strings(names)
 
-	// Exists is skipped (no error return). Configure, Copy, Create, Delete, Deploy, Mkdir, Noop, Read, Touch, Validate qualify.
+	// Exists is skipped (no error return). Configure, Copy, Create, Delete, Deploy, Mkdir, Noop, Read, Touch, Transfer, Validate qualify.
 	expected := []string{
 		"test.configure",
 		"test.copy",
@@ -373,6 +383,7 @@ func TestRegisterReflectedActions_ActionNames(t *testing.T) {
 		"test.noop",
 		"test.read",
 		"test.touch",
+		"test.transfer",
 		"test.validate",
 	}
 	if len(names) != len(expected) {
@@ -958,5 +969,108 @@ func TestRegisterReflectedActions_MissingCompensate_Panics(t *testing.T) {
 	reg := NewActionRegistry()
 	RegisterReflectedActions(reg, "test", &unpairedProvider{}, MethodParams{
 		"Destroy": {"path"},
+	})
+}
+
+// orphanedCompensateProvider has a Compensate method whose forward method
+// is in params but doesn't return error (so it's skipped), making the
+// compensator orphaned.
+type orphanedCompensateProvider struct{}
+
+// Ghost has no error return — it won't register as an action.
+func (p *orphanedCompensateProvider) Ghost(path string) bool {
+	return true
+}
+
+// CompensateGhost exists but Ghost is not an action → orphaned.
+func (p *orphanedCompensateProvider) CompensateGhost(state map[string]any) error {
+	return nil
+}
+
+func TestRegisterReflectedActions_OrphanedCompensate_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for orphaned Compensate method")
+		}
+		msg := fmt.Sprint(r)
+		if !strings.Contains(msg, "CompensateGhost") {
+			t.Errorf("panic message = %q, want mention of CompensateGhost", msg)
+		}
+		if !strings.Contains(msg, "not registered") {
+			t.Errorf("panic message = %q, want mention of 'not registered'", msg)
+		}
+	}()
+
+	reg := NewActionRegistry()
+	// Ghost is in params but won't register (no error return).
+	// CompensateGhost is orphaned.
+	RegisterReflectedActions(reg, "test", &orphanedCompensateProvider{}, MethodParams{
+		"Ghost": {"path"},
+	})
+}
+
+// badSignatureProvider has a Compensate method with wrong signature.
+type badSignatureProvider struct{}
+
+func (p *badSignatureProvider) Write(path string) (string, map[string]any, error) {
+	return "", nil, nil
+}
+
+// CompensateWrite has too many params — should be func(state) error.
+func (p *badSignatureProvider) CompensateWrite(state map[string]any, extra string) error {
+	return nil
+}
+
+func TestRegisterReflectedActions_BadCompensateSignature_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for bad Compensate signature")
+		}
+		msg := fmt.Sprint(r)
+		if !strings.Contains(msg, "CompensateWrite") {
+			t.Errorf("panic message = %q, want mention of CompensateWrite", msg)
+		}
+		if !strings.Contains(msg, "1 parameter") {
+			t.Errorf("panic message = %q, want mention of '1 parameter'", msg)
+		}
+	}()
+
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &badSignatureProvider{}, MethodParams{
+		"Write": {"path"},
+	})
+}
+
+// badReturnProvider has a Compensate method that returns (string, error) instead of just error.
+type badReturnProvider struct{}
+
+func (p *badReturnProvider) Store(path string) (string, map[string]any, error) {
+	return "", nil, nil
+}
+
+func (p *badReturnProvider) CompensateStore(state map[string]any) (string, error) {
+	return "", nil
+}
+
+func TestRegisterReflectedActions_BadCompensateReturn_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for bad Compensate return")
+		}
+		msg := fmt.Sprint(r)
+		if !strings.Contains(msg, "CompensateStore") {
+			t.Errorf("panic message = %q, want mention of CompensateStore", msg)
+		}
+		if !strings.Contains(msg, "return") {
+			t.Errorf("panic message = %q, want mention of 'return'", msg)
+		}
+	}()
+
+	reg := NewActionRegistry()
+	RegisterReflectedActions(reg, "test", &badReturnProvider{}, MethodParams{
+		"Store": {"path"},
 	})
 }

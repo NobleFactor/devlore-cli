@@ -162,10 +162,113 @@ func buildPlannedBridge(
 			}
 		}
 
-		// 4. Append to graph and return promise.
+		// 4. Shadow output Resource for compensable methods.
+		// For methods with 2+ Resource-typed parameters that return a
+		// Resource, shadow the last Resource param (the write target).
+		// This supersedes the earlier Resolve, removing the destination
+		// from DiscoveryURIs so pre-flight won't reject missing targets.
+		if err := shadowOutputParam(graph, mt, vals, paramNames, node.ID); err != nil {
+			return nil, err
+		}
+
+		// 5. Append to graph and return promise.
 		graph.Nodes = append(graph.Nodes, node)
 		return NewOutput(node, graph, ""), nil
 	}
+}
+
+// shadowOutputParam shadows the output Resource parameter in the catalog at
+// plan time. For compensable methods (3+ returns) that return a Resource type,
+// the last Resource-typed parameter (conventionally the destination) is
+// shadowed with the node's ID. This is only applied when the method has 2+
+// Resource-typed parameters so we can distinguish source from destination.
+//
+// Methods with a single Resource parameter are not shadowed at plan time
+// because we cannot distinguish source (Copy) from destination (WriteText)
+// without explicit metadata. Those are handled at execution time by
+// shadowResult in action_reflect.go.
+func shadowOutputParam(graph *Graph, mt reflect.Type, vals []starlark.Value, paramNames []string, nodeID string) error {
+	if graph.Catalog == nil {
+		return nil
+	}
+
+	// Only compensable methods (numNonError >= 2) modify state.
+	numNonError := mt.NumOut()
+	if numNonError > 0 && mt.Out(mt.NumOut()-1).Implements(errorType) {
+		numNonError--
+	}
+	if numNonError < 2 {
+		return nil
+	}
+
+	// Check if the first non-error return is a Resource type.
+	resultType := mt.Out(0)
+	if resultType == noResultType {
+		return nil
+	}
+	if !implementsResource(resultType) {
+		return nil
+	}
+
+	// Find all Resource-typed parameter indices.
+	var resourceParamIndices []int
+	for i := range paramNames {
+		paramIdx := i + 1 // skip receiver
+		if paramIdx >= mt.NumIn() {
+			break
+		}
+		if implementsResource(mt.In(paramIdx)) {
+			resourceParamIndices = append(resourceParamIndices, i)
+		}
+	}
+
+	// Need 2+ Resource params to distinguish source from destination.
+	if len(resourceParamIndices) < 2 {
+		return nil
+	}
+
+	// Shadow the last Resource-typed parameter (destination convention).
+	lastIdx := resourceParamIndices[len(resourceParamIndices)-1]
+	sv := vals[lastIdx]
+	if sv == nil {
+		return nil
+	}
+
+	// Skip promises — they'll be shadowed at execution time.
+	if _, ok := sv.(*Output); ok {
+		return nil
+	}
+	if _, ok := sv.(*Gather); ok {
+		return nil
+	}
+
+	paramType := mt.In(lastIdx + 1)
+	var goVal any
+	if err := unmarshal(sv, &goVal); err != nil {
+		return nil
+	}
+
+	r, ok := constructPlanTimeResource(paramType, goVal)
+	if !ok {
+		return nil
+	}
+
+	uri := r.URI()
+	if uri != "" {
+		if _, err := graph.Catalog.Shadow(r, nodeID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// implementsResource returns true if t satisfies the Resource interface
+// either directly or via pointer (for value types with pointer receivers).
+func implementsResource(t reflect.Type) bool {
+	if t.Implements(resourceType) {
+		return true
+	}
+	return t.Kind() == reflect.Struct && reflect.PointerTo(t).Implements(resourceType)
 }
 
 // resolveResourceParam checks if a Starlark slot value targets a Resource-typed

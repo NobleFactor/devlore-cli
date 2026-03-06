@@ -642,7 +642,9 @@ func TestFillSlotImplicitEdge_ResourceWithOrigin(t *testing.T) {
 		ResourceBase: NewResourceBase("file:///foo"),
 		SourcePath:   "/foo",
 	}
-	g.Catalog.Shadow(res, "writer")
+	if _, err := g.Catalog.Shadow(res, "writer"); err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 
 	val, err := marshal(res)
 	if err != nil {
@@ -695,7 +697,9 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 	// A plain ResourceBase with origin.
 	base := NewResourceBase("file:///baz")
 	res := &base
-	g.Catalog.Shadow(res, "producer")
+	if _, err := g.Catalog.Shadow(res, "producer"); err != nil {
+		t.Fatalf("Shadow error: %v", err)
+	}
 
 	val, err := marshal(res)
 	if err != nil {
