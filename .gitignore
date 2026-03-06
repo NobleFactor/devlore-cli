@@ -1,2 +1,4 @@
-build/
-docs/cli/
+/build/
+/docs/cli/
+/pkg/op/provider/register.go
+/pkg/op/provider/*/gen/
