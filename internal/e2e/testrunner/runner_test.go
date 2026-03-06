@@ -4,13 +4,75 @@
 package testrunner_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"filippo.io/age"
+	"github.com/getsops/sops/v3"
+	"github.com/getsops/sops/v3/aes"
+	sopsage "github.com/getsops/sops/v3/age"
+	"github.com/getsops/sops/v3/stores/yaml"
+
 	"github.com/NobleFactor/devlore-cli/internal/e2e/testrunner"
 )
+
+// sopsEncrypt generates age keys and encrypts plainYAML with SOPS.
+// Returns the encrypted bytes and the age identity string for decryption.
+func sopsEncrypt(t *testing.T, plainYAML []byte) ([]byte, string) {
+	t.Helper()
+
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store := &yaml.Store{}
+	branches, err := store.LoadPlainFile(plainYAML)
+	if err != nil {
+		t.Fatalf("loading plain YAML: %v", err)
+	}
+
+	masterKey := &sopsage.MasterKey{
+		Recipient: identity.Recipient().String(),
+	}
+
+	tree := sops.Tree{
+		Branches: branches,
+		Metadata: sops.Metadata{
+			KeyGroups: []sops.KeyGroup{{masterKey}},
+			Version:   "3.7.0",
+		},
+	}
+
+	dataKey, errs := tree.GenerateDataKey()
+	if len(errs) > 0 {
+		t.Fatalf("GenerateDataKey: %v", errs)
+	}
+
+	cipher := aes.NewCipher()
+	mac, err := tree.Encrypt(dataKey, cipher)
+	if err != nil {
+		t.Fatalf("encrypting tree: %v", err)
+	}
+
+	encryptedMac, err := cipher.Encrypt(mac, dataKey, tree.Metadata.LastModified.Format("2006-01-02T15:04:05Z"))
+	if err != nil {
+		t.Fatalf("encrypting MAC: %v", err)
+	}
+	tree.Metadata.MessageAuthenticationCode = encryptedMac
+
+	encrypted, err := store.EmitEncryptedFile(tree)
+	if err != nil {
+		t.Fatalf("emitting encrypted file: %v", err)
+	}
+
+	return encrypted, identity.String()
+}
 
 // testdataDir returns the absolute path to the data/ directory.
 func testdataDir(t *testing.T) string {
@@ -327,6 +389,54 @@ func TestImmStarindex(t *testing.T) {
 
 func TestImmStarstats(t *testing.T) {
 	runScriptImm(t, "test_imm_starstats.star", "starstats")
+}
+
+func TestImmEncryption(t *testing.T) {
+	// Generate age keys and SOPS-encrypt a YAML file.
+	plainYAML := []byte("greeting: hello\nname: world\n")
+	encrypted, ageKey := sopsEncrypt(t, plainYAML)
+
+	tmp := t.TempDir()
+	srcPath := filepath.Join(tmp, "secret.enc.yaml")
+	dstPath := filepath.Join(tmp, "secret.dec.yaml")
+	if err := os.WriteFile(srcPath, encrypted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SOPS_AGE_KEY", ageKey)
+
+	// Write a script that decrypts the fixture and verifies the result.
+	script := filepath.Join(tmp, "test_imm_encryption.star")
+	content := fmt.Sprintf(`# Generated encryption immediate test.
+result = encryption.decrypt_sops_file(source=%q, destination=%q)
+t.expect_equal(type(result), "struct")
+t.expect_node_count(0)
+`, srcPath, dstPath)
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := testrunner.New(script, testrunner.WithReceivers("encryption"))
+	result, err := runner.Start(context.Background())
+	if err != nil {
+		t.Fatalf("runner error: %v", err)
+	}
+	if !result.Passed {
+		for _, f := range result.Failures {
+			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
+		}
+	}
+
+	// Verify the decrypted file was actually written.
+	decrypted, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("reading decrypted file: %v", err)
+	}
+	if !bytes.Contains(decrypted, []byte("hello")) {
+		t.Errorf("decrypted content missing 'hello': %s", decrypted)
+	}
+	if !bytes.Contains(decrypted, []byte("world")) {
+		t.Errorf("decrypted content missing 'world': %s", decrypted)
+	}
 }
 
 // ── Other tests ──
