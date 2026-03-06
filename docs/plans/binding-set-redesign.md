@@ -142,25 +142,27 @@ Root string
 }
 ```
 
-The code generator reads these directives and emits them into the
-`ProviderBinding` registration:
+The code generator reads these directives and emits them into the generated
+provider descriptor. The `init()` announces the provider; the framework
+calls back to initialize it (see [Projected Provider API — Provider
+Registration](../architecture/devlore-projected-provider-api.md#provider-registration)):
 
 ```go
+type starlarkCodeProvider struct{}
+
+func (p *starlarkCodeProvider) Name() string { return "starlarkcode" }
+
+func (p *starlarkCodeProvider) NewImmediate(cfg op.BindingConfig) starlark.Value {
+    return NewStarlarkCodeReceiver(&Provider{Root: cfg.WorkDir})
+}
+
 func init() {
-op.RegisterBinding(&op.ProviderBinding{
-Name:     "starlarkcode",
-Access:   op.AccessImmediate,
-Lifetime: op.LifetimeStateless,
-ImmediateFactory: func (cfg op.BindingConfig) starlark.Value {
-return NewStarlarkCodeReceiver(&Provider{Root: cfg.WorkDir})
-},
-})
+    op.Announce(&starlarkCodeProvider{})
 }
 ```
 
-When the `// +devlore:lifetime=` directive is omitted, the generator emits
-`LifetimeStateless` as the default. This matches the zero-value behavior and
-requires no changes to existing provider registrations.
+When the `// +devlore:lifetime=` directive is omitted, the generator defaults
+to `LifetimeStateless`. This requires no changes to existing provider structs.
 
 #### Stateless Providers (`LifetimeStateless`)
 

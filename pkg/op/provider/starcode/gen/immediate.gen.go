@@ -3,26 +3,9 @@
 package starcode
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "starcode",
-		Access:   op.AccessImmediate,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			root := cfg.WorkDir
-			if root == "" {
-				root = "."
-			}
-			return NewStarcodeReceiver(&provider.Provider{Root: root})
-		},
-	})
-}
 
 // NewStarcodeReceiver creates a wrapped starcode provider for Starlark consumption.
 func NewStarcodeReceiver(p *provider.Provider) *op.ReflectedReceiver {

@@ -18,7 +18,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 )
 
-var _ op.Provider = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.Provider.
+var _ op.ContextProvider = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.ContextProvider.
 
 // Provider provides file system actions.
 //
@@ -26,7 +26,6 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard: ensures *Provider imple
 // The tombstone is opaque to the executor, meaningful only to the corresponding "Compensate*" backward method.
 //
 // +devlore:access=both
-// +devlore:bind Root=WorkDir
 type Provider struct {
 	op.ProviderBase
 	Root Resource

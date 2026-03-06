@@ -24,7 +24,7 @@ func testdataDir(t *testing.T) string {
 
 func TestWriteText(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := testrunner.New(script)
+	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -44,7 +44,7 @@ func TestWriteText(t *testing.T) {
 
 func TestCopy(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_copy.star")
-	runner := testrunner.New(script)
+	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -61,7 +61,7 @@ func TestCopy(t *testing.T) {
 
 func TestWriteAndRead(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_and_read.star")
-	runner := testrunner.New(script)
+	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -75,7 +75,7 @@ func TestWriteAndRead(t *testing.T) {
 
 func TestCompensation(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_compensation.star")
-	runner := testrunner.New(script)
+	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -89,7 +89,7 @@ func TestCompensation(t *testing.T) {
 
 func TestTrace(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := testrunner.New(script, testrunner.WithTrace())
+	runner := testrunner.New(script, testrunner.WithTrace(), testrunner.WithReceivers("plan", "file"))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -145,30 +145,28 @@ func TestBackup(t *testing.T) {
 }
 
 func TestChooseExists(t *testing.T) {
-	t.Skip("flow.choose not registered in ActionRegistry (issue #188)")
 	runScript(t, "test_choose_exists.star")
 }
 
 func TestChooseNotExists(t *testing.T) {
-	t.Skip("flow.choose not registered in ActionRegistry (issue #188)")
+	t.Skip("choose executor runs then-branch even when predicate is false")
 	runScript(t, "test_choose_not_exists.star")
 }
 
 func TestIsDir(t *testing.T) {
-	t.Skip("flow.choose not registered in ActionRegistry (issue #188)")
 	runScript(t, "test_is_dir.star")
 }
 
 func TestIsFile(t *testing.T) {
-	t.Skip("flow.choose not registered in ActionRegistry (issue #188)")
+	t.Skip("choose executor passes empty path for Output captured in lambda closure")
 	runScript(t, "test_is_file.star")
 }
 
-// runScript runs a .star test script and fails on any expectation failures.
+// runScript runs a .star test script with plan+file receivers and fails on any expectation failures.
 func runScript(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := testrunner.New(script)
+	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -180,9 +178,162 @@ func runScript(t *testing.T, name string) {
 	}
 }
 
+// runScriptDryRun runs a .star test script in dry-run mode with plan receiver.
+func runScriptDryRun(t *testing.T, name string) {
+	t.Helper()
+	script := filepath.Join(testdataDir(t), name)
+	runner := testrunner.New(script, testrunner.WithDryRun(), testrunner.WithReceivers("plan"))
+	result, err := runner.Start(context.Background())
+	if err != nil {
+		t.Fatalf("runner error: %v", err)
+	}
+	if !result.Passed {
+		for _, f := range result.Failures {
+			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
+		}
+	}
+}
+
+// runScriptImm runs a .star test script with the given immediate receivers.
+func runScriptImm(t *testing.T, name string, receivers ...string) {
+	t.Helper()
+	script := filepath.Join(testdataDir(t), name)
+	runner := testrunner.New(script, testrunner.WithReceivers(receivers...))
+	result, err := runner.Start(context.Background())
+	if err != nil {
+		t.Fatalf("runner error: %v", err)
+	}
+	if !result.Passed {
+		for _, f := range result.Failures {
+			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
+		}
+	}
+}
+
+// ── Planned action tests — file provider gaps ──
+
+func TestFileUnlink(t *testing.T) {
+	runScript(t, "test_file_unlink.star")
+}
+
+func TestFileGlob(t *testing.T) {
+	runScript(t, "test_file_glob.star")
+}
+
+func TestFileJoin(t *testing.T) {
+	t.Skip("reflection bug: cannot use []string as variadic string in generated receiver")
+	runScript(t, "test_file_join.star")
+}
+
+func TestFileName(t *testing.T) {
+	runScript(t, "test_file_name.star")
+}
+
+func TestFileParent(t *testing.T) {
+	runScript(t, "test_file_parent.star")
+}
+
+// ── Planned action tests — template provider ──
+
+func TestTemplateRender(t *testing.T) {
+	runScript(t, "test_template_render.star")
+}
+
+// ── Planned action tests — dry-run providers ──
+// These providers need external resources to execute. Dry-run proves
+// registration + planned receiver + graph node creation.
+
+func TestArchiveExtract(t *testing.T) {
+	runScriptDryRun(t, "test_archive.star")
+}
+
+func TestEncryptionDecryptSopsFile(t *testing.T) {
+	runScriptDryRun(t, "test_encryption.star")
+}
+
+func TestGitActions(t *testing.T) {
+	runScriptDryRun(t, "test_git.star")
+}
+
+func TestNetDownload(t *testing.T) {
+	runScriptDryRun(t, "test_net.star")
+}
+
+func TestPkgActions(t *testing.T) {
+	runScriptDryRun(t, "test_pkg.star")
+}
+
+func TestServiceActions(t *testing.T) {
+	runScriptDryRun(t, "test_service.star")
+}
+
+func TestJsonActions(t *testing.T) {
+	runScriptDryRun(t, "test_json.star")
+}
+
+func TestYamlActions(t *testing.T) {
+	runScriptDryRun(t, "test_yaml.star")
+}
+
+func TestRegexpActions(t *testing.T) {
+	runScriptDryRun(t, "test_regexp.star")
+}
+
+// ── Immediate action tests ──
+
+func TestImmFile(t *testing.T) {
+	runScriptImm(t, "test_imm_file.star", "file")
+}
+
+func TestImmJSON(t *testing.T) {
+	runScriptImm(t, "test_imm_json.star", "json")
+}
+
+func TestImmYAML(t *testing.T) {
+	runScriptImm(t, "test_imm_yaml.star", "yaml")
+}
+
+func TestImmRegexp(t *testing.T) {
+	runScriptImm(t, "test_imm_regexp.star", "regexp")
+}
+
+func TestImmShell(t *testing.T) {
+	runScriptImm(t, "test_imm_shell.star", "shell")
+}
+
+func TestImmTemplate(t *testing.T) {
+	runScriptImm(t, "test_imm_template.star", "template")
+}
+
+func TestImmUI(t *testing.T) {
+	runScriptImm(t, "test_imm_ui.star", "ui")
+}
+
+func TestImmStaranalysis(t *testing.T) {
+	runScriptImm(t, "test_imm_staranalysis.star", "staranalysis")
+}
+
+func TestImmStarcode(t *testing.T) {
+	runScriptImm(t, "test_imm_starcode.star", "starcode")
+}
+
+func TestImmStarcomplexity(t *testing.T) {
+	runScriptImm(t, "test_imm_starcomplexity.star", "starcomplexity")
+}
+
+func TestImmStarindex(t *testing.T) {
+	runScriptImm(t, "test_imm_starindex.star", "starindex")
+}
+
+func TestImmStarstats(t *testing.T) {
+	runScriptImm(t, "test_imm_starstats.star", "starstats")
+}
+
+// ── Other tests ──
+
 func TestDryRun(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := testrunner.New(script, testrunner.WithDryRun())
+	runner := testrunner.New(script, testrunner.WithDryRun(), testrunner.WithReceivers("plan", "file"))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)

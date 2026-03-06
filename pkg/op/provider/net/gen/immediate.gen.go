@@ -3,22 +3,9 @@
 package net
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "net",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewNetReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewNetReceiver creates a wrapped net provider for Starlark consumption.
 func NewNetReceiver(p *provider.Provider) *op.ReflectedReceiver {

@@ -6,7 +6,7 @@ package op
 import "io"
 
 // BindingConfig holds configuration for constructing Starlark bindings.
-// Passed to ImmediateFactory functions so immediate receivers can write
+// Passed to ImmediateProvider.NewImmediate so immediate receivers can write
 // output and identify the running program.
 type BindingConfig struct {
 	// Writer is the output destination for immediate receivers (e.g., ui.note).
@@ -25,4 +25,9 @@ type BindingConfig struct {
 	// Platform provides platform abstractions (package manager, service manager)
 	// for providers that need them in immediate mode.
 	Platform *Platform
+
+	// Receivers lists the Starlark namespaces to expose as globals.
+	// "plan" includes the PlanRoot aggregate; provider names (e.g., "file", "ui")
+	// include their immediate receivers.
+	Receivers []string
 }

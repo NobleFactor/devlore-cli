@@ -13,8 +13,7 @@ import (
 )
 
 // Provider provides regular expression operations with compiled pattern caching.
-//
-// +devlore:access=immediate
+// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 	cache sync.Map // pattern string → *regexp.Regexp

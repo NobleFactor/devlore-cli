@@ -3,22 +3,9 @@
 package archive
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "archive",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewArchiveReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewArchiveReceiver creates a wrapped archive provider for Starlark consumption.
 func NewArchiveReceiver(p *provider.Provider) *op.ReflectedReceiver {

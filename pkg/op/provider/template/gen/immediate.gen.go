@@ -3,22 +3,9 @@
 package template
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "template",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewTemplateReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewTemplateReceiver creates a wrapped template provider for Starlark consumption.
 func NewTemplateReceiver(p *provider.Provider) *op.ReflectedReceiver {

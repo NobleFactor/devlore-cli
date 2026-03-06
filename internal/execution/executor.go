@@ -420,7 +420,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 
 	// Hydrate stub actions and inject context into provider-backed actions.
 	freshReg := op.NewActionRegistry()
-	op.RegisterAllProviders(freshReg, *execCtx)
+	op.InitAll(freshReg, *execCtx)
 	for _, n := range nodes {
 		if op.IsStubAction(n.Action) {
 			name := n.ActionName()
@@ -612,7 +612,7 @@ func pathDepth(path string) int {
 // Non-stub actions (from planning) get their provider's context updated.
 func (e *GraphExecutor) hydrateProviders(g *op.Graph, ctx op.Context) error {
 	freshReg := op.NewActionRegistry()
-	op.RegisterAllProviders(freshReg, ctx)
+	op.InitAll(freshReg, ctx)
 
 	for _, n := range g.Nodes {
 		if op.IsStubAction(n.Action) {

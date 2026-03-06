@@ -3,22 +3,9 @@
 package git
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "git",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewGitReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewGitReceiver creates a wrapped git provider for Starlark consumption.
 func NewGitReceiver(p *provider.Provider) *op.ReflectedReceiver {

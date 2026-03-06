@@ -5,22 +5,9 @@ package git
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "git",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return NewGitPlan(graph, project, reg)
-		},
-	})
-}
 
 // NewGitPlan creates a wrapped git provider for planned-mode Starlark consumption.
 func NewGitPlan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

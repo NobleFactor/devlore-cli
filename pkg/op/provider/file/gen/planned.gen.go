@@ -5,22 +5,9 @@ package file
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "file",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return NewFilePlan(graph, project, reg)
-		},
-	})
-}
 
 // NewFilePlan creates a wrapped file provider for planned-mode Starlark consumption.
 func NewFilePlan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

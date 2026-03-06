@@ -16,7 +16,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
+
+	// Blank import triggers init() in all provider packages.
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 // Options controls migration behavior.
@@ -370,7 +372,7 @@ func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 // buildGraphFromRegistry constructs an execution.Graph from registry prompt output.
 func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *op.Graph {
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 	plan := execution.NewPlan(reg, "migrate")
 	nodeMap := make(map[string]*op.Node)
 

@@ -12,8 +12,7 @@ import (
 )
 
 // Provider provides JSON encoding and decoding operations.
-//
-// +devlore:access=immediate
+// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }

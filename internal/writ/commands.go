@@ -24,7 +24,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
-	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
@@ -35,7 +34,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 
 	// Blank import triggers init() in all provider packages,
-	// populating the binding registry via op.RegisterBinding().
+	// which call op.Announce() to self-register.
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
@@ -79,7 +78,8 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	}
 
 	// 2. Build execution graph
-	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
+	reg := op.NewActionRegistry()
+	op.InitAll(reg, op.Context{})
 	builder := NewDeployGraphBuilder(cfg, reg)
 	builder.Planner = &lore.Planner{
 		ActionRegistry: reg,
@@ -222,7 +222,8 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build execution graph
-	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
+	reg := op.NewActionRegistry()
+	op.InitAll(reg, op.Context{})
 	g, err := NewDecommissionGraphBuilder(cfg, view, reg).Build()
 	if err != nil {
 		return err
@@ -471,7 +472,8 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
-	reg := loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
+	reg := op.NewActionRegistry()
+	op.InitAll(reg, op.Context{})
 
 	if hasDecryptAction(actions) && len(identities) == 0 {
 		cli.Error("%s: identities required for encrypted files", relTarget)

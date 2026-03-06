@@ -3,22 +3,9 @@
 package pkg
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "pkg",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewPkgReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewPkgReceiver creates a wrapped pkg provider for Starlark consumption.
 func NewPkgReceiver(p *provider.Provider) *op.ReflectedReceiver {

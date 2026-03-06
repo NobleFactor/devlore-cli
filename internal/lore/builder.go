@@ -18,7 +18,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 
 	// Blank import triggers init() in all provider packages,
-	// populating the binding registry via op.RegisterBinding().
+	// which call op.Announce() to self-register.
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
@@ -155,7 +155,8 @@ func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegi
 
 	reg := p.ActionRegistry
 	if reg == nil {
-		reg = loreStar.NewBindingSet(op.BindingConfig{}).NewPopulatedRegistry(op.Context{})
+		reg = op.NewActionRegistry()
+		op.InitAll(reg, op.Context{})
 	}
 
 	regClient := p.RegistryClient
@@ -356,7 +357,8 @@ func prepareScriptEnv(
 		Writer:      os.Stdout,
 		ProgramName: "lore",
 		Color:       true,
-	}).With("ui", "plan")
+		Receivers:   []string{"ui", "plan"},
+	})
 
 	globals := bindingSet.BuildGlobals(graph, pkg.Name, reg)
 

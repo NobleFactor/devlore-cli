@@ -5,22 +5,9 @@ package encryption
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "encryption",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return NewEncryptionPlan(graph, project, reg)
-		},
-	})
-}
 
 // NewEncryptionPlan creates a wrapped encryption provider for planned-mode Starlark consumption.
 func NewEncryptionPlan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

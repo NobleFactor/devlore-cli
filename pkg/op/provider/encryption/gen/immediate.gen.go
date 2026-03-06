@@ -3,22 +3,9 @@
 package encryption
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "encryption",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewEncryptionReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewEncryptionReceiver creates a wrapped encryption provider for Starlark consumption.
 func NewEncryptionReceiver(p *provider.Provider) *op.ReflectedReceiver {

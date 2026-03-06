@@ -156,17 +156,30 @@ func flowContext(graph *op.Graph, nodeID string) *op.Context {
 }
 
 // ---------------------------------------------------------------------------
-// Register
+// Provider descriptor
 // ---------------------------------------------------------------------------
 
-func TestRegisterAddsAllActions(t *testing.T) {
+func TestFlowProviderAnnounced(t *testing.T) {
+	var found bool
+	for _, p := range op.Providers() {
+		if p.Name() == "flow" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("flow provider not found in op.Providers()")
+	}
+}
+
+func TestFlowProviderRegistersAllActions(t *testing.T) {
 	reg := op.NewActionRegistry()
-	Register(reg)
+	op.InitAll(reg, op.Context{})
 
 	want := []string{"flow.choose", "flow.gather", "flow.elevate", "flow.wait_until"}
 	for _, name := range want {
 		if _, ok := reg.Get(name); !ok {
-			t.Errorf("expected %q to be registered", name)
+			t.Errorf("expected %q to be registered via InitAll", name)
 		}
 	}
 }

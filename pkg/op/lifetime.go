@@ -5,7 +5,7 @@ package op
 
 // ProviderLifetime declares a provider's lifecycle semantics.
 // The value is set via a "// +devlore:lifetime=" directive on the Provider struct and emitted by the code generator
-// into ProviderBinding registrations.
+// into provider descriptor registrations.
 type ProviderLifetime string
 
 // Lifetime constants define caching, sharing, and cleanup behavior.

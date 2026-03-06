@@ -3,22 +3,9 @@
 package ui
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "ui",
-		Access:   op.AccessImmediate,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewUiReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewUiReceiver creates a wrapped ui provider for Starlark consumption.
 func NewUiReceiver(p *provider.Provider) *op.ReflectedReceiver {

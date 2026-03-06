@@ -309,7 +309,7 @@ func TestGraphHydrate(t *testing.T) {
 
 	// Hydrate with real registry
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 
 	if err := op.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
@@ -340,7 +340,7 @@ func TestGraphHydrateUnknownAction(t *testing.T) {
 	}
 
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 
 	err := op.HydrateGraph(g, reg)
 	if err == nil {
@@ -429,7 +429,7 @@ func TestGraphLifecycle(t *testing.T) {
 
 	// Step 3: Hydrate with real actions
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 	if err := op.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}
@@ -561,7 +561,7 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 	}
 
 	reg := op.NewActionRegistry()
-	provider.RegisterAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{})
 	if err := op.HydrateGraph(&loaded, reg); err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}

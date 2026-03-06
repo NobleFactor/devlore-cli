@@ -12,8 +12,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Provider provides template expansion actions. It takes input content
-// and produces output content through Go template expansion — no filesystem access.
+// Provider provides template expansion actions.
+//
+// It takes input content and produces output content through Go template expansion — no filesystem access.
 //
 // +devlore:access=both
 type Provider struct {

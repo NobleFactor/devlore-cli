@@ -3,26 +3,9 @@
 package starcomplexity
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcomplexity"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "starcomplexity",
-		Access:   op.AccessImmediate,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			root := cfg.WorkDir
-			if root == "" {
-				root = "."
-			}
-			return NewStarcomplexityReceiver(&provider.Provider{Root: root})
-		},
-	})
-}
 
 // NewStarcomplexityReceiver creates a wrapped starcomplexity provider for Starlark consumption.
 func NewStarcomplexityReceiver(p *provider.Provider) *op.ReflectedReceiver {

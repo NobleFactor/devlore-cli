@@ -3,22 +3,9 @@
 package regexp
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "regexp",
-		Access:   op.AccessImmediate,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewRegexpReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewRegexpReceiver creates a wrapped regexp provider for Starlark consumption.
 func NewRegexpReceiver(p *provider.Provider) *op.ReflectedReceiver {

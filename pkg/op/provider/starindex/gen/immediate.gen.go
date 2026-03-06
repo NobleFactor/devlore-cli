@@ -3,26 +3,9 @@
 package starindex
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/starindex"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "starindex",
-		Access:   op.AccessImmediate,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			root := cfg.WorkDir
-			if root == "" {
-				root = "."
-			}
-			return NewStarindexReceiver(&provider.Provider{Root: root})
-		},
-	})
-}
 
 // NewStarindexReceiver creates a wrapped starindex provider for Starlark consumption.
 func NewStarindexReceiver(p *provider.Provider) *op.ReflectedReceiver {

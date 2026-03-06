@@ -5,22 +5,9 @@ package shell
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "shell",
-		Access:   op.AccessBoth,
-		Lifetime: op.LifetimeStateless,
-		PlannedFactory: func(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-			return NewShellPlan(graph, project, reg)
-		},
-	})
-}
 
 // NewShellPlan creates a wrapped shell provider for planned-mode Starlark consumption.
 func NewShellPlan(graph *op.Graph, project string, reg *op.ActionRegistry) *op.ReflectedPlanned {

@@ -3,22 +3,9 @@
 package json
 
 import (
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/json"
 )
-
-func init() {
-	op.RegisterBinding(&op.ProviderBinding{
-		Name:     "json",
-		Access:   op.AccessImmediate,
-		Lifetime: op.LifetimeStateless,
-		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
-			return NewJsonReceiver(&provider.Provider{})
-		},
-	})
-}
 
 // NewJsonReceiver creates a wrapped json provider for Starlark consumption.
 func NewJsonReceiver(p *provider.Provider) *op.ReflectedReceiver {
