@@ -1,0 +1,13 @@
+# test_move.star — Write a file and move it to a new location.
+#
+# Validates: plan.file.write_text, plan.file.move
+
+src = t.tmp("move_src.txt")
+dst = t.tmp("move_dst.txt")
+
+written = plan.file.write_text(destination=src, content="moving data", mode=0o644)
+plan.file.move(source=written, destination=dst)
+
+t.expect_no_file(src)
+t.expect_file(dst, content="moving data")
+t.expect_node_count(2)

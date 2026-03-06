@@ -1,0 +1,7 @@
+# devlore-test Configuration
+# Location: ~/.config/devlore/config.d/devlore-test.yaml
+# Shared config: ~/.config/devlore/config.yaml
+# See: devlore-test config --schema
+
+devlore-test: {}
+  # receipt_format: yaml

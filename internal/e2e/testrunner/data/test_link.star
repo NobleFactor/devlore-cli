@@ -1,0 +1,13 @@
+# test_link.star — Write a file and create a symlink to it.
+#
+# Validates: plan.file.write_text, plan.file.link
+
+target = t.tmp("link_target.txt")
+link   = t.tmp("link_pointer.txt")
+
+written = plan.file.write_text(destination=target, content="linked content", mode=0o644)
+plan.file.link(source=written, path=link)
+
+t.expect_file(target, content="linked content")
+t.expect_file(link, content="linked content")
+t.expect_node_count(2)

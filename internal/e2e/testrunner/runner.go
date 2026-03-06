@@ -60,6 +60,12 @@ type Runner struct {
 	trace    bool
 	provider string
 	writer   io.Writer
+	graph    *op.Graph
+}
+
+// Graph returns the execution graph after Start completes. Returns nil before Start is called.
+func (r *Runner) Graph() *op.Graph {
+	return r.graph
 }
 
 // New creates a Runner for the given script path.
@@ -98,6 +104,7 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 
 	// 5. Create Graph
 	graph := op.NewGraph("devlore-test")
+	r.graph = graph
 
 	// 6. Build Starlark globals
 	globals := bs.BuildGlobals(graph, "devlore-test", reg)
