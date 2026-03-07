@@ -34,6 +34,9 @@ type Resource struct {
 	Checksum   string
 }
 
+// String returns a compact JSON representation of the resource.
+func (r Resource) String() string { return r.Format(r) }
+
 // URI returns the canonical file:// URI for this resource.
 func (r *Resource) URI() string { return r.NewURI(r) }
 

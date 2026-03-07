@@ -4,6 +4,8 @@
 package op
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/url"
 
 	"go.starlark.net/starlark"
@@ -98,6 +100,16 @@ func (b *ResourceBase) NewURI(r Resource) string {
 // Resolve() then check the result. An unresolved resource reports
 // Exists() == false.
 func (b *ResourceBase) Resolve() error { return nil }
+
+// Format marshals v as compact JSON. Concrete resource types call this from
+// their String() method: func (r Resource) String() string { return r.Format(r) }
+func (b ResourceBase) Format(v any) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(data)
+}
 
 // resourceBase returns a pointer to the embedded ResourceBase, allowing the
 // catalog to stamp id and originID. This method seals the Resource interface.
