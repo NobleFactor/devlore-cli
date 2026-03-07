@@ -24,7 +24,9 @@ func (d *{{.provider}}Provider) Register(reg *op.ActionRegistry, ctx op.Context)
 }
 {{- else}}
 
-func (d *{{.provider}}Provider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (d *{{.provider}}Provider) Register(_ *op.ActionRegistry, _ op.Context) {
+	op.RegisterReceiverParams("{{.provider}}", &{{.provider_type_prefix}}Provider{}, Params)
+}
 {{- end}}
 
 {{- if .has_planned}}
