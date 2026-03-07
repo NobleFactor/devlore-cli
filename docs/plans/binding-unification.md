@@ -442,10 +442,10 @@ and the old `plan` argument are updated.
 
 | File | Changes |
 |------|---------|
-| `docs/architecture/devlore-phase-execution.md` | Update Starlark examples: `forward` → phase-named entry, remove `system` arg, `plan` is now a global |
-| `docs/architecture/devlore-orchestration-primitives.md` | Update examples, document Choose predicates replacing system probes |
-| `docs/architecture/devlore-operation-namespaces.md` | Update namespace references |
-| `docs/architecture/devlore-typed-slots.md` | Update examples |
+| `docs/architecture/2.2-phase-execution.md` | Update Starlark examples: `forward` → phase-named entry, remove `system` arg, `plan` is now a global |
+| `docs/architecture/2.3-orchestration-primitives.md` | Update examples, document Choose predicates replacing system probes |
+| `docs/architecture/3-operation-namespaces.md` | Update namespace references |
+| `docs/architecture/2.1-typed-slots.md` | Update examples |
 
 ### User-facing guides (devlore-cli)
 

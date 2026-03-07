@@ -136,14 +136,14 @@ resource provider descriptor.
 The design is documented in the architecture docs:
 
 - [Projected Provider API — Provider Registration](
-  ../architecture/devlore-projected-provider-api.md#provider-registration)
+  ../architecture/3.2-projected-provider-api.md#provider-registration)
   — Announce/callback model, `Provider` interface, flow actions on the same
   path
 - [Provider Loading and Lifetime](
-  ../architecture/devlore-provider-loading.md) — Provider lifecycle,
+  ../architecture/3.1-provider-loading.md) — Provider lifecycle,
   `Access` and `Lifetime` directives, registration examples
 - [Action Namespaces](
-  ../architecture/devlore-operation-namespaces.md) — How to add new
+  ../architecture/3-operation-namespaces.md) — How to add new
   providers using the announce model
 
 ### Core Interfaces
@@ -188,11 +188,11 @@ independently to fix #188.
 
 ## Related Documents
 
-- [Projected Provider API](../architecture/devlore-projected-provider-api.md)
+- [Projected Provider API](../architecture/3.2-projected-provider-api.md)
   — Authoritative design for the announce-and-callback model
-- [Provider Loading and Lifetime](../architecture/devlore-provider-loading.md)
+- [Provider Loading and Lifetime](../architecture/3.1-provider-loading.md)
   — Lifetime directives and registration examples
-- [Action Namespaces](../architecture/devlore-operation-namespaces.md)
+- [Action Namespaces](../architecture/3-operation-namespaces.md)
   — Adding new providers
 - [BindingSet Redesign](binding-set-redesign.md)
   — Related plan for BindingSet opt-in model

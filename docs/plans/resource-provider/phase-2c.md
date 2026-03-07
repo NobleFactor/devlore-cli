@@ -539,4 +539,4 @@ go test ./internal/lore/... -count=1
 - [Resource Provider Plan](../resource-provider.md) -- Parent plan
 - [Phase 2A](./phase-2a.md) -- Provider extraction
 - [Phase 2B](./phase-2b.md) -- Template/manifest providers
-- [Convergence Operations](../../architecture/devlore-graph-convergence-operations.md) -- Flow action specs
+- [Convergence Operations](../../architecture/2.3-orchestration-primitives.md) -- Flow action specs

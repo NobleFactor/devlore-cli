@@ -343,5 +343,5 @@ Return stays `[]byte`. `templateData`, `project`, `content` stay unchanged
 - [Phase 5](./phase-5.md) — Executor catalog integration
 - [Phase 6](./phase-6.md) — Provider resource types, context injection
 - [Phase 8](./phase-8.md) — Generated bridge tests
-- [Architecture](../../architecture/devlore-resource-management.md)
+- [Architecture](../../architecture/4-resource-management.md)
 - [Master Plan](../resource-management.md)

@@ -361,9 +361,9 @@ No migration. Greenfield product — no deployed graphs to support.
 
 ## Related Documents
 
-- [Phase Execution Architecture](../architecture/devlore-phase-execution.md) —
+- [Phase Execution Architecture](../architecture/2.2-phase-execution.md) —
   Saga pattern, Activities, compensation ownership, two-layer model
-- [Orchestration Primitives Architecture](../architecture/devlore-orchestration-primitives.md) —
+- [Orchestration Primitives Architecture](../architecture/2.3-orchestration-primitives.md) —
   GatherUndoState, ChooseUndoState (already implemented)
 - [Resource-Provider Plan](resource-provider.md) — Parent plan, action inventory
 - [Star Gen Receiver Plan](star-gen-receiver.md) — Code generation pipeline

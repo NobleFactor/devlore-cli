@@ -4,33 +4,54 @@ Internal engineering documentation for devlore-cli developers.
 
 ## Documents
 
-### System Architecture
+### 1. System Model
 
-- [Emergent System Model](devlore-emergent-system-model.md) - System-level architecture: hosts, deployments, dependency taxonomy (structural, functional, procedural), receipt graph as system model, distributed orchestration vision
+- [System Model](1-system-model.md) — Hosts, deployments, dependency taxonomy, receipt graph as system model, distributed orchestration vision
 
-### Execution Engine
+### 2. Execution Graph
 
-- [Execution Graph](devlore-execution-graph.md) - Unified graph design for all lifecycle commands
-- [Phase Execution](devlore-phase-execution.md) - Saga pattern, phases, retry/rollback, compensation
-- [Typed Slots](devlore-typed-slots.md) - Slot model, resolution chain, providers, generated code
-- [Orchestration Primitives](devlore-orchestration-primitives.md) - Gather, Choose, WaitUntil, SlotProxy, ActivationState, Sidecar hooks
-- [Graph Operations](devlore-graph-convergence-operations.md) - Original convergence and control flow (partially superseded by Orchestration Primitives)
-- [Action Namespaces](devlore-operation-namespaces.md) - How to add new action namespaces to the execution engine
-- [Provider Loading and Lifetime](devlore-provider-loading.md) - Module loading via `@devlore//`, `With()` opt-in, three-level provider lifetime model (stateless, phase, session)
-- [Receipt Integrity](devlore-receipt-integrity.md) - Checksum and signature verification for receipts
-- [Resource Management](devlore-resource-management.md) - URI-based resource tracking, lineage, shadowing, tombstone unification
+- [Execution Graph](2-execution-graph.md) — Unified graph design for all lifecycle commands
+  - [Typed Slots](2.1-typed-slots.md) — Slot model, resolution chain, providers, generated code
+  - [Phase Execution](2.2-phase-execution.md) — Saga pattern, phases, retry/rollback, compensation
+  - [Orchestration Primitives](2.3-orchestration-primitives.md) — Gather, Choose, WaitUntil, Complete, Degraded, Fatal, Elevate, SlotProxy, lifecycle hooks
 
-### Tooling
+### 3. Providers
 
-- [LLM Integration](devlore-llm-integration.md) - Provider abstraction and prompt loading for AI-assisted commands
-- [Registry Knowledge Base](devlore-registry-knowledge.md) - Knowledge domain structure in devlore-registry
-- [E2E Testing](devlore-e2e-testing.md) - Multi-provider testing strategy for LLM commands
+- [Action Namespaces](3-operation-namespaces.md) — How to add new action namespaces to the execution engine
+  - [Provider Loading and Lifetime](3.1-provider-loading.md) — Module loading via `@devlore//`, `With()` opt-in, three-level provider lifetime model (stateless, phase, session)
+  - [Projected Provider API](3.2-projected-provider-api.md) — Code generation from Go struct to Starlark bindings
+
+### 4. Resources
+
+- [Resource Management](4-resource-management.md) — URI-based resource tracking, lineage, shadowing, tombstone unification
+  - [Resource Identity](4.1-resource-identity.md) — URI schemes, opaque vs hierarchical, interface simplification
+  - [Memory Resources](4.2-mem-resource.md) — `mem:` scheme, callable serialization lifecycle
+
+### 5. Operational Integrity
+
+- [Receipt Integrity](5-receipt-integrity.md) — Checksum and signature verification for receipts
+  - [Reconciliation](5.1-reconciliation.md) — Audit, reconciliation, and recovery in the execution graph
+  - [Recovery Serialization](5.2-recovery-serialization.md) — Recovery stack serialization and restart (planned)
+
+### 6. Execution Topology
+
+- [Execution Topology](6-execution-topology.md) — Elevation, remote execution, telemetry (planned)
+
+### 7. Knowledge and LLM
+
+- [Registry Knowledge Base](7-registry-knowledge.md) — Knowledge domain structure in devlore-registry
+  - [LLM Integration](7.1-llm-integration.md) — Provider abstraction and prompt loading for AI-assisted commands
+  - [E2E Testing](7.2-e2e-testing.md) — Multi-provider testing strategy for LLM commands
+
+### 8. Rust Migration
+
+- [Rust Migration](8-rust-migration.md) — Architecture decisions for porting devlore-cli to Rust
 
 ## Overview
 
 The devlore-cli consists of two main tools that share a common execution engine:
 
-- **writ** - File tree management (dotfiles, configs, templates)
-- **lore** - Package management (software installation, configuration)
+- **writ** — File tree management (dotfiles, configs, templates)
+- **lore** — Package management (software installation, configuration)
 
 Both tools produce execution graphs that are processed by the shared engine in `internal/execution/`.

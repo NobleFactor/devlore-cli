@@ -20,7 +20,7 @@ SlotProxy (a third SlotValue variant for gather iteration binding),
 ActivationState (per-execution mutable state separated from the immutable Node),
 runtime predicates (Starlark callables evaluated during execution), and two new
 flow actions (WaitUntil, Sidecar). The architecture is documented in
-[devlore-orchestration-primitives.md](../architecture/devlore-orchestration-primitives.md).
+[2.3-orchestration-primitives.md](../architecture/2.3-orchestration-primitives.md).
 
 ## Scope
 
@@ -212,7 +212,7 @@ they must not block.
 ### Step 8: Documentation
 
 **Files:**
-- `docs/architecture/devlore-orchestration-primitives.md` (new)
+- `docs/architecture/2.3-orchestration-primitives.md` (new)
 - `docs/plans/orchestration-primitives.md` (new — this file)
 - `docs/architecture/index.md` (update — add link to orchestration primitives)
 - `docs/plans/resource-provider.md` (update — add orchestration primitives reference)
@@ -239,7 +239,7 @@ existing docs.
 | `internal/execution/flow/wait_until.go` | **New**: WaitUntil flow action |
 | `internal/execution/flow/register.go` | Register WaitUntil |
 | `internal/starlark/runtime.go` | **New** (or extend): runtime.predicate() builtin |
-| `docs/architecture/devlore-orchestration-primitives.md` | **New**: Architecture document |
+| `docs/architecture/2.3-orchestration-primitives.md` | **New**: Architecture document |
 | `docs/architecture/index.md` | Add orchestration primitives link |
 | `docs/plans/orchestration-primitives.md` | **New**: This plan |
 | `docs/plans/resource-provider.md` | Add orchestration primitives reference |
@@ -278,7 +278,7 @@ go test ./internal/execution/... -count=1
 grep -rn 'legacy\|backward\|compat\|deprecated' internal/execution/
 
 # Architecture doc contains all sections
-grep '^## ' docs/architecture/devlore-orchestration-primitives.md
+grep '^## ' docs/architecture/2.3-orchestration-primitives.md
 ```
 
 ## Dependencies
@@ -299,8 +299,8 @@ dependencies. Step 8 follows all others.
 
 ## Related Documents
 
-- [Orchestration Primitives Architecture](../architecture/devlore-orchestration-primitives.md)
-- [Graph Operations Architecture](../architecture/devlore-graph-convergence-operations.md)
-- [Phase Execution Architecture](../architecture/devlore-phase-execution.md)
-- [Typed Slots Architecture](../architecture/devlore-typed-slots.md)
+- [Orchestration Primitives Architecture](../architecture/2.3-orchestration-primitives.md)
+- [Graph Operations Architecture](../architecture/2.3-orchestration-primitives.md)
+- [Phase Execution Architecture](../architecture/2.2-phase-execution.md)
+- [Typed Slots Architecture](../architecture/2.1-typed-slots.md)
 - [Resource-Provider Plan](resource-provider.md)

@@ -4,9 +4,9 @@ This document describes how to add new action namespaces to the devlore-cli exec
 
 See also:
 
-- [Execution Graph](devlore-execution-graph.md) — Core graph architecture
-- [Typed Slots](devlore-typed-slots.md) — Slot model and type mappings
-- [Emergent System Model](devlore-emergent-system-model.md) — System-level architecture,
+- [Execution Graph](2-execution-graph.md) — Core graph architecture
+- [Typed Slots](2.1-typed-slots.md) — Slot model and type mappings
+- [Emergent System Model](1-system-model.md) — System-level architecture,
   dependency taxonomy (structural, functional, procedural)
 
 ## Architecture Overview
@@ -237,7 +237,7 @@ framework calls `op.InitAll(reg, ctx)`.
 
 This single announcement makes the provider's actions available to all
 consumers (`writ`, `lore`, `devlore-test`). See [Projected Provider API —
-Provider Registration](devlore-projected-provider-api.md#provider-registration)
+Provider Registration](3.2-projected-provider-api.md#provider-registration)
 for the full interface definitions.
 
 ### Handwritten Providers — Same Pattern
@@ -427,7 +427,7 @@ Do not maintain hand-written API references.
 
 | Audience | Location | Content |
 |----------|----------|---------|
-| Engine developers | `docs/architecture/devlore-operation-namespaces.md` | How to implement action namespaces |
+| Engine developers | `docs/architecture/3-operation-namespaces.md` | How to implement action namespaces |
 | Package developers | `devlore-registry/knowledge/package-authoring/bindings/reference.md` | Auto-generated plan.* API reference |
 | CLI users | `docs/cli/lore/` | Command-line usage |
 

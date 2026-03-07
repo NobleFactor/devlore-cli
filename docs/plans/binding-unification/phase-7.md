@@ -11,10 +11,10 @@ to reflect the new programming model from Phase 6.
 
 | File | Changes |
 |------|---------|
-| `devlore-phase-execution.md` | Update examples: phase-named entry, `plan` as global |
-| `devlore-orchestration-primitives.md` | Document Choose predicates replacing system probes |
-| `devlore-operation-namespaces.md` | Update namespace references |
-| `devlore-typed-slots.md` | Update examples |
+| `2.2-phase-execution.md` | Update examples: phase-named entry, `plan` as global |
+| `2.3-orchestration-primitives.md` | Document Choose predicates replacing system probes |
+| `3-operation-namespaces.md` | Update namespace references |
+| `2.1-typed-slots.md` | Update examples |
 
 ## User-Facing Guides (devlore-cli)
 

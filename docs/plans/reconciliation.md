@@ -11,7 +11,7 @@ updated: 2026-03-05
 ## Summary
 
 Complete the audit, reconciliation, and recovery framework described in the
-[architecture document](../architecture/devlore-reconciliation.md).
+[architecture document](../architecture/5.1-reconciliation.md).
 The `RecoveryStack` and executor migration are done. This plan covers the
 remaining work: the 4-value `Action.Do` return, the `ReconcilableAction`
 interface, provider reconcile methods, the `ExecutionEvent` envelope, the
@@ -90,7 +90,7 @@ filesystem-based drift detection in `internal/writ/reconcile`.
 
 ## Related Documents
 
-- [Architecture: Reconciliation](../architecture/devlore-reconciliation.md)
+- [Architecture: Reconciliation](../architecture/5.1-reconciliation.md)
 - [Plan: Compensation](./compensation.md)
 - [Plan: Resource Management](./resource-management.md)
 - Issue #156 — Audit, Reconciliation, and Recovery in the Execution Graph

@@ -163,7 +163,7 @@ func (r *Receipt) Verify(identities []age.Identity) error {
 
 ## Related Documents
 
-- [Emergent System Model](devlore-emergent-system-model.md) - Receipts as the system model,
+- [Emergent System Model](1-system-model.md) - Receipts as the system model,
   dependency taxonomy (structural, functional, procedural)
-- [Action Namespaces](devlore-operation-namespaces.md) - Engine actions
+- [Action Namespaces](3-operation-namespaces.md) - Engine actions
 - [Receipts User Guide](../guides/writ/receipts.md) - User-facing documentation
