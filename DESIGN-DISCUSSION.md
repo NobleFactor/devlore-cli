@@ -119,29 +119,11 @@ Down the road, pre-flight will also check prerequisites (e.g., must run on syste
 
 ### O4. URI construction
 
-**Status**: RESOLVED (correctness bug, needs implementation)
+**Status**: RESOLVED (implemented in Phase 0 of mem-resource epic)
 
-`file.NewResource` uses `fmt.Sprintf("file://%s", path)` instead of canonical URI construction. Relative paths produce wrong URIs, breaking catalog deduplication.
+**Decision**: Each concrete resource type owns its URI construction via a private `buildURI()` method. The URI is cached in `ResourceBase.uri` at construction time via `SetURI()`. There is no shared dispatch (`NewURI` is removed). If `Resolve()` changes identity-bearing fields (e.g., path canonicalization), the concrete type calls `SetURI(buildURI())` to update the cache.
 
-**Decision**: The `Resource` interface gains three component methods following `net/url.URL` naming: `Scheme()`, `Host()`, `Path()`. Each provider implements them — `Scheme()` and `Host()` are typically constants, `Path()` returns the provider-specific identifier (e.g., `file.Resource.Path()` returns the canonicalized `SourcePath`).
-
-`ResourceBase.NewURI(r Resource)` builds the URI from the three components via `net/url.URL`:
-
-```go
-func (b *ResourceBase) NewURI(r Resource) string {
-    return (&url.URL{Scheme: r.Scheme(), Host: r.Host(), Path: r.Path()}).String()
-}
-```
-
-Each provider implements `URI()` as a one-liner that passes itself:
-
-```go
-func (r *Resource) URI() string { return r.NewURI(r) }
-```
-
-`ResourceBase` stores nothing about scheme/host/path — those come from the concrete type. Canonicalization happens in the provider (e.g., `file.Resource.Path()` returns `filepath.Abs` + `filepath.Clean`). The standalone `ResourceURI` helper is removed.
-
-All URIs use the standard authority form: `scheme://host/path` (with host, e.g., `git://github.com/org/repo`) or `scheme:///path` (without host, e.g., `file:///usr/local/bin`, `svc:///nginx`).
+URIs follow RFC 3986 — hierarchical for file resources (`file:///path`), opaque for all others (`pkg:brew/jq`, `svc:nginx`, `appnet:host/path`, `git:repo-url#ref`, `mem:callable/type/name`). See `docs/architecture/devlore-resource-identity.md` for the full scheme registry.
 
 ### O5. `refreshMetadataWith` ignores the checksum parameter
 

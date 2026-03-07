@@ -5,6 +5,7 @@ package git
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -16,7 +17,9 @@ func init() {
 		if !ok {
 			return Resource{}, fmt.Errorf("git.Resource: expected string path, got %T", v)
 		}
-		return Resource{ClonePath: s}, nil
+		r := Resource{ClonePath: s}
+		r.SetURI(r.buildURI())
+		return r, nil
 	})
 }
 
@@ -31,24 +34,58 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r Resource) String() string { return r.Format(r) }
 
-// URI returns the canonical git:// URI for this resource.
-func (r *Resource) URI() string { return r.NewURI(r) }
+// buildURI computes the opaque git: URI.
+//
+// Format: git:<encoded-repo-url>[?path=<path>]#<commit>
+// When URL is empty (local clone), the clone path is used as the opaque data.
+func (r *Resource) buildURI() string {
+	var opaque string
+	if r.URL != "" {
+		opaque = escapeInnerURI(r.URL)
+	} else {
+		opaque = escapeInnerURI(r.ClonePath)
+	}
+	s := "git:" + opaque
+	if r.Ref != "" {
+		s += "#" + r.Ref
+	}
+	return s
+}
 
-// Scheme returns "git".
-func (r *Resource) Scheme() string { return op.SchemeGit }
+// escapeInnerURI percent-encodes # and ? in an inner URI so they don't
+// interfere with the outer URI's fragment and query parsing.
+func escapeInnerURI(s string) string {
+	// url.PathEscape is too aggressive (encodes /). We only need to
+	// escape the characters that would be consumed by url.Parse.
+	var b []byte
+	for i := range len(s) {
+		switch s[i] {
+		case '#':
+			b = append(b, '%', '2', '3')
+		case '?':
+			b = append(b, '%', '3', 'F')
+		default:
+			b = append(b, s[i])
+		}
+	}
+	return string(b)
+}
 
-// Host returns empty string — git URIs use path-only identification.
-func (r *Resource) Host() string { return "" }
+// unescapeInnerURI reverses the targeted escaping of escapeInnerURI.
+func unescapeInnerURI(s string) string {
+	u, err := url.PathUnescape(s)
+	if err != nil {
+		return s
+	}
+	return u
+}
 
-// Path returns the clone path. Before Resolve(), this is the raw path as
-// given. After Resolve(), it is the canonicalized absolute path.
-func (r *Resource) Path() string { return r.ClonePath }
-
-// Resolve canonicalizes the clone path to an absolute path.
+// Resolve canonicalizes the clone path to an absolute path and updates the URI.
 func (r *Resource) Resolve() error {
 	abs, err := filepath.Abs(r.ClonePath)
 	if err == nil {
 		r.ClonePath = filepath.Clean(abs)
+		r.SetURI(r.buildURI())
 	}
 	return nil
 }

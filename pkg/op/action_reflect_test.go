@@ -47,10 +47,11 @@ type actionResource struct {
 	SourcePath string
 }
 
-func (r *actionResource) URI() string    { return r.NewURI(r) }
-func (r *actionResource) Scheme() string { return SchemeFile }
-func (r *actionResource) Host() string   { return "" }
-func (r *actionResource) Path() string   { return r.SourcePath }
+func newActionResource(path string) *actionResource {
+	r := &actionResource{SourcePath: path}
+	r.SetURI("file://" + path)
+	return r
+}
 
 // actionProvider exercises all action patterns.
 type actionProvider struct{}
@@ -97,7 +98,9 @@ func (p *actionProvider) Configure(name string, cfg actionConfig) (string, error
 
 // Returns a Resource by value — tests shadowResult.
 func (p *actionProvider) Create(path string) (actionResource, string, error) {
-	return actionResource{SourcePath: path}, "undo:" + path, nil
+	r := actionResource{SourcePath: path}
+	r.SetURI("file://" + path)
+	return r, "undo:" + path, nil
 }
 
 func (p *actionProvider) CompensateCreate(state string) error {

@@ -15,7 +15,9 @@ func init() {
 		if !ok {
 			return Resource{}, fmt.Errorf("service.Resource: expected string name, got %T", v)
 		}
-		return Resource{Name: s}, nil
+		r := Resource{Name: s}
+		r.SetURI(r.buildURI())
+		return r, nil
 	})
 }
 
@@ -28,17 +30,10 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r Resource) String() string { return r.Format(r) }
 
-// URI returns the canonical svc:// URI for this resource.
-func (r *Resource) URI() string { return r.NewURI(r) }
-
-// Scheme returns "svc".
-func (r *Resource) Scheme() string { return op.SchemeService }
-
-// Host returns empty string.
-func (r *Resource) Host() string { return "" }
-
-// Path returns the service name.
-func (r *Resource) Path() string { return r.Name }
+// buildURI computes the opaque svc: URI.
+func (r *Resource) buildURI() string {
+	return "svc:" + r.Name
+}
 
 // Tombstone holds service-specific compensation state.
 type Tombstone struct {

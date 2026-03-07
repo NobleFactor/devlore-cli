@@ -73,13 +73,13 @@ $(P)/git/gen/planned.gen.go \
 $(P)/git/gen/provider.gen.go &: $(P)/git/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/git --gen=true --write=true --output=$(P)/git
 
-$(P)/net/gen/actions_gen_test.go \
-$(P)/net/gen/immediate.gen.go \
-$(P)/net/gen/immediate_gen_test.go \
-$(P)/net/gen/params.gen.go \
-$(P)/net/gen/planned.gen.go \
-$(P)/net/gen/provider.gen.go &: $(P)/net/provider.go | star
-	$(STAR) devlore actions generate --source=$(P)/net --gen=true --write=true --output=$(P)/net
+$(P)/appnet/gen/actions_gen_test.go \
+$(P)/appnet/gen/immediate.gen.go \
+$(P)/appnet/gen/immediate_gen_test.go \
+$(P)/appnet/gen/params.gen.go \
+$(P)/appnet/gen/planned.gen.go \
+$(P)/appnet/gen/provider.gen.go &: $(P)/appnet/provider.go | star
+	$(STAR) devlore actions generate --source=$(P)/appnet --gen=true --write=true --output=$(P)/appnet
 
 $(P)/pkg/gen/actions_gen_test.go \
 $(P)/pkg/gen/immediate.gen.go \
@@ -182,7 +182,7 @@ GEN_PROVIDERS := \
 	$(P)/file/gen/immediate.gen.go \
 	$(P)/git/gen/immediate.gen.go \
 	$(P)/json/gen/immediate.gen.go \
-	$(P)/net/gen/immediate.gen.go \
+	$(P)/appnet/gen/immediate.gen.go \
 	$(P)/pkg/gen/immediate.gen.go \
 	$(P)/regexp/gen/immediate.gen.go \
 	$(P)/service/gen/immediate.gen.go \

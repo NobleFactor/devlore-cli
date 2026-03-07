@@ -17,18 +17,11 @@ import (
 // Every provider-specific resource (e.g., file.Resource) must embed [ResourceBase] to satisfy it. The unexported
 // resourceBase method seals the interface to package op. Only types embedding [ResourceBase] can implement [Resource].
 //
-// Concrete types must implement [Scheme], [Host], and [Path] to provide URI components. [URI] should be implemented
-// as a one-liner delegating to [ResourceBase.NewURI]:
-//
-//	func (r *Resource) URI() string { return r.NewURI(r) }
-//
-// [ResourceBase] provides default implementations of all four methods by parsing the stored uri field. Concrete types
-// shadow these with efficient, component-based implementations.
+// URI() returns a cached string computed at construction time. Each concrete type owns its URI construction —
+// there is no shared dispatch. If Resolve() changes identity-bearing fields (e.g., path canonicalization),
+// the concrete type updates the cached URI via [ResourceBase.SetURI].
 type Resource interface {
 	URI() string
-	Scheme() string
-	Host() string
-	Path() string
 	Resolve() error
 	resourceBase() *ResourceBase
 }
@@ -50,14 +43,19 @@ func NewResourceBase(uri string) ResourceBase {
 	return ResourceBase{uri: uri}
 }
 
-// URI returns the canonical URI of this resource. Concrete types should
-// shadow this with: func (r *Resource) URI() string { return r.NewURI(r) }
+// URI returns the cached canonical URI of this resource.
 func (b *ResourceBase) URI() string {
 	return b.uri
 }
 
-// Scheme returns the URI scheme by parsing the stored uri. Concrete types
-// should shadow this with a constant (e.g., "file").
+// SetURI updates the cached URI. Concrete types call this after Resolve()
+// when identity-bearing fields change (e.g., path canonicalization).
+func (b *ResourceBase) SetURI(uri string) {
+	b.uri = uri
+}
+
+// Scheme returns the URI scheme by parsing the stored uri.
+// Convenience helper — NOT an interface method.
 func (b *ResourceBase) Scheme() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
@@ -66,8 +64,20 @@ func (b *ResourceBase) Scheme() string {
 	return u.Scheme
 }
 
-// Host returns the URI host by parsing the stored uri. Concrete types
-// should shadow this with their authority component (often empty).
+// Opaque returns the opaque data component of the URI (non-empty for
+// opaque URIs like pkg:, svc:, mem:, appnet:). For hierarchical URIs
+// (file://), returns empty. Convenience helper — NOT an interface method.
+func (b *ResourceBase) Opaque() string {
+	u, err := url.Parse(b.uri)
+	if err != nil {
+		return ""
+	}
+	return u.Opaque
+}
+
+// Host returns the URI host by parsing the stored uri. Non-empty for
+// hierarchical URIs with an authority (e.g., net://host/path). Empty
+// for opaque URIs. Convenience helper — NOT an interface method.
 func (b *ResourceBase) Host() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
@@ -76,8 +86,9 @@ func (b *ResourceBase) Host() string {
 	return u.Host
 }
 
-// Path returns the URI path by parsing the stored uri. Concrete types
-// should shadow this with their provider-specific identifier.
+// Path returns the URI path by parsing the stored uri. Non-empty for
+// hierarchical URIs. Empty for opaque URIs. Convenience helper — NOT
+// an interface method.
 func (b *ResourceBase) Path() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
@@ -86,12 +97,14 @@ func (b *ResourceBase) Path() string {
 	return u.Path
 }
 
-// NewURI builds a canonical URI from a concrete Resource's component methods.
-// Concrete types call this to implement URI():
-//
-//	func (r *Resource) URI() string { return r.NewURI(r) }
-func (b *ResourceBase) NewURI(r Resource) string {
-	return (&url.URL{Scheme: r.Scheme(), Host: r.Host(), Path: r.Path()}).String()
+// Fragment returns the URI fragment by parsing the stored uri.
+// Convenience helper — NOT an interface method.
+func (b *ResourceBase) Fragment() string {
+	u, err := url.Parse(b.uri)
+	if err != nil {
+		return ""
+	}
+	return u.Fragment
 }
 
 // Resolve populates provider-specific metadata via I/O (e.g., os.Stat for
@@ -124,7 +137,7 @@ const (
 	SchemePackage = "pkg"
 	SchemeService = "svc"
 	SchemeMem     = "mem"
-	SchemeNet     = "net"
+	SchemeAppNet  = "appnet"
 )
 
 // MarshalStarvalue implements [starvalue.Marshaler]. It serializes the

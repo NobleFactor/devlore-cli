@@ -1,4 +1,6 @@
-# Next Design Topic: Recovery Stack Serialization & Restart
+# Recovery Stack Serialization & Restart
+
+Design topic for a future plan. Not yet approved for implementation.
 
 ## Problem
 

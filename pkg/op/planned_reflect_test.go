@@ -254,7 +254,9 @@ func TestWrapPlanned_ResolvesResourceParams(t *testing.T) {
 		if !ok {
 			return actionResource{}, fmt.Errorf("expected string, got %T", v)
 		}
-		return actionResource{SourcePath: s}, nil
+		r := actionResource{SourcePath: s}
+		r.SetURI("file://" + s)
+		return r, nil
 	})
 	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
 
@@ -334,7 +336,9 @@ func TestWrapPlanned_ShadowsOutputResource(t *testing.T) {
 		if !ok {
 			return actionResource{}, fmt.Errorf("expected string, got %T", v)
 		}
-		return actionResource{SourcePath: s}, nil
+		r := actionResource{SourcePath: s}
+		r.SetURI("file://" + s)
+		return r, nil
 	})
 	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
 
@@ -402,7 +406,9 @@ func TestWrapPlanned_ShadowsSingleResourceOutput(t *testing.T) {
 		if !ok {
 			return actionResource{}, fmt.Errorf("expected string, got %T", v)
 		}
-		return actionResource{SourcePath: s}, nil
+		r := actionResource{SourcePath: s}
+		r.SetURI("file://" + s)
+		return r, nil
 	})
 	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
 
@@ -457,7 +463,9 @@ func TestWrapPlanned_ConflictDetection(t *testing.T) {
 		if !ok {
 			return actionResource{}, fmt.Errorf("expected string, got %T", v)
 		}
-		return actionResource{SourcePath: s}, nil
+		r := actionResource{SourcePath: s}
+		r.SetURI("file://" + s)
+		return r, nil
 	})
 	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
 
@@ -559,7 +567,9 @@ func TestWrapPlanned_TypeValidation_AcceptsConstructable(t *testing.T) {
 		if !ok {
 			return actionResource{}, fmt.Errorf("expected string, got %T", v)
 		}
-		return actionResource{SourcePath: s}, nil
+		r := actionResource{SourcePath: s}
+		r.SetURI("file://" + s)
+		return r, nil
 	})
 	defer constructorRegistry.Delete(reflect.TypeOf(actionResource{}))
 

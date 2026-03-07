@@ -100,7 +100,7 @@ func TestAllProvidersCount(t *testing.T) {
 		"pkg.install", "pkg.upgrade", "pkg.remove", "pkg.update", "pkg.installed", "pkg.not_installed", "pkg.version_gte",
 		"shell.exec", "shell.power_shell",
 		"service.start", "service.stop", "service.restart", "service.enable", "service.disable", "service.exists", "service.running", "service.enabled",
-		"net.download",
+		"appnet.download",
 		"archive.extract",
 		"git.clone", "git.checkout", "git.pull",
 	}

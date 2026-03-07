@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package net //nolint:revive // package name is domain-specific
+package appnet
 
 import (
 	"fmt"
@@ -15,22 +15,24 @@ func init() {
 	op.RegisterConstructor(func(v any) (Resource, error) {
 		s, ok := v.(string)
 		if !ok {
-			return Resource{}, fmt.Errorf("net.Resource: expected string URL, got %T", v)
+			return Resource{}, fmt.Errorf("appnet.Resource: expected string URL, got %T", v)
 		}
 		u, err := url.Parse(s)
 		if err != nil {
-			return Resource{}, fmt.Errorf("net.Resource: invalid URL %q: %w", s, err)
+			return Resource{}, fmt.Errorf("appnet.Resource: invalid URL %q: %w", s, err)
 		}
-		return Resource{SourceURL: u}, nil
+		r := Resource{SourceURL: u}
+		r.SetURI(r.buildURI())
+		return r, nil
 	})
 }
 
 // Resource represents a network resource identified by a URL.
 //
 // The SourceURL holds the original URL as provided (with transport scheme,
-// original casing, etc.). The canonical URI produced by [URI] strips the
-// transport scheme and normalizes the authority and path components for
-// catalog deduplication.
+// original casing, etc.). The canonical URI produced by [URI] is an opaque
+// appnet: URI wrapping the normalized, transport-independent URL with
+// targeted escaping of # and ? characters.
 type Resource struct {
 	op.ResourceBase
 	SourceURL *url.URL
@@ -39,21 +41,28 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r Resource) String() string { return r.Format(r) }
 
-// URI returns the canonical net:// URI for catalog lookups.
-//
-// The URI is transport-independent: http://example.com/f and
-// https://example.com/f produce the same URI. The original transport
-// scheme is available via SourceURL.Scheme.
-func (r *Resource) URI() string { return "net://" + r.canonicalAuthority() }
+// buildURI computes the opaque appnet: URI.
+// The inner URL is normalized and wrapped with targeted escaping.
+func (r *Resource) buildURI() string {
+	return "appnet:" + escapeInnerURI(r.canonicalAuthority())
+}
 
-// Scheme returns "net".
-func (r *Resource) Scheme() string { return op.SchemeNet }
-
-// Host returns the lowercased hostname from the source URL.
-func (r *Resource) Host() string { return strings.ToLower(r.SourceURL.Hostname()) }
-
-// Path returns the raw path from the source URL.
-func (r *Resource) Path() string { return r.SourceURL.Path }
+// escapeInnerURI percent-encodes # and ? so they don't interfere with
+// the outer URI's fragment and query parsing.
+func escapeInnerURI(s string) string {
+	var b []byte
+	for i := range len(s) {
+		switch s[i] {
+		case '#':
+			b = append(b, '%', '2', '3')
+		case '?':
+			b = append(b, '%', '3', 'F')
+		default:
+			b = append(b, s[i])
+		}
+	}
+	return string(b)
+}
 
 // canonicalAuthority produces the canonical host+path+query string.
 //

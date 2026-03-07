@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package net //nolint:revive // package name is domain-specific
+package appnet
 
 import (
 	"testing"
@@ -11,27 +11,6 @@ import (
 
 func TestResourceImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
-}
-
-func TestResourceScheme(t *testing.T) {
-	r := mustParse(t, "https://example.com/path")
-	if r.Scheme() != op.SchemeNet {
-		t.Errorf("Scheme() = %q, want %q", r.Scheme(), op.SchemeNet)
-	}
-}
-
-func TestResourceHost(t *testing.T) {
-	r := mustParse(t, "https://Example.COM/path")
-	if r.Host() != "example.com" {
-		t.Errorf("Host() = %q, want %q", r.Host(), "example.com")
-	}
-}
-
-func TestResourcePath(t *testing.T) {
-	r := mustParse(t, "https://example.com/some/path")
-	if r.Path() != "/some/path" {
-		t.Errorf("Path() = %q, want %q", r.Path(), "/some/path")
-	}
 }
 
 func TestConstructorRoundTrip(t *testing.T) {
@@ -66,6 +45,16 @@ func TestURITransportIndependent(t *testing.T) {
 	}
 }
 
+func TestURIOpaqueScheme(t *testing.T) {
+	r := mustParse(t, "https://example.com/path")
+	if r.Scheme() != "appnet" {
+		t.Errorf("Scheme() = %q, want %q", r.Scheme(), "appnet")
+	}
+	if r.Opaque() == "" {
+		t.Error("Opaque() is empty — expected opaque URI")
+	}
+}
+
 func TestURICanonicalization(t *testing.T) {
 	tests := []struct {
 		name string
@@ -75,72 +64,67 @@ func TestURICanonicalization(t *testing.T) {
 		{
 			name: "lowercase host",
 			raw:  "https://Example.COM/path",
-			want: "net://example.com/path",
+			want: "appnet:example.com/path",
 		},
 		{
 			name: "strip default https port",
 			raw:  "https://example.com:443/path",
-			want: "net://example.com/path",
+			want: "appnet:example.com/path",
 		},
 		{
 			name: "strip default http port",
 			raw:  "http://example.com:80/path",
-			want: "net://example.com/path",
+			want: "appnet:example.com/path",
 		},
 		{
 			name: "keep non-default port",
 			raw:  "https://example.com:8443/path",
-			want: "net://example.com:8443/path",
+			want: "appnet:example.com:8443/path",
 		},
 		{
 			name: "strip trailing slash",
 			raw:  "https://example.com/path/",
-			want: "net://example.com/path",
+			want: "appnet:example.com/path",
 		},
 		{
 			name: "collapse double slashes",
 			raw:  "https://example.com/a//b///c",
-			want: "net://example.com/a/b/c",
+			want: "appnet:example.com/a/b/c",
 		},
 		{
 			name: "uppercase percent encoding",
 			raw:  "https://example.com/p%61th",
-			want: "net://example.com/path",
+			want: "appnet:example.com/path",
 		},
 		{
 			name: "keep reserved chars encoded",
 			raw:  "https://example.com/path%20with%20spaces",
-			want: "net://example.com/path%20with%20spaces",
+			want: "appnet:example.com/path%20with%20spaces",
 		},
 		{
 			name: "uppercase hex digits",
 			raw:  "https://example.com/%2f%2F",
-			want: "net://example.com/%2F%2F",
+			want: "appnet:example.com/%2F%2F",
 		},
 		{
-			name: "sort query parameters",
+			name: "sort query parameters escaped",
 			raw:  "https://example.com/path?z=1&a=2&m=3",
-			want: "net://example.com/path?a=2&m=3&z=1",
+			want: "appnet:example.com/path%3Fa=2&m=3&z=1",
 		},
 		{
 			name: "root path stays",
 			raw:  "https://example.com",
-			want: "net://example.com/",
+			want: "appnet:example.com/",
 		},
 		{
 			name: "all rules combined",
 			raw:  "HTTPS://Example.COM:443/A//B/%7e/?z=1&a=2",
-			want: "net://example.com/A/B/~?a=2&z=1",
+			want: "appnet:example.com/A/B/~%3Fa=2&z=1",
 		},
 		{
 			name: "ftp default port stripped",
 			raw:  "ftp://files.example.com:21/pub/file.txt",
-			want: "net://files.example.com/pub/file.txt",
-		},
-		{
-			name: "file scheme accepted",
-			raw:  "file:///etc/hosts",
-			want: "net:///etc/hosts",
+			want: "appnet:files.example.com/pub/file.txt",
 		},
 	}
 

@@ -164,7 +164,7 @@ func (o *Output) Path() string {
 }
 
 // retryBuiltin sets the retry policy on this output's node.
-// Usage: node = plan.net.download(...); node.retry(max_attempts=5, backoff="linear")
+// Usage: node = plan.appnet.download(...); node.retry(max_attempts=5, backoff="linear")
 func (o *Output) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var maxAttempts int
 	var backoff, initialDelay, maxDelay string
