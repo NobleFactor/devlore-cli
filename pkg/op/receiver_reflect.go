@@ -47,9 +47,15 @@ type methodBridge struct {
 }
 
 // WrapReceiver wraps a Go struct for immediate-mode Starlark use.
-// Only methods listed in params are exposed. Compensate* methods are
-// excluded automatically.
-func WrapReceiver(name string, provider any, params MethodParams) *ReflectedReceiver {
+// Params are looked up from the receiver params registry (populated by
+// RegisterReflectedActions during InitAll). Only methods listed in the
+// registered params are exposed. Compensate* methods are excluded.
+func WrapReceiver(name string, provider any) *ReflectedReceiver {
+	entry, ok := lookupReceiverParams(reflect.TypeOf(provider))
+	if !ok {
+		panic(fmt.Sprintf("WrapReceiver(%s): no params registered — was RegisterReflectedActions called?", name))
+	}
+
 	rv := reflect.ValueOf(provider)
 	r := &ReflectedReceiver{
 		Receiver:      newReceiver(name),
@@ -64,7 +70,7 @@ func WrapReceiver(name string, provider any, params MethodParams) *ReflectedRece
 			continue
 		}
 
-		paramNames, ok := params[m.Name]
+		paramNames, ok := entry.params[m.Name]
 		if !ok {
 			continue
 		}

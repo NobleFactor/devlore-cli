@@ -416,6 +416,8 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 // Every CompensableAction (3 returns) must have a Compensate<GoName>
 // companion method. Missing pairs panic at registration time.
 func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, params MethodParams) {
+	registerReceiverParamsReflect(name, provider, params)
+
 	pv := reflect.ValueOf(provider)
 	pt := pv.Type()
 

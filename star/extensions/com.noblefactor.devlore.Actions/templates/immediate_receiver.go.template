@@ -11,7 +11,7 @@ import (
 {{if .registered}}
 // New{{.struct_name}}{{.wrapper_suffix}} creates a wrapped {{.provider}} provider for Starlark consumption.
 func New{{.struct_name}}{{.wrapper_suffix}}(p *{{.provider_type_prefix}}{{.impl_type}}) *op.ReflectedReceiver {
-	return op.WrapReceiver("{{.namespace}}", p, Params)
+	return op.WrapReceiver("{{.namespace}}", p)
 }
 {{else}}
 // {{.struct_name}}Params maps Go method names to Starlark parameter name lists.
@@ -21,8 +21,12 @@ var {{.struct_name}}Params = op.MethodParams{
 {{- end}}
 }
 
+func init() {
+	op.RegisterReceiverParams("{{.namespace}}", &{{.provider_type_prefix}}{{.impl_type}}{}, {{.struct_name}}Params)
+}
+
 // New{{.struct_name}}{{.wrapper_suffix}} creates a new wrapper for the given {{.impl_type}}.
 func New{{.struct_name}}{{.wrapper_suffix}}(p *{{.provider_type_prefix}}{{.impl_type}}) *op.ReflectedReceiver {
-	return op.WrapReceiver("{{.namespace}}", p, {{.struct_name}}Params)
+	return op.WrapReceiver("{{.namespace}}", p)
 }
 {{end}}

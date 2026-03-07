@@ -97,10 +97,17 @@ var testParams = MethodParams{
 	"TryParse":  {"s"},
 }
 
+// wrapTestReceiver registers params and wraps a provider in one step.
+// Test-only helper — production code relies on RegisterReflectedActions.
+func wrapTestReceiver(name string, provider any, params MethodParams) *ReflectedReceiver {
+	registerReceiverParamsReflect(name, provider, params)
+	return WrapReceiver(name, provider)
+}
+
 // --- WrapReceiver tests ---
 
 func TestWrapReceiver_MethodDiscovery(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	names := r.AttrNames()
 
@@ -120,7 +127,7 @@ func TestWrapReceiver_MethodDiscovery(t *testing.T) {
 }
 
 func TestWrapReceiver_CompensateExcluded(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	_, err := r.Attr("compensate_write")
 	if err == nil {
@@ -129,7 +136,7 @@ func TestWrapReceiver_CompensateExcluded(t *testing.T) {
 }
 
 func TestWrapReceiver_UnlistedMethodExcluded(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	_, err := r.Attr("internal_helper")
 	if err == nil {
@@ -138,7 +145,7 @@ func TestWrapReceiver_UnlistedMethodExcluded(t *testing.T) {
 }
 
 func TestWrapReceiver_AttrReturnsBuiltin(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	val, err := r.Attr("greet")
 	if err != nil {
@@ -197,7 +204,7 @@ func callMethodErr(t *testing.T, r *ReflectedReceiver, name string, args ...star
 }
 
 func TestCall_StringReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "greet", starlark.String("world"))
 
 	s, ok := starlark.AsString(result)
@@ -207,7 +214,7 @@ func TestCall_StringReturn(t *testing.T) {
 }
 
 func TestCall_BoolReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	result := callMethod(t, r, "exists", starlark.String("/exists"))
 	if result != starlark.True {
@@ -221,7 +228,7 @@ func TestCall_BoolReturn(t *testing.T) {
 }
 
 func TestCall_IntReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	list := starlark.NewList([]starlark.Value{starlark.String("a"), starlark.String("b")})
 	result := callMethod(t, r, "count", list)
 
@@ -236,7 +243,7 @@ func TestCall_IntReturn(t *testing.T) {
 }
 
 func TestCall_TupleReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "divide", starlark.MakeInt(10), starlark.MakeInt(3))
 
 	si, ok := result.(starlark.Int)
@@ -250,7 +257,7 @@ func TestCall_TupleReturn(t *testing.T) {
 }
 
 func TestCall_ErrorPropagation(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	err := callMethodErr(t, r, "divide", starlark.MakeInt(1), starlark.MakeInt(0))
 	if err == nil {
 		t.Fatal("divide(1,0) should return error")
@@ -261,7 +268,7 @@ func TestCall_ErrorPropagation(t *testing.T) {
 }
 
 func TestCall_SliceReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "list_files", starlark.String("/tmp"))
 
 	list, ok := result.(*starlark.List)
@@ -278,7 +285,7 @@ func TestCall_SliceReturn(t *testing.T) {
 }
 
 func TestCall_VoidReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "noop")
 	if result != starlark.None {
 		t.Errorf("noop() = %v, want None", result)
@@ -286,7 +293,7 @@ func TestCall_VoidReturn(t *testing.T) {
 }
 
 func TestCall_ErrorOnlyReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	// Success case.
 	result := callMethod(t, r, "validate", starlark.String("ok"))
@@ -302,7 +309,7 @@ func TestCall_ErrorOnlyReturn(t *testing.T) {
 }
 
 func TestCall_CompensableReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "write", starlark.String("/tmp/f"), starlark.String("data"))
 
 	// Compensable methods return (T, map, error). Bridge returns marshal(T),
@@ -314,7 +321,7 @@ func TestCall_CompensableReturn(t *testing.T) {
 }
 
 func TestCall_StructReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "get_point")
 
 	// testPoint has X and Y fields.
@@ -335,7 +342,7 @@ func TestCall_StructReturn(t *testing.T) {
 }
 
 func TestCall_OptionalParam(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	// With optional param provided.
 	result := callMethodKw(t, r, "search", []starlark.Tuple{
@@ -364,7 +371,7 @@ func TestCall_OptionalParam(t *testing.T) {
 }
 
 func TestCall_KwargsSupported(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethodKw(t, r, "greet", []starlark.Tuple{
 		{starlark.String("name"), starlark.String("kwargs")},
 	})
@@ -375,7 +382,7 @@ func TestCall_KwargsSupported(t *testing.T) {
 }
 
 func TestCall_WrongArgType(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	err := callMethodErr(t, r, "greet", starlark.MakeInt(42))
 	if err == nil {
 		t.Fatal("greet(42) should fail with type error")
@@ -383,7 +390,7 @@ func TestCall_WrongArgType(t *testing.T) {
 }
 
 func TestCall_MissingRequiredArg(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	err := callMethodErr(t, r, "greet")
 	if err == nil {
 		t.Fatal("greet() should fail with missing arg")
@@ -391,7 +398,7 @@ func TestCall_MissingRequiredArg(t *testing.T) {
 }
 
 func TestCall_MultiReturn_NoError(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	// TryParse returns (int, bool) — bridge marshals first return.
 	result := callMethod(t, r, "try_parse", starlark.String("42"))
 
@@ -408,7 +415,7 @@ func TestCall_MultiReturn_NoError(t *testing.T) {
 // --- Override tests ---
 
 func TestOverride_ReplacesMethod(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	r.Override("greet", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 		return starlark.String("overridden"), nil
@@ -422,7 +429,7 @@ func TestOverride_ReplacesMethod(t *testing.T) {
 }
 
 func TestOverride_AddsNewMethod(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	r.Override("custom_method", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 		return starlark.String("custom"), nil
@@ -443,7 +450,7 @@ func TestOverride_AddsNewMethod(t *testing.T) {
 // --- Starlark interface tests ---
 
 func TestReflectedReceiver_StarlarkValue(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	if r.String() != "test" {
 		t.Errorf("String() = %q, want 'test'", r.String())
@@ -459,7 +466,7 @@ func TestReflectedReceiver_StarlarkValue(t *testing.T) {
 // --- NoResult tests ---
 
 func TestCall_NoResultReturn(t *testing.T) {
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "remove", starlark.String("/tmp/file"))
 
 	if result != starlark.None {
@@ -471,7 +478,7 @@ func TestCall_NoResultReturn(t *testing.T) {
 
 func TestWrapReceiver_CatalogShadow(t *testing.T) {
 	catalog := NewResourceCatalog()
-	r := WrapReceiver("test", &actionProvider{}, MethodParams{
+	r := wrapTestReceiver("test", &actionProvider{}, MethodParams{
 		"Create": {"path"},
 	})
 	r.SetCatalog(catalog)
@@ -498,7 +505,7 @@ func TestWrapReceiver_CatalogShadow(t *testing.T) {
 }
 
 func TestWrapReceiver_NoCatalog_NoShadow(t *testing.T) {
-	r := WrapReceiver("test", &actionProvider{}, MethodParams{
+	r := wrapTestReceiver("test", &actionProvider{}, MethodParams{
 		"Create": {"path"},
 	})
 	// No catalog set — should not panic.
@@ -507,7 +514,7 @@ func TestWrapReceiver_NoCatalog_NoShadow(t *testing.T) {
 
 func TestWrapReceiver_CatalogError_NoShadow(t *testing.T) {
 	catalog := NewResourceCatalog()
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)
 
 	// Validate("") returns error — should not shadow.
@@ -522,7 +529,7 @@ func TestWrapReceiver_CatalogError_NoShadow(t *testing.T) {
 
 func TestWrapReceiver_CatalogNonResource_NoShadow(t *testing.T) {
 	catalog := NewResourceCatalog()
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)
 
 	// Greet returns string — not a Resource, should not be shadowed.
@@ -535,7 +542,7 @@ func TestWrapReceiver_CatalogNonResource_NoShadow(t *testing.T) {
 
 func TestWrapReceiver_CatalogNoResult_NoShadow(t *testing.T) {
 	catalog := NewResourceCatalog()
-	r := WrapReceiver("test", &testProvider{}, testParams)
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)
 
 	// Remove returns NoResult — nothing to shadow.

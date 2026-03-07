@@ -89,12 +89,34 @@ type receiverEntry struct {
 	params MethodParams
 }
 
-// RegisterReceiverParams registers a Go struct type as a Starlark receiver.
-// When marshalReflect encounters *T, it wraps it with WrapReceiver using
-// the given name and params instead of flattening to a field-only struct.
-func RegisterReceiverParams[T any](name string, params MethodParams) {
-	t := reflect.TypeOf((*T)(nil)).Elem()
+// RegisterReceiverParams stores receiver params for a provider type.
+// Called by RegisterReflectedActions as a side effect for providers with
+// actions, and directly by immediate-only providers in their Register()
+// callback.
+func RegisterReceiverParams(name string, provider any, params MethodParams) {
+	registerReceiverParamsReflect(name, provider, params)
+}
+
+// registerReceiverParamsReflect stores receiver params using the runtime
+// reflect.Type of the provider pointer.
+func registerReceiverParamsReflect(name string, provider any, params MethodParams) {
+	t := reflect.TypeOf(provider)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
 	receiverParamsRegistry.Store(t, receiverEntry{name: name, params: params})
+}
+
+// lookupReceiverParams returns the receiver entry for the given type.
+func lookupReceiverParams(t reflect.Type) (receiverEntry, bool) {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	v, ok := receiverParamsRegistry.Load(t)
+	if !ok {
+		return receiverEntry{}, false
+	}
+	return v.(receiverEntry), true
 }
 
 // --- Type cache ---
@@ -212,9 +234,8 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 	// Registered types get wrapped as ReflectedReceivers (with methods)
 	// instead of flattened to field-only structs.
 	if rv.Kind() == reflect.Pointer && !rv.IsNil() {
-		if entry, ok := receiverParamsRegistry.Load(rv.Type().Elem()); ok {
-			e := entry.(receiverEntry)
-			return WrapReceiver(e.name, rv.Interface(), e.params), nil
+		if entry, ok := lookupReceiverParams(rv.Type()); ok {
+			return WrapReceiver(entry.name, rv.Interface()), nil
 		}
 	}
 
