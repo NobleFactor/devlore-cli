@@ -22,9 +22,9 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/archive"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
@@ -340,23 +340,23 @@ func TestGitPullDryRun(t *testing.T) {
 	}
 }
 
-// --- net action tests ---
+// --- appnet action tests ---
 
-func TestNetDownload(t *testing.T) {
+func TestAppnetDownload(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, "downloaded content")
 	}))
 	defer ts.Close()
 
 	ctx := &op.Context{Context: context.Background()}
-	action := &net.Download{Impl: &net.Provider{}}
+	action := &appnet.Download{Impl: &appnet.Provider{}}
 	slots := map[string]any{
 		"url": ts.URL,
 	}
 
 	result, _, err := action.Do(ctx, slots)
 	if err != nil {
-		t.Fatalf("net.download: %v", err)
+		t.Fatalf("appnet.download: %v", err)
 	}
 
 	data, ok := result.([]byte)
@@ -368,21 +368,21 @@ func TestNetDownload(t *testing.T) {
 	}
 }
 
-func TestNetDownloadReturnsContent(t *testing.T) {
+func TestAppnetDownloadReturnsContent(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, "file content")
 	}))
 	defer ts.Close()
 
 	ctx := &op.Context{Context: context.Background()}
-	action := &net.Download{Impl: &net.Provider{}}
+	action := &appnet.Download{Impl: &appnet.Provider{}}
 	slots := map[string]any{
 		"url": ts.URL,
 	}
 
 	result, _, err := action.Do(ctx, slots)
 	if err != nil {
-		t.Fatalf("net.download: %v", err)
+		t.Fatalf("appnet.download: %v", err)
 	}
 
 	data, ok := result.([]byte)
@@ -394,19 +394,19 @@ func TestNetDownloadReturnsContent(t *testing.T) {
 	}
 }
 
-func TestNetDownloadDryRun(t *testing.T) {
+func TestAppnetDownloadDryRun(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &op.Context{Context: context.Background(), DryRun: true, Writer: &buf}
-	action := &net.Download{Impl: &net.Provider{}}
+	action := &appnet.Download{Impl: &appnet.Provider{}}
 	slots := map[string]any{
 		"url": "https://example.com/test.tar.gz",
 	}
 
 	_, _, err := action.Do(ctx, slots)
 	if err != nil {
-		t.Fatalf("net.download dry-run: %v", err)
+		t.Fatalf("appnet.download dry-run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "[dry-run] net.download") {
+	if !strings.Contains(buf.String(), "[dry-run] appnet.download") {
 		t.Errorf("expected dry-run download log, got %q", buf.String())
 	}
 }

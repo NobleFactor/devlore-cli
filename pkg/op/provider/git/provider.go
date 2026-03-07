@@ -8,8 +8,8 @@ import (
 	"os/exec"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	netprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	netprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
 )
 
 // Provider provides git actions.

@@ -37,20 +37,9 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r Resource) String() string { return r.Format(r) }
 
-// URI returns the canonical file:// URI for this resource.
-func (r *Resource) URI() string { return r.NewURI(r) }
-
-// Scheme returns "file".
-func (r *Resource) Scheme() string { return op.SchemeFile }
-
-// Host returns empty string — file URIs have no authority.
-func (r *Resource) Host() string { return "" }
-
-// Path returns the resource's source path. Before Resolve(), this is the
-// raw path as given to the constructor. After Resolve(), it is the
-// canonicalized absolute path on the target machine.
-func (r *Resource) Path() string {
-	return r.SourcePath
+// buildURI computes the canonical file:// URI from SourcePath.
+func (r *Resource) buildURI() string {
+	return "file://" + r.SourcePath
 }
 
 // Tombstone holds file-specific compensation state.
@@ -68,7 +57,9 @@ type Tombstone struct {
 // is pure computation — no I/O, no error. Metadata (size, mode, checksum)
 // is populated later by [Resource.Resolve].
 func NewResource(path string) Resource {
-	return Resource{SourcePath: path}
+	r := Resource{SourcePath: path}
+	r.SetURI(r.buildURI())
+	return r
 }
 
 // Resolve populates the resource's metadata by canonicalizing the path and
@@ -79,6 +70,7 @@ func (r *Resource) Resolve() error {
 	abs, err := filepath.Abs(r.SourcePath)
 	if err == nil {
 		r.SourcePath = filepath.Clean(abs)
+		r.SetURI(r.buildURI())
 	}
 
 	info, err := os.Stat(r.SourcePath)

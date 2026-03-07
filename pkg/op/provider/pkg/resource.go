@@ -23,12 +23,16 @@ func init() {
 // NewResource creates a Resource with the given package name.
 // The Type is left empty for auto-detection at Resolve() time.
 func NewResource(name string) Resource {
-	return Resource{Name: name}
+	r := Resource{Name: name}
+	r.SetURI(r.buildURI())
+	return r
 }
 
 // NewTypedResource creates a Resource with explicit package name and type.
 func NewTypedResource(name, typ string) Resource {
-	return Resource{Name: name, Type: typ}
+	r := Resource{Name: name, Type: typ}
+	r.SetURI(r.buildURI())
+	return r
 }
 
 // Resource represents a system package.
@@ -42,21 +46,8 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r Resource) String() string { return r.Format(r) }
 
-// URI returns the canonical pkg:// URI for this resource.
-func (r *Resource) URI() string { return r.NewURI(r) }
-
-// Scheme returns "pkg".
-func (r *Resource) Scheme() string { return op.SchemePackage }
-
-// Host returns the package type (manager), used as the URI authority.
-// With type: pkg://brew/jq. Without type: pkg:///jq.
-func (r *Resource) Host() string { return r.Type }
-
-// Path returns the package name with a leading slash.
-func (r *Resource) Path() string { return "/" + r.Name }
-
-// Purl returns the canonical package-url string (ECMA-427).
-func (r *Resource) Purl() string {
+// buildURI computes the purl-compliant opaque URI.
+func (r *Resource) buildURI() string {
 	if r.Type == "winget" {
 		// Split "Microsoft.VisualStudioCode" → namespace "Microsoft" / name "VisualStudioCode"
 		if ns, name, ok := strings.Cut(r.Name, "."); ok {
@@ -72,6 +63,12 @@ func (r *Resource) Purl() string {
 		s += "@" + r.Version
 	}
 	return s
+}
+
+// Purl returns the canonical package-url string. For this implementation,
+// URI() and Purl() produce the same string.
+func (r *Resource) Purl() string {
+	return r.URI()
 }
 
 // Resolve populates Type from the platform's default package manager

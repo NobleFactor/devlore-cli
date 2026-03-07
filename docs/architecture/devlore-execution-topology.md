@@ -1,4 +1,4 @@
-# Draft: Elevation Model
+# Execution Topology
 
 Design topic for a future plan. Not yet approved for implementation.
 
@@ -81,7 +81,9 @@ type ElevationAware interface {
 }
 ```
 
-**Instance-level** — node annotation overrides the type-level default:
+**Instance-level** — node annotation overrides the type-level default.
+`Node.Annotations` (`map[string]string`) is already implemented and serialized
+to JSON/YAML receipts:
 
 ```go
 node.Annotations["elevate"] = "true"   // force elevation for this node
@@ -121,8 +123,16 @@ type ElevationProvider interface {
 
 ### flow.elevate Integration
 
+`flow.elevate` exists as a registered flow action (`internal/execution/flow/elevate.go`)
+alongside `flow.choose`, `flow.gather`, `flow.complete`, `flow.degraded`,
+`flow.fatal`, and `flow.wait_until`. It is currently a passthrough stub that
+makes privilege boundaries visible in the graph. The full privilege provider
+wiring is the subject of this design.
+
+The action signatures use `Complement` (the current undo state type alias):
+
 ```go
-func (a *Elevate) Do(ctx *Context, slots map[string]any) (Result, UndoState, error) {
+func (a *Elevate) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Complement, error) {
     provider := elevationProviderFromContext(ctx)
     if provider == nil {
         return nil, nil, fmt.Errorf("elevation required but no provider configured")
@@ -130,12 +140,12 @@ func (a *Elevate) Do(ctx *Context, slots map[string]any) (Result, UndoState, err
     if err := provider.Start(ctx); err != nil {
         return nil, nil, fmt.Errorf("failed to acquire elevation: %w", err)
     }
-    // Provider is the undo state — Undo calls Stop
+    // Provider is the complement — Undo calls Stop
     return nil, provider, nil
 }
 
-func (a *Elevate) Undo(ctx *Context, slots map[string]any, state UndoState) error {
-    if provider, ok := state.(ElevationProvider); ok {
+func (a *Elevate) Undo(ctx *op.Context, complement op.Complement) error {
+    if provider, ok := complement.(ElevationProvider); ok {
         return provider.Stop()
     }
     return nil
@@ -145,6 +155,14 @@ func (a *Elevate) Undo(ctx *Context, slots map[string]any, state UndoState) erro
 The `flow.elevate` node in the graph makes privilege acquisition visible in the
 plan and receipt. Phase boundary = child lifetime. The receipt records when
 elevation was acquired and released.
+
+### Context Integration
+
+`op.Context` currently carries: `context.Context` (embedded), `Catalog`,
+`Data map[string]any`, `DryRun`, `Graph`, `NodeID`, `Platform`, and `Writer`.
+The elevation provider would be accessed via `ctx.Data` or a dedicated field.
+The `Platform` field (added for host abstraction) already provides OS detection
+needed for platform-specific elevation dispatch.
 
 ---
 
@@ -160,6 +178,28 @@ elevation was acquired and released.
   scenarios.
 - **Named pipes**: Native IPC mechanism on Windows — better fit than
   stdin/stdout pipes for the elevated child.
+
+---
+
+## Prior Art: Persistent PowerShell Session
+
+The `internal/pwsh` package implements the persistent child process + pipe IPC
+pattern for PowerShell on Windows. This is the same architectural shape proposed
+for elevation:
+
+- A single `pwsh -NoProfile -NonInteractive -Command -` process is spawned once
+- Commands are streamed to stdin; output is read from stdout until a marker
+- Variables, module imports, and session state persist across calls
+- The session is closed explicitly (or on process exit)
+
+This exists because PowerShell modules (Az, ActiveDirectory, PackageManagement)
+establish authenticated sessions on import, and COM/.NET objects (WMI, Registry,
+IIS) are expensive to instantiate. Spawning `pwsh -Command` per operation loses
+all state.
+
+The elevation worker generalizes this pattern: instead of PowerShell-specific
+stdin/marker protocol, the worker uses a structured IPC protocol (ndjson) for
+arbitrary `(command, args, env) → (stdout, stderr, exit_code)` exchanges.
 
 ---
 
@@ -251,11 +291,12 @@ type Executor interface {
 
 ### Graph Lifecycle Over SSH
 
-1. **Transfer:** Coordinator SCP/SFTPs the graph (JSON) and the runner binary
-   to the target.
+1. **Transfer:** Coordinator SCP/SFTPs the graph (JSON or YAML) and the runner
+   binary to the target.
 2. **Trigger:** Coordinator calls `session.Start("./runner --graph=task.json")`.
 3. **Hydration:** On the target, the runner loads the graph, reconciles against
-   local system state, and begins execution.
+   local system state (using the `RecoveryStack` with drift detection and
+   reconcile functions), and begins execution.
 4. **Persistence:** The runner saves the result graph (receipt) to a local file.
 5. **Retrieval:** Coordinator detects process exit, downloads the result graph.
 
@@ -280,7 +321,8 @@ For "chunky" workloads (minutes to hours):
   coordinator monitors.
 - **Detached pattern:** For very long workloads, start via `nohup` or a systemd
   transient unit. Disconnect and re-attach later to check exit status. This
-  maps to the Recovery Stack restart capability (see `draft.md`).
+  maps to the Recovery Stack restart capability (see
+  [devlore-recovery-serialization](devlore-recovery-serialization.md) — planned).
 
 ---
 

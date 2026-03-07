@@ -4,8 +4,6 @@
 package op
 
 import (
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -16,7 +14,15 @@ func TestResourceBase_URI(t *testing.T) {
 	}
 }
 
-func TestResourceBase_ComponentsParsedFromURI(t *testing.T) {
+func TestResourceBase_SetURI(t *testing.T) {
+	base := NewResourceBase("file:///foo")
+	base.SetURI("file:///bar")
+	if base.URI() != "file:///bar" {
+		t.Errorf("URI() = %q, want file:///bar", base.URI())
+	}
+}
+
+func TestResourceBase_ParseHierarchicalURI(t *testing.T) {
 	base := NewResourceBase("file:///usr/local/bin")
 	if base.Scheme() != "file" {
 		t.Errorf("Scheme() = %q, want file", base.Scheme())
@@ -27,56 +33,34 @@ func TestResourceBase_ComponentsParsedFromURI(t *testing.T) {
 	if base.Path() != "/usr/local/bin" {
 		t.Errorf("Path() = %q, want /usr/local/bin", base.Path())
 	}
-}
-
-func TestResourceBase_ComponentsWithHost(t *testing.T) {
-	base := NewResourceBase("git://github.com/org/repo")
-	if base.Scheme() != "git" {
-		t.Errorf("Scheme() = %q, want git", base.Scheme())
-	}
-	if base.Host() != "github.com" {
-		t.Errorf("Host() = %q, want github.com", base.Host())
-	}
-	if base.Path() != "/org/repo" {
-		t.Errorf("Path() = %q, want /org/repo", base.Path())
+	if base.Opaque() != "" {
+		t.Errorf("Opaque() = %q, want empty (hierarchical URI)", base.Opaque())
 	}
 }
 
-func TestResourceBase_NewURI(t *testing.T) {
-	base := NewResourceBase("")
-	r := &testResource{scheme: "svc", host: "", path: "/nginx"}
-	uri := base.NewURI(r)
-	if uri != "svc:///nginx" {
-		t.Errorf("NewURI() = %q, want svc:///nginx", uri)
+func TestResourceBase_ParseOpaqueURI(t *testing.T) {
+	base := NewResourceBase("pkg:brew/jq@1.7")
+	if base.Scheme() != "pkg" {
+		t.Errorf("Scheme() = %q, want pkg", base.Scheme())
+	}
+	if base.Opaque() != "brew/jq@1.7" {
+		t.Errorf("Opaque() = %q, want brew/jq@1.7", base.Opaque())
+	}
+	if base.Host() != "" {
+		t.Errorf("Host() = %q, want empty (opaque URI)", base.Host())
+	}
+	if base.Path() != "" {
+		t.Errorf("Path() = %q, want empty (opaque URI)", base.Path())
 	}
 }
 
-func TestResourceBase_NewURI_WithHost(t *testing.T) {
-	base := NewResourceBase("")
-	r := &testResource{scheme: "git", host: "github.com", path: "/org/repo"}
-	uri := base.NewURI(r)
-	if uri != "git://github.com/org/repo" {
-		t.Errorf("NewURI() = %q, want git://github.com/org/repo", uri)
+func TestResourceBase_ParseFragment(t *testing.T) {
+	base := NewResourceBase("mem:callable/file.Reducer/myfn#node1")
+	if base.Scheme() != "mem" {
+		t.Errorf("Scheme() = %q, want mem", base.Scheme())
 	}
-}
-
-func TestResourceBase_NewURI_File(t *testing.T) {
-	base := NewResourceBase("")
-	r := &testResource{scheme: "file", host: "", path: "/usr/local/bin"}
-	uri := base.NewURI(r)
-	if uri != "file:///usr/local/bin" {
-		t.Errorf("NewURI() = %q, want file:///usr/local/bin", uri)
-	}
-}
-
-func TestResourceBase_NewURI_RelativeFilePath(t *testing.T) {
-	// A testResource that returns a relative path gets a relative URI.
-	// Real file.Resource.Path() always canonicalizes via filepath.Abs.
-	base := NewResourceBase("")
-	r := &testResource{scheme: "file", host: "", path: "/etc/foo"}
-	uri := base.NewURI(r)
-	if !strings.HasPrefix(uri, "file:///") {
-		t.Errorf("NewURI() = %q, want file:/// prefix", uri)
+	if base.Fragment() != "node1" {
+		t.Errorf("Fragment() = %q, want node1", base.Fragment())
 	}
 }
 
@@ -88,60 +72,22 @@ func TestResourceBase_SatisfiesInterface(t *testing.T) {
 	}
 }
 
-// testResource is a concrete Resource implementation for testing NewURI.
-type testResource struct {
-	ResourceBase
-	scheme string
-	host   string
-	path   string
-}
-
-func (r *testResource) URI() string    { return r.NewURI(r) }
-func (r *testResource) Scheme() string { return r.scheme }
-func (r *testResource) Host() string   { return r.host }
-func (r *testResource) Path() string   { return r.path }
-
-func TestConcreteResource_URI(t *testing.T) {
-	r := &testResource{scheme: "file", host: "", path: "/usr/local/bin"}
-	if r.URI() != "file:///usr/local/bin" {
-		t.Errorf("URI() = %q, want file:///usr/local/bin", r.URI())
-	}
-
-	// Verify it satisfies the Resource interface
-	var iface Resource = r
-	if iface.URI() != "file:///usr/local/bin" {
-		t.Errorf("Resource.URI() = %q, want file:///usr/local/bin", iface.URI())
+func TestResourceBase_ParseInvalidURI(t *testing.T) {
+	base := NewResourceBase("://bad")
+	if base.Scheme() != "" {
+		t.Errorf("Scheme() = %q, want empty for invalid URI", base.Scheme())
 	}
 }
 
-// testEmbeddingResource embeds ResourceBase, like file.Resource does.
+// testEmbeddingResource is a minimal Resource used by resource_catalog_test.go.
 type testEmbeddingResource struct {
 	ResourceBase
 	SourcePath string
 }
 
-func (r *testEmbeddingResource) URI() string    { return r.NewURI(r) }
-func (r *testEmbeddingResource) Scheme() string { return SchemeFile }
-func (r *testEmbeddingResource) Host() string   { return "" }
-func (r *testEmbeddingResource) Path() string {
-	abs, err := filepath.Abs(r.SourcePath)
-	if err != nil {
-		return r.SourcePath
+func (r *testEmbeddingResource) URI() string {
+	if r.ResourceBase.URI() == "" {
+		r.SetURI("file://" + r.SourcePath)
 	}
-	return abs
-}
-
-func TestEmbeddingResource_URIComputedFromComponents(t *testing.T) {
-	r := &testEmbeddingResource{SourcePath: "/etc/foo"}
-	if r.URI() != "file:///etc/foo" {
-		t.Errorf("URI() = %q, want file:///etc/foo", r.URI())
-	}
-	if r.Scheme() != "file" {
-		t.Errorf("Scheme() = %q, want file", r.Scheme())
-	}
-
-	var iface Resource = r
-	if iface.URI() != "file:///etc/foo" {
-		t.Errorf("Resource.URI() = %q, want file:///etc/foo", iface.URI())
-	}
+	return r.ResourceBase.URI()
 }

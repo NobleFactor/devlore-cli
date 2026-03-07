@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	netprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	netprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/net"
 )
 
 func TestCloneViaHook(t *testing.T) {

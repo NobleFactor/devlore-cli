@@ -50,7 +50,7 @@ The execution engine processes a directed acyclic graph (DAG) of nodes, where ea
 | pkg | `pkg.install`, `pkg.upgrade`, `pkg.remove`, `pkg.update` | `provider/pkg` |
 | shell | `shell.exec`, `shell.powershell` | `provider/shell` |
 | service | `service.start`, `service.stop`, `service.restart`, `service.enable`, `service.disable` | `provider/service` |
-| net | `net.download` | `provider/net` |
+| appnet | `appnet.download` | `provider/appnet` |
 | archive | `archive.extract` | `provider/archive` |
 | git | `git.clone`, `git.checkout`, `git.pull` | `provider/git` |
 | flow | `flow.choose`, `flow.gather`, `flow.elevate` | `flow/` |

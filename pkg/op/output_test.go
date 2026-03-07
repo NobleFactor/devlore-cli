@@ -242,7 +242,7 @@ func TestOutputAttr(t *testing.T) {
 }
 
 func TestOutputAttrRetry(t *testing.T) {
-	n := makeTestNode("r1", "net.download")
+	n := makeTestNode("r1", "appnet.download")
 	g := makeTestGraph()
 	out := NewOutput(n, g, "")
 
@@ -628,20 +628,18 @@ type testFileResource struct {
 	SourcePath string
 }
 
-func (r *testFileResource) URI() string    { return r.NewURI(r) }
-func (r *testFileResource) Scheme() string { return SchemeFile }
-func (r *testFileResource) Host() string   { return "" }
-func (r *testFileResource) Path() string   { return r.SourcePath }
+func newTestFileResource(path string) *testFileResource {
+	r := &testFileResource{SourcePath: path}
+	r.SetURI("file://" + path)
+	return r
+}
 
 func TestFillSlotImplicitEdge_ResourceWithOrigin(t *testing.T) {
 	g := makeTestGraph()
 	consumer := makeTestNode("reader", "file.read")
 
 	// A resource produced by "writer" node — FillSlot should create an implicit edge.
-	res := &testFileResource{
-		ResourceBase: NewResourceBase("file:///foo"),
-		SourcePath:   "/foo",
-	}
+	res := newTestFileResource("/foo")
 	if _, err := g.Catalog.Shadow(res, "writer"); err != nil {
 		t.Fatalf("Shadow error: %v", err)
 	}
@@ -669,10 +667,7 @@ func TestFillSlotImplicitEdge_ResourceWithoutOrigin(t *testing.T) {
 	consumer := makeTestNode("reader", "file.read")
 
 	// A discovered resource (no origin) — FillSlot should NOT create an edge.
-	res := &testFileResource{
-		ResourceBase: NewResourceBase("file:///bar"),
-		SourcePath:   "/bar",
-	}
+	res := newTestFileResource("/bar")
 	// Resolve creates a discovery entry with no origin.
 	g.Catalog.Resolve("file:///bar")
 
@@ -797,7 +792,7 @@ func TestOutputRetryBuiltin(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			n := makeTestNode("r1", "net.download")
+			n := makeTestNode("r1", "appnet.download")
 			out := NewOutput(n, makeTestGraph(), "")
 
 			val, err := out.Attr("retry")
@@ -845,7 +840,7 @@ func TestOutputRetryBuiltin(t *testing.T) {
 }
 
 func TestOutputRetryBuiltinDelays(t *testing.T) {
-	n := makeTestNode("r1", "net.download")
+	n := makeTestNode("r1", "appnet.download")
 	out := NewOutput(n, makeTestGraph(), "")
 
 	val, err := out.Attr("retry")

@@ -33,59 +33,59 @@ func TestNewTypedResource(t *testing.T) {
 }
 
 func TestResourceURI_WithType(t *testing.T) {
-	r := &Resource{Name: "jq", Type: "brew"}
-	want := "pkg://brew/jq"
+	r := NewTypedResource("jq", "brew")
+	want := "pkg:brew/jq"
 	if got := r.URI(); got != want {
 		t.Errorf("URI() = %q, want %q", got, want)
 	}
 }
 
 func TestResourceURI_WithoutType(t *testing.T) {
-	r := &Resource{Name: "jq"}
-	want := "pkg:///jq"
+	r := NewResource("jq")
+	want := "pkg:/jq"
 	if got := r.URI(); got != want {
 		t.Errorf("URI() = %q, want %q", got, want)
 	}
 }
 
-func TestResourceScheme(t *testing.T) {
-	r := &Resource{Name: "jq"}
-	if r.Scheme() != op.SchemePackage {
-		t.Errorf("Scheme() = %q, want %q", r.Scheme(), op.SchemePackage)
+func TestResourceURI_WithVersion(t *testing.T) {
+	r := Resource{Name: "jq", Type: "brew", Version: "1.7"}
+	r.SetURI(r.buildURI())
+	want := "pkg:brew/jq@1.7"
+	if got := r.URI(); got != want {
+		t.Errorf("URI() = %q, want %q", got, want)
 	}
 }
 
-func TestResourceHost(t *testing.T) {
-	r := &Resource{Name: "jq", Type: "brew"}
-	if r.Host() != "brew" {
-		t.Errorf("Host() = %q, want %q", r.Host(), "brew")
+func TestResourceURI_Winget(t *testing.T) {
+	r := Resource{Name: "Microsoft.VisualStudioCode", Type: "winget"}
+	r.SetURI(r.buildURI())
+	want := "pkg:winget/Microsoft/VisualStudioCode"
+	if got := r.URI(); got != want {
+		t.Errorf("URI() = %q, want %q", got, want)
 	}
 }
 
-func TestResourceHost_Empty(t *testing.T) {
-	r := &Resource{Name: "jq"}
-	if r.Host() != "" {
-		t.Errorf("Host() = %q, want empty", r.Host())
+func TestResourceURI_ParsesAsOpaque(t *testing.T) {
+	r := NewTypedResource("jq", "brew")
+	if r.Scheme() != "pkg" {
+		t.Errorf("Scheme() = %q, want pkg", r.Scheme())
+	}
+	if r.Opaque() != "brew/jq" {
+		t.Errorf("Opaque() = %q, want brew/jq", r.Opaque())
 	}
 }
 
-func TestResourcePath(t *testing.T) {
-	r := &Resource{Name: "jq"}
-	if r.Path() != "/jq" {
-		t.Errorf("Path() = %q, want %q", r.Path(), "/jq")
-	}
-}
-
-func TestPurl_Simple(t *testing.T) {
-	r := &Resource{Name: "jq", Type: "brew"}
-	want := "pkg:brew/jq"
-	if got := r.Purl(); got != want {
-		t.Errorf("Purl() = %q, want %q", got, want)
+func TestPurl_ConvergesWithURI(t *testing.T) {
+	r := NewTypedResource("jq", "brew")
+	if r.URI() != r.Purl() {
+		t.Errorf("URI() = %q != Purl() = %q — should converge", r.URI(), r.Purl())
 	}
 }
 
 func TestPurl_WithVersion(t *testing.T) {
-	r := &Resource{Name: "jq", Type: "brew", Version: "1.7"}
+	r := Resource{Name: "jq", Type: "brew", Version: "1.7"}
+	r.SetURI(r.buildURI())
 	want := "pkg:brew/jq@1.7"
 	if got := r.Purl(); got != want {
 		t.Errorf("Purl() = %q, want %q", got, want)
@@ -93,7 +93,8 @@ func TestPurl_WithVersion(t *testing.T) {
 }
 
 func TestPurl_Winget(t *testing.T) {
-	r := &Resource{Name: "Microsoft.VisualStudioCode", Type: "winget"}
+	r := Resource{Name: "Microsoft.VisualStudioCode", Type: "winget"}
+	r.SetURI(r.buildURI())
 	want := "pkg:winget/Microsoft/VisualStudioCode"
 	if got := r.Purl(); got != want {
 		t.Errorf("Purl() = %q, want %q", got, want)
@@ -101,7 +102,8 @@ func TestPurl_Winget(t *testing.T) {
 }
 
 func TestPurl_WingetWithVersion(t *testing.T) {
-	r := &Resource{Name: "Microsoft.VisualStudioCode", Type: "winget", Version: "1.85"}
+	r := Resource{Name: "Microsoft.VisualStudioCode", Type: "winget", Version: "1.85"}
+	r.SetURI(r.buildURI())
 	want := "pkg:winget/Microsoft/VisualStudioCode@1.85"
 	if got := r.Purl(); got != want {
 		t.Errorf("Purl() = %q, want %q", got, want)
@@ -109,8 +111,8 @@ func TestPurl_WingetWithVersion(t *testing.T) {
 }
 
 func TestPurl_WingetNoDot(t *testing.T) {
-	// Winget package without namespace dot falls back to regular format.
-	r := &Resource{Name: "curl", Type: "winget"}
+	r := Resource{Name: "curl", Type: "winget"}
+	r.SetURI(r.buildURI())
 	want := "pkg:winget/curl"
 	if got := r.Purl(); got != want {
 		t.Errorf("Purl() = %q, want %q", got, want)
