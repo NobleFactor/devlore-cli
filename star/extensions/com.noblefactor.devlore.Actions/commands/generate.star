@@ -1117,13 +1117,16 @@ def compute_param_names_list(method):
 
     Replicates templateFuncParamNamesList from codegen.go.
     Callable params are excluded. Optional params get '?' suffix.
+    Variadic params get '*' prefix.
     """
     parts = []
     for p in method.get("params", []):
         if p.get("callable"):
             continue
         name = to_snake(p["name"])
-        if p.get("optional") or p.get("default", ""):
+        if p.get("variadic"):
+            name = "*" + name
+        elif p.get("optional") or p.get("default", ""):
             name += "?"
         parts.append('"' + name + '"')
     return ", ".join(parts)

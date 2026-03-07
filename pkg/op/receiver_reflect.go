@@ -123,6 +123,11 @@ func (r *ReflectedReceiver) AttrNames() []string {
 // buildMethodBridge creates a builtinFunc that bridges a Go method to Starlark.
 // The receiver parameter provides optional catalog/stack integration —
 // Resource results are shadowed in the catalog after successful dispatch.
+//
+// Variadic parameters are marked with a "*" prefix in paramNames (e.g. "*parts").
+// Remaining positional Starlark args are collected into the variadic slot.
+// The keyword form (parts=["a","b"]) is also accepted as a fallback.
+// Supplying both positional and keyword args for a variadic param is an error.
 func buildMethodBridge(
 	receiverName string,
 	providerVal reflect.Value,
@@ -132,50 +137,116 @@ func buildMethodBridge(
 	receiver *ReflectedReceiver,
 ) builtinFunc {
 	methodType := method.Type
+
+	// Separate named params from the variadic param (at most one, always last).
+	var variadicName string // snake_case name without "*"
+	var variadicIdx int     // index in paramNames
+	namedParams := make([]string, 0, len(paramNames))
+	for i, p := range paramNames {
+		if strings.HasPrefix(p, "*") {
+			variadicName = strings.TrimPrefix(p, "*")
+			variadicIdx = i
+		} else {
+			namedParams = append(namedParams, p)
+		}
+	}
+	numNamed := len(namedParams)
 	numParams := len(paramNames)
 
 	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		// 1. Unpack Starlark args into starlark.Value slots.
-		vals := make([]starlark.Value, numParams)
-		pairs := make([]any, 0, numParams*2)
-		for i, name := range paramNames {
-			pairs = append(pairs, name, &vals[i])
+		if variadicName == "" {
+			// ── Non-variadic path (unchanged) ──────────────────────
+			return callNonVariadic(receiverName, providerVal, method, methodType, snakeName, paramNames, numParams, receiver, args, kwargs)
 		}
-		if err := starlark.UnpackArgs(snakeName, args, kwargs, pairs...); err != nil {
+
+		// ── Variadic path ──────────────────────────────────────────
+		// 1. Unpack named (non-variadic) params.
+		namedVals := make([]starlark.Value, numNamed)
+		pairs := make([]any, 0, numNamed*2)
+		for i, name := range namedParams {
+			pairs = append(pairs, name, &namedVals[i])
+		}
+
+		// Extract the variadic keyword if present, so UnpackArgs doesn't
+		// reject it as unexpected.
+		var kwVariadic starlark.Value
+		var filteredKwargs []starlark.Tuple
+		for _, kv := range kwargs {
+			key, _ := starlark.AsString(kv[0])
+			if key == variadicName {
+				kwVariadic = kv[1]
+			} else {
+				filteredKwargs = append(filteredKwargs, kv)
+			}
+		}
+
+		// Positional args beyond the named params are variadic candidates.
+		namedArgs := args
+		var positionalVariadic starlark.Tuple
+		if len(args) > numNamed {
+			namedArgs = args[:numNamed]
+			positionalVariadic = args[numNamed:]
+		}
+
+		if err := starlark.UnpackArgs(snakeName, namedArgs, filteredKwargs, pairs...); err != nil {
 			return nil, err
 		}
 
-		// 2. Convert Starlark values to Go values via reflection.
-		// methodType.In(0) is the receiver; params start at index 1.
+		// 2. Resolve the variadic value.
+		if len(positionalVariadic) > 0 && kwVariadic != nil {
+			return nil, fmt.Errorf("%s: %s() got both positional and keyword args for variadic param %q",
+				receiverName, snakeName, variadicName)
+		}
+
+		var variadicList *starlark.List
+		if len(positionalVariadic) > 0 {
+			elems := make([]starlark.Value, len(positionalVariadic))
+			copy(elems, positionalVariadic)
+			variadicList = starlark.NewList(elems)
+		} else if kwVariadic != nil {
+			list, ok := kwVariadic.(*starlark.List)
+			if !ok {
+				return nil, fmt.Errorf("%s.%s: keyword %s must be a list, got %s",
+					receiverName, snakeName, variadicName, kwVariadic.Type())
+			}
+			variadicList = list
+		}
+
+		// 3. Build Go args: named params + variadic slice.
 		goArgs := make([]reflect.Value, numParams+1)
 		goArgs[0] = providerVal
 
-		for i, sv := range vals {
-			paramType := methodType.In(i + 1) // skip receiver
+		for i, sv := range namedVals {
+			paramType := methodType.In(i + 1)
 			if sv == nil {
-				// Optional param not provided; use Go zero value.
 				goArgs[i+1] = reflect.Zero(paramType)
 				continue
 			}
 			goVal := reflect.New(paramType).Elem()
 			if err := unmarshalValue(sv, goVal); err != nil {
-				name := strings.TrimSuffix(paramNames[i], "?")
+				name := strings.TrimSuffix(namedParams[i], "?")
 				return nil, fmt.Errorf("%s.%s: param %s: %w", receiverName, snakeName, name, err)
 			}
 			goArgs[i+1] = goVal
 		}
 
-		// 3. Call the Go method.
-		var results []reflect.Value
-		if methodType.IsVariadic() {
-			results = method.Func.CallSlice(goArgs)
+		// Variadic param: unmarshal list → Go slice type.
+		// For CallSlice, the variadic arg must be the slice itself.
+		variadicGoType := methodType.In(variadicIdx + 1) // e.g. []string
+		if variadicList == nil || variadicList.Len() == 0 {
+			goArgs[variadicIdx+1] = reflect.Zero(variadicGoType)
 		} else {
-			results = method.Func.Call(goArgs)
+			goVal := reflect.New(variadicGoType).Elem()
+			if err := unmarshalValue(variadicList, goVal); err != nil {
+				return nil, fmt.Errorf("%s.%s: param %s: %w", receiverName, snakeName, variadicName, err)
+			}
+			goArgs[variadicIdx+1] = goVal
 		}
 
-		// 4. Shadow Resource results in catalog (success path only).
-		// The originID is the qualified method name (e.g., "file.copy")
-		// since immediate mode has no graph nodes.
+		// 4. Call via CallSlice (variadic methods).
+		results := method.Func.CallSlice(goArgs)
+
+		// 5. Shadow Resource results in catalog.
 		if receiver.catalog != nil && len(results) > 0 {
 			lastIdx := len(results) - 1
 			isErr := results[lastIdx].Type().Implements(errorType) && !results[lastIdx].IsNil()
@@ -185,9 +256,73 @@ func buildMethodBridge(
 			}
 		}
 
-		// 5. Classify and marshal return values.
 		return classifyReturn(results)
 	}
+}
+
+// callNonVariadic handles the common case: no variadic params.
+func callNonVariadic(
+	receiverName string,
+	providerVal reflect.Value,
+	method reflect.Method,
+	methodType reflect.Type,
+	snakeName string,
+	paramNames []string,
+	numParams int,
+	receiver *ReflectedReceiver,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
+	// 1. Unpack Starlark args into starlark.Value slots.
+	vals := make([]starlark.Value, numParams)
+	pairs := make([]any, 0, numParams*2)
+	for i, name := range paramNames {
+		pairs = append(pairs, name, &vals[i])
+	}
+	if err := starlark.UnpackArgs(snakeName, args, kwargs, pairs...); err != nil {
+		return nil, err
+	}
+
+	// 2. Convert Starlark values to Go values via reflection.
+	// methodType.In(0) is the receiver; params start at index 1.
+	goArgs := make([]reflect.Value, numParams+1)
+	goArgs[0] = providerVal
+
+	for i, sv := range vals {
+		paramType := methodType.In(i + 1) // skip receiver
+		if sv == nil {
+			// Optional param not provided; use Go zero value.
+			goArgs[i+1] = reflect.Zero(paramType)
+			continue
+		}
+		goVal := reflect.New(paramType).Elem()
+		if err := unmarshalValue(sv, goVal); err != nil {
+			name := strings.TrimSuffix(paramNames[i], "?")
+			return nil, fmt.Errorf("%s.%s: param %s: %w", receiverName, snakeName, name, err)
+		}
+		goArgs[i+1] = goVal
+	}
+
+	// 3. Call the Go method.
+	var results []reflect.Value
+	if methodType.IsVariadic() {
+		results = method.Func.CallSlice(goArgs)
+	} else {
+		results = method.Func.Call(goArgs)
+	}
+
+	// 4. Shadow Resource results in catalog (success path only).
+	if receiver.catalog != nil && len(results) > 0 {
+		lastIdx := len(results) - 1
+		isErr := results[lastIdx].Type().Implements(errorType) && !results[lastIdx].IsNil()
+		if !isErr && results[0].Type() != noResultType {
+			originID := receiverName + "." + snakeName
+			shadowResult(results[0].Interface(), receiver.catalog, originID)
+		}
+	}
+
+	// 5. Classify and marshal return values.
+	return classifyReturn(results)
 }
 
 // classifyReturn interprets Go method return values for Starlark.
