@@ -443,6 +443,32 @@ t.expect_node_count(0)
 	}
 }
 
+// ── Terminal flow control tests ──
+
+func TestFlowComplete(t *testing.T) {
+	runScriptDryRun(t, "test_flow_complete.star")
+}
+
+func TestFlowDegraded(t *testing.T) {
+	runScript(t, "test_flow_degraded.star")
+}
+
+func TestFlowFatal(t *testing.T) {
+	runScript(t, "test_flow_fatal.star")
+}
+
+func TestFlowFatalTemplate(t *testing.T) {
+	runScript(t, "test_flow_fatal_template.star")
+}
+
+func TestFlowDegradedTemplate(t *testing.T) {
+	runScript(t, "test_flow_degraded_template.star")
+}
+
+func TestFlowFatalRecovery(t *testing.T) {
+	runScript(t, "test_flow_fatal_recovery.star")
+}
+
 // ── Other tests ──
 
 func TestDryRun(t *testing.T) {

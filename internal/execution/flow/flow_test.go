@@ -176,11 +176,279 @@ func TestFlowProviderRegistersAllActions(t *testing.T) {
 	reg := op.NewActionRegistry()
 	op.InitAll(reg, op.Context{})
 
-	want := []string{"flow.choose", "flow.gather", "flow.elevate", "flow.wait_until"}
+	want := []string{"flow.choose", "flow.gather", "flow.elevate", "flow.wait_until", "flow.complete", "flow.degraded", "flow.fatal"}
 	for _, name := range want {
 		if _, ok := reg.Get(name); !ok {
 			t.Errorf("expected %q to be registered via InitAll", name)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Complete
+// ---------------------------------------------------------------------------
+
+func TestCompleteName(t *testing.T) {
+	act := &Complete{}
+	if got := act.Name(); got != "flow.complete" {
+		t.Errorf("Name() = %q, want %q", got, "flow.complete")
+	}
+}
+
+func TestCompleteDoWithOutput(t *testing.T) {
+	act := &Complete{}
+	result, complement, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"output": 42,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != 42 {
+		t.Errorf("result = %v, want 42", result)
+	}
+	if complement != nil {
+		t.Errorf("complement = %v, want nil", complement)
+	}
+}
+
+func TestCompleteDoWithNilOutput(t *testing.T) {
+	act := &Complete{}
+	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("result = %v, want nil", result)
+	}
+}
+
+func TestCompleteDoWithStringOutput(t *testing.T) {
+	act := &Complete{}
+	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"output": "done",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "done" {
+		t.Errorf("result = %v, want %q", result, "done")
+	}
+}
+
+func TestCompleteIsNotCompensable(t *testing.T) {
+	var act op.Action = &Complete{}
+	if _, ok := act.(op.CompensableAction); ok {
+		t.Error("Complete should NOT implement CompensableAction")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Degraded
+// ---------------------------------------------------------------------------
+
+func TestDegradedName(t *testing.T) {
+	act := &Degraded{}
+	if got := act.Name(); got != "flow.degraded" {
+		t.Errorf("Name() = %q, want %q", got, "flow.degraded")
+	}
+}
+
+func TestDegradedDoPlainString(t *testing.T) {
+	act := &Degraded{}
+	result, complement, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format": "disk space low",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if complement != nil {
+		t.Errorf("complement = %v, want nil", complement)
+	}
+	rendered, ok := result.(error)
+	if !ok {
+		t.Fatalf("result type = %T, want error", result)
+	}
+	if rendered.Error() != "disk space low" {
+		t.Errorf("result = %q, want %q", rendered.Error(), "disk space low")
+	}
+}
+
+func TestDegradedDoWithKwargs(t *testing.T) {
+	act := &Degraded{}
+	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format":         "{{ .service }} unhealthy",
+		"kwargs.service": "redis",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	rendered, ok := result.(error)
+	if !ok {
+		t.Fatalf("result type = %T, want error", result)
+	}
+	if rendered.Error() != "redis unhealthy" {
+		t.Errorf("result = %q, want %q", rendered.Error(), "redis unhealthy")
+	}
+}
+
+func TestDegradedDoReturnsNilError(t *testing.T) {
+	act := &Degraded{}
+	_, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format": "warning",
+	})
+	if err != nil {
+		t.Fatalf("Degraded.Do should return nil error, got: %v", err)
+	}
+}
+
+func TestDegradedDoWithArgs(t *testing.T) {
+	act := &Degraded{}
+	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format":   "{{ index .Args 0 }} failed",
+		"args[0]":  "db",
+		"args.len": 1,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	rendered, ok := result.(error)
+	if !ok {
+		t.Fatalf("result type = %T, want error", result)
+	}
+	if rendered.Error() != "db failed" {
+		t.Errorf("result = %q, want %q", rendered.Error(), "db failed")
+	}
+}
+
+func TestDegradedDoWithArgsAndKwargs(t *testing.T) {
+	act := &Degraded{}
+	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format":      "{{ index .Args 0 }} on {{ .host }}",
+		"args[0]":     "timeout",
+		"args.len":    1,
+		"kwargs.host": "node-3",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	rendered, ok := result.(error)
+	if !ok {
+		t.Fatalf("result type = %T, want error", result)
+	}
+	if rendered.Error() != "timeout on node-3" {
+		t.Errorf("result = %q, want %q", rendered.Error(), "timeout on node-3")
+	}
+}
+
+func TestDegradedIsNotCompensable(t *testing.T) {
+	var act op.Action = &Degraded{}
+	if _, ok := act.(op.CompensableAction); ok {
+		t.Error("Degraded should NOT implement CompensableAction")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fatal
+// ---------------------------------------------------------------------------
+
+func TestFatalName(t *testing.T) {
+	act := &Fatal{}
+	if got := act.Name(); got != "flow.fatal" {
+		t.Errorf("Name() = %q, want %q", got, "flow.fatal")
+	}
+}
+
+func TestFatalDoPlainString(t *testing.T) {
+	act := &Fatal{}
+	result, complement, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format": "database unreachable",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if result != nil {
+		t.Errorf("result = %v, want nil", result)
+	}
+	if complement != nil {
+		t.Errorf("complement = %v, want nil", complement)
+	}
+	var fe *op.FatalError
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *FatalError, got %T: %v", err, err)
+	}
+	if fe.Message != "database unreachable" {
+		t.Errorf("FatalError.Message = %q, want %q", fe.Message, "database unreachable")
+	}
+}
+
+func TestFatalDoWithKwargs(t *testing.T) {
+	act := &Fatal{}
+	_, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format":         "{{ .service }} startup failed",
+		"kwargs.service": "myapp",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var fe *op.FatalError
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *FatalError, got %T: %v", err, err)
+	}
+	if fe.Message != "myapp startup failed" {
+		t.Errorf("FatalError.Message = %q, want %q", fe.Message, "myapp startup failed")
+	}
+}
+
+func TestFatalDoWithArgs(t *testing.T) {
+	act := &Fatal{}
+	_, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format":   "{{ index .Args 0 }} crashed",
+		"args[0]":  "worker",
+		"args.len": 1,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var fe *op.FatalError
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *FatalError, got %T: %v", err, err)
+	}
+	if fe.Message != "worker crashed" {
+		t.Errorf("FatalError.Message = %q, want %q", fe.Message, "worker crashed")
+	}
+}
+
+func TestFatalDoWithArgsAndKwargs(t *testing.T) {
+	act := &Fatal{}
+	_, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+		"format":      "{{ index .Args 0 }} on {{ .host }}",
+		"args[0]":     "segfault",
+		"args.len":    1,
+		"kwargs.host": "node-7",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var fe *op.FatalError
+	if !errors.As(err, &fe) {
+		t.Fatalf("expected *FatalError, got %T: %v", err, err)
+	}
+	if fe.Message != "segfault on node-7" {
+		t.Errorf("FatalError.Message = %q, want %q", fe.Message, "segfault on node-7")
+	}
+}
+
+func TestFatalErrorString(t *testing.T) {
+	fe := &op.FatalError{Message: "boom"}
+	if fe.Error() != "fatal: boom" {
+		t.Errorf("Error() = %q, want %q", fe.Error(), "fatal: boom")
+	}
+}
+
+func TestFatalIsNotCompensable(t *testing.T) {
+	var act op.Action = &Fatal{}
+	if _, ok := act.(op.CompensableAction); ok {
+		t.Error("Fatal should NOT implement CompensableAction")
 	}
 }
 

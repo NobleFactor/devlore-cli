@@ -36,6 +36,9 @@ type Resource struct {
 	SourceURL *url.URL
 }
 
+// String returns a compact JSON representation of the resource.
+func (r Resource) String() string { return r.Format(r) }
+
 // URI returns the canonical net:// URI for catalog lookups.
 //
 // The URI is transport-independent: http://example.com/f and

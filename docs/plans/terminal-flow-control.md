@@ -10,22 +10,31 @@ updated: 2026-03-06
 ## Summary
 
 Add three terminal flow control nodes to the execution graph: `Complete`
-(successful conclusion), `Degraded` (non-optimal branch, graph continues),
-and `Fatal` (immediate halt). All three are flow actions registered via
-`op.Announce()` alongside `Choose`, `Gather`, `Elevate`, and `WaitUntil`.
-`Degraded` and `Fatal` capture their messages as errors in the
-graph.
+(successful conclusion), `Degraded` (non-optimal branch, other branches
+continue), and `Fatal` (immediate halt). All three are **leaf nodes** —
+nothing depends on them. They end their branch explicitly.
+
+All three are flow actions registered via `op.Announce()` alongside
+`Choose`, `Gather`, `Elevate`, and `WaitUntil`.
+
+`Degraded` and `Fatal` accept a Go template format string with `*args`
+and `**kwargs` that may include promises from upstream nodes. The message
+is formatted at execution time after promises resolve.
 
 ## Goals
 
 1. **Explicit termination**: Scripts declare success, degradation, or failure
-   via flow nodes rather than relying on implicit end-of-graph or raw errors.
+   via terminal leaf nodes rather than relying on implicit end-of-graph or
+   raw errors.
 2. **Observable outcomes**: Terminal nodes are visible in the graph and
    receipt, not hidden in error handling.
-3. **User-facing messages**: `Degraded` and `Fatal` capture their messages as
-   errors.
+3. **Templated messages**: `Degraded` and `Fatal` accept Go template format
+   strings with args/kwargs that may reference upstream promises. Messages
+   are formatted at execution time after promises resolve.
 4. **Saga-safe**: `Fatal` triggers orderly unwind via the existing recovery
    stack. No new compensation mechanism.
+5. **Concurrent branches**: `Degraded` ends one branch while independent
+   branches continue executing. The graph is not halted.
 
 ## Current State
 
@@ -33,7 +42,6 @@ graph.
 |----------------------|---------------------------------------|----------------------------------------|
 | Graph terminal state | Implicit                              | Last node completes or any node errors |
 | Flow actions         | Choose, Gather, Elevate, WaitUntil    | No terminal nodes                      |
-| `SchemeMem`          | Defined, unused                       | `pkg/op/resource.go:115`               |
 | Graph states         | Pending, Executed, Failed             | No Degraded state                      |
 | Flow provider        | `internal/execution/flow/provider.go` | Handwritten descriptor, `op.Announce`  |
 
@@ -41,17 +49,83 @@ graph.
 
 |     | Phase | Name                                          | Description                                      |
 |-----|-------|-----------------------------------------------|--------------------------------------------------|
-| [ ] | 1     | [Complete](terminal-flow-control/phase-1.md)  | Success terminal node with optional output value |
-| [ ] | 2     | [Degraded](terminal-flow-control/phase-2.md)  | Warning terminal, error, graph continues         |
-| [ ] | 3     | [Fatal](terminal-flow-control/phase-3.md)     | Error terminal, executor halt, error             |
-| [ ] | 4     | [E2E tests](terminal-flow-control/phase-4.md) | Statement-level Starlark tests for all three     |
+| [x] | 1     | [Complete](terminal-flow-control/phase-1.md)  | Success terminal node with optional output value |
+| [x] | 2     | [Degraded](terminal-flow-control/phase-2.md)  | Warning terminal, error, graph continues         |
+| [x] | 3     | [Fatal](terminal-flow-control/phase-3.md)     | Error terminal, executor halt, error             |
+| [x] | 4     | [E2E tests](terminal-flow-control/phase-4.md) | Statement-level Starlark tests for all three     |
+
+### Phase 1 Summary
+
+- `internal/execution/flow/complete.go` — `Complete` action, returns `output` slot value, nil error
+- `internal/execution/flow/planned.go` — handwritten `FlowPlan` (`plan.flow` namespace) with `complete` method
+- `internal/execution/flow/provider.go` — register `&Complete{}`, implement `PlannedProvider` via `NewPlanned()`
+- `internal/execution/flow/flow_test.go` — 5 new tests + updated registration check
+- Adapted plan's interface (`Namespace`/`Slots`/`ActionContext`) to actual codebase interface (`Name`/`Params`/`Do(*Context, map[string]any)`)
+
+### Phase 2 Summary
+
+- `pkg/op/render.go` — `RenderError(format, args, kwargs)` helper, shared by Degraded and Fatal
+- `pkg/op/render_test.go` — 6 tests (plain, kwargs, args, both, invalid template, nil)
+- `internal/execution/flow/degraded.go` — `Degraded` action, formats template, writes stderr, returns rendered error as output
+- `internal/execution/flow/provider.go` — register `&Degraded{}`
+- `internal/execution/flow/planned.go` — `degraded` method + `fillListSlot`/`fillDictSlot` helpers for `*args`/`**kwargs` slot packing
+- `internal/execution/flow/flow_test.go` — 5 Degraded tests + updated registration check
+
+### Phase 3 Summary
+
+- `pkg/op/fatal.go` — `FatalError` sentinel type (`errors.As` matchable)
+- `internal/execution/flow/fatal.go` — `Fatal` action, formats template, returns `*FatalError`
+- `internal/execution/flow/provider.go` — register `&Fatal{}`
+- `internal/execution/flow/planned.go` — `fatal` method (same signature as `degraded`)
+- `internal/execution/flow/flow_test.go` — 5 Fatal tests + updated registration check
+- No executor changes: `FatalError` flows through the existing error path; `ConflictResolution` respected as-is
+
+### Phase 4 Summary
+
+- `test_flow_complete.star` — dry-run, verifies 2 complete nodes created
+- `test_flow_degraded.star` — full execution, graph continues after degraded
+- `test_flow_fatal.star` — full execution, halts with `fatal: database unreachable`
+- `test_flow_fatal_template.star` — template with promise kwargs, graph halts
+- Slot reassembly: added `reassembleArgs`/`reassembleKwargs` in `degraded.go` to reconstruct `args`/`kwargs` from sub-slots after promise resolution
+- `make check`, `make test-race` pass
 
 ## Design
 
+### Terminal Leaf Model
+
+All three terminals — `Complete`, `Degraded`, and `Fatal` — are **leaf
+nodes**. Nothing depends on them. They end their branch explicitly.
+
+Branching and observation happen upstream via existing primitives like
+`choose`. The terminal is the conclusion of a branch, not a link in a
+chain.
+
+```starlark
+health = plan.service.check(service="db")
+
+# Branch A: conditional termination
+plan.flow.choose(
+    condition=health,
+    if_true=plan.flow.complete(output=health),
+    if_false=plan.flow.degraded('{{ .svc }} unhealthy', svc=health),
+)
+
+# Branch B: independent work — no edge to the terminal
+plan.file.write_text(destination=log, content="proceeding...", mode=0o644)
+```
+
+- **Interrogation**: `choose` inspects the upstream result, routes to
+  `degraded` or `complete`
+- **Messaging**: `degraded` renders the template, writes to stderr,
+  sets `StateDegraded`
+- **Concurrency**: Branch B has no edge to `degraded` — runs independently
+- **Terminal**: `degraded` is a leaf. Its branch ends. Other branches
+  continue.
+
 ### Complete
 
-The default, healthy conclusion of a path. Accepts an optional output value
-that can be captured by the graph consumer.
+The default, healthy conclusion of a branch. Leaf node. Accepts an
+optional output value that can be captured by the graph consumer.
 
 ```go
 type Complete struct{}
@@ -60,13 +134,13 @@ func (c *Complete) Namespace() string { return "flow" }
 func (c *Complete) Name() string      { return "complete" }
 
 func (c *Complete) Slots() []op.SlotDef {
-return []op.SlotDef{
-{Name: "output", Type: "any", Optional: true},
-}
+    return []op.SlotDef{
+        {Name: "output", Type: "any", Optional: true},
+    }
 }
 
 func (c *Complete) Do(ctx op.ActionContext) (any, error) {
-return ctx.Slot("output"), nil
+    return ctx.Slot("output"), nil
 }
 ```
 
@@ -76,48 +150,87 @@ Not compensable — a successful terminal has nothing to undo.
 
 ### Degraded
 
-The graph continues, but marks the branch as non-optimal. Accepts a warning
-message that maps to a Go error, captured as an error.
+Leaf node. Ends its branch, marks the graph as non-optimal, and writes
+the rendered message to stderr. Other branches continue executing.
+
+Signature: `def degraded(format, *args, **kwargs)`
+
+```starlark
+plan.flow.degraded('disk space low on {{ .volume }}', volume=disk_check)
+plan.flow.degraded('simple warning with no templates')
+```
 
 ```go
-type Degraded struct{}
-
 func (d *Degraded) Do(ctx op.ActionContext) (any, error) {
-    msg := ctx.Slot("message").(string)
-    return fmt.Errorf("degraded: %s", errors.New(msg)), nil
+    format := ctx.Slot("format").(string)
+    args, _ := ctx.Slot("args").([]any)
+    kwargs, _ := ctx.Slot("kwargs").(map[string]any)
+    rendered := op.RenderError(format, args, kwargs)
+    fmt.Fprintln(os.Stderr, "degraded:", rendered)
+    return rendered, nil
 }
 ```
 
-Starlark: `plan.flow.degraded(message="disk space low")`.
-
-Returns the warning as the node's output (not as an error). Downstream
-nodes can inspect the output. The graph state remains `StateExecuted` but
-the receipt records the `mem://degraded/...` resource.
+- Writes the rendered message to stderr (observable side effect)
+- Returns the rendered error as the node's output (nil error — graph
+  continues)
+- Sets graph state to `StateDegraded`
+- Not compensable — a warning has no side effect to undo
 
 ### Fatal
 
-The graph execution stops immediately. Accepts a fail error message that
-maps to a Go error, captured as a memory resource.
+Leaf node. Halts graph execution immediately. Same signature as
+`Degraded` — a Go template format string with args/kwargs.
+
+Signature: `def fatal(format, *args, **kwargs)`
+
+```starlark
+plan.flow.fatal('{{ .service }} startup failed.', service=promise)
+plan.flow.fatal('database unreachable')
+```
 
 ```go
-type Fatal struct{}
-
 func (f *Fatal) Do(ctx op.ActionContext) (any, error) {
-    msg := ctx.Slot("message").(string)
-    return nil, &FatalError{Message: msg}
+    format := ctx.Slot("format").(string)
+    args, _ := ctx.Slot("args").([]any)
+    kwargs, _ := ctx.Slot("kwargs").(map[string]any)
+    return nil, &FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 ```
 
-`FatalError` is a sentinel error type. The executor checks `errors.As` for
-`*FatalError` and transitions to immediate halt — no further nodes execute.
-The existing recovery stack unwinds normally (same path as any node failure
-with `ConflictResolution=Stop`).
+- `FatalError` is a sentinel error type
+- The executor checks `errors.As` for `*FatalError` and halts
+- The existing recovery stack unwinds normally
+- Not compensable — prior nodes unwind via the recovery stack
 
-Starlark: `plan.flow.fatal(message="database unreachable")`.
+### RenderError
+
+```go
+// pkg/op/render.go
+
+// RenderError formats a Go template string with positional args and
+// keyword args, returning the result as an error.
+func RenderError(format string, args []any, kwargs map[string]any) error
+```
+
+Builds a template data map: kwargs merged with an `Args` key for
+positional access. Executes `text/template` and wraps the result in
+an error.
+
+```go
+// Template data available to the format string:
+// {{ .key }}          — kwargs value
+// {{ index .Args 0 }} — positional arg by index
+```
+
+If the format string contains no template directives, it passes through
+as-is (plain string messages still work).
 
 ### FatalError Sentinel
 
 ```go
+// pkg/op/fatal.go
+
 // FatalError signals that the graph must halt immediately.
 // The executor unwinds the recovery stack when it encounters this error.
 type FatalError struct {
@@ -139,27 +252,32 @@ executor treats as an unconditional stop:
 ```go
 var fe *op.FatalError
 if errors.As(err, &fe) {
-g.State = op.StateFailed
-// unwind recovery stack
-break
+    g.State = op.StateFailed
+    // unwind recovery stack
+    break
 }
 ```
 
 This is consistent with the existing `ConflictResolution=Stop` path but
 triggered explicitly by a flow node rather than an unexpected error.
-`ConflictResolution=Skip` does NOT override `FatalError` — fatal is always
-fatal.
+`ConflictResolution` is respected — a force-continue/debug mode can
+override the halt for diagnostic purposes.
 
 ### Starlark Bindings
 
 The planned receiver for flow (`plan.flow`) gains three new methods:
 
-- `plan.flow.complete(output=None)` — creates a Complete node
-- `plan.flow.degraded(message=str)` — creates a Degraded node
-- `plan.flow.fatal(message=str)` — creates a Fatal node
+- `plan.flow.complete(output=None)` — leaf, creates a Complete node
+- `plan.flow.degraded(format, *args, **kwargs)` — leaf, creates a Degraded node
+- `plan.flow.fatal(format, *args, **kwargs)` — leaf, creates a Fatal node
 
 These follow the same pattern as `plan.flow.choose(...)` and
 `plan.flow.gather(...)`.
+
+For `degraded` and `fatal`, the planned receiver packs the Starlark
+`*args` into a list slot and `**kwargs` into a dict slot on the graph
+node. Promise values in args/kwargs create edges — resolved at execution
+time before the template is formatted.
 
 ## Related Documents
 
