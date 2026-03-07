@@ -4,7 +4,11 @@
 package mem
 
 import (
+	"bytes"
+	"fmt"
+
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 )
 
 // Callable is a mem.Resource that holds a Starlark function extracted into
@@ -69,6 +73,62 @@ func (c *Callable) callableURI() string {
 func (c *Callable) SetSource(source []byte) {
 	c.Data = source
 	c.ComputeHash()
+}
+
+// Compile compiles the synthetic source text and stores the bytecode.
+// Called once after extraction. Idempotent — recompiling with the same
+// source and compiler version produces the same bytecode.
+func (c *Callable) Compile() error {
+	if len(c.Data) == 0 {
+		return fmt.Errorf("callable compile: no source text")
+	}
+	_, prog, err := starlark.SourceProgramOptions(
+		&syntax.FileOptions{}, "<callable>", c.Data, func(string) bool { return false },
+	)
+	if err != nil {
+		return fmt.Errorf("callable compile: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := prog.Write(&buf); err != nil {
+		return fmt.Errorf("callable compile write: %w", err)
+	}
+	c.Compiled = buf.Bytes()
+	c.CompilerVersion = starlark.CompilerVersion
+	return nil
+}
+
+// Init loads the compiled program (or recompiles from source on version
+// mismatch) and extracts the callable function. Must be called before Fn.
+func (c *Callable) Init(thread *starlark.Thread) error {
+	var prog *starlark.Program
+	var err error
+
+	if len(c.Compiled) > 0 && c.CompilerVersion == starlark.CompilerVersion {
+		prog, err = starlark.CompiledProgram(bytes.NewReader(c.Compiled))
+	} else {
+		_, prog, err = starlark.SourceProgramOptions(
+			&syntax.FileOptions{}, "<callable>", c.Data, func(string) bool { return false },
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("callable init: %w", err)
+	}
+
+	globals, err := prog.Init(thread, nil)
+	if err != nil {
+		return fmt.Errorf("callable init: %w", err)
+	}
+
+	fn, ok := globals[c.FuncName]
+	if !ok {
+		return fmt.Errorf("callable init: function %q not found", c.FuncName)
+	}
+	callable, ok := fn.(starlark.Callable)
+	if !ok {
+		return fmt.Errorf("callable init: %q is %s, not callable", c.FuncName, fn.Type())
+	}
+	c.fn = callable
+	return nil
 }
 
 // Fn returns the live callable. Panics if Init has not been called.
