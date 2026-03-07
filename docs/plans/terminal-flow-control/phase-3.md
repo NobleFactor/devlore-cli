@@ -10,10 +10,15 @@ parent: ../terminal-flow-control.md
 
 ## Summary
 
-Add the `Fatal` flow action — a terminal that halts graph execution
-immediately. Accepts a fail error message that maps to a Go error,
-captured as a `mem://` resource. The executor detects `FatalError` and
-stops — no further nodes execute. The recovery stack unwinds normally.
+Add the `Fatal` flow action — a terminal leaf node that halts graph
+execution immediately. Same signature as `Degraded` — a Go template
+format string with `*args` and `**kwargs`, formatted at execution time
+after promises resolve. The executor detects `FatalError` and stops — no
+further nodes execute. The recovery stack unwinds normally.
+
+`Fatal` is a leaf node — nothing depends on it. It ends its branch
+explicitly. Branching and observation happen upstream via existing
+primitives like `choose`.
 
 ## Deliverables
 
@@ -24,8 +29,6 @@ stops — no further nodes execute. The recovery stack unwinds normally.
 
 // FatalError signals that the graph must halt immediately.
 // The executor unwinds the recovery stack when it encounters this error.
-// Unlike a regular node error, FatalError is never overridden by
-// ConflictResolution — fatal is always fatal.
 type FatalError struct {
     Message string
 }
@@ -48,18 +51,21 @@ func (f *Fatal) Name() string      { return "fatal" }
 
 func (f *Fatal) Slots() []op.SlotDef {
     return []op.SlotDef{
-        {Name: "message", Type: "string"},
+        {Name: "format", Type: "string"},
+        {Name: "args", Type: "list", Optional: true},
+        {Name: "kwargs", Type: "dict", Optional: true},
     }
 }
 
 func (f *Fatal) Do(ctx op.ActionContext) (any, error) {
-    msg := ctx.Slot("message").(string)
-    ctx.Catalog().Append(op.NewMemResource("fatal", msg))
-    return nil, &op.FatalError{Message: msg}
+    format := ctx.Slot("format").(string)
+    args, _ := ctx.Slot("args").([]any)
+    kwargs, _ := ctx.Slot("kwargs").(map[string]any)
+    return nil, &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 ```
 
-Returns `FatalError` as the error. The executor handles it.
+Uses `RenderError` from `pkg/op/` (introduced in Phase 2).
 
 Not compensable — the fatal node itself has no side effect to undo.
 Prior nodes unwind via the existing recovery stack.
@@ -83,7 +89,9 @@ if errors.As(err, &fe) {
 ```
 
 Key behavior:
-- `FatalError` always halts, regardless of `ConflictResolution` setting
+- `FatalError` halts graph execution — the default failure path
+- `ConflictResolution` is respected: a force-continue/debug mode can
+  override the halt for diagnostic purposes
 - Remaining nodes are marked `StatusSkipped`
 - In `RunPhased`, the phased recovery/unwind path executes normally
 - In `runFlat`, the recovery stack unwinds
@@ -99,28 +107,27 @@ reg.Register(&Fatal{})
 ### 5. Starlark binding
 
 ```starlark
-# via internal/starlark/plan_root.go
-
-plan.flow.fatal(message="database unreachable")
+plan.flow.fatal('{{ .service }} startup failed.', service=promise)
+plan.flow.fatal('database unreachable')
 ```
-
-Creates a `flow.fatal` node with the `message` slot.
 
 ### 6. Unit tests
 
 ```go
 // internal/execution/flow/fatal_test.go
 
-// - Do returns FatalError
-// - Do captures mem://fatal/... resource in catalog
+// - Do with plain format → returns FatalError with message
+// - Do with template + kwargs → formats correctly in FatalError
 // - errors.As matches *FatalError
+// - Verify action is in ActionRegistry after InitAll
 ```
 
 ```go
 // internal/execution/executor_test.go
 
 // - Graph with fatal node → StateFailed, remaining nodes skipped
-// - Fatal overrides ConflictResolution=Skip — still halts
+// - Fatal with ConflictResolution=Skip → continues (debug override)
+// - Fatal with ConflictResolution=Stop → halts (default)
 // - Recovery stack unwinds after fatal
 ```
 
@@ -131,7 +138,7 @@ Creates a `flow.fatal` node with the `message` slot.
 - [ ] Register `&Fatal{}` in `internal/execution/flow/provider.go`
 - [ ] Update `runFlat` in `internal/execution/executor.go` — check `FatalError`
 - [ ] Update `RunPhased` in `internal/execution/executor.go` — check `FatalError`
-- [ ] Add `plan.flow.fatal(...)` Starlark binding in `internal/starlark/plan_root.go`
+- [ ] Add `plan.flow.fatal(...)` Starlark binding
 - [ ] Create `internal/execution/flow/fatal_test.go`
 - [ ] Add executor tests in `internal/execution/executor_test.go`
 - [ ] `make check` passes
@@ -145,15 +152,14 @@ Creates a `flow.fatal` node with the `message` slot.
 | `internal/execution/flow/fatal.go` | Create | Action definition |
 | `internal/execution/flow/provider.go` | Modify | Register Fatal |
 | `internal/execution/executor.go` | Modify | `FatalError` detection + halt |
-| `internal/starlark/plan_root.go` | Modify | Starlark binding |
 | `internal/execution/flow/fatal_test.go` | Create | Unit tests |
 | `internal/execution/executor_test.go` | Modify | Fatal halt tests |
 
 ## Exit Criteria
 
 - `flow.fatal` registered in `ActionRegistry`
-- `Do` returns `*FatalError` and captures `mem://fatal/...` resource
-- Executor halts on `FatalError` regardless of `ConflictResolution`
+- `Do` formats template and returns `*FatalError`
+- Executor halts on `FatalError` (respects `ConflictResolution` for debug override)
 - Recovery stack unwinds normally after fatal halt
 - Remaining nodes marked `StatusSkipped`
 - Graph state is `StateFailed`
