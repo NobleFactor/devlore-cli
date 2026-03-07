@@ -347,6 +347,10 @@ func TestImmFile(t *testing.T) {
 	runScriptImm(t, "test_imm_file.star", "file")
 }
 
+func TestImmFileJoinVariadicError(t *testing.T) {
+	runScriptImm(t, "test_imm_file_join_variadic_error.star", "file")
+}
+
 func TestImmJSON(t *testing.T) {
 	runScriptImm(t, "test_imm_json.star", "json")
 }

@@ -82,6 +82,27 @@ func (p *testProvider) TryParse(s string) (int, bool) {
 	return 0, false
 }
 
+// Variadic method.
+func (p *testProvider) Join(parts ...string) string {
+	result := ""
+	for i, part := range parts {
+		if i > 0 {
+			result += "/"
+		}
+		result += part
+	}
+	return result
+}
+
+// Variadic with a named param before the variadic.
+func (p *testProvider) Prefix(pfx string, parts ...string) string {
+	result := pfx
+	for _, part := range parts {
+		result += "/" + part
+	}
+	return result
+}
+
 var testParams = MethodParams{
 	"Greet":     {"name"},
 	"Exists":    {"path"},
@@ -95,6 +116,8 @@ var testParams = MethodParams{
 	"GetPoint":  {},
 	"Search":    {"query", "limit?"},
 	"TryParse":  {"s"},
+	"Join":      {"*parts"},
+	"Prefix":    {"pfx", "*parts"},
 }
 
 // wrapTestReceiver registers params and wraps a provider in one step.
@@ -114,7 +137,7 @@ func TestWrapReceiver_MethodDiscovery(t *testing.T) {
 	// Verify expected methods are present.
 	expected := []string{
 		"count", "divide", "exists", "get_point", "greet",
-		"list_files", "noop", "remove", "search", "try_parse", "validate", "write",
+		"join", "list_files", "noop", "prefix", "remove", "search", "try_parse", "validate", "write",
 	}
 	if len(names) != len(expected) {
 		t.Fatalf("AttrNames() = %v (len %d), want %v (len %d)", names, len(names), expected, len(expected))
@@ -190,6 +213,16 @@ func callMethodKw(t *testing.T, r *ReflectedReceiver, name string, kwargs []star
 		t.Fatalf("%s() error: %v", name, err)
 	}
 	return result
+}
+
+func callMethodArgsKw(t *testing.T, r *ReflectedReceiver, name string, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	t.Helper()
+	attr, err := r.Attr(name)
+	if err != nil {
+		t.Fatalf("Attr(%s) error: %v", name, err)
+	}
+	builtin := attr.(*starlark.Builtin)
+	return builtin.CallInternal(nil, args, kwargs)
 }
 
 func callMethodErr(t *testing.T, r *ReflectedReceiver, name string, args ...starlark.Value) error {
@@ -550,5 +583,115 @@ func TestWrapReceiver_CatalogNoResult_NoShadow(t *testing.T) {
 
 	if catalog.Len() != 0 {
 		t.Errorf("catalog len = %d, want 0 (NoResult should not be shadowed)", catalog.Len())
+	}
+}
+
+// --- Variadic tests ---
+
+func TestCall_Variadic_Positional(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	result := callMethod(t, r, "join", starlark.String("a"), starlark.String("b"), starlark.String("c"))
+
+	s, ok := starlark.AsString(result)
+	if !ok || s != "a/b/c" {
+		t.Errorf("join('a','b','c') = %v, want 'a/b/c'", result)
+	}
+}
+
+func TestCall_Variadic_Keyword(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	result := callMethodKw(t, r, "join", []starlark.Tuple{
+		{starlark.String("parts"), starlark.NewList([]starlark.Value{
+			starlark.String("x"), starlark.String("y"),
+		})},
+	})
+
+	s, ok := starlark.AsString(result)
+	if !ok || s != "x/y" {
+		t.Errorf("join(parts=['x','y']) = %v, want 'x/y'", result)
+	}
+}
+
+func TestCall_Variadic_Empty(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	result := callMethod(t, r, "join")
+
+	s, ok := starlark.AsString(result)
+	if !ok || s != "" {
+		t.Errorf("join() = %v, want ''", result)
+	}
+}
+
+func TestCall_Variadic_Single(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	result := callMethod(t, r, "join", starlark.String("only"))
+
+	s, ok := starlark.AsString(result)
+	if !ok || s != "only" {
+		t.Errorf("join('only') = %v, want 'only'", result)
+	}
+}
+
+func TestCall_Variadic_BothPositionalAndKeyword_Error(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	_, err := callMethodArgsKw(t, r, "join",
+		starlark.Tuple{starlark.String("a")},
+		[]starlark.Tuple{
+			{starlark.String("parts"), starlark.NewList([]starlark.Value{starlark.String("b")})},
+		},
+	)
+	if err == nil {
+		t.Fatal("join with both positional and keyword variadic should fail")
+	}
+}
+
+func TestCall_Variadic_WithNamedParam_Positional(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	// prefix("root", "a", "b") → pfx="root", parts=["a", "b"]
+	result := callMethod(t, r, "prefix",
+		starlark.String("root"), starlark.String("a"), starlark.String("b"))
+
+	s, ok := starlark.AsString(result)
+	if !ok || s != "root/a/b" {
+		t.Errorf("prefix('root','a','b') = %v, want 'root/a/b'", result)
+	}
+}
+
+func TestCall_Variadic_WithNamedParam_Keyword(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	result := callMethodKw(t, r, "prefix", []starlark.Tuple{
+		{starlark.String("pfx"), starlark.String("root")},
+		{starlark.String("parts"), starlark.NewList([]starlark.Value{
+			starlark.String("c"), starlark.String("d"),
+		})},
+	})
+
+	s, ok := starlark.AsString(result)
+	if !ok || s != "root/c/d" {
+		t.Errorf("prefix(pfx='root', parts=['c','d']) = %v, want 'root/c/d'", result)
+	}
+}
+
+func TestCall_Variadic_WithNamedParam_NoVariadicArgs(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	// prefix("root") → pfx="root", parts=[]
+	result := callMethod(t, r, "prefix", starlark.String("root"))
+
+	s, ok := starlark.AsString(result)
+	if !ok || s != "root" {
+		t.Errorf("prefix('root') = %v, want 'root'", result)
+	}
+}
+
+func TestCall_Variadic_KeywordNotList_Error(t *testing.T) {
+	r := wrapTestReceiver("test", &testProvider{}, testParams)
+	_, err := callMethodArgsKw(t, r, "join",
+		nil,
+		[]starlark.Tuple{
+			{starlark.String("parts"), starlark.String("not-a-list")},
+		},
+	)
+	if err == nil {
+		t.Fatal("join(parts='not-a-list') should fail — keyword variadic must be a list")
 	}
 }
