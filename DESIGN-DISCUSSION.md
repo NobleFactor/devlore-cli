@@ -123,7 +123,7 @@ Down the road, pre-flight will also check prerequisites (e.g., must run on syste
 
 **Decision**: Each concrete resource type owns its URI construction via a private `buildURI()` method. The URI is cached in `ResourceBase.uri` at construction time via `SetURI()`. There is no shared dispatch (`NewURI` is removed). If `Resolve()` changes identity-bearing fields (e.g., path canonicalization), the concrete type calls `SetURI(buildURI())` to update the cache.
 
-URIs follow RFC 3986 — hierarchical for file resources (`file:///path`), opaque for all others (`pkg:brew/jq`, `svc:nginx`, `appnet:host/path`, `git:repo-url#ref`, `mem:callable/type/name`). See `docs/architecture/devlore-resource-identity.md` for the full scheme registry.
+URIs follow RFC 3986 — hierarchical for file resources (`file:///path`), opaque for all others (`pkg:brew/jq`, `svc:nginx`, `appnet:host/path`, `git:repo-url#ref`, `mem:callable/type/name`). See `docs/architecture/4.1-resource-identity.md` for the full scheme registry.
 
 ### O5. `refreshMetadataWith` ignores the checksum parameter
 

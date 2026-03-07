@@ -247,7 +247,7 @@ appropriate (~12 sites in `internal/lore/`, `internal/writ/`,
 
 - Run `make build` to regenerate all `gen/` files
 - Verify `make check` passes
-- Update `docs/architecture/devlore-resource-management.md` Section 3.3
+- Update `docs/architecture/4-resource-management.md` Section 3.3
   and Section 11 to mark git, service, pkg as "Implemented"
 - Update `docs/plans/resource-management.md` phase status
 

@@ -21,13 +21,13 @@ brings the docs current.
 | Category | Files | Severity |
 |---|---|---|
 | Architecture docs | 5 docs | 3 CRITICAL, 2 LOW |
-| Cross-references | `index.md`, `devlore-receipt-integrity.md`, `resource-provider.md` | link text |
+| Cross-references | `index.md`, `5-receipt-integrity.md`, `resource-provider.md` | link text |
 | Code doc comment | `internal/execution/graph.go:21-22` | stale ContentFor ref |
 | Plan docs | `resource-provider.md` (update), `phase-4.md` (create) | plan tracking |
 
 ## Changes
 
-### `devlore-typed-slots.md` (CRITICAL)
+### `2.1-typed-slots.md` (CRITICAL)
 
 - "Operation Interface" → "Action Interface"
 - Old interface (`Execute(ctx, node) error`) → current Action contract (Do/Undo, three-value return)
@@ -38,7 +38,7 @@ brings the docs current.
 - Terminology: `FileService` → `file.Provider`, `PackageService` → `pkg.Provider`
 - Generated code: flat `generated/fileops/` → `provider/file/actions_gen.go`
 
-### `devlore-phase-execution.md` (CRITICAL)
+### `2.2-phase-execution.md` (CRITICAL)
 
 - `Operation`/`CompensableOperation` → unified Action (Do + Undo)
 - `FileCopyOp.Execute()` → `file.Copy.Do()` with slots, three-value return
@@ -47,7 +47,7 @@ brings the docs current.
 - Files table updated to current layout
 - Cross-ref: "Operation Namespaces" → "Action Namespaces"
 
-### `devlore-operation-namespaces.md` (MEDIUM)
+### `3-operation-namespaces.md` (MEDIUM)
 
 - Retitled to "Action Namespaces"
 - Current namespaces: 11 providers, 31 actions, dotted names
@@ -55,12 +55,12 @@ brings the docs current.
 - `AllOps()` → `RegisterAll(reg)` in `provider/register_gen.go`
 - Updated naming conventions, checklist
 
-### `devlore-execution-graph.md` (LOW)
+### `2-execution-graph.md` (LOW)
 
 - Node struct: `Operations []string` → `Action Action` field
 - YAML examples: `operations: [link]` → `action: file.link`
 
-### `devlore-graph-convergence-operations.md` (LOW)
+### `2.3-orchestration-primitives.md` (LOW)
 
 - NodeDefault comment: "standard operation node" → "standard action node"
 - YAML: `operations: [shell]` → `action: shell.exec`
@@ -69,7 +69,7 @@ brings the docs current.
 ### Cross-references
 
 - `index.md`: "Operation Namespaces" → "Action Namespaces"
-- `devlore-receipt-integrity.md`: same
+- `5-receipt-integrity.md`: same
 - `resource-provider.md`: same
 
 ### Code doc comment
@@ -83,13 +83,13 @@ brings the docs current.
 
 ## Files
 
-- `docs/architecture/devlore-typed-slots.md`
-- `docs/architecture/devlore-phase-execution.md`
-- `docs/architecture/devlore-operation-namespaces.md`
-- `docs/architecture/devlore-execution-graph.md`
-- `docs/architecture/devlore-graph-convergence-operations.md`
+- `docs/architecture/2.1-typed-slots.md`
+- `docs/architecture/2.2-phase-execution.md`
+- `docs/architecture/3-operation-namespaces.md`
+- `docs/architecture/2-execution-graph.md`
+- `docs/architecture/2.3-orchestration-primitives.md`
 - `docs/architecture/index.md`
-- `docs/architecture/devlore-receipt-integrity.md`
+- `docs/architecture/5-receipt-integrity.md`
 - `docs/plans/resource-provider.md`
 - `docs/plans/resource-provider/phase-4.md` (new)
 - `internal/execution/graph.go`

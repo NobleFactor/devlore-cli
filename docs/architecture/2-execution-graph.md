@@ -2,7 +2,7 @@
 
 This document describes the execution graph design that unifies all lifecycle commands (deploy, upgrade, reconcile, decommission).
 
-See also: [devlore-graph-convergence-operations.md](devlore-graph-convergence-operations.md) — Graph operations: convergence, control flow, and system interaction (probe, guard, choose, gather, retry, rollback, elevate).
+See also: [2.3-orchestration-primitives.md](2.3-orchestration-primitives.md) — Graph operations: convergence, control flow, and system interaction (probe, guard, choose, gather, retry, rollback, elevate).
 
 ## Design Principles
 

@@ -398,4 +398,4 @@ is built on a Mac and run on a Debian box.
 - [DESIGN-DISCUSSION.md](../../../DESIGN-DISCUSSION.md) — Full design discussion with D1-D7 and O1-O7
 - [Phase 4](./phase-4.md) — Resource type system + starvalue marshaling
 - [Phase 7](./phase-7.md) — Remaining provider migration
-- [Architecture](../../architecture/devlore-resource-management.md) — Master architecture document
+- [Architecture](../../architecture/4-resource-management.md) — Master architecture document

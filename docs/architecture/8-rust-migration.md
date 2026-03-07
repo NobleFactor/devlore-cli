@@ -5,7 +5,7 @@ Go to idiomatic Rust. It records the reasoning behind every architectural
 decision so that any future session can pick up the work with complete
 understanding.
 
-See also: [Rust Migration Plan](../plans/rust-migration.md) — phased
+See also: [Rust Migration Plan](../plans/8-rust-migration.md) — phased
 implementation plan with tasks, timelines, and file listings.
 
 ## 1. Why Rust
@@ -838,18 +838,18 @@ consumers than Rust consumers. The gap is closing but has not closed.
 
 The following features are planned or in progress in the Go codebase:
 
-1. **Reconciliation** (`docs/architecture/devlore-reconciliation.md`):
+1. **Reconciliation** (`docs/architecture/5.1-reconciliation.md`):
    Changes `Action.Do` from 3 returns to 4, adds `ReconcilableAction`
    interface, moves `RecoveryStack` to `pkg/op`. This is a fundamental
    interface change that would be expensive to port mid-migration.
 
-2. **Orchestration primitives** (`docs/architecture/devlore-orchestration-primitives.md`):
+2. **Orchestration primitives** (`docs/architecture/2.3-orchestration-primitives.md`):
    `Gather`, `Choose`, `WaitUntil`, `SlotProxy`, `RuntimePredicate`.
 
-3. **Graph convergence operations** (`docs/architecture/devlore-graph-convergence-operations.md`):
+3. **Graph convergence operations** (`docs/architecture/2.3-orchestration-primitives.md`):
    `Elevate` and related operations.
 
-4. **Receipt integrity** (`docs/architecture/devlore-receipt-integrity.md`).
+4. **Receipt integrity** (`docs/architecture/5-receipt-integrity.md`).
 
 Completing these features in Go first means the Rust port has a stable,
 proven API surface to target — rather than porting a moving target.

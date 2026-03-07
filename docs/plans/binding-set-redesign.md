@@ -145,7 +145,7 @@ Root string
 The code generator reads these directives and emits them into the generated
 provider descriptor. The `init()` announces the provider; the framework
 calls back to initialize it (see [Projected Provider API — Provider
-Registration](../architecture/devlore-projected-provider-api.md#provider-registration)):
+Registration](../architecture/3.2-projected-provider-api.md#provider-registration)):
 
 ```go
 type starlarkCodeProvider struct{}
@@ -548,13 +548,13 @@ providers other than `ui` and `plan` as globals, this is a no-op migration.
 | `internal/lore/builder.go`                      | Modify | With("ui", "plan") + ConfigureThread                            |
 | `internal/lore/commands.go`                     | Modify | With("ui", "plan")                                              |
 | `internal/writ/commands.go`                     | Modify | With("ui", "plan")                                              |
-| `docs/architecture/devlore-provider-loading.md` | Modify | Update for three-level lifetime model                           |
+| `docs/architecture/3.1-provider-loading.md` | Modify | Update for three-level lifetime model                           |
 
 ## Related Documents
 
-- [Projected Provider API](../architecture/devlore-projected-provider-api.md)
-- [Phase Execution](../architecture/devlore-phase-execution.md)
-- [Provider Loading and Statefulness](../architecture/devlore-provider-loading.md)
+- [Projected Provider API](../architecture/3.2-projected-provider-api.md)
+- [Phase Execution](../architecture/2.2-phase-execution.md)
+- [Provider Loading and Statefulness](../architecture/3.1-provider-loading.md)
 - [Star Source Analysis Plan](./star-source-analysis.md)
 
 ## Open Questions

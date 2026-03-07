@@ -5,7 +5,7 @@
 Phases 0-4 built the generator pipeline in noblefactor-ops. Phase 5 planned the
 devlore-cli restructuring (impl structs, nuke-safe generation). This phase
 supersedes Phase 5 with architectural changes from the typed-slots design
-(see [devlore-typed-slots.md](../../architecture/devlore-typed-slots.md)).
+(see [2.1-typed-slots.md](../../architecture/2.1-typed-slots.md)).
 
 Key architectural decisions that change the approach:
 
@@ -783,8 +783,8 @@ go test ./...
 
 ## Related Documents
 
-- [devlore-typed-slots.md](../../architecture/devlore-typed-slots.md) — Typed slots architecture
-- [devlore-execution-graph.md](../../architecture/devlore-execution-graph.md) — Graph structure and lifecycle
+- [2.1-typed-slots.md](../../architecture/2.1-typed-slots.md) — Typed slots architecture
+- [2-execution-graph.md](../../architecture/2-execution-graph.md) — Graph structure and lifecycle
 - [devlore-command-tree.md](../devlore-command-tree.md) — Command tree restructuring
 - [phase-5.md](phase-5.md) — Previous plan (superseded by this document)
 - Phases 0-4 — Generator pipeline (merged)

@@ -322,7 +322,7 @@ For "chunky" workloads (minutes to hours):
 - **Detached pattern:** For very long workloads, start via `nohup` or a systemd
   transient unit. Disconnect and re-attach later to check exit status. This
   maps to the Recovery Stack restart capability (see
-  [devlore-recovery-serialization](devlore-recovery-serialization.md) — planned).
+  [devlore-recovery-serialization](5.2-recovery-serialization.md) — planned).
 
 ---
 

@@ -15,7 +15,7 @@ Resource-Provider architecture optimized for the Saga Pattern. Services become
 Providers in domain subpackages (`provider/file`, `provider/pkg`, etc.).
 Operations become Actions with `Do`/`Undo` methods that receive resolved slots,
 not nodes. The three flow primitives from the
-[convergence operations architecture](../architecture/devlore-graph-convergence-operations.md)
+[convergence operations architecture](../architecture/2.3-orchestration-primitives.md)
 live in `execution/flow` as typed Actions: `flow.Choose` (OR-selector),
 `flow.Gather` (AND-join), and `flow.Elevate` (privilege transition).
 
@@ -185,7 +185,7 @@ The `execution/flow` package contains three graph flow primitives — actions th
 change how the executor traverses the graph rather than operating on resources.
 Each implements the Action interface. All live in `internal/execution/flow/`.
 
-See: [Convergence Operations Architecture](../architecture/devlore-graph-convergence-operations.md)
+See: [Convergence Operations Architecture](../architecture/2.3-orchestration-primitives.md)
 
 ### flow.Choose
 
@@ -393,10 +393,10 @@ No cycles. All subpackages import `execution` for core types.
 
 ## Related Documents
 
-- [Convergence Operations Architecture](../architecture/devlore-graph-convergence-operations.md) — Defines Choose, Gather, Elevate
-- [Execution Graph Architecture](../architecture/devlore-execution-graph.md) — Core graph state machine
-- [Phase Execution Architecture](../architecture/devlore-phase-execution.md) — Saga pattern, phases, retry/rollback
-- [Typed Slots Architecture](../architecture/devlore-typed-slots.md) — Slot resolution chain
-- [Action Namespaces](../architecture/devlore-operation-namespaces.md) — Action namespace guide
-- [Orchestration Primitives Architecture](../architecture/devlore-orchestration-primitives.md) — Gather, Choose, WaitUntil, SlotProxy, hooks
+- [Convergence Operations Architecture](../architecture/2.3-orchestration-primitives.md) — Defines Choose, Gather, Elevate
+- [Execution Graph Architecture](../architecture/2-execution-graph.md) — Core graph state machine
+- [Phase Execution Architecture](../architecture/2.2-phase-execution.md) — Saga pattern, phases, retry/rollback
+- [Typed Slots Architecture](../architecture/2.1-typed-slots.md) — Slot resolution chain
+- [Action Namespaces](../architecture/3-operation-namespaces.md) — Action namespace guide
+- [Orchestration Primitives Architecture](../architecture/2.3-orchestration-primitives.md) — Gather, Choose, WaitUntil, SlotProxy, hooks
 - [Orchestration Primitives Plan](orchestration-primitives.md) — Implementation plan for orchestration primitives

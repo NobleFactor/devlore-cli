@@ -185,4 +185,4 @@ already registered but lacked generated tests):
 | `internal/execution/flow/elevate.go` | Do 2-return → 3-return |
 | `internal/execution/flow/wait_until.go` | Do 2-return → 3-return |
 | `star/.../commands/generate.star` | Remove error-return filter, add `pure` field |
-| `docs/architecture/devlore-resource-management.md` | Document action type model |
+| `docs/architecture/4-resource-management.md` | Document action type model |

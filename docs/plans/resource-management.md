@@ -1366,7 +1366,7 @@ See [phase-11.md](resource-management/phase-11.md).
 
 ## Relationship to Reconciliation
 
-The [Audit, Reconciliation, and Recovery](../architecture/devlore-reconciliation.md)
+The [Audit, Reconciliation, and Recovery](../architecture/5.1-reconciliation.md)
 plan depends on resource management. Reconciliation adds a 4th return value
 (`ReconciliationState`) to `Action.Do` — a fingerprint of the resource at
 completion. That fingerprint *is* the resource's post-write metadata (hash,
@@ -1491,10 +1491,10 @@ resource management work is complete.
 
 ## Related Documents
 
-- [Resource Management Architecture](../architecture/devlore-resource-management.md)
+- [Resource Management Architecture](../architecture/4-resource-management.md)
 - [Binding Unification Plan](./binding-unification.md) — Provider binding architecture
 - [Compensation Plan](./compensation.md) — Compensation/recovery architecture
-- [Audit, Reconciliation, and Recovery](../architecture/devlore-reconciliation.md)
+- [Audit, Reconciliation, and Recovery](../architecture/5.1-reconciliation.md)
 
 ### Implementation Plans
 

@@ -283,7 +283,7 @@ time before the template is formatted.
 
 - [Provider Registration](provider-registration.md) — Registration model
 - [Orchestration Primitives](orchestration-primitives.md) — Flow action design
-- [Phase Execution](../architecture/devlore-phase-execution.md) — Saga pattern, recovery
+- [Phase Execution](../architecture/2.2-phase-execution.md) — Saga pattern, recovery
 - [Provider Registration follow-up](provider-registration/follow-up.md) — Origin of this item
 
 ## Open Questions

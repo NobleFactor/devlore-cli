@@ -57,7 +57,7 @@ Go function types.
 ## URI Scheme Summary
 
 Phase 0 corrects all resource URI schemes. See
-[devlore-resource-identity.md](../architecture/devlore-resource-identity.md)
+[4.1-resource-identity.md](../architecture/4.1-resource-identity.md)
 for the full design.
 
 | Scheme | Form | Catalog Key | Shadow Key |
@@ -168,7 +168,7 @@ func (r Resource) String() string { return r.Format(r) }
 URI uses the opaque form (no `//`): `mem:callable/file.Reducer/myfn`,
 `mem:json/config`. The content hash is stored as a field for change
 detection and integrity verification, not in the URI. See
-[devlore-resource-identity.md §mem:callable URI Structure](../architecture/devlore-resource-identity.md#memcallable-uri-structure).
+[4.1-resource-identity.md §mem:callable URI Structure](../architecture/4.1-resource-identity.md#memcallable-uri-structure).
 
 The recovery mechanism can persist `mem.Resource` to disk — it's just
 bytes with a content type. This is the first use case for `mem:` with
@@ -596,7 +596,7 @@ alter the existing compensation mechanism.
 
 Simplify the `Resource` interface from 6 methods to 3. Correct URI
 schemes to match their proper forms (opaque vs hierarchical). Rename
-`net` → `appnet`. See [devlore-resource-identity.md](../architecture/devlore-resource-identity.md).
+`net` → `appnet`. See [4.1-resource-identity.md](../architecture/4.1-resource-identity.md).
 
 **Interface change** — `pkg/op/resource.go`:
 
@@ -791,10 +791,10 @@ different `ContentType` values.
 
 ## Related Documents
 
-- [Architecture: Resource Identity](../architecture/devlore-resource-identity.md) — URI schemes, opaque vs hierarchical, interface simplification
-- [Architecture: Memory Resources](../architecture/devlore-mem-resource.md) — `mem:` scheme, callable design
-- [Architecture: Resource Management](../architecture/devlore-resource-management.md) — Resource lifecycle, `mem:` scheme table
-- [Architecture: Orchestration Primitives](../architecture/devlore-orchestration-primitives.md) — RuntimePredicate (superseded by callable)
+- [Architecture: Resource Identity](../architecture/4.1-resource-identity.md) — URI schemes, opaque vs hierarchical, interface simplification
+- [Architecture: Memory Resources](../architecture/4.2-mem-resource.md) — `mem:` scheme, callable design
+- [Architecture: Resource Management](../architecture/4-resource-management.md) — Resource lifecycle, `mem:` scheme table
+- [Architecture: Orchestration Primitives](../architecture/2.3-orchestration-primitives.md) — RuntimePredicate (superseded by callable)
 - [Orchestration Primitives](orchestration-primitives.md) — RuntimePredicate, WaitUntil
 - [Resource Management](resource-management.md) — Resource lifecycle, catalog
 - [Terminal Flow Control](terminal-flow-control.md) — Flow actions pattern

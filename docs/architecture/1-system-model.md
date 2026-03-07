@@ -8,12 +8,12 @@ model emerges from verified execution receipts.
 
 See also:
 
-- [Execution Graph](devlore-execution-graph.md) — Core graph architecture
-- [Phase Execution](devlore-phase-execution.md) — Saga pattern, compensation
-- [Typed Slots](devlore-typed-slots.md) — Slot model and resolution chain
-- [Orchestration Primitives](devlore-orchestration-primitives.md) — Gather,
+- [Execution Graph](2-execution-graph.md) — Core graph architecture
+- [Phase Execution](2.2-phase-execution.md) — Saga pattern, compensation
+- [Typed Slots](2.1-typed-slots.md) — Slot model and resolution chain
+- [Orchestration Primitives](2.3-orchestration-primitives.md) — Gather,
   Choose, WaitUntil, Sidecar
-- [Receipt Integrity](devlore-receipt-integrity.md) — Checksum and signature
+- [Receipt Integrity](5-receipt-integrity.md) — Checksum and signature
 
 ---
 
