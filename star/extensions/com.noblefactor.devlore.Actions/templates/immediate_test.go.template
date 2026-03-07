@@ -3,15 +3,22 @@
 package {{.package}}_test
 
 import (
+	"os"
 	"testing"
 
 	"go.starlark.net/starlark"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
 	{{.package}}gen "{{.provider_import}}/gen"
 {{- end}}
 )
+
+func TestMain(m *testing.M) {
+	op.InitAll(op.NewActionRegistry(), op.Context{})
+	os.Exit(m.Run())
+}
 
 // ── Receiver ────────────────────────────────────────────────────────────────
 

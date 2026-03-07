@@ -4,12 +4,19 @@
 package starcode_test
 
 import (
+	"os"
 	"sort"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode"
 	starcodegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode/gen"
 )
+
+func TestMain(m *testing.M) {
+	op.InitAll(op.NewActionRegistry(), op.Context{})
+	os.Exit(m.Run())
+}
 
 // TestReceiverAttrNames verifies StarcodeReceiver.AttrNames returns the expected attribute list.
 func TestReceiverAttrNames(t *testing.T) {
