@@ -49,10 +49,45 @@ is formatted at execution time after promises resolve.
 
 |     | Phase | Name                                          | Description                                      |
 |-----|-------|-----------------------------------------------|--------------------------------------------------|
-| [ ] | 1     | [Complete](terminal-flow-control/phase-1.md)  | Success terminal node with optional output value |
-| [ ] | 2     | [Degraded](terminal-flow-control/phase-2.md)  | Warning terminal, error, graph continues         |
-| [ ] | 3     | [Fatal](terminal-flow-control/phase-3.md)     | Error terminal, executor halt, error             |
-| [ ] | 4     | [E2E tests](terminal-flow-control/phase-4.md) | Statement-level Starlark tests for all three     |
+| [x] | 1     | [Complete](terminal-flow-control/phase-1.md)  | Success terminal node with optional output value |
+| [x] | 2     | [Degraded](terminal-flow-control/phase-2.md)  | Warning terminal, error, graph continues         |
+| [x] | 3     | [Fatal](terminal-flow-control/phase-3.md)     | Error terminal, executor halt, error             |
+| [x] | 4     | [E2E tests](terminal-flow-control/phase-4.md) | Statement-level Starlark tests for all three     |
+
+### Phase 1 Summary
+
+- `internal/execution/flow/complete.go` — `Complete` action, returns `output` slot value, nil error
+- `internal/execution/flow/planned.go` — handwritten `FlowPlan` (`plan.flow` namespace) with `complete` method
+- `internal/execution/flow/provider.go` — register `&Complete{}`, implement `PlannedProvider` via `NewPlanned()`
+- `internal/execution/flow/flow_test.go` — 5 new tests + updated registration check
+- Adapted plan's interface (`Namespace`/`Slots`/`ActionContext`) to actual codebase interface (`Name`/`Params`/`Do(*Context, map[string]any)`)
+
+### Phase 2 Summary
+
+- `pkg/op/render.go` — `RenderError(format, args, kwargs)` helper, shared by Degraded and Fatal
+- `pkg/op/render_test.go` — 6 tests (plain, kwargs, args, both, invalid template, nil)
+- `internal/execution/flow/degraded.go` — `Degraded` action, formats template, writes stderr, returns rendered error as output
+- `internal/execution/flow/provider.go` — register `&Degraded{}`
+- `internal/execution/flow/planned.go` — `degraded` method + `fillListSlot`/`fillDictSlot` helpers for `*args`/`**kwargs` slot packing
+- `internal/execution/flow/flow_test.go` — 5 Degraded tests + updated registration check
+
+### Phase 3 Summary
+
+- `pkg/op/fatal.go` — `FatalError` sentinel type (`errors.As` matchable)
+- `internal/execution/flow/fatal.go` — `Fatal` action, formats template, returns `*FatalError`
+- `internal/execution/flow/provider.go` — register `&Fatal{}`
+- `internal/execution/flow/planned.go` — `fatal` method (same signature as `degraded`)
+- `internal/execution/flow/flow_test.go` — 5 Fatal tests + updated registration check
+- No executor changes: `FatalError` flows through the existing error path; `ConflictResolution` respected as-is
+
+### Phase 4 Summary
+
+- `test_flow_complete.star` — dry-run, verifies 2 complete nodes created
+- `test_flow_degraded.star` — full execution, graph continues after degraded
+- `test_flow_fatal.star` — full execution, halts with `fatal: database unreachable`
+- `test_flow_fatal_template.star` — template with promise kwargs, graph halts
+- Slot reassembly: added `reassembleArgs`/`reassembleKwargs` in `degraded.go` to reconstruct `args`/`kwargs` from sub-slots after promise resolution
+- `make check`, `make test-race` pass
 
 ## Design
 
