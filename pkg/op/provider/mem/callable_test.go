@@ -6,6 +6,8 @@ package mem
 import (
 	"testing"
 
+	"go.starlark.net/starlark"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -88,4 +90,242 @@ func TestCallableFn_PanicsBeforeInit(t *testing.T) {
 		}
 	}()
 	c.Fn()
+}
+
+// -------------------------------------------------------------------
+// Phase 3: Compilation and Initialization
+// -------------------------------------------------------------------
+
+// makeCallable creates a Callable with valid source for testing.
+func makeCallable(t *testing.T, funcName string, source string) *Callable {
+	t.Helper()
+	c := NewCallable("TestType", "testfn")
+	c.FuncName = funcName
+	c.SetSource([]byte(source))
+	return c
+}
+
+func TestCompile_ProducesNonEmptyBytecode(t *testing.T) {
+	c := makeCallable(t, "double", "def double(x):\n    return x * 2\n")
+	if err := c.Compile(); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if len(c.Compiled) == 0 {
+		t.Error("Compiled is empty after Compile")
+	}
+	if c.CompilerVersion == 0 {
+		t.Error("CompilerVersion is 0 after Compile")
+	}
+	if c.CompilerVersion != starlark.CompilerVersion {
+		t.Errorf("CompilerVersion = %d, want %d", c.CompilerVersion, starlark.CompilerVersion)
+	}
+}
+
+func TestCompile_Idempotent(t *testing.T) {
+	c := makeCallable(t, "double", "def double(x):\n    return x * 2\n")
+	if err := c.Compile(); err != nil {
+		t.Fatalf("Compile 1: %v", err)
+	}
+	first := make([]byte, len(c.Compiled))
+	copy(first, c.Compiled)
+
+	if err := c.Compile(); err != nil {
+		t.Fatalf("Compile 2: %v", err)
+	}
+	if string(c.Compiled) != string(first) {
+		t.Error("Compile produced different bytecode on second call")
+	}
+}
+
+func TestCompile_NoSource(t *testing.T) {
+	c := NewCallable("TestType", "testfn")
+	if err := c.Compile(); err == nil {
+		t.Fatal("expected error for empty source")
+	}
+}
+
+func TestCompile_InvalidSource(t *testing.T) {
+	c := makeCallable(t, "_callable", "def !!invalid syntax")
+	if err := c.Compile(); err == nil {
+		t.Fatal("expected error for invalid source")
+	}
+}
+
+func TestInit_WithCompiledBytecode(t *testing.T) {
+	c := makeCallable(t, "double", "def double(x):\n    return x * 2\n")
+	if err := c.Compile(); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	thread := &starlark.Thread{Name: "test"}
+	if err := c.Init(thread); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	fn := c.Fn()
+	result, err := starlark.Call(thread, fn, starlark.Tuple{starlark.MakeInt(7)}, nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	got, _ := result.(starlark.Int).Int64()
+	if got != 14 {
+		t.Errorf("double(7) = %d, want 14", got)
+	}
+}
+
+func TestInit_FallbackToSourceOnVersionMismatch(t *testing.T) {
+	c := makeCallable(t, "double", "def double(x):\n    return x * 2\n")
+	if err := c.Compile(); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	// Simulate a version mismatch by setting a bogus compiler version.
+	c.CompilerVersion = 999999
+
+	thread := &starlark.Thread{Name: "test"}
+	if err := c.Init(thread); err != nil {
+		t.Fatalf("Init should fall back to source recompilation: %v", err)
+	}
+
+	fn := c.Fn()
+	result, err := starlark.Call(thread, fn, starlark.Tuple{starlark.MakeInt(5)}, nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	got, _ := result.(starlark.Int).Int64()
+	if got != 10 {
+		t.Errorf("double(5) = %d, want 10", got)
+	}
+}
+
+func TestInit_SourceOnlyNoBytecode(t *testing.T) {
+	c := makeCallable(t, "add_one", "def add_one(x):\n    return x + 1\n")
+	// No Compile() call — Init should compile from source.
+
+	thread := &starlark.Thread{Name: "test"}
+	if err := c.Init(thread); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	result, err := starlark.Call(thread, c.Fn(), starlark.Tuple{starlark.MakeInt(41)}, nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	got, _ := result.(starlark.Int).Int64()
+	if got != 42 {
+		t.Errorf("add_one(41) = %d, want 42", got)
+	}
+}
+
+func TestInit_ExtractsNamedFunction(t *testing.T) {
+	source := "def alpha():\n    return 1\n\ndef beta():\n    return 2\n"
+	c := makeCallable(t, "beta", source)
+
+	thread := &starlark.Thread{Name: "test"}
+	if err := c.Init(thread); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	result, err := starlark.Call(thread, c.Fn(), nil, nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	got, _ := result.(starlark.Int).Int64()
+	if got != 2 {
+		t.Errorf("beta() = %d, want 2", got)
+	}
+}
+
+func TestInit_RejectsMissingFuncName(t *testing.T) {
+	c := makeCallable(t, "nonexistent", "def actual(x):\n    return x\n")
+
+	thread := &starlark.Thread{Name: "test"}
+	err := c.Init(thread)
+	if err == nil {
+		t.Fatal("expected error for missing function name")
+	}
+	if !testing.Verbose() {
+		return
+	}
+	t.Logf("error: %v", err)
+}
+
+func TestInit_RejectsNonCallable(t *testing.T) {
+	// FuncName points to a global that isn't a function.
+	c := makeCallable(t, "x", "x = 42\n")
+
+	thread := &starlark.Thread{Name: "test"}
+	err := c.Init(thread)
+	if err == nil {
+		t.Fatal("expected error for non-callable global")
+	}
+}
+
+func TestBytecodeRoundTrip(t *testing.T) {
+	// Full lifecycle: source → Compile → Init → call → verify result.
+	source := "offset = 10\ndef transform(x):\n    return x + offset\n"
+	c := makeCallable(t, "transform", source)
+
+	if err := c.Compile(); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	// Simulate serialization round-trip: create a new Callable with only
+	// the bytecode and metadata (no source recompilation path).
+	c2 := NewCallable("TestType", "testfn")
+	c2.FuncName = "transform"
+	c2.Compiled = make([]byte, len(c.Compiled))
+	copy(c2.Compiled, c.Compiled)
+	c2.CompilerVersion = c.CompilerVersion
+	// Source is set but won't be used since bytecode + version match.
+	c2.SetSource([]byte(source))
+
+	thread := &starlark.Thread{Name: "test"}
+	if err := c2.Init(thread); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	result, err := starlark.Call(thread, c2.Fn(), starlark.Tuple{starlark.MakeInt(5)}, nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	got, _ := result.(starlark.Int).Int64()
+	if got != 15 {
+		t.Errorf("transform(5) = %d, want 15", got)
+	}
+}
+
+func TestExtractCompileInitRoundTrip(t *testing.T) {
+	// End-to-end: Extract from live function → Compile → Init → call.
+	globals := execScript(t, "e2e.star", `
+def make():
+    multiplier = 3
+    return lambda x: x * multiplier
+
+fn = make()
+`)
+	starFn := globals["fn"].(*starlark.Function)
+
+	c, err := Extract(starFn, "Transform")
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	if err := c.Compile(); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	thread := &starlark.Thread{Name: "test"}
+	if err := c.Init(thread); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	result, err := starlark.Call(thread, c.Fn(), starlark.Tuple{starlark.MakeInt(7)}, nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	got, _ := result.(starlark.Int).Int64()
+	if got != 21 {
+		t.Errorf("fn(7) = %d, want 21", got)
+	}
 }
