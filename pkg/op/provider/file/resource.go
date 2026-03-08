@@ -146,13 +146,7 @@ func (r *Resource) WriteTo(writer io.Writer) (int64, error) {
 	}
 	defer f.Close()
 
-	byteCount, err := io.Copy(writer, f)
-
-	if err = f.Sync(); err != nil {
-		return 0, err
-	}
-
-	return byteCount, err
+	return io.Copy(writer, f)
 }
 
 // endregion

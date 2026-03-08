@@ -10,6 +10,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/recovery"
 )
 
 // BindingSet selects which provider bindings a consumer uses and builds Starlark globals from them.
@@ -76,7 +77,9 @@ func (bs *BindingSet) BuildGlobals(graph *op.Graph, project string, reg *op.Acti
 			continue
 		}
 		if ip, ok := p.(op.ImmediateProvider); ok {
-			globals[p.Name()] = ip.NewImmediate(bs.cfg)
+			val := ip.NewImmediate(bs.cfg)
+			bs.injectContext(val)
+			globals[p.Name()] = val
 		}
 	}
 
@@ -125,6 +128,7 @@ func (bs *BindingSet) resolveProvider(name string, graph *op.Graph, project stri
 			return nil, fmt.Errorf("provider %q has no immediate factory", name)
 		}
 		value := ip.NewImmediate(bs.cfg)
+		bs.injectContext(value)
 		return starlark.StringDict{name: value}, nil
 	}
 	return nil, fmt.Errorf("no provider %q registered", name)
@@ -138,6 +142,19 @@ func (bs *BindingSet) buildPlanModule(graph *op.Graph, project string, reg *op.A
 	}
 	plan := NewPlanRootFromProviders(graph, project, reg, planned)
 	return starlark.StringDict{"plan": plan}, nil
+}
+
+// injectContext sets up the execution Context on an immediate receiver.
+// This wires the RecoverySite and BaseDir so providers can archive/restore files.
+func (bs *BindingSet) injectContext(val starlark.Value) {
+	rr, ok := val.(*op.ReflectedReceiver)
+	if !ok || bs.cfg.WorkDir == "" {
+		return
+	}
+	rr.SetContext(op.Context{
+		BaseDir:      bs.cfg.WorkDir,
+		RecoverySite: recovery.NewSite(bs.cfg.WorkDir),
+	})
 }
 
 // collectPlannedProviders returns all announced PlannedProvider implementations.
