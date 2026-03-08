@@ -79,34 +79,6 @@ func isSubpath(path, parent string) bool {
 	return rel != "." && !filepath.IsAbs(rel) && (len(rel) < 2 || rel[:2] != "..")
 }
 
-// pruneEmptyParents removes empty parent directories up to the boundary.
-//
-// If prune is false, this function does nothing. Errors are ignored because pruning is merely hygiene.
-//
-// Parameters:
-//   - path: The path to remove empty parent directories from
-//   - prune: If true, remove empty parent directories
-//   - boundary: Stop pruning at this directory (prevents removing too much)
-func pruneEmptyParents(path string, prune bool, boundary string) {
-
-	if !prune || boundary == "" {
-		return
-	}
-
-	boundary = filepath.Clean(boundary)
-	dir := filepath.Dir(path)
-
-	for {
-		if dir == boundary || !isSubpath(dir, boundary) {
-			return
-		}
-		if err := os.Remove(dir); err != nil {
-			return // not empty or permission error
-		}
-		dir = filepath.Dir(dir)
-	}
-}
-
 // checksumBytes computes "sha256:<hex>" for content bytes.
 //
 // Parameters:

@@ -44,7 +44,7 @@ t.expect_equal(file.exists(resource=dst), False)
 t.expect_equal(file.exists(resource=moved), True)
 
 # Remove
-file.remove(path=moved, prune=False, prune_boundary="")
+file.remove(path=moved, prune=False, boundary="")
 t.expect_equal(file.exists(resource=moved), False)
 
 # Glob — returns a list

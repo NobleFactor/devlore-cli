@@ -36,11 +36,18 @@ var (
 // +devlore:access=both
 type Provider struct {
 	op.ProviderBase
-	Root Resource
 }
 
-// Reducer is a function called for each file or directory in a [WalkTree] operation.
+// Reducer is a function called for each file or directory in a [#Provider.WalkTree] operation.
 type Reducer func(initial any, resource Resource, relativePath string, stack *op.RecoveryStack) (result any, err error)
+
+// region Accessors
+
+func (p *Provider) Root() string {
+	return p.Context().BaseDir
+}
+
+// endregion
 
 // region Compensable Pairs
 
@@ -248,17 +255,22 @@ func (p *Provider) Move(source, destination Resource) (result Resource, undo Tom
 //
 // The resource's checksum is verified before restoring; a mismatch indicates external modification.
 func (p *Provider) CompensateMove(undo Tombstone) error {
+
 	if undo.Resource() == nil {
 		return nil
 	}
 
 	resource := undo.Resource().(*Resource)
 	recoveryPath := undo.RecoveryPath
+
 	if resource.Checksum != "" {
+
 		actual := checksumFile(recoveryPath)
+
 		if actual == "" {
 			return fmt.Errorf("cannot read %s for verification", recoveryPath)
 		}
+
 		if actual != resource.Checksum {
 			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryPath)
 		}
@@ -269,17 +281,17 @@ func (p *Provider) CompensateMove(undo Tombstone) error {
 
 // Remove deletes the file at "path".
 //
-// If prune is true and pruneBoundary is set, empty parent directories are removed up to the boundary.
+// If prune is true and boundary is set, empty parent directories are removed up to the boundary.
 //
 // Parameters:
 //   - path: Resource for the file to delete
 //   - prune: If true, remove empty parent directories after deletion
-//   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
+//   - boundary: Stop pruning at this directory (prevents removing too much)
 //
 // Returns:
 //   - result: Tombstone for restoring the deleted file
 //   - err: any error
-func (p *Provider) Remove(path Resource, prune bool, pruneBoundary Resource) (result Tombstone, undo Tombstone, err error) {
+func (p *Provider) Remove(path Resource, prune bool, boundary Resource) (result Tombstone, undo Tombstone, err error) {
 
 	nonEmptyDirectory, err := isDirAndNotEmpty(path.SourcePath)
 
@@ -294,7 +306,7 @@ func (p *Provider) Remove(path Resource, prune bool, pruneBoundary Resource) (re
 		return Tombstone{}, Tombstone{}, fmt.Errorf("directory %s is not empty", path.SourcePath)
 	}
 
-	tombstone, err := p.moveToRecovery(path, prune, pruneBoundary.SourcePath)
+	tombstone, err := p.moveToRecovery(path, prune, boundary.SourcePath)
 	return tombstone, tombstone, err
 }
 
@@ -308,13 +320,13 @@ func (p *Provider) CompensateRemove(undo Tombstone) error {
 // Parameters:
 //   - path: Resource for the file or directory to remove
 //   - prune: If true, remove empty parent directories after deletion
-//   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
+//   - boundary: Stop pruning at this directory (prevents removing too much)
 //
 // Returns:
 //   - result: Tombstone for restoring the deleted tree
 //   - err: any error
-func (p *Provider) RemoveAll(path Resource, prune bool, pruneBoundary Resource) (result Tombstone, undo Tombstone, err error) {
-	tombstone, err := p.moveToRecovery(path, prune, pruneBoundary.SourcePath)
+func (p *Provider) RemoveAll(path Resource, prune bool, boundary Resource) (result Tombstone, undo Tombstone, err error) {
+	tombstone, err := p.moveToRecovery(path, prune, boundary.SourcePath)
 	return tombstone, tombstone, err
 }
 
@@ -325,17 +337,17 @@ func (p *Provider) CompensateRemoveAll(undo Tombstone) error {
 
 // Unlink removes the symlink at "path".
 //
-// If prune is true and pruneBoundary is set, empty parent directories are removed up to the boundary.
+// If prune is true and boundary is set, empty parent directories are removed up to the boundary.
 //
 // Parameters:
 //   - path: Resource for the symlink to remove
 //   - prune: If true, remove empty parent directories after unlinking
-//   - pruneBoundary: Stop pruning at this directory (prevents removing too much)
+//   - boundary: Stop pruning at this directory (prevents removing too much)
 //
 // Returns:
 //   - result: Tombstone for restoring the deleted symlink
 //   - err: any error
-func (p *Provider) Unlink(path Resource, prune bool, pruneBoundary Resource) (result Tombstone, undo Tombstone, err error) {
+func (p *Provider) Unlink(path Resource, prune bool, boundary Resource) (result Tombstone, undo Tombstone, err error) {
 
 	info, err := os.Lstat(path.SourcePath)
 
@@ -351,7 +363,7 @@ func (p *Provider) Unlink(path Resource, prune bool, pruneBoundary Resource) (re
 		return Tombstone{}, Tombstone{}, fmt.Errorf("%s is not a symlink", path.SourcePath)
 	}
 
-	tombstone, err := p.moveToRecovery(path, prune, pruneBoundary.SourcePath)
+	tombstone, err := p.moveToRecovery(path, prune, boundary.SourcePath)
 	return tombstone, tombstone, err
 }
 
@@ -546,11 +558,11 @@ func (p *Provider) Glob(pattern string, honorGitignore bool) ([]string, error) {
 		return nil, err
 	}
 
-	if !honorGitignore || p.Root.SourcePath == "" {
+	if !honorGitignore || p.Root() == "" {
 		return matches, nil
 	}
 
-	tracker, trackerErr := gitignore.NewTracker(p.Root.SourcePath)
+	tracker, trackerErr := gitignore.NewTracker(p.Root())
 
 	if trackerErr != nil {
 		return matches, nil //nolint:nilerr // graceful degradation: return unfiltered if gitignore unavailable
@@ -735,6 +747,41 @@ func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombst
 	}
 
 	return result, tombstone, nil
+}
+
+// pruneEmptyParents removes empty parent directories up to the boundary.
+//
+// If prune is false, this function does nothing. Errors are ignored because pruning is merely hygiene.
+//
+// Parameters:
+//   - path: The path to remove empty parent directories from
+//   - prune: If true, remove empty parent directories
+//   - boundary: Stop pruning at this directory (prevents removing too much). Default: Root().
+func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
+
+	if !prune {
+		return
+	}
+
+	if boundary == "" {
+		boundary = p.Root()
+	}
+
+	if boundary == "" {
+		return
+	}
+
+	dir := filepath.Dir(path)
+
+	for {
+		if dir == boundary || !isSubpath(dir, boundary) {
+			return
+		}
+		if err := os.Remove(dir); err != nil {
+			return // not empty or permission error
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 // write writes data to the specified path after preparing the write operation.

@@ -389,7 +389,7 @@ in a recovery directory guaranteed to be on the same partition:
 
 ```go
 // pkg/op/provider/file/recovery.go (reduced)
-func (p *Provider) moveToRecovery(resource Resource, prune bool, pruneBoundary string) (Tombstone, error) {
+func (p *Provider) moveToRecovery(resource Resource, prune bool, boundary string) (Tombstone, error) {
 
     originalPath, _ := filepath.Abs(resource.SourcePath)
     recoveryBase, _ := p.getRecoveryBase(originalPath)
@@ -821,7 +821,7 @@ bridging happens.
 ### 8.1 File Provider (Reference Implementation)
 
 Before/after for each method. Configuration parameters (mode, prune,
-pruneBoundary, backupSuffix, honorGitignore) are unchanged.
+boundary, backupSuffix, honorGitignore) are unchanged.
 
 | Method | Type | Before | After |
 |--------|------|--------|-------|
@@ -854,7 +854,7 @@ participate in the graph as `Action` nodes.
 
 | Provider | Resource Params | Config Params (unchanged) |
 |----------|----------------|---------------------------|
-| file | paths → `Resource` | mode, prune, pruneBoundary, backupSuffix, honorGitignore |
+| file | paths → `Resource` | mode, prune, boundary, backupSuffix, honorGitignore |
 | git | url + path → `Resource` | ref, branch |
 | net | url → `Resource` | (none) |
 | pkg | package names → `Resource` | manager, cask |

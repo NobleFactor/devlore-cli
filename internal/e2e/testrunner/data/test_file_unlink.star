@@ -7,7 +7,7 @@ link   = t.tmp("unlink_link.txt")
 
 written = plan.file.write_text(destination=target, content="keep me", mode=0o644)
 linked  = plan.file.link(source=written, path=link)
-plan.file.unlink(path=linked, prune=False, prune_boundary="")
+plan.file.unlink(path=linked, prune=False, boundary="")
 
 t.expect_file(target, content="keep me")
 t.expect_no_file(link)
