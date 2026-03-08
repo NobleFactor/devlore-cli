@@ -41,7 +41,7 @@ Currently only `pkg/op/provider/file/gen/` has a hand-written `actions_test.go` 
 | `string` named `content` | Literal `"test-content"` |
 | `os.FileMode` | `0o644` |
 | `bool` named `prune` | `false` |
-| `Resource` named `prune_boundary` | `Resource{}` (empty) |
+| `Resource` named `boundary` | `Resource{}` (empty) |
 | `string` named `backup_suffix` | `".test-backup"` |
 | `bool` named `honor_gitignore` | `false` |
 

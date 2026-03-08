@@ -12,26 +12,35 @@ import (
 	"go.starlark.net/starlarkstruct"
 )
 
+// URI scheme constants.
+const (
+	SchemeAppNet  = "appnet"
+	SchemeFile    = "file"
+	SchemeGit     = "git"
+	SchemeMem     = "mem"
+	SchemePackage = "pkg"
+	SchemeService = "svc"
+)
+
 // Resource is the interface for all resource types.
 //
 // Every provider-specific resource (e.g., file.Resource) must embed [ResourceBase] to satisfy it. The unexported
 // resourceBase method seals the interface to package op. Only types embedding [ResourceBase] can implement [Resource].
 //
-// URI() returns a cached string computed at construction time. Each concrete type owns its URI construction —
-// there is no shared dispatch. If Resolve() changes identity-bearing fields (e.g., path canonicalization),
-// the concrete type updates the cached URI via [ResourceBase.SetURI].
+// URI() returns a cached string computed at construction time. Each concrete type owns its URI construction--there is
+// no shared dispatch. If [Resolve] changes identity-bearing fields (e.g., path canonicalization), the concrete type
+// updates the cached URI via [ResourceBase.SetURI].
 type Resource interface {
 	URI() string
 	Resolve() error
 	resourceBase() *ResourceBase
 }
 
-// ResourceBase holds the identity fields common to all resources. Provider-
-// specific resource types must embed it by value.
+// ResourceBase holds the identity fields common to all resources.
 //
-// The uri field is set at construction via [NewResourceBase]. The id and
-// originID fields are stamped by the [ResourceCatalog] when the resource
-// is cataloged; they are not a concern of the resource itself.
+// Provider-specific resource types must embed it by value. The uri field is set at construction via [NewResourceBase].
+// The id and originID fields are stamped by the [ResourceCatalog] when the resource is cataloged; they are not a
+// concern of the resource itself.
 type ResourceBase struct {
 	uri      string
 	id       string
@@ -55,7 +64,8 @@ func (b *ResourceBase) SetURI(uri string) {
 }
 
 // Scheme returns the URI scheme by parsing the stored uri.
-// Convenience helper — NOT an interface method.
+//
+// Convenience helper--NOT an interface method.
 func (b *ResourceBase) Scheme() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
@@ -64,9 +74,9 @@ func (b *ResourceBase) Scheme() string {
 	return u.Scheme
 }
 
-// Opaque returns the opaque data component of the URI (non-empty for
-// opaque URIs like pkg:, svc:, mem:, appnet:). For hierarchical URIs
-// (file://), returns empty. Convenience helper — NOT an interface method.
+// Opaque returns the opaque data component of the URI (non-empty for opaque URIs like appnet:, mem:, pkg:, svc:).
+//
+// For hierarchical URIs (file://), returns empty. Convenience helper--NOT an interface method.
 func (b *ResourceBase) Opaque() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
@@ -75,9 +85,10 @@ func (b *ResourceBase) Opaque() string {
 	return u.Opaque
 }
 
-// Host returns the URI host by parsing the stored uri. Non-empty for
-// hierarchical URIs with an authority (e.g., net://host/path). Empty
-// for opaque URIs. Convenience helper — NOT an interface method.
+// Host returns the URI host by parsing the stored uri.
+//
+// Non-empty for hierarchical URIs with an authority (e.g.,
+// file:///some/path). Empty for opaque URIs. Convenience helper — NOT an interface method.
 func (b *ResourceBase) Host() string {
 	u, err := url.Parse(b.uri)
 	if err != nil {
@@ -116,7 +127,7 @@ func (b *ResourceBase) Resolve() error { return nil }
 
 // Format marshals v as compact JSON. Concrete resource types call this from
 // their String() method: func (r Resource) String() string { return r.Format(r) }
-func (b ResourceBase) Format(v any) string {
+func (b *ResourceBase) Format(v any) string {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Sprintf("%v", v)
@@ -129,16 +140,6 @@ func (b ResourceBase) Format(v any) string {
 func (b *ResourceBase) resourceBase() *ResourceBase {
 	return b
 }
-
-// URI scheme constants.
-const (
-	SchemeFile    = "file"
-	SchemeGit     = "git"
-	SchemePackage = "pkg"
-	SchemeService = "svc"
-	SchemeMem     = "mem"
-	SchemeAppNet  = "appnet"
-)
 
 // MarshalStarvalue implements [starvalue.Marshaler]. It serializes the
 // private identity fields (uri, id, originID) so they survive the
@@ -183,8 +184,7 @@ func (b TombstoneBase) Resource() Resource {
 
 func (b TombstoneBase) tombstoneBase() {}
 
-// NoResult signals that a provider method produces no output. Used by
-// CompensableAction methods like Remove and RemoveAll that can be undone
-// but produce no result for downstream nodes. classifyActionReturn maps
-// NoResult to nil Result; classifyReturn maps it to starlark.None.
+// NoResult signals that a provider method produces no output. Used by [CompensableAction] methods like Remove and
+// RemoveAll that can be undone but produce no result for downstream nodes. classifyActionReturn maps NoResult to
+// nil Result; classifyReturn maps it to starlark.None.
 type NoResult struct{}

@@ -16,7 +16,7 @@ plan.file.mkdir(resource=dir, mode=0o755)
 plan.file.write_text(destination=file, content="nested content", mode=0o644)
 
 # Step 3: Remove the entire directory tree.
-plan.file.remove_all(path=dir, prune=False, prune_boundary="")
+plan.file.remove_all(path=dir, prune=False, boundary="")
 
 t.expect_no_file(file)
 t.expect_node_count(3)

@@ -251,7 +251,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	// empty parent directories are removed up to the target root boundary.
 	if cfg.Prune {
 		cfg.TemplateData["prune"] = true
-		cfg.TemplateData["prune_boundary"] = view.Files.Root
+		cfg.TemplateData["boundary"] = view.Files.Root
 	}
 
 	engine, err := ConfigureEngine(&cfg.Config)

@@ -32,6 +32,7 @@ Internal engineering documentation for devlore-cli developers.
 - [Receipt Integrity](5-receipt-integrity.md) — Checksum and signature verification for receipts
   - [Reconciliation](5.1-reconciliation.md) — Audit, reconciliation, and recovery in the execution graph
   - [Recovery Serialization](5.2-recovery-serialization.md) — Recovery stack serialization and restart (planned)
+  - [Recovery Site](5.3-recovery-site.md) — Shared recovery service for file archival (zero-copy rename) and data archival (byte serialization)
 
 ### 6. Execution Topology
 

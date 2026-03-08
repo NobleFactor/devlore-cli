@@ -1045,8 +1045,8 @@ See [phase-2.md](resource-management/phase-2.md).
 
 All file provider methods accept `Resource` for path parameters. All
 compensable methods return `Resource` results. The Reducer/Actor signatures
-use `Resource`. `pruneBoundary` is `Resource`. Mode uses full `os.FileMode`.
-`Provider.Root` is `Resource`.
+use `Resource`. `boundary` is `Resource`. Mode uses full `os.FileMode`.
+`Provider.Root()` returns `Context().BaseDir`.
 
 See [phase-3.md](resource-management/phase-3.md) and
 [phase-3b.md](resource-management/phase-3b.md) for details.
@@ -1264,7 +1264,7 @@ See [phase-11.md](resource-management/phase-11.md).
    *ResourceCatalog`, `FillSlot` implicit edges. See
    [phase-2.md](resource-management/phase-2.md). Merged in PR #177.
 3. **Phase 3**: ~~File provider migration.~~ **DONE** — All methods accept
-   `Resource`. Reducer/Actor signatures. `Provider.Root` is `Resource`.
+   `Resource`. Reducer/Actor signatures. `Provider.Root()` returns `Context().BaseDir`.
    See [phase-3.md](resource-management/phase-3.md),
    [phase-3b.md](resource-management/phase-3b.md). Merged in PRs #177, #178.
 4. **Phase 4 (type system + tombstone interface)**: ~~Resource type system,

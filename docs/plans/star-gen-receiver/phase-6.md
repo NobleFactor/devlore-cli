@@ -228,7 +228,7 @@ In the executor's node loop, call `e.fillSlotsFromData(node)` before
 The 8 ops that currently read `ctx.Data` directly (RenderOp reads all of
 ctx.Data, DecryptOp reads `decryptor`, BackupOp reads `backup_suffix`,
 ValidateOp reads `validators`, MoveOp reads `git_mv`, UnlinkOp/RemoveOp
-read `prune_empty_dirs`/`prune_boundary`) will continue to work because:
+read `prune_empty_dirs`/`boundary`) will continue to work because:
 
 1. Engine fills slots from Context.Data
 2. Ops still read ctx.Data (temporarily)
@@ -258,8 +258,8 @@ func (f *FileService) Copy(path string, mode os.FileMode, content []byte) (strin
 func (f *FileService) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error)
 func (f *FileService) Decrypt(decryptor func(string, []byte) ([]byte, error), source string, content []byte) ([]byte, error)
 func (f *FileService) Backup(path, backupSuffix string) error
-func (f *FileService) Unlink(path string, prune bool, pruneBoundary string) error
-func (f *FileService) Remove(path string, prune bool, pruneBoundary string) error
+func (f *FileService) Unlink(path string, prune bool, boundary string) error
+func (f *FileService) Remove(path string, prune bool, boundary string) error
 func (f *FileService) Write(content, path string, mode os.FileMode) error
 func (f *FileService) Validate(validators map[string]func() error, check, message string) error
 func (f *FileService) Move(gitMv func(src, dst string) error, source, path string) error
@@ -267,7 +267,7 @@ func (f *FileService) Move(gitMv func(src, dst string) error, source, path strin
 
 Every parameter except the framework `content []byte` (last param on
 consumer/transformer methods) maps to a slot. Parameters like `decryptor`,
-`validators`, `templateData`, `backupSuffix`, `prune`, `pruneBoundary`,
+`validators`, `templateData`, `backupSuffix`, `prune`, `boundary`,
 `gitMv` come from Context.Data via engine slot filling.
 
 Helper functions (`pruneEmptyParents`, `isSubpath`) move to this file.
@@ -593,7 +593,7 @@ conventions and user-authored templates reference them.
 | `"decryptor"` | `decryptor` | Aligned — no change |
 | `"backup_suffix"` | `backup_suffix` | Aligned — no change |
 | `"prune_empty_dirs"` | `prune` | Rename key to `prune` |
-| `"prune_boundary"` | `prune_boundary` | Aligned — no change |
+| `"boundary"` | `boundary` | Aligned — no change |
 | `"validators"` | `validators` | Aligned — no change |
 | `"git_mv"` | `git_mv` | Aligned — no change |
 

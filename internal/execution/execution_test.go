@@ -265,7 +265,7 @@ func TestUnlinkAction(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)
-	node.SetSlotImmediate("prune_boundary", "")
+	node.SetSlotImmediate("boundary", "")
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("unlink: %v", err)
@@ -289,7 +289,7 @@ func TestRemoveAction(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)
-	node.SetSlotImmediate("prune_boundary", "")
+	node.SetSlotImmediate("boundary", "")
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -841,7 +841,7 @@ func TestRemoveActionPrunesEmptyDirs(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
-	node.SetSlotImmediate("prune_boundary", tmpDir)
+	node.SetSlotImmediate("boundary", tmpDir)
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -885,7 +885,7 @@ func TestRemoveActionPruneStopsAtNonEmpty(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
-	node.SetSlotImmediate("prune_boundary", tmpDir)
+	node.SetSlotImmediate("boundary", tmpDir)
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("remove: %v", err)
@@ -930,7 +930,7 @@ func TestUnlinkActionPrunesEmptyDirs(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", true)
-	node.SetSlotImmediate("prune_boundary", tmpDir)
+	node.SetSlotImmediate("boundary", tmpDir)
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("unlink: %v", err)
@@ -1160,7 +1160,7 @@ func TestRemoveNoPruneWithoutFlag(t *testing.T) {
 	node := &op.Node{ID: "test"}
 	node.SetSlotImmediate("path", target)
 	node.SetSlotImmediate("prune", false)
-	node.SetSlotImmediate("prune_boundary", "")
+	node.SetSlotImmediate("boundary", "")
 
 	if _, _, err := action.Do(ctx, slotsFrom(node)); err != nil {
 		t.Fatalf("remove: %v", err)
