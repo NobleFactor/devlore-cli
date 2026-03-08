@@ -151,6 +151,7 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 
 	// Create engine
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
+		BaseDir:            cfg.TargetRoot,
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
 		Platform:           platform.New(),

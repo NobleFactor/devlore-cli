@@ -38,6 +38,14 @@ type ReflectedReceiver struct {
 // successful method call.
 func (r *ReflectedReceiver) SetCatalog(c *ResourceCatalog) { r.catalog = c }
 
+// SetContext injects the execution Context into the receiver's underlying provider.
+// This allows immediate receivers to access Context-scoped services like RecoverySite.
+func (r *ReflectedReceiver) SetContext(ctx Context) {
+	if r.providerValue.Kind() == reflect.Ptr && !r.providerValue.IsNil() {
+		InitProvider(r.providerValue.Interface(), ctx)
+	}
+}
+
 // SetStack sets the recovery stack for immediate-mode dispatch.
 func (r *ReflectedReceiver) SetStack(s *RecoveryStack) { r.stack = s }
 

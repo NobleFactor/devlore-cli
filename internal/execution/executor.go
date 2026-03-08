@@ -16,6 +16,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/recovery"
 )
 
 // ResultStatus represents the execution status of a node.
@@ -76,6 +77,10 @@ const (
 
 // ExecutorOptions configures GraphExecutor behavior.
 type ExecutorOptions struct {
+	// BaseDir is the authority boundary for provider operations. When set, a
+	// recovery.Site is created and placed on the execution Context.
+	BaseDir string
+
 	// DryRun prevents filesystem modifications.
 	DryRun bool
 
@@ -115,6 +120,23 @@ func NewGraphExecutor(opts ExecutorOptions) *GraphExecutor {
 	}
 }
 
+// newContext creates an execution Context from the executor's options.
+func (e *GraphExecutor) newContext(ctx context.Context) *op.Context {
+	execCtx := &op.Context{
+		Context:  ctx,
+		BaseDir:  e.options.BaseDir,
+		DryRun:   e.options.DryRun,
+		Writer:   e.options.Writer,
+		Data:     e.options.Data,
+		Platform: e.options.Platform,
+		Thread:   e.newThread(),
+	}
+	if e.options.BaseDir != "" {
+		execCtx.RecoverySite = recovery.NewSite(e.options.BaseDir)
+	}
+	return execCtx
+}
+
 // newThread creates a Starlark thread for callable initialization during
 // execution. Print output goes to the executor's writer.
 func (e *GraphExecutor) newThread() *starlark.Thread {
@@ -151,16 +173,9 @@ func (e *GraphExecutor) Run(ctx context.Context, g *op.Graph) error {
 func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 	ordered := OrderNodes(g.Nodes, g.Edges)
 
-	execCtx := &op.Context{
-		Context:  ctx,
-		Catalog:  g.Catalog,
-		DryRun:   e.options.DryRun,
-		Writer:   e.options.Writer,
-		Data:     e.options.Data,
-		Graph:    g,
-		Platform: e.options.Platform,
-		Thread:   e.newThread(),
-	}
+	execCtx := e.newContext(ctx)
+	execCtx.Catalog = g.Catalog
+	execCtx.Graph = g
 
 	// Create a fresh ActionRegistry with per-graph provider instances
 	// and hydrate any stub actions from deserialized graphs.
@@ -205,16 +220,9 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 // Phases referenced as compensating actions (via Compensate fields) are
 // skipped during the forward pass — they execute only during rollback.
 func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
-	execCtx := &op.Context{
-		Context:  ctx,
-		Catalog:  g.Catalog,
-		DryRun:   e.options.DryRun,
-		Writer:   e.options.Writer,
-		Data:     e.options.Data,
-		Graph:    g,
-		Platform: e.options.Platform,
-		Thread:   e.newThread(),
-	}
+	execCtx := e.newContext(ctx)
+	execCtx.Catalog = g.Catalog
+	execCtx.Graph = g
 
 	// Create a fresh ActionRegistry with per-graph provider instances
 	// and hydrate any stub actions from deserialized graphs.
@@ -425,14 +433,7 @@ func (e *GraphExecutor) ExecutePhaseInner(ctx *op.Context, g *op.Graph, phase *o
 func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []op.Edge) ([]*NodeResult, error) {
 	ordered := OrderNodes(nodes, edges)
 
-	execCtx := &op.Context{
-		Context:  ctx,
-		DryRun:   e.options.DryRun,
-		Writer:   e.options.Writer,
-		Data:     e.options.Data,
-		Platform: e.options.Platform,
-		Thread:   e.newThread(),
-	}
+	execCtx := e.newContext(ctx)
 
 	// Hydrate stub actions and inject context into provider-backed actions.
 	freshReg := op.NewActionRegistry()

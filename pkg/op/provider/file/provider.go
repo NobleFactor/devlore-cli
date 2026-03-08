@@ -110,7 +110,7 @@ func (p *Provider) CompensateBackup(undo Tombstone) error {
 		}
 	}
 
-	return p.restoreFromRecovery(undo)
+	return p.Context().RecoverySite.RestoreFile(resource.SourcePath, recoveryPath)
 }
 
 // Copy copies a blob to the file at "destination" with the given mode.
@@ -181,10 +181,14 @@ func (p *Provider) Link(source, path Resource) (result Resource, undo Tombstone,
 			}
 		}
 
-		// Something exists at the path — move it to recovery before creating the symlink.
-		undo, err = p.moveToRecovery(path, false, "")
-		if err != nil {
-			return Resource{}, Tombstone{}, err
+		// Something exists at the path — archive it before creating the symlink.
+		recoveryPath, archiveErr := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
+		if archiveErr != nil {
+			return Resource{}, Tombstone{}, archiveErr
+		}
+		undo = Tombstone{
+			TombstoneBase: op.NewTombstoneBase(&path),
+			RecoveryPath:  recoveryPath,
 		}
 	} else {
 		// Nothing exists — tombstone records the path for removal on compensation.
@@ -276,7 +280,7 @@ func (p *Provider) CompensateMove(undo Tombstone) error {
 		}
 	}
 
-	return p.restoreFromRecovery(undo)
+	return p.Context().RecoverySite.RestoreFile(resource.SourcePath, recoveryPath)
 }
 
 // Remove deletes the file at "path".
@@ -306,13 +310,26 @@ func (p *Provider) Remove(path Resource, prune bool, boundary Resource) (result 
 		return Tombstone{}, Tombstone{}, fmt.Errorf("directory %s is not empty", path.SourcePath)
 	}
 
-	tombstone, err := p.moveToRecovery(path, prune, boundary.SourcePath)
-	return tombstone, tombstone, err
+	recoveryPath, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
+	if err != nil {
+		return Tombstone{}, Tombstone{}, err
+	}
+
+	p.pruneEmptyParents(path.SourcePath, prune, boundary.SourcePath)
+
+	tombstone := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&path),
+		RecoveryPath:  recoveryPath,
+	}
+	return tombstone, tombstone, nil
 }
 
 // CompensateRemove undoes a Remove by restoring the file from recovery.
 func (p *Provider) CompensateRemove(undo Tombstone) error {
-	return p.restoreFromRecovery(undo)
+	if undo.Resource() == nil {
+		return nil
+	}
+	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath, undo.RecoveryPath)
 }
 
 // RemoveAll removes the file at "path" and any children it contains.
@@ -326,13 +343,27 @@ func (p *Provider) CompensateRemove(undo Tombstone) error {
 //   - result: Tombstone for restoring the deleted tree
 //   - err: any error
 func (p *Provider) RemoveAll(path Resource, prune bool, boundary Resource) (result Tombstone, undo Tombstone, err error) {
-	tombstone, err := p.moveToRecovery(path, prune, boundary.SourcePath)
-	return tombstone, tombstone, err
+
+	recoveryPath, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
+	if err != nil {
+		return Tombstone{}, Tombstone{}, err
+	}
+
+	p.pruneEmptyParents(path.SourcePath, prune, boundary.SourcePath)
+
+	tombstone := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&path),
+		RecoveryPath:  recoveryPath,
+	}
+	return tombstone, tombstone, nil
 }
 
 // CompensateRemoveAll undoes a RemoveAll by restoring from recovery.
 func (p *Provider) CompensateRemoveAll(undo Tombstone) error {
-	return p.restoreFromRecovery(undo)
+	if undo.Resource() == nil {
+		return nil
+	}
+	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath, undo.RecoveryPath)
 }
 
 // Unlink removes the symlink at "path".
@@ -363,13 +394,26 @@ func (p *Provider) Unlink(path Resource, prune bool, boundary Resource) (result 
 		return Tombstone{}, Tombstone{}, fmt.Errorf("%s is not a symlink", path.SourcePath)
 	}
 
-	tombstone, err := p.moveToRecovery(path, prune, boundary.SourcePath)
-	return tombstone, tombstone, err
+	recoveryPath, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
+	if err != nil {
+		return Tombstone{}, Tombstone{}, err
+	}
+
+	p.pruneEmptyParents(path.SourcePath, prune, boundary.SourcePath)
+
+	tombstone := Tombstone{
+		TombstoneBase: op.NewTombstoneBase(&path),
+		RecoveryPath:  recoveryPath,
+	}
+	return tombstone, tombstone, nil
 }
 
 // CompensateUnlink undoes an Unlink by restoring the symlink from recovery.
 func (p *Provider) CompensateUnlink(undo Tombstone) error {
-	return p.restoreFromRecovery(undo)
+	if undo.Resource() == nil {
+		return nil
+	}
+	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath, undo.RecoveryPath)
 }
 
 // WalkTree performs a depth-first traversal with an accumulator and a RecoveryStack for compensable operations.
@@ -711,7 +755,7 @@ func (p *Provider) compensateWrite(undo Tombstone) error {
 	}
 
 	// Something existed before — restore it from recovery.
-	return p.restoreFromRecovery(undo)
+	return p.Context().RecoverySite.RestoreFile(homePath, undo.RecoveryPath)
 }
 
 // prepareWrite handles pre-write backup for destructive operations.
@@ -796,7 +840,7 @@ func (p *Provider) write(resource Resource, data []byte, mode os.FileMode) (resu
 		mode = 0o644
 	}
 
-	f, err := os.OpenFile(result.SourcePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, mode)
+	f, err := os.OpenFile(result.SourcePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return result, undo, err
 	}

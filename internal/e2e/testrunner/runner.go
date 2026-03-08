@@ -16,6 +16,7 @@ import (
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
+	"github.com/NobleFactor/devlore-cli/pkg/op/recovery"
 
 	// Blank imports register provider actions and callable extractor via init().
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
@@ -106,7 +107,10 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 
 	// 3. Create ActionRegistry with all provider actions
 	reg := op.NewActionRegistry()
-	op.InitAll(reg, op.Context{})
+	op.InitAll(reg, op.Context{
+		BaseDir:      tmpDir,
+		RecoverySite: recovery.NewSite(tmpDir),
+	})
 
 	// 4. Create Platform
 	plat := platform.New()
@@ -181,6 +185,7 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 
 	// 13. Execute graph
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
+		BaseDir:  tmpDir,
 		DryRun:   r.dryRun,
 		Writer:   r.writer,
 		Platform: plat,

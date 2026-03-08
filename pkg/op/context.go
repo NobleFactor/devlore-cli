@@ -5,6 +5,8 @@ import (
 	"io"
 
 	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op/recovery"
 )
 
 // Context provides execution context to actions.
@@ -14,6 +16,10 @@ type Context struct {
 	// BaseDir is where the program's authority begins. It defines the boundary beyond which actions should not look or
 	// act. Any directory outside of this is out of scope.
 	BaseDir string
+
+	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
+	// Instantiated by the executor from BaseDir.
+	RecoverySite *recovery.Site
 
 	// Catalog is the resource catalog for the current execution session. The action layer uses it to shadow Resource
 	// results after dispatch. Nil when running without catalog integration (e.g., tests).
