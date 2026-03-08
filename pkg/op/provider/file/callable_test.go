@@ -38,7 +38,7 @@ func TestWalkTreeAction_Integration(t *testing.T) {
 	}
 
 	// Create a callable that collects relative paths.
-	callable := makeCallableResource(t, `def _callable(initial, resource, relative_path):
+	callable := makeCallableResource(t, `def _callable(initial, resource, relative_path, stack):
     if initial == None:
         return [relative_path]
     return initial + [relative_path]
@@ -123,7 +123,7 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 		t.Fatal("file.walk_tree not registered")
 	}
 
-	callable := makeCallableResource(t, `def _callable(initial, resource, path):
+	callable := makeCallableResource(t, `def _callable(initial, resource, path, stack):
     return initial
 `)
 

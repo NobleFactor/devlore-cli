@@ -124,25 +124,25 @@ func (s *Sources) Analyze(cfg staranalysis.AnalysisConfig) (*staranalysis.Analys
 func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) ([]string, error) {
 	var files []string
 
-	visitor := file.Actor(func(resource file.Resource, relPath string) error {
+	visitor := file.Reducer(func(initial any, resource file.Resource, relPath string, _ *op.RecoveryStack) (any, error) {
 		if resource.Mode.IsDir() {
-			return nil
+			return initial, nil
 		}
 		if !isStarlarkFile(relPath, includeBzl) {
-			return nil
+			return initial, nil
 		}
 		matched, err := filepath.Match(flattenDoubleStar(pattern), relPath)
 		if err != nil {
 			// Try matching just the filename against the pattern's base
 			matched, err = matchRecursivePattern(pattern, relPath)
 			if err != nil {
-				return err
+				return initial, err
 			}
 		}
 		if matched {
 			files = append(files, filepath.Join(absRoot, relPath))
 		}
-		return nil
+		return initial, nil
 	})
 
 	_, _, err := (&file.Provider{}).WalkTree(file.Resource{SourcePath: absRoot}, visitor, honorGitignore)

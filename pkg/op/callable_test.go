@@ -154,11 +154,10 @@ func TestBuildCallableFunc_SimpleReturn(t *testing.T) {
 	}
 }
 
-func TestBuildCallableFunc_ArityTruncation(t *testing.T) {
-	// Starlark function accepts 3 params, Go func has 4.
-	// The 4th Go param should be silently dropped (swallowed).
+func TestBuildCallableFunc_FullSignature(t *testing.T) {
+	// Starlark function must accept all 4 params — full Go signature.
 	fn := compileStarlarkFn(t, `
-def reducer(initial, resource, path):
+def reducer(initial, resource, path, stack):
     if initial == None:
         return [path]
     return initial + [path]
@@ -166,7 +165,7 @@ def reducer(initial, resource, path):
 	thread := &starlark.Thread{Name: "test"}
 
 	// Go target: func(any, any, string, *int) (any, error)
-	// The *int param (index 3) should be swallowed.
+	// All 4 params are passed to the Starlark function.
 	type reducerFunc func(any, any, string, *int) (any, error)
 	targetType := reflect.TypeOf(reducerFunc(nil))
 
