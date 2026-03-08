@@ -153,10 +153,10 @@ func buildMethodBridge(
 	numNamed := len(namedParams)
 	numParams := len(paramNames)
 
-	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		if variadicName == "" {
-			// ── Non-variadic path (unchanged) ──────────────────────
-			return callNonVariadic(receiverName, providerVal, method, methodType, snakeName, paramNames, numParams, receiver, args, kwargs)
+			// ── Non-variadic path ─────────────────────────────────
+			return callNonVariadic(receiverName, providerVal, method, methodType, snakeName, paramNames, numParams, receiver, thread, args, kwargs)
 		}
 
 		// ── Variadic path ──────────────────────────────────────────
@@ -270,6 +270,7 @@ func callNonVariadic(
 	paramNames []string,
 	numParams int,
 	receiver *ReflectedReceiver,
+	thread *starlark.Thread,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
@@ -295,6 +296,19 @@ func callNonVariadic(
 			goArgs[i+1] = reflect.Zero(paramType)
 			continue
 		}
+
+		// Callable params: adapt *starlark.Function → Go func type via
+		// buildCallableFunc (full-signature marshal/unmarshal).
+		if starFn, ok := sv.(starlark.Callable); ok && paramType.Kind() == reflect.Func {
+			adapted, err := buildCallableFunc(starFn, thread, paramType)
+			if err != nil {
+				name := strings.TrimSuffix(paramNames[i], "?")
+				return nil, fmt.Errorf("%s.%s: param %s: adapt callable: %w", receiverName, snakeName, name, err)
+			}
+			goArgs[i+1] = reflect.ValueOf(adapted)
+			continue
+		}
+
 		goVal := reflect.New(paramType).Elem()
 		if err := unmarshalValue(sv, goVal); err != nil {
 			name := strings.TrimSuffix(paramNames[i], "?")

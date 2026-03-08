@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
 )
 
 func TestFormatLiteral_None(t *testing.T) {
@@ -164,6 +165,53 @@ func TestFormatLiteral_NestedStructure(t *testing.T) {
 	want := `{"items": [1, 2]}`
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestFormatLiteral_Struct(t *testing.T) {
+	s := starlarkstruct.FromStringDict(starlark.String("resource"), starlark.StringDict{
+		"uri":         starlark.String("mem:file/test"),
+		"source_path": starlark.String("/tmp/foo"),
+	})
+	got, err := FormatLiteral(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keys are sorted alphabetically.
+	want := `{"source_path": "/tmp/foo", "uri": "mem:file/test"}`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestFormatLiteral_NestedStruct(t *testing.T) {
+	inner := starlarkstruct.FromStringDict(starlark.String("resource_base"), starlark.StringDict{
+		"uri": starlark.String("mem:file/test"),
+		"id":  starlark.String("abc123"),
+	})
+	outer := starlarkstruct.FromStringDict(starlark.String("resource"), starlark.StringDict{
+		"resource_base": inner,
+		"data":          starlark.String("content"),
+	})
+	got, err := FormatLiteral(outer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Outer keys sorted, inner struct recursively serialized as dict.
+	want := `{"data": "content", "resource_base": {"id": "abc123", "uri": "mem:file/test"}}`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestFormatLiteral_EmptyStruct(t *testing.T) {
+	s := starlarkstruct.FromStringDict(starlark.String("empty"), starlark.StringDict{})
+	got, err := FormatLiteral(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "{}" {
+		t.Errorf("got %q, want %q", got, "{}")
 	}
 }
 

@@ -17,8 +17,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 
-	// Blank import registers all provider actions via init().
+	// Blank imports register provider actions and callable extractor via init().
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem"
 )
 
 // Result is the structured output of a test run.

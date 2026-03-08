@@ -40,7 +40,7 @@ type Callable struct {
 
 	// Metadata captured at extraction time.
 	FuncName        string   // function name in synthetic file ("_callable" or original)
-	ParamNames      []string // parameter names (excluding swallowed)
+	ParamNames      []string // parameter names
 	NumParams       int      // total params (for validation)
 	CompilerVersion uint32   // starlark.CompilerVersion at compile time
 	OriginalPos     string   // "recipe.star:42" (diagnostics only)
