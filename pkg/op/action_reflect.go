@@ -61,6 +61,10 @@ type reflectedPureAction struct {
 }
 
 func (a *reflectedPureAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+	if err := initCallableSlots(ctx, slots, a.method.Type, a.paramNames); err != nil {
+		panic(fmt.Sprintf("%s: %v", a.name, err))
+	}
+
 	goArgs, err := a.coerceArgs(slots)
 	if err != nil {
 		// Pure actions cannot fail. Coercion errors indicate a framework bug.
@@ -92,6 +96,10 @@ type reflectedFallibleAction struct {
 }
 
 func (a *reflectedFallibleAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+	if err := initCallableSlots(ctx, slots, a.method.Type, a.paramNames); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", a.name, err)
+	}
+
 	goArgs, err := a.coerceArgs(slots)
 	if err != nil {
 		return nil, nil, err
@@ -119,6 +127,10 @@ type reflectedCompensableAction struct {
 }
 
 func (a *reflectedCompensableAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+	if err := initCallableSlots(ctx, slots, a.method.Type, a.paramNames); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", a.name, err)
+	}
+
 	goArgs, err := a.coerceArgs(slots)
 	if err != nil {
 		return nil, nil, err

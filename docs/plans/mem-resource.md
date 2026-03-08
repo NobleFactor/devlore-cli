@@ -1,7 +1,7 @@
 ---
 title: "Memory Resources and Callables"
 issue: TBD
-status: draft
+status: in-progress
 created: 2026-03-07
 updated: 2026-03-08
 ---
@@ -69,21 +69,24 @@ for the full design.
 | `git` | Opaque | `git:<encoded-repo>[?path=...]` | `#<commit-hash>` |
 | `mem` | Opaque | `mem:callable/type/name` | Content hash as metadata field |
 
-## Current State
+## Current State (updated after Phase 5)
 
 | Component | Status | Notes |
 |---|---|---|
-| `mem:` scheme | Declared | `SchemeMem = "mem"` in `pkg/op/resource.go`; `package mem` is empty |
-| `mem.Resource` | Missing | Architecture doc plans it for "in-memory data (template payloads, JSON content)" |
+| `mem:` scheme | Implemented | `SchemeMem = "mem"` in `pkg/op/resource.go`; `mem.Resource` type complete |
+| `mem.Resource` | Done (Phase 1) | ContentType, Qualifier, Data, Hash, opaque URI, constructor registered |
+| `mem.Callable` | Done (Phases 1–4) | Embeds `mem.Resource`. Extract, Compile, Init, Fn lifecycle complete |
+| Extraction | Done (Phase 2) | Lambda + def extraction, closure capture, synthetic file generation |
+| Compilation | Done (Phase 3) | `Compile()` → bytecode, `Init(thread)` with version fallback |
+| `CallableResource` interface | Done (Phase 4) | In `pkg/op/callable.go`, with extractor registry |
+| `op.Context.Thread` | Done (Phase 4) | Starlark thread on context, created by executor |
+| Planned bridge callable | Done (Phase 4) | `buildPlannedBridge` detects func-typed params, extracts callable |
 | WalkTree Go method | Working | Accepts `Reducer` callable, compensable |
-| WalkTree Starlark binding | Missing | BUGS.md #170 — reflection bridge can't handle callable params |
-| Reflection bridge | No callable support | `buildMethodBridge` and `buildPlannedBridge` skip callable-typed params |
-| Slot system | Immediate / Promise / Proxy | Callables flow as immediate Resource values |
-| `op.Context` | No Starlark thread | Actions can't call Starlark functions at execution time |
-| `+devlore:callable` annotation | Exists on `Reducer` | Used by codegen for `swallow` — not for bridge generation |
-| RuntimePredicate | Designed, not implemented | Orchestration-primitives plan Step 3 |
-| Starlark `Program.Write` | Available upstream | `go.starlark.net` supports compiled bytecode serialization |
-| `*starlark.Function.FreeVar` | Available upstream | Full closure introspection: name + frozen value |
+| Generic callable coercion | Done (Phase 5) | `initCallableSlots` + `buildCallableFunc` in reflection layer |
+| WalkTree Starlark binding | Partial | Action created; gen integration needs Phase 7 (code generator) |
+| `+devlore:callable` annotation | Exists on `Reducer` | Used by codegen for `swallow` — bridge generation in Phase 7 |
+| RuntimePredicate | Designed, not implemented | Will become `PredicateAdapter` over `mem.Callable` |
+| E2E tests | Pending (Phase 6) | Starlark test scripts for immediate and planned WalkTree |
 
 ## Design
 
@@ -121,7 +124,7 @@ Execution time (any machine):
   Init: prog.Init(thread, predeclared) → globals["_callable"]
       │
       ▼
-  Adapt: ReducerAdapter / PredicateAdapter / custom → Go func type
+  Adapt: initCallableSlots + buildCallableFunc → Go func type
       │
       ▼
   Invoke: action.Do() calls the adapted function
@@ -361,51 +364,48 @@ The executor creates a fresh `starlark.Thread` before running the graph
 and sets it on `op.Context`. The thread's print handler writes to
 `ctx.Writer`.
 
-### Adapter Pattern
+### Generic Callable Coercion
 
-Adapters convert a `mem.Callable` into a concrete Go function type.
-Each callable-accepting action defines its own adapter. The adapter
-handles argument marshaling, swallowed params, and return unmarshaling.
+The reflection layer handles callable→func conversion generically. No
+per-action adapter code is needed. `initCallableSlots` runs in every
+reflected action's `Do()` before `coerceArgs`:
 
 ```go
-// pkg/op/provider/file/callable_adapter.go
+// pkg/op/callable.go
 
-func ReducerAdapter(c *mem.Callable, thread *starlark.Thread) Reducer {
-    return func(initial any, resource Resource, relativePath string, stack *op.RecoveryStack) (any, error) {
-        starInitial, _ := op.MarshalValue(initial)
-        starResource, _ := op.MarshalValue(resource)
-        starPath := starlark.String(relativePath)
-
-        result, err := starlark.Call(thread, c.Fn(), starlark.Tuple{
-            starInitial, starResource, starPath,
-        }, nil)
-        if err != nil {
-            return nil, err
+func initCallableSlots(ctx *Context, slots map[string]any, methodType reflect.Type, paramNames []string) error {
+    for i, name := range paramNames {
+        callable, ok := slots[name].(CallableResource)
+        if !ok {
+            continue
         }
-
-        var goResult any
-        op.UnmarshalValue(result, &goResult)
-        return goResult, nil
+        paramIdx := i + 1 // skip receiver
+        paramType := methodType.In(paramIdx)
+        if paramType.Kind() != reflect.Func {
+            continue
+        }
+        if err := callable.Init(ctx.Thread); err != nil {
+            return fmt.Errorf("param %s: init callable: %w", name, err)
+        }
+        adapted, err := buildCallableFunc(callable.Fn(), ctx.Thread, paramType)
+        if err != nil {
+            return fmt.Errorf("param %s: adapt callable: %w", name, err)
+        }
+        slots[name] = adapted
     }
+    return nil
 }
 ```
 
-RuntimePredicate becomes an adapter, not a type:
+`buildCallableFunc` uses `reflect.MakeFunc` to create a Go function
+matching the target type. It inspects the Starlark function's
+`NumParams()` and truncates Go args to the callable's arity — this
+handles `+devlore:callable swallow=stack` generically without per-action
+knowledge. The adapter marshals Go→Starlark, calls the function, and
+unmarshals Starlark→Go returns.
 
-```go
-// internal/execution/predicate.go
-
-func PredicateAdapter(c *mem.Callable, thread *starlark.Thread) func(any) (bool, error) {
-    return func(input any) (bool, error) {
-        starInput, _ := op.MarshalValue(input)
-        result, err := starlark.Call(thread, c.Fn(), starlark.Tuple{starInput}, nil)
-        if err != nil {
-            return false, err
-        }
-        return bool(result.Truth()), nil
-    }
-}
-```
+RuntimePredicate, ReducerAdapter, and any future callable-typed params
+all work through this single mechanism — no adapter code per action.
 
 ### Signature Validation
 
@@ -460,10 +460,10 @@ buildMethodBridge: recognizes callable param type
     ├─ Extract: *starlark.Function → mem.Callable (source + bytecode)
     ├─ Validate arity
     ├─ Init(thread) → live callable
-    ├─ ReducerAdapter(callable, thread) → Reducer
+    ├─ buildCallableFunc(fn, thread, targetType) → Go func (arity-truncated)
     │
     ▼
-Provider.WalkTree(root, reducer, true) → (result, stack, error)
+Provider.WalkTree(root, adaptedFn, true) → (result, stack, error)
     │
     ▼
 classifyReturn → Starlark value
@@ -497,10 +497,9 @@ executor.executeNode:
     │
     ▼
 Action.Do(ctx, slots):
-    ├─ callable := slots["fn"].(*mem.Callable)
-    ├─ callable.Init(ctx.Thread)  // loads bytecode → live function
-    ├─ reducer := ReducerAdapter(callable, ctx.Thread)
-    ├─ Provider.WalkTree(root, reducer, honorGitignore)
+    ├─ initCallableSlots: Init(ctx.Thread) + buildCallableFunc → Go func
+    ├─ coerceArgs: adapted func assigned to method param
+    ├─ Provider.WalkTree(root, adaptedFn, honorGitignore)
     │
     ▼
 Result + RecoveryStack
@@ -581,16 +580,16 @@ alter the existing compensation mechanism.
 
 ## Implementation Phases
 
-|     | Phase | Name | Description |
-|-----|-------|------|-------------|
-| [ ] | 0 | [Resource identity](mem-resource/phase-0.md) | Slim `Resource` interface to `URI() + Resolve()`, correct URI schemes, rename net→appnet |
-| [ ] | 1 | [mem.Resource + Callable](mem-resource/phase-1.md) | `mem.Resource` type, `mem.Callable` with source/bytecode storage |
-| [ ] | 2 | [Extraction](mem-resource/phase-2.md) | `Extract(*starlark.Function)`, closure capture, synthetic file generation |
-| [ ] | 3 | [Compilation](mem-resource/phase-3.md) | `Compile()`, `Init(thread)`, `CompiledProgram` round-trip, version fallback |
-| [ ] | 4 | [Thread + bridge](mem-resource/phase-4.md) | Thread on Context, immediate + planned bridge callable detection |
-| [ ] | 5 | [WalkTree action](mem-resource/phase-5.md) | Registered action with ReducerAdapter, compensation |
-| [ ] | 6 | [E2E tests](mem-resource/phase-6.md) | Starlark test scripts for immediate and planned WalkTree |
-| [ ] | 7 | [Codegen](mem-resource/phase-7.md) | `star` recognizes callable params, generates adapter + bridge code |
+|     | Phase | Name | Description | PR |
+|-----|-------|------|-------------|----|
+| [x] | 0 | [Resource identity](mem-resource/phase-0.md) | Slim `Resource` interface to `URI() + Resolve()`, correct URI schemes, rename net→appnet | #192–#197 |
+| [x] | 1 | [mem.Resource + Callable](mem-resource/phase-1.md) | `mem.Resource` type, `mem.Callable` with source/bytecode storage | #197 |
+| [x] | 2 | [Extraction](mem-resource/phase-2.md) | `Extract(*starlark.Function)`, closure capture, synthetic file generation | #198 |
+| [x] | 3 | [Compilation](mem-resource/phase-3.md) | `Compile()`, `Init(thread)`, `CompiledProgram` round-trip, version fallback | #199 |
+| [x] | 4 | [Thread + bridge](mem-resource/phase-4.md) | Thread on Context, immediate + planned bridge callable detection | #200 |
+| [x] | 5 | [WalkTree action](mem-resource/phase-5.md) | Generic callable→func coercion in reflection layer | pending |
+| [ ] | 6 | [E2E tests](mem-resource/phase-6.md) | Starlark test scripts for immediate and planned WalkTree | |
+| [ ] | 7 | [Codegen](mem-resource/phase-7.md) | `star` recognizes callable params, generates adapter + bridge code | |
 
 ### Phase 0: Resource Identity
 
@@ -657,68 +656,88 @@ schemes to match their proper forms (opaque vs hierarchical). Rename
 - Catalog operations still work with cached URIs
 - `MarshalStarvalue` / round-trip tests still pass
 
-### Phase 1: mem.Resource + Callable
+### Phase 1: mem.Resource + Callable — DONE (PR #197)
 
 - `pkg/op/provider/mem/resource.go` — `mem.Resource` type: `ContentType`,
-  `Data`, `Hash`, opaque URI construction (`mem:<content-type>/...`),
-  `String()` via `ResourceBase.Format`
+  `Qualifier`, `Data`, `Hash`, opaque URI construction (`mem:<content-type>/...`),
+  `String()` via `ResourceBase.Format`, `NewResource`, `NewResourceWithData`,
+  constructor registration in `init()`
 - `pkg/op/provider/mem/callable.go` — `mem.Callable` type: embeds
   `mem.Resource`, adds `FuncType`, `Name` (URI identity), `Compiled`,
   `FuncName`, `ParamNames`, `CompilerVersion`, `OriginalPos`,
   unexported `fn`. URI: `mem:callable/<FuncType>/<Name>`
 - `pkg/op/provider/mem/callable_test.go` — construction, opaque URI
-  generation, JSON serialization round-trip, hash as metadata
-- Register `mem.Resource` constructor in `init()`
+  generation, hash as metadata
 
-### Phase 2: Extraction
+### Phase 2: Extraction — DONE (PR #198)
 
-- `pkg/op/provider/mem/extract.go` — `Extract(*starlark.Function) (*Callable, error)`:
-  - Introspect params via `NumParams`, `Param`, `ParamDefault`
-  - Capture closure via `NumFreeVars`, `FreeVar`
-  - Serialize bindings as Starlark literals
-  - Extract function source from file using `Position()`
-  - Transform lambda → `def _callable`
-  - Emit synthetic file as `Data`
-- `pkg/op/provider/mem/extract_test.go`:
-  - Extract simple lambda (no closure)
-  - Extract lambda with closure bindings (string, int, list, dict)
-  - Extract named `def` function
-  - Extract function with default parameter values
-  - Validate round-trip: extract → synthetic source → parse → execute → same result
-- `pkg/op/provider/mem/literals.go` — `FormatStarlarkLiteral(starlark.Value) string`:
-  serializes frozen Starlark values as source-level literals
+- `pkg/op/provider/mem/extract.go` — `Extract`, `ExtractWithName`,
+  `synthesize`, `extractLambdaBody`, `extractDefSource`, `extractSpan`,
+  `ValidateArity`. Uses `syntax.Walk` for recursive AST search.
+- `pkg/op/provider/mem/extract_test.go` — 13 tests: simple lambda,
+  closure capture, named def, nested def with closure, custom naming,
+  3 round-trips, 5 arity checks. `execScript` helper.
+- `pkg/op/provider/mem/literals.go` — `FormatLiteral` serializes frozen
+  Starlark values (None, Bool, Int, Float, String, List, Dict, Tuple)
+  as source literals. Depth limit 20. Rejects Set.
+- `pkg/op/provider/mem/literals_test.go` — 14 tests covering all literal
+  types, escaping, nesting, unsupported type rejection.
 
-### Phase 3: Compilation
+### Phase 3: Compilation — DONE (PR #199)
 
-- `pkg/op/provider/mem/callable.go` — `Compile()` and `Init(thread)` methods
-- `pkg/op/provider/mem/callable_test.go`:
-  - Compile produces non-empty bytecode
-  - Init with matching CompilerVersion loads bytecode (no recompile)
-  - Init with mismatched version falls back to source recompilation
-  - Init extracts named function from globals
-  - Init rejects missing function name
-  - Bytecode round-trip: `Write` → `CompiledProgram` → `Init` → same result
+- `pkg/op/provider/mem/callable.go` — `Compile()` and `Init(thread)` methods.
+  `Compile` uses `SourceProgramOptions` + `Program.Write`. `Init` loads via
+  `CompiledProgram` (fast path) or recompiles from source (version mismatch).
+- `pkg/op/provider/mem/callable_test.go` — 12 tests added: Compile (4),
+  Init (6), BytecodeRoundTrip, ExtractCompileInitRoundTrip.
 
-### Phase 4: Thread + Bridge
+### Phase 4: Thread + Bridge — DONE (PR #200)
 
-- `pkg/op/context.go` — add `Thread *starlark.Thread` field
-- `internal/execution/executor.go` — create thread, set on context
-- `pkg/op/receiver_reflect.go` — extend `buildMethodBridge` to detect
-  `func`-typed params. Extract callable, Init, adapt, call.
-- `pkg/op/planned_reflect.go` — extend `buildPlannedBridge` to detect
-  `func`-typed params. Extract callable, store as slot immediate.
-- `pkg/op/action_reflect.go` — `validateSlotType` accepts `*mem.Callable`
-  for `func`-typed params
-- `pkg/op/provider/mem/extract.go` — `ValidateArity` function
+- `pkg/op/context.go` — added `Thread *starlark.Thread` field
+- `internal/execution/executor.go` — `newThread()` creates thread with
+  print→writer; set on context in `runFlat`, `RunPhased`, `RunNodes`
+- `pkg/op/callable.go` — **new file**: `CallableResource` interface
+  (`Resource` + `Init` + `Fn` + `FuncTypeName`), `RegisterCallableExtractor`/
+  `ExtractCallable` callback registry, `isCallableResource`, `isFuncType`
+- `pkg/op/callable_test.go` — 6 tests: interface compliance, extractor
+  registry, isCallableResource, isFuncType, validateSlotType for callable→func
+- `pkg/op/planned_reflect.go` — `buildPlannedBridge` intercepts
+  `*starlark.Function` for func-typed params, extracts to `CallableResource`,
+  stores via `SetSlotImmediate`
+- `pkg/op/action_reflect.go` — `validateSlotType` accepts `CallableResource`
+  for func-typed targets
+- `pkg/op/provider/mem/resource.go` — registered callable extractor in
+  `init()` (Extract + Compile → CallableResource)
+- `pkg/op/provider/mem/callable.go` — added `FuncTypeName()` method
 
-### Phase 5: WalkTree Action
+### Phase 5: WalkTree Action — DONE (pending PR)
 
-- `pkg/op/provider/file/callable_adapter.go` — `ReducerAdapter`
-- `pkg/op/provider/file/walk_tree_action.go` — registered
-  `CompensableAction` for `file.walk_tree`. `Do()` extracts
-  `mem.Callable` from slots, calls `Init(ctx.Thread)`, adapts to
-  `Reducer`, delegates to `Provider.WalkTree()`.
-- `pkg/op/provider/file/callable_adapter_test.go` — adapter unit tests
+Generic callable→func coercion in the reflection layer. No per-action
+custom code needed — the reflected action infrastructure handles
+`CallableResource` slots automatically.
+
+- `pkg/op/callable.go` — added `initCallableSlots` (pre-processes slots
+  in `Do()` before `coerceArgs`), `buildCallableFunc` (creates Go func
+  adapter via `reflect.MakeFunc` with arity truncation for swallowed
+  params), `makeErrorReturn`, `unmarshalReturn`. Generic — works for any
+  action with callable-typed parameters.
+- `pkg/op/action_reflect.go` — wired `initCallableSlots` into all three
+  `Do()` methods: `reflectedPureAction`, `reflectedFallibleAction`,
+  `reflectedCompensableAction`. Runs before `coerceArgs` so standard
+  coercion sees a directly-assignable func value.
+- `pkg/op/callable_test.go` — 5 new tests: `BuildCallableFunc_SimpleReturn`,
+  `BuildCallableFunc_ArityTruncation` (4-param Go func, 3-param Starlark fn),
+  `BuildCallableFunc_StarlarkError`, `InitCallableSlots_ReplacesCallable`,
+  `InitCallableSlots_SkipsNonCallable`.
+- `pkg/op/provider/file/callable_test.go` — 2 integration tests through
+  reflected actions: `TestWalkTreeAction_Integration` (full walk of temp
+  dir with Starlark callable, path collection, Undo(nil), RecoveryStack),
+  `TestWalkTreeAction_DryRun`.
+- `pkg/op/starvalue_marshal.go` — added exported `MarshalValue` and
+  `UnmarshalAny` wrappers for provider package access.
+
+**Gen integration note**: The generated `params.gen.go` needs `"fn"` added
+to `WalkTree` params. This is deferred to Phase 7 (code generator update).
 
 ### Phase 6: E2E Tests
 
@@ -732,8 +751,8 @@ schemes to match their proper forms (opaque vs hierarchical). Rename
 ### Phase 7: Codegen
 
 - Teach `star` to recognize `+devlore:callable` on function types
-- Generate adapter functions (like `ReducerAdapter`)
-- Generate bridge code that wraps `starlark.Callable` → `Extract` → adapter
+- Generate `fn` param in `params.gen.go` for callable-typed parameters
+- Generate bridge code that wraps `starlark.Callable` → `Extract` → `CallableResource`
 - Generate param registration with callable marker
 - This phase is in the `star` tool (noblefactor-ops)
 
@@ -753,24 +772,25 @@ schemes to match their proper forms (opaque vs hierarchical). Rename
 
 **Phases 1–7 — mem.Resource and Callables:**
 
-| File | Action | Purpose |
-|---|---|---|
-| `pkg/op/provider/mem/resource.go` | Rewrite | `mem.Resource` type with ContentType, Data, Hash |
-| `pkg/op/provider/mem/callable.go` | Create | `mem.Callable` — unified callable resource |
-| `pkg/op/provider/mem/extract.go` | Create | Extraction, closure capture, synthetic file generation |
-| `pkg/op/provider/mem/literals.go` | Create | Starlark value → source literal serializer |
-| `pkg/op/provider/mem/callable_test.go` | Create | Callable tests |
-| `pkg/op/provider/mem/extract_test.go` | Create | Extraction tests |
-| `pkg/op/context.go` | Modify | Add Thread field |
-| `pkg/op/receiver_reflect.go` | Modify | Callable detection in immediate bridge |
-| `pkg/op/planned_reflect.go` | Modify | Callable detection in planned bridge |
-| `pkg/op/action_reflect.go` | Modify | validateSlotType accepts Callable |
-| `pkg/op/provider/file/callable_adapter.go` | Create | ReducerAdapter |
-| `pkg/op/provider/file/walk_tree_action.go` | Create | Registered action for planned WalkTree |
-| `pkg/op/provider/file/callable_adapter_test.go` | Create | Adapter tests |
-| `internal/execution/executor.go` | Modify | Create thread, set on context |
-| `internal/e2e/testrunner/data/test_walk_tree*.star` | Create | E2E test scripts |
-| `internal/e2e/testrunner/runner_test.go` | Modify | Test functions |
+| File | Action | Purpose | Phase | Status |
+|---|---|---|---|---|
+| `pkg/op/provider/mem/resource.go` | Rewrite | `mem.Resource` type with ContentType, Data, Hash | 1 | Done |
+| `pkg/op/provider/mem/callable.go` | Create | `mem.Callable` — unified callable resource | 1,3,4 | Done |
+| `pkg/op/provider/mem/extract.go` | Create | Extraction, closure capture, synthetic file generation | 2 | Done |
+| `pkg/op/provider/mem/literals.go` | Create | Starlark value → source literal serializer | 2 | Done |
+| `pkg/op/provider/mem/callable_test.go` | Create | Callable tests | 1,3,4 | Done |
+| `pkg/op/provider/mem/extract_test.go` | Create | Extraction tests | 2 | Done |
+| `pkg/op/provider/mem/literals_test.go` | Create | Literal serialization tests | 2 | Done |
+| `pkg/op/callable.go` | Create | `CallableResource` interface, extractor registry, generic callable→func coercion | 4,5 | Done |
+| `pkg/op/callable_test.go` | Create | Interface, registry, type-check, coercion tests | 4,5 | Done |
+| `pkg/op/context.go` | Modify | Add Thread field | 4 | Done |
+| `pkg/op/planned_reflect.go` | Modify | Callable detection in planned bridge | 4 | Done |
+| `pkg/op/action_reflect.go` | Modify | validateSlotType accepts Callable; initCallableSlots in Do() | 4,5 | Done |
+| `pkg/op/starvalue_marshal.go` | — | No changes needed (generic code uses unexported funcs directly) | — | — |
+| `pkg/op/provider/file/callable_test.go` | Create | Integration tests for WalkTree through reflected actions | 5 | Done |
+| `internal/execution/executor.go` | Modify | Create thread, set on context | 4 | Done |
+| `internal/e2e/testrunner/data/test_walk_tree*.star` | Create | E2E test scripts | 6 | Pending |
+| `internal/e2e/testrunner/runner_test.go` | Modify | Test functions | 6 | Pending |
 
 ## Relationship to Other Plans
 
