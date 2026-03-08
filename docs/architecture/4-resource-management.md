@@ -171,16 +171,16 @@ A tombstone records where a file was moved for recovery and where it originally
 lived:
 
 ```go
-// pkg/op/provider/file/resource.go:36-39
+// pkg/op/provider/file/resource.go
 type Tombstone struct {
-    RecoveryPath string // Where it is now
-    OriginalPath string // Where it used to be
+    op.TombstoneBase          // Resource preserves true identity (SourcePath = home)
+    RecoveryPath string       // Where data was temporarily moved (empty if nothing existed)
 }
 ```
 
-Tombstones are the undo receipts for destructive operations. They are stored
-in the compensation state map under the `"tombstone"` key and extracted via
-inline type assertion: `undo["tombstone"].(Tombstone)`.
+Tombstones are the undo receipts for destructive operations. The embedded
+Resource always preserves its true identity — `SourcePath` is the file's home.
+`RecoveryPath` records where data was temporarily moved during the operation.
 
 ### 3.3 Resource Types by URI Scheme
 
@@ -388,22 +388,21 @@ partition (it updates directory entries without copying data).
 in a recovery directory guaranteed to be on the same partition:
 
 ```go
-// pkg/op/provider/file/recovery.go:13 (reduced)
-func (p *Provider) moveToRecovery(path string, prune bool, pruneBoundary string) (
-    result Tombstone, undoState map[string]any, err error) {
+// pkg/op/provider/file/recovery.go (reduced)
+func (p *Provider) moveToRecovery(resource Resource, prune bool, pruneBoundary string) (Tombstone, error) {
 
-    absolutePath, _ := filepath.Abs(path)
-    recoveryBase, _ := p.getRecoveryBase(absolutePath)
+    originalPath, _ := filepath.Abs(resource.SourcePath)
+    recoveryBase, _ := p.getRecoveryBase(originalPath)
     id := uuid.New().String()
     recoveryPath := filepath.Join(recoveryBase, id)
     os.MkdirAll(recoveryBase, 0700)
-    os.Rename(absolutePath, recoveryPath) // O(1) — same partition
+    os.Rename(originalPath, recoveryPath) // O(1) — same partition
 
-    result = Tombstone{
-        OriginalPath: absolutePath,
-        RecoveryPath: recoveryPath,
-    }
-    return result, map[string]any{"tombstone": result}, nil
+    // Resource identity is NOT modified. RecoveryPath records temporary location.
+    return Tombstone{
+        TombstoneBase: op.NewTombstoneBase(&resource),
+        RecoveryPath:  recoveryPath,
+    }, nil
 }
 ```
 
@@ -437,14 +436,15 @@ func (p *Provider) getRecoveryBase(absolutePath string) (string, error) {
 `restoreFromRecovery` (`recovery.go:71-100`) reverses the rename:
 
 ```go
-// pkg/op/provider/file/recovery.go:71 (reduced)
+// pkg/op/provider/file/recovery.go (reduced)
 func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
-    // Verify recovery source still exists
-    if _, err := os.Stat(tombstone.RecoveryPath); errors.Is(err, fs.ErrNotExist) {
-        return fmt.Errorf("recovery source not found: %s", tombstone.RecoveryPath)
+    originalPath := tombstone.Resource().(*Resource).SourcePath  // true home
+    recoveryPath := tombstone.RecoveryPath                       // temporary location
+    if _, err := os.Stat(recoveryPath); errors.Is(err, fs.ErrNotExist) {
+        return fmt.Errorf("recovery source not found: %s", recoveryPath)
     }
-    os.MkdirAll(filepath.Dir(tombstone.OriginalPath), 0755)
-    return os.Rename(tombstone.RecoveryPath, tombstone.OriginalPath)
+    os.MkdirAll(filepath.Dir(originalPath), 0755)
+    return os.Rename(recoveryPath, originalPath)
 }
 ```
 
@@ -459,39 +459,29 @@ recovery into a single operation. Every write method calls it before mutating
 the filesystem:
 
 ```go
-// pkg/op/provider/file/provider.go:818-846
-func (p *Provider) prepareWrite(path string) (
-    result Resource, undo map[string]any, err error) {
+// pkg/op/provider/file/provider.go (reduced)
+func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombstone, err error) {
 
-    result, err = NewResource(path)         // Discovery
-    if err != nil {
-        return Resource{}, nil, err
-    }
+    result = NewResource(resource.SourcePath)
+    result.Resolve()                        // Discovery
 
     if !result.Exists() {
-        err = os.MkdirAll(filepath.Dir(result.SourcePath), 0o750)
-        if err != nil {
-            return Resource{}, nil, errors.Join(os.ErrNotExist, err)
-        }
-        undo = map[string]any{"tombstone": Tombstone{OriginalPath: result.SourcePath}}
-        return result, undo, nil            // New file — tombstone with no recovery path
+        os.MkdirAll(filepath.Dir(result.SourcePath), 0o750)
+        undo = Tombstone{TombstoneBase: op.NewTombstoneBase(&result)}
+        return result, undo, nil            // New file — no RecoveryPath
     }
 
-    tombstone, _, err := p.Remove(result.SourcePath, false, "")
-    if err != nil {
-        return Resource{}, nil, fmt.Errorf("failed to backup existing file: %w", err)
-    }
-    undo = map[string]any{"tombstone": tombstone}
-    return result, undo, nil                // Existing file — tombstone with recovery path
+    tombstone, _, err := p.Remove(result, false, Resource{})
+    return result, tombstone, err           // Existing file — tombstone with RecoveryPath
 }
 ```
 
 Two branches:
-- **New file**: Creates a tombstone with `OriginalPath` only (no `RecoveryPath`).
-  Compensation deletes the newly created file.
+- **New file**: Creates a tombstone with no `RecoveryPath`. Resource identity
+  is the destination. Compensation deletes the newly created file.
 - **Existing file**: Moves the existing file to recovery via `Remove`, creating
-  a full tombstone. Compensation removes the new file and renames the recovery
-  copy back.
+  a tombstone with `RecoveryPath`. Compensation removes the new file and
+  restores from `RecoveryPath` back to `Resource.SourcePath`.
 
 ### 5.4 Gap
 

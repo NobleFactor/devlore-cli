@@ -192,138 +192,6 @@ def parse_struct_param(doc):
                     result[k.strip()] = v.strip()
     return result
 
-def parse_callable_directive(doc):
-    """Parse +devlore:callable from a function type's doc comment.
-
-    Returns a dict with 'swallow' (list of param names to hide from Starlark).
-    Returns empty dict if no directive found.
-
-    Example: '+devlore:callable swallow=stack'
-    → {"swallow": ["stack"]}
-    """
-    for line in doc.split("\n"):
-        line = line.strip().lstrip("/").strip()
-        if "+devlore:callable" not in line:
-            continue
-
-        idx = line.index("+devlore:callable")
-        rest = line[idx + len("+devlore:callable"):].strip()
-
-        swallow = []
-
-        for token in rest.split():
-            if token.startswith("swallow="):
-                swallow = token[len("swallow="):].split(",")
-
-        return {"swallow": swallow}
-
-    return {}
-
-# Known Go types that map directly to Starlark values (same as typeMappings in codegen.go).
-CALLABLE_TYPE_MAPPINGS = [
-    "string", "bool", "int", "int64", "[]string", "os.FileMode", "map[string]any",
-]
-
-def classify_callable_params(callable_info, directive):
-    """Classify each parameter of a callable by its role.
-
-    Classification rules (in order):
-    - Named in swallow list → 'swallowed' (invisible to Starlark)
-    - Go type is 'any' → 'pass_through' (carries starlark.Value directly)
-    - Go type in typeMappings → 'projected' (auto-converted)
-    - Otherwise → 'handle' (wrapped via op.WrapReceiver at runtime)
-
-    Returns a list of dicts: {"go_name", "go_type", "role"}.
-    """
-    swallow_set = {}
-    for s in directive.get("swallow", []):
-        swallow_set[s] = True
-
-    result = []
-    for p in callable_info.params:
-        name = p.name
-        go_type = p.type
-
-        if name in swallow_set:
-            role = "swallowed"
-        elif go_type == "any":
-            role = "pass_through"
-        elif go_type in CALLABLE_TYPE_MAPPINGS:
-            role = "projected"
-        else:
-            role = "handle"
-
-        result.append({
-            "go_name": name,
-            "go_type": go_type,
-            "role": role,
-        })
-
-    return result
-
-def resolve_callable_params(path, descriptors, type_prefix=""):
-    """Scan method descriptors for function-type params and resolve callable metadata.
-
-    For each param whose type matches a named function type with a +devlore:callable
-    directive, the param is annotated with a 'callable' dict containing classified
-    params and handle type specs.
-
-    Args:
-        path: Go source path to introspect.
-        descriptors: List of method descriptor dicts.
-        type_prefix: Optional prefix for callable type names (e.g., "provider." in gen mode).
-
-    Strategy: check go.type_doc() for +devlore:callable first (works on any type
-    declaration), then call go.callable() only when the directive is confirmed.
-    This avoids errors from go.callable() on non-function types.
-    """
-    # Cache lookups by type name.
-    callable_cache = {}
-
-    for desc in descriptors:
-        for p in desc.get("params", []):
-            go_type = p.get("type", "")
-            # Skip known mapped types, struct-expanded, inline func, slices, maps, pointers.
-            if not go_type or go_type.startswith("func(") or go_type.startswith("[") or go_type.startswith("map["):
-                continue
-            if go_type in CALLABLE_TYPE_MAPPINGS:
-                continue
-            if go_type.startswith("*"):
-                continue
-            if p.get("struct_type", ""):
-                continue
-
-            type_name = go_type
-            if type_name in callable_cache:
-                cached = callable_cache[type_name]
-                if cached == None:
-                    continue
-                p["callable"] = cached
-                continue
-
-            # Check type doc for +devlore:callable directive
-            doc = go.type_doc(path, name=type_name)
-            if "+devlore:callable" not in doc:
-                callable_cache[type_name] = None
-                continue
-
-            # Directive confirmed — safe to call go.callable()
-            callable_info = go.callable(path, type_name)
-            directive = parse_callable_directive(callable_info.doc)
-
-            # Classify params
-            classified = classify_callable_params(callable_info, directive)
-
-            # Build callable annotation
-            annotation = {
-                "type_name": type_prefix + type_name,
-                "returns": callable_info.returns,
-                "params": classified,
-            }
-
-            callable_cache[type_name] = annotation
-            p["callable"] = annotation
-
 def parse_bind_directives(path):
     """Parse +devlore:bind directives from the Provider struct's doc comment.
 
@@ -917,10 +785,6 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
         filtered_raw, all_names_raw, defaults_map, struct_param_map, structs_by_name, path,
     )
 
-    # Resolve callable (function-type) params with +devlore:callable directives.
-    # In gen mode, callable types are in the provider package (imported as "provider.").
-    resolve_callable_params(path, provider_method_descs, type_prefix="provider.")
-
     # Data struct returns are handled by WrapReceiver's auto-bridging via
     # classifyReturn → marshalReflect → marshalStruct. No converter annotation needed.
 
@@ -1116,13 +980,10 @@ def compute_param_names_list(method):
     """Pre-compute the quoted, comma-separated parameter name list for a method.
 
     Replicates templateFuncParamNamesList from codegen.go.
-    Callable params are excluded. Optional params get '?' suffix.
-    Variadic params get '*' prefix.
+    Optional params get '?' suffix. Variadic params get '*' prefix.
     """
     parts = []
     for p in method.get("params", []):
-        if p.get("callable"):
-            continue
         name = to_snake(p["name"])
         if p.get("variadic"):
             name = "*" + name
@@ -1224,34 +1085,11 @@ def compute_descriptor_init(desc):
 
     return "\n".join(lines)
 
-def filter_callable_methods(methods, template_name):
-    """Filter out methods with callable params for non-immediate templates.
-
-    Returns (filtered_methods, flagged_names).
-    Immediate/params/test templates keep all methods.
-    """
-    if template_name in ["immediate_receiver", "params", "immediate_test"]:
-        return methods, []
-
-    filtered = []
-    flagged = []
-    for m in methods:
-        has_callable = False
-        for p in m.get("params", []):
-            if p.get("callable"):
-                has_callable = True
-                break
-        if has_callable:
-            flagged.append(m["name"])
-        else:
-            filtered.append(m)
-    return filtered, flagged
-
 def prepare_render_data(descriptor, template_name):
     """Prepare a descriptor dict for go.render().
 
     Pre-computes template function values and adds derived fields.
-    Returns (render_data, flagged_method_names).
+    Returns render_data.
     """
     # Shallow copy to avoid mutating the original
     desc = dict(descriptor)
@@ -1274,11 +1112,8 @@ def prepare_render_data(descriptor, template_name):
         desc["has_planned"] = access in ["planned", "both"]
         desc["descriptor_init"] = compute_descriptor_init(desc)
 
-    # Filter callable methods for non-immediate templates
-    methods = list(desc.get("methods", []))
-    methods, flagged = filter_callable_methods(methods, template_name)
-
     # Add derived fields to each method
+    methods = list(desc.get("methods", []))
     enriched = []
     for m in methods:
         md = dict(m)
@@ -1287,7 +1122,7 @@ def prepare_render_data(descriptor, template_name):
         enriched.append(md)
     desc["methods"] = enriched
 
-    return desc, flagged
+    return desc
 
 def gen_file(ctx, template_name, descriptor, filename, label, method_count, output_dir, write_files):
     """Generate a single file from a template and descriptor."""
@@ -1295,10 +1130,8 @@ def gen_file(ctx, template_name, descriptor, filename, label, method_count, outp
     template_content = load_template(template_name, ctx.extension.dir)
 
     # Pre-compute template values and render via go.render()
-    render_data, flagged = prepare_render_data(descriptor, template_name)
+    render_data = prepare_render_data(descriptor, template_name)
     code = go.render(template=template_content, data=render_data)
-    for flag in flagged:
-        ui.warn("FLAGGED (unprojectable): " + flag)
 
     if write_files and output_dir:
         out_path = output_dir + "/" + filename
@@ -1384,10 +1217,6 @@ def run(ctx):
             "line": m.line,
         }
         all_descriptors.append(desc)
-
-    # Resolve callable (function-type) params with +devlore:callable directives.
-    # In gen mode, callable types live in the provider package (imported as "provider.").
-    resolve_callable_params(path, all_descriptors, type_prefix="provider.")
 
     # -------------------------------------------------------------------------
     # Parse common flags

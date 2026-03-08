@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
 package file
 
 import (
@@ -34,25 +37,6 @@ type Resource struct {
 	Checksum   string
 }
 
-// String returns a compact JSON representation of the resource.
-func (r Resource) String() string { return r.Format(r) }
-
-// buildURI computes the canonical file:// URI from SourcePath.
-func (r *Resource) buildURI() string {
-	return "file://" + r.SourcePath
-}
-
-// Tombstone holds file-specific compensation state.
-//
-// The embedded [op.TombstoneBase] carries the affected [Resource] whose
-// SourcePath reflects where the data physically IS after the operation
-// (e.g., the recovery path after moveToRecovery). OriginalPath records
-// where the data WAS before the operation — the restoration target.
-type Tombstone struct {
-	op.TombstoneBase
-	OriginalPath string
-}
-
 // NewResource creates a [Resource] with the given source path. The constructor
 // is pure computation — no I/O, no error. Metadata (size, mode, checksum)
 // is populated later by [Resource.Resolve].
@@ -62,39 +46,7 @@ func NewResource(path string) Resource {
 	return r
 }
 
-// Resolve populates the resource's metadata by canonicalizing the path and
-// performing an os.Stat. If the file does not exist, Resolve returns nil
-// and metadata remains empty ([Resource.Exists] returns false). Other
-// stat errors are returned.
-func (r *Resource) Resolve() error {
-	abs, err := filepath.Abs(r.SourcePath)
-	if err == nil {
-		r.SourcePath = filepath.Clean(abs)
-		r.SetURI(r.buildURI())
-	}
-
-	info, err := os.Stat(r.SourcePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("failed to stat: %w", err)
-	}
-
-	var inode, device uint64
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		inode = stat.Ino
-		device = uint64(stat.Dev)
-	}
-
-	r.Inode = inode
-	r.Device = device
-	r.Size = info.Size()
-	r.Mode = info.Mode()
-	r.ModTime = info.ModTime()
-	r.Checksum = checksumFile(r.SourcePath)
-	return nil
-}
+// region Published Methods
 
 // Exists returns true if the resource has been resolved and the file existed
 // at resolve time. An unresolved resource always reports Exists() == false.
@@ -137,6 +89,43 @@ func (r *Resource) RefreshWith(checksum string, size int64) error {
 	return r.refreshWith(info, checksum, size)
 }
 
+// Resolve populates the resource's metadata by canonicalizing the path and
+// performing an os.Stat. If the file does not exist, Resolve returns nil
+// and metadata remains empty ([Resource.Exists] returns false). Other
+// stat errors are returned.
+func (r *Resource) Resolve() error {
+	abs, err := filepath.Abs(r.SourcePath)
+	if err == nil {
+		r.SourcePath = filepath.Clean(abs)
+		r.SetURI(r.buildURI())
+	}
+
+	info, err := os.Stat(r.SourcePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("failed to stat: %w", err)
+	}
+
+	var inode, device uint64
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		inode = stat.Ino
+		device = uint64(stat.Dev)
+	}
+
+	r.Inode = inode
+	r.Device = device
+	r.Size = info.Size()
+	r.Mode = info.Mode()
+	r.ModTime = info.ModTime()
+	r.Checksum = checksumFile(r.SourcePath)
+	return nil
+}
+
+// String returns a compact JSON representation of the resource.
+func (r *Resource) String() string { return r.Format(r) }
+
 // WriteTo allows the Resource to be streamed directly to any io.Writer.
 //
 // For efficiency, it uses [io.Copy] which automatically attempts a zero-copy syscall before falling back to a 32KB
@@ -166,7 +155,14 @@ func (r *Resource) WriteTo(writer io.Writer) (int64, error) {
 	return byteCount, err
 }
 
-// region Internals
+// endregion
+
+// region Internal
+
+// buildURI computes the canonical file:// URI from SourcePath.
+func (r *Resource) buildURI() string {
+	return "file://" + r.SourcePath
+}
 
 // refreshWith updates the Resource's metadata with the provided information.
 func (r *Resource) refreshWith(info os.FileInfo, checksum string, size int64) error {
@@ -186,3 +182,17 @@ func (r *Resource) refreshWith(info os.FileInfo, checksum string, size int64) er
 }
 
 // endregion
+
+// Tombstone holds file-specific compensation state.
+//
+// The embedded [op.TombstoneBase] carries the affected [Resource] whose identity is preserved — SourcePath always
+// reflects the file's true home.
+//
+// Members:
+//
+//   - RecoveryPath records where the data was temporarily moved during the operation (backup, recovery site, or
+//     move destination). An empty RecoveryPath means no prior data existed to recover.
+type Tombstone struct {
+	op.TombstoneBase
+	RecoveryPath string
+}

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
 package file
 
 import (
@@ -44,25 +47,23 @@ func (p *Provider) moveToRecovery(resource Resource, prune bool, pruneBoundary s
 
 	pruneEmptyParents(originalPath, prune, pruneBoundary)
 
-	// Resource reflects where the data IS now (recovery path).
-	// OriginalPath records where it WAS (restoration target).
-	resource.SourcePath = recoveryPath
-
+	// Resource preserves its true identity (SourcePath = original location).
+	// RecoveryPath records where the data was moved to.
 	return Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&resource),
-		OriginalPath:  originalPath,
+		RecoveryPath:  recoveryPath,
 	}, nil
 }
 
 // restoreFromRecovery is the compensating action (undo) for any removal operation.
 //
 // It moves the entity back to its original location from the recovery site.
-// The recovery path is Resource.SourcePath (where the data IS); the
-// restoration target is tombstone.OriginalPath (where it WAS).
+// The recovery path is tombstone.RecoveryPath (temporary excursion); the
+// restoration target is Resource.SourcePath (the resource's true home).
 func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
 
-	recoveryPath := tombstone.Resource().(*Resource).SourcePath
-	originalPath := tombstone.OriginalPath
+	originalPath := tombstone.Resource().(*Resource).SourcePath
+	recoveryPath := tombstone.RecoveryPath
 
 	// Validate the tombstone
 
