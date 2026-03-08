@@ -91,9 +91,11 @@ jobs:
             echo "These changes will be pushed when the PR is merged."
           fi
 
-      - name: Commit and push to devlore-registry (push only)
+      - name: Create PR to devlore-registry (push only)
         if: github.event_name == 'push'
         working-directory: devlore-registry
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -104,6 +106,15 @@ jobs:
             exit 0
           fi
 
+          BRANCH="knowledge/sync-${GITHUB_SHA::7}"
+          git checkout -b "$BRANCH"
           git add knowledge/
           git commit -m "chore: sync knowledge from devlore-cli@${{ github.sha }}"
-          git push origin ${{ github.ref_name }}
+          git push origin "$BRANCH"
+          PR_URL=$(gh pr create \
+            --repo NobleFactor/devlore-registry \
+            --title "Sync knowledge from devlore-cli@${GITHUB_SHA::7}" \
+            --body "Automated knowledge sync from [devlore-cli@\`${GITHUB_SHA::7}\`](https://github.com/NobleFactor/devlore-cli/commit/${GITHUB_SHA})." \
+            --base "${{ github.ref_name }}")
+          echo "Created PR: $PR_URL"
+          gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --squash --auto --delete-branch

@@ -295,6 +295,24 @@ func TestFileParent(t *testing.T) {
 	runScript(t, "test_file_parent.star")
 }
 
+// ── WalkTree callable tests ──
+
+func TestWalkTree(t *testing.T) {
+	runScriptImm(t, "test_walk_tree.star", "file")
+}
+
+func TestWalkTreePlanned(t *testing.T) {
+	runScript(t, "test_walk_tree_planned.star")
+}
+
+func TestWalkTreeGitignore(t *testing.T) {
+	runScriptImm(t, "test_walk_tree_gitignore.star", "file")
+}
+
+func TestWalkTreeClosure(t *testing.T) {
+	runScriptImm(t, "test_walk_tree_closure.star", "file")
+}
+
 // ── Planned action tests — template provider ──
 
 func TestTemplateRender(t *testing.T) {

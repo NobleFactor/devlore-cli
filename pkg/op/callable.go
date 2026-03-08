@@ -85,33 +85,20 @@ func initCallableSlots(ctx *Context, slots map[string]any, methodType reflect.Ty
 }
 
 // buildCallableFunc creates a Go function value matching targetType that
-// delegates to the Starlark callable. Arguments are marshaled Go→Starlark,
-// truncated to the callable's arity (supporting swallowed trailing params).
-// Returns are unmarshaled Starlark→Go.
+// delegates to the Starlark callable. All arguments are marshaled
+// Go→Starlark and passed to the callable. The callable must match the
+// full signature of the Go func type. Returns are unmarshaled Starlark→Go.
 //
 // Target func signature: func(p0 T0, p1 T1, ...) (R0, R1, ...)
-// The Starlark callable receives min(targetParams, callableArity) arguments.
 func buildCallableFunc(fn starlark.Callable, thread *starlark.Thread, targetType reflect.Type) (any, error) {
 	numIn := targetType.NumIn()
 	numOut := targetType.NumOut()
 
-	// Determine how many args the Starlark function accepts.
-	starArity := numIn // default: pass all
-	if starFn, ok := fn.(*starlark.Function); ok {
-		starArity = starFn.NumParams()
-		if starFn.HasVarargs() {
-			starArity = numIn // varargs: pass all
-		}
-	}
-	if starArity > numIn {
-		starArity = numIn
-	}
-
 	// Build adapter function via reflect.MakeFunc.
 	adapter := reflect.MakeFunc(targetType, func(args []reflect.Value) []reflect.Value {
-		// Marshal Go args → Starlark, truncated to callable arity.
-		starArgs := make(starlark.Tuple, starArity)
-		for i := range starArity {
+		// Marshal all Go args → Starlark.
+		starArgs := make(starlark.Tuple, numIn)
+		for i := range numIn {
 			sv, err := marshal(args[i].Interface())
 			if err != nil {
 				return makeErrorReturn(targetType, numOut,

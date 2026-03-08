@@ -31,19 +31,7 @@ type Provider struct {
 	Root Resource
 }
 
-// Actor returns a Reducer that calls the given function for each file or directory in a WalkTree operation.
-//
-// This is a convenience function for creating Reducers from simple functions that don't accumulate results or need to
-// access the recovery stack.
-func Actor(fn func(resource Resource, relativePath string) error) Reducer {
-	return func(result any, resource Resource, relativePath string, stack *op.RecoveryStack) (any, error) {
-		var zero any
-		return zero, fn(resource, relativePath)
-	}
-}
-
 // Reducer is a function called for each file or directory in a WalkTree operation.
-// +devlore:callable swallow=stack
 type Reducer func(initial any, resource Resource, relativePath string, stack *op.RecoveryStack) (result any, err error)
 
 var (
@@ -83,10 +71,10 @@ func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, 
 	result = path
 	result.SourcePath = backupPath
 
-	// Undo resource reflects where the data IS (backup path).
-	// OriginalPath records where it WAS (restoration target).
+	// Undo resource reflects where the data IS (backup path). OriginalPath records where it WAS (restoration target).
 	undoResource := path
 	undoResource.SourcePath = backupPath
+
 	undo = Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&undoResource),
 		OriginalPath:  originalPath,
@@ -99,12 +87,14 @@ func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, 
 //
 // The resource's checksum is verified before restoring; a mismatch indicates external modification.
 func (p *Provider) CompensateBackup(undo Tombstone) error {
+
 	if undo.Resource() == nil {
 		return nil
 	}
 
 	resource := undo.Resource().(*Resource)
 	recoveryPath := resource.SourcePath
+
 	if resource.Checksum != "" {
 		actual := checksumFile(recoveryPath)
 		if actual == "" {
@@ -134,6 +124,7 @@ func (p *Provider) CompensateBackup(undo Tombstone) error {
 func (p *Provider) Copy(sourceFile Resource, destinationFilename Resource, destinationFileMode os.FileMode) (result Resource, undo Tombstone, err error) {
 
 	result, undo, err = p.prepareWrite(destinationFilename)
+
 	if err != nil {
 		return Resource{}, Tombstone{}, err
 	}
@@ -143,6 +134,7 @@ func (p *Provider) Copy(sourceFile Resource, destinationFilename Resource, desti
 	}
 
 	f, err := os.OpenFile(result.SourcePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
+
 	if err != nil {
 		return result, undo, err
 	}

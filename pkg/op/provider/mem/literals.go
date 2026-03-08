@@ -5,15 +5,19 @@ package mem
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
 )
 
 // FormatLiteral serializes a frozen Starlark value as a valid Starlark
 // source literal. Used to inline closure bindings in synthetic files.
 //
-// Supports: String, Int, Float, Bool, NoneType, List, Dict, Tuple.
+// Supports: String, Int, Float, Bool, NoneType, List, Dict, Tuple, Struct.
+// Struct values (e.g., marshaled Resources) are serialized as dict literals
+// with sorted keys for deterministic output.
 // Returns an error for types that cannot be represented as source literals.
 func FormatLiteral(v starlark.Value) (string, error) {
 	return formatValue(v, 0)
@@ -59,6 +63,9 @@ func formatValue(v starlark.Value, depth int) (string, error) {
 	case *starlark.Dict:
 		return formatDict(v, depth)
 
+	case *starlarkstruct.Struct:
+		return formatStruct(v, depth)
+
 	case *starlark.Set:
 		return "", fmt.Errorf("FormatLiteral: set type not supported (use list)")
 
@@ -103,6 +110,34 @@ func formatDict(d *starlark.Dict, depth int) (string, error) {
 		b.WriteString(k)
 		b.WriteString(": ")
 		b.WriteString(v)
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}
+
+func formatStruct(s *starlarkstruct.Struct, depth int) (string, error) {
+	names := s.AttrNames()
+	sort.Strings(names) // deterministic ordering
+
+	var b strings.Builder
+	b.WriteString("{")
+	first := true
+	for _, name := range names {
+		val, err := s.Attr(name)
+		if err != nil {
+			return "", fmt.Errorf("FormatLiteral: struct attr %q: %w", name, err)
+		}
+		if !first {
+			b.WriteString(", ")
+		}
+		first = false
+		b.WriteString(quote(name))
+		b.WriteString(": ")
+		formatted, err := formatValue(val, depth+1)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(formatted)
 	}
 	b.WriteString("}")
 	return b.String(), nil
