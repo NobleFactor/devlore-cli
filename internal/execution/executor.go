@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"go.starlark.net/starlark"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -113,6 +115,17 @@ func NewGraphExecutor(opts ExecutorOptions) *GraphExecutor {
 	}
 }
 
+// newThread creates a Starlark thread for callable initialization during
+// execution. Print output goes to the executor's writer.
+func (e *GraphExecutor) newThread() *starlark.Thread {
+	return &starlark.Thread{
+		Name: "executor",
+		Print: func(_ *starlark.Thread, msg string) {
+			_, _ = fmt.Fprintln(e.options.Writer, msg)
+		},
+	}
+}
+
 // SetHooks sets the lifecycle hook registry for this executor.
 func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
@@ -146,6 +159,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 		Data:     e.options.Data,
 		Graph:    g,
 		Platform: e.options.Platform,
+		Thread:   e.newThread(),
 	}
 
 	// Create a fresh ActionRegistry with per-graph provider instances
@@ -199,6 +213,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 		Data:     e.options.Data,
 		Graph:    g,
 		Platform: e.options.Platform,
+		Thread:   e.newThread(),
 	}
 
 	// Create a fresh ActionRegistry with per-graph provider instances
@@ -416,6 +431,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 		Writer:   e.options.Writer,
 		Data:     e.options.Data,
 		Platform: e.options.Platform,
+		Thread:   e.newThread(),
 	}
 
 	// Hydrate stub actions and inject context into provider-backed actions.

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 
+	"go.starlark.net/starlark"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -77,6 +79,18 @@ func NewResourceWithData(contentType, qualifier string, data []byte) Resource {
 }
 
 func init() {
+	// Register callable extractor for the bridge layer.
+	op.RegisterCallableExtractor(func(fn *starlark.Function, funcType string) (op.CallableResource, error) {
+		c, err := Extract(fn, funcType)
+		if err != nil {
+			return nil, err
+		}
+		if err := c.Compile(); err != nil {
+			return nil, err
+		}
+		return c, nil
+	})
+
 	op.RegisterConstructor(func(v any) (Resource, error) {
 		s, ok := v.(string)
 		if !ok {

@@ -151,6 +151,20 @@ func buildPlannedBridge(
 			if sv == nil {
 				continue // Optional param not provided.
 			}
+
+			// Callable extraction: when a *starlark.Function is passed
+			// to a func-typed parameter, extract it into a compiled
+			// CallableResource and store as a slot immediate.
+			if starFn, ok := sv.(*starlark.Function); ok && i+1 < mt.NumIn() && isFuncType(mt.In(i+1)) {
+				funcType := providerName + "." + mt.In(i+1).Name()
+				callable, err := ExtractCallable(starFn, funcType)
+				if err != nil {
+					return nil, fmt.Errorf("%s: param %s: extract callable: %w", snakeName, cleanName, err)
+				}
+				node.SetSlotImmediate(cleanName, callable)
+				continue
+			}
+
 			if err := FillSlot(node, graph, cleanName, sv); err != nil {
 				return nil, fmt.Errorf("%s: %w", cleanName, err)
 			}
