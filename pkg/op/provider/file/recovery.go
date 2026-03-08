@@ -14,16 +14,16 @@ import (
 	"github.com/google/uuid"
 )
 
-func (p *Provider) moveToRecovery(resource Resource, prune bool, pruneBoundary string) (Tombstone, error) {
+func (p *Provider) moveToRecovery(resource Resource, prune bool, boundary string) (Tombstone, error) {
 
 	// Normalize to absolute path for reliable recovery regardless of working directory at restore time.
 
-	originalPath, err := filepath.Abs(resource.SourcePath)
+	sourcePath, err := filepath.Abs(resource.SourcePath)
 	if err != nil {
 		return Tombstone{}, err
 	}
 
-	recoveryBase, err := p.getRecoveryBase(originalPath)
+	recoveryBase, err := p.getRecoveryBase(sourcePath)
 	if err != nil {
 		return Tombstone{}, err
 	}
@@ -41,14 +41,14 @@ func (p *Provider) moveToRecovery(resource Resource, prune bool, pruneBoundary s
 
 	// Perform the removal in O(1) time with no data movement because it's on the same partition
 
-	if err := os.Rename(originalPath, recoveryPath); err != nil {
+	if err := os.Rename(sourcePath, recoveryPath); err != nil {
 		return Tombstone{}, err
 	}
 
-	pruneEmptyParents(originalPath, prune, pruneBoundary)
+	p.pruneEmptyParents(sourcePath, prune, boundary)
 
-	// Resource preserves its true identity (SourcePath = original location).
-	// RecoveryPath records where the data was moved to.
+	// Resource preserves its true identity (SourcePath = original location). RecoveryPath records where the data was
+	// moved to.
 	return Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&resource),
 		RecoveryPath:  recoveryPath,
@@ -57,9 +57,8 @@ func (p *Provider) moveToRecovery(resource Resource, prune bool, pruneBoundary s
 
 // restoreFromRecovery is the compensating action (undo) for any removal operation.
 //
-// It moves the entity back to its original location from the recovery site.
-// The recovery path is tombstone.RecoveryPath (temporary excursion); the
-// restoration target is Resource.SourcePath (the resource's true home).
+// It moves the entity back to its original location from the recovery site. The recovery path is tombstone.RecoveryPath
+// (temporary excursion); the restoration target is Resource.SourcePath (the resource's true home).
 func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
 
 	originalPath := tombstone.Resource().(*Resource).SourcePath
@@ -74,7 +73,7 @@ func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
 	// Verify the recovery site still exists
 
 	if _, err := os.Lstat(recoveryPath); errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("recovery source not found: %s. Was it purged?", recoveryPath)
+		return fmt.Errorf("recovery source not found: %s. Was it purged", recoveryPath)
 	}
 
 	// Ensure the original destination's parent exists

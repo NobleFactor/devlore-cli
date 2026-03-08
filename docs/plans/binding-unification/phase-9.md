@@ -126,7 +126,7 @@ names. `hasSlotDocs` returns true if any qualifying param has a doc.
 ### Step 5: Add param docs to all Provider methods (devlore-cli) ✅
 
 Added `Parameters:` sections to every Provider method that has slotted parameters.
-Param names use Go camelCase (e.g., `backupSuffix`, `pruneBoundary`, `templateData`).
+Param names use Go camelCase (e.g., `backupSuffix`, `boundary`, `templateData`).
 The `slotDocs` template function converts to snake_case for the generated `Slots:` output.
 
 | Provider | Methods needing param docs |

@@ -153,7 +153,9 @@ type starlarkCodeProvider struct{}
 func (p *starlarkCodeProvider) Name() string { return "starlarkcode" }
 
 func (p *starlarkCodeProvider) NewImmediate(cfg op.BindingConfig) starlark.Value {
-    return NewStarlarkCodeReceiver(&Provider{Root: cfg.WorkDir})
+    provider := &Provider{}
+    op.InitProvider(provider, op.Context{BaseDir: cfg.WorkDir})
+    return NewStarlarkCodeReceiver(provider)
 }
 
 func init() {

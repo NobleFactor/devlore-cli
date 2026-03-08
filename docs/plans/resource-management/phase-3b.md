@@ -72,7 +72,7 @@ Callers:
 | `IsFile(path string)` | → `IsFile(resource Resource)`, body: `resource.SourcePath` |
 | `Mkdir(path string, mode) (string, error)` | → `Mkdir(resource Resource, mode) (Resource, error)` |
 | `WalkTree(root string, ...)` | → `WalkTree(root Resource, ...)` |
-| Remove/RemoveAll/Unlink `pruneBoundary string` | → `pruneBoundary Resource` |
+| Remove/RemoveAll/Unlink `boundary string` | → `boundary Resource` |
 | Move | `checksumFile(source.SourcePath)` → `source.Checksum` |
 | `prepareWrite(path string)` | → `prepareWrite(resource Resource)` |
 | `write(path string, ...)` | → `write(resource Resource, ...)` |

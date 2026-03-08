@@ -18,11 +18,8 @@ import (
 // testProvider creates a Provider rooted at the given directory.
 func testProvider(t *testing.T, root string) Provider {
 	t.Helper()
-	rootResource := NewResource(root)
-	if err := rootResource.Resolve(); err != nil {
-		t.Fatalf("NewResource(%q).Resolve(): %v", root, err)
-	}
-	return Provider{Root: rootResource}
+	ctx := op.Context{BaseDir: root}
+	return Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 // --- Link ---

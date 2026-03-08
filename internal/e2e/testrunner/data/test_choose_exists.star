@@ -15,7 +15,7 @@ plan.file.write_text(destination=dest, content="delete me", mode=0o644)
 exists_output = plan.file.exists(resource=dest)
 plan.choose(
     when=exists_output,
-    then=lambda: plan.file.remove(path=dest, prune=False, prune_boundary=""),
+    then=lambda: plan.file.remove(path=dest, prune=False, boundary=""),
 )
 
 # Step 3: After removal, the file should be gone.

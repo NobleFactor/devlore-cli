@@ -41,7 +41,7 @@ the new method signatures at runtime.
 
 The pattern: every parameter identifying an external entity (a path)
 becomes `Resource`. Configuration values (`content`, `mode`, `prune`,
-`pruneBoundary`, `backupSuffix`) stay unchanged.
+`boundary`, `backupSuffix`) stay unchanged.
 
 ## Changes
 
