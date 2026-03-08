@@ -3,6 +3,8 @@ package op
 import (
 	"context"
 	"io"
+
+	"go.starlark.net/starlark"
 )
 
 // Context provides execution context to actions.
@@ -34,6 +36,11 @@ type Context struct {
 	// manager) to action providers. Nil when running in environments
 	// where host access is not needed (e.g., pure data transforms).
 	Platform *Platform
+
+	// Thread is a Starlark execution thread for callable initialization.
+	// Created by the executor at execution time. Actions that need to
+	// invoke mem.Callable functions call Init(ctx.Thread) before Fn().
+	Thread *starlark.Thread
 
 	// Writer receives user-facing output messages.
 	Writer io.Writer

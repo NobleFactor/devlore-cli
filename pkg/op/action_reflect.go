@@ -197,6 +197,11 @@ func validateSlotType(goVal any, targetType reflect.Type) error {
 		return nil
 	}
 
+	// CallableResource → func type coercion.
+	if isCallableResource(goVal) && isFuncType(targetType) {
+		return nil
+	}
+
 	return fmt.Errorf("cannot coerce %T to %s", goVal, targetType)
 }
 

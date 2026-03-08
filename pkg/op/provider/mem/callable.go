@@ -131,6 +131,12 @@ func (c *Callable) Init(thread *starlark.Thread) error {
 	return nil
 }
 
+// FuncTypeName returns the Go type name this callable satisfies.
+// Implements op.CallableResource.
+func (c *Callable) FuncTypeName() string {
+	return c.FuncType
+}
+
 // Fn returns the live callable. Panics if Init has not been called.
 func (c *Callable) Fn() starlark.Callable {
 	if c.fn == nil {

@@ -15,6 +15,10 @@ func TestCallableImplementsResource(t *testing.T) {
 	var _ op.Resource = (*Callable)(nil)
 }
 
+func TestCallableImplementsCallableResource(t *testing.T) {
+	var _ op.CallableResource = (*Callable)(nil)
+}
+
 func TestNewCallable(t *testing.T) {
 	c := NewCallable("file.Reducer", "count_python_files")
 	if c.FuncType != "file.Reducer" {
