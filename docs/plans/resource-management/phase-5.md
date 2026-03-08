@@ -172,37 +172,31 @@ type NoResult struct{}
 
 **Files**: `pkg/op/resource.go`, `pkg/op/provider/file/resource.go`
 
-The `TombstoneBase` carries the affected `Resource`. After a destructive
-operation like `moveToRecovery`, the Resource's identity fields (e.g.,
-`SourcePath`) are updated to reflect where the data physically IS — the
-recovery location. The Tombstone's provider-specific fields record where
-the data CAME FROM — the restoration target.
+The `TombstoneBase` carries the affected `Resource`. The Resource's identity
+fields are **never modified** by the recovery system — `SourcePath` always
+reflects the file's true home. The Tombstone's provider-specific field
+(`RecoveryPath`) records where data was temporarily moved during the operation.
 
 ```go
 // file.Tombstone — after moveToRecovery:
-//   Resource.SourcePath == recovery path (where the data IS)
-//   OriginalPath        == original path (where to restore it)
+//   Resource.SourcePath == original path (true identity, never modified)
+//   RecoveryPath        == where data was temporarily moved
 type Tombstone struct {
     op.TombstoneBase
-    OriginalPath string
+    RecoveryPath string
 }
 ```
 
-This means `file.Tombstone.RecoveryPath` is renamed to `OriginalPath`
-and the polarity is corrected: the Resource always tells the truth about
-the physical location of the data, and the Tombstone remembers where it
-came from.
+Only `Resolve`, `Refresh`, and `RefreshWith` may modify a Resource's fields.
+The recovery system treats the Resource as immutable.
 
-The `TombstoneBase` docstring must clarify this invariant: the embedded
-Resource reflects post-operation state, not pre-operation state.
-
-- [ ] Rename `file.Tombstone.RecoveryPath` → `OriginalPath`
-- [ ] Update `moveToRecovery` to set `Resource.SourcePath` to recovery path
-- [ ] Update `restoreFromRecovery` to use corrected polarity
-- [ ] Update `TombstoneBase` docstring to document the invariant
-- [ ] Update all `file.Tombstone` construction sites
-- [ ] Update all compensation methods that read Tombstone fields
-- [ ] Update tests
+- [x] Tombstone field is `RecoveryPath` (temporary location, not identity)
+- [x] `moveToRecovery` does NOT modify `Resource.SourcePath`
+- [x] `restoreFromRecovery` reads home from `Resource.SourcePath`, recovery from `RecoveryPath`
+- [x] `TombstoneBase` docstring documents the identity-preservation invariant
+- [x] All `file.Tombstone` construction sites use correct polarity
+- [x] All compensation methods read `RecoveryPath` for temporary location
+- [x] Tests updated
 
 ### 5d. Simplify `classifyActionReturn`
 

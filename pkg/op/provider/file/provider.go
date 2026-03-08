@@ -20,6 +20,14 @@ import (
 
 var _ op.ContextProvider = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.ContextProvider.
 
+var (
+	// SkipDir indicates that the current directory should be skipped.
+	SkipDir = fs.SkipDir
+
+	// SkipAll signals the walker to terminate immediately (success).
+	SkipAll = fs.SkipAll
+)
+
 // Provider provides file system actions.
 //
 // Compensable forward methods return (T, Tombstone, error): the result, the compensation tombstone, and an error.
@@ -31,18 +39,10 @@ type Provider struct {
 	Root Resource
 }
 
-// Reducer is a function called for each file or directory in a WalkTree operation.
+// Reducer is a function called for each file or directory in a [WalkTree] operation.
 type Reducer func(initial any, resource Resource, relativePath string, stack *op.RecoveryStack) (result any, err error)
 
-var (
-	// SkipDir indicates that the current directory should be skipped.
-	SkipDir = fs.SkipDir
-
-	// SkipAll signals the walker to terminate immediately (success).
-	SkipAll = fs.SkipAll
-)
-
-// ── Compensable Pairs ────────────────────────────────────────────────────────────────────────────────────────────────
+// region Compensable Pairs
 
 // Backup moves the file at "path" to a timestamped backup location.
 //
@@ -61,23 +61,21 @@ func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, 
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
-	originalPath := path.SourcePath
-	backupPath := originalPath + backupSuffix + "." + timestamp
+	backupPath := path.SourcePath + backupSuffix + "." + timestamp
 
-	if err := os.Rename(originalPath, backupPath); err != nil {
+	if err := os.Rename(path.SourcePath, backupPath); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	result = path
-	result.SourcePath = backupPath
+	result = NewResource(backupPath)
+	if err := result.Resolve(); err != nil {
+		return Resource{}, Tombstone{}, err
+	}
 
-	// Undo resource reflects where the data IS (backup path). OriginalPath records where it WAS (restoration target).
-	undoResource := path
-	undoResource.SourcePath = backupPath
-
+	// Tombstone preserves the resource's true identity. RecoveryPath records where the data was moved to.
 	undo = Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&undoResource),
-		OriginalPath:  originalPath,
+		TombstoneBase: op.NewTombstoneBase(&path),
+		RecoveryPath:  backupPath,
 	}
 
 	return result, undo, nil
@@ -93,7 +91,7 @@ func (p *Provider) CompensateBackup(undo Tombstone) error {
 	}
 
 	resource := undo.Resource().(*Resource)
-	recoveryPath := resource.SourcePath
+	recoveryPath := undo.RecoveryPath
 
 	if resource.Checksum != "" {
 		actual := checksumFile(recoveryPath)
@@ -232,16 +230,15 @@ func (p *Provider) Move(source, destination Resource) (result Resource, undo Tom
 		return Resource{}, Tombstone{}, err
 	}
 
-	result = source
-	result.SourcePath = destination.SourcePath
+	result = NewResource(destination.SourcePath)
+	if err := result.Resolve(); err != nil {
+		return Resource{}, Tombstone{}, err
+	}
 
-	// Undo resource reflects where the data IS (destination).
-	// OriginalPath records where it WAS (source).
-	undoResource := source
-	undoResource.SourcePath = destination.SourcePath
+	// Tombstone preserves the source's true identity. RecoveryPath records where the data was moved to.
 	undo = Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&undoResource),
-		OriginalPath:  source.SourcePath,
+		TombstoneBase: op.NewTombstoneBase(&source),
+		RecoveryPath:  destination.SourcePath,
 	}
 
 	return result, undo, nil
@@ -256,7 +253,7 @@ func (p *Provider) CompensateMove(undo Tombstone) error {
 	}
 
 	resource := undo.Resource().(*Resource)
-	recoveryPath := resource.SourcePath
+	recoveryPath := undo.RecoveryPath
 	if resource.Checksum != "" {
 		actual := checksumFile(recoveryPath)
 		if actual == "" {
@@ -510,7 +507,9 @@ func (p *Provider) CompensateWriteText(undo Tombstone) error {
 	return p.compensateWrite(undo)
 }
 
-// ── Non-compensable Methods (pure functions) ─────────────────────────────────────────────────────────────────────────
+// endregion
+
+// region Non-compensable Methods
 
 // Exists returns true if the file at "path" exists.
 //
@@ -673,39 +672,40 @@ func (p *Provider) Read(path Resource) (result Resource, err error) {
 	return r, nil
 }
 
+// endregion
+
 // region Internal
 
 // compensateWrite reverts a write or link operation by removing the new file and restoring the original from recovery.
 //
-// When OriginalPath is empty, no file existed before — the new file at
-// Resource.SourcePath is simply removed. When OriginalPath is set, the
-// new file at OriginalPath is removed and the old file is restored from
-// Resource.SourcePath (recovery) back to OriginalPath.
+// The resource's SourcePath is the file's true home — where the new file was written.
+// When RecoveryPath is empty, no file existed before — the new file is simply removed.
+// When RecoveryPath is set, the new file is removed and the old data is restored from
+// RecoveryPath back to Resource.SourcePath.
 func (p *Provider) compensateWrite(undo Tombstone) error {
 	if undo.Resource() == nil {
 		return nil
 	}
 
-	if undo.OriginalPath == "" {
-		// Nothing existed before — just remove the new file.
-		recoveryPath := undo.Resource().(*Resource).SourcePath
-		if err := os.Remove(recoveryPath); err != nil && !os.IsNotExist(err) {
-			return err
-		}
+	// Remove the new file at its true home.
+	homePath := undo.Resource().(*Resource).SourcePath
+	if err := os.Remove(homePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	if undo.RecoveryPath == "" {
+		// Nothing existed before — removal is sufficient.
 		return nil
 	}
 
-	// Something existed before — remove the new file, restore the old.
-	if err := os.Remove(undo.OriginalPath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
+	// Something existed before — restore it from recovery.
 	return p.restoreFromRecovery(undo)
 }
 
 // prepareWrite handles pre-write backup for destructive operations.
 // If the destination exists, it is moved to a recovery site before the
 // write proceeds. If the destination does not exist, the parent directory
-// is created and a tombstone with no OriginalPath is returned (compensation
+// is created and a tombstone with no RecoveryPath is returned (compensation
 // will simply remove the newly created file).
 func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombstone, err error) {
 
@@ -721,7 +721,7 @@ func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombst
 		}
 
 		// Nothing existed before. Resource.SourcePath = the destination
-		// (where the new file will be). OriginalPath is empty — compensation
+		// (where the new file will be). RecoveryPath is empty — compensation
 		// will just remove the new file.
 		undo = Tombstone{
 			TombstoneBase: op.NewTombstoneBase(&result),

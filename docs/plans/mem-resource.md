@@ -1,9 +1,9 @@
 ---
 title: "Memory Resources and Callables"
 issue: TBD
-status: in-progress
+status: complete
 created: 2026-03-07
-updated: 2026-03-09
+updated: 2026-03-10
 ---
 
 # Plan: Memory Resources and Callables
@@ -69,7 +69,7 @@ for the full design.
 | `git` | Opaque | `git:<encoded-repo>[?path=...]` | `#<commit-hash>` |
 | `mem` | Opaque | `mem:callable/type/name` | Content hash as metadata field |
 
-## Current State (updated after Phase 6)
+## Current State (updated after Phase 7)
 
 | Component | Status | Notes |
 |---|---|---|
@@ -585,7 +585,7 @@ is unchanged — callables don't alter the existing compensation mechanism.
 | [x] | 4 | [Thread + bridge](mem-resource/phase-4.md) | Thread on Context, immediate + planned bridge callable detection | #200 |
 | [x] | 5 | [WalkTree action](mem-resource/phase-5.md) | Generic callable→func coercion in reflection layer | pending |
 | [x] | 6 | [E2E tests](mem-resource/phase-6.md) | Starlark test scripts for immediate and planned WalkTree | pending |
-| [ ] | 7 | [Codegen](mem-resource/phase-7.md) | `star` recognizes callable params, generates adapter + bridge code | |
+| [x] | 7 | [Codegen](mem-resource/phase-7.md) | Remove `+devlore:callable` annotation system from codegen | pending |
 
 ### Phase 0: Resource Identity
 
@@ -752,14 +752,19 @@ struct serialization in `FormatLiteral`. 4 E2E test scripts.
 - `test_walk_tree_closure.star` — def with closure bindings
 - `internal/e2e/testrunner/runner_test.go` — 4 test functions
 
-### Phase 7: Codegen
+### Phase 7: Codegen — DONE (pending PR)
 
-- Teach `star` to recognize func-typed parameters on Provider methods
-- Generate `fn` param in `params.gen.go` for callable-typed parameters
-- Generate bridge code that passes `starlark.Callable` through to the
-  reflection layer (which handles adaptation via `buildCallableFunc`)
-- Remove `+devlore:callable` parsing from `generate.star`
-- This phase is in the `star` tool (noblefactor-ops)
+Removed the `+devlore:callable` annotation system from `generate.star`.
+With full-signature matching, the codegen no longer needs special
+callable handling. Func-typed params flow through as regular params.
+
+- `star/extensions/.../commands/generate.star` — removed 5 functions
+  (`parse_callable_directive`, `CALLABLE_TYPE_MAPPINGS`,
+  `classify_callable_params`, `resolve_callable_params`,
+  `filter_callable_methods`) and all call sites. `compute_param_names_list`
+  no longer skips callable params. `prepare_render_data` simplified.
+- `docs/guides/provider-development.md` — removed `+devlore:callable`
+  from directives table
 
 ## Files to Create/Modify
 

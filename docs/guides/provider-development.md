@@ -78,7 +78,6 @@ func (p *Provider) Capture(pattern string, gitignore, includeBzl bool) (*Sources
 |---|---|
 | `+devlore:defaults` | Mark params as optional with default values |
 | `+devlore:struct_param` | Expand a struct param to individual Starlark kwargs |
-| `+devlore:callable` | Classify function-type params (swallow, handle, pass_through) |
 
 ## Adding a new provider
 

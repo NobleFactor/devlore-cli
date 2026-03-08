@@ -60,15 +60,15 @@ For the planned bridge (`buildPlannedBridge`):
 
 The bridge interrogates the result at execution time. When the result is a `Resource`, shadow it. When it's a `Tombstone`, extract the resource via `tombstone.Resource()` and shadow it. When it's a `[]Resource`, iterate and shadow each.
 
-### D8. Tombstone Resource reflects physical truth
+### D8. Tombstone preserves Resource identity
 
-The `TombstoneBase` carries the affected `Resource`. After a destructive operation (e.g., `moveToRecovery`), the Resource's identity fields are updated to reflect where the data physically IS — the recovery location. The Tombstone's provider-specific fields record where the data CAME FROM — the restoration target.
+The `TombstoneBase` carries the affected `Resource`. The Resource's identity fields are **never modified** by the recovery system — `SourcePath` always reflects the file's true home. The Tombstone's provider-specific fields record where the data was temporarily moved — the recovery location.
 
 For `file.Tombstone`:
-- `Resource.SourcePath` = recovery path (where the data IS now)
-- `OriginalPath` = original path (where to put it back)
+- `Resource.SourcePath` = the file's true home (identity preserved)
+- `RecoveryPath` = where data was temporarily moved (backup, recovery site, or move destination)
 
-The Resource always tells the truth about the physical location of the data. The Tombstone remembers where it came from. This means `file.Tombstone.RecoveryPath` is renamed to `OriginalPath` and the polarity is corrected.
+The Resource always tells the truth about identity. The Tombstone records the transactional detail of where data is temporarily stored during its excursion. Only `Resolve`, `Refresh`, and `RefreshWith` may modify a Resource's fields.
 
 ---
 

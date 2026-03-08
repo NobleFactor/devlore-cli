@@ -1,34 +1,42 @@
 # Phase 7: Codegen
 
-**Status**: Pending
+**Status**: Done
+**PR**: pending
 
 ## Summary
 
-Teach the `star` code generator to recognize callable-typed parameters
-and generate the appropriate param registration and bridge code. This
-eliminates the manual `fn` entry in `MethodParams` and the hand-edited
-`gen/params.gen.go`.
+Remove the `+devlore:callable` annotation system from the code generator.
+With full-signature callable matching (Phase 5) and the annotation removed
+from `Reducer` (Phase 6), the codegen no longer needs special callable
+handling. Func-typed params flow through as regular params. The runtime
+reflection layer handles callable adaptation via `buildCallableFunc`.
 
-## Planned Changes
+## Changes
 
-- `star` tool recognizes func-typed parameters on Provider methods
-- Generates `fn` param in `params.gen.go` for callable-typed parameters
-- Generates bridge code that passes `starlark.Callable` through to the
-  reflection layer (which handles adaptation via `buildCallableFunc`)
-- No `+devlore:callable` annotation needed — the code generator inspects
-  the Go function type directly
+### generate.star — removed dead callable code
 
-## Files to Modify
+Removed 5 functions and their call sites:
+- `parse_callable_directive(doc)` — parsed `+devlore:callable swallow=stack`
+- `CALLABLE_TYPE_MAPPINGS` — type list used by callable classification
+- `classify_callable_params(callable_info, directive)` — role classification
+  (swallowed, pass_through, projected, handle)
+- `resolve_callable_params(path, descriptors, type_prefix)` — scanned for
+  `+devlore:callable` annotations and annotated params
+- `filter_callable_methods(methods, template_name)` — excluded methods with
+  callable params from planned/action templates
 
-- `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` —
-  callable param detection and bridge generation
-- `pkg/op/provider/file/gen/params.gen.go` — generated with `fn` param
-- `pkg/op/provider/file/gen/immediate.gen.go` — generated bridge code
-- `pkg/op/provider/file/gen/planned.gen.go` — generated bridge code
+Updated:
+- `compute_param_names_list()` — no longer skips callable params
+- `prepare_render_data()` — no longer filters/flags callable methods;
+  return signature simplified (no more `flagged` list)
+- `gen_file()` — removed flagged/unprojectable warning loop
 
-## Notes
+### docs/guides/provider-development.md
 
-This phase lives in the `star` tool (noblefactor-ops repo), not in
-devlore-cli. The `generate.star` codegen script currently has
-`+devlore:callable swallow=...` parsing code that should be removed
-and replaced with direct func-type inspection.
+Removed `+devlore:callable` from the directives table.
+
+## Verification
+
+After removing the annotation system, `make generate` produces correct
+output for all providers. Func-typed params like `fn` (Reducer) appear
+as regular params in `params.gen.go`. All generated tests pass.

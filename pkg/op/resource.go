@@ -163,11 +163,10 @@ type Tombstone interface {
 // TombstoneBase holds the resource that was affected by a compensable action.
 // Provider-specific tombstone types must embed it by value.
 //
-// The embedded Resource reflects post-operation state: its identity fields
-// (e.g., SourcePath for file resources) point to where the data physically
-// IS after the operation, not where it was before. Provider-specific fields
-// on the tombstone (e.g., file.Tombstone.OriginalPath) record where the
-// data came from — the restoration target.
+// The embedded Resource preserves its true identity — its fields are never
+// modified by the recovery system. Provider-specific fields on the tombstone
+// (e.g., file.Tombstone.RecoveryPath) record where data was temporarily
+// moved during the operation — the recovery location, not the identity.
 type TombstoneBase struct {
 	resource Resource
 }
