@@ -255,7 +255,7 @@ dev:
 	git config core.hooksPath .githooks
 	@echo "Hooks activated: .githooks/pre-commit"
 
-docs:
+docs: generate
 	go run ./cmd/docgen --output-dir=docs/cli --version=$(VERSION)
 
 # Build distribution archives for all platforms
