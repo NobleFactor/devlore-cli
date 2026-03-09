@@ -310,7 +310,7 @@ fn = make()
 `)
 	starFn := globals["fn"].(*starlark.Function)
 
-	c, err := Extract(starFn, "Transform")
+	c, err := Extract(starFn, "Transform", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}

@@ -6,6 +6,7 @@ package op
 import (
 	"bytes"
 	"context"
+	"os"
 	"reflect"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestExtractCallable_NoExtractor(t *testing.T) {
 	callableExtractorFn = nil
 	defer func() { callableExtractorFn = saved }()
 
-	_, err := ExtractCallable(nil, "TestType")
+	_, err := ExtractCallable(nil, "TestType", nil)
 	if err == nil {
 		t.Fatal("expected error when no extractor registered")
 	}
@@ -47,7 +48,7 @@ func TestExtractCallable_WithExtractor(t *testing.T) {
 	defer func() { callableExtractorFn = saved }()
 
 	called := false
-	RegisterCallableExtractor(func(fn *starlark.Function, funcType string) (CallableResource, error) {
+	RegisterCallableExtractor(func(fn *starlark.Function, funcType string, _ *os.Root) (CallableResource, error) {
 		called = true
 		if funcType != "file.Reducer" {
 			t.Errorf("funcType = %q, want %q", funcType, "file.Reducer")
@@ -57,7 +58,7 @@ func TestExtractCallable_WithExtractor(t *testing.T) {
 		return m, nil
 	})
 
-	cr, err := ExtractCallable(nil, "file.Reducer")
+	cr, err := ExtractCallable(nil, "file.Reducer", nil)
 	if err != nil {
 		t.Fatalf("ExtractCallable: %v", err)
 	}
