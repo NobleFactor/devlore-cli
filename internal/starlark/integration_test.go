@@ -28,17 +28,11 @@ import (
 //  5. Loader cache deduplicates factory calls
 func TestLoadIntegration(t *testing.T) {
 	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/172")
-	// Point WorkDir at the testdata directory so starcode.capture finds .star files.
-	testdataDir, err := filepath.Abs("testdata")
-	if err != nil {
-		t.Fatalf("resolving testdata: %v", err)
-	}
 
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
-		WorkDir:     testdataDir,
 		Receivers:   []string{"ui"},
 	})
 
@@ -54,7 +48,7 @@ func TestLoadIntegration(t *testing.T) {
 	}
 	bs.ConfigureThread(thread, graph, "test-project", reg)
 
-	scriptPath := filepath.Join(testdataDir, "load_test.star")
+	scriptPath := filepath.Join("testdata", "load_test.star")
 	data, err := os.ReadFile(scriptPath)
 	if err != nil {
 		t.Fatalf("reading script: %v", err)

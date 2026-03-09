@@ -6,11 +6,12 @@ package mem
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Extract introspects a *starlark.Function and produces a self-contained Callable with synthesized source text. The
@@ -27,7 +28,7 @@ import (
 // Returns:
 //   - *Callable: the extracted callable with synthesized source
 //   - error: any extraction error
-func Extract(fn *starlark.Function, funcType string, root *os.Root) (*Callable, error) {
+func Extract(fn *starlark.Function, funcType string, root op.Root) (*Callable, error) {
 
 	name := fn.Name()
 	if name == "lambda" {
@@ -48,7 +49,7 @@ func Extract(fn *starlark.Function, funcType string, root *os.Root) (*Callable, 
 // Returns:
 //   - *Callable: the extracted callable with synthesized source
 //   - error: any extraction error
-func ExtractWithName(fn *starlark.Function, funcType, name string, root *os.Root) (*Callable, error) {
+func ExtractWithName(fn *starlark.Function, funcType, name string, root op.Root) (*Callable, error) {
 	c := NewCallable(funcType, name)
 
 	// Introspect parameters.
@@ -93,7 +94,7 @@ func ExtractWithName(fn *starlark.Function, funcType, name string, root *os.Root
 // Returns:
 //   - []byte: synthetic source text
 //   - error: any extraction error
-func synthesize(fn *starlark.Function, params []string, root *os.Root) ([]byte, error) {
+func synthesize(fn *starlark.Function, params []string, root op.Root) ([]byte, error) {
 	var b strings.Builder
 
 	// Header comment.
@@ -152,7 +153,7 @@ func synthesize(fn *starlark.Function, params []string, root *os.Root) ([]byte, 
 // Returns:
 //   - string: the lambda body expression text
 //   - error: any read or parse error
-func extractLambdaBody(fn *starlark.Function, root *os.Root) (string, error) {
+func extractLambdaBody(fn *starlark.Function, root op.Root) (string, error) {
 
 	pos := fn.Position()
 	if !pos.IsValid() {
@@ -205,7 +206,7 @@ func extractLambdaBody(fn *starlark.Function, root *os.Root) (string, error) {
 // Returns:
 //   - string: the full def statement text
 //   - error: any read or parse error
-func extractDefSource(fn *starlark.Function, root *os.Root) (string, error) {
+func extractDefSource(fn *starlark.Function, root op.Root) (string, error) {
 
 	pos := fn.Position()
 	if !pos.IsValid() {
@@ -306,13 +307,10 @@ func extractSpan(data []byte, start, end syntax.Position) string {
 // Returns:
 //   - []byte: file contents
 //   - error: any read error
-func readSource(filename string, root *os.Root) ([]byte, error) {
+func readSource(filename string, root op.Root) ([]byte, error) {
 
 	if root != nil {
-		rel, err := filepath.Rel(root.Name(), filename)
-		if err == nil && rel != ".." && (len(rel) <= 2 || rel[:3] != "../") {
-			return root.ReadFile(rel)
-		}
+		return root.ReadFile(root.NewPath(filename))
 	}
 
 	return os.ReadFile(filename)

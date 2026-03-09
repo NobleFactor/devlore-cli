@@ -14,7 +14,7 @@ import (
 
 // Provider provides shell command execution.
 //
-// +devlore:access=both
+// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

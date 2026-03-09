@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
@@ -287,7 +288,7 @@ func clearExistingLayer(layerDir string, verbose bool) error {
 func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 	fp := &file.Provider{}
 
-	if _, err := fp.Mkdir(file.Resource{SourcePath: file.SourcePath{Abs: filepath.Dir(layerDir)}}, 0o755); err != nil {
+	if _, err := fp.Mkdir(file.Resource{SourcePath: op.NewPath("", filepath.Dir(layerDir))}, 0o755); err != nil {
 		return err
 	}
 	if err := clearExistingLayer(layerDir, verbose); err != nil {
@@ -297,7 +298,7 @@ func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 	if verbose {
 		cli.Note("Creating symlink: %s -> %s", layerDir, sourceRoot)
 	}
-	_, _, err := fp.Link(file.Resource{SourcePath: file.SourcePath{Abs: sourceRoot}}, file.Resource{SourcePath: file.SourcePath{Abs: layerDir}})
+	_, _, err := fp.Link(file.Resource{SourcePath: op.NewPath("", sourceRoot)}, file.Resource{SourcePath: op.NewPath("", layerDir)})
 	return err
 }
 
@@ -305,7 +306,7 @@ func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 	fp := &file.Provider{}
 
-	if _, err := fp.Mkdir(file.Resource{SourcePath: file.SourcePath{Abs: filepath.Dir(layerDir)}}, 0o755); err != nil {
+	if _, err := fp.Mkdir(file.Resource{SourcePath: op.NewPath("", filepath.Dir(layerDir))}, 0o755); err != nil {
 		return err
 	}
 	if err := clearExistingLayer(layerDir, verbose); err != nil {
@@ -315,7 +316,7 @@ func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 	if verbose {
 		cli.Note("Moving: %s -> %s", sourceRoot, layerDir)
 	}
-	_, _, err := fp.Move(file.Resource{SourcePath: file.SourcePath{Abs: sourceRoot}}, file.Resource{SourcePath: file.SourcePath{Abs: layerDir}})
+	_, _, err := fp.Move(file.Resource{SourcePath: op.NewPath("", sourceRoot)}, file.Resource{SourcePath: op.NewPath("", layerDir)})
 	return err
 }
 

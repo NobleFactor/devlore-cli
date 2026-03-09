@@ -6,7 +6,6 @@ package op
 import (
 	"bytes"
 	"context"
-	"os"
 	"reflect"
 	"testing"
 
@@ -48,7 +47,7 @@ func TestExtractCallable_WithExtractor(t *testing.T) {
 	defer func() { callableExtractorFn = saved }()
 
 	called := false
-	RegisterCallableExtractor(func(fn *starlark.Function, funcType string, _ *os.Root) (CallableResource, error) {
+	RegisterCallableExtractor(func(fn *starlark.Function, funcType string, _ Root) (CallableResource, error) {
 		called = true
 		if funcType != "file.Reducer" {
 			t.Errorf("funcType = %q, want %q", funcType, "file.Reducer")

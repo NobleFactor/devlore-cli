@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"os"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -33,7 +32,7 @@ const (
 // updates the cached URI via [ResourceBase.SetURI].
 type Resource interface {
 	URI() string
-	Resolve(root *os.Root) error
+	Resolve(root Root) error
 	resourceBase() *ResourceBase
 }
 
@@ -122,7 +121,7 @@ func (b *ResourceBase) Fragment() string {
 // Resolve populates provider-specific metadata via I/O (e.g., os.Stat for files). The default implementation is a
 // no-op — providers that need resolution (file, git) override it. Callers that need metadata call Resolve then check
 // the result. An unresolved resource reports Exists() == false. When root is non-nil, I/O is scoped through os.Root.
-func (b *ResourceBase) Resolve(_ *os.Root) error { return nil }
+func (b *ResourceBase) Resolve(_ Root) error { return nil }
 
 // Format marshals v as compact JSON. Concrete resource types call this from
 // their String() method: func (r Resource) String() string { return r.Format(r) }
@@ -165,7 +164,7 @@ type Tombstone interface {
 //
 // The embedded Resource preserves its true identity — its fields are never
 // modified by the recovery system. Provider-specific fields on the tombstone
-// (e.g., file.Tombstone.RecoveryPath) record where data was temporarily
+// (e.g., file.Tombstone.RecoveryID) record where data was temporarily
 // moved during the operation — the recovery location, not the identity.
 type TombstoneBase struct {
 	resource Resource

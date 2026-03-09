@@ -42,7 +42,6 @@ type AnalysisReport struct {
 // combining stats, complexity scoring, indexing, and hotspot detection.
 //
 // +devlore:access=immediate
-// +devlore:bind Root=WorkDir
 type Provider struct {
 	op.ProviderBase
 	Root string

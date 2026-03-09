@@ -952,7 +952,7 @@ func TestGatherIntegration(t *testing.T) {
 		Phases: []*op.Phase{mainPhase, bodyPhase},
 	}
 
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{Root: t.TempDir()})
 	err := engine.Run(context.Background(), graph)
 	if err != nil {
 		t.Fatalf("run: %v", err)

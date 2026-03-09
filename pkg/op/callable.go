@@ -5,7 +5,6 @@ package op
 
 import (
 	"fmt"
-	"os"
 	"reflect"
 
 	"go.starlark.net/starlark"
@@ -22,27 +21,27 @@ type CallableResource interface {
 
 // callableExtractorFn is the registered function that extracts a *starlark.Function into a CallableResource. Registered
 // by the mem package in init(). Returns the extracted, compiled callable. When root is non-nil, source reads are scoped
-// through os.Root.
-var callableExtractorFn func(fn *starlark.Function, funcType string, root *os.Root) (CallableResource, error)
+// through [Root].
+var callableExtractorFn func(fn *starlark.Function, funcType string, root Root) (CallableResource, error)
 
 // RegisterCallableExtractor registers the function that extracts a *starlark.Function into a CallableResource. Called
 // by the mem package during init().
-func RegisterCallableExtractor(fn func(*starlark.Function, string, *os.Root) (CallableResource, error)) {
+func RegisterCallableExtractor(fn func(*starlark.Function, string, Root) (CallableResource, error)) {
 	callableExtractorFn = fn
 }
 
 // ExtractCallable extracts a *starlark.Function into a CallableResource using the registered extractor. When root is
-// non-nil, source reads are scoped through os.Root. Returns an error if no extractor is registered.
+// non-nil, source reads are scoped through [Root]. Returns an error if no extractor is registered.
 //
 // Parameters:
 //   - fn: Starlark function to extract
 //   - funcType: Go type name the callable satisfies (e.g., "file.Reducer")
-//   - root: OS root for scoped I/O (nil falls back to direct os.* calls)
+//   - root: [Root] for scoped I/O (nil falls back to direct os.* calls)
 //
 // Returns:
 //   - CallableResource: the extracted, compiled callable
 //   - error: any extraction or compilation error
-func ExtractCallable(fn *starlark.Function, funcType string, root *os.Root) (CallableResource, error) {
+func ExtractCallable(fn *starlark.Function, funcType string, root Root) (CallableResource, error) {
 
 	if callableExtractorFn == nil {
 		return nil, fmt.Errorf("no callable extractor registered (mem package not imported?)")

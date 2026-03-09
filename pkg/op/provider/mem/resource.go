@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -82,7 +81,7 @@ func init() {
 
 	// Register callable extractor for the bridge layer.
 
-	op.RegisterCallableExtractor(func(fn *starlark.Function, funcType string, root *os.Root) (op.CallableResource, error) {
+	op.RegisterCallableExtractor(func(fn *starlark.Function, funcType string, root op.Root) (op.CallableResource, error) {
 		c, err := Extract(fn, funcType, root)
 		if err != nil {
 			return nil, err

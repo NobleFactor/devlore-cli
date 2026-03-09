@@ -12,7 +12,7 @@ import (
 // Provider provides platform-independent package management.
 // Platform-specific behavior is delegated to p.Context().Platform.
 //
-// +devlore:access=both
+// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

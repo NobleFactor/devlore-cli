@@ -177,9 +177,13 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 	reg := op.NewActionRegistry()
 
 	// Register all actions (file + package)
-	op.InitAll(reg, op.Context{})
+	tmpDir := t.TempDir()
+	root := op.NewRootReaderWriter(tmpDir)
+	defer root.Close()
+	opCtx := op.Context{Root: root}
+	op.InitAll(reg, opCtx)
 
-	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
+	eng := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, DryRun: true})
 
 	// Create a graph with a namespaced pkg.install node
 	node := &op.Node{
@@ -210,9 +214,13 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	// Test that all namespaced package actions can execute in dry-run mode
 	reg := op.NewActionRegistry()
-	op.InitAll(reg, op.Context{})
+	tmpDir := t.TempDir()
+	root := op.NewRootReaderWriter(tmpDir)
+	defer root.Close()
+	opCtx := op.Context{Root: root}
+	op.InitAll(reg, opCtx)
 
-	eng := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
+	eng := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, DryRun: true})
 
 	// All platforms use these four namespaced package actions
 	actions := []string{
@@ -601,7 +609,10 @@ func TestPlanner_PlanPackages(t *testing.T) {
 	}
 
 	reg := op.NewActionRegistry()
-	op.InitAll(reg, op.Context{})
+	root := op.NewRootReaderWriter(tmpDir)
+	defer root.Close()
+	opCtx := op.Context{Root: root}
+	op.InitAll(reg, opCtx)
 
 	planner := &Planner{
 		Platform:       "Linux.Debian",
@@ -633,8 +644,12 @@ func TestPlanner_PlanPackages(t *testing.T) {
 }
 
 func TestPlanner_PlanByName(t *testing.T) {
+	tmpDir := t.TempDir()
 	reg := op.NewActionRegistry()
-	op.InitAll(reg, op.Context{})
+	root := op.NewRootReaderWriter(tmpDir)
+	defer root.Close()
+	opCtx := op.Context{Root: root}
+	op.InitAll(reg, opCtx)
 
 	planner := &Planner{
 		Platform:       "Darwin",

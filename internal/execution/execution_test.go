@@ -393,7 +393,7 @@ func TestEngineRunLinkPipeline(t *testing.T) {
 	}
 
 	fp := &file.Provider{}
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 	graph := &op.Graph{
 		Nodes: []*op.Node{
 			testNode(".bashrc", &filegen.Link{Impl: fp}, source, target),
@@ -432,6 +432,7 @@ func TestEngineRunRenderCopyPipeline(t *testing.T) {
 	tp := &template.Provider{}
 
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
+		Root: tmpDir,
 		Data: map[string]any{"Username": "david"},
 	})
 
@@ -486,6 +487,7 @@ func TestEngineRunDecryptRenderCopyPipeline(t *testing.T) {
 	tp := &template.Provider{}
 
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
+		Root: tmpDir,
 		Data: map[string]any{
 			"decryptor": mockDecrypt,
 			"Token":     "abc123",
@@ -546,7 +548,7 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 	}
 
 	fp := &file.Provider{}
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 	graph := &op.Graph{
 		Nodes: []*op.Node{
 			testNode("tgt1.txt", &filegen.Link{Impl: fp}, source1, target1),
@@ -570,7 +572,7 @@ func TestEngineRunMultipleNodes(t *testing.T) {
 }
 
 func TestEngineRunUnknownAction(t *testing.T) {
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{Root: t.TempDir()})
 	graph := &op.Graph{
 		Nodes: []*op.Node{
 			{ID: "test", Action: op.StubAction("unknown_op")},
@@ -601,7 +603,7 @@ func TestEngineTopologicalSort(t *testing.T) {
 	}
 
 	fp := &file.Provider{}
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 
 	// B depends on A, C depends on B
 	graph := &op.Graph{
@@ -642,7 +644,7 @@ func TestEngineDryRun(t *testing.T) {
 	}
 
 	fp := &file.Provider{}
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{DryRun: true})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, DryRun: true})
 	graph := &op.Graph{
 		Nodes: []*op.Node{
 			testNode(".bashrc", &filegen.Link{Impl: fp}, source, target),

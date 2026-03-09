@@ -831,10 +831,13 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
              struct_short, len(provider_method_descs), output_dir, write_files)
     gen_file(ctx, "provider_descriptor", provider_desc, "gen/provider.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
-    gen_file(ctx, "immediate_receiver", provider_desc, "gen/immediate.gen.go",
-             struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Also generate planned_receiver if access is planned or both
+    # Generate immediate_receiver if access is immediate or both
+    if access in ["immediate", "both"]:
+        gen_file(ctx, "immediate_receiver", provider_desc, "gen/immediate.gen.go",
+                 struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # Generate planned_receiver if access is planned or both
     if access in ["planned", "both"]:
         planned_desc = dict(provider_desc)
         planned_desc["namespace"] = "plan." + provider
@@ -847,9 +850,10 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
         gen_file(ctx, "actions_test", provider_desc, "gen/actions_gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate immediate receiver tests for all methods.
-    gen_file(ctx, "immediate_test", provider_desc, "gen/immediate_gen_test.go",
-             struct_short, len(provider_method_descs), output_dir, write_files)
+    # Generate immediate receiver tests if access is immediate or both.
+    if access in ["immediate", "both"]:
+        gen_file(ctx, "immediate_test", provider_desc, "gen/immediate_gen_test.go",
+                 struct_short, len(provider_method_descs), output_dir, write_files)
 
     generated_count = 1
 
@@ -1110,6 +1114,7 @@ def prepare_render_data(descriptor, template_name):
         access = desc.get("access", "immediate")
         desc["has_actions"] = access in ["planned", "both"]
         desc["has_planned"] = access in ["planned", "both"]
+        desc["has_immediate"] = access in ["immediate", "both"]
         desc["descriptor_init"] = compute_descriptor_init(desc)
 
     # Add derived fields to each method

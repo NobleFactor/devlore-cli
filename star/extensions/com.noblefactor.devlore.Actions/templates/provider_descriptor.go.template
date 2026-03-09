@@ -36,9 +36,12 @@ func (d *{{.provider}}Provider) NewPlanned(graph *op.Graph, project string, reg 
 }
 {{- end}}
 
+{{- if .has_immediate}}
+
 func (d *{{.provider}}Provider) NewImmediate(cfg op.BindingConfig) starlark.Value {
 {{.descriptor_init}}
 }
+{{- end}}
 
 func init() {
 	op.Announce(&{{.provider}}Provider{})

@@ -46,7 +46,6 @@ type complexityWalker struct {
 // Provider computes cyclomatic and cognitive complexity metrics for Starlark source files.
 //
 // +devlore:access=immediate
-// +devlore:bind Root=WorkDir
 type Provider struct {
 	op.ProviderBase
 	Root string

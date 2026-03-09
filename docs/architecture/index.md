@@ -14,6 +14,7 @@ Internal engineering documentation for devlore-cli developers.
   - [Typed Slots](2.1-typed-slots.md) — Slot model, resolution chain, providers, generated code
   - [Phase Execution](2.2-phase-execution.md) — Saga pattern, phases, retry/rollback, compensation
   - [Orchestration Primitives](2.3-orchestration-primitives.md) — Gather, Choose, WaitUntil, Complete, Degraded, Fatal, Elevate, SlotProxy, lifecycle hooks
+  - [Hermeticity Guarantees](2.4-hermeticity-guarantees.md) — Git-native input snapshots, scope separation (System/Home graphs), layer hermeticity
 
 ### 3. Providers
 

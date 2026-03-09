@@ -60,6 +60,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 
 	// Perform renames
 	fp := &file.Provider{}
+	op.InitProvider(fp, op.Context{Root: op.NewRootReaderWriter(analysis.SourceRoot)})
 	for _, node := range renameNodes {
 		source, err := node.RequireStringSlot("source")
 		if err != nil {
@@ -69,7 +70,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 		if err != nil {
 			return fmt.Errorf("rename node %s: %w", node.ID, err)
 		}
-		if _, _, err := fp.Move(file.Resource{SourcePath: file.SourcePath{Abs: source}}, file.Resource{SourcePath: file.SourcePath{Abs: target}}); err != nil {
+		if _, _, err := fp.Move(file.Resource{SourcePath: op.NewPath("", source)}, file.Resource{SourcePath: op.NewPath("", target)}); err != nil {
 			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
 			return fmt.Errorf("rename %s -> %s: %w", source, target, err)
 		}
