@@ -5,8 +5,12 @@ how providers track external state through typed resource handles, how the
 namespace resolves URI-based identity across the execution graph, and how
 tombstone recovery unifies under a single executor-owned mechanism.
 
-See also: [Resource Management Plan](../plans/resource-management.md) — full
-implementation plan with phases, requirements, and file listings.
+See also:
+
+- [Resource Management Plan](../plans/resource-management.md) — full
+  implementation plan with phases, requirements, and file listings
+- [4.4-root-path-triad.md](4.4-root-path-triad.md) — op.Root, op.Path,
+  and op.RecoverySite interaction architecture
 
 ## 1. The Lineage Problem
 
@@ -121,7 +125,7 @@ metadata. This is the reference implementation for all future resource types.
 // pkg/op/provider/file/resource.go
 type Resource struct {
     op.ResourceBase
-    SourcePath string
+    SourcePath op.Path
     Inode      uint64
     Device     uint64
     Size       int64
@@ -136,7 +140,7 @@ Each field serves a specific purpose:
 | Field | Source | Purpose |
 |-------|--------|---------|
 | `op.ResourceBase` | Embedded | uri, id, originID — identity tracking (private, stamped by catalog) |
-| `SourcePath` | `NewResource` arg | Filesystem path for I/O operations |
+| `SourcePath` | `op.Path` via `Root.NewPath` | Filesystem path for I/O: `Rel()` for confined, `Abs()` for unconfined |
 | `Inode` | `syscall.Stat_t.Ino` | Physical identity (survives rename) |
 | `Device` | `syscall.Stat_t.Dev` | Partition identity (same-device rename guarantee) |
 | `Size` | `os.FileInfo.Size()` | Content length |
@@ -174,13 +178,14 @@ lived:
 // pkg/op/provider/file/resource.go
 type Tombstone struct {
     op.TombstoneBase          // Resource preserves true identity (SourcePath = home)
-    RecoveryPath string       // Where data was temporarily moved (empty if nothing existed)
+    RecoveryID string         // Opaque ID from RecoverySite (empty if nothing existed)
 }
 ```
 
 Tombstones are the undo receipts for destructive operations. The embedded
-Resource always preserves its true identity — `SourcePath` is the file's home.
-`RecoveryPath` records where data was temporarily moved during the operation.
+Resource always preserves its true identity — `SourcePath` (an `op.Path`)
+is the file's home. `RecoveryID` is the opaque identifier returned by
+`RecoverySite.ArchiveFile`, used by `RestoreFile` to locate the archived copy.
 
 ### 3.3 Resource Types by URI Scheme
 
@@ -384,95 +389,77 @@ The file provider's recovery model is built on a single optimization:
 `os.Rename` is O(1) when source and destination are on the same filesystem
 partition (it updates directory entries without copying data).
 
-`moveToRecovery` (`recovery.go:13-60`) moves a file to a UUID-keyed path
-in a recovery directory guaranteed to be on the same partition:
+Recovery is handled by `op.RecoverySite` (`pkg/op/recovery_site.go`), a
+context-aware service holding `Context` (same pattern as `ProviderBase`).
+It is instantiated by the executor and stored in `op.Context.RecoverySite`.
+The RecoverySite places all recovery files under `.devlore/recovery/` within
+the `op.Root` authority boundary (same partition guaranteed):
 
 ```go
-// pkg/op/provider/file/recovery.go (reduced)
-func (p *Provider) moveToRecovery(resource Resource, prune bool, boundary string) (Tombstone, error) {
+// pkg/op/recovery_site.go (reduced)
+func (s *RecoverySite) ArchiveFile(p Path) (string, error) {
 
-    originalPath, _ := filepath.Abs(resource.SourcePath)
-    recoveryBase, _ := p.getRecoveryBase(originalPath)
-    id := uuid.New().String()
-    recoveryPath := filepath.Join(recoveryBase, id)
-    os.MkdirAll(recoveryBase, 0700)
-    os.Rename(originalPath, recoveryPath) // O(1) — same partition
-
-    // Resource identity is NOT modified. RecoveryPath records temporary location.
-    return Tombstone{
-        TombstoneBase: op.NewTombstoneBase(&resource),
-        RecoveryPath:  recoveryPath,
-    }, nil
+    recoveryDir := s.ctx.Root.NewPath(".devlore/recovery")
+    s.ctx.Root.MkdirAll(recoveryDir, 0o700)
+    recoveryID := uuid.New().String()
+    recoveryPath := s.ctx.Root.NewPath(".devlore/recovery/" + recoveryID)
+    s.ctx.Root.Rename(p, recoveryPath) // O(1) — same partition
+    return recoveryID, nil
 }
 ```
 
-`getRecoveryBase` (`recovery_unix.go:21-56`) ensures the recovery directory
-is on the same device as the source file. It first tries
-`os.UserCacheDir()/devlore/recovery` and verifies same-device via
-`syscall.Stat_t.Dev`. If that fails, it walks mount points upward via
-`findMountPoint` until the device ID changes, then places the recovery
-directory at the mount root:
+Providers access the RecoverySite through the standard context path:
 
 ```go
-// pkg/op/provider/file/recovery_unix.go:21 (reduced)
-func (p *Provider) getRecoveryBase(absolutePath string) (string, error) {
-    sourcePath, sourceInfo, _ := getFirstExistingAncestor(absolutePath)
-
-    if cacheDir, err := os.UserCacheDir(); err == nil {
-        recoveryDir := filepath.Join(cacheDir, "devlore", "recovery")
-        _, targetInfo, _ := getFirstExistingAncestor(recoveryDir)
-        if sameDevice, _ := isSameDevice(sourceInfo, targetInfo); sameDevice {
-            return recoveryDir, nil
-        }
-    }
-
-    mountPoint, _ := findMountPoint(sourcePath, sourceInfo)
-    return filepath.Join(mountPoint, ".devlore_recovery"), nil
-}
+recoveryID, err := p.Context().RecoverySite.ArchiveFile(resource.SourcePath)
 ```
 
 ### 5.2 Compensation via Tombstone
 
-`restoreFromRecovery` (`recovery.go:71-100`) reverses the rename:
+`RestoreFile` reverses the rename:
 
 ```go
-// pkg/op/provider/file/recovery.go (reduced)
-func (p *Provider) restoreFromRecovery(tombstone Tombstone) error {
-    originalPath := tombstone.Resource().(*Resource).SourcePath  // true home
-    recoveryPath := tombstone.RecoveryPath                       // temporary location
-    if _, err := os.Stat(recoveryPath); errors.Is(err, fs.ErrNotExist) {
-        return fmt.Errorf("recovery source not found: %s", recoveryPath)
+// pkg/op/recovery_site.go (reduced)
+func (s *RecoverySite) RestoreFile(original Path, recoveryID string) error {
+
+    recoveryPath := s.ctx.Root.NewPath(".devlore/recovery/" + recoveryID)
+    if _, err := s.ctx.Root.Lstat(recoveryPath); errors.Is(err, fs.ErrNotExist) {
+        return fmt.Errorf("recovery source not found: %s", recoveryID)
     }
-    os.MkdirAll(filepath.Dir(originalPath), 0755)
-    return os.Rename(recoveryPath, originalPath)
+    parentDir := s.ctx.Root.NewPath(filepath.Dir(original.Rel()))
+    s.ctx.Root.MkdirAll(parentDir, 0o755)
+    return s.ctx.Root.Rename(recoveryPath, original)
 }
 ```
 
-All compensable file operations (Remove, RemoveAll, Unlink, Copy, WriteText,
-WriteBytes) use the same pattern: extract the `Tombstone` from the undo state
-via `undo["tombstone"].(Tombstone)`, then call `restoreFromRecovery`.
+Compensable file operations that archive to the recovery directory (Remove,
+RemoveAll, Unlink, Copy, WriteText, WriteBytes) use the same pattern: extract
+the `Tombstone` from the undo state, then call
+`p.Context().RecoverySite.RestoreFile(resource.SourcePath, tombstone.RecoveryID)`.
+Note: `Backup` and `Move` do NOT use RecoverySite — they perform direct renames
+to peer locations, and their compensation uses `p.rename` directly.
 
 ### 5.3 The prepareWrite Pattern
 
-`prepareWrite` (`provider.go:818-846`) combines discovery and preemptive
-recovery into a single operation. Every write method calls it before mutating
-the filesystem:
+`prepareWrite` combines discovery and preemptive archival into a single
+operation. Every write method calls it before mutating the filesystem:
 
 ```go
 // pkg/op/provider/file/provider.go (reduced)
 func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombstone, err error) {
 
     result = NewResource(resource.SourcePath)
-    result.Resolve()                        // Discovery
+    result.Resolve(p.Context().Root)        // Discovery (root-scoped via op.Root)
 
     if !result.Exists() {
-        os.MkdirAll(filepath.Dir(result.SourcePath), 0o750)
+        parentDir := p.Context().Root.NewPath(filepath.Dir(result.SourcePath.Rel()))
+        p.Context().Root.MkdirAll(parentDir, 0o750)
         undo = Tombstone{TombstoneBase: op.NewTombstoneBase(&result)}
-        return result, undo, nil            // New file — no RecoveryPath
+        return result, undo, nil            // New file — no RecoveryID
     }
 
     tombstone, _, err := p.Remove(result, false, Resource{})
-    return result, tombstone, err           // Existing file — tombstone with RecoveryPath
+    return result, tombstone, err           // Existing file — tombstone with RecoveryID
 }
 ```
 
@@ -740,7 +727,7 @@ Recovery. Resources map cleanly to each:
 |-------|---------|----------------|
 | **Definition** (planning) | Nodes created with string slots | Nodes created with Resource slots; catalog tracks shadowing |
 | **Activation** (execution) | Provider method called with slot values | Provider method called with Resource; metadata updated post-write |
-| **Recovery** (compensation) | Per-provider tombstone (`moveToRecovery`) | Executor-owned tombstone layer; providers retain same-device logic |
+| **Recovery** (compensation) | Shared `op.RecoverySite` (`ArchiveFile`/`RestoreFile`) | Executor-owned tombstone layer; shared recovery service |
 
 The compensation pairs (`Forward`/`Compensate*`) are unchanged. What changes
 is *who decides* when to create tombstones: the executor's pre-flight pass
@@ -866,16 +853,20 @@ participate in the graph as `Action` nodes.
 
 ## 9. Executor Tombstone Unification
 
-### 9.1 Current: Per-Provider Recovery
+### 9.1 Current: Shared Recovery Site
 
-Today, tombstone logic lives entirely inside the file provider:
+Recovery logic lives in `op.RecoverySite` (`pkg/op/recovery_site.go`), a
+context-aware service holding `Context` (same pattern as `ProviderBase`),
+used by all providers through `op.Context.RecoverySite`. All I/O goes
+through `Context.Root` (the `op.Root` interface):
 
-- `moveToRecovery` (`recovery.go:13`) — moves file to UUID-keyed recovery path
-- `restoreFromRecovery` (`recovery.go:71`) — renames recovery copy back
-- `getRecoveryBase` (`recovery_unix.go:21`) — finds same-partition directory
-- `prepareWrite` (`provider.go:818`) — combines discovery + preemptive recovery
+- `ArchiveFile(p Path) → recoveryID` — moves file to UUID-keyed recovery via zero-copy rename
+- `ArchiveData(data []byte) → recoveryID` — writes arbitrary bytes to recovery for non-file state
+- `RestoreFile(original Path, recoveryID string)` — renames recovery copy back to original path
+- `RestoreData(recoveryID string) → []byte` — reads bytes back from recovery
 
-No other provider has equivalent recovery logic.
+The file provider uses `ArchiveFile`/`RestoreFile` for all compensable
+operations. `prepareWrite` combines discovery + preemptive archival.
 
 ### 9.2 Target: Executor-Owned Tombstone Layer
 
@@ -900,7 +891,7 @@ The `ResourceTombstone` type generalizes the file provider's `Tombstone`:
 ResourceTombstone
 ├── ResourceID    string   ← which resource was shadowed
 ├── URI           string   ← logical address
-├── RecoveryPath  string   ← where the backup lives (filesystem resources)
+├── RecoveryID    string   ← opaque ID from RecoverySite (filesystem resources)
 ├── RecoveryState any      ← provider-specific recovery data (non-filesystem)
 └── Metadata      Metadata ← physical state at time of tombstone
 ```
@@ -908,9 +899,9 @@ ResourceTombstone
 ### 9.3 Migration Path
 
 1. The file provider's `prepareWrite` pattern delegates to the executor's
-   tombstone layer. The provider retains its same-device recovery logic
-   (`getRecoveryBase`, `findMountPoint`) because that is filesystem-specific
-   optimization.
+   tombstone layer. Recovery uses `op.RecoverySite` which places all archived
+   files within `.devlore/recovery/` under the authority boundary (same
+   partition guaranteed).
 
 2. The decision of *when* to tombstone moves from the provider to the
    executor. Today `prepareWrite` decides; in the target architecture, the

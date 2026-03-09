@@ -15,8 +15,17 @@ import (
 	sopsage "github.com/getsops/sops/v3/age"
 	"github.com/getsops/sops/v3/stores/yaml"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
+
+// testProvider creates a Provider with a RootReaderWriter for the given directory.
+func testProvider(t *testing.T, dir string) *Provider {
+	t.Helper()
+	root := op.NewRootReaderWriter(dir)
+	ctx := op.Context{Root: root}
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
 
 func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 	tmp := t.TempDir()
@@ -25,7 +34,7 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := &Provider{}
+	p := testProvider(t, tmp)
 	if err := p.CompensateDecryptSopsFile(Tombstone{DestinationPath: path}); err != nil {
 		t.Fatalf("compensate: %v", err)
 	}
@@ -36,14 +45,14 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 }
 
 func TestCompensateDecryptSopsFile_EmptyPath(t *testing.T) {
-	p := &Provider{}
+	p := testProvider(t, t.TempDir())
 	if err := p.CompensateDecryptSopsFile(Tombstone{}); err != nil {
 		t.Fatalf("compensate with empty path should succeed: %v", err)
 	}
 }
 
 func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
-	p := &Provider{}
+	p := testProvider(t, t.TempDir())
 	err := p.CompensateDecryptSopsFile(Tombstone{DestinationPath: "/nonexistent/path"})
 	if err == nil {
 		t.Fatal("expected error removing nonexistent file")
@@ -51,9 +60,10 @@ func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 }
 
 func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
-	p := &Provider{}
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
 	source := file.NewResource("/nonexistent/encrypted.yaml")
-	dest := file.NewResource(filepath.Join(t.TempDir(), "out.yaml"))
+	dest := file.NewResource(filepath.Join(tmp, "out.yaml"))
 
 	_, _, err := p.DecryptSopsFile(source, dest)
 	if err == nil {
@@ -126,15 +136,16 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 
 	t.Setenv("SOPS_AGE_KEY", ageKey)
 
+	root := op.NewRootReaderWriter(tmp)
 	source := file.NewResource(srcPath)
-	if err := source.Resolve(nil); err != nil {
+	if err := source.Resolve(root); err != nil {
 		t.Fatalf("resolving source: %v", err)
 	}
 
 	dstPath := filepath.Join(tmp, "secret.dec.yaml")
 	dest := file.NewResource(dstPath)
 
-	p := &Provider{}
+	p := testProvider(t, tmp)
 	result, tombstone, err := p.DecryptSopsFile(source, dest)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
@@ -152,8 +163,8 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 		t.Errorf("decrypted content missing 'world': %s", decrypted)
 	}
 
-	if result.SourcePath.Abs != dstPath {
-		t.Errorf("result path = %q, want %q", result.SourcePath.Abs, dstPath)
+	if result.SourcePath.Abs() != dstPath {
+		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), dstPath)
 	}
 	if tombstone.DestinationPath != dstPath {
 		t.Errorf("tombstone path = %q, want %q", tombstone.DestinationPath, dstPath)
@@ -172,15 +183,16 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 
 	t.Setenv("SOPS_AGE_KEY", ageKey)
 
+	root := op.NewRootReaderWriter(tmp)
 	source := file.NewResource(srcPath)
-	if err := source.Resolve(nil); err != nil {
+	if err := source.Resolve(root); err != nil {
 		t.Fatal(err)
 	}
 
 	dstPath := filepath.Join(tmp, "secret.dec.yaml")
 	dest := file.NewResource(dstPath)
 
-	p := &Provider{}
+	p := testProvider(t, tmp)
 	_, tombstone, err := p.DecryptSopsFile(source, dest)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)

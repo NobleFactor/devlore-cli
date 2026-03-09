@@ -16,7 +16,6 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/recovery"
 )
 
 // ResultStatus represents the execution status of a node.
@@ -77,9 +76,9 @@ const (
 
 // ExecutorOptions configures GraphExecutor behavior.
 type ExecutorOptions struct {
-	// BaseDir is the authority boundary for provider operations. When set, a
+	// Root is the authority boundary for provider operations. When set, a
 	// recovery.Site is created and placed on the execution Context.
-	BaseDir string
+	Root string
 
 	// DryRun prevents filesystem modifications.
 	DryRun bool
@@ -121,25 +120,30 @@ func NewGraphExecutor(opts ExecutorOptions) *GraphExecutor {
 }
 
 // newContext creates an execution Context from the executor's options.
-// When BaseDir is set, an os.Root is opened for OS-enforced confinement
+// Root is mandatory — an op.Root is opened for OS-enforced confinement
 // and a RecoverySite is created. The caller must defer Root.Close().
 func (e *GraphExecutor) newContext(ctx context.Context) (*op.Context, error) {
+
+	if e.options.Root == "" {
+		return nil, fmt.Errorf("executor: Root is required")
+	}
+
+	root, err := op.NewConfinedRoot(e.options.Root)
+	if err != nil {
+		return nil, fmt.Errorf("open root %s: %w", e.options.Root, err)
+	}
+
 	execCtx := &op.Context{
 		Context:  ctx,
+		Root:     root,
 		DryRun:   e.options.DryRun,
 		Writer:   e.options.Writer,
 		Data:     e.options.Data,
 		Platform: e.options.Platform,
 		Thread:   e.newThread(),
 	}
-	if e.options.BaseDir != "" {
-		root, err := os.OpenRoot(e.options.BaseDir)
-		if err != nil {
-			return nil, fmt.Errorf("open root %s: %w", e.options.BaseDir, err)
-		}
-		execCtx.Root = root
-		execCtx.RecoverySite = recovery.NewSite(e.options.BaseDir)
-	}
+	execCtx.RecoverySite = op.NewRecoverySite(*execCtx)
+
 	return execCtx, nil
 }
 
@@ -183,9 +187,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 	if err != nil {
 		return err
 	}
-	if execCtx.Root != nil {
-		defer execCtx.Root.Close()
-	}
+	defer execCtx.Root.Close()
 	execCtx.Catalog = g.Catalog
 	execCtx.Graph = g
 
@@ -236,9 +238,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 	if err != nil {
 		return err
 	}
-	if execCtx.Root != nil {
-		defer execCtx.Root.Close()
-	}
+	defer execCtx.Root.Close()
 	execCtx.Catalog = g.Catalog
 	execCtx.Graph = g
 
@@ -455,9 +455,7 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 	if err != nil {
 		return nil, err
 	}
-	if execCtx.Root != nil {
-		defer execCtx.Root.Close()
-	}
+	defer execCtx.Root.Close()
 
 	// Hydrate stub actions and inject context into provider-backed actions.
 	freshReg := op.NewActionRegistry()

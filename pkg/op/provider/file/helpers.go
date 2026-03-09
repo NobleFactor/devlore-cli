@@ -24,15 +24,25 @@ func checksumBytes(data []byte) string {
 	return "sha256:" + hex.EncodeToString(h[:])
 }
 
-// checksumFile reads a path and returns its "sha256:<hex>" checksum.
+// checksumFile reads a path and returns its "sha256:<hex>" checksum. Dispatches to root.ReadFile when root is available,
+// falls back to os.ReadFile otherwise.
 //
 // Parameters:
+//   - root: OS root for scoped I/O (nil falls back to direct os.ReadFile)
 //   - path: Absolute path to the file to read
 //
 // Returns: Empty string if the file cannot be read (e.g., directory, permission error).
-func checksumFile(path string) string {
+func checksumFile(root *os.Root, path string) string {
 
-	data, err := os.ReadFile(path)
+	var data []byte
+	var err error
+
+	if rel := rootRel(root, path); rel != "" {
+		data, err = root.ReadFile(rel)
+	} else {
+		data, err = os.ReadFile(path)
+	}
+
 	if err != nil {
 		return ""
 	}

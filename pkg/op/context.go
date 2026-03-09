@@ -3,25 +3,22 @@ package op
 import (
 	"context"
 	"io"
-	"os"
 
 	"go.starlark.net/starlark"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op/recovery"
 )
 
 // Context provides execution context to actions.
 type Context struct {
 	context.Context // https://pkg.go.dev/context
 
-	// Root provides OS-enforced chroot-style confinement. All scoped provider I/O goes through this.
-	// Opened from the authority boundary directory by the executor; closed after execution completes.
-	// Root.Name() returns the authority boundary path.
-	Root *os.Root
+	// Root provides scoped filesystem operations. All provider I/O goes through this interface.
+	// Three implementations: confinedRoot (execution), RootReader (planning), RootReaderWriter (testing).
+	// Created by the executor or test runner; closed after execution completes.
+	Root Root
 
 	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
 	// Instantiated by the executor from Root.
-	RecoverySite *recovery.Site
+	RecoverySite *RecoverySite
 
 	// Catalog is the resource catalog for the current execution session. The action layer uses it to shadow Resource
 	// results after dispatch. Nil when running without catalog integration (e.g., tests).

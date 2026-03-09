@@ -27,6 +27,43 @@ is generalized into the marshaler so `mem` no longer needs a special registratio
 4. **Generalize the callable extractor.** Fold `*starlark.Function → CallableResource` coercion
    into the marshaler's constructor registry so it is no longer a one-off mechanism.
 
+## Design Constraints
+
+### DC1: Thread-safe lazy initialization
+
+Resource descriptors must use `sync.Once` to guarantee exactly-once initialization. Two goroutines
+hitting the same resource type concurrently must not double-init or race. The current
+`callableExtractorFn` (bare function pointer, no synchronization) is a known deficiency — Phase 3
+must replace it with the `sync.Once`-protected descriptor pattern.
+
+### DC2: Lazy init error semantics
+
+When `Init()` fails, the error is cached and returned on all subsequent attempts. No retry. This
+avoids repeated expensive failures and makes behavior deterministic. The resource descriptor tracks
+three states: uninitialized, initialized, failed.
+
+### DC3: First use is plan time
+
+"Lazy on first use" means the first plan that references a resource type triggers its `Init()`. This
+happens during `coerceSlotValue` in the planned bridge — before execution begins. Resources that no
+plan references pay zero initialization cost. Resources that a plan does reference are fully
+initialized before execution starts.
+
+### DC4: Resource gen lives in the existing gen package
+
+Generated resource descriptors go into the existing `*/gen` package alongside `provider.gen.go`
+(e.g., `pkg/op/provider/file/gen/resource.gen.go`). Since `register.go` already blank-imports each
+`*/gen` package, no changes to `register.go` are needed — the resource descriptor's `init()` fires
+automatically.
+
+### DC5: Callable extraction is plan-time only
+
+Callable extraction reads source code from the planning machine, compiles it, and stores the
+compiled form in slots. Execution happens later, potentially on different machines. Since `*os.Root`
+is an execution-time value (scoped to the target machine), it is irrelevant to extraction. The
+`*os.Root` parameter added to the extraction chain in the os.Root work (Phase 5) must be reverted
+as part of Phase 3 — extraction signatures should not accept `*os.Root`.
+
 ## Current State
 
 | Component               | Status          | Notes                                                                   |
@@ -148,10 +185,13 @@ The `star` codegen tool is extended to:
 
 Add the resource announcement mechanism to `pkg/op`, parallel to the provider one.
 
-- [ ] Define `ResourceDescriptor` interface in `pkg/op`
+- [ ] Define `ResourceDescriptor` interface in `pkg/op`: `Name() string`, `Init() error`
 - [ ] Implement `AnnounceResource()` and resource announcement registry
 - [ ] Implement lazy `InitResource()` called from the marshaler on first use
+- [ ] Each descriptor wraps `Init()` in `sync.Once` — exactly-once guarantee (DC1)
+- [ ] Failed `Init()` caches the error and returns it on subsequent calls (DC2)
 - [ ] Add tests for the announcement and lazy init lifecycle
+- [ ] Add tests for concurrent first-use (two goroutines, same type)
 
 **Files**:
 
@@ -183,9 +223,12 @@ Establish the hand-written constructor convention and generate the resource desc
 
 Fold the callable extractor into the marshaler so `mem` no longer needs a special registration.
 
+- [ ] Remove `*os.Root` from the extraction chain: `Extract`, `ExtractWithName`, `synthesize`,
+      `extractLambdaBody`, `extractDefSource`, `readSource` (DC5 — revert Phase 5 threading)
 - [ ] Move `buildCallableFunc` and callable adapter logic into the marshaler as native coercion
 - [ ] Register `mem.Extract` + `mem.Compile` as a resource constructor via `AnnounceResource`
-- [ ] Remove `RegisterCallableExtractor`, `callableExtractorFn`, and `ExtractCallable`
+- [ ] Remove `RegisterCallableExtractor`, `callableExtractorFn`, and `ExtractCallable` —
+      replaced by `sync.Once`-protected descriptor (DC1)
 - [ ] Update `planned_reflect.go` and `action_reflect.go` to use the marshaler for callable
       coercion instead of calling `ExtractCallable` directly
 - [ ] Verify callable tests pass
@@ -199,14 +242,15 @@ Fold the callable extractor into the marshaler so `mem` no longer needs a specia
 - `pkg/op/planned_reflect.go` — Modify: remove direct `ExtractCallable` call
 - `pkg/op/action_reflect.go` — Modify: remove callable special-case
 - `pkg/op/provider/mem/resource.go` — Modify: remove `RegisterCallableExtractor` from init
+- `pkg/op/provider/mem/extract.go` — Modify: remove `*os.Root` from extraction signatures
+- `pkg/op/provider/mem/extract_test.go` — Modify: update tests for removed `*os.Root` parameter
 
 ### Phase 4: Cleanup
 
-- [ ] Delete stale local memory copy of style guidelines
 - [ ] Verify no hand-written `init()` remains in any `resource.go`
 - [ ] Run `make check` — full quality gate
-- [ ] Grep for `RegisterConstructor`, `RegisterCallableExtractor` — confirm no direct calls remain
-      outside generated code
+- [ ] Grep for `RegisterConstructor`, `RegisterCallableExtractor`, `ExtractCallable`,
+      `callableExtractorFn` — confirm no direct calls remain outside generated code
 
 ## Migration Path
 
@@ -228,6 +272,8 @@ detects it by signature, not by name.
 | `pkg/op/action_reflect.go`              | Modify | Remove callable special-case                                    |
 | `pkg/op/provider/*/resource.go`         | Modify | Export constructor as `ResourceFromValue`, delete `init()`      |
 | `pkg/op/provider/*/gen/resource.gen.go` | Create | Generated resource descriptors                                  |
+| `pkg/op/provider/mem/extract.go`        | Modify | Remove `*os.Root` from extraction signatures                    |
+| `pkg/op/provider/mem/extract_test.go`   | Modify | Update tests for removed `*os.Root` parameter                   |
 | `noblefactor-ops/cmd/star`              | Modify | Extend codegen to read `resource.go`                            |
 
 ## Related Documents
@@ -246,3 +292,16 @@ detects it by signature, not by name.
 - **Callable adapter location**: Merge `callable.go` into `starvalue_marshal.go`. At ~860 lines
   combined, this is manageable. The `CallableResource` interface, `buildCallableFunc`,
   `initCallableSlots`, and related helpers all move into the marshaler.
+- **Thread safety**: Per-descriptor `sync.Once` for exactly-once initialization. Replaces the
+  unprotected `callableExtractorFn` function pointer.
+- **Error caching**: Failed `Init()` caches the error. No retry. Deterministic behavior.
+- **Gen package placement**: Resource descriptors go in the existing `*/gen` package alongside
+  `provider.gen.go`. No changes to `register.go` needed.
+- **`*os.Root` in extraction**: Reverted. Extraction is plan-time only; root is execution-time
+  only (target machine). The `*os.Root` parameter threaded through the extraction chain in the
+  os.Root work (Phase 5) was premature — extraction always reads source from the planning machine
+  via `os.ReadFile`. Phase 3 removes `*os.Root` from the extraction signatures.
+
+## Open Decisions
+
+(None — all design questions resolved.)

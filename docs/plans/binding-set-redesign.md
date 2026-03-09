@@ -154,7 +154,7 @@ func (p *starlarkCodeProvider) Name() string { return "starlarkcode" }
 
 func (p *starlarkCodeProvider) NewImmediate(cfg op.BindingConfig) starlark.Value {
     provider := &Provider{}
-    op.InitProvider(provider, op.Context{BaseDir: cfg.WorkDir})
+    op.InitProvider(provider, op.Context{Root: root, RecoverySite: site})
     return NewStarlarkCodeReceiver(provider)
 }
 

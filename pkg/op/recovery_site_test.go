@@ -1,24 +1,34 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package recovery
+package op
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestArchiveFile_MovesFile(t *testing.T) {
+// newTestRecoverySite creates a RecoverySite backed by a RootReaderWriter at a temp directory.
+func newTestRecoverySite(t *testing.T) (*RecoverySite, Root) {
+	t.Helper()
 	tmp := t.TempDir()
-	site := NewSite(tmp)
+	root := NewRootReaderWriter(tmp)
+	ctx := Context{Root: root}
+	return NewRecoverySite(ctx), root
+}
+
+func TestArchiveFile_MovesFile(t *testing.T) {
+	site, root := newTestRecoverySite(t)
+	tmp := root.Name()
 
 	srcPath := filepath.Join(tmp, "original.txt")
 	if err := os.WriteFile(srcPath, []byte("content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	recoveryPath, err := site.ArchiveFile(srcPath)
+	recoveryID, err := site.ArchiveFile(root.NewPath("original.txt"))
 	if err != nil {
 		t.Fatalf("ArchiveFile() error = %v", err)
 	}
@@ -28,8 +38,14 @@ func TestArchiveFile_MovesFile(t *testing.T) {
 		t.Error("original file still exists after archive")
 	}
 
-	// Recovery path should exist with same content.
-	data, err := os.ReadFile(recoveryPath)
+	// Recovery ID should be root-relative under .devlore/recovery/.
+	if !strings.HasPrefix(recoveryID, ".devlore/recovery/") {
+		t.Errorf("recovery ID %q does not start with .devlore/recovery/", recoveryID)
+	}
+
+	// Recovery file should exist with same content.
+	absRecovery := filepath.Join(tmp, recoveryID)
+	data, err := os.ReadFile(absRecovery)
 	if err != nil {
 		t.Fatalf("ReadFile(recovery) error = %v", err)
 	}
@@ -39,42 +55,40 @@ func TestArchiveFile_MovesFile(t *testing.T) {
 }
 
 func TestArchiveFile_CreatesRecoveryDir(t *testing.T) {
-	tmp := t.TempDir()
-	site := NewSite(tmp)
+	site, root := newTestRecoverySite(t)
+	tmp := root.Name()
 
-	srcPath := filepath.Join(tmp, "file.txt")
-	if err := os.WriteFile(srcPath, []byte("data"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "file.txt"), []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	recoveryPath, err := site.ArchiveFile(srcPath)
+	recoveryID, err := site.ArchiveFile(root.NewPath("file.txt"))
 	if err != nil {
 		t.Fatalf("ArchiveFile() error = %v", err)
 	}
 
-	// Recovery path should be under .devlore/recovery/.
-	dir := filepath.Join(tmp, ".devlore", "recovery")
-	rel, err := filepath.Rel(dir, recoveryPath)
-	if err != nil || filepath.IsAbs(rel) {
-		t.Errorf("recovery path %q not under %q", recoveryPath, dir)
+	// Recovery ID should be under .devlore/recovery/.
+	if !strings.HasPrefix(recoveryID, ".devlore/recovery/") {
+		t.Errorf("recovery ID %q not under .devlore/recovery/", recoveryID)
 	}
 }
 
 func TestRestoreFile_MovesBack(t *testing.T) {
-	tmp := t.TempDir()
-	site := NewSite(tmp)
+	site, root := newTestRecoverySite(t)
+	tmp := root.Name()
 
 	srcPath := filepath.Join(tmp, "original.txt")
 	if err := os.WriteFile(srcPath, []byte("content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	recoveryPath, err := site.ArchiveFile(srcPath)
+	p := root.NewPath("original.txt")
+	recoveryID, err := site.ArchiveFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := site.RestoreFile(srcPath, recoveryPath); err != nil {
+	if err := site.RestoreFile(p, recoveryID); err != nil {
 		t.Fatalf("RestoreFile() error = %v", err)
 	}
 
@@ -87,25 +101,27 @@ func TestRestoreFile_MovesBack(t *testing.T) {
 		t.Errorf("restored content = %q, want %q", data, "content")
 	}
 
-	// Recovery path should be gone.
-	if _, err := os.Lstat(recoveryPath); !os.IsNotExist(err) {
+	// Recovery file should be gone.
+	absRecovery := filepath.Join(tmp, recoveryID)
+	if _, err := os.Lstat(absRecovery); !os.IsNotExist(err) {
 		t.Error("recovery file still exists after restore")
 	}
 }
 
 func TestRestoreFile_RecreatesParentDir(t *testing.T) {
-	tmp := t.TempDir()
-	site := NewSite(tmp)
+	site, root := newTestRecoverySite(t)
+	tmp := root.Name()
 
-	nested := filepath.Join(tmp, "a", "b", "file.txt")
-	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil {
+	nested := filepath.Join(tmp, "a", "b")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(nested, []byte("data"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(nested, "file.txt"), []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	recoveryPath, err := site.ArchiveFile(nested)
+	p := root.NewPath("a/b/file.txt")
+	recoveryID, err := site.ArchiveFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,11 +129,11 @@ func TestRestoreFile_RecreatesParentDir(t *testing.T) {
 	// Simulate pruneEmptyParents removing the parent directory.
 	os.RemoveAll(filepath.Join(tmp, "a"))
 
-	if err := site.RestoreFile(nested, recoveryPath); err != nil {
+	if err := site.RestoreFile(p, recoveryID); err != nil {
 		t.Fatalf("RestoreFile() error = %v", err)
 	}
 
-	data, err := os.ReadFile(nested)
+	data, err := os.ReadFile(filepath.Join(tmp, "a", "b", "file.txt"))
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
@@ -127,38 +143,38 @@ func TestRestoreFile_RecreatesParentDir(t *testing.T) {
 }
 
 func TestRestoreFile_ErrorOnEmptyPaths(t *testing.T) {
-	site := NewSite(t.TempDir())
+	site, root := newTestRecoverySite(t)
 
-	if err := site.RestoreFile("", "some/path"); err == nil {
-		t.Error("RestoreFile(\"\", ...) should error")
+	if err := site.RestoreFile(root.NewPath(""), "some/path"); err == nil {
+		t.Error("RestoreFile(empty path, ...) should error")
 	}
 
-	if err := site.RestoreFile("some/path", ""); err == nil {
+	if err := site.RestoreFile(root.NewPath("some/path"), ""); err == nil {
 		t.Error("RestoreFile(..., \"\") should error")
 	}
 }
 
 func TestRestoreFile_ErrorOnMissingRecovery(t *testing.T) {
-	site := NewSite(t.TempDir())
+	site, root := newTestRecoverySite(t)
 
-	err := site.RestoreFile("/some/original", "/nonexistent/recovery")
+	err := site.RestoreFile(root.NewPath("some/original"), "nonexistent/recovery")
 	if err == nil {
 		t.Error("RestoreFile with missing recovery should error")
 	}
 }
 
 func TestArchiveData_WritesBytes(t *testing.T) {
-	tmp := t.TempDir()
-	site := NewSite(tmp)
+	site, root := newTestRecoverySite(t)
+	tmp := root.Name()
 
 	data := []byte("hello, recovery")
 
-	recoveryPath, err := site.ArchiveData(data)
+	recoveryID, err := site.ArchiveData(data)
 	if err != nil {
 		t.Fatalf("ArchiveData() error = %v", err)
 	}
 
-	got, err := os.ReadFile(recoveryPath)
+	got, err := os.ReadFile(filepath.Join(tmp, recoveryID))
 	if err != nil {
 		t.Fatalf("ReadFile(recovery) error = %v", err)
 	}
@@ -168,17 +184,16 @@ func TestArchiveData_WritesBytes(t *testing.T) {
 }
 
 func TestRestoreData_ReadsBytes(t *testing.T) {
-	tmp := t.TempDir()
-	site := NewSite(tmp)
+	site, _ := newTestRecoverySite(t)
 
 	original := []byte("round-trip data")
 
-	recoveryPath, err := site.ArchiveData(original)
+	recoveryID, err := site.ArchiveData(original)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := site.RestoreData(recoveryPath)
+	got, err := site.RestoreData(recoveryID)
 	if err != nil {
 		t.Fatalf("RestoreData() error = %v", err)
 	}

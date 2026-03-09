@@ -33,7 +33,7 @@ var (
 // Compensable forward methods return (T, Tombstone, error): the result, the compensation tombstone, and an error.
 // The tombstone is opaque to the executor, meaningful only to the corresponding "Compensate*" backward method.
 //
-// +devlore:access=both
+// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
@@ -75,9 +75,9 @@ func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, 
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
-	backupPath := path.SourcePath.Abs + backupSuffix + "." + timestamp
+	backupPath := path.SourcePath.Abs() + backupSuffix + "." + timestamp
 
-	if err := p.rename(path.SourcePath.Abs, backupPath); err != nil {
+	if err := p.rename(path.SourcePath.Abs(), backupPath); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
@@ -86,10 +86,10 @@ func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, 
 		return Resource{}, Tombstone{}, err
 	}
 
-	// Tombstone preserves the resource's true identity. RecoveryPath records where the data was moved to.
+	// Tombstone preserves the resource's true identity. RecoveryID records where the data was moved to.
 	undo = Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&path),
-		RecoveryPath:  backupPath,
+		RecoveryID:    backupPath,
 	}
 
 	return result, undo, nil
@@ -97,6 +97,7 @@ func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, 
 
 // CompensateBackup undoes a Backup by moving the backup back to the original path.
 //
+// Backup uses a plain rename (not RecoverySite), so compensation renames back directly.
 // The resource's checksum is verified before restoring; a mismatch indicates external modification.
 func (p *Provider) CompensateBackup(undo Tombstone) error {
 
@@ -105,19 +106,22 @@ func (p *Provider) CompensateBackup(undo Tombstone) error {
 	}
 
 	resource := undo.Resource().(*Resource)
-	recoveryPath := undo.RecoveryPath
+	recoveryID := undo.RecoveryID
 
 	if resource.Checksum != "" {
-		actual := checksumFile(recoveryPath)
+		actual := checksumFile(p.Context().Root, recoveryID)
 		if actual == "" {
-			return fmt.Errorf("cannot read %s for verification", recoveryPath)
+			return fmt.Errorf("cannot read %s for verification", recoveryID)
 		}
 		if actual != resource.Checksum {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryPath)
+			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryID)
 		}
 	}
 
-	return p.Context().RecoverySite.RestoreFile(resource.SourcePath.Abs, recoveryPath)
+	if err := p.mkdirAll(filepath.Dir(resource.SourcePath.Abs()), 0o755); err != nil {
+		return err
+	}
+	return p.rename(recoveryID, resource.SourcePath.Abs())
 }
 
 // Copy copies a blob to the file at "destination" with the given mode.
@@ -145,13 +149,13 @@ func (p *Provider) Copy(sourceFile Resource, destinationFilename Resource, desti
 		destinationFileMode = 0o644
 	}
 
-	src, err := p.open(sourceFile.SourcePath.Abs)
+	src, err := p.open(sourceFile.SourcePath.Abs())
 	if err != nil {
 		return result, undo, err
 	}
 	defer src.Close()
 
-	dst, err := p.openFile(result.SourcePath.Abs, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
+	dst, err := p.openFile(result.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
 	if err != nil {
 		return result, undo, err
 	}
@@ -184,22 +188,22 @@ func (p *Provider) CompensateCopy(undo Tombstone) error {
 //   - err: any error
 func (p *Provider) Link(source, path Resource) (result Resource, undo Tombstone, err error) {
 
-	if info, err := p.lstat(path.SourcePath.Abs); err == nil {
+	if info, err := p.lstat(path.SourcePath.Abs()); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			existing, readErr := p.readlink(path.SourcePath.Abs)
-			if readErr == nil && existing == source.SourcePath.Abs {
+			existing, readErr := p.readlink(path.SourcePath.Abs())
+			if readErr == nil && existing == source.SourcePath.Abs() {
 				return path, Tombstone{}, nil // Already correct — no change
 			}
 		}
 
 		// Something exists at the path — archive it before creating the symlink.
-		recoveryPath, archiveErr := p.Context().RecoverySite.ArchiveFile(path.SourcePath.Abs)
+		recoveryID, archiveErr := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
 		if archiveErr != nil {
 			return Resource{}, Tombstone{}, archiveErr
 		}
 		undo = Tombstone{
 			TombstoneBase: op.NewTombstoneBase(&path),
-			RecoveryPath:  recoveryPath,
+			RecoveryID:    recoveryID,
 		}
 	} else {
 		// Nothing exists — tombstone records the path for removal on compensation.
@@ -208,15 +212,15 @@ func (p *Provider) Link(source, path Resource) (result Resource, undo Tombstone,
 		}
 	}
 
-	if err := p.mkdirAll(filepath.Dir(path.SourcePath.Abs), 0o750); err != nil {
+	if err := p.mkdirAll(filepath.Dir(path.SourcePath.Abs()), 0o750); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	if err := p.symlink(source.SourcePath.Abs, path.SourcePath.Abs); err != nil {
+	if err := p.symlink(source.SourcePath.Abs(), path.SourcePath.Abs()); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	result = NewResource(path.SourcePath.Abs)
+	result = NewResource(path.SourcePath.Abs())
 	if err = result.Resolve(p.Context().Root); err != nil {
 		return Resource{}, undo, err
 	}
@@ -240,27 +244,27 @@ func (p *Provider) CompensateLink(undo Tombstone) error {
 //   - err: any error
 func (p *Provider) Move(source, destination Resource) (result Resource, undo Tombstone, err error) {
 
-	if _, err := p.stat(source.SourcePath.Abs); err != nil {
+	if _, err := p.stat(source.SourcePath.Abs()); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	if err := p.mkdirAll(filepath.Dir(destination.SourcePath.Abs), 0o750); err != nil {
+	if err := p.mkdirAll(filepath.Dir(destination.SourcePath.Abs()), 0o750); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	if err := p.rename(source.SourcePath.Abs, destination.SourcePath.Abs); err != nil {
+	if err := p.rename(source.SourcePath.Abs(), destination.SourcePath.Abs()); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	result = NewResource(destination.SourcePath.Abs)
+	result = NewResource(destination.SourcePath.Abs())
 	if err := result.Resolve(p.Context().Root); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	// Tombstone preserves the source's true identity. RecoveryPath records where the data was moved to.
+	// Tombstone preserves the source's true identity. RecoveryID records where the data was moved to.
 	undo = Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&source),
-		RecoveryPath:  destination.SourcePath.Abs,
+		RecoveryID:    destination.SourcePath.Abs(),
 	}
 
 	return result, undo, nil
@@ -268,6 +272,7 @@ func (p *Provider) Move(source, destination Resource) (result Resource, undo Tom
 
 // CompensateMove undoes a Move by moving the file back to its original location.
 //
+// Move uses a plain rename (not RecoverySite), so compensation renames back directly.
 // The resource's checksum is verified before restoring; a mismatch indicates external modification.
 func (p *Provider) CompensateMove(undo Tombstone) error {
 
@@ -276,22 +281,25 @@ func (p *Provider) CompensateMove(undo Tombstone) error {
 	}
 
 	resource := undo.Resource().(*Resource)
-	recoveryPath := undo.RecoveryPath
+	recoveryID := undo.RecoveryID
 
 	if resource.Checksum != "" {
 
-		actual := checksumFile(recoveryPath)
+		actual := checksumFile(p.Context().Root, recoveryID)
 
 		if actual == "" {
-			return fmt.Errorf("cannot read %s for verification", recoveryPath)
+			return fmt.Errorf("cannot read %s for verification", recoveryID)
 		}
 
 		if actual != resource.Checksum {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryPath)
+			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryID)
 		}
 	}
 
-	return p.Context().RecoverySite.RestoreFile(resource.SourcePath.Abs, recoveryPath)
+	if err := p.mkdirAll(filepath.Dir(resource.SourcePath.Abs()), 0o755); err != nil {
+		return err
+	}
+	return p.rename(recoveryID, resource.SourcePath.Abs())
 }
 
 // Remove deletes the file at "path".
@@ -308,7 +316,7 @@ func (p *Provider) CompensateMove(undo Tombstone) error {
 //   - err: any error
 func (p *Provider) Remove(path Resource, prune bool, boundary Resource) (result Tombstone, undo Tombstone, err error) {
 
-	nonEmptyDirectory, err := isDirAndNotEmpty(path.SourcePath.Abs, p.Context().Root)
+	nonEmptyDirectory, err := p.isDirAndNotEmpty(path.SourcePath.Abs())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return Tombstone{}, Tombstone{}, nil
@@ -317,19 +325,19 @@ func (p *Provider) Remove(path Resource, prune bool, boundary Resource) (result 
 	}
 
 	if nonEmptyDirectory {
-		return Tombstone{}, Tombstone{}, fmt.Errorf("directory %s is not empty", path.SourcePath.Abs)
+		return Tombstone{}, Tombstone{}, fmt.Errorf("directory %s is not empty", path.SourcePath.Abs())
 	}
 
-	recoveryPath, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath.Abs)
+	recoveryID, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
 	if err != nil {
 		return Tombstone{}, Tombstone{}, err
 	}
 
-	p.pruneEmptyParents(path.SourcePath.Abs, prune, boundary.SourcePath.Abs)
+	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundary.SourcePath.Abs())
 
 	tombstone := Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&path),
-		RecoveryPath:  recoveryPath,
+		RecoveryID:    recoveryID,
 	}
 	return tombstone, tombstone, nil
 }
@@ -339,7 +347,7 @@ func (p *Provider) CompensateRemove(undo Tombstone) error {
 	if undo.Resource() == nil {
 		return nil
 	}
-	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath.Abs, undo.RecoveryPath)
+	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath, undo.RecoveryID)
 }
 
 // RemoveAll removes the file at "path" and any children it contains.
@@ -354,16 +362,16 @@ func (p *Provider) CompensateRemove(undo Tombstone) error {
 //   - err: any error
 func (p *Provider) RemoveAll(path Resource, prune bool, boundary Resource) (result Tombstone, undo Tombstone, err error) {
 
-	recoveryPath, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath.Abs)
+	recoveryID, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
 	if err != nil {
 		return Tombstone{}, Tombstone{}, err
 	}
 
-	p.pruneEmptyParents(path.SourcePath.Abs, prune, boundary.SourcePath.Abs)
+	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundary.SourcePath.Abs())
 
 	tombstone := Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&path),
-		RecoveryPath:  recoveryPath,
+		RecoveryID:    recoveryID,
 	}
 	return tombstone, tombstone, nil
 }
@@ -373,7 +381,7 @@ func (p *Provider) CompensateRemoveAll(undo Tombstone) error {
 	if undo.Resource() == nil {
 		return nil
 	}
-	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath.Abs, undo.RecoveryPath)
+	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath, undo.RecoveryID)
 }
 
 // Unlink removes the symlink at "path".
@@ -390,7 +398,7 @@ func (p *Provider) CompensateRemoveAll(undo Tombstone) error {
 //   - err: any error
 func (p *Provider) Unlink(path Resource, prune bool, boundary Resource) (result Tombstone, undo Tombstone, err error) {
 
-	info, err := p.lstat(path.SourcePath.Abs)
+	info, err := p.lstat(path.SourcePath.Abs())
 	if os.IsNotExist(err) {
 		return Tombstone{}, Tombstone{}, nil // Already gone — no change
 	}
@@ -400,19 +408,19 @@ func (p *Provider) Unlink(path Resource, prune bool, boundary Resource) (result 
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
-		return Tombstone{}, Tombstone{}, fmt.Errorf("%s is not a symlink", path.SourcePath.Abs)
+		return Tombstone{}, Tombstone{}, fmt.Errorf("%s is not a symlink", path.SourcePath.Abs())
 	}
 
-	recoveryPath, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath.Abs)
+	recoveryID, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
 	if err != nil {
 		return Tombstone{}, Tombstone{}, err
 	}
 
-	p.pruneEmptyParents(path.SourcePath.Abs, prune, boundary.SourcePath.Abs)
+	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundary.SourcePath.Abs())
 
 	tombstone := Tombstone{
 		TombstoneBase: op.NewTombstoneBase(&path),
-		RecoveryPath:  recoveryPath,
+		RecoveryID:    recoveryID,
 	}
 	return tombstone, tombstone, nil
 }
@@ -422,7 +430,7 @@ func (p *Provider) CompensateUnlink(undo Tombstone) error {
 	if undo.Resource() == nil {
 		return nil
 	}
-	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath.Abs, undo.RecoveryPath)
+	return p.Context().RecoverySite.RestoreFile(undo.Resource().(*Resource).SourcePath, undo.RecoveryID)
 }
 
 // WalkTree performs a depth-first traversal with an accumulator and a RecoveryStack for compensable operations.
@@ -449,14 +457,14 @@ func (p *Provider) WalkTree(root Resource, fn Reducer, honorGitignore bool) (res
 	var tracker *gitignore.Tracker
 
 	if honorGitignore {
-		value, err := gitignore.NewTracker(root.SourcePath.Abs)
+		value, err := gitignore.NewTracker(root.SourcePath.Abs())
 		if err != nil {
 			return nil, nil, err
 		}
 		tracker = value
 	}
 
-	absoluteRoot, err := filepath.Abs(root.SourcePath.Abs)
+	absoluteRoot, err := filepath.Abs(root.SourcePath.Abs())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -512,13 +520,10 @@ func (p *Provider) WalkTree(root Resource, fn Reducer, honorGitignore bool) (res
 
 	var walkErr error
 	if osRoot != nil {
-		if relRoot := rootRel(osRoot, absoluteRoot); relRoot != "" {
-			walkErr = fs.WalkDir(osRoot.FS(), relRoot, func(relPath string, d fs.DirEntry, walkDirErr error) error {
-				return walkFn(filepath.Join(osRoot.Name(), relPath), d, walkDirErr)
-			})
-		} else {
-			walkErr = filepath.WalkDir(absoluteRoot, walkFn)
-		}
+		relRoot := osRoot.NewPath(absoluteRoot).Rel()
+		walkErr = fs.WalkDir(osRoot.FS(), relRoot, func(relPath string, d fs.DirEntry, walkDirErr error) error {
+			return walkFn(filepath.Join(osRoot.Name(), relPath), d, walkDirErr)
+		})
 	} else {
 		walkErr = filepath.WalkDir(absoluteRoot, walkFn)
 	}
@@ -597,7 +602,7 @@ func (p *Provider) CompensateWriteText(undo Tombstone) error {
 //   - bool: true if the resource exists, false otherwise
 //   - error: permission or other I/O errors (not-exist is not an error)
 func (p *Provider) Exists(resource Resource) (bool, error) {
-	_, err := p.lstat(resource.SourcePath.Abs)
+	_, err := p.lstat(resource.SourcePath.Abs())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -660,7 +665,7 @@ func (p *Provider) Glob(pattern string, honorGitignore bool) ([]string, error) {
 //   - bool: true if the resource is a directory, false otherwise
 //   - error: permission or other I/O errors (not-exist is not an error)
 func (p *Provider) IsDir(resource Resource) (bool, error) {
-	info, err := p.stat(resource.SourcePath.Abs)
+	info, err := p.stat(resource.SourcePath.Abs())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -679,7 +684,7 @@ func (p *Provider) IsDir(resource Resource) (bool, error) {
 //   - bool: true if the resource is a regular file, false otherwise
 //   - error: permission or other I/O errors (not-exist is not an error)
 func (p *Provider) IsFile(resource Resource) (bool, error) {
-	info, err := p.stat(resource.SourcePath.Abs)
+	info, err := p.stat(resource.SourcePath.Abs())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -698,7 +703,7 @@ func (p *Provider) IsFile(resource Resource) (bool, error) {
 // Returns:
 //   - string: The absolute path of the created directory
 func (p *Provider) Mkdir(resource Resource, mode os.FileMode) (Resource, error) {
-	return resource, p.mkdirAll(resource.SourcePath.Abs, mode)
+	return resource, p.mkdirAll(resource.SourcePath.Abs(), mode)
 }
 
 // Read creates a Resource from the file at "path" for reading the contents of the file at "path".
@@ -709,7 +714,7 @@ func (p *Provider) Mkdir(resource Resource, mode os.FileMode) (Resource, error) 
 // Returns:
 //   - result: the contents of the file
 func (p *Provider) Read(path Resource) (result Resource, err error) {
-	r := NewResource(path.SourcePath.Abs)
+	r := NewResource(path.SourcePath.Abs())
 	if err := r.Resolve(p.Context().Root); err != nil {
 		return Resource{}, err
 	}
@@ -759,11 +764,42 @@ func (p *Provider) Parent(path string) string {
 
 // region Behaviors
 
+// isDirAndNotEmpty checks if the path is a directory that contains at least one entry. Returns true if it is a
+// directory with contents, false if it's a file, a symlink, or an empty directory. Check for existence on error return
+// using errors.Is(err, os.ErrNotExist).
+func (p *Provider) isDirAndNotEmpty(abs string) (bool, error) {
+
+	f, err := p.open(abs)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	fileInfo, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+
+	if !fileInfo.IsDir() {
+		return false, nil
+	}
+
+	_, err = f.Readdirnames(1)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
 // compensateWrite reverts a write or link operation by removing the new file and restoring the original from recovery.
 //
-// The resource's SourcePath.Abs is the file's true home — where the new file was written. When RecoveryPath is empty,
-// no file existed before — the new file is simply removed. When RecoveryPath is set, the new file is removed and the
-// old data is restored from RecoveryPath back to SourcePath.Abs.
+// The resource's SourcePath is the file's true home — where the new file was written. When RecoveryID is empty,
+// no file existed before — the new file is simply removed. When RecoveryID is set, the new file is removed and the
+// old data is restored from RecoveryID back to SourcePath.
 //
 // Parameters:
 //   - undo: Tombstone from the forward write or link operation
@@ -776,20 +812,19 @@ func (p *Provider) compensateWrite(undo Tombstone) error {
 		return nil
 	}
 
-	homePath := undo.Resource().(*Resource).SourcePath.Abs
-	if err := p.remove(homePath); err != nil && !os.IsNotExist(err) {
+	resource := undo.Resource().(*Resource)
+	if err := p.remove(resource.SourcePath.Abs()); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	if undo.RecoveryPath == "" {
+	if undo.RecoveryID == "" {
 		return nil
 	}
 
-	return p.Context().RecoverySite.RestoreFile(homePath, undo.RecoveryPath)
+	return p.Context().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
 }
 
-// lstat returns file info without following symlinks. Dispatches to root.Lstat when root is available, falls back to
-// os.Lstat otherwise.
+// lstat returns file info without following symlinks.
 //
 // Parameters:
 //   - abs: Absolute path to stat
@@ -800,15 +835,10 @@ func (p *Provider) compensateWrite(undo Tombstone) error {
 func (p *Provider) lstat(abs string) (os.FileInfo, error) {
 
 	root := p.Context().Root
-	if rel := rootRel(root, abs); rel != "" {
-		return root.Lstat(rel)
-	}
-
-	return os.Lstat(abs)
+	return root.Lstat(root.NewPath(abs))
 }
 
-// mkdirAll creates a directory and all parents. Dispatches to root.MkdirAll when root is available, falls back to
-// os.MkdirAll otherwise.
+// mkdirAll creates a directory and all parents.
 //
 // Parameters:
 //   - abs: Absolute path to create
@@ -819,14 +849,10 @@ func (p *Provider) lstat(abs string) (os.FileInfo, error) {
 func (p *Provider) mkdirAll(abs string, perm os.FileMode) error {
 
 	root := p.Context().Root
-	if rel := rootRel(root, abs); rel != "" {
-		return root.MkdirAll(rel, perm)
-	}
-
-	return os.MkdirAll(abs, perm)
+	return root.MkdirAll(root.NewPath(abs), perm)
 }
 
-// open opens a file for reading. Dispatches to root.Open when root is available, falls back to os.Open otherwise.
+// open opens a file for reading.
 //
 // Parameters:
 //   - abs: Absolute path to the file
@@ -837,15 +863,10 @@ func (p *Provider) mkdirAll(abs string, perm os.FileMode) error {
 func (p *Provider) open(abs string) (*os.File, error) {
 
 	root := p.Context().Root
-	if rel := rootRel(root, abs); rel != "" {
-		return root.Open(rel)
-	}
-
-	return os.Open(abs)
+	return root.Open(root.NewPath(abs))
 }
 
-// openFile opens a file with the given flags and permissions. Dispatches to root.OpenFile when root is available, falls
-// back to os.OpenFile otherwise.
+// openFile opens a file with the given flags and permissions.
 //
 // Parameters:
 //   - abs: Absolute path to the file
@@ -858,16 +879,12 @@ func (p *Provider) open(abs string) (*os.File, error) {
 func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, error) {
 
 	root := p.Context().Root
-	if rel := rootRel(root, abs); rel != "" {
-		return root.OpenFile(rel, flag, perm)
-	}
-
-	return os.OpenFile(abs, flag, perm)
+	return root.OpenFile(root.NewPath(abs), flag, perm)
 }
 
 // prepareWrite handles pre-write backup for destructive operations. If the destination exists, it is moved to a
 // recovery site before the write proceeds. If the destination does not exist, the parent directory is created and a
-// tombstone with no RecoveryPath is returned (compensation will simply remove the newly created file).
+// tombstone with no RecoveryID is returned (compensation will simply remove the newly created file).
 //
 // Parameters:
 //   - resource: Resource for the destination file
@@ -878,13 +895,13 @@ func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, e
 //   - error: any error from backup or directory creation
 func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombstone, err error) {
 
-	result = NewResource(resource.SourcePath.Abs)
+	result = NewResource(resource.SourcePath.Abs())
 	if err = result.Resolve(p.Context().Root); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
 	if !result.Exists() {
-		err = p.mkdirAll(filepath.Dir(result.SourcePath.Abs), 0o750)
+		err = p.mkdirAll(filepath.Dir(result.SourcePath.Abs()), 0o750)
 		if err != nil {
 			return Resource{}, Tombstone{}, errors.Join(os.ErrNotExist, err)
 		}
@@ -931,8 +948,7 @@ func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
 	}
 }
 
-// readlink reads the destination of a symlink. Dispatches to root.Readlink when root is available, falls back to
-// os.Readlink otherwise. Always returns an absolute path.
+// readlink reads the destination of a symlink. Always returns an absolute path.
 //
 // Parameters:
 //   - abs: Absolute path to the symlink
@@ -943,25 +959,20 @@ func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
 func (p *Provider) readlink(abs string) (string, error) {
 
 	root := p.Context().Root
-	if rel := rootRel(root, abs); rel != "" {
-		target, err := root.Readlink(rel)
-		if err != nil {
-			return "", err
-		}
-
-		// Root.Readlink returns the symlink target as stored (relative). Resolve to absolute for comparison.
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(abs), target)
-		}
-
-		return filepath.Clean(target), nil
+	target, err := root.Readlink(root.NewPath(abs))
+	if err != nil {
+		return "", err
 	}
 
-	return os.Readlink(abs)
+	// Root.Readlink returns the symlink target as stored (relative). Resolve to absolute for comparison.
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(abs), target)
+	}
+
+	return filepath.Clean(target), nil
 }
 
-// remove removes a file or empty directory. Dispatches to root.Remove when root is available, falls back to os.Remove
-// otherwise.
+// remove removes a file or empty directory.
 //
 // Parameters:
 //   - abs: Absolute path to remove
@@ -971,15 +982,10 @@ func (p *Provider) readlink(abs string) (string, error) {
 func (p *Provider) remove(abs string) error {
 
 	root := p.Context().Root
-	if rel := rootRel(root, abs); rel != "" {
-		return root.Remove(rel)
-	}
-
-	return os.Remove(abs)
+	return root.Remove(root.NewPath(abs))
 }
 
-// rename moves a file from oldAbs to newAbs. Dispatches to root.Rename when root is available, falls back to
-// os.Rename otherwise.
+// rename moves a file from oldAbs to newAbs.
 //
 // Parameters:
 //   - oldAbs: Absolute path of the file to move
@@ -990,15 +996,10 @@ func (p *Provider) remove(abs string) error {
 func (p *Provider) rename(oldAbs, newAbs string) error {
 
 	root := p.Context().Root
-	if rel := rootRel(root, oldAbs); rel != "" {
-		return root.Rename(rel, rootRel(root, newAbs))
-	}
-
-	return os.Rename(oldAbs, newAbs)
+	return root.Rename(root.NewPath(oldAbs), root.NewPath(newAbs))
 }
 
-// stat returns file info following symlinks. Dispatches to root.Stat when root is available, falls back to os.Stat
-// otherwise.
+// stat returns file info following symlinks.
 //
 // Parameters:
 //   - abs: Absolute path to stat
@@ -1009,15 +1010,11 @@ func (p *Provider) rename(oldAbs, newAbs string) error {
 func (p *Provider) stat(abs string) (os.FileInfo, error) {
 
 	root := p.Context().Root
-	if rel := rootRel(root, abs); rel != "" {
-		return root.Stat(rel)
-	}
-
-	return os.Stat(abs)
+	return root.Stat(root.NewPath(abs))
 }
 
-// symlink creates a symbolic link. When root is available, the target is stored as a relative path (os.Root requires
-// non-absolute symlink targets). Falls back to os.Symlink with absolute target otherwise.
+// symlink creates a symbolic link. The target is stored as a relative path (os.Root requires non-absolute symlink
+// targets).
 //
 // Parameters:
 //   - targetAbs: Absolute path that the symlink should point to
@@ -1028,15 +1025,11 @@ func (p *Provider) stat(abs string) (os.FileInfo, error) {
 func (p *Provider) symlink(targetAbs, linkAbs string) error {
 
 	root := p.Context().Root
-	if rel := rootRel(root, linkAbs); rel != "" {
-		relTarget, err := filepath.Rel(filepath.Dir(linkAbs), targetAbs)
-		if err != nil {
-			return err
-		}
-		return root.Symlink(relTarget, rel)
+	relTarget, err := filepath.Rel(filepath.Dir(linkAbs), targetAbs)
+	if err != nil {
+		return err
 	}
-
-	return os.Symlink(targetAbs, linkAbs)
+	return root.Symlink(relTarget, root.NewPath(linkAbs))
 }
 
 // write writes data to the specified path after preparing the write operation.
@@ -1061,7 +1054,7 @@ func (p *Provider) write(resource Resource, data []byte, mode os.FileMode) (resu
 		mode = 0o644
 	}
 
-	f, err := p.openFile(result.SourcePath.Abs, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	f, err := p.openFile(result.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return result, undo, err
 	}
@@ -1091,3 +1084,23 @@ func (p *Provider) write(resource Resource, data []byte, mode os.FileMode) (resu
 // endregion
 
 // endregion
+
+// ── Package-level helpers ────────────────────────────────────────────────────────────────────────────
+
+// checksumBytes computes "sha256:<hex>" for content bytes.
+func checksumBytes(data []byte) string {
+	h := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(h[:])
+}
+
+// checksumFile reads a path and returns its "sha256:<hex>" checksum. I/O is scoped through [op.Root]. Returns empty
+// string if the file cannot be read.
+func checksumFile(root op.Root, path string) string {
+
+	data, err := root.ReadFile(root.NewPath(path))
+	if err != nil {
+		return ""
+	}
+
+	return checksumBytes(data)
+}
