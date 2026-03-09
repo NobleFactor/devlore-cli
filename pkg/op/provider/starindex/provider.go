@@ -61,7 +61,6 @@ type Index struct {
 // Provider performs AST-based indexing of Starlark source files.
 //
 // +devlore:access=immediate
-// +devlore:bind Root=WorkDir
 type Provider struct {
 	op.ProviderBase
 	Root string

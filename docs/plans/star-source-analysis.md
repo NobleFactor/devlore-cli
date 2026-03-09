@@ -62,7 +62,7 @@ report = sources.analyze(hotspots=True, cyclomatic_threshold=10,
 ### Go API
 
 ```go
-p := &starlarkcode.Provider{ProviderBase: op.NewProviderBase(op.Context{BaseDir: "."})}
+p := &starlarkcode.Provider{ProviderBase: op.NewProviderBase(op.Context{Root: root})}
 sources, _ := p.Capture("**/*.star", true, true)
 idx, _     := sources.Index(true, true)
 stats, _   := sources.Stats(true, true)

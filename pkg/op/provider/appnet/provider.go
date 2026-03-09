@@ -15,7 +15,7 @@ import (
 
 // Provider provides network actions.
 //
-// +devlore:access=both
+// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

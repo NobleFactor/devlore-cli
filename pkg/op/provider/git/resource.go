@@ -81,7 +81,7 @@ func unescapeInnerURI(s string) string {
 }
 
 // Resolve canonicalizes the clone path to an absolute path and updates the URI.
-func (r *Resource) Resolve() error {
+func (r *Resource) Resolve(_ op.Root) error {
 	abs, err := filepath.Abs(r.ClonePath)
 	if err == nil {
 		r.ClonePath = filepath.Clean(abs)

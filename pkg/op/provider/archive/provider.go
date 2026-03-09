@@ -20,7 +20,7 @@ import (
 
 // Provider provides archive extraction actions.
 //
-// +devlore:access=both
+// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
@@ -35,21 +35,21 @@ type Provider struct {
 //   - source: file resource identifying the archive file (tar.gz, tgz, or zip)
 //   - prefix: file resource identifying the extraction directory
 func (p *Provider) Extract(source, prefix file.Resource) (file.Resource, Tombstone, error) {
-	if err := os.MkdirAll(prefix.SourcePath, 0o750); err != nil {
+	if err := os.MkdirAll(prefix.SourcePath.Abs(), 0o750); err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("create prefix dir: %w", err)
 	}
 
 	var created []string
 	var err error
 
-	lower := strings.ToLower(source.SourcePath)
+	lower := strings.ToLower(source.SourcePath.Abs())
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		created, err = extractTarGz(source.SourcePath, prefix.SourcePath)
+		created, err = extractTarGz(source.SourcePath.Abs(), prefix.SourcePath.Abs())
 	case strings.HasSuffix(lower, ".zip"):
-		created, err = extractZip(source.SourcePath, prefix.SourcePath)
+		created, err = extractZip(source.SourcePath.Abs(), prefix.SourcePath.Abs())
 	default:
-		return file.Resource{}, Tombstone{}, fmt.Errorf("unsupported archive format: %s", source.SourcePath)
+		return file.Resource{}, Tombstone{}, fmt.Errorf("unsupported archive format: %s", source.SourcePath.Abs())
 	}
 
 	if err != nil {
@@ -57,7 +57,7 @@ func (p *Provider) Extract(source, prefix file.Resource) (file.Resource, Tombsto
 	}
 
 	return prefix, Tombstone{
-		Dest:         prefix.SourcePath,
+		Dest:         prefix.SourcePath.Abs(),
 		CreatedFiles: created,
 	}, nil
 }

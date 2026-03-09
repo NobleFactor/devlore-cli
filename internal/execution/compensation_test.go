@@ -136,7 +136,7 @@ func TestCompensationFileActions(t *testing.T) {
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
 
 	g := phasedGraph([]*op.Node{writeNode, linkNode, failNode})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
 	if err == nil {
@@ -166,7 +166,7 @@ func TestCompensationOrdering(t *testing.T) {
 	nodeFail := &op.Node{ID: "fail", Action: &failAction{}}
 
 	g := phasedGraph([]*op.Node{nodeA, nodeB, nodeC, nodeFail})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: t.TempDir(), Writer: io.Discard})
 
 	if err := executor.Run(context.Background(), g); err == nil {
 		t.Fatal("expected error")
@@ -207,6 +207,7 @@ func TestCompensationDryRun(t *testing.T) {
 
 	g := phasedGraph([]*op.Node{writeNode, linkNode, failNode})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
+		Root:   tmpDir,
 		DryRun: true,
 		Writer: io.Discard,
 	})
@@ -240,7 +241,7 @@ func TestCompensationNilState(t *testing.T) {
 	failNode := &op.Node{ID: "fail", Action: &failAction{}}
 
 	g := phasedGraph([]*op.Node{noopNode, writeNode, failNode})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
 	if err == nil {
@@ -274,7 +275,7 @@ func TestCompensationPartialFailure(t *testing.T) {
 	thirdNode.SetSlotImmediate("mode", os.FileMode(0o644))
 
 	g := phasedGraph([]*op.Node{firstNode, failNode, thirdNode})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Writer: io.Discard})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, Writer: io.Discard})
 
 	err := executor.Run(context.Background(), g)
 	if err == nil {
@@ -296,7 +297,10 @@ func TestCompensationPartialFailure(t *testing.T) {
 // when a later iteration fails. Uses Gather.Do directly.
 func TestCompensationGather(t *testing.T) {
 	tmpDir := t.TempDir()
-	fp := &file.Provider{}
+	root := op.NewRootReaderWriter(tmpDir)
+	provCtx := op.Context{Root: root}
+	provCtx.RecoverySite = op.NewRecoverySite(provCtx)
+	fp := &file.Provider{ProviderBase: op.NewProviderBase(provCtx)}
 
 	paths := []string{
 		filepath.Join(tmpDir, "a.txt"),
@@ -326,10 +330,12 @@ func TestCompensationGather(t *testing.T) {
 	}
 
 	ctx := &op.Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
-		Graph:   g,
-		NodeID:  "gather",
+		Context:      context.Background(),
+		Root:         root,
+		RecoverySite: provCtx.RecoverySite,
+		Writer:       io.Discard,
+		Graph:        g,
+		NodeID:       "gather",
 	}
 
 	gather := &flow.Gather{}

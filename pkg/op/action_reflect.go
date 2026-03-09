@@ -450,11 +450,19 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 		snakeName := camelToSnake(goName)
 		actionName := name + "." + snakeName
 
+		// Strip '?' suffixes from param names. The '?' is a Starlark
+		// UnpackArgs marker for optional parameters; it must not leak
+		// into the action layer where slots are stored without the suffix.
+		cleanedNames := make([]string, len(paramNames))
+		for i, pn := range paramNames {
+			cleanedNames[i] = strings.TrimSuffix(pn, "?")
+		}
+
 		base := actionBase{
 			name:       actionName,
 			provider:   pv,
 			method:     method,
-			paramNames: paramNames,
+			paramNames: cleanedNames,
 		}
 
 		hasError := mt.NumOut() > 0 && mt.Out(mt.NumOut()-1).Implements(errorType)

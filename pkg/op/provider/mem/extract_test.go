@@ -46,7 +46,7 @@ fn = lambda x, y: x + y
 `)
 	fn := globals["fn"].(*starlark.Function)
 
-	c, err := Extract(fn, "TestType")
+	c, err := Extract(fn, "TestType", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -98,7 +98,7 @@ fn = make()
 `)
 	fn := globals["fn"].(*starlark.Function)
 
-	c, err := Extract(fn, "Predicate")
+	c, err := Extract(fn, "Predicate", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -128,7 +128,7 @@ def count_files(initial, resource, path):
 `)
 	fn := globals["count_files"].(*starlark.Function)
 
-	c, err := Extract(fn, "file.Reducer")
+	c, err := Extract(fn, "file.Reducer", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -174,7 +174,7 @@ fn = make()
 `)
 	check := globals["fn"].(*starlark.Function)
 
-	c, err := Extract(check, "Predicate")
+	c, err := Extract(check, "Predicate", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -201,7 +201,7 @@ fn = lambda x: x * 2
 `)
 	fn := globals["fn"].(*starlark.Function)
 
-	c, err := ExtractWithName(fn, "Transform", "file.walk_tree.fn")
+	c, err := ExtractWithName(fn, "Transform", "file.walk_tree.fn", nil)
 	if err != nil {
 		t.Fatalf("ExtractWithName: %v", err)
 	}
@@ -229,7 +229,7 @@ fn = make()
 `)
 	fn := globals["fn"].(*starlark.Function)
 
-	c, err := Extract(fn, "Transform")
+	c, err := Extract(fn, "Transform", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -271,7 +271,7 @@ def double(x):
 `)
 	fn := globals["double"].(*starlark.Function)
 
-	c, err := Extract(fn, "Transform")
+	c, err := Extract(fn, "Transform", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -317,7 +317,7 @@ fn = make()
 `)
 	fn := globals["fn"].(*starlark.Function)
 
-	c, err := Extract(fn, "Transform")
+	c, err := Extract(fn, "Transform", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}

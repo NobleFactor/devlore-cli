@@ -22,7 +22,6 @@ import (
 // Provider performs Starlark source capture.
 //
 // +devlore:access=immediate
-// +devlore:bind Root=WorkDir
 type Provider struct {
 	op.ProviderBase
 	Root string
@@ -145,7 +144,9 @@ func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) 
 		return initial, nil
 	})
 
-	_, _, err := (&file.Provider{}).WalkTree(file.Resource{SourcePath: absRoot}, visitor, honorGitignore)
+	fp := &file.Provider{}
+	op.InitProvider(fp, op.Context{Root: op.NewRootReader(absRoot)})
+	_, _, err := fp.WalkTree(file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, honorGitignore)
 	if err != nil {
 		return nil, err
 	}

@@ -19,6 +19,7 @@ type BindingSet struct {
 	cfg      op.BindingConfig
 	included map[string]bool
 	cache    map[string]*loaderEntry
+	ctx      op.Context // stored by RegisterActions for immediate receiver initialization
 }
 
 // loaderEntry caches the result of resolving a provider module.
@@ -46,6 +47,7 @@ func NewBindingSet(cfg op.BindingConfig) *BindingSet {
 // executor, not the script environment.
 func (bs *BindingSet) RegisterActions(reg *op.ActionRegistry, ctx op.Context) {
 	op.InitAll(reg, ctx)
+	bs.ctx = ctx
 }
 
 // NewPopulatedRegistry creates an ActionRegistry with all provider actions registered.
@@ -76,7 +78,11 @@ func (bs *BindingSet) BuildGlobals(graph *op.Graph, project string, reg *op.Acti
 			continue
 		}
 		if ip, ok := p.(op.ImmediateProvider); ok {
-			globals[p.Name()] = ip.NewImmediate(bs.cfg)
+			recv := ip.NewImmediate(bs.cfg)
+			if rr, ok := recv.(*op.ReflectedReceiver); ok && bs.ctx.Root != nil {
+				rr.SetContext(bs.ctx)
+			}
+			globals[p.Name()] = recv
 		}
 	}
 
@@ -124,8 +130,11 @@ func (bs *BindingSet) resolveProvider(name string, graph *op.Graph, project stri
 		if !ok {
 			return nil, fmt.Errorf("provider %q has no immediate factory", name)
 		}
-		value := ip.NewImmediate(bs.cfg)
-		return starlark.StringDict{name: value}, nil
+		recv := ip.NewImmediate(bs.cfg)
+		if rr, ok := recv.(*op.ReflectedReceiver); ok && bs.ctx.Root != nil {
+			rr.SetContext(bs.ctx)
+		}
+		return starlark.StringDict{name: recv}, nil
 	}
 	return nil, fmt.Errorf("no provider %q registered", name)
 }

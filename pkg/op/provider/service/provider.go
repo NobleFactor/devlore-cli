@@ -13,7 +13,7 @@ import (
 // Provider provides platform-agnostic service management.
 // Platform-specific behavior is delegated to p.Context().Platform.ServiceManager.
 //
-// +devlore:access=both
+// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

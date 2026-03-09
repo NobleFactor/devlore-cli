@@ -5,7 +5,8 @@ package op
 
 import "go.starlark.net/starlark"
 
-// Provider is the required interface for all provider descriptors — generated and handwritten alike.
+// Provider is the required interface for all provider descriptors--generated and handwritten alike.
+//
 // Every provider implements this to announce its name and register its actions with the framework.
 type Provider interface {
 	Name() string
@@ -13,6 +14,7 @@ type Provider interface {
 }
 
 // PlannedProvider is optional. Checked via type assertion during InitAll.
+//
 // Providers that contribute a plan sub-namespace (e.g., plan.file) implement this.
 type PlannedProvider interface {
 	NewPlanned(graph *Graph, project string, reg *ActionRegistry) starlark.Value

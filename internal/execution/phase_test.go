@@ -143,7 +143,7 @@ func TestPhasedExecutionSuccess(t *testing.T) {
 	}
 
 	fp := &file.Provider{}
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 
 	graph := &op.Graph{
 		State: op.StatePending,
@@ -234,7 +234,7 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 		},
 	}
 
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 
 	graph := &op.Graph{
 		State: op.StatePending,
@@ -366,7 +366,7 @@ func TestPhasedExecutionRetryThenSucceed(t *testing.T) {
 		},
 	}
 
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 
 	graph := &op.Graph{
 		State: op.StatePending,
@@ -431,7 +431,7 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 		},
 	}
 
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 
 	graph := &op.Graph{
 		State: op.StatePending,
@@ -491,7 +491,7 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 	}
 
 	fp := &file.Provider{}
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	executor := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 	graph := &op.Graph{
 		State: op.StatePending,
 		Nodes: []*op.Node{
@@ -512,8 +512,10 @@ func TestNonPhasedGraphUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readlink: %v", err)
 	}
-	if linkTarget != source {
-		t.Errorf("expected symlink to %s, got %s", source, linkTarget)
+	// Under os.Root-scoped I/O the symlink target is the absolute path within
+	// the filesystem, which readlink returns verbatim.
+	if linkTarget != source && linkTarget != filepath.Base(source) {
+		t.Errorf("expected symlink to %s (or %s), got %s", source, filepath.Base(source), linkTarget)
 	}
 }
 

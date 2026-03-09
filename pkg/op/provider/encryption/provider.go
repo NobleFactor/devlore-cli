@@ -7,7 +7,6 @@ package encryption
 import (
 	"bytes"
 	"fmt"
-	"os"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -16,7 +15,7 @@ import (
 
 // Provider provides encryption and decryption actions.
 //
-// +devlore:access=both
+// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
@@ -27,9 +26,12 @@ type Provider struct {
 //   - source: file resource identifying the encrypted SOPS file
 //   - destination: file resource identifying where to write the decrypted content
 func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resource) (file.Resource, Tombstone, error) {
+
+	root := p.Context().Root
+
 	// 1. Read the source file into memory
 	buffer := bytes.NewBuffer(make([]byte, 0, source.Size))
-	if _, err := source.WriteTo(buffer); err != nil {
+	if _, err := source.WriteTo(root, buffer); err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to read source: %w", err)
 	}
 
@@ -40,23 +42,26 @@ func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resour
 	}
 
 	// 3. Write cleartext to the destination path
-	if err := os.WriteFile(destination.SourcePath, cleartext, 0o600); err != nil {
+	if err := root.WriteFile(root.NewPath(destination.SourcePath.Abs()), cleartext, 0o600); err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to write destination: %w", err)
 	}
 
 	// 4. Wrap the new file in a Resource
-	result := file.NewResource(destination.SourcePath)
-	if err := result.Resolve(); err != nil {
+	result := file.NewResource(destination.SourcePath.Abs())
+	if err := result.Resolve(root); err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to resolve destination: %w", err)
 	}
 
-	return result, Tombstone{DestinationPath: destination.SourcePath}, nil
+	return result, Tombstone{DestinationPath: destination.SourcePath.Abs()}, nil
 }
 
 // CompensateDecryptSopsFile removes the decrypted file created by DecryptSopsFile.
 func (p *Provider) CompensateDecryptSopsFile(state Tombstone) error {
+
 	if state.DestinationPath == "" {
 		return nil
 	}
-	return os.Remove(state.DestinationPath)
+
+	root := p.Context().Root
+	return root.Remove(root.NewPath(state.DestinationPath))
 }

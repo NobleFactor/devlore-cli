@@ -448,7 +448,7 @@ func TestGraphLifecycle(t *testing.T) {
 	}
 
 	// Step 4: Run the graph
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 	if err := engine.Run(context.Background(), &loaded); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestGraphLifecycleWithPipeline(t *testing.T) {
 	}
 
 	// Run with template data
-	engine := execution.NewGraphExecutor(execution.ExecutorOptions{})
+	engine := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir})
 	if err := engine.Run(context.Background(), &loaded); err != nil {
 		t.Fatalf("run: %v", err)
 	}

@@ -172,12 +172,15 @@ iterLoop:
 
 			// Per-iteration context with its own mutable fields.
 			iterCtx := &op.Context{
-				Context: iterCtxBase,
-				DryRun:  ctx.DryRun,
-				Writer:  ctx.Writer,
-				Data:    ctx.Data,
-				Graph:   ctx.Graph,
-				NodeID:  ctx.NodeID,
+				Context:      iterCtxBase,
+				Root:         ctx.Root,
+				RecoverySite: ctx.RecoverySite,
+				DryRun:       ctx.DryRun,
+				Writer:       ctx.Writer,
+				Data:         ctx.Data,
+				Graph:        ctx.Graph,
+				NodeID:       ctx.NodeID,
+				Platform:     ctx.Platform,
 			}
 
 			outcomes[idx] = executeIteration(iterCtx, ordered, gatherID, val)

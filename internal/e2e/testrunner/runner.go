@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
@@ -100,13 +101,16 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	bs := loreStar.NewBindingSet(op.BindingConfig{
 		Writer:      r.writer,
 		ProgramName: "devlore-test",
-		WorkDir:     tmpDir,
 		Receivers:   r.receivers,
 	})
 
 	// 3. Create ActionRegistry with all provider actions
 	reg := op.NewActionRegistry()
-	op.InitAll(reg, op.Context{})
+	root := op.NewRootReaderWriter(tmpDir)
+	defer root.Close()
+	opCtx := op.Context{Root: root}
+	opCtx.RecoverySite = op.NewRecoverySite(opCtx)
+	bs.RegisterActions(reg, opCtx)
 
 	// 4. Create Platform
 	plat := platform.New()
@@ -118,8 +122,12 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	// 6. Build Starlark globals
 	globals := bs.BuildGlobals(graph, "devlore-test", reg)
 
-	// 7. Create TestContext and add to globals
-	tc := NewTestContext(tmpDir)
+	// 7. Create TestContext rooted at .devlore/tmp/ under tmpDir
+	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
+	if err := os.MkdirAll(testTmpDir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating test tmp dir: %w", err)
+	}
+	tc := NewTestContext(testTmpDir, root)
 	globals["t"] = tc.StarlarkValue()
 
 	// 8. Set up tracer
@@ -181,6 +189,7 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 
 	// 13. Execute graph
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
+		Root:     tmpDir,
 		DryRun:   r.dryRun,
 		Writer:   r.writer,
 		Platform: plat,

@@ -157,7 +157,7 @@ func buildPlannedBridge(
 			// CallableResource and store as a slot immediate.
 			if starFn, ok := sv.(*starlark.Function); ok && i+1 < mt.NumIn() && isFuncType(mt.In(i+1)) {
 				funcType := providerName + "." + mt.In(i+1).Name()
-				callable, err := ExtractCallable(starFn, funcType)
+				callable, err := ExtractCallable(starFn, funcType, nil)
 				if err != nil {
 					return nil, fmt.Errorf("%s: param %s: extract callable: %w", snakeName, cleanName, err)
 				}

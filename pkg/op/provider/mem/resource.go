@@ -16,14 +16,12 @@ import (
 
 // Resource represents an in-memory data resource identified by a mem: URI.
 //
-// Unlike file or git resources that reference external systems, a mem.Resource
-// holds its content directly. The Data field contains the raw bytes (source text,
-// JSON, template content, etc.). The ContentType field classifies the content
-// for dispatch (e.g., "callable", "json", "template").
+// Unlike file or git resources that reference external systems, a mem.Resource holds its content directly. The Data
+// field contains the raw bytes (source text, JSON, template content, etc.). The ContentType field classifies the
+// content for dispatch (e.g., "callable", "json", "template").
 //
-// The URI is opaque: mem:<content-type>/<qualifier>. The content hash is stored
-// as a metadata field for change detection — NOT part of the URI. Two resources
-// with the same URI but different hashes trigger a catalog shadow.
+// The URI is opaque: mem:<content-type>/<qualifier>. The content hash is stored as a metadata field for change
+// detection — NOT part of the URI. Two resources with the same URI but different hashes trigger a catalog shadow.
 type Resource struct {
 	op.ResourceBase
 	ContentType string // "callable", "json", "template", etc.
@@ -56,6 +54,7 @@ func (r *Resource) ComputeHash() {
 }
 
 // NewResource creates a mem.Resource with the given content type and qualifier.
+//
 // Data must be set separately; Hash is computed when ComputeHash is called.
 func NewResource(contentType, qualifier string) Resource {
 	r := Resource{
@@ -79,9 +78,11 @@ func NewResourceWithData(contentType, qualifier string, data []byte) Resource {
 }
 
 func init() {
+
 	// Register callable extractor for the bridge layer.
-	op.RegisterCallableExtractor(func(fn *starlark.Function, funcType string) (op.CallableResource, error) {
-		c, err := Extract(fn, funcType)
+
+	op.RegisterCallableExtractor(func(fn *starlark.Function, funcType string, root op.Root) (op.CallableResource, error) {
+		c, err := Extract(fn, funcType, root)
 		if err != nil {
 			return nil, err
 		}
@@ -92,24 +93,30 @@ func init() {
 	})
 
 	op.RegisterConstructor(func(v any) (Resource, error) {
+
 		s, ok := v.(string)
 		if !ok {
 			return Resource{}, fmt.Errorf("mem.Resource: expected string URI, got %T", v)
 		}
-		// Parse a mem: URI back into ContentType and Qualifier.
-		// Expected format: mem:<content-type>[/<qualifier>]
+
+		// Parse a mem: URI back into ContentType and Qualifier. Expected format: mem:<content-type>[/<qualifier>]
+
 		if !strings.HasPrefix(s, "mem:") {
 			return Resource{}, fmt.Errorf("mem.Resource: expected mem: URI, got %q", s)
 		}
+
 		opaque := s[len("mem:"):]
 		contentType, qualifier, _ := strings.Cut(opaque, "/")
+
 		if contentType == "" {
 			return Resource{}, fmt.Errorf("mem.Resource: empty content type in %q", s)
 		}
+
 		r := Resource{
 			ContentType: contentType,
 			Qualifier:   qualifier,
 		}
+
 		r.SetURI(r.buildURI())
 		return r, nil
 	})

@@ -75,7 +75,7 @@ func (r *Resource) Purl() string {
 // (when not specified at plan time) and Version from the installed
 // package version. The executor injects platform context before calling
 // Resolve().
-func (r *Resource) Resolve() error {
+func (r *Resource) Resolve(_ op.Root) error {
 	// Type and Version resolution requires platform context, which is
 	// injected by the executor. This is a skeleton — the executor calls
 	// Resolve() after platform injection.

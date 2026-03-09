@@ -11,9 +11,14 @@ import (
 type Context struct {
 	context.Context // https://pkg.go.dev/context
 
-	// BaseDir is where the program's authority begins. It defines the boundary beyond which actions should not look or
-	// act. Any directory outside of this is out of scope.
-	BaseDir string
+	// Root provides scoped filesystem operations. All provider I/O goes through this interface.
+	// Three implementations: confinedRoot (execution), RootReader (planning), RootReaderWriter (testing).
+	// Created by the executor or test runner; closed after execution completes.
+	Root Root
+
+	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
+	// Instantiated by the executor from Root.
+	RecoverySite *RecoverySite
 
 	// Catalog is the resource catalog for the current execution session. The action layer uses it to shadow Resource
 	// results after dispatch. Nil when running without catalog integration (e.g., tests).

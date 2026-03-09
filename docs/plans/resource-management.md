@@ -201,9 +201,10 @@ The namespace resets only when a new graph is created.
 **Decision**: Executor owns the *decision* (when to tombstone). Provider owns
 the *mechanism* (how to tombstone for its resource type).
 
-The file provider retains `moveToRecovery` / `getRecoveryBase` /
-`restoreFromRecovery` because same-device rename is a filesystem-specific
-optimization. The executor's pre-flight pass decides *which* resources need
+Recovery logic has been extracted to `recovery.Site` (`pkg/op/recovery/site.go`),
+a shared service on `op.Context.RecoverySite`. The Site provides `ArchiveFile` /
+`RestoreFile` (zero-copy rename) and `ArchiveData` / `RestoreData` (byte
+serialization). The executor's pre-flight pass decides *which* resources need
 tombstones based on namespace analysis. Non-filesystem providers (service,
 package) get tombstone-like behavior through their existing compensation
 pairs — `service.Start` compensates via `service.Stop`, no file backup needed.
@@ -1046,7 +1047,7 @@ See [phase-2.md](resource-management/phase-2.md).
 All file provider methods accept `Resource` for path parameters. All
 compensable methods return `Resource` results. The Reducer/Actor signatures
 use `Resource`. `boundary` is `Resource`. Mode uses full `os.FileMode`.
-`Provider.Root()` returns `Context().BaseDir`.
+`Provider.Root()` returns `Context().Root`.
 
 See [phase-3.md](resource-management/phase-3.md) and
 [phase-3b.md](resource-management/phase-3b.md) for details.
@@ -1264,7 +1265,7 @@ See [phase-11.md](resource-management/phase-11.md).
    *ResourceCatalog`, `FillSlot` implicit edges. See
    [phase-2.md](resource-management/phase-2.md). Merged in PR #177.
 3. **Phase 3**: ~~File provider migration.~~ **DONE** — All methods accept
-   `Resource`. Reducer/Actor signatures. `Provider.Root()` returns `Context().BaseDir`.
+   `Resource`. Reducer/Actor signatures. `Provider.Root()` returns `Context().Root`.
    See [phase-3.md](resource-management/phase-3.md),
    [phase-3b.md](resource-management/phase-3b.md). Merged in PRs #177, #178.
 4. **Phase 4 (type system + tombstone interface)**: ~~Resource type system,
@@ -1414,7 +1415,7 @@ Set breakpoints at:
 | `reflectedAction.Do` | Go method dispatch with coerced args |
 | `coerceSlotValue` (`action_reflect.go`) | String→Resource constructor coercion |
 | `Provider.WriteText` (etc.) | The actual provider method |
-| `moveToRecovery` / `restoreFromRecovery` | Tombstone creation and restoration |
+| `RecoverySite.ArchiveFile` / `RecoverySite.RestoreFile` | Tombstone creation and restoration |
 
 This gives full visibility into the graph builder and executor from day 1.
 

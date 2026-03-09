@@ -28,7 +28,7 @@ func init() {
 // Resource represents a handle to data that can be streamed.
 type Resource struct {
 	op.ResourceBase
-	SourcePath string
+	SourcePath op.Path
 	Inode      uint64
 	Device     uint64
 	Size       int64
@@ -41,12 +41,14 @@ type Resource struct {
 // is pure computation — no I/O, no error. Metadata (size, mode, checksum)
 // is populated later by [Resource.Resolve].
 func NewResource(path string) Resource {
-	r := Resource{SourcePath: path}
+	r := Resource{SourcePath: op.NewPath("", path)}
 	r.SetURI(r.buildURI())
 	return r
 }
 
-// region Published Methods
+// region EXPORTED METHODS
+
+// region Behaviors
 
 // Exists returns true if the resource has been resolved and the file existed
 // at resolve time. An unresolved resource always reports Exists() == false.
@@ -54,53 +56,62 @@ func (r *Resource) Exists() bool {
 	return !r.ModTime.IsZero()
 }
 
-// Reader returns an io.ReadCloser for reading the file resource's data from its source path.
-//
-// The caller is responsible for closing the returned reader.
+// Refresh re-populates the resource's metadata by performing a fresh stat and re-calculating the checksum. Call after
+// any successful physical mutation. I/O is scoped through [op.Root].
 //
 // Parameters:
-//   - none
+//   - root: [op.Root] for scoped I/O
 //
 // Returns:
-//   - io.ReadCloser: an io.ReadCloser for reading the file resource's data
-//   - error: any error that occurred during opening
-func (r *Resource) Reader() (io.ReadCloser, error) {
-	return os.Open(r.SourcePath)
-}
+//   - error: any stat or read error
+func (r *Resource) Refresh(root op.Root) error {
 
-// Refresh re-populates the resource's metadata by performing a fresh os.Stat
-// and re-calculating the checksum. Call after any successful physical mutation.
-func (r *Resource) Refresh() error {
-	info, err := os.Stat(r.SourcePath)
+	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return err
 	}
-	return r.refreshWith(info, checksumFile(r.SourcePath), info.Size())
+
+	return r.refreshWith(info, checksumFile(root, r.SourcePath.Abs()), info.Size())
 }
 
-// RefreshWith updates metadata after a write operation using a known checksum
-// and size. An os.Stat is still performed to capture kernel-assigned identity
-// (Inode, Device).
-func (r *Resource) RefreshWith(checksum string, size int64) error {
-	info, err := os.Stat(r.SourcePath)
+// RefreshWith updates metadata after a write operation using a known checksum and size. A stat is still performed to
+// capture kernel-assigned identity (Inode, Device). I/O is scoped through [op.Root].
+//
+// Parameters:
+//   - root: [op.Root] for scoped I/O
+//   - checksum: Pre-computed checksum string
+//   - size: Known file size in bytes
+//
+// Returns:
+//   - error: any stat error
+func (r *Resource) RefreshWith(root op.Root, checksum string, size int64) error {
+
+	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return err
 	}
+
 	return r.refreshWith(info, checksum, size)
 }
 
-// Resolve populates the resource's metadata by canonicalizing the path and
-// performing an os.Stat. If the file does not exist, Resolve returns nil
-// and metadata remains empty ([Resource.Exists] returns false). Other
-// stat errors are returned.
-func (r *Resource) Resolve() error {
-	abs, err := filepath.Abs(r.SourcePath)
+// Resolve populates the resource's metadata by canonicalizing the path and performing a stat. If the file does not
+// exist, Resolve returns nil and metadata remains empty ([Resource.Exists] returns false). Other stat errors are
+// returned. I/O is scoped through [op.Root] and SourcePath.Rel is populated.
+//
+// Parameters:
+//   - root: [op.Root] for scoped I/O
+//
+// Returns:
+//   - error: any stat error (not-exist is not an error)
+func (r *Resource) Resolve(root op.Root) error {
+
+	abs, err := filepath.Abs(r.SourcePath.Abs())
 	if err == nil {
-		r.SourcePath = filepath.Clean(abs)
+		r.SourcePath = root.NewPath(abs)
 		r.SetURI(r.buildURI())
 	}
 
-	info, err := os.Stat(r.SourcePath)
+	info, err := root.Stat(r.SourcePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -119,54 +130,56 @@ func (r *Resource) Resolve() error {
 	r.Size = info.Size()
 	r.Mode = info.Mode()
 	r.ModTime = info.ModTime()
-	r.Checksum = checksumFile(r.SourcePath)
+
+	r.Checksum = checksumFile(root, r.SourcePath.Abs())
+
 	return nil
 }
 
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
 
-// WriteTo allows the Resource to be streamed directly to any io.Writer.
+// WriteTo allows the Resource to be streamed directly to any io.Writer. I/O is scoped through [op.Root].
 //
 // For efficiency, it uses [io.Copy] which automatically attempts a zero-copy syscall before falling back to a 32KB
 // buffer.
 //
 // Parameters:
+//   - root: [op.Root] for scoped I/O
 //   - writer: io.Writer to write to
 //
 // Returns:
 //   - int64: number of bytes written
 //   - error: any error that occurred during writing
-func (r *Resource) WriteTo(writer io.Writer) (int64, error) {
+func (r *Resource) WriteTo(root op.Root, writer io.Writer) (int64, error) {
 
-	f, err := os.Open(r.SourcePath)
-
+	f, err := root.Open(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
 
-	byteCount, err := io.Copy(writer, f)
-
-	if err = f.Sync(); err != nil {
-		return 0, err
-	}
-
-	return byteCount, err
+	return io.Copy(writer, f)
 }
 
 // endregion
 
-// region Internal
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
 
 // buildURI computes the canonical file:// URI from SourcePath.
 func (r *Resource) buildURI() string {
-	return "file://" + r.SourcePath
+	return "file://" + r.SourcePath.Abs()
 }
 
 // refreshWith updates the Resource's metadata with the provided information.
 func (r *Resource) refreshWith(info os.FileInfo, checksum string, size int64) error {
+
 	var inode, device uint64
+
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		inode = stat.Ino
 		device = uint64(stat.Dev)
@@ -178,8 +191,11 @@ func (r *Resource) refreshWith(info os.FileInfo, checksum string, size int64) er
 	r.Mode = info.Mode()
 	r.ModTime = info.ModTime()
 	r.Checksum = checksum
+
 	return nil
 }
+
+// endregion
 
 // endregion
 
@@ -187,12 +203,10 @@ func (r *Resource) refreshWith(info os.FileInfo, checksum string, size int64) er
 //
 // The embedded [op.TombstoneBase] carries the affected [Resource] whose identity is preserved — SourcePath always
 // reflects the file's true home.
-//
-// Members:
-//
-//   - RecoveryPath records where the data was temporarily moved during the operation (backup, recovery site, or
-//     move destination). An empty RecoveryPath means no prior data existed to recover.
 type Tombstone struct {
 	op.TombstoneBase
-	RecoveryPath string
+
+	// RecoveryID records where the data was temporarily moved during the operation (backup, recovery site, or move
+	// destination). An empty RecoveryID means no prior data existed to recover.
+	RecoveryID string
 }
