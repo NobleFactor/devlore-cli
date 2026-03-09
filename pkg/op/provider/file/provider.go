@@ -43,6 +43,8 @@ type Reducer func(initial any, resource Resource, relativePath string, stack *op
 
 // region Accessors
 
+// region Exported Methods
+
 func (p *Provider) Root() string {
 	if p.Context().Root == nil {
 		return ""
