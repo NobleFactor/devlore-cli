@@ -81,12 +81,12 @@ func TestExtractTarGz(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	dest, state, err := p.Extract(file.Resource{SourcePath: archivePath}, file.Resource{SourcePath: prefix})
+	dest, state, err := p.Extract(file.Resource{SourcePath: file.SourcePath{Abs: archivePath}}, file.Resource{SourcePath: file.SourcePath{Abs: prefix}})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if dest.SourcePath != prefix {
-		t.Errorf("dest = %q, want %q", dest.SourcePath, prefix)
+	if dest.SourcePath.Abs != prefix {
+		t.Errorf("dest = %q, want %q", dest.SourcePath.Abs, prefix)
 	}
 
 	// Verify files exist.
@@ -119,12 +119,12 @@ func TestExtractZip(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	dest, state, err := p.Extract(file.Resource{SourcePath: archivePath}, file.Resource{SourcePath: prefix})
+	dest, state, err := p.Extract(file.Resource{SourcePath: file.SourcePath{Abs: archivePath}}, file.Resource{SourcePath: file.SourcePath{Abs: prefix}})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if dest.SourcePath != prefix {
-		t.Errorf("dest = %q, want %q", dest.SourcePath, prefix)
+	if dest.SourcePath.Abs != prefix {
+		t.Errorf("dest = %q, want %q", dest.SourcePath.Abs, prefix)
 	}
 
 	for name, wantContent := range entries {
@@ -146,7 +146,7 @@ func TestExtractZip(t *testing.T) {
 
 func TestExtractUnsupportedFormat(t *testing.T) {
 	p := &Provider{}
-	_, _, err := p.Extract(file.Resource{SourcePath: "foo.rar"}, file.Resource{SourcePath: t.TempDir()})
+	_, _, err := p.Extract(file.Resource{SourcePath: file.SourcePath{Abs: "foo.rar"}}, file.Resource{SourcePath: file.SourcePath{Abs: t.TempDir()}})
 	if err == nil {
 		t.Fatal("expected error for unsupported format")
 	}
@@ -169,7 +169,7 @@ func TestZipSlipProtectionTarGz(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	_, _, err := p.Extract(file.Resource{SourcePath: archivePath}, file.Resource{SourcePath: prefix})
+	_, _, err := p.Extract(file.Resource{SourcePath: file.SourcePath{Abs: archivePath}}, file.Resource{SourcePath: file.SourcePath{Abs: prefix}})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestZipSlipProtectionZip(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	_, _, err := p.Extract(file.Resource{SourcePath: archivePath}, file.Resource{SourcePath: prefix})
+	_, _, err := p.Extract(file.Resource{SourcePath: file.SourcePath{Abs: archivePath}}, file.Resource{SourcePath: file.SourcePath{Abs: prefix}})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}

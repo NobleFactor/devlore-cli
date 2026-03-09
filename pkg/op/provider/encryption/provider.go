@@ -40,17 +40,17 @@ func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resour
 	}
 
 	// 3. Write cleartext to the destination path
-	if err := os.WriteFile(destination.SourcePath, cleartext, 0o600); err != nil {
+	if err := os.WriteFile(destination.SourcePath.Abs, cleartext, 0o600); err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to write destination: %w", err)
 	}
 
 	// 4. Wrap the new file in a Resource
-	result := file.NewResource(destination.SourcePath)
-	if err := result.Resolve(); err != nil {
+	result := file.NewResource(destination.SourcePath.Abs)
+	if err := result.Resolve(nil); err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to resolve destination: %w", err)
 	}
 
-	return result, Tombstone{DestinationPath: destination.SourcePath}, nil
+	return result, Tombstone{DestinationPath: destination.SourcePath.Abs}, nil
 }
 
 // CompensateDecryptSopsFile removes the decrypted file created by DecryptSopsFile.

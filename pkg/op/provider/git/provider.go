@@ -30,16 +30,16 @@ type Provider struct {
 //   - url: network resource identifying the git repository
 //   - destination: file resource identifying the local clone directory
 func (p *Provider) Clone(url netprov.Resource, destination file.Resource) (Resource, Tombstone, error) {
-	if err := p.doClone(url.SourceURL.String(), destination.SourcePath); err != nil {
+	if err := p.doClone(url.SourceURL.String(), destination.SourcePath.Abs); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 	r := &Resource{
 		URL:       url.SourceURL.String(),
-		ClonePath: destination.SourcePath,
+		ClonePath: destination.SourcePath.Abs,
 	}
 	return *r, Tombstone{
 		TombstoneBase: op.NewTombstoneBase(r),
-		ClonedPath:    destination.SourcePath,
+		ClonedPath:    destination.SourcePath.Abs,
 	}, nil
 }
 

@@ -1209,7 +1209,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 
 	// Create destination directory
 	destDir := filepath.Dir(destPath)
-	if _, err := fp.Mkdir(file.Resource{SourcePath: destDir}, 0o755); err != nil {
+	if _, err := fp.Mkdir(file.Resource{SourcePath: file.SourcePath{Abs: destDir}}, 0o755); err != nil {
 		return 0, fmt.Errorf("creating directory %s: %w", destDir, err)
 	}
 
@@ -1219,7 +1219,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 	}
 
 	// Move file to repo
-	if _, _, err := fp.Move(file.Resource{SourcePath: filePath}, file.Resource{SourcePath: destPath}); err != nil {
+	if _, _, err := fp.Move(file.Resource{SourcePath: file.SourcePath{Abs: filePath}}, file.Resource{SourcePath: file.SourcePath{Abs: destPath}}); err != nil {
 		// Move may fail across filesystems, try copy+remove
 		if err := copyFile(filePath, destPath); err != nil {
 			return 0, fmt.Errorf("moving file: %w", err)
@@ -1231,7 +1231,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 	}
 
 	// Create symlink back
-	if _, _, err := fp.Link(file.Resource{SourcePath: destPath}, file.Resource{SourcePath: filePath}); err != nil {
+	if _, _, err := fp.Link(file.Resource{SourcePath: file.SourcePath{Abs: destPath}}, file.Resource{SourcePath: file.SourcePath{Abs: filePath}}); err != nil {
 		return 0, fmt.Errorf("creating symlink (file remains at %s): %w", destPath, err)
 	}
 

@@ -127,7 +127,7 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 	t.Setenv("SOPS_AGE_KEY", ageKey)
 
 	source := file.NewResource(srcPath)
-	if err := source.Resolve(); err != nil {
+	if err := source.Resolve(nil); err != nil {
 		t.Fatalf("resolving source: %v", err)
 	}
 
@@ -152,8 +152,8 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 		t.Errorf("decrypted content missing 'world': %s", decrypted)
 	}
 
-	if result.SourcePath != dstPath {
-		t.Errorf("result path = %q, want %q", result.SourcePath, dstPath)
+	if result.SourcePath.Abs != dstPath {
+		t.Errorf("result path = %q, want %q", result.SourcePath.Abs, dstPath)
 	}
 	if tombstone.DestinationPath != dstPath {
 		t.Errorf("tombstone path = %q, want %q", tombstone.DestinationPath, dstPath)
@@ -173,7 +173,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 	t.Setenv("SOPS_AGE_KEY", ageKey)
 
 	source := file.NewResource(srcPath)
-	if err := source.Resolve(); err != nil {
+	if err := source.Resolve(nil); err != nil {
 		t.Fatal(err)
 	}
 

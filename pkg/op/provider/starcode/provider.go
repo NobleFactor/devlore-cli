@@ -145,7 +145,7 @@ func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) 
 		return initial, nil
 	})
 
-	_, _, err := (&file.Provider{}).WalkTree(file.Resource{SourcePath: absRoot}, visitor, honorGitignore)
+	_, _, err := (&file.Provider{}).WalkTree(file.Resource{SourcePath: file.SourcePath{Abs: absRoot}}, visitor, honorGitignore)
 	if err != nil {
 		return nil, err
 	}

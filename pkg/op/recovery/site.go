@@ -15,10 +15,10 @@ import (
 
 const recoveryDir = ".devlore/recovery"
 
-// Site manages archival and restoration of resources within the authority
-// boundary. All operations use zero-copy renames for files and byte
-// serialization for data. The recovery directory is .devlore/recovery/
-// within the base directory.
+// Site manages archival and restoration of resources within the authority boundary.
+//
+// All operations use zero-copy renames for files and byte serialization for data. The recovery directory is
+// .devlore/recovery/ within the base directory.
 type Site struct {
 	baseDir string
 }
@@ -47,9 +47,9 @@ func (s *Site) ArchiveData(data []byte) (string, error) {
 	return recoveryPath, nil
 }
 
-// ArchiveFile moves a file to recovery via zero-copy rename. No data is
-// copied — the file's directory entry is relocated. Returns the recovery
-// path for tombstone storage.
+// ArchiveFile moves a file to recovery via zero-copy rename.
+//
+// No data is copied--the file's directory entry is relocated. Returns the recovery path for tombstone storage.
 func (s *Site) ArchiveFile(path string) (string, error) {
 
 	dir := filepath.Join(s.baseDir, recoveryDir)
@@ -78,9 +78,10 @@ func (s *Site) RestoreData(recoveryPath string) ([]byte, error) {
 	return data, nil
 }
 
-// RestoreFile moves a file back from recovery via zero-copy rename. No
-// data is copied — the directory entry is relocated back. The parent
-// directory of originalPath is recreated if it was pruned after archival.
+// RestoreFile moves a file back from recovery via zero-copy rename.
+//
+// No data is copied--the directory entry is relocated back. The parent directory of originalPath is recreated if it was
+// pruned after archival.
 func (s *Site) RestoreFile(originalPath, recoveryPath string) error {
 
 	if originalPath == "" || recoveryPath == "" {
