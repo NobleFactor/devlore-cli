@@ -26,6 +26,7 @@ Internal engineering documentation for devlore-cli developers.
 - [Resource Management](4-resource-management.md) — URI-based resource tracking, lineage, shadowing, tombstone unification
   - [Resource Identity](4.1-resource-identity.md) — URI schemes, opaque vs hierarchical, interface simplification
   - [Memory Resources](4.2-mem-resource.md) — `mem:` scheme, callable serialization lifecycle
+  - [Resource Registration](4.3-resource-registration.md) — Two-phase announce/init lifecycle, lazy constructor registration, callable generalization
 
 ### 5. Operational Integrity
 
