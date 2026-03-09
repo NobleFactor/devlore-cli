@@ -44,7 +44,10 @@ type Reducer func(initial any, resource Resource, relativePath string, stack *op
 // region Accessors
 
 func (p *Provider) Root() string {
-	return p.Context().BaseDir
+	if p.Context().Root == nil {
+		return ""
+	}
+	return p.Context().Root.Name()
 }
 
 // endregion
@@ -159,9 +162,8 @@ func (p *Provider) CompensateCopy(undo Tombstone) error {
 
 // Link creates a symlink at a path pointing to a source file.
 //
-// Idempotent: if the symlink already points correctly, it's a no-op.
-//
-// If something exists at the path, it is moved to recovery before creating the symlink.
+// Idempotent: if the symlink already points correctly, it's a no-op. If something exists at the path, it is moved to
+// recovery before creating the symlink.
 //
 // Parameters:
 //   - source: Resource for the symlink target

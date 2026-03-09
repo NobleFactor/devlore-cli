@@ -17,11 +17,16 @@ import (
 )
 
 // testProvider creates a Provider rooted at the given directory.
-func testProvider(t *testing.T, root string) Provider {
+func testProvider(t *testing.T, dir string) Provider {
 	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatalf("OpenRoot(%s): %v", dir, err)
+	}
+	t.Cleanup(func() { root.Close() })
 	ctx := op.Context{
-		BaseDir:      root,
-		RecoverySite: recovery.NewSite(root),
+		Root:         root,
+		RecoverySite: recovery.NewSite(dir),
 	}
 	return Provider{ProviderBase: op.NewProviderBase(ctx)}
 }

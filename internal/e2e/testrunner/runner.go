@@ -107,8 +107,13 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 
 	// 3. Create ActionRegistry with all provider actions
 	reg := op.NewActionRegistry()
+	root, err := os.OpenRoot(tmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("open root %s: %w", tmpDir, err)
+	}
+	defer root.Close()
 	op.InitAll(reg, op.Context{
-		BaseDir:      tmpDir,
+		Root:         root,
 		RecoverySite: recovery.NewSite(tmpDir),
 	})
 

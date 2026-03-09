@@ -5,6 +5,7 @@ package starlark
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -145,14 +146,18 @@ func (bs *BindingSet) buildPlanModule(graph *op.Graph, project string, reg *op.A
 }
 
 // injectContext sets up the execution Context on an immediate receiver.
-// This wires the RecoverySite and BaseDir so providers can archive/restore files.
+// This wires the Root and RecoverySite so providers can archive/restore files.
 func (bs *BindingSet) injectContext(val starlark.Value) {
 	rr, ok := val.(*op.ReflectedReceiver)
 	if !ok || bs.cfg.WorkDir == "" {
 		return
 	}
+	root, err := os.OpenRoot(bs.cfg.WorkDir)
+	if err != nil {
+		return
+	}
 	rr.SetContext(op.Context{
-		BaseDir:      bs.cfg.WorkDir,
+		Root:         root,
 		RecoverySite: recovery.NewSite(bs.cfg.WorkDir),
 	})
 }

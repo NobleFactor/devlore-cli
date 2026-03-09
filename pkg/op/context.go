@@ -3,6 +3,7 @@ package op
 import (
 	"context"
 	"io"
+	"os"
 
 	"go.starlark.net/starlark"
 
@@ -13,12 +14,13 @@ import (
 type Context struct {
 	context.Context // https://pkg.go.dev/context
 
-	// BaseDir is where the program's authority begins. It defines the boundary beyond which actions should not look or
-	// act. Any directory outside of this is out of scope.
-	BaseDir string
+	// Root provides OS-enforced chroot-style confinement. All scoped provider I/O goes through this.
+	// Opened from the authority boundary directory by the executor; closed after execution completes.
+	// Root.Name() returns the authority boundary path.
+	Root *os.Root
 
 	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
-	// Instantiated by the executor from BaseDir.
+	// Instantiated by the executor from Root.
 	RecoverySite *recovery.Site
 
 	// Catalog is the resource catalog for the current execution session. The action layer uses it to shadow Resource
