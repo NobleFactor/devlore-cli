@@ -278,16 +278,30 @@ func TestGraphSerialize(t *testing.T) {
 }
 
 func TestGraphFilename(t *testing.T) {
-	g := &op.Graph{
-		Tool:      "writ",
-		Timestamp: time.Date(2026, 1, 29, 14, 30, 45, 0, time.UTC),
-	}
+	t.Run("unscoped", func(t *testing.T) {
+		g := &op.Graph{
+			Tool:      "writ",
+			Timestamp: time.Date(2026, 1, 29, 14, 30, 45, 0, time.UTC),
+		}
+		filename := g.Filename()
+		expected := "writ-2026-01-29T14-30-45.yaml"
+		if filename != expected {
+			t.Errorf("expected filename %q, got %q", expected, filename)
+		}
+	})
 
-	filename := g.Filename()
-	expected := "writ-2026-01-29T14-30-45.yaml"
-	if filename != expected {
-		t.Errorf("expected filename %q, got %q", expected, filename)
-	}
+	t.Run("scoped", func(t *testing.T) {
+		g := &op.Graph{
+			Tool:      "writ",
+			Timestamp: time.Date(2026, 1, 29, 14, 30, 45, 0, time.UTC),
+			Context:   op.GraphContext{Scope: "system"},
+		}
+		filename := g.Filename()
+		expected := "writ-system-2026-01-29T14-30-45.yaml"
+		if filename != expected {
+			t.Errorf("expected filename %q, got %q", expected, filename)
+		}
+	})
 }
 
 func TestGitStyleChecksum(t *testing.T) {

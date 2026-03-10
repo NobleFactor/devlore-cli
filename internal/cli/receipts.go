@@ -20,9 +20,13 @@ func ReceiptsDir() string {
 	return filepath.Join(DevloreStateHome(), "receipts")
 }
 
-// LatestReceiptPath returns the path to the latest receipt symlink for a producer.
+// LatestReceiptPath returns the path to the latest receipt symlink for a producer and scope.
 // Producer is typically a command name: "writ", "lore", etc.
-func LatestReceiptPath(producer string) string {
+// Scope is the target scope (e.g., "system", "home"). Empty string means unscoped.
+func LatestReceiptPath(producer, scope string) string {
+	if scope != "" {
+		return filepath.Join(ReceiptsDir(), producer+"-"+scope+"-latest.yaml")
+	}
 	return filepath.Join(ReceiptsDir(), producer+"-latest.yaml")
 }
 
@@ -41,9 +45,10 @@ func LoadReceipt(path string) (*op.Graph, error) {
 	return &g, nil
 }
 
-// LoadLatestReceipt loads the most recent receipt for a producer.
-func LoadLatestReceipt(producer string) (*op.Graph, error) {
-	return LoadReceipt(LatestReceiptPath(producer))
+// LoadLatestReceipt loads the most recent receipt for a producer and scope.
+// Scope is the target scope (e.g., "system", "home"). Empty string means unscoped.
+func LoadLatestReceipt(producer, scope string) (*op.Graph, error) {
+	return LoadReceipt(LatestReceiptPath(producer, scope))
 }
 
 // WriteReceipt writes the graph as a receipt to the receipts directory.
@@ -99,8 +104,8 @@ func WriteReceiptWithSigningDir(g *op.Graph, producer, signingDir string) (strin
 		return "", err
 	}
 
-	// Update "latest" symlink for this producer
-	latestPath := filepath.Join(dir, producer+"-latest.yaml")
+	// Update "latest" symlink for this producer (scope-aware via graph context).
+	latestPath := LatestReceiptPath(producer, g.Context.Scope)
 	os.Remove(latestPath)                //nolint:errcheck // best-effort cleanup
 	_ = os.Symlink(filename, latestPath) //nolint:errcheck // best-effort symlink, not critical
 

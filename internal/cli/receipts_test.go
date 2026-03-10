@@ -237,9 +237,19 @@ func TestLatestReceiptPath(t *testing.T) {
 	_ = os.Setenv("XDG_STATE_HOME", tmpDir)
 	defer func() { _ = os.Setenv("XDG_STATE_HOME", origStateHome) }()
 
-	path := LatestReceiptPath("writ")
-	expected := filepath.Join(tmpDir, "devlore", "receipts", "writ-latest.yaml")
-	if path != expected {
-		t.Errorf("LatestReceiptPath('writ') = %q, want %q", path, expected)
-	}
+	t.Run("unscoped", func(t *testing.T) {
+		path := LatestReceiptPath("writ", "")
+		expected := filepath.Join(tmpDir, "devlore", "receipts", "writ-latest.yaml")
+		if path != expected {
+			t.Errorf("LatestReceiptPath(writ, '') = %q, want %q", path, expected)
+		}
+	})
+
+	t.Run("scoped", func(t *testing.T) {
+		path := LatestReceiptPath("writ", "home")
+		expected := filepath.Join(tmpDir, "devlore", "receipts", "writ-home-latest.yaml")
+		if path != expected {
+			t.Errorf("LatestReceiptPath(writ, home) = %q, want %q", path, expected)
+		}
+	})
 }

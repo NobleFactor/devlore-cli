@@ -208,6 +208,14 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		return nil, err
 	}
 
+	graph.Context = op.GraphContext{
+		Scope:          strings.Join(packages, "+"),
+		Packages:       packages,
+		TargetPlatform: targetPlatform,
+		Features:       cfg.Features,
+		Settings:       cfg.Settings,
+	}
+
 	return &BuildResult{
 		Graph:    graph,
 		Packages: packages,

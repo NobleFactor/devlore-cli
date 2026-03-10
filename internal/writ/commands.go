@@ -625,7 +625,7 @@ func buildReportFromView(cfg *ReconcileConfig, view *execution.StateView) (*reco
 func buildReportFromScan(cfg *ReconcileConfig) (*reconcile.Report, error) {
 	report := reconcile.ScanTarget(cfg.TargetRoot, cfg.SourceRoot)
 
-	rcpt, err := cli.LoadLatestReceipt("writ")
+	rcpt, err := cli.LoadLatestReceipt("writ", "")
 	if err != nil {
 		if cfg.CheckDrift {
 			return nil, fmt.Errorf("--drift requires state file or receipt; none found")
@@ -637,7 +637,7 @@ func buildReportFromScan(cfg *ReconcileConfig) (*reconcile.Report, error) {
 	}
 
 	if cfg.Verbose {
-		cli.Note("Using receipt for copied files: %s", cli.LatestReceiptPath("writ"))
+		cli.Note("Using receipt for copied files: %s", cli.LatestReceiptPath("writ", ""))
 	}
 
 	if cfg.CheckDrift {
@@ -693,7 +693,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 // addCopiedFilesFromGraph adds copied file nodes from a graph to the report.
 func addCopiedFilesFromGraph(report *reconcile.Report, g *op.Graph, checkDrift bool) {
 	report.FromReceipt = true
-	report.ReceiptPath = cli.LatestReceiptPath("writ")
+	report.ReceiptPath = cli.LatestReceiptPath("writ", "")
 
 	for _, n := range g.Nodes {
 		if isSkippableNode(n) {

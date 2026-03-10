@@ -906,11 +906,26 @@ func TestFieldAccess(t *testing.T) {
 
 func TestGraph_Filename(t *testing.T) {
 	ts, _ := time.Parse(time.RFC3339, "2025-06-15T10:30:45Z")
-	g := &Graph{Tool: "writ", Timestamp: ts}
-	want := "writ-2025-06-15T10-30-45.yaml"
-	if got := g.Filename(); got != want {
-		t.Errorf("Filename() = %q, want %q", got, want)
-	}
+
+	t.Run("unscoped", func(t *testing.T) {
+		g := &Graph{Tool: "writ", Timestamp: ts}
+		want := "writ-2025-06-15T10-30-45.yaml"
+		if got := g.Filename(); got != want {
+			t.Errorf("Filename() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("scoped", func(t *testing.T) {
+		g := &Graph{
+			Tool:      "writ",
+			Timestamp: ts,
+			Context:   GraphContext{Scope: "home"},
+		}
+		want := "writ-home-2025-06-15T10-30-45.yaml"
+		if got := g.Filename(); got != want {
+			t.Errorf("Filename() = %q, want %q", got, want)
+		}
+	})
 }
 
 // --- Summary.String ---

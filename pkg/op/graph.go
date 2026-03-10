@@ -82,6 +82,11 @@ const (
 // GraphContext contains tool-specific metadata stored in the graph.
 // Both writ and lore populate this with their relevant context.
 type GraphContext struct {
+	// Scope identifies the planning scope for this graph.
+	// For writ: target scope ("system", "home").
+	// For lore: package cache scope (package name or names).
+	Scope string `json:"scope,omitempty" yaml:"scope,omitempty"`
+
 	// SourceRoot is the source directory (writ: repo path, lore: registry cache).
 	SourceRoot string `json:"source_root,omitempty" yaml:"source_root,omitempty"`
 
@@ -543,9 +548,13 @@ func (g *Graph) Serialize(enc Encoder) error {
 }
 
 // Filename returns the standard filename for this graph.
-// Format: "<tool>-<timestamp>.yaml"
+// Format: "<tool>-<timestamp>.yaml" or "<tool>-<scope>-<timestamp>.yaml" when scoped.
 func (g *Graph) Filename() string {
-	return fmt.Sprintf("%s-%s.yaml", g.Tool, g.Timestamp.Format("2006-01-02T15-04-05"))
+	ts := g.Timestamp.Format("2006-01-02T15-04-05")
+	if g.Context.Scope != "" {
+		return fmt.Sprintf("%s-%s-%s.yaml", g.Tool, g.Context.Scope, ts)
+	}
+	return fmt.Sprintf("%s-%s.yaml", g.Tool, ts)
 }
 
 // CanonicalContent returns the graph serialized as YAML without checksum and signature.
