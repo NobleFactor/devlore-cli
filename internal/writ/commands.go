@@ -77,16 +77,21 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. Build execution graph
+	// 2. Build execution graphs (one per target scope)
 	reg := op.NewActionRegistry()
 	op.InitAll(reg, op.Context{})
 	builder := NewDeployGraphBuilder(cfg, reg)
 	builder.Planner = &lore.Planner{
 		ActionRegistry: reg,
 	}
-	g, err := builder.Build()
+	graphs, err := builder.Build()
 	if err != nil {
 		return err
+	}
+
+	if len(graphs) == 0 {
+		cli.Note("No files to deploy")
+		return nil
 	}
 
 	// Verbose output (command-layer concern)
@@ -94,39 +99,50 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		reportGraphContext(cfg)
 	}
 
-	// Report collisions
-	if len(g.Collisions) > 0 {
-		reportCollisions(cfg, g.Collisions)
+	// Report collisions (recorded on all graphs from unified tree; use first)
+	if len(graphs[0].Collisions) > 0 {
+		reportCollisions(cfg, graphs[0].Collisions)
 	}
 
-	// 3a. Dry-run: serialize plan to stdout
+	// 3a. Dry-run: serialize all graphs to stdout
 	if cfg.DryRun {
 		enc := yaml.NewEncoder(os.Stdout)
 		enc.SetIndent(2)
 		defer func() { _ = enc.Close() }() //nolint:errcheck
-		return g.Serialize(enc)
+		for _, g := range graphs {
+			if err := g.Serialize(enc); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
-	// 3b. Configure engine and execute
-	engine, err := ConfigureEngine(&cfg.Config)
-	if err != nil {
-		return fmt.Errorf("configure engine: %w", err)
-	}
+	// 3b. Execute each graph
+	for _, g := range graphs {
+		engine, err := ConfigureEngine(&cfg.Config)
+		if err != nil {
+			return fmt.Errorf("configure engine: %w", err)
+		}
 
-	if err := engine.Run(context.Background(), g); err != nil {
-		return err
-	}
+		if err := engine.Run(context.Background(), g); err != nil {
+			return err
+		}
 
-	// 3c. Write receipt to file
-	path, err := cli.WriteReceipt(g, "writ")
-	if err != nil {
-		cli.Warn("failed to write receipt: %v", err)
-	} else if cfg.Verbose {
-		cli.Note("Receipt: %s", path)
-	}
+		// Write receipt per graph
+		path, err := cli.WriteReceipt(g, "writ")
+		if err != nil {
+			cli.Warn("failed to write receipt: %v", err)
+		} else if cfg.Verbose {
+			cli.Note("Receipt: %s", path)
+		}
 
-	// Summary
-	cli.Success("Deployed %s", g.Summary.String())
+		// Summary per graph
+		if g.Context.Scope != "" {
+			cli.Success("Deployed %s [%s]", g.Summary.String(), g.Context.Scope)
+		} else {
+			cli.Success("Deployed %s", g.Summary.String())
+		}
+	}
 
 	return nil
 }
