@@ -670,3 +670,57 @@ func TestNewScopedGraph(t *testing.T) {
 		t.Errorf("Projects = %v, want [all noblefactor]", g.Context.Projects)
 	}
 }
+
+// --- Scope Ordering ---
+
+func TestSortGraphsByScope_SystemBeforeHome(t *testing.T) {
+	graphs := []*op.Graph{
+		{Context: op.GraphContext{Scope: "home"}},
+		{Context: op.GraphContext{Scope: "system"}},
+	}
+
+	sortGraphsByScope(graphs)
+
+	if graphs[0].Context.Scope != "system" {
+		t.Errorf("graphs[0].Scope = %q, want %q", graphs[0].Context.Scope, "system")
+	}
+	if graphs[1].Context.Scope != "home" {
+		t.Errorf("graphs[1].Scope = %q, want %q", graphs[1].Context.Scope, "home")
+	}
+}
+
+func TestSortGraphsByScope_AlreadyOrdered(t *testing.T) {
+	graphs := []*op.Graph{
+		{Context: op.GraphContext{Scope: "system"}},
+		{Context: op.GraphContext{Scope: "home"}},
+	}
+
+	sortGraphsByScope(graphs)
+
+	if graphs[0].Context.Scope != "system" {
+		t.Errorf("graphs[0].Scope = %q, want %q", graphs[0].Context.Scope, "system")
+	}
+	if graphs[1].Context.Scope != "home" {
+		t.Errorf("graphs[1].Scope = %q, want %q", graphs[1].Context.Scope, "home")
+	}
+}
+
+func TestSortGraphsByScope_UnscopedLast(t *testing.T) {
+	graphs := []*op.Graph{
+		{Context: op.GraphContext{Scope: ""}},
+		{Context: op.GraphContext{Scope: "home"}},
+		{Context: op.GraphContext{Scope: "system"}},
+	}
+
+	sortGraphsByScope(graphs)
+
+	if graphs[0].Context.Scope != "system" {
+		t.Errorf("graphs[0].Scope = %q, want %q", graphs[0].Context.Scope, "system")
+	}
+	if graphs[1].Context.Scope != "home" {
+		t.Errorf("graphs[1].Scope = %q, want %q", graphs[1].Context.Scope, "home")
+	}
+	if graphs[2].Context.Scope != "" {
+		t.Errorf("graphs[2].Scope = %q, want empty", graphs[2].Context.Scope)
+	}
+}

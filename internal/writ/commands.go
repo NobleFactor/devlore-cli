@@ -69,6 +69,33 @@ Conflict handling (--conflict):
 	return cmd
 }
 
+// scopeOrder defines the execution priority for target scopes.
+// System executes first (elevated, unconfined), then Home (confined to $HOME).
+var scopeOrder = map[string]int{
+	"system": 0,
+	"home":   1,
+}
+
+// sortGraphsByScope sorts graphs in deterministic execution order:
+// system first, then home. Unscoped graphs (single-source mode) sort last.
+//
+// Parameters:
+//   - graphs: graphs to sort in place
+func sortGraphsByScope(graphs []*op.Graph) {
+
+	sort.SliceStable(graphs, func(i, j int) bool {
+		oi, ok := scopeOrder[graphs[i].Context.Scope]
+		if !ok {
+			oi = len(scopeOrder)
+		}
+		oj, ok := scopeOrder[graphs[j].Context.Scope]
+		if !ok {
+			oj = len(scopeOrder)
+		}
+		return oi < oj
+	})
+}
+
 // runDeployV2 implements the deploy command using the graph design.
 func runDeployV2(cmd *cobra.Command, args []string) error {
 	// 1. Parse config (rolls up entire settings hierarchy)
@@ -94,6 +121,9 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Sort: system first, then home
+	sortGraphsByScope(graphs)
+
 	// Verbose output (command-layer concern)
 	if cfg.Verbose {
 		reportGraphContext(cfg)
@@ -117,15 +147,23 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 3b. Execute each graph
+	// 3b. Execute each graph (fail-forward: independent scopes continue on failure)
+	var errs []error
 	for _, g := range graphs {
-		engine, err := ConfigureEngine(&cfg.Config)
+		engine, err := ConfigureEngine(&cfg.Config, g.Context.TargetRoot)
 		if err != nil {
-			return fmt.Errorf("configure engine: %w", err)
+			errs = append(errs, fmt.Errorf("configure engine [%s]: %w", g.Context.Scope, err))
+			continue
 		}
 
 		if err := engine.Run(context.Background(), g); err != nil {
-			return err
+			scope := g.Context.Scope
+			if scope == "" {
+				scope = "default"
+			}
+			cli.Warn("scope %s failed: %v", scope, err)
+			errs = append(errs, fmt.Errorf("scope %s: %w", scope, err))
+			continue
 		}
 
 		// Write receipt per graph
@@ -144,6 +182,9 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if len(errs) > 0 {
+		return fmt.Errorf("%d scope(s) failed", len(errs))
+	}
 	return nil
 }
 
@@ -270,7 +311,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		cfg.TemplateData["boundary"] = view.Files.Root
 	}
 
-	engine, err := ConfigureEngine(&cfg.Config)
+	engine, err := ConfigureEngine(&cfg.Config, g.Context.TargetRoot)
 	if err != nil {
 		return fmt.Errorf("configure engine: %w", err)
 	}

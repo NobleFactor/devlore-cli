@@ -193,15 +193,19 @@ func recordCollisions(g *op.Graph, collisions []tree.Collision) {
 	}
 }
 
-// ConfigureEngine creates and configures an execution engine for the graph.
+// ConfigureEngine creates and configures an execution engine for a graph.
+// The targetRoot parameter specifies the executor's root directory, allowing
+// each scope's graph to execute against its own target (e.g., "/" for system,
+// "$HOME" for home).
 //
 // Parameters:
 //   - cfg: resolved writ configuration
+//   - targetRoot: root directory for this executor (overrides cfg.TargetRoot)
 //
 // Returns:
 //   - *execution.GraphExecutor: configured executor
 //   - error: configuration error
-func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
+func ConfigureEngine(cfg *Config, targetRoot string) (*execution.GraphExecutor, error) {
 
 	// Build engine data
 	engineData := graphBuiltinTemplateData(cfg.SegmentMap())
@@ -220,7 +224,7 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 
 	// Create engine
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
-		Root:               cfg.TargetRoot,
+		Root:               targetRoot,
 		Data:               engineData,
 		DryRun:             cfg.DryRun,
 		Platform:           platform.New(),

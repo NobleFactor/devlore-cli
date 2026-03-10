@@ -94,20 +94,21 @@ This requires the tree builder to preserve scope information on `FileEntry`. Cur
 
 Update the deploy command to execute multiple graphs in sequence, each with its own executor.
 
-- [ ] Refactor `runDeployV2()` to iterate over graphs from `Build()`
-- [ ] For each graph: create executor via `ConfigureEngine()` with that graph's `TargetRoot`
-- [ ] Execute in deterministic order: system scopes first (base → team → personal), then home scopes
-- [ ] Confinement grouping for home graphs: if multiple home layer repos are within `$HOME`, group into one graph; otherwise separate
-- [ ] Add confinement reachability check: `isReachableFrom(layerPath, homeDir string) bool` — checks if layer repo is under `$HOME`
-- [ ] Write one receipt per graph (scope-tagged via Phase 1)
-- [ ] Handle failure policy: if a graph fails, log and continue to next graph (fail-forward for independent scopes)
-- [ ] Tests: mock executor, verify correct number of executions, verify scope ordering
+- [x] Refactor `runDeployV2()` to iterate over graphs from `Build()` (done in Phase 3)
+- [x] For each graph: create executor via `ConfigureEngine()` with that graph's `TargetRoot`
+- [x] Execute in deterministic order: system first, then home (`sortGraphsByScope`)
+- [x] Write one receipt per graph (scope-tagged via Phase 1)
+- [x] Handle failure policy: if a graph fails, log and continue to next graph (fail-forward for independent scopes)
+- [x] Tests: scope ordering, unscoped-last behavior
+
+**Dropped**: Confinement grouping (splitting Home into 1–3 graphs based on layer repo reachability) and `isReachableFrom()`. Phase 6 git worktree snapshots solve reachability by placing snapshots within `$HOME`, making all sources reachable from the confined root. This collapses the 1–3 Home graph model to always 1 Home graph. See design note below.
+
+> **Design note — confinement reachability**: An executor confined to `$HOME` via `os.Root` can read sources within `$HOME` but not outside it. For sources outside `$HOME`: symlinks work (the link file is within `$HOME`; the target path is just a string), but copy/template/decrypt operations fail because they must read source content. Rather than splitting into separate unconfined graphs, Phase 6 solves this by placing git worktree snapshots within `$HOME`, ensuring all sources are reachable under confinement.
 
 **Files**:
 
-- `internal/writ/commands.go` — Modify: `runDeployV2()` multi-graph loop
+- `internal/writ/commands.go` — Modify: `runDeployV2()` scope ordering, per-graph engine, fail-forward
 - `internal/writ/graph_builder.go` — Modify: `ConfigureEngine()` accepts per-graph target root
-- `internal/writ/layer.go` — Modify: add `isReachableFrom()`
 
 ### Phase 5: Scope-Aware State View
 
@@ -201,6 +202,9 @@ Validate multi-scope deploy end-to-end using simulated layer repos with real con
 
 ## Open Questions
 
-- [ ] Confinement reachability: is checking `strings.HasPrefix(layerPath, homeDir)` sufficient, or do we need to resolve symlinks first?
-- [ ] Failure policy: fail-forward (log and continue) seems right for independent scopes, but should the user be able to choose fail-fast?
 - [ ] Plan caching: the `(base_hash, team_hash, personal_hash, scope)` cache key enables skipping planning entirely when nothing changed. Implement in this plan or defer?
+
+## Resolved Questions
+
+- **Confinement reachability**: Resolved — no graph splitting needed. Git worktree snapshots (Phase 6) are placed within `$HOME`, making all sources reachable from the confined root. An executor confined to `$HOME` can't read sources outside `$HOME` (copy/template/decrypt fail), but symlinks work because `os.Symlink` doesn't read the source. Snapshots solve this for all operation types.
+- **Failure policy**: Resolved — fail-forward. Independent scopes continue on failure. System and home target different roots with different confinement; a failed system graph does not block home execution.
