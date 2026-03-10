@@ -33,6 +33,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
 	cfg.Verbose = viper.GetBool("writ.verbose")
+	cfg.AllowDirty, _ = cmd.Flags().GetBool("allow-dirty") //nolint:errcheck // flag registered by AddCommand
 
 	// Conflict resolution
 	conflictFlag, _ := cmd.Flags().GetString("conflict") //nolint:errcheck // flag registered by AddCommand

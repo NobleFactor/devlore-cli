@@ -156,17 +156,22 @@ Pin each layer source to a git commit hash during planning. Create detached work
 
 Implement the `--allow-dirty` flag and dirty-tree detection.
 
-- [ ] Add `isDirty(repoPath string) (bool, error)` to snapshot package — checks `git status --porcelain`
-- [ ] Default behavior: refuse to plan if any layer has uncommitted changes
-- [ ] `--allow-dirty` flag on deploy command: warn but allow, using HEAD
-- [ ] Record dirty state in `GraphContext` — add `Dirty bool` field or annotation
-- [ ] Tests: dirty detection, refusal, flag override
+- [x] Add `IsDirty(repoPath)` to snapshot package — checks `git status --porcelain` for staged, unstaged, and untracked
+- [x] Add `CheckClean(sources)` — checks all unique repos, returns dirty layer names
+- [x] Default behavior: refuse to plan if any layer has uncommitted changes
+- [x] `--allow-dirty` flag on deploy command: warn but allow, using HEAD
+- [x] Add `AllowDirty` to `DeployConfig`, parse from flag
+- [x] Record dirty state in `GraphContext.DirtyLayers []string` — present only when `--allow-dirty` used
+- [x] Tests: clean repo, unstaged changes, staged changes, untracked files, CheckClean with all clean, CheckClean with mixed dirty, CheckClean dedup on shared repo
 
 **Files**:
 
-- `internal/writ/snapshot/snapshot.go` — Modify: add `isDirty()`
-- `internal/writ/commands.go` — Modify: add `--allow-dirty` flag, check before planning
-- `pkg/op/graph.go` — Modify: `GraphContext` dirty annotation
+- `internal/writ/snapshot/snapshot.go` — Modify: add `IsDirty()`, `CheckClean()`
+- `internal/writ/snapshot/snapshot_test.go` — Modify: 7 new dirty detection tests
+- `internal/writ/commands.go` — Modify: `--allow-dirty` flag, dirty check before pinning, record dirty layers
+- `internal/writ/config.go` — Modify: parse `--allow-dirty` flag
+- `internal/writ/graph_types.go` — Modify: `DeployConfig.AllowDirty`
+- `pkg/op/graph.go` — Modify: `GraphContext.DirtyLayers`
 
 ### Phase 8: Ad-Hoc E2E Validation
 

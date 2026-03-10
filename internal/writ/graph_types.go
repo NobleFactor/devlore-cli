@@ -44,6 +44,9 @@ type Config struct {
 // DeployConfig contains all settings for a deploy operation.
 type DeployConfig struct {
 	Config
+
+	// AllowDirty permits planning against layers with uncommitted changes.
+	AllowDirty bool
 }
 
 // UpgradeConfig contains all settings for an upgrade operation.

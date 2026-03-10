@@ -66,6 +66,7 @@ Conflict handling (--conflict):
 
 	cmd.Flags().StringP("conflict", "c", "stop", "Conflict resolution: stop, backup, overwrite, skip")
 	cmd.Flags().StringArrayP("segment", "s", nil, "Set custom segment value (KEY=value, repeatable)")
+	cmd.Flags().Bool("allow-dirty", false, "Allow planning against layers with uncommitted changes")
 
 	return cmd
 }
@@ -105,9 +106,24 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. Pin layer sources to git worktree snapshots (multi-source mode only)
+	// 2. Check dirty state and pin layer sources (multi-source mode only)
 	var commitHashes map[string]string
+	var dirtyLayers []string
 	if len(cfg.LayerSources) > 0 {
+		// Check for uncommitted changes
+		dirty, err := snapshot.CheckClean(cfg.LayerSources)
+		if err != nil {
+			return fmt.Errorf("check dirty: %w", err)
+		}
+		if len(dirty) > 0 {
+			if !cfg.AllowDirty {
+				return fmt.Errorf("layers have uncommitted changes: %v\nCommit your changes or use --allow-dirty to plan against HEAD", dirty)
+			}
+			cli.Warn("Planning against dirty layers (uncommitted changes): %v", dirty)
+			dirtyLayers = dirty
+		}
+
+		// Pin to git worktree snapshots
 		snapshots, cleanup, err := snapshot.PinAll(cfg.LayerSources)
 		if err != nil {
 			return fmt.Errorf("pin layers: %w", err)
@@ -141,9 +157,10 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Record commit hashes on each graph
+	// Record commit hashes and dirty state on each graph
 	for _, g := range graphs {
 		g.Context.CommitHashes = commitHashes
+		g.Context.DirtyLayers = dirtyLayers
 	}
 
 	// Sort: system first, then home

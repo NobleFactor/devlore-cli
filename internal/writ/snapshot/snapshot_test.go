@@ -322,3 +322,150 @@ func TestHashes(t *testing.T) {
 		t.Errorf("expected personal hash 'def456', got %q", hashes["personal"])
 	}
 }
+
+// TestIsDirtyCleanRepo verifies that a clean repo reports not dirty.
+func TestIsDirtyCleanRepo(t *testing.T) {
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
+
+	dirty, err := IsDirty(repoDir)
+	if err != nil {
+		t.Fatalf("IsDirty: %v", err)
+	}
+	if dirty {
+		t.Error("expected clean repo to report not dirty")
+	}
+}
+
+// TestIsDirtyUnstagedChanges verifies detection of unstaged changes.
+func TestIsDirtyUnstagedChanges(t *testing.T) {
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
+
+	// Modify a tracked file without staging
+	if err := os.WriteFile(filepath.Join(repoDir, "a.txt"), []byte("modified"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dirty, err := IsDirty(repoDir)
+	if err != nil {
+		t.Fatalf("IsDirty: %v", err)
+	}
+	if !dirty {
+		t.Error("expected dirty for unstaged changes")
+	}
+}
+
+// TestIsDirtyStagedChanges verifies detection of staged but uncommitted changes.
+func TestIsDirtyStagedChanges(t *testing.T) {
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
+
+	// Add a new file and stage it
+	if err := os.WriteFile(filepath.Join(repoDir, "b.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "-C", repoDir, "add", "b.txt")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	dirty, err := IsDirty(repoDir)
+	if err != nil {
+		t.Fatalf("IsDirty: %v", err)
+	}
+	if !dirty {
+		t.Error("expected dirty for staged changes")
+	}
+}
+
+// TestIsDirtyUntrackedFiles verifies detection of untracked files.
+func TestIsDirtyUntrackedFiles(t *testing.T) {
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
+
+	// Add an untracked file
+	if err := os.WriteFile(filepath.Join(repoDir, "untracked.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dirty, err := IsDirty(repoDir)
+	if err != nil {
+		t.Fatalf("IsDirty: %v", err)
+	}
+	if !dirty {
+		t.Error("expected dirty for untracked files")
+	}
+}
+
+// TestCheckCleanAllClean verifies CheckClean with all clean repos.
+func TestCheckCleanAllClean(t *testing.T) {
+	baseDir := t.TempDir()
+	initGitRepo(t, baseDir, map[string]string{"a.txt": "a"})
+
+	personalDir := t.TempDir()
+	initGitRepo(t, personalDir, map[string]string{"b.txt": "b"})
+
+	sources := []tree.LayerSource{
+		{Layer: "base", Path: baseDir},
+		{Layer: "personal", Path: personalDir},
+	}
+
+	dirty, err := CheckClean(sources)
+	if err != nil {
+		t.Fatalf("CheckClean: %v", err)
+	}
+	if len(dirty) != 0 {
+		t.Errorf("expected no dirty layers, got %v", dirty)
+	}
+}
+
+// TestCheckCleanSomeDirty verifies CheckClean detects dirty repos.
+func TestCheckCleanSomeDirty(t *testing.T) {
+	baseDir := t.TempDir()
+	initGitRepo(t, baseDir, map[string]string{"a.txt": "a"})
+
+	personalDir := t.TempDir()
+	initGitRepo(t, personalDir, map[string]string{"b.txt": "b"})
+
+	// Make personal dirty
+	if err := os.WriteFile(filepath.Join(personalDir, "dirty.txt"), []byte("dirty"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sources := []tree.LayerSource{
+		{Layer: "base", Path: baseDir},
+		{Layer: "personal", Path: personalDir},
+	}
+
+	dirty, err := CheckClean(sources)
+	if err != nil {
+		t.Fatalf("CheckClean: %v", err)
+	}
+	if len(dirty) != 1 {
+		t.Fatalf("expected 1 dirty layer, got %d: %v", len(dirty), dirty)
+	}
+	if dirty[0] != "personal" {
+		t.Errorf("expected dirty layer 'personal', got %q", dirty[0])
+	}
+}
+
+// TestCheckCleanDeduplicatesSharedRepo verifies that CheckClean checks each
+// repo only once when multiple sources share the same repo.
+func TestCheckCleanDeduplicatesSharedRepo(t *testing.T) {
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
+
+	sources := []tree.LayerSource{
+		{Layer: "base", Path: repoDir, TargetName: "System"},
+		{Layer: "base", Path: repoDir, TargetName: "Home"},
+	}
+
+	dirty, err := CheckClean(sources)
+	if err != nil {
+		t.Fatalf("CheckClean: %v", err)
+	}
+	if len(dirty) != 0 {
+		t.Errorf("expected no dirty layers, got %v", dirty)
+	}
+}

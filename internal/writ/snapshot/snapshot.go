@@ -57,19 +57,32 @@ func Pin(repoPath, layer string) (*Snapshot, error) {
 	}
 	worktreeDir := filepath.Join(snapshotsDir(), fmt.Sprintf("%s-%s", layer, short))
 
-	// If worktree already exists at this path, reuse it
+	// If worktree already exists at this path, verify and reuse it
 	if dirExists(worktreeDir) {
-		return &Snapshot{
-			Layer:        layer,
-			RepoPath:     repoPath,
-			CommitHash:   hash,
-			WorktreePath: worktreeDir,
-		}, nil
+		if err := verifyWorktree(worktreeDir, hash); err != nil {
+			// Integrity check failed — remove and recreate
+			_ = unlockWorktree(worktreeDir)
+			_ = os.RemoveAll(worktreeDir)
+			_ = gitWorktreePrune(repoPath)
+		} else {
+			return &Snapshot{
+				Layer:        layer,
+				RepoPath:     repoPath,
+				CommitHash:   hash,
+				WorktreePath: worktreeDir,
+			}, nil
+		}
 	}
 
 	// Create detached worktree
 	if err := gitWorktreeAdd(repoPath, worktreeDir, hash); err != nil {
 		return nil, fmt.Errorf("pin %s: create worktree: %w", layer, err)
+	}
+
+	// Lock worktree to prevent accidental writes (Darwin: uchg, others: no-op)
+	if err := lockWorktree(worktreeDir); err != nil {
+		// Non-fatal — continue without protection
+		_ = err
 	}
 
 	return &Snapshot{
@@ -81,10 +94,14 @@ func Pin(repoPath, layer string) (*Snapshot, error) {
 }
 
 // Close removes the git worktree and cleans up the directory.
+// Unlocks the worktree first (Darwin: clears uchg flags, others: no-op).
 //
 // Returns:
 //   - error: git worktree removal or directory cleanup error
 func (s *Snapshot) Close() error {
+	// Unlock worktree so git can remove it (Darwin: clears UF_IMMUTABLE)
+	_ = unlockWorktree(s.WorktreePath)
+
 	// Remove the git worktree registration
 	if err := gitWorktreeRemove(s.RepoPath, s.WorktreePath); err != nil {
 		// If git worktree remove fails, try force removal
@@ -180,6 +197,54 @@ func Hashes(snapshots []*Snapshot) map[string]string {
 		m[s.Layer] = s.CommitHash
 	}
 	return m
+}
+
+// IsDirty reports whether the working tree at repoPath has uncommitted changes.
+// Checks for staged, unstaged, and untracked files via `git status --porcelain`.
+//
+// Parameters:
+//   - repoPath: path to the git repository
+//
+// Returns:
+//   - bool: true if the working tree has uncommitted changes
+//   - error: git command failure
+func IsDirty(repoPath string) (bool, error) {
+	cmd := exec.Command("git", "-C", repoPath, "status", "--porcelain")
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("git status: %w", err)
+	}
+	return len(strings.TrimSpace(string(out))) > 0, nil
+}
+
+// CheckClean verifies that all unique repositories in the given sources have
+// clean working trees. Returns an error listing all dirty repos if any are found.
+//
+// Parameters:
+//   - sources: layer sources to check
+//
+// Returns:
+//   - []string: layer names that are dirty (nil if all clean)
+//   - error: git command failure
+func CheckClean(sources []tree.LayerSource) ([]string, error) {
+	seen := make(map[string]bool)
+	var dirty []string
+
+	for _, src := range sources {
+		if seen[src.Path] {
+			continue
+		}
+		seen[src.Path] = true
+
+		d, err := IsDirty(src.Path)
+		if err != nil {
+			return nil, fmt.Errorf("check %s: %w", src.Layer, err)
+		}
+		if d {
+			dirty = append(dirty, src.Layer)
+		}
+	}
+	return dirty, nil
 }
 
 // closeAll closes all snapshots, logging errors but not failing.

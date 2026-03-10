@@ -117,6 +117,10 @@ type GraphContext struct {
 	// CommitHashes records the git commit hash for each layer source (writ-specific).
 	// Keys are layer names ("base", "team", "personal"); values are full commit hashes.
 	CommitHashes map[string]string `json:"commit_hashes,omitempty" yaml:"commit_hashes,omitempty"`
+
+	// DirtyLayers lists layer names that had uncommitted changes at planning time (writ-specific).
+	// Present only when --allow-dirty was used; empty means all layers were clean.
+	DirtyLayers []string `json:"dirty_layers,omitempty" yaml:"dirty_layers,omitempty"`
 }
 
 // Summary contains execution statistics.
