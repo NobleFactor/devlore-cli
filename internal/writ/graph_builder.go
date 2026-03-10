@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
@@ -19,13 +21,15 @@ import (
 // CurrentVersion is the graph format version (delegates to op.GraphFormatVersion).
 const CurrentVersion = op.GraphFormatVersion
 
-// GraphBuilder is the interface for all graph builders.
-type GraphBuilder interface {
-	Build() (*op.Graph, error)
-}
-
-// NewGraph creates a op.Graph with common fields populated for writ.
+// NewGraph creates an op.Graph with common fields populated for writ.
+//
+// Parameters:
+//   - cfg: resolved writ configuration
+//
+// Returns:
+//   - *op.Graph: graph with context populated from config
 func NewGraph(cfg *Config) *op.Graph {
+
 	g := op.NewGraph(cfg.Tool)
 	g.Context = op.GraphContext{
 		SourceRoot: cfg.SourceRoot,
@@ -36,10 +40,43 @@ func NewGraph(cfg *Config) *op.Graph {
 	return g
 }
 
+// NewScopedGraph creates an op.Graph tagged with a target scope and root.
+// Used for multi-scope graph building where each scope gets its own graph.
+//
+// Parameters:
+//   - cfg: resolved writ configuration
+//   - scope: target scope identifier ("system", "home")
+//   - targetRoot: target root path for this scope ("/" or "$HOME")
+//
+// Returns:
+//   - *op.Graph: graph with scope and target root set
+func NewScopedGraph(cfg *Config, scope, targetRoot string) *op.Graph {
+
+	g := op.NewGraph(cfg.Tool)
+	g.Context = op.GraphContext{
+		Scope:      scope,
+		SourceRoot: cfg.SourceRoot,
+		TargetRoot: targetRoot,
+		Projects:   cfg.Projects,
+		Segments:   cfg.SegmentMap(),
+	}
+	return g
+}
+
 // BuildTree walks the source directories and populates the graph with file nodes.
 // This processes layers in order (base → team → personal) with collision detection.
 // Returns discovered manifest source paths instead of creating nodes for them.
-func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []string, err error) { //nolint:gocognit
+//
+// Parameters:
+//   - g: target graph to populate with nodes
+//   - cfg: resolved writ configuration
+//   - reg: action registry for node creation
+//
+// Returns:
+//   - []string: manifest source paths discovered during tree walk
+//   - error: tree build or node creation error
+func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []string, err error) {
+
 	result, err := tree.Build(tree.BuildConfig{
 		SourceRoot: cfg.SourceRoot,
 		TargetRoot: cfg.TargetRoot,
@@ -51,10 +88,27 @@ func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []st
 		return nil, fmt.Errorf("build tree: %w", err)
 	}
 
-	// Convert file entries to graph nodes.
-	// Multi-op pipelines from tree (e.g., ["render", "copy"]) become node chains.
-	// Manifest files are collected separately for planner resolution.
-	for _, f := range result.Files {
+	manifests = populateGraphNodes(g, result.Files, reg)
+	recordCollisions(g, result.Collisions)
+	return manifests, nil
+}
+
+// populateGraphNodes converts file entries into graph nodes on the given graph.
+// Multi-op pipelines (e.g., ["decrypt", "render", "copy"]) become node chains.
+// Manifest files are collected and returned instead of becoming nodes.
+//
+// Parameters:
+//   - g: target graph to populate
+//   - files: file entries from tree build
+//   - reg: action registry for node creation
+//
+// Returns:
+//   - []string: manifest source paths
+func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ActionRegistry) []string { //nolint:gocognit
+
+	var manifests []string
+
+	for _, f := range files {
 		actions := f.Operations
 
 		// Collect manifest files instead of creating nodes
@@ -116,8 +170,17 @@ func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []st
 		}
 	}
 
-	// Record collisions
-	for _, c := range result.Collisions {
+	return manifests
+}
+
+// recordCollisions copies tree collisions into the graph as planning metadata.
+//
+// Parameters:
+//   - g: target graph
+//   - collisions: collisions from the unified tree build
+func recordCollisions(g *op.Graph, collisions []tree.Collision) {
+
+	for _, c := range collisions {
 		g.Collisions = append(g.Collisions, op.Collision{
 			Target:            c.Target,
 			Winner:            c.Winner,
@@ -128,12 +191,22 @@ func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []st
 			LoserSpecificity:  c.LoserSpecificity,
 		})
 	}
-
-	return manifests, nil
 }
 
-// ConfigureEngine creates and configures an execution engine for the graph.
-func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
+// ConfigureEngine creates and configures an execution engine for a graph.
+// The targetRoot parameter specifies the executor's root directory, allowing
+// each scope's graph to execute against its own target (e.g., "/" for system,
+// "$HOME" for home).
+//
+// Parameters:
+//   - cfg: resolved writ configuration
+//   - targetRoot: root directory for this executor (overrides cfg.TargetRoot)
+//
+// Returns:
+//   - *execution.GraphExecutor: configured executor
+//   - error: configuration error
+func ConfigureEngine(cfg *Config, targetRoot string) (*execution.GraphExecutor, error) {
+
 	// Build engine data
 	engineData := graphBuiltinTemplateData(cfg.SegmentMap())
 	for k, v := range cfg.TemplateData {
@@ -151,7 +224,7 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 
 	// Create engine
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
-		Root:               cfg.TargetRoot,
+		Root:               targetRoot,
 		Data:               engineData,
 		DryRun:             cfg.DryRun,
 		Platform:           platform.New(),
@@ -163,6 +236,7 @@ func ConfigureEngine(cfg *Config) (*execution.GraphExecutor, error) {
 
 // graphBuiltinTemplateData returns the built-in template variables for graph building.
 func graphBuiltinTemplateData(segments map[string]string) map[string]any {
+
 	data := make(map[string]any)
 
 	// Add segments
@@ -177,6 +251,50 @@ func graphBuiltinTemplateData(segments map[string]string) map[string]any {
 	return data
 }
 
+// scopeLayers returns the unique layer names that contribute to a given scope.
+// Layers are returned in source order (base → team → personal).
+//
+// Parameters:
+//   - sources: all layer sources
+//   - scope: target scope name to filter by ("System" or "Home")
+//
+// Returns:
+//   - []string: unique layer names in source order
+func scopeLayers(sources []tree.LayerSource, scope string) []string {
+
+	seen := make(map[string]bool)
+	var layers []string
+	for _, src := range sources {
+		if src.TargetName == scope && !seen[src.Layer] {
+			seen[src.Layer] = true
+			layers = append(layers, src.Layer)
+		}
+	}
+	return layers
+}
+
+// resolveManifests delegates manifest files to the planner for package resolution.
+//
+// Parameters:
+//   - g: target graph to add package nodes to
+//   - planner: lore planner (nil skips resolution)
+//   - manifests: manifest source paths
+//
+// Returns:
+//   - error: manifest resolution error
+func resolveManifests(g *op.Graph, planner *lore.Planner, manifests []string) error {
+
+	if planner == nil || len(manifests) == 0 {
+		return nil
+	}
+	for _, m := range manifests {
+		if _, err := planner.PlanPackages(g, m); err != nil {
+			return fmt.Errorf("manifest %s: %w", m, err)
+		}
+	}
+	return nil
+}
+
 // ----------------------------------------------------------------------------
 // DeployGraphBuilder
 // ----------------------------------------------------------------------------
@@ -189,31 +307,93 @@ type DeployGraphBuilder struct {
 }
 
 // NewDeployGraphBuilder creates a new deploy graph builder.
+//
+// Parameters:
+//   - cfg: resolved deploy configuration
+//   - reg: action registry with registered actions
+//
+// Returns:
+//   - *DeployGraphBuilder: configured builder
 func NewDeployGraphBuilder(cfg *DeployConfig, reg *op.ActionRegistry) *DeployGraphBuilder {
 	return &DeployGraphBuilder{config: &cfg.Config, reg: reg}
 }
 
-// Build creates an execution graph for a deploy operation.
-func (b *DeployGraphBuilder) Build() (*op.Graph, error) {
-	// Create the graph
-	g := NewGraph(b.config)
+// Build creates execution graphs for a deploy operation.
+// In single-source mode, returns one graph. In multi-source mode, builds a
+// unified tree for cross-scope collision detection, then partitions winning
+// entries by target scope and creates one graph per populated scope.
+//
+// Returns:
+//   - []*op.Graph: one graph per target scope
+//   - error: tree build or graph creation error
+func (b *DeployGraphBuilder) Build() ([]*op.Graph, error) {
 
-	// Build the file tree and populate nodes
-	manifests, err := BuildTree(g, b.config, b.reg)
+	// Build unified tree (all sources, cross-scope collision detection)
+	result, err := tree.Build(tree.BuildConfig{
+		SourceRoot: b.config.SourceRoot,
+		TargetRoot: b.config.TargetRoot,
+		Sources:    b.config.LayerSources,
+		Projects:   b.config.Projects,
+		Segments:   b.config.Segments,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build tree: %w", err)
 	}
 
-	// Resolve manifest files through the planner
-	if b.Planner != nil && len(manifests) > 0 {
-		for _, m := range manifests {
-			if _, err := b.Planner.PlanPackages(g, m); err != nil {
-				return nil, fmt.Errorf("manifest %s: %w", m, err)
-			}
+	// Single-source mode: one graph, no scope partitioning
+	if len(b.config.LayerSources) == 0 {
+		g := NewGraph(b.config)
+		manifests := populateGraphNodes(g, result.Files, b.reg)
+		recordCollisions(g, result.Collisions)
+		if err := resolveManifests(g, b.Planner, manifests); err != nil {
+			return nil, err
 		}
+		return []*op.Graph{g}, nil
 	}
 
-	return g, nil
+	// Multi-source mode: partition winning entries by target scope
+	filesByScope := make(map[string][]*tree.FileEntry)
+	for _, f := range result.Files {
+		filesByScope[f.TargetName] = append(filesByScope[f.TargetName], f)
+	}
+
+	// Determine target root per scope from sources
+	scopeTargetRoots := make(map[string]string)
+	for _, src := range b.config.LayerSources {
+		scopeTargetRoots[src.TargetName] = src.TargetRoot
+	}
+
+	// Create one graph per populated scope (deterministic order)
+	scopes := sortedKeys(filesByScope)
+	graphs := make([]*op.Graph, 0, len(scopes))
+	for _, scope := range scopes {
+		files := filesByScope[scope]
+		targetRoot := scopeTargetRoots[scope]
+
+		g := NewScopedGraph(b.config, strings.ToLower(scope), targetRoot)
+		g.Context.Layers = scopeLayers(b.config.LayerSources, scope)
+
+		manifests := populateGraphNodes(g, files, b.reg)
+		recordCollisions(g, result.Collisions)
+
+		if err := resolveManifests(g, b.Planner, manifests); err != nil {
+			return nil, err
+		}
+		graphs = append(graphs, g)
+	}
+
+	return graphs, nil
+}
+
+// sortedKeys returns the keys of a map in sorted order.
+func sortedKeys(m map[string][]*tree.FileEntry) []string {
+
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // ----------------------------------------------------------------------------
@@ -240,6 +420,7 @@ func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateV
 
 // Build creates an execution graph for a decommission operation.
 func (b *DecommissionGraphBuilder) Build() (*op.Graph, error) {
+
 	// Create the graph
 	g := NewGraph(b.config)
 	g.Context.TargetRoot = b.view.Files.Root

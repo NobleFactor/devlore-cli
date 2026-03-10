@@ -58,6 +58,18 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 	if !found {
 		t.Error("expected to find pkg.install action")
 	}
+
+	// Verify graph context is populated
+	ctx := result.Graph.Context
+	if ctx.Scope != "curl" {
+		t.Errorf("Context.Scope = %q, want %q", ctx.Scope, "curl")
+	}
+	if len(ctx.Packages) != 1 || ctx.Packages[0] != "curl" {
+		t.Errorf("Context.Packages = %v, want [curl]", ctx.Packages)
+	}
+	if ctx.TargetPlatform != "Linux.Debian" {
+		t.Errorf("Context.TargetPlatform = %q, want %q", ctx.TargetPlatform, "Linux.Debian")
+	}
 }
 
 func TestBuild_PlatformDetection(t *testing.T) {
@@ -130,6 +142,15 @@ func TestBuildFromManifest(t *testing.T) {
 
 	if result.Packages[0] != "curl" || result.Packages[1] != "jq" {
 		t.Errorf("packages = %v, want [curl, jq]", result.Packages)
+	}
+
+	// Verify graph context for multi-package build
+	ctx := result.Graph.Context
+	if ctx.Scope != "curl+jq" {
+		t.Errorf("Context.Scope = %q, want %q", ctx.Scope, "curl+jq")
+	}
+	if len(ctx.Packages) != 2 {
+		t.Errorf("Context.Packages = %v, want [curl, jq]", ctx.Packages)
 	}
 }
 

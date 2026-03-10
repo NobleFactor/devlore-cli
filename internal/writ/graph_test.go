@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
+	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -278,16 +281,30 @@ func TestGraphSerialize(t *testing.T) {
 }
 
 func TestGraphFilename(t *testing.T) {
-	g := &op.Graph{
-		Tool:      "writ",
-		Timestamp: time.Date(2026, 1, 29, 14, 30, 45, 0, time.UTC),
-	}
+	t.Run("unscoped", func(t *testing.T) {
+		g := &op.Graph{
+			Tool:      "writ",
+			Timestamp: time.Date(2026, 1, 29, 14, 30, 45, 0, time.UTC),
+		}
+		filename := g.Filename()
+		expected := "writ-2026-01-29T14-30-45.yaml"
+		if filename != expected {
+			t.Errorf("expected filename %q, got %q", expected, filename)
+		}
+	})
 
-	filename := g.Filename()
-	expected := "writ-2026-01-29T14-30-45.yaml"
-	if filename != expected {
-		t.Errorf("expected filename %q, got %q", expected, filename)
-	}
+	t.Run("scoped", func(t *testing.T) {
+		g := &op.Graph{
+			Tool:      "writ",
+			Timestamp: time.Date(2026, 1, 29, 14, 30, 45, 0, time.UTC),
+			Context:   op.GraphContext{Scope: "system"},
+		}
+		filename := g.Filename()
+		expected := "writ-system-2026-01-29T14-30-45.yaml"
+		if filename != expected {
+			t.Errorf("expected filename %q, got %q", expected, filename)
+		}
+	})
 }
 
 func TestGitStyleChecksum(t *testing.T) {
@@ -437,5 +454,273 @@ func TestVerifyResult(t *testing.T) {
 		if tt.result.String() != tt.expected {
 			t.Errorf("expected %q, got %q", tt.expected, tt.result.String())
 		}
+	}
+}
+
+// --- Multi-Scope Graph Building ---
+
+// stubRegistry creates an action registry with stub actions for testing.
+func stubRegistry(names ...string) *op.ActionRegistry {
+	t := op.NewActionRegistry()
+	for _, name := range names {
+		t.Register(op.StubAction(name))
+	}
+	return t
+}
+
+// createLayerTree creates a temp dir with an "all" project containing the given files.
+func createLayerTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	for path, content := range files {
+		full := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", full, err)
+		}
+	}
+	return dir
+}
+
+func TestDeployGraphBuilder_MultiScopeBuild(t *testing.T) {
+	// Create base layer with System and Home files
+	baseSystem := createLayerTree(t, map[string]string{
+		"all/etc/profile": "system profile",
+	})
+	baseHome := createLayerTree(t, map[string]string{
+		"all/.bashrc": "base bashrc",
+	})
+
+	// Create personal layer with Home file
+	personalHome := createLayerTree(t, map[string]string{
+		"all/.zshrc": "personal zshrc",
+	})
+
+	targetHome := t.TempDir()
+	segs := segment.Segments{{Name: "OS", Value: "Darwin"}}
+
+	sources := []tree.LayerSource{
+		{Layer: "base", Path: baseSystem, Order: 0, SourceRoot: baseSystem, TargetRoot: "/", TargetName: "System"},
+		{Layer: "base", Path: baseHome, Order: 0, SourceRoot: baseHome, TargetRoot: targetHome, TargetName: "Home"},
+		{Layer: "personal", Path: personalHome, Order: 2, SourceRoot: personalHome, TargetRoot: targetHome, TargetName: "Home"},
+	}
+
+	reg := stubRegistry("file.link")
+	cfg := &DeployConfig{
+		Config: Config{
+			Tool:         "writ",
+			LayerSources: sources,
+			Projects:     []string{"all"},
+			Segments:     segs,
+		},
+	}
+
+	builder := NewDeployGraphBuilder(cfg, reg)
+	graphs, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Should produce 2 graphs: Home and System (alphabetical order)
+	if len(graphs) != 2 {
+		t.Fatalf("got %d graphs, want 2", len(graphs))
+	}
+
+	// First graph: Home (alphabetical)
+	home := graphs[0]
+	if home.Context.Scope != "home" {
+		t.Errorf("graphs[0].Scope = %q, want %q", home.Context.Scope, "home")
+	}
+	if home.Context.TargetRoot != targetHome {
+		t.Errorf("graphs[0].TargetRoot = %q, want %q", home.Context.TargetRoot, targetHome)
+	}
+	// Home graph: .bashrc (base) + .zshrc (personal) = 2 nodes
+	if len(home.Nodes) != 2 {
+		t.Errorf("Home graph has %d nodes, want 2", len(home.Nodes))
+		for _, n := range home.Nodes {
+			t.Logf("  node: %s", n.ID)
+		}
+	}
+
+	// Second graph: System
+	sys := graphs[1]
+	if sys.Context.Scope != "system" {
+		t.Errorf("graphs[1].Scope = %q, want %q", sys.Context.Scope, "system")
+	}
+	if sys.Context.TargetRoot != "/" {
+		t.Errorf("graphs[1].TargetRoot = %q, want %q", sys.Context.TargetRoot, "/")
+	}
+	// System graph: etc/profile (base) = 1 node
+	if len(sys.Nodes) != 1 {
+		t.Errorf("System graph has %d nodes, want 1", len(sys.Nodes))
+	}
+
+	// Verify layers are recorded per scope
+	if len(home.Context.Layers) != 2 {
+		t.Errorf("Home layers = %v, want [base personal]", home.Context.Layers)
+	}
+	if len(sys.Context.Layers) != 1 || sys.Context.Layers[0] != "base" {
+		t.Errorf("System layers = %v, want [base]", sys.Context.Layers)
+	}
+}
+
+func TestDeployGraphBuilder_SingleSourceReturnsSlice(t *testing.T) {
+	srcDir := createLayerTree(t, map[string]string{
+		"all/.bashrc": "content",
+	})
+	targetDir := t.TempDir()
+	segs := segment.Segments{{Name: "OS", Value: "Darwin"}}
+
+	reg := stubRegistry("file.link")
+	cfg := &DeployConfig{
+		Config: Config{
+			Tool:       "writ",
+			SourceRoot: srcDir,
+			TargetRoot: targetDir,
+			Projects:   []string{"all"},
+			Segments:   segs,
+		},
+	}
+
+	builder := NewDeployGraphBuilder(cfg, reg)
+	graphs, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Single-source mode: one graph, no scope
+	if len(graphs) != 1 {
+		t.Fatalf("got %d graphs, want 1", len(graphs))
+	}
+	if graphs[0].Context.Scope != "" {
+		t.Errorf("single-source graph should have empty scope, got %q", graphs[0].Context.Scope)
+	}
+	if len(graphs[0].Nodes) != 1 {
+		t.Errorf("got %d nodes, want 1", len(graphs[0].Nodes))
+	}
+}
+
+func TestDeployGraphBuilder_CrossScopeCollisionDetection(t *testing.T) {
+	// Same relative path in System and Home — Home shadows System per architecture
+	systemDir := createLayerTree(t, map[string]string{
+		"all/.config/app.conf": "system version",
+	})
+	homeDir := createLayerTree(t, map[string]string{
+		"all/.config/app.conf": "home version",
+	})
+
+	targetHome := t.TempDir()
+	segs := segment.Segments{{Name: "OS", Value: "Darwin"}}
+
+	sources := []tree.LayerSource{
+		{Layer: "base", Path: systemDir, Order: 0, SourceRoot: systemDir, TargetRoot: "/", TargetName: "System"},
+		{Layer: "base", Path: homeDir, Order: 0, SourceRoot: homeDir, TargetRoot: targetHome, TargetName: "Home"},
+	}
+
+	reg := stubRegistry("file.link")
+	cfg := &DeployConfig{
+		Config: Config{
+			Tool:         "writ",
+			LayerSources: sources,
+			Projects:     []string{"all"},
+			Segments:     segs,
+		},
+	}
+
+	builder := NewDeployGraphBuilder(cfg, reg)
+	graphs, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	// Cross-scope collision: Home shadows System for same ID.
+	// Only Home graph should have the file; System graph should be absent
+	// (no winning System entries means no System graph created).
+	if len(graphs) != 1 {
+		t.Fatalf("got %d graphs, want 1 (System entry shadowed)", len(graphs))
+	}
+	if graphs[0].Context.Scope != "home" {
+		t.Errorf("surviving graph scope = %q, want %q", graphs[0].Context.Scope, "home")
+	}
+
+	// Should have collision recorded
+	if len(graphs[0].Collisions) != 1 {
+		t.Errorf("got %d collisions, want 1", len(graphs[0].Collisions))
+	}
+}
+
+func TestNewScopedGraph(t *testing.T) {
+	cfg := &Config{
+		Tool:     "writ",
+		Projects: []string{"all", "noblefactor"},
+	}
+
+	g := NewScopedGraph(cfg, "home", "/home/user")
+
+	if g.Context.Scope != "home" {
+		t.Errorf("Scope = %q, want %q", g.Context.Scope, "home")
+	}
+	if g.Context.TargetRoot != "/home/user" {
+		t.Errorf("TargetRoot = %q, want %q", g.Context.TargetRoot, "/home/user")
+	}
+	if len(g.Context.Projects) != 2 {
+		t.Errorf("Projects = %v, want [all noblefactor]", g.Context.Projects)
+	}
+}
+
+// --- Scope Ordering ---
+
+func TestSortGraphsByScope_SystemBeforeHome(t *testing.T) {
+	graphs := []*op.Graph{
+		{Context: op.GraphContext{Scope: "home"}},
+		{Context: op.GraphContext{Scope: "system"}},
+	}
+
+	sortGraphsByScope(graphs)
+
+	if graphs[0].Context.Scope != "system" {
+		t.Errorf("graphs[0].Scope = %q, want %q", graphs[0].Context.Scope, "system")
+	}
+	if graphs[1].Context.Scope != "home" {
+		t.Errorf("graphs[1].Scope = %q, want %q", graphs[1].Context.Scope, "home")
+	}
+}
+
+func TestSortGraphsByScope_AlreadyOrdered(t *testing.T) {
+	graphs := []*op.Graph{
+		{Context: op.GraphContext{Scope: "system"}},
+		{Context: op.GraphContext{Scope: "home"}},
+	}
+
+	sortGraphsByScope(graphs)
+
+	if graphs[0].Context.Scope != "system" {
+		t.Errorf("graphs[0].Scope = %q, want %q", graphs[0].Context.Scope, "system")
+	}
+	if graphs[1].Context.Scope != "home" {
+		t.Errorf("graphs[1].Scope = %q, want %q", graphs[1].Context.Scope, "home")
+	}
+}
+
+func TestSortGraphsByScope_UnscopedLast(t *testing.T) {
+	graphs := []*op.Graph{
+		{Context: op.GraphContext{Scope: ""}},
+		{Context: op.GraphContext{Scope: "home"}},
+		{Context: op.GraphContext{Scope: "system"}},
+	}
+
+	sortGraphsByScope(graphs)
+
+	if graphs[0].Context.Scope != "system" {
+		t.Errorf("graphs[0].Scope = %q, want %q", graphs[0].Context.Scope, "system")
+	}
+	if graphs[1].Context.Scope != "home" {
+		t.Errorf("graphs[1].Scope = %q, want %q", graphs[1].Context.Scope, "home")
+	}
+	if graphs[2].Context.Scope != "" {
+		t.Errorf("graphs[2].Scope = %q, want empty", graphs[2].Context.Scope)
 	}
 }

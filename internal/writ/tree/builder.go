@@ -47,6 +47,10 @@ type FileEntry struct {
 	// Layer is the repository layer (base, team, personal).
 	Layer string
 
+	// TargetName is the target scope ("System" or "Home").
+	// Set during multi-source builds from LayerSource.TargetName.
+	TargetName string
+
 	// Mode is the file permissions to set (0 means default 0644).
 	Mode os.FileMode
 }
@@ -243,8 +247,9 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) { //nolint:gocognit
 
 			specificity := len(match.Suffixes)
 			for _, entry := range entries {
-				// Store layer in entry
+				// Store layer and target scope in entry
 				entry.Layer = source.Layer
+				entry.TargetName = source.TargetName
 
 				existing, exists := entriesByTarget[entry.ID]
 				if !exists {

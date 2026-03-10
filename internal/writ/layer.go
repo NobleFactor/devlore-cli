@@ -63,6 +63,24 @@ func CollectLayerSources() ([]tree.LayerSource, error) {
 	return sources, nil
 }
 
+// PartitionByScope groups layer sources by their TargetName ("System", "Home").
+// Sources within each partition retain their original ordering.
+// Returns an empty map when sources is empty.
+//
+// Parameters:
+//   - sources: flat list of layer sources from CollectLayerSources
+//
+// Returns:
+//   - map[string][]tree.LayerSource: sources keyed by TargetName
+func PartitionByScope(sources []tree.LayerSource) map[string][]tree.LayerSource {
+
+	partitions := make(map[string][]tree.LayerSource)
+	for _, s := range sources {
+		partitions[s.TargetName] = append(partitions[s.TargetName], s)
+	}
+	return partitions
+}
+
 // dirExists checks if a directory exists.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
