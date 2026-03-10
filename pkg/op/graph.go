@@ -113,6 +113,10 @@ type GraphContext struct {
 
 	// Settings for package installation (lore-specific).
 	Settings map[string]string `json:"settings,omitempty" yaml:"settings,omitempty"`
+
+	// CommitHashes records the git commit hash for each layer source (writ-specific).
+	// Keys are layer names ("base", "team", "personal"); values are full commit hashes.
+	CommitHashes map[string]string `json:"commit_hashes,omitempty" yaml:"commit_hashes,omitempty"`
 }
 
 // Summary contains execution statistics.

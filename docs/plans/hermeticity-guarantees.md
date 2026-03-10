@@ -132,23 +132,25 @@ Update state view to filter by scope, so decommission and reconcile operate on t
 
 ### Phase 6: Git Worktree Snapshots
 
-Pin each layer source to a git commit hash during planning. Create detached worktrees for immutable planning views.
+Pin each layer source to a git commit hash during planning. Create detached worktrees for immutable planning views. Worktrees are placed under `${XDG_CACHE_HOME}/devlore/snapshots/`.
 
-- [ ] Create `internal/writ/snapshot` package
-- [ ] `Snapshot` struct: `Layer string`, `RepoPath string`, `CommitHash string`, `WorktreePath string`
-- [ ] `Pin(layerPath string) (*Snapshot, error)` — resolve HEAD commit, create detached worktree
-- [ ] `(*Snapshot) Close() error` — remove worktree
-- [ ] `PinAll(sources []tree.LayerSource) ([]*Snapshot, error)` — pin each unique repo once (base, team, personal may share a repo or be separate)
-- [ ] Update `CollectLayerSources()` or add wrapper to rewrite `LayerSource.SourceRoot` to point at worktree paths
-- [ ] Record commit hashes in `GraphContext` — add `CommitHashes map[string]string` field (layer → hash)
-- [ ] Tests: pin and close lifecycle, worktree isolation, commit hash recording
+- [x] Create `internal/writ/snapshot` package
+- [x] `Snapshot` struct: `Layer`, `RepoPath`, `CommitHash`, `WorktreePath`
+- [x] `Pin(repoPath, layer)` — resolve HEAD commit, create detached worktree at `snapshots/<layer>-<hash[:12]>/`
+- [x] `(*Snapshot).Close()` — remove worktree via `git worktree remove`, fallback to `RemoveAll` + prune
+- [x] `PinAll(sources)` — pin each unique repo once (dedup by `LayerSource.Path`), return cleanup func
+- [x] `RewriteSources(sources, snapshots)` — rewrite `SourceRoot` to worktree paths preserving subdirectory
+- [x] `Hashes(snapshots)` — returns `layer → hash` map for `GraphContext.CommitHashes`
+- [x] Add `CommitHashes map[string]string` to `GraphContext` (layer → full commit hash)
+- [x] Wire into `runDeployV2()`: pin after config, rewrite sources, record hashes on graphs, defer cleanup
+- [x] Tests: pin/close lifecycle, worktree excludes uncommitted changes, worktree reuse, PinAll dedup with shared repo, PinAll with distinct repos, RewriteSources, Hashes
 
 **Files**:
 
-- `internal/writ/snapshot/snapshot.go` — Create: `Snapshot`, `Pin()`, `PinAll()`, `Close()`
-- `internal/writ/snapshot/snapshot_test.go` — Create: lifecycle tests
+- `internal/writ/snapshot/snapshot.go` — Create: `Snapshot`, `Pin`, `PinAll`, `RewriteSources`, `Hashes`, `Close`
+- `internal/writ/snapshot/snapshot_test.go` — Create: 7 tests with real git repos
 - `pkg/op/graph.go` — Modify: `GraphContext.CommitHashes`
-- `internal/writ/commands.go` — Modify: pin layers before planning, close after graph build
+- `internal/writ/commands.go` — Modify: pin layers before planning, rewrite sources, record hashes, cleanup
 
 ### Phase 7: Dirty Tree Policy
 

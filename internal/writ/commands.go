@@ -28,6 +28,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
+	"github.com/NobleFactor/devlore-cli/internal/writ/snapshot"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -104,7 +105,26 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. Build execution graphs (one per target scope)
+	// 2. Pin layer sources to git worktree snapshots (multi-source mode only)
+	var commitHashes map[string]string
+	if len(cfg.LayerSources) > 0 {
+		snapshots, cleanup, err := snapshot.PinAll(cfg.LayerSources)
+		if err != nil {
+			return fmt.Errorf("pin layers: %w", err)
+		}
+		defer cleanup()
+
+		cfg.LayerSources = snapshot.RewriteSources(cfg.LayerSources, snapshots)
+		commitHashes = snapshot.Hashes(snapshots)
+
+		if cfg.Verbose {
+			for _, s := range snapshots {
+				cli.Note("Pinned %s → %s (%s)", s.Layer, s.CommitHash[:12], s.WorktreePath)
+			}
+		}
+	}
+
+	// 3. Build execution graphs (one per target scope)
 	reg := op.NewActionRegistry()
 	op.InitAll(reg, op.Context{})
 	builder := NewDeployGraphBuilder(cfg, reg)
@@ -121,6 +141,11 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Record commit hashes on each graph
+	for _, g := range graphs {
+		g.Context.CommitHashes = commitHashes
+	}
+
 	// Sort: system first, then home
 	sortGraphsByScope(graphs)
 
@@ -134,7 +159,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		reportCollisions(cfg, graphs[0].Collisions)
 	}
 
-	// 3a. Dry-run: serialize all graphs to stdout
+	// 4a. Dry-run: serialize all graphs to stdout
 	if cfg.DryRun {
 		enc := yaml.NewEncoder(os.Stdout)
 		enc.SetIndent(2)
@@ -147,7 +172,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 3b. Execute each graph (fail-forward: independent scopes continue on failure)
+	// 4b. Execute each graph (fail-forward: independent scopes continue on failure)
 	var errs []error
 	for _, g := range graphs {
 		engine, err := ConfigureEngine(&cfg.Config, g.Context.TargetRoot)
