@@ -9,6 +9,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+func init() { op.RegisterConstructor(ResourceFromValue) }
+
 func TestNewResource(t *testing.T) {
 	r := NewResource("jq")
 	if r.Name != "jq" {

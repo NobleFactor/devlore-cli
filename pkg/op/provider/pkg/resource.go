@@ -10,14 +10,21 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func init() {
-	op.RegisterConstructor(func(v any) (Resource, error) {
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("pkg.Resource: expected string name, got %T", v)
-		}
-		return NewResource(s), nil
-	})
+// ResourceFromValue constructs a pkg.Resource from a string package name.
+//
+// Parameters:
+//   - v: expected to be a string package name
+//
+// Returns:
+//   - Resource: initialized with the given name
+//   - error: if v is not a string
+func ResourceFromValue(v any) (Resource, error) {
+
+	s, ok := v.(string)
+	if !ok {
+		return Resource{}, fmt.Errorf("pkg.Resource: expected string name, got %T", v)
+	}
+	return NewResource(s), nil
 }
 
 // NewResource creates a Resource with the given package name.

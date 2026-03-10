@@ -204,8 +204,8 @@ func validateSlotType(goVal any, targetType reflect.Type) error {
 		return nil
 	}
 
-	// Constructor registry.
-	if _, ok := constructorRegistry.Load(targetType); ok {
+	// Constructor registry (includes lazy init from resource announcements).
+	if _, ok := loadConstructor(targetType); ok {
 		return nil
 	}
 
@@ -252,8 +252,8 @@ func coerceSlotValue(slotValue any, targetType reflect.Type) (reflect.Value, err
 		return coerceSlice(sv, targetType)
 	}
 
-	if ctor, ok := constructorRegistry.Load(targetType); ok {
-		result, err := ctor.(func(any) (any, error))(slotValue)
+	if ctor, ok := loadConstructor(targetType); ok {
+		result, err := ctor(slotValue)
 		if err != nil {
 			return reflect.Value{}, err
 		}

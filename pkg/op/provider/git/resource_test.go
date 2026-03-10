@@ -9,6 +9,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+func init() { op.RegisterConstructor(ResourceFromValue) }
+
 func TestResourceURI_LocalClone(t *testing.T) {
 	r, err := op.Construct[Resource]("/tmp/repo")
 	if err != nil {

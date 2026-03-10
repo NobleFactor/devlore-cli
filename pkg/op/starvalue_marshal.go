@@ -38,12 +38,12 @@ func RegisterConstructor[T any](fn func(any) (T, error)) {
 // constructor rejects the value.
 func Construct[T any](value any) (T, error) {
 	t := reflect.TypeOf((*T)(nil)).Elem()
-	ctor, ok := constructorRegistry.Load(t)
+	ctor, ok := loadConstructor(t)
 	if !ok {
 		var zero T
 		return zero, fmt.Errorf("no constructor registered for %s", t)
 	}
-	result, err := ctor.(func(any) (any, error))(value)
+	result, err := ctor(value)
 	if err != nil {
 		var zero T
 		return zero, err
@@ -54,11 +54,11 @@ func Construct[T any](value any) (T, error) {
 // constructResource creates a Resource using the constructor registry.
 // Returns nil, false if no constructor exists for the given type.
 func constructResource(targetType reflect.Type, value any) (Resource, bool) {
-	ctor, ok := constructorRegistry.Load(targetType)
+	ctor, ok := loadConstructor(targetType)
 	if !ok {
 		return nil, false
 	}
-	result, err := ctor.(func(any) (any, error))(value)
+	result, err := ctor(value)
 	if err != nil {
 		return nil, false
 	}
@@ -408,7 +408,7 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 	// Constructor registry: build complex Go types from simpler Starlark values.
 	// If the Starlark value is already a struct whose type name matches the
 	// target Go type, skip the constructor and unmarshal fields directly.
-	if ctor, ok := constructorRegistry.Load(rv.Type()); ok {
+	if ctor, ok := loadConstructor(rv.Type()); ok {
 		alreadyTarget := false
 		if ss, ok := sv.(*starlarkstruct.Struct); ok {
 			if name, ok := ss.Constructor().(starlark.String); ok {
@@ -420,7 +420,7 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			if err != nil {
 				return err
 			}
-			val, err := ctor.(func(any) (any, error))(native)
+			val, err := ctor(native)
 			if err != nil {
 				return err
 			}
@@ -683,4 +683,177 @@ func unmarshalStruct(sv starlark.Value, rv reflect.Value) error {
 	default:
 		return fmt.Errorf("unmarshal: expected struct or dict, got %s", sv.Type())
 	}
+}
+
+// ── Callable resource support ───────────────────────────────────────────────
+
+// CallableResource is the interface that mem.Callable satisfies.
+// It allows pkg/op to work with callables without importing the mem package.
+type CallableResource interface {
+	Resource
+	Init(thread *starlark.Thread) error
+	Fn() starlark.Callable
+	FuncTypeName() string
+}
+
+// CallableInput carries the parameters needed for callable extraction. Used as the constructor input for the
+// CallableResource constructor registered by the mem package via AnnounceResource.
+type CallableInput struct {
+	Fn       *starlark.Function
+	FuncType string
+}
+
+// callableResourceType is the reflect.Type for the CallableResource interface, used as the key in the constructor
+// registry for callable extraction.
+var callableResourceType = reflect.TypeOf((*CallableResource)(nil)).Elem()
+
+// extractCallable looks up the callable constructor from the registry and extracts the given Starlark function. The mem
+// package registers a constructor via AnnounceResource that handles extraction and compilation.
+func extractCallable(fn *starlark.Function, funcType string) (CallableResource, error) {
+
+	ctor, ok := loadConstructor(callableResourceType)
+	if !ok {
+		return nil, fmt.Errorf("no callable extractor registered (mem package not imported?)")
+	}
+	result, err := ctor(CallableInput{Fn: fn, FuncType: funcType})
+	if err != nil {
+		return nil, err
+	}
+	return result.(CallableResource), nil
+}
+
+// isCallableResource returns true if the value implements CallableResource.
+func isCallableResource(v any) bool {
+	_, ok := v.(CallableResource)
+	return ok
+}
+
+// isFuncType returns true if the reflect.Type is a function type.
+func isFuncType(t reflect.Type) bool {
+	return t.Kind() == reflect.Func
+}
+
+// initCallableSlots finds CallableResource values in slots that target
+// func-typed method parameters, initializes them, and replaces the slot
+// value with an adapted Go function. This runs in Do() before coerceArgs
+// so the standard coercion path sees a directly-assignable func value.
+func initCallableSlots(ctx *Context, slots map[string]any, methodType reflect.Type, paramNames []string) error {
+	for i, name := range paramNames {
+		callable, ok := slots[name].(CallableResource)
+		if !ok {
+			continue
+		}
+		paramIdx := i + 1 // skip receiver
+		if paramIdx >= methodType.NumIn() {
+			continue
+		}
+		paramType := methodType.In(paramIdx)
+		if paramType.Kind() != reflect.Func {
+			continue
+		}
+
+		if err := callable.Init(ctx.Thread); err != nil {
+			return fmt.Errorf("param %s: init callable: %w", name, err)
+		}
+
+		adapted, err := buildCallableFunc(callable.Fn(), ctx.Thread, paramType)
+		if err != nil {
+			return fmt.Errorf("param %s: adapt callable: %w", name, err)
+		}
+		slots[name] = adapted
+	}
+	return nil
+}
+
+// buildCallableFunc creates a Go function value matching targetType that
+// delegates to the Starlark callable. All arguments are marshaled
+// Go→Starlark and passed to the callable. The callable must match the
+// full signature of the Go func type. Returns are unmarshaled Starlark→Go.
+//
+// Target func signature: func(p0 T0, p1 T1, ...) (R0, R1, ...)
+func buildCallableFunc(fn starlark.Callable, thread *starlark.Thread, targetType reflect.Type) (any, error) {
+	numIn := targetType.NumIn()
+	numOut := targetType.NumOut()
+
+	// Build adapter function via reflect.MakeFunc.
+	adapter := reflect.MakeFunc(targetType, func(args []reflect.Value) []reflect.Value {
+		// Marshal all Go args → Starlark.
+		starArgs := make(starlark.Tuple, numIn)
+		for i := range numIn {
+			sv, err := marshal(args[i].Interface())
+			if err != nil {
+				return makeErrorReturn(targetType, numOut,
+					fmt.Errorf("callable arg %d: marshal: %w", i, err))
+			}
+			starArgs[i] = sv
+		}
+
+		// Call the Starlark function.
+		result, err := starlark.Call(thread, fn, starArgs, nil)
+		if err != nil {
+			return makeErrorReturn(targetType, numOut,
+				fmt.Errorf("callable %s: %w", fn.Name(), err))
+		}
+
+		// Unmarshal return values.
+		return unmarshalReturn(targetType, numOut, result)
+	})
+
+	return adapter.Interface(), nil
+}
+
+// makeErrorReturn builds a reflect.Value slice for an error return.
+// Convention: the last return is error; preceding returns are zero values.
+func makeErrorReturn(funcType reflect.Type, numOut int, err error) []reflect.Value {
+	out := make([]reflect.Value, numOut)
+	for i := range numOut - 1 {
+		out[i] = reflect.Zero(funcType.Out(i))
+	}
+	if numOut > 0 {
+		out[numOut-1] = reflect.ValueOf(&err).Elem()
+	}
+	return out
+}
+
+// unmarshalReturn converts a Starlark result into the target func's return
+// values. Convention: first return is the result (via unmarshalToAny), last
+// return is error (nil on success). Middle returns are zero values.
+func unmarshalReturn(funcType reflect.Type, numOut int, result starlark.Value) []reflect.Value {
+	out := make([]reflect.Value, numOut)
+
+	if numOut == 0 {
+		return out
+	}
+
+	// Last return is error — set to nil.
+	if numOut > 0 && funcType.Out(numOut-1).Implements(errorType) {
+		out[numOut-1] = reflect.Zero(funcType.Out(numOut - 1))
+	}
+
+	// First return is the result value.
+	if numOut >= 1 {
+		goVal, err := unmarshalToAny(result)
+		if err != nil {
+			return makeErrorReturn(funcType, numOut, err)
+		}
+		if goVal == nil {
+			out[0] = reflect.Zero(funcType.Out(0))
+		} else {
+			rv := reflect.ValueOf(goVal)
+			if rv.Type().AssignableTo(funcType.Out(0)) {
+				out[0] = rv
+			} else if rv.Type().ConvertibleTo(funcType.Out(0)) {
+				out[0] = rv.Convert(funcType.Out(0))
+			} else {
+				out[0] = reflect.Zero(funcType.Out(0))
+			}
+		}
+	}
+
+	// Middle returns (between first result and last error) are zero.
+	for i := 1; i < numOut-1; i++ {
+		out[i] = reflect.Zero(funcType.Out(i))
+	}
+
+	return out
 }

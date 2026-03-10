@@ -11,16 +11,23 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func init() {
-	op.RegisterConstructor(func(v any) (Resource, error) {
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("git.Resource: expected string path, got %T", v)
-		}
-		r := Resource{ClonePath: s}
-		r.SetURI(r.buildURI())
-		return r, nil
-	})
+// ResourceFromValue constructs a git.Resource from a string clone path.
+//
+// Parameters:
+//   - v: expected to be a string path
+//
+// Returns:
+//   - Resource: initialized with the given clone path
+//   - error: if v is not a string
+func ResourceFromValue(v any) (Resource, error) {
+
+	s, ok := v.(string)
+	if !ok {
+		return Resource{}, fmt.Errorf("git.Resource: expected string path, got %T", v)
+	}
+	r := Resource{ClonePath: s}
+	r.SetURI(r.buildURI())
+	return r, nil
 }
 
 // Resource represents a cloned git repository.

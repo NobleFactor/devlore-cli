@@ -30,39 +30,44 @@ func TestCallableResourceInterface(t *testing.T) {
 	var _ CallableResource = (*mockCallableResource)(nil)
 }
 
-func TestExtractCallable_NoExtractor(t *testing.T) {
-	// Save and restore the extractor.
-	saved := callableExtractorFn
-	callableExtractorFn = nil
-	defer func() { callableExtractorFn = saved }()
+func TestExtractCallable_NoConstructor(t *testing.T) {
+	// With no callable constructor announced, extractCallable should fail.
+	resetAnnouncedResources()
+	defer resetAnnouncedResources()
 
-	_, err := ExtractCallable(nil, "TestType", nil)
+	// Clear any registered constructor for CallableResource.
+	constructorRegistry.Delete(callableResourceType)
+
+	_, err := extractCallable(nil, "TestType")
 	if err == nil {
-		t.Fatal("expected error when no extractor registered")
+		t.Fatal("expected error when no callable constructor registered")
 	}
 }
 
-func TestExtractCallable_WithExtractor(t *testing.T) {
-	saved := callableExtractorFn
-	defer func() { callableExtractorFn = saved }()
-
+func TestExtractCallable_WithConstructor(t *testing.T) {
+	// Register a callable constructor directly for testing.
 	called := false
-	RegisterCallableExtractor(func(fn *starlark.Function, funcType string, _ Root) (CallableResource, error) {
+	RegisterConstructor[CallableResource](func(v any) (CallableResource, error) {
 		called = true
-		if funcType != "file.Reducer" {
-			t.Errorf("funcType = %q, want %q", funcType, "file.Reducer")
+		input, ok := v.(CallableInput)
+		if !ok {
+			t.Fatalf("expected CallableInput, got %T", v)
 		}
-		m := &mockCallableResource{funcType: funcType}
+		if input.FuncType != "file.Reducer" {
+			t.Errorf("FuncType = %q, want %q", input.FuncType, "file.Reducer")
+		}
+		m := &mockCallableResource{funcType: input.FuncType}
 		m.SetURI("mem:callable/file.Reducer/test")
 		return m, nil
 	})
+	defer constructorRegistry.Delete(callableResourceType)
 
-	cr, err := ExtractCallable(nil, "file.Reducer", nil)
+	cr, err := extractCallable(nil, "file.Reducer")
 	if err != nil {
-		t.Fatalf("ExtractCallable: %v", err)
+		t.Fatalf("extractCallable: %v", err)
 	}
 	if !called {
-		t.Error("extractor was not called")
+		t.Error("constructor was not called")
 	}
 	if cr.FuncTypeName() != "file.Reducer" {
 		t.Errorf("FuncTypeName = %q, want %q", cr.FuncTypeName(), "file.Reducer")

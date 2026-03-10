@@ -9,16 +9,23 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func init() {
-	op.RegisterConstructor(func(v any) (Resource, error) {
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("service.Resource: expected string name, got %T", v)
-		}
-		r := Resource{Name: s}
-		r.SetURI(r.buildURI())
-		return r, nil
-	})
+// ResourceFromValue constructs a service.Resource from a string service name.
+//
+// Parameters:
+//   - v: expected to be a string service name
+//
+// Returns:
+//   - Resource: initialized with the given name
+//   - error: if v is not a string
+func ResourceFromValue(v any) (Resource, error) {
+
+	s, ok := v.(string)
+	if !ok {
+		return Resource{}, fmt.Errorf("service.Resource: expected string name, got %T", v)
+	}
+	r := Resource{Name: s}
+	r.SetURI(r.buildURI())
+	return r, nil
 }
 
 // Resource represents a system service.

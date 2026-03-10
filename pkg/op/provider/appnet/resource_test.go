@@ -9,6 +9,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+func init() { op.RegisterConstructor(ResourceFromValue) }
+
 func TestResourceImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }

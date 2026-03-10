@@ -11,20 +11,27 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func init() {
-	op.RegisterConstructor(func(v any) (Resource, error) {
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("appnet.Resource: expected string URL, got %T", v)
-		}
-		u, err := url.Parse(s)
-		if err != nil {
-			return Resource{}, fmt.Errorf("appnet.Resource: invalid URL %q: %w", s, err)
-		}
-		r := Resource{SourceURL: u}
-		r.SetURI(r.buildURI())
-		return r, nil
-	})
+// ResourceFromValue constructs an appnet.Resource from a string URL.
+//
+// Parameters:
+//   - v: expected to be a string URL
+//
+// Returns:
+//   - Resource: initialized with the parsed URL
+//   - error: if v is not a string or the URL is invalid
+func ResourceFromValue(v any) (Resource, error) {
+
+	s, ok := v.(string)
+	if !ok {
+		return Resource{}, fmt.Errorf("appnet.Resource: expected string URL, got %T", v)
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return Resource{}, fmt.Errorf("appnet.Resource: invalid URL %q: %w", s, err)
+	}
+	r := Resource{SourceURL: u}
+	r.SetURI(r.buildURI())
+	return r, nil
 }
 
 // Resource represents a network resource identified by a URL.

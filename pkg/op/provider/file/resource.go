@@ -15,14 +15,21 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func init() {
-	op.RegisterConstructor(func(v any) (Resource, error) {
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("file.Resource: expected string path, got %T", v)
-		}
-		return NewResource(s), nil
-	})
+// ResourceFromValue constructs a file.Resource from a string path.
+//
+// Parameters:
+//   - v: expected to be a string file path
+//
+// Returns:
+//   - Resource: initialized with the given path
+//   - error: if v is not a string
+func ResourceFromValue(v any) (Resource, error) {
+
+	s, ok := v.(string)
+	if !ok {
+		return Resource{}, fmt.Errorf("file.Resource: expected string path, got %T", v)
+	}
+	return NewResource(s), nil
 }
 
 // Resource represents a handle to data that can be streamed.
