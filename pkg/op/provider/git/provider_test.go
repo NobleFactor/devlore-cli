@@ -13,6 +13,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
+func init() {
+	op.RegisterConstructor(netprov.ResourceFromValue)
+	op.RegisterConstructor(file.ResourceFromValue)
+}
+
 func TestCloneViaHook(t *testing.T) {
 	var gotURL, gotPath string
 

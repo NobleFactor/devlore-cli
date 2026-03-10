@@ -10,46 +10,42 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Extract introspects a *starlark.Function and produces a self-contained Callable with synthesized source text. The
 // synthetic file inlines all closure bindings as module-level constants, making it independent of the original script.
 //
 // The function name is derived from fn.Name() (or "<action>.<param>" for lambdas when the caller provides a fallback
-// via ExtractWithName). When root is non-nil, source reads are scoped through os.Root.
+// via ExtractWithName).
 //
 // Parameters:
 //   - fn: Starlark function to extract
 //   - funcType: Go type name the callable satisfies (e.g., "file.Reducer")
-//   - root: OS root for scoped I/O (nil falls back to os.ReadFile)
 //
 // Returns:
 //   - *Callable: the extracted callable with synthesized source
 //   - error: any extraction error
-func Extract(fn *starlark.Function, funcType string, root op.Root) (*Callable, error) {
+func Extract(fn *starlark.Function, funcType string) (*Callable, error) {
 
 	name := fn.Name()
 	if name == "lambda" {
 		name = "_lambda"
 	}
-	return ExtractWithName(fn, funcType, name, root)
+	return ExtractWithName(fn, funcType, name)
 }
 
 // ExtractWithName is like Extract but allows the caller to specify the callable name (useful for lambdas where the
-// default name is "lambda"). When root is non-nil, source reads are scoped through os.Root.
+// default name is "lambda").
 //
 // Parameters:
 //   - fn: Starlark function to extract
 //   - funcType: Go type name the callable satisfies (e.g., "file.Reducer")
 //   - name: Name for the callable (overrides fn.Name())
-//   - root: OS root for scoped I/O (nil falls back to os.ReadFile)
 //
 // Returns:
 //   - *Callable: the extracted callable with synthesized source
 //   - error: any extraction error
-func ExtractWithName(fn *starlark.Function, funcType, name string, root op.Root) (*Callable, error) {
+func ExtractWithName(fn *starlark.Function, funcType, name string) (*Callable, error) {
 	c := NewCallable(funcType, name)
 
 	// Introspect parameters.
@@ -68,7 +64,7 @@ func ExtractWithName(fn *starlark.Function, funcType, name string, root op.Root)
 	}
 
 	// Build synthetic source.
-	source, err := synthesize(fn, params, root)
+	source, err := synthesize(fn, params)
 	if err != nil {
 		return nil, fmt.Errorf("extract %s: %w", name, err)
 	}
@@ -84,17 +80,16 @@ func ExtractWithName(fn *starlark.Function, funcType, name string, root op.Root)
 	return c, nil
 }
 
-// synthesize builds the synthetic source file text. When root is non-nil, source reads are scoped through os.Root.
+// synthesize builds the synthetic source file text.
 //
 // Parameters:
 //   - fn: Starlark function whose source to extract and synthesize
 //   - params: Parameter names for the function
-//   - root: OS root for scoped I/O (nil falls back to os.ReadFile)
 //
 // Returns:
 //   - []byte: synthetic source text
 //   - error: any extraction error
-func synthesize(fn *starlark.Function, params []string, root op.Root) ([]byte, error) {
+func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 	var b strings.Builder
 
 	// Header comment.
@@ -122,7 +117,7 @@ func synthesize(fn *starlark.Function, params []string, root op.Root) ([]byte, e
 		// For lambdas, we need to extract the expression from source and
 		// wrap it in a def. If source extraction fails, we fall back to
 		// a stub that documents the issue.
-		body, err := extractLambdaBody(fn, root)
+		body, err := extractLambdaBody(fn)
 		if err != nil {
 			return nil, fmt.Errorf("lambda extraction: %w", err)
 		}
@@ -130,7 +125,7 @@ func synthesize(fn *starlark.Function, params []string, root op.Root) ([]byte, e
 		fmt.Fprintf(&b, "    return %s\n", body)
 	} else {
 		// For named functions, extract the full def from source.
-		defText, err := extractDefSource(fn, root)
+		defText, err := extractDefSource(fn)
 		if err != nil {
 			return nil, fmt.Errorf("def extraction: %w", err)
 		}
@@ -144,23 +139,22 @@ func synthesize(fn *starlark.Function, params []string, root op.Root) ([]byte, e
 }
 
 // extractLambdaBody reads the source file and extracts the lambda expression body from the position indicated by
-// fn.Position(). When root is non-nil, reads are scoped through os.Root.
+// fn.Position().
 //
 // Parameters:
 //   - fn: Starlark function whose source to extract
-//   - root: OS root for scoped I/O (nil falls back to os.ReadFile)
 //
 // Returns:
 //   - string: the lambda body expression text
 //   - error: any read or parse error
-func extractLambdaBody(fn *starlark.Function, root op.Root) (string, error) {
+func extractLambdaBody(fn *starlark.Function) (string, error) {
 
 	pos := fn.Position()
 	if !pos.IsValid() {
 		return "", fmt.Errorf("lambda has no source position")
 	}
 
-	data, err := readSource(pos.Filename(), root)
+	data, err := os.ReadFile(pos.Filename())
 	if err != nil {
 		return "", fmt.Errorf("read source %s: %w", pos.Filename(), err)
 	}
@@ -196,24 +190,22 @@ func extractLambdaBody(fn *starlark.Function, root op.Root) (string, error) {
 	return strings.TrimSpace(body), nil
 }
 
-// extractDefSource reads the source file and extracts the full def statement. When root is non-nil, reads are scoped
-// through os.Root.
+// extractDefSource reads the source file and extracts the full def statement.
 //
 // Parameters:
 //   - fn: Starlark function whose source to extract
-//   - root: OS root for scoped I/O (nil falls back to os.ReadFile)
 //
 // Returns:
 //   - string: the full def statement text
 //   - error: any read or parse error
-func extractDefSource(fn *starlark.Function, root op.Root) (string, error) {
+func extractDefSource(fn *starlark.Function) (string, error) {
 
 	pos := fn.Position()
 	if !pos.IsValid() {
 		return "", fmt.Errorf("function has no source position")
 	}
 
-	data, err := readSource(pos.Filename(), root)
+	data, err := os.ReadFile(pos.Filename())
 	if err != nil {
 		return "", fmt.Errorf("read source %s: %w", pos.Filename(), err)
 	}
@@ -295,25 +287,6 @@ func extractSpan(data []byte, start, end syntax.Position) string {
 	}
 
 	return b.String()
-}
-
-// readSource reads a source file, using root-scoped I/O when root is available and the file is within root. Falls back
-// to os.ReadFile otherwise.
-//
-// Parameters:
-//   - filename: Absolute path to the source file
-//   - root: OS root for scoped I/O (nil falls back to os.ReadFile)
-//
-// Returns:
-//   - []byte: file contents
-//   - error: any read error
-func readSource(filename string, root op.Root) ([]byte, error) {
-
-	if root != nil {
-		return root.ReadFile(root.NewPath(filename))
-	}
-
-	return os.ReadFile(filename)
 }
 
 // ValidateArity checks that a function's arity is compatible with the

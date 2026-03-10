@@ -43,6 +43,7 @@ GEN_TEMPLATE_FILES = {
     "params": "gen/params.gen.go",
     "actions_test": "gen/actions_gen_test.go",
     "immediate_test": "gen/immediate_gen_test.go",
+    "resource_descriptor": "gen/resource.gen.go",
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
@@ -53,6 +54,7 @@ LOCAL_TEMPLATES = {
     "params": "params.go.template",
     "actions_test": "actions_test.go.template",
     "immediate_test": "immediate_test.go.template",
+    "resource_descriptor": "resource_descriptor.go.template",
 }
 
 # Known BindingConfig fields and their zero values.
@@ -631,6 +633,46 @@ def collect_all_data_structs(dependent_descriptors, data_structs, structs_by_nam
     return all_data
 
 # =============================================================================
+# Resource Detection
+# =============================================================================
+
+def detect_resource(path):
+    """Detect a Resource struct and its constructor in the given package.
+
+    A Resource struct must embed op.ResourceBase. A constructor must match the
+    signature func(any) (Resource, error) — name is chosen by the developer.
+
+    Returns the constructor function name if found, or "" if no Resource struct
+    or no matching constructor exists. Fails if multiple constructors match.
+    """
+    structs = go.structs(path)
+    has_resource = False
+    for s in structs:
+        if s.name == "Resource":
+            for f in s.fields:
+                if f.embedded and f.type == "op.ResourceBase":
+                    has_resource = True
+                    break
+    if not has_resource:
+        return ""
+
+    # Look for constructor function: func(any) (Resource, error)
+    funcs = go.funcs(path)
+    constructor_name = ""
+    for fn in funcs:
+        if fn.returns != "(Resource, error)":
+            continue
+        if len(fn.params) != 1:
+            continue
+        if fn.params[0].type not in ["any", "interface{}"]:
+            continue
+        if constructor_name:
+            fail("multiple resource constructors found in %s: %s and %s" % (path, constructor_name, fn.name))
+        constructor_name = fn.name
+
+    return constructor_name
+
+# =============================================================================
 # Generation: Gen/ Mode
 # =============================================================================
 
@@ -905,6 +947,22 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     # Struct converters are no longer generated — op.Marshal handles all
     # struct-to-Starlark conversion via reflection.
 
+    # -------------------------------------------------------------------------
+    # Generate: Resource descriptor (gen/resource.gen.go)
+    # -------------------------------------------------------------------------
+    constructor_name = detect_resource(path)
+    if constructor_name:
+        resource_desc = {
+            "package": pkg,
+            "provider": provider,
+            "provider_import": provider_import,
+            "provider_type_prefix": "provider.",
+            "constructor_name": constructor_name,
+        }
+        gen_file(ctx, "resource_descriptor", resource_desc, "gen/resource.gen.go",
+                 "Resource", 1, output_dir, write_files)
+        generated_count += 1
+
     ui.success("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
 
 def collect_cross_pkg_imports(provider_import, converters, method_desc_lists):
@@ -1170,17 +1228,39 @@ def run(ctx):
     struct_name = "Provider"
 
     # -------------------------------------------------------------------------
-    # Discover and filter methods
+    # Discover Provider methods (may be absent for resource-only packages)
     # -------------------------------------------------------------------------
     methods = go.methods(path, receiver_type=struct_name)
+    has_provider = len(methods) > 0
 
-    if len(methods) == 0:
-        fail("no methods found for " + struct_name + " in " + path)
+    if has_provider:
+        filtered, all_method_names = filter_methods(methods, [])
+        if len(filtered) == 0:
+            fail("no eligible methods after filtering for " + struct_name)
+    else:
+        # No Provider struct — check for Resource struct before failing.
+        constructor_name = detect_resource(path)
+        if not constructor_name:
+            fail("no Provider struct and no Resource struct in " + path)
 
-    filtered, all_method_names = filter_methods(methods, [])
-
-    if len(filtered) == 0:
-        fail("no eligible methods after filtering for " + struct_name)
+        # Resource-only package: generate resource descriptor and return.
+        if not gen_mode:
+            fail("--gen=true is required")
+        output_dir = ctx.args.get("output", "")
+        write_files = ctx.args.get("write", "false") == "true"
+        provider = path.split("/")[-1]
+        provider_import = compute_provider_import(path)
+        resource_desc = {
+            "package": provider,
+            "provider": provider,
+            "provider_import": provider_import,
+            "provider_type_prefix": "provider.",
+            "constructor_name": constructor_name,
+        }
+        gen_file(ctx, "resource_descriptor", resource_desc, "gen/resource.gen.go",
+                 "Resource", 1, output_dir, write_files)
+        ui.success("Done. Generated resource descriptor for %s" % provider)
+        return
 
     ui.note("Found " + str(len(filtered)) + " methods for " + struct_name)
 

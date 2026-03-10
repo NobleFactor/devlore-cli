@@ -7,9 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"strings"
-
-	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -77,12 +76,22 @@ func NewResourceWithData(contentType, qualifier string, data []byte) Resource {
 	return r
 }
 
-func init() {
+// callableDesc is a resource descriptor for the CallableResource type. It registers the extraction
+// pipeline (Extract + Compile) as a constructor via AnnounceResource, enabling lazy init with
+// sync.Once protection.
+type callableDesc struct{}
 
-	// Register callable extractor for the bridge layer.
+func (d *callableDesc) Name() string       { return "mem.Callable" }
+func (d *callableDesc) Type() reflect.Type { return reflect.TypeOf((*op.CallableResource)(nil)).Elem() }
 
-	op.RegisterCallableExtractor(func(fn *starlark.Function, funcType string, root op.Root) (op.CallableResource, error) {
-		c, err := Extract(fn, funcType, root)
+func (d *callableDesc) Init() error {
+
+	op.RegisterConstructor[op.CallableResource](func(v any) (op.CallableResource, error) {
+		input, ok := v.(op.CallableInput)
+		if !ok {
+			return nil, fmt.Errorf("mem.Callable: expected CallableInput, got %T", v)
+		}
+		c, err := Extract(input.Fn, input.FuncType)
 		if err != nil {
 			return nil, err
 		}
@@ -91,33 +100,46 @@ func init() {
 		}
 		return c, nil
 	})
+	return nil
+}
 
-	op.RegisterConstructor(func(v any) (Resource, error) {
+func init() {
+	op.AnnounceResource(&callableDesc{})
+}
 
-		s, ok := v.(string)
-		if !ok {
-			return Resource{}, fmt.Errorf("mem.Resource: expected string URI, got %T", v)
-		}
+// ResourceFromValue constructs a mem.Resource from a string mem: URI.
+//
+// Parameters:
+//   - v: expected to be a string in the format "mem:<content-type>[/<qualifier>]"
+//
+// Returns:
+//   - Resource: initialized with the parsed content type and qualifier
+//   - error: if v is not a string or the URI format is invalid
+func ResourceFromValue(v any) (Resource, error) {
 
-		// Parse a mem: URI back into ContentType and Qualifier. Expected format: mem:<content-type>[/<qualifier>]
+	s, ok := v.(string)
+	if !ok {
+		return Resource{}, fmt.Errorf("mem.Resource: expected string URI, got %T", v)
+	}
 
-		if !strings.HasPrefix(s, "mem:") {
-			return Resource{}, fmt.Errorf("mem.Resource: expected mem: URI, got %q", s)
-		}
+	// Parse a mem: URI back into ContentType and Qualifier. Expected format: mem:<content-type>[/<qualifier>]
 
-		opaque := s[len("mem:"):]
-		contentType, qualifier, _ := strings.Cut(opaque, "/")
+	if !strings.HasPrefix(s, "mem:") {
+		return Resource{}, fmt.Errorf("mem.Resource: expected mem: URI, got %q", s)
+	}
 
-		if contentType == "" {
-			return Resource{}, fmt.Errorf("mem.Resource: empty content type in %q", s)
-		}
+	opaque := s[len("mem:"):]
+	contentType, qualifier, _ := strings.Cut(opaque, "/")
 
-		r := Resource{
-			ContentType: contentType,
-			Qualifier:   qualifier,
-		}
+	if contentType == "" {
+		return Resource{}, fmt.Errorf("mem.Resource: empty content type in %q", s)
+	}
 
-		r.SetURI(r.buildURI())
-		return r, nil
-	})
+	r := Resource{
+		ContentType: contentType,
+		Qualifier:   qualifier,
+	}
+
+	r.SetURI(r.buildURI())
+	return r, nil
 }

@@ -1,7 +1,7 @@
 ---
 title: "Lazy Resource Registration"
 issue: TBD
-status: draft
+status: complete
 created: 2026-03-08
 updated: 2026-03-08
 ---
@@ -117,8 +117,13 @@ codegen references.
 - `InitResource[T]()` — called lazily on first use (e.g., when `coerceSlotValue` encounters type T)
 - `ResourceDescriptor` interface: `Name() string`, `Init()` — similar to provider `Provider`
 
-The marshaler (`coerceSlotValue`) checks whether the target type's resource has been initialized
-before attempting coercion. If not, it calls `Init()` first.
+Constructor lookups happen at three call sites: `unmarshalValue` (plan-time slot filling),
+`coerceSlotValue` (execution-time arg coercion), and `constructResource` (resource construction
+helper). Additionally, `validateSlotType` checks constructor existence for plan-time validation.
+
+All lookups go through a single `loadConstructor` helper that wraps `constructorRegistry.Load` with
+lazy init from the resource announcement registry. If no constructor is registered but a descriptor
+has been announced, `loadConstructor` calls `Init()` to complete registration before returning.
 
 ### R3: Generalize callable extraction into the marshaler
 
@@ -181,76 +186,157 @@ The `star` codegen tool is extended to:
 
 ## Implementation Phases
 
-### Phase 1: Resource announcement infrastructure
+### Phase 1: Resource announcement infrastructure ✅
 
 Add the resource announcement mechanism to `pkg/op`, parallel to the provider one.
 
-- [ ] Define `ResourceDescriptor` interface in `pkg/op`: `Name() string`, `Init() error`
-- [ ] Implement `AnnounceResource()` and resource announcement registry
-- [ ] Implement lazy `InitResource()` called from the marshaler on first use
-- [ ] Each descriptor wraps `Init()` in `sync.Once` — exactly-once guarantee (DC1)
-- [ ] Failed `Init()` caches the error and returns it on subsequent calls (DC2)
-- [ ] Add tests for the announcement and lazy init lifecycle
-- [ ] Add tests for concurrent first-use (two goroutines, same type)
+- [x] Define `ResourceDescriptor` interface in `pkg/op`: `Name() string`, `Type() reflect.Type`,
+      `Init() error`
+- [x] Implement `AnnounceResource()` and resource announcement registry (keyed by `reflect.Type`)
+- [x] Implement `loadConstructor(targetType)` helper that wraps `constructorRegistry.Load` with
+      lazy init from the resource announcement registry
+- [x] Each descriptor wraps `Init()` in `sync.Once` — exactly-once guarantee (DC1)
+- [x] Failed `Init()` caches the error and returns it on subsequent calls (DC2)
+- [x] Replace raw `constructorRegistry.Load` calls with `loadConstructor` at all four sites:
+      `unmarshalValue`, `coerceSlotValue`, `constructResource`, `validateSlotType`
+- [x] Add tests for the announcement and lazy init lifecycle
+- [x] Add tests for concurrent first-use (two goroutines, same type)
 
 **Files**:
 
-- `pkg/op/announce.go` — Modify: add resource announcement alongside provider announcement
-- `pkg/op/starvalue_marshal.go` — Modify: check and trigger lazy init in `coerceSlotValue`
+- `pkg/op/announce.go` — Modified: added `ResourceDescriptor`, `AnnounceResource`, resource
+  registry, `loadConstructor`, `resetAnnouncedResources`
+- `pkg/op/announce_test.go` — Created: 6 resource announcement tests including concurrent access
+- `pkg/op/starvalue_marshal.go` — Modified: replaced raw `constructorRegistry.Load` in
+  `Construct`, `constructResource`, `unmarshalValue` with `loadConstructor`
+- `pkg/op/action_reflect.go` — Modified: replaced raw `constructorRegistry.Load` in
+  `coerceSlotValue` and `validateSlotType` with `loadConstructor`
 
-### Phase 2: Constructor convention and generated resource descriptors
+### Phase 2: Constructor convention and generated resource descriptors ✅
 
 Establish the hand-written constructor convention and generate the resource descriptors.
 
-- [ ] Refactor existing `init()` functions in each `resource.go` to export the constructor as
-      `ResourceFromValue` (or any name — codegen matches by signature) and remove the `init()`
-- [ ] Extend `star` codegen to read `resource.go` and emit `gen/resource.gen.go`
-- [ ] Update `register.go` generation to import resource gen packages
-- [ ] Verify all existing tests pass
+**Sequencing constraint**: `star` codegen must emit `gen/resource.gen.go` before the hand-written
+`init()` functions are deleted. Otherwise there is a window where no constructor registration
+happens. The safe order: (a) update `star`, (b) add exported constructors alongside existing
+`init()`, (c) run `make generate` to produce gen files, (d) verify tests pass with both paths
+active, (e) delete hand-written `init()` functions.
+
+- [x] Extend `star` codegen to read `resource.go` and emit `gen/resource.gen.go`
+- [x] Add exported constructors (`ResourceFromValue`) alongside existing `init()` in each
+      `resource.go` — both paths active temporarily
+- [x] Run `make generate` and verify `gen/resource.gen.go` files are produced
+- [x] Verify resource `init()` fires via existing `register.go` blank imports (DC4 — no changes
+      to `register.go` needed; `mem/gen` auto-discovered by `find`)
+- [x] Verify all existing tests pass with both registration paths active
+- [x] Delete hand-written `init()` functions from each `resource.go`
+- [x] Add test-time `init()` in provider test files to register constructors (tests can't import
+      their own `gen` subpackage due to circular dependency)
+- [x] Verify tests pass with only generated registration
 
 **Files**:
 
-- `pkg/op/provider/file/resource.go` — Modify: export constructor, delete `init()`
-- `pkg/op/provider/git/resource.go` — Modify: same
-- `pkg/op/provider/pkg/resource.go` — Modify: same
-- `pkg/op/provider/service/resource.go` — Modify: same
-- `pkg/op/provider/appnet/resource.go` — Modify: same
-- `pkg/op/provider/mem/resource.go` — Modify: same (constructor only; callable extractor in Phase 3)
-- `pkg/op/provider/*/gen/resource.gen.go` — Create: generated resource descriptors
-- `noblefactor-ops/cmd/star` — Modify: extend codegen to read resource.go
+- `generate.star` — Modified: added `detect_resource()`, resource-only package support,
+  `resource_descriptor` template mapping
+- `templates/resource_descriptor.go.template` — Created: resource descriptor template
+- `Makefile` — Modified: added `resource.gen.go` to grouped targets for resource providers,
+  added `mem` resource-only target, added `resource.go` dependencies
+- `pkg/op/provider/file/resource.go` — Modified: exported constructor, deleted `init()`
+- `pkg/op/provider/git/resource.go` — Modified: same
+- `pkg/op/provider/pkg/resource.go` — Modified: same
+- `pkg/op/provider/service/resource.go` — Modified: same
+- `pkg/op/provider/appnet/resource.go` — Modified: same
+- `pkg/op/provider/mem/resource.go` — Modified: exported constructor, removed
+  `RegisterConstructor` from `init()` (callable extractor stays until Phase 3)
+- `pkg/op/provider/*/gen/resource.gen.go` — Created: generated resource descriptors (6 files)
+- `pkg/op/provider/{appnet,git,mem,pkg}/resource_test.go` — Modified: added test `init()` for
+  constructor registration
+- `pkg/op/provider/git/provider_test.go` — Modified: added test `init()` for cross-package
+  constructor registration
 
-### Phase 3: Generalize callable extraction
+### Phase 3: Generalize callable extraction ✅
 
 Fold the callable extractor into the marshaler so `mem` no longer needs a special registration.
+Split into three sub-phases, each independently testable.
 
-- [ ] Remove `*os.Root` from the extraction chain: `Extract`, `ExtractWithName`, `synthesize`,
-      `extractLambdaBody`, `extractDefSource`, `readSource` (DC5 — revert Phase 5 threading)
-- [ ] Move `buildCallableFunc` and callable adapter logic into the marshaler as native coercion
-- [ ] Register `mem.Extract` + `mem.Compile` as a resource constructor via `AnnounceResource`
-- [ ] Remove `RegisterCallableExtractor`, `callableExtractorFn`, and `ExtractCallable` —
-      replaced by `sync.Once`-protected descriptor (DC1)
-- [ ] Update `planned_reflect.go` and `action_reflect.go` to use the marshaler for callable
-      coercion instead of calling `ExtractCallable` directly
-- [ ] Verify callable tests pass
+#### Phase 3a: Revert `*os.Root` from extraction chain ✅
+
+Remove the dead `*os.Root` parameter from the extraction pipeline. This is a standalone correction
+(DC5) with no behavioral change — `readSource` falls back to `os.ReadFile` unconditionally after
+this change.
+
+- [x] Remove `root` parameter from `Extract`, `ExtractWithName`, `synthesize`, `extractLambdaBody`,
+      `extractDefSource`
+- [x] Replace `readSource(filename, root)` with direct `os.ReadFile(filename)`; delete `readSource`
+- [x] Remove `*os.Root` from `callableExtractorFn` and `RegisterCallableExtractor` signatures
+- [x] Update `ExtractCallable` signature and its call site in `planned_reflect.go`
+- [x] Update all extraction tests
+- [x] `make test` — verify no behavioral change
 
 **Files**:
 
-- `pkg/op/callable.go` — Delete: merge `CallableResource` interface and adapter logic into
-  `starvalue_marshal.go`
-- `pkg/op/starvalue_marshal.go` — Modify: absorb callable adapter logic; handle
-  `*starlark.Function → func(...)` natively
-- `pkg/op/planned_reflect.go` — Modify: remove direct `ExtractCallable` call
-- `pkg/op/action_reflect.go` — Modify: remove callable special-case
-- `pkg/op/provider/mem/resource.go` — Modify: remove `RegisterCallableExtractor` from init
-- `pkg/op/provider/mem/extract.go` — Modify: remove `*os.Root` from extraction signatures
-- `pkg/op/provider/mem/extract_test.go` — Modify: update tests for removed `*os.Root` parameter
+- `pkg/op/provider/mem/extract.go` — Modified: removed `root` parameter from all extraction
+  functions, replaced `readSource` with `os.ReadFile`, deleted `readSource`
+- `pkg/op/provider/mem/extract_test.go` — Modified: updated all `Extract`/`ExtractWithName` calls
+- `pkg/op/callable.go` — Modified: removed `*os.Root` from extractor signatures
+- `pkg/op/callable_test.go` — Modified: updated `ExtractCallable` and `RegisterCallableExtractor`
+  calls
+- `pkg/op/planned_reflect.go` — Modified: dropped `nil` root argument from `ExtractCallable` call
 
-### Phase 4: Cleanup
+#### Phase 3b: Merge callable logic into the marshaler ✅
 
-- [ ] Verify no hand-written `init()` remains in any `resource.go`
-- [ ] Run `make check` — full quality gate
-- [ ] Grep for `RegisterConstructor`, `RegisterCallableExtractor`, `ExtractCallable`,
-      `callableExtractorFn` — confirm no direct calls remain outside generated code
+Move the callable adapter infrastructure from `callable.go` into `starvalue_marshal.go`. The
+extraction pipeline stays in `mem` as domain code — only the registration plumbing and adapter
+logic move.
+
+- [x] Move `CallableResource` interface, `buildCallableFunc`, `initCallableSlots`,
+      `makeErrorReturn`, `unmarshalReturn`, `isCallableResource`, `isFuncType` into
+      `starvalue_marshal.go`
+- [x] Delete `callable.go`
+- [x] `make test` — verify no behavioral change
+
+**Files**:
+
+- `pkg/op/callable.go` — Deleted: merged into `starvalue_marshal.go`
+- `pkg/op/starvalue_marshal.go` — Modified: absorbed callable adapter logic
+
+#### Phase 3c: Remove special-case registration, unify through marshaler ✅
+
+Replace `RegisterCallableExtractor` / `ExtractCallable` with the standard `AnnounceResource` /
+lazy `Init()` pattern. Coercion is based on the Starlark type (`*starlark.Function`) and the Go
+parameter type (`func(...)`) — the same pattern used for all resource coercion.
+
+- [x] Register `mem.Extract` + `mem.Compile` as a resource constructor via `AnnounceResource` —
+      `callableDesc` in `mem/resource.go` announces `CallableResource` type, `Init()` registers
+      constructor that calls `Extract` + `Compile`
+- [x] Remove `RegisterCallableExtractor`, `callableExtractorFn`, and `ExtractCallable` —
+      replaced by `sync.Once`-protected descriptor (DC1)
+- [x] Add `CallableInput` struct and `extractCallable` (unexported) in `starvalue_marshal.go` —
+      looks up callable constructor via `loadConstructor(callableResourceType)`
+- [x] Update `planned_reflect.go` to use `extractCallable` (unexported) instead of
+      `ExtractCallable` (exported)
+- [x] `validateSlotType` in `action_reflect.go` unchanged — `isCallableResource && isFuncType`
+      check remains (no callable special-case to remove, it validates based on types)
+- [x] Remove `RegisterCallableExtractor` call from `mem/resource.go` init
+- [x] `make test` — verify callable tests pass
+
+**Files**:
+
+- `pkg/op/starvalue_marshal.go` — Modified: added `CallableInput`, `callableResourceType`,
+  `extractCallable`; removed `callableExtractorFn`, `RegisterCallableExtractor`, `ExtractCallable`
+- `pkg/op/planned_reflect.go` — Modified: replaced `ExtractCallable` with `extractCallable`
+- `pkg/op/callable_test.go` — Modified: rewrote extractor tests for new constructor-based pattern
+- `pkg/op/provider/mem/resource.go` — Modified: replaced `RegisterCallableExtractor` with
+  `AnnounceResource(&callableDesc{})` and `callableDesc` resource descriptor
+
+### Phase 4: Cleanup ✅
+
+- [x] Verify no hand-written `init()` remains in any `resource.go` — only `mem/resource.go`
+      has `init()` for `AnnounceResource(&callableDesc{})` (callable descriptor, not constructor)
+- [x] Run `make vet` + `make test` — all pass (`golangci-lint` not installed locally)
+- [x] Grep for `RegisterCallableExtractor`, `ExtractCallable`, `callableExtractorFn` — no
+      production code references remain; `RegisterConstructor` calls are only in tests, generated
+      code, and the `mem.callableDesc.Init()` descriptor
 
 ## Migration Path
 
@@ -263,18 +349,22 @@ detects it by signature, not by name.
 
 ## Files to Create/Modify
 
-| File                                    | Action | Purpose                                                         |
-| --------------------------------------- | ------ | --------------------------------------------------------------- |
-| `pkg/op/announce.go`                    | Modify | Add `AnnounceResource`, `ResourceDescriptor`, resource registry |
-| `pkg/op/starvalue_marshal.go`           | Modify | Lazy init check in `coerceSlotValue`; absorb callable logic     |
-| `pkg/op/callable.go`                    | Delete | Merge into `starvalue_marshal.go`                               |
-| `pkg/op/planned_reflect.go`             | Modify | Remove `ExtractCallable` call                                   |
-| `pkg/op/action_reflect.go`              | Modify | Remove callable special-case                                    |
-| `pkg/op/provider/*/resource.go`         | Modify | Export constructor as `ResourceFromValue`, delete `init()`      |
-| `pkg/op/provider/*/gen/resource.gen.go` | Create | Generated resource descriptors                                  |
-| `pkg/op/provider/mem/extract.go`        | Modify | Remove `*os.Root` from extraction signatures                    |
-| `pkg/op/provider/mem/extract_test.go`   | Modify | Update tests for removed `*os.Root` parameter                   |
-| `noblefactor-ops/cmd/star`              | Modify | Extend codegen to read `resource.go`                            |
+| File                                            | Action | Phase | Purpose                                                         |
+| ----------------------------------------------- | ------ | ----- | --------------------------------------------------------------- |
+| `pkg/op/announce.go`                            | Modify | 1     | Add `AnnounceResource`, `ResourceDescriptor`, resource registry |
+| `pkg/op/announce_test.go`                       | Create | 1     | Resource announcement tests (6 tests incl. concurrent)          |
+| `pkg/op/starvalue_marshal.go`                   | Modify | 1,3b  | Replace raw lookups with `loadConstructor`; absorb callable logic |
+| `pkg/op/action_reflect.go`                      | Modify | 1,3c  | Replace raw lookups; remove callable special-case               |
+| `pkg/op/callable.go`                            | Delete | 3b    | Merge into `starvalue_marshal.go`                               |
+| `pkg/op/planned_reflect.go`                     | Modify | 3c    | Remove `ExtractCallable` call                                   |
+| `pkg/op/provider/*/resource.go`                 | Modify | 2     | Export constructor as `ResourceFromValue`, delete `init()`       |
+| `pkg/op/provider/*/resource_test.go`            | Modify | 2     | Add test `init()` for constructor registration                  |
+| `pkg/op/provider/*/gen/resource.gen.go`         | Create | 2     | Generated resource descriptors (6 files)                        |
+| `pkg/op/provider/mem/extract.go`                | Modify | 3a    | Remove `*os.Root` from extraction signatures                    |
+| `pkg/op/provider/mem/extract_test.go`           | Modify | 3a    | Update tests for removed `*os.Root` parameter                   |
+| `generate.star`                                 | Modify | 2     | Add `detect_resource()`, resource-only support                  |
+| `templates/resource_descriptor.go.template`     | Create | 2     | Resource descriptor template                                    |
+| `Makefile`                                      | Modify | 2     | Add `resource.gen.go` targets and `mem` resource-only target    |
 
 ## Related Documents
 

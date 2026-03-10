@@ -79,7 +79,8 @@ $(P)/yaml/gen/provider.gen.go &: $(P)/yaml/provider.go | star
 $(P)/appnet/gen/actions_gen_test.go \
 $(P)/appnet/gen/params.gen.go \
 $(P)/appnet/gen/planned.gen.go \
-$(P)/appnet/gen/provider.gen.go &: $(P)/appnet/provider.go | star
+$(P)/appnet/gen/provider.gen.go \
+$(P)/appnet/gen/resource.gen.go &: $(P)/appnet/provider.go $(P)/appnet/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/appnet --gen=true --write=true --output=$(P)/appnet
 
 $(P)/archive/gen/actions_gen_test.go \
@@ -97,25 +98,29 @@ $(P)/encryption/gen/provider.gen.go &: $(P)/encryption/provider.go | star
 $(P)/file/gen/actions_gen_test.go \
 $(P)/file/gen/params.gen.go \
 $(P)/file/gen/planned.gen.go \
-$(P)/file/gen/provider.gen.go &: $(P)/file/provider.go | star
+$(P)/file/gen/provider.gen.go \
+$(P)/file/gen/resource.gen.go &: $(P)/file/provider.go $(P)/file/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/file --gen=true --write=true --output=$(P)/file
 
 $(P)/git/gen/actions_gen_test.go \
 $(P)/git/gen/params.gen.go \
 $(P)/git/gen/planned.gen.go \
-$(P)/git/gen/provider.gen.go &: $(P)/git/provider.go | star
+$(P)/git/gen/provider.gen.go \
+$(P)/git/gen/resource.gen.go &: $(P)/git/provider.go $(P)/git/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/git --gen=true --write=true --output=$(P)/git
 
 $(P)/pkg/gen/actions_gen_test.go \
 $(P)/pkg/gen/params.gen.go \
 $(P)/pkg/gen/planned.gen.go \
-$(P)/pkg/gen/provider.gen.go &: $(P)/pkg/provider.go | star
+$(P)/pkg/gen/provider.gen.go \
+$(P)/pkg/gen/resource.gen.go &: $(P)/pkg/provider.go $(P)/pkg/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/pkg --gen=true --write=true --output=$(P)/pkg
 
 $(P)/service/gen/actions_gen_test.go \
 $(P)/service/gen/params.gen.go \
 $(P)/service/gen/planned.gen.go \
-$(P)/service/gen/provider.gen.go &: $(P)/service/provider.go | star
+$(P)/service/gen/provider.gen.go \
+$(P)/service/gen/resource.gen.go &: $(P)/service/provider.go $(P)/service/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/service --gen=true --write=true --output=$(P)/service
 
 $(P)/shell/gen/actions_gen_test.go \
@@ -163,6 +168,11 @@ $(P)/ui/gen/params.gen.go \
 $(P)/ui/gen/provider.gen.go &: $(P)/ui/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/ui --gen=true --write=true --output=$(P)/ui
 
+# ── resource-only packages ───────────────────────────────────────────────────
+
+$(P)/mem/gen/resource.gen.go: $(P)/mem/resource.go | star
+	$(STAR) devlore actions generate --source=$(P)/mem --gen=true --write=true --output=$(P)/mem
+
 GEN_PROVIDERS := \
 	$(P)/appnet/gen/provider.gen.go \
 	$(P)/archive/gen/provider.gen.go \
@@ -170,6 +180,7 @@ GEN_PROVIDERS := \
 	$(P)/file/gen/provider.gen.go \
 	$(P)/git/gen/provider.gen.go \
 	$(P)/json/gen/immediate.gen.go \
+	$(P)/mem/gen/resource.gen.go \
 	$(P)/pkg/gen/provider.gen.go \
 	$(P)/regexp/gen/immediate.gen.go \
 	$(P)/service/gen/provider.gen.go \
