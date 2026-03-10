@@ -114,18 +114,21 @@ Update the deploy command to execute multiple graphs in sequence, each with its 
 
 Update state view to filter by scope, so decommission and reconcile operate on the correct scope.
 
-- [ ] Add `Scope` filter to `ViewOptions`
-- [ ] `includeGraph()` filters by `GraphContext.Scope` when `ViewOptions.Scope` is set
-- [ ] Update `FileTree.Root` to come from the filtered graph's `TargetRoot`
-- [ ] Update `processGraph()` to handle multiple target roots across receipts (one `FileTree` per scope, or scope-tagged entries)
-- [ ] Update `runDecommission()` to build per-scope state views and execute per-scope decommission graphs
-- [ ] Tests: state view with mixed-scope receipts, scope filtering, decommission per scope
+- [x] Add `Scope` filter to `ViewOptions`
+- [x] `includeGraph()` filters by `GraphContext.Scope` when `ViewOptions.Scope` is set
+- [x] Update `FileTree.Root` to come from the filtered graph's `TargetRoot` (already works — `BuildFrom` takes first filtered graph's root)
+- [x] `loadStateView()` accepts scope parameter; callers pass scope or empty for all
+- [x] Add `DistinctScopes()` to discover unique scopes from receipts
+- [x] Update `runDecommission()` to discover scopes, build per-scope state views, execute per-scope decommission graphs with fail-forward
+- [x] Tests: scope filtering (in-memory and from disk), combined scope+tool filter, `DistinctScopes` with mixed/unscoped receipts
+
+**Dropped**: `processGraph()` changes for multiple target roots. Per-scope filtering ensures each `StateView` has a consistent `Root` — no need to handle mixed roots within one view.
 
 **Files**:
 
-- `internal/execution/stateview.go` — Modify: `ViewOptions.Scope`, scope filtering
-- `internal/execution/stateview_test.go` — Modify: scope-aware tests
-- `internal/writ/commands.go` — Modify: decommission uses scope-filtered state views
+- `internal/execution/stateview.go` — Modify: `ViewOptions.Scope`, scope filtering, `DistinctScopes()`
+- `internal/execution/stateview_test.go` — Modify: 6 new scope-aware tests
+- `internal/writ/commands.go` — Modify: `loadStateView` scope param, `discoverScopes`, per-scope decommission
 
 ### Phase 6: Git Worktree Snapshots
 

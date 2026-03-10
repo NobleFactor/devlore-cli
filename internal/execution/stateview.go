@@ -264,6 +264,10 @@ type ViewOptions struct {
 
 	// Tools filters to specific tools (empty = all tools).
 	Tools []string
+
+	// Scope filters to a specific target scope (empty = all scopes).
+	// For writ receipts: "system" or "home".
+	Scope string
 }
 
 // StateViewBuilder creates StateViews from receipts.
@@ -385,6 +389,11 @@ func (b *StateViewBuilder) loadReceipt(path string) (*op.Graph, error) {
 
 // includeGraph checks if a graph should be included based on options.
 func (b *StateViewBuilder) includeGraph(g *op.Graph) bool {
+	// Filter by scope
+	if b.opts.Scope != "" && g.Context.Scope != b.opts.Scope {
+		return false
+	}
+
 	// Filter by time
 	if !b.opts.Since.IsZero() && g.Timestamp.Before(b.opts.Since) {
 		return false
@@ -501,6 +510,35 @@ func (b *StateViewBuilder) addFileRecord(view *StateView, node *op.Node, record 
 	}
 
 	entry.History = append(entry.History, record)
+}
+
+// DistinctScopes returns the unique scopes present in receipts, sorted.
+// An empty scope (unscoped receipts) is included as "".
+// Uses the same filtering options (tools, time) as Build.
+//
+// Parameters:
+//   - receiptsDir: directory containing receipt YAML files
+//
+// Returns:
+//   - []string: sorted unique scope values
+//   - error: receipt loading error
+func (b *StateViewBuilder) DistinctScopes(receiptsDir string) ([]string, error) {
+	graphs, err := b.loadReceipts(receiptsDir)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool)
+	for _, g := range graphs {
+		seen[g.Context.Scope] = true
+	}
+
+	scopes := make([]string, 0, len(seen))
+	for s := range seen {
+		scopes = append(scopes, s)
+	}
+	sort.Strings(scopes)
+	return scopes, nil
 }
 
 // Summary returns counts of packages, linked files, and copied files.

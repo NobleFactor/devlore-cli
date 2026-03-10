@@ -709,3 +709,327 @@ func TestIsPackageNode(t *testing.T) {
 		}
 	}
 }
+
+// TestStateViewBuilderScopeFilter tests scope-based filtering.
+func TestStateViewBuilderScopeFilter(t *testing.T) {
+	now := time.Now()
+
+	graphs := []*op.Graph{
+		{
+			Tool:      "writ",
+			Timestamp: now.Add(-2 * time.Hour),
+			Context:   op.GraphContext{Scope: "system", TargetRoot: "/"},
+			Nodes: []*op.Node{
+				{ID: "etc/devlore.conf", Action: op.StubAction("file.copy"), Status: op.StatusCompleted},
+			},
+		},
+		{
+			Tool:      "writ",
+			Timestamp: now.Add(-time.Hour),
+			Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+			Nodes: []*op.Node{
+				{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+				{ID: ".gitconfig", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+			},
+		},
+		{
+			Tool:      "writ",
+			Timestamp: now,
+			Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+			Nodes: []*op.Node{
+				{ID: ".vimrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+			},
+		},
+	}
+
+	t.Run("home only", func(t *testing.T) {
+		builder := NewStateViewBuilder(ViewOptions{Scope: "home"})
+		view := builder.BuildFrom(graphs)
+
+		if view.ReceiptCount != 2 {
+			t.Errorf("expected 2 receipts, got %d", view.ReceiptCount)
+		}
+		if len(view.Files.Entries) != 3 {
+			t.Errorf("expected 3 files, got %d", len(view.Files.Entries))
+		}
+		if view.Files.Root != "/home/user" {
+			t.Errorf("expected root '/home/user', got %q", view.Files.Root)
+		}
+	})
+
+	t.Run("system only", func(t *testing.T) {
+		builder := NewStateViewBuilder(ViewOptions{Scope: "system"})
+		view := builder.BuildFrom(graphs)
+
+		if view.ReceiptCount != 1 {
+			t.Errorf("expected 1 receipt, got %d", view.ReceiptCount)
+		}
+		if len(view.Files.Entries) != 1 {
+			t.Errorf("expected 1 file, got %d", len(view.Files.Entries))
+		}
+		if view.Files.Root != "/" {
+			t.Errorf("expected root '/', got %q", view.Files.Root)
+		}
+	})
+
+	t.Run("all scopes", func(t *testing.T) {
+		builder := NewStateViewBuilder(ViewOptions{})
+		view := builder.BuildFrom(graphs)
+
+		if view.ReceiptCount != 3 {
+			t.Errorf("expected 3 receipts, got %d", view.ReceiptCount)
+		}
+		if len(view.Files.Entries) != 4 {
+			t.Errorf("expected 4 files, got %d", len(view.Files.Entries))
+		}
+	})
+
+	t.Run("nonexistent scope", func(t *testing.T) {
+		builder := NewStateViewBuilder(ViewOptions{Scope: "other"})
+		view := builder.BuildFrom(graphs)
+
+		if view.ReceiptCount != 0 {
+			t.Errorf("expected 0 receipts, got %d", view.ReceiptCount)
+		}
+		if len(view.Files.Entries) != 0 {
+			t.Errorf("expected 0 files, got %d", len(view.Files.Entries))
+		}
+	})
+}
+
+// TestStateViewBuilderScopeFilterWithToolFilter tests scope + tool combined filters.
+func TestStateViewBuilderScopeFilterWithToolFilter(t *testing.T) {
+	now := time.Now()
+
+	graphs := []*op.Graph{
+		{
+			Tool:      "writ",
+			Timestamp: now.Add(-time.Hour),
+			Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+			Nodes: []*op.Node{
+				{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+			},
+		},
+		{
+			Tool:      "lore",
+			Timestamp: now,
+			Context:   op.GraphContext{Scope: "home"},
+			Nodes: []*op.Node{
+				{ID: "docker", Action: op.StubAction("pkg.install"), Status: op.StatusCompleted},
+			},
+		},
+	}
+
+	builder := NewStateViewBuilder(ViewOptions{Scope: "home", Tools: []string{"writ"}})
+	view := builder.BuildFrom(graphs)
+
+	if view.ReceiptCount != 1 {
+		t.Errorf("expected 1 receipt, got %d", view.ReceiptCount)
+	}
+	if len(view.Files.Entries) != 1 {
+		t.Errorf("expected 1 file, got %d", len(view.Files.Entries))
+	}
+	if len(view.Packages) != 0 {
+		t.Errorf("expected 0 packages, got %d", len(view.Packages))
+	}
+}
+
+// TestDistinctScopes tests scope discovery from receipt files.
+func TestDistinctScopes(t *testing.T) {
+	tmpDir := t.TempDir()
+	now := time.Now()
+
+	receipts := []struct {
+		name  string
+		graph *op.Graph
+	}{
+		{
+			name: "writ-system-2025-01-01T10-00-00.yaml",
+			graph: &op.Graph{
+				Version:   "1",
+				Tool:      "writ",
+				Timestamp: now.Add(-2 * time.Hour),
+				State:     op.StateExecuted,
+				Context:   op.GraphContext{Scope: "system", TargetRoot: "/"},
+				Nodes:     []*op.Node{{ID: "etc/conf", Action: op.StubAction("file.copy"), Status: op.StatusCompleted}},
+			},
+		},
+		{
+			name: "writ-home-2025-01-01T10-00-00.yaml",
+			graph: &op.Graph{
+				Version:   "1",
+				Tool:      "writ",
+				Timestamp: now.Add(-time.Hour),
+				State:     op.StateExecuted,
+				Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+				Nodes:     []*op.Node{{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}},
+			},
+		},
+		{
+			name: "writ-home-2025-01-01T11-00-00.yaml",
+			graph: &op.Graph{
+				Version:   "1",
+				Tool:      "writ",
+				Timestamp: now,
+				State:     op.StateExecuted,
+				Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+				Nodes:     []*op.Node{{ID: ".vimrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}},
+			},
+		},
+	}
+
+	for _, r := range receipts {
+		path := filepath.Join(tmpDir, r.name)
+		data, err := yaml.Marshal(r.graph)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", r.name, err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatalf("write %s: %v", r.name, err)
+		}
+	}
+
+	builder := NewStateViewBuilder(ViewOptions{Tools: []string{"writ"}})
+	scopes, err := builder.DistinctScopes(tmpDir)
+	if err != nil {
+		t.Fatalf("DistinctScopes: %v", err)
+	}
+
+	if len(scopes) != 2 {
+		t.Fatalf("expected 2 scopes, got %d: %v", len(scopes), scopes)
+	}
+	// Sorted: "home" before "system"
+	if scopes[0] != "home" {
+		t.Errorf("expected scopes[0]='home', got %q", scopes[0])
+	}
+	if scopes[1] != "system" {
+		t.Errorf("expected scopes[1]='system', got %q", scopes[1])
+	}
+}
+
+// TestDistinctScopesWithUnscoped tests scope discovery including unscoped receipts.
+func TestDistinctScopesWithUnscoped(t *testing.T) {
+	tmpDir := t.TempDir()
+	now := time.Now()
+
+	receipt := &op.Graph{
+		Version:   "1",
+		Tool:      "writ",
+		Timestamp: now,
+		State:     op.StateExecuted,
+		Context:   op.GraphContext{TargetRoot: "/home/user"},
+		Nodes:     []*op.Node{{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}},
+	}
+
+	data, err := yaml.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "writ-2025-01-01T10-00-00.yaml"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	builder := NewStateViewBuilder(ViewOptions{Tools: []string{"writ"}})
+	scopes, err := builder.DistinctScopes(tmpDir)
+	if err != nil {
+		t.Fatalf("DistinctScopes: %v", err)
+	}
+
+	if len(scopes) != 1 {
+		t.Fatalf("expected 1 scope, got %d: %v", len(scopes), scopes)
+	}
+	if scopes[0] != "" {
+		t.Errorf("expected empty scope for unscoped receipt, got %q", scopes[0])
+	}
+}
+
+// TestStateViewBuilderScopeFilterFromDisk tests scope filtering with receipts loaded from disk.
+func TestStateViewBuilderScopeFilterFromDisk(t *testing.T) {
+	tmpDir := t.TempDir()
+	now := time.Now()
+
+	receipts := []struct {
+		name  string
+		graph *op.Graph
+	}{
+		{
+			name: "writ-system-2025-01-01T10-00-00.yaml",
+			graph: &op.Graph{
+				Version:   "1",
+				Tool:      "writ",
+				Timestamp: now.Add(-time.Hour),
+				State:     op.StateExecuted,
+				Context:   op.GraphContext{Scope: "system", TargetRoot: "/"},
+				Nodes:     []*op.Node{{ID: "etc/devlore.conf", Action: op.StubAction("file.copy"), Status: op.StatusCompleted}},
+			},
+		},
+		{
+			name: "writ-home-2025-01-01T10-00-00.yaml",
+			graph: &op.Graph{
+				Version:   "1",
+				Tool:      "writ",
+				Timestamp: now,
+				State:     op.StateExecuted,
+				Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+				Nodes:     []*op.Node{{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}},
+			},
+		},
+	}
+
+	for _, r := range receipts {
+		path := filepath.Join(tmpDir, r.name)
+		data, err := yaml.Marshal(r.graph)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", r.name, err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatalf("write %s: %v", r.name, err)
+		}
+	}
+
+	// Create latest symlinks (should be skipped)
+	_ = os.Symlink("writ-system-2025-01-01T10-00-00.yaml", filepath.Join(tmpDir, "writ-system-latest.yaml"))
+	_ = os.Symlink("writ-home-2025-01-01T10-00-00.yaml", filepath.Join(tmpDir, "writ-home-latest.yaml"))
+
+	t.Run("home scope from disk", func(t *testing.T) {
+		builder := NewStateViewBuilder(ViewOptions{Scope: "home"})
+		view, err := builder.Build(tmpDir)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+
+		if view.ReceiptCount != 1 {
+			t.Errorf("expected 1 receipt, got %d", view.ReceiptCount)
+		}
+		if len(view.Files.Entries) != 1 {
+			t.Errorf("expected 1 file, got %d", len(view.Files.Entries))
+		}
+		if view.Files.Entries[".bashrc"] == nil {
+			t.Error("expected .bashrc")
+		}
+		if view.Files.Root != "/home/user" {
+			t.Errorf("expected root '/home/user', got %q", view.Files.Root)
+		}
+	})
+
+	t.Run("system scope from disk", func(t *testing.T) {
+		builder := NewStateViewBuilder(ViewOptions{Scope: "system"})
+		view, err := builder.Build(tmpDir)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+
+		if view.ReceiptCount != 1 {
+			t.Errorf("expected 1 receipt, got %d", view.ReceiptCount)
+		}
+		if len(view.Files.Entries) != 1 {
+			t.Errorf("expected 1 file, got %d", len(view.Files.Entries))
+		}
+		if view.Files.Entries["etc/devlore.conf"] == nil {
+			t.Error("expected etc/devlore.conf")
+		}
+		if view.Files.Root != "/" {
+			t.Errorf("expected root '/', got %q", view.Files.Root)
+		}
+	})
+}
