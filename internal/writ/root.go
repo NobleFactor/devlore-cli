@@ -5,10 +5,7 @@
 package writ
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/schema"
@@ -22,11 +19,12 @@ var (
 )
 
 // NewRootCmd creates the root writ command with all subcommands.
+//
+// Returns:
+//   - *cobra.Command: configured writ command with target flag and all subcommands
 func NewRootCmd() *cobra.Command {
-	cli.SetProgramName("writ")
-
-	rootCmd := &cobra.Command{
-		Use:   "writ",
+	rootCmd := cli.NewRootCmd(cli.RootConfig{
+		Name:  "writ",
 		Short: "Environment manager with platform-aware symlinks",
 		Long: `Writ orchestrates your portable environment—configuration, scripts, utilities,
 templates, and software manifests. Lore is a component that writ delegates to
@@ -38,35 +36,14 @@ automatically. Templates handle machine-specific values.
 Writ exists because environment management shouldn't require manual symlink
 creation, platform-specific scripts, or secret leakage into git.
 Declare your environment once — writ deploys it everywhere you work.`,
-		CompletionOptions: cobra.CompletionOptions{
-			HiddenDefaultCmd: true, // Hide from help, but still available (like Docker)
-		},
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return initConfig(cmd)
-		},
-	}
+		DefaultConfig: schema.WritDefaultConfig,
+		Version:       version,
+		Commit:        commit,
+		BuildDate:     buildDate,
+	})
 
-	// Global flags
-	rootCmd.PersistentFlags().String("config", "", "Config file (default: ~/.config/devlore/config.yaml)")
 	rootCmd.PersistentFlags().String("target", "Home", "Target to operate on")
-	rootCmd.PersistentFlags().Bool("dry-run", false, "Show what would be done without making changes")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
-	cli.AddSilentFlag(rootCmd)
 
-	// Deployment mode flags (mirrors lore ADR-033)
-	rootCmd.PersistentFlags().Bool("interactive", false, "Force interactive mode (prompts for conflicts)")
-	rootCmd.PersistentFlags().Bool("unattended", false, "Force unattended mode (no prompts, sensible defaults)")
-	rootCmd.MarkFlagsMutuallyExclusive("interactive", "unattended")
-
-	// Model configuration flags (override env/config)
-	// Resolution order: CLI flags → Environment → Config file → Keystore (api-key only)
-	// See internal/ai/config.go for full documentation.
-	rootCmd.PersistentFlags().String("model", "", "Model name (e.g., claude-sonnet-4-20250514, gpt-4o)")
-	rootCmd.PersistentFlags().String("model-api-key", "", "Model provider API key")
-	rootCmd.PersistentFlags().String("model-endpoint", "", "Model provider endpoint URL")
-	rootCmd.PersistentFlags().String("model-provider", "", "Model provider: anthropic, openai, azure-openai, ollama, github")
-
-	// Add subcommands
 	rootCmd.AddCommand(newDeployCmd())
 	rootCmd.AddCommand(newDecommissionCmd())
 	rootCmd.AddCommand(newReconcileCmd())
@@ -77,68 +54,5 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.AddCommand(newInspectCmd())
 	rootCmd.AddCommand(newMigrateCmd())
 
-	// Shared metadata
-	manHeader := cli.ManHeader{
-		Title:   "WRIT",
-		Section: "1",
-		Source:  "Writ " + version,
-		Manual:  "Writ Manual",
-	}
-	configInfo := cli.ConfigInfo{
-		Name:          "writ",
-		Schema:        schema.DevloreSchema,
-		DefaultConfig: schema.WritDefaultConfig,
-	}
-
-	// Add shared commands from cli
-	// Replace Cobra's built-in help with git-style help (prefers man pages)
-	rootCmd.SetHelpCommand(cli.NewHelpCmd(rootCmd, manHeader))
-	rootCmd.AddCommand(cli.NewVersionCmd(cli.VersionInfo{
-		Version:   version,
-		Commit:    commit,
-		BuildDate: buildDate,
-	}))
-	rootCmd.AddCommand(cli.NewManCmd(rootCmd, manHeader))
-	rootCmd.AddCommand(cli.NewConfigCmd(configInfo))
-	rootCmd.AddCommand(cli.NewSelfInstallCmd(rootCmd, cli.SelfInstallInfo{
-		Name:       "writ",
-		ManHeader:  manHeader,
-		ConfigInfo: configInfo,
-	}))
-
 	return rootCmd
-}
-
-// initConfig initializes Viper configuration.
-// Precedence (lowest to highest): config file → environment variables → flags
-func initConfig(cmd *cobra.Command) error {
-	// Initialize Viper with shared devlore config
-	if err := cli.InitViper(cli.ViperConfig{
-		Name:            "writ",
-		EnvPrefix:       "WRIT",
-		UseSharedConfig: true,
-	}); err != nil {
-		return err
-	}
-
-	// Check for custom config file via flag
-	if cfgFile, _ := cmd.Flags().GetString("config"); cfgFile != "" { //nolint:errcheck // flag registered above
-		viper.SetConfigFile(cfgFile)
-		if err := viper.ReadInConfig(); err != nil {
-			return fmt.Errorf("failed to read config %s: %w", cfgFile, err)
-		}
-	}
-
-	// Bind flags to viper (flag values override config/env)
-	// Use cmd.Root() to bind persistent flags defined on the root command
-	if err := cli.BindFlags(cmd.Root(), "writ", true); err != nil {
-		return err
-	}
-
-	// Debug output if verbose
-	if viper.GetBool("writ.verbose") {
-		cli.Note("Using config: %s", viper.ConfigFileUsed())
-	}
-
-	return nil
 }
