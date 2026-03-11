@@ -20,7 +20,7 @@ Go's `action.go` defines:
 
 ```go
 type Result = any
-type UndoState = any
+type Complement = any
 ```
 
 These type aliases are **a bug, not a design choice**. Provider developers
@@ -266,7 +266,7 @@ This replaces the generated Go test files (e.g., the 974-line
 ### 4.1 Action Trait Hierarchy
 
 The Go codebase uses a single `Action` interface with `Result = any` and
-`UndoState = any`. This erases provider-specific types. The Rust port uses
+`Complement = any`. This erases provider-specific types. The Rust port uses
 two separate traits with associated types:
 
 ```rust

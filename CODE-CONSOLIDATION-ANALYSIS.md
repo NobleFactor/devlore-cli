@@ -1,284 +1,257 @@
 # Code Consolidation Analysis
 
-**Date**: 2026-02-27
-**Scope**: devlore-cli + noblefactor-ops (binding-unification branches)
-**Baseline**: 55,832 lines production code, 40,071 lines test code
+**Date**: 2026-03-10
+**Scope**: devlore-cli + noblefactor-ops (develop branches)
+**Previous analysis**: 2026-02-27
 
 ---
 
-## Codebase Size Breakdown
+## Codebase Size
 
-| Repo            | Language | Production |       Test |      Total |
-|-----------------|----------|-----------:|-----------:|-----------:|
-| devlore-cli     | Go       |     36,563 |     25,808 |     62,371 |
-| devlore-cli     | Starlark |      4,193 |          — |      4,193 |
-| noblefactor-ops | Go       |     15,076 |     14,263 |     29,339 |
-| **Total**       |          | **55,832** | **40,071** | **95,903** |
+| Repo            | Language | Production |     Test |      Total |
+|-----------------|----------|-----------:|---------:|-----------:|
+| devlore-cli     | Go       |     38,756 |   39,536 |     78,292 |
+| devlore-cli     | Starlark |      4,954 |        — |      4,954 |
+| noblefactor-ops | Go       |     12,670 |   11,116 |     23,786 |
+| noblefactor-ops | Starlark |      1,104 |        — |      1,104 |
+| **Total**       |          | **57,484** | **50,652** | **108,136** |
+
+Change from Feb 27: +1,652 production lines (+3%), +10,581 test lines (+26%).
+Test-to-production ratio improved from 0.72:1 to 0.88:1.
+
+### devlore-cli by package
+
+| Package      | Production |
+|--------------|----------:|
+| `pkg/`       |    12,844 |
+| `internal/`  |    23,862 |
+| `cmd/`       |       387 |
+| other        |     1,663 |
+| **Total**    | **38,756** |
 
 ---
 
-## Part 1: noblefactor-ops
+## Dead Code
 
-### 1.1 Receiver Boilerplate (14 files, 7,857 lines)
+No actionable dead code found. All exported types, functions, and constants are actively
+referenced. The greenfield policy is working — there is no legacy cruft.
 
-Every receiver (`receiver_json.go`, `receiver_yaml.go`, `receiver_schema.go`, etc.) repeats:
+---
 
-- **Struct + constructor**: `type XyzReceiver struct { op.Receiver }` / `func NewXyzReceiver()` — 14 × ~8 lines = **112
-  lines**
-- **Attr() switch**: dispatch to `op.MakeAttr()` per method — 14 × ~15-30 lines = **280+ lines**
-- **AttrNames() list**: hardcoded sorted slice — 14 × ~3 lines = **42 lines**
+## Resolved Since February Analysis
 
-**Consolidation**: Create `receiver_factory.go` with a builder that takes a method table and generates Attr/AttrNames
-dispatch. Each receiver file reduces to method implementations only.
+These items from the Feb 27 analysis are **closed**:
 
-**Estimated savings: ~434 lines (6% of receiver code)**
+| Item | Was | Resolution |
+|------|-----|-----------|
+| 2.1 Generated action wrappers (~460 lines) | Per-action struct generation | **Eliminated** by `RegisterReflectedActions`. Zero `*_gen.go` files contain action structs. |
+| 2.2 Generated immediate dispatch (~245 lines) | Switch-based `Attr()` in `immediate_gen.go` | **Eliminated** by `WrapReceiver()` + map-based `methodBridge` lookup. |
+| 2.3 Generated planned node creation (~215 lines) | Inline slot filling per method | **Eliminated** by `WrapPlanned()` + `buildPlannedBridge` at runtime. |
+| 1.2 codegen.go monolith (~400 lines) | 2,528-line monolith | **File no longer exists.** Decomposed into modular receiver files. |
+| 1.6 codegen_test.go expansion (~200 lines) | 3,411-line test file with inline fixtures | **File no longer exists.** Decomposed into receiver-specific test files with proper helpers. |
+| 1.2 Parameter filtering pattern | 8+ repeated `for _, p := range m.Params` loops | **No matches found.** Pattern eliminated. |
 
-### 1.2 codegen.go Monolith (2,528 lines)
+**Total resolved: ~1,520 lines of the original ~2,472 estimate (61%).**
 
-The file contains 5 distinct logical units mixed together:
+Generated code is now minimal factory functions. Each provider generates 4–5 files totaling
+51–91 lines (params map, provider descriptor, `WrapPlanned()` call, `WrapReceiver()` call,
+optional resource registration). All dispatch logic lives in three shared files:
+`action_reflect.go`, `receiver_reflect.go`, `planned_reflect.go`.
 
-| Unit                       |  Lines | Proposed File                     |
-|----------------------------|-------:|-----------------------------------|
-| Type definitions           |   ~150 | `codegen_types.go`                |
-| Name normalization         |    ~40 | `codegen_names.go`                |
-| Validation/gates           |   ~140 | `codegen_validate.go`             |
-| 31 templateFunc* functions | ~1,100 | `codegen_template_*.go` (5 files) |
-| Core engine                |   ~500 | `codegen.go` (remains)            |
+---
 
-**Parameter-filtering pattern** appears 8+ times:
+## Part 1: noblefactor-ops — Open Items
 
+### 1.1 Receiver Attr()/AttrNames() Boilerplate (16 receivers)
+
+All 16 receiver files repeat:
+- `Attr(name string)` switch → `op.MakeAttr()` per method
+- `AttrNames() []string` hardcoded sorted slice
+
+**Example** (`receiver_ui.go`):
 ```go
-for _, p := range m.Params {
-if isContentParam(p, m) { continue }
-tm := typeMappings[p.GoType]
-if !tm.starlarkFacing { continue }
-// ... process
+func (r *UiReceiver) Attr(name string) (starlark.Value, error) {
+    switch name {
+    case "note": return op.MakeAttr("ui.note", r.note), nil
+    case "warn": return op.MakeAttr("ui.warn", r.warn), nil
+    // ...
+    default: return nil, op.NoSuchAttrError("ui", name)
+    }
+}
+func (r *UiReceiver) AttrNames() []string {
+    return []string{"error", "fail", "note", "success", "warn"}
 }
 ```
 
-Appears in: `templateFuncPlanUnpackArgs`, `templateFuncPlanFillSlots`, `templateFuncImmediateUnpackArgs`,
-`templateFuncDryRunFmt`, `templateFuncDryRunVars`, `templateFuncGraphReaders`.
+devlore-cli solved this with `WrapReceiver()` + map-based dispatch. noblefactor-ops still
+uses hand-coded switches.
 
-**Consolidation**: Extract `filterStarlarkParams()` helper + split into focused files.
+**Consolidation**: Same pattern — map-based factory from a method table.
 
-**Estimated savings: ~400 lines of complexity reduction, ~150 lines of actual duplication**
+**Estimated savings: ~200 lines across 16 files**
 
-### 1.3 starlarkToGo / goToStarlark (defined once, needed everywhere)
+### 1.2 starlarkToGo / goToStarlark Location
 
-Recursive conversion functions live in `receiver_yaml.go` (86 lines) but are used by 4+ receiver files. Move to shared
-`starlark_utils.go`.
+Defined in `receiver_yaml.go` (86 lines), used by 5 files (receiver_yaml, receiver_json,
+receiver_schema, render, wasm_receiver).
 
-**Estimated savings: import coupling reduction, ~86 lines relocated**
+**Consolidation**: Extract to `starlark_values.go`.
 
-### 1.4 Starlark Hook Commands (near-identical pair)
+**Not a line savings — a coupling fix.**
 
-`hook-pre-commit.star` (115 lines) and `hook-pre-push.star` (115 lines) are identical except for the command name
-string.
+### 1.3 Hook Command Duplication
 
-**Consolidation**: Extract shared `hook_checks.star` module.
+`hook-pre-commit.star` (116 lines) and `hook-pre-push.star` (116 lines) are identical except
+for the command name string. Both contain:
+- `run()`, `run_linter()`, `run_go_check()`, `run_shell_check()`, `run_markdown_check()`
+
+**Consolidation**: Extract to shared `hook_checks.star`, parameterized by hook name.
 
 **Estimated savings: ~90 lines**
 
-### 1.5 Lint Helper Duplication
+### 1.4 Lint Helper Duplication
 
-`check_tool()` and `ensure_tool_installed()` are copied identically across `lint-go.star`, `lint-shell.star`, and inline
-in both hook files.
+`check_tool()` and `ensure_tool_installed()` copied in `lint-go.star`, `lint-shell.star`,
+and both hook files.
 
 **Consolidation**: Shared `lint_utils.star` module.
 
 **Estimated savings: ~50 lines**
 
-### 1.6 Test Helper Expansion (codegen_test.go, 3,411 lines)
-
-- 88 test functions, many inline descriptor creation instead of using existing fixtures
-- `strings.Contains()` assertion pattern appears 200+ times
-- Only 2 method fixtures exist for 88 tests
-
-**Consolidation**: Expand fixture library (`paramFixture`, `callableFixture`, `methodFixture`), add `assertContains`/
-`assertNotContains` helpers.
-
-**Estimated savings: ~200 lines**
-
 ### noblefactor-ops Subtotal
 
-| Area                     |    Savings |
-|--------------------------|-----------:|
-| Receiver boilerplate     |        434 |
-| codegen.go split + dedup |        400 |
-| Hook command dedup       |         90 |
-| Lint helper dedup        |         50 |
-| Test helpers             |        200 |
-| **Subtotal**             | **~1,174** |
+| Area                          | Savings |
+|-------------------------------|--------:|
+| Receiver boilerplate          |     200 |
+| Hook command dedup            |      90 |
+| Lint helper dedup             |      50 |
+| starlarkToGo relocation      |       — |
+| **Subtotal**                  | **~340** |
 
 ---
 
-## Part 2: devlore-cli
+## Part 2: devlore-cli — Open Items
 
-### 2.1 Generated Action Wrapper Boilerplate (2,412 lines across all providers)
+### 2.1 Root Command Initialization (NEW)
 
-Every provider's `actions_gen.go` generates per-method wrapper structs:
+`internal/lore/root.go` (154 lines) and `internal/writ/root.go` (145 lines) are nearly
+identical. Differences: command name, env prefix, subcommand list, help text.
 
+Both implement:
+- `NewRootCmd()` with identical cobra setup boilerplate
+- `initConfig()` with identical viper configuration
+- Identical persistent flag binding
+
+**Consolidation**: Extract `internal/cli/root.go` with a parameterized factory:
 ```go
-type Download struct{ Impl *Provider }
-func (o *Download) Name() string { return "net.download" }
-func (o *Download) Do(ctx *op.Context, slots map[string]any) (op.Result, op.UndoState, error) { ... }
+func NewRootCmd(name, envPrefix string, subcommands ...func() *cobra.Command) *cobra.Command
 ```
 
-Average: 21 lines per action × ~60 actions across all providers.
+**Estimated savings: ~130 lines**
 
-**Consolidation**: Replace per-action struct generation with a generic action wrapper using a descriptor table. The
-codegen template would emit a `[]ActionDescriptor` table instead of individual structs, and a single `genericAction`
-type dispatches via the table.
+### 2.2 countLines() Duplication (NEW)
 
-**Estimated savings: 420-500 lines (35-40% of actions_gen.go)**
+Identical 26-line function in both `starstats/provider.go` and `starindex/provider.go`.
+Counts LOC, SLOC, comments, blanks.
 
-### 2.2 Generated Immediate Receiver Switch Dispatch
+**Consolidation**: Extract to shared `pkg/op/provider/starutil/lines.go`.
 
-Each `immediate_gen.go` generates an `Attr()` switch with 2-3 lines per method:
+**Estimated savings: ~26 lines**
 
+### 2.3 File Read + Relative Path Pattern (NEW)
+
+9-line pattern repeated verbatim in `starindex`, `starcomplexity`, `starstats`:
 ```go
-case "download":
-return op.MakeAttr("net.download", r.download), nil
+data, err := os.ReadFile(absPath)
+if err != nil { return nil, err }
+relPath, err := filepath.Rel(p.Root, absPath)
+if err != nil { relPath = absPath }
 ```
 
-7 providers × ~100 lines each.
+**Consolidation**: Shared helper alongside 2.2.
 
-**Consolidation**: Dynamic attribute dispatch from a method table instead of generated switch. The codegen emits a
-`map[string]func` and a generic Attr implementation.
+**Estimated savings: ~18 lines**
 
-**Estimated savings: 210-280 lines**
+### 2.4 StateView / DependencyView Parallel Patterns
 
-### 2.3 Generated Planned Receiver Node Creation
+`stateview.go` (556 lines) and `dependencyview.go` (445 lines) share builder patterns,
+graph traversal helpers, index construction, and sorting logic.
 
-Each planned method wrapper repeats node creation, slot filling, graph append:
+**Consolidation**: Shared `View` base if more views are added. Low priority — distinct
+concerns that happen to share structure.
 
-```go
-node := &op.Node{ID: ..., Action: ..., Project: ...}
-if err := op.FillSlot(node, p.graph, "paramName", paramValue); err != nil { ... }
-p.graph.Nodes = append(p.graph.Nodes, node)
-return op.NewOutput(node, p.graph, ""), nil
-```
+**Estimated savings: ~80 lines**
 
-8 providers × ~100 lines each.
+### 2.5 Star Extension Commands
 
-**Consolidation**: Extract `addNode(graph, action, project, slots)` helper. Planned methods call the helper instead of
-inlining.
-
-**Estimated savings: 180-250 lines**
-
-### 2.4 Lore/Writ Consumer Duplication
-
-Both `internal/lore/builder.go` (447 lines) and `internal/writ/graph_builder.go` (387 lines) independently:
-
-- Create graphs with identical initialization boilerplate
-- Resolve platform via `platform.New()` with fallback logic
-- Build action registries with the same pattern
-- Configure executors with `ExecutorOptions{}`
-
-**Consolidation**: Extract shared `GraphFactory` in `pkg/op` and shared `ResolveContext` helper.
-
-**Estimated savings: 90-150 lines**
-
-### 2.5 BindingSet Factory Map Duplication
-
-`BuildGlobals()` and `buildPlanModule()` both iterate `op.AllBindings()` to build the same
-`map[string]op.PlannedFactory`:
-
-```go
-factories := make(map[string]op.PlannedFactory)
-for _, b := range op.AllBindings() {
-if b.PlannedFactory != nil {
-factories[b.Name] = b.PlannedFactory
-}
-}
-```
-
-Appears twice, identically.
-
-**Consolidation**: Extract `collectPlannedFactories()`.
-
-**Estimated savings: 15-20 lines**
-
-### 2.6 StateView / DependencyView (961 lines combined)
-
-`stateview.go` (517 lines) and `dependencyview.go` (444 lines) follow parallel patterns: load YAML/JSON, query/filter
-entries, transform results.
-
-**Consolidation**: Extract unified `GraphView` base with common query/filter methods.
-
-**Estimated savings: 60-100 lines**
-
-### 2.7 Star Extension Commands (Knowledge, Package share patterns)
-
-`extract.star`, `index.star`, `sign.star`, `validate.star` across Knowledge and Package extensions share:
-
-- Identical argument parsing patterns
-- Similar validation flows
-- Common output formatting
+`extract.star`, `index.star`, `sign.star`, `validate.star` across Knowledge and Package
+extensions share argument parsing, validation flows, and output formatting.
 
 **Consolidation**: Shared Starlark utility module for extension commands.
 
-**Estimated savings: 80-120 lines**
+**Estimated savings: ~100 lines**
 
-### 2.8 Provider Root Field Pattern (6 star* providers)
+### 2.6 BindingSet Factory Map
 
-`staranalysis`, `starcode`, `starcomplexity`, `starindex`, `starsources`, `starstats` all have `struct { Root string }`
-and similar initialization. File provider shares this pattern.
+`collectPlannedProviders()` pattern repeated in `BuildGlobals()` and `buildPlanModule()`.
 
-**Consolidation**: Common `RootProvider` mixin or embedded struct with shared path resolution.
+**Consolidation**: Extract helper.
 
-**Estimated savings: 40-80 lines**
+**Estimated savings: ~8 lines**
 
 ### devlore-cli Subtotal
 
-| Area                             |    Savings |
-|----------------------------------|-----------:|
-| Generated action wrappers        |        460 |
-| Generated immediate dispatch     |        245 |
-| Generated planned node creation  |        215 |
-| Lore/Writ consumer consolidation |        120 |
-| StateView/DependencyView base    |         80 |
-| Star extension commands          |        100 |
-| Root provider pattern            |         60 |
-| BindingSet factory map           |         18 |
-| **Subtotal**                     | **~1,298** |
+| Area                          | Savings |
+|-------------------------------|--------:|
+| Root command initialization   |     130 |
+| StateView/DependencyView      |      80 |
+| Star extension commands       |     100 |
+| countLines() dedup            |      26 |
+| File read + relpath pattern   |      18 |
+| BindingSet factory map        |       8 |
+| **Subtotal**                  | **~362** |
 
 ---
 
 ## Combined Summary
 
-| Category                      | noblefactor-ops | devlore-cli |      Total |
-|-------------------------------|----------------:|------------:|-----------:|
-| Generated code consolidation  |               — |         920 |        920 |
-| Receiver/dispatch boilerplate |             434 |           — |        434 |
-| Monolith decomposition        |             400 |           — |        400 |
-| Consumer duplication          |               — |         200 |        200 |
-| Test helper expansion         |             200 |           — |        200 |
-| Starlark command dedup        |             140 |         100 |        240 |
-| View/state consolidation      |               — |          80 |         80 |
-| Provider struct patterns      |               — |          60 |         60 |
-| Misc                          |               — |          18 |         18 |
-| **Total**                     |       **1,174** |   **1,298** | **~2,472** |
+| Category                      | noblefactor-ops | devlore-cli |   Total |
+|-------------------------------|----------------:|------------:|--------:|
+| Receiver/dispatch boilerplate |             200 |           — |     200 |
+| Consumer duplication          |               — |         130 |     130 |
+| Starlark command dedup        |             140 |         100 |     240 |
+| View/state consolidation      |               — |          80 |      80 |
+| Utility dedup                 |               — |          52 |      52 |
+| Misc                          |               — |           8 |       8 |
+| **Total**                     |         **340** |     **362** | **~702** |
 
-**Production code reduction**: ~2,472 lines from 55,832 = **4.4%**
+**Remaining reduction**: ~702 lines from 57,484 production = **1.2%**
 
-This is conservative — it counts only clear duplication, not the cascading simplification that emerges when shared
-abstractions replace repeated patterns. The real savings compound: once generated code uses descriptor tables instead of
-per-action structs, the templates shrink, the codegen logic simplifies, and the test surface reduces proportionally.
-
-A realistic total including second-order effects: **~3,500-4,000 lines**, or **6-7% of production code**.
+The February analysis identified ~2,472 lines. Of that, ~1,520 lines (61%) were resolved by
+the reflection-based dispatch and codegen decomposition work. The remaining ~702 lines are
+smaller, lower-ROI items — no single item exceeds 200 lines.
 
 ---
 
 ## Priority Ranking
 
-| Priority | Target                                 | Effort | Savings | ROI                                               |
-|----------|----------------------------------------|--------|--------:|---------------------------------------------------|
-| 1        | Generated action wrapper consolidation | Medium |     460 | High — one template change, all providers benefit |
-| 2        | codegen.go decomposition               | Medium |     400 | High — maintainability + reveals further dedup    |
-| 3        | Receiver factory (noblefactor-ops)     | Low    |     434 | High — 14 files simplified, pattern established   |
-| 4        | Generated dispatch consolidation       | Medium |     460 | Medium — template + runtime changes               |
-| 5        | Lore/Writ consumer unification         | Medium |     200 | Medium — reduces drift between consumers          |
-| 6        | Hook/lint Starlark dedup               | Low    |     140 | Medium — quick win                                |
-| 7        | Test helper expansion                  | Low    |     200 | Medium — improves test maintainability            |
-| 8        | View/state consolidation               | Medium |      80 | Low — smaller payoff                              |
+| Priority | Target                              | Effort | Savings | ROI |
+|----------|-------------------------------------|--------|--------:|-----|
+| 1        | Root command factory                 | Low    |     130 | High — eliminates drift between lore/writ CLI setup |
+| 2        | Receiver factory (noblefactor-ops)  | Low    |     200 | High — 16 files simplified, mirrors devlore-cli pattern |
+| 3        | Hook/lint Starlark dedup            | Low    |     140 | Medium — quick win, 4 files → 2 |
+| 4        | Star extension command utils        | Low    |     100 | Medium — reduces Starlark duplication |
+| 5        | Star provider shared utils          | Low    |      52 | Medium — countLines + readFile helpers |
+| 6        | View/state consolidation            | Medium |      80 | Low — distinct concerns, defer until more views exist |
+
+---
+
+## Comparison: Feb 27 → Mar 10
+
+| Metric                     | Feb 27 | Mar 10 | Change |
+|----------------------------|-------:|-------:|--------|
+| Production lines           | 55,832 | 57,484 | +1,652 (+3%) |
+| Test lines                 | 40,071 | 50,652 | +10,581 (+26%) |
+| Identified consolidation   |  2,472 |    702 | -1,770 (72% reduction in tech debt) |
+| Generated code boilerplate |   ~920 |      0 | Eliminated |
+| codegen.go monolith        |  2,528 |      0 | Eliminated |

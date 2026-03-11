@@ -463,7 +463,6 @@ def install(package, phase):
 }
 
 func TestBuildPhased_LorePackageMultiPhase(t *testing.T) {
-	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/169")
 	// Multi-phase package with retry on install only.
 	client := createLorePackage(t, "ripgrep", map[string]string{
 		"Darwin/Deploy/install.star": `
