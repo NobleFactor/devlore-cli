@@ -44,6 +44,7 @@ Before completing any task:
 - `make check` — vet, lint, shell-lint, complexity, test
 - `make vet` — go vet
 
+
 ## Repository-Specific Notes
 
 - Default branch: `develop`

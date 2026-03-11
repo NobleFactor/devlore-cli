@@ -41,19 +41,45 @@ The execution engine processes a directed acyclic graph (DAG) of nodes, where ea
 
 ## Current Namespaces
 
-| Namespace | Actions | Package |
-|-----------|---------|---------|
-| file | `file.link`, `file.copy`, `file.backup`, `file.unlink`, `file.remove`, `file.write`, `file.move`, `file.mkdir`, `file.source` | `provider/file` |
-| encryption | `encryption.decrypt` | `provider/encryption` |
-| template | `template.render` | `provider/template` |
-| content | `content.literal` | `provider/content` |
-| pkg | `pkg.install`, `pkg.upgrade`, `pkg.remove`, `pkg.update` | `provider/pkg` |
-| shell | `shell.exec`, `shell.powershell` | `provider/shell` |
-| service | `service.start`, `service.stop`, `service.restart`, `service.enable`, `service.disable` | `provider/service` |
-| appnet | `appnet.download` | `provider/appnet` |
-| archive | `archive.extract` | `provider/archive` |
-| git | `git.clone`, `git.checkout`, `git.pull` | `provider/git` |
-| flow | `flow.choose`, `flow.gather`, `flow.elevate` | `flow/` |
+### Planned providers (graph node actions)
+
+| Namespace | Access | Actions | Package |
+|-----------|--------|---------|---------|
+| file | planned | `file.backup`, `file.copy`, `file.link`, `file.move`, `file.remove`, `file.remove_all`, `file.unlink`, `file.walk_tree`, `file.write_bytes`, `file.write_text`, `file.exists`, `file.glob`, `file.is_dir`, `file.is_file`, `file.mkdir`, `file.read`, `file.join`, `file.name`, `file.parent`, `file.root` | `provider/file` |
+| encryption | planned | `encryption.decrypt_sops_file` | `provider/encryption` |
+| pkg | planned | `pkg.install`, `pkg.remove`, `pkg.upgrade`, `pkg.update`, `pkg.installed`, `pkg.not_installed`, `pkg.version_gte` | `provider/pkg` |
+| shell | planned | `shell.exec`, `shell.power_shell` | `provider/shell` |
+| service | planned | `service.start`, `service.stop`, `service.restart`, `service.enable`, `service.disable`, `service.enabled`, `service.exists`, `service.running` | `provider/service` |
+| appnet | planned | `appnet.download` | `provider/appnet` |
+| archive | planned | `archive.extract` | `provider/archive` |
+| git | planned | `git.clone`, `git.checkout`, `git.pull` | `provider/git` |
+| flow | planned | `flow.choose`, `flow.gather`, `flow.elevate`, `flow.wait_until`, `flow.complete`, `flow.degraded`, `flow.fatal` | `flow/` |
+
+### Both (planned + immediate)
+
+| Namespace | Access | Actions | Package |
+|-----------|--------|---------|---------|
+| template | both | `template.render` | `provider/template` |
+| json | both | `json.encode`, `json.encode_indent`, `json.decode` | `provider/json` |
+| yaml | both | `yaml.encode`, `yaml.decode` | `provider/yaml` |
+| regexp | both | `regexp.match`, `regexp.find`, `regexp.find_all`, `regexp.find_submatch`, `regexp.find_all_submatch`, `regexp.replace`, `regexp.replace_literal`, `regexp.split` | `provider/regexp` |
+
+### Immediate-only providers (execute directly, no graph nodes)
+
+| Namespace | Access | Actions | Package |
+|-----------|--------|---------|---------|
+| ui | immediate | `ui.error`, `ui.fail`, `ui.note`, `ui.success`, `ui.warn` | `provider/ui` |
+| staranalysis | immediate | `staranalysis.analyze` | `provider/staranalysis` |
+| starcode | immediate | `starcode.capture` | `provider/starcode` |
+| starcomplexity | immediate | `starcomplexity.compute_complexity` | `provider/starcomplexity` |
+| starindex | immediate | `starindex.index_files` | `provider/starindex` |
+| starstats | immediate | `starstats.compute_stats` | `provider/starstats` |
+
+### Removed
+
+| Namespace | Removed In | Reason |
+|-----------|-----------|--------|
+| content | binding-unification phase 8 | `content.literal` was a pure pass-through (`[]byte` in, `[]byte` out) — no-op |
 
 ## Darwin Package Manager Idempotence
 
@@ -181,7 +207,7 @@ type Pull struct{ Impl *Provider }
 
 func (o *Pull) Name() string { return "docker.pull" }
 
-func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
+func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.Complement, error) {
     image := slots["image"].(string)
 
     if ctx.DryRun {
@@ -191,7 +217,7 @@ func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
     return nil, nil, o.Impl.Pull(image)
 }
 
-func (o *Pull) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {
+func (o *Pull) Undo(_ *execution.Context, _ map[string]any, _ execution.Complement) error {
     return nil
 }
 
@@ -290,7 +316,7 @@ func (p *DockerPlan) Pull(image string) *op.Output {
 
 All resource operations are sub-namespaces under `plan`:
 - `plan.package.*`, `plan.file.*`, `plan.service.*`, `plan.shell.*`
-- `plan.net.*`, `plan.archive.*`, `plan.git.*`, `plan.content.*`
+- `plan.appnet.*`, `plan.archive.*`, `plan.git.*`
 - `plan.template.*`, `plan.encryption.*`
 
 Only graph construction primitives remain top-level: `plan.source()`,
@@ -324,9 +350,8 @@ def install(package, phase):
     # Shell (escape hatch)
     plan.shell.exec("echo hello")
 
-    # Network and content
-    plan.net.download(url)
-    plan.content.literal(content)
+    # Network
+    plan.appnet.download(url)
 
     # Docker operations (example)
     plan.docker.pull("nginx:latest")
