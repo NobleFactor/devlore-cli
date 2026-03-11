@@ -32,81 +32,81 @@ func (p *Provider) compile(pattern string) (*regexp.Regexp, error) {
 	return re, nil
 }
 
-// Match reports whether the string contains any match of the pattern.
-func (p *Provider) Match(pattern, s string) (bool, error) {
+// Match reports whether the text contains any match of the pattern.
+func (p *Provider) Match(pattern, text string) (bool, error) {
 	re, err := p.compile(pattern)
 	if err != nil {
 		return false, err
 	}
-	return re.MatchString(s), nil
+	return re.MatchString(text), nil
 }
 
-// Find returns the first match of the pattern in the string.
+// Find returns the first match of the pattern in the text.
 // Returns an empty string if no match is found.
-func (p *Provider) Find(pattern, s string) (string, error) {
+func (p *Provider) Find(pattern, text string) (string, error) {
 	re, err := p.compile(pattern)
 	if err != nil {
 		return "", err
 	}
-	return re.FindString(s), nil
+	return re.FindString(text), nil
 }
 
 // FindAll returns all non-overlapping matches of the pattern.
 // The count parameter limits the number of matches; -1 means no limit.
-func (p *Provider) FindAll(pattern, s string, count int) ([]string, error) {
+func (p *Provider) FindAll(pattern, text string, count int) ([]string, error) {
 	re, err := p.compile(pattern)
 	if err != nil {
 		return nil, err
 	}
-	return re.FindAllString(s, count), nil
+	return re.FindAllString(text, count), nil
 }
 
 // FindSubmatch returns the first match and its submatches.
 // Returns nil if no match is found.
-func (p *Provider) FindSubmatch(pattern, s string) ([]string, error) {
+func (p *Provider) FindSubmatch(pattern, text string) ([]string, error) {
 	re, err := p.compile(pattern)
 	if err != nil {
 		return nil, err
 	}
-	return re.FindStringSubmatch(s), nil
+	return re.FindStringSubmatch(text), nil
 }
 
 // FindAllSubmatch returns all matches with their submatches.
 // The count parameter limits the number of matches; -1 means no limit.
-func (p *Provider) FindAllSubmatch(pattern, s string, count int) ([][]string, error) {
+func (p *Provider) FindAllSubmatch(pattern, text string, count int) ([][]string, error) {
 	re, err := p.compile(pattern)
 	if err != nil {
 		return nil, err
 	}
-	return re.FindAllStringSubmatch(s, count), nil
+	return re.FindAllStringSubmatch(text, count), nil
 }
 
 // Replace replaces all matches of the pattern with the replacement string.
 // The replacement can include $1, $2, etc. for submatch references.
-func (p *Provider) Replace(pattern, s, replacement string) (string, error) {
+func (p *Provider) Replace(pattern, text, replacement string) (string, error) {
 	re, err := p.compile(pattern)
 	if err != nil {
 		return "", err
 	}
-	return re.ReplaceAllString(s, replacement), nil
+	return re.ReplaceAllString(text, replacement), nil
 }
 
 // ReplaceLiteral replaces all matches with the literal replacement string
 // (no submatch expansion).
-func (p *Provider) ReplaceLiteral(pattern, s, replacement string) (string, error) {
+func (p *Provider) ReplaceLiteral(pattern, text, replacement string) (string, error) {
 	re, err := p.compile(pattern)
 	if err != nil {
 		return "", err
 	}
-	return re.ReplaceAllLiteralString(s, replacement), nil
+	return re.ReplaceAllLiteralString(text, replacement), nil
 }
 
-// Split splits the string around matches of the pattern.
+// Split splits the text around matches of the pattern.
 // The count parameter limits the number of substrings; -1 means no limit.
-func (p *Provider) Split(pattern, s string, count int) ([]string, error) {
+func (p *Provider) Split(pattern, text string, count int) ([]string, error) {
 	re, err := p.compile(pattern)
 	if err != nil {
 		return nil, err
 	}
-	return re.Split(s, count), nil
+	return re.Split(text, count), nil
 }
