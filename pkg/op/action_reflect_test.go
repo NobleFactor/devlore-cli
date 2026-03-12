@@ -597,8 +597,10 @@ func TestReflectedAction_Do(t *testing.T) {
 
 	action := reg.MustGet("test.read")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	slots := map[string]any{"path": "/tmp/f"}
 
@@ -620,8 +622,10 @@ func TestReflectedAction_Do_Compensable(t *testing.T) {
 
 	action := reg.MustGet("test.copy")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	slots := map[string]any{"source": "/a", "dest": "/b"}
 
@@ -647,8 +651,10 @@ func TestReflectedAction_Do_ErrorOnly(t *testing.T) {
 
 	action := reg.MustGet("test.validate")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 
 	// Success.
@@ -673,8 +679,10 @@ func TestReflectedAction_Do_TypeCoercion(t *testing.T) {
 
 	action := reg.MustGet("test.mkdir")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	// Slot value is int (from unmarshalToAny), method expects os.FileMode.
 	slots := map[string]any{"path": "/dir", "mode": 0o755}
@@ -694,8 +702,10 @@ func TestReflectedAction_Do_Constructor(t *testing.T) {
 
 	action := reg.MustGet("test.deploy")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	// Slot value is string, method expects actionTestResource.
 	slots := map[string]any{"res": "/app/bin"}
@@ -715,8 +725,10 @@ func TestReflectedAction_Do_MapToStruct(t *testing.T) {
 
 	action := reg.MustGet("test.configure")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	// Slot value is map[string]any (from unmarshalToAny), method expects actionConfig.
 	slots := map[string]any{
@@ -739,8 +751,10 @@ func TestReflectedAction_Do_MissingSlot(t *testing.T) {
 
 	action := reg.MustGet("test.read")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	// Missing "path" slot → coerces nil to zero string.
 	result, _, err := action.Do(ctx, map[string]any{})
@@ -758,8 +772,10 @@ func TestReflectedAction_Do_CoercionError(t *testing.T) {
 
 	action := reg.MustGet("test.read")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	// Wrong type: map cannot coerce to string.
 	slots := map[string]any{"path": map[string]any{"bad": true}}
@@ -782,9 +798,11 @@ func TestReflectedAction_DryRun(t *testing.T) {
 	var buf bytes.Buffer
 	action := reg.MustGet("test.read")
 	ctx := &Context{
-		Context: context.Background(),
-		DryRun:  true,
-		Writer:  &buf,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			DryRun:  true,
+			Writer:  &buf,
+		},
 	}
 	slots := map[string]any{"path": "/tmp/f"}
 
@@ -812,9 +830,11 @@ func TestReflectedAction_DryRun_MultipleSlots(t *testing.T) {
 	var buf bytes.Buffer
 	action := reg.MustGet("test.copy")
 	ctx := &Context{
-		Context: context.Background(),
-		DryRun:  true,
-		Writer:  &buf,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			DryRun:  true,
+			Writer:  &buf,
+		},
 	}
 	slots := map[string]any{"source": "/a", "dest": "/b"}
 
@@ -845,8 +865,10 @@ func TestReflectedCompensableAction_Undo(t *testing.T) {
 	}
 
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	state := map[string]any{"source": "/a", "dest": "/b"}
 
@@ -864,8 +886,10 @@ func TestReflectedCompensableAction_UndoNil(t *testing.T) {
 	ca := action.(CompensableAction)
 
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 
 	err := ca.Undo(ctx, nil)
@@ -882,8 +906,10 @@ func TestReflectedCompensableAction_UndoError(t *testing.T) {
 	ca := action.(CompensableAction)
 
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 	state := map[string]any{"fail": true}
 
@@ -938,8 +964,10 @@ func TestReflectedAction_Do_NoResult(t *testing.T) {
 
 	action := reg.MustGet("test.delete")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 
 	result, undo, err := action.Do(ctx, map[string]any{"path": "/tmp/gone"})
@@ -977,10 +1005,12 @@ func TestReflectedAction_Do_ShadowsResource(t *testing.T) {
 	catalog := NewResourceCatalog()
 	action := reg.MustGet("test.create")
 	ctx := &Context{
-		Context: context.Background(),
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 		Catalog: catalog,
 		NodeID:  "node-1",
-		Writer:  io.Discard,
 	}
 
 	result, _, err := action.Do(ctx, map[string]any{"path": "/tmp/new"})
@@ -1031,8 +1061,10 @@ func TestReflectedAction_Do_NoCatalog_Unchanged(t *testing.T) {
 	// No catalog — result should be returned unchanged.
 	action := reg.MustGet("test.create")
 	ctx := &Context{
-		Context: context.Background(),
-		Writer:  io.Discard,
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 	}
 
 	result, _, err := action.Do(ctx, map[string]any{"path": "/tmp/file"})
@@ -1051,10 +1083,12 @@ func TestReflectedAction_Do_NonResource_Unchanged(t *testing.T) {
 	catalog := NewResourceCatalog()
 	action := reg.MustGet("test.read")
 	ctx := &Context{
-		Context: context.Background(),
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 		Catalog: catalog,
 		NodeID:  "node-2",
-		Writer:  io.Discard,
 	}
 
 	result, _, err := action.Do(ctx, map[string]any{"path": "/tmp/f"})
@@ -1077,10 +1111,12 @@ func TestReflectedAction_Do_NoResult_NotShadowed(t *testing.T) {
 	catalog := NewResourceCatalog()
 	action := reg.MustGet("test.delete")
 	ctx := &Context{
-		Context: context.Background(),
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  io.Discard,
+		},
 		Catalog: catalog,
 		NodeID:  "node-3",
-		Writer:  io.Discard,
 	}
 
 	result, _, err := action.Do(ctx, map[string]any{"path": "/tmp/gone"})

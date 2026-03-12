@@ -149,9 +149,9 @@ func buildGraph(phaseID string, nodes ...*op.Node) *op.Graph {
 // flowContext creates an op.Context suitable for flow action tests.
 func flowContext(graph *op.Graph, nodeID string) *op.Context {
 	return &op.Context{
-		Context: context.Background(),
-		Graph:   graph,
-		NodeID:  nodeID,
+		ContextBase: op.ContextBase{Context: context.Background()},
+		Graph:       graph,
+		NodeID:      nodeID,
 	}
 }
 
@@ -197,7 +197,7 @@ func TestCompleteName(t *testing.T) {
 
 func TestCompleteDoWithOutput(t *testing.T) {
 	act := &Complete{}
-	result, complement, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	result, complement, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"output": 42,
 	})
 	if err != nil {
@@ -213,7 +213,7 @@ func TestCompleteDoWithOutput(t *testing.T) {
 
 func TestCompleteDoWithNilOutput(t *testing.T) {
 	act := &Complete{}
-	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{})
+	result, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestCompleteDoWithNilOutput(t *testing.T) {
 
 func TestCompleteDoWithStringOutput(t *testing.T) {
 	act := &Complete{}
-	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	result, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"output": "done",
 	})
 	if err != nil {
@@ -255,7 +255,7 @@ func TestDegradedName(t *testing.T) {
 
 func TestDegradedDoPlainString(t *testing.T) {
 	act := &Degraded{}
-	result, complement, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	result, complement, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format": "disk space low",
 	})
 	if err != nil {
@@ -275,7 +275,7 @@ func TestDegradedDoPlainString(t *testing.T) {
 
 func TestDegradedDoWithKwargs(t *testing.T) {
 	act := &Degraded{}
-	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	result, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format":         "{{ .service }} unhealthy",
 		"kwargs.service": "redis",
 	})
@@ -293,7 +293,7 @@ func TestDegradedDoWithKwargs(t *testing.T) {
 
 func TestDegradedDoReturnsNilError(t *testing.T) {
 	act := &Degraded{}
-	_, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	_, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format": "warning",
 	})
 	if err != nil {
@@ -303,7 +303,7 @@ func TestDegradedDoReturnsNilError(t *testing.T) {
 
 func TestDegradedDoWithArgs(t *testing.T) {
 	act := &Degraded{}
-	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	result, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format":   "{{ index .Args 0 }} failed",
 		"args[0]":  "db",
 		"args.len": 1,
@@ -322,7 +322,7 @@ func TestDegradedDoWithArgs(t *testing.T) {
 
 func TestDegradedDoWithArgsAndKwargs(t *testing.T) {
 	act := &Degraded{}
-	result, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	result, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format":      "{{ index .Args 0 }} on {{ .host }}",
 		"args[0]":     "timeout",
 		"args.len":    1,
@@ -360,7 +360,7 @@ func TestFatalName(t *testing.T) {
 
 func TestFatalDoPlainString(t *testing.T) {
 	act := &Fatal{}
-	result, complement, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	result, complement, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format": "database unreachable",
 	})
 	if err == nil {
@@ -383,7 +383,7 @@ func TestFatalDoPlainString(t *testing.T) {
 
 func TestFatalDoWithKwargs(t *testing.T) {
 	act := &Fatal{}
-	_, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	_, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format":         "{{ .service }} startup failed",
 		"kwargs.service": "myapp",
 	})
@@ -401,7 +401,7 @@ func TestFatalDoWithKwargs(t *testing.T) {
 
 func TestFatalDoWithArgs(t *testing.T) {
 	act := &Fatal{}
-	_, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	_, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format":   "{{ index .Args 0 }} crashed",
 		"args[0]":  "worker",
 		"args.len": 1,
@@ -420,7 +420,7 @@ func TestFatalDoWithArgs(t *testing.T) {
 
 func TestFatalDoWithArgsAndKwargs(t *testing.T) {
 	act := &Fatal{}
-	_, _, err := act.Do(&op.Context{Context: context.Background()}, map[string]any{
+	_, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, map[string]any{
 		"format":      "{{ index .Args 0 }} on {{ .host }}",
 		"args[0]":     "segfault",
 		"args.len":    1,
@@ -465,7 +465,7 @@ func TestElevateName(t *testing.T) {
 
 func TestElevateDoReturnsNil(t *testing.T) {
 	act := &Elevate{}
-	result, _, err := act.Do(&op.Context{Context: context.Background()}, nil)
+	result, _, err := act.Do(&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -599,7 +599,7 @@ func TestChooseMultiNodePhase(t *testing.T) {
 }
 
 func TestChooseNilGraph(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &Choose{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -692,7 +692,7 @@ func TestChooseUndoReverseOrder(t *testing.T) {
 	actionB := &echoAction{name: "b", undoOrder: &order}
 	actionC := &echoAction{name: "c", undoOrder: &order}
 
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stack := op.NewRecoveryStack()
 	stack.PushAction(ctx, actionA, "sa")
 	stack.PushAction(ctx, actionB, "sb")
@@ -716,7 +716,7 @@ func TestChooseUndoSkipsNotCompensable(t *testing.T) {
 	actionNC := &notCompensableAction{name: "nc"}
 	actionC := &echoAction{name: "c", undoOrder: &order}
 
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stack := op.NewRecoveryStack()
 	stack.PushAction(ctx, actionA, nil)
 	stack.PushAction(ctx, actionNC, nil)
@@ -738,7 +738,7 @@ func TestChooseUndoCollectsErrors(t *testing.T) {
 	errA := errors.New("undo-a failed")
 	errB := errors.New("undo-b failed")
 
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stack := op.NewRecoveryStack()
 	stack.PushAction(ctx, &failUndoAction{name: "a", err: errA}, nil)
 	stack.PushAction(ctx, &failUndoAction{name: "b", err: errB}, nil)
@@ -825,7 +825,7 @@ func TestGatherConcurrent(t *testing.T) {
 }
 
 func TestGatherEmptyItems(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &Gather{}
 
 	result, undo, err := act.Do(ctx, map[string]any{
@@ -948,7 +948,7 @@ func TestGatherConcurrentError(t *testing.T) {
 }
 
 func TestGatherMissingItems(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &Gather{}
 
 	_, _, err := act.Do(ctx, map[string]any{"do": "phase"})
@@ -961,7 +961,7 @@ func TestGatherMissingItems(t *testing.T) {
 }
 
 func TestGatherInvalidItemsType(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &Gather{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -977,7 +977,7 @@ func TestGatherInvalidItemsType(t *testing.T) {
 }
 
 func TestGatherMissingDoSlot(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &Gather{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -992,7 +992,7 @@ func TestGatherMissingDoSlot(t *testing.T) {
 }
 
 func TestGatherEmptyDoSlot(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &Gather{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -1008,7 +1008,7 @@ func TestGatherEmptyDoSlot(t *testing.T) {
 }
 
 func TestGatherNilGraph(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &Gather{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -1053,7 +1053,7 @@ func TestGatherUndoReverseOrder(t *testing.T) {
 	actionB := &echoAction{name: "b", undoOrder: &order}
 	actionC := &echoAction{name: "c", undoOrder: &order}
 
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stackA := op.NewRecoveryStack()
 	stackA.PushAction(ctx, actionA, "sa")
 	stackB := op.NewRecoveryStack()
@@ -1087,7 +1087,7 @@ func TestGatherUndoSkipsNotCompensable(t *testing.T) {
 	actionNC := &notCompensableAction{name: "nc"}
 	actionC := &echoAction{name: "c", undoOrder: &order}
 
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stackA := op.NewRecoveryStack()
 	stackA.PushAction(ctx, actionA, nil)
 	stackNC := op.NewRecoveryStack()
@@ -1119,7 +1119,7 @@ func TestGatherUndoCollectsErrors(t *testing.T) {
 	errA := errors.New("undo-a failed")
 	errB := errors.New("undo-b failed")
 
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stackA := op.NewRecoveryStack()
 	stackA.PushAction(ctx, &failUndoAction{name: "a", err: errA}, nil)
 	stackB := op.NewRecoveryStack()
@@ -1240,7 +1240,7 @@ func TestWaitUntilIsNotCompensable(t *testing.T) {
 }
 
 func TestWaitUntilImmediateMatch(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &WaitUntil{}
 
 	result, _, err := act.Do(ctx, map[string]any{
@@ -1257,7 +1257,7 @@ func TestWaitUntilImmediateMatch(t *testing.T) {
 }
 
 func TestWaitUntilPolling(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &WaitUntil{}
 
 	calls := 0
@@ -1284,7 +1284,7 @@ func TestWaitUntilPolling(t *testing.T) {
 }
 
 func TestWaitUntilTimeout(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &WaitUntil{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -1305,7 +1305,7 @@ func TestWaitUntilContextCancelled(t *testing.T) {
 	baseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 
-	ctx := &op.Context{Context: baseCtx}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: baseCtx}}
 	act := &WaitUntil{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -1323,7 +1323,7 @@ func TestWaitUntilContextCancelled(t *testing.T) {
 }
 
 func TestWaitUntilMissingPredicate(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &WaitUntil{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -1339,7 +1339,7 @@ func TestWaitUntilMissingPredicate(t *testing.T) {
 }
 
 func TestWaitUntilMissingTimeout(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &WaitUntil{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -1355,7 +1355,7 @@ func TestWaitUntilMissingTimeout(t *testing.T) {
 }
 
 func TestWaitUntilInvalidTimeoutString(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &WaitUntil{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -1372,7 +1372,7 @@ func TestWaitUntilInvalidTimeoutString(t *testing.T) {
 }
 
 func TestWaitUntilPredicateError(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &WaitUntil{}
 
 	predErr := errors.New("check failed")
@@ -1393,7 +1393,7 @@ func TestWaitUntilPredicateError(t *testing.T) {
 }
 
 func TestWaitUntilPredicateErrorDuringPolling(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &WaitUntil{}
 
 	calls := 0

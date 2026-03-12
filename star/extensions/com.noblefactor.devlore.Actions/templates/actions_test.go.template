@@ -20,17 +20,21 @@ import (
 func newCtx(t *testing.T) *op.Context {
 	t.Helper()
 	return &op.Context{
-		Context: context.Background(),
-		Writer:  &bytes.Buffer{},
+		ContextBase: op.ContextBase{
+			Context: context.Background(),
+			Writer:  &bytes.Buffer{},
+		},
 	}
 }
 
 func dryRunCtx(t *testing.T) *op.Context {
 	t.Helper()
 	return &op.Context{
-		Context: context.Background(),
-		DryRun:  true,
-		Writer:  &bytes.Buffer{},
+		ContextBase: op.ContextBase{
+			Context: context.Background(),
+			DryRun:  true,
+			Writer:  &bytes.Buffer{},
+		},
 	}
 }
 

@@ -177,7 +177,7 @@ func TestGraphDeserializeYAML(t *testing.T) {
 
 	// Verify stub actions return an error when executed (stubs are not runnable).
 	_, _, err := loaded.Nodes[0].Action.Do(
-		&op.Context{Context: context.Background()}, nil)
+		&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, nil)
 	if err == nil {
 		t.Error("expected stub action Do to return an error")
 	}
@@ -302,7 +302,7 @@ func TestGraphHydrate(t *testing.T) {
 
 	// Verify stub before hydration — stubs return an error from Do.
 	_, _, stubErr := loaded.Nodes[0].Action.Do(
-		&op.Context{Context: context.Background()}, nil)
+		&op.Context{ContextBase: op.ContextBase{Context: context.Background()}}, nil)
 	if stubErr == nil {
 		t.Error("expected stub action Do to return an error before hydration")
 	}
@@ -325,7 +325,7 @@ func TestGraphHydrate(t *testing.T) {
 
 	// After hydration, Do should succeed (dry-run)
 	_, _, err := loaded.Nodes[0].Action.Do(
-		&op.Context{Context: context.Background(), DryRun: true, Writer: os.Stdout},
+		&op.Context{ContextBase: op.ContextBase{Context: context.Background(), DryRun: true, Writer: os.Stdout}},
 		map[string]any{"source": "/x", "path": "/y"})
 	if err != nil {
 		t.Errorf("expected hydrated action to succeed in dry-run, got: %v", err)

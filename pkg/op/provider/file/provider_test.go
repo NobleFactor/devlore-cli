@@ -25,7 +25,7 @@ func testRoot(t *testing.T, dir string) op.Root {
 func testProvider(t *testing.T, dir string) Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	ctx := op.Context{Root: root}
+	ctx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
 	return Provider{ProviderBase: op.NewProviderBase(ctx)}
 }

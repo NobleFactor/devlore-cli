@@ -134,13 +134,15 @@ func (e *GraphExecutor) newContext(ctx context.Context) (*op.Context, error) {
 	}
 
 	execCtx := &op.Context{
-		Context:  ctx,
-		Root:     root,
-		DryRun:   e.options.DryRun,
-		Writer:   e.options.Writer,
-		Data:     e.options.Data,
-		Platform: e.options.Platform,
-		Thread:   e.newThread(),
+		ContextBase: op.ContextBase{
+			Context:  ctx,
+			Root:     root,
+			DryRun:   e.options.DryRun,
+			Writer:   e.options.Writer,
+			Data:     e.options.Data,
+			Platform: e.options.Platform,
+		},
+		Thread: e.newThread(),
 	}
 	execCtx.RecoverySite = op.NewRecoverySite(*execCtx)
 

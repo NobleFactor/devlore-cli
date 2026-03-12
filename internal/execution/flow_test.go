@@ -76,7 +76,7 @@ func TestFlowChooseDoWhenTrue(t *testing.T) {
 		},
 	}
 
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	act := &flow.Choose{}
 
 	result, undo, err := act.Do(ctx, map[string]any{
@@ -104,7 +104,7 @@ func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
 		},
 	}
 
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	act := &flow.Choose{}
 
 	result, _, err := act.Do(ctx, map[string]any{
@@ -121,7 +121,7 @@ func TestFlowChooseDoWhenFalseWithElse(t *testing.T) {
 
 func TestFlowChooseDoWhenFalseNoElse(t *testing.T) {
 	graph := &op.Graph{}
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	action := &flow.Choose{}
 
 	result, _, err := action.Do(ctx, map[string]any{
@@ -153,7 +153,7 @@ func TestFlowChooseImplementsCompensableAction(t *testing.T) {
 }
 
 func TestFlowChooseDoNilGraph(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	act := &flow.Choose{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -172,7 +172,7 @@ func TestFlowChooseDoPhaseNotFound(t *testing.T) {
 	graph := &op.Graph{
 		Phases: []*op.Phase{},
 	}
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	act := &flow.Choose{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -203,7 +203,7 @@ func TestFlowChooseDoMultiNodePhase(t *testing.T) {
 		},
 	}
 
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	act := &flow.Choose{}
 
 	result, _, err := act.Do(ctx, map[string]any{
@@ -229,7 +229,7 @@ func TestFlowChooseDoErrorPropagation(t *testing.T) {
 		},
 	}
 
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	act := &flow.Choose{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -271,7 +271,7 @@ func TestFlowChooseDoErrorUnwindsCompletedNodes(t *testing.T) {
 		},
 	}
 
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	act := &flow.Choose{}
 
 	_, _, err := act.Do(ctx, map[string]any{
@@ -307,7 +307,7 @@ func TestFlowChooseUndoWithState(t *testing.T) {
 		},
 	}
 
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	act := &flow.Choose{}
 
 	_, undoState, err := act.Do(ctx, map[string]any{
@@ -350,9 +350,9 @@ func TestFlowGatherDo(t *testing.T) {
 	}
 
 	ctx := &op.Context{
-		Context: context.Background(),
-		Graph:   graph,
-		NodeID:  "gather-1",
+		ContextBase: op.ContextBase{Context: context.Background()},
+		Graph:       graph,
+		NodeID:      "gather-1",
 	}
 
 	action := &flow.Gather{}
@@ -382,7 +382,7 @@ func TestFlowGatherDo(t *testing.T) {
 }
 
 func TestFlowGatherDoEmpty(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.Gather{}
 
 	result, undo, err := action.Do(ctx, map[string]any{
@@ -415,9 +415,9 @@ func TestFlowGatherDoConcurrent(t *testing.T) {
 	}
 
 	ctx := &op.Context{
-		Context: context.Background(),
-		Graph:   graph,
-		NodeID:  "gather-concurrent",
+		ContextBase: op.ContextBase{Context: context.Background()},
+		Graph:       graph,
+		NodeID:      "gather-concurrent",
 	}
 
 	action := &flow.Gather{}
@@ -457,9 +457,9 @@ func TestFlowGatherDoProxySlots(t *testing.T) {
 	}
 
 	ctx := &op.Context{
-		Context: context.Background(),
-		Graph:   graph,
-		NodeID:  "gather-proxy",
+		ContextBase: op.ContextBase{Context: context.Background()},
+		Graph:       graph,
+		NodeID:      "gather-proxy",
 	}
 
 	action := &flow.Gather{}
@@ -502,7 +502,7 @@ func TestFlowGatherImplementsCompensableAction(t *testing.T) {
 }
 
 func TestFlowGatherDoMissingItemsSlot(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.Gather{}
 
 	_, _, err := action.Do(ctx, map[string]any{
@@ -517,7 +517,7 @@ func TestFlowGatherDoMissingItemsSlot(t *testing.T) {
 }
 
 func TestFlowGatherDoInvalidItemsType(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.Gather{}
 
 	_, _, err := action.Do(ctx, map[string]any{
@@ -533,7 +533,7 @@ func TestFlowGatherDoInvalidItemsType(t *testing.T) {
 }
 
 func TestFlowGatherDoMissingDoSlot(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.Gather{}
 
 	_, _, err := action.Do(ctx, map[string]any{
@@ -548,7 +548,7 @@ func TestFlowGatherDoMissingDoSlot(t *testing.T) {
 }
 
 func TestFlowGatherDoMissingGraph(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.Gather{}
 
 	_, _, err := action.Do(ctx, map[string]any{
@@ -565,7 +565,7 @@ func TestFlowGatherDoMissingGraph(t *testing.T) {
 
 func TestFlowGatherDoPhaseNotFound(t *testing.T) {
 	graph := &op.Graph{}
-	ctx := &op.Context{Context: context.Background(), Graph: graph}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}, Graph: graph}
 	action := &flow.Gather{}
 
 	_, _, err := action.Do(ctx, map[string]any{
@@ -592,9 +592,9 @@ func TestFlowGatherDoSequentialError(t *testing.T) {
 	}
 
 	ctx := &op.Context{
-		Context: context.Background(),
-		Graph:   graph,
-		NodeID:  "gather-seq-err",
+		ContextBase: op.ContextBase{Context: context.Background()},
+		Graph:       graph,
+		NodeID:      "gather-seq-err",
 	}
 
 	action := &flow.Gather{}
@@ -625,9 +625,9 @@ func TestFlowGatherDoConcurrentError(t *testing.T) {
 	}
 
 	ctx := &op.Context{
-		Context: context.Background(),
-		Graph:   graph,
-		NodeID:  "gather-concurrent-err",
+		ContextBase: op.ContextBase{Context: context.Background()},
+		Graph:       graph,
+		NodeID:      "gather-concurrent-err",
 	}
 
 	action := &flow.Gather{}
@@ -656,9 +656,9 @@ func TestFlowGatherUndoWithState(t *testing.T) {
 	}
 
 	ctx := &op.Context{
-		Context: context.Background(),
-		Graph:   graph,
-		NodeID:  "gather-undo",
+		ContextBase: op.ContextBase{Context: context.Background()},
+		Graph:       graph,
+		NodeID:      "gather-undo",
 	}
 
 	action := &flow.Gather{}
@@ -688,7 +688,7 @@ func TestFlowGatherUndoWithState(t *testing.T) {
 // --- Elevate tests ---
 
 func TestFlowElevateDo(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.Elevate{}
 
 	result, _, err := action.Do(ctx, nil)
@@ -710,7 +710,7 @@ func TestFlowElevateNotCompensableAction(t *testing.T) {
 // --- WaitUntil tests ---
 
 func TestFlowWaitUntilDoImmediate(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.WaitUntil{}
 
 	result, _, err := action.Do(ctx, map[string]any{
@@ -734,7 +734,7 @@ func TestFlowWaitUntilNotCompensableAction(t *testing.T) {
 }
 
 func TestFlowWaitUntilDoPolling(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.WaitUntil{}
 
 	calls := 0
@@ -761,7 +761,7 @@ func TestFlowWaitUntilDoPolling(t *testing.T) {
 }
 
 func TestFlowWaitUntilDoTimeout(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.WaitUntil{}
 
 	pred := flow.PredicateFunc(func(_ any) (bool, error) {
@@ -786,7 +786,7 @@ func TestFlowWaitUntilDoContextCancellation(t *testing.T) {
 	baseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 
-	ctx := &op.Context{Context: baseCtx}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: baseCtx}}
 	action := &flow.WaitUntil{}
 
 	pred := flow.PredicateFunc(func(_ any) (bool, error) {
@@ -808,7 +808,7 @@ func TestFlowWaitUntilDoContextCancellation(t *testing.T) {
 }
 
 func TestFlowWaitUntilDoMissingPredicate(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.WaitUntil{}
 
 	_, _, err := action.Do(ctx, map[string]any{
@@ -824,7 +824,7 @@ func TestFlowWaitUntilDoMissingPredicate(t *testing.T) {
 }
 
 func TestFlowWaitUntilDoMissingTimeout(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.WaitUntil{}
 
 	_, _, err := action.Do(ctx, map[string]any{
@@ -840,7 +840,7 @@ func TestFlowWaitUntilDoMissingTimeout(t *testing.T) {
 }
 
 func TestFlowWaitUntilDoInvalidTimeoutDuration(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.WaitUntil{}
 
 	_, _, err := action.Do(ctx, map[string]any{
@@ -857,7 +857,7 @@ func TestFlowWaitUntilDoInvalidTimeoutDuration(t *testing.T) {
 }
 
 func TestFlowWaitUntilDoPredicateError(t *testing.T) {
-	ctx := &op.Context{Context: context.Background()}
+	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	action := &flow.WaitUntil{}
 
 	predErr := errors.New("check failed")

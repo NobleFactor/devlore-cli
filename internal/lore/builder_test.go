@@ -201,7 +201,7 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 	tmpDir := t.TempDir()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer root.Close()
-	opCtx := op.Context{Root: root}
+	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	op.InitAll(reg, opCtx)
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, DryRun: true})
@@ -238,7 +238,7 @@ func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	tmpDir := t.TempDir()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer root.Close()
-	opCtx := op.Context{Root: root}
+	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	op.InitAll(reg, opCtx)
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, DryRun: true})
@@ -631,7 +631,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 	reg := op.NewActionRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer root.Close()
-	opCtx := op.Context{Root: root}
+	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	op.InitAll(reg, opCtx)
 
 	planner := &Planner{
@@ -668,7 +668,7 @@ func TestPlanner_PlanByName(t *testing.T) {
 	reg := op.NewActionRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer root.Close()
-	opCtx := op.Context{Root: root}
+	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	op.InitAll(reg, opCtx)
 
 	planner := &Planner{

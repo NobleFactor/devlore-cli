@@ -27,7 +27,7 @@ type triadEnv struct {
 
 func newTriad(t *testing.T, root op.Root, dir string) triadEnv {
 	t.Helper()
-	ctx := op.Context{Root: root}
+	ctx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	site := op.NewRecoverySite(ctx)
 	return triadEnv{Root: root, Site: site, Dir: dir}
 }

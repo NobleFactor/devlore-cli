@@ -14,7 +14,9 @@ import (
 func newTestProvider() *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(op.Context{
-			Writer: &bytes.Buffer{},
+			ContextBase: op.ContextBase{
+				Writer: &bytes.Buffer{},
+			},
 		}),
 	}
 }
