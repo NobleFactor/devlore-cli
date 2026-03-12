@@ -108,7 +108,7 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	reg := op.NewActionRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer root.Close()
-	opCtx := op.Context{Root: root}
+	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	opCtx.RecoverySite = op.NewRecoverySite(opCtx)
 	bs.RegisterActions(reg, opCtx)
 

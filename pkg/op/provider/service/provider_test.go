@@ -78,9 +78,11 @@ func (m *mockServiceManager) NeedsSudo() bool { return false }
 func newTestProvider(sm *mockServiceManager) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(op.Context{
-			Writer: io.Discard,
-			Platform: &op.Platform{
-				ServiceManager: sm,
+			ContextBase: op.ContextBase{
+				Writer: io.Discard,
+				Platform: &op.Platform{
+					ServiceManager: sm,
+				},
 			},
 		}),
 	}

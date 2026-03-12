@@ -228,9 +228,11 @@ func TestInitCallableSlots_ReplacesCallable(t *testing.T) {
 	methodType := reflect.TypeOf(fakeMethod(nil))
 
 	ctx := &Context{
-		Context: context.Background(),
-		Thread:  thread,
-		Writer:  &bytes.Buffer{},
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  &bytes.Buffer{},
+		},
+		Thread: thread,
 	}
 
 	slots := map[string]any{"fn": m}
@@ -262,9 +264,11 @@ func TestInitCallableSlots_ReplacesCallable(t *testing.T) {
 
 func TestInitCallableSlots_SkipsNonCallable(t *testing.T) {
 	ctx := &Context{
-		Context: context.Background(),
-		Thread:  &starlark.Thread{Name: "test"},
-		Writer:  &bytes.Buffer{},
+		ContextBase: ContextBase{
+			Context: context.Background(),
+			Writer:  &bytes.Buffer{},
+		},
+		Thread: &starlark.Thread{Name: "test"},
 	}
 
 	// String slot targeting a string param — should be untouched.

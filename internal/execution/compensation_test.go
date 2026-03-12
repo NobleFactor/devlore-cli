@@ -298,7 +298,7 @@ func TestCompensationPartialFailure(t *testing.T) {
 func TestCompensationGather(t *testing.T) {
 	tmpDir := t.TempDir()
 	root := op.NewRootReaderWriter(tmpDir)
-	provCtx := op.Context{Root: root}
+	provCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	provCtx.RecoverySite = op.NewRecoverySite(provCtx)
 	fp := &file.Provider{ProviderBase: op.NewProviderBase(provCtx)}
 
@@ -330,10 +330,12 @@ func TestCompensationGather(t *testing.T) {
 	}
 
 	ctx := &op.Context{
-		Context:      context.Background(),
-		Root:         root,
+		ContextBase: op.ContextBase{
+			Context: context.Background(),
+			Root:    root,
+			Writer:  io.Discard,
+		},
 		RecoverySite: provCtx.RecoverySite,
-		Writer:       io.Discard,
 		Graph:        g,
 		NodeID:       "gather",
 	}

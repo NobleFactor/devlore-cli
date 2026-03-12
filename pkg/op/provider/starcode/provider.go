@@ -145,7 +145,7 @@ func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) 
 	})
 
 	fp := &file.Provider{}
-	op.InitProvider(fp, op.Context{Root: op.NewRootReader(absRoot)})
+	op.InitProvider(fp, op.Context{ContextBase: op.ContextBase{Root: op.NewRootReader(absRoot)}})
 	_, _, err := fp.WalkTree(file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, honorGitignore)
 	if err != nil {
 		return nil, err

@@ -23,7 +23,7 @@ import (
 func testProvider(t *testing.T, dir string) *Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	ctx := op.Context{Root: root}
+	ctx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 

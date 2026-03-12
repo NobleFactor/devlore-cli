@@ -72,10 +72,12 @@ func newMockPackageManager() *mockPackageManager {
 func newTestProvider(packageManager *mockPackageManager) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(op.Context{
-			Writer: io.Discard,
-			Platform: &op.Platform{
-				PackageManager:  packageManager,
-				PackageManagers: map[string]op.PackageManager{packageManager.Name(): packageManager},
+			ContextBase: op.ContextBase{
+				Writer: io.Discard,
+				Platform: &op.Platform{
+					PackageManager:  packageManager,
+					PackageManagers: map[string]op.PackageManager{packageManager.Name(): packageManager},
+				},
 			},
 		}),
 	}
