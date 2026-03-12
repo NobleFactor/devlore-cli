@@ -14,55 +14,55 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Test provider types implementing the new Provider / PlannedProvider /
+// Test provider types implementing the Provider / PlannedProvider /
 // ImmediateProvider interfaces used by the announce-and-callback model.
 // ---------------------------------------------------------------------------
 
-// bsTestActionProvider registers a single test action.
-type bsTestActionProvider struct {
+// rtTestActionProvider registers a single test action.
+type rtTestActionProvider struct {
 	actionName string
 }
 
-func (p *bsTestActionProvider) Name() string { return "_test_actions" }
-func (p *bsTestActionProvider) Register(reg *op.ActionRegistry, _ op.Context) {
+func (p *rtTestActionProvider) Name() string { return "_test_actions" }
+func (p *rtTestActionProvider) Register(reg *op.ActionRegistry, _ op.Context) {
 	reg.Register(testAction{name: p.actionName})
 }
 
-// bsTestAllActsProvider registers a single test action (for the "always registers all" test).
-type bsTestAllActsProvider struct{}
+// rtTestAllActsProvider registers a single test action (for the "always registers all" test).
+type rtTestAllActsProvider struct{}
 
-func (p *bsTestAllActsProvider) Name() string { return "_test_all_acts" }
-func (p *bsTestAllActsProvider) Register(reg *op.ActionRegistry, _ op.Context) {
+func (p *rtTestAllActsProvider) Name() string { return "_test_all_acts" }
+func (p *rtTestAllActsProvider) Register(reg *op.ActionRegistry, _ op.Context) {
 	reg.Register(testAction{name: "_test_all_acts.do"})
 }
 
-// bsTestPlannedProvider implements PlannedProvider.
-type bsTestPlannedProvider struct{ name string }
+// rtTestPlannedProvider implements PlannedProvider.
+type rtTestPlannedProvider struct{ name string }
 
-func (p *bsTestPlannedProvider) Name() string                                { return p.name }
-func (p *bsTestPlannedProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
-func (p *bsTestPlannedProvider) NewPlanned(_ *op.Graph, _ string, _ *op.ActionRegistry) starlark.Value {
+func (p *rtTestPlannedProvider) Name() string                                { return p.name }
+func (p *rtTestPlannedProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (p *rtTestPlannedProvider) NewPlanned(_ *op.Graph, _ string, _ *op.ActionRegistry) starlark.Value {
 	return starlark.String("test-plan-value")
 }
 
-// bsTestImmediateProvider implements ImmediateProvider.
-type bsTestImmediateProvider struct{ name string }
+// rtTestImmediateProvider implements ImmediateProvider.
+type rtTestImmediateProvider struct{ name string }
 
-func (p *bsTestImmediateProvider) Name() string                                { return p.name }
-func (p *bsTestImmediateProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
-func (p *bsTestImmediateProvider) NewImmediate(_ op.BindingConfig) starlark.Value {
+func (p *rtTestImmediateProvider) Name() string                                { return p.name }
+func (p *rtTestImmediateProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (p *rtTestImmediateProvider) NewImmediate(_ op.BindingConfig) starlark.Value {
 	return starlark.String("test-imm-value")
 }
 
-// bsTestCountingImmProvider implements ImmediateProvider and counts calls.
-type bsTestCountingImmProvider struct {
+// rtTestCountingImmProvider implements ImmediateProvider and counts calls.
+type rtTestCountingImmProvider struct {
 	name      string
 	callCount *int
 }
 
-func (p *bsTestCountingImmProvider) Name() string                                { return p.name }
-func (p *bsTestCountingImmProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
-func (p *bsTestCountingImmProvider) NewImmediate(_ op.BindingConfig) starlark.Value {
+func (p *rtTestCountingImmProvider) Name() string                                { return p.name }
+func (p *rtTestCountingImmProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (p *rtTestCountingImmProvider) NewImmediate(_ op.BindingConfig) starlark.Value {
 	*p.callCount++
 	return starlark.String("cached-value")
 }
@@ -71,46 +71,46 @@ func (p *bsTestCountingImmProvider) NewImmediate(_ op.BindingConfig) starlark.Va
 // Tests
 // ---------------------------------------------------------------------------
 
-func TestBindingSetRegisterActions(t *testing.T) {
-	op.Announce(&bsTestActionProvider{actionName: "_test_actions.do"})
+func TestRuntimeRegisterActions(t *testing.T) {
+	op.Announce(&rtTestActionProvider{actionName: "_test_actions.do"})
 
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
 	})
 
 	reg := op.NewActionRegistry()
-	bs.RegisterActions(reg, op.Context{})
+	rt.RegisterActions(reg, op.Context{})
 
 	if _, ok := reg.Get("_test_actions.do"); !ok {
 		t.Error("expected _test_actions.do action to be registered")
 	}
 }
 
-func TestBindingSetRegisterActionsAlwaysRegistersAll(t *testing.T) {
-	op.Announce(&bsTestAllActsProvider{})
+func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
+	op.Announce(&rtTestAllActsProvider{})
 
 	// No Receivers — but actions should still be registered.
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
 	})
 
 	reg := op.NewActionRegistry()
-	bs.RegisterActions(reg, op.Context{})
+	rt.RegisterActions(reg, op.Context{})
 
 	if _, ok := reg.Get("_test_all_acts.do"); !ok {
 		t.Error("expected _test_all_acts.do to be registered even without With()")
 	}
 }
 
-func TestBindingSetBuildGlobalsWithPlanAndImmediate(t *testing.T) {
-	op.Announce(&bsTestPlannedProvider{name: "_test_plan2"})
-	op.Announce(&bsTestImmediateProvider{name: "_test_imm2"})
+func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
+	op.Announce(&rtTestPlannedProvider{name: "_test_plan2"})
+	op.Announce(&rtTestImmediateProvider{name: "_test_imm2"})
 
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -119,14 +119,14 @@ func TestBindingSetBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
-	globals := bs.BuildGlobals(graph, "test-project", reg)
+	globals := rt.BuildGlobals(graph, "test-project", reg)
 
-	// "plan" should be present (requested via With).
+	// "plan" should be present (requested via Receivers).
 	if _, ok := globals["plan"]; !ok {
 		t.Error("expected 'plan' in globals")
 	}
 
-	// "_test_imm2" should be present (requested via With).
+	// "_test_imm2" should be present (requested via Receivers).
 	if _, ok := globals["_test_imm2"]; !ok {
 		t.Error("expected '_test_imm2' in globals")
 	}
@@ -145,11 +145,11 @@ func TestBindingSetBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	}
 }
 
-func TestBindingSetBuildGlobalsOnlyIncludesWithProviders(t *testing.T) {
-	op.Announce(&bsTestImmediateProvider{name: "_test_not_included"})
+func TestRuntimeBuildGlobalsOnlyIncludesReceivers(t *testing.T) {
+	op.Announce(&rtTestImmediateProvider{name: "_test_not_included"})
 
 	// Don't include "_test_not_included" in Receivers.
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -158,22 +158,22 @@ func TestBindingSetBuildGlobalsOnlyIncludesWithProviders(t *testing.T) {
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
-	globals := bs.BuildGlobals(graph, "test-project", reg)
+	globals := rt.BuildGlobals(graph, "test-project", reg)
 
 	if _, ok := globals["_test_not_included"]; ok {
-		t.Error("expected '_test_not_included' to NOT be in globals (not in With())")
+		t.Error("expected '_test_not_included' to NOT be in globals (not in Receivers)")
 	}
 
-	// plan should also not be present (not in With).
+	// plan should also not be present (not in Receivers).
 	if _, ok := globals["plan"]; ok {
-		t.Error("expected 'plan' to NOT be in globals (not in With())")
+		t.Error("expected 'plan' to NOT be in globals (not in Receivers)")
 	}
 }
 
-func TestBindingSetConfigureThreadEnablesLoad(t *testing.T) {
-	op.Announce(&bsTestImmediateProvider{name: "_test_loadable"})
+func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
+	op.Announce(&rtTestImmediateProvider{name: "_test_loadable"})
 
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -182,7 +182,7 @@ func TestBindingSetConfigureThreadEnablesLoad(t *testing.T) {
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
 	thread := &starlark.Thread{Name: "test"}
-	bs.ConfigureThread(thread, graph, "test-project", reg)
+	rt.ConfigureThread(thread, graph, "test-project", reg)
 
 	// thread.Load should now work for @devlore// modules.
 	if thread.Load == nil {
@@ -202,8 +202,8 @@ func TestBindingSetConfigureThreadEnablesLoad(t *testing.T) {
 	}
 }
 
-func TestBindingSetLoaderRejectsUnknownPrefix(t *testing.T) {
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -212,7 +212,7 @@ func TestBindingSetLoaderRejectsUnknownPrefix(t *testing.T) {
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
 	thread := &starlark.Thread{Name: "test"}
-	bs.ConfigureThread(thread, graph, "test-project", reg)
+	rt.ConfigureThread(thread, graph, "test-project", reg)
 
 	_, err := thread.Load(thread, "unknown_module")
 	if err == nil {
@@ -220,8 +220,8 @@ func TestBindingSetLoaderRejectsUnknownPrefix(t *testing.T) {
 	}
 }
 
-func TestBindingSetLoaderRejectsUnknownProvider(t *testing.T) {
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+func TestRuntimeLoaderRejectsUnknownProvider(t *testing.T) {
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -230,7 +230,7 @@ func TestBindingSetLoaderRejectsUnknownProvider(t *testing.T) {
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
 	thread := &starlark.Thread{Name: "test"}
-	bs.ConfigureThread(thread, graph, "test-project", reg)
+	rt.ConfigureThread(thread, graph, "test-project", reg)
 
 	_, err := thread.Load(thread, "@devlore//nonexistent_provider")
 	if err == nil {
@@ -238,11 +238,11 @@ func TestBindingSetLoaderRejectsUnknownProvider(t *testing.T) {
 	}
 }
 
-func TestBindingSetLoaderCachesResults(t *testing.T) {
+func TestRuntimeLoaderCachesResults(t *testing.T) {
 	callCount := 0
-	op.Announce(&bsTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
+	op.Announce(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
 
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -251,7 +251,7 @@ func TestBindingSetLoaderCachesResults(t *testing.T) {
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
 	thread := &starlark.Thread{Name: "test"}
-	bs.ConfigureThread(thread, graph, "test-project", reg)
+	rt.ConfigureThread(thread, graph, "test-project", reg)
 
 	// Load the same module twice.
 	_, _ = thread.Load(thread, "@devlore//_test_cached")
@@ -262,10 +262,10 @@ func TestBindingSetLoaderCachesResults(t *testing.T) {
 	}
 }
 
-func TestBindingSetLoaderLoadsPlan(t *testing.T) {
-	op.Announce(&bsTestPlannedProvider{name: "_test_plan_load"})
+func TestRuntimeLoaderLoadsPlan(t *testing.T) {
+	op.Announce(&rtTestPlannedProvider{name: "_test_plan_load"})
 
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -274,7 +274,7 @@ func TestBindingSetLoaderLoadsPlan(t *testing.T) {
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
 	thread := &starlark.Thread{Name: "test"}
-	bs.ConfigureThread(thread, graph, "test-project", reg)
+	rt.ConfigureThread(thread, graph, "test-project", reg)
 
 	globals, err := thread.Load(thread, "@devlore//plan")
 	if err != nil {

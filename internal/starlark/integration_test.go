@@ -29,7 +29,7 @@ import (
 func TestLoadIntegration(t *testing.T) {
 	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/172")
 
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -38,7 +38,7 @@ func TestLoadIntegration(t *testing.T) {
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
-	globals := bs.BuildGlobals(graph, "test-project", reg)
+	globals := rt.BuildGlobals(graph, "test-project", reg)
 
 	thread := &starlark.Thread{
 		Name: "load-integration-test",
@@ -46,7 +46,7 @@ func TestLoadIntegration(t *testing.T) {
 			t.Logf("[star] %s", msg)
 		},
 	}
-	bs.ConfigureThread(thread, graph, "test-project", reg)
+	rt.ConfigureThread(thread, graph, "test-project", reg)
 
 	scriptPath := filepath.Join("testdata", "load_test.star")
 	data, err := os.ReadFile(scriptPath)
@@ -74,7 +74,7 @@ func TestLoadIntegration(t *testing.T) {
 
 // TestLoadIntegrationUnknownModule verifies that loading an unknown module produces a clear error.
 func TestLoadIntegrationUnknownModule(t *testing.T) {
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -89,7 +89,7 @@ func TestLoadIntegrationUnknownModule(t *testing.T) {
 			t.Logf("[star] %s", msg)
 		},
 	}
-	bs.ConfigureThread(thread, graph, "test-project", reg)
+	rt.ConfigureThread(thread, graph, "test-project", reg)
 
 	script := `load("@devlore//nonexistent_provider", "nonexistent_provider")`
 
@@ -106,7 +106,7 @@ func TestLoadIntegrationUnknownModule(t *testing.T) {
 
 // TestLoadIntegrationBadPrefix verifies that a non-@devlore// load fails.
 func TestLoadIntegrationBadPrefix(t *testing.T) {
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      &bytes.Buffer{},
 		ProgramName: "test",
 		Color:       false,
@@ -121,7 +121,7 @@ func TestLoadIntegrationBadPrefix(t *testing.T) {
 			t.Logf("[star] %s", msg)
 		},
 	}
-	bs.ConfigureThread(thread, graph, "test-project", reg)
+	rt.ConfigureThread(thread, graph, "test-project", reg)
 
 	script := `load("@stdlib//json", "json")`
 

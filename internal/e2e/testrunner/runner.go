@@ -97,8 +97,8 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// 2. Create BindingSet with requested receivers
-	bs := loreStar.NewBindingSet(op.BindingConfig{
+	// 2. Create Runtime with requested receivers
+	bs := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      r.writer,
 		ProgramName: "devlore-test",
 		Receivers:   r.receivers,

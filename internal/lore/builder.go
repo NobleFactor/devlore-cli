@@ -348,7 +348,7 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, ac
 }
 
 // prepareScriptEnv creates the Starlark thread and globals needed to execute a phase script.
-// plan and ui are injected as globals via BindingSet.
+// plan and ui are injected as globals via Runtime.
 func prepareScriptEnv(
 	graph *op.Graph,
 	pkg *lorepackage.Release,
@@ -361,14 +361,14 @@ func prepareScriptEnv(
 	*loreStar.PackageContext,
 	error, //nolint:unparam // error return reserved for future use
 ) {
-	bindingSet := loreStar.NewBindingSet(op.BindingConfig{
+	rt := loreStar.NewRuntime(op.BindingConfig{
 		Writer:      os.Stdout,
 		ProgramName: "lore",
 		Color:       true,
 		Receivers:   []string{"ui", "plan"},
 	})
 
-	globals := bindingSet.BuildGlobals(graph, pkg.Name, reg)
+	globals := rt.BuildGlobals(graph, pkg.Name, reg)
 
 	lifecycle := pkg.Lifecycle()
 	features := lifecycle.EnabledFeatures(cfg.Features)
@@ -391,7 +391,7 @@ func prepareScriptEnv(
 		},
 	}
 
-	bindingSet.ConfigureThread(thread, graph, pkg.Name, reg)
+	rt.ConfigureThread(thread, graph, pkg.Name, reg)
 	return thread, globals, pkgContext, nil
 }
 

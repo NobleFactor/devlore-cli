@@ -32,6 +32,7 @@ const (
 // Provider provides terminal status messaging.
 //
 // +devlore:access=immediate
+// +devlore:bind Writer=Writer, ProgramName=ProgramName, Color=Color
 type Provider struct {
 	op.ProviderBase
 	// Writer is the output destination. Defaults to os.Stderr.
