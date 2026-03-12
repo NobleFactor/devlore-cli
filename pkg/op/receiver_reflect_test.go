@@ -345,7 +345,7 @@ func TestCall_CompensableReturn(t *testing.T) {
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	result := callMethod(t, r, "write", starlark.String("/tmp/f"), starlark.String("data"))
 
-	// Compensable methods return (T, map, error). Bridge returns marshal(T),
+	// Compensable methods return (T, map, error). Bridge returns Marshal(T),
 	// discarding the compensation state.
 	s, ok := starlark.AsString(result)
 	if !ok || s != "/tmp/f" {

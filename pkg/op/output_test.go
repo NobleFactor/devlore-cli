@@ -644,7 +644,7 @@ func TestFillSlotImplicitEdge_ResourceWithOrigin(t *testing.T) {
 		t.Fatalf("Shadow error: %v", err)
 	}
 
-	val, err := marshal(res)
+	val, err := Marshal(res)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
@@ -671,7 +671,7 @@ func TestFillSlotImplicitEdge_ResourceWithoutOrigin(t *testing.T) {
 	// Resolve creates a discovery entry with no origin.
 	g.Catalog.Resolve("file:///bar")
 
-	val, err := marshal(res)
+	val, err := Marshal(res)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
@@ -696,7 +696,7 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 		t.Fatalf("Shadow error: %v", err)
 	}
 
-	val, err := marshal(res)
+	val, err := Marshal(res)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}

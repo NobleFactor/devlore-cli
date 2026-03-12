@@ -36,26 +36,50 @@ type Result struct {
 type Option func(*Runner)
 
 // WithDryRun enables dry-run mode (plan only, no side effects).
+//
+// Returns:
+//   - Option: a runner option that sets dry-run mode.
 func WithDryRun() Option {
 	return func(r *Runner) { r.dryRun = true }
 }
 
 // WithTrace enables Starlark step-by-step trace logging.
+//
+// Returns:
+//   - Option: a runner option that enables tracing.
 func WithTrace() Option {
 	return func(r *Runner) { r.trace = true }
 }
 
 // WithProvider restricts execution to a specific provider.
+//
+// Parameters:
+//   - name: the provider name to restrict to.
+//
+// Returns:
+//   - Option: a runner option that sets the provider filter.
 func WithProvider(name string) Option {
 	return func(r *Runner) { r.provider = name }
 }
 
 // WithWriter sets the output writer for executor messages.
+//
+// Parameters:
+//   - w: the output writer.
+//
+// Returns:
+//   - Option: a runner option that sets the writer.
 func WithWriter(w io.Writer) Option {
 	return func(r *Runner) { r.writer = w }
 }
 
 // WithReceivers sets the Starlark namespaces to expose as globals.
+//
+// Parameters:
+//   - names: the receiver names to expose.
+//
+// Returns:
+//   - Option: a runner option that sets the receiver list.
 func WithReceivers(names ...string) Option {
 	return func(r *Runner) { r.receivers = names }
 }
@@ -72,11 +96,21 @@ type Runner struct {
 }
 
 // Graph returns the execution graph after Start completes. Returns nil before Start is called.
+//
+// Returns:
+//   - *op.Graph: the execution graph, or nil if Start has not been called.
 func (r *Runner) Graph() *op.Graph {
 	return r.graph
 }
 
 // New creates a Runner for the given script path.
+//
+// Parameters:
+//   - script: the path to the .star test script.
+//   - opts: functional options to configure the runner.
+//
+// Returns:
+//   - *Runner: the configured test runner.
 func New(script string, opts ...Option) *Runner {
 	r := &Runner{
 		script: script,
@@ -89,6 +123,13 @@ func New(script string, opts ...Option) *Runner {
 }
 
 // Start executes the test script and returns structured results.
+//
+// Parameters:
+//   - ctx: the execution context (used for cancellation).
+//
+// Returns:
+//   - *Result: the test outcome with pass/fail status and failures.
+//   - error: non-nil if script loading or graph execution fails unexpectedly.
 func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	// 1. Create temp directory
 	tmpDir, err := os.MkdirTemp("", "devlore-test-*")
@@ -214,6 +255,15 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 }
 
 // buildResult evaluates expectations and constructs the Result.
+//
+// Parameters:
+//   - graph: the executed graph.
+//   - tc: the test context with expectations.
+//   - tracer: the trace collector.
+//   - execErr: the execution error (nil on success).
+//
+// Returns:
+//   - *Result: the structured test result.
 func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, execErr error) *Result {
 	failures := tc.Check(graph, execErr)
 	if failures == nil {
@@ -244,6 +294,12 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 }
 
 // hasErrorExpectation returns true if any expectation is of kind "error".
+//
+// Parameters:
+//   - tc: the test context to check.
+//
+// Returns:
+//   - bool: true if at least one expectation has kind "error".
 func hasErrorExpectation(tc *TestContext) bool {
 	for _, exp := range tc.Expectations() {
 		if exp.Kind == "error" {

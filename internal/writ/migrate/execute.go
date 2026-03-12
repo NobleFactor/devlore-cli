@@ -31,6 +31,13 @@ type Rename struct {
 
 // Execute performs the directory renames specified in the execution graph.
 // It writes progress to stderr using standard cli output functions.
+//
+// Parameters:
+//   - graph: the execution graph containing rename nodes.
+//   - analysis: the migration analysis with source root and system info.
+//
+// Returns:
+//   - error: non-nil if any rename fails or a target directory already exists.
 func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	// Find rename nodes in the graph
 	var renameNodes []*op.Node
@@ -93,6 +100,14 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 }
 
 // WriteMigratedMarker writes the .writ-migrated marker file.
+//
+// Parameters:
+//   - sourceRoot: the root directory where the marker file is written.
+//   - graph: the execution graph containing completed rename nodes.
+//   - analysis: the migration analysis with system metadata.
+//
+// Returns:
+//   - error: non-nil if marshaling or writing the marker fails.
 func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *MigrationAnalysis) error {
 	var renames []Rename
 	for _, node := range graph.Nodes {
@@ -119,6 +134,13 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 	return nil
 }
 
+// joinWords concatenates words with spaces.
+//
+// Parameters:
+//   - words: the strings to join.
+//
+// Returns:
+//   - string: the space-separated result.
 func joinWords(words []string) string {
 	result := ""
 	for i, w := range words {

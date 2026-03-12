@@ -35,6 +35,9 @@ const (
 )
 
 // String returns a human-readable status label.
+//
+// Returns:
+//   - string: the status name.
 func (s ResultStatus) String() string {
 	switch s {
 	case ResultPending:
@@ -107,6 +110,12 @@ type GraphExecutor struct {
 }
 
 // NewGraphExecutor creates an executor with the given options.
+//
+// Parameters:
+//   - opts: the executor configuration.
+//
+// Returns:
+//   - *GraphExecutor: the configured executor.
 func NewGraphExecutor(opts ExecutorOptions) *GraphExecutor {
 	if opts.Writer == nil {
 		opts.Writer = os.Stdout
@@ -122,6 +131,13 @@ func NewGraphExecutor(opts ExecutorOptions) *GraphExecutor {
 // newContext creates an execution Context from the executor's options.
 // Root is mandatory — an op.Root is opened for OS-enforced confinement
 // and a RecoverySite is created. The caller must defer Root.Close().
+//
+// Parameters:
+//   - ctx: the parent context for cancellation.
+//
+// Returns:
+//   - *op.Context: the execution context.
+//   - error: non-nil if Root is empty or the confined root cannot be opened.
 func (e *GraphExecutor) newContext(ctx context.Context) (*op.Context, error) {
 
 	if e.options.Root == "" {
@@ -151,6 +167,9 @@ func (e *GraphExecutor) newContext(ctx context.Context) (*op.Context, error) {
 
 // newThread creates a Starlark thread for callable initialization during
 // execution. Print output goes to the executor's writer.
+//
+// Returns:
+//   - *starlark.Thread: the configured thread.
 func (e *GraphExecutor) newThread() *starlark.Thread {
 	return &starlark.Thread{
 		Name: "executor",
@@ -161,6 +180,9 @@ func (e *GraphExecutor) newThread() *starlark.Thread {
 }
 
 // SetHooks sets the lifecycle hook registry for this executor.
+//
+// Parameters:
+//   - hooks: the hook registry to install.
 func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
 }
@@ -169,6 +191,13 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 // When the graph has phases, execution is delegated to RunPhased which
 // implements the saga pattern with retry and rollback. Otherwise, nodes
 // are processed in topological order (flat execution).
+//
+// Parameters:
+//   - ctx: the execution context for cancellation.
+//   - g: the execution graph to run.
+//
+// Returns:
+//   - error: non-nil if any node or phase fails.
 func (e *GraphExecutor) Run(ctx context.Context, g *op.Graph) error {
 	if g.State != op.StatePending {
 		return fmt.Errorf("graph already executed (state: %s)", g.State)
@@ -182,6 +211,13 @@ func (e *GraphExecutor) Run(ctx context.Context, g *op.Graph) error {
 }
 
 // runFlat executes all nodes in topological order without phase boundaries.
+//
+// Parameters:
+//   - ctx: the execution context for cancellation.
+//   - g: the execution graph.
+//
+// Returns:
+//   - error: non-nil if any node fails (when ConflictResolution is Stop).
 func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 	ordered := OrderNodes(g.Nodes, g.Edges)
 
@@ -235,6 +271,13 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 //
 // Phases referenced as compensating actions (via Compensate fields) are
 // skipped during the forward pass — they execute only during rollback.
+//
+// Parameters:
+//   - ctx: the execution context for cancellation.
+//   - g: the execution graph with phases.
+//
+// Returns:
+//   - error: non-nil if any phase fails (includes rollback errors).
 func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
 	execCtx, err := e.newContext(ctx)
 	if err != nil {
@@ -366,6 +409,16 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 }
 
 // executePhase runs a single phase with retry logic.
+//
+// Parameters:
+//   - ctx: the execution context.
+//   - g: the execution graph.
+//   - phase: the phase to execute.
+//   - results: the accumulated node results for promise resolution.
+//   - stack: the recovery stack for compensation.
+//
+// Returns:
+//   - error: non-nil if the phase fails after all retry attempts.
 func (e *GraphExecutor) executePhase(ctx *op.Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *op.RecoveryStack) error {
 	maxAttempts := 1
 	if phase.Retry != nil {
@@ -415,6 +468,10 @@ func (e *GraphExecutor) executePhase(ctx *op.Context, g *op.Graph, phase *op.Pha
 }
 
 // resetPhaseNodes resets inner node statuses back to pending for retry.
+//
+// Parameters:
+//   - g: the execution graph.
+//   - phase: the phase whose nodes should be reset.
 func (e *GraphExecutor) resetPhaseNodes(g *op.Graph, phase *op.Phase) {
 	nodeSet := make(map[string]bool, len(phase.NodeIDs))
 	for _, id := range phase.NodeIDs {
@@ -430,6 +487,16 @@ func (e *GraphExecutor) resetPhaseNodes(g *op.Graph, phase *op.Phase) {
 }
 
 // ExecutePhaseInner runs the inner nodes of a phase.
+//
+// Parameters:
+//   - ctx: the execution context.
+//   - g: the execution graph.
+//   - phase: the phase to execute.
+//   - results: the accumulated node results for promise resolution.
+//   - stack: the recovery stack for compensation.
+//
+// Returns:
+//   - error: non-nil if any inner node fails.
 func (e *GraphExecutor) ExecutePhaseInner(ctx *op.Context, g *op.Graph, phase *op.Phase, results map[string]any, stack *op.RecoveryStack) error {
 	phaseNodes, phaseEdges := g.CollectPhaseNodes(phase)
 	ordered := OrderNodes(phaseNodes, phaseEdges)
@@ -450,6 +517,15 @@ func (e *GraphExecutor) ExecutePhaseInner(ctx *op.Context, g *op.Graph, phase *o
 
 // RunNodes executes a slice of nodes with the given edges.
 // This is a lower-level API for callers that don't have a full Graph.
+//
+// Parameters:
+//   - ctx: the execution context for cancellation.
+//   - nodes: the nodes to execute.
+//   - edges: the ordering edges between nodes.
+//
+// Returns:
+//   - []*NodeResult: the per-node execution results.
+//   - error: non-nil if context creation or a node fails (when ConflictResolution is Stop).
 func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []op.Edge) ([]*NodeResult, error) {
 	ordered := OrderNodes(nodes, edges)
 
@@ -493,6 +569,15 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 }
 
 // executeNode resolves slots, calls Do, stores the result, and pushes a recovery entry.
+//
+// Parameters:
+//   - ctx: the execution context.
+//   - node: the node to execute.
+//   - results: the accumulated results for promise resolution.
+//   - stack: the recovery stack for compensation.
+//
+// Returns:
+//   - *NodeResult: the execution outcome.
 func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[string]any, stack *op.RecoveryStack) *NodeResult {
 	if node.Action == nil {
 		node.Status = op.StatusFailed
@@ -545,6 +630,10 @@ func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[
 
 // FillSlotsFromData fills unfilled slots from Context.Data.
 // Slots already set by the caller or resolved from promises are not overwritten.
+//
+// Parameters:
+//   - slots: the slot map to fill (mutated in place).
+//   - data: the data map to fill from.
 func FillSlotsFromData(slots, data map[string]any) {
 	for key, value := range data {
 		if _, exists := slots[key]; !exists {
@@ -555,6 +644,13 @@ func FillSlotsFromData(slots, data map[string]any) {
 
 // OrderNodes returns nodes in execution order.
 // Nodes with edges are topologically sorted; nodes without edges are sorted by path depth.
+//
+// Parameters:
+//   - nodes: the nodes to order.
+//   - edges: the ordering constraints.
+//
+// Returns:
+//   - []*op.Node: the ordered nodes.
 func OrderNodes(nodes []*op.Node, edges []op.Edge) []*op.Node {
 	if len(edges) > 0 {
 		return topologicalSortNodes(nodes, edges)
@@ -563,6 +659,13 @@ func OrderNodes(nodes []*op.Node, edges []op.Edge) []*op.Node {
 }
 
 // topologicalSortNodes orders nodes respecting edge constraints (Kahn's algorithm).
+//
+// Parameters:
+//   - nodes: the nodes to sort.
+//   - edges: the directed edges expressing ordering constraints.
+//
+// Returns:
+//   - []*op.Node: the topologically sorted nodes (cycles broken by appending unsorted nodes).
 func topologicalSortNodes(nodes []*op.Node, edges []op.Edge) []*op.Node { //nolint:gocognit // complexity is inherent to the algorithm
 	nodeMap := make(map[string]*op.Node)
 	inDegree := make(map[string]int)
@@ -621,6 +724,12 @@ func topologicalSortNodes(nodes []*op.Node, edges []op.Edge) []*op.Node { //noli
 }
 
 // sortNodesByDepth sorts nodes by target path depth.
+//
+// Parameters:
+//   - nodes: the nodes to sort.
+//
+// Returns:
+//   - []*op.Node: the nodes sorted by ascending path depth.
 func sortNodesByDepth(nodes []*op.Node) []*op.Node {
 	sorted := make([]*op.Node, len(nodes))
 	copy(sorted, nodes)
@@ -641,6 +750,12 @@ func sortNodesByDepth(nodes []*op.Node) []*op.Node {
 }
 
 // pathDepth returns the directory depth of a path.
+//
+// Parameters:
+//   - path: the file path to measure.
+//
+// Returns:
+//   - int: the number of path separators (0 for empty paths).
 func pathDepth(path string) int {
 	if path == "" {
 		return 0
@@ -651,6 +766,13 @@ func pathDepth(path string) int {
 // hydrateProviders creates a fresh ActionRegistry with per-graph provider instances.
 // Stub actions (from deserialized graphs) are replaced with real actions.
 // Non-stub actions (from planning) get their provider's context updated.
+//
+// Parameters:
+//   - g: the execution graph.
+//   - ctx: the execution context for provider initialization.
+//
+// Returns:
+//   - error: non-nil if a stub action references an unknown action name.
 func (e *GraphExecutor) hydrateProviders(g *op.Graph, ctx op.Context) error {
 	freshReg := op.NewActionRegistry()
 	op.InitAll(freshReg, ctx)
@@ -674,6 +796,10 @@ func (e *GraphExecutor) hydrateProviders(g *op.Graph, ctx op.Context) error {
 }
 
 // ApplyResults updates node states from execution results.
+//
+// Parameters:
+//   - g: the execution graph whose nodes are updated.
+//   - results: the per-node execution results.
 func ApplyResults(g *op.Graph, results []*NodeResult) {
 	resultMap := make(map[string]*NodeResult)
 	for _, r := range results {

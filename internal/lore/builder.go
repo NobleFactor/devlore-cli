@@ -79,6 +79,14 @@ type Planner struct {
 
 // PlanPackages parses a packages-manifest file and adds installation nodes
 // to the graph. Returns the resolved package names.
+//
+// Parameters:
+//   - graph: the execution graph to populate.
+//   - manifestPath: the path to the packages-manifest file.
+//
+// Returns:
+//   - []string: the resolved package names.
+//   - error: non-nil if manifest parsing or package resolution fails.
 func (p *Planner) PlanPackages(graph *op.Graph, manifestPath string) ([]string, error) {
 	m, err := manifest.Load(manifestPath)
 	if err != nil {
@@ -116,6 +124,14 @@ func (p *Planner) PlanPackages(graph *op.Graph, manifestPath string) ([]string, 
 
 // PlanByName resolves explicit package names and adds installation nodes
 // to the graph. Returns the resolved package names.
+//
+// Parameters:
+//   - graph: the execution graph to populate.
+//   - packages: the package names to resolve and plan.
+//
+// Returns:
+//   - []string: the resolved package names.
+//   - error: non-nil if any package resolution or node building fails.
 func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, error) {
 	targetPlatform, reg, regClient, err := p.resolve()
 	if err != nil {
@@ -147,6 +163,12 @@ func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, erro
 
 // resolve returns the resolved platform, action registry, and registry client,
 // auto-creating any that are nil on the Planner.
+//
+// Returns:
+//   - resolvedPlatform: the target platform string.
+//   - resolvedReg: the action registry (created if nil on Planner).
+//   - resolvedRegistry: the package registry client (created if nil on Planner).
+//   - err: non-nil if creating the registry client fails.
 func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegistry, resolvedRegistry *lorepackage.Registry, err error) {
 	targetPlatform := p.Platform
 	if targetPlatform == "" {
@@ -172,6 +194,13 @@ func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegi
 }
 
 // Build creates an execution graph from the given configuration.
+//
+// Parameters:
+//   - cfg: the build configuration (manifest path or package list, platform, options).
+//
+// Returns:
+//   - *BuildResult: the execution graph and metadata.
+//   - error: non-nil if configuration is invalid or graph building fails.
 func Build(cfg BuildConfig) (*BuildResult, error) {
 	// Validate configuration
 	if cfg.ManifestPath != "" && len(cfg.Packages) > 0 {
@@ -224,6 +253,14 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 }
 
 // BuildFromManifest creates an execution graph from a packages-manifest.yaml file.
+//
+// Parameters:
+//   - manifestPath: the path to the packages-manifest file.
+//   - targetPlatform: the platform string (empty for auto-detect).
+//
+// Returns:
+//   - *BuildResult: the execution graph and metadata.
+//   - error: non-nil if graph building fails.
 func BuildFromManifest(manifestPath, targetPlatform string) (*BuildResult, error) {
 	return Build(BuildConfig{
 		ManifestPath: manifestPath,
@@ -232,6 +269,14 @@ func BuildFromManifest(manifestPath, targetPlatform string) (*BuildResult, error
 }
 
 // BuildFromPackages creates an execution graph from a list of package names.
+//
+// Parameters:
+//   - packages: the package names to resolve and install.
+//   - targetPlatform: the platform string (empty for auto-detect).
+//
+// Returns:
+//   - *BuildResult: the execution graph and metadata.
+//   - error: non-nil if graph building fails.
 func BuildFromPackages(packages []string, targetPlatform string) (*BuildResult, error) {
 	return Build(BuildConfig{
 		Packages: packages,
@@ -242,6 +287,16 @@ func BuildFromPackages(packages []string, targetPlatform string) (*BuildResult, 
 // buildPackageNodes adds execution nodes and phases for a package to the graph.
 // Each lifecycle phase becomes a Phase entry in the graph.
 // Compensation is handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
+//
+// Parameters:
+//   - graph: the execution graph to populate.
+//   - pkg: the resolved package release.
+//   - targetPlatform: the target platform string.
+//   - cfg: the build configuration.
+//   - reg: the action registry for resolving action names.
+//
+// Returns:
+//   - error: non-nil if script execution or node building fails.
 func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform string, cfg BuildConfig, reg *op.ActionRegistry) error { //nolint:gocognit
 	action := lorepackage.Deploy
 	phases := lorepackage.PhaseOrder(action)
@@ -292,8 +347,20 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 	return nil
 }
 
-// executeScriptAction runs a Starlark phase script's entry point function (named for the lifecycle phase, e.g.,
-// "install", "provision") and returns the retry policy if one was configured via phase.retry().
+// executeScriptAction runs a Starlark phase script's entry point function
+// (named for the lifecycle phase, e.g., "install", "provision") and returns
+// the retry policy if one was configured via phase.retry().
+//
+// Parameters:
+//   - graph: the execution graph.
+//   - pkg: the resolved package release.
+//   - action: the script action to execute.
+//   - cfg: the build configuration.
+//   - reg: the action registry.
+//
+// Returns:
+//   - *op.RetryPolicy: the retry policy if configured, or nil.
+//   - error: non-nil if script execution fails.
 func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (*op.RetryPolicy, error) {
 	thread, globals, pkgContext, err := prepareScriptEnv(graph, pkg, action, cfg, reg)
 	if err != nil {
@@ -347,8 +414,21 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, ac
 	return phaseCtx.Retry, nil
 }
 
-// prepareScriptEnv creates the Starlark thread and globals needed to execute a phase script.
-// plan and ui are injected as globals via Runtime.
+// prepareScriptEnv creates the Starlark thread and globals needed to execute a
+// phase script. plan and ui are injected as globals via Runtime.
+//
+// Parameters:
+//   - graph: the execution graph.
+//   - pkg: the resolved package release.
+//   - action: the script action being prepared.
+//   - cfg: the build configuration.
+//   - reg: the action registry.
+//
+// Returns:
+//   - *starlark.Thread: the configured Starlark thread.
+//   - starlark.StringDict: the global namespace.
+//   - *loreStar.PackageContext: the package context for the script.
+//   - error: reserved for future use (currently always nil).
 func prepareScriptEnv(
 	graph *op.Graph,
 	pkg *lorepackage.Release,
@@ -396,8 +476,18 @@ func prepareScriptEnv(
 }
 
 // addNativePMNodes adds nodes for a native package manager action.
-// Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that work on all platforms.
-// The actual package manager is determined at execution time via op.Context.Platform.
+// Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that
+// work on all platforms. The actual package manager is determined at execution
+// time via op.Context.Platform.
+//
+// Parameters:
+//   - graph: the execution graph to populate.
+//   - pkg: the resolved package release.
+//   - action: the native package manager action.
+//   - reg: the action registry for resolving action names.
+//
+// Returns:
+//   - error: reserved for future use (currently always nil).
 func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *op.ActionRegistry) error { //nolint:unparam // error return reserved for future use
 	// Determine the dotted action name
 	var actionName string
@@ -426,6 +516,9 @@ func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepac
 }
 
 // userHomeDir returns the user's home directory.
+//
+// Returns:
+//   - string: the home directory path, falling back to $HOME.
 func userHomeDir() string {
 	if home, err := os.UserHomeDir(); err == nil {
 		return home
@@ -434,6 +527,9 @@ func userHomeDir() string {
 }
 
 // detectPlatform converts platform info to registry platform string.
+//
+// Returns:
+//   - string: the registry platform string (e.g., "Darwin", "Linux.Debian").
 func detectPlatform() string {
 	p := platform.New()
 	switch p.OS {

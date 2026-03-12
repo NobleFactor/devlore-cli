@@ -26,6 +26,9 @@ var constructorRegistry sync.Map
 
 // RegisterConstructor registers a function that constructs a Go value
 // from a simpler representation (e.g., string → Blob via NewBlob).
+//
+// Parameters:
+//   - fn: constructor function converting any → (T, error).
 func RegisterConstructor[T any](fn func(any) (T, error)) {
 	t := reflect.TypeOf((*T)(nil)).Elem()
 	constructorRegistry.Store(t, func(v any) (any, error) {
@@ -34,8 +37,13 @@ func RegisterConstructor[T any](fn func(any) (T, error)) {
 }
 
 // Construct uses the constructor registry to convert value to type T.
-// Returns an error if no constructor is registered for T or if the
-// constructor rejects the value.
+//
+// Parameters:
+//   - value: the value to convert via the registered constructor.
+//
+// Returns:
+//   - T: the constructed value.
+//   - error: non-nil if no constructor is registered for T or if it rejects the value.
 func Construct[T any](value any) (T, error) {
 	t := reflect.TypeOf((*T)(nil)).Elem()
 	ctor, ok := loadConstructor(t)
@@ -53,6 +61,14 @@ func Construct[T any](value any) (T, error) {
 
 // constructResource creates a Resource using the constructor registry.
 // Returns nil, false if no constructor exists for the given type.
+//
+// Parameters:
+//   - targetType: the reflect.Type to construct.
+//   - value: the input value to pass to the constructor.
+//
+// Returns:
+//   - Resource: the constructed resource, or nil.
+//   - bool: true if construction succeeded.
 func constructResource(targetType reflect.Type, value any) (Resource, bool) {
 	ctor, ok := loadConstructor(targetType)
 	if !ok {
@@ -84,6 +100,7 @@ func constructResource(targetType reflect.Type, value any) (Resource, bool) {
 // type, it calls WrapReceiver instead of flattening to fields.
 var receiverParamsRegistry sync.Map
 
+// receiverEntry pairs a provider name with its method parameter metadata.
 type receiverEntry struct {
 	name   string
 	params MethodParams
@@ -93,12 +110,22 @@ type receiverEntry struct {
 // Called by RegisterReflectedActions as a side effect for providers with
 // actions, and directly by immediate-only providers in their Register()
 // callback.
+//
+// Parameters:
+//   - name: the provider name.
+//   - provider: the provider instance (pointer to struct).
+//   - params: maps Go method names to Starlark parameter name lists.
 func RegisterReceiverParams(name string, provider any, params MethodParams) {
 	registerReceiverParamsReflect(name, provider, params)
 }
 
 // registerReceiverParamsReflect stores receiver params using the runtime
 // reflect.Type of the provider pointer.
+//
+// Parameters:
+//   - name: the provider name.
+//   - provider: the provider instance (pointer to struct).
+//   - params: maps Go method names to Starlark parameter name lists.
 func registerReceiverParamsReflect(name string, provider any, params MethodParams) {
 	t := reflect.TypeOf(provider)
 	if t.Kind() == reflect.Ptr {
@@ -108,6 +135,13 @@ func registerReceiverParamsReflect(name string, provider any, params MethodParam
 }
 
 // lookupReceiverParams returns the receiver entry for the given type.
+//
+// Parameters:
+//   - t: the reflect.Type to look up (pointer or struct).
+//
+// Returns:
+//   - receiverEntry: the stored entry.
+//   - bool: true if found.
 func lookupReceiverParams(t reflect.Type) (receiverEntry, bool) {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -125,12 +159,14 @@ func lookupReceiverParams(t reflect.Type) (receiverEntry, bool) {
 // Computed once per type, concurrent-safe, amortized O(1) lookups.
 var typeCache sync.Map
 
+// typeInfo caches struct introspection results for Starlark field mapping.
 type typeInfo struct {
 	fields   []fieldInfo
 	attrList []string              // sorted Starlark attribute names
 	byName   map[string]*fieldInfo // starlark name → field
 }
 
+// fieldInfo maps a single exported Go struct field to its Starlark name.
 type fieldInfo struct {
 	index    int
 	starName string
@@ -139,6 +175,12 @@ type fieldInfo struct {
 
 // getTypeInfo returns cached struct metadata for the given type.
 // If t is a pointer type, the element type is used.
+//
+// Parameters:
+//   - t: the reflect.Type to introspect (pointer or struct).
+//
+// Returns:
+//   - *typeInfo: the cached field metadata.
 func getTypeInfo(t reflect.Type) *typeInfo {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -190,6 +232,12 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 
 // camelToSnake converts a CamelCase identifier to snake_case.
 // Consecutive uppercase letters are treated as an acronym (e.g., "XMLParser" → "xml_parser").
+//
+// Parameters:
+//   - s: the CamelCase identifier to convert.
+//
+// Returns:
+//   - string: the snake_case equivalent.
 func camelToSnake(s string) string {
 	runes := []rune(s)
 	var b strings.Builder
@@ -215,11 +263,18 @@ func camelToSnake(s string) string {
 
 // --- Marshal (Go → Starlark) ---
 
-// marshal converts a Go value to a starlark.Value.
-// Structs become starlarkstruct.Struct. Primitives, slices, maps, and
-// pointers are handled recursively. Values already implementing
-// starlark.Value pass through unchanged.
-func marshal(v any) (starlark.Value, error) {
+// Marshal converts a Go value to a [starlark.Value].
+//
+// Structs become starlarkstruct.Struct. Primitives, slices, maps, and pointers are handled recursively.
+// Values already implementing starlark.Value pass through unchanged.
+//
+// Parameters:
+//   - v: the Go value to convert. Nil returns [starlark.None].
+//
+// Returns:
+//   - starlark.Value: the converted Starlark value.
+//   - error: non-nil if v contains an unsupported type (e.g., channels, funcs).
+func Marshal(v any) (starlark.Value, error) {
 	if v == nil {
 		return starlark.None, nil
 	}
@@ -229,6 +284,16 @@ func marshal(v any) (starlark.Value, error) {
 	return marshalReflect(reflect.ValueOf(v))
 }
 
+// marshalReflect converts a reflect.Value to a starlark.Value.
+// Pointer-to-struct types registered in the receiver params registry are
+// wrapped as ReflectedReceivers; all others are dispatched by kind.
+//
+// Parameters:
+//   - rv: the reflect.Value to convert.
+//
+// Returns:
+//   - starlark.Value: the converted Starlark value.
+//   - error: non-nil if rv contains an unsupported type.
 func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 	// Check receiver params registry for pointer-to-struct types.
 	// Registered types get wrapped as ReflectedReceivers (with methods)
@@ -306,6 +371,14 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 	}
 }
 
+// marshalSlice converts a reflect.Value slice to a starlark.List.
+//
+// Parameters:
+//   - rv: the reflect.Value of kind Slice to convert.
+//
+// Returns:
+//   - starlark.Value: the converted Starlark list.
+//   - error: non-nil if any element cannot be marshaled.
 func marshalSlice(rv reflect.Value) (starlark.Value, error) {
 	if rv.IsNil() {
 		return starlark.NewList(nil), nil
@@ -321,6 +394,14 @@ func marshalSlice(rv reflect.Value) (starlark.Value, error) {
 	return starlark.NewList(elems), nil
 }
 
+// marshalMap converts a reflect.Value map to a starlark.Dict.
+//
+// Parameters:
+//   - rv: the reflect.Value of kind Map to convert.
+//
+// Returns:
+//   - starlark.Value: the converted Starlark dict.
+//   - error: non-nil if any key or value cannot be marshaled.
 func marshalMap(rv reflect.Value) (starlark.Value, error) {
 	if rv.IsNil() {
 		return starlark.NewDict(0), nil
@@ -343,6 +424,15 @@ func marshalMap(rv reflect.Value) (starlark.Value, error) {
 	return dict, nil
 }
 
+// marshalStruct converts a reflect.Value struct to a starlarkstruct.Struct.
+// Exported fields are mapped to Starlark attributes using snake_case names.
+//
+// Parameters:
+//   - rv: the reflect.Value of kind Struct to convert.
+//
+// Returns:
+//   - starlark.Value: the converted Starlark struct.
+//   - error: non-nil if any field cannot be marshaled.
 func marshalStruct(rv reflect.Value) (starlark.Value, error) {
 	info := getTypeInfo(rv.Type())
 	dict := make(starlark.StringDict, len(info.fields))
@@ -360,11 +450,60 @@ func marshalStruct(rv reflect.Value) (starlark.Value, error) {
 
 // --- Unmarshal (Starlark → Go) ---
 
+// UnmarshalToAny converts a [starlark.Value] to a native Go value without a specific target type.
+//
+// Returns string, int, bool, float64, nil, []any (or []string for homogeneous string lists),
+// or map[string]any.
+//
+// Parameters:
+//   - sv: the Starlark value to convert.
+//
+// Returns:
+//   - any: the native Go value.
+//   - error: non-nil if sv contains an unsupported Starlark type.
+func UnmarshalToAny(sv starlark.Value) (any, error) {
+
+	switch v := sv.(type) {
+	case starlark.NoneType:
+		return nil, nil
+	case starlark.String:
+		return string(v), nil
+	case starlark.Int:
+		i, ok := v.Int64()
+		if !ok {
+			return nil, fmt.Errorf("unmarshal: int value out of range")
+		}
+		return int(i), nil
+	case starlark.Bool:
+		return bool(v), nil
+	case starlark.Float:
+		return float64(v), nil
+	case starlark.Bytes:
+		return []byte(v), nil
+	case *starlark.List:
+		return unmarshalListToAny(v)
+	case *starlark.Dict:
+		return unmarshalDictToAny(v)
+	case *starlarkstruct.Struct:
+		return unmarshalStructToAny(v)
+	default:
+		return nil, fmt.Errorf("unmarshal: unsupported starlark type %s", sv.Type())
+	}
+}
+
 // unmarshal populates a Go value from a starlark.Value.
 // target must be a non-nil pointer. For *any targets, native Go types
 // (string, int, bool, float64, nil, []any, map[string]any) are returned.
 // For struct targets, starlarkstruct.Struct fields are matched by name.
+//
+// Parameters:
+//   - sv: the Starlark value to convert.
+//   - target: a non-nil pointer to the Go value to populate.
+//
+// Returns:
+//   - error: non-nil if the conversion fails or target is not a pointer.
 func unmarshal(sv starlark.Value, target any) error {
+
 	rv := reflect.ValueOf(target)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("unmarshal: target must be a non-nil pointer, got %T", target)
@@ -372,10 +511,19 @@ func unmarshal(sv starlark.Value, target any) error {
 	return unmarshalValue(sv, rv.Elem())
 }
 
+// unmarshalValue recursively converts a Starlark value into a reflect.Value target.
+//
+// Parameters:
+//   - sv: the Starlark value to convert.
+//   - rv: the reflect.Value to populate (must be settable).
+//
+// Returns:
+//   - error: non-nil if the conversion fails.
 func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
+
 	// Handle *any target: generic conversion.
 	if rv.Kind() == reflect.Interface {
-		val, err := unmarshalToAny(sv)
+		val, err := UnmarshalToAny(sv)
 		if err != nil {
 			return err
 		}
@@ -416,7 +564,7 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			}
 		}
 		if !alreadyTarget {
-			native, err := unmarshalToAny(sv)
+			native, err := UnmarshalToAny(sv)
 			if err != nil {
 				return err
 			}
@@ -515,38 +663,15 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 	}
 }
 
-// unmarshalToAny converts a Starlark value to a native Go value without
-// a specific target type. Returns string, int, bool, float64, nil,
-// []any (or []string for homogeneous string lists), or map[string]any.
-func unmarshalToAny(sv starlark.Value) (any, error) {
-	switch v := sv.(type) {
-	case starlark.NoneType:
-		return nil, nil
-	case starlark.String:
-		return string(v), nil
-	case starlark.Int:
-		i, ok := v.Int64()
-		if !ok {
-			return nil, fmt.Errorf("unmarshal: int value out of range")
-		}
-		return int(i), nil
-	case starlark.Bool:
-		return bool(v), nil
-	case starlark.Float:
-		return float64(v), nil
-	case starlark.Bytes:
-		return []byte(v), nil
-	case *starlark.List:
-		return unmarshalListToAny(v)
-	case *starlark.Dict:
-		return unmarshalDictToAny(v)
-	case *starlarkstruct.Struct:
-		return unmarshalStructToAny(v)
-	default:
-		return nil, fmt.Errorf("unmarshal: unsupported starlark type %s", sv.Type())
-	}
-}
-
+// unmarshalListToAny converts a starlark.List to a native Go slice.
+// Returns []string for homogeneous string lists, []any otherwise.
+//
+// Parameters:
+//   - list: the Starlark list to convert.
+//
+// Returns:
+//   - any: the native Go slice ([]string or []any).
+//   - error: non-nil if any element cannot be converted.
 func unmarshalListToAny(list *starlark.List) (any, error) {
 	n := list.Len()
 	if n == 0 {
@@ -572,7 +697,7 @@ func unmarshalListToAny(list *starlark.List) (any, error) {
 
 	result := make([]any, n)
 	for i := range n {
-		val, err := unmarshalToAny(list.Index(i))
+		val, err := UnmarshalToAny(list.Index(i))
 		if err != nil {
 			return nil, fmt.Errorf("list index %d: %w", i, err)
 		}
@@ -581,6 +706,14 @@ func unmarshalListToAny(list *starlark.List) (any, error) {
 	return result, nil
 }
 
+// unmarshalDictToAny converts a starlark.Dict to a map[string]any.
+//
+// Parameters:
+//   - dict: the Starlark dict to convert.
+//
+// Returns:
+//   - map[string]any: the native Go map.
+//   - error: non-nil if any key is not a string or any value cannot be converted.
 func unmarshalDictToAny(dict *starlark.Dict) (map[string]any, error) {
 	result := make(map[string]any, dict.Len())
 	for _, item := range dict.Items() {
@@ -588,7 +721,7 @@ func unmarshalDictToAny(dict *starlark.Dict) (map[string]any, error) {
 		if !ok {
 			return nil, fmt.Errorf("dict key must be string, got %s", item[0].Type())
 		}
-		val, err := unmarshalToAny(item[1])
+		val, err := UnmarshalToAny(item[1])
 		if err != nil {
 			return nil, fmt.Errorf("dict key %q: %w", key, err)
 		}
@@ -597,6 +730,14 @@ func unmarshalDictToAny(dict *starlark.Dict) (map[string]any, error) {
 	return result, nil
 }
 
+// unmarshalStructToAny converts a starlarkstruct.Struct to a map[string]any.
+//
+// Parameters:
+//   - s: the Starlark struct to convert.
+//
+// Returns:
+//   - map[string]any: the native Go map keyed by attribute names.
+//   - error: non-nil if any attribute cannot be converted.
 func unmarshalStructToAny(s *starlarkstruct.Struct) (map[string]any, error) {
 	names := s.AttrNames()
 	result := make(map[string]any, len(names))
@@ -605,7 +746,7 @@ func unmarshalStructToAny(s *starlarkstruct.Struct) (map[string]any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("struct attr %q: %w", name, err)
 		}
-		val, err := unmarshalToAny(v)
+		val, err := UnmarshalToAny(v)
 		if err != nil {
 			return nil, fmt.Errorf("struct attr %q: %w", name, err)
 		}
@@ -614,6 +755,14 @@ func unmarshalStructToAny(s *starlarkstruct.Struct) (map[string]any, error) {
 	return result, nil
 }
 
+// unmarshalSlice converts a starlark.List into a typed Go slice via reflection.
+//
+// Parameters:
+//   - list: the Starlark list to convert.
+//   - rv: the reflect.Value of kind Slice to populate.
+//
+// Returns:
+//   - error: non-nil if any element cannot be unmarshaled.
 func unmarshalSlice(list *starlark.List, rv reflect.Value) error {
 	n := list.Len()
 	slice := reflect.MakeSlice(rv.Type(), n, n)
@@ -626,6 +775,14 @@ func unmarshalSlice(list *starlark.List, rv reflect.Value) error {
 	return nil
 }
 
+// unmarshalMap converts a starlark.Dict into a typed Go map via reflection.
+//
+// Parameters:
+//   - dict: the Starlark dict to convert.
+//   - rv: the reflect.Value of kind Map to populate.
+//
+// Returns:
+//   - error: non-nil if any key or value cannot be unmarshaled.
 func unmarshalMap(dict *starlark.Dict, rv reflect.Value) error {
 	m := reflect.MakeMapWithSize(rv.Type(), dict.Len())
 	keyType := rv.Type().Key()
@@ -646,6 +803,15 @@ func unmarshalMap(dict *starlark.Dict, rv reflect.Value) error {
 	return nil
 }
 
+// unmarshalStruct converts a starlarkstruct.Struct or starlark.Dict into a
+// typed Go struct via reflection. Fields are matched by Starlark name.
+//
+// Parameters:
+//   - sv: the Starlark value (must be *starlarkstruct.Struct or *starlark.Dict).
+//   - rv: the reflect.Value of kind Struct to populate.
+//
+// Returns:
+//   - error: non-nil if sv is neither a struct nor dict, or if any field fails.
 func unmarshalStruct(sv starlark.Value, rv reflect.Value) error {
 	info := getTypeInfo(rv.Type())
 
@@ -707,8 +873,17 @@ type CallableInput struct {
 // registry for callable extraction.
 var callableResourceType = reflect.TypeOf((*CallableResource)(nil)).Elem()
 
-// extractCallable looks up the callable constructor from the registry and extracts the given Starlark function. The mem
-// package registers a constructor via AnnounceResource that handles extraction and compilation.
+// extractCallable looks up the callable constructor from the registry and
+// extracts the given Starlark function. The mem package registers a constructor
+// via AnnounceResource that handles extraction and compilation.
+//
+// Parameters:
+//   - fn: the Starlark function to extract.
+//   - funcType: the Go func type name for signature validation.
+//
+// Returns:
+//   - CallableResource: the extracted callable resource.
+//   - error: non-nil if no extractor is registered or extraction fails.
 func extractCallable(fn *starlark.Function, funcType string) (CallableResource, error) {
 
 	ctor, ok := loadConstructor(callableResourceType)
@@ -723,12 +898,24 @@ func extractCallable(fn *starlark.Function, funcType string) (CallableResource, 
 }
 
 // isCallableResource returns true if the value implements CallableResource.
+//
+// Parameters:
+//   - v: the value to check.
+//
+// Returns:
+//   - bool: true if v implements CallableResource.
 func isCallableResource(v any) bool {
 	_, ok := v.(CallableResource)
 	return ok
 }
 
 // isFuncType returns true if the reflect.Type is a function type.
+//
+// Parameters:
+//   - t: the reflect.Type to check.
+//
+// Returns:
+//   - bool: true if t.Kind() is reflect.Func.
 func isFuncType(t reflect.Type) bool {
 	return t.Kind() == reflect.Func
 }
@@ -737,6 +924,15 @@ func isFuncType(t reflect.Type) bool {
 // func-typed method parameters, initializes them, and replaces the slot
 // value with an adapted Go function. This runs in Do() before coerceArgs
 // so the standard coercion path sees a directly-assignable func value.
+//
+// Parameters:
+//   - ctx: the execution context (provides the Starlark thread).
+//   - slots: the slot map to scan and mutate in place.
+//   - methodType: the Go method's reflect.Type for parameter introspection.
+//   - paramNames: the Starlark parameter names matching the method signature.
+//
+// Returns:
+//   - error: non-nil if callable initialization or adaptation fails.
 func initCallableSlots(ctx *Context, slots map[string]any, methodType reflect.Type, paramNames []string) error {
 	for i, name := range paramNames {
 		callable, ok := slots[name].(CallableResource)
@@ -770,7 +966,14 @@ func initCallableSlots(ctx *Context, slots map[string]any, methodType reflect.Ty
 // Go→Starlark and passed to the callable. The callable must match the
 // full signature of the Go func type. Returns are unmarshaled Starlark→Go.
 //
-// Target func signature: func(p0 T0, p1 T1, ...) (R0, R1, ...)
+// Parameters:
+//   - fn: the Starlark callable to wrap.
+//   - thread: the Starlark thread for function calls.
+//   - targetType: the Go func reflect.Type to produce.
+//
+// Returns:
+//   - any: the adapted Go function value matching targetType.
+//   - error: non-nil if adaptation fails.
 func buildCallableFunc(fn starlark.Callable, thread *starlark.Thread, targetType reflect.Type) (any, error) {
 	numIn := targetType.NumIn()
 	numOut := targetType.NumOut()
@@ -780,7 +983,7 @@ func buildCallableFunc(fn starlark.Callable, thread *starlark.Thread, targetType
 		// Marshal all Go args → Starlark.
 		starArgs := make(starlark.Tuple, numIn)
 		for i := range numIn {
-			sv, err := marshal(args[i].Interface())
+			sv, err := Marshal(args[i].Interface())
 			if err != nil {
 				return makeErrorReturn(targetType, numOut,
 					fmt.Errorf("callable arg %d: marshal: %w", i, err))
@@ -804,6 +1007,14 @@ func buildCallableFunc(fn starlark.Callable, thread *starlark.Thread, targetType
 
 // makeErrorReturn builds a reflect.Value slice for an error return.
 // Convention: the last return is error; preceding returns are zero values.
+//
+// Parameters:
+//   - funcType: the Go func reflect.Type for return type introspection.
+//   - numOut: the number of return values.
+//   - err: the error to place in the last return slot.
+//
+// Returns:
+//   - []reflect.Value: zero values for all returns except the last, which holds err.
 func makeErrorReturn(funcType reflect.Type, numOut int, err error) []reflect.Value {
 	out := make([]reflect.Value, numOut)
 	for i := range numOut - 1 {
@@ -816,8 +1027,16 @@ func makeErrorReturn(funcType reflect.Type, numOut int, err error) []reflect.Val
 }
 
 // unmarshalReturn converts a Starlark result into the target func's return
-// values. Convention: first return is the result (via unmarshalToAny), last
+// values. Convention: first return is the result (via UnmarshalToAny), last
 // return is error (nil on success). Middle returns are zero values.
+//
+// Parameters:
+//   - funcType: the Go func reflect.Type for return type introspection.
+//   - numOut: the number of return values.
+//   - result: the Starlark value to unmarshal into the first return slot.
+//
+// Returns:
+//   - []reflect.Value: the populated return values.
 func unmarshalReturn(funcType reflect.Type, numOut int, result starlark.Value) []reflect.Value {
 	out := make([]reflect.Value, numOut)
 
@@ -832,7 +1051,7 @@ func unmarshalReturn(funcType reflect.Type, numOut int, result starlark.Value) [
 
 	// First return is the result value.
 	if numOut >= 1 {
-		goVal, err := unmarshalToAny(result)
+		goVal, err := UnmarshalToAny(result)
 		if err != nil {
 			return makeErrorReturn(funcType, numOut, err)
 		}
