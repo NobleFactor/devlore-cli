@@ -45,12 +45,27 @@ type iterOutcome struct {
 type Gather struct{}
 
 // Name returns the dotted action name.
+//
+// Returns:
+//   - string: "flow.gather".
 func (a *Gather) Name() string { return "flow.gather" }
 
 // Params returns nil — Gather uses untyped slots.
+//
+// Returns:
+//   - []op.ParamInfo: always nil (untyped slots).
 func (a *Gather) Params() []op.ParamInfo { return nil }
 
 // Do executes the referenced phase once per item, with per-iteration isolation.
+//
+// Parameters:
+//   - ctx: the execution context.
+//   - slots: the slot map (items, do, limit).
+//
+// Returns:
+//   - result: []any of terminal node results, one per item.
+//   - complement: *gatherComplement for rollback.
+//   - err: non-nil if any iteration fails.
 func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, complement op.Complement, err error) { //nolint:gocyclo // validation + sequential/concurrent branching is inherent
 	items, err := extractItems(slots)
 	if err != nil {
@@ -121,6 +136,13 @@ func (a *Gather) Do(ctx *op.Context, slots map[string]any) (result op.Result, co
 }
 
 // Undo walks iterations in reverse and calls Action.Undo per entry.
+//
+// Parameters:
+//   - ctx: the execution context.
+//   - complement: the *gatherComplement from Do.
+//
+// Returns:
+//   - error: non-nil if any iteration rollback fails.
 func (a *Gather) Undo(ctx *op.Context, complement op.Complement) error {
 	gs, ok := complement.(*gatherComplement)
 	if !ok || gs == nil {
@@ -130,6 +152,12 @@ func (a *Gather) Undo(ctx *op.Context, complement op.Complement) error {
 }
 
 // undoCompleted unwinds all iterations that have recovery stacks.
+//
+// Parameters:
+//   - gs: the gather complement with per-iteration recovery stacks.
+//
+// Returns:
+//   - error: non-nil if any stack unwind fails (errors are joined).
 func (a *Gather) undoCompleted(_ *op.Context, gs *gatherComplement) error {
 	var errs []error
 	for i := len(gs.Iterations) - 1; i >= 0; i-- {
@@ -143,6 +171,14 @@ func (a *Gather) undoCompleted(_ *op.Context, gs *gatherComplement) error {
 }
 
 // executeConcurrent runs gather iterations with bounded concurrency.
+//
+// Parameters:
+//   - ctx: the execution context.
+//   - ordered: the topologically sorted phase body nodes.
+//   - gatherID: the gather node ID for slot resolution.
+//   - items: the list of items to iterate over.
+//   - limit: the maximum concurrent iterations.
+//   - outcomes: the pre-allocated slice to receive per-iteration results.
 func executeConcurrent(ctx *op.Context, ordered []*op.Node, gatherID string, items []any, limit int, outcomes []iterOutcome) {
 	iterCtxBase, cancel := context.WithCancel(ctx.Context)
 	defer cancel()
@@ -200,6 +236,15 @@ iterLoop:
 }
 
 // executeIteration runs the phase body for a single item.
+//
+// Parameters:
+//   - ctx: the execution context.
+//   - ordered: the topologically sorted phase body nodes.
+//   - gatherID: the gather node ID for slot resolution.
+//   - item: the current iteration item.
+//
+// Returns:
+//   - iterOutcome: the terminal result and undo state.
 func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item any) iterOutcome {
 	results := make(map[string]any)
 	stack := op.NewRecoveryStack()
@@ -250,6 +295,13 @@ func executeIteration(ctx *op.Context, ordered []*op.Node, gatherID string, item
 }
 
 // extractItems pulls the items list from slots.
+//
+// Parameters:
+//   - slots: the slot map to extract from.
+//
+// Returns:
+//   - []any: the items list.
+//   - error: non-nil if the items slot is missing or has the wrong type.
 func extractItems(slots map[string]any) ([]any, error) {
 	raw, ok := slots["items"]
 	if !ok {
@@ -263,6 +315,12 @@ func extractItems(slots map[string]any) ([]any, error) {
 }
 
 // extractLimit pulls the concurrency limit from slots (default 1).
+//
+// Parameters:
+//   - slots: the slot map to extract from.
+//
+// Returns:
+//   - int: the concurrency limit (minimum 1).
 func extractLimit(slots map[string]any) int {
 	if v, ok := slots["limit"]; ok {
 		switch n := v.(type) {

@@ -52,23 +52,23 @@ func Test_camelToSnake(t *testing.T) {
 // --- Marshal tests ---
 
 func TestMarshal_Nil(t *testing.T) {
-	got, err := marshal(nil)
+	got, err := Marshal(nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != starlark.None {
-		t.Errorf("marshal(nil) = %v, want None", got)
+		t.Errorf("Marshal(nil) = %v, want None", got)
 	}
 }
 
 func TestMarshal_StarlarkValue(t *testing.T) {
 	sv := starlark.String("pass-through")
-	got, err := marshal(sv)
+	got, err := Marshal(sv)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != sv {
-		t.Errorf("marshal(starlark.Value) did not pass through")
+		t.Errorf("Marshal(starlark.Value) did not pass through")
 	}
 }
 
@@ -89,9 +89,9 @@ func TestMarshal_Primitives(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := marshal(tt.input)
+			got, err := Marshal(tt.input)
 			if err != nil {
-				t.Fatalf("marshal(%v) error: %v", tt.input, err)
+				t.Fatalf("Marshal(%v) error: %v", tt.input, err)
 			}
 			if got.Type() != tt.wantType {
 				t.Errorf("type = %q, want %q", got.Type(), tt.wantType)
@@ -105,9 +105,9 @@ func TestMarshal_Primitives(t *testing.T) {
 
 func TestMarshal_FileMode(t *testing.T) {
 	mode := os.FileMode(0o755)
-	got, err := marshal(mode)
+	got, err := Marshal(mode)
 	if err != nil {
-		t.Fatalf("marshal(FileMode) error: %v", err)
+		t.Fatalf("Marshal(FileMode) error: %v", err)
 	}
 	si, ok := got.(starlark.Int)
 	if !ok {
@@ -120,7 +120,7 @@ func TestMarshal_FileMode(t *testing.T) {
 }
 
 func TestMarshal_Bytes(t *testing.T) {
-	got, err := marshal([]byte("raw data"))
+	got, err := Marshal([]byte("raw data"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestMarshal_Bytes(t *testing.T) {
 }
 
 func TestMarshal_StringSlice(t *testing.T) {
-	got, err := marshal([]string{"a", "b", "c"})
+	got, err := Marshal([]string{"a", "b", "c"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestMarshal_StringSlice(t *testing.T) {
 }
 
 func TestMarshal_IntSlice(t *testing.T) {
-	got, err := marshal([]int{1, 2, 3})
+	got, err := Marshal([]int{1, 2, 3})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestMarshal_IntSlice(t *testing.T) {
 
 func TestMarshal_NilSlice(t *testing.T) {
 	var s []string
-	got, err := marshal(s)
+	got, err := Marshal(s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestMarshal_NilSlice(t *testing.T) {
 }
 
 func TestMarshal_Map(t *testing.T) {
-	got, err := marshal(map[string]any{"name": "test", "count": 5})
+	got, err := Marshal(map[string]any{"name": "test", "count": 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestMarshal_Map(t *testing.T) {
 
 func TestMarshal_NilMap(t *testing.T) {
 	var m map[string]any
-	got, err := marshal(m)
+	got, err := Marshal(m)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestMarshal_NilMap(t *testing.T) {
 
 func TestMarshal_Pointer(t *testing.T) {
 	s := "hello"
-	got, err := marshal(&s)
+	got, err := Marshal(&s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestMarshal_Pointer(t *testing.T) {
 
 func TestMarshal_NilPointer(t *testing.T) {
 	var s *string
-	got, err := marshal(s)
+	got, err := Marshal(s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -259,7 +259,7 @@ type testWithTag struct {
 
 func TestMarshal_SimpleStruct(t *testing.T) {
 	p := testPoint{X: 10, Y: 20}
-	got, err := marshal(p)
+	got, err := Marshal(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestMarshal_NestedStruct(t *testing.T) {
 		Location: &testPoint{X: 1, Y: 2},
 		Tags:     []string{"dev", "go"},
 	}
-	got, err := marshal(p)
+	got, err := Marshal(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestMarshal_NilNestedStruct(t *testing.T) {
 		Age:      25,
 		Location: nil,
 	}
-	got, err := marshal(p)
+	got, err := Marshal(p)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestMarshal_StructTags(t *testing.T) {
 		Hidden:   "secret",
 		Normal:   42,
 	}
-	got, err := marshal(v)
+	got, err := Marshal(v)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestMarshal_StructTags(t *testing.T) {
 
 func TestMarshal_UnsupportedType(t *testing.T) {
 	ch := make(chan int)
-	_, err := marshal(ch)
+	_, err := Marshal(ch)
 	if err == nil {
 		t.Fatal("expected error for unsupported type")
 	}
@@ -708,7 +708,7 @@ func TestUnmarshal_NonPointerTarget(t *testing.T) {
 
 func TestRoundTrip_SimpleStruct(t *testing.T) {
 	original := testPoint{X: 42, Y: 99}
-	sv, err := marshal(original)
+	sv, err := Marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestRoundTrip_NestedStruct(t *testing.T) {
 		Location: &testPoint{X: 3, Y: 4},
 		Tags:     []string{"go", "dev"},
 	}
-	sv, err := marshal(original)
+	sv, err := Marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}
@@ -753,7 +753,7 @@ func TestRoundTrip_Map(t *testing.T) {
 		"count": 5,
 		"flag":  true,
 	}
-	sv, err := marshal(original)
+	sv, err := Marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal error: %v", err)
 	}

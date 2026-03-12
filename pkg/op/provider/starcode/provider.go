@@ -32,6 +32,15 @@ type Provider struct {
 // If includeBzl is true, .bzl files are included alongside .star files.
 //
 // +devlore:defaults gitignore=true,includeBzl=true
+//
+// Parameters:
+//   - pattern: the glob pattern to match (supports **).
+//   - gitignore: when true, skip files excluded by .gitignore rules.
+//   - includeBzl: when true, include .bzl files alongside .star files.
+//
+// Returns:
+//   - *Sources: the captured file set with root and sorted paths.
+//   - error: non-nil if the root directory cannot be resolved or the walk fails.
 func (p *Provider) Capture(pattern string, gitignore, includeBzl bool) (*Sources, error) {
 	root := p.Root
 	if root == "" {
@@ -76,6 +85,9 @@ type Sources struct {
 }
 
 // Paths returns the file paths relative to Root.
+//
+// Returns:
+//   - []string: relative paths for all captured files.
 func (s *Sources) Paths() []string {
 	paths := make([]string, len(s.Files))
 	for i, f := range s.Files {
@@ -90,6 +102,9 @@ func (s *Sources) Paths() []string {
 }
 
 // Count returns the number of captured files.
+//
+// Returns:
+//   - int: the file count.
 func (s *Sources) Count() int {
 	return len(s.Files)
 }
@@ -99,6 +114,14 @@ func (s *Sources) Count() int {
 // If withGlobals is true, top-level assignments are captured.
 //
 // +devlore:defaults withDocstrings=true,withGlobals=true
+//
+// Parameters:
+//   - withDocstrings: when true, extract function docstrings.
+//   - withGlobals: when true, capture top-level assignments.
+//
+// Returns:
+//   - *starindex.Index: the parsed index with functions, loads, and globals.
+//   - error: non-nil if parsing fails.
 func (s *Sources) Index(withDocstrings, withGlobals bool) (*starindex.Index, error) {
 	return (&starindex.Provider{Root: s.Root}).IndexFiles(s.Files, withDocstrings, withGlobals)
 }
@@ -108,6 +131,14 @@ func (s *Sources) Index(withDocstrings, withGlobals bool) (*starindex.Index, err
 // If withLOC is true, line counts (LOC, SLOC, comments, blanks) are included.
 //
 // +devlore:defaults withBytes=true,withLOC=true
+//
+// Parameters:
+//   - withBytes: when true, include byte counts.
+//   - withLOC: when true, include line counts (LOC, SLOC, comments, blanks).
+//
+// Returns:
+//   - *starstats.Stats: the computed statistics.
+//   - error: non-nil if stat computation fails.
 func (s *Sources) Stats(withBytes, withLOC bool) (*starstats.Stats, error) {
 	return (&starstats.Provider{Root: s.Root}).ComputeStats(s.Files, withBytes, withLOC)
 }
@@ -115,11 +146,29 @@ func (s *Sources) Stats(withBytes, withLOC bool) (*starstats.Stats, error) {
 // Analyze performs a combined analysis of all captured files.
 //
 // +devlore:struct_param cfg=staranalysis.AnalysisConfig
+//
+// Parameters:
+//   - cfg: the analysis configuration.
+//
+// Returns:
+//   - *staranalysis.AnalysisReport: the combined analysis report.
+//   - error: non-nil if analysis fails.
 func (s *Sources) Analyze(cfg staranalysis.AnalysisConfig) (*staranalysis.AnalysisReport, error) {
 	return (&staranalysis.Provider{Root: s.Root}).Analyze(s.Files, cfg)
 }
 
-// captureRecursive walks the tree using file.Provider.WalkTree and matches files against the glob pattern.
+// captureRecursive walks the tree using file.Provider.WalkTree and matches
+// files against the glob pattern.
+//
+// Parameters:
+//   - absRoot: the absolute root directory to walk.
+//   - pattern: the glob pattern to match (may contain **).
+//   - honorGitignore: when true, skip files excluded by .gitignore.
+//   - includeBzl: when true, include .bzl files alongside .star files.
+//
+// Returns:
+//   - []string: absolute paths of matched files.
+//   - error: non-nil if the walk fails.
 func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) ([]string, error) {
 	var files []string
 
@@ -155,6 +204,16 @@ func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) 
 }
 
 // captureFlat uses filepath.Glob for non-recursive patterns.
+//
+// Parameters:
+//   - absRoot: the absolute root directory.
+//   - pattern: the glob pattern to match.
+//   - tracker: optional gitignore tracker (nil to disable filtering).
+//   - includeBzl: when true, include .bzl files alongside .star files.
+//
+// Returns:
+//   - []string: absolute paths of matched files.
+//   - error: non-nil if the glob fails.
 func captureFlat(absRoot, pattern string, tracker *ignore.Tracker, includeBzl bool) ([]string, error) {
 	fullPattern := filepath.Join(absRoot, pattern)
 	matches, err := filepath.Glob(fullPattern)
@@ -187,6 +246,13 @@ func captureFlat(absRoot, pattern string, tracker *ignore.Tracker, includeBzl bo
 }
 
 // isStarlarkFile returns true if the path has a .star extension (or .bzl if includeBzl is true).
+//
+// Parameters:
+//   - path: the file path to check.
+//   - includeBzl: when true, .bzl files are also accepted.
+//
+// Returns:
+//   - bool: true if the file is a Starlark source file.
 func isStarlarkFile(path string, includeBzl bool) bool {
 	ext := filepath.Ext(path)
 	if ext == ".star" {
@@ -195,15 +261,30 @@ func isStarlarkFile(path string, includeBzl bool) bool {
 	return includeBzl && ext == ".bzl"
 }
 
-// flattenDoubleStar converts "**/*.star" to a pattern usable with filepath.Match by replacing "**/" with any prefix match.
-// This is a simplistic approach; matchRecursivePattern handles the more general case.
+// flattenDoubleStar converts "**/*.star" to a pattern usable with filepath.Match
+// by stripping the "**/" prefix. This is a simplistic approach;
+// matchRecursivePattern handles the more general case.
+//
+// Parameters:
+//   - pattern: the glob pattern containing **.
+//
+// Returns:
+//   - string: the flattened pattern.
 func flattenDoubleStar(pattern string) string {
 	// filepath.Match doesn't support **; strip the ** prefix and match only the base pattern portion.
 	return strings.ReplaceAll(pattern, "**/", "")
 }
 
-// matchRecursivePattern checks if relPath matches a ** glob pattern by matching the suffix portion after ** against
-// the path's suffix.
+// matchRecursivePattern checks if relPath matches a ** glob pattern by
+// matching the suffix portion after ** against the path's suffix.
+//
+// Parameters:
+//   - pattern: the glob pattern containing **.
+//   - relPath: the relative path to test.
+//
+// Returns:
+//   - bool: true if the path matches the pattern suffix.
+//   - error: non-nil if filepath.Match fails.
 func matchRecursivePattern(pattern, relPath string) (bool, error) {
 	// Split on ** and match the suffix
 	parts := strings.SplitN(pattern, "**", 2)

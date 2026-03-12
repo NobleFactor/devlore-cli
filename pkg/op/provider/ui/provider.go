@@ -45,45 +45,30 @@ type Provider struct {
 	Color bool
 }
 
-func (p *Provider) writer() io.Writer {
-	if p.Writer != nil {
-		return p.Writer
-	}
-	return os.Stderr
-}
+// region EXPORTED METHODS
 
-func (p *Provider) programName() string {
-	if p.ProgramName != "" {
-		return p.ProgramName
-	}
-	return "devlore"
-}
+// region Behaviors
 
-func (p *Provider) colorize(color, text string) string {
-	if p.Color {
-		return color + text + colorReset
-	}
-	return text
-}
+// Actions
 
 // Error reports a non-fatal problem to the user.
+//
+// Parameters:
+//   - msg: the error message to display.
 func (p *Provider) Error(msg string) {
+
 	if p.Silent {
 		return
 	}
 	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg) //nolint:errcheck // write to stderr
 }
 
-// Fail prints an error message and returns an error.
-func (p *Provider) Fail(msg string) error {
-	if !p.Silent {
-		fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg) //nolint:errcheck // write to stderr
-	}
-	return fmt.Errorf("%s", msg)
-}
-
 // Note informs the user of progress.
+//
+// Parameters:
+//   - msg: the informational message to display.
 func (p *Provider) Note(msg string) {
+
 	if p.Silent {
 		return
 	}
@@ -91,7 +76,11 @@ func (p *Provider) Note(msg string) {
 }
 
 // Success confirms completion to the user.
+//
+// Parameters:
+//   - msg: the success message to display.
 func (p *Provider) Success(msg string) {
+
 	if p.Silent {
 		return
 	}
@@ -99,9 +88,82 @@ func (p *Provider) Success(msg string) {
 }
 
 // Warn alerts the user to a potential issue.
+//
+// Parameters:
+//   - msg: the warning message to display.
 func (p *Provider) Warn(msg string) {
+
 	if p.Silent {
 		return
 	}
 	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorYellow, symbolWarn), msg) //nolint:errcheck // write to stderr
 }
+
+// Fallible actions
+
+// Fail prints an error message and returns an error.
+//
+// Parameters:
+//   - msg: the error message to display and return.
+//
+// Returns:
+//   - error: an error wrapping msg.
+func (p *Provider) Fail(msg string) error {
+
+	if !p.Silent {
+		fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg) //nolint:errcheck // write to stderr
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// colorize wraps text in ANSI color codes when Color is enabled.
+//
+// Parameters:
+//   - color: the ANSI color escape sequence.
+//   - text: the text to colorize.
+//
+// Returns:
+//   - string: the colorized text, or plain text if Color is disabled.
+func (p *Provider) colorize(color, text string) string {
+
+	if p.Color {
+		return color + text + colorReset
+	}
+	return text
+}
+
+// programName returns the configured program name, defaulting to "devlore".
+//
+// Returns:
+//   - string: the program name prefix for messages.
+func (p *Provider) programName() string {
+
+	if p.ProgramName != "" {
+		return p.ProgramName
+	}
+	return "devlore"
+}
+
+// writer returns the configured writer, defaulting to os.Stderr.
+//
+// Returns:
+//   - io.Writer: the output destination.
+func (p *Provider) writer() io.Writer {
+
+	if p.Writer != nil {
+		return p.Writer
+	}
+	return os.Stderr
+}
+
+// endregion
+
+// endregion

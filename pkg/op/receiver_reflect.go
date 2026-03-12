@@ -33,22 +33,7 @@ type ReflectedReceiver struct {
 	stack         *RecoveryStack   // optional; set via SetStack
 }
 
-// SetCatalog sets the resource catalog for immediate-mode dispatch.
-// When set, Resource results are shadowed in the catalog after each
-// successful method call.
-func (r *ReflectedReceiver) SetCatalog(c *ResourceCatalog) { r.catalog = c }
-
-// SetContext injects the execution Context into the receiver's underlying provider.
-// This allows immediate receivers to access Context-scoped services like RecoverySite.
-func (r *ReflectedReceiver) SetContext(ctx Context) {
-	if r.providerValue.Kind() == reflect.Ptr && !r.providerValue.IsNil() {
-		InitProvider(r.providerValue.Interface(), ctx)
-	}
-}
-
-// SetStack sets the recovery stack for immediate-mode dispatch.
-func (r *ReflectedReceiver) SetStack(s *RecoveryStack) { r.stack = s }
-
+// methodBridge pairs a snake_case method name with its Starlark bridge function.
 type methodBridge struct {
 	name   string
 	bridge builtinFunc
@@ -58,7 +43,15 @@ type methodBridge struct {
 // Params are looked up from the receiver params registry (populated by
 // RegisterReflectedActions during InitAll). Only methods listed in the
 // registered params are exposed. Compensate* methods are excluded.
+//
+// Parameters:
+//   - name: the receiver name exposed to Starlark.
+//   - provider: the Go struct to wrap (must be a pointer).
+//
+// Returns:
+//   - *ReflectedReceiver: the wrapped receiver with method bridges.
 func WrapReceiver(name string, provider any) *ReflectedReceiver {
+
 	entry, ok := lookupReceiverParams(reflect.TypeOf(provider))
 	if !ok {
 		panic(fmt.Sprintf("WrapReceiver(%s): no params registered — was RegisterReflectedActions called?", name))
@@ -100,10 +93,76 @@ func WrapReceiver(name string, provider any) *ReflectedReceiver {
 	return r
 }
 
+// region EXPORTED METHODS
+
+// region State management
+
+// SetCatalog sets the resource catalog for immediate-mode dispatch.
+// When set, Resource results are shadowed in the catalog after each
+// successful method call.
+//
+// Parameters:
+//   - c: the resource catalog to use.
+func (r *ReflectedReceiver) SetCatalog(c *ResourceCatalog) { r.catalog = c }
+
+// SetContext injects the execution Context into the receiver's underlying provider.
+// This allows immediate receivers to access Context-scoped services like RecoverySite.
+//
+// Parameters:
+//   - ctx: the execution context to inject.
+func (r *ReflectedReceiver) SetContext(ctx Context) {
+
+	if r.providerValue.Kind() == reflect.Ptr && !r.providerValue.IsNil() {
+		InitProvider(r.providerValue.Interface(), ctx)
+	}
+}
+
+// SetStack sets the recovery stack for immediate-mode dispatch.
+//
+// Parameters:
+//   - s: the recovery stack to use.
+func (r *ReflectedReceiver) SetStack(s *RecoveryStack) { r.stack = s }
+
+// endregion
+
+// region Behaviors
+
+// Actions
+
+// Attr implements starlark.HasAttrs.
+//
+// Parameters:
+//   - name: the attribute name to look up.
+//
+// Returns:
+//   - starlark.Value: the method builtin.
+//   - error: non-nil if the attribute does not exist.
+func (r *ReflectedReceiver) Attr(name string) (starlark.Value, error) {
+
+	if m, ok := r.methods[name]; ok {
+		return MakeAttr(r.Receiver.name+"."+name, m.bridge), nil
+	}
+	return nil, NoSuchAttrError(r.Receiver.name, name)
+}
+
+// AttrNames implements starlark.HasAttrs.
+//
+// Returns:
+//   - []string: sorted list of available method names.
+func (r *ReflectedReceiver) AttrNames() []string {
+
+	return r.attrList
+}
+
 // Override replaces a method's auto-generated bridge with a custom one.
 // Used for methods with unusual signatures (Callable params, variadic
 // args, non-zero defaults).
+//
+// Parameters:
+//   - name: the snake_case method name to override.
+//   - fn: the custom bridge function.
 func (r *ReflectedReceiver) Override(name string, fn builtinFunc) {
+
 	r.methods[name] = &methodBridge{
 		name:   name,
 		bridge: fn,
@@ -115,18 +174,11 @@ func (r *ReflectedReceiver) Override(name string, fn builtinFunc) {
 	}
 }
 
-// Attr implements starlark.HasAttrs.
-func (r *ReflectedReceiver) Attr(name string) (starlark.Value, error) {
-	if m, ok := r.methods[name]; ok {
-		return MakeAttr(r.Receiver.name+"."+name, m.bridge), nil
-	}
-	return nil, NoSuchAttrError(r.Receiver.name, name)
-}
+// endregion
 
-// AttrNames implements starlark.HasAttrs.
-func (r *ReflectedReceiver) AttrNames() []string {
-	return r.attrList
-}
+// endregion
+
+// ── Unexported free functions ───────────────────────────────────────────────
 
 // buildMethodBridge creates a builtinFunc that bridges a Go method to Starlark.
 // The receiver parameter provides optional catalog/stack integration —
@@ -136,6 +188,17 @@ func (r *ReflectedReceiver) AttrNames() []string {
 // Remaining positional Starlark args are collected into the variadic slot.
 // The keyword form (parts=["a","b"]) is also accepted as a fallback.
 // Supplying both positional and keyword args for a variadic param is an error.
+//
+// Parameters:
+//   - receiverName: the qualified receiver name for error messages.
+//   - providerVal: the reflected provider value.
+//   - method: the Go method to bridge.
+//   - snakeName: the snake_case method name.
+//   - paramNames: Starlark parameter names (with "?" for optional, "*" for variadic).
+//   - receiver: the ReflectedReceiver for catalog/stack integration.
+//
+// Returns:
+//   - builtinFunc: the Starlark-callable bridge function.
 func buildMethodBridge(
 	receiverName string,
 	providerVal reflect.Value,
@@ -144,6 +207,7 @@ func buildMethodBridge(
 	paramNames []string,
 	receiver *ReflectedReceiver,
 ) builtinFunc {
+
 	methodType := method.Type
 
 	// Separate named params from the variadic param (at most one, always last).
@@ -269,6 +333,23 @@ func buildMethodBridge(
 }
 
 // callNonVariadic handles the common case: no variadic params.
+//
+// Parameters:
+//   - receiverName: the qualified receiver name for error messages.
+//   - providerVal: the reflected provider value.
+//   - method: the Go method to call.
+//   - methodType: the method's reflect.Type.
+//   - snakeName: the snake_case method name.
+//   - paramNames: Starlark parameter names.
+//   - numParams: the number of parameters.
+//   - receiver: the ReflectedReceiver for catalog/stack integration.
+//   - thread: the Starlark thread.
+//   - args: positional Starlark arguments.
+//   - kwargs: keyword Starlark arguments.
+//
+// Returns:
+//   - starlark.Value: the marshaled return value.
+//   - error: non-nil if the call fails.
 func callNonVariadic(
 	receiverName string,
 	providerVal reflect.Value,
@@ -282,6 +363,7 @@ func callNonVariadic(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	// 1. Unpack Starlark args into starlark.Value slots.
 	vals := make([]starlark.Value, numParams)
 	pairs := make([]any, 0, numParams*2)
@@ -353,12 +435,20 @@ func callNonVariadic(
 //
 //	()                         → None
 //	(error)                    → None or error
-//	(T)                        → marshal(T)
-//	(T, error)                 → marshal(T) or error
-//	(T, map[string]any, error) → marshal(T), discard undo state, or error
-//	(T, *RecoveryStack, error) → marshal(T), discard stack, or error
+//	(T)                        → Marshal(T)
+//	(T, error)                 → Marshal(T) or error
+//	(T, map[string]any, error) → Marshal(T), discard undo state, or error
+//	(T, *RecoveryStack, error) → Marshal(T), discard stack, or error
 //	(NoResult, ...)            → None (sentinel for no-output methods)
+//
+// Parameters:
+//   - results: the Go method return values.
+//
+// Returns:
+//   - starlark.Value: the marshaled first return value (or None).
+//   - error: non-nil if the method returned an error.
 func classifyReturn(results []reflect.Value) (starlark.Value, error) {
+
 	n := len(results)
 	if n == 0 {
 		return starlark.None, nil

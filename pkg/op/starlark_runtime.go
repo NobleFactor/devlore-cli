@@ -17,7 +17,14 @@ type StarlarkRuntime struct {
 
 // NewStarlarkRuntime creates a runtime with the given configuration.
 // Receivers listed in cfg.Receivers are included when BuildReceivers is called.
+//
+// Parameters:
+//   - cfg: configuration specifying which receivers to include.
+//
+// Returns:
+//   - *StarlarkRuntime: the initialized runtime.
 func NewStarlarkRuntime(cfg BindingConfig) *StarlarkRuntime {
+
 	included := make(map[string]bool, len(cfg.Receivers))
 	for _, name := range cfg.Receivers {
 		included[name] = true
@@ -28,32 +35,48 @@ func NewStarlarkRuntime(cfg BindingConfig) *StarlarkRuntime {
 	}
 }
 
+// region EXPORTED METHODS
+
+// region State management
+
+// Included reports whether the named provider is in the receiver set.
+//
+// Parameters:
+//   - name: the provider name to check.
+//
+// Returns:
+//   - bool: true if the provider is included in this runtime's receiver set.
+func (rt *StarlarkRuntime) Included(name string) bool {
+
+	return rt.included[name]
+}
+
+// endregion
+
+// region Behaviors
+
 // Initialize registers all providers' actions with the registry and stores the context
 // for later receiver initialization.
+//
+// Parameters:
+//   - reg: the action registry to populate.
+//   - ctx: the base execution context for provider initialization.
 func (rt *StarlarkRuntime) Initialize(reg *ActionRegistry, ctx ContextBase) {
+
 	rt.ctx = Context{ContextBase: ctx}
 	InitAll(reg, rt.ctx)
 }
 
-// BuildReceivers constructs immediate receivers for providers listed in cfg.Receivers.
-// Returns a StringDict suitable for merging into Starlark globals.
-func (rt *StarlarkRuntime) BuildReceivers() starlark.StringDict {
-	globals := starlark.StringDict{}
-	for _, p := range Providers() {
-		if !rt.included[p.Name()] {
-			continue
-		}
-		if recv := rt.buildOne(p); recv != nil {
-			globals[p.Name()] = recv
-		}
-	}
-	return globals
-}
-
 // BuildReceiver constructs a single immediate receiver by provider name.
-// Returns the receiver and true, or nil and false if the provider is not
-// found or does not implement ImmediateProvider.
+//
+// Parameters:
+//   - name: the provider name to build.
+//
+// Returns:
+//   - starlark.Value: the constructed receiver, or nil if not found.
+//   - bool: true if the provider was found and implements ImmediateProvider.
 func (rt *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
+
 	for _, p := range Providers() {
 		if p.Name() != name {
 			continue
@@ -66,13 +89,41 @@ func (rt *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
 	return nil, false
 }
 
-// Included reports whether the named provider is in the receiver set.
-func (rt *StarlarkRuntime) Included(name string) bool {
-	return rt.included[name]
+// BuildReceivers constructs immediate receivers for providers listed in cfg.Receivers.
+//
+// Returns:
+//   - starlark.StringDict: receiver map suitable for merging into Starlark globals.
+func (rt *StarlarkRuntime) BuildReceivers() starlark.StringDict {
+
+	globals := starlark.StringDict{}
+	for _, p := range Providers() {
+		if !rt.included[p.Name()] {
+			continue
+		}
+		if recv := rt.buildOne(p); recv != nil {
+			globals[p.Name()] = recv
+		}
+	}
+	return globals
 }
 
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
 // buildOne constructs an immediate receiver from a provider, injecting context if available.
+//
+// Parameters:
+//   - p: the provider to construct a receiver from.
+//
+// Returns:
+//   - starlark.Value: the constructed receiver, or nil if the provider is not immediate.
 func (rt *StarlarkRuntime) buildOne(p Provider) starlark.Value {
+
 	ip, ok := p.(ImmediateProvider)
 	if !ok {
 		return nil
@@ -83,3 +134,7 @@ func (rt *StarlarkRuntime) buildOne(p Provider) starlark.Value {
 	}
 	return recv
 }
+
+// endregion
+
+// endregion
