@@ -441,12 +441,13 @@ func prepareScriptEnv(
 	*loreStar.PackageContext,
 	error, //nolint:unparam // error return reserved for future use
 ) {
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      os.Stdout,
-		ProgramName: "lore",
-		Color:       true,
-		Receivers:   []string{"ui", "plan"},
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("lore").
+			WithGraphBuilder().
+			WithReceivers("ui").
+			WithWriter(os.Stdout).
+			WithColor(),
+	)
 
 	globals := rt.BuildGlobals(graph, pkg.Name, reg)
 
