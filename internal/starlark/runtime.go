@@ -33,7 +33,7 @@ type loaderEntry struct {
 //
 // Returns:
 //   - *Runtime: the initialized runtime.
-func NewRuntime(cfg op.BindingConfig) *Runtime {
+func NewRuntime(cfg *op.BindingConfig) *Runtime {
 
 	return &Runtime{
 		StarlarkRuntime: op.NewStarlarkRuntime(cfg),
@@ -74,7 +74,7 @@ func (rt *Runtime) BuildGlobals(graph *op.Graph, project string, reg *op.ActionR
 	globals := rt.BuildReceivers()
 
 	// Build "plan" if requested.
-	if rt.Included("plan") {
+	if rt.HasGraphBuilder() {
 		planned := collectPlannedProviders()
 		if len(planned) > 0 {
 			globals["plan"] = NewPlanRootFromProviders(graph, project, reg, planned)

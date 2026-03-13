@@ -29,12 +29,11 @@ import (
 func TestLoadIntegration(t *testing.T) {
 	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/172")
 
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-		Receivers:   []string{"ui"},
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithReceivers("ui").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -74,11 +73,10 @@ func TestLoadIntegration(t *testing.T) {
 
 // TestLoadIntegrationUnknownModule verifies that loading an unknown module produces a clear error.
 func TestLoadIntegrationUnknownModule(t *testing.T) {
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -106,11 +104,10 @@ func TestLoadIntegrationUnknownModule(t *testing.T) {
 
 // TestLoadIntegrationBadPrefix verifies that a non-@devlore// load fails.
 func TestLoadIntegrationBadPrefix(t *testing.T) {
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()

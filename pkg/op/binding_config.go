@@ -3,27 +3,103 @@
 
 package op
 
-import "io"
+import (
+	"io"
+	"os"
+)
 
 // BindingConfig holds configuration for constructing Starlark bindings.
-// Passed to ImmediateProvider.NewImmediate so immediate receivers can write
-// output and identify the running program.
+// Use [NewBindingConfig] to create, then chain With* methods:
+//
+//	cfg := op.NewBindingConfig("lore").
+//	    WithGraphBuilder().
+//	    WithReceivers("ui", "file").
+//	    WithColor()
 type BindingConfig struct {
-	// Writer is the output destination for immediate receivers (e.g., ui.note).
-	Writer io.Writer
-
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
 	ProgramName string
 
+	// Receivers lists the Starlark namespaces to expose as globals.
+	// Provider names (e.g., "file", "ui") include their immediate receivers.
+	Receivers []string
+
+	// GraphBuilder enables the plan.* graph namespace (PlanRoot).
+	GraphBuilder bool
+
+	// Writer is the output destination for immediate receivers (e.g., ui.note).
+	// Defaults to os.Stderr.
+	Writer io.Writer
+
 	// Color enables ANSI color codes in output.
 	Color bool
-
-	// Platform provides platform abstractions (package manager, service manager)
-	// for providers that need them in immediate mode.
-	Platform *Platform
-
-	// Receivers lists the Starlark namespaces to expose as globals.
-	// "plan" includes the PlanRoot aggregate; provider names (e.g., "file", "ui")
-	// include their immediate receivers.
-	Receivers []string
 }
+
+// NewBindingConfig creates a BindingConfig with the given program name.
+// Writer defaults to os.Stderr.
+//
+// Parameters:
+//   - programName: the name of the running tool (e.g., "lore", "writ").
+//
+// Returns:
+//   - *BindingConfig: the initialized config.
+func NewBindingConfig(programName string) *BindingConfig {
+
+	return &BindingConfig{
+		ProgramName: programName,
+		Writer:      os.Stderr,
+	}
+}
+
+// region EXPORTED METHODS
+
+// region State management
+
+// WithGraphBuilder enables the plan.* graph namespace in the runtime.
+//
+// Returns:
+//   - *BindingConfig: the config for method chaining.
+func (c *BindingConfig) WithGraphBuilder() *BindingConfig {
+
+	c.GraphBuilder = true
+	return c
+}
+
+// WithReceivers sets the Starlark namespaces to expose as globals.
+//
+// Parameters:
+//   - names: the receiver names to expose.
+//
+// Returns:
+//   - *BindingConfig: the config for method chaining.
+func (c *BindingConfig) WithReceivers(names ...string) *BindingConfig {
+
+	c.Receivers = names
+	return c
+}
+
+// WithWriter sets the output destination for immediate receivers.
+//
+// Parameters:
+//   - w: the output writer.
+//
+// Returns:
+//   - *BindingConfig: the config for method chaining.
+func (c *BindingConfig) WithWriter(w io.Writer) *BindingConfig {
+
+	c.Writer = w
+	return c
+}
+
+// WithColor enables ANSI color codes in output.
+//
+// Returns:
+//   - *BindingConfig: the config for method chaining.
+func (c *BindingConfig) WithColor() *BindingConfig {
+
+	c.Color = true
+	return c
+}
+
+// endregion
+
+// endregion

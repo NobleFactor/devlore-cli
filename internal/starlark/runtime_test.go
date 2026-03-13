@@ -74,11 +74,10 @@ func (p *rtTestCountingImmProvider) NewImmediate(_ op.BindingConfig) starlark.Va
 func TestRuntimeRegisterActions(t *testing.T) {
 	op.Announce(&rtTestActionProvider{actionName: "_test_actions.do"})
 
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	reg := op.NewActionRegistry()
 	rt.RegisterActions(reg, op.Context{})
@@ -92,11 +91,10 @@ func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 	op.Announce(&rtTestAllActsProvider{})
 
 	// No Receivers — but actions should still be registered.
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	reg := op.NewActionRegistry()
 	rt.RegisterActions(reg, op.Context{})
@@ -110,23 +108,23 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	op.Announce(&rtTestPlannedProvider{name: "_test_plan2"})
 	op.Announce(&rtTestImmediateProvider{name: "_test_imm2"})
 
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-		Receivers:   []string{"plan", "_test_imm2"},
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithGraphBuilder().
+			WithReceivers("_test_imm2").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
 	globals := rt.BuildGlobals(graph, "test-project", reg)
 
-	// "plan" should be present (requested via Receivers).
+	// "plan" should be present (requested via WithGraphBuilder).
 	if _, ok := globals["plan"]; !ok {
 		t.Error("expected 'plan' in globals")
 	}
 
-	// "_test_imm2" should be present (requested via Receivers).
+	// "_test_imm2" should be present (requested via WithReceivers).
 	if _, ok := globals["_test_imm2"]; !ok {
 		t.Error("expected '_test_imm2' in globals")
 	}
@@ -149,12 +147,11 @@ func TestRuntimeBuildGlobalsOnlyIncludesReceivers(t *testing.T) {
 	op.Announce(&rtTestImmediateProvider{name: "_test_not_included"})
 
 	// Don't include "_test_not_included" in Receivers.
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-		Receivers:   []string{"ui"},
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithReceivers("ui").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -164,20 +161,19 @@ func TestRuntimeBuildGlobalsOnlyIncludesReceivers(t *testing.T) {
 		t.Error("expected '_test_not_included' to NOT be in globals (not in Receivers)")
 	}
 
-	// plan should also not be present (not in Receivers).
+	// plan should also not be present (WithGraphBuilder not called).
 	if _, ok := globals["plan"]; ok {
-		t.Error("expected 'plan' to NOT be in globals (not in Receivers)")
+		t.Error("expected 'plan' to NOT be in globals (WithGraphBuilder not called)")
 	}
 }
 
 func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 	op.Announce(&rtTestImmediateProvider{name: "_test_loadable"})
 
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -203,11 +199,10 @@ func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 }
 
 func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -221,11 +216,10 @@ func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
 }
 
 func TestRuntimeLoaderRejectsUnknownProvider(t *testing.T) {
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -242,11 +236,10 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 	callCount := 0
 	op.Announce(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
 
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
@@ -265,11 +258,10 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 	op.Announce(&rtTestPlannedProvider{name: "_test_plan_load"})
 
-	rt := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      &bytes.Buffer{},
-		ProgramName: "test",
-		Color:       false,
-	})
+	rt := loreStar.NewRuntime(
+		op.NewBindingConfig("test").
+			WithWriter(&bytes.Buffer{}),
+	)
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()

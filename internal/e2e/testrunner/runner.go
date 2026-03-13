@@ -74,6 +74,7 @@ func WithWriter(w io.Writer) Option {
 }
 
 // WithReceivers sets the Starlark namespaces to expose as globals.
+// If "plan" is included, it is extracted and handled via WithGraphBuilder.
 //
 // Parameters:
 //   - names: the receiver names to expose.
@@ -81,18 +82,35 @@ func WithWriter(w io.Writer) Option {
 // Returns:
 //   - Option: a runner option that sets the receiver list.
 func WithReceivers(names ...string) Option {
-	return func(r *Runner) { r.receivers = names }
+	return func(r *Runner) {
+		for _, name := range names {
+			if name == "plan" {
+				r.withGraphBuilder = true
+			} else {
+				r.receivers = append(r.receivers, name)
+			}
+		}
+	}
+}
+
+// WithGraphBuilder enables the plan.* graph namespace.
+//
+// Returns:
+//   - Option: a runner option that enables the graph builder.
+func WithGraphBuilder() Option {
+	return func(r *Runner) { r.withGraphBuilder = true }
 }
 
 // Runner orchestrates a single test script execution.
 type Runner struct {
-	script    string
-	dryRun    bool
-	trace     bool
-	provider  string
-	writer    io.Writer
-	receivers []string
-	graph     *op.Graph
+	script           string
+	dryRun           bool
+	trace            bool
+	provider         string
+	writer           io.Writer
+	receivers        []string
+	withGraphBuilder bool
+	graph            *op.Graph
 }
 
 // Graph returns the execution graph after Start completes. Returns nil before Start is called.
@@ -139,11 +157,13 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	defer os.RemoveAll(tmpDir)
 
 	// 2. Create Runtime with requested receivers
-	bs := loreStar.NewRuntime(op.BindingConfig{
-		Writer:      r.writer,
-		ProgramName: "devlore-test",
-		Receivers:   r.receivers,
-	})
+	cfg := op.NewBindingConfig("devlore-test").
+		WithReceivers(r.receivers...).
+		WithWriter(r.writer)
+	if r.withGraphBuilder {
+		cfg.WithGraphBuilder()
+	}
+	bs := loreStar.NewRuntime(cfg)
 
 	// 3. Create ActionRegistry with all provider actions
 	reg := op.NewActionRegistry()

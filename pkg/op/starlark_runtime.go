@@ -10,7 +10,7 @@ import "go.starlark.net/starlark"
 // External consumers (e.g., noblefactor-ops) use this to obtain framework-managed receivers
 // without hand-coding receiver construction.
 type StarlarkRuntime struct {
-	cfg      BindingConfig
+	cfg      *BindingConfig
 	included map[string]bool
 	ctx      Context // stored by Initialize for receiver context injection
 }
@@ -23,7 +23,7 @@ type StarlarkRuntime struct {
 //
 // Returns:
 //   - *StarlarkRuntime: the initialized runtime.
-func NewStarlarkRuntime(cfg BindingConfig) *StarlarkRuntime {
+func NewStarlarkRuntime(cfg *BindingConfig) *StarlarkRuntime {
 
 	included := make(map[string]bool, len(cfg.Receivers))
 	for _, name := range cfg.Receivers {
@@ -49,6 +49,15 @@ func NewStarlarkRuntime(cfg BindingConfig) *StarlarkRuntime {
 func (rt *StarlarkRuntime) Included(name string) bool {
 
 	return rt.included[name]
+}
+
+// HasGraphBuilder reports whether the plan.* graph namespace is enabled.
+//
+// Returns:
+//   - bool: true if the graph builder is included.
+func (rt *StarlarkRuntime) HasGraphBuilder() bool {
+
+	return rt.cfg.GraphBuilder
 }
 
 // endregion
@@ -128,7 +137,7 @@ func (rt *StarlarkRuntime) buildOne(p Provider) starlark.Value {
 	if !ok {
 		return nil
 	}
-	recv := ip.NewImmediate(rt.cfg)
+	recv := ip.NewImmediate(*rt.cfg)
 	if rr, ok := recv.(*ReflectedReceiver); ok && rt.ctx.Root != nil {
 		rr.SetContext(rt.ctx)
 	}
