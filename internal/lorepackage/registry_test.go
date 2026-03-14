@@ -199,12 +199,12 @@ func TestGitProvider_BranchAccessors(t *testing.T) {
 
 func TestRegistry_SyncIntegration(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		t.Fatalf("requires full test mode: run without -short flag")
 	}
 
 	// Skip if no network
 	if os.Getenv("SKIP_NETWORK_TESTS") != "" {
-		t.Skip("skipping network test")
+		t.Fatalf("requires network access: unset SKIP_NETWORK_TESTS")
 	}
 
 	// Use temp directory for test cache

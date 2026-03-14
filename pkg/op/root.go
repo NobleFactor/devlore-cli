@@ -69,6 +69,15 @@ func (p Path) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON deserializes {root, rel} and derives Abs.
+//
+// Pointer receiver is required by the json.Unmarshaler contract — the method must mutate the receiver to populate
+// fields from the JSON bytes. All other Path methods use value receivers since Path is an immutable value type.
+//
+// Parameters:
+//   - data: the JSON bytes to decode.
+//
+// Returns:
+//   - error: non-nil if the JSON is malformed.
 func (p *Path) UnmarshalJSON(data []byte) error {
 
 	var wire struct {

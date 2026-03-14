@@ -11,13 +11,13 @@ import (
 
 func TestAvailable(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 }
 
 func TestVersion(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	ver, err := Version()
@@ -32,7 +32,7 @@ func TestVersion(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	s, err := New()
@@ -53,7 +53,7 @@ func TestRun(t *testing.T) {
 
 func TestVariablePersistence(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	s, err := New()
@@ -78,7 +78,7 @@ func TestVariablePersistence(t *testing.T) {
 
 func TestSet(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	s, err := New()
@@ -100,7 +100,7 @@ func TestSet(t *testing.T) {
 
 func TestAudit(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	var buf bytes.Buffer
@@ -123,7 +123,7 @@ func TestAudit(t *testing.T) {
 
 func TestHistory(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	s, err := New()
@@ -143,7 +143,7 @@ func TestHistory(t *testing.T) {
 
 func TestFailingCommand(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	s, err := New()
@@ -164,7 +164,7 @@ func TestFailingCommand(t *testing.T) {
 
 func TestScript(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	s, err := New()
@@ -189,7 +189,7 @@ func TestScript(t *testing.T) {
 
 func TestScriptStopsOnFailure(t *testing.T) {
 	if !Available() {
-		t.Skip("PowerShell not installed")
+		t.Fatalf("requires PowerShell: install pwsh (brew install powershell or https://github.com/PowerShell/PowerShell)")
 	}
 
 	s, err := New()

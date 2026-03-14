@@ -29,7 +29,6 @@ func testdataDir(t *testing.T) string {
 // count, index, stats, analyze.
 // The script sets result_* globals which this test inspects.
 func TestIntegrationEndToEnd(t *testing.T) {
-	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/173")
 	root := testdataDir(t)
 
 	// Create receiver exactly as init() would, but pointing at testdata

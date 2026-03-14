@@ -35,8 +35,9 @@ type ExecutingReceiver struct {
 
 // methodBridge pairs a snake_case method name with its Starlark bridge function.
 type methodBridge struct {
-	name   string
-	bridge builtinFunc
+	name     string
+	bridge   builtinFunc
+	property bool // true for 0-param methods with primitive returns — called eagerly in Attr
 }
 
 // WrapProviderInExecutingReceiver wraps a Go struct for immediate-mode Starlark use.
@@ -80,9 +81,16 @@ func WrapProviderInExecutingReceiver(factory ReceiverFactory, provider any) *Exe
 
 		snakeName := camelToSnake(m.Name)
 		bridge := buildMethodBridge(name, rv, m, snakeName, paramNames, r)
+
+		// Property detection: 0 user params and the first return type is a
+		// primitive (not a struct/pointer-to-struct). Properties are called
+		// eagerly in Attr instead of returning a callable.
+		isProperty := len(paramNames) == 0 && isPrimitiveReturn(m.Type)
+
 		r.methods[snakeName] = &methodBridge{
-			name:   snakeName,
-			bridge: bridge,
+			name:     snakeName,
+			bridge:   bridge,
+			property: isProperty,
 		}
 	}
 
@@ -143,10 +151,16 @@ func (r *ExecutingReceiver) SetStack(s *RecoveryStack) { r.stack = s }
 //   - error: non-nil if the attribute does not exist.
 func (r *ExecutingReceiver) Attr(name string) (starlark.Value, error) {
 
-	if m, ok := r.methods[name]; ok {
-		return starlark.NewBuiltin(r.receiver.name+"."+name, m.bridge), nil
+	m, ok := r.methods[name]
+	if !ok {
+		return nil, NoSuchAttrError(r.receiver.name, name)
 	}
-	return nil, NoSuchAttrError(r.receiver.name, name)
+	if m.property {
+		// Properties are called eagerly — invoke the bridge with no args
+		// and return the result directly.
+		return m.bridge(nil, nil, nil, nil)
+	}
+	return starlark.NewBuiltin(r.receiver.name+"."+name, m.bridge), nil
 }
 
 // AttrNames implements starlark.HasAttrs.
@@ -183,6 +197,30 @@ func (r *ExecutingReceiver) Override(name string, fn builtinFunc) {
 // endregion
 
 // region UNEXPORTED METHODS
+
+// isPrimitiveReturn reports whether a method's first non-error return type is a primitive Go type (not a struct or
+// pointer-to-struct). Used for property detection.
+//
+// Parameters:
+//   - mt: the method's reflect.Type.
+//
+// Returns:
+//   - bool: true if the first return type is a primitive.
+func isPrimitiveReturn(mt reflect.Type) bool {
+
+	if mt.NumOut() == 0 {
+		return false
+	}
+	rt := mt.Out(0)
+	// Skip receiver (index 0 is the first actual return for Type.Out)
+	if rt.Implements(errorType) && mt.NumOut() == 1 {
+		return false // only returns error — not a property
+	}
+	for rt.Kind() == reflect.Pointer {
+		rt = rt.Elem()
+	}
+	return rt.Kind() != reflect.Struct
+}
 
 // buildMethodBridge creates a builtinFunc that bridges a Go method to Starlark.
 // The receiver parameter provides optional catalog/stack integration —

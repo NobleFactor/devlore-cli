@@ -42,6 +42,7 @@ GEN_TEMPLATE_FILES = {
     "actions_test": "gen/actions_gen_test.go",
     "receiver_test": "gen/receiver_gen_test.go",
     "resource": "gen/resource.gen.go",
+    # dependent_type uses dynamic filenames: gen/<type_snake>.gen.go
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
@@ -51,6 +52,7 @@ LOCAL_TEMPLATES = {
     "actions_test": "actions_gen_test.go.template",
     "receiver_test": "receiver_gen_test.go.template",
     "resource": "resource.gen.go.template",
+    "dependent_type": "dependent_type.gen.go.template",
 }
 
 # Known BindingConfig fields and their zero values.
@@ -885,11 +887,21 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     # -------------------------------------------------------------------------
     # Dependent type receivers (gen/<type_snake>.gen.go)
     # -------------------------------------------------------------------------
-    # TODO: Dependent type wrappers (e.g., Sources) need a dedicated template.
-    # The old immediate_receiver template was removed; these types are not
-    # ReceiverFactories and need their own codegen path.
-    if dependent_types:
-        ui.note("Skipping %d dependent type(s) — template not yet implemented" % len(dependent_types))
+    for type_name in dependent_types:
+        type_snake = to_snake(type_name)
+        dep_descs = dependent_descriptors.get(type_name, [])
+        dep_desc = {
+            "package": pkg,
+            "provider": provider,
+            "provider_import": provider_import,
+            "provider_type_prefix": "provider.",
+            "type_name": type_name,
+            "starlark_name": type_snake,
+            "methods": dep_descs,
+        }
+        dep_filename = "gen/" + type_snake + ".gen.go"
+        gen_file(ctx, "dependent_type", dep_desc, dep_filename,
+                 type_name, len(dep_descs), output_dir, write_files)
 
     # Struct converters are no longer generated — op.Marshal handles all
     # struct-to-Starlark conversion via reflection.

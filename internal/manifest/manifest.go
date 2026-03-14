@@ -283,7 +283,7 @@ func (m *PackagesManifest) PackageNames() []string {
 }
 
 // String returns a human-readable representation of the package entry.
-func (e PackageEntry) String() string {
+func (e *PackageEntry) String() string {
 	if len(e.With) == 0 {
 		return e.Name
 	}
