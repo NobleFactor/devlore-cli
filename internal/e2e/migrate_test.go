@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+//go:build e2e
+
 package e2e
 
 import (
@@ -87,20 +89,17 @@ func loadMigrateFixtures(t *testing.T) []MigrateFixture {
 }
 
 // TestMigrate_E2E runs end-to-end tests for writ migrate.
-// This test is skipped unless E2E_TEST=1 is set, as it requires LLM providers.
-// ReceiverFactory configuration uses devlore's standard resolution chain:
+// Requires LLM providers. Opt in with: go test -tags e2e
+// Provider configuration uses devlore's standard resolution chain:
 // CLI flags → DEVLORE_MODEL_* env → config file → keystore → auto-detect → Ollama
 func TestMigrate_E2E(t *testing.T) {
-	if os.Getenv("E2E_TEST") != "1" {
-		t.Skip("E2E_TEST=1 not set, skipping E2E tests")
-	}
 
 	ctx := context.Background()
 
 	// Get provider using devlore's standard configuration
 	provider, skipReason := GetTestProvider(ctx)
 	if provider == nil {
-		t.Skipf("skipping E2E tests: %s", skipReason)
+		t.Fatalf("E2E test environment not ready: %s", skipReason)
 	}
 	t.Logf("Using provider: %s (%s)", provider.Name(), provider.Model())
 

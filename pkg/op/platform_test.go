@@ -33,7 +33,7 @@ func TestNewPlatform_PackageManager(t *testing.T) {
 	p := NewPlatform()
 	pm := p.PackageManager
 	if pm == nil {
-		t.Skip("no package manager detected on this system")
+		t.Fatalf("requires a package manager: install brew (macOS) or apt (Linux)")
 	}
 	if pm.Name() == "" {
 		t.Error("expected PackageManager.ReceiverName() to return non-empty string")
@@ -43,7 +43,7 @@ func TestNewPlatform_PackageManager(t *testing.T) {
 func TestNewPlatform_ServiceManager(t *testing.T) {
 	p := NewPlatform()
 	if p.ServiceManager == nil {
-		t.Skip("no service manager detected on this system")
+		t.Fatalf("requires a service manager: install brew services (macOS) or systemd (Linux)")
 	}
 }
 
@@ -113,7 +113,7 @@ func TestSearchResultStruct(t *testing.T) {
 func TestGetPackageManager(t *testing.T) {
 	p := NewPlatform()
 	if p.PackageManager == nil {
-		t.Skip("no package manager detected")
+		t.Fatalf("requires a package manager: install brew (macOS) or apt (Linux)")
 	}
 
 	name := p.PackageManager.Name()

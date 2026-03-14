@@ -17,7 +17,7 @@ import (
 func TestExpandTilde(t *testing.T) {
 	home := os.Getenv("HOME")
 	if home == "" {
-		t.Skip("HOME not set")
+		t.Fatalf("requires HOME environment variable to be set")
 	}
 
 	tests := []struct {

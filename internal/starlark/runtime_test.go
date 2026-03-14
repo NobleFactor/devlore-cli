@@ -30,7 +30,7 @@ func (p *rtTestActionProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestActionProvider)(nil)).Elem()
 }
 func (p *rtTestActionProvider) Register(reg *op.ActionRegistry, _ op.Context) {
-	reg.Register(testAction{name: p.actionName})
+	reg.Register(&testAction{name: p.actionName})
 }
 
 // rtTestAllActsProvider registers a single test action (for the "always registers all" test).
@@ -42,7 +42,7 @@ func (p *rtTestAllActsProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestAllActsProvider)(nil)).Elem()
 }
 func (p *rtTestAllActsProvider) Register(reg *op.ActionRegistry, _ op.Context) {
-	reg.Register(testAction{name: "_test_all_acts.do"})
+	reg.Register(&testAction{name: "_test_all_acts.do"})
 }
 
 // rtTestPlannedProvider implements PlanningReceiverFactory.
@@ -309,8 +309,8 @@ func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 // testAction is a minimal Action for testing registration.
 type testAction struct{ name string }
 
-func (a testAction) Name() string           { return a.name }
-func (a testAction) Params() []op.ParamInfo { return nil }
-func (a testAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
+func (a *testAction) Name() string           { return a.name }
+func (a *testAction) Params() []op.ParamInfo { return nil }
+func (a *testAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
 	return nil, nil, nil
 }

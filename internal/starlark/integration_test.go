@@ -27,7 +27,6 @@ import (
 //  4. Providers not in With() are not in globals
 //  5. Loader cache deduplicates factory calls
 func TestLoadIntegration(t *testing.T) {
-	t.Skip("blocked on dependent type wrapper for Sources — Phase 6 remainder")
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
@@ -35,9 +34,15 @@ func TestLoadIntegration(t *testing.T) {
 			WithWriter(&bytes.Buffer{}),
 	)
 
+	testdataDir, err := filepath.Abs("testdata")
+	if err != nil {
+		t.Fatalf("abs testdata: %v", err)
+	}
+
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
-	rt.RegisterActions(reg, op.Context{})
+	ctx := op.Context{ContextBase: op.ContextBase{Root: op.NewRootReader(testdataDir)}}
+	rt.RegisterActions(reg, ctx)
 	globals := rt.BuildGlobals(graph, "test-project", reg)
 
 	thread := &starlark.Thread{
