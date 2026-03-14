@@ -222,19 +222,32 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 		return nil, fmt.Errorf("hydrating graph: %w", err)
 	}
 
-	// 12. Wrap nodes in a single phase for saga-pattern compensation.
-	//     Without phases, runFlat executes but does not unwind the recovery
-	//     stack on failure. Wrapping gives us RunPhased semantics.
-	if len(graph.Phases) == 0 && len(graph.Nodes) > 0 {
-		phase := &op.Phase{
+	// 12. Wrap unphased nodes in a main phase for saga-pattern compensation.
+	//     Nodes created by choose-branch lambdas already belong to branch
+	//     phases; the remaining nodes (predicates, choose, top-level actions)
+	//     must be wrapped so the executor runs them and choose can dispatch
+	//     branch phases internally.
+	phasedNodes := make(map[string]bool)
+	for _, ph := range graph.Phases {
+		for _, id := range ph.NodeIDs {
+			phasedNodes[id] = true
+		}
+	}
+	var mainNodeIDs []string
+	for _, n := range graph.Nodes {
+		if !phasedNodes[n.ID] {
+			mainNodeIDs = append(mainNodeIDs, n.ID)
+		}
+	}
+	if len(mainNodeIDs) > 0 {
+		mainPhase := &op.Phase{
 			ID:     "phase.test",
 			Name:   "test",
 			Status: op.PhasePending,
 		}
-		for _, n := range graph.Nodes {
-			phase.NodeIDs = append(phase.NodeIDs, n.ID)
-		}
-		graph.Phases = []*op.Phase{phase}
+		mainPhase.NodeIDs = mainNodeIDs
+		// Prepend main phase so it runs before branch phases.
+		graph.Phases = append([]*op.Phase{mainPhase}, graph.Phases...)
 	}
 
 	// 13. Execute graph

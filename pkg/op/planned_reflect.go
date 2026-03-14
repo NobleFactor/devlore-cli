@@ -132,10 +132,14 @@ func buildPlannedBridge(
 	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		// 1. Unpack args as raw starlark.Value (slots store Starlark
 		//    values for deferred execution — NOT Go types).
+		//    Handle variadic params (*name) by stripping the prefix for
+		//    UnpackArgs and collecting them separately.
 		vals := make([]starlark.Value, len(paramNames))
 		pairs := make([]any, 0, len(paramNames)*2)
 		for i, name := range paramNames {
-			pairs = append(pairs, name, &vals[i])
+			clean := strings.TrimPrefix(strings.TrimSuffix(name, "?"), "*")
+			pairs = append(pairs, strings.TrimPrefix(name, "*"), &vals[i])
+			_ = clean // used below in slot filling
 		}
 		if err := starlark.UnpackArgs(snakeName, args, kwargs, pairs...); err != nil {
 			return nil, err

@@ -130,6 +130,7 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 		ID:     branchPhaseID,
 		Name:   "choose-branch",
 		Status: op.PhasePending,
+		Branch: true,
 	}
 	for i := nodesBefore; i < len(p.graph.Nodes); i++ {
 		branchPhase.NodeIDs = append(branchPhase.NodeIDs, p.graph.Nodes[i].ID)

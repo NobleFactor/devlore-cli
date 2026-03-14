@@ -52,6 +52,11 @@ type Phase struct {
 	// State holds execution metadata captured during the forward action.
 	// The compensating action reads this to know what to undo.
 	State map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
+
+	// Branch marks this phase as a conditional branch owned by a choose action.
+	// Branch phases are not executed directly by the top-level executor; they
+	// are dispatched by the choose action's Do method.
+	Branch bool `json:"branch,omitempty" yaml:"branch,omitempty"`
 }
 
 // Attempt records one execution attempt of a phase.
