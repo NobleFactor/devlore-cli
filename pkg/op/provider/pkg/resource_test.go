@@ -14,10 +14,10 @@ func init() { op.RegisterConstructor(ResourceFromValue) }
 func TestNewResource(t *testing.T) {
 	r := NewResource("jq")
 	if r.Name != "jq" {
-		t.Errorf("Name = %q, want %q", r.Name, "jq")
+		t.Errorf("ReceiverName = %q, want %q", r.Name, "jq")
 	}
 	if r.Type != "" {
-		t.Errorf("Type = %q, want empty", r.Type)
+		t.Errorf("ProviderType = %q, want empty", r.Type)
 	}
 	if r.Version != "" {
 		t.Errorf("Version = %q, want empty", r.Version)
@@ -27,10 +27,10 @@ func TestNewResource(t *testing.T) {
 func TestNewTypedResource(t *testing.T) {
 	r := NewTypedResource("jq", "brew")
 	if r.Name != "jq" {
-		t.Errorf("Name = %q, want %q", r.Name, "jq")
+		t.Errorf("ReceiverName = %q, want %q", r.Name, "jq")
 	}
 	if r.Type != "brew" {
-		t.Errorf("Type = %q, want %q", r.Type, "brew")
+		t.Errorf("ProviderType = %q, want %q", r.Type, "brew")
 	}
 }
 
@@ -135,6 +135,6 @@ func TestConstructorRoundTrip(t *testing.T) {
 		t.Fatalf("Construct: %v", err)
 	}
 	if r.Name != "nginx" {
-		t.Errorf("Name = %q, want %q", r.Name, "nginx")
+		t.Errorf("ReceiverName = %q, want %q", r.Name, "nginx")
 	}
 }

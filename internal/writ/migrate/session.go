@@ -20,7 +20,6 @@ import (
 
 	// Blank import triggers init() in all provider packages.
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
 // SessionState represents a state in the migration session.
@@ -306,7 +305,7 @@ func (s *Session) processConversation(input string) error {
    The migration will perform the following renames:
    [list the renames]
 
-   Type "approve" to execute or continue refining.
+   ProviderType "approve" to execute or continue refining.
 
 ## Available Modifications
 - ADD_RENAME: Add a directory rename (source -> target)
@@ -506,8 +505,7 @@ func (s *Session) processPlanResponse(input string) error {
 func (s *Session) executeStep() *console.Step {
 	// Execute the graph
 	opts := execution.ExecutorOptions{
-		DryRun:   false,
-		Platform: platform.New(),
+		DryRun: false,
 	}
 	eng := execution.NewGraphExecutor(opts)
 
@@ -612,7 +610,7 @@ func (s *Session) handleSlashCommand(cmd string) error {
 		s.state = StateComplete
 
 	default:
-		s.aiResponse = fmt.Sprintf("Unknown command: %s\n\nType /help for available commands.", cmd)
+		s.aiResponse = fmt.Sprintf("Unknown command: %s\n\nProviderType /help for available commands.", cmd)
 		if s.state != StateConversing {
 			s.state = StateConversing
 		}

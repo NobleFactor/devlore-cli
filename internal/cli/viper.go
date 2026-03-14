@@ -49,7 +49,7 @@ type ViperConfig struct {
 //   - Dots become underscores, keys are case-insensitive
 func InitViper(cfg ViperConfig) error {
 	if cfg.Name == "" {
-		return fmt.Errorf("ViperConfig.Name is required")
+		return fmt.Errorf("ViperConfig.ReceiverName is required")
 	}
 
 	if cfg.EnvPrefix == "" {

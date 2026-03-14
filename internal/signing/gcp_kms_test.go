@@ -286,7 +286,7 @@ func TestNewGCPKMSSigner(t *testing.T) {
 func TestGCPKMSSigner_Name(t *testing.T) {
 	signer := NewGCPKMSSigner("projects/p/locations/l/keyRings/r/cryptoKeys/k")
 	if signer.Name() != "gcp_kms" {
-		t.Errorf("Name() = %q, want %q", signer.Name(), "gcp_kms")
+		t.Errorf("ReceiverName() = %q, want %q", signer.Name(), "gcp_kms")
 	}
 }
 

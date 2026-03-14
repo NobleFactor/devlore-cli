@@ -84,7 +84,7 @@ func TestOutputFlags_Set_MissingEquals(t *testing.T) {
 func TestOutputFlags_Type(t *testing.T) {
 	of := &outputFlags{}
 	if got := of.Type(); got != "stream=dest" {
-		t.Errorf("Type() = %q, want \"stream=dest\"", got)
+		t.Errorf("ProviderType() = %q, want \"stream=dest\"", got)
 	}
 }
 

@@ -27,7 +27,7 @@ func TestReceiverString(t *testing.T) {
 func TestReceiverType(t *testing.T) {
 	r := newReceiver("pkg.receiver")
 	if got := r.Type(); got != "pkg.receiver" {
-		t.Errorf("Type() = %q, want %q", got, "pkg.receiver")
+		t.Errorf("ProviderType() = %q, want %q", got, "pkg.receiver")
 	}
 }
 
@@ -55,21 +55,17 @@ func TestReceiverFreeze(t *testing.T) {
 	r.Freeze()
 }
 
-func TestMakeAttr(t *testing.T) {
+func TestBuiltinFunc(t *testing.T) {
 	called := false
 	fn := func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
 		called = true
 		return starlark.None, nil
 	}
-	attr := MakeAttr("do_thing", fn)
-	builtin, ok := attr.(*starlark.Builtin)
-	if !ok {
-		t.Fatalf("MakeAttr returned %T, want *starlark.Builtin", attr)
-	}
+	builtin := starlark.NewBuiltin("do_thing", fn)
 	if builtin.Name() != "do_thing" {
-		t.Errorf("builtin.Name() = %q, want %q", builtin.Name(), "do_thing")
+		t.Errorf("builtin.ReceiverName() = %q, want %q", builtin.Name(), "do_thing")
 	}
-	// Invoke the builtin to verify the function is wired up
+	// Invoke the builtin to verify the function is wired up.
 	_, err := builtin.CallInternal(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("calling builtin: %v", err)

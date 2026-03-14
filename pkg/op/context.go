@@ -20,6 +20,9 @@ type ContextBase struct {
 	// Created by the executor or test runner; closed after execution completes.
 	Root Root
 
+	// ProgramName identifies the running tool (e.g., "lore", "writ").
+	ProgramName string
+
 	// DryRun prevents filesystem modifications when true.
 	DryRun bool
 
@@ -33,6 +36,20 @@ type ContextBase struct {
 	// Data holds tool-provided context: template variables, SOPS config, identities, segment maps, etc. Each tool
 	// populates this before calling GraphExecutor.Run().
 	Data map[string]any
+}
+
+// NewContextBase returns a [ContextBase] with the [Platform] auto-detected from the host OS.
+//
+// Parameters:
+//   - root: the filesystem root for scoped I/O operations.
+//
+// Returns:
+//   - ContextBase: a context base with platform initialized.
+func NewContextBase(root Root) ContextBase {
+	return ContextBase{
+		Platform: NewPlatform(),
+		Root:     root,
+	}
 }
 
 // Context provides execution context to actions.

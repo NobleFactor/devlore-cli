@@ -551,7 +551,7 @@ func TestGraph_PhaseByID(t *testing.T) {
 				t.Fatalf("PhaseByID(%q) = nil, want phase %q", tt.phaseID, tt.want)
 			}
 			if p.Name != tt.want {
-				t.Errorf("PhaseByID(%q).Name = %q, want %q", tt.phaseID, p.Name, tt.want)
+				t.Errorf("PhaseByID(%q).ReceiverName = %q, want %q", tt.phaseID, p.Name, tt.want)
 			}
 		})
 	}
@@ -686,7 +686,7 @@ func TestGitStyleChecksum_DifferentInputs(t *testing.T) {
 func TestStubAction_Name(t *testing.T) {
 	a := StubAction("file.link")
 	if a.Name() != "file.link" {
-		t.Errorf("Name() = %q, want %q", a.Name(), "file.link")
+		t.Errorf("ReceiverName() = %q, want %q", a.Name(), "file.link")
 	}
 }
 

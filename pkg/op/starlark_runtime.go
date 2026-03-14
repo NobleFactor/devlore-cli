@@ -6,7 +6,7 @@ package op
 import "go.starlark.net/starlark"
 
 // StarlarkRuntime manages an immediate-mode Starlark scripting runtime using announced
-// providers. Receivers listed in BindingConfig.Receivers are constructed as Starlark globals.
+// receivers. Receivers listed in BindingConfig.Receivers are constructed as Starlark globals.
 // External consumers (e.g., noblefactor-ops) use this to obtain framework-managed receivers
 // without hand-coding receiver construction.
 type StarlarkRuntime struct {
@@ -26,8 +26,8 @@ type StarlarkRuntime struct {
 func NewStarlarkRuntime(cfg *BindingConfig) *StarlarkRuntime {
 
 	included := make(map[string]bool, len(cfg.Receivers))
-	for _, name := range cfg.Receivers {
-		included[name] = true
+	for _, p := range cfg.Receivers {
+		included[p.ReceiverName()] = true
 	}
 	return &StarlarkRuntime{
 		cfg:      cfg,
@@ -83,11 +83,11 @@ func (rt *StarlarkRuntime) Initialize(reg *ActionRegistry, ctx ContextBase) {
 //
 // Returns:
 //   - starlark.Value: the constructed receiver, or nil if not found.
-//   - bool: true if the provider was found and implements ImmediateProvider.
+//   - bool: true if the provider was found and implements ExecutingReceiverFactory.
 func (rt *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
 
 	for _, p := range Providers() {
-		if p.Name() != name {
+		if p.ReceiverName() != name {
 			continue
 		}
 		if recv := rt.buildOne(p); recv != nil {
@@ -98,7 +98,7 @@ func (rt *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
 	return nil, false
 }
 
-// BuildReceivers constructs immediate receivers for providers listed in cfg.Receivers.
+// BuildReceivers constructs immediate receivers for factories listed in cfg.Receivers.
 //
 // Returns:
 //   - starlark.StringDict: receiver map suitable for merging into Starlark globals.
@@ -106,11 +106,11 @@ func (rt *StarlarkRuntime) BuildReceivers() starlark.StringDict {
 
 	globals := starlark.StringDict{}
 	for _, p := range Providers() {
-		if !rt.included[p.Name()] {
+		if !rt.included[p.ReceiverName()] {
 			continue
 		}
 		if recv := rt.buildOne(p); recv != nil {
-			globals[p.Name()] = recv
+			globals[p.ReceiverName()] = recv
 		}
 	}
 	return globals
@@ -131,14 +131,14 @@ func (rt *StarlarkRuntime) BuildReceivers() starlark.StringDict {
 //
 // Returns:
 //   - starlark.Value: the constructed receiver, or nil if the provider is not immediate.
-func (rt *StarlarkRuntime) buildOne(p Provider) starlark.Value {
+func (rt *StarlarkRuntime) buildOne(p ReceiverFactory) starlark.Value {
 
-	ip, ok := p.(ImmediateProvider)
+	ip, ok := p.(ExecutingReceiverFactory)
 	if !ok {
 		return nil
 	}
-	recv := ip.NewImmediate(*rt.cfg)
-	if rr, ok := recv.(*ReflectedReceiver); ok && rt.ctx.Root != nil {
+	recv := ip.NewExecuting(rt.ctx)
+	if rr, ok := recv.(*ExecutingReceiver); ok && rt.ctx.Root != nil {
 		rr.SetContext(rt.ctx)
 	}
 	return recv

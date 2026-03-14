@@ -179,7 +179,7 @@ model:
 	if cfg.Model.Provider != "anthropic" {
 		t.Errorf("expected provider 'anthropic' (from env), got %q", cfg.Model.Provider)
 	}
-	// Name should still come from file
+	// ReceiverName should still come from file
 	if cfg.Model.Name != "llama3.1:8b" {
 		t.Errorf("expected model 'llama3.1:8b' (from file), got %q", cfg.Model.Name)
 	}
@@ -334,7 +334,7 @@ func TestModelConfig_WithDefaults(t *testing.T) {
 				t.Errorf("Provider: got %q, want %q", got.Provider, tt.expected.Provider)
 			}
 			if got.Name != tt.expected.Name {
-				t.Errorf("Name: got %q, want %q", got.Name, tt.expected.Name)
+				t.Errorf("ReceiverName: got %q, want %q", got.Name, tt.expected.Name)
 			}
 			if got.Endpoint != tt.expected.Endpoint {
 				t.Errorf("Endpoint: got %q, want %q", got.Endpoint, tt.expected.Endpoint)

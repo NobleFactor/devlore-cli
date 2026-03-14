@@ -20,7 +20,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -239,8 +238,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	registry := op.NewActionRegistry()
 	op.InitAll(registry, op.Context{})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
-		DryRun:   cfg.DryRun,
-		Platform: platform.New(),
+		DryRun: cfg.DryRun,
 	})
 
 	var lastErr error
@@ -749,7 +747,7 @@ dependencies, and deployment history for a package.
 Output is JSON by default for scripting. Use --format for alternatives.`,
 		Example: `  lore inspect docker
   lore inspect kubectl --format yaml
-  lore inspect docker --format '{{.Name}}\t{{.Version}}'`,
+  lore inspect docker --format '{{.ReceiverName}}\t{{.Version}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("inspect: not yet implemented")

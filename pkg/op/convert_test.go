@@ -33,7 +33,7 @@ func TestGoToStarlarkValue(t *testing.T) {
 				t.Fatalf("GoToStarlarkValue(%v) returned error: %v", tt.input, err)
 			}
 			if got.Type() != tt.wantType {
-				t.Errorf("GoToStarlarkValue(%v).Type() = %q, want %q", tt.input, got.Type(), tt.wantType)
+				t.Errorf("GoToStarlarkValue(%v).ProviderType() = %q, want %q", tt.input, got.Type(), tt.wantType)
 			}
 			if got.String() != tt.wantStr {
 				t.Errorf("GoToStarlarkValue(%v).String() = %q, want %q", tt.input, got.String(), tt.wantStr)

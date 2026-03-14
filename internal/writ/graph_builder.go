@@ -15,7 +15,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 )
 
 // CurrentVersion is the graph format version (delegates to op.GraphFormatVersion).
@@ -227,7 +226,6 @@ func ConfigureEngine(cfg *Config, targetRoot string) (*execution.GraphExecutor, 
 		Root:               targetRoot,
 		Data:               engineData,
 		DryRun:             cfg.DryRun,
-		Platform:           platform.New(),
 		ConflictResolution: cfg.ConflictResolution,
 	})
 

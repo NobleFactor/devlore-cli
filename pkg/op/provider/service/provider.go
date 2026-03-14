@@ -18,6 +18,10 @@ type Provider struct {
 	op.ProviderBase
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 func (p *Provider) serviceManager() (op.ServiceManager, error) {
 	plat := p.Context().Platform
 	if plat == nil || plat.ServiceManager == nil {

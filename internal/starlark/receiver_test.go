@@ -20,7 +20,7 @@ import (
 // ALLOWED: FromStringDict for data structs (platform info, result structs)
 // BANNED:  FromStringDict containing NewBuiltin values (namespace receivers)
 //
-// Every Starlark namespace must use the Receiver base type with Attr/AttrNames.
+// Every Starlark namespace must use the receiver base type with Attr/AttrNames.
 func TestNoDictBasedReceivers(t *testing.T) {
 	pkgDir := "."
 
@@ -65,7 +65,7 @@ func TestNoDictBasedReceivers(t *testing.T) {
 				t.Errorf(
 					"%s:%d: FromStringDict contains NewBuiltin — "+
 						"dict-based receivers are banned. "+
-						"Use the Receiver base type with Attr/AttrNames instead.",
+						"Use the receiver base type with Attr/AttrNames instead.",
 					f.name, pos.Line,
 				)
 			}

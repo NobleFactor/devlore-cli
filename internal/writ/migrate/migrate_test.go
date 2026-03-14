@@ -45,7 +45,7 @@ func TestGatherInputs(t *testing.T) {
 	}
 
 	if input.Tree.Type != "directory" {
-		t.Errorf("GatherInputs: tree.Type = %q, want %q", input.Tree.Type, "directory")
+		t.Errorf("GatherInputs: tree.ProviderType = %q, want %q", input.Tree.Type, "directory")
 	}
 
 	// Check that we found some contents

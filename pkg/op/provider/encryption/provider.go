@@ -20,6 +20,10 @@ type Provider struct {
 	op.ProviderBase
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // DecryptSopsFile takes a file.Resource, reads it into memory, and decrypts it via SOPS.
 //
 // Parameters:

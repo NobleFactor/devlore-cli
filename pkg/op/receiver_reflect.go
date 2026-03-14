@@ -17,15 +17,15 @@ import (
 // name lists. Optional params use the "name?" suffix.
 type MethodParams map[string][]string
 
-// ReflectedReceiver wraps a Go struct for immediate-mode Starlark use.
+// ExecutingReceiver wraps a Go struct for immediate-mode Starlark use.
 // Exported methods become Starlark builtins; method dispatch, argument
 // unpacking, and return value marshaling are handled by reflection.
 //
 // Optional catalog and stack fields enable resource management
 // integration. When set, Resource results are shadowed in the catalog
 // after successful dispatch.
-type ReflectedReceiver struct {
-	Receiver
+type ExecutingReceiver struct {
+	receiver
 	providerValue reflect.Value
 	methods       map[string]*methodBridge
 	attrList      []string
@@ -39,9 +39,9 @@ type methodBridge struct {
 	bridge builtinFunc
 }
 
-// WrapReceiver wraps a Go struct for immediate-mode Starlark use.
+// WrapProviderInExecutingReceiver wraps a Go struct for immediate-mode Starlark use.
 // Params are looked up from the receiver params registry (populated by
-// RegisterReflectedActions during InitAll). Only methods listed in the
+// RegisterActions during InitAll). Only methods listed in the
 // registered params are exposed. Compensate* methods are excluded.
 //
 // Parameters:
@@ -49,17 +49,19 @@ type methodBridge struct {
 //   - provider: the Go struct to wrap (must be a pointer).
 //
 // Returns:
-//   - *ReflectedReceiver: the wrapped receiver with method bridges.
-func WrapReceiver(name string, provider any) *ReflectedReceiver {
+//   - *ExecutingReceiver: the wrapped receiver with method bridges.
+func WrapProviderInExecutingReceiver(factory ReceiverFactory, provider any) *ExecutingReceiver {
+
+	name := factory.ReceiverName()
 
 	entry, ok := lookupReceiverParams(reflect.TypeOf(provider))
 	if !ok {
-		panic(fmt.Sprintf("WrapReceiver(%s): no params registered — was RegisterReflectedActions called?", name))
+		panic(fmt.Sprintf("WrapProviderInExecutingReceiver(%s): no params registered — was RegisterActions called?", name))
 	}
 
 	rv := reflect.ValueOf(provider)
-	r := &ReflectedReceiver{
-		Receiver:      newReceiver(name),
+	r := &ExecutingReceiver{
+		receiver:      newReceiver(name),
 		providerValue: rv,
 		methods:       make(map[string]*methodBridge),
 	}
@@ -103,17 +105,19 @@ func WrapReceiver(name string, provider any) *ReflectedReceiver {
 //
 // Parameters:
 //   - c: the resource catalog to use.
-func (r *ReflectedReceiver) SetCatalog(c *ResourceCatalog) { r.catalog = c }
+func (r *ExecutingReceiver) SetCatalog(c *ResourceCatalog) { r.catalog = c }
 
 // SetContext injects the execution Context into the receiver's underlying provider.
 // This allows immediate receivers to access Context-scoped services like RecoverySite.
 //
 // Parameters:
 //   - ctx: the execution context to inject.
-func (r *ReflectedReceiver) SetContext(ctx Context) {
+func (r *ExecutingReceiver) SetContext(ctx Context) {
 
 	if r.providerValue.Kind() == reflect.Ptr && !r.providerValue.IsNil() {
-		InitProvider(r.providerValue.Interface(), ctx)
+		if cp, ok := r.providerValue.Interface().(ContextProvider); ok {
+			cp.providerBase().ctx = ctx
+		}
 	}
 }
 
@@ -121,7 +125,7 @@ func (r *ReflectedReceiver) SetContext(ctx Context) {
 //
 // Parameters:
 //   - s: the recovery stack to use.
-func (r *ReflectedReceiver) SetStack(s *RecoveryStack) { r.stack = s }
+func (r *ExecutingReceiver) SetStack(s *RecoveryStack) { r.stack = s }
 
 // endregion
 
@@ -137,19 +141,19 @@ func (r *ReflectedReceiver) SetStack(s *RecoveryStack) { r.stack = s }
 // Returns:
 //   - starlark.Value: the method builtin.
 //   - error: non-nil if the attribute does not exist.
-func (r *ReflectedReceiver) Attr(name string) (starlark.Value, error) {
+func (r *ExecutingReceiver) Attr(name string) (starlark.Value, error) {
 
 	if m, ok := r.methods[name]; ok {
-		return MakeAttr(r.Receiver.name+"."+name, m.bridge), nil
+		return starlark.NewBuiltin(r.receiver.name+"."+name, m.bridge), nil
 	}
-	return nil, NoSuchAttrError(r.Receiver.name, name)
+	return nil, NoSuchAttrError(r.receiver.name, name)
 }
 
 // AttrNames implements starlark.HasAttrs.
 //
 // Returns:
 //   - []string: sorted list of available method names.
-func (r *ReflectedReceiver) AttrNames() []string {
+func (r *ExecutingReceiver) AttrNames() []string {
 
 	return r.attrList
 }
@@ -161,7 +165,7 @@ func (r *ReflectedReceiver) AttrNames() []string {
 // Parameters:
 //   - name: the snake_case method name to override.
 //   - fn: the custom bridge function.
-func (r *ReflectedReceiver) Override(name string, fn builtinFunc) {
+func (r *ExecutingReceiver) Override(name string, fn builtinFunc) {
 
 	r.methods[name] = &methodBridge{
 		name:   name,
@@ -195,7 +199,7 @@ func (r *ReflectedReceiver) Override(name string, fn builtinFunc) {
 //   - method: the Go method to bridge.
 //   - snakeName: the snake_case method name.
 //   - paramNames: Starlark parameter names (with "?" for optional, "*" for variadic).
-//   - receiver: the ReflectedReceiver for catalog/stack integration.
+//   - receiver: the ExecutingReceiver for catalog/stack integration.
 //
 // Returns:
 //   - builtinFunc: the Starlark-callable bridge function.
@@ -205,7 +209,7 @@ func buildMethodBridge(
 	method reflect.Method,
 	snakeName string,
 	paramNames []string,
-	receiver *ReflectedReceiver,
+	receiver *ExecutingReceiver,
 ) builtinFunc {
 
 	methodType := method.Type
@@ -338,11 +342,11 @@ func buildMethodBridge(
 //   - receiverName: the qualified receiver name for error messages.
 //   - providerVal: the reflected provider value.
 //   - method: the Go method to call.
-//   - methodType: the method's reflect.Type.
+//   - methodType: the method's reflect.ProviderType.
 //   - snakeName: the snake_case method name.
 //   - paramNames: Starlark parameter names.
 //   - numParams: the number of parameters.
-//   - receiver: the ReflectedReceiver for catalog/stack integration.
+//   - receiver: the ExecutingReceiver for catalog/stack integration.
 //   - thread: the Starlark thread.
 //   - args: positional Starlark arguments.
 //   - kwargs: keyword Starlark arguments.
@@ -358,7 +362,7 @@ func callNonVariadic(
 	snakeName string,
 	paramNames []string,
 	numParams int,
-	receiver *ReflectedReceiver,
+	receiver *ExecutingReceiver,
 	thread *starlark.Thread,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,

@@ -28,7 +28,7 @@ func ResourceFromValue(v any) (Resource, error) {
 }
 
 // NewResource creates a Resource with the given package name.
-// The Type is left empty for auto-detection at Resolve() time.
+// The ProviderType is left empty for auto-detection at Resolve() time.
 func NewResource(name string) Resource {
 	r := Resource{Name: name}
 	r.SetURI(r.buildURI())
@@ -83,7 +83,7 @@ func (r *Resource) Purl() string {
 // package version. The executor injects platform context before calling
 // Resolve().
 func (r *Resource) Resolve(_ op.Root) error {
-	// Type and Version resolution requires platform context, which is
+	// ProviderType and Version resolution requires platform context, which is
 	// injected by the executor. This is a skeleton — the executor calls
 	// Resolve() after platform injection.
 	return nil

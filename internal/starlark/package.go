@@ -56,9 +56,9 @@ func (r *packageContextReceiver) Attr(name string) (starlark.Value, error) {
 	case "target_root":
 		return starlark.String(r.ctx.TargetRoot), nil
 	case "has_feature":
-		return op.MakeAttr("package.has_feature", r.hasFeature), nil
+		return starlark.NewBuiltin("package.has_feature", r.hasFeature), nil
 	case "setting":
-		return op.MakeAttr("package.setting", r.setting), nil
+		return starlark.NewBuiltin("package.setting", r.setting), nil
 	default:
 		return nil, op.NoSuchAttrError("package", name)
 	}

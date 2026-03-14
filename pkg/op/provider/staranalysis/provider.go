@@ -47,6 +47,14 @@ type Provider struct {
 	Root string
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	if ctx.Root != nil {
+		p.Root = ctx.Root.Name()
+	}
+	return p
+}
+
 // Analyze performs a combined analysis of all files.
 //
 // +devlore:struct_param cfg=AnalysisConfig

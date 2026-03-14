@@ -894,7 +894,7 @@ func TestFlowRegister(t *testing.T) {
 	}
 }
 
-// --- Name tests ---
+// --- ReceiverName tests ---
 
 func TestFlowChooseName(t *testing.T) {
 	action := &flow.Choose{}

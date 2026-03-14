@@ -156,13 +156,13 @@ func flowContext(graph *op.Graph, nodeID string) *op.Context {
 }
 
 // ---------------------------------------------------------------------------
-// Provider descriptor
+// ReceiverFactory descriptor
 // ---------------------------------------------------------------------------
 
 func TestFlowProviderAnnounced(t *testing.T) {
 	var found bool
 	for _, p := range op.Providers() {
-		if p.Name() == "flow" {
+		if p.ReceiverName() == "flow" {
 			found = true
 			break
 		}
@@ -191,7 +191,7 @@ func TestFlowProviderRegistersAllActions(t *testing.T) {
 func TestCompleteName(t *testing.T) {
 	act := &Complete{}
 	if got := act.Name(); got != "flow.complete" {
-		t.Errorf("Name() = %q, want %q", got, "flow.complete")
+		t.Errorf("ReceiverName() = %q, want %q", got, "flow.complete")
 	}
 }
 
@@ -249,7 +249,7 @@ func TestCompleteIsNotCompensable(t *testing.T) {
 func TestDegradedName(t *testing.T) {
 	act := &Degraded{}
 	if got := act.Name(); got != "flow.degraded" {
-		t.Errorf("Name() = %q, want %q", got, "flow.degraded")
+		t.Errorf("ReceiverName() = %q, want %q", got, "flow.degraded")
 	}
 }
 
@@ -354,7 +354,7 @@ func TestDegradedIsNotCompensable(t *testing.T) {
 func TestFatalName(t *testing.T) {
 	act := &Fatal{}
 	if got := act.Name(); got != "flow.fatal" {
-		t.Errorf("Name() = %q, want %q", got, "flow.fatal")
+		t.Errorf("ReceiverName() = %q, want %q", got, "flow.fatal")
 	}
 }
 
@@ -459,7 +459,7 @@ func TestFatalIsNotCompensable(t *testing.T) {
 func TestElevateName(t *testing.T) {
 	act := &Elevate{}
 	if got := act.Name(); got != "flow.elevate" {
-		t.Errorf("Name() = %q, want %q", got, "flow.elevate")
+		t.Errorf("ReceiverName() = %q, want %q", got, "flow.elevate")
 	}
 }
 
@@ -488,7 +488,7 @@ func TestElevateIsNotCompensable(t *testing.T) {
 func TestChooseName(t *testing.T) {
 	act := &Choose{}
 	if got := act.Name(); got != "flow.choose" {
-		t.Errorf("Name() = %q, want %q", got, "flow.choose")
+		t.Errorf("ReceiverName() = %q, want %q", got, "flow.choose")
 	}
 }
 
@@ -763,7 +763,7 @@ func TestChooseUndoCollectsErrors(t *testing.T) {
 func TestGatherName(t *testing.T) {
 	act := &Gather{}
 	if got := act.Name(); got != "flow.gather" {
-		t.Errorf("Name() = %q, want %q", got, "flow.gather")
+		t.Errorf("ReceiverName() = %q, want %q", got, "flow.gather")
 	}
 }
 
@@ -1228,7 +1228,7 @@ func TestExtractLimitMissing(t *testing.T) {
 func TestWaitUntilName(t *testing.T) {
 	act := &WaitUntil{}
 	if got := act.Name(); got != "flow.wait_until" {
-		t.Errorf("Name() = %q, want %q", got, "flow.wait_until")
+		t.Errorf("ReceiverName() = %q, want %q", got, "flow.wait_until")
 	}
 }
 

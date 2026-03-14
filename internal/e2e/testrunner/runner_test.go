@@ -10,6 +10,18 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/e2e/testrunner"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
+	jsongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
+	regexpgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
+	staranalysisgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/staranalysis/gen"
+	starcodegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode/gen"
+	starcomplexitygen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcomplexity/gen"
+	starindexgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starindex/gen"
+	starstatsgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starstats/gen"
+	templategen "github.com/NobleFactor/devlore-cli/pkg/op/provider/template/gen"
+	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
+	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 )
 
 // testdataDir returns the absolute path to the data/ directory.
@@ -24,7 +36,7 @@ func testdataDir(t *testing.T) string {
 
 func TestWriteText(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
+	runner := testrunner.New(script, testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -44,7 +56,7 @@ func TestWriteText(t *testing.T) {
 
 func TestCopy(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_copy.star")
-	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
+	runner := testrunner.New(script, testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -61,7 +73,7 @@ func TestCopy(t *testing.T) {
 
 func TestWriteAndRead(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_and_read.star")
-	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
+	runner := testrunner.New(script, testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -75,7 +87,7 @@ func TestWriteAndRead(t *testing.T) {
 
 func TestCompensation(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_compensation.star")
-	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
+	runner := testrunner.New(script, testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -89,7 +101,7 @@ func TestCompensation(t *testing.T) {
 
 func TestTrace(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := testrunner.New(script, testrunner.WithTrace(), testrunner.WithReceivers("plan", "file"))
+	runner := testrunner.New(script, testrunner.WithTrace(), testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -162,11 +174,11 @@ func TestIsFile(t *testing.T) {
 	runScript(t, "test_is_file.star")
 }
 
-// runScript runs a .star test script with plan+file receivers and fails on any expectation failures.
+// runScript runs a .star test script with plan+file providers and fails on any expectation failures.
 func runScript(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := testrunner.New(script, testrunner.WithReceivers("plan", "file"))
+	runner := testrunner.New(script, testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -178,11 +190,11 @@ func runScript(t *testing.T, name string) {
 	}
 }
 
-// runScriptDryRun runs a .star test script in dry-run mode with plan receiver.
+// runScriptDryRun runs a .star test script in dry-run mode with graph builder.
 func runScriptDryRun(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := testrunner.New(script, testrunner.WithDryRun(), testrunner.WithReceivers("plan"))
+	runner := testrunner.New(script, testrunner.WithDryRun(), testrunner.WithGraphBuilder())
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -194,11 +206,11 @@ func runScriptDryRun(t *testing.T, name string) {
 	}
 }
 
-// runScriptImm runs a .star test script with the given immediate receivers.
-func runScriptImm(t *testing.T, name string, receivers ...string) {
+// runScriptImm runs a .star test script with the given immediate providers.
+func runScriptImm(t *testing.T, name string, providers ...op.ReceiverFactory) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := testrunner.New(script, testrunner.WithReceivers(receivers...))
+	runner := testrunner.New(script, testrunner.WithReceivers(providers...))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -288,43 +300,43 @@ func TestRegexpActions(t *testing.T) {
 // ── Immediate action tests ──
 
 func TestImmJSON(t *testing.T) {
-	runScriptImm(t, "test_imm_json.star", "json")
+	runScriptImm(t, "test_imm_json.star", jsongen.Receiver)
 }
 
 func TestImmYAML(t *testing.T) {
-	runScriptImm(t, "test_imm_yaml.star", "yaml")
+	runScriptImm(t, "test_imm_yaml.star", yamlgen.Receiver)
 }
 
 func TestImmRegexp(t *testing.T) {
-	runScriptImm(t, "test_imm_regexp.star", "regexp")
+	runScriptImm(t, "test_imm_regexp.star", regexpgen.Receiver)
 }
 
 func TestImmTemplate(t *testing.T) {
-	runScriptImm(t, "test_imm_template.star", "template")
+	runScriptImm(t, "test_imm_template.star", templategen.Receiver)
 }
 
 func TestImmUI(t *testing.T) {
-	runScriptImm(t, "test_imm_ui.star", "ui")
+	runScriptImm(t, "test_imm_ui.star", uigen.Receiver)
 }
 
 func TestImmStaranalysis(t *testing.T) {
-	runScriptImm(t, "test_imm_staranalysis.star", "staranalysis")
+	runScriptImm(t, "test_imm_staranalysis.star", staranalysisgen.Receiver)
 }
 
 func TestImmStarcode(t *testing.T) {
-	runScriptImm(t, "test_imm_starcode.star", "starcode")
+	runScriptImm(t, "test_imm_starcode.star", starcodegen.Receiver)
 }
 
 func TestImmStarcomplexity(t *testing.T) {
-	runScriptImm(t, "test_imm_starcomplexity.star", "starcomplexity")
+	runScriptImm(t, "test_imm_starcomplexity.star", starcomplexitygen.Receiver)
 }
 
 func TestImmStarindex(t *testing.T) {
-	runScriptImm(t, "test_imm_starindex.star", "starindex")
+	runScriptImm(t, "test_imm_starindex.star", starindexgen.Receiver)
 }
 
 func TestImmStarstats(t *testing.T) {
-	runScriptImm(t, "test_imm_starstats.star", "starstats")
+	runScriptImm(t, "test_imm_starstats.star", starstatsgen.Receiver)
 }
 
 // ── Terminal flow control tests ──
@@ -357,7 +369,7 @@ func TestFlowFatalRecovery(t *testing.T) {
 
 func TestDryRun(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := testrunner.New(script, testrunner.WithDryRun(), testrunner.WithReceivers("plan", "file"))
+	runner := testrunner.New(script, testrunner.WithDryRun(), testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)

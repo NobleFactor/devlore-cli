@@ -51,6 +51,14 @@ type Provider struct {
 	Root string
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	if ctx.Root != nil {
+		p.Root = ctx.Root.Name()
+	}
+	return p
+}
+
 // ComputeComplexity analyzes the given files for function complexity.
 func (p *Provider) ComputeComplexity(files []string) (*ComplexityReport, error) {
 	report := &ComplexityReport{

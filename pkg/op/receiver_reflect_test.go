@@ -121,15 +121,16 @@ var testParams = MethodParams{
 }
 
 // wrapTestReceiver registers params and wraps a provider in one step.
-// Test-only helper — production code relies on RegisterReflectedActions.
-func wrapTestReceiver(name string, provider any, params MethodParams) *ReflectedReceiver {
-	registerReceiverParamsReflect(name, provider, params)
-	return WrapReceiver(name, provider)
+// Test-only helper — production code relies on RegisterActions.
+func wrapTestReceiver(_ string, provider any, params MethodParams) *ExecutingReceiver {
+	factory := &testProviderFactory{}
+	registerReceiverParamsReflect(factory, params)
+	return WrapProviderInExecutingReceiver(factory, provider)
 }
 
-// --- WrapReceiver tests ---
+// --- WrapProviderInExecutingReceiver tests ---
 
-func TestWrapReceiver_MethodDiscovery(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_MethodDiscovery(t *testing.T) {
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	names := r.AttrNames()
@@ -149,7 +150,7 @@ func TestWrapReceiver_MethodDiscovery(t *testing.T) {
 	}
 }
 
-func TestWrapReceiver_CompensateExcluded(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_CompensateExcluded(t *testing.T) {
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	_, err := r.Attr("compensate_write")
@@ -158,7 +159,7 @@ func TestWrapReceiver_CompensateExcluded(t *testing.T) {
 	}
 }
 
-func TestWrapReceiver_UnlistedMethodExcluded(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_UnlistedMethodExcluded(t *testing.T) {
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	_, err := r.Attr("internal_helper")
@@ -167,7 +168,7 @@ func TestWrapReceiver_UnlistedMethodExcluded(t *testing.T) {
 	}
 }
 
-func TestWrapReceiver_AttrReturnsBuiltin(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_AttrReturnsBuiltin(t *testing.T) {
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	val, err := r.Attr("greet")
@@ -184,7 +185,7 @@ func TestWrapReceiver_AttrReturnsBuiltin(t *testing.T) {
 
 // --- Method call tests ---
 
-func callMethod(t *testing.T, r *ReflectedReceiver, name string, args ...starlark.Value) starlark.Value {
+func callMethod(t *testing.T, r *ExecutingReceiver, name string, args ...starlark.Value) starlark.Value {
 	t.Helper()
 	attr, err := r.Attr(name)
 	if err != nil {
@@ -201,7 +202,7 @@ func callMethod(t *testing.T, r *ReflectedReceiver, name string, args ...starlar
 	return result
 }
 
-func callMethodKw(t *testing.T, r *ReflectedReceiver, name string, kwargs []starlark.Tuple) starlark.Value {
+func callMethodKw(t *testing.T, r *ExecutingReceiver, name string, kwargs []starlark.Tuple) starlark.Value {
 	t.Helper()
 	attr, err := r.Attr(name)
 	if err != nil {
@@ -215,7 +216,7 @@ func callMethodKw(t *testing.T, r *ReflectedReceiver, name string, kwargs []star
 	return result
 }
 
-func callMethodArgsKw(t *testing.T, r *ReflectedReceiver, name string, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func callMethodArgsKw(t *testing.T, r *ExecutingReceiver, name string, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	t.Helper()
 	attr, err := r.Attr(name)
 	if err != nil {
@@ -225,7 +226,7 @@ func callMethodArgsKw(t *testing.T, r *ReflectedReceiver, name string, args star
 	return builtin.CallInternal(nil, args, kwargs)
 }
 
-func callMethodErr(t *testing.T, r *ReflectedReceiver, name string, args ...starlark.Value) error {
+func callMethodErr(t *testing.T, r *ExecutingReceiver, name string, args ...starlark.Value) error {
 	t.Helper()
 	attr, err := r.Attr(name)
 	if err != nil {
@@ -482,14 +483,14 @@ func TestOverride_AddsNewMethod(t *testing.T) {
 
 // --- Starlark interface tests ---
 
-func TestReflectedReceiver_StarlarkValue(t *testing.T) {
+func TestExecutingReceiver_StarlarkValue(t *testing.T) {
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
 	if r.String() != "test" {
 		t.Errorf("String() = %q, want 'test'", r.String())
 	}
 	if r.Type() != "test" {
-		t.Errorf("Type() = %q, want 'test'", r.Type())
+		t.Errorf("ProviderType() = %q, want 'test'", r.Type())
 	}
 	if r.Truth() != starlark.True {
 		t.Error("Truth() should be True")
@@ -509,7 +510,7 @@ func TestCall_NoResultReturn(t *testing.T) {
 
 // --- Catalog integration tests ---
 
-func TestWrapReceiver_CatalogShadow(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_CatalogShadow(t *testing.T) {
 	catalog := NewResourceCatalog()
 	r := wrapTestReceiver("test", &actionProvider{}, MethodParams{
 		"Create": {"path"},
@@ -537,7 +538,7 @@ func TestWrapReceiver_CatalogShadow(t *testing.T) {
 	}
 }
 
-func TestWrapReceiver_NoCatalog_NoShadow(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_NoCatalog_NoShadow(t *testing.T) {
 	r := wrapTestReceiver("test", &actionProvider{}, MethodParams{
 		"Create": {"path"},
 	})
@@ -545,7 +546,7 @@ func TestWrapReceiver_NoCatalog_NoShadow(t *testing.T) {
 	callMethod(t, r, "create", starlark.String("/tmp/new"))
 }
 
-func TestWrapReceiver_CatalogError_NoShadow(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_CatalogError_NoShadow(t *testing.T) {
 	catalog := NewResourceCatalog()
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)
@@ -560,7 +561,7 @@ func TestWrapReceiver_CatalogError_NoShadow(t *testing.T) {
 	}
 }
 
-func TestWrapReceiver_CatalogNonResource_NoShadow(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_CatalogNonResource_NoShadow(t *testing.T) {
 	catalog := NewResourceCatalog()
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)
@@ -573,7 +574,7 @@ func TestWrapReceiver_CatalogNonResource_NoShadow(t *testing.T) {
 	}
 }
 
-func TestWrapReceiver_CatalogNoResult_NoShadow(t *testing.T) {
+func TestWrapProviderInExecutingReceiver_CatalogNoResult_NoShadow(t *testing.T) {
 	catalog := NewResourceCatalog()
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)

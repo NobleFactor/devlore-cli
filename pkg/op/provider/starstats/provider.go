@@ -41,6 +41,14 @@ type Provider struct {
 	Root string
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	if ctx.Root != nil {
+		p.Root = ctx.Root.Name()
+	}
+	return p
+}
+
 // ComputeStats computes line and byte statistics for the given files.
 // If withBytes is true, byte counts are included.
 // If withLOC is true, line counts (LOC, SLOC, comments, blanks) are included.

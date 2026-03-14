@@ -112,7 +112,7 @@ func TestRelease_PhaseActions_NativePM(t *testing.T) {
 			if tt.wantCount > 0 {
 				action := actions[0]
 				if action.Type() != ActionNativePM {
-					t.Errorf("action.Type() = %v, want ActionNativePM", action.Type())
+					t.Errorf("action.ProviderType() = %v, want ActionNativePM", action.Type())
 				}
 
 				pmAction, ok := action.(*NativePMAction)
@@ -185,7 +185,7 @@ platforms:
 
 	for i, action := range actions {
 		if action.Type() != ActionScript {
-			t.Errorf("action[%d].Type() = %v, want ActionScript", i, action.Type())
+			t.Errorf("action[%d].ProviderType() = %v, want ActionScript", i, action.Type())
 		}
 		scriptAction, ok := action.(*ScriptAction)
 		if !ok {

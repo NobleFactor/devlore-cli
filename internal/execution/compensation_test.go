@@ -25,7 +25,7 @@ import (
 func fileAction(t *testing.T, p *file.Provider, name string) op.Action {
 	t.Helper()
 	reg := op.NewActionRegistry()
-	op.RegisterReflectedActions(reg, "file", p, filegen.Params)
+	op.RegisterActions(reg, filegen.Receiver, filegen.Params)
 	a, ok := reg.Get(name)
 	if !ok {
 		t.Fatalf("action %q not registered", name)
