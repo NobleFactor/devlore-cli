@@ -296,10 +296,11 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //no
 		}
 	}
 
-	// Build the forward phase list (excludes compensating phases).
+	// Build the forward phase list (excludes compensating and branch phases).
+	// Branch phases are dispatched by the choose action, not the top-level executor.
 	var forwardPhases []*op.Phase
 	for _, p := range g.Phases {
-		if !compensateIDs[p.ID] {
+		if !compensateIDs[p.ID] && !p.Branch {
 			forwardPhases = append(forwardPhases, p)
 		}
 	}
@@ -590,6 +591,7 @@ func (e *GraphExecutor) executeNode(ctx *op.Context, node *op.Node, results map[
 	FillSlotsFromData(slots, e.options.Data)
 
 	ctx.NodeID = node.ID
+	ctx.Results = results
 
 	e.hooks.FireNodeStart(ctx, node.ID, slots)
 

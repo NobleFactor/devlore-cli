@@ -27,7 +27,7 @@ import (
 //  4. Providers not in With() are not in globals
 //  5. Loader cache deduplicates factory calls
 func TestLoadIntegration(t *testing.T) {
-	t.Skip("https://github.com/NobleFactor/devlore-cli/issues/172")
+	t.Skip("blocked on dependent type wrapper for Sources — Phase 6 remainder")
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
@@ -37,6 +37,7 @@ func TestLoadIntegration(t *testing.T) {
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
+	rt.RegisterActions(reg, op.Context{})
 	globals := rt.BuildGlobals(graph, "test-project", reg)
 
 	thread := &starlark.Thread{

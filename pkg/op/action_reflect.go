@@ -33,6 +33,7 @@ func (a *actionBase) Params() []ParamInfo {
 
 // coerceArgs converts slot values to Go method parameter types.
 func (a *actionBase) coerceArgs(ctx Context, slots map[string]any) ([]reflect.Value, error) {
+
 	methodType := a.method.Type
 	goArgs := make([]reflect.Value, len(a.paramNames)+1)
 	goArgs[0] = a.getProvider(ctx)
@@ -47,6 +48,16 @@ func (a *actionBase) coerceArgs(ctx Context, slots map[string]any) ([]reflect.Va
 		goArgs[i+1] = val
 	}
 	return goArgs, nil
+}
+
+// callMethod invokes the action's Go method with the given args. For variadic
+// methods, CallSlice is used so the final slice arg is expanded correctly.
+func (a *actionBase) callMethod(goArgs []reflect.Value) []reflect.Value {
+
+	if a.method.Type.IsVariadic() {
+		return a.method.Func.CallSlice(goArgs)
+	}
+	return a.method.Func.Call(goArgs)
 }
 
 // dryRunLog writes dry-run output to the context writer.
@@ -79,7 +90,7 @@ func (a *reflectedPureAction) Do(ctx *Context, slots map[string]any) (Result, Co
 		return nil, nil, nil
 	}
 
-	results := a.method.Func.Call(goArgs)
+	results := a.callMethod(goArgs)
 
 	var result Result
 	if len(results) > 0 {
@@ -113,7 +124,7 @@ func (a *reflectedFallibleAction) Do(ctx *Context, slots map[string]any) (Result
 		return nil, nil, nil
 	}
 
-	results := a.method.Func.Call(goArgs)
+	results := a.callMethod(goArgs)
 	result, doErr := classifyFallibleReturn(results)
 
 	if doErr == nil {
@@ -144,7 +155,7 @@ func (a *reflectedCompensableAction) Do(ctx *Context, slots map[string]any) (Res
 		return nil, nil, nil
 	}
 
-	results := a.method.Func.Call(goArgs)
+	results := a.callMethod(goArgs)
 	result, undoState, doErr := classifyCompensableReturn(results)
 
 	if doErr == nil {
@@ -452,12 +463,12 @@ func RegisterActions(registry *ActionRegistry, factory ReceiverFactory, params M
 		snakeName := camelToSnake(goName)
 		actionName := factory.ReceiverName() + "." + snakeName
 
-		// Strip '?' suffixes from param names. The '?' is a Starlark
-		// UnpackArgs marker for optional parameters; it must not leak
-		// into the action layer where slots are stored without the suffix.
+		// Strip Starlark markers from param names: '?' (optional) and
+		// '*' (variadic). These must not leak into the action layer
+		// where slots are stored without markers.
 		cleanedNames := make([]string, len(paramNames))
 		for i, pn := range paramNames {
-			cleanedNames[i] = strings.TrimSuffix(pn, "?")
+			cleanedNames[i] = strings.TrimPrefix(strings.TrimSuffix(pn, "?"), "*")
 		}
 
 		base := actionBase{

@@ -161,7 +161,6 @@ func TestChooseExists(t *testing.T) {
 }
 
 func TestChooseNotExists(t *testing.T) {
-	t.Skip("choose executor runs then-branch even when predicate is false")
 	runScript(t, "test_choose_not_exists.star")
 }
 
@@ -170,7 +169,6 @@ func TestIsDir(t *testing.T) {
 }
 
 func TestIsFile(t *testing.T) {
-	t.Skip("choose executor passes empty path for Output captured in lambda closure")
 	runScript(t, "test_is_file.star")
 }
 
@@ -233,7 +231,6 @@ func TestFileGlob(t *testing.T) {
 }
 
 func TestFileJoin(t *testing.T) {
-	t.Skip("reflection bug: cannot use []string as variadic string in generated receiver")
 	runScript(t, "test_file_join.star")
 }
 
