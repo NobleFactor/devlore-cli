@@ -222,7 +222,7 @@ func runScriptImm(t *testing.T, name string, providers ...op.ReceiverFactory) {
 	}
 }
 
-// ── Planned action tests — file provider gaps ──
+// --- Planned action tests — file provider gaps ---
 
 func TestFileUnlink(t *testing.T) {
 	runScript(t, "test_file_unlink.star")
@@ -245,19 +245,19 @@ func TestFileParent(t *testing.T) {
 	runScript(t, "test_file_parent.star")
 }
 
-// ── WalkTree callable tests ──
+// --- WalkTree callable tests ---
 
 func TestWalkTreePlanned(t *testing.T) {
 	runScript(t, "test_walk_tree_planned.star")
 }
 
-// ── Planned action tests — template provider ──
+// --- Planned action tests — template provider ---
 
 func TestTemplateRender(t *testing.T) {
 	runScript(t, "test_template_render.star")
 }
 
-// ── Planned action tests — dry-run providers ──
+// --- Planned action tests — dry-run providers ---
 // These providers need external resources to execute. Dry-run proves
 // registration + planned receiver + graph node creation.
 
@@ -297,7 +297,7 @@ func TestRegexpActions(t *testing.T) {
 	runScriptDryRun(t, "test_regexp.star")
 }
 
-// ── Immediate action tests ──
+// --- Immediate action tests ---
 
 func TestImmJSON(t *testing.T) {
 	runScriptImm(t, "test_imm_json.star", jsongen.Receiver)
@@ -339,7 +339,7 @@ func TestImmStarstats(t *testing.T) {
 	runScriptImm(t, "test_imm_starstats.star", starstatsgen.Receiver)
 }
 
-// ── Terminal flow control tests ──
+// --- Terminal flow control tests ---
 
 func TestFlowComplete(t *testing.T) {
 	runScriptDryRun(t, "test_flow_complete.star")
@@ -365,7 +365,7 @@ func TestFlowFatalRecovery(t *testing.T) {
 	runScript(t, "test_flow_fatal_recovery.star")
 }
 
-// ── Other tests ──
+// --- Other tests ---
 
 func TestDryRun(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")

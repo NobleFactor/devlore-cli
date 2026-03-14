@@ -103,7 +103,7 @@ func TestValidateSlotType_CallableToFunc(t *testing.T) {
 	}
 }
 
-// ── Generic callable adapter ─────────────────────────────────────────────────
+// --- Generic callable adapter ---
 
 // compileStarlarkFn compiles a Starlark source and returns the named function.
 func compileStarlarkFn(t *testing.T, source, funcName string) *starlark.Function {

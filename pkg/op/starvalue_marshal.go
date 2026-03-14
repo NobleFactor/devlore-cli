@@ -112,8 +112,7 @@ type receiverEntry struct {
 // callback.
 //
 // Parameters:
-//   - name: the provider name.
-//   - provider: the provider instance (pointer to struct).
+//   - factory: the ReceiverFactory whose ProviderType is used as the registry key.
 //   - params: maps Go method names to Starlark parameter name lists.
 func RegisterReceiverParams(factory ReceiverFactory, params MethodParams) {
 	registerReceiverParamsReflect(factory, params)
@@ -123,8 +122,7 @@ func RegisterReceiverParams(factory ReceiverFactory, params MethodParams) {
 // [reflect.Type] of the provider pointer.
 //
 // Parameters:
-//   - name: the provider name.
-//   - provider: the provider instance (pointer to struct).
+//   - factory: the ReceiverFactory whose ProviderType is used as the registry key.
 //   - params: maps Go method names to Starlark parameter name lists.
 func registerReceiverParamsReflect(factory ReceiverFactory, params MethodParams) {
 
@@ -854,7 +852,7 @@ func unmarshalStruct(sv starlark.Value, rv reflect.Value) error {
 	}
 }
 
-// ── Callable resource support ───────────────────────────────────────────────
+// --- Callable resource support ---
 
 // CallableResource is the interface that mem.Callable satisfies.
 // It allows pkg/op to work with callables without importing the mem package.

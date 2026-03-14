@@ -25,7 +25,7 @@ func NewProvider(ctx op.Context) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-// ── Compensable Pairs ────────────────────────────────────────────────
+// --- Compensable Pairs ---
 
 // Clone clones a repository from url into destination.
 // Returns the cloned git.Resource and a Tombstone for compensation.
@@ -55,7 +55,7 @@ func (p *Provider) CompensateClone(state Tombstone) error {
 	return os.RemoveAll(state.ClonedPath)
 }
 
-// ── Standalone Methods ───────────────────────────────────────────────
+// --- Standalone Methods ---
 
 // Checkout checks out a ref in the given repository directory.
 //

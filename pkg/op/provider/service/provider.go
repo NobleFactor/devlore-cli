@@ -30,7 +30,7 @@ func (p *Provider) serviceManager() (op.ServiceManager, error) {
 	return plat.ServiceManager, nil
 }
 
-// ── Compensable Pairs ────────────────────────────────────────────────
+// --- Compensable Pairs ---
 
 // Disable disables a service from starting at boot.
 //
@@ -208,7 +208,7 @@ func (p *Provider) CompensateStop(state Tombstone) error {
 	return nil
 }
 
-// ── Predicates ───────────────────────────────────────────────────────
+// --- Predicates ---
 
 // Enabled returns true if the named service is enabled to start at boot.
 //

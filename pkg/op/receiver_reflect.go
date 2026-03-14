@@ -182,7 +182,7 @@ func (r *ExecutingReceiver) Override(name string, fn builtinFunc) {
 
 // endregion
 
-// ── Unexported free functions ───────────────────────────────────────────────
+// region UNEXPORTED METHODS
 
 // buildMethodBridge creates a builtinFunc that bridges a Go method to Starlark.
 // The receiver parameter provides optional catalog/stack integration —
@@ -231,11 +231,11 @@ func buildMethodBridge(
 
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		if variadicName == "" {
-			// ── Non-variadic path ─────────────────────────────────
+			// --- Non-variadic path ---
 			return callNonVariadic(receiverName, providerVal, method, methodType, snakeName, paramNames, numParams, receiver, thread, args, kwargs)
 		}
 
-		// ── Variadic path ──────────────────────────────────────────
+		// --- Variadic path ---
 		// 1. Unpack named (non-variadic) params.
 		namedVals := make([]starlark.Value, numNamed)
 		pairs := make([]any, 0, numNamed*2)
@@ -479,3 +479,5 @@ func classifyReturn(results []reflect.Value) (starlark.Value, error) {
 	// Additional returns (compensation state) are discarded in immediate mode.
 	return marshalReflect(results[0])
 }
+
+// endregion

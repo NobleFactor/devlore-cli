@@ -13,7 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// ── Path ────────────────────────────────────────────────────────────────────────────────────────────
+// --- Path ---
 
 func TestNewPath(t *testing.T) {
 
@@ -89,7 +89,7 @@ func TestRoot_NewPath_CleansDotSegments(t *testing.T) {
 	}
 }
 
-// ── Path serialization ───────────────────────────────────────────────────────────────────────────────
+// --- Path serialization ---
 
 func TestPath_MarshalJSON(t *testing.T) {
 
@@ -148,7 +148,7 @@ func TestPath_JSONRoundTrip(t *testing.T) {
 	}
 }
 
-// ── ReceiverName and Close ──────────────────────────────────────────────────────────────────────────────────
+// --- ReceiverName and Close ---
 
 func TestRoot_Name(t *testing.T) {
 
@@ -190,7 +190,7 @@ func TestRoot_Close(t *testing.T) {
 	}
 }
 
-// ── FS ──────────────────────────────────────────────────────────────────────────────────────────────
+// --- FS ---
 
 func TestRoot_FS(t *testing.T) {
 
@@ -212,7 +212,7 @@ func TestRoot_FS(t *testing.T) {
 	}
 }
 
-// ── Read operations ─────────────────────────────────────────────────────────────────────────────────
+// --- Read operations ---
 
 func TestRoot_Stat(t *testing.T) {
 
@@ -348,7 +348,7 @@ func TestRoot_Readlink(t *testing.T) {
 	}
 }
 
-// ── Write operations ────────────────────────────────────────────────────────────────────────────────
+// --- Write operations ---
 
 func TestRoot_MkdirAll(t *testing.T) {
 
@@ -500,7 +500,7 @@ func TestRoot_WriteFile(t *testing.T) {
 	}
 }
 
-// ── RootReader write rejection ──────────────────────────────────────────────────────────────────────
+// --- RootReader write rejection ---
 
 func TestRootReader_WritesReturnErrReadOnly(t *testing.T) {
 
@@ -530,7 +530,7 @@ func TestRootReader_WritesReturnErrReadOnly(t *testing.T) {
 	}
 }
 
-// ── confinedRoot confinement ────────────────────────────────────────────────────────────────────────
+// --- confinedRoot confinement ---
 
 func TestConfinedRoot_RejectsTraversal(t *testing.T) {
 
@@ -557,7 +557,7 @@ func TestConfinedRoot_InvalidDir(t *testing.T) {
 	}
 }
 
-// ── helpers ─────────────────────────────────────────────────────────────────────────────────────────
+// --- helpers ---
 
 type rootCase struct {
 	name string

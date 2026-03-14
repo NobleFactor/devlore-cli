@@ -12,7 +12,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// ── Root → Path → RecoverySite triad ────────────────────────────────────────────────────────────────
+// --- Root → Path → RecoverySite triad ---
 //
 // Tests exercising the cooperative triad: Root produces Path, Path flows to RecoverySite, RecoverySite
 // delegates I/O to Root. Each suite runs against all three Root implementations to verify mode-agnostic
@@ -49,7 +49,7 @@ func newTriadConfined(t *testing.T) triadEnv {
 	return newTriad(t, root, dir)
 }
 
-// ── Path factory ────────────────────────────────────────────────────────────────────────────────────
+// --- Path factory ---
 
 func TestTriad_RootProducesPath(t *testing.T) {
 
@@ -102,7 +102,7 @@ func TestTriad_RootProducesPathFromAbsolute(t *testing.T) {
 	}
 }
 
-// ── ArchiveFile + RestoreFile round-trip ─────────────────────────────────────────────────────────────
+// --- ArchiveFile + RestoreFile round-trip ---
 
 func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 
@@ -157,7 +157,7 @@ func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 	}
 }
 
-// ── ArchiveData + RestoreData round-trip ─────────────────────────────────────────────────────────────
+// --- ArchiveData + RestoreData round-trip ---
 
 func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 
@@ -192,7 +192,7 @@ func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 	}
 }
 
-// ── Nested path archival + parent recreation ────────────────────────────────────────────────────────
+// --- Nested path archival + parent recreation ---
 
 func TestTriad_NestedPathRecreation(t *testing.T) {
 
@@ -240,7 +240,7 @@ func TestTriad_NestedPathRecreation(t *testing.T) {
 	}
 }
 
-// ── Root I/O through Path ───────────────────────────────────────────────────────────────────────────
+// --- Root I/O through Path ---
 
 func TestTriad_WriteReadThroughRoot(t *testing.T) {
 
@@ -345,7 +345,7 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 	}
 }
 
-// ── RootReader rejects writes ───────────────────────────────────────────────────────────────────────
+// --- RootReader rejects writes ---
 
 func TestTriad_RootReaderRejectsWrites(t *testing.T) {
 
@@ -396,7 +396,7 @@ func TestTriad_RootReaderAllowsReads(t *testing.T) {
 	}
 }
 
-// ── Multiple archives share recovery directory ──────────────────────────────────────────────────────
+// --- Multiple archives share recovery directory ---
 
 func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 
@@ -427,7 +427,7 @@ func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 	}
 }
 
-// ── Path JSON serialization with Root ───────────────────────────────────────────────────────────────
+// --- Path JSON serialization with Root ---
 
 func TestTriad_PathJSONFromRoot(t *testing.T) {
 
@@ -456,7 +456,7 @@ func TestTriad_PathJSONFromRoot(t *testing.T) {
 	}
 }
 
-// ── Confined root blocks traversal ──────────────────────────────────────────────────────────────────
+// --- Confined root blocks traversal ---
 
 func TestTriad_ConfinedRootBlocksTraversal(t *testing.T) {
 

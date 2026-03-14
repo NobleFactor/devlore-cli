@@ -268,7 +268,7 @@ func (o *Output) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args star
 
 // endregion
 
-// ── Exported free functions ─────────────────────────────────────────────────
+// --- Exported free functions ---
 
 // FillSlot fills a slot in a node from a Starlark value.
 //
@@ -338,7 +338,7 @@ func ResolveInput(value starlark.Value) (*Output, error) {
 	return nil, fmt.Errorf("expected Output, got %s", value.Type())
 }
 
-// ── Gather ──────────────────────────────────────────────────────────────────
+// --- Gather ---
 
 // Gather represents a collection of outputs that can run in parallel.
 // When used as a slot input, it creates edges from ALL members to the consumer,

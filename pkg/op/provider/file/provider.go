@@ -1089,7 +1089,7 @@ func (p *Provider) write(resource Resource, data []byte, mode os.FileMode) (resu
 
 // endregion
 
-// ── Package-level helpers ────────────────────────────────────────────────────────────────────────────
+// --- Package-level helpers ---
 
 // checksumBytes computes "sha256:<hex>" for content bytes.
 func checksumBytes(data []byte) string {
