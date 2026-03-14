@@ -11,14 +11,17 @@ import (
 
 // actionBase holds shared fields for all reflected action types.
 type actionBase struct {
-	name       string
-	provider   reflect.Value
+	factory    ReceiverFactory
 	method     reflect.Method
+	name       string
 	paramNames []string
 }
 
-func (a *actionBase) Name() string               { return a.name }
-func (a *actionBase) getProvider() reflect.Value { return a.provider }
+func (a *actionBase) Name() string { return a.name }
+
+func (a *actionBase) getProvider(ctx Context) reflect.Value {
+	return reflect.ValueOf(a.factory.GetOrCreateProvider(ctx))
+}
 
 func (a *actionBase) Params() []ParamInfo {
 	params := make([]ParamInfo, len(a.paramNames))
@@ -29,10 +32,10 @@ func (a *actionBase) Params() []ParamInfo {
 }
 
 // coerceArgs converts slot values to Go method parameter types.
-func (a *actionBase) coerceArgs(slots map[string]any) ([]reflect.Value, error) {
+func (a *actionBase) coerceArgs(ctx Context, slots map[string]any) ([]reflect.Value, error) {
 	methodType := a.method.Type
 	goArgs := make([]reflect.Value, len(a.paramNames)+1)
-	goArgs[0] = a.provider
+	goArgs[0] = a.getProvider(ctx)
 
 	for i, name := range a.paramNames {
 		sv := slots[name]
@@ -65,7 +68,7 @@ func (a *reflectedPureAction) Do(ctx *Context, slots map[string]any) (Result, Co
 		panic(fmt.Sprintf("%s: %v", a.name, err))
 	}
 
-	goArgs, err := a.coerceArgs(slots)
+	goArgs, err := a.coerceArgs(*ctx, slots)
 	if err != nil {
 		// Pure actions cannot fail. Coercion errors indicate a framework bug.
 		panic(fmt.Sprintf("%s: %v", a.name, err))
@@ -100,7 +103,7 @@ func (a *reflectedFallibleAction) Do(ctx *Context, slots map[string]any) (Result
 		return nil, nil, fmt.Errorf("%s: %w", a.name, err)
 	}
 
-	goArgs, err := a.coerceArgs(slots)
+	goArgs, err := a.coerceArgs(*ctx, slots)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -131,7 +134,7 @@ func (a *reflectedCompensableAction) Do(ctx *Context, slots map[string]any) (Res
 		return nil, nil, fmt.Errorf("%s: %w", a.name, err)
 	}
 
-	goArgs, err := a.coerceArgs(slots)
+	goArgs, err := a.coerceArgs(*ctx, slots)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -151,12 +154,12 @@ func (a *reflectedCompensableAction) Do(ctx *Context, slots map[string]any) (Res
 	return result, undoState, doErr
 }
 
-func (a *reflectedCompensableAction) Undo(_ *Context, state Complement) error {
+func (a *reflectedCompensableAction) Undo(ctx *Context, state Complement) error {
 	if state == nil {
 		return nil
 	}
 	goArgs := []reflect.Value{
-		a.provider,
+		a.getProvider(*ctx),
 		reflect.ValueOf(state),
 	}
 	results := a.compensate.Func.Call(goArgs)
@@ -374,7 +377,7 @@ func classifyCompensableReturn(results []reflect.Value) (Result, Complement, err
 var resourceType = reflect.TypeOf((*Resource)(nil)).Elem()
 
 // shadowResult shadows Resource results in the catalog without changing the
-// result type. Provider methods return resources by value (e.g., file.Resource).
+// result type. ReceiverFactory methods return resources by value (e.g., file.Resource).
 // The Resource interface requires pointer receivers (resourceBase), so a
 // temporary pointer is created for the Shadow call. The catalog stamps
 // id/originID on the underlying ResourceBase; the stamped value is returned.
@@ -423,7 +426,7 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 	return result
 }
 
-// RegisterReflectedActions registers all action methods on a provider.
+// RegisterActions registers all action methods on a provider.
 // Method return signature determines action type:
 //
 //   - No error return: () or (T) → Action (pure)
@@ -432,11 +435,10 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 //
 // Every CompensableAction (3 returns) must have a Compensate<GoName>
 // companion method. Missing pairs panic at registration time.
-func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, params MethodParams) {
-	registerReceiverParamsReflect(name, provider, params)
+func RegisterActions(registry *ActionRegistry, factory ReceiverFactory, params MethodParams) {
 
-	pv := reflect.ValueOf(provider)
-	pt := pv.Type()
+	registerReceiverParamsReflect(factory, params)
+	pt := reflect.PointerTo(factory.ProviderType())
 
 	consumedCompensators := make(map[string]bool)
 
@@ -448,7 +450,7 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 
 		mt := method.Type
 		snakeName := camelToSnake(goName)
-		actionName := name + "." + snakeName
+		actionName := factory.ReceiverName() + "." + snakeName
 
 		// Strip '?' suffixes from param names. The '?' is a Starlark
 		// UnpackArgs marker for optional parameters; it must not leak
@@ -459,9 +461,9 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 		}
 
 		base := actionBase{
-			name:       actionName,
-			provider:   pv,
+			factory:    factory,
 			method:     method,
+			name:       actionName,
 			paramNames: cleanedNames,
 		}
 
@@ -469,7 +471,7 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 
 		if !hasError {
 			// Pure Action — no error return.
-			reg.Register(&reflectedPureAction{actionBase: base})
+			registry.Register(&reflectedPureAction{actionBase: base})
 			continue
 		}
 
@@ -488,7 +490,7 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 			}
 			validateCompensateSignature(actionName, cm)
 			consumedCompensators[compensateName] = true
-			reg.Register(&reflectedCompensableAction{
+			registry.Register(&reflectedCompensableAction{
 				actionBase: base,
 				compensate: cm,
 			})
@@ -496,13 +498,13 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 			// 1-2 returns but has a Compensate companion — allow it as CompensableAction.
 			validateCompensateSignature(actionName, cm)
 			consumedCompensators[compensateName] = true
-			reg.Register(&reflectedCompensableAction{
+			registry.Register(&reflectedCompensableAction{
 				actionBase: base,
 				compensate: cm,
 			})
 		} else {
 			// FallibleAction — error return, no Compensate companion.
-			reg.Register(&reflectedFallibleAction{actionBase: base})
+			registry.Register(&reflectedFallibleAction{actionBase: base})
 		}
 	}
 
@@ -523,9 +525,11 @@ func RegisterReflectedActions(reg *ActionRegistry, name string, provider any, pa
 		if _, inParams := params[forwardName]; !inParams {
 			continue
 		}
-		panic(fmt.Sprintf(
-			"%s: %s.%s exists but forward method %s was not registered as an action",
-			name, pt.Elem().Name(), m.Name, forwardName,
+		panic(fmt.Sprintf("%s: %s.%s exists but forward method %s was not registered as an action",
+			factory.ReceiverName(),
+			pt.Elem().Name(),
+			m.Name,
+			forwardName,
 		))
 	}
 }
@@ -536,29 +540,17 @@ func validateCompensateSignature(actionName string, cm reflect.Method) {
 	mt := cm.Type
 	// NumIn includes receiver, so 2 = receiver + undoState.
 	if mt.NumIn() != 2 {
-		panic(fmt.Sprintf(
-			"%s: %s must accept exactly 1 parameter (undo state), got %d",
-			actionName, cm.Name, mt.NumIn()-1,
+		panic(fmt.Sprintf("%s: %s must accept exactly 1 parameter (undo state), got %d",
+			actionName,
+			cm.Name,
+			mt.NumIn()-1,
 		))
 	}
 	if mt.NumOut() != 1 || !mt.Out(0).Implements(errorType) {
-		panic(fmt.Sprintf(
-			"%s: %s must return exactly (error), got %d return values",
-			actionName, cm.Name, mt.NumOut(),
+		panic(fmt.Sprintf("%s: %s must return exactly (error), got %d return values",
+			actionName,
+			cm.Name,
+			mt.NumOut(),
 		))
-	}
-}
-
-// InitActionProvider injects the execution Context into the provider backing a reflected action.
-// For actions that are not reflection-based or whose provider does not embed ProviderBase, this is a no-op.
-func InitActionProvider(action Action, ctx Context) {
-	type hasProvider interface{ getProvider() reflect.Value }
-	hp, ok := action.(hasProvider)
-	if !ok {
-		return
-	}
-	pv := hp.getProvider()
-	if pv.Kind() == reflect.Ptr && !pv.IsNil() {
-		InitProvider(pv.Interface(), ctx)
 	}
 }

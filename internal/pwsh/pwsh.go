@@ -27,7 +27,7 @@
 // imports persist across calls. If a command calls `exit N`, the session
 // terminates and the exit code is captured from the process state.
 //
-//	ps, _ := pwsh.New()
+//	ps, _ := pwsh.NewExecuting()
 //	defer ps.Close()
 //
 //	ps.Run("$greeting = 'Hello'")

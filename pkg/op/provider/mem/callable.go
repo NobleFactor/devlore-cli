@@ -14,7 +14,7 @@ import (
 // Callable is a mem.Resource that holds a Starlark function extracted into
 // a self-contained synthetic source file with compiled bytecode.
 //
-// The URI is opaque: mem:callable/<FuncType>/<Name>. FuncType is the named
+// The URI is opaque: mem:callable/<FuncType>/<ReceiverName>. FuncType is the named
 // Go type the callable satisfies (e.g., "file.Reducer", "Predicate"). Name
 // is the function name or <action>.<param> for lambdas.
 //
@@ -34,7 +34,7 @@ type Callable struct {
 	Compiled []byte
 
 	// URI identity fields — compose the opaque URI:
-	// mem:callable/<FuncType>/<Name>
+	// mem:callable/<FuncType>/<ReceiverName>
 	FuncType string // named Go type: "file.Reducer", "Predicate"
 	Name     string // function name or <action>.<param> for lambdas
 

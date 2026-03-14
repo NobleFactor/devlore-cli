@@ -88,7 +88,7 @@ func loadMigrateFixtures(t *testing.T) []MigrateFixture {
 
 // TestMigrate_E2E runs end-to-end tests for writ migrate.
 // This test is skipped unless E2E_TEST=1 is set, as it requires LLM providers.
-// Provider configuration uses devlore's standard resolution chain:
+// ReceiverFactory configuration uses devlore's standard resolution chain:
 // CLI flags → DEVLORE_MODEL_* env → config file → keystore → auto-detect → Ollama
 func TestMigrate_E2E(t *testing.T) {
 	if os.Getenv("E2E_TEST") != "1" {

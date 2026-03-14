@@ -11,6 +11,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode"
 	starcodegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode/gen"
 )
@@ -32,7 +33,7 @@ func TestIntegrationEndToEnd(t *testing.T) {
 	root := testdataDir(t)
 
 	// Create receiver exactly as init() would, but pointing at testdata
-	receiver := starcodegen.NewStarcodeReceiver(&starcode.Provider{Root: root})
+	receiver := op.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: root})
 
 	globals := starlark.StringDict{
 		"starcode": receiver,

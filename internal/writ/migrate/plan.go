@@ -50,7 +50,7 @@ type ProviderConfig struct {
 type ProviderInfo struct {
 	Description       string      `yaml:"description"`
 	LiteLLMProvider   string      `yaml:"litellm_provider"`   // Maps to litellm_provider in cache
-	MaxInputOverride  int         `yaml:"max_input_override"` // Provider-enforced limit (e.g., GitHub)
+	MaxInputOverride  int         `yaml:"max_input_override"` // ReceiverFactory-enforced limit (e.g., GitHub)
 	MaxOutputOverride int         `yaml:"max_output_override"`
 	InputLimits       InputLimits `yaml:"input_limits"` // Default limits if model not in cache
 }

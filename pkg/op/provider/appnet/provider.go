@@ -20,6 +20,10 @@ type Provider struct {
 	op.ProviderBase
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // Download fetches the content at the given URL and returns the response body.
 //
 // Parameters:

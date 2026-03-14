@@ -12,7 +12,7 @@
 // for each domain listing all assets by type with metadata for discovery.
 //
 // The tool preserves existing metadata (purpose, source_system, description)
-// when updating indexes. New files are added with empty metadata fields that
+// when updating indexes. NewExecuting files are added with empty metadata fields that
 // should be filled in manually.
 package main
 
@@ -226,7 +226,7 @@ func listFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-// named is the constraint for entry types with a Name field.
+// named is the constraint for entry types with a ReceiverName field.
 type named interface {
 	PromptEntry | SchemaEntry | ExampleEntry | TransformEntry | SignatureEntry | SlotEntry
 	getName() string

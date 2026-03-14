@@ -389,7 +389,7 @@ func (m *Model) renderFooter() string {
 	case StepSelect:
 		help = "↑/↓ to navigate, Enter to select"
 	case StepInput:
-		help = "Type your response, Enter to submit"
+		help = "ProviderType your response, Enter to submit"
 	case StepProgress:
 		help = "Please wait..."
 	case StepComplete, StepError:

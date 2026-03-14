@@ -673,7 +673,7 @@ func TestUnmarshal_NestedStruct(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if p.Name != "Alice" {
-		t.Errorf("Name = %q, want Alice", p.Name)
+		t.Errorf("ReceiverName = %q, want Alice", p.Name)
 	}
 	if p.Age != 30 {
 		t.Errorf("Age = %d, want 30", p.Age)
@@ -772,7 +772,7 @@ func TestRoundTrip_Map(t *testing.T) {
 	}
 }
 
-// --- Type cache tests ---
+// --- ProviderType cache tests ---
 
 func TestTypeCache_ComputedOnce(t *testing.T) {
 	// Clear cache for this test.

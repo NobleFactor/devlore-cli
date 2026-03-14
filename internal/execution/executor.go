@@ -92,10 +92,6 @@ type ExecutorOptions struct {
 	// Data holds tool-provided context (template vars, SOPS config, etc.).
 	Data map[string]any
 
-	// Platform provides platform abstractions (package manager, service manager)
-	// to action providers. Create with platform.New().
-	Platform *op.Platform
-
 	// ConflictResolution specifies how to handle conflicts detected during preflight.
 	ConflictResolution ConflictResolution
 
@@ -149,16 +145,15 @@ func (e *GraphExecutor) newContext(ctx context.Context) (*op.Context, error) {
 		return nil, fmt.Errorf("open root %s: %w", e.options.Root, err)
 	}
 
+	base := op.NewContextBase(root)
+	base.Context = ctx
+	base.Data = e.options.Data
+	base.DryRun = e.options.DryRun
+	base.Writer = e.options.Writer
+
 	execCtx := &op.Context{
-		ContextBase: op.ContextBase{
-			Context:  ctx,
-			Root:     root,
-			DryRun:   e.options.DryRun,
-			Writer:   e.options.Writer,
-			Data:     e.options.Data,
-			Platform: e.options.Platform,
-		},
-		Thread: e.newThread(),
+		ContextBase: base,
+		Thread:      e.newThread(),
 	}
 	execCtx.RecoverySite = op.NewRecoverySite(*execCtx)
 
@@ -547,8 +542,6 @@ func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []
 			if action, ok := freshReg.Get(name); ok {
 				n.Action = action
 			}
-		} else {
-			op.InitActionProvider(n.Action, *execCtx)
 		}
 	}
 
@@ -788,8 +781,6 @@ func (e *GraphExecutor) hydrateProviders(g *op.Graph, ctx op.Context) error {
 				return fmt.Errorf("hydrate: unknown action %q on node %q", name, n.ID)
 			}
 			n.Action = action
-		} else {
-			op.InitActionProvider(n.Action, ctx)
 		}
 	}
 	return nil

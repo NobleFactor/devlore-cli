@@ -14,10 +14,10 @@ import (
 
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 
 	// Ensure providers are registered via init().
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode/gen"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )
 
 // TestLoadIntegration executes a .star script that uses load("@devlore//starcode") and verifies that:
@@ -31,7 +31,7 @@ func TestLoadIntegration(t *testing.T) {
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
-			WithReceivers("ui").
+			WithReceivers(uigen.Receiver).
 			WithWriter(&bytes.Buffer{}),
 	)
 

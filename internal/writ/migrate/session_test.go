@@ -216,9 +216,9 @@ func TestSessionDetectReadyToExecute(t *testing.T) {
 	}{
 		{"Here's what I found", false},
 		{"**Ready to Execute**\nThe migration will perform the following...", true},
-		{"Ready to execute. Type approve to proceed.", true},
+		{"Ready to execute. ProviderType approve to proceed.", true},
 		{"Let me help you", false},
-		{"Type approve to execute the changes", true},
+		{"ProviderType approve to execute the changes", true},
 	}
 
 	for _, tc := range tests {

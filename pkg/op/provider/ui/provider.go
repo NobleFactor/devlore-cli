@@ -32,7 +32,6 @@ const (
 // Provider provides terminal status messaging.
 //
 // +devlore:access=immediate
-// +devlore:bind Writer=Writer, ProgramName=ProgramName, Color=Color
 type Provider struct {
 	op.ProviderBase
 	// Writer is the output destination. Defaults to os.Stderr.
@@ -43,6 +42,16 @@ type Provider struct {
 	Silent bool
 	// Color enables ANSI color codes. Defaults to true.
 	Color bool
+}
+
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{
+		ProviderBase: op.NewProviderBase(ctx),
+		Writer:       ctx.Writer,
+		ProgramName:  ctx.ProgramName,
+		Color:        true,
+		Silent:       false,
+	}
 }
 
 // region EXPORTED METHODS
@@ -60,7 +69,10 @@ func (p *Provider) Error(msg string) {
 	if p.Silent {
 		return
 	}
-	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg) //nolint:errcheck // write to stderr
+	_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg)
+	if err != nil {
+		return
+	}
 }
 
 // Note informs the user of progress.
@@ -72,7 +84,10 @@ func (p *Provider) Note(msg string) {
 	if p.Silent {
 		return
 	}
-	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGray, symbolNote), msg) //nolint:errcheck // write to stderr
+	_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGray, symbolNote), msg)
+	if err != nil {
+		return
+	}
 }
 
 // Success confirms completion to the user.
@@ -84,7 +99,10 @@ func (p *Provider) Success(msg string) {
 	if p.Silent {
 		return
 	}
-	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGreen, symbolSuccess), msg) //nolint:errcheck // write to stderr
+	_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGreen, symbolSuccess), msg)
+	if err != nil {
+		return
+	}
 }
 
 // Warn alerts the user to a potential issue.
@@ -96,7 +114,10 @@ func (p *Provider) Warn(msg string) {
 	if p.Silent {
 		return
 	}
-	fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorYellow, symbolWarn), msg) //nolint:errcheck // write to stderr
+	_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorYellow, symbolWarn), msg)
+	if err != nil {
+		return
+	}
 }
 
 // Fallible actions
@@ -111,7 +132,10 @@ func (p *Provider) Warn(msg string) {
 func (p *Provider) Fail(msg string) error {
 
 	if !p.Silent {
-		fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg) //nolint:errcheck // write to stderr
+		_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg)
+		if err != nil {
+			return err
+		}
 	}
 	return fmt.Errorf("%s", msg)
 }

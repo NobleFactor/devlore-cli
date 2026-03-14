@@ -15,7 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
+	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 
 	// Blank import triggers init() in all provider packages,
 	// which call op.Announce() to self-register.
@@ -444,7 +444,7 @@ func prepareScriptEnv(
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("lore").
 			WithGraphBuilder().
-			WithReceivers("ui").
+			WithReceivers(uigen.Receiver).
 			WithWriter(os.Stdout).
 			WithColor(),
 	)
@@ -532,7 +532,7 @@ func userHomeDir() string {
 // Returns:
 //   - string: the registry platform string (e.g., "Darwin", "Linux.Debian").
 func detectPlatform() string {
-	p := platform.New()
+	p := op.NewPlatform()
 	switch p.OS {
 	case "darwin":
 		return "Darwin"

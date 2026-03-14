@@ -5,6 +5,7 @@ package starlark_test
 
 import (
 	"bytes"
+	"reflect"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -14,8 +15,8 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Test provider types implementing the Provider / PlannedProvider /
-// ImmediateProvider interfaces used by the announce-and-callback model.
+// Test provider types implementing the ReceiverFactory / PlanningReceiverFactory /
+// ExecutingReceiverFactory interfaces used by the announce-and-callback model.
 // ---------------------------------------------------------------------------
 
 // rtTestActionProvider registers a single test action.
@@ -23,7 +24,11 @@ type rtTestActionProvider struct {
 	actionName string
 }
 
-func (p *rtTestActionProvider) Name() string { return "_test_actions" }
+func (p *rtTestActionProvider) ReceiverName() string                                { return "_test_actions" }
+func (p *rtTestActionProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestActionProvider) ProviderType() reflect.Type {
+	return reflect.TypeOf((*rtTestActionProvider)(nil)).Elem()
+}
 func (p *rtTestActionProvider) Register(reg *op.ActionRegistry, _ op.Context) {
 	reg.Register(testAction{name: p.actionName})
 }
@@ -31,38 +36,54 @@ func (p *rtTestActionProvider) Register(reg *op.ActionRegistry, _ op.Context) {
 // rtTestAllActsProvider registers a single test action (for the "always registers all" test).
 type rtTestAllActsProvider struct{}
 
-func (p *rtTestAllActsProvider) Name() string { return "_test_all_acts" }
+func (p *rtTestAllActsProvider) ReceiverName() string                                { return "_test_all_acts" }
+func (p *rtTestAllActsProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestAllActsProvider) ProviderType() reflect.Type {
+	return reflect.TypeOf((*rtTestAllActsProvider)(nil)).Elem()
+}
 func (p *rtTestAllActsProvider) Register(reg *op.ActionRegistry, _ op.Context) {
 	reg.Register(testAction{name: "_test_all_acts.do"})
 }
 
-// rtTestPlannedProvider implements PlannedProvider.
+// rtTestPlannedProvider implements PlanningReceiverFactory.
 type rtTestPlannedProvider struct{ name string }
 
-func (p *rtTestPlannedProvider) Name() string                                { return p.name }
+func (p *rtTestPlannedProvider) ReceiverName() string                                { return p.name }
+func (p *rtTestPlannedProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestPlannedProvider) ProviderType() reflect.Type {
+	return reflect.TypeOf((*rtTestPlannedProvider)(nil)).Elem()
+}
 func (p *rtTestPlannedProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
-func (p *rtTestPlannedProvider) NewPlanned(_ *op.Graph, _ string, _ *op.ActionRegistry) starlark.Value {
+func (p *rtTestPlannedProvider) NewPlanning(_ *op.Graph, _ string, _ *op.ActionRegistry) starlark.Value {
 	return starlark.String("test-plan-value")
 }
 
-// rtTestImmediateProvider implements ImmediateProvider.
+// rtTestImmediateProvider implements ExecutingReceiverFactory.
 type rtTestImmediateProvider struct{ name string }
 
-func (p *rtTestImmediateProvider) Name() string                                { return p.name }
+func (p *rtTestImmediateProvider) ReceiverName() string                                { return p.name }
+func (p *rtTestImmediateProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestImmediateProvider) ProviderType() reflect.Type {
+	return reflect.TypeOf((*rtTestImmediateProvider)(nil)).Elem()
+}
 func (p *rtTestImmediateProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
-func (p *rtTestImmediateProvider) NewImmediate(_ op.BindingConfig) starlark.Value {
+func (p *rtTestImmediateProvider) NewExecuting(_ op.Context) starlark.Value {
 	return starlark.String("test-imm-value")
 }
 
-// rtTestCountingImmProvider implements ImmediateProvider and counts calls.
+// rtTestCountingImmProvider implements ExecutingReceiverFactory and counts calls.
 type rtTestCountingImmProvider struct {
 	name      string
 	callCount *int
 }
 
-func (p *rtTestCountingImmProvider) Name() string                                { return p.name }
+func (p *rtTestCountingImmProvider) ReceiverName() string                                { return p.name }
+func (p *rtTestCountingImmProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestCountingImmProvider) ProviderType() reflect.Type {
+	return reflect.TypeOf((*rtTestCountingImmProvider)(nil)).Elem()
+}
 func (p *rtTestCountingImmProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
-func (p *rtTestCountingImmProvider) NewImmediate(_ op.BindingConfig) starlark.Value {
+func (p *rtTestCountingImmProvider) NewExecuting(_ op.Context) starlark.Value {
 	*p.callCount++
 	return starlark.String("cached-value")
 }
@@ -90,7 +111,7 @@ func TestRuntimeRegisterActions(t *testing.T) {
 func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 	op.Announce(&rtTestAllActsProvider{})
 
-	// No Receivers — but actions should still be registered.
+	// No Providers — but actions should still be registered.
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
@@ -105,13 +126,14 @@ func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 }
 
 func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
+	immProv := &rtTestImmediateProvider{name: "_test_imm2"}
 	op.Announce(&rtTestPlannedProvider{name: "_test_plan2"})
-	op.Announce(&rtTestImmediateProvider{name: "_test_imm2"})
+	op.Announce(immProv)
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
 			WithGraphBuilder().
-			WithReceivers("_test_imm2").
+			WithReceivers(immProv).
 			WithWriter(&bytes.Buffer{}),
 	)
 
@@ -124,7 +146,7 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 		t.Error("expected 'plan' in globals")
 	}
 
-	// "_test_imm2" should be present (requested via WithReceivers).
+	// "_test_imm2" should be present (requested via WithReceivers()).
 	if _, ok := globals["_test_imm2"]; !ok {
 		t.Error("expected '_test_imm2' in globals")
 	}
@@ -143,13 +165,16 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	}
 }
 
-func TestRuntimeBuildGlobalsOnlyIncludesReceivers(t *testing.T) {
+func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 	op.Announce(&rtTestImmediateProvider{name: "_test_not_included"})
 
-	// Don't include "_test_not_included" in Receivers.
+	// Pass a different provider — "_test_not_included" should be excluded.
+	otherProv := &rtTestImmediateProvider{name: "_test_other"}
+	op.Announce(otherProv)
+
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
-			WithReceivers("ui").
+			WithReceivers(otherProv).
 			WithWriter(&bytes.Buffer{}),
 	)
 
@@ -251,7 +276,7 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 	_, _ = thread.Load(thread, "@devlore//_test_cached")
 
 	if callCount != 1 {
-		t.Errorf("expected NewImmediate called once (cached), got %d", callCount)
+		t.Errorf("expected NewExecuting called once (cached), got %d", callCount)
 	}
 }
 

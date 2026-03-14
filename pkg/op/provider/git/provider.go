@@ -21,6 +21,10 @@ type Provider struct {
 	cloneFn func(url, path string) error
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // ── Compensable Pairs ────────────────────────────────────────────────
 
 // Clone clones a repository from url into destination.

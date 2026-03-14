@@ -17,6 +17,10 @@ type Provider struct {
 	op.ProviderBase
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // Encode marshals a Go value to a YAML string.
 func (p *Provider) Encode(value any) (result string, err error) {
 	defer func() {

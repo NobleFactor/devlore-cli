@@ -1138,7 +1138,7 @@ func TestJoin_SinglePart(t *testing.T) {
 	}
 }
 
-// --- Name ---
+// --- ReceiverName ---
 
 func TestName(t *testing.T) {
 	tmp := t.TempDir()
@@ -1155,7 +1155,7 @@ func TestName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		if got := p.Name(tt.path); got != tt.want {
-			t.Errorf("Name(%q) = %q, want %q", tt.path, got, tt.want)
+			t.Errorf("ReceiverName(%q) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
 }

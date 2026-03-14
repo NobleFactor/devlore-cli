@@ -12,7 +12,7 @@ the underlying provider is Anthropic, OpenAI, Ollama, etc.
 
 	type Provider interface {
 	    Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
-	    Name() string       // Provider name (also keystore account)
+	    ReceiverName() string       // Provider name (also keystore account)
 	    Model() string      // Model identifier
 	    Endpoint() string   // API endpoint (empty = default)
 	    Available(ctx context.Context) bool

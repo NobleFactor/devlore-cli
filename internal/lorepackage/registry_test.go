@@ -48,7 +48,7 @@ func TestRegistry_FilePaths(t *testing.T) {
 func TestGitProvider_Name(t *testing.T) {
 	provider := NewGitProvider("https://github.com/example/repo.git", "main")
 	if provider.Name() != "git" {
-		t.Errorf("Name() = %q, want 'git'", provider.Name())
+		t.Errorf("ReceiverName() = %q, want 'git'", provider.Name())
 	}
 }
 

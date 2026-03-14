@@ -16,7 +16,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 
 	// Blank imports register provider actions and callable extractor via init().
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
@@ -73,23 +72,16 @@ func WithWriter(w io.Writer) Option {
 	return func(r *Runner) { r.writer = w }
 }
 
-// WithReceivers sets the Starlark namespaces to expose as globals.
-// If "plan" is included, it is extracted and handled via WithGraphBuilder.
+// WithReceivers sets the receiver factories to expose as Starlark globals.
 //
 // Parameters:
-//   - names: the receiver names to expose.
+//   - receivers: the receiver factories to include.
 //
 // Returns:
 //   - Option: a runner option that sets the receiver list.
-func WithReceivers(names ...string) Option {
+func WithReceivers(receivers ...op.ReceiverFactory) Option {
 	return func(r *Runner) {
-		for _, name := range names {
-			if name == "plan" {
-				r.withGraphBuilder = true
-			} else {
-				r.receivers = append(r.receivers, name)
-			}
-		}
+		r.receivers = append(r.receivers, receivers...)
 	}
 }
 
@@ -108,7 +100,7 @@ type Runner struct {
 	trace            bool
 	provider         string
 	writer           io.Writer
-	receivers        []string
+	receivers        []op.ReceiverFactory
 	withGraphBuilder bool
 	graph            *op.Graph
 }
@@ -156,7 +148,7 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// 2. Create Runtime with requested receivers
+	// 2. Create Runtime with requested providers
 	cfg := op.NewBindingConfig("devlore-test").
 		WithReceivers(r.receivers...).
 		WithWriter(r.writer)
@@ -169,14 +161,11 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	reg := op.NewActionRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer root.Close()
-	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
+	opCtx := op.Context{ContextBase: op.NewContextBase(root)}
 	opCtx.RecoverySite = op.NewRecoverySite(opCtx)
 	bs.RegisterActions(reg, opCtx)
 
-	// 4. Create Platform
-	plat := platform.New()
-
-	// 5. Create Graph
+	// 4. Create Graph
 	graph := op.NewGraph("devlore-test")
 	r.graph = graph
 
@@ -250,10 +239,9 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 
 	// 13. Execute graph
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
-		Root:     tmpDir,
-		DryRun:   r.dryRun,
-		Writer:   r.writer,
-		Platform: plat,
+		Root:   tmpDir,
+		DryRun: r.dryRun,
+		Writer: r.writer,
 	})
 
 	if tracer.Enabled() {

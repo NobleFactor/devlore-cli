@@ -8,28 +8,39 @@ import (
 	"sync"
 )
 
-// --- Provider announcement ---
+// --- ReceiverFactory announcement ---
 
 var (
 	announceMu sync.Mutex
-	announced  []Provider
+	announced  = make(map[reflect.Type]ReceiverFactory)
 )
 
 // Announce records a provider descriptor. Called in init().
 // Does zero initialization — stores the value for later InitAll callback.
-func Announce(p Provider) {
+// Duplicate announcements of the same type are deduplicated.
+//
+// Parameters:
+//   - p: the provider to announce.
+func Announce(p ReceiverFactory) {
+
 	announceMu.Lock()
 	defer announceMu.Unlock()
-	announced = append(announced, p)
+	announced[reflect.TypeOf(p)] = p
 }
 
 // InitAll calls Register on every announced provider.
 // Called once by the framework when it is ready to build an ActionRegistry.
+//
+// Parameters:
+//   - reg: the action registry to populate.
+//   - ctx: the execution context for provider initialization.
 func InitAll(reg *ActionRegistry, ctx Context) {
 
 	announceMu.Lock()
-	providers := make([]Provider, len(announced))
-	copy(providers, announced)
+	providers := make([]ReceiverFactory, 0, len(announced))
+	for _, p := range announced {
+		providers = append(providers, p)
+	}
 	announceMu.Unlock()
 
 	for _, p := range providers {
@@ -38,21 +49,26 @@ func InitAll(reg *ActionRegistry, ctx Context) {
 }
 
 // Providers returns all announced providers (for introspection/debugging).
-func Providers() []Provider {
+//
+// Returns:
+//   - []ReceiverFactory: a copy of the announced provider list.
+func Providers() []ReceiverFactory {
 
 	announceMu.Lock()
 	defer announceMu.Unlock()
-	out := make([]Provider, len(announced))
-	copy(out, announced)
+	out := make([]ReceiverFactory, 0, len(announced))
+	for _, p := range announced {
+		out = append(out, p)
+	}
 	return out
 }
 
-// resetAnnounced clears the announced list. For testing only.
+// resetAnnounced clears the announced registry. For testing only.
 func resetAnnounced() {
 
 	announceMu.Lock()
 	defer announceMu.Unlock()
-	announced = nil
+	announced = make(map[reflect.Type]ReceiverFactory)
 }
 
 // --- Resource announcement ---
@@ -64,7 +80,7 @@ type ResourceDescriptor interface {
 	// Name returns a human-readable name for the resource type (e.g., "file.Resource").
 	Name() string
 
-	// Type returns the reflect.Type of the resource struct (e.g., reflect.TypeOf(file.Resource{})).
+	// Type returns the reflect.ProviderType of the resource struct (e.g., reflect.TypeOf(file.Resource{})).
 	Type() reflect.Type
 
 	// Init completes registration for this resource type. Called exactly once, lazily, on first use.
@@ -88,7 +104,7 @@ func (e *resourceEntry) init() error {
 	return e.err
 }
 
-// resourceRegistry maps reflect.Type → *resourceEntry. Populated by AnnounceResource in init(),
+// resourceRegistry maps reflect.ProviderType → *resourceEntry. Populated by AnnounceResource in init(),
 // consulted by loadConstructor on first use.
 var resourceRegistry sync.Map
 
@@ -96,7 +112,7 @@ var resourceRegistry sync.Map
 // functions. Does zero initialization — stores the descriptor for later lazy Init on first use.
 //
 // Parameters:
-//   - desc: resource descriptor providing Name, Type, and Init
+//   - desc: resource descriptor providing ReceiverName, ProviderType, and Init
 func AnnounceResource(desc ResourceDescriptor) {
 
 	resourceRegistry.Store(desc.Type(), &resourceEntry{desc: desc})
@@ -107,7 +123,7 @@ func AnnounceResource(desc ResourceDescriptor) {
 // error caching).
 //
 // Parameters:
-//   - targetType: the reflect.Type to look up a constructor for
+//   - targetType: the reflect.ProviderType to look up a constructor for
 //
 // Returns:
 //   - constructor function, true if found (either already registered or lazily initialized)

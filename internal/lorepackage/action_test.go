@@ -35,7 +35,7 @@ func TestScriptAction(t *testing.T) {
 	}
 
 	if action.Type() != ActionScript {
-		t.Errorf("Type() = %v, want ActionScript", action.Type())
+		t.Errorf("ProviderType() = %v, want ActionScript", action.Type())
 	}
 	if action.Phase() != "install" {
 		t.Errorf("Phase() = %q, want \"install\"", action.Phase())
@@ -51,7 +51,7 @@ func TestNativePMAction(t *testing.T) {
 	}
 
 	if action.Type() != ActionNativePM {
-		t.Errorf("Type() = %v, want ActionNativePM", action.Type())
+		t.Errorf("ProviderType() = %v, want ActionNativePM", action.Type())
 	}
 	if action.Phase() != "install" {
 		t.Errorf("Phase() = %q, want \"install\"", action.Phase())

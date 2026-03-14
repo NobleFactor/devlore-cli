@@ -12,46 +12,74 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// announceTestProvider is a minimal Provider for testing.
-type announceTestProvider struct {
+// announceTestProviderAlpha is a minimal ReceiverFactory for testing.
+type announceTestProviderAlpha struct {
 	name       string
 	registered bool
 }
 
-func (p *announceTestProvider) Name() string { return p.name }
-func (p *announceTestProvider) Register(reg *ActionRegistry, _ Context) {
+func (p *announceTestProviderAlpha) ReceiverName() string                          { return p.name }
+func (p *announceTestProviderAlpha) GetOrCreateProvider(_ Context) ContextProvider { return nil }
+func (p *announceTestProviderAlpha) ProviderType() reflect.Type {
+	return reflect.TypeOf((*announceTestProviderAlpha)(nil)).Elem()
+}
+func (p *announceTestProviderAlpha) Register(reg *ActionRegistry, _ Context) {
 	p.registered = true
 	reg.Register(&registryTestAction{name: p.name + ".action"})
 }
 
-// announceTestPlannedProvider implements both Provider and PlannedProvider.
+// announceTestProviderBeta is a second distinct type for deduplication testing.
+type announceTestProviderBeta struct {
+	name       string
+	registered bool
+}
+
+func (p *announceTestProviderBeta) ReceiverName() string                          { return p.name }
+func (p *announceTestProviderBeta) GetOrCreateProvider(_ Context) ContextProvider { return nil }
+func (p *announceTestProviderBeta) ProviderType() reflect.Type {
+	return reflect.TypeOf((*announceTestProviderBeta)(nil)).Elem()
+}
+func (p *announceTestProviderBeta) Register(reg *ActionRegistry, _ Context) {
+	p.registered = true
+	reg.Register(&registryTestAction{name: p.name + ".action"})
+}
+
+// announceTestPlannedProvider implements both ReceiverFactory and PlanningReceiverFactory.
 type announceTestPlannedProvider struct {
 	name          string
 	registered    bool
 	plannedCalled bool
 }
 
-func (p *announceTestPlannedProvider) Name() string { return p.name }
+func (p *announceTestPlannedProvider) ReceiverName() string                          { return p.name }
+func (p *announceTestPlannedProvider) GetOrCreateProvider(_ Context) ContextProvider { return nil }
+func (p *announceTestPlannedProvider) ProviderType() reflect.Type {
+	return reflect.TypeOf((*announceTestPlannedProvider)(nil)).Elem()
+}
 func (p *announceTestPlannedProvider) Register(reg *ActionRegistry, _ Context) {
 	p.registered = true
 }
-func (p *announceTestPlannedProvider) NewPlanned(_ *Graph, _ string, _ *ActionRegistry) starlark.Value {
+func (p *announceTestPlannedProvider) NewPlanning(_ *Graph, _ string, _ *ActionRegistry) starlark.Value {
 	p.plannedCalled = true
 	return starlark.None
 }
 
-// announceTestImmediateProvider implements both Provider and ImmediateProvider.
+// announceTestImmediateProvider implements both ReceiverFactory and ExecutingReceiverFactory.
 type announceTestImmediateProvider struct {
 	name            string
 	registered      bool
 	immediateCalled bool
 }
 
-func (p *announceTestImmediateProvider) Name() string { return p.name }
+func (p *announceTestImmediateProvider) ReceiverName() string                          { return p.name }
+func (p *announceTestImmediateProvider) GetOrCreateProvider(_ Context) ContextProvider { return nil }
+func (p *announceTestImmediateProvider) ProviderType() reflect.Type {
+	return reflect.TypeOf((*announceTestImmediateProvider)(nil)).Elem()
+}
 func (p *announceTestImmediateProvider) Register(reg *ActionRegistry, _ Context) {
 	p.registered = true
 }
-func (p *announceTestImmediateProvider) NewImmediate(_ BindingConfig) starlark.Value {
+func (p *announceTestImmediateProvider) NewExecuting(_ Context) starlark.Value {
 	p.immediateCalled = true
 	return starlark.None
 }
@@ -59,8 +87,8 @@ func (p *announceTestImmediateProvider) NewImmediate(_ BindingConfig) starlark.V
 func TestAnnounce_and_Providers(t *testing.T) {
 	resetAnnounced()
 
-	a := &announceTestProvider{name: "alpha"}
-	b := &announceTestProvider{name: "beta"}
+	a := &announceTestProviderAlpha{name: "alpha"}
+	b := &announceTestProviderBeta{name: "beta"}
 	Announce(a)
 	Announce(b)
 
@@ -68,18 +96,23 @@ func TestAnnounce_and_Providers(t *testing.T) {
 	if len(providers) != 2 {
 		t.Fatalf("Providers() returned %d, want 2", len(providers))
 	}
-	if providers[0].Name() != "alpha" {
-		t.Errorf("Providers()[0].Name() = %q, want %q", providers[0].Name(), "alpha")
+
+	names := map[string]bool{}
+	for _, p := range providers {
+		names[p.ReceiverName()] = true
 	}
-	if providers[1].Name() != "beta" {
-		t.Errorf("Providers()[1].Name() = %q, want %q", providers[1].Name(), "beta")
+	if !names["alpha"] {
+		t.Error("expected alpha in Providers()")
+	}
+	if !names["beta"] {
+		t.Error("expected beta in Providers()")
 	}
 }
 
 func TestProviders_returns_copy(t *testing.T) {
 	resetAnnounced()
 
-	Announce(&announceTestProvider{name: "x"})
+	Announce(&announceTestProviderAlpha{name: "x"})
 
 	p1 := Providers()
 	p2 := Providers()
@@ -91,8 +124,8 @@ func TestProviders_returns_copy(t *testing.T) {
 func TestInitAll_calls_Register(t *testing.T) {
 	resetAnnounced()
 
-	a := &announceTestProvider{name: "alpha"}
-	b := &announceTestProvider{name: "beta"}
+	a := &announceTestProviderAlpha{name: "alpha"}
+	b := &announceTestProviderBeta{name: "beta"}
 	Announce(a)
 	Announce(b)
 
@@ -124,13 +157,13 @@ func TestInitAll_PlannedProvider_type_assertion(t *testing.T) {
 		t.Fatalf("Providers() returned %d, want 1", len(providers))
 	}
 
-	p, ok := providers[0].(PlannedProvider)
+	p, ok := providers[0].(PlanningReceiverFactory)
 	if !ok {
-		t.Fatal("expected PlannedProvider type assertion to succeed")
+		t.Fatal("expected PlanningReceiverFactory type assertion to succeed")
 	}
-	p.NewPlanned(nil, "", nil)
+	p.NewPlanning(nil, "", nil)
 	if !pp.plannedCalled {
-		t.Error("NewPlanned was not called")
+		t.Error("NewPlanning was not called")
 	}
 }
 
@@ -145,48 +178,67 @@ func TestInitAll_ImmediateProvider_type_assertion(t *testing.T) {
 		t.Fatalf("Providers() returned %d, want 1", len(providers))
 	}
 
-	p, ok := providers[0].(ImmediateProvider)
+	p, ok := providers[0].(ExecutingReceiverFactory)
 	if !ok {
-		t.Fatal("expected ImmediateProvider type assertion to succeed")
+		t.Fatal("expected ExecutingReceiverFactory type assertion to succeed")
 	}
-	p.NewImmediate(BindingConfig{})
+	p.NewExecuting(Context{})
 	if !ip.immediateCalled {
-		t.Error("NewImmediate was not called")
+		t.Error("NewExecuting was not called")
 	}
 }
 
 func TestInitAll_plain_provider_not_PlannedProvider(t *testing.T) {
 	resetAnnounced()
 
-	plain := &announceTestProvider{name: "plain"}
+	plain := &announceTestProviderAlpha{name: "plain"}
 	Announce(plain)
 
 	providers := Providers()
-	if _, ok := providers[0].(PlannedProvider); ok {
-		t.Error("plain announceTestProvider should not satisfy PlannedProvider")
+	if _, ok := providers[0].(PlanningReceiverFactory); ok {
+		t.Error("plain provider should not satisfy PlanningReceiverFactory")
 	}
-	if _, ok := providers[0].(ImmediateProvider); ok {
-		t.Error("plain announceTestProvider should not satisfy ImmediateProvider")
+	if _, ok := providers[0].(ExecutingReceiverFactory); ok {
+		t.Error("plain provider should not satisfy ExecutingReceiverFactory")
 	}
 }
 
 func TestAnnounce_concurrent(t *testing.T) {
 	resetAnnounced()
 
+	// Concurrent announce of the same type deduplicates to 1 entry.
 	var wg sync.WaitGroup
 	for i := range 100 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			Announce(&announceTestProvider{name: "concurrent"})
+			Announce(&announceTestProviderAlpha{name: "concurrent"})
 			_ = n
 		}(i)
 	}
 	wg.Wait()
 
 	providers := Providers()
-	if len(providers) != 100 {
-		t.Errorf("Providers() returned %d, want 100", len(providers))
+	if len(providers) != 1 {
+		t.Errorf("Providers() returned %d, want 1 (same type deduplicates)", len(providers))
+	}
+}
+
+func TestAnnounce_deduplicates_same_type(t *testing.T) {
+	resetAnnounced()
+
+	// Announcing the same type twice keeps only the last value.
+	first := &announceTestProviderAlpha{name: "first"}
+	second := &announceTestProviderAlpha{name: "second"}
+	Announce(first)
+	Announce(second)
+
+	providers := Providers()
+	if len(providers) != 1 {
+		t.Fatalf("Providers() returned %d, want 1", len(providers))
+	}
+	if providers[0].ReceiverName() != "second" {
+		t.Errorf("expected last-announced value, got %q", providers[0].ReceiverName())
 	}
 }
 

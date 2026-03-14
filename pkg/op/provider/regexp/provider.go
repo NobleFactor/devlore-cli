@@ -19,6 +19,10 @@ type Provider struct {
 	cache sync.Map // pattern string → *regexp.Regexp
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // region EXPORTED METHODS
 
 // region Behaviors

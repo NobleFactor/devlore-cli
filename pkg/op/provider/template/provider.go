@@ -21,6 +21,10 @@ type Provider struct {
 	op.ProviderBase
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // Render processes content as a Go text/template. Returns the rendered bytes.
 //
 // Parameters:

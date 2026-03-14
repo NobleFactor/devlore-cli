@@ -93,7 +93,7 @@ func TestAnalyzeHotspots(t *testing.T) {
 			t.Error("hotspot File should not be empty")
 		}
 		if h.Name == "" {
-			t.Error("hotspot Name should not be empty")
+			t.Error("hotspot ReceiverName should not be empty")
 		}
 		if h.Line == 0 {
 			t.Error("hotspot Line should not be 0")

@@ -105,7 +105,7 @@ const DefaultFormat = "json"
 //	cli.AddOutputFlags(cmd, &output)
 func AddOutputFlags(cmd *cobra.Command, flags *OutputFlags) {
 	cmd.Flags().StringVar(&flags.Format, "format", DefaultFormat,
-		`Output format: json, table, yaml, or a Go template (e.g. '{{.Name}}\t{{.Version}}')`)
+		`Output format: json, table, yaml, or a Go template (e.g. '{{.ReceiverName}}\t{{.Version}}')`)
 	cmd.Flags().StringArrayVar(&flags.Filter, "filter", nil,
 		`Filter expression: field=value (repeatable, AND logic)`)
 }

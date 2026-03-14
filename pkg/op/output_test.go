@@ -69,7 +69,7 @@ func TestOutputString(t *testing.T) {
 func TestOutputType(t *testing.T) {
 	out := NewOutput(makeTestNode("n1", ""), makeTestGraph(), "")
 	if got := out.Type(); got != "Output" {
-		t.Errorf("Type() = %q, want %q", got, "Output")
+		t.Errorf("ProviderType() = %q, want %q", got, "Output")
 	}
 }
 
@@ -311,7 +311,7 @@ func TestGatherString(t *testing.T) {
 func TestGatherType(t *testing.T) {
 	gather := NewGather(makeTestGraph())
 	if got := gather.Type(); got != "Gather" {
-		t.Errorf("Type() = %q, want %q", got, "Gather")
+		t.Errorf("ProviderType() = %q, want %q", got, "Gather")
 	}
 }
 

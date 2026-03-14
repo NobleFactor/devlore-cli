@@ -25,6 +25,10 @@ type Provider struct {
 	op.ProviderBase
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // ── Compensable Pairs ────────────────────────────────────────────────
 
 // Extract extracts an archive (tar.gz or zip) from source into the prefix directory.

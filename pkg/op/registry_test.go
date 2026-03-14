@@ -39,7 +39,7 @@ func TestRegisterAndGet(t *testing.T) {
 		t.Fatal("Get(file.link) returned false")
 	}
 	if got.Name() != "file.link" {
-		t.Errorf("Get(file.link).Name() = %q, want %q", got.Name(), "file.link")
+		t.Errorf("Get(file.link).ReceiverName() = %q, want %q", got.Name(), "file.link")
 	}
 }
 
@@ -58,7 +58,7 @@ func TestMustGet_Existing(t *testing.T) {
 
 	got := reg.MustGet("shell.run")
 	if got.Name() != "shell.run" {
-		t.Errorf("MustGet(shell.run).Name() = %q, want %q", got.Name(), "shell.run")
+		t.Errorf("MustGet(shell.run).ReceiverName() = %q, want %q", got.Name(), "shell.run")
 	}
 }
 

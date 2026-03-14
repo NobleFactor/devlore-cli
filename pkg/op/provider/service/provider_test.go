@@ -99,7 +99,7 @@ func TestStart(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 	if result.Name != "nginx" {
-		t.Errorf("Start() result.Name = %q, want %q", result.Name, "nginx")
+		t.Errorf("Start() result.ReceiverName = %q, want %q", result.Name, "nginx")
 	}
 	if state.WasRunning {
 		t.Error("Start() WasRunning = true, want false")
@@ -120,7 +120,7 @@ func TestStartAlreadyRunning(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 	if result.Name != "nginx" {
-		t.Errorf("Start() result.Name = %q, want %q", result.Name, "nginx")
+		t.Errorf("Start() result.ReceiverName = %q, want %q", result.Name, "nginx")
 	}
 	if !state.WasRunning {
 		t.Error("Start() WasRunning = false, want true")
@@ -184,7 +184,7 @@ func TestStop(t *testing.T) {
 		t.Fatalf("Stop() error = %v", err)
 	}
 	if result.Name != "nginx" {
-		t.Errorf("Stop() result.Name = %q, want %q", result.Name, "nginx")
+		t.Errorf("Stop() result.ReceiverName = %q, want %q", result.Name, "nginx")
 	}
 	if !state.WasRunning {
 		t.Error("Stop() WasRunning = false, want true")
@@ -232,10 +232,10 @@ func TestRestart(t *testing.T) {
 		t.Fatalf("Restart() error = %v", err)
 	}
 	if result.Name != "nginx" {
-		t.Errorf("Restart() result.Name = %q, want %q", result.Name, "nginx")
+		t.Errorf("Restart() result.ReceiverName = %q, want %q", result.Name, "nginx")
 	}
 	if state.Name != "nginx" {
-		t.Errorf("Restart() state.Name = %q, want %q", state.Name, "nginx")
+		t.Errorf("Restart() state.ReceiverName = %q, want %q", state.Name, "nginx")
 	}
 	if !sm.running["nginx"] {
 		t.Error("service should be running after Restart()")
@@ -276,7 +276,7 @@ func TestEnable(t *testing.T) {
 		t.Fatalf("Enable() error = %v", err)
 	}
 	if result.Name != "nginx" {
-		t.Errorf("Enable() result.Name = %q, want %q", result.Name, "nginx")
+		t.Errorf("Enable() result.ReceiverName = %q, want %q", result.Name, "nginx")
 	}
 	if state.WasEnabled {
 		t.Error("Enable() WasEnabled = true, want false")
@@ -324,7 +324,7 @@ func TestDisable(t *testing.T) {
 		t.Fatalf("Disable() error = %v", err)
 	}
 	if result.Name != "nginx" {
-		t.Errorf("Disable() result.Name = %q, want %q", result.Name, "nginx")
+		t.Errorf("Disable() result.ReceiverName = %q, want %q", result.Name, "nginx")
 	}
 	if !state.WasEnabled {
 		t.Error("Disable() WasEnabled = false, want true")

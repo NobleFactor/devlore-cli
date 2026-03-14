@@ -148,7 +148,7 @@ func TestPath_JSONRoundTrip(t *testing.T) {
 	}
 }
 
-// ── Name and Close ──────────────────────────────────────────────────────────────────────────────────
+// ── ReceiverName and Close ──────────────────────────────────────────────────────────────────────────────────
 
 func TestRoot_Name(t *testing.T) {
 
@@ -158,7 +158,7 @@ func TestRoot_Name(t *testing.T) {
 	for _, tc := range roots {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.root.Name() != dir {
-				t.Errorf("Name() = %q, want %q", tc.root.Name(), dir)
+				t.Errorf("ReceiverName() = %q, want %q", tc.root.Name(), dir)
 			}
 		})
 	}
@@ -228,7 +228,7 @@ func TestRoot_Stat(t *testing.T) {
 				t.Fatalf("Stat: %v", err)
 			}
 			if info.Name() != "stat.txt" {
-				t.Errorf("Name = %q, want %q", info.Name(), "stat.txt")
+				t.Errorf("ReceiverName = %q, want %q", info.Name(), "stat.txt")
 			}
 			if info.Size() != 4 {
 				t.Errorf("Size = %d, want 4", info.Size())
@@ -270,7 +270,7 @@ func TestRoot_Lstat(t *testing.T) {
 				t.Fatalf("Lstat: %v", err)
 			}
 			if info.Name() != "lstat.txt" {
-				t.Errorf("Name = %q, want %q", info.Name(), "lstat.txt")
+				t.Errorf("ReceiverName = %q, want %q", info.Name(), "lstat.txt")
 			}
 		})
 	}

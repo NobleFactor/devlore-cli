@@ -285,7 +285,7 @@ func TestSetValues(t *testing.T) {
 		t.Errorf("error should be UndefinedSegmentError, got %T", err)
 	}
 	if undefinedErr != nil && undefinedErr.Name != "ENV" {
-		t.Errorf("UndefinedSegmentError.Name = %q, want %q", undefinedErr.Name, "ENV")
+		t.Errorf("UndefinedSegmentError.ReceiverName = %q, want %q", undefinedErr.Name, "ENV")
 	}
 }
 

@@ -160,7 +160,7 @@ func extractResource(v any) (originID string, ok bool) {
 		return base.originID, base.originID != ""
 	}
 
-	// Struct value whose pointer satisfies Resource. Provider methods
+	// Struct value whose pointer satisfies Resource. ReceiverFactory methods
 	// return resources by value; shadowResult stamps id/originID on the
 	// embedded ResourceBase. Create a temporary pointer to access it.
 	rv := reflect.ValueOf(v)

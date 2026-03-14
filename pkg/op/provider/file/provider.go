@@ -38,6 +38,10 @@ type Provider struct {
 	op.ProviderBase
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // Reducer is a function called for each file or directory in a [#Provider.WalkTree] operation.
 type Reducer func(initial any, resource Resource, relativePath string, stack *op.RecoveryStack) (result any, err error)
 

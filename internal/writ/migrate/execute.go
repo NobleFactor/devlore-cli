@@ -66,8 +66,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	}
 
 	// Perform renames
-	fp := &file.Provider{}
-	op.InitProvider(fp, op.Context{ContextBase: op.ContextBase{Root: op.NewRootReaderWriter(analysis.SourceRoot)}})
+	fp := file.NewProvider(op.Context{ContextBase: op.NewContextBase(op.NewRootReaderWriter(analysis.SourceRoot))})
 	for _, node := range renameNodes {
 		source, err := node.RequireStringSlot("source")
 		if err != nil {

@@ -139,7 +139,7 @@ platforms: [Darwin, Linux, Windows]
 
 	if len(results) > 0 {
 		if results[0].Name != "docker" {
-			t.Errorf("results[0].Name = %q, want \"docker\"", results[0].Name)
+			t.Errorf("results[0].ReceiverName = %q, want \"docker\"", results[0].Name)
 		}
 		if results[0].Source != SourceLore {
 			t.Errorf("results[0].Source = %v, want SourceLore", results[0].Source)

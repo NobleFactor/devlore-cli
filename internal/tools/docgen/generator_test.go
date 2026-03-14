@@ -226,7 +226,7 @@ func TestBuildPageData(t *testing.T) {
 		t.Fatal("expected ParentCmd to be non-nil")
 	}
 	if data.ParentCmd.Name != "writ" {
-		t.Errorf("ParentCmd.Name = %q, want %q", data.ParentCmd.Name, "writ")
+		t.Errorf("ParentCmd.ReceiverName = %q, want %q", data.ParentCmd.Name, "writ")
 	}
 	if data.ParentCmd.Path != "/cli/writ/" {
 		t.Errorf("ParentCmd.Path = %q, want %q", data.ParentCmd.Path, "/cli/writ/")

@@ -29,7 +29,7 @@ type loaderEntry struct {
 // Receivers listed in cfg.Receivers are included as pre-injected globals.
 //
 // Parameters:
-//   - cfg: configuration specifying receivers, writer, and program name.
+//   - cfg: configuration specifying providers, writer, and program name.
 //
 // Returns:
 //   - *Runtime: the initialized runtime.
@@ -46,7 +46,7 @@ func NewRuntime(cfg *op.BindingConfig) *Runtime {
 // region Behaviors
 
 // RegisterActions registers all providers' actions with the registry.
-// All providers' actions are always registered regardless of Receivers selections — the action
+// All providers' actions are always registered regardless of Providers selections — the action
 // registry is for the executor, not the script environment.
 //
 // Parameters:
@@ -58,8 +58,8 @@ func (rt *Runtime) RegisterActions(reg *op.ActionRegistry, ctx op.Context) {
 }
 
 // BuildGlobals constructs the Starlark globals dict for a consumer.
-// Only providers listed in cfg.Receivers appear as globals.
-// If "plan" is listed, a PlanRoot is built from all announced PlannedProvider implementations.
+// Only receivers listed in cfg.Receivers appear as globals.
+// If GraphBuilder is enabled, a PlanRoot is built from all announced PlanningReceiverFactory implementations.
 //
 // Parameters:
 //   - graph: the execution graph for plan namespace construction.
@@ -174,7 +174,7 @@ func (rt *Runtime) resolveProvider(name string, graph *op.Graph, project string,
 	return starlark.StringDict{name: recv}, nil
 }
 
-// buildPlanModule constructs a plan module from all announced PlannedProvider implementations.
+// buildPlanModule constructs a plan module from all announced PlanningReceiverFactory implementations.
 //
 // Parameters:
 //   - graph: the execution graph for plan construction.
@@ -198,16 +198,16 @@ func (rt *Runtime) buildPlanModule(graph *op.Graph, project string, reg *op.Acti
 
 // endregion
 
-// collectPlannedProviders returns all announced PlannedProvider implementations.
+// collectPlannedProviders returns all announced PlanningReceiverFactory implementations.
 //
 // Returns:
-//   - map[string]op.PlannedProvider: provider name to PlannedProvider mapping.
-func collectPlannedProviders() map[string]op.PlannedProvider {
+//   - map[string]op.PlanningReceiverFactory: provider name to PlanningReceiverFactory mapping.
+func collectPlannedProviders() map[string]op.PlanningReceiverFactory {
 
-	planned := make(map[string]op.PlannedProvider)
+	planned := make(map[string]op.PlanningReceiverFactory)
 	for _, p := range op.Providers() {
-		if pp, ok := p.(op.PlannedProvider); ok {
-			planned[p.Name()] = pp
+		if pp, ok := p.(op.PlanningReceiverFactory); ok {
+			planned[p.ReceiverName()] = pp
 		}
 	}
 	return planned

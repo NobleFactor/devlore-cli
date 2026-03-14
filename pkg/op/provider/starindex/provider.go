@@ -66,6 +66,14 @@ type Provider struct {
 	Root string
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	if ctx.Root != nil {
+		p.Root = ctx.Root.Name()
+	}
+	return p
+}
+
 // IndexFiles parses all files and extracts functions, loads, and globals.
 // If withDocstrings is true, function docstrings are extracted.
 // If withGlobals is true, top-level assignments are captured.

@@ -89,7 +89,7 @@ func TestBindingDef(t *testing.T) {
 	}
 
 	if def.Name != "docker" {
-		t.Errorf("expected Name 'docker', got %q", def.Name)
+		t.Errorf("expected ReceiverName 'docker', got %q", def.Name)
 	}
 	if def.Commands == nil {
 		t.Fatal("expected Commands to be non-nil")
@@ -118,7 +118,7 @@ func TestCommand(t *testing.T) {
 	}
 
 	if cmd.Name != "build" {
-		t.Errorf("expected Name 'build', got %q", cmd.Name)
+		t.Errorf("expected ReceiverName 'build', got %q", cmd.Name)
 	}
 	if len(cmd.Args) != 1 {
 		t.Errorf("expected 1 arg, got %d", len(cmd.Args))
@@ -141,10 +141,10 @@ func TestArg(t *testing.T) {
 	}
 
 	if arg.Name != "path" {
-		t.Errorf("expected Name 'path', got %q", arg.Name)
+		t.Errorf("expected ReceiverName 'path', got %q", arg.Name)
 	}
 	if arg.Type != "string" {
-		t.Errorf("expected Type 'string', got %q", arg.Type)
+		t.Errorf("expected ProviderType 'string', got %q", arg.Type)
 	}
 	if !arg.Required {
 		t.Error("expected Required to be true")
@@ -165,7 +165,7 @@ func TestFlag(t *testing.T) {
 	}
 
 	if flag.Name != "output" {
-		t.Errorf("expected Name 'output', got %q", flag.Name)
+		t.Errorf("expected ReceiverName 'output', got %q", flag.Name)
 	}
 	if flag.Short != "o" {
 		t.Errorf("expected Short 'o', got %q", flag.Short)
@@ -186,7 +186,7 @@ func TestReturn(t *testing.T) {
 	}
 
 	if ret.Type != "result" {
-		t.Errorf("expected Type 'result', got %q", ret.Type)
+		t.Errorf("expected ProviderType 'result', got %q", ret.Type)
 	}
 	if len(ret.Fields) != 4 {
 		t.Errorf("expected 4 fields, got %d", len(ret.Fields))

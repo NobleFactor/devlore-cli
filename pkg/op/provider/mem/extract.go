@@ -15,7 +15,7 @@ import (
 // Extract introspects a *starlark.Function and produces a self-contained Callable with synthesized source text. The
 // synthetic file inlines all closure bindings as module-level constants, making it independent of the original script.
 //
-// The function name is derived from fn.Name() (or "<action>.<param>" for lambdas when the caller provides a fallback
+// The function name is derived from fn.ReceiverName() (or "<action>.<param>" for lambdas when the caller provides a fallback
 // via ExtractWithName).
 //
 // Parameters:
@@ -40,7 +40,7 @@ func Extract(fn *starlark.Function, funcType string) (*Callable, error) {
 // Parameters:
 //   - fn: Starlark function to extract
 //   - funcType: Go type name the callable satisfies (e.g., "file.Reducer")
-//   - name: Name for the callable (overrides fn.Name())
+//   - name: ReceiverName for the callable (overrides fn.ReceiverName())
 //
 // Returns:
 //   - *Callable: the extracted callable with synthesized source

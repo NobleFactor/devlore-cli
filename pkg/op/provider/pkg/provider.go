@@ -17,6 +17,10 @@ type Provider struct {
 	op.ProviderBase
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 func (p *Provider) platform() (*op.Platform, error) {
 	plat := p.Context().Platform
 	if plat == nil {
@@ -25,7 +29,7 @@ func (p *Provider) platform() (*op.Platform, error) {
 	return plat, nil
 }
 
-// packageNames extracts the Name field from each Resource.
+// packageNames extracts the ReceiverName field from each Resource.
 func packageNames(resources []Resource) []string {
 	names := make([]string, len(resources))
 	for i, r := range resources {

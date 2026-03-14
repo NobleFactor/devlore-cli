@@ -145,7 +145,7 @@ func linuxErase(key string) error {
 func windowsGet(account string) (string, error) {
 	script := `
 [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime] | Out-Null
-$vault = New-Object Windows.Security.Credentials.PasswordVault
+$vault = NewExecuting-Object Windows.Security.Credentials.PasswordVault
 try {
     $cred = $vault.Retrieve("` + serviceName + `", "` + account + `")
     $cred.RetrievePassword()
@@ -166,9 +166,9 @@ func windowsStore(account, secret string) error {
 	escapedSecret := strings.ReplaceAll(secret, "'", "''")
 	script := `
 [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime] | Out-Null
-$vault = New-Object Windows.Security.Credentials.PasswordVault
+$vault = NewExecuting-Object Windows.Security.Credentials.PasswordVault
 try { $vault.Remove($vault.Retrieve("` + serviceName + `", "` + account + `")) } catch {}
-$cred = New-Object Windows.Security.Credentials.PasswordCredential("` + serviceName + `", "` + account + `", '` + escapedSecret + `')
+$cred = NewExecuting-Object Windows.Security.Credentials.PasswordCredential("` + serviceName + `", "` + account + `", '` + escapedSecret + `')
 $vault.Add($cred)
 `
 	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
@@ -178,7 +178,7 @@ $vault.Add($cred)
 func windowsErase(account string) error {
 	script := `
 [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime] | Out-Null
-$vault = New-Object Windows.Security.Credentials.PasswordVault
+$vault = NewExecuting-Object Windows.Security.Credentials.PasswordVault
 try {
     $cred = $vault.Retrieve("` + serviceName + `", "` + account + `")
     $vault.Remove($cred)

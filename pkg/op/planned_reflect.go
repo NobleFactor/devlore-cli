@@ -13,11 +13,11 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// ReflectedPlanned wraps a provider's method signatures for planned-mode
+// PlanningReceiver wraps a provider's method signatures for planned-mode
 // Starlark use. Each call creates a graph Node instead of executing the
 // method directly.
-type ReflectedPlanned struct {
-	Receiver
+type PlanningReceiver struct {
+	receiver
 	providerName string
 	graph        *Graph
 	project      string
@@ -31,34 +31,39 @@ type plannedBridge struct {
 	bridge builtinFunc
 }
 
-// WrapPlanned wraps a provider for planned-mode use. Only methods with
+// WrapProviderInPlanningReceiver wraps a provider for planned-mode use. Only methods with
 // a corresponding registered action in reg are exposed.
-func WrapPlanned(
-	name string,
-	providerType reflect.Type,
+func WrapProviderInPlanningReceiver(
+	factory ReceiverFactory,
 	graph *Graph,
 	project string,
 	reg *ActionRegistry,
 	params MethodParams,
-) *ReflectedPlanned {
-	p := &ReflectedPlanned{
-		Receiver:     newReceiver("plan." + name),
-		providerName: name,
+) *PlanningReceiver {
+
+	receiverName := factory.ReceiverName()
+
+	p := &PlanningReceiver{
+		receiver:     newReceiver("plan." + receiverName),
+		providerName: factory.ReceiverName(),
 		graph:        graph,
 		project:      project,
 		reg:          reg,
 		methods:      make(map[string]*plannedBridge),
 	}
 
-	// Enumerate exported methods.
-	for i := range providerType.NumMethod() {
-		m := providerType.Method(i)
+	// Enumerate exported methods on the pointer type (providers use pointer receivers).
+
+	pt := reflect.PointerTo(factory.ProviderType())
+
+	for i := range pt.NumMethod() {
+		m := pt.Method(i)
 		if !m.IsExported() || strings.HasPrefix(m.Name, "Compensate") {
 			continue
 		}
 
 		snakeName := camelToSnake(m.Name)
-		actionName := name + "." + snakeName
+		actionName := receiverName + "." + snakeName
 
 		// Only expose methods that have a registered action.
 		if _, ok := reg.Get(actionName); !ok {
@@ -70,7 +75,7 @@ func WrapPlanned(
 			continue
 		}
 
-		bridge := buildPlannedBridge(name, snakeName, actionName, paramNames, m, graph, project, reg)
+		bridge := buildPlannedBridge(receiverName, snakeName, actionName, paramNames, m, graph, project, reg)
 		p.methods[snakeName] = &plannedBridge{
 			name:   snakeName,
 			bridge: bridge,
@@ -88,7 +93,7 @@ func WrapPlanned(
 
 // Override replaces a method's auto-generated planned bridge with a
 // custom one.
-func (p *ReflectedPlanned) Override(name string, fn builtinFunc) {
+func (p *PlanningReceiver) Override(name string, fn builtinFunc) {
 	p.methods[name] = &plannedBridge{
 		name:   name,
 		bridge: fn,
@@ -100,15 +105,15 @@ func (p *ReflectedPlanned) Override(name string, fn builtinFunc) {
 }
 
 // Attr implements starlark.HasAttrs.
-func (p *ReflectedPlanned) Attr(name string) (starlark.Value, error) {
+func (p *PlanningReceiver) Attr(name string) (starlark.Value, error) {
 	if m, ok := p.methods[name]; ok {
-		return MakeAttr(p.Receiver.name+"."+name, m.bridge), nil
+		return starlark.NewBuiltin(p.receiver.name+"."+name, m.bridge), nil
 	}
-	return nil, NoSuchAttrError(p.Receiver.name, name)
+	return nil, NoSuchAttrError(p.receiver.name, name)
 }
 
 // AttrNames implements starlark.HasAttrs.
-func (p *ReflectedPlanned) AttrNames() []string {
+func (p *PlanningReceiver) AttrNames() []string {
 	return p.attrList
 }
 

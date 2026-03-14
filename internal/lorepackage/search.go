@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Confidence indicates how reliably a package can be installed.
@@ -128,7 +128,7 @@ func (r *Registry) searchLore(query string, limit int) ([]SearchResultItem, erro
 
 // searchNative searches the native package manager.
 func (r *Registry) searchNative(query string, limit int) []SearchResultItem {
-	p := platform.New()
+	p := op.NewPlatform()
 	packageManager := p.PackageManager
 	if packageManager == nil {
 		return nil
@@ -225,7 +225,7 @@ func (r *Registry) ResolveWithConfidence(name, targetPlatform string) (*Release,
 	}
 
 	// Native packages: check if available.
-	detected := platform.New()
+	detected := op.NewPlatform()
 	if detected.PackageManager != nil && detected.PackageManager.Available(name) {
 		return release, ConfidenceMedium, nil
 	}

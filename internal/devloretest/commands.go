@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/e2e/testrunner"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
 // outputFlags collects repeated --output key=dest flags.
@@ -111,7 +112,7 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) error {
 	// Build and run.
 	var opts []testrunner.Option
 	opts = append(opts, testrunner.WithWriter(graphOut))
-	opts = append(opts, testrunner.WithReceivers("plan", "file"))
+	opts = append(opts, testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
 	if dryRun {
 		opts = append(opts, testrunner.WithDryRun())
 	}

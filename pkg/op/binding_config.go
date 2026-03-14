@@ -13,15 +13,14 @@ import (
 //
 //	cfg := op.NewBindingConfig("lore").
 //	    WithGraphBuilder().
-//	    WithReceivers("ui", "file").
+//	    WithReceivers(json.receiver, yaml.receiver).
 //	    WithColor()
 type BindingConfig struct {
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
 	ProgramName string
 
-	// Receivers lists the Starlark namespaces to expose as globals.
-	// Provider names (e.g., "file", "ui") include their immediate receivers.
-	Receivers []string
+	// Receivers lists the receiver factories to expose as Starlark globals.
+	Receivers []ReceiverFactory
 
 	// GraphBuilder enables the plan.* graph namespace (PlanRoot).
 	GraphBuilder bool
@@ -64,16 +63,16 @@ func (c *BindingConfig) WithGraphBuilder() *BindingConfig {
 	return c
 }
 
-// WithReceivers sets the Starlark namespaces to expose as globals.
+// WithReceivers sets the receiver factories to expose as Starlark globals.
 //
 // Parameters:
-//   - names: the receiver names to expose.
+//   - receivers: the receiver factories to include.
 //
 // Returns:
 //   - *BindingConfig: the config for method chaining.
-func (c *BindingConfig) WithReceivers(names ...string) *BindingConfig {
+func (c *BindingConfig) WithReceivers(receivers ...ReceiverFactory) *BindingConfig {
 
-	c.Receivers = names
+	c.Receivers = receivers
 	return c
 }
 

@@ -38,7 +38,7 @@ type Resource interface {
 
 // ResourceBase holds the identity fields common to all resources.
 //
-// Provider-specific resource types must embed it by value. The uri field is set at construction via [NewResourceBase].
+// ReceiverFactory-specific resource types must embed it by value. The uri field is set at construction via [NewResourceBase].
 // The id and originID fields are stamped by the [ResourceCatalog] when the resource is cataloged; they are not a
 // concern of the resource itself.
 type ResourceBase struct {
@@ -160,10 +160,10 @@ type Tombstone interface {
 }
 
 // TombstoneBase holds the resource that was affected by a compensable action.
-// Provider-specific tombstone types must embed it by value.
+// ReceiverFactory-specific tombstone types must embed it by value.
 //
 // The embedded Resource preserves its true identity — its fields are never
-// modified by the recovery system. Provider-specific fields on the tombstone
+// modified by the recovery system. ReceiverFactory-specific fields on the tombstone
 // (e.g., file.Tombstone.RecoveryID) record where data was temporarily
 // moved during the operation — the recovery location, not the identity.
 type TombstoneBase struct {

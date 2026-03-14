@@ -27,6 +27,14 @@ type Provider struct {
 	Root string
 }
 
+func NewProvider(ctx op.Context) *Provider {
+	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	if ctx.Root != nil {
+		p.Root = ctx.Root.Name()
+	}
+	return p
+}
+
 // Capture collects Starlark source files matching the given pattern.
 // If gitignore is true, files excluded by .gitignore rules are skipped.
 // If includeBzl is true, .bzl files are included alongside .star files.
@@ -157,7 +165,7 @@ func (s *Sources) Analyze(cfg staranalysis.AnalysisConfig) (*staranalysis.Analys
 	return (&staranalysis.Provider{Root: s.Root}).Analyze(s.Files, cfg)
 }
 
-// captureRecursive walks the tree using file.Provider.WalkTree and matches
+// captureRecursive walks the tree using file.ReceiverFactory.WalkTree and matches
 // files against the glob pattern.
 //
 // Parameters:
@@ -193,8 +201,7 @@ func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) 
 		return initial, nil
 	})
 
-	fp := &file.Provider{}
-	op.InitProvider(fp, op.Context{ContextBase: op.ContextBase{Root: op.NewRootReader(absRoot)}})
+	fp := file.NewProvider(op.Context{ContextBase: op.ContextBase{Root: op.NewRootReader(absRoot)}})
 	_, _, err := fp.WalkTree(file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, honorGitignore)
 	if err != nil {
 		return nil, err

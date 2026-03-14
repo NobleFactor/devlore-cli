@@ -32,7 +32,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 
 	// Blank import triggers init() in all provider packages,
 	// which call op.Announce() to self-register.
@@ -668,7 +667,6 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
 		Data:               engineData,
-		Platform:           platform.New(),
 		ConflictResolution: execution.ResolutionOverwrite,
 	})
 
@@ -1474,7 +1472,7 @@ Output is JSON by default for scripting. Use --format for alternatives.`,
 		Example: `  writ inspect noblefactor
   writ inspect ~/.zshrc
   writ inspect noblefactor --format yaml
-  writ inspect noblefactor --format '{{.Name}}\t{{.Source}}'`,
+  writ inspect noblefactor --format '{{.ReceiverName}}\t{{.Source}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("inspect: not yet implemented")

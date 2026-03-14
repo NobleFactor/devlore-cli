@@ -37,24 +37,20 @@ SKIP_METHODS = [
 
 # Template to output filename mapping.
 GEN_TEMPLATE_FILES = {
-    "provider_descriptor": "gen/provider.gen.go",
-    "planned_receiver": "gen/planned.gen.go",
-    "immediate_receiver": "gen/immediate.gen.go",
+    "receiver": "gen/receiver.gen.go",
     "params": "gen/params.gen.go",
     "actions_test": "gen/actions_gen_test.go",
-    "immediate_test": "gen/immediate_gen_test.go",
-    "resource_descriptor": "gen/resource.gen.go",
+    "receiver_test": "gen/receiver_gen_test.go",
+    "resource": "gen/resource.gen.go",
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
 LOCAL_TEMPLATES = {
-    "provider_descriptor": "provider_descriptor.go.template",
-    "planned_receiver": "planned_receiver.go.template",
-    "immediate_receiver": "immediate_receiver.go.template",
-    "params": "params.go.template",
-    "actions_test": "actions_test.go.template",
-    "immediate_test": "immediate_test.go.template",
-    "resource_descriptor": "resource_descriptor.go.template",
+    "receiver": "receiver.gen.go.template",
+    "params": "params.gen.go.template",
+    "actions_test": "actions_gen_test.go.template",
+    "receiver_test": "receiver_gen_test.go.template",
+    "resource": "resource.gen.go.template",
 }
 
 # Known BindingConfig fields and their zero values.
@@ -871,78 +867,29 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
 
     gen_file(ctx, "params", provider_desc, "gen/params.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
-    gen_file(ctx, "provider_descriptor", provider_desc, "gen/provider.gen.go",
+    gen_file(ctx, "receiver", provider_desc, "gen/receiver.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate immediate_receiver if access is immediate or both
-    if access in ["immediate", "both"]:
-        gen_file(ctx, "immediate_receiver", provider_desc, "gen/immediate.gen.go",
-                 struct_short, len(provider_method_descs), output_dir, write_files)
-
-    # Generate planned_receiver if access is planned or both
-    if access in ["planned", "both"]:
-        planned_desc = dict(provider_desc)
-        planned_desc["namespace"] = "plan." + provider
-        gen_file(ctx, "planned_receiver", planned_desc, "gen/planned.gen.go",
-                 struct_short, len(provider_method_descs), output_dir, write_files)
-
     # Generate bridge tests for all action methods (pure, fallible, compensable).
-    # RegisterReflectedActions registers all three action types from Params.
     if access in ["planned", "both"]:
         gen_file(ctx, "actions_test", provider_desc, "gen/actions_gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate immediate receiver tests if access is immediate or both.
+    # Generate receiver tests if access is immediate or both.
     if access in ["immediate", "both"]:
-        gen_file(ctx, "immediate_test", provider_desc, "gen/immediate_gen_test.go",
+        gen_file(ctx, "receiver_test", provider_desc, "gen/receiver_gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     generated_count = 1
 
     # -------------------------------------------------------------------------
-    # Generate: Dependent type receivers (gen/<type_snake>.gen.go)
+    # Dependent type receivers (gen/<type_snake>.gen.go)
     # -------------------------------------------------------------------------
-    for type_name in dependent_types:
-        descs = dependent_descriptors[type_name]
-        type_snake = to_snake(type_name)
-        type_short = type_name
-        type_namespace = provider + "." + type_snake
-
-        # Prefix struct_type with "provider." for gen/ subpackage mode.
-        # Cross-package struct types (containing ".") keep their qualifier as-is.
-        for d in descs:
-            for p in d.get("params", []):
-                st = p.get("struct_type", "")
-                if st and "." not in st:
-                    p["struct_type"] = "provider." + st
-
-        # Collect cross-package imports from dependent type method result_exprs and struct_params
-        dep_cross_imports = collect_cross_pkg_imports(provider_import, [], [descs])
-
-        # Dependent types: registered=false (no init/RegisterBinding), suffix=Value
-        dep_desc = {
-            "package": pkg,
-            "provider": provider,
-            "struct_name": type_name,
-            "wrapper_suffix": "Value",
-            "namespace": type_namespace,
-            "impl_type": type_name,
-            "registered": False,
-            "provider_import": provider_import,
-            "methods": descs,
-            "all_methods": [],
-            "access": "immediate",
-            "access_title": "Immediate",
-            "lifetime": "stateless",
-            "lifetime_title": "Stateless",
-        }
-        if dep_cross_imports:
-            dep_desc["cross_package_imports"] = dep_cross_imports
-
-        filename = "gen/" + type_snake + ".gen.go"
-        gen_file(ctx, "immediate_receiver", dep_desc, filename,
-                 type_short, len(descs), output_dir, write_files)
-        generated_count += 1
+    # TODO: Dependent type wrappers (e.g., Sources) need a dedicated template.
+    # The old immediate_receiver template was removed; these types are not
+    # ReceiverFactories and need their own codegen path.
+    if dependent_types:
+        ui.note("Skipping %d dependent type(s) — template not yet implemented" % len(dependent_types))
 
     # Struct converters are no longer generated — op.Marshal handles all
     # struct-to-Starlark conversion via reflection.
@@ -959,7 +906,7 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
             "provider_type_prefix": "provider.",
             "constructor_name": constructor_name,
         }
-        gen_file(ctx, "resource_descriptor", resource_desc, "gen/resource.gen.go",
+        gen_file(ctx, "resource", resource_desc, "gen/resource.gen.go",
                  "Resource", 1, output_dir, write_files)
         generated_count += 1
 
@@ -1163,17 +1110,12 @@ def prepare_render_data(descriptor, template_name):
     # Pre-compute provider type prefix
     desc["provider_type_prefix"] = compute_provider_type_prefix(desc)
 
-    # Pre-compute provider_init for immediate_receiver template
-    if template_name == "immediate_receiver" and desc.get("registered", False):
-        desc["provider_init"] = compute_provider_init(desc)
-
-    # Pre-compute descriptor fields for provider_descriptor template
-    if template_name == "provider_descriptor":
+    # Pre-compute descriptor fields for receiver template
+    if template_name == "receiver":
         access = desc.get("access", "immediate")
         desc["has_actions"] = access in ["planned", "both"]
         desc["has_planned"] = access in ["planned", "both"]
         desc["has_immediate"] = access in ["immediate", "both"]
-        desc["descriptor_init"] = compute_descriptor_init(desc)
 
     # Add derived fields to each method
     methods = list(desc.get("methods", []))
@@ -1257,7 +1199,7 @@ def run(ctx):
             "provider_type_prefix": "provider.",
             "constructor_name": constructor_name,
         }
-        gen_file(ctx, "resource_descriptor", resource_desc, "gen/resource.gen.go",
+        gen_file(ctx, "resource", resource_desc, "gen/resource.gen.go",
                  "Resource", 1, output_dir, write_files)
         ui.success("Done. Generated resource descriptor for %s" % provider)
         return

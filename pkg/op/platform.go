@@ -5,7 +5,7 @@ package op
 
 // Platform carries platform info plus runtime package/service managers.
 // Serializable fields are stored in graphs; runtime fields are injected
-// at execution time by platform.New().
+// at execution time by NewPlatform().
 type Platform struct {
 	// Serializable info (used by Graph)
 	OS       string `json:"os" yaml:"os"`

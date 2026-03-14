@@ -100,7 +100,7 @@ func TestPackageContextFields(t *testing.T) {
 	}
 
 	if ctx.Name != "mypackage" {
-		t.Errorf("expected Name 'mypackage', got %q", ctx.Name)
+		t.Errorf("expected ReceiverName 'mypackage', got %q", ctx.Name)
 	}
 	if ctx.Version != "1.2.3" {
 		t.Errorf("expected Version '1.2.3', got %q", ctx.Version)

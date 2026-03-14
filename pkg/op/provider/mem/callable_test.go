@@ -25,7 +25,7 @@ func TestNewCallable(t *testing.T) {
 		t.Errorf("FuncType = %q, want %q", c.FuncType, "file.Reducer")
 	}
 	if c.Name != "count_python_files" {
-		t.Errorf("Name = %q, want %q", c.Name, "count_python_files")
+		t.Errorf("ReceiverName = %q, want %q", c.Name, "count_python_files")
 	}
 	if c.FuncName != "_callable" {
 		t.Errorf("FuncName = %q, want %q", c.FuncName, "_callable")

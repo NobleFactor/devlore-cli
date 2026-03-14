@@ -13,24 +13,24 @@ import (
 )
 
 // PlanRoot implements the top-level plan namespace using the slot-based model.
-// Sub-namespaces are populated from PlannedProvider implementations selected by
+// Sub-namespaces are populated from PlanningReceiverFactory implementations selected by
 // Runtime. Flow actions (choose, source, gather) are built-in.
 type PlanRoot struct {
 	graph   *op.Graph
 	project string
 	reg     *op.ActionRegistry
 
-	// Sub-namespaces built from announced PlannedProvider implementations.
+	// Sub-namespaces built from announced PlanningReceiverFactory implementations.
 	plans map[string]starlark.Value
 }
 
-// NewPlanRootFromProviders creates a PlanRoot from announced PlannedProvider
+// NewPlanRootFromProviders creates a PlanRoot from announced PlanningReceiverFactory
 // implementations. Consumers select providers via Runtime, which passes the
 // filtered provider map here.
-func NewPlanRootFromProviders(graph *op.Graph, project string, reg *op.ActionRegistry, providers map[string]op.PlannedProvider) *PlanRoot {
+func NewPlanRootFromProviders(graph *op.Graph, project string, reg *op.ActionRegistry, providers map[string]op.PlanningReceiverFactory) *PlanRoot {
 	plans := make(map[string]starlark.Value, len(providers))
 	for name, p := range providers {
-		plans[name] = p.NewPlanned(graph, project, reg)
+		plans[name] = p.NewPlanning(graph, project, reg)
 	}
 	return &PlanRoot{
 		graph:   graph,

@@ -19,7 +19,7 @@ func TestMergeEntries_PreservesMetadata(t *testing.T) {
 		t.Fatalf("len(result) = %d, want 2", len(result))
 	}
 	if result[0].Name != "a.md" {
-		t.Errorf("result[0].Name = %q, want %q", result[0].Name, "a.md")
+		t.Errorf("result[0].ReceiverName = %q, want %q", result[0].Name, "a.md")
 	}
 	if result[0].Purpose != "original purpose" {
 		t.Errorf("result[0].Purpose = %q, want %q", result[0].Purpose, "original purpose")
@@ -28,7 +28,7 @@ func TestMergeEntries_PreservesMetadata(t *testing.T) {
 		t.Errorf("result[0].Description = %q, want %q", result[0].Description, "desc")
 	}
 	if result[1].Name != "b.md" {
-		t.Errorf("result[1].Name = %q, want %q", result[1].Name, "b.md")
+		t.Errorf("result[1].ReceiverName = %q, want %q", result[1].Name, "b.md")
 	}
 	if result[1].Purpose != "" {
 		t.Errorf("result[1].Purpose = %q, want empty (new entry)", result[1].Purpose)
@@ -50,7 +50,7 @@ func TestMergeEntries_RemovesDeleted(t *testing.T) {
 		t.Fatalf("len(result) = %d, want 1", len(result))
 	}
 	if result[0].Name != "a.md" {
-		t.Errorf("result[0].Name = %q, want %q", result[0].Name, "a.md")
+		t.Errorf("result[0].ReceiverName = %q, want %q", result[0].Name, "a.md")
 	}
 }
 
@@ -72,7 +72,7 @@ func TestMergeEntries_OrderFollowsFiles(t *testing.T) {
 	want := []string{"a.md", "b.md", "c.md"}
 	for i, w := range want {
 		if result[i].Name != w {
-			t.Errorf("result[%d].Name = %q, want %q", i, result[i].Name, w)
+			t.Errorf("result[%d].ReceiverName = %q, want %q", i, result[i].Name, w)
 		}
 	}
 

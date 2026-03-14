@@ -55,7 +55,7 @@ fn = lambda x, y: x + y
 		t.Errorf("FuncType = %q, want %q", c.FuncType, "TestType")
 	}
 	if c.Name != "_lambda" {
-		t.Errorf("Name = %q, want %q", c.Name, "_lambda")
+		t.Errorf("ReceiverName = %q, want %q", c.Name, "_lambda")
 	}
 	if c.FuncName != "_callable" {
 		t.Errorf("FuncName = %q, want %q", c.FuncName, "_callable")
@@ -134,7 +134,7 @@ def count_files(initial, resource, path):
 	}
 
 	if c.Name != "count_files" {
-		t.Errorf("Name = %q, want %q", c.Name, "count_files")
+		t.Errorf("ReceiverName = %q, want %q", c.Name, "count_files")
 	}
 	if c.FuncName != "count_files" {
 		t.Errorf("FuncName = %q, want %q", c.FuncName, "count_files")
@@ -187,7 +187,7 @@ fn = make()
 		t.Errorf("source missing def:\n%s", source)
 	}
 	if c.Name != "check" {
-		t.Errorf("Name = %q, want %q", c.Name, "check")
+		t.Errorf("ReceiverName = %q, want %q", c.Name, "check")
 	}
 }
 
@@ -207,7 +207,7 @@ fn = lambda x: x * 2
 	}
 
 	if c.Name != "file.walk_tree.fn" {
-		t.Errorf("Name = %q, want %q", c.Name, "file.walk_tree.fn")
+		t.Errorf("ReceiverName = %q, want %q", c.Name, "file.walk_tree.fn")
 	}
 	want := "mem:callable/Transform/file.walk_tree.fn"
 	if c.URI() != want {

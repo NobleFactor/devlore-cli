@@ -13,7 +13,7 @@ import (
 
 // FlowPlan implements the plan.flow namespace for Starlark scripts.
 // Handwritten — flow actions have custom signatures that don't fit the
-// reflection-based WrapPlanned model.
+// reflection-based WrapProviderInPlanningReceiver model.
 type FlowPlan struct {
 	graph   *op.Graph
 	project string
