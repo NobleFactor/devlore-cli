@@ -233,10 +233,12 @@ func TestWrapProviderInPlanningReceiver_Override(t *testing.T) {
 	})
 
 	called := false
-	p.Override("write", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-		called = true
-		return starlark.None, nil
-	})
+	p.Override("write",
+		func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			called = true
+			return starlark.None, nil
+		},
+	)
 
 	attr, _ := p.Attr("write")
 	builtin := attr.(*starlark.Builtin)

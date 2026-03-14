@@ -38,7 +38,7 @@ func packageNames(resources []Resource) []string {
 	return names
 }
 
-// ── Compensable Pairs ────────────────────────────────────────────────
+// --- Compensable Pairs ---
 
 // Install installs packages using the platform's package manager.
 // Returns compensation state with pre-install status per package.
@@ -294,7 +294,7 @@ func (p *Provider) CompensateUpgrade(_ Tombstone) error {
 	return nil
 }
 
-// ── Standalone Methods ───────────────────────────────────────────────
+// --- Standalone Methods ---
 
 // Update refreshes the package manager index.
 //
@@ -318,7 +318,7 @@ func (p *Provider) Update(manager string) (string, error) {
 	return packageManager.Name(), nil
 }
 
-// ── Predicates ───────────────────────────────────────────────────────
+// --- Predicates ---
 
 // Installed returns true if the named package is installed.
 //

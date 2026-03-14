@@ -158,9 +158,11 @@ func TestStarlarkValueToGo_Dict(t *testing.T) {
 
 func TestStarlarkValueToGo_Unsupported(t *testing.T) {
 	// starlark.NewBuiltin is a type not handled by StarlarkValueToGo
-	builtin := starlark.NewBuiltin("dummy", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-		return starlark.None, nil
-	})
+	builtin := starlark.NewBuiltin("dummy",
+		func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			return starlark.None, nil
+		},
+	)
 	_, err := StarlarkValueToGo(builtin)
 	if err == nil {
 		t.Fatal("expected error for unsupported type, got nil")

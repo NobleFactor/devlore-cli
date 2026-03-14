@@ -216,7 +216,10 @@ func callMethodKw(t *testing.T, r *ExecutingReceiver, name string, kwargs []star
 	return result
 }
 
-func callMethodArgsKw(t *testing.T, r *ExecutingReceiver, name string, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func callMethodArgsKw(
+	t *testing.T, r *ExecutingReceiver, name string,
+	args starlark.Tuple, kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	t.Helper()
 	attr, err := r.Attr(name)
 	if err != nil {
@@ -451,9 +454,11 @@ func TestCall_MultiReturn_NoError(t *testing.T) {
 func TestOverride_ReplacesMethod(t *testing.T) {
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
-	r.Override("greet", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-		return starlark.String("overridden"), nil
-	})
+	r.Override("greet",
+		func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			return starlark.String("overridden"), nil
+		},
+	)
 
 	result := callMethod(t, r, "greet", starlark.String("ignored"))
 	s, _ := starlark.AsString(result)
@@ -465,9 +470,11 @@ func TestOverride_ReplacesMethod(t *testing.T) {
 func TestOverride_AddsNewMethod(t *testing.T) {
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 
-	r.Override("custom_method", func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-		return starlark.String("custom"), nil
-	})
+	r.Override("custom_method",
+		func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+			return starlark.String("custom"), nil
+		},
+	)
 
 	// Verify it's in attr list.
 	if !slices.Contains(r.AttrNames(), "custom_method") {

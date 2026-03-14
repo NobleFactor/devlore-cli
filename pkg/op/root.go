@@ -21,7 +21,7 @@ var (
 // ErrReadOnly is returned by write operations on a [RootReader].
 var ErrReadOnly = errors.New("write operation not available in read-only mode")
 
-// ── Path ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// --- Path ---
 
 // Path holds both root-relative and absolute forms of a filesystem path. Created through [Root.NewPath] to guarantee
 // both fields are populated. The root field records which root directory Rel is relative to (matching [os.Root.Name]).
@@ -84,7 +84,7 @@ func (p *Path) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ── Root ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// --- Root ---
 
 // Root provides scoped filesystem operations. All path arguments are [Path] values created through [Root.NewPath].
 // Three concrete implementations provide different access modes:
@@ -122,7 +122,7 @@ type Root interface {
 	Close() error
 }
 
-// ── rootBase ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+// --- rootBase ---
 
 // rootBase holds the root directory path shared by unconfined implementations.
 type rootBase struct {
@@ -134,7 +134,7 @@ func (b *rootBase) Close() error             { return nil }
 func (b *rootBase) FS() fs.FS                { return os.DirFS(b.name) }
 func (b *rootBase) NewPath(path string) Path { return makePath(b.name, path) }
 
-// ── RootReader ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// --- RootReader ---
 
 // RootReader provides unconfined, read-only filesystem access. Write operations return [ErrReadOnly]. Used during
 // planning when providers need to inspect source files without mutation capability.
@@ -181,7 +181,7 @@ func (r *RootReader) OpenFile(Path, int, os.FileMode) (*os.File, error) {
 
 // endregion
 
-// ── RootReaderWriter ─────────────────────────────────────────────────────────────────────────────────────────────────
+// --- RootReaderWriter ---
 
 // RootReaderWriter provides unconfined, read-write filesystem access. Reads are inherited from [RootReader]. Write
 // operations delegate to os.* without OS-level confinement.
@@ -229,7 +229,7 @@ func (r *RootReaderWriter) WriteFile(p Path, data []byte, perm os.FileMode) erro
 
 // endregion
 
-// ── confinedRoot ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// --- confinedRoot ---
 
 // confinedRoot wraps [*os.Root] for OS-enforced confinement. All I/O is confined to the root directory by the kernel.
 // Symlinks cannot escape, path traversal is blocked.
@@ -288,7 +288,7 @@ func (r *confinedRoot) WriteFile(p Path, data []byte, perm os.FileMode) error {
 	return r.inner.WriteFile(p.rel, data, perm)
 }
 
-// ── helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+// --- helpers ---
 
 // makePath computes a [Path] from a root directory name and an input path. Absolute inputs compute Rel via
 // [filepath.Rel] (may contain ../ prefixes for paths outside root — valid in unconfined mode, rejected by [*os.Root]

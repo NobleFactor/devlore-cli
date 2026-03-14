@@ -12,7 +12,7 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// --- helpers ----------------------------------------------------------------
+// --- helpers ---
 
 // makeTestGraph creates a minimal graph for testing.
 func makeTestGraph() *Graph {
@@ -28,7 +28,7 @@ func makeTestNode(id, action string) *Node {
 	return n
 }
 
-// --- Output tests -----------------------------------------------------------
+// --- Output tests ---
 
 func TestNewOutput(t *testing.T) {
 	g := makeTestGraph()
@@ -278,7 +278,7 @@ func TestOutputAttrNames(t *testing.T) {
 	}
 }
 
-// --- Gather tests -----------------------------------------------------------
+// --- Gather tests ---
 
 func TestNewGather(t *testing.T) {
 	g := makeTestGraph()
@@ -415,7 +415,7 @@ func TestGatherFillSlot(t *testing.T) {
 	}
 }
 
-// --- FillSlot function tests ------------------------------------------------
+// --- FillSlot function tests ---
 
 func TestFillSlotOutput(t *testing.T) {
 	g := makeTestGraph()
@@ -620,7 +620,7 @@ func TestFillSlotUnsupportedType(t *testing.T) {
 	}
 }
 
-// --- FillSlot implicit resource edge tests ----------------------------------
+// --- FillSlot implicit resource edge tests ---
 
 // testFileResource embeds op.ResourceBase for testing implicit edge creation.
 type testFileResource struct {
@@ -713,7 +713,7 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 	}
 }
 
-// --- ResolveInput tests -----------------------------------------------------
+// --- ResolveInput tests ---
 
 func TestResolveInput(t *testing.T) {
 	out := NewOutput(makeTestNode("n1", ""), makeTestGraph(), "")
@@ -737,7 +737,7 @@ func TestResolveInputNonOutput(t *testing.T) {
 	}
 }
 
-// --- retryBuiltin tests -----------------------------------------------------
+// --- retryBuiltin tests ---
 
 func TestOutputRetryBuiltin(t *testing.T) {
 	tests := []struct {
@@ -872,7 +872,7 @@ func TestOutputRetryBuiltinDelays(t *testing.T) {
 	}
 }
 
-// --- Edge cases and multi-FillSlot ------------------------------------------
+// --- Edge cases and multi-FillSlot ---
 
 func TestOutputFillSlotMultipleConsumers(t *testing.T) {
 	g := makeTestGraph()

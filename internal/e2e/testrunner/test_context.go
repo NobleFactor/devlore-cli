@@ -47,7 +47,7 @@ func NewTestContext(tmpDir string, root op.Root) *TestContext {
 	return &TestContext{tmpDir: tmpDir, root: root}
 }
 
-// ── Published methods ───────────────────────────────────────────────────────────────────────────────
+// --- Published methods ---
 
 // Check evaluates all queued expectations against the executed graph and filesystem.
 // Returns failures for any expectations that did not hold.
@@ -125,7 +125,7 @@ func (tc *TestContext) TmpDir() string {
 	return tc.tmpDir
 }
 
-// ── Internal methods ────────────────────────────────────────────────────────────────────────────────
+// --- Internal methods ---
 
 func (tc *TestContext) checkError(exp Expectation, execErr error) *Failure {
 	if execErr == nil {

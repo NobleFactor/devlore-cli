@@ -26,7 +26,7 @@ func NewRecoverySite(ctx Context) *RecoverySite {
 	return &RecoverySite{ctx: ctx}
 }
 
-// ── Published methods ───────────────────────────────────────────────────────────────────────────────
+// --- Published methods ---
 
 // ArchiveData writes bytes to a file in the recovery directory.
 //
@@ -137,7 +137,7 @@ func (s *RecoverySite) RestoreFile(original Path, recoveryID string) error {
 	return nil
 }
 
-// ── Internal functions ──────────────────────────────────────────────────────────────────────────────
+// --- Internal functions ---
 
 // recoveryParentDir returns the parent directory of a root-relative path. Uses simple string splitting to avoid
 // filepath.Dir's absolute path normalization.

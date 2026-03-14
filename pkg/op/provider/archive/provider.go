@@ -29,7 +29,7 @@ func NewProvider(ctx op.Context) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-// ── Compensable Pairs ────────────────────────────────────────────────
+// --- Compensable Pairs ---
 
 // Extract extracts an archive (tar.gz or zip) from source into the prefix directory.
 // The archive format is detected from the file extension.
