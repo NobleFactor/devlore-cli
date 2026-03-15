@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/internal/signing"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -32,14 +33,10 @@ func LatestReceiptPath(producer, scope string) string {
 
 // LoadReceipt loads an execution graph from a YAML receipt file.
 func LoadReceipt(path string) (*op.Graph, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read receipt: %w", err)
-	}
 
 	var g op.Graph
-	if err := yaml.Unmarshal(data, &g); err != nil {
-		return nil, fmt.Errorf("parse receipt: %w", err)
+	if err := document.Read(path, &g); err != nil {
+		return nil, err
 	}
 
 	return &g, nil

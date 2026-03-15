@@ -12,17 +12,18 @@ import (
 )
 
 func TestManifestLoad_YAML(t *testing.T) {
+
 	tmpDir := t.TempDir()
 	manifestPath := filepath.Join(tmpDir, "packages.yaml")
 
 	content := `packages:
-  - gh
-  - jq
-  - ripgrep
-  - neovim:
-      with: [lsp, treesitter]
-  - docker:
-      with: [rootless, compose]
+  - name: gh
+  - name: jq
+  - name: ripgrep
+  - name: neovim
+    with: [lsp, treesitter]
+  - name: docker
+    with: [rootless, compose]
 `
 	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -38,7 +39,6 @@ func TestManifestLoad_YAML(t *testing.T) {
 		t.Fatalf("expected 5 packages, got %d", len(packages))
 	}
 
-	// Check simple packages
 	if packages[0].Name != "gh" {
 		t.Errorf("expected package 0 to be 'gh', got %q", packages[0].Name)
 	}
@@ -46,7 +46,6 @@ func TestManifestLoad_YAML(t *testing.T) {
 		t.Errorf("expected package 0 to have no features, got %v", packages[0].With)
 	}
 
-	// Check neovim with features
 	if packages[3].Name != "neovim" {
 		t.Errorf("expected package 3 to be 'neovim', got %q", packages[3].Name)
 	}
@@ -57,7 +56,6 @@ func TestManifestLoad_YAML(t *testing.T) {
 		t.Errorf("expected neovim features [lsp, treesitter], got %v", packages[3].With)
 	}
 
-	// Check docker with features
 	if packages[4].Name != "docker" {
 		t.Errorf("expected package 4 to be 'docker', got %q", packages[4].Name)
 	}
@@ -67,14 +65,15 @@ func TestManifestLoad_YAML(t *testing.T) {
 }
 
 func TestManifestLoad_JSON(t *testing.T) {
+
 	tmpDir := t.TempDir()
 	manifestPath := filepath.Join(tmpDir, "packages.json")
 
 	content := `{
   "packages": [
-    "gh",
-    "jq",
-    {"neovim": {"with": ["lsp", "treesitter"]}}
+    {"name": "gh"},
+    {"name": "jq"},
+    {"name": "neovim", "with": ["lsp", "treesitter"]}
   ]
 }`
 	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
@@ -91,12 +90,9 @@ func TestManifestLoad_JSON(t *testing.T) {
 		t.Fatalf("expected 3 packages, got %d", len(packages))
 	}
 
-	// Check simple packages
 	if packages[0].Name != "gh" {
 		t.Errorf("expected package 0 to be 'gh', got %q", packages[0].Name)
 	}
-
-	// Check neovim with features
 	if packages[2].Name != "neovim" {
 		t.Errorf("expected package 2 to be 'neovim', got %q", packages[2].Name)
 	}
@@ -106,14 +102,15 @@ func TestManifestLoad_JSON(t *testing.T) {
 }
 
 func TestManifestLoad_ManifestExtension(t *testing.T) {
+
 	tmpDir := t.TempDir()
 	manifestPath := filepath.Join(tmpDir, "team.manifest")
 
 	content := `packages:
-  - kubectl
-  - helm
-  - terraform:
-      with: [aws, gcp]
+  - name: kubectl
+  - name: helm
+  - name: terraform
+    with: [aws, gcp]
 `
 	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -138,11 +135,11 @@ func TestManifestLoad_ManifestExtension(t *testing.T) {
 }
 
 func TestManifestLoad_Empty(t *testing.T) {
+
 	tmpDir := t.TempDir()
 	manifestPath := filepath.Join(tmpDir, "empty.yaml")
 
-	content := `packages: []`
-	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(manifestPath, []byte("packages: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,6 +154,7 @@ func TestManifestLoad_Empty(t *testing.T) {
 }
 
 func TestManifestLoad_NotFound(t *testing.T) {
+
 	_, err := manifest.Load("/nonexistent/path/manifest.yaml")
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")

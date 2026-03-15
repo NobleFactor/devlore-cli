@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/config"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // Registry provides access to a devlore registry.
@@ -128,19 +129,18 @@ func (r *Registry) Exists() bool {
 
 // SyncInfo returns information about the last sync, if available.
 func (r *Registry) SyncInfo() (*SyncInfo, error) {
+
 	infoPath := filepath.Join(r.cacheDir, ".sync-info.yaml")
-	data, err := os.ReadFile(infoPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
 
 	var info SyncInfo
-	if err := yaml.Unmarshal(data, &info); err != nil {
+	found, err := document.ReadIfExists(infoPath, &info)
+	if err != nil {
 		return nil, err
 	}
+	if !found {
+		return nil, nil
+	}
+
 	return &info, nil
 }
 

@@ -11,14 +11,12 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/credentials"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // Verbosity levels for output control.
@@ -63,14 +61,8 @@ func Load() (*Config, error) {
 	cfg := &Config{}
 
 	// Read config file
-	data, err := os.ReadFile(Path())
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("reading config: %w", err)
-	}
-	if err == nil {
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("parsing config: %w", err)
-		}
+	if _, err := document.ReadIfExists(Path(), cfg); err != nil {
+		return nil, err
 	}
 
 	// Apply environment variable overrides
@@ -98,17 +90,7 @@ func Save(cfg *Config) error {
 	fileCfg := *cfg
 	fileCfg.Model.APIKey = ""
 
-	path := Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-
-	data, err := yaml.Marshal(&fileCfg)
-	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
-	}
-
-	return os.WriteFile(path, data, 0o600)
+	return document.Write(Path(), &fileCfg)
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.

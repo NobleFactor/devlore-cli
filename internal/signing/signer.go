@@ -7,11 +7,10 @@
 package signing
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // Signature represents a cryptographic signature.
@@ -121,14 +120,10 @@ func FindSopsConfig(dir string) string {
 
 // ParseSopsConfig parses a .sops.yaml file.
 func ParseSopsConfig(path string) (*SopsConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
 
 	var config SopsConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("parse .sops.yaml: %w", err)
+	if err := document.Read(path, &config); err != nil {
+		return nil, err
 	}
 
 	return &config, nil

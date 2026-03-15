@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // SyntheticCache manages cached synthetic package definitions.
@@ -48,14 +48,12 @@ func (c *SyntheticCache) cachePathForPackage(source PackageSource, name string) 
 // Get retrieves a cached synthetic package, if it exists and is not expired.
 // Returns nil if not cached or expired.
 func (c *SyntheticCache) Get(source PackageSource, name string) *SyntheticPackageInfo {
+
 	path := c.cachePathForPackage(source, name)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
 
 	var info SyntheticPackageInfo
-	if err := yaml.Unmarshal(data, &info); err != nil {
+	found, _ := document.ReadIfExists(path, &info)
+	if !found {
 		return nil
 	}
 
@@ -74,23 +72,13 @@ func (c *SyntheticCache) Get(source PackageSource, name string) *SyntheticPackag
 
 // Put stores a synthetic package in the cache.
 func (c *SyntheticCache) Put(info *SyntheticPackageInfo) error {
-	dir := c.cachePathForSource(info.Source)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
 
 	info.CachedAt = time.Now()
 	if info.Verified {
 		info.VerifiedAt = time.Now()
 	}
 
-	data, err := yaml.Marshal(info)
-	if err != nil {
-		return err
-	}
-
-	path := c.cachePathForPackage(info.Source, info.Name)
-	return os.WriteFile(path, data, 0o600)
+	return document.Write(c.cachePathForPackage(info.Source, info.Name), info)
 }
 
 // Delete removes a synthetic package from the cache.
@@ -140,17 +128,11 @@ func (c *SyntheticCache) List() ([]SyntheticPackageInfo, error) {
 			}
 
 			path := filepath.Join(sourceDir, file.Name())
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
 
 			var info SyntheticPackageInfo
-			if err := yaml.Unmarshal(data, &info); err != nil {
-				continue
+			if found, _ := document.ReadIfExists(path, &info); found {
+				packages = append(packages, info)
 			}
-
-			packages = append(packages, info)
 		}
 	}
 

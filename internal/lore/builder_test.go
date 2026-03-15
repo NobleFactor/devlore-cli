@@ -124,8 +124,8 @@ func TestBuildFromManifest(t *testing.T) {
 	manifestPath := filepath.Join(tmpDir, "packages-manifest.yaml")
 
 	manifest := `packages:
-  - curl
-  - jq
+  - name: curl
+  - name: jq
 `
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
@@ -620,9 +620,9 @@ func TestPlanner_PlanPackages(t *testing.T) {
 	manifestPath := filepath.Join(tmpDir, "packages-manifest.yaml")
 
 	manifestContent := `packages:
-  - curl
-  - jq:
-      with: [json-path]
+  - name: curl
+  - name: jq
+    with: [json-path]
 `
 	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0o644); err != nil {
 		t.Fatal(err)

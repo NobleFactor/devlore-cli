@@ -15,7 +15,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // ConfigInfo contains configuration metadata for a tool.
@@ -257,25 +258,10 @@ func newConfigPathCmd(_ ConfigInfo) *cobra.Command {
 // loadConfig loads the config file as a map. Supports YAML (.yaml, .yml)
 // and JSON (.json) formats, detected by file extension.
 func loadConfig(path string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make(map[string]interface{}), nil
-		}
+
+	config := make(map[string]interface{})
+	if _, err := document.ReadIfExists(path, &config); err != nil {
 		return nil, err
-	}
-
-	var config map[string]interface{}
-
-	switch configFormat(path) {
-	case "json":
-		if err := json.Unmarshal(data, &config); err != nil {
-			return nil, fmt.Errorf("invalid JSON: %w", err)
-		}
-	default:
-		if err := yaml.Unmarshal(data, &config); err != nil {
-			return nil, fmt.Errorf("invalid YAML: %w", err)
-		}
 	}
 
 	if config == nil {
@@ -288,39 +274,8 @@ func loadConfig(path string) (map[string]interface{}, error) {
 // saveConfig saves the config map to file. Supports YAML (.yaml, .yml)
 // and JSON (.json) formats, detected by file extension.
 func saveConfig(path string, config map[string]interface{}) error {
-	// Create directory if needed
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
 
-	var data []byte
-	var err error
-
-	switch configFormat(path) {
-	case "json":
-		data, err = json.MarshalIndent(config, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal config: %w", err)
-		}
-		data = append(data, '\n')
-	default:
-		data, err = yaml.Marshal(config)
-		if err != nil {
-			return fmt.Errorf("failed to marshal config: %w", err)
-		}
-	}
-
-	return os.WriteFile(path, data, 0o600)
-}
-
-// configFormat returns "json" or "yaml" based on the file extension.
-func configFormat(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".json" {
-		return "json"
-	}
-	return "yaml"
+	return document.Write(path, config)
 }
 
 // configEdit opens the config file in the user's editor.

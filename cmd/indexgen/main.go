@@ -26,6 +26,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // KnowledgeIndex represents the index.yaml manifest for a knowledge domain.
@@ -191,16 +193,14 @@ func buildIndex(domain, domainPath string) (*KnowledgeIndex, error) { //nolint:u
 }
 
 func loadExistingIndex(domainPath string) *KnowledgeIndex {
+
 	indexPath := filepath.Join(domainPath, "index.yaml")
-	data, err := os.ReadFile(indexPath)
-	if err != nil {
+
+	var index KnowledgeIndex
+	if found, _ := document.ReadIfExists(indexPath, &index); !found {
 		return &KnowledgeIndex{}
 	}
 
-	var index KnowledgeIndex
-	if err := yaml.Unmarshal(data, &index); err != nil {
-		return &KnowledgeIndex{}
-	}
 	return &index
 }
 
@@ -259,13 +259,9 @@ func mergeEntries[T named](files []string, existing []T, newFn func(string) T) [
 }
 
 func writeIndex(domainPath string, index *KnowledgeIndex) error {
-	data, err := yaml.Marshal(index)
-	if err != nil {
-		return err
-	}
 
-	header := "# Auto-generated file list by: go run ./cmd/gen-index\n# Metadata (purpose, source_system, description) is preserved and should be edited manually.\n\n"
-	content := header + string(data)
+	header := "# Auto-generated file list by: go run ./cmd/gen-index\n" +
+		"# Metadata (purpose, source_system, description) is preserved and should be edited manually.\n"
 
-	return os.WriteFile(filepath.Join(domainPath, "index.yaml"), []byte(content), 0o600)
+	return document.Write(filepath.Join(domainPath, "index.yaml"), index, document.WithHeader(header))
 }

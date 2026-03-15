@@ -37,15 +37,13 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/NobleFactor/devlore-cli/internal/config"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
@@ -90,14 +88,10 @@ func DefaultTestConfig() TestConfig {
 
 // LoadTestConfig loads test configuration from a file.
 func LoadTestConfig(path string) (TestConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return TestConfig{}, fmt.Errorf("reading config: %w", err)
-	}
 
 	var cfg TestConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return TestConfig{}, fmt.Errorf("parsing config: %w", err)
+	if err := document.Read(path, &cfg); err != nil {
+		return TestConfig{}, err
 	}
 
 	return cfg, nil
@@ -191,35 +185,25 @@ type TestReport struct {
 
 // WriteReport writes the test report to a directory.
 func (r *TestReport) WriteReport(outDir string) error {
-	if err := os.MkdirAll(outDir, 0o750); err != nil {
-		return fmt.Errorf("creating output directory: %w", err)
-	}
 
 	// Write JSON report
-	jsonPath := filepath.Join(outDir, "results.json")
-	jsonData, err := json.MarshalIndent(r, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling JSON: %w", err)
-	}
-	if err := os.WriteFile(jsonPath, jsonData, 0o600); err != nil { //nolint:gosec // G703: path from test output dir
-		return fmt.Errorf("writing JSON report: %w", err)
+	if err := document.Write(filepath.Join(outDir, "results.json"), r); err != nil {
+		return err
 	}
 
 	// Write YAML report
-	yamlPath := filepath.Join(outDir, "results.yaml")
-	yamlData, err := yaml.Marshal(r)
-	if err != nil {
-		return fmt.Errorf("marshaling YAML: %w", err)
-	}
-	if err := os.WriteFile(yamlPath, yamlData, 0o600); err != nil { //nolint:gosec // G703: path from test output dir
-		return fmt.Errorf("writing YAML report: %w", err)
+	if err := document.Write(filepath.Join(outDir, "results.yaml"), r); err != nil {
+		return err
 	}
 
 	// Write summary markdown
 	summaryPath := filepath.Join(outDir, "summary.md")
 	summary := r.GenerateSummary()
-	if err := os.WriteFile(summaryPath, []byte(summary), 0o600); err != nil { //nolint:gosec // G703: path from test output directory
-		return fmt.Errorf("writing summary: %w", err)
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o750); err != nil {
+		return fmt.Errorf("create directory %s: %w", filepath.Dir(summaryPath), err)
+	}
+	if err := os.WriteFile(summaryPath, []byte(summary), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", summaryPath, err)
 	}
 
 	return nil

@@ -5,13 +5,11 @@ package migrate
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -123,14 +121,7 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 		Renames:   renames,
 	}
 	markerPath := filepath.Join(sourceRoot, ".writ-migrated")
-	data, err := yaml.Marshal(&marker)
-	if err != nil {
-		return fmt.Errorf("marshal marker: %w", err)
-	}
-	if err := os.WriteFile(markerPath, data, 0o600); err != nil {
-		return fmt.Errorf("write marker: %w", err)
-	}
-	return nil
+	return document.Write(markerPath, &marker)
 }
 
 // joinWords concatenates words with spaces.
