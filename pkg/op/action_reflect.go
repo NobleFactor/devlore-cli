@@ -50,8 +50,14 @@ func (a *actionBase) coerceArgs(ctx Context, slots map[string]any) ([]reflect.Va
 	return goArgs, nil
 }
 
-// callMethod invokes the action's Go method with the given args. For variadic
-// methods, CallSlice is used so the final slice arg is expanded correctly.
+// callMethod invokes the action's Go method with the given args. For variadic methods, CallSlice is used so the
+// final slice arg is expanded correctly.
+//
+// Parameters:
+//   - goArgs: the reflected arguments including the receiver at index 0.
+//
+// Returns:
+//   - []reflect.Value: the method's return values.
 func (a *actionBase) callMethod(goArgs []reflect.Value) []reflect.Value {
 
 	if a.method.Type.IsVariadic() {

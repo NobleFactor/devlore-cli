@@ -35,7 +35,7 @@ type Resource struct {
 }
 
 // String returns a compact JSON representation of the resource.
-func (r Resource) String() string { return r.Format(r) }
+func (r *Resource) String() string { return r.Format(r) }
 
 // buildURI computes the opaque svc: URI.
 func (r *Resource) buildURI() string {

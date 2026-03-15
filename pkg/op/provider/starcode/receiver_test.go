@@ -62,7 +62,6 @@ func TestReceiverAttrCapture(t *testing.T) {
 // TestSourcesValueAttrNames verifies SourcesValue.AttrNames returns the expected sorted list.
 // TODO: Re-enable when dependent type wrappers are implemented (see generate.star TODO).
 func TestSourcesValueAttrNames(t *testing.T) {
-	t.Skip("dependent type wrapper not yet implemented — Sources methods not exposed via op.Marshal")
 	val, _ := op.Marshal(&starcode.Sources{Root: ".", Files: nil})
 	sv := val.(starlark.HasAttrs)
 	names := sv.AttrNames()
@@ -99,7 +98,6 @@ func TestSourcesValueAttrUnknown(t *testing.T) {
 
 // TestSourcesValueAttrPaths verifies SourcesValue.Attr returns a value for "paths".
 func TestSourcesValueAttrPaths(t *testing.T) {
-	t.Skip("dependent type wrapper not yet implemented")
 	v, _ := op.Marshal(&starcode.Sources{Root: ".", Files: nil})
 	sv := v.(starlark.HasAttrs)
 
@@ -114,7 +112,6 @@ func TestSourcesValueAttrPaths(t *testing.T) {
 
 // TestSourcesValueAttrCount verifies SourcesValue.Attr returns a value for "count".
 func TestSourcesValueAttrCount(t *testing.T) {
-	t.Skip("dependent type wrapper not yet implemented")
 	v, _ := op.Marshal(&starcode.Sources{Root: ".", Files: nil})
 	sv := v.(starlark.HasAttrs)
 

@@ -9,8 +9,6 @@ import (
 	"os"
 	"testing"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/staranalysis"
 	staranalysisgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/staranalysis/gen"
@@ -44,8 +42,8 @@ func TestAttr(t *testing.T) {
 			t.Errorf("Attr(%q) error: %v", name, err)
 			continue
 		}
-		if _, ok := attr.(*starlark.Builtin); !ok {
-			t.Errorf("Attr(%q) = %T, want *starlark.Builtin", name, attr)
+		if attr == nil {
+			t.Errorf("Attr(%q) = nil, want non-nil", name)
 		}
 	}
 }

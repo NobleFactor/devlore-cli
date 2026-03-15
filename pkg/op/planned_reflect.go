@@ -137,9 +137,7 @@ func buildPlannedBridge(
 		vals := make([]starlark.Value, len(paramNames))
 		pairs := make([]any, 0, len(paramNames)*2)
 		for i, name := range paramNames {
-			clean := strings.TrimPrefix(strings.TrimSuffix(name, "?"), "*")
 			pairs = append(pairs, strings.TrimPrefix(name, "*"), &vals[i])
-			_ = clean // used below in slot filling
 		}
 		if err := starlark.UnpackArgs(snakeName, args, kwargs, pairs...); err != nil {
 			return nil, err

@@ -49,7 +49,7 @@ func (m *PackagesManifest) PackageNames() []string {
 //
 // Returns:
 //   - string: name alone or name with --with flags
-func (e PackageEntry) String() string {
+func (e *PackageEntry) String() string {
 
 	if len(e.With) == 0 {
 		return e.Name
