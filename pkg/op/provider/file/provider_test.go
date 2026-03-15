@@ -1239,9 +1239,10 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 }
 
-// --- Read ---
+// --- ReadText ---
 
-func TestRead_ReturnsBlob(t *testing.T) {
+func TestReadText_ReturnsFileContents(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
@@ -1249,44 +1250,60 @@ func TestRead_ReturnsBlob(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	blob, err := p.Read(Resource{SourcePath: op.NewPath("", path)})
+	content, err := p.ReadText(Resource{SourcePath: op.NewPath("", path)})
 	if err != nil {
-		t.Fatalf("Read() error = %v", err)
+		t.Fatalf("ReadText() error = %v", err)
 	}
 
-	if blob.SourcePath.Abs() != path {
-		t.Errorf("blob.SourcePath.Abs() = %q, want %q", blob.SourcePath.Abs(), path)
-	}
-	if blob.Size != 5 {
-		t.Errorf("blob.Size = %d, want 5", blob.Size)
+	if content != "hello" {
+		t.Errorf("ReadText() = %q, want %q", content, "hello")
 	}
 }
 
-func TestRead_NonExistent_ReturnsBlobThatDoesNotExist(t *testing.T) {
+func TestReadText_NonExistent_ReturnsError(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	blob, err := p.Read(Resource{SourcePath: op.NewPath("", "/nonexistent/file.txt")})
-	if err != nil {
-		t.Fatalf("Read() error = %v, want nil for non-existent file", err)
-	}
-	if blob.Exists() {
-		t.Error("blob.Exists() = true, want false for non-existent file")
-	}
-	if blob.SourcePath.Abs() != "/nonexistent/file.txt" {
-		t.Errorf("blob.SourcePath.Abs() = %q, want %q", blob.SourcePath.Abs(), "/nonexistent/file.txt")
+	_, err := p.ReadText(Resource{SourcePath: op.NewPath("", filepath.Join(tmp, "nonexistent.txt"))})
+	if err == nil {
+		t.Fatal("ReadText() on non-existent file: expected error, got nil")
 	}
 }
 
-func TestRead_Directory_ReturnsResource(t *testing.T) {
+// --- ReadBytes ---
+
+func TestReadBytes_ReturnsFileContents(t *testing.T) {
+
 	tmp := t.TempDir()
+	path := filepath.Join(tmp, "file.bin")
+	data := []byte{0x00, 0x01, 0x02, 0xff}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	p := testProvider(t, tmp)
-	result, err := p.Read(Resource{SourcePath: op.NewPath("", tmp)})
+	result, err := p.ReadBytes(Resource{SourcePath: op.NewPath("", path)})
 	if err != nil {
-		t.Fatalf("Read() on directory error = %v", err)
+		t.Fatalf("ReadBytes() error = %v", err)
 	}
-	if result.SourcePath.Abs() != tmp {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), tmp)
+
+	if len(result) != len(data) {
+		t.Fatalf("ReadBytes() len = %d, want %d", len(result), len(data))
+	}
+	for i, b := range result {
+		if b != data[i] {
+			t.Errorf("ReadBytes()[%d] = %#x, want %#x", i, b, data[i])
+		}
+	}
+}
+
+func TestReadBytes_NonExistent_ReturnsError(t *testing.T) {
+
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+	_, err := p.ReadBytes(Resource{SourcePath: op.NewPath("", filepath.Join(tmp, "nonexistent.bin"))})
+	if err == nil {
+		t.Fatal("ReadBytes() on non-existent file: expected error, got nil")
 	}
 }
 

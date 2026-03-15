@@ -126,7 +126,8 @@ func TestActionNames(t *testing.T) {
 		"file.is_dir",
 		"file.is_file",
 		"file.mkdir",
-		"file.read",
+		"file.read_bytes",
+		"file.read_text",
 		"file.join",
 		"file.name",
 		"file.parent",
@@ -159,7 +160,8 @@ func TestRegister(t *testing.T) {
 		"file.is_dir",
 		"file.is_file",
 		"file.mkdir",
-		"file.read",
+		"file.read_bytes",
+		"file.read_text",
 		"file.join",
 		"file.name",
 		"file.parent",
@@ -539,10 +541,10 @@ func TestMkdirAction_DryRun(t *testing.T) {
 	}
 }
 
-func TestReadAction_DryRun(t *testing.T) {
+func TestReadBytesAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.read")
+	action := getAction(t, reg, "file.read_bytes")
 	ctx := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
@@ -557,8 +559,31 @@ func TestReadAction_DryRun(t *testing.T) {
 	}
 
 	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.read") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.read")
+	if !strings.Contains(output, "[dry-run] file.read_bytes") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.read_bytes")
+	}
+}
+
+func TestReadTextAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "file.read_text")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.read_text") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.read_text")
 	}
 }
 

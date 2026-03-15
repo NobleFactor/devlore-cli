@@ -3,7 +3,7 @@
 # 1. Write a file (via shell to avoid plan.file edge coupling)
 # 2. Read it back via plan.source
 #
-# Validates: plan.source (wraps file.read)
+# Validates: plan.source (wraps file.read_text)
 
 dest = t.tmp("source_input.txt")
 
@@ -13,4 +13,4 @@ plan.shell.exec(command="printf 'source test' > " + dest)
 plan.source(path=dest)
 
 t.expect_file(dest, content="source test")
-t.expect_node_count(2)  # shell.exec + file.read (from source)
+t.expect_node_count(2)  # shell.exec + file.read_text (from source)

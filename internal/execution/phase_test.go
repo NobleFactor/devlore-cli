@@ -17,14 +17,14 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
-// testNode creates a node with the given action and source/path slots for testing.
-func testNode(id string, action op.Action, source, path string) *op.Node {
+// testNode creates a node with the given action and source/target slots for testing.
+func testNode(id string, action op.Action, source, target string) *op.Node {
 	node := &op.Node{ID: id, Action: action}
 	if source != "" {
 		node.SetSlotImmediate("source", source)
 	}
-	if path != "" {
-		node.SetSlotImmediate("path", path)
+	if target != "" {
+		node.SetSlotImmediate("target", target)
 	}
 	return node
 }

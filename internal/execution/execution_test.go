@@ -43,14 +43,14 @@ func runGraph(ctx context.Context, e *execution.GraphExecutor, g *op.Graph) ([]*
 	return e.RunNodes(ctx, g.Nodes, g.Edges)
 }
 
-// testNode creates a node with the given action and source/path slots for testing.
-func testNode(id string, action op.Action, source, path string) *op.Node {
+// testNode creates a node with the given action and source/target slots for testing.
+func testNode(id string, action op.Action, source, target string) *op.Node {
 	node := &op.Node{ID: id, Action: action}
 	if source != "" {
 		node.SetSlotImmediate("source", source)
 	}
-	if path != "" {
-		node.SetSlotImmediate("path", path)
+	if target != "" {
+		node.SetSlotImmediate("target", target)
 	}
 	return node
 }
@@ -89,12 +89,12 @@ func TestAllProvidersCount(t *testing.T) {
 
 	names := reg.Names()
 	sort.Strings(names)
-	if len(names) != 36 {
-		t.Errorf("expected 36 total actions, got %d: %v", len(names), names)
+	if len(names) != 37 {
+		t.Errorf("expected 37 total actions, got %d: %v", len(names), names)
 	}
 
 	expected := []string{
-		"file.backup", "file.copy", "file.glob", "file.link", "file.mkdir", "file.move", "file.read", "file.remove", "file.remove_all", "file.unlink", "file.write_bytes", "file.write_text",
+		"file.backup", "file.copy", "file.glob", "file.link", "file.mkdir", "file.move", "file.read_bytes", "file.read_text", "file.remove", "file.remove_all", "file.unlink", "file.write_bytes", "file.write_text",
 		"encryption.decrypt",
 		"template.render",
 		"pkg.install", "pkg.upgrade", "pkg.remove", "pkg.update", "pkg.installed", "pkg.not_installed", "pkg.version_gte",
