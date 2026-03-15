@@ -4,6 +4,7 @@
 package file
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -101,8 +102,14 @@ func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, 
 
 // CompensateBackup undoes a Backup by moving the backup back to the original path.
 //
-// Backup uses a plain rename (not RecoverySite), so compensation renames back directly.
-// The resource's checksum is verified before restoring; a mismatch indicates external modification.
+// Backup uses a plain rename (not RecoverySite), so compensation renames back directly. The resource's checksum is
+// verified before restoring; a mismatch indicates external modification.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.Backup]
+//
+// Returns:
+//   - error: any error from restoring the original file
 func (p *Provider) CompensateBackup(undo Tombstone) error {
 
 	if undo.Resource() == nil {
@@ -173,58 +180,68 @@ func (p *Provider) Copy(sourceFile Resource, destinationFilename Resource, desti
 }
 
 // CompensateCopy undoes a Copy by restoring the original file from recovery.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.Copy]
+//
+// Returns:
+//   - error: any error from restoring the original file
 func (p *Provider) CompensateCopy(undo Tombstone) error {
 	return p.compensateWrite(undo)
 }
 
-// Link creates a symlink at a path pointing to a source file.
+// Link creates a symbolic link at target pointing to source.
 //
-// Idempotent: if the symlink already points correctly, it's a no-op. If something exists at the path, it is moved to
-// recovery before creating the symlink.
+// Idempotent: if target already points to source, calling this function is a no-op. If something else exists at target,
+// it is moved to recovery before creating the symbolic link to source.
 //
 // Parameters:
-//   - source: Resource for the symlink target
-//   - path: Resource for the symlink location
+//   - source: [file.Resource] that the symbolic link will point to
+//   - target: [file.Resource] specifying the location where the symbolic link will be created
 //
 // Returns:
-//   - result: Resource for the created symlink
-//   - undo: Tombstone for restoring the previous state
-//   - err: any error
-func (p *Provider) Link(source, path Resource) (result Resource, undo Tombstone, err error) {
+//   - result: [file.Resource] for the created symbolic link (the value of target)
+//   - undo: [file.Tombstone] for restoring the previous state of target
+//   - err: any error from creating the symbolic link
+func (p *Provider) Link(source, target Resource) (result Resource, undo Tombstone, err error) {
 
-	if info, err := p.lstat(path.SourcePath.Abs()); err == nil {
+	if info, err := p.lstat(target.SourcePath.Abs()); err == nil {
+
 		if info.Mode()&os.ModeSymlink != 0 {
-			existing, readErr := p.readlink(path.SourcePath.Abs())
+			existing, readErr := p.readLink(target.SourcePath.Abs())
 			if readErr == nil && existing == source.SourcePath.Abs() {
-				return path, Tombstone{}, nil // Already correct — no change
+				return target, Tombstone{}, nil // Already correct — no change
 			}
 		}
 
-		// Something exists at the path — archive it before creating the symlink.
-		recoveryID, archiveErr := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
+		// Something exists at the target — archive it before creating the symlink.
+		recoveryID, archiveErr := p.Context().RecoverySite.ArchiveFile(target.SourcePath)
+
 		if archiveErr != nil {
 			return Resource{}, Tombstone{}, archiveErr
 		}
+
 		undo = Tombstone{
-			TombstoneBase: op.NewTombstoneBase(&path),
+			TombstoneBase: op.NewTombstoneBase(&target),
 			RecoveryID:    recoveryID,
 		}
 	} else {
-		// Nothing exists — tombstone records the path for removal on compensation.
+		// Nothing exists — tombstone records the target for removal on compensation.
 		undo = Tombstone{
-			TombstoneBase: op.NewTombstoneBase(&path),
+			TombstoneBase: op.NewTombstoneBase(&target),
 		}
 	}
 
-	if err := p.mkdirAll(filepath.Dir(path.SourcePath.Abs()), 0o750); err != nil {
+	if err := p.mkdirAll(filepath.Dir(target.SourcePath.Abs()), 0o750); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	if err := p.symlink(source.SourcePath.Abs(), path.SourcePath.Abs()); err != nil {
+	if err := p.symlink(source.SourcePath.Abs(), target.SourcePath.Abs()); err != nil {
 		return Resource{}, Tombstone{}, err
 	}
 
-	result = NewResource(path.SourcePath.Abs())
+	result = NewResource(target.SourcePath.Abs())
+
 	if err = result.Resolve(p.Context().Root); err != nil {
 		return Resource{}, undo, err
 	}
@@ -232,6 +249,12 @@ func (p *Provider) Link(source, path Resource) (result Resource, undo Tombstone,
 }
 
 // CompensateLink undoes a Link by removing the symlink and restoring whatever was there before.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.Link]
+//
+// Returns:
+//   - error: any error from restoring the previous state
 func (p *Provider) CompensateLink(undo Tombstone) error {
 	return p.compensateWrite(undo)
 }
@@ -276,8 +299,14 @@ func (p *Provider) Move(source, destination Resource) (result Resource, undo Tom
 
 // CompensateMove undoes a Move by moving the file back to its original location.
 //
-// Move uses a plain rename (not RecoverySite), so compensation renames back directly.
-// The resource's checksum is verified before restoring; a mismatch indicates external modification.
+// Move uses a plain rename (not RecoverySite), so compensation renames back directly. The resource's checksum is
+// verified before restoring; a mismatch indicates external modification.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.Move]
+//
+// Returns:
+//   - error: any error from restoring the original file
 func (p *Provider) CompensateMove(undo Tombstone) error {
 
 	if undo.Resource() == nil {
@@ -347,6 +376,12 @@ func (p *Provider) Remove(path Resource, prune bool, boundary Resource) (result 
 }
 
 // CompensateRemove undoes a Remove by restoring the file from recovery.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.Remove]
+//
+// Returns:
+//   - error: any error from restoring the removed file
 func (p *Provider) CompensateRemove(undo Tombstone) error {
 	if undo.Resource() == nil {
 		return nil
@@ -381,6 +416,12 @@ func (p *Provider) RemoveAll(path Resource, prune bool, boundary Resource) (resu
 }
 
 // CompensateRemoveAll undoes a RemoveAll by restoring from recovery.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.RemoveAll]
+//
+// Returns:
+//   - error: any error from restoring the removed files
 func (p *Provider) CompensateRemoveAll(undo Tombstone) error {
 	if undo.Resource() == nil {
 		return nil
@@ -430,6 +471,12 @@ func (p *Provider) Unlink(path Resource, prune bool, boundary Resource) (result 
 }
 
 // CompensateUnlink undoes an Unlink by restoring the symlink from recovery.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.Unlink]
+//
+// Returns:
+//   - error: any error from restoring the symlink
 func (p *Provider) CompensateUnlink(undo Tombstone) error {
 	if undo.Resource() == nil {
 		return nil
@@ -571,6 +618,12 @@ func (p *Provider) WriteBytes(destination Resource, content string, mode os.File
 }
 
 // CompensateWriteBytes undoes a WriteBytes by restoring the original file.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.WriteBytes]
+//
+// Returns:
+//   - error: any error from restoring the original file
 func (p *Provider) CompensateWriteBytes(undo Tombstone) error {
 	return p.compensateWrite(undo)
 }
@@ -591,6 +644,12 @@ func (p *Provider) WriteText(destination Resource, content string, mode os.FileM
 }
 
 // CompensateWriteText undoes a WriteText by restoring the original file.
+//
+// Parameters:
+//   - undo: [file.Tombstone] returned by [Provider.WriteText]
+//
+// Returns:
+//   - error: any error from restoring the original file
 func (p *Provider) CompensateWriteText(undo Tombstone) error {
 	return p.compensateWrite(undo)
 }
@@ -710,19 +769,36 @@ func (p *Provider) Mkdir(resource Resource, mode os.FileMode) (Resource, error) 
 	return resource, p.mkdirAll(resource.SourcePath.Abs(), mode)
 }
 
-// Read creates a Resource from the file at "path" for reading the contents of the file at "path".
+// ReadBytes returns the contents of a file [Resource].
 //
 // Parameters:
-//   - path: Absolute path to the file to read
+//   - resource: the file resource.
 //
 // Returns:
-//   - result: the contents of the file
-func (p *Provider) Read(path Resource) (result Resource, err error) {
-	r := NewResource(path.SourcePath.Abs())
-	if err := r.Resolve(p.Context().Root); err != nil {
-		return Resource{}, err
+//   - result: the contents of the file as an array of bytes
+//   - err: I/O error from reading the file through the scoped root
+func (p *Provider) ReadBytes(resource Resource) (result []byte, err error) {
+	buffer, err := p.read(resource)
+	if err != nil {
+		return nil, err
 	}
-	return r, nil
+	return buffer.Bytes(), nil
+}
+
+// ReadText returns the contents of a file [Resource].
+//
+// Parameters:
+//   - resource: the file resource.
+//
+// Returns:
+//   - result: the contents of the file as a string
+//   - err: I/O error from reading the file through the scoped root
+func (p *Provider) ReadText(resource Resource) (result string, err error) {
+	buffer, err := p.read(resource)
+	if err != nil {
+		return "", err
+	}
+	return buffer.String(), nil
 }
 
 // Actions
@@ -952,7 +1028,23 @@ func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
 	}
 }
 
-// readlink reads the destination of a symlink. Always returns an absolute path.
+// read reads the contents of a file [Resource]
+//
+// Parameters:
+//   - resource: The file resource to read
+//
+// Returns:
+//   - a pointer to a buffer with the contents of the file
+//   - any error from reading the file
+func (p *Provider) read(resource Resource) (*bytes.Buffer, error) {
+	var buffer bytes.Buffer
+	if _, err := resource.WriteTo(p.Context().Root, &buffer); err != nil {
+		return nil, err
+	}
+	return &buffer, nil
+}
+
+// readLink reads the destination of a symlink. Always returns an absolute path.
 //
 // Parameters:
 //   - abs: Absolute path to the symlink
@@ -960,7 +1052,7 @@ func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
 // Returns:
 //   - string: absolute path the symlink points to
 //   - error: any error from reading the link
-func (p *Provider) readlink(abs string) (string, error) {
+func (p *Provider) readLink(abs string) (string, error) {
 
 	root := p.Context().Root
 	target, err := root.Readlink(root.NewPath(abs))
@@ -1017,8 +1109,9 @@ func (p *Provider) stat(abs string) (os.FileInfo, error) {
 	return root.Stat(root.NewPath(abs))
 }
 
-// symlink creates a symbolic link. The target is stored as a relative path (os.Root requires non-absolute symlink
-// targets).
+// symlink creates a symbolic link.
+//
+// The target is stored as a relative path (os.Root requires non-absolute symlink targets).
 //
 // Parameters:
 //   - targetAbs: Absolute path that the symlink should point to

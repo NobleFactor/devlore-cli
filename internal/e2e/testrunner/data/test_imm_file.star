@@ -1,6 +1,6 @@
 # test_imm_file.star — Immediate file operations.
 #
-# Validates: file.join, file.name, file.parent, file.write_text, file.read,
+# Validates: file.join, file.name, file.parent, file.write_text, file.read_text,
 #            file.exists, file.is_file, file.is_dir, file.mkdir, file.copy,
 #            file.move, file.remove, file.glob
 
@@ -17,9 +17,9 @@ dest = t.tmp("imm_write.txt")
 written = file.write_text(destination=dest, content="immediate write", mode=0o644)
 t.expect_equal(type(written), "struct")
 
-# Read — returns a Resource (not the string content)
-content = file.read(path=dest)
-t.expect_equal(type(content), "struct")
+# ReadText — returns the file content as a string
+content = file.read_text(resource=dest)
+t.expect_equal(content, "immediate write")
 
 # Existence checks — return bools
 t.expect_equal(file.exists(resource=dest), True)

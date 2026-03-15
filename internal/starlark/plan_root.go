@@ -170,12 +170,12 @@ func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 
 	node := &op.Node{
 		ID:      op.GenerateNodeID("source"),
-		Action:  p.reg.MustGet("file.read"),
+		Action:  p.reg.MustGet("file.read_text"),
 		Project: p.project,
 	}
 
-	if err := op.FillSlot(node, p.graph, "path", path); err != nil {
-		return nil, fmt.Errorf("source: path: %w", err)
+	if err := op.FillSlot(node, p.graph, "resource", path); err != nil {
+		return nil, fmt.Errorf("source: resource: %w", err)
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)

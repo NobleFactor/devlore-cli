@@ -4,7 +4,7 @@
 # 2. Copy it to a second location (edge from write ensures ordering)
 # 3. Read the copy back (verifies the copy was written)
 #
-# Validates: plan.file.write_text, plan.file.copy, plan.file.read
+# Validates: plan.file.write_text, plan.file.copy, plan.file.read_text
 
 src = t.tmp("lifecycle_src.txt")
 dst = t.tmp("lifecycle_dst.txt")
@@ -13,10 +13,10 @@ dst = t.tmp("lifecycle_dst.txt")
 written = plan.file.write_text(destination=src, content="lifecycle test", mode=0o644)
 
 # Step 2: Copy to destination (edge from write ensures ordering).
-plan.file.copy(source_file=written, destination_filename=dst, destination_file_mode=0o644)
+copied = plan.file.copy(source_file=written, destination_filename=dst, destination_file_mode=0o644)
 
-# Step 3: Read the copy.
-plan.file.read(path=dst)
+# Step 3: Read the copy (edge from copy ensures file exists before read).
+plan.file.read_text(resource=copied)
 
 t.expect_file(src, content="lifecycle test")
 t.expect_file(dst, content="lifecycle test")

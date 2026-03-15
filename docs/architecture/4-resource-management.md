@@ -260,12 +260,26 @@ kernel-assigned Inode/Device).
 
 ### 4.3 Read Path
 
-`Read` (`provider.go:772`) creates a `Resource` from a path:
+`ReadText` and `ReadBytes` (`provider.go:714-746`) return file contents as a string or byte
+slice respectively. Both delegate to a shared `read` helper that uses `Resource.WriteTo` to
+stream the file into a buffer:
 
 ```go
-// pkg/op/provider/file/provider.go:772-774
-func (p *Provider) Read(path string) (result Resource, err error) {
-    return NewResource(path)
+// pkg/op/provider/file/provider.go:714-746
+func (p *Provider) ReadBytes(resource Resource) (result []byte, err error) {
+    buffer, err := p.read(resource)
+    if err != nil {
+        return nil, err
+    }
+    return buffer.Bytes(), nil
+}
+
+func (p *Provider) ReadText(resource Resource) (result string, err error) {
+    buffer, err := p.read(resource)
+    if err != nil {
+        return "", err
+    }
+    return buffer.String(), nil
 }
 ```
 
@@ -289,7 +303,8 @@ Every file provider method and its current migration state:
 | `Copy` | Compensable | `Resource` + `string` + `FileMode` | `Resource` | Partial |
 | `WriteText` | Compensable | `string` + `string` + `FileMode` | `Resource` | Partial |
 | `WriteBytes` | Compensable | `string` + `string` + `FileMode` | `Resource` | Partial |
-| `Read` | Fallible | `string` | `Resource` | Partial |
+| `ReadBytes` | Fallible | `Resource` | `[]byte` | Migrated |
+| `ReadText` | Fallible | `Resource` | `string` | Migrated |
 | `Exists` | Fallible | `Resource` | `bool` | Migrated |
 | `IsDir` | Fallible | `Resource` | `bool` | Migrated |
 | `IsFile` | Fallible | `Resource` | `bool` | Migrated |
@@ -815,7 +830,8 @@ boundary, backupSuffix, honorGitignore) are unchanged.
 | `Copy` | Compensable | `(Resource, string, FileMode)` → `Resource` | `(Resource, Resource, FileMode)` → `Resource` |
 | `WriteText` | Compensable | `(string, string, FileMode)` → `Resource` | `(Resource, string, FileMode)` → `Resource` |
 | `WriteBytes` | Compensable | `(string, string, FileMode)` → `Resource` | `(Resource, string, FileMode)` → `Resource` |
-| `Read` | Fallible | `(string)` → `Resource` | `(Resource)` → `Resource` |
+| `ReadBytes` | Fallible | — | `(Resource)` → `[]byte` |
+| `ReadText` | Fallible | — | `(Resource)` → `string` |
 | `Exists` | Fallible | `(Resource)` → `bool` | No change (already migrated) |
 | `IsDir` | Fallible | `(Resource)` → `bool` | No change |
 | `IsFile` | Fallible | `(Resource)` → `bool` | No change |

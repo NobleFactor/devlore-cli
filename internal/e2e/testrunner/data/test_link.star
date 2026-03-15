@@ -6,7 +6,7 @@ target = t.tmp("link_target.txt")
 link   = t.tmp("link_pointer.txt")
 
 written = plan.file.write_text(destination=target, content="linked content", mode=0o644)
-plan.file.link(source=written, path=link)
+plan.file.link(source=written, target=link)
 
 t.expect_file(target, content="linked content")
 t.expect_file(link, content="linked content")
