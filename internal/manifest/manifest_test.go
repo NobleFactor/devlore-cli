@@ -9,15 +9,24 @@ import (
 	"testing"
 )
 
-func TestParse_YAML_SimplePackages(t *testing.T) {
-	yaml := `packages:
-  - gh
-  - jq
-  - ripgrep
+// --- Load ---
+
+func TestLoad_YAML_SimplePackages(t *testing.T) {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	content := `packages:
+  - name: gh
+  - name: jq
+  - name: ripgrep
 `
-	m, err := Parse([]byte(yaml), "packages-manifest.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	m, err := Load(path)
 	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
 	if len(m.Packages) != 3 {
@@ -35,31 +44,36 @@ func TestParse_YAML_SimplePackages(t *testing.T) {
 	}
 }
 
-func TestParse_YAML_PackagesWithFeatures(t *testing.T) {
-	yaml := `packages:
-  - gh
-  - neovim:
-      with: [lsp, treesitter]
-  - docker:
-      with:
-        - rootless
-        - compose
+func TestLoad_YAML_PackagesWithFeatures(t *testing.T) {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	content := `packages:
+  - name: gh
+  - name: neovim
+    with: [lsp, treesitter]
+  - name: docker
+    with:
+      - rootless
+      - compose
 `
-	m, err := Parse([]byte(yaml), "packages-manifest.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	m, err := Load(path)
 	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
 	if len(m.Packages) != 3 {
 		t.Fatalf("expected 3 packages, got %d", len(m.Packages))
 	}
 
-	// Check gh (simple)
 	if m.Packages[0].Name != "gh" {
 		t.Errorf("packages[0]: expected 'gh', got %q", m.Packages[0].Name)
 	}
 
-	// Check neovim (with features)
 	if m.Packages[1].Name != "neovim" {
 		t.Errorf("packages[1]: expected 'neovim', got %q", m.Packages[1].Name)
 	}
@@ -70,7 +84,6 @@ func TestParse_YAML_PackagesWithFeatures(t *testing.T) {
 		t.Errorf("packages[1]: unexpected features: %v", m.Packages[1].With)
 	}
 
-	// Check docker (with features)
 	if m.Packages[2].Name != "docker" {
 		t.Errorf("packages[2]: expected 'docker', got %q", m.Packages[2].Name)
 	}
@@ -79,17 +92,24 @@ func TestParse_YAML_PackagesWithFeatures(t *testing.T) {
 	}
 }
 
-func TestParse_JSON(t *testing.T) {
-	json := `{
+func TestLoad_JSON(t *testing.T) {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.json")
+	content := `{
   "packages": [
-    "gh",
-    "jq",
-    {"neovim": {"with": ["lsp", "treesitter"]}}
+    {"name": "gh"},
+    {"name": "jq"},
+    {"name": "neovim", "with": ["lsp", "treesitter"]}
   ]
 }`
-	m, err := Parse([]byte(json), "packages-manifest.json")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	m, err := Load(path)
 	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
 	if len(m.Packages) != 3 {
@@ -107,102 +127,165 @@ func TestParse_JSON(t *testing.T) {
 	}
 }
 
-func TestParse_EmptyWithOptions(t *testing.T) {
-	yaml := `packages:
-  - neovim:
-`
-	m, err := Parse([]byte(yaml), "packages-manifest.yaml")
+func TestLoad_EmptyPackages(t *testing.T) {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	if err := os.WriteFile(path, []byte("packages: []\n"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	m, err := Load(path)
 	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 
-	if len(m.Packages) != 1 {
-		t.Fatalf("expected 1 package, got %d", len(m.Packages))
-	}
-
-	if m.Packages[0].Name != "neovim" {
-		t.Errorf("expected 'neovim', got %q", m.Packages[0].Name)
-	}
-	if len(m.Packages[0].With) != 0 {
-		t.Errorf("expected no features, got %v", m.Packages[0].With)
+	if len(m.Packages) != 0 {
+		t.Fatalf("expected 0 packages, got %d", len(m.Packages))
 	}
 }
 
+func TestLoad_NotFound(t *testing.T) {
+
+	_, err := Load("/nonexistent/path/manifest.yaml")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+// --- Validate ---
+
 func TestValidate_Valid(t *testing.T) {
-	yaml := `packages:
-  - gh
-  - neovim:
-      with: [lsp]
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	content := `packages:
+  - name: gh
+  - name: neovim
+    with: [lsp]
 `
-	err := ValidateBytes([]byte(yaml), "packages-manifest.yaml")
-	if err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := Validate(path); err != nil {
 		t.Errorf("expected valid manifest, got error: %v", err)
 	}
 }
 
 func TestValidate_MissingPackages(t *testing.T) {
-	yaml := `something: else`
-	err := ValidateBytes([]byte(yaml), "packages-manifest.yaml")
-	if err == nil {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	if err := os.WriteFile(path, []byte("something: else\n"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := Validate(path); err == nil {
 		t.Error("expected error for missing 'packages' field")
 	}
 }
 
 func TestValidate_PackagesNotArray(t *testing.T) {
-	yaml := `packages: "not an array"`
-	err := ValidateBytes([]byte(yaml), "packages-manifest.yaml")
-	if err == nil {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	if err := os.WriteFile(path, []byte("packages: \"not an array\"\n"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := Validate(path); err == nil {
 		t.Error("expected error for 'packages' not being an array")
 	}
 }
 
-func TestValidate_EmptyPackageName(t *testing.T) {
-	yaml := `packages:
-  - ""
+func TestValidate_MissingName(t *testing.T) {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	content := `packages:
+  - with: [lsp]
 `
-	err := ValidateBytes([]byte(yaml), "packages-manifest.yaml")
-	if err == nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := Validate(path); err == nil {
+		t.Error("expected error for missing 'name' field")
+	}
+}
+
+func TestValidate_EmptyName(t *testing.T) {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	content := `packages:
+  - name: ""
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := Validate(path); err == nil {
 		t.Error("expected error for empty package name")
 	}
 }
 
-func TestValidate_MultipleKeysInPackage(t *testing.T) {
-	yaml := `packages:
-  - neovim:
-      with: [lsp]
-    docker:
-      with: [rootless]
-`
-	err := ValidateBytes([]byte(yaml), "packages-manifest.yaml")
-	if err == nil {
-		t.Error("expected error for multiple keys in package object")
-	}
-}
+func TestValidate_UnknownField(t *testing.T) {
 
-func TestValidate_UnknownOption(t *testing.T) {
-	yaml := `packages:
-  - neovim:
-      with: [lsp]
-      from: brew
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	content := `packages:
+  - name: neovim
+    with: [lsp]
+    from: brew
 `
-	err := ValidateBytes([]byte(yaml), "packages-manifest.yaml")
-	if err == nil {
-		t.Error("expected error for unknown option 'from'")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := Validate(path); err == nil {
+		t.Error("expected error for unknown field 'from'")
 	}
 }
 
 func TestValidate_UnknownTopLevelField(t *testing.T) {
-	yaml := `packages:
-  - gh
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	content := `packages:
+  - name: gh
 extra: field
 `
-	err := ValidateBytes([]byte(yaml), "packages-manifest.yaml")
-	if err == nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := Validate(path); err == nil {
 		t.Error("expected error for unknown top-level field")
 	}
 }
 
+func TestValidate_EntryNotObject(t *testing.T) {
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "packages-manifest.yaml")
+	content := `packages:
+  - just a string
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := Validate(path); err == nil {
+		t.Error("expected error for bare string entry")
+	}
+}
+
+// --- IsManifestFile ---
+
 func TestIsManifestFile(t *testing.T) {
+
 	tests := []struct {
 		filename string
 		expected bool
@@ -224,48 +307,10 @@ func TestIsManifestFile(t *testing.T) {
 	}
 }
 
-func TestLoad_File(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "packages-manifest.yaml")
+// --- PackageNames ---
 
-	content := `packages:
-  - gh
-  - neovim:
-      with: [lsp]
-`
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
+func TestPackageNames(t *testing.T) {
 
-	m, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if len(m.Packages) != 2 {
-		t.Errorf("expected 2 packages, got %d", len(m.Packages))
-	}
-}
-
-func TestPackageEntry_String(t *testing.T) {
-	tests := []struct {
-		entry    PackageEntry
-		expected string
-	}{
-		{PackageEntry{Name: "gh"}, "gh"},
-		{PackageEntry{Name: "neovim", With: []string{"lsp"}}, "neovim --with lsp"},
-		{PackageEntry{Name: "docker", With: []string{"rootless", "compose"}}, "docker --with rootless --with compose"},
-	}
-
-	for _, tc := range tests {
-		got := tc.entry.String()
-		if got != tc.expected {
-			t.Errorf("String(): expected %q, got %q", tc.expected, got)
-		}
-	}
-}
-
-func TestPackagesManifest_PackageNames(t *testing.T) {
 	m := &PackagesManifest{
 		Packages: []PackageEntry{
 			{Name: "gh"},
@@ -284,6 +329,27 @@ func TestPackagesManifest_PackageNames(t *testing.T) {
 	for i, name := range names {
 		if name != expected[i] {
 			t.Errorf("names[%d]: expected %q, got %q", i, expected[i], name)
+		}
+	}
+}
+
+// --- String ---
+
+func TestPackageEntry_String(t *testing.T) {
+
+	tests := []struct {
+		entry    PackageEntry
+		expected string
+	}{
+		{PackageEntry{Name: "gh"}, "gh"},
+		{PackageEntry{Name: "neovim", With: []string{"lsp"}}, "neovim --with lsp"},
+		{PackageEntry{Name: "docker", With: []string{"rootless", "compose"}}, "docker --with rootless --with compose"},
+	}
+
+	for _, tc := range tests {
+		got := tc.entry.String()
+		if got != tc.expected {
+			t.Errorf("String(): expected %q, got %q", tc.expected, got)
 		}
 	}
 }

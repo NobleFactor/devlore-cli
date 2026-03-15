@@ -15,7 +15,8 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // GitProvider implements the Provider interface using git.
@@ -201,8 +202,17 @@ func (g *GitProvider) runGit(ctx context.Context, dir string, args ...string) er
 	return nil
 }
 
-// writeSyncInfo writes sync metadata.
+// writeSyncInfo writes sync metadata to the cache directory.
+//
+// Parameters:
+//   - cacheDir: directory containing the cached registry
+//   - ref: git ref that was synced
+//   - syncedAt: timestamp of the sync
+//
+// Returns:
+//   - error: marshal or write error
 func (g *GitProvider) writeSyncInfo(cacheDir, ref string, syncedAt time.Time) error {
+
 	info := SyncInfo{
 		LastSync: syncedAt,
 		Ref:      ref,
@@ -210,12 +220,7 @@ func (g *GitProvider) writeSyncInfo(cacheDir, ref string, syncedAt time.Time) er
 		Endpoint: g.repoURL,
 	}
 
-	data, err := yaml.Marshal(&info)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(filepath.Join(cacheDir, ".sync-info.yaml"), data, 0o644)
+	return document.Write(filepath.Join(cacheDir, ".sync-info.yaml"), &info, document.WithPerm(0o644))
 }
 
 // fileExists checks if a path exists.

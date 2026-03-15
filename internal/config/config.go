@@ -11,14 +11,12 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/credentials"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // Verbosity levels for output control.
@@ -51,26 +49,25 @@ func Path() string {
 	return filepath.Join(cli.DevloreConfigHome(), "config.yaml")
 }
 
-// Load reads configuration from the config file and applies environment overrides.
-// API keys are loaded from the native keystore if not in config/env.
+// Load reads configuration from the config file and applies environment overrides. API keys are loaded from the
+// native keystore if not in config/env.
 //
 // Precedence (lowest to highest):
 //  1. Config file
 //  2. Environment variables
 //  3. Native keystore (for API key only)
 //  4. CLI flags (applied by caller via ApplyCLIFlags methods)
+//
+// Returns:
+//   - *Config: merged configuration
+//   - error: read or parse error
 func Load() (*Config, error) {
+
 	cfg := &Config{}
 
 	// Read config file
-	data, err := os.ReadFile(Path())
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("reading config: %w", err)
-	}
-	if err == nil {
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("parsing config: %w", err)
-		}
+	if _, err := document.ReadIfExists(Path(), cfg); err != nil {
+		return nil, err
 	}
 
 	// Apply environment variable overrides
@@ -84,9 +81,15 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// Save writes configuration to the config file.
-// API keys are stored in the native keystore, not the config file.
+// Save writes configuration to the config file. API keys are stored in the native keystore, not the config file.
+//
+// Parameters:
+//   - cfg: configuration to persist
+//
+// Returns:
+//   - error: credential storage or file write error
 func Save(cfg *Config) error {
+
 	// Store API key in keystore (not config file)
 	if cfg.Model.APIKey != "" && cfg.Model.Provider != "" && cfg.Model.Provider != "ollama" {
 		if err := credentials.Set(cfg.Model.Provider, cfg.Model.APIKey); err != nil {
@@ -98,17 +101,7 @@ func Save(cfg *Config) error {
 	fileCfg := *cfg
 	fileCfg.Model.APIKey = ""
 
-	path := Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-
-	data, err := yaml.Marshal(&fileCfg)
-	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
-	}
-
-	return os.WriteFile(path, data, 0o600)
+	return document.Write(Path(), &fileCfg)
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.

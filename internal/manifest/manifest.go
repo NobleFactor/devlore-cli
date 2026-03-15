@@ -7,12 +7,10 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
+	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
@@ -23,163 +21,131 @@ type PackagesManifest struct {
 }
 
 // PackageEntry represents a single package in the manifest.
-// It can be either a simple string (package name) or an object with options.
 type PackageEntry struct {
-	// Name is the package name.
-	Name string
-
-	// With is a list of features to enable.
-	With []string
+	Name string   `json:"name" yaml:"name"`                     // package name (required)
+	With []string `json:"with,omitempty" yaml:"with,omitempty"` // features to enable
 }
 
-// PackageOptions holds the options for a package (used during parsing).
-type PackageOptions struct {
-	With []string `json:"with" yaml:"with"`
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Actions
+
+// PackageNames returns the list of package names from the manifest.
+//
+// Returns:
+//   - []string: names extracted from each package entry
+func (m *PackagesManifest) PackageNames() []string {
+
+	names := make([]string, len(m.Packages))
+	for i, pkg := range m.Packages {
+		names[i] = pkg.Name
+	}
+	return names
 }
 
-// Load reads and parses a packages-manifest file from the given path.
-// Supports both YAML and JSON formats based on file extension.
+// String returns a human-readable representation of the package entry.
+//
+// Returns:
+//   - string: name alone or name with --with flags
+func (e *PackageEntry) String() string {
+
+	if len(e.With) == 0 {
+		return e.Name
+	}
+	return fmt.Sprintf("%s --with %s", e.Name, strings.Join(e.With, " --with "))
+}
+
+// endregion
+
+// endregion
+
+// region EXPORTED FUNCTIONS
+
+// region Behaviors
+
+// Fallible actions
+
+// Load reads and parses a packages-manifest file from the given path. Supports both YAML and JSON formats based on
+// file extension.
+//
+// Parameters:
+//   - path: filesystem path to the manifest file
+//
+// Returns:
+//   - *PackagesManifest: parsed manifest
+//   - error: read or parse error
 func Load(path string) (*PackagesManifest, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read manifest: %w", err)
+
+	var m PackagesManifest
+	if err := document.Read(path, &m); err != nil {
+		return nil, err
 	}
 
-	return Parse(data, path)
+	return &m, nil
 }
 
-// Parse parses packages-manifest content from bytes.
-// The path is used to determine the format (yaml/json).
-func Parse(data []byte, path string) (*PackagesManifest, error) {
-	ext := strings.ToLower(filepath.Ext(path))
-
-	// Parse into intermediate structure for flexible handling
-	var raw struct {
-		Packages []interface{} `json:"packages" yaml:"packages"`
-	}
-
-	switch ext {
-	case ".json":
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return nil, fmt.Errorf("invalid JSON: %w", err)
-		}
-	default: // .yaml, .yml
-		if err := yaml.Unmarshal(data, &raw); err != nil {
-			return nil, fmt.Errorf("invalid YAML: %w", err)
-		}
-	}
-
-	manifest := &PackagesManifest{}
-
-	for i, item := range raw.Packages {
-		entry, err := parsePackageEntry(item)
-		if err != nil {
-			return nil, fmt.Errorf("packages[%d]: %w", i, err)
-		}
-		manifest.Packages = append(manifest.Packages, entry)
-	}
-
-	return manifest, nil
-}
-
-// parsePackageEntry parses a single package entry from the raw interface value.
-// Supports both string format ("gh") and object format ({"neovim": {"with": [...]}}).
-func parsePackageEntry(item interface{}) (PackageEntry, error) { //nolint:gocognit
-	switch v := item.(type) {
-	case string:
-		// Simple string: "gh"
-		if v == "" {
-			return PackageEntry{}, fmt.Errorf("empty package name")
-		}
-		return PackageEntry{Name: v}, nil
-
-	case map[string]interface{}:
-		// Object format: {"neovim": {"with": [...]}}
-		if len(v) != 1 {
-			return PackageEntry{}, fmt.Errorf("expected single-key map, got %d keys", len(v))
-		}
-
-		for name, opts := range v {
-			if name == "" {
-				return PackageEntry{}, fmt.Errorf("empty package name")
-			}
-
-			entry := PackageEntry{Name: name}
-
-			if opts == nil {
-				return entry, nil
-			}
-
-			optsMap, ok := opts.(map[string]interface{})
-			if !ok {
-				return PackageEntry{}, fmt.Errorf("invalid options for %q: expected object", name)
-			}
-
-			// Parse "with" array
-			if withRaw, exists := optsMap["with"]; exists {
-				withArray, ok := withRaw.([]interface{})
-				if !ok {
-					return PackageEntry{}, fmt.Errorf("invalid 'with' for %q: expected array", name)
-				}
-
-				for _, w := range withArray {
-					feature, ok := w.(string)
-					if !ok {
-						return PackageEntry{}, fmt.Errorf("invalid feature in 'with' for %q: expected string", name)
-					}
-					entry.With = append(entry.With, feature)
-				}
-			}
-
-			// Check for unknown keys
-			for key := range optsMap {
-				if key != "with" {
-					return PackageEntry{}, fmt.Errorf("unknown option %q for package %q", key, name)
-				}
-			}
-
-			return entry, nil
-		}
-	}
-
-	return PackageEntry{}, fmt.Errorf("invalid package entry: expected string or object")
-}
-
-// Validate validates a packages-manifest file against the embedded JSON schema.
-// Returns nil if valid, or an error describing the validation failure.
+// Validate validates a packages-manifest file against structural rules. Returns nil if valid, or an error describing
+// the validation failure.
+//
+// Parameters:
+//   - path: filesystem path to the manifest file
+//
+// Returns:
+//   - error: validation error or nil
 func Validate(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read manifest: %w", err)
+
+	var doc map[string]interface{}
+	if err := document.Read(path, &doc); err != nil {
+		return err
 	}
 
-	return ValidateBytes(data, path)
+	return validateDoc(doc)
 }
 
-// ValidateBytes validates packages-manifest content against the embedded JSON schema.
-func ValidateBytes(data []byte, path string) error {
+// Actions
+
+// IsManifestFile returns true if the filename is a packages-manifest file.
+//
+// Parameters:
+//   - filename: file path or name to check
+//
+// Returns:
+//   - bool: true for packages-manifest.yaml or packages-manifest.json
+func IsManifestFile(filename string) bool {
+
+	base := filepath.Base(filename)
+	return base == "packages-manifest.yaml" ||
+		base == "packages-manifest.json"
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED FUNCTIONS
+
+// region Behaviors
+
+// Fallible actions
+
+// validateDoc validates a parsed manifest document against structural rules.
+//
+// Parameters:
+//   - doc: unmarshaled manifest as a generic map
+//
+// Returns:
+//   - error: validation error or nil
+func validateDoc(doc map[string]interface{}) error {
+
 	// Parse the schema
 	var schemaDoc map[string]interface{}
 	if err := json.Unmarshal(schema.PackagesManifestSchema, &schemaDoc); err != nil {
 		return fmt.Errorf("parse schema: %w", err)
 	}
 
-	// Parse the manifest
-	ext := strings.ToLower(filepath.Ext(path))
-	var doc map[string]interface{}
-
-	switch ext {
-	case ".json":
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("invalid JSON: %w", err)
-		}
-	default:
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("invalid YAML: %w", err)
-		}
-	}
-
-	// Basic validation: check required fields
+	// Check required fields
 	if _, exists := doc["packages"]; !exists {
 		return fmt.Errorf("missing required field: packages")
 	}
@@ -207,85 +173,56 @@ func ValidateBytes(data []byte, path string) error {
 	return nil
 }
 
-// validatePackageEntry validates a single package entry.
-func validatePackageEntry(pkg interface{}, index int) error { //nolint:gocognit,gocyclo
-	switch v := pkg.(type) {
-	case string:
-		if v == "" {
-			return fmt.Errorf("packages[%d]: empty package name", index)
-		}
-		return nil
+// validatePackageEntry validates a single package entry object.
+//
+// Parameters:
+//   - pkg: raw unmarshaled entry value
+//   - index: position in the packages array (for error messages)
+//
+// Returns:
+//   - error: validation error or nil
+func validatePackageEntry(pkg interface{}, index int) error {
 
-	case map[string]interface{}:
-		if len(v) == 0 {
-			return fmt.Errorf("packages[%d]: empty object", index)
-		}
-		if len(v) > 1 {
-			return fmt.Errorf("packages[%d]: expected single-key map (package name), got %d keys", index, len(v))
-		}
-
-		for name, opts := range v {
-			if name == "" {
-				return fmt.Errorf("packages[%d]: empty package name", index)
-			}
-
-			if opts == nil {
-				return nil
-			}
-
-			optsMap, ok := opts.(map[string]interface{})
-			if !ok {
-				return fmt.Errorf("packages[%d] (%s): options must be an object", index, name)
-			}
-
-			// Validate "with" if present
-			if withRaw, exists := optsMap["with"]; exists {
-				withArray, ok := withRaw.([]interface{})
-				if !ok {
-					return fmt.Errorf("packages[%d] (%s): 'with' must be an array", index, name)
-				}
-
-				for j, w := range withArray {
-					if _, ok := w.(string); !ok {
-						return fmt.Errorf("packages[%d] (%s): with[%d] must be a string", index, name, j)
-					}
-				}
-			}
-
-			// Check for unknown keys
-			for key := range optsMap {
-				if key != "with" {
-					return fmt.Errorf("packages[%d] (%s): unknown option %q", index, name, key)
-				}
-			}
-		}
-		return nil
-
-	default:
-		return fmt.Errorf("packages[%d]: must be a string or object", index)
+	entry, ok := pkg.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("packages[%d]: must be an object with 'name' field", index)
 	}
-}
 
-// IsManifestFile returns true if the filename is a packages-manifest file.
-func IsManifestFile(filename string) bool {
-	base := filepath.Base(filename)
-	return base == "packages-manifest.yaml" ||
-		base == "packages-manifest.json"
-}
-
-// PackageNames returns the list of package names from the manifest.
-func (m *PackagesManifest) PackageNames() []string {
-	names := make([]string, len(m.Packages))
-	for i, pkg := range m.Packages {
-		names[i] = pkg.Name
+	// Check required 'name' field
+	nameRaw, exists := entry["name"]
+	if !exists {
+		return fmt.Errorf("packages[%d]: missing required field 'name'", index)
 	}
-	return names
+
+	name, ok := nameRaw.(string)
+	if !ok || name == "" {
+		return fmt.Errorf("packages[%d]: 'name' must be a non-empty string", index)
+	}
+
+	// Validate 'with' if present
+	if withRaw, exists := entry["with"]; exists {
+		withArray, ok := withRaw.([]interface{})
+		if !ok {
+			return fmt.Errorf("packages[%d] (%s): 'with' must be an array", index, name)
+		}
+
+		for j, w := range withArray {
+			if _, ok := w.(string); !ok {
+				return fmt.Errorf("packages[%d] (%s): with[%d] must be a string", index, name, j)
+			}
+		}
+	}
+
+	// Check for unknown fields
+	for key := range entry {
+		if key != "name" && key != "with" {
+			return fmt.Errorf("packages[%d] (%s): unknown field %q", index, name, key)
+		}
+	}
+
+	return nil
 }
 
-// String returns a human-readable representation of the package entry.
-func (e *PackageEntry) String() string {
-	if len(e.With) == 0 {
-		return e.Name
-	}
-	return fmt.Sprintf("%s --with %s", e.Name, strings.Join(e.With, " --with "))
-}
+// endregion
+
+// endregion
