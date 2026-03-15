@@ -4,12 +4,10 @@
 package credentials
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // credentialsPath returns the path to the credentials file.
@@ -26,85 +24,80 @@ func credentialsPath() (string, error) {
 }
 
 // fileGet retrieves a credential from the credentials file.
+//
+// Parameters:
+//   - key: credential key (e.g., "ai/anthropic")
+//
+// Returns:
+//   - string: credential value, or empty string if not found
+//   - error: read or parse error
 func fileGet(key string) (string, error) {
+
 	path, err := credentialsPath()
 	if err != nil {
-		return "", err
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
 		return "", err
 	}
 
 	creds := make(map[string]string)
-	if err := yaml.Unmarshal(data, &creds); err != nil {
+	if _, err := document.ReadIfExists(path, &creds); err != nil {
 		return "", err
 	}
 
-	// Normalize key: "ai/anthropic" stored as "ai/anthropic"
 	return creds[key], nil
 }
 
 // fileSet stores a credential in the credentials file.
+//
+// Parameters:
+//   - key: credential key (e.g., "ai/anthropic")
+//   - secret: credential value to store
+//
+// Returns:
+//   - error: read, merge, or write error
 func fileSet(key, secret string) error {
+
 	path, err := credentialsPath()
 	if err != nil {
-		return err
-	}
-
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 
 	// Load existing credentials
 	creds := make(map[string]string)
-	data, err := os.ReadFile(path)
-	if err == nil {
-		if err := yaml.Unmarshal(data, &creds); err != nil {
-			return fmt.Errorf("parsing credentials file: %w", err)
-		}
+	if _, err := document.ReadIfExists(path, &creds); err != nil {
+		return err
 	}
 
 	// Update
 	creds[key] = secret
 
 	// Write with header comment
-	var sb strings.Builder
-	sb.WriteString("# DevLore credentials - stored with 0600 permissions\n")
-	sb.WriteString("# Prefer environment variables or credential helpers for better security\n")
+	header := "# DevLore credentials - stored with 0600 permissions\n" +
+		"# Prefer environment variables or credential helpers for better security\n"
 
-	data, err = yaml.Marshal(creds)
-	if err != nil {
-		return err
-	}
-	sb.Write(data)
-
-	return os.WriteFile(path, []byte(sb.String()), 0o600)
+	return document.Write(path, creds, document.WithHeader(header))
 }
 
-// fileDelete removes a credential from the credentials file.
+// fileDelete removes a credential from the credentials file. No-op if the file does not exist.
+//
+// Parameters:
+//   - key: credential key to remove
+//
+// Returns:
+//   - error: read, merge, or write error
 func fileDelete(key string) error {
+
 	path, err := credentialsPath()
 	if err != nil {
 		return err
 	}
 
-	data, err := os.ReadFile(path)
+	creds := make(map[string]string)
+	found, err := document.ReadIfExists(path, &creds)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return err
 	}
-
-	creds := make(map[string]string)
-	if err := yaml.Unmarshal(data, &creds); err != nil {
-		return err
+	if !found {
+		return nil
 	}
 
 	delete(creds, key)
@@ -113,10 +106,5 @@ func fileDelete(key string) error {
 		return os.Remove(path)
 	}
 
-	data, err = yaml.Marshal(creds)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0o600)
+	return document.Write(path, creds)
 }

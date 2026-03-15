@@ -4,12 +4,11 @@
 package lorepackage
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 )
 
 // Action represents a lifecycle action type.
@@ -182,16 +181,20 @@ func PlatformResolutionOrder(platform string) []string {
 }
 
 // LoadLifecycle loads a lifecycle manifest from a package directory.
+//
+// Parameters:
+//   - packageDir: path to the package directory containing lifecycle.yaml
+//
+// Returns:
+//   - *Lifecycle: parsed lifecycle manifest
+//   - error: read or parse error
 func LoadLifecycle(packageDir string) (*Lifecycle, error) {
+
 	path := filepath.Join(packageDir, "lifecycle.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading lifecycle.yaml: %w", err)
-	}
 
 	var lifecycle Lifecycle
-	if err := yaml.Unmarshal(data, &lifecycle); err != nil {
-		return nil, fmt.Errorf("parsing lifecycle.yaml: %w", err)
+	if err := document.Read(path, &lifecycle); err != nil {
+		return nil, err
 	}
 
 	return &lifecycle, nil

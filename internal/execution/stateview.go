@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"gopkg.in/yaml.v3"
 )
 
 // EntryType distinguishes between package and file entries.
@@ -373,14 +373,17 @@ func (b *StateViewBuilder) loadReceipts(dir string) ([]*op.Graph, error) {
 }
 
 // loadReceipt loads a single receipt file.
+//
+// Parameters:
+//   - path: filesystem path to the receipt
+//
+// Returns:
+//   - *op.Graph: deserialized execution graph
+//   - error: read or parse error
 func (b *StateViewBuilder) loadReceipt(path string) (*op.Graph, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
 
 	var g op.Graph
-	if err := yaml.Unmarshal(data, &g); err != nil {
+	if err := document.Read(path, &g); err != nil {
 		return nil, err
 	}
 
