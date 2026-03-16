@@ -152,7 +152,7 @@ func BuildPageData(cmd *cobra.Command, toolName, version string) PageData {
 }
 
 func fullCommandName(cmd *cobra.Command) string {
-	parts := []string{}
+	var parts []string
 	for c := cmd; c != nil; c = c.Parent() {
 		parts = append([]string{c.Name()}, parts...)
 	}
@@ -167,7 +167,7 @@ func parentCommandName(cmd *cobra.Command) string {
 }
 
 func commandPath(cmd *cobra.Command, _ string) string {
-	parts := []string{}
+	var parts []string
 	for c := cmd; c != nil; c = c.Parent() {
 		parts = append([]string{c.Name()}, parts...)
 	}

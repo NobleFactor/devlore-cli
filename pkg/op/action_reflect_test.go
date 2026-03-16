@@ -470,7 +470,7 @@ func TestClassifyFallibleReturn_ErrorOnly(t *testing.T) {
 	testErr := errors.New("fail")
 	results = []reflect.Value{reflect.ValueOf(&testErr).Elem()}
 	result, err = classifyFallibleReturn(results)
-	if result != nil || err != testErr {
+	if result != nil || !errors.Is(err, testErr) {
 		t.Errorf("got (%v, %v), want (nil, fail)", result, err)
 	}
 }
@@ -498,7 +498,7 @@ func TestClassifyFallibleReturn_ErrorPropagation(t *testing.T) {
 	if result != "ignored" {
 		t.Errorf("result = %v, want 'ignored'", result)
 	}
-	if err != testErr {
+	if !errors.Is(err, testErr) {
 		t.Errorf("err = %v, want %v", err, testErr)
 	}
 }

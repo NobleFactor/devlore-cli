@@ -5,6 +5,7 @@ package main_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,7 +80,8 @@ func run(args ...string) (stdout, stderr string, exitCode int) {
 	err := cmd.Run()
 	exitCode = 0
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
 			exitCode = ee.ExitCode()
 		} else {
 			exitCode = -1

@@ -5,6 +5,7 @@ package op_test
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -523,7 +524,7 @@ func TestRootReader_WritesReturnErrReadOnly(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.fn()
-			if err != op.ErrReadOnly {
+			if !errors.Is(err, op.ErrReadOnly) {
 				t.Errorf("got %v, want ErrReadOnly", err)
 			}
 		})

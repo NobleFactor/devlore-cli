@@ -3,7 +3,7 @@ title: "Extract registry.Transport interface"
 issue: pending
 status: complete
 created: 2026-03-15
-updated: 2026-03-15
+updated: 2026-03-16
 ---
 
 # Plan: Extract registry.Transport Interface

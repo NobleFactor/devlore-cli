@@ -160,7 +160,7 @@ func extractLambdaBody(fn *starlark.Function) (string, error) {
 	}
 
 	// Parse the source file to find the lambda expression at the given position.
-	f, err := syntax.Parse(pos.Filename(), data, 0)
+	f, err := new(syntax.FileOptions).Parse(pos.Filename(), data, 0)
 	if err != nil {
 		return "", fmt.Errorf("parse source %s: %w", pos.Filename(), err)
 	}
@@ -172,7 +172,7 @@ func extractLambdaBody(fn *starlark.Function) (string, error) {
 		}
 		if le, ok := n.(*syntax.LambdaExpr); ok {
 			leStart, _ := le.Span()
-			if leStart.Line == int32(pos.Line) && leStart.Col == int32(pos.Col) {
+			if leStart.Line == pos.Line && leStart.Col == pos.Col {
 				lambdaExpr = le
 				return false
 			}
@@ -210,7 +210,7 @@ func extractDefSource(fn *starlark.Function) (string, error) {
 		return "", fmt.Errorf("read source %s: %w", pos.Filename(), err)
 	}
 
-	f, err := syntax.Parse(pos.Filename(), data, 0)
+	f, err := new(syntax.FileOptions).Parse(pos.Filename(), data, 0)
 	if err != nil {
 		return "", fmt.Errorf("parse source %s: %w", pos.Filename(), err)
 	}
@@ -222,7 +222,7 @@ func extractDefSource(fn *starlark.Function) (string, error) {
 		}
 		if ds, ok := n.(*syntax.DefStmt); ok {
 			dsStart, _ := ds.Span()
-			if dsStart.Line == int32(pos.Line) && dsStart.Col == int32(pos.Col) {
+			if dsStart.Line == pos.Line && dsStart.Col == pos.Col {
 				defStmt = ds
 				return false
 			}

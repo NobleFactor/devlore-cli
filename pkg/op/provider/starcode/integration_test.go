@@ -126,7 +126,7 @@ func assertBool(t *testing.T, globals starlark.StringDict, key string) {
 		t.Errorf("%s: expected Bool, got %s", key, v.Type())
 		return
 	}
-	if !bool(b) {
+	if !b {
 		t.Errorf("%s = false, want true", key)
 	}
 }
