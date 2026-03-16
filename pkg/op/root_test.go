@@ -290,7 +290,7 @@ func TestRoot_Open(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			buf := make([]byte, 7)
 			n, err := f.Read(buf)
@@ -540,7 +540,7 @@ func TestConfinedRoot_RejectsTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConfinedRoot: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	// Construct a path that escapes the root.
 	p := op.NewPath(dir, "../../etc/passwd")

@@ -18,6 +18,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 // Options controls onboarding behavior.
@@ -182,7 +183,7 @@ func fetchContent(ctx context.Context, source string) (content, sourceURL string
 		if err != nil {
 			return "", "", err
 		}
-		defer resp.Body.Close()
+		defer iox.Close(&err, resp.Body)
 
 		if resp.StatusCode != http.StatusOK {
 			return "", "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)

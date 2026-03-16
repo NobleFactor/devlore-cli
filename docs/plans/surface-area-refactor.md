@@ -1,9 +1,9 @@
 ---
 title: "Reduce pkg/op Public Surface Area"
 issue: TBD
-status: draft
+status: in-progress
 created: 2026-03-15
-updated: 2026-03-15
+updated: 2026-03-16
 ---
 
 # Plan: Reduce pkg/op Public Surface Area
@@ -128,11 +128,11 @@ pkg/
 
 ## Implementation Phases
 
-### Phase 1: Create `pkg/iox`
+### Phase 1: Create `pkg/iox` — `complete`
 
-- [ ] Create `pkg/iox/close.go` with `Close` function
-- [ ] Add tests in `pkg/iox/close_test.go`
-- [ ] Adopt `iox.Close` at all 37 Close call sites identified in the inspection cleanup
+- [x] Create `pkg/iox/close.go` with `Close` function
+- [x] Add tests in `pkg/iox/close_test.go`
+- [x] Adopt `iox.Close` at all 37 Close call sites identified in the inspection cleanup
 
 ### Phase 2: Delete Dead Exports
 

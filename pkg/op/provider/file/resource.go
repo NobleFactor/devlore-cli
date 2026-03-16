@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -158,13 +159,13 @@ func (r *Resource) String() string { return r.Format(r) }
 // Returns:
 //   - int64: number of bytes written
 //   - error: any error that occurred during writing
-func (r *Resource) WriteTo(root op.Root, writer io.Writer) (int64, error) {
+func (r *Resource) WriteTo(root op.Root, writer io.Writer) (_ int64, err error) {
 
 	f, err := root.Open(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
+	defer iox.Close(&err, f)
 
 	return io.Copy(writer, f)
 }

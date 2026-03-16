@@ -14,6 +14,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/e2e/testrunner"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
@@ -92,7 +93,7 @@ All streams default to /dev/stdout. Route to files or /dev/null:
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, script string, outputs *outputFlags) error {
+func runTest(cmd *cobra.Command, script string, outputs *outputFlags) (err error) {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")              //nolint:errcheck // flag registered above
 	trace, _ := cmd.Flags().GetBool("trace")                 //nolint:errcheck // flag registered above
 	provider, _ := cmd.Flags().GetString("provider")         //nolint:errcheck // flag registered above
@@ -107,7 +108,7 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) error {
 	if err != nil {
 		return fmt.Errorf("opening graph output: %w", err)
 	}
-	defer graphOut.Close()
+	defer iox.Close(&err, graphOut)
 
 	// Build and run.
 	var opts []testrunner.Option
@@ -152,12 +153,12 @@ func openDest(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644) //nolint:gosec // G304: path from CLI flag
 }
 
-func writeSummary(dest string, result *testrunner.Result) error {
+func writeSummary(dest string, result *testrunner.Result) (err error) {
 	f, err := openDest(dest)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer iox.Close(&err, f)
 
 	data, err := json.Marshal(result)
 	if err != nil {
@@ -167,7 +168,7 @@ func writeSummary(dest string, result *testrunner.Result) error {
 	return err
 }
 
-func writeReceipt(dest string, format string, graph *op.Graph) error {
+func writeReceipt(dest string, format string, graph *op.Graph) (err error) {
 	if graph == nil {
 		return nil
 	}
@@ -176,7 +177,7 @@ func writeReceipt(dest string, format string, graph *op.Graph) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer iox.Close(&err, f)
 
 	switch format {
 	case "json":
@@ -186,7 +187,7 @@ func writeReceipt(dest string, format string, graph *op.Graph) error {
 	default:
 		enc := yaml.NewEncoder(f)
 		enc.SetIndent(2)
-		defer enc.Close()
+		defer iox.Close(&err, enc)
 		return graph.Serialize(enc)
 	}
 }

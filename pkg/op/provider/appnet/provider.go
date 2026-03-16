@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -28,7 +29,7 @@ func NewProvider(ctx op.Context) *Provider {
 //
 // Parameters:
 //   - url: network resource identifying the URL to fetch
-func (p *Provider) Download(url Resource) ([]byte, error) {
+func (p *Provider) Download(url Resource) (_ []byte, err error) {
 	rawURL := url.SourceURL.String()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
@@ -38,7 +39,7 @@ func (p *Provider) Download(url Resource) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer iox.Close(&err, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download %s: HTTP %d", rawURL, resp.StatusCode)

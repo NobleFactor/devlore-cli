@@ -8,12 +8,15 @@ package gitignore
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/format/config"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
+
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 // Tracker manages a stack of gitignore pattern sources and provides path matching.
@@ -55,11 +58,12 @@ func NewTracker(root string) (*Tracker, error) {
 	// Layer 0: Global ignore (core.excludesfile or XDG fallback)
 
 	if globalPath := resolveGlobalIgnore(); globalPath != "" {
-		if patterns := loadPatterns(globalPath, nil); len(patterns) > 0 {
-			t.stack = append(t.stack, PatternSource{
-				Path:     globalPath,
-				Patterns: patterns,
-			})
+		patterns, err := loadPatterns(globalPath, nil)
+		if err != nil {
+			return nil, err
+		}
+		if len(patterns) > 0 {
+			t.stack = append(t.stack, PatternSource{Path: globalPath, Patterns: patterns})
 			t.dirs = append(t.dirs, "")
 		}
 	}
@@ -68,11 +72,12 @@ func NewTracker(root string) (*Tracker, error) {
 
 	excludePath := filepath.Join(absRoot, ".git", "info", "exclude")
 
-	if patterns := loadPatterns(excludePath, nil); len(patterns) > 0 {
-		t.stack = append(t.stack, PatternSource{
-			Path:     excludePath,
-			Patterns: patterns,
-		})
+	patterns, err := loadPatterns(excludePath, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(patterns) > 0 {
+		t.stack = append(t.stack, PatternSource{Path: excludePath, Patterns: patterns})
 		t.dirs = append(t.dirs, "")
 	}
 
@@ -80,11 +85,12 @@ func NewTracker(root string) (*Tracker, error) {
 
 	rootGI := filepath.Join(absRoot, ".gitignore")
 
-	if patterns := loadPatterns(rootGI, nil); len(patterns) > 0 {
-		t.stack = append(t.stack, PatternSource{
-			Path:     rootGI,
-			Patterns: patterns,
-		})
+	patterns, err = loadPatterns(rootGI, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(patterns) > 0 {
+		t.stack = append(t.stack, PatternSource{Path: rootGI, Patterns: patterns})
 		t.dirs = append(t.dirs, "")
 	}
 
@@ -134,7 +140,10 @@ func (t *Tracker) IsIgnored(path string, isDir bool) (ignored bool, source strin
 //
 // Parameters:
 //   - dir: Relative path to the directory containing the .gitignore file (e.g. "src/main.cpp")
-func (t *Tracker) Push(dir string) {
+//
+// Returns:
+//   - error: any I/O error other than a missing .gitignore file
+func (t *Tracker) Push(dir string) error {
 
 	dirSlash := filepath.ToSlash(dir)
 
@@ -156,34 +165,44 @@ func (t *Tracker) Push(dir string) {
 	// Don't push if this directory is already on top
 
 	if len(t.dirs) > 0 && t.dirs[len(t.dirs)-1] == dir {
-		return
+		return nil
 	}
 
 	giPath := filepath.Join(t.root, dir, ".gitignore")
 	domain := strings.Split(dirSlash, "/")
 
-	if patterns := loadPatterns(giPath, domain); len(patterns) > 0 {
-		t.stack = append(t.stack, PatternSource{
-			Path:     giPath,
-			Patterns: patterns,
-		})
+	patterns, err := loadPatterns(giPath, domain)
+	if err != nil {
+		return err
+	}
+	if len(patterns) > 0 {
+		t.stack = append(t.stack, PatternSource{Path: giPath, Patterns: patterns})
 		t.dirs = append(t.dirs, dir)
 	}
+	return nil
 }
 
 // loadPatterns reads a gitignore file and returns parsed patterns.
 //
+// A missing file is not an error — the function returns (nil, nil). Other I/O failures are returned.
+//
 // Parameters:
+//   - path: absolute path to the gitignore file.
 //   - domain: the path segments of the directory containing the file (nil for root-level files).
 //
 // Returns:
-//   - The parsed patterns from the gitignore file
-func loadPatterns(path string, domain []string) []gitignore.Pattern {
+//   - []gitignore.Pattern: parsed patterns, or nil if the file does not exist
+//   - error: any I/O error other than a missing file
+func loadPatterns(path string, domain []string) (_ []gitignore.Pattern, err error) {
+
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
-	defer f.Close()
+	defer iox.Close(&err, f)
 
 	var patterns []gitignore.Pattern
 	scanner := bufio.NewScanner(f)
@@ -195,7 +214,7 @@ func loadPatterns(path string, domain []string) []gitignore.Pattern {
 		}
 		patterns = append(patterns, gitignore.ParsePattern(line, domain))
 	}
-	return patterns
+	return patterns, scanner.Err()
 }
 
 // resolveGlobalIgnore finds the global gitignore file path.
