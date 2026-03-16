@@ -32,7 +32,7 @@ establishes `pkg/iox` as a standalone utility package.
 | --- | --- | --- |
 | True public API (engine + CLI + runtime) | ~80 | `pkg/op/*.go` |
 | Provider-only API | 19 | `pkg/op/*.go` (misplaced) |
-| Dead code (unreferenced externally) | ~26 | `pkg/op/*.go` |
+| Dead code (unreferenced externally) | 11 (was ~26; PR #235 removed 16, 5 reclassified as live) | `pkg/op/*.go` |
 | Standalone utilities | 0 | (does not exist yet) |
 
 ## Requirements
@@ -62,19 +62,30 @@ These are referenced exclusively by `pkg/op/provider/*` packages. They should mo
 - `WrapProviderInExecutingReceiver`
 - `WrapProviderInPlanningReceiver`
 
-### Dead Exports (~26)
+### Dead Exports (5 groups, 12 symbols)
 
-Never referenced outside `pkg/op` itself. Unexport or delete:
+Never referenced outside `pkg/op` itself. Unexport or delete.
 
-- `AccessType`, `AccessImmediate`, `AccessPlanned`, `AccessBoth`
-- `ProviderLifetime`, `LifetimeStateless`, `LifetimePhase`, `LifetimeSession`
-- `AnyToStarlarkValue`, `GoToStarlarkValue`, `StarlarkValueToGo`
-- `StarlarkDictToMap`, `StarlarkListToSlice`, `StringSliceToList`
-- `UnmarshalToAny`, `ResolveInput`
-- `ErrDrifted`, `ErrReadOnly`
-- `FallibleAction`
-- `RecoveryEntry`, `ResourceDescriptor`
-- `BackoffStrategy`, `Encoder`, `PhaseStatus`
+PR #235 already removed 16 symbols (Starlark converters, `UnmarshalToAny`, `ResolveInput`,
+`convert.go`). The original list of ~26 was further reduced by rigorous per-symbol grep
+audit (2026-03-16):
+
+**Confirmed dead — unexport:**
+
+- `AccessType`, `AccessImmediate`, `AccessPlanned`, `AccessBoth` — `access.go`
+- `ProviderLifetime`, `LifetimeStateless`, `LifetimePhase`, `LifetimeSession` — `lifetime.go`
+- `RecoveryEntry` — `recovery.go`
+- `ErrDrifted` — `recovery.go`
+- `ErrReadOnly` — `root.go` (unexport to `errReadOnly`; used by public `RootReader` but
+  callers never reference the sentinel by name)
+
+**Reclassified as live (removed from list):**
+
+- `FallibleAction` — part of action type hierarchy (parallel to `CompensableAction`)
+- `PhaseStatus` + constants — used by `internal/execution`, `internal/lore`, `internal/starlark`
+- `BackoffStrategy` + constants — transitively exposed via `Phase.RetryPolicy.Backoff`
+- `ResourceDescriptor` — generated `resource.gen.go` files implement this interface
+- `Encoder` — `Graph.Serialize(enc Encoder)` is called from 4 packages outside `pkg/op`
 
 ### New Package: `pkg/iox`
 
@@ -145,11 +156,14 @@ and belong as a peer of `provider`, `sops`, and `starvalue` — not buried under
       `internal/execution/compensation_test.go`
 - [x] Verify `make check` passes
 
-### Phase 3: Delete Dead Exports
+### Phase 3: Delete Dead Exports (11 symbols across 5 files)
 
-- [ ] Remove or unexport the ~26 dead symbols
+- [ ] Unexport `AccessType`, `AccessImmediate`, `AccessPlanned`, `AccessBoth` in `access.go`
+- [ ] Unexport `ProviderLifetime`, `LifetimeStateless`, `LifetimePhase`, `LifetimeSession` in `lifetime.go`
+- [ ] Unexport `RecoveryEntry` in `recovery.go`
+- [ ] Unexport `ErrDrifted` in `recovery.go`
+- [ ] Unexport `ErrReadOnly` → `errReadOnly` in `root.go`
 - [ ] Verify `make check` passes
-- [ ] Cross-reference with GoLand inspection cleanup (Phase 5 dead code overlaps)
 
 ### Phase 4: Create `pkg/op/internal/provider`
 
@@ -174,6 +188,6 @@ and belong as a peer of `provider`, `sops`, and `starvalue` — not buried under
 - [ ] Does `Path` belong in `pkg/op/internal/provider` or does the engine need it directly?
   (Engine uses `Root.NewPath` which returns `Path` — may need to stay in `op`)
 - [ ] Should `pkg/op/internal/provider` be a single package or further decomposed?
-- [ ] Some "dead" symbols may be transitively used (e.g., `Encoder` is a parameter type of
-  `Graph.Serialize`) — verify before deleting
-- [ ] `ErrReadOnly` is used in `root.go` — if Root stays in `op`, should ErrReadOnly stay too?
+- [x] ~~Some "dead" symbols may be transitively used~~ — confirmed: `Encoder`, `PhaseStatus`,
+  `BackoffStrategy`, `ResourceDescriptor`, `FallibleAction` are all live. Removed from list.
+- [x] ~~`ErrReadOnly` is used in `root.go`~~ — used internally only; unexport to `errReadOnly`
