@@ -8,25 +8,27 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
 
 func TestNewRegistry(t *testing.T) {
-	registry, err := NewRegistry()
+	reg, err := NewRegistry()
 	if err != nil {
 		t.Fatalf("NewRegistry() error: %v", err)
 	}
 
-	if registry.name != "central" {
-		t.Errorf("expected name 'central', got %q", registry.name)
+	if reg.name != "central" {
+		t.Errorf("expected name 'central', got %q", reg.name)
 	}
 
-	if registry.provider.Name() != "git" {
-		t.Errorf("expected provider 'git', got %q", registry.provider.Name())
+	if reg.transport.Name() != "git" {
+		t.Errorf("expected transport 'git', got %q", reg.transport.Name())
 	}
 }
 
 func TestRegistry_FilePaths(t *testing.T) {
-	registry := New("test", nil, "/tmp/test-cache")
+	reg := New("test", nil, "/tmp/test-cache")
 
 	tests := []struct {
 		relPath  string
@@ -38,17 +40,20 @@ func TestRegistry_FilePaths(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := registry.FilePath(tt.relPath)
+		got := reg.FilePath(tt.relPath)
 		if got != tt.expected {
 			t.Errorf("FilePath(%q) = %q, want %q", tt.relPath, got, tt.expected)
 		}
 	}
 }
 
-func TestGitProvider_Name(t *testing.T) {
-	provider := NewGitProvider("https://github.com/example/repo.git", "main")
-	if provider.Name() != "git" {
-		t.Errorf("ReceiverName() = %q, want 'git'", provider.Name())
+func TestTransport_Name(t *testing.T) {
+	transport := registry.NewTransport(registry.Config{
+		URL:    "https://github.com/example/repo.git",
+		Branch: "main",
+	})
+	if transport.Name() != "git" {
+		t.Errorf("Name() = %q, want 'git'", transport.Name())
 	}
 }
 
@@ -161,42 +166,6 @@ func TestKnowledgeIndex_SchemaByPurpose(t *testing.T) {
 	}
 }
 
-func TestGitProvider_ResolveVersion_NonMain(t *testing.T) {
-	// On non-main branch, "latest" should resolve to HEAD
-	provider := NewGitProvider("https://example.com/repo.git", "develop")
-
-	// This test doesn't need an actual repo - it tests the logic
-	if provider.Branch() != "develop" {
-		t.Errorf("Branch() = %q, want 'develop'", provider.Branch())
-	}
-
-	// The actual ResolveVersion would need a cache dir, but we can test the provider setup
-}
-
-func TestGitProvider_BranchAccessors(t *testing.T) {
-	tests := []struct {
-		url    string
-		branch string
-	}{
-		{"https://github.com/example/repo.git", "main"},
-		{"https://github.com/example/repo.git", "develop"},
-		{"https://github.com/example/repo.git", "feature/new-pkg"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.branch, func(t *testing.T) {
-			provider := NewGitProvider(tt.url, tt.branch)
-
-			if provider.RepoURL() != tt.url {
-				t.Errorf("RepoURL() = %q, want %q", provider.RepoURL(), tt.url)
-			}
-			if provider.Branch() != tt.branch {
-				t.Errorf("Branch() = %q, want %q", provider.Branch(), tt.branch)
-			}
-		})
-	}
-}
-
 func TestRegistry_SyncIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Fatalf("requires full test mode: run without -short flag")
@@ -214,15 +183,15 @@ func TestRegistry_SyncIntegration(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	provider := NewGitProvider(
-		"https://github.com/NobleFactor/devlore-registry.git",
-		"develop", // develop branch has AI assets
-	)
-	registry := New("test", provider, filepath.Join(tmpDir, "central"))
+	transport := registry.NewTransport(registry.Config{
+		URL:    "https://github.com/NobleFactor/devlore-registry.git",
+		Branch: "develop",
+	})
+	reg := New("test", transport, filepath.Join(tmpDir, "central"))
 
 	// First sync (clone)
 	ctx := context.Background()
-	result, err := registry.Sync(ctx, SyncOptions{})
+	result, err := reg.Sync(ctx, registry.SyncOptions{})
 	if err != nil {
 		t.Fatalf("first Sync() error: %v", err)
 	}
@@ -238,14 +207,14 @@ func TestRegistry_SyncIntegration(t *testing.T) {
 	}
 
 	// Verify cache exists
-	if !registry.Exists() {
+	if !reg.Exists() {
 		t.Error("expected cache to exist after sync")
 	}
 
 	// Verify we can read knowledge assets (if they exist in registry)
-	if registry.FileExists("knowledge/migration/prompts/migrate-to-writ.txt") {
+	if reg.FileExists("knowledge/migration/prompts/migrate-to-writ.txt") {
 		// Read prompt via Knowledge domain API
-		prompt, err := registry.Knowledge("migration").Prompt("migrate-to-writ.txt")
+		prompt, err := reg.Knowledge("migration").Prompt("migrate-to-writ.txt")
 		if err != nil {
 			t.Errorf("Knowledge(migration).Prompt() error: %v", err)
 		}
@@ -257,8 +226,8 @@ func TestRegistry_SyncIntegration(t *testing.T) {
 	}
 
 	// Verify Knowledge().Index() can load and parse index.yaml with metadata
-	if registry.FileExists("knowledge/migration/index.yaml") {
-		index, err := registry.Knowledge("migration").Index()
+	if reg.FileExists("knowledge/migration/index.yaml") {
+		index, err := reg.Knowledge("migration").Index()
 		if err != nil {
 			t.Errorf("Knowledge(migration).Index() error: %v", err)
 		}
@@ -304,7 +273,7 @@ func TestRegistry_SyncIntegration(t *testing.T) {
 	}
 
 	// Second sync (pull)
-	result2, err := registry.Sync(ctx, SyncOptions{})
+	result2, err := reg.Sync(ctx, registry.SyncOptions{})
 	if err != nil {
 		t.Fatalf("second Sync() error: %v", err)
 	}
@@ -317,7 +286,7 @@ func TestRegistry_SyncIntegration(t *testing.T) {
 	}
 
 	// Check sync info
-	info, err := registry.SyncInfo()
+	info, err := reg.SyncInfo()
 	if err != nil {
 		t.Errorf("SyncInfo() error: %v", err)
 	}

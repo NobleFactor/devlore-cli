@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/internal/registry"
 	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -108,7 +109,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 
 	if !regClient.Exists() {
 		cli.Note("Syncing lorepackage...")
-		if _, err := regClient.Sync(ctx, lorepackage.SyncOptions{}); err != nil {
+		if _, err := regClient.Sync(ctx, registry.SyncOptions{}); err != nil {
 			return fmt.Errorf("registry sync failed: %w", err)
 		}
 	}
