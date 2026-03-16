@@ -194,7 +194,7 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
 
     # Extract operations from execution.Node composites
     operations = []
-    node_composites = goast.composites(scope, type="execution.Node")
+    node_composites = goast.composites(scope, type_name="execution.Node")
     for comp in node_composites:
         ops_field = getattr(comp.fields, "Operations", None)
         if ops_field:

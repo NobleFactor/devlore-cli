@@ -43,23 +43,29 @@ func (s *RecoveryStack) Do(
 	return nil
 }
 
-// PushAction pushes a CompensableAction onto the stack. If action does not
-// implement CompensableAction, the call is a no-op. ErrNotCompensable
-// responses are filtered during compensation.
-func (s *RecoveryStack) PushAction(ctx *Context, action Action, undoState any) {
-	comp, ok := action.(CompensableAction)
+// PushAction pushes a recovery entry onto the stack when complement is non-nil.
+// A nil complement signals that the action produced no undo state, so there is
+// nothing to compensate and the call is a no-op.
+func (s *RecoveryStack) PushAction(ctx *Context, action Action, complement any) {
+	if complement == nil {
+		return
+	}
+	type undoer interface {
+		Undo(ctx *Context, complement Complement) error
+	}
+	u, ok := action.(undoer)
 	if !ok {
 		return
 	}
 	s.Push(
 		func(state any) error {
-			err := comp.Undo(ctx, state)
+			err := u.Undo(ctx, state)
 			if errors.Is(err, ErrNotCompensable) {
 				return nil
 			}
 			return err
 		},
-		nil, undoState, nil,
+		nil, complement, nil,
 	)
 }
 
