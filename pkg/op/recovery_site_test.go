@@ -127,7 +127,9 @@ func TestRestoreFile_RecreatesParentDir(t *testing.T) {
 	}
 
 	// Simulate pruneEmptyParents removing the parent directory.
-	os.RemoveAll(filepath.Join(tmp, "a"))
+	if err := os.RemoveAll(filepath.Join(tmp, "a")); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := site.RestoreFile(p, recoveryID); err != nil {
 		t.Fatalf("RestoreFile() error = %v", err)

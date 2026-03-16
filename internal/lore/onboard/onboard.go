@@ -274,7 +274,7 @@ func parseDocuments(ctx context.Context, opts Options, docs []documentContent) (
 	// Build combined document content
 	var sb strings.Builder
 	for i, doc := range docs {
-		fmt.Fprintf(&sb, "## Document %d: %s\n\n", i+1, doc.URL)
+		_, _ = fmt.Fprintf(&sb, "## Document %d: %s\n\n", i+1, doc.URL)
 		sb.WriteString(truncateContent(doc.Content, 30000))
 		sb.WriteString("\n\n---\n\n")
 	}
@@ -312,12 +312,12 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ strin
 	var sb strings.Builder
 
 	if discovery.Product != nil {
-		fmt.Fprintf(&sb, "# Package: %s\n", discovery.Product.Name)
+		_, _ = fmt.Fprintf(&sb, "# Package: %s\n", discovery.Product.Name)
 		if discovery.Product.Vendor != "" {
-			fmt.Fprintf(&sb, "# Vendor: %s\n", discovery.Product.Vendor)
+			_, _ = fmt.Fprintf(&sb, "# Vendor: %s\n", discovery.Product.Vendor)
 		}
 		if discovery.Product.Version != "" {
-			fmt.Fprintf(&sb, "# Version: %s\n", discovery.Product.Version)
+			_, _ = fmt.Fprintf(&sb, "# Version: %s\n", discovery.Product.Version)
 		}
 		sb.WriteString("#\n")
 	}
@@ -326,7 +326,7 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ strin
 	if discovery.Complexity != nil && discovery.Complexity.Rating == "complex" {
 		sb.WriteString("# WARNING: Complex installation\n")
 		for _, concern := range discovery.Complexity.Concerns {
-			fmt.Fprintf(&sb, "#   - %s\n", concern)
+			_, _ = fmt.Fprintf(&sb, "#   - %s\n", concern)
 		}
 		sb.WriteString("#\n")
 	}
@@ -337,12 +337,12 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ strin
 	for _, slot := range slots {
 		if slot.Name == "install_command" || slot.Name == "package_manager" {
 			if slot.Platform != "" && slot.Platform != "all" {
-				fmt.Fprintf(&sb, "# Platform: %s\n", slot.Platform)
+				_, _ = fmt.Fprintf(&sb, "# Platform: %s\n", slot.Platform)
 			}
-			fmt.Fprintf(&sb, "%s\n", slot.Value)
+			_, _ = fmt.Fprintf(&sb, "%s\n", slot.Value)
 			if len(slot.Annotations) > 0 {
 				for _, ann := range slot.Annotations {
-					fmt.Fprintf(&sb, "  # %s\n", ann)
+					_, _ = fmt.Fprintf(&sb, "  # %s\n", ann)
 				}
 			}
 			sb.WriteString("\n")
@@ -351,8 +351,8 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ strin
 
 	// If no install commands found, use canonical name as placeholder
 	if discovery.Product != nil && !strings.Contains(sb.String(), discovery.Product.CanonicalName) {
-		fmt.Fprintf(&sb, "# TODO: Add installation method for %s\n", discovery.Product.CanonicalName)
-		fmt.Fprintf(&sb, "# %s\n", discovery.Product.CanonicalName)
+		_, _ = fmt.Fprintf(&sb, "# TODO: Add installation method for %s\n", discovery.Product.CanonicalName)
+		_, _ = fmt.Fprintf(&sb, "# %s\n", discovery.Product.CanonicalName)
 	}
 
 	return sb.String()

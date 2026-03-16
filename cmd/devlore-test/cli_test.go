@@ -26,17 +26,17 @@ func TestMain(m *testing.M) {
 	// Build the binary to a temp directory.
 	tmp, err := os.MkdirTemp("", "devlore-test-cli-*")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "creating temp dir: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "creating temp dir: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 
 	binary = filepath.Join(tmp, "devlore-test")
 
 	// Find repo root (walk up from this file's directory until we find go.mod).
 	root, err := findRepoRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "finding repo root: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "finding repo root: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 	build.Dir = root
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "building devlore-test: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "building devlore-test: %v\n", err)
 		os.Exit(1)
 	}
 

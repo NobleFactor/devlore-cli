@@ -12,9 +12,7 @@ import (
 func TestCredentialsRoundTrip(t *testing.T) {
 	// Use a temporary credentials directory for testing
 	tmpDir := t.TempDir()
-	originalXDG := os.Getenv("XDG_CONFIG_HOME")
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
-	defer os.Setenv("XDG_CONFIG_HOME", originalXDG)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	key := "test/api-key"
 	secret := "test-secret-value-12345"
@@ -51,9 +49,7 @@ func TestCredentialsRoundTrip(t *testing.T) {
 func TestGetNonexistent(t *testing.T) {
 	// Use a temporary credentials directory for testing
 	tmpDir := t.TempDir()
-	originalXDG := os.Getenv("XDG_CONFIG_HOME")
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
-	defer os.Setenv("XDG_CONFIG_HOME", originalXDG)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	_, err := Get("nonexistent/key")
 	// Should either return error or empty string
@@ -64,9 +60,7 @@ func TestGetNonexistent(t *testing.T) {
 func TestDeleteNonexistent(t *testing.T) {
 	// Use a temporary credentials directory for testing
 	tmpDir := t.TempDir()
-	originalXDG := os.Getenv("XDG_CONFIG_HOME")
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
-	defer os.Setenv("XDG_CONFIG_HOME", originalXDG)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	// Deleting a nonexistent key should not error
 	err := Delete("nonexistent/key")
@@ -78,9 +72,7 @@ func TestDeleteNonexistent(t *testing.T) {
 func TestSetOverwrite(t *testing.T) {
 	// Use a temporary credentials directory for testing
 	tmpDir := t.TempDir()
-	originalXDG := os.Getenv("XDG_CONFIG_HOME")
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
-	defer os.Setenv("XDG_CONFIG_HOME", originalXDG)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	key := "test/overwrite"
 
@@ -112,9 +104,7 @@ func TestSetOverwrite(t *testing.T) {
 func TestCredentialsFilePath(t *testing.T) {
 	// Verify credentials are stored in expected location
 	tmpDir := t.TempDir()
-	originalXDG := os.Getenv("XDG_CONFIG_HOME")
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
-	defer os.Setenv("XDG_CONFIG_HOME", originalXDG)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	key := "test/filepath"
 	err := Set(key, "value")
@@ -137,9 +127,7 @@ func TestCredentialsFilePath(t *testing.T) {
 func TestMultipleKeys(t *testing.T) {
 	// Use a temporary credentials directory for testing
 	tmpDir := t.TempDir()
-	originalXDG := os.Getenv("XDG_CONFIG_HOME")
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
-	defer os.Setenv("XDG_CONFIG_HOME", originalXDG)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	keys := map[string]string{
 		"ai/anthropic": "sk-ant-xxx",

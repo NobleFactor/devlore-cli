@@ -388,7 +388,7 @@ func TestRoot_OpenFile(t *testing.T) {
 			if _, err := f.Write([]byte("written")); err != nil {
 				t.Fatalf("Write: %v", err)
 			}
-			f.Close()
+			_ = f.Close()
 
 			data, err := os.ReadFile(p.Abs())
 			if err != nil {
@@ -573,7 +573,7 @@ func allRoots(t *testing.T, dir string) []rootCase {
 	if err != nil {
 		t.Fatalf("NewConfinedRoot: %v", err)
 	}
-	t.Cleanup(func() { cr.Close() })
+	t.Cleanup(func() { _ = cr.Close() })
 
 	return []rootCase{
 		{"RootReader", op.NewRootReader(dir)},
@@ -590,7 +590,7 @@ func writableRoots(t *testing.T, dir string) []rootCase {
 	if err != nil {
 		t.Fatalf("NewConfinedRoot: %v", err)
 	}
-	t.Cleanup(func() { cr.Close() })
+	t.Cleanup(func() { _ = cr.Close() })
 
 	return []rootCase{
 		{"RootReaderWriter", op.NewRootReaderWriter(dir)},

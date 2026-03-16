@@ -1680,10 +1680,10 @@ func testFileResource(t *testing.T, content []byte) Resource {
 		t.Fatalf("creating temp file: %v", err)
 	}
 	if _, err := f.Write(content); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatalf("writing temp file: %v", err)
 	}
-	f.Close()
+	_ = f.Close()
 	root := testRoot(t, dir)
 	fileResource := NewResource(f.Name())
 	if err := fileResource.Resolve(root); err != nil {

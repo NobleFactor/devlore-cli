@@ -8,6 +8,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -96,6 +97,7 @@ func removeEmptyDirs(root string) error {
 }
 
 func extractTarGz(source, prefix string) (created []string, err error) { //nolint:gocognit
+
 	f, err := os.Open(source)
 	if err != nil {
 		return nil, err
@@ -141,10 +143,11 @@ func extractTarGz(source, prefix string) (created []string, err error) { //nolin
 				return created, err
 			}
 			if _, err := io.Copy(out, io.LimitReader(tr, 1<<30)); err != nil { //nolint:gosec // G110: bounded to 1 GiB
-				out.Close()
+				return created, errors.Join(err, out.Close())
+			}
+			if err := out.Close(); err != nil {
 				return created, err
 			}
-			out.Close()
 			created = append(created, target)
 		}
 	}
@@ -152,6 +155,7 @@ func extractTarGz(source, prefix string) (created []string, err error) { //nolin
 }
 
 func extractZip(source, prefix string) (created []string, err error) {
+
 	r, err := zip.OpenReader(source)
 	if err != nil {
 		return nil, err
@@ -186,17 +190,16 @@ func extractZip(source, prefix string) (created []string, err error) {
 
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
 		if err != nil {
-			rc.Close()
-			return created, err
+			return created, errors.Join(err, rc.Close())
 		}
 
 		if _, err := io.Copy(out, io.LimitReader(rc, 1<<30)); err != nil { //nolint:gosec // G110: bounded to 1 GiB
-			out.Close()
-			rc.Close()
-			return created, err
+			return created, errors.Join(err, out.Close(), rc.Close())
 		}
-		out.Close()
-		rc.Close()
+		if err := out.Close(); err != nil {
+			return created, errors.Join(err, rc.Close())
+		}
+		_ = rc.Close()
 		created = append(created, target)
 	}
 	return created, nil

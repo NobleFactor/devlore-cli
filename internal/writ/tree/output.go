@@ -21,27 +21,27 @@ func (r *BuildResult) String() string {
 
 	// Multi-source mode: show all sources
 	if len(r.Sources) > 0 {
-		fmt.Fprintf(&sb, "Deployment: %d layers → %s\n", len(r.Sources), r.TargetRoot)
+		_, _ = fmt.Fprintf(&sb, "Deployment: %d layers → %s\n", len(r.Sources), r.TargetRoot)
 		for _, src := range r.Sources {
-			fmt.Fprintf(&sb, "  %s: %s\n", src.Layer, src.SourceRoot)
+			_, _ = fmt.Fprintf(&sb, "  %s: %s\n", src.Layer, src.SourceRoot)
 		}
 		sb.WriteString("\n")
 	} else {
 		// Single-source mode
-		fmt.Fprintf(&sb, "Deployment: %s → %s\n\n", r.SourceRoot, r.TargetRoot)
+		_, _ = fmt.Fprintf(&sb, "Deployment: %s → %s\n\n", r.SourceRoot, r.TargetRoot)
 	}
-	fmt.Fprintf(&sb, "Projects: %s\n\n", strings.Join(r.Projects, ", "))
+	_, _ = fmt.Fprintf(&sb, "Projects: %s\n\n", strings.Join(r.Projects, ", "))
 
 	sb.WriteString("Matched directories:\n")
 	for _, m := range r.MatchedDirs {
-		fmt.Fprintf(&sb, "  %s/\n", filepath.Base(m.Path))
+		_, _ = fmt.Fprintf(&sb, "  %s/\n", filepath.Base(m.Path))
 	}
 	sb.WriteString("\n")
 
 	if r.HasCollisions() {
-		fmt.Fprintf(&sb, "Collisions (%d):\n", len(r.Collisions))
+		_, _ = fmt.Fprintf(&sb, "Collisions (%d):\n", len(r.Collisions))
 		for _, c := range r.Collisions {
-			fmt.Fprintf(&sb, "  %s: %s (specificity %d) overrides %s (specificity %d)\n",
+			_, _ = fmt.Fprintf(&sb, "  %s: %s (specificity %d) overrides %s (specificity %d)\n",
 				c.Target,
 				filepath.Base(filepath.Dir(c.Winner)),
 				c.WinnerSpecificity,
@@ -51,13 +51,13 @@ func (r *BuildResult) String() string {
 		sb.WriteString("\n")
 	}
 
-	fmt.Fprintf(&sb, "Files (%d):\n", r.FileCount())
-	fmt.Fprintf(&sb, "  Links: %d, Templates: %d, Secrets: %d\n\n",
+	_, _ = fmt.Fprintf(&sb, "Files (%d):\n", r.FileCount())
+	_, _ = fmt.Fprintf(&sb, "  Links: %d, Templates: %d, Secrets: %d\n\n",
 		r.LinkCount(), r.TemplateCount(), r.SecretCount())
 
 	for _, f := range r.Files {
 		actions := "[" + strings.Join(f.Operations, ", ") + "]"
-		fmt.Fprintf(&sb, "  %-40s %s\n", f.ID, actions)
+		_, _ = fmt.Fprintf(&sb, "  %-40s %s\n", f.ID, actions)
 	}
 
 	return sb.String()

@@ -147,7 +147,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 2. Create Runtime with requested providers
 	cfg := op.NewBindingConfig("devlore-test").

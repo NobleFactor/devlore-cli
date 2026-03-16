@@ -124,51 +124,50 @@ Add exhaustive `case` branches (or explicit `default` with panic) for iota-const
 - `internal/writ/migrate/session_test.go` — Modify
 - `pkg/op/provider/file/gitignore/tracker.go` — Modify
 
-### Phase 4: Unhandled Error Results (117 issues)
+### Phase 4: Unhandled Error Results (117 issues) — `complete`
 
 The largest category. Many are `defer f.Close()` or `fmt.Fprintf` where the error is
 discarded. Strategy:
 
-- **`Close` errors (defer)**: Use a helper or assign to named return: `defer func() { _ = f.Close() }()` or check with
-  `closeErr`.
-- **`fmt.Fprintf/Fprintln/Fprint`**: Assign to `_` explicitly where the write target is stdout/stderr. For other
-  writers, check the error.
-- **`os.Remove/RemoveAll`**: Check the error or assign to `_` with comment if best-effort.
-- **`t.Setenv` / `os.Setenv` in tests**: These are legitimate `os.Setenv` calls — check the error.
+- **`Close` errors (defer)**: Use `iox.Close` helper (adopted in PR #232) or `defer func() { _ = f.Close() }()`.
+  Check error on write-file Close in success paths.
+- **`fmt.Fprintf/Fprintln/Fprint`**: Assign to `_` explicitly: `_, _ = fmt.Fprintf(...)`.
+- **`os.Remove/RemoveAll`**: Check the error or assign to `_` for best-effort.
+- **`os.Setenv` in tests**: Replace with `t.Setenv()` (idiomatic, auto-restores).
 
 **Production code (77 errors across 18 files)**:
 
-- [ ] `internal/lore/onboard/onboard.go` — 11 (Close, Fprintf)
-- [ ] `internal/writ/migrate/session.go` — 10 (Fprintf, Fprintln)
-- [ ] `internal/writ/tree/output.go` — 10 (Fprintf)
-- [ ] `pkg/op/provider/archive/provider.go` — 10 (Close, Remove)
-- [ ] `cmd/indexgen/main.go` — 5 (Fprintf, Fprintln)
-- [ ] `internal/model/config.go` — 5 (Fprint)
-- [ ] `internal/devloretest/commands.go` — 4 (Close)
-- [ ] `pkg/op/provider/file/provider.go` — 4 (Close)
-- [ ] `pkg/op/provider/mem/extract.go` — 4 (Fprintf)
-- [ ] `internal/execution/executor.go` — 3 (Close)
-- [ ] `pkg/op/provider/file/gitignore/tracker.go` — 3 (Close)
-- [ ] `internal/e2e/testrunner/runner.go` — 2 (Close, RemoveAll)
-- [ ] `cmd/docgen/main.go` — 1 (Fprintf)
-- [ ] `internal/cli/man.go` — 1 (Remove)
-- [ ] `internal/cli/receipts.go` — 1 (Remove)
-- [ ] `internal/execution/flow/degraded.go` — 1 (Fprintln)
-- [ ] `pkg/op/provider/appnet/provider.go` — 1 (Close)
-- [ ] `pkg/op/provider/file/resource.go` — 1 (Close)
+- [x] `internal/lore/onboard/onboard.go` — 11 (Close via iox.Close in prior PR, Fprintf: `_, _ =`)
+- [x] `internal/writ/migrate/session.go` — 10 (Fprintf: `_, _ =`, Fprintln: `_, _ =`)
+- [x] `internal/writ/tree/output.go` — 10 (Fprintf: `_, _ =`)
+- [x] `pkg/op/provider/archive/provider.go` — 10 (Close: checked on success, `_ =` on error; Remove: `//nolint:errcheck`)
+- [x] `cmd/indexgen/main.go` — 5 (Fprintf/Fprintln: `_, _ =`)
+- [x] `internal/model/config.go` — 5 (Fprint: `_, _ =`)
+- [x] `internal/devloretest/commands.go` — 4 (Close: already `iox.Close` in prior PR)
+- [x] `pkg/op/provider/file/provider.go` — 4 (Close: already `iox.Close` in prior PR)
+- [x] `pkg/op/provider/mem/extract.go` — 4 (Fprintf: `_, _ =`)
+- [x] `internal/execution/executor.go` — 3 (Close: `defer func() { _ = execCtx.Root.Close() }()`)
+- [x] `pkg/op/provider/file/gitignore/tracker.go` — 3 (Close: already `iox.Close` in prior PR)
+- [x] `internal/e2e/testrunner/runner.go` — 2 (Close: already `iox.Close`; RemoveAll: `defer func() { _ = ... }()`)
+- [x] `cmd/docgen/main.go` — 1 (Fprintf: `_, _ =`)
+- [x] `internal/cli/man.go` — 1 (Remove: already `//nolint:errcheck` + `_ = tmpFile.Close()`)
+- [x] `internal/cli/receipts.go` — 1 (Remove: already `//nolint:errcheck`)
+- [x] `internal/execution/flow/degraded.go` — 1 (Fprintln: `_, _ =`)
+- [x] `pkg/op/provider/appnet/provider.go` — 1 (Close: already `iox.Close` in prior PR)
+- [x] `pkg/op/provider/file/resource.go` — 1 (Close: already `iox.Close` in prior PR)
 
 **Test code (40 errors across 10 files)**:
 
-- [ ] `internal/credentials/credentials_test.go` — 12 (Setenv)
-- [ ] `pkg/op/provider/archive/provider_test.go` — 5 (Close)
-- [ ] `pkg/op/root_test.go` — 5 (Close)
-- [ ] `cmd/devlore-test/cli_test.go` — 4 (Fprintf, RemoveAll)
-- [ ] `internal/lore/builder_test.go` — 4 (Close)
-- [ ] `internal/execution/preflight_test.go` — 3 (Close, Shadow)
-- [ ] `internal/cli/config_test.go` — 2 (Close, ReadFrom)
-- [ ] `pkg/op/provider/file/provider_test.go` — 2 (Close)
-- [ ] `pkg/op/triad_test.go` — 2 (Close, RemoveAll)
-- [ ] `pkg/op/recovery_site_test.go` — 1 (RemoveAll)
+- [x] `internal/credentials/credentials_test.go` — 12 (Setenv → `t.Setenv`)
+- [x] `pkg/op/provider/archive/provider_test.go` — 5 (Close: already `defer func() { _ = f.Close() }()`)
+- [x] `pkg/op/root_test.go` — 5 (Close: `_ = f.Close()`, `_ = cr.Close()` in Cleanup)
+- [x] `cmd/devlore-test/cli_test.go` — 4 (Fprintf: `_, _ =`; RemoveAll: `defer func() { _ = ... }()`)
+- [x] `internal/lore/builder_test.go` — 4 (Close: already `defer func() { _ = root.Close() }()`)
+- [x] `internal/execution/preflight_test.go` — 3 (Close: `_ = f.Close()`; Shadow: `_, _ =`)
+- [x] `internal/cli/config_test.go` — 2 (Close: `_ = w.Close()`; ReadFrom: `_, _ =`)
+- [x] `pkg/op/provider/file/provider_test.go` — 2 (Close: `_ = f.Close()`)
+- [x] `pkg/op/triad_test.go` — 2 (Close: `_ = root.Close()` in Cleanup; RemoveAll: `_ =`)
+- [x] `pkg/op/recovery_site_test.go` — 1 (RemoveAll: `_ =`)
 
 **Files**: All 28 files listed above.
 
