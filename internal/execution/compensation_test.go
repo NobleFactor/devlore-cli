@@ -300,7 +300,7 @@ func TestCompensationGather(t *testing.T) {
 	root := op.NewRootReaderWriter(tmpDir)
 	provCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	provCtx.RecoverySite = op.NewRecoverySite(provCtx)
-	fp := &file.Provider{ProviderBase: op.NewProviderBase(provCtx)}
+	fp := file.NewProvider(provCtx)
 
 	paths := []string{
 		filepath.Join(tmpDir, "a.txt"),

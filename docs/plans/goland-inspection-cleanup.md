@@ -1,7 +1,7 @@
 ---
 title: "GoLand Inspection Cleanup — Go Code Issues"
-issue: TBD
-status: in-progress
+issue: https://github.com/NobleFactor/devlore-cli/issues/238
+status: complete
 created: 2026-03-15
 updated: 2026-03-16
 ---
@@ -171,10 +171,14 @@ discarded. Strategy:
 
 **Files**: All 28 files listed above.
 
-### Phase 5: Dead Code Removal (92 issues)
+### Phase 5: Dead Code Removal (92 issues) — `deferred` (human-only)
 
 Delete unused exported functions, unexported functions, constants, types, parameters, and
 global variables. Per the governing principle: this is greenfield — no legacy users.
+
+> **Status note:** This phase requires human judgment to determine which exports are
+> genuinely dead vs. needed for upcoming features. Claude's static analysis was unreliable
+> here — deferring to humans.
 
 **GoUnusedExportedFunction (35)** (excluding 5 in `prototype/bindgen/`):
 
