@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 )
@@ -164,13 +165,13 @@ func (p *Provider) Copy(sourceFile Resource, destinationFilename Resource, desti
 	if err != nil {
 		return result, undo, err
 	}
-	defer src.Close()
+	defer iox.Close(&err, src)
 
 	dst, err := p.openFile(result.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
 	if err != nil {
 		return result, undo, err
 	}
-	defer dst.Close()
+	defer iox.Close(&err, dst)
 
 	if _, err := io.Copy(dst, src); err != nil {
 		return result, undo, err
@@ -549,7 +550,9 @@ func (p *Provider) WalkTree(root Resource, fn Reducer, honorGitignore bool) (res
 
 		if tracker != nil {
 			if isDir {
-				tracker.Push(relativePath)
+				if pushErr := tracker.Push(relativePath); pushErr != nil {
+					return pushErr
+				}
 			}
 			ignored, _ := tracker.IsIgnored(relativePath, isDir)
 			if ignored && isDir {
@@ -847,13 +850,13 @@ func (p *Provider) Parent(path string) string {
 // isDirAndNotEmpty checks if the path is a directory that contains at least one entry. Returns true if it is a
 // directory with contents, false if it's a file, a symlink, or an empty directory. Check for existence on error return
 // using errors.Is(err, os.ErrNotExist).
-func (p *Provider) isDirAndNotEmpty(abs string) (bool, error) {
+func (p *Provider) isDirAndNotEmpty(abs string) (_ bool, err error) {
 
 	f, err := p.open(abs)
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer iox.Close(&err, f)
 
 	fileInfo, err := f.Stat()
 	if err != nil {
@@ -1155,7 +1158,7 @@ func (p *Provider) write(resource Resource, data []byte, mode os.FileMode) (resu
 	if err != nil {
 		return result, undo, err
 	}
-	defer f.Close()
+	defer iox.Close(&err, f)
 
 	hasher := sha256.New()
 	mw := io.MultiWriter(f, hasher)

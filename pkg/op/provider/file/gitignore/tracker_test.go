@@ -122,7 +122,9 @@ func TestNestedGitignore(t *testing.T) {
 	}
 
 	// Push src directory to load its .gitignore
-	tracker.Push("src")
+	if err := tracker.Push("src"); err != nil {
+		t.Fatalf("Push(src): %v", err)
+	}
 
 	// Inside src: debug.log should NOT be ignored (negation in src/.gitignore)
 	ignored, _ = tracker.IsIgnored("src/debug.log", false)
@@ -161,14 +163,18 @@ func TestPushAutoPop(t *testing.T) {
 	}
 
 	// Push a: *.tmp should now also be ignored
-	tracker.Push("a")
+	if err := tracker.Push("a"); err != nil {
+		t.Fatalf("Push(a): %v", err)
+	}
 	ignored, _ = tracker.IsIgnored("a/test.tmp", false)
 	if !ignored {
 		t.Error("expected a/test.tmp to be ignored after Push(a)")
 	}
 
 	// Push b: auto-pops a, *.tmp should no longer be ignored in b
-	tracker.Push("b")
+	if err := tracker.Push("b"); err != nil {
+		t.Fatalf("Push(b): %v", err)
+	}
 	ignored, _ = tracker.IsIgnored("b/test.bak", false)
 	if !ignored {
 		t.Error("expected b/test.bak to be ignored after Push(b)")

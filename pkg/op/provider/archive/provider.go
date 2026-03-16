@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -99,7 +100,7 @@ func extractTarGz(source, prefix string) (created []string, err error) { //nolin
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer iox.Close(&err, f)
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {

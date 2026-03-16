@@ -15,6 +15,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 
 	// Blank imports register provider actions and callable extractor via init().
@@ -140,7 +141,7 @@ func New(script string, opts ...Option) *Runner {
 // Returns:
 //   - *Result: the test outcome with pass/fail status and failures.
 //   - error: non-nil if script loading or graph execution fails unexpectedly.
-func (r *Runner) Start(ctx context.Context) (*Result, error) {
+func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	// 1. Create temp directory
 	tmpDir, err := os.MkdirTemp("", "devlore-test-*")
 	if err != nil {
@@ -160,7 +161,7 @@ func (r *Runner) Start(ctx context.Context) (*Result, error) {
 	// 3. Create ActionRegistry with all provider actions
 	reg := op.NewActionRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
-	defer root.Close()
+	defer iox.Close(&err, root)
 	opCtx := op.Context{ContextBase: op.NewContextBase(root)}
 	opCtx.RecoverySite = op.NewRecoverySite(opCtx)
 	bs.RegisterActions(reg, opCtx)

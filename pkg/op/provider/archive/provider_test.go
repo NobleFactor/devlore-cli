@@ -24,13 +24,13 @@ func createTarGz(t *testing.T, archivePath string, entries map[string]string) {
 	if err != nil {
 		t.Fatalf("create archive file: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gw := gzip.NewWriter(f)
-	defer gw.Close()
+	defer func() { _ = gw.Close() }()
 
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
+	defer func() { _ = tw.Close() }()
 
 	for name, content := range entries {
 		hdr := &tar.Header{
@@ -55,10 +55,10 @@ func createZip(t *testing.T, archivePath string, entries map[string]string) {
 	if err != nil {
 		t.Fatalf("create archive file: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	zw := zip.NewWriter(f)
-	defer zw.Close()
+	defer func() { _ = zw.Close() }()
 
 	for name, content := range entries {
 		w, err := zw.Create(name)

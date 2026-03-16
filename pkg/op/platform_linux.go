@@ -40,7 +40,7 @@ func detectLinuxDistro() (distro, version string) {
 	if err != nil {
 		return "linux", ""
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

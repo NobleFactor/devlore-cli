@@ -200,7 +200,7 @@ func TestEngineRunsPackageInstallActions(t *testing.T) {
 	// Register all actions (file + package)
 	tmpDir := t.TempDir()
 	root := op.NewRootReaderWriter(tmpDir)
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	op.InitAll(reg, opCtx)
 
@@ -237,7 +237,7 @@ func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	reg := op.NewActionRegistry()
 	tmpDir := t.TempDir()
 	root := op.NewRootReaderWriter(tmpDir)
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	op.InitAll(reg, opCtx)
 
@@ -630,7 +630,7 @@ func TestPlanner_PlanPackages(t *testing.T) {
 
 	reg := op.NewActionRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	op.InitAll(reg, opCtx)
 
@@ -667,7 +667,7 @@ func TestPlanner_PlanByName(t *testing.T) {
 	tmpDir := t.TempDir()
 	reg := op.NewActionRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	op.InitAll(reg, opCtx)
 
