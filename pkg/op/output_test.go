@@ -12,7 +12,16 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// --- helpers ---
+// Interface guards.
+var (
+	_ starlark.Value    = (*Output)(nil)
+	_ starlark.HasAttrs = (*Output)(nil)
+	_ starlark.Value    = (*Gather)(nil)
+	_ fmt.Stringer      = (*Output)(nil)
+	_ fmt.Stringer      = (*Gather)(nil)
+)
+
+// --- Helpers ---
 
 // makeTestGraph creates a minimal graph for testing.
 func makeTestGraph() *Graph {
@@ -26,6 +35,14 @@ func makeTestNode(id, action string) *Node {
 		n.Action = StubAction(action)
 	}
 	return n
+}
+
+// resolveInput extracts an *Output from a Starlark value. Test helper only.
+func resolveInput(value starlark.Value) (*Output, error) {
+	if output, ok := value.(*Output); ok {
+		return output, nil
+	}
+	return nil, fmt.Errorf("expected Output, got %s", value.Type())
 }
 
 // --- Output tests ---
@@ -620,7 +637,7 @@ func TestFillSlotUnsupportedType(t *testing.T) {
 	}
 }
 
-// --- FillSlot implicit resource edge tests ---
+// --- FillSlot implicit resource edges ---
 
 // testFileResource embeds op.ResourceBase for testing implicit edge creation.
 type testFileResource struct {
@@ -712,22 +729,22 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 	}
 }
 
-// --- ResolveInput tests ---
+// --- resolveInput ---
 
 func TestResolveInput(t *testing.T) {
 	out := NewOutput(makeTestNode("n1", ""), makeTestGraph(), "")
 
-	got, err := ResolveInput(out)
+	got, err := resolveInput(out)
 	if err != nil {
-		t.Fatalf("ResolveInput() error: %v", err)
+		t.Fatalf("resolveInput() error: %v", err)
 	}
 	if got != out {
-		t.Error("ResolveInput() returned wrong output")
+		t.Error("resolveInput() returned wrong output")
 	}
 }
 
 func TestResolveInputNonOutput(t *testing.T) {
-	_, err := ResolveInput(starlark.String("not an output"))
+	_, err := resolveInput(starlark.String("not an output"))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -871,7 +888,7 @@ func TestOutputRetryBuiltinDelays(t *testing.T) {
 	}
 }
 
-// --- Edge cases and multi-FillSlot ---
+// --- FillSlot edge cases ---
 
 func TestOutputFillSlotMultipleConsumers(t *testing.T) {
 	g := makeTestGraph()
@@ -920,12 +937,3 @@ func TestGatherFillSlotEmpty(t *testing.T) {
 		t.Errorf("deps.len = %v, want 0", sv.Immediate)
 	}
 }
-
-// Verify interface compliance at compile time.
-var (
-	_ starlark.Value    = (*Output)(nil)
-	_ starlark.HasAttrs = (*Output)(nil)
-	_ starlark.Value    = (*Gather)(nil)
-	_ fmt.Stringer      = (*Output)(nil)
-	_ fmt.Stringer      = (*Gather)(nil)
-)

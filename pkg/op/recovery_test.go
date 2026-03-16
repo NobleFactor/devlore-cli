@@ -233,7 +233,7 @@ func TestRecoveryStack_PushAction_CompensableAction(t *testing.T) {
 func TestRecoveryStack_PushAction_NonCompensable(t *testing.T) {
 	s := NewRecoveryStack()
 
-	// A plain Action (not CompensableAction) should be silently ignored.
+	// A plain Action (no Undo method) should be silently ignored.
 	action := StubAction("test.plain")
 	s.PushAction(&Context{}, action, "state")
 
@@ -249,7 +249,7 @@ func TestRecoveryStack_PushAction_FiltersErrNotCompensable(t *testing.T) {
 		undoFn: func(_ Complement) error { return ErrNotCompensable },
 	}
 
-	s.PushAction(&Context{}, action, nil)
+	s.PushAction(&Context{}, action, "undo")
 
 	// Unwind should return nil — ErrNotCompensable is filtered.
 	if err := s.Unwind(); err != nil {

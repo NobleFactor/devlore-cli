@@ -718,9 +718,9 @@ func TestChooseUndoSkipsNotCompensable(t *testing.T) {
 
 	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stack := op.NewRecoveryStack()
-	stack.PushAction(ctx, actionA, nil)
-	stack.PushAction(ctx, actionNC, nil)
-	stack.PushAction(ctx, actionC, nil)
+	stack.PushAction(ctx, actionA, "undo")
+	stack.PushAction(ctx, actionNC, "undo")
+	stack.PushAction(ctx, actionC, "undo")
 
 	act := &Choose{}
 	err := act.Undo(ctx, &chooseComplement{Stack: stack})
@@ -740,8 +740,8 @@ func TestChooseUndoCollectsErrors(t *testing.T) {
 
 	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stack := op.NewRecoveryStack()
-	stack.PushAction(ctx, &failUndoAction{name: "a", err: errA}, nil)
-	stack.PushAction(ctx, &failUndoAction{name: "b", err: errB}, nil)
+	stack.PushAction(ctx, &failUndoAction{name: "a", err: errA}, "undo")
+	stack.PushAction(ctx, &failUndoAction{name: "b", err: errB}, "undo")
 
 	act := &Choose{}
 	err := act.Undo(ctx, &chooseComplement{Stack: stack})
@@ -1089,11 +1089,11 @@ func TestGatherUndoSkipsNotCompensable(t *testing.T) {
 
 	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stackA := op.NewRecoveryStack()
-	stackA.PushAction(ctx, actionA, nil)
+	stackA.PushAction(ctx, actionA, "undo")
 	stackNC := op.NewRecoveryStack()
-	stackNC.PushAction(ctx, actionNC, nil)
+	stackNC.PushAction(ctx, actionNC, "undo")
 	stackC := op.NewRecoveryStack()
-	stackC.PushAction(ctx, actionC, nil)
+	stackC.PushAction(ctx, actionC, "undo")
 
 	state := &gatherComplement{
 		Iterations: []iterationUndo{
@@ -1121,9 +1121,9 @@ func TestGatherUndoCollectsErrors(t *testing.T) {
 
 	ctx := &op.Context{ContextBase: op.ContextBase{Context: context.Background()}}
 	stackA := op.NewRecoveryStack()
-	stackA.PushAction(ctx, &failUndoAction{name: "a", err: errA}, nil)
+	stackA.PushAction(ctx, &failUndoAction{name: "a", err: errA}, "undo")
 	stackB := op.NewRecoveryStack()
-	stackB.PushAction(ctx, &failUndoAction{name: "b", err: errB}, nil)
+	stackB.PushAction(ctx, &failUndoAction{name: "b", err: errB}, "undo")
 
 	state := &gatherComplement{
 		Iterations: []iterationUndo{
