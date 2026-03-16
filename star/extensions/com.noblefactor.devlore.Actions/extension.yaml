@@ -5,9 +5,9 @@ extension: com.noblefactor.devlore.Actions
 description: Devlore actions tooling - generate graph actions and validate API contracts
 
 receivers:
-  - name: go
+  - name: goast
     builtin: true
-    type: GoReceiver
+    type: goast.Provider
     description: Go source parsing and code generation
   - name: file
     builtin: true

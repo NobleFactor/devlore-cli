@@ -3,8 +3,8 @@
 
 # generate.star - Generate receivers and actions from provider structs
 #
-# Reads a provider struct's methods via go.methods(), then calls
-# go.render() to produce planned receivers, graph actions, and
+# Reads a provider struct's methods via goast.methods(), then calls
+# goast.render() to produce planned receivers, graph actions, and
 # immediate receivers.
 #
 # The Provider struct carries directives:
@@ -125,7 +125,7 @@ def struct_access(path):
 
     Returns 'immediate' if no directive is found (the default).
     """
-    doc = go.type_doc(path)
+    doc = goast.type_doc(path)
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
         if "+devlore:access=" in line:
@@ -141,7 +141,7 @@ def struct_lifetime(path):
 
     Returns 'stateless' if no directive is found (the default).
     """
-    doc = go.type_doc(path)
+    doc = goast.type_doc(path)
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
         if "+devlore:lifetime=" in line:
@@ -199,7 +199,7 @@ def parse_bind_directives(path):
     Example: '+devlore:bind Root=WorkDir'
     → [{"name": "Root", "cfg_field": "WorkDir"}]
     """
-    doc = go.type_doc(path)
+    doc = goast.type_doc(path)
     result = []
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
@@ -264,7 +264,7 @@ def resolve_struct_param(struct_type, structs_by_name, path):
 
     For local types (no "."), looks up in structs_by_name.
     For cross-package types (e.g., "staranalysis.AnalysisConfig"), resolves
-    by calling go.structs() on the sibling package.
+    by calling goast.structs() on the sibling package.
 
     Returns (struct_info, resolved_type) where resolved_type is the type name
     to use in generated code (may include package prefix for cross-package).
@@ -280,7 +280,7 @@ def resolve_struct_param(struct_type, structs_by_name, path):
     if not file.exists(sibling_path):
         fail("cross-package struct_param: sibling package path %s does not exist" % sibling_path)
 
-    sibling_structs = go.structs(sibling_path)
+    sibling_structs = goast.structs(sibling_path)
     for s in sibling_structs:
         if s.name == bare:
             return s, struct_type
@@ -291,7 +291,7 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
 
     defaults_map: method_name → {param_name: default_value}
     struct_param_map: method_name → {var_name: struct_type}
-    structs_by_name: struct_name → struct info from go.structs()
+    structs_by_name: struct_name → struct info from goast.structs()
     path: filesystem path to the package (for cross-package struct resolution)
     """
     descriptors = []
@@ -558,7 +558,7 @@ def collect_type_graph(path, provider_methods, structs_by_name):
         seen[type_name] = True
 
         # Check if this type has methods (→ dependent type with HasAttrs wrapper)
-        type_methods = go.methods(path, receiver_type=type_name)
+        type_methods = goast.methods(path, receiver_type=type_name)
         has_methods = False
         for m in type_methods:
             if m.name[0].isupper() and m.name not in SKIP_METHODS:
@@ -643,7 +643,7 @@ def detect_resource(path):
     Returns the constructor function name if found, or "" if no Resource struct
     or no matching constructor exists. Fails if multiple constructors match.
     """
-    structs = go.structs(path)
+    structs = goast.structs(path)
     has_resource = False
     for s in structs:
         if s.name == "Resource":
@@ -655,7 +655,7 @@ def detect_resource(path):
         return ""
 
     # Look for constructor function: func(any) (Resource, error)
-    funcs = go.funcs(path)
+    funcs = goast.funcs(path)
     constructor_name = ""
     for fn in funcs:
         if fn.returns != "(Resource, error)":
@@ -677,10 +677,10 @@ def detect_resource(path):
 def compute_provider_import(path):
     """Compute the Go import path for the provider package.
 
-    Uses go.deps() to get the module path, then finds go.mod to compute
+    Uses goast.deps() to get the module path, then finds go.mod to compute
     the relative package path.
     """
-    deps = go.deps(path)
+    deps = goast.deps(path)
     module_path = deps.module_path
 
     if not module_path:
@@ -733,7 +733,7 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
         # Build default and type maps from Provider struct inspection
         default_map = {}
         type_map = {}
-        structs = go.structs(path)
+        structs = goast.structs(path)
         for s in structs:
             if s.name == "Provider":
                 for f in s.fields:
@@ -750,7 +750,7 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     # Require ProviderBase embedding
     # -------------------------------------------------------------------------
     embeds_provider_base = False
-    structs = go.structs(path)
+    structs = goast.structs(path)
     for s in structs:
         if s.name == "Provider":
             for f in s.fields:
@@ -762,7 +762,7 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     # -------------------------------------------------------------------------
     # Parse defaults and struct_param directives from method docs
     # -------------------------------------------------------------------------
-    structs = go.structs(path)
+    structs = goast.structs(path)
     structs_by_name = {}
     for s in structs:
         structs_by_name[s.name] = s
@@ -790,7 +790,7 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     # -------------------------------------------------------------------------
     dependent_descriptors = {}
     for type_name in dependent_types:
-        type_methods = go.methods(path, receiver_type=type_name)
+        type_methods = goast.methods(path, receiver_type=type_name)
         filtered, dep_all_names = filter_methods(type_methods, [])
 
         # Parse defaults and struct_param for dependent type methods
@@ -819,7 +819,7 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     # -------------------------------------------------------------------------
     # Re-build Provider method descriptors with defaults/struct_param applied
     # -------------------------------------------------------------------------
-    all_methods_raw = go.methods(path, receiver_type=struct_name)
+    all_methods_raw = goast.methods(path, receiver_type=struct_name)
     filtered_raw, all_names_raw = filter_methods(all_methods_raw, [])
     provider_method_descs = build_method_descriptors(
         filtered_raw, all_names_raw, defaults_map, struct_param_map, structs_by_name, path,
@@ -988,7 +988,7 @@ def annotate_result_exprs(descriptors, data_structs, provider_prefix):
             desc["result_expr"] = converter + "(%s)"
 
 # =============================================================================
-# Pre-computation Helpers for go.render()
+# Pre-computation Helpers for goast.render()
 # =============================================================================
 
 def compute_provider_type_prefix(desc):
@@ -1000,7 +1000,7 @@ def compute_provider_type_prefix(desc):
 def compute_param_names_list(method):
     """Pre-compute the quoted, comma-separated parameter name list for a method.
 
-    Replicates templateFuncParamNamesList from codegen.go.
+    Replicates templateFuncParamNamesList from codegen.goast.
     Optional params get '?' suffix. Variadic params get '*' prefix.
     """
     parts = []
@@ -1016,7 +1016,7 @@ def compute_param_names_list(method):
 def compute_provider_init(desc):
     """Pre-compute the ImmediateFactory body code.
 
-    Replicates templateFuncProviderInit from codegen.go.
+    Replicates templateFuncProviderInit from codegen.goast.
     Generates the Go code that constructs the provider from BindingConfig
     and delegates to New<StructName><WrapperSuffix>.
     """
@@ -1107,7 +1107,7 @@ def compute_descriptor_init(desc):
     return "\n".join(lines)
 
 def prepare_render_data(descriptor, template_name):
-    """Prepare a descriptor dict for go.render().
+    """Prepare a descriptor dict for goast.render().
 
     Pre-computes template function values and adds derived fields.
     Returns render_data.
@@ -1146,9 +1146,9 @@ def gen_file(ctx, template_name, descriptor, filename, label, method_count, outp
     ui.note("Generating %s for %s (%d items)..." % (template_name, label, method_count))
     template_content = load_template(template_name, ctx.extension.dir)
 
-    # Pre-compute template values and render via go.render()
+    # Pre-compute template values and render via goast.render()
     render_data = prepare_render_data(descriptor, template_name)
-    code = go.render(template=template_content, data=render_data)
+    code = goast.render(template=template_content, data=render_data)
 
     if write_files and output_dir:
         out_path = output_dir + "/" + filename
@@ -1184,7 +1184,7 @@ def run(ctx):
     # -------------------------------------------------------------------------
     # Discover Provider methods (may be absent for resource-only packages)
     # -------------------------------------------------------------------------
-    methods = go.methods(path, receiver_type=struct_name)
+    methods = goast.methods(path, receiver_type=struct_name)
     has_provider = len(methods) > 0
 
     if has_provider:

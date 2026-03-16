@@ -106,16 +106,16 @@ def _build_attr_names_from_source(path):
     attr_names = {}
 
     # Index Attr methods by receiver_type for prefix derivation
-    attr_methods = go.methods(path, name="Attr")
+    attr_methods = goast.methods(path, name="Attr")
     attr_by_receiver = {}
     for m in attr_methods:
         attr_by_receiver[str(m.receiver_type)] = m
 
     # Extract static AttrNames from each receiver
-    attr_names_methods = go.methods(path, name="AttrNames")
+    attr_names_methods = goast.methods(path, name="AttrNames")
     for m in attr_names_methods:
         receiver = str(m.receiver_type)
-        names = list(go.return_strings(m.scope))
+        names = list(goast.return_strings(m.scope))
         if not names:
             continue  # Dynamic AttrNames (e.g., PlanRoot) — skip
 
@@ -137,7 +137,7 @@ def _derive_attr_prefix(attr_method):
     """
     scope = str(attr_method.scope)
     for call_type in ["MakeAttr", "NewBuiltin"]:
-        calls = go.calls(scope, name=call_type)
+        calls = goast.calls(scope, name=call_type)
         for call in calls:
             args = list(call.args)
             if len(args) >= 1:
@@ -165,7 +165,7 @@ def _build_ns_descriptions(starlark_path):
             continue
         ns = str(entry.name)
         provider_path = file.join(provider_base, ns)
-        doc = str(go.type_doc(provider_path, "Provider"))
+        doc = str(goast.type_doc(provider_path, "Provider"))
         if doc:
             # Join paragraph lines into one string, stopping at blank lines or directives.
             para_lines = []
@@ -199,7 +199,7 @@ def _build_ns_descriptions(starlark_path):
 def _parse_devlore_api(path):
     """Parse devlore-cli Starlark API from Go source files.
 
-    Uses go.methods() and go.calls() to extract:
+    Uses goast.methods() and goast.calls() to extract:
     - Binding names from Attr methods (via NewBuiltin and MakeAttr calls)
     - Handler details: doc, slots, operations, output
     - Properties from _KNOWN_PROPERTIES
@@ -207,12 +207,12 @@ def _parse_devlore_api(path):
     - AttrNames cross-reference violations
     """
     # Step 1: Find all Attr methods and extract bindings via NewBuiltin
-    attr_methods = go.methods(path, name="Attr")
+    attr_methods = goast.methods(path, name="Attr")
     bindings = {}
     seen = {}
 
     for attr_method in attr_methods:
-        builtin_calls = go.calls(attr_method.scope, name="NewBuiltin")
+        builtin_calls = goast.calls(attr_method.scope, name="NewBuiltin")
         for call in builtin_calls:
             args = list(call.args)
             if len(args) < 2:
@@ -232,7 +232,7 @@ def _parse_devlore_api(path):
 
     # Step 1b: Extract bindings via MakeAttr (same 2-arg signature as NewBuiltin)
     for attr_method in attr_methods:
-        make_attr_calls = go.calls(attr_method.scope, name="MakeAttr")
+        make_attr_calls = goast.calls(attr_method.scope, name="MakeAttr")
         for call in make_attr_calls:
             args = list(call.args)
             if len(args) < 2:
@@ -271,12 +271,12 @@ def _parse_devlore_api(path):
 
     # Step 3: Detect StringDict violations
     # Any NewBuiltin call for API bindings outside Attr methods is a violation
-    all_methods = go.methods(path)
+    all_methods = goast.methods(path)
     violations = []
     for method in all_methods:
         if str(method.name) == "Attr":
             continue
-        nb_calls = go.calls(method.scope, name="NewBuiltin")
+        nb_calls = goast.calls(method.scope, name="NewBuiltin")
         for call in nb_calls:
             args = list(call.args)
             if len(args) < 1:
@@ -408,9 +408,9 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
     # Find the handler method, filtering by receiver type to disambiguate
     # methods with the same name on different receivers (e.g., remove, exists).
     if receiver_type:
-        handler_methods = go.methods(path, name=handler_name, receiver_type=receiver_type)
+        handler_methods = goast.methods(path, name=handler_name, receiver_type=receiver_type)
     else:
-        handler_methods = go.methods(path, name=handler_name)
+        handler_methods = goast.methods(path, name=handler_name)
     if len(list(handler_methods)) == 0:
         return {"file": fallback_file, "line": fallback_line}
 
@@ -427,7 +427,7 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
     # Extract slots from FillSlot calls
     slots = []
     slot_seen = {}
-    fill_calls = go.calls(scope, name="FillSlot")
+    fill_calls = goast.calls(scope, name="FillSlot")
     for call in fill_calls:
         args = list(call.args)
         if len(args) >= 3:
@@ -438,7 +438,7 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
 
     # Extract operations from execution.Node composites
     operations = []
-    node_composites = go.composites(scope, type="execution.Node")
+    node_composites = goast.composites(scope, type="execution.Node")
     for comp in node_composites:
         ops_field = getattr(comp.fields, "Operations", None)
         if ops_field:
@@ -449,7 +449,7 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
 
     # Detect output type (promise if NewOutput is called)
     output = "none"
-    output_calls = go.calls(scope, name="NewOutput")
+    output_calls = goast.calls(scope, name="NewOutput")
     if len(list(output_calls)) > 0:
         output = "promise"
 
@@ -536,7 +536,7 @@ def _strip_doc_prefix(doc, handler_name):
 
 
 def _parse_migrate_knowledge(path):
-    """Parse migration constants from Go source using go.const_groups and go.raw_string."""
+    """Parse migration constants from Go source using goast.const_groups and goast.raw_string."""
     analysis_path = file.join(path, _ANALYSIS_FILE)
     plan_path = file.join(path, _PLAN_FILE)
 
@@ -546,7 +546,7 @@ def _parse_migrate_knowledge(path):
 
     # Parse typed const groups from analysis.go
     if file.exists(analysis_path):
-        groups = go.const_groups(analysis_path)
+        groups = goast.const_groups(analysis_path)
         for group in groups:
             type_name = str(group.type_name)
             for c in group.constants:
@@ -568,10 +568,10 @@ def _parse_migrate_knowledge(path):
     system_prompt = ""
     platforms = []
     if file.exists(plan_path):
-        prompt_funcs = go.funcs(plan_path, name="buildSystemPrompt")
+        prompt_funcs = goast.funcs(plan_path, name="buildSystemPrompt")
         func_list = list(prompt_funcs)
         if len(func_list) > 0:
-            system_prompt = str(go.raw_string(func_list[0].scope))
+            system_prompt = str(goast.raw_string(func_list[0].scope))
             platforms = _extract_platforms(system_prompt)
 
     return {
@@ -626,17 +626,17 @@ def _extract_platforms(prompt_text):
 def _scan_execution(path):
     """Scan execution package: structs, consts, and ops in one pass."""
     graph_path = file.join(path, _GRAPH_FILE)
-    structs = go.structs(graph_path) if file.exists(graph_path) else []
-    consts = go.const_groups(graph_path) if file.exists(graph_path) else []
+    structs = goast.structs(graph_path) if file.exists(graph_path) else []
+    consts = goast.const_groups(graph_path) if file.exists(graph_path) else []
 
     # Find Name() methods returning string on *Op types
-    methods = go.methods(path, name="Name", returns="string")
+    methods = goast.methods(path, name="Name", returns="string")
     ops = []
     seen_ops = {}
     for m in methods:
         recv_type = str(m.receiver_type).lstrip("*")
         if recv_type.endswith("Op"):
-            name = str(go.return_string(m.scope))
+            name = str(goast.return_string(m.scope))
             if name and name not in seen_ops:
                 seen_ops[name] = True
                 ops.append({"name": name, "type": recv_type})
@@ -1309,7 +1309,7 @@ def build_ops_knowledge(source, target):
         fail("Execution source not found: " + execution_path)
 
     # Discover *Service structs
-    all_structs = go.structs(execution_path)
+    all_structs = goast.structs(execution_path)
     services = []
     for s in all_structs:
         name = str(s.name)
@@ -1328,7 +1328,7 @@ def build_ops_knowledge(source, target):
 
     for service_name in sorted(services):
         # Get methods for this service
-        methods = go.methods(execution_path, receiver_type=service_name)
+        methods = goast.methods(execution_path, receiver_type=service_name)
 
         # Filter to public methods, skip starlark.Value methods
         filtered = []
@@ -1366,7 +1366,7 @@ def build_ops_knowledge(source, target):
                 "params": params,
             })
 
-        # Build descriptor for go.mapping()
+        # Build descriptor for goast.mapping()
         descriptor = {
             "package": "execution",
             "provider": provider,
@@ -1376,7 +1376,7 @@ def build_ops_knowledge(source, target):
         }
 
         # Generate mapping YAML
-        mapping_yaml = str(go.mapping(descriptor))
+        mapping_yaml = str(goast.mapping(descriptor))
 
         # Write mapping artifact
         mapping_file = provider + ".yaml"

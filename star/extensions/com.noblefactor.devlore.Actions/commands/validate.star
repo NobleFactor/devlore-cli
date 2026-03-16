@@ -64,19 +64,19 @@ def run(ctx):
 def _parse_devlore_api(path):
     """Parse devlore-cli Starlark API from Go source files.
 
-    Uses go.methods() and go.calls() to extract:
+    Uses goast.methods() and goast.calls() to extract:
     - Binding names from Attr methods (via NewBuiltin calls)
     - Handler details: doc, slots, operations, output
     - StringDict violations (non-Attr NewBuiltin registrations)
     """
-    attr_methods = go.methods(path, name="Attr")
+    attr_methods = goast.methods(path, name="Attr")
     bindings = {}
     seen = {}
 
     for attr_method in attr_methods:
         # Look for both direct NewBuiltin and MakeAttr (which wraps NewBuiltin)
         for call_name in ["NewBuiltin", "MakeAttr"]:
-            builtin_calls = go.calls(attr_method.scope, name=call_name)
+            builtin_calls = goast.calls(attr_method.scope, name=call_name)
             for call in builtin_calls:
                 args = list(call.args)
                 if len(args) < 2:
@@ -93,12 +93,12 @@ def _parse_devlore_api(path):
                     bindings[binding_name] = binding
 
     # Detect StringDict violations
-    all_methods = go.methods(path)
+    all_methods = goast.methods(path)
     violations = []
     for method in all_methods:
         if str(method.name) == "Attr":
             continue
-        nb_calls = go.calls(method.scope, name="NewBuiltin")
+        nb_calls = goast.calls(method.scope, name="NewBuiltin")
         for call in nb_calls:
             args = list(call.args)
             if len(args) < 1:
@@ -171,7 +171,7 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
     if not handler_name:
         return {"file": fallback_file, "line": fallback_line}
 
-    handler_methods = go.methods(path, name=handler_name)
+    handler_methods = goast.methods(path, name=handler_name)
     if len(list(handler_methods)) == 0:
         return {"file": fallback_file, "line": fallback_line}
 
@@ -183,7 +183,7 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
     # Extract slots from FillSlot calls
     slots = []
     slot_seen = {}
-    fill_calls = go.calls(scope, name="FillSlot")
+    fill_calls = goast.calls(scope, name="FillSlot")
     for call in fill_calls:
         args = list(call.args)
         if len(args) >= 3:
@@ -194,7 +194,7 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
 
     # Extract operations from execution.Node composites
     operations = []
-    node_composites = go.composites(scope, type="execution.Node")
+    node_composites = goast.composites(scope, type="execution.Node")
     for comp in node_composites:
         ops_field = getattr(comp.fields, "Operations", None)
         if ops_field:
@@ -205,7 +205,7 @@ def _extract_binding_info(path, handler_name, binding_name, fallback_file, fallb
 
     # Detect output type
     output = "none"
-    output_calls = go.calls(scope, name="NewOutput")
+    output_calls = goast.calls(scope, name="NewOutput")
     if len(list(output_calls)) > 0:
         output = "promise"
 

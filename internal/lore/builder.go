@@ -298,6 +298,7 @@ func BuildFromPackages(packages []string, targetPlatform string) (*BuildResult, 
 // Returns:
 //   - error: non-nil if script execution or node building fails.
 func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform string, cfg BuildConfig, reg *op.ActionRegistry) error { //nolint:gocognit
+
 	action := lorepackage.Deploy
 	phases := lorepackage.PhaseOrder(action)
 
