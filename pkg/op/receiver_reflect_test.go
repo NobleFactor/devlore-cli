@@ -195,7 +195,7 @@ func callMethod(t *testing.T, r *ExecutingReceiver, name string, args ...starlar
 	if !ok {
 		t.Fatalf("Attr(%s) = %T, want *starlark.Builtin", name, attr)
 	}
-	result, err := builtin.CallInternal(nil, starlark.Tuple(args), nil)
+	result, err := builtin.CallInternal(nil, args, nil)
 	if err != nil {
 		t.Fatalf("%s() error: %v", name, err)
 	}
@@ -236,7 +236,7 @@ func callMethodErr(t *testing.T, r *ExecutingReceiver, name string, args ...star
 		t.Fatalf("Attr(%s) error: %v", name, err)
 	}
 	builtin := attr.(*starlark.Builtin)
-	_, err = builtin.CallInternal(nil, starlark.Tuple(args), nil)
+	_, err = builtin.CallInternal(nil, args, nil)
 	return err
 }
 

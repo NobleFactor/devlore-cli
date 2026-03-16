@@ -19,13 +19,13 @@ type Theme struct {
 // DefaultTheme returns the default color scheme.
 func DefaultTheme() Theme {
 	return Theme{
-		Primary:   lipgloss.Color("39"),  // Blue
-		Secondary: lipgloss.Color("99"),  // Purple
-		Success:   lipgloss.Color("42"),  // Green
-		Warning:   lipgloss.Color("214"), // Orange
-		Error:     lipgloss.Color("196"), // Red
-		Muted:     lipgloss.Color("245"), // Gray
-		Text:      lipgloss.Color("252"), // Light gray
+		Primary:   "39",  // Blue
+		Secondary: "99",  // Purple
+		Success:   "42",  // Green
+		Warning:   "214", // Orange
+		Error:     "196", // Red
+		Muted:     "245", // Gray
+		Text:      "252", // Light gray
 	}
 }
 

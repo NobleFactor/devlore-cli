@@ -4,6 +4,7 @@
 package op_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -325,8 +326,8 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			new := env.Root.NewPath("new.txt")
-			if err := env.Root.Rename(old, new); err != nil {
+			dst := env.Root.NewPath("new.txt")
+			if err := env.Root.Rename(old, dst); err != nil {
 				t.Fatalf("Rename: %v", err)
 			}
 
@@ -334,7 +335,7 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 				t.Error("old file still exists after rename")
 			}
 
-			got, err := env.Root.ReadFile(new)
+			got, err := env.Root.ReadFile(dst)
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
@@ -354,16 +355,16 @@ func TestTriad_RootReaderRejectsWrites(t *testing.T) {
 
 	p := root.NewPath("file.txt")
 
-	if err := root.WriteFile(p, []byte("data"), 0o644); err != op.ErrReadOnly {
+	if err := root.WriteFile(p, []byte("data"), 0o644); !errors.Is(err, op.ErrReadOnly) {
 		t.Errorf("WriteFile err = %v, want ErrReadOnly", err)
 	}
-	if err := root.MkdirAll(p, 0o755); err != op.ErrReadOnly {
+	if err := root.MkdirAll(p, 0o755); !errors.Is(err, op.ErrReadOnly) {
 		t.Errorf("MkdirAll err = %v, want ErrReadOnly", err)
 	}
-	if err := root.Remove(p); err != op.ErrReadOnly {
+	if err := root.Remove(p); !errors.Is(err, op.ErrReadOnly) {
 		t.Errorf("Remove err = %v, want ErrReadOnly", err)
 	}
-	if err := root.Rename(p, p); err != op.ErrReadOnly {
+	if err := root.Rename(p, p); !errors.Is(err, op.ErrReadOnly) {
 		t.Errorf("Rename err = %v, want ErrReadOnly", err)
 	}
 }
