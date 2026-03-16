@@ -255,7 +255,7 @@ func promptForProvider(ctx context.Context) (Provider, error) { //nolint:gocyclo
 	cli.Note("  [4] OpenAI (cloud, GPT models)")
 	cli.Note("      Get API key: https://platform.openai.com")
 	cli.Note("")
-	fmt.Fprint(os.Stderr, "Choice [1/2/3/4]: ")
+	_, _ = fmt.Fprint(os.Stderr, "Choice [1/2/3/4]: ")
 
 	input, err := reader.ReadString('\n')
 	if err != nil {
@@ -267,7 +267,7 @@ func promptForProvider(ctx context.Context) (Provider, error) { //nolint:gocyclo
 
 	switch choice {
 	case "1", "":
-		fmt.Fprint(os.Stderr, "Groq API key: ")
+		_, _ = fmt.Fprint(os.Stderr, "Groq API key: ")
 		apiKey, err := reader.ReadString('\n')
 		if err != nil {
 			return nil, err
@@ -279,7 +279,7 @@ func promptForProvider(ctx context.Context) (Provider, error) { //nolint:gocyclo
 		}
 
 	case "2":
-		fmt.Fprint(os.Stderr, "Gemini API key: ")
+		_, _ = fmt.Fprint(os.Stderr, "Gemini API key: ")
 		apiKey, err := reader.ReadString('\n')
 		if err != nil {
 			return nil, err
@@ -291,7 +291,7 @@ func promptForProvider(ctx context.Context) (Provider, error) { //nolint:gocyclo
 		}
 
 	case "3":
-		fmt.Fprint(os.Stderr, "Anthropic API key: ")
+		_, _ = fmt.Fprint(os.Stderr, "Anthropic API key: ")
 		apiKey, err := reader.ReadString('\n')
 		if err != nil {
 			return nil, err
@@ -303,7 +303,7 @@ func promptForProvider(ctx context.Context) (Provider, error) { //nolint:gocyclo
 		}
 
 	case "4":
-		fmt.Fprint(os.Stderr, "OpenAI API key: ")
+		_, _ = fmt.Fprint(os.Stderr, "OpenAI API key: ")
 		apiKey, err := reader.ReadString('\n')
 		if err != nil {
 			return nil, err

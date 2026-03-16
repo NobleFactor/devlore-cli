@@ -19,11 +19,12 @@ func TestResolveResources_NilCatalog(t *testing.T) {
 }
 
 func TestResolveResources_AllExist(t *testing.T) {
+
 	f, err := os.CreateTemp(t.TempDir(), "preflight-*")
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	catalog := op.NewResourceCatalog()
 	catalog.Resolve("file://" + f.Name())
@@ -75,11 +76,12 @@ func TestResolveResources_NonFileScheme_Skipped(t *testing.T) {
 }
 
 func TestResolveResources_ShadowedEntry_Skipped(t *testing.T) {
+
 	catalog := op.NewResourceCatalog()
 	// Resolve then shadow — the shadow supersedes the discovery entry.
 	catalog.Resolve("file:///nonexistent/file")
 
-	catalog.Shadow(new(op.NewResourceBase("file:///nonexistent/file")), "writer-node")
+	_, _ = catalog.Shadow(new(op.NewResourceBase("file:///nonexistent/file")), "writer-node")
 
 	// The discovery entry is superseded; no file check needed.
 	if err := ResolveResources(catalog); err != nil {
@@ -88,11 +90,12 @@ func TestResolveResources_ShadowedEntry_Skipped(t *testing.T) {
 }
 
 func TestResolveResources_MixedSchemes(t *testing.T) {
+
 	f, err := os.CreateTemp(t.TempDir(), "preflight-*")
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	catalog := op.NewResourceCatalog()
 	catalog.Resolve("file://" + f.Name())        // exists

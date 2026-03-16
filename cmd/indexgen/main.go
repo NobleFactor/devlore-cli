@@ -112,20 +112,20 @@ func main() { //nolint:gocognit
 			}
 		}
 		if *registryPath == "" {
-			fmt.Fprintln(os.Stderr, "error: --registry path required (or set DEVLORE_REGISTRY)")
+			_, _ = fmt.Fprintln(os.Stderr, "error: --registry path required (or set DEVLORE_REGISTRY)")
 			os.Exit(1)
 		}
 	}
 
 	knowledgeDir := filepath.Join(*registryPath, "knowledge")
 	if _, err := os.Stat(knowledgeDir); err != nil {
-		fmt.Fprintf(os.Stderr, "error: knowledge directory not found: %s\n", knowledgeDir)
+		_, _ = fmt.Fprintf(os.Stderr, "error: knowledge directory not found: %s\n", knowledgeDir)
 		os.Exit(1)
 	}
 
 	entries, err := os.ReadDir(knowledgeDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading knowledge directory: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "error reading knowledge directory: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -138,7 +138,7 @@ func main() { //nolint:gocognit
 
 		index, err := buildIndex(domain, domainPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: error building index for %s: %v\n", domain, err)
+			_, _ = fmt.Fprintf(os.Stderr, "warning: error building index for %s: %v\n", domain, err)
 			continue
 		}
 
@@ -151,7 +151,7 @@ func main() { //nolint:gocognit
 			fmt.Println(string(data))
 		} else {
 			if err := writeIndex(domainPath, index); err != nil {
-				fmt.Fprintf(os.Stderr, "error writing index for %s: %v\n", domain, err)
+				_, _ = fmt.Fprintf(os.Stderr, "error writing index for %s: %v\n", domain, err)
 				continue
 			}
 			fmt.Printf("wrote %s/index.yaml\n", domain)

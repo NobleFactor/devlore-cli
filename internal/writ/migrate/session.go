@@ -210,21 +210,21 @@ Do not output JSON. Write in a friendly, conversational tone.`
 func (s *Session) generateStaticInitialResponse() string {
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, "## Analysis of %s\n\n", s.opts.SourceRoot)
-	fmt.Fprintf(&sb, "**Detected system:** %s", s.analysis.System)
+	_, _ = fmt.Fprintf(&sb, "## Analysis of %s\n\n", s.opts.SourceRoot)
+	_, _ = fmt.Fprintf(&sb, "**Detected system:** %s", s.analysis.System)
 	if s.analysis.SystemConfidence > 0 {
-		fmt.Fprintf(&sb, " (%.0f%% confidence)", s.analysis.SystemConfidence*100)
+		_, _ = fmt.Fprintf(&sb, " (%.0f%% confidence)", s.analysis.SystemConfidence*100)
 	}
 	sb.WriteString("\n\n")
 
 	st := s.analysis.Stats
-	fmt.Fprintf(&sb, "**Files:** %d | **Projects:** %d | **Platforms:** %d\n\n",
+	_, _ = fmt.Fprintf(&sb, "**Files:** %d | **Projects:** %d | **Platforms:** %d\n\n",
 		st.TotalFiles, st.Projects, st.Platforms)
 
 	if len(s.analysis.Observations) > 0 {
 		sb.WriteString("### Observations\n")
 		for _, obs := range s.analysis.Observations {
-			fmt.Fprintf(&sb, "- %s\n", obs)
+			_, _ = fmt.Fprintf(&sb, "- %s\n", obs)
 		}
 		sb.WriteString("\n")
 	}
@@ -232,7 +232,7 @@ func (s *Session) generateStaticInitialResponse() string {
 	if len(s.analysis.Warnings) > 0 {
 		sb.WriteString("### Warnings\n")
 		for _, warn := range s.analysis.Warnings {
-			fmt.Fprintf(&sb, "- %s\n", warn)
+			_, _ = fmt.Fprintf(&sb, "- %s\n", warn)
 		}
 		sb.WriteString("\n")
 	}
@@ -240,7 +240,7 @@ func (s *Session) generateStaticInitialResponse() string {
 	if len(s.analysis.Recommendations) > 0 {
 		sb.WriteString("### Recommendations\n")
 		for _, rec := range s.analysis.Recommendations {
-			fmt.Fprintf(&sb, "- %s\n", rec)
+			_, _ = fmt.Fprintf(&sb, "- %s\n", rec)
 		}
 		sb.WriteString("\n")
 	}
@@ -366,7 +366,7 @@ func (s *Session) formatGraphForPrompt() string {
 		tgt, _ := node.GetSlot("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
 		source := strings.TrimPrefix(src, s.opts.SourceRoot+"/")
 		target := strings.TrimPrefix(tgt, s.opts.SourceRoot+"/")
-		fmt.Fprintf(&sb, "  %s -> %s\n", source, target)
+		_, _ = fmt.Fprintf(&sb, "  %s -> %s\n", source, target)
 	}
 	return sb.String()
 }
@@ -560,7 +560,7 @@ func (s *Session) outputJSON() {
 		cli.Warn("Failed to format JSON output: %v", err)
 		return
 	}
-	fmt.Fprintln(os.Stdout, buf.String()) //nolint:errcheck // stdout output
+	_, _ = fmt.Fprintln(os.Stdout, buf.String())
 }
 
 // completeStep shows the completion message.
@@ -573,7 +573,7 @@ func (s *Session) completeStep() *console.Step {
 	if len(s.analysis.Recommendations) > 0 {
 		content.WriteString("### Next Steps\n")
 		for i, rec := range s.analysis.Recommendations {
-			fmt.Fprintf(&content, "%d. %s\n", i+1, rec)
+			_, _ = fmt.Fprintf(&content, "%d. %s\n", i+1, rec)
 		}
 	}
 

@@ -32,7 +32,7 @@ func (a *Degraded) Do(_ *op.Context, slots map[string]any) (op.Result, op.Comple
 	kwargs := reassembleKwargs(slots)
 
 	rendered := op.RenderError(format, args, kwargs)
-	fmt.Fprintln(os.Stderr, "degraded:", rendered)
+	_, _ = fmt.Fprintln(os.Stderr, "degraded:", rendered)
 	return rendered, nil, nil
 }
 

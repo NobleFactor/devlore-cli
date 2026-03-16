@@ -201,9 +201,9 @@ func TestPrintFlattened_ShowsAllSettings(t *testing.T) {
 
 	printFlattened("", config)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
-	buf.ReadFrom(r)
+	_, _ = buf.ReadFrom(r)
 
 	output := buf.String()
 

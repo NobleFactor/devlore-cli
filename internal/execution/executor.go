@@ -15,6 +15,7 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
@@ -218,14 +219,15 @@ func (e *GraphExecutor) Run(ctx context.Context, g *op.Graph) error {
 //
 // Returns:
 //   - error: non-nil if any node fails (when ConflictResolution is Stop).
-func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
+func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) (err error) {
+
 	ordered := OrderNodes(g.Nodes, g.Edges)
 
 	execCtx, err := e.newContext(ctx)
 	if err != nil {
 		return err
 	}
-	defer execCtx.Root.Close()
+	defer iox.Close(&err, execCtx.Root)
 	execCtx.Catalog = g.Catalog
 	execCtx.Graph = g
 
@@ -278,12 +280,13 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) error {
 //
 // Returns:
 //   - error: non-nil if any phase fails (includes rollback errors).
-func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) error { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
+func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) (err error) { //nolint:gocognit,gocyclo // complexity is inherent to the algorithm
+
 	execCtx, err := e.newContext(ctx)
 	if err != nil {
 		return err
 	}
-	defer execCtx.Root.Close()
+	defer iox.Close(&err, execCtx.Root)
 	execCtx.Catalog = g.Catalog
 	execCtx.Graph = g
 
@@ -527,14 +530,15 @@ func (e *GraphExecutor) ExecutePhaseInner(ctx *op.Context, g *op.Graph, phase *o
 // Returns:
 //   - []*NodeResult: the per-node execution results.
 //   - error: non-nil if context creation or a node fails (when ConflictResolution is Stop).
-func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []op.Edge) ([]*NodeResult, error) {
+func (e *GraphExecutor) RunNodes(ctx context.Context, nodes []*op.Node, edges []op.Edge) (_ []*NodeResult, err error) {
+
 	ordered := OrderNodes(nodes, edges)
 
 	execCtx, err := e.newContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer execCtx.Root.Close()
+	defer iox.Close(&err, execCtx.Root)
 
 	// Hydrate stub actions and inject context into provider-backed actions.
 	freshReg := op.NewActionRegistry()

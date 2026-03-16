@@ -95,7 +95,7 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 	// Header comment.
 	pos := fn.Position()
 	if pos.IsValid() {
-		fmt.Fprintf(&b, "# Extracted callable — from %s\n", pos)
+		_, _ = fmt.Fprintf(&b, "# Extracted callable — from %s\n", pos)
 	}
 
 	// Closure bindings as module-level constants.
@@ -107,7 +107,7 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("closure binding %q: %w", binding.Name, err)
 			}
-			fmt.Fprintf(&b, "%s = %s\n", binding.Name, lit)
+			_, _ = fmt.Fprintf(&b, "%s = %s\n", binding.Name, lit)
 		}
 		b.WriteString("\n")
 	}
@@ -121,8 +121,8 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("lambda extraction: %w", err)
 		}
-		fmt.Fprintf(&b, "def _callable(%s):\n", strings.Join(params, ", "))
-		fmt.Fprintf(&b, "    return %s\n", body)
+		_, _ = fmt.Fprintf(&b, "def _callable(%s):\n", strings.Join(params, ", "))
+		_, _ = fmt.Fprintf(&b, "    return %s\n", body)
 	} else {
 		// For named functions, extract the full def from source.
 		defText, err := extractDefSource(fn)

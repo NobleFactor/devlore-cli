@@ -23,7 +23,7 @@ func main() {
 	flag.Parse()
 
 	if err := run(*outputDir, *version); err != nil {
-		fmt.Fprintf(os.Stderr, "docgen: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "docgen: %v\n", err)
 		os.Exit(1)
 	}
 }

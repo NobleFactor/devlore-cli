@@ -46,7 +46,7 @@ func newTriadConfined(t *testing.T) triadEnv {
 	if err != nil {
 		t.Fatalf("NewConfinedRoot: %v", err)
 	}
-	t.Cleanup(func() { root.Close() })
+	t.Cleanup(func() { _ = root.Close() })
 	return newTriad(t, root, dir)
 }
 
@@ -223,7 +223,9 @@ func TestTriad_NestedPathRecreation(t *testing.T) {
 			}
 
 			// Remove parent dirs to simulate pruneEmptyParents.
-			os.RemoveAll(filepath.Join(env.Dir, "a"))
+			if err := os.RemoveAll(filepath.Join(env.Dir, "a")); err != nil {
+				t.Fatal(err)
+			}
 
 			// Restore recreates parents.
 			if err := env.Site.RestoreFile(p, recoveryID); err != nil {
