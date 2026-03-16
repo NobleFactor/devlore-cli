@@ -120,6 +120,8 @@ func (t *Tracker) IsIgnored(path string, isDir bool) (ignored bool, source strin
 				return true, t.stack[i].Path
 			case gitignore.Include:
 				return false, t.stack[i].Path
+			case gitignore.NoMatch:
+				continue
 			}
 		}
 	}

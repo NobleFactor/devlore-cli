@@ -341,9 +341,10 @@ func getFieldNames(item interface{}) []string {
 			names[i] = fmt.Sprintf("%v", k.Interface())
 		}
 		return names
-	}
 
-	return nil
+	default:
+		return nil
+	}
 }
 
 // getFieldValue retrieves a field value from a struct or map.
@@ -375,6 +376,9 @@ func getFieldValue(item interface{}, field string) interface{} {
 		if mv.IsValid() {
 			return mv.Interface()
 		}
+
+	default:
+		// No fields for non-struct/non-map kinds.
 	}
 
 	return nil

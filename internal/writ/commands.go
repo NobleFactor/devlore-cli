@@ -608,6 +608,7 @@ func executeUpgrades(cfg *UpgradeConfig, view *execution.StateView, copied map[s
 	var regenerated, skipped int
 	var skippedFiles []string
 
+	var errored int
 	for relTarget, entry := range copied {
 		result := upgradeFile(cfg, view, relTarget, entry, engineData, sopsClient, identities)
 		switch result {
@@ -616,6 +617,8 @@ func executeUpgrades(cfg *UpgradeConfig, view *execution.StateView, copied map[s
 		case upgradeResultSkipped:
 			skipped++
 			skippedFiles = append(skippedFiles, relTarget)
+		case upgradeResultError:
+			errored++
 		}
 	}
 
@@ -635,6 +638,9 @@ func executeUpgrades(cfg *UpgradeConfig, view *execution.StateView, copied map[s
 		cli.Success("%d file(s) regenerated", regenerated)
 	}
 
+	if errored > 0 {
+		return fmt.Errorf("%d file(s) failed to upgrade", errored)
+	}
 	return nil
 }
 

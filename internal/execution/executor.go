@@ -816,6 +816,8 @@ func ApplyResults(g *op.Graph, results []*NodeResult) {
 				if r.Error != nil {
 					n.Error = r.Error.Error()
 				}
+			case ResultPending, ResultRunning:
+				// Not expected in final results; leave node status unchanged.
 			}
 			n.Timestamp = time.Now().Format(time.RFC3339)
 		}

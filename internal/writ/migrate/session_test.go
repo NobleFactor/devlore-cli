@@ -307,6 +307,8 @@ func TestSessionWithRealDirectory(t *testing.T) {
 	case console.StepProgress:
 		// Analysis completed, next call should return conversation step
 		t.Log("Analysis in progress")
+	default:
+		t.Logf("Unexpected step type: %v", step.Type)
 	}
 }
 

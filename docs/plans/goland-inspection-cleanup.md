@@ -54,22 +54,22 @@ or removed separately.
 
 ## Implementation Phases
 
-### Phase 1: Potential Runtime Bugs (16 issues)
+### Phase 1: Potential Runtime Bugs (16 issues) — `complete`
 
 Fix issues that could cause panics or silently wrong behavior.
 
 **GoMaybeNil (14)** — add nil guards or `require.NotNil` assertions:
 
-- [ ] `internal/cli/selfinstall_test.go` lines 65, 89 — `err` dereference after nil check
-- [ ] `internal/console/console_test.go` lines 155, 160, 173 — `session.Next()` may return nil
-- [ ] `internal/execution/phase_test.go` lines 318, 321, 324, 327, 469 — `graph.PhaseByID()` may return nil
-- [ ] `pkg/op/provider/starcomplexity/provider.go` line 99 — `opts.Parse()` may return nil
-- [ ] `pkg/op/provider/starindex/provider.go` line 132 — `opts.Parse()` may return nil
+- [x] `internal/cli/selfinstall_test.go` lines 65, 89 — `t.Error` → `t.Fatal` to prevent nil dereference
+- [x] `internal/console/console_test.go` lines 155, 160, 173 — nil guard after `session.Next()`
+- [x] `internal/execution/phase_test.go` lines 318, 321, 324, 327, 469 — nil guard after `graph.PhaseByID()`
+- [x] `pkg/op/provider/starcomplexity/provider.go` line 99 — nil guard after `opts.Parse()`
+- [x] `pkg/op/provider/starindex/provider.go` line 132 — nil guard after `opts.Parse()`
 
 **GoBoolExpressions (2)** — conditions that are always false:
 
-- [ ] `internal/cli/output_test.go` line 84 — `DefaultFormat != "json"` always false
-- [ ] `internal/writ/segment/segment_test.go` line 398 — `EnvVarPrefix != "WRIT_SEGMENT_"` always false
+- [x] `internal/cli/output_test.go` line 84 — deleted tautological test (const can never differ)
+- [x] `internal/writ/segment/segment_test.go` line 398 — deleted tautological test (const can never differ)
 
 **Files**:
 
@@ -102,17 +102,17 @@ Fix error comparisons that fail on wrapped errors.
 - `pkg/op/triad_test.go` — Modify
 - `cmd/devlore-test/cli_test.go` — Modify
 
-### Phase 3: Missing Switch Cases (11 issues)
+### Phase 3: Missing Switch Cases (11 issues) — `complete`
 
 Add exhaustive `case` branches (or explicit `default` with panic) for iota-const switches.
 
-- [ ] `internal/cli/output.go` lines 319, 356 — two switches
-- [ ] `internal/console/model.go` lines 126, 168, 223, 293 — four switches
-- [ ] `internal/execution/executor.go` line 804 — one switch
-- [ ] `internal/writ/commands.go` line 614 — one switch
-- [ ] `internal/writ/migrate/session.go` line 113 — one switch
-- [ ] `internal/writ/migrate/session_test.go` line 304 — one switch
-- [ ] `pkg/op/provider/file/gitignore/tracker.go` line 118 — one switch
+- [x] `internal/cli/output.go` lines 319, 356 — added `default:` to both reflect.Kind switches
+- [x] `internal/console/model.go` lines 126, 168, 223, 293 — added StepProgress case, default for key types, exhaustive StepType cases
+- [x] `internal/execution/executor.go` line 804 — added ResultPending, ResultRunning cases
+- [x] `internal/writ/commands.go` line 614 — added upgradeResultError case with error reporting
+- [x] `internal/writ/migrate/session.go` line 113 — added missing SessionState cases
+- [x] `internal/writ/migrate/session_test.go` line 304 — added default case
+- [x] `pkg/op/provider/file/gitignore/tracker.go` line 118 — added NoMatch case
 
 **Files**:
 
@@ -240,7 +240,7 @@ global variables. Per the governing principle: this is greenfield — no legacy 
 
 **Files**: ~30 files across internal/ and pkg/.
 
-### Phase 6: Style & Modernization (42 issues) — `in-progress`
+### Phase 6: Style & Modernization (42 issues, 6 skipped) — `in-progress`
 
 **GoRedundantConversion (15)** — `complete`:
 
@@ -261,9 +261,11 @@ global variables. Per the governing principle: this is greenfield — no legacy 
 - [ ] `pkg/op/resource_test.go` line 69 — `&base`
 - [ ] `pkg/op/starvalue_marshal_test.go` line 221 — `&s`
 
-**GoMixedReceiverTypes (6)** — `Path` struct in `pkg/op/root.go`:
+**GoMixedReceiverTypes (6)** — `Path` struct in `pkg/op/root.go` — `skipped` (false positive):
 
-- [ ] `pkg/op/root.go` lines 49, 52, 55, 58, 61, 81 — standardize receivers to pointer
+- [x] `pkg/op/root.go` lines 49, 52, 55, 58, 61, 81 — value receivers on getters, pointer
+  receiver on `UnmarshalJSON` is correct Go idiom. Changing to all-pointer would alter copy
+  semantics. No action needed.
 
 **GoErrorsAsToAsType (5)** — Go 1.26 `errors.AsType`:
 
