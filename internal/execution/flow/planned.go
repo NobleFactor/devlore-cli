@@ -11,28 +11,53 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// FlowPlan implements the plan.flow namespace for Starlark scripts.
-// Handwritten — flow actions have custom signatures that don't fit the
-// reflection-based WrapProviderInPlanningReceiver model.
-type FlowPlan struct {
+// Plan implements the plan.flow namespace for Starlark scripts. Handwritten — flow actions have custom signatures that
+// don't fit the reflection-based WrapProviderInPlanningReceiver model.
+type Plan struct {
 	graph   *op.Graph
 	project string
 	reg     *op.ActionRegistry
 }
 
-// NewFlowPlan creates a plan.flow namespace bound to the given graph.
-func NewFlowPlan(graph *op.Graph, project string, reg *op.ActionRegistry) *FlowPlan {
-	return &FlowPlan{graph: graph, project: project, reg: reg}
+// NewFlowPlan creates a [Plan] bound to the given graph.
+//
+// Parameters:
+//   - graph: the operation graph to populate
+//   - project: the project identifier
+//   - reg: the action registry for node creation
+//
+// Returns:
+//   - *Plan: the plan.flow namespace
+func NewFlowPlan(graph *op.Graph, project string, reg *op.ActionRegistry) *Plan {
+
+	return &Plan{graph: graph, project: project, reg: reg}
 }
 
-func (f *FlowPlan) String() string        { return "flow" }
-func (f *FlowPlan) Type() string          { return "flow" }
-func (f *FlowPlan) Freeze()               {}
-func (f *FlowPlan) Truth() starlark.Bool  { return true }
-func (f *FlowPlan) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: flow") }
+// String implements [starlark.Value].
+func (f *Plan) String() string { return "flow" }
 
-// Attr implements starlark.HasAttrs.
-func (f *FlowPlan) Attr(name string) (starlark.Value, error) {
+// Type implements [starlark.Value].
+func (f *Plan) Type() string { return "flow" }
+
+// Freeze implements [starlark.Value].
+func (f *Plan) Freeze() {}
+
+// Truth implements [starlark.Value].
+func (f *Plan) Truth() starlark.Bool { return true }
+
+// Hash implements [starlark.Value].
+func (f *Plan) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: flow") }
+
+// Attr implements [starlark.HasAttrs].
+//
+// Parameters:
+//   - name: the attribute name to look up
+//
+// Returns:
+//   - starlark.Value: the builtin function for the attribute
+//   - error: if the attribute does not exist
+func (f *Plan) Attr(name string) (starlark.Value, error) {
+
 	switch name {
 	case "complete":
 		return starlark.NewBuiltin("flow.complete", f.complete), nil
@@ -45,14 +70,27 @@ func (f *FlowPlan) Attr(name string) (starlark.Value, error) {
 	}
 }
 
-// AttrNames implements starlark.HasAttrs.
-func (f *FlowPlan) AttrNames() []string {
+// AttrNames implements [starlark.HasAttrs].
+//
+// Returns:
+//   - []string: the available attribute names
+func (f *Plan) AttrNames() []string {
+
 	return []string{"complete", "degraded", "fatal"}
 }
 
 // complete creates a flow.complete terminal node in the graph.
+//
 // Usage: plan.flow.complete() or plan.flow.complete(output=value)
-func (f *FlowPlan) complete(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+//
+// Parameters:
+//   - args: positional arguments (unused)
+//   - kwargs: optional "output" keyword argument
+//
+// Returns:
+//   - starlark.Value: an [op.Output] promise for the terminal node
+//   - error: any error from slot filling
+func (f *Plan) complete(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var output starlark.Value = starlark.None
 
 	if err := starlark.UnpackArgs("complete", args, kwargs, "output?", &output); err != nil {
@@ -74,12 +112,20 @@ func (f *FlowPlan) complete(_ *starlark.Thread, _ *starlark.Builtin, args starla
 }
 
 // degraded creates a flow.degraded terminal node in the graph.
+//
 // Usage: plan.flow.degraded(format, *args, **kwargs)
 //
-// First positional arg is the format string. Remaining positional args
-// are packed into the "args" list slot. Keyword args are packed into
-// the "kwargs" dict slot. Promise values in any position create edges.
-func (f *FlowPlan) degraded(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+// First positional arg is the format string. Remaining positional args are packed into the "args" list slot. Keyword
+// args are packed into the "kwargs" dict slot. Promise values in any position create edges.
+//
+// Parameters:
+//   - args: format string (required) followed by optional positional arguments
+//   - kwargs: optional keyword arguments for string formatting
+//
+// Returns:
+//   - starlark.Value: an [op.Output] promise for the terminal node
+//   - error: any error from slot filling
+func (f *Plan) degraded(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
 		return nil, fmt.Errorf("degraded: missing required argument: format")
 	}
@@ -110,11 +156,19 @@ func (f *FlowPlan) degraded(_ *starlark.Thread, _ *starlark.Builtin, args starla
 }
 
 // fatal creates a flow.fatal terminal node in the graph.
+//
 // Usage: plan.flow.fatal(format, *args, **kwargs)
 //
-// Same signature as degraded. The action returns FatalError which halts
-// graph execution.
-func (f *FlowPlan) fatal(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+// Same signature as degraded. The action returns FatalError which halts graph execution.
+//
+// Parameters:
+//   - args: format string (required) followed by optional positional arguments
+//   - kwargs: optional keyword arguments for string formatting
+//
+// Returns:
+//   - starlark.Value: an [op.Output] promise for the terminal node
+//   - error: any error from slot filling
+func (f *Plan) fatal(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
 		return nil, fmt.Errorf("fatal: missing required argument: format")
 	}
@@ -141,8 +195,17 @@ func (f *FlowPlan) fatal(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	return op.NewOutput(node, f.graph, ""), nil
 }
 
-// fillListSlot packs Starlark values into a list slot on a node.
-// Promise values create edges; immediates are stored directly.
+// fillListSlot packs Starlark values into indexed sub-slots on a node. Promise values create edges; immediates are
+// stored directly.
+//
+// Parameters:
+//   - node: the graph node to populate
+//   - graph: the operation graph for edge creation
+//   - slotName: base name for the indexed sub-slots (e.g., "args" → "args[0]", "args[1]")
+//   - values: the Starlark values to pack
+//
+// Returns:
+//   - error: any error from slot filling
 func fillListSlot(node *op.Node, graph *op.Graph, slotName string, values starlark.Tuple) error {
 	if len(values) == 0 {
 		return nil
@@ -157,8 +220,17 @@ func fillListSlot(node *op.Node, graph *op.Graph, slotName string, values starla
 	return nil
 }
 
-// fillDictSlot packs Starlark keyword tuples into a dict slot on a node.
-// Promise values create edges; immediates are stored directly.
+// fillDictSlot packs Starlark keyword tuples into keyed sub-slots on a node. Promise values create edges; immediates
+// are stored directly.
+//
+// Parameters:
+//   - node: the graph node to populate
+//   - graph: the operation graph for edge creation
+//   - slotName: base name for the keyed sub-slots (e.g., "kwargs" → "kwargs.key")
+//   - kwargs: the Starlark keyword tuples to pack
+//
+// Returns:
+//   - error: any error from slot filling
 func fillDictSlot(node *op.Node, graph *op.Graph, slotName string, kwargs []starlark.Tuple) error {
 	if len(kwargs) == 0 {
 		return nil
