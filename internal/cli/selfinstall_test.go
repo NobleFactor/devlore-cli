@@ -60,7 +60,7 @@ func TestNewSelfInstallCmd_RequiresPrefix(t *testing.T) {
 	cmd.SetArgs([]string{})
 	err := cmd.Execute()
 	if err == nil {
-		t.Error("expected error when --prefix is not provided")
+		t.Fatal("expected error when --prefix is not provided")
 	}
 	if !strings.Contains(err.Error(), "--prefix is required") {
 		t.Errorf("expected '--prefix is required' error, got: %v", err)
@@ -83,7 +83,7 @@ func TestNewSelfInstallCmd_RejectsPositionalArgs(t *testing.T) {
 	cmd.SetArgs([]string{"~/.local"})
 	err := cmd.Execute()
 	if err == nil {
-		t.Error("expected error when positional argument is provided")
+		t.Fatal("expected error when positional argument is provided")
 	}
 	// The error message depends on cobra's implementation
 	if !strings.Contains(err.Error(), "unknown command") && !strings.Contains(err.Error(), "accepts 0 arg") {

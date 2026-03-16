@@ -115,6 +115,8 @@ func (s *Session) Respond(response string) error {
 		return s.processConversation(response)
 	case StatePlanProposed:
 		return s.processPlanResponse(response)
+	case StateAnalyzing, StateExecuting, StateComplete, StateError:
+		// No response processing in these states.
 	}
 
 	return nil

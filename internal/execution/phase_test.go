@@ -315,6 +315,10 @@ func TestPhasedExecutionFailureWithRollback(t *testing.T) {
 	provision := graph.PhaseByID("phase.provision")
 	verify := graph.PhaseByID("phase.verify")
 
+	if prepare == nil || install == nil || provision == nil || verify == nil {
+		t.Fatal("expected all phases to be present in graph")
+	}
+
 	if prepare.Status != op.PhaseRolledBack {
 		t.Errorf("prepare: expected rolled_back, got %s", prepare.Status)
 	}
@@ -466,6 +470,9 @@ func TestPhasedExecutionRetryExhausted(t *testing.T) {
 	}
 
 	phase := graph.PhaseByID("phase.install")
+	if phase == nil {
+		t.Fatal("expected phase.install to be present in graph")
+	}
 	if phase.Status != op.PhaseFailed {
 		t.Errorf("expected failed, got %s", phase.Status)
 	}

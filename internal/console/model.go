@@ -132,6 +132,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSelectKey(msg)
 	case StepInput:
 		return m.handleInputKey(msg)
+	case StepProgress:
+		return m, nil
 	case StepComplete, StepError:
 		if msg.Type == tea.KeyEnter {
 			m.quitting = true
@@ -178,6 +180,8 @@ func (m *Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedIndex < len(m.step.Options) {
 			return m.advance(m.step.Options[m.selectedIndex].Value)
 		}
+	default:
+		// Ignore unhandled key types
 	}
 	return m, nil
 }
@@ -228,6 +232,8 @@ func (m *Model) initInputForStep() tea.Cmd {
 		return textinput.Blink
 	case StepProgress:
 		return m.spinner.Tick
+	case StepInfo, StepConfirm, StepSelect, StepComplete, StepError:
+		// No initialization needed.
 	}
 	return nil
 }
@@ -345,6 +351,9 @@ func (m *Model) renderStepInteraction() string {
 			b.WriteString(m.styles.Error.Render("✗ An error occurred"))
 		}
 		b.WriteString("\n")
+
+	case StepInfo:
+		// Info steps render only the title/description — no interaction area.
 	}
 
 	return b.String()

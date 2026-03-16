@@ -6,6 +6,7 @@
 package starcomplexity
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -92,6 +93,9 @@ func analyzeFileComplexity(absPath, root string) (*FileComplexity, error) {
 	f, err := opts.Parse(relPath, data, 0)
 	if err != nil {
 		return nil, err
+	}
+	if f == nil {
+		return nil, fmt.Errorf("parse returned nil file for %s", relPath)
 	}
 
 	fc := &FileComplexity{Path: relPath}

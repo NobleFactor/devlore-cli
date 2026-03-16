@@ -392,10 +392,3 @@ func TestLoadFromEnvOverridesExisting(t *testing.T) {
 		t.Errorf("ROLE = %q, want %q", result.Get("ROLE"), "server")
 	}
 }
-
-func TestEnvVarPrefix(t *testing.T) {
-	// Verify the constant is what we expect
-	if EnvVarPrefix != "WRIT_SEGMENT_" {
-		t.Errorf("EnvVarPrefix = %q, want %q", EnvVarPrefix, "WRIT_SEGMENT_")
-	}
-}

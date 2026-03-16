@@ -7,6 +7,7 @@ package starindex
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,9 @@ func indexFile(absPath, root string, withDocstrings, withGlobals bool) (*Indexed
 	f, err := opts.Parse(relPath, data, 0)
 	if err != nil {
 		return nil, err
+	}
+	if f == nil {
+		return nil, fmt.Errorf("parse returned nil file for %s", relPath)
 	}
 
 	loc, sloc, comments, blanks := countLines(data)

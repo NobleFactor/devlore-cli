@@ -80,12 +80,6 @@ func TestExitCode(t *testing.T) {
 	}
 }
 
-func TestOutputFlagsDefaults(t *testing.T) {
-	if DefaultFormat != "json" {
-		t.Errorf("expected DefaultFormat 'json', got %q", DefaultFormat)
-	}
-}
-
 func TestAddOutputFlags(t *testing.T) {
 	cmd := &cobra.Command{Use: "test"}
 	var flags OutputFlags

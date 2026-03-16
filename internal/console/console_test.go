@@ -152,11 +152,17 @@ func TestMockSession(t *testing.T) {
 
 	// Advance through steps
 	step1 := session.Next()
+	if step1 == nil {
+		t.Fatal("expected non-nil step1")
+	}
 	if step1.Title != "Step 1" {
 		t.Errorf("expected 'Step 1', got %q", step1.Title)
 	}
 
 	step2 := session.Next()
+	if step2 == nil {
+		t.Fatal("expected non-nil step2")
+	}
 	if step2.Title != "Step 2" {
 		t.Errorf("expected 'Step 2', got %q", step2.Title)
 	}
@@ -170,6 +176,9 @@ func TestMockSession(t *testing.T) {
 	}
 
 	step3 := session.Next()
+	if step3 == nil {
+		t.Fatal("expected non-nil step3")
+	}
 	if step3.Title != "Done" {
 		t.Errorf("expected 'Done', got %q", step3.Title)
 	}
