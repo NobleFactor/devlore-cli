@@ -134,20 +134,31 @@ pkg/
 - [x] Add tests in `pkg/iox/close_test.go`
 - [x] Adopt `iox.Close` at all 37 Close call sites identified in the inspection cleanup
 
-### Phase 2: Delete Dead Exports
+### Phase 2: Relocate `internal/execution/flow` → `pkg/op/flow` — `complete`
+
+Flow control actions (degraded, elevate, gather, etc.) use the op framework to do their job
+and belong as a peer of `provider`, `sops`, and `starvalue` — not buried under
+`internal/execution`.
+
+- [x] `git mv internal/execution/flow pkg/op/flow`
+- [x] Update imports in `pkg/op/provider/register.go`, `internal/execution/flow_test.go`,
+      `internal/execution/compensation_test.go`
+- [x] Verify `make check` passes
+
+### Phase 3: Delete Dead Exports
 
 - [ ] Remove or unexport the ~26 dead symbols
 - [ ] Verify `make check` passes
 - [ ] Cross-reference with GoLand inspection cleanup (Phase 5 dead code overlaps)
 
-### Phase 3: Create `pkg/op/internal/provider`
+### Phase 4: Create `pkg/op/internal/provider`
 
 - [ ] Create the package structure
 - [ ] Move the 19 provider-only symbols
 - [ ] Update all `pkg/op/provider/*` imports
 - [ ] Verify no code outside `pkg/op/` references the moved symbols
 
-### Phase 4: Verify and Clean Up
+### Phase 5: Verify and Clean Up
 
 - [ ] `make check` passes
 - [ ] Verify `internal/execution`, `internal/cli`, `cmd/` cannot import `pkg/op/internal/`

@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/execution/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
