@@ -19,6 +19,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/internal/registry"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -666,7 +667,7 @@ func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,goc
 	// Ensure registry is synced
 	if !reg.Exists() {
 		cli.Note("Syncing registry...")
-		if _, err := reg.Sync(ctx, lorepackage.SyncOptions{}); err != nil {
+		if _, err := reg.Sync(ctx, registry.SyncOptions{}); err != nil {
 			return fmt.Errorf("syncing registry: %w", err)
 		}
 	}

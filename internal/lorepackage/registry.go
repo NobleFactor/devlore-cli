@@ -12,20 +12,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
 
 // Registry provides access to a devlore registry.
 type Registry struct {
-	name      string   // Registry name (e.g., "central")
-	provider  Provider // Transport provider (git, oci, etc.)
-	cacheDir  string   // Local cache directory
-	forceTags bool     // Force tag resolution even on non-main branches
+	name      string             // Registry name (e.g., "central")
+	transport registry.Transport // Transport (git, oci, etc.)
+	cacheDir  string             // Local cache directory
 }
 
 // NewRegistry creates a registry using configuration from ~/.config/devlore/config.yaml.
@@ -44,57 +43,23 @@ func NewRegistry() (*Registry, error) {
 	regCfg := cfg.Registry.WithDefaults()
 
 	return &Registry{
-		name:      "central",
-		provider:  NewGitProvider(regCfg.URL, regCfg.Branch),
-		cacheDir:  filepath.Join(cacheDir, "central"),
-		forceTags: regCfg.ForceTags,
+		name: "central",
+		transport: registry.NewTransport(registry.Config{
+			URL:       regCfg.URL,
+			Branch:    regCfg.Branch,
+			ForceTags: regCfg.ForceTags,
+		}),
+		cacheDir: filepath.Join(cacheDir, "central"),
 	}, nil
 }
 
-// Provider abstracts the transport mechanism for registry access.
-type Provider interface {
-	// Sync updates the local cache from the remote registry.
-	// Returns information about what changed.
-	Sync(ctx context.Context, cacheDir string, opts SyncOptions) (*SyncResult, error)
-
-	// Name returns the provider type ("git", "oci", etc.)
-	Name() string
-}
-
-// SyncOptions controls sync behavior.
-type SyncOptions struct {
-	Force bool // Force sync even if cache is fresh
-}
-
-// SyncResult contains information about a sync operation.
-type SyncResult struct {
-	Updated   bool      // Whether the cache was updated
-	FromRef   string    // Previous reference (commit SHA, digest, etc.)
-	ToRef     string    // New reference
-	SyncedAt  time.Time // When sync completed
-	FromClone bool      // True if this was a fresh clone
-}
-
-// SyncInfo tracks the last sync state.
-type SyncInfo struct {
-	LastSync time.Time `yaml:"last_sync"`
-	Ref      string    `yaml:"ref"`
-	Provider string    `yaml:"provider"`
-	Endpoint string    `yaml:"endpoint"`
-}
-
-// New creates a new registry.
-func New(name string, provider Provider, cacheDir string) *Registry {
+// New creates a new registry with the given transport.
+func New(name string, transport registry.Transport, cacheDir string) *Registry {
 	return &Registry{
-		name:     name,
-		provider: provider,
-		cacheDir: cacheDir,
+		name:      name,
+		transport: transport,
+		cacheDir:  cacheDir,
 	}
-}
-
-// ForceTags returns whether tag resolution is forced (even on non-main branches).
-func (r *Registry) ForceTags() bool {
-	return r.forceTags
 }
 
 // defaultCacheDir returns the default cache directory.
@@ -112,8 +77,8 @@ func defaultCacheDir() (string, error) {
 }
 
 // Sync updates the local cache from the remote registry.
-func (r *Registry) Sync(ctx context.Context, opts SyncOptions) (*SyncResult, error) {
-	return r.provider.Sync(ctx, r.cacheDir, opts)
+func (r *Registry) Sync(ctx context.Context, opts registry.SyncOptions) (*registry.SyncResult, error) {
+	return r.transport.Sync(ctx, r.cacheDir, opts)
 }
 
 // CacheDir returns the local cache directory path.
@@ -130,13 +95,13 @@ func (r *Registry) Exists() bool {
 // SyncInfo returns information about the last sync, if available.
 //
 // Returns:
-//   - *SyncInfo: sync metadata, or nil if no sync has occurred
+//   - *registry.SyncInfo: sync metadata, or nil if no sync has occurred
 //   - error: read or parse error
-func (r *Registry) SyncInfo() (*SyncInfo, error) {
+func (r *Registry) SyncInfo() (*registry.SyncInfo, error) {
 
 	infoPath := filepath.Join(r.cacheDir, ".sync-info.yaml")
 
-	var info SyncInfo
+	var info registry.SyncInfo
 	found, err := document.ReadIfExists(infoPath, &info)
 	if err != nil {
 		return nil, err
@@ -181,63 +146,23 @@ func (r *Registry) FilePath(relPath string) string {
 // ListVersions returns all available version tags.
 // Tags are returned in descending semver order (newest first).
 func (r *Registry) ListVersions(ctx context.Context) ([]string, error) {
-	gp, ok := r.provider.(*GitProvider)
-	if !ok {
-		return nil, fmt.Errorf("version listing requires git provider")
-	}
-	return gp.ListVersions(ctx, r.cacheDir)
+	return r.transport.ListVersions(ctx, r.cacheDir)
 }
 
-// ResolveVersion resolves a version string to a git ref.
-// Uses ForceTags setting to determine behavior on non-main branches.
+// ResolveVersion resolves a version string to a ref.
+// ForceTags behavior is handled by the transport.
 func (r *Registry) ResolveVersion(ctx context.Context, version string) (string, error) {
-	gp, ok := r.provider.(*GitProvider)
-	if !ok {
-		return "", fmt.Errorf("version resolution requires git provider")
-	}
-
-	// If ForceTags is set, always resolve via tags (even on non-main)
-	if r.forceTags && (version == "" || version == "latest") {
-		return gp.resolveTag(ctx, r.cacheDir, "latest")
-	}
-
-	return gp.ResolveVersion(ctx, r.cacheDir, version)
+	return r.transport.ResolveVersion(ctx, r.cacheDir, version)
 }
 
 // CheckoutVersion checks out a specific version in the cache.
 func (r *Registry) CheckoutVersion(ctx context.Context, version string) error {
-	gp, ok := r.provider.(*GitProvider)
-	if !ok {
-		return fmt.Errorf("version checkout requires git provider")
-	}
-
-	// If ForceTags is set and version is "latest", use tag even on non-main
-	if r.forceTags && (version == "" || version == "latest") {
-		if err := gp.fetchTags(ctx, r.cacheDir); err != nil {
-			return err
-		}
-		return gp.runGit(ctx, r.cacheDir, "checkout", "latest")
-	}
-
-	return gp.CheckoutVersion(ctx, r.cacheDir, version)
+	return r.transport.CheckoutVersion(ctx, r.cacheDir, version)
 }
 
 // CurrentVersion returns the version tag at HEAD, or "" if HEAD is not tagged.
 func (r *Registry) CurrentVersion(ctx context.Context) (string, error) {
-	gp, ok := r.provider.(*GitProvider)
-	if !ok {
-		return "", fmt.Errorf("version query requires git provider")
-	}
-	return gp.CurrentVersion(ctx, r.cacheDir)
-}
-
-// Branch returns the configured branch name.
-func (r *Registry) Branch() string {
-	gp, ok := r.provider.(*GitProvider)
-	if !ok {
-		return ""
-	}
-	return gp.Branch()
+	return r.transport.CurrentVersion(ctx, r.cacheDir)
 }
 
 // Knowledge returns a domain accessor for reading knowledge assets.
