@@ -12,9 +12,9 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
-	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 // CurrentVersion is the graph format version (delegates to op.GraphFormatVersion).
@@ -212,18 +212,13 @@ func ConfigureEngine(cfg *Config, targetRoot string) (*execution.GraphExecutor, 
 		engineData[k] = v
 	}
 
-	// Set up SOPS decryptor
-	secretsMgr, err := secrets.NewManager(cfg.SourceRoot)
-	if err != nil {
-		return nil, fmt.Errorf("initialize secrets manager: %w", err)
-	}
-	if secretsMgr != nil {
-		engineData["decryptor"] = secretsMgr.Decryptor()
-	}
+	// Set up SOPS client
+	sopsClient, _ := sops.NewClient(cfg.SourceRoot) //nolint:errcheck // nil when no .sops.yaml found
 
 	// Create engine
 	engine := execution.NewGraphExecutor(execution.ExecutorOptions{
 		Root:               targetRoot,
+		SopsClient:         sopsClient,
 		Data:               engineData,
 		DryRun:             cfg.DryRun,
 		ConflictResolution: cfg.ConflictResolution,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package signing
+package sops
 
 import (
 	"context"
@@ -17,14 +17,24 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 )
 
-// AWSKMSSigner signs using AWS KMS.
-type AWSKMSSigner struct {
+// Interface guard.
+var _ signer = (*awsKMSSigner)(nil)
+
+// awsKMSSigner signs using AWS KMS.
+type awsKMSSigner struct {
 	keyARNs []string
 }
 
-// NewAWSKMSSigner creates an AWS KMS signer with the given key ARNs.
-// The keyARNs string can contain multiple ARNs separated by commas or newlines.
-func NewAWSKMSSigner(keyARNs string) *AWSKMSSigner {
+// newAWSKMSSigner creates an AWS KMS signer with the given key ARNs. The keyARNs string can contain multiple ARNs
+// separated by commas or newlines.
+//
+// Parameters:
+//   - keyARNs: comma/newline-separated AWS KMS key ARNs
+//
+// Returns:
+//   - *awsKMSSigner: the configured signer
+func newAWSKMSSigner(keyARNs string) *awsKMSSigner {
+
 	var arns []string
 	for _, line := range strings.Split(keyARNs, "\n") {
 		for _, arn := range strings.Split(line, ",") {
@@ -34,17 +44,18 @@ func NewAWSKMSSigner(keyARNs string) *AWSKMSSigner {
 			}
 		}
 	}
-	return &AWSKMSSigner{keyARNs: arns}
+	return &awsKMSSigner{keyARNs: arns}
 }
 
-// Name returns "aws_kms".
-func (a *AWSKMSSigner) Name() string {
-	return "aws_kms"
-}
+// region UNEXPORTED METHODS
 
-// Available returns true if AWS credentials are configured and
-// we can access at least one of the configured keys.
-func (a *AWSKMSSigner) Available() bool {
+// region Behaviors
+
+func (a *awsKMSSigner) name() string { return "aws_kms" }
+
+// available returns true if AWS credentials are configured and we can access at least one of the configured keys.
+func (a *awsKMSSigner) available() bool {
+
 	if len(a.keyARNs) == 0 {
 		return false
 	}
@@ -52,13 +63,11 @@ func (a *AWSKMSSigner) Available() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Try to load AWS config
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return false
 	}
 
-	// Check if we can describe at least one key
 	for _, arn := range a.keyARNs {
 		region := extractRegionFromARN(arn)
 		if region == "" {
@@ -69,7 +78,6 @@ func (a *AWSKMSSigner) Available() bool {
 			o.Region = region
 		})
 
-		// Try to describe the key to verify access
 		_, err := client.DescribeKey(ctx, &kms.DescribeKeyInput{
 			KeyId: &arn,
 		})
@@ -81,52 +89,9 @@ func (a *AWSKMSSigner) Available() bool {
 	return false
 }
 
-// extractRegionFromARN extracts the AWS region from a KMS key ARN.
-// ARN format: arn:aws:kms:REGION:ACCOUNT:key/KEY-ID
-func extractRegionFromARN(arn string) string {
-	// arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012
-	re := regexp.MustCompile(`arn:aws:kms:([^:]+):`)
-	matches := re.FindStringSubmatch(arn)
-	if len(matches) >= 2 {
-		return matches[1]
-	}
-	return ""
-}
+// sign signs the data using AWS KMS.
+func (a *awsKMSSigner) sign(data []byte) (*Signature, error) {
 
-// findAvailableKey returns the first key ARN that we can use for signing.
-func (a *AWSKMSSigner) findAvailableKey(ctx context.Context, cfg aws.Config) (string, *kms.Client) {
-	for _, arn := range a.keyARNs {
-		region := extractRegionFromARN(arn)
-		if region == "" {
-			continue
-		}
-
-		client := kms.NewFromConfig(cfg, func(o *kms.Options) {
-			o.Region = region
-		})
-
-		// Verify we can use this key for signing
-		describeOut, err := client.DescribeKey(ctx, &kms.DescribeKeyInput{
-			KeyId: &arn,
-		})
-		if err != nil {
-			continue
-		}
-
-		// Check if key can be used for signing
-		keyUsage := describeOut.KeyMetadata.KeyUsage
-		if keyUsage != types.KeyUsageTypeSignVerify {
-			// This key is for encrypt/decrypt, not signing
-			continue
-		}
-
-		return arn, client
-	}
-	return "", nil
-}
-
-// Sign signs the data using AWS KMS.
-func (a *AWSKMSSigner) Sign(data []byte) (*Signature, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -140,10 +105,8 @@ func (a *AWSKMSSigner) Sign(data []byte) (*Signature, error) {
 		return nil, &SignError{Backend: "aws_kms", Err: ErrNoKeyAvailable}
 	}
 
-	// Hash the data first (KMS has message size limits)
 	hash := sha256.Sum256(data)
 
-	// Sign the hash
 	signOut, err := client.Sign(ctx, &kms.SignInput{
 		KeyId:            &keyARN,
 		Message:          hash[:],
@@ -161,8 +124,67 @@ func (a *AWSKMSSigner) Sign(data []byte) (*Signature, error) {
 	}, nil
 }
 
-// VerifyAWSKMS verifies an AWS KMS signature.
-func VerifyAWSKMS(data []byte, sig *Signature) error {
+// findAvailableKey returns the first key ARN that we can use for signing.
+func (a *awsKMSSigner) findAvailableKey(ctx context.Context, cfg aws.Config) (string, *kms.Client) {
+
+	for _, arn := range a.keyARNs {
+		region := extractRegionFromARN(arn)
+		if region == "" {
+			continue
+		}
+
+		client := kms.NewFromConfig(cfg, func(o *kms.Options) {
+			o.Region = region
+		})
+
+		describeOut, err := client.DescribeKey(ctx, &kms.DescribeKeyInput{
+			KeyId: &arn,
+		})
+		if err != nil {
+			continue
+		}
+
+		if describeOut.KeyMetadata.KeyUsage != types.KeyUsageTypeSignVerify {
+			continue
+		}
+
+		return arn, client
+	}
+	return "", nil
+}
+
+// endregion
+
+// endregion
+
+// extractRegionFromARN extracts the AWS region from a KMS key ARN.
+// ARN format: arn:aws:kms:REGION:ACCOUNT:key/KEY-ID
+//
+// Parameters:
+//   - arn: AWS KMS key ARN
+//
+// Returns:
+//   - string: AWS region, or empty if not parseable
+func extractRegionFromARN(arn string) string {
+
+	re := regexp.MustCompile(`arn:aws:kms:([^:]+):`)
+	matches := re.FindStringSubmatch(arn)
+	if len(matches) >= 2 {
+		return matches[1]
+	}
+	return ""
+}
+
+// verifyAWSKMS verifies an AWS KMS signature.
+//
+// Parameters:
+//   - data: original content
+//   - sig: signature to verify
+//
+// Returns:
+//   - error: verification error
+func verifyAWSKMS(data []byte, sig *Signature) error {
+
 	if sig.Method != "aws_kms" {
 		return &VerifyError{Backend: "aws_kms", Err: ErrWrongMethod}
 	}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package secrets
+package sops
 
 import (
 	"bytes"
@@ -11,10 +11,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// IsEncrypted checks if data is a SOPS-encrypted envelope.
-// Returns false if the data is plaintext (e.g., smudge filter decrypted it).
+// IsEncrypted reports whether data contains SOPS metadata or age armor.
+//
+// Parameters:
+//   - data: content to inspect
+//
+// Returns:
+//   - bool: true if the data appears to be SOPS-encrypted
 func IsEncrypted(data []byte) bool {
-	// Check for SOPS metadata in structured files (JSON/YAML)
+
 	if hasSopsMetadata(data) {
 		return true
 	}
@@ -32,9 +37,31 @@ func IsEncrypted(data []byte) bool {
 	return false
 }
 
+// IsSecretFile reports whether a filename indicates a SOPS-encrypted file.
+//
+// Parameters:
+//   - filename: filename to check (path or basename)
+//
+// Returns:
+//   - bool: true if the filename ends with .sops, .sops.yaml, or .sops.json
+func IsSecretFile(filename string) bool {
+
+	lower := strings.ToLower(filename)
+	return strings.HasSuffix(lower, ".sops") ||
+		strings.HasSuffix(lower, ".sops.yaml") ||
+		strings.HasSuffix(lower, ".sops.json")
+}
+
 // hasSopsMetadata checks for SOPS metadata in JSON or YAML structured files.
 // SOPS adds a "sops" key with encryption metadata.
+//
+// Parameters:
+//   - data: content to inspect
+//
+// Returns:
+//   - bool: true if the data contains a "sops" key
 func hasSopsMetadata(data []byte) bool {
+
 	// Try JSON first
 	if bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
 		var obj map[string]any
@@ -56,13 +83,4 @@ func hasSopsMetadata(data []byte) bool {
 	}
 
 	return false
-}
-
-// IsSecretFile checks if a filename indicates an encrypted file.
-// This checks extensions, not file content.
-func IsSecretFile(filename string) bool {
-	lower := strings.ToLower(filename)
-	return strings.HasSuffix(lower, ".sops") ||
-		strings.HasSuffix(lower, ".sops.yaml") ||
-		strings.HasSuffix(lower, ".sops.json")
 }

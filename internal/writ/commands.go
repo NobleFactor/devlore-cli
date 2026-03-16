@@ -26,12 +26,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
-	"github.com/NobleFactor/devlore-cli/internal/writ/secrets"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/snapshot"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 
 	// Blank import triggers init() in all provider packages,
 	// which call op.Announce() to self-register.
@@ -536,10 +536,10 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Prepare engine data
-	engineData, identities := prepareUpgradeEngine(cfg)
+	engineData, sopsClient, identities := prepareUpgradeEngine(cfg)
 
 	// 4. Execute upgrades
-	return executeUpgrades(cfg, view, copied, engineData, identities)
+	return executeUpgrades(cfg, view, copied, engineData, sopsClient, identities)
 }
 
 // loadViewAndCopiedFiles loads state view and filters copied files by project.
@@ -573,8 +573,8 @@ func loadViewAndCopiedFiles(cfg *UpgradeConfig) (*execution.StateView, map[strin
 	return view, copied, nil
 }
 
-// prepareUpgradeEngine prepares the engine data and loads identities.
-func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, []age.Identity) {
+// prepareUpgradeEngine prepares the engine data, SOPS client, and loads identities.
+func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, *sops.Client, []age.Identity) {
 	segs := segment.DetectSegments().LoadFromEnv()
 
 	segMap := make(map[string]string)
@@ -596,21 +596,20 @@ func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, []age.Identity) {
 		engineData[k] = v
 	}
 
-	// Use the configured source root for secrets
-	upgradeSecretsMgr, _ := secrets.NewManager(cfg.SourceRoot) //nolint:errcheck // fallback: continue without secrets
-	engineData["decryptor"] = upgradeSecretsMgr.Decryptor()
+	// Set up SOPS client
+	sopsClient, _ := sops.NewClient(cfg.SourceRoot) //nolint:errcheck // nil when no .sops.yaml found
 
 	identities, _ := identity.LoadIdentities() //nolint:errcheck // fallback: continue without identities
-	return engineData, identities
+	return engineData, sopsClient, identities
 }
 
 // executeUpgrades regenerates copied files.
-func executeUpgrades(cfg *UpgradeConfig, view *execution.StateView, copied map[string]*execution.FileEntry, engineData map[string]any, identities []age.Identity) error {
+func executeUpgrades(cfg *UpgradeConfig, view *execution.StateView, copied map[string]*execution.FileEntry, engineData map[string]any, sopsClient *sops.Client, identities []age.Identity) error {
 	var regenerated, skipped int
 	var skippedFiles []string
 
 	for relTarget, entry := range copied {
-		result := upgradeFile(cfg, view, relTarget, entry, engineData, identities)
+		result := upgradeFile(cfg, view, relTarget, entry, engineData, sopsClient, identities)
 		switch result {
 		case upgradeResultRegenerated:
 			regenerated++
@@ -648,7 +647,7 @@ const (
 )
 
 // upgradeFile regenerates a single copied file.
-func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string, entry *execution.FileEntry, engineData map[string]any, identities []age.Identity) upgradeResult {
+func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string, entry *execution.FileEntry, engineData map[string]any, sopsClient *sops.Client, identities []age.Identity) upgradeResult {
 	targetRoot := view.Files.Root
 
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
@@ -666,6 +665,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	eng := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun:             cfg.DryRun,
+		SopsClient:         sopsClient,
 		Data:               engineData,
 		ConflictResolution: execution.ResolutionOverwrite,
 	})

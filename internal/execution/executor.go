@@ -16,6 +16,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 // ResultStatus represents the execution status of a node.
@@ -89,7 +90,10 @@ type ExecutorOptions struct {
 	// Writer receives user-facing output.
 	Writer io.Writer
 
-	// Data holds tool-provided context (template vars, SOPS config, etc.).
+	// SopsClient provides SOPS operations. Nil when SOPS is not configured.
+	SopsClient *sops.Client
+
+	// Data holds tool-provided context (template vars, etc.).
 	Data map[string]any
 
 	// ConflictResolution specifies how to handle conflicts detected during preflight.
@@ -147,6 +151,7 @@ func (e *GraphExecutor) newContext(ctx context.Context) (*op.Context, error) {
 
 	base := op.NewContextBase(root)
 	base.Context = ctx
+	base.SopsClient = e.options.SopsClient
 	base.Data = e.options.Data
 	base.DryRun = e.options.DryRun
 	base.Writer = e.options.Writer

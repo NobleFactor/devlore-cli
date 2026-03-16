@@ -11,8 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/document"
-	"github.com/NobleFactor/devlore-cli/internal/signing"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 // ReceiptsDir returns the directory where receipts are stored.
@@ -120,18 +120,17 @@ func WriteReceiptWithSigningDir(g *op.Graph, producer, signingDir string) (strin
 // Searches for .sops.yaml starting from searchDir.
 // If no backends are available, signing is skipped (g.Signature remains nil).
 func signGraph(g *op.Graph, canonical []byte, searchDir string) {
-	chain := signing.BuildSignerChain(searchDir)
 
-	sig, err := chain.Sign(canonical)
-	if err != nil || sig == nil {
-		// No signing backend available - that's OK
+	client, err := sops.NewClient(searchDir)
+	if err != nil {
+		// No .sops.yaml found — signing is optional
 		return
 	}
 
-	// Convert signing.Signature to op.Signature
-	g.Signature = &op.Signature{
-		Method: sig.Method,
-		Value:  sig.Value,
-		KeyID:  sig.KeyID,
+	sig, err := client.Sign(canonical)
+	if err != nil || sig == nil {
+		return
 	}
+
+	g.Signature = sig
 }
