@@ -217,8 +217,7 @@ func TestMarshal_NilMap(t *testing.T) {
 }
 
 func TestMarshal_Pointer(t *testing.T) {
-	s := "hello"
-	got, err := Marshal(&s)
+	got, err := Marshal(new("hello"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -38,8 +38,7 @@ func (c *ResourceCatalog) Resolve(uri string) string {
 	if id, ok := c.ns[uri]; ok {
 		return id
 	}
-	base := NewResourceBase(uri)
-	return c.catalogLocked(&base, "")
+	return c.catalogLocked(new(NewResourceBase(uri)), "")
 }
 
 // Shadow catalogs a new resource version, updates the namespace to point to

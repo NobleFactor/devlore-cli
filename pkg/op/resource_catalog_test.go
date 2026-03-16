@@ -192,8 +192,7 @@ func TestCatalog_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			base := NewResourceBase("file:///concurrent")
-			id, _ := cat.Shadow(&base, "")
+			id, _ := cat.Shadow(new(NewResourceBase("file:///concurrent")), "")
 			ids <- id
 		}()
 	}
@@ -263,8 +262,7 @@ func TestCatalog_IDsAreMonotonic(t *testing.T) {
 		t.Errorf("first ID = %q, want res-1", id1)
 	}
 
-	base := NewResourceBase("file:///b")
-	id2, err := cat.Shadow(&base, "node-1")
+	id2, err := cat.Shadow(new(NewResourceBase("file:///b")), "node-1")
 	if err != nil {
 		t.Fatalf("Shadow error: %v", err)
 	}
