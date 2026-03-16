@@ -53,11 +53,10 @@ Examples:
 			// Check if man page exists
 			if _, err := os.Stat(manPath); err == nil {
 				// Man page exists - try to display it via pager
-				now := time.Now()
 				h := &doc.GenManHeader{
 					Title:   header.Title,
 					Section: header.Section,
-					Date:    &now,
+					Date:    new(time.Now()),
 					Source:  header.Source,
 					Manual:  header.Manual,
 				}

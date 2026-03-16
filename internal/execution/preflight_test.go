@@ -79,8 +79,7 @@ func TestResolveResources_ShadowedEntry_Skipped(t *testing.T) {
 	// Resolve then shadow — the shadow supersedes the discovery entry.
 	catalog.Resolve("file:///nonexistent/file")
 
-	base := op.NewResourceBase("file:///nonexistent/file")
-	catalog.Shadow(&base, "writer-node")
+	catalog.Shadow(new(op.NewResourceBase("file:///nonexistent/file")), "writer-node")
 
 	// The discovery entry is superseded; no file check needed.
 	if err := ResolveResources(catalog); err != nil {

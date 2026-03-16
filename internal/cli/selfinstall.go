@@ -318,11 +318,10 @@ func installManPagesTo(rootCmd *cobra.Command, path string, header ManHeader) ([
 	}
 
 	// Build header
-	now := time.Now()
 	h := &doc.GenManHeader{
 		Title:   header.Title,
 		Section: header.Section,
-		Date:    &now,
+		Date:    new(time.Now()),
 		Source:  header.Source,
 		Manual:  header.Manual,
 	}

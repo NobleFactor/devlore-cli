@@ -240,7 +240,7 @@ global variables. Per the governing principle: this is greenfield — no legacy 
 
 **Files**: ~30 files across internal/ and pkg/.
 
-### Phase 6: Style & Modernization (42 issues, 6 skipped) — `in-progress`
+### Phase 6: Style & Modernization (42 issues, 6 skipped) — `complete`
 
 **GoRedundantConversion (15)** — `complete`:
 
@@ -250,16 +250,16 @@ global variables. Per the governing principle: this is greenfield — no legacy 
 - [x] `pkg/op/provider/starcode/integration_test.go` line 129 — redundant `bool`
 - [x] `pkg/op/receiver_reflect_test.go` lines 198, 239 — 2 redundant `starlark.Tuple`
 
-**GoSimplifyWithNew (11)** — Go 1.26 `new()` syntax:
+**GoSimplifyWithNew (11)** — Go 1.26 `new()` syntax — `complete`:
 
-- [ ] `internal/cli/help.go` line 60, `internal/cli/man.go` line 63, `internal/cli/selfinstall.go` line 325 — `&now`
-- [ ] `internal/execution/preflight_test.go` line 83 — `&base`
-- [ ] `internal/signing/azure_kv.go` line 204 — `&algorithm`
-- [ ] `pkg/op/output_test.go` line 694 — `&base`
-- [ ] `pkg/op/resource_catalog.go` line 42 — `&base`
-- [ ] `pkg/op/resource_catalog_test.go` lines 196, 267 — `&base`
-- [ ] `pkg/op/resource_test.go` line 69 — `&base`
-- [ ] `pkg/op/starvalue_marshal_test.go` line 221 — `&s`
+- [x] `internal/cli/help.go` line 60, `internal/cli/man.go` line 63, `internal/cli/selfinstall.go` line 325 — `&now` → `new(time.Now())`
+- [x] `internal/execution/preflight_test.go` line 83 — `&base` → `new(op.NewResourceBase(...))`
+- [x] `internal/signing/azure_kv.go` line 204 — N/A (file removed in prior cleanup)
+- [x] `pkg/op/output_test.go` line 694 — `&base` → `new(NewResourceBase(...))`
+- [x] `pkg/op/resource_catalog.go` line 42 — `&base` → `new(NewResourceBase(uri))`
+- [x] `pkg/op/resource_catalog_test.go` lines 196, 267 — `&base` → `new(NewResourceBase(...))`
+- [x] `pkg/op/resource_test.go` line 69 — `&base` → `new(NewResourceBase(...))`
+- [x] `pkg/op/starvalue_marshal_test.go` line 221 — `&s` → `new("hello")`
 
 **GoMixedReceiverTypes (6)** — `Path` struct in `pkg/op/root.go` — `skipped` (false positive):
 
@@ -267,13 +267,13 @@ global variables. Per the governing principle: this is greenfield — no legacy 
   receiver on `UnmarshalJSON` is correct Go idiom. Changing to all-pointer would alter copy
   semantics. No action needed.
 
-**GoErrorsAsToAsType (5)** — Go 1.26 `errors.AsType`:
+**GoErrorsAsToAsType (5)** — Go 1.26 `errors.AsType` — `complete`:
 
-- [ ] `internal/cli/output.go` line 82
-- [ ] `internal/cli/viper.go` line 87
-- [ ] `internal/pwsh/pwsh.go` line 273
-- [ ] `internal/signing/gcp_kms_test.go` line 217
-- [ ] `pkg/op/platform_helpers.go` line 36
+- [x] `internal/cli/output.go` line 82 — `errors.As` → `errors.AsType[*exitError]`
+- [x] `internal/cli/viper.go` line 87 — `errors.As` → `errors.AsType[viper.ConfigFileNotFoundError]`
+- [x] `internal/pwsh/pwsh.go` line 273 — `errors.As` → `errors.AsType[*exec.ExitError]`
+- [x] `internal/signing/gcp_kms_test.go` line 217 — N/A (file removed in prior cleanup)
+- [x] `pkg/op/platform_helpers.go` line 36 — `errors.As` → `errors.AsType[*exec.ExitError]`
 
 **GoDeprecation (2)** — deprecated `Parse` calls — `complete`:
 

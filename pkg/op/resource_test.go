@@ -65,8 +65,7 @@ func TestResourceBase_ParseFragment(t *testing.T) {
 }
 
 func TestResourceBase_SatisfiesInterface(t *testing.T) {
-	base := NewResourceBase("file:///bar")
-	var r Resource = &base
+	var r Resource = new(NewResourceBase("file:///bar"))
 	if r.URI() != "file:///bar" {
 		t.Errorf("Resource.URI() = %q, want file:///bar", r.URI())
 	}

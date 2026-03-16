@@ -78,8 +78,7 @@ func ExitCode(err error) int {
 	if err == nil {
 		return ExitOK
 	}
-	var coded *exitError
-	if errors.As(err, &coded) {
+	if coded, ok := errors.AsType[*exitError](err); ok {
 		return coded.code
 	}
 	return ExitError

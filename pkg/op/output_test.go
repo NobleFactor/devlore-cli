@@ -690,8 +690,7 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 	consumer := makeTestNode("reader", "file.read")
 
 	// A plain ResourceBase with origin.
-	base := NewResourceBase("file:///baz")
-	res := &base
+	res := new(NewResourceBase("file:///baz"))
 	if _, err := g.Catalog.Shadow(res, "producer"); err != nil {
 		t.Fatalf("Shadow error: %v", err)
 	}

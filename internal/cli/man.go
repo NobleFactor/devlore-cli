@@ -55,12 +55,10 @@ Examples:
 			h := &doc.GenManHeader{
 				Title:   header.Title,
 				Section: header.Section,
-				Date:    &time.Time{},
+				Date:    new(time.Now()),
 				Source:  header.Source,
 				Manual:  header.Manual,
 			}
-			now := time.Now()
-			h.Date = &now
 
 			if install {
 				return installManPages(rootCmd, h, installPath)

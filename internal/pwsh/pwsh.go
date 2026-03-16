@@ -244,8 +244,11 @@ func (s *Session) Run(command string) *Result {
 	// Send command directly in session scope, then emit a marker with the
 	// exit code. Using $global:LASTEXITCODE preserves native command exit
 	// codes; $? reflects PowerShell command success.
-	_, _ = fmt.Fprintf(s.stdin, "%s\n", command)                                                                                                                           //nolint:errcheck // best-effort stdin write
-	_, _ = fmt.Fprintf(s.stdin, "Write-Output '%s'$(if ($?) { $global:LASTEXITCODE } else { if ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 } })\n", s.marker) //nolint:errcheck // best-effort stdin write
+	_, _ = fmt.Fprintf(s.stdin, "%s\n", command)
+	_, _ = fmt.Fprintf(s.stdin,
+		"Write-Output '%s'$(if ($?) { $global:LASTEXITCODE } else { if ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 } })\n",
+		s.marker,
+	)
 
 	// Read output until we see the marker, stripping ANSI escape sequences.
 	// If the scanner hits EOF (process exited), capture exit from process state.
@@ -269,8 +272,7 @@ func (s *Session) Run(command string) *Result {
 	if !strings.HasPrefix(stripANSI(s.scanner.Text()), s.marker) {
 		s.dead = true
 		if err := s.cmd.Wait(); err != nil {
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
+			if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 				result.ExitCode = exitErr.ExitCode()
 			} else {
 				result.ExitCode = 1
