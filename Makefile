@@ -302,7 +302,7 @@ generate-register: $(GEN_PROVIDERS) ## Generate provider register.go with blank 
 	echo 'package provider' >> $(P)/register.go
 	echo '' >> $(P)/register.go
 	echo 'import (' >> $(P)/register.go
-	echo '	_ "github.com/NobleFactor/devlore-cli/internal/execution/flow"' >> $(P)/register.go
+	echo '	_ "github.com/NobleFactor/devlore-cli/pkg/op/flow"' >> $(P)/register.go
 	for dir in $$(find $(P) -type d -name gen | sort); do
 		pkg=$$(echo $$dir | sed 's|^|github.com/NobleFactor/devlore-cli/|')
 		echo "	_ \"$$pkg\"" >> $(P)/register.go

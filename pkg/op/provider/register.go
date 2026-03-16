@@ -6,7 +6,7 @@
 package provider
 
 import (
-	_ "github.com/NobleFactor/devlore-cli/internal/execution/flow"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/flow"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
