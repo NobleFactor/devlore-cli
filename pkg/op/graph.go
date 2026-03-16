@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 // GraphFormatVersion is the current graph serialization format version.
@@ -133,19 +135,6 @@ type Summary struct {
 	Packages   int `json:"packages,omitempty" yaml:"packages,omitempty"`
 	Skipped    int `json:"skipped,omitempty" yaml:"skipped,omitempty"`
 	Failed     int `json:"failed,omitempty" yaml:"failed,omitempty"`
-}
-
-// Signature contains the cryptographic signature of a graph.
-type Signature struct {
-	// Method is the signing method used (gpg, aws_kms, gcp_kms, azure_kv).
-	Method string `json:"method" yaml:"method"`
-
-	// Value is the signature data (base64-encoded).
-	Value string `json:"value" yaml:"value"`
-
-	// KeyID identifies the key used for signing.
-	// For GPG: fingerprint, for KMS: key ARN/ID/URL.
-	KeyID string `json:"key_id" yaml:"key_id"`
 }
 
 // Collision records a source conflict resolved during tree building (writ-specific).
@@ -480,7 +469,7 @@ type Graph struct {
 	Checksum string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
 
 	// Signature contains the cryptographic signature (optional).
-	Signature *Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
+	Signature *sops.Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
 
 	// Catalog is the append-only resource catalog for planning.
 	// One per Graph. Not serialized — planning-only state.

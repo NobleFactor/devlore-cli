@@ -17,6 +17,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	sopsclient "github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 // testProvider creates a Provider with a RootReaderWriter for the given directory.
@@ -26,6 +27,28 @@ func testProvider(t *testing.T, dir string) *Provider {
 	ctx := op.Context{ContextBase: op.ContextBase{Root: root}}
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
+
+// testProviderWithSops creates a Provider with a SopsClient configured from dir.
+func testProviderWithSops(t *testing.T, dir string) *Provider {
+	t.Helper()
+
+	// Write a minimal .sops.yaml so NewClient succeeds
+	sopsConfig := filepath.Join(dir, ".sops.yaml")
+	if err := os.WriteFile(sopsConfig, []byte("creation_rules:\n  - path_regex: .*\n    age: age1abc\n"), 0o644); err != nil {
+		t.Fatalf("write .sops.yaml: %v", err)
+	}
+
+	client, err := sopsclient.NewClient(dir)
+	if err != nil {
+		t.Fatalf("sops.NewClient: %v", err)
+	}
+
+	root := op.NewRootReaderWriter(dir)
+	ctx := op.Context{ContextBase: op.ContextBase{Root: root, SopsClient: client}}
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
+// --- CompensateDecryptSopsFile ---
 
 func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 	tmp := t.TempDir()
@@ -59,15 +82,39 @@ func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 	}
 }
 
+// --- DecryptSopsFile ---
+
 func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
 	tmp := t.TempDir()
-	p := testProvider(t, tmp)
+	p := testProviderWithSops(t, tmp)
 	source := file.NewResource("/nonexistent/encrypted.yaml")
 	dest := file.NewResource(filepath.Join(tmp, "out.yaml"))
 
 	_, _, err := p.DecryptSopsFile(source, dest)
 	if err == nil {
 		t.Fatal("expected error for unresolvable source")
+	}
+}
+
+func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp) // no SopsClient
+
+	srcPath := filepath.Join(tmp, "secret.yaml")
+	if err := os.WriteFile(srcPath, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root := op.NewRootReaderWriter(tmp)
+	source := file.NewResource(srcPath)
+	if err := source.Resolve(root); err != nil {
+		t.Fatal(err)
+	}
+	dest := file.NewResource(filepath.Join(tmp, "out.yaml"))
+
+	_, _, err := p.DecryptSopsFile(source, dest)
+	if err == nil {
+		t.Fatal("expected error when SopsClient is nil")
 	}
 }
 
@@ -145,7 +192,7 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 	dstPath := filepath.Join(tmp, "secret.dec.yaml")
 	dest := file.NewResource(dstPath)
 
-	p := testProvider(t, tmp)
+	p := testProviderWithSops(t, tmp)
 	result, tombstone, err := p.DecryptSopsFile(source, dest)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
@@ -192,7 +239,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 	dstPath := filepath.Join(tmp, "secret.dec.yaml")
 	dest := file.NewResource(dstPath)
 
-	p := testProvider(t, tmp)
+	p := testProviderWithSops(t, tmp)
 	_, tombstone, err := p.DecryptSopsFile(source, dest)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)

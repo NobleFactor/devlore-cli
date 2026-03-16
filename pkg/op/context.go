@@ -8,6 +8,8 @@ import (
 	"io"
 
 	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 // ContextBase provides the execution environment shared by all contexts: immediate-mode scripting
@@ -33,8 +35,12 @@ type ContextBase struct {
 	// Writer receives user-facing output messages.
 	Writer io.Writer
 
-	// Data holds tool-provided context: template variables, SOPS config, identities, segment maps, etc. Each tool
-	// populates this before calling GraphExecutor.Run().
+	// SopsClient provides SOPS operations (decryption, signing, verification). Nil when SOPS is not configured (no
+	// .sops.yaml found). Providers access this via p.Context().SopsClient.
+	SopsClient *sops.Client
+
+	// Data holds tool-provided context: template variables, identities, segment maps, etc. Each tool populates this
+	// before calling GraphExecutor.Run().
 	Data map[string]any
 }
 

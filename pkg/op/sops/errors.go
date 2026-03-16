@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package signing
+package sops
 
 import (
 	"errors"
@@ -23,6 +23,7 @@ type SignError struct {
 }
 
 func (e *SignError) Error() string {
+
 	if e.Details != "" {
 		return fmt.Sprintf("%s sign: %v: %s", e.Backend, e.Err, e.Details)
 	}
@@ -41,6 +42,7 @@ type VerifyError struct {
 }
 
 func (e *VerifyError) Error() string {
+
 	if e.Details != "" {
 		return fmt.Sprintf("%s verify: %v: %s", e.Backend, e.Err, e.Details)
 	}
@@ -52,7 +54,16 @@ func (e *VerifyError) Unwrap() error {
 }
 
 // createTempFile creates a temporary file with the given content.
+//
+// Parameters:
+//   - pattern: name pattern for the temp file
+//   - data: content to write
+//
+// Returns:
+//   - string: path to the created file
+//   - error: file creation or write error
 func createTempFile(pattern string, data []byte) (string, error) {
+
 	f, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return "", err
@@ -68,6 +79,9 @@ func createTempFile(pattern string, data []byte) (string, error) {
 }
 
 // removeTempFile removes a temporary file, ignoring errors.
+//
+// Parameters:
+//   - path: path to the temp file to remove
 func removeTempFile(path string) {
 	_ = os.Remove(path) //nolint:errcheck // best-effort cleanup
 }

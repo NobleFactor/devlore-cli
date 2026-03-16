@@ -10,7 +10,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	"github.com/getsops/sops/v3/decrypt"
 )
 
 // Provider provides encryption and decryption actions.
@@ -39,8 +38,13 @@ func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resour
 		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to read source: %w", err)
 	}
 
-	// 2. Decrypt the file
-	cleartext, err := decrypt.Data(buffer.Bytes(), "yaml")
+	// 2. Decrypt via SopsClient
+	sopsClient := p.Context().SopsClient
+	if sopsClient == nil {
+		return file.Resource{}, Tombstone{}, fmt.Errorf("sops client not configured")
+	}
+
+	cleartext, err := sopsClient.Decrypt(buffer.Bytes(), source.SourcePath.Abs())
 	if err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("sops decryption failed: %w", err)
 	}

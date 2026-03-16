@@ -6,6 +6,8 @@ package op
 import (
 	"io"
 	"os"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 // BindingConfig holds configuration for constructing Starlark bindings.
@@ -31,6 +33,9 @@ type BindingConfig struct {
 
 	// Color enables ANSI color codes in output.
 	Color bool
+
+	// SopsClient provides SOPS operations. Nil when SOPS is not configured.
+	SopsClient *sops.Client
 }
 
 // NewBindingConfig creates a BindingConfig with the given program name.
@@ -96,6 +101,19 @@ func (c *BindingConfig) WithWriter(w io.Writer) *BindingConfig {
 func (c *BindingConfig) WithColor() *BindingConfig {
 
 	c.Color = true
+	return c
+}
+
+// WithSopsClient sets the SOPS client for decryption and signing.
+//
+// Parameters:
+//   - client: the SOPS client (nil means SOPS is not configured).
+//
+// Returns:
+//   - *BindingConfig: the config for method chaining.
+func (c *BindingConfig) WithSopsClient(client *sops.Client) *BindingConfig {
+
+	c.SopsClient = client
 	return c
 }
 

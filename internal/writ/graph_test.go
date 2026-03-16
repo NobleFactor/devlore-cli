@@ -19,6 +19,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 func TestGraphStates(t *testing.T) {
@@ -183,7 +184,7 @@ func TestSummaryString(t *testing.T) {
 }
 
 func TestSignature(t *testing.T) {
-	sig := &op.Signature{
+	sig := &sops.Signature{
 		Method: "gpg",
 		Value:  "base64-encoded-signature",
 		KeyID:  "ABC123DEF456",

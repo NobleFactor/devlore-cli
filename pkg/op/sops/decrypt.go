@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package secrets
+package sops
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,12 +12,28 @@ import (
 	"github.com/getsops/sops/v3/decrypt"
 )
 
-// DecryptData decrypts SOPS-encrypted data using the source path to determine format.
-// SOPS handles key resolution via .sops.yaml + environment variables:
-//   - SOPS_AGE_KEY: age key contents
-//   - SOPS_AGE_KEY_FILE: path to age key file
-//   - ~/.config/sops/age/keys.txt: default age key location
-func DecryptData(data []byte, sourcePath string) ([]byte, error) {
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Fallible actions
+
+// Decrypt decrypts SOPS-encrypted data. Format is inferred from sourcePath extension. Plaintext data passes through
+// unchanged.
+//
+// Parameters:
+//   - data: encrypted (or plaintext) content
+//   - sourcePath: original file path used to determine SOPS format
+//
+// Returns:
+//   - []byte: decrypted content (or unchanged plaintext)
+//   - error: decryption error
+func (c *Client) Decrypt(data []byte, sourcePath string) ([]byte, error) {
+
+	if !IsEncrypted(data) {
+		return data, nil
+	}
+
 	format := detectFormat(sourcePath, data)
 	plaintext, err := decrypt.DataWithFormat(data, formats.FormatFromString(format))
 	if err != nil {
@@ -27,39 +42,38 @@ func DecryptData(data []byte, sourcePath string) ([]byte, error) {
 	return plaintext, nil
 }
 
-// DecryptFile decrypts a SOPS-encrypted file and writes to target with
-// the specified permissions. If the file is already plaintext
-// (smudge filter active), it copies as-is.
-func DecryptFile(src, dst string, mode os.FileMode) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return fmt.Errorf("read source: %w", err)
-	}
+// Actions
 
-	// Check if already decrypted
-	if !IsEncrypted(data) {
-		// Already decrypted (smudge filter active) — copy as-is
-		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
-			return fmt.Errorf("create parent dir: %w", err)
+// Decryptor returns a decryption function matching the signature expected by the execution engine:
+// func(source string, data []byte) ([]byte, error).
+//
+// Returns:
+//   - func(string, []byte) ([]byte, error): decryption function
+func (c *Client) Decryptor() func(source string, data []byte) ([]byte, error) {
+
+	return func(source string, data []byte) ([]byte, error) {
+		plaintext, err := c.Decrypt(data, source)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt %s: %w", filepath.Base(source), err)
 		}
-		return os.WriteFile(dst, data, mode)
+		return plaintext, nil
 	}
-
-	// Decrypt via SOPS
-	plaintext, err := DecryptData(data, src)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
-		return fmt.Errorf("create parent dir: %w", err)
-	}
-
-	return os.WriteFile(dst, plaintext, mode)
 }
 
+// endregion
+
+// endregion
+
 // detectFormat determines the SOPS format from filename and content.
+//
+// Parameters:
+//   - path: source file path
+//   - data: file content for content-based detection fallback
+//
+// Returns:
+//   - string: SOPS format name (yaml, json, dotenv, ini, binary)
 func detectFormat(path string, data []byte) string {
+
 	ext := strings.ToLower(filepath.Ext(path))
 
 	// Strip .sops extension to get actual format
