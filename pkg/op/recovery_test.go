@@ -85,8 +85,8 @@ func TestRecoveryStack_Unwind_SkipsDrifted(t *testing.T) {
 	)
 
 	err := s.Unwind()
-	if !errors.Is(err, ErrDrifted) {
-		t.Fatalf("Unwind() error = %v, want ErrDrifted", err)
+	if !errors.Is(err, errDrifted) {
+		t.Fatalf("Unwind() error = %v, want errDrifted", err)
 	}
 	if compensated {
 		t.Error("compensate was called despite drift detection")

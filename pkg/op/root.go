@@ -18,8 +18,8 @@ var (
 	_ Root = (*confinedRoot)(nil)
 )
 
-// ErrReadOnly is returned by write operations on a [RootReader].
-var ErrReadOnly = errors.New("write operation not available in read-only mode")
+// errReadOnly is returned by write operations on a [RootReader].
+var errReadOnly = errors.New("write operation not available in read-only mode")
 
 // --- Path ---
 
@@ -145,13 +145,13 @@ func (b *rootBase) NewPath(path string) Path { return makePath(b.name, path) }
 
 // --- RootReader ---
 
-// RootReader provides unconfined, read-only filesystem access. Write operations return [ErrReadOnly]. Used during
+// RootReader provides unconfined, read-only filesystem access. Write operations return [errReadOnly]. Used during
 // planning when providers need to inspect source files without mutation capability.
 type RootReader struct {
 	rootBase
 }
 
-// NewRootReader creates a read-only [Root] at dir. Write operations return [ErrReadOnly].
+// NewRootReader creates a read-only [Root] at dir. Write operations return [errReadOnly].
 //
 // Parameters:
 //   - dir: Base directory for all path resolution
@@ -174,16 +174,16 @@ func (r *RootReader) ReadFile(p Path) ([]byte, error)   { return os.ReadFile(p.a
 func (r *RootReader) Readlink(p Path) (string, error)   { return os.Readlink(p.abs) }
 func (r *RootReader) Stat(p Path) (fs.FileInfo, error)  { return os.Stat(p.abs) }
 
-// Write — return ErrReadOnly.
+// Write — return errReadOnly.
 
-func (r *RootReader) MkdirAll(Path, os.FileMode) error          { return ErrReadOnly }
-func (r *RootReader) Remove(Path) error                         { return ErrReadOnly }
-func (r *RootReader) Rename(_, _ Path) error                    { return ErrReadOnly }
-func (r *RootReader) Symlink(_ string, _ Path) error            { return ErrReadOnly }
-func (r *RootReader) WriteFile(Path, []byte, os.FileMode) error { return ErrReadOnly }
+func (r *RootReader) MkdirAll(Path, os.FileMode) error          { return errReadOnly }
+func (r *RootReader) Remove(Path) error                         { return errReadOnly }
+func (r *RootReader) Rename(_, _ Path) error                    { return errReadOnly }
+func (r *RootReader) Symlink(_ string, _ Path) error            { return errReadOnly }
+func (r *RootReader) WriteFile(Path, []byte, os.FileMode) error { return errReadOnly }
 
 func (r *RootReader) OpenFile(Path, int, os.FileMode) (*os.File, error) {
-	return nil, ErrReadOnly
+	return nil, errReadOnly
 }
 
 // endregion
