@@ -1,159 +1,117 @@
 ---
 title: "Reflection-based Starlark Marshaler"
-status: in-progress
+status: complete
 created: 2026-02-27
-updated: 2026-02-27
+updated: 2026-03-16
 ---
 
 # Plan: Reflection-based Starlark Marshaler
 
-## Summary
+## Completion Summary (2026-03-16)
 
-Replace ~7,500 lines of generated/hand-written boilerplate across devlore-cli and noblefactor-ops with a reflection-based Starlark marshaler in `pkg/op/`. Codegen stays (`star devlore actions generate` wraps `go generate`) but generated files shrink dramatically because they call into the marshaler instead of reimplementing type conversion, method dispatch, and struct marshaling.
+**All three goals met.** The reflection-based marshaler is in production and all providers
+have star-generated `gen/` files orchestrated by `make generate`.
 
-## Goals
+### What was done
+
+- **Marshaler infrastructure** shipped as `pkg/op/starvalue_marshal.go` (1,102 lines) —
+  not `marshal.go` as originally planned, but functionally complete: `Marshal`, constructor
+  registry, type cache, callable resource support.
+- **Method bridge** shipped as `pkg/op/receiver_reflect.go` (521 lines) — `WrapReceiver`,
+  `ReflectedReceiver`, method discovery, return type classification.
+- **Planned mode wrapper** shipped as `pkg/op/planned_reflect.go` (340 lines) —
+  `WrapPlanned`, `ReflectedPlanned`, action-gated method exposure.
+- **`convert.go` deleted** — replaced by the marshaler.
+- **JSON, YAML, Regexp providers** created with tests and star-generated `gen/` files.
+- **`NewActionRegistry()`** factory exists in `pkg/op/registry.go`.
+- **`NewGraph(tool string)`** factory exists in `pkg/op/graph.go`.
+- **All 20 providers** (plan said 19) have complete `gen/` directories. `platform` gained
+  gen files despite the plan listing it as "not a provider."
+- **Makefile integration** complete — `make build` and `make test` depend on `make generate`;
+  every provider has a grouped target.
+
+### What was not done (and why)
+
+- **Phase 8 (`collectPlannedFactories` extraction):** `internal/starlark/binding_set.go`
+  never existed. The duplication the plan targeted was either resolved differently or was
+  misidentified. No action needed.
+- **Phase 9 (`DefaultExecutorOptions`):** `NewActionRegistry()` shipped but
+  `DefaultExecutorOptions()` was never created. Executor construction sites don't share
+  enough structure to justify a factory — each caller configures different options.
+- **Phase 11 (`graphview.go`):** The planned `GraphView` base type was not created.
+  `dependencyview.go` and `stateview.go` already provide `NodeByID`, edge indexing, and
+  state management. Extracting a shared base would add abstraction without removing code.
+
+---
+
+## Original Plan
+
+### Goals
 
 1. **Marshaler infrastructure**: `Marshal`/`Unmarshal` for Go/Starlark type conversion, `WrapReceiver` for immediate-mode method bridging, `WrapPlanned` for planned-mode node creation
 2. **All providers fully generated**: Every provider has star-generated `gen/` files (no hand-written exceptions)
 3. **Net reduction ~5,800 lines**: ~1,700 lines of marshaler infrastructure replaces ~7,500 lines of boilerplate
 
-## Hard Exit Criterion
+### Hard Exit Criterion
 
-**All 19 providers must have a complete set of star-generated `gen/` files that rely on the marshaler. No hand-written exceptions. `make generate` rebuilds all of them.**
+**All providers must have a complete set of star-generated `gen/` files that rely on the marshaler. No hand-written exceptions. `make generate` rebuilds all of them.** — MET
 
-### access=both providers (9) — gen/params.gen.go, gen/immediate.gen.go, gen/planned.gen.go, gen/actions.gen.go
+### Implementation Phases
 
-| Provider | Status |
-| --- | --- |
-| `archive` | Pending |
-| `encryption` | Pending |
-| `file` | Update existing |
-| `git` | Pending |
-| `net` | Pending |
-| `pkg` | Pending |
-| `service` | Pending |
-| `shell` | Pending |
-| `template` | Pending |
+#### Phase 0: Delete old `*_gen.go` files from package roots — `complete`
 
-### access=immediate providers (10) — gen/params.gen.go, gen/immediate.gen.go
+#### Phase 1: Core struct marshaler — `complete`
 
-| Provider | Status |
-| --- | --- |
-| `json` (new) | Pending |
-| `regexp` (new) | Pending |
-| `staranalysis` | Update existing |
-| `starcode` | Update existing |
-| `starcomplexity` | Update existing |
-| `starindex` | Update existing |
-| `starsources` | Update existing |
-| `starstats` | Update existing |
-| `ui` | Pending |
-| `yaml` (new) | Pending |
+Shipped as `pkg/op/starvalue_marshal.go` (1,102 lines). `convert.go` deleted.
 
-### Not providers (supporting packages, no gen files)
+#### Phase 2: Method bridge — `complete`
 
-- `platform` — platform-specific package/service managers
+Shipped as `pkg/op/receiver_reflect.go` (521 lines).
 
-### Makefile integration
+#### Phase 3: Update star codegen (noblefactor-ops) — `complete`
 
-Every provider gets a grouped make target. `make build` depends on `make generate`. When `provider.go` changes, `make` invokes `star devlore actions generate` and regenerates all gen files for that provider.
+All gen templates updated: `params.gen.go`, `immediate.gen.go`, `planned.gen.go`,
+`actions.gen.go`.
 
-## Current State
+#### Phase 4: Planned mode wrapper — `complete`
 
-| Component | Status | Notes |
-| --- | --- | --- |
-| `pkg/op/convert.go` | Working | 134 lines, primitive type switches only |
-| File provider gen/ | Working | 1,266 lines (actions + immediate + planned) |
-| Star* providers gen/ | Working | immediate.gen.go + params.gen.go per provider |
-| 9 legacy providers | Broken | Blank imports in register.go but no init() functions |
-| JSON/YAML/Regexp | Missing | No providers exist yet |
+Shipped as `pkg/op/planned_reflect.go` (340 lines).
 
-## Implementation Phases
+#### Phase 5: JSON provider — `complete`
 
-### Phase 0: Delete old `*_gen.go` files from package roots
+`pkg/op/provider/json/` with Encode, EncodeIndent, Decode + gen/ files.
 
-Already done (git status shows deletions staged).
+#### Phase 6: YAML provider — `complete`
 
-### Phase 1: Core struct marshaler
+`pkg/op/provider/yaml/` with Encode, Decode + gen/ files.
 
-- [ ] Implement `pkg/op/marshal.go` — type cache, `Marshal`, `Unmarshal`, `camelToSnake`
-- [ ] Implement `pkg/op/marshal_test.go` — round-trip, nested structs, slices, maps, nil pointers
-- [ ] Delete `pkg/op/convert.go` — replaced by `Marshal`/`Unmarshal`
-- [ ] Update call sites in `output.go` and gen files
+#### Phase 7: Regexp provider — `complete`
 
-**Files**: `pkg/op/marshal.go` (Create ~200), `pkg/op/marshal_test.go` (Create ~200)
+`pkg/op/provider/regexp/` with Match, Find, FindAll, FindSubmatch, Replace, Split + gen/ files.
 
-### Phase 2: Method bridge
+#### Phase 8: BindingSet factory map dedup — `dropped`
 
-- [ ] Implement `pkg/op/receiver_reflect.go` — `WrapReceiver`, `ReflectedReceiver`, `Override`, `MethodParams`
-- [ ] Implement `pkg/op/receiver_reflect_test.go` — method calls, arg unpack, return marshal, error propagation
-- [ ] Method discovery: exported methods exposed as snake_case Starlark builtins
-- [ ] Return type classification: auto-detect `()`, `(error)`, `(T, error)`, `(T)`, `(T, map[string]any, error)`
+Target file (`internal/starlark/binding_set.go`) never existed. Duplication was either
+resolved differently or misidentified during planning.
 
-**Files**: `pkg/op/receiver_reflect.go` (Create ~250), `pkg/op/receiver_reflect_test.go` (Create ~250)
+#### Phase 9: Action registry convenience + executor defaults — `partial`
 
-### Phase 3: Update star codegen (noblefactor-ops)
+`NewActionRegistry()` shipped. `DefaultExecutorOptions()` dropped — executor call sites
+don't share enough structure to justify a factory.
 
-- [ ] `gen/params.gen.go` — new output: parameter name table from AST
-- [ ] `gen/immediate.gen.go` — simplified: init() + WrapReceiver + Override() calls
-- [ ] `gen/planned.gen.go` — simplified: init() + WrapPlanned
-- [ ] `gen/actions.gen.go` — unchanged (explicit Do/Undo logic)
+#### Phase 10: Graph creation unification — `complete`
 
-### Phase 4: Planned mode wrapper
+`NewGraph(tool string)` factory exists in `pkg/op/graph.go`.
 
-- [ ] Implement `pkg/op/planned_reflect.go` — `WrapPlanned`, `ReflectedPlanned`
-- [ ] Implement `pkg/op/planned_reflect_test.go` — node creation, slot filling, method filtering
-- [ ] Only methods with registered actions are exposed
+#### Phase 11: GraphView base type — `dropped`
 
-**Files**: `pkg/op/planned_reflect.go` (Create ~150), `pkg/op/planned_reflect_test.go` (Create ~150)
+`dependencyview.go` and `stateview.go` already cover this functionality. Extracting a
+shared base would add abstraction without removing code.
 
-### Phase 5: JSON provider
+### Full provider migration (exit gate) — `complete`
 
-- [ ] `pkg/op/provider/json/provider.go` — Encode, EncodeIndent, Decode
-- [ ] `pkg/op/provider/json/provider_test.go`
-- [ ] Star-generated gen/ files via Makefile target
-
-### Phase 6: YAML provider
-
-- [ ] `pkg/op/provider/yaml/provider.go` — Encode, Decode
-- [ ] `pkg/op/provider/yaml/provider_test.go`
-- [ ] Star-generated gen/ files via Makefile target
-
-### Phase 7: Regexp provider
-
-- [ ] `pkg/op/provider/regexp/provider.go` — Match, Find, FindAll, FindSubmatch, FindAllSubmatch, Replace, ReplaceLiteral, Split
-- [ ] `pkg/op/provider/regexp/provider_test.go`
-- [ ] Star-generated gen/ files via Makefile target
-
-### Phase 8: BindingSet factory map dedup
-
-- [ ] Extract `collectPlannedFactories()` from duplicate blocks in `internal/starlark/binding_set.go`
-
-### Phase 9: Action registry convenience + executor defaults
-
-- [ ] `NewActionRegistry()` replacing duplicate call sites
-- [ ] `DefaultExecutorOptions()` replacing duplicate sites
-
-### Phase 10: Graph creation unification
-
-- [ ] `NewGraph(tool string)` factory in `pkg/op/graph.go`
-- [ ] Update `internal/writ/graph_builder.go` and `internal/lore/builder.go`
-
-### Phase 11: GraphView base type
-
-- [ ] `internal/execution/graphview.go` — GraphView with NodeByID, FilterNodes, SortedNodeIDs
-- [ ] Embed in stateview.go and dependencyview.go
-
-### Full provider migration (exit gate)
-
-For ALL 19 providers:
-1. Run `star devlore actions generate` (updated) to produce gen/ files
-2. Verify gen/immediate.gen.go calls WrapReceiver
-3. Verify gen/planned.gen.go calls WrapPlanned (access=both only)
-4. Verify gen/actions.gen.go has correct Do/Undo (access=both only)
-5. Verify gen/params.gen.go has correct parameter table
-6. Verify Makefile has grouped target for the provider
-8. `make check` passes
+All 20 providers have star-generated `gen/` directories. `make generate` rebuilds all of
+them. `make check` passes.
 
 ## Related Documents
 
