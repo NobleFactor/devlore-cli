@@ -11,36 +11,92 @@ updated: 2026-03-16
 ## Summary
 
 `pkg/op` is a flat package with 56 files and ~125 exported symbols. The execution engine,
-CLI, and Starlark runtime need roughly 80 of those. 19 symbols are only used by providers
-(`pkg/op/provider/*`). ~26 symbols are dead code — never referenced outside `pkg/op` itself.
-This plan moves provider-only symbols behind `pkg/op/internal/`, deletes dead exports, and
-establishes `pkg/iox` as a standalone utility package.
+CLI, and Starlark runtime need roughly 80 of those. Provider-only symbols belong in
+`pkg/op/provider` — the provider toolkit package that external consumers (noblefactor-ops)
+import when writing their own providers. Dead exports get unexported.
 
 ## Goals
 
 1. **Shrink the public contract**: Only symbols the engine/CLI/runtime need remain in `pkg/op`.
-2. **Isolate provider infrastructure**: Provider-only types move to `pkg/op/internal/`,
-   visible to providers but invisible to consumers outside `pkg/op/`.
-3. **Delete dead exports**: ~26 symbols that are never referenced externally get unexported
-   or deleted. This is greenfield — no legacy users.
-4. **Establish `pkg/iox`**: Standalone I/O utilities (starting with `Close`) that are
-   independent of the op framework.
+2. **Establish the provider toolkit**: `pkg/op/provider` becomes the public package for
+   provider authors. Types like `provider.Lifetime`, `provider.AccessType`, and eventually
+   `provider.Base`, `provider.Resource`, etc. live here. External consumers import it directly.
+3. **Clean consumer API**: A consumer imports `pkg/op` for the runtime, specific
+   `pkg/op/provider/*/gen` packages for receivers (e.g., `json.Receiver`, `yaml.Receiver`),
+   and optionally `pkg/op/provider` for toolkit types.
+4. **Establish `pkg/iox`**: Standalone I/O utilities independent of the op framework.
+
+## Consumer API
+
+External consumers (e.g., noblefactor-ops) interact with the module like this:
+
+```go
+import (
+    "github.com/NobleFactor/devlore-cli/pkg/op"
+    "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
+    "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
+    "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
+)
+
+cfg := op.NewBindingConfig("star").
+    WithReceivers(json.Receiver, yaml.Receiver, ui.Receiver).
+    WithColor()
+star := op.NewStarlarkRuntime(cfg)
+```
+
+Each `gen/` package declares the parent's package name (e.g., `package json`), so the
+consumer writes `json.Receiver`, `yaml.Receiver` — never `jsongen` aliases.
+
+Provider authors who write their own providers additionally import the toolkit:
+
+```go
+import "github.com/NobleFactor/devlore-cli/pkg/op/provider"
+
+// provider.Lifetime, provider.AccessType, etc.
+```
+
+### Registration
+
+`pkg/op/provider/register.go` blank-imports all built-in provider `gen/` packages,
+triggering `init()` → `op.Announce()`. All providers must announce themselves to be
+available to consumers. The registration file stays in `pkg/op/provider/` — no import
+cycle exists because provider subdirectories (`pkg/op/provider/file/`, etc.) import
+`pkg/op`, not `pkg/op/provider`.
 
 ## Current State
 
 | Category | Count | Location |
 | --- | --- | --- |
 | True public API (engine + CLI + runtime) | ~80 | `pkg/op/*.go` |
-| Provider-only API | 19 | `pkg/op/*.go` (misplaced) |
-| Dead code (unreferenced externally) | 11 (was ~26; PR #235 removed 16, 5 reclassified as live) | `pkg/op/*.go` |
-| Standalone utilities | 0 | (does not exist yet) |
+| Provider toolkit types | 2 files (currently dead in `pkg/op`) | `pkg/op/access.go`, `pkg/op/lifetime.go` |
+| Provider-only API (future toolkit candidates) | 14 | `pkg/op/*.go` (misplaced) |
+| Dead code (unreferenced externally) | 3 symbols | `pkg/op/recovery.go`, `pkg/op/root.go` |
+| Registration hub | 1 generated file | `pkg/op/provider/register.go` (stays) |
+| Standalone utilities | complete | `pkg/iox/` |
 
 ## Requirements
 
-### Provider-Only Symbols (19)
+### Provider Toolkit Types — Move to `pkg/op/provider`
 
-These are referenced exclusively by `pkg/op/provider/*` packages. They should move to
-`pkg/op/internal/` (importable by anything under `pkg/op/` but invisible outside):
+These types define the provider contract. They belong in `pkg/op/provider` where external
+consumers import them:
+
+- `AccessType`, `AccessImmediate`, `AccessPlanned`, `AccessBoth` → `provider.AccessType`,
+  `provider.Immediate`, `provider.Planned`, `provider.Both`
+- `ProviderLifetime`, `LifetimeStateless`, `LifetimePhase`, `LifetimeSession` →
+  `provider.Lifetime`, `provider.Stateless`, `provider.Phase`, `provider.Session`
+
+Rename rationale: the package name `provider` provides context, so prefixes are dropped
+(no stutter). `provider.Lifetime` instead of `provider.ProviderLifetime`.
+
+No import cycle: `register.go` blank-imports `provider/*/gen` packages; gen packages
+import their specific parent (`provider/file`, `provider/json`, etc.), not
+`pkg/op/provider` itself.
+
+### Provider-Only Symbols (14, future phases)
+
+These are referenced exclusively by `pkg/op/provider/*` packages and noblefactor-ops
+provider code. They are candidates for eventual migration to `pkg/op/provider`:
 
 - `AnnounceResource`
 - `CallableInput`
@@ -49,31 +105,31 @@ These are referenced exclusively by `pkg/op/provider/*` packages. They should mo
 - `Marshal`
 - `MethodParams`
 - `NewTombstoneBase`
-- `PackageManager`
-- `Path`
 - `ProviderBase`
 - `RegisterConstructor`
 - `RegisterReceiverParams`
-- `Resource`
-- `ResourceBase`
-- `SearchResult`
 - `Tombstone`
 - `TombstoneBase`
 - `WrapProviderInExecutingReceiver`
 - `WrapProviderInPlanningReceiver`
 
-### Dead Exports (5 groups, 12 symbols)
+**Removed from this list (core API, must stay in `pkg/op`):**
 
-Never referenced outside `pkg/op` itself. Unexport or delete.
+- `PackageManager` — part of `Platform` interface; used by `internal/model/*`, `internal/lorepackage/*`
+- `Path` — part of `Root` interface; used by `internal/writ/`, `internal/e2e/`
+- `Resource` — sealed interface; used by `internal/execution/preflight.go`
+- `ResourceBase` — sealed interface embedding requirement
+- `SearchResult` — return type of `PackageManager.Search()`; used by `internal/lorepackage/`
 
-PR #235 already removed 16 symbols (Starlark converters, `UnmarshalToAny`, `ResolveInput`,
-`convert.go`). The original list of ~26 was further reduced by rigorous per-symbol grep
-audit (2026-03-16):
+### Dead Exports (3 symbols)
+
+Never referenced outside `pkg/op` itself. Unexport.
+
+PR #235 already removed 16 symbols. The original list of ~26 was further reduced by
+rigorous per-symbol grep audit (2026-03-16):
 
 **Confirmed dead — unexport:**
 
-- `AccessType`, `AccessImmediate`, `AccessPlanned`, `AccessBoth` — `access.go`
-- `ProviderLifetime`, `LifetimeStateless`, `LifetimePhase`, `LifetimeSession` — `lifetime.go`
 - `RecoveryEntry` — `recovery.go`
 - `ErrDrifted` — `recovery.go`
 - `ErrReadOnly` — `root.go` (unexport to `errReadOnly`; used by public `RootReader` but
@@ -87,53 +143,32 @@ audit (2026-03-16):
 - `ResourceDescriptor` — generated `resource.gen.go` files implement this interface
 - `Encoder` — `Graph.Serialize(enc Encoder)` is called from 4 packages outside `pkg/op`
 
-### New Package: `pkg/iox`
+**Reclassified as provider toolkit (moved to Phase 3):**
 
-Standalone I/O utilities, starting with:
-
-```go
-package iox
-
-import (
-    "errors"
-    "io"
-)
-
-// Close closes all provided closers, joining any errors into *err.
-// Nil closers are safely skipped. Use with named returns:
-//
-//	defer iox.Close(&err, f, enc)
-func Close(err *error, closers ...io.Closer) {
-    for _, c := range closers {
-        if c != nil {
-            *err = errors.Join(*err, c.Close())
-        }
-    }
-}
-```
+- `AccessType`, `AccessImmediate`, `AccessPlanned`, `AccessBoth`
+- `ProviderLifetime`, `LifetimeStateless`, `LifetimePhase`, `LifetimeSession`
 
 ### Target Structure
 
 ```
 pkg/
-  iox/                          ← standalone I/O utilities
+  iox/                             ← standalone I/O utilities (complete)
     close.go
   op/
-    *.go                        ← ~80 symbols: engine contract
-    internal/
-      provider/                 ← 19 symbols: provider toolkit
-        resource.go             ← Resource, ResourceBase, SearchResult, etc.
-        base.go                 ← ProviderBase, Construct, Marshal
-        tombstone.go            ← Tombstone, TombstoneBase, NewTombstoneBase
-        callable.go             ← CallableInput, CallableResource
-        receiver.go             ← WrapProviderIn*Receiver, RegisterReceiverParams
-        registration.go         ← RegisterConstructor, MethodParams
-        announce.go             ← AnnounceResource
-        path.go                 ← Path (if fully provider-scoped)
-        packagemanager.go       ← PackageManager
+    *.go                           ← ~80 symbols: engine contract
+    flow/                          ← flow control actions (complete)
     provider/
-      file/                     ← imports op + op/internal/provider
-      archive/
+      register.go                  ← generated: blank-imports all built-in provider gen/ packages
+      access.go                    ← provider.AccessType, provider.Immediate, ...
+      lifetime.go                  ← provider.Lifetime, provider.Stateless, ...
+      file/
+        provider.go                ← file.Provider (hand-written)
+        gen/
+          receiver.gen.go          ← file.Receiver (generated, package file)
+          params.gen.go
+          ...
+      json/
+      yaml/
       ...
 ```
 
@@ -143,51 +178,78 @@ pkg/
 
 - [x] Create `pkg/iox/close.go` with `Close` function
 - [x] Add tests in `pkg/iox/close_test.go`
-- [x] Adopt `iox.Close` at all 37 Close call sites identified in the inspection cleanup
+- [x] Adopt `iox.Close` at call sites identified in the inspection cleanup
 
 ### Phase 2: Relocate `internal/execution/flow` → `pkg/op/flow` — `complete`
-
-Flow control actions (degraded, elevate, gather, etc.) use the op framework to do their job
-and belong as a peer of `provider`, `sops`, and `starvalue` — not buried under
-`internal/execution`.
 
 - [x] `git mv internal/execution/flow pkg/op/flow`
 - [x] Update imports in `pkg/op/provider/register.go`, `internal/execution/flow_test.go`,
       `internal/execution/compensation_test.go`
 - [x] Verify `make check` passes
 
-### Phase 3: Delete Dead Exports (11 symbols across 5 files)
+### Phase 3: Establish `pkg/op/provider` as provider toolkit
 
-- [ ] Unexport `AccessType`, `AccessImmediate`, `AccessPlanned`, `AccessBoth` in `access.go`
-- [ ] Unexport `ProviderLifetime`, `LifetimeStateless`, `LifetimePhase`, `LifetimeSession` in `lifetime.go`
-- [ ] Unexport `RecoveryEntry` in `recovery.go`
-- [ ] Unexport `ErrDrifted` in `recovery.go`
-- [ ] Unexport `ErrReadOnly` → `errReadOnly` in `root.go`
+Add provider contract types alongside the existing `register.go`.
+
+- [ ] Create `pkg/op/provider/access.go`:
+  - `provider.AccessType` (was `op.AccessType`)
+  - `provider.Immediate` (was `op.AccessImmediate`)
+  - `provider.Planned` (was `op.AccessPlanned`)
+  - `provider.Both` (was `op.AccessBoth`)
+- [ ] Create `pkg/op/provider/lifetime.go`:
+  - `provider.Lifetime` (was `op.ProviderLifetime`)
+  - `provider.Stateless` (was `op.LifetimeStateless`)
+  - `provider.Phase` (was `op.LifetimePhase`)
+  - `provider.Session` (was `op.LifetimeSession`)
+- [ ] Delete `pkg/op/access.go` and `pkg/op/lifetime.go`
 - [ ] Verify `make check` passes
 
-### Phase 4: Create `pkg/op/internal/provider`
+### Phase 4: Unexport dead exports (3 symbols)
 
-- [ ] Create the package structure
-- [ ] Move the 19 provider-only symbols
-- [ ] Update all `pkg/op/provider/*` imports
-- [ ] Verify no code outside `pkg/op/` references the moved symbols
+- [ ] Unexport `RecoveryEntry` → `recoveryEntry` in `recovery.go`
+- [ ] Unexport `ErrDrifted` → `errDrifted` in `recovery.go`
+- [ ] Unexport `ErrReadOnly` → `errReadOnly` in `root.go`; update `root_test.go` and
+      `triad_test.go` (`package op_test`) via `export_test.go`
+- [ ] Verify `make check` passes
 
-### Phase 5: Verify and Clean Up
+### Phase 5: Migrate provider-only symbols to `pkg/op/provider` (future)
+
+Migrate the 14 provider-only symbols from `pkg/op` to `pkg/op/provider`. This is a
+larger effort with cross-repo impact (noblefactor-ops generated code templates must
+update). Scoped separately.
+
+- [ ] Design symbol grouping within `pkg/op/provider`
+- [ ] Update code generator templates in noblefactor-ops
+- [ ] Migrate symbols
+- [ ] Regenerate all provider `gen/` files
+- [ ] Verify both repos build and test clean
+
+### Phase 6: Verify and clean up
 
 - [ ] `make check` passes
-- [ ] Verify `internal/execution`, `internal/cli`, `cmd/` cannot import `pkg/op/internal/`
-- [ ] Re-export GoLand inspections and confirm reduced surface area
+- [ ] Verify consumer API works: `pkg/op` for runtime, `pkg/op/provider/*/gen` for
+      receivers, `pkg/op/provider` for toolkit types
+- [ ] Re-run GoLand inspections and confirm reduced surface area
 
 ## Related Documents
 
 - [goland-inspection-cleanup.md](./goland-inspection-cleanup.md) — Inspection cleanup plan
-  (Phase 4 Close handling depends on `pkg/iox`, Phase 5 dead code overlaps with Phase 2 here)
+- [shared-provider-receivers.md](./shared-provider-receivers.md) — Provider receiver framework
+- [reflection-marshaler.md](./reflection-marshaler.md) — Marshaler infrastructure
 
 ## Open Questions
 
-- [ ] Does `Path` belong in `pkg/op/internal/provider` or does the engine need it directly?
-  (Engine uses `Root.NewPath` which returns `Path` — may need to stay in `op`)
-- [ ] Should `pkg/op/internal/provider` be a single package or further decomposed?
+- [ ] Should `Marshal` stay in `pkg/op` (used by core `output.go`) or move to
+  `pkg/op/provider` with a re-export?
+- [ ] Exact file layout for the 14 provider-only symbols within `pkg/op/provider`
+  (single file per concept or grouped?)
+- [x] ~~Does `Path` belong in provider toolkit?~~ — No. Core API, part of `Root` interface.
+- [x] ~~5 symbols classified as provider-only~~ — Reclassified as core API:
+  `PackageManager`, `Path`, `Resource`, `ResourceBase`, `SearchResult`.
 - [x] ~~Some "dead" symbols may be transitively used~~ — confirmed: `Encoder`, `PhaseStatus`,
-  `BackoffStrategy`, `ResourceDescriptor`, `FallibleAction` are all live. Removed from list.
-- [x] ~~`ErrReadOnly` is used in `root.go`~~ — used internally only; unexport to `errReadOnly`
+  `BackoffStrategy`, `ResourceDescriptor`, `FallibleAction` are all live.
+- [x] ~~`ErrReadOnly` is used in `root.go`~~ — used internally only; unexport to `errReadOnly`.
+- [x] ~~`AccessType` and `ProviderLifetime` dead?~~ — No. They are provider contract types
+  that belong in the toolkit, not dead code.
+- [x] ~~Import cycle with register.go?~~ — No. Provider subdirectories import `pkg/op`,
+  not `pkg/op/provider`. register.go stays in place.

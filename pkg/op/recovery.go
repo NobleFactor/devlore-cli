@@ -5,12 +5,12 @@ package op
 
 import "errors"
 
-// ErrDrifted indicates that a reconcile check detected external modification,
+// errDrifted indicates that a reconcile check detected external modification,
 // making compensation unsafe. The entry is skipped during Unwind.
-var ErrDrifted = errors.New("state has drifted: compensation unsafe")
+var errDrifted = errors.New("state has drifted: compensation unsafe")
 
-// RecoveryEntry captures a single compensable operation with its undo and reconcile state.
-type RecoveryEntry struct {
+// recoveryEntry captures a single compensable operation with its undo and reconcile state.
+type recoveryEntry struct {
 	compensate     func(any) error
 	reconcile      func(any) (bool, error)
 	undoState      any
@@ -20,7 +20,7 @@ type RecoveryEntry struct {
 // RecoveryStack accumulates compensable operations in LIFO order. On Unwind, each entry is
 // reconciled (if a reconcile function was provided) and then compensated in reverse order.
 type RecoveryStack struct {
-	entries []RecoveryEntry
+	entries []recoveryEntry
 }
 
 // NewRecoveryStack creates an empty RecoveryStack.
@@ -76,7 +76,7 @@ func (s *RecoveryStack) Push(
 	undoState any,
 	reconcileState any,
 ) {
-	s.entries = append(s.entries, RecoveryEntry{
+	s.entries = append(s.entries, recoveryEntry{
 		compensate:     compensate,
 		reconcile:      reconcile,
 		undoState:      undoState,
@@ -102,7 +102,7 @@ func (s *RecoveryStack) Unwind() error {
 				continue
 			}
 			if !safe {
-				errs = append(errs, ErrDrifted)
+				errs = append(errs, errDrifted)
 				continue
 			}
 		}
