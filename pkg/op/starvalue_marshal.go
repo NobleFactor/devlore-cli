@@ -663,6 +663,17 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 				}
 			}
 		}
+
+		// Check receiver params registry for value-type structs.
+		// Methods that take arguments are registered here; StructValue
+		// only exposes zero-arg methods. Create a pointer so
+		// WrapProviderInExecutingReceiver can work with it.
+		if entry, ok := lookupReceiverParams(rv.Type()); ok {
+			ptr := reflect.New(rv.Type())
+			ptr.Elem().Set(rv)
+			return WrapProviderInExecutingReceiver(entry.factory, ptr.Interface()), nil
+		}
+
 		return marshalStruct(rv)
 
 	default:
