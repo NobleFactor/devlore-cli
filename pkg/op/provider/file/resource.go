@@ -25,7 +25,6 @@ import (
 //   - Resource: initialized with the given path
 //   - error: if v is not a string
 func ResourceFromValue(v any) (Resource, error) {
-
 	s, ok := v.(string)
 	if !ok {
 		return Resource{}, fmt.Errorf("file.Resource: expected string path, got %T", v)
@@ -73,13 +72,12 @@ func (r *Resource) Exists() bool {
 // Returns:
 //   - error: any stat or read error
 func (r *Resource) Refresh(root op.Root) error {
-
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return err
 	}
 
-	return r.refreshWith(info, checksumFile(root, r.SourcePath.Abs()), info.Size())
+	return r.refreshWith(info, checksumFile(root, r.SourcePath.Abs()))
 }
 
 // RefreshWith updates metadata after a write operation using a known checksum and size. A stat is still performed to
@@ -92,14 +90,13 @@ func (r *Resource) Refresh(root op.Root) error {
 //
 // Returns:
 //   - error: any stat error
-func (r *Resource) RefreshWith(root op.Root, checksum string, size int64) error {
-
+func (r *Resource) RefreshWith(root op.Root, checksum string) error {
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return err
 	}
 
-	return r.refreshWith(info, checksum, size)
+	return r.refreshWith(info, checksum)
 }
 
 // Resolve populates the resource's metadata by canonicalizing the path and performing a stat. If the file does not
@@ -112,7 +109,6 @@ func (r *Resource) RefreshWith(root op.Root, checksum string, size int64) error 
 // Returns:
 //   - error: any stat error (not-exist is not an error)
 func (r *Resource) Resolve(root op.Root) error {
-
 	abs, err := filepath.Abs(r.SourcePath.Abs())
 	if err == nil {
 		r.SourcePath = root.NewPath(abs)
@@ -130,7 +126,7 @@ func (r *Resource) Resolve(root op.Root) error {
 	var inode, device uint64
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		inode = stat.Ino
-		device = uint64(stat.Dev)
+		device = uint64(stat.Dev) //nolint:gosec // G115: Dev is platform-specific; overflow is not a practical concern
 	}
 
 	r.Inode = inode
@@ -160,7 +156,6 @@ func (r *Resource) String() string { return r.Format(r) }
 //   - int64: number of bytes written
 //   - error: any error that occurred during writing
 func (r *Resource) WriteTo(root op.Root, writer io.Writer) (_ int64, err error) {
-
 	f, err := root.Open(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return 0, err
@@ -184,13 +179,12 @@ func (r *Resource) buildURI() string {
 }
 
 // refreshWith updates the Resource's metadata with the provided information.
-func (r *Resource) refreshWith(info os.FileInfo, checksum string, size int64) error {
-
+func (r *Resource) refreshWith(info os.FileInfo, checksum string) error {
 	var inode, device uint64
 
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		inode = stat.Ino
-		device = uint64(stat.Dev)
+		device = uint64(stat.Dev) //nolint:gosec // G115: Dev is platform-specific; overflow is not a practical concern
 	}
 
 	r.Inode = inode

@@ -36,5 +36,22 @@ result_link_exists = file.exists(link_target)
 file.remove(copy_dest, False, test_dir)
 result_removed = file.exists(copy_dest) == False
 
+# --- defaults: write_text without mode ---
+defaults_txt = file.join(test_dir, "defaults.txt")
+file.write_text(defaults_txt, "default mode")
+result_defaults_write = file.read_text(defaults_txt)
+
+# --- defaults: mkdir without mode ---
+defaults_dir = file.join(test_dir, "defaults_dir")
+file.mkdir(defaults_dir)
+result_defaults_mkdir = file.is_dir(defaults_dir)
+
+# --- defaults: glob without honor_gitignore ---
+result_defaults_glob = file.glob(file.join(test_dir, "*.txt"))
+
+# --- defaults: remove without prune/boundary ---
+file.remove(defaults_txt)
+result_defaults_remove = file.exists(defaults_txt) == False
+
 # Signal completion.
 result_done = True
