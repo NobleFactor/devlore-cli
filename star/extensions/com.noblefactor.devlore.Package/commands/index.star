@@ -39,22 +39,18 @@ def scan_packages(packages_dir):
     pkg_dirs = []     # [(name, abs_path)]
     variant_map = {}  # pkg_name -> [variant_name]
 
-    def collect(entry):
-        if not entry.is_dir:
-            return
-        depth = entry.path.count("/") + 1
-        if depth == 1:
-            pkg_dirs.append((entry.name, file.join(packages_dir, entry.path)))
-        elif depth == 2 and not entry.name.startswith("."):
-            parent = entry.path.split("/")[0]
-            if parent not in variant_map:
-                variant_map[parent] = []
-            variant_map[parent].append(entry.name)
-            return "skip"
-        elif depth > 2:
-            return "skip"
-
-    file.walk_tree(root=packages_dir, callback=collect)
+    # Depth 1: top-level package directories
+    for pkg_path in file.glob(file.join(packages_dir, "*")):
+        if file.is_dir(pkg_path):
+            pkg_name = file.name(pkg_path)
+            pkg_dirs.append((pkg_name, pkg_path))
+            # Depth 2: variant subdirectories
+            for variant_path in file.glob(file.join(pkg_path, "*")):
+                variant_name = file.name(variant_path)
+                if file.is_dir(variant_path) and not variant_name.startswith("."):
+                    if pkg_name not in variant_map:
+                        variant_map[pkg_name] = []
+                    variant_map[pkg_name].append(variant_name)
 
     packages = []
     for pkg_name, pkg_path in pkg_dirs:
@@ -63,7 +59,7 @@ def scan_packages(packages_dir):
             ui.warn("Skipping " + pkg_name + " (no lifecycle.yaml)")
             continue
 
-        content = file.read(lifecycle_path)
+        content = file.read_text(lifecycle_path)
         pkg = parse_lifecycle(content)
         if pkg == None:
             ui.warn("Skipping " + pkg_name + " (invalid lifecycle.yaml)")
@@ -134,12 +130,12 @@ def _resolve_target(ctx):
     target = ctx.args.get("target", "")
     if not target:
         sibling = file.join("..", "devlore-registry")
-        if file.is_directory(sibling):
+        if file.is_dir(sibling):
             target = sibling
             ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
-    if not file.is_directory(target):
+    if not file.is_dir(target):
         fail("Target path not found: " + target)
     return target
 
@@ -164,7 +160,7 @@ def run(ctx):
     # Build and write package index
     index = build_index(packages)
     index_path = file.join(packages_dir, "index.yaml")
-    file.write(index_path, yaml.encode(index))
+    file.write_text(index_path, yaml.encode(index))
     ui.success("Wrote: " + index_path)
 
     # Build and write cross-reference
@@ -177,7 +173,7 @@ def run(ctx):
         total_mappings = total_mappings + len(names)
 
     if total_mappings > 0:
-        file.write(xref_path, yaml.encode(xref))
+        file.write_text(xref_path, yaml.encode(xref))
         ui.success("Wrote: " + xref_path)
         ui.note(str(len(xref)) + " managers, " + str(total_mappings) + " mappings")
     else:
