@@ -6,6 +6,7 @@ package json
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -60,7 +61,6 @@ func (r *Resource) Parsed() any {
 //   - ValidationResult: the validation outcome with Valid bool and Errors []string
 //   - error: schema compilation errors (NOT validation errors — those go in ValidationResult.Errors)
 func (r *Resource) Validate(schemaJSON string) (ValidationResult, error) {
-
 	compiler := jsonschema.NewCompiler()
 
 	if err := compiler.AddResource("schema.json", strings.NewReader(schemaJSON)); err != nil {
@@ -73,8 +73,8 @@ func (r *Resource) Validate(schemaJSON string) (ValidationResult, error) {
 	}
 
 	if err := schema.Validate(r.parsed); err != nil {
-		ve, ok := err.(*jsonschema.ValidationError)
-		if !ok {
+		var ve *jsonschema.ValidationError
+		if !errors.As(err, &ve) {
 			return ValidationResult{}, fmt.Errorf("json validate: %w", err)
 		}
 
@@ -94,7 +94,6 @@ func (r *Resource) Validate(schemaJSON string) (ValidationResult, error) {
 
 // NewResource creates a json.Resource from raw bytes and a pre-parsed Go value.
 func NewResource(data []byte, parsed any) Resource {
-
 	h := sha256.Sum256(data)
 
 	r := Resource{
@@ -115,7 +114,6 @@ func NewResource(data []byte, parsed any) Resource {
 //   - Resource: initialized with the parsed URI
 //   - error: if v is not a string or the URI format is invalid
 func ResourceFromValue(v any) (Resource, error) {
-
 	s, ok := v.(string)
 	if !ok {
 		return Resource{}, fmt.Errorf("json.Resource: expected string URI, got %T", v)

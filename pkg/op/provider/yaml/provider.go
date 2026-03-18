@@ -17,6 +17,7 @@ type Provider struct {
 	op.ProviderBase
 }
 
+// NewProvider creates a YAML provider bound to the given context.
 func NewProvider(ctx op.Context) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
@@ -49,7 +50,6 @@ func (p *Provider) Decode(data string) (any, error) {
 // Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource whose
 // internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go roundtrips.
 func (p *Provider) Parse(data string) (Resource, error) {
-
 	raw := []byte(data)
 
 	var parsed any
