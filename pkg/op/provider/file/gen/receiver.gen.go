@@ -66,6 +66,17 @@ func (f *Factory) ReceiverName() string { return "file" }
 
 // region Behaviors
 
+// NewExecuting creates a Starlark receiver that dispatches method calls to a fresh provider.
+//
+// Parameters:
+//   - ctx: the execution context.
+//
+// Returns:
+//   - starlark.Value: the executing receiver.
+func (f *Factory) NewExecuting(ctx op.Context) starlark.Value {
+	return op.WrapProviderInExecutingReceiver(f, provider.NewProvider(ctx))
+}
+
 // NewPlanning creates a Starlark receiver that records method calls as graph nodes.
 //
 // Parameters:
@@ -87,6 +98,7 @@ func (f *Factory) NewPlanning(graph *op.Graph, project string, registry *op.Acti
 func (f *Factory) Register(registry *op.ActionRegistry, ctx op.Context) {
 
 	op.RegisterActions(registry, f, Params)
+	op.RegisterReceiverParams(f, Params)
 }
 
 // endregion

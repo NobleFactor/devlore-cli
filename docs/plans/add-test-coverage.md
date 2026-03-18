@@ -223,6 +223,7 @@ Version, Commit, and BuildDate via ldflags — but has no runtime test verifying
 | --- | --- |
 | `internal/cli/version_test.go` | Create |
 
+
 ## Out of Scope
 
 - Modifying or adding tests in `gen/` directories — those are the code generator's responsibility

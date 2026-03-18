@@ -115,6 +115,12 @@ linters:
           - errcheck
           - gosec
 
+      # Provider packages intentionally named after stdlib packages
+      - path: pkg/op/provider/(json|yaml)/
+        linters:
+          - revive
+        text: "var-naming.*conflict with Go standard library"
+
       # Generated files
       - path: \.pb\.go$
         linters:
