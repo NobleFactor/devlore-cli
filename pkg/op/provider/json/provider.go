@@ -47,3 +47,19 @@ func (p *Provider) Decode(data string) (any, error) {
 	}
 	return result, nil
 }
+
+// Parse decodes a JSON string into a [Resource] that holds the parsed Go value.
+//
+// Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource whose
+// internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go roundtrips.
+func (p *Provider) Parse(data string) (Resource, error) {
+
+	raw := []byte(data)
+
+	var parsed any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return Resource{}, fmt.Errorf("json parse: %w", err)
+	}
+
+	return NewResource(raw, parsed), nil
+}

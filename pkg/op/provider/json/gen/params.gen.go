@@ -12,4 +12,5 @@ var Params = op.MethodParams{
 	"Encode":       {"value"},
 	"EncodeIndent": {"value", "indent"},
 	"Decode":       {"data"},
+	"Parse":        {"data"},
 }
