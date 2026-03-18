@@ -364,7 +364,7 @@ func TestComputeSummary(t *testing.T) {
 		Nodes: []*op.Node{
 			{ID: "1", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
 			{ID: "2", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
-			{ID: "3", Action: op.StubAction("template.render"), Status: op.StatusCompleted},
+			{ID: "3", Action: op.StubAction("template.render_bytes"), Status: op.StatusCompleted},
 			{ID: "4", Action: op.StubAction("encryption.decrypt"), Status: op.StatusCompleted},
 			{ID: "5", Action: op.StubAction("file.copy"), Status: op.StatusCompleted},
 			{ID: "6", Status: op.StatusSkipped},

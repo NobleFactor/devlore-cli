@@ -9,5 +9,6 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Params maps Go method names to Starlark parameter name lists.
 var Params = op.MethodParams{
-	"Render": {"template_data", "source", "path", "project", "content"},
+	"RenderText":  {"content", "data"},
+	"RenderBytes": {"content", "data"},
 }

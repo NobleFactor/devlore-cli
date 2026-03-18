@@ -110,7 +110,8 @@ func TestActionNames(t *testing.T) {
 
 	reg := makeRegistry(t)
 	names := []string{
-		"template.render",
+		"template.render_text",
+		"template.render_bytes",
 	}
 	for _, name := range names {
 		a := getAction(t, reg, name)
@@ -124,7 +125,8 @@ func TestRegister(t *testing.T) {
 
 	reg := makeRegistry(t)
 	expected := []string{
-		"template.render",
+		"template.render_text",
+		"template.render_bytes",
 	}
 	for _, name := range expected {
 		if _, ok := reg.Get(name); !ok {
@@ -133,10 +135,10 @@ func TestRegister(t *testing.T) {
 	}
 }
 
-func TestRenderAction_DryRun(t *testing.T) {
+func TestRenderTextAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
-	action := getAction(t, reg, "template.render")
+	action := getAction(t, reg, "template.render_text")
 	ctx := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
@@ -151,8 +153,31 @@ func TestRenderAction_DryRun(t *testing.T) {
 	}
 
 	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] template.render") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] template.render")
+	if !strings.Contains(output, "[dry-run] template.render_text") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] template.render_text")
+	}
+}
+
+func TestRenderBytesAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "template.render_bytes")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] template.render_bytes") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] template.render_bytes")
 	}
 }
 

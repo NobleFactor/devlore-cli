@@ -25,31 +25,43 @@ func NewProvider(ctx op.Context) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-// Render processes content as a Go text/template. Returns the rendered bytes.
+// RenderText processes content as a Go text/template and returns the rendered string.
 //
 // Parameters:
-//   - templateData: Key-value pairs available as template variables
-//   - source: Source file path (available as .Source in the template)
-//   - path: Target file path (available as .Target in the template)
-//   - project: Project name (available as .Project in the template)
-func (p *Provider) Render(templateData map[string]any, source, path, project string, content []byte) ([]byte, error) {
-	tmpl, err := template.New("render").Parse(string(content))
+//   - content: the template source text.
+//   - data: key-value pairs available as template variables.
+func (p *Provider) RenderText(content string, data map[string]any) (string, error) {
+	result, err := p.render(content, data)
 	if err != nil {
-		return nil, fmt.Errorf("parse template: %w", err)
+		return "", err
 	}
+	return result, nil
+}
 
-	data := make(map[string]any)
-	for k, v := range templateData {
-		data[k] = v
+// RenderBytes processes content as a Go text/template and returns the rendered bytes.
+//
+// Parameters:
+//   - content: the template source bytes.
+//   - data: key-value pairs available as template variables.
+func (p *Provider) RenderBytes(content []byte, data map[string]any) ([]byte, error) {
+	result, err := p.render(string(content), data)
+	if err != nil {
+		return nil, err
 	}
-	data["Source"] = source
-	data["Target"] = path
-	data["Project"] = project
+	return []byte(result), nil
+}
+
+// render is the shared implementation for RenderText and RenderBytes.
+func (p *Provider) render(content string, data map[string]any) (string, error) {
+	tmpl, err := template.New("render").Parse(content)
+	if err != nil {
+		return "", fmt.Errorf("parse template: %w", err)
+	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return nil, fmt.Errorf("execute template: %w", err)
+		return "", fmt.Errorf("execute template: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	return buf.String(), nil
 }

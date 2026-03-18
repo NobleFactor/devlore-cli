@@ -897,7 +897,7 @@ func isSkippableNode(n *op.Node) bool {
 	return n.Status == op.StatusSkipped ||
 		action == "file.backup" ||
 		action == "file.link" ||
-		action == "template.render" ||
+		action == "template.render_text" || action == "template.render_bytes" ||
 		action == "encryption.decrypt"
 }
 

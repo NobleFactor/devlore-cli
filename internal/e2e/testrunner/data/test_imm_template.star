@@ -1,15 +1,11 @@
 # test_imm_template.star — Immediate template rendering.
 #
-# Validates: template.render (immediate mode)
-# content param is []byte, use b"..." in Starlark.
+# Validates: template.render_text (immediate mode)
 
-result = template.render(
-    template_data={"Name": "world"},
-    source="",
-    path="",
-    project="test",
-    content=b"hello {{.Name}}",
+result = template.render_text(
+    content="hello {{.Name}}",
+    data={"Name": "world"},
 )
-t.expect_equal(result, b"hello world")
+t.expect_equal(result, "hello world")
 
 t.expect_node_count(0)
