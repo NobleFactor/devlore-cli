@@ -22,6 +22,7 @@ var Params = op.MethodParams{
 	"WriteText":  {"destination", "content", "mode?"},
 	"Exists":     {"resource"},
 	"Glob":       {"pattern", "honor_gitignore?"},
+	"Find":       {"pattern", "honor_gitignore?"},
 	"IsDir":      {"resource"},
 	"IsFile":     {"resource"},
 	"Mkdir":      {"resource", "mode?"},

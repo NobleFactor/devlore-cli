@@ -53,5 +53,17 @@ result_defaults_glob = file.glob(file.join(test_dir, "*.txt"))
 file.remove(defaults_txt)
 result_defaults_remove = file.exists(defaults_txt) == False
 
+# --- find: recursive ** pattern ---
+# Create nested files for find to discover.
+nested = file.join(test_dir, "findtest", "deep")
+file.mkdir(nested)
+file.write_text(file.join(test_dir, "findtest", "top.go"), "package top")
+file.write_text(file.join(nested, "deep.go"), "package deep")
+file.write_text(file.join(nested, "notes.md"), "# notes")
+
+result_find_go = file.find(file.join(test_dir, "findtest", "**", "*.go"))
+result_find_md = file.find(file.join(test_dir, "findtest", "**", "*.md"))
+result_find_all = file.find(file.join(test_dir, "findtest", "**", "*.*"))
+
 # Signal completion.
 result_done = True
