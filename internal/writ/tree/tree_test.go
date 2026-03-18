@@ -19,13 +19,13 @@ func TestProcessingPipeline(t *testing.T) {
 		actions    []string
 	}{
 		{"foo", "foo", []string{"file.link"}},
-		{"foo.template", "foo", []string{"template.render", "file.copy"}},
+		{"foo.template", "foo", []string{"template.render_bytes", "file.copy"}},
 		{"foo.age", "foo.age", []string{"file.link"}},
 		{"foo.sops", "foo", []string{"encryption.decrypt", "file.copy"}},
-		{"foo.template.sops", "foo", []string{"encryption.decrypt", "template.render", "file.copy"}},
+		{"foo.template.sops", "foo", []string{"encryption.decrypt", "template.render_bytes", "file.copy"}},
 		{".bashrc", ".bashrc", []string{"file.link"}},
-		{".bashrc.template", ".bashrc", []string{"template.render", "file.copy"}},
-		{"config.yaml.template.sops", "config.yaml", []string{"encryption.decrypt", "template.render", "file.copy"}},
+		{".bashrc.template", ".bashrc", []string{"template.render_bytes", "file.copy"}},
+		{"config.yaml.template.sops", "config.yaml", []string{"encryption.decrypt", "template.render_bytes", "file.copy"}},
 		{"packages-manifest.yaml", "packages-manifest.yaml", []string{"manifest.resolve"}},
 	}
 
@@ -302,9 +302,9 @@ func TestActionHelpers(t *testing.T) {
 		hasManifest bool
 	}{
 		{[]string{"file.link"}, false, false},
-		{[]string{"template.render", "file.copy"}, true, false},
+		{[]string{"template.render_bytes", "file.copy"}, true, false},
 		{[]string{"encryption.decrypt", "file.copy"}, true, false},
-		{[]string{"encryption.decrypt", "template.render", "file.copy"}, true, false},
+		{[]string{"encryption.decrypt", "template.render_bytes", "file.copy"}, true, false},
 		{[]string{"manifest.resolve"}, false, true},
 	}
 

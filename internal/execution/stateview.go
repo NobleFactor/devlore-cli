@@ -425,7 +425,7 @@ func (b *StateViewBuilder) includeGraph(g *op.Graph) bool {
 // isTransformOnlyNode returns true if the node is an intermediate transform.
 func isTransformOnlyNode(node *op.Node) bool {
 	switch node.ActionName() {
-	case "template.render", "encryption.decrypt":
+	case "template.render_text", "template.render_bytes", "encryption.decrypt":
 		return true
 	}
 	return false

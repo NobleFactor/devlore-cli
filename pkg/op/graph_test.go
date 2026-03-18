@@ -452,7 +452,7 @@ func TestNode_JSON_EmptyAction(t *testing.T) {
 func TestNode_JSON_ActionFieldPresent(t *testing.T) {
 	n := Node{
 		ID:     "n1",
-		Action: StubAction("template.render"),
+		Action: StubAction("template.render_bytes"),
 		Status: StatusCompleted,
 	}
 	data, err := json.Marshal(&n)
@@ -463,7 +463,7 @@ func TestNode_JSON_ActionFieldPresent(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("Unmarshal raw error: %v", err)
 	}
-	if raw["action"] != "template.render" {
+	if raw["action"] != "template.render_bytes" {
 		t.Errorf("JSON action field = %v, want template.render", raw["action"])
 	}
 }
@@ -711,7 +711,7 @@ func TestGraph_ComputeSummary(t *testing.T) {
 		Nodes: []*Node{
 			{ID: "link1", Action: StubAction("file.link"), Status: StatusCompleted},
 			{ID: "link2", Action: StubAction("file.link"), Status: StatusCompleted},
-			{ID: "tmpl1", Action: StubAction("template.render"), Status: StatusCompleted},
+			{ID: "tmpl1", Action: StubAction("template.render_bytes"), Status: StatusCompleted},
 			{ID: "sec1", Action: StubAction("encryption.decrypt"), Status: StatusCompleted},
 			{ID: "copy1", Action: StubAction("file.copy"), Status: StatusCompleted},
 			{ID: "pkg1", Action: StubAction("pkg.install"), Status: StatusCompleted},
@@ -797,12 +797,12 @@ func TestHydrateGraph_ReplacesStubs(t *testing.T) {
 	g := &Graph{
 		Nodes: []*Node{
 			{ID: "n1", Action: StubAction("file.link")},
-			{ID: "n2", Action: StubAction("template.render")},
+			{ID: "n2", Action: StubAction("template.render_bytes")},
 		},
 	}
 	reg := NewActionRegistry()
 	reg.Register(&testAction{name: "file.link"})
-	reg.Register(&testAction{name: "template.render"})
+	reg.Register(&testAction{name: "template.render_bytes"})
 
 	if err := HydrateGraph(g, reg); err != nil {
 		t.Fatalf("HydrateGraph error: %v", err)

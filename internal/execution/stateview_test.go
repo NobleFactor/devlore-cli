@@ -690,7 +690,8 @@ func TestIsPackageNode(t *testing.T) {
 	}{
 		{"file.link", false},
 		{"file.copy", false},
-		{"template.render", false},
+		{"template.render_text", false},
+		{"template.render_bytes", false},
 		{"encryption.decrypt", false},
 		{"pkg.install", true},
 		{"pkg.prepare", true},

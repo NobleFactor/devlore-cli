@@ -22,9 +22,9 @@ var PackagesManifestFiles = []string{
 // Examples:
 //
 //	"foo"                     → "foo",                     ["file.link"]
-//	"foo.template"            → "foo",                     ["template.render", "file.copy"]
+//	"foo.template"            → "foo",                     ["template.render_bytes", "file.copy"]
 //	"foo.sops"                → "foo",                     ["encryption.decrypt", "file.copy"]
-//	"foo.template.sops"       → "foo",                     ["encryption.decrypt", "template.render", "file.copy"]
+//	"foo.template.sops"       → "foo",                     ["encryption.decrypt", "template.render_bytes", "file.copy"]
 //	"packages-manifest.yaml"  → "packages-manifest.yaml",  ["manifest.resolve"]
 func ProcessingPipeline(filename string) (targetName string, actions []string) {
 	name := filename
@@ -46,7 +46,7 @@ func ProcessingPipeline(filename string) (targetName string, actions []string) {
 
 	if strings.HasSuffix(name, ".template") {
 		name = strings.TrimSuffix(name, ".template")
-		pipeline = append(pipeline, "template.render")
+		pipeline = append(pipeline, "template.render_bytes")
 	}
 
 	if len(pipeline) > 0 {

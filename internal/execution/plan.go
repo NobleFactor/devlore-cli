@@ -130,14 +130,16 @@ func (p *Plan) CopyWithMode(source, path string, mode os.FileMode) *op.Node {
 	return node
 }
 
-// Render adds a template rendering action.
+// Render adds a template rendering action. Callers inject Source, Target,
+// and Project into the template_data slot if needed — the provider no longer
+// accepts them as separate parameters.
 func (p *Plan) Render(source string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	node := &op.Node{
 		ID:      p.nextID("render"),
-		Action:  p.reg.MustGet("template.render"),
+		Action:  p.reg.MustGet("template.render_bytes"),
 		Project: p.project,
 	}
 	if source != "" {

@@ -611,7 +611,7 @@ func (g *Graph) ComputeSummary() {
 		case "file.link":
 			g.Summary.TotalFiles++
 			g.Summary.Links++
-		case "template.render":
+		case "template.render_text", "template.render_bytes":
 			g.Summary.TotalFiles++
 			g.Summary.Templates++
 		case "encryption.decrypt":

@@ -413,7 +413,7 @@ func (r *BuildResult) TemplateCount() int {
 	count := 0
 	for _, f := range r.Files {
 		for _, action := range f.Operations {
-			if action == "template.render" {
+			if action == "template.render_bytes" {
 				count++
 				break
 			}

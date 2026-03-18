@@ -85,11 +85,11 @@ func TestNames(t *testing.T) {
 	reg := NewActionRegistry()
 	reg.Register(&registryTestAction{name: "file.link"})
 	reg.Register(&registryTestAction{name: "shell.run"})
-	reg.Register(&registryTestAction{name: "template.render"})
+	reg.Register(&registryTestAction{name: "template.render_bytes"})
 
 	got := reg.Names()
 	sort.Strings(got)
-	want := []string{"file.link", "shell.run", "template.render"}
+	want := []string{"file.link", "shell.run", "template.render_bytes"}
 	if len(got) != len(want) {
 		t.Fatalf("Names() returned %d items, want %d", len(got), len(want))
 	}

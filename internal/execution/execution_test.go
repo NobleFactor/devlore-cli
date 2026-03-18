@@ -96,7 +96,7 @@ func TestAllProvidersCount(t *testing.T) {
 	expected := []string{
 		"file.backup", "file.copy", "file.glob", "file.link", "file.mkdir", "file.move", "file.read_bytes", "file.read_text", "file.remove", "file.remove_all", "file.unlink", "file.write_bytes", "file.write_text",
 		"encryption.decrypt",
-		"template.render",
+		"template.render_bytes", "template.render_text",
 		"pkg.install", "pkg.upgrade", "pkg.remove", "pkg.update", "pkg.installed", "pkg.not_installed", "pkg.version_gte",
 		"shell.exec", "shell.power_shell",
 		"service.start", "service.stop", "service.restart", "service.enable", "service.disable", "service.exists", "service.running", "service.enabled",
