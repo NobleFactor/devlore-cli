@@ -262,9 +262,9 @@ func TestMarshal_SimpleStruct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	s, ok := got.(*starlarkstruct.Struct)
+	s, ok := got.(starlark.HasAttrs)
 	if !ok {
-		t.Fatalf("expected *starlarkstruct.Struct, got %T", got)
+		t.Fatalf("expected starlark.HasAttrs, got %T", got)
 	}
 
 	xv, err := s.Attr("x")
@@ -305,9 +305,9 @@ func TestMarshal_NestedStruct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	s, ok := got.(*starlarkstruct.Struct)
+	s, ok := got.(starlark.HasAttrs)
 	if !ok {
-		t.Fatalf("expected *starlarkstruct.Struct, got %T", got)
+		t.Fatalf("expected starlark.HasAttrs, got %T", got)
 	}
 
 	// Check name.
@@ -319,9 +319,9 @@ func TestMarshal_NestedStruct(t *testing.T) {
 
 	// Check nested struct.
 	lv, _ := s.Attr("location")
-	ls, ok := lv.(*starlarkstruct.Struct)
+	ls, ok := lv.(starlark.HasAttrs)
 	if !ok {
-		t.Fatalf("location: expected struct, got %T", lv)
+		t.Fatalf("location: expected HasAttrs, got %T", lv)
 	}
 	xv, _ := ls.Attr("x")
 	xi, _ := xv.(starlark.Int)
@@ -351,7 +351,7 @@ func TestMarshal_NilNestedStruct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	s := got.(*starlarkstruct.Struct)
+	s := got.(starlark.HasAttrs)
 	lv, _ := s.Attr("location")
 	if lv != starlark.None {
 		t.Errorf("nil location = %v, want None", lv)
@@ -368,7 +368,7 @@ func TestMarshal_StructTags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	s := got.(*starlarkstruct.Struct)
+	s := got.(starlark.HasAttrs)
 
 	// Custom tag: "name" instead of "full_name".
 	nv, err := s.Attr("name")
