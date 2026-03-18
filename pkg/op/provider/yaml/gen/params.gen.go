@@ -11,4 +11,5 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 var Params = op.MethodParams{
 	"Encode": {"value"},
 	"Decode": {"data"},
+	"Parse":  {"data"},
 }

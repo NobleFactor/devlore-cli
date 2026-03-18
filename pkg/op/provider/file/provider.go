@@ -35,7 +35,7 @@ var (
 // Compensable forward methods return (T, Tombstone, error): the result, the compensation tombstone, and an error.
 // The tombstone is opaque to the executor, meaningful only to the corresponding "Compensate*" backward method.
 //
-// +devlore:access=planned
+// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }

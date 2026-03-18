@@ -137,7 +137,7 @@ func TestActions_EncodeIndent(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T, want string", result)
 	}
-	if len(s) == 0 {
+	if s == "" {
 		t.Error("result is empty")
 	}
 }

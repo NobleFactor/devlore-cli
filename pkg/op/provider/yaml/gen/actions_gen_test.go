@@ -112,6 +112,7 @@ func TestActionNames(t *testing.T) {
 	names := []string{
 		"yaml.encode",
 		"yaml.decode",
+		"yaml.parse",
 	}
 	for _, name := range names {
 		a := getAction(t, reg, name)
@@ -127,6 +128,7 @@ func TestRegister(t *testing.T) {
 	expected := []string{
 		"yaml.encode",
 		"yaml.decode",
+		"yaml.parse",
 	}
 	for _, name := range expected {
 		if _, ok := reg.Get(name); !ok {
@@ -178,6 +180,29 @@ func TestDecodeAction_DryRun(t *testing.T) {
 	output := ctx.Writer.(*bytes.Buffer).String()
 	if !strings.Contains(output, "[dry-run] yaml.decode") {
 		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] yaml.decode")
+	}
+}
+
+func TestParseAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "yaml.parse")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] yaml.parse") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] yaml.parse")
 	}
 }
 
