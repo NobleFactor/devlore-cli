@@ -41,7 +41,7 @@ def validate_file(file_path, schema_json):
     """Validate a single file against a schema."""
     content = file.read_text(file_path)
     doc = yaml.parse(content)
-    if doc.value == None:
+    if doc.parsed == None:
         return False, ["Failed to parse YAML"]
 
     result = doc.validate(schema_json)
