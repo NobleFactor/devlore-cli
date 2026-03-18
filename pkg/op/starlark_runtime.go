@@ -71,8 +71,10 @@ func (rt *StarlarkRuntime) HasGraphBuilder() bool {
 //   - reg: the action registry to populate.
 //   - ctx: the base execution context for provider initialization.
 func (rt *StarlarkRuntime) Initialize(reg *ActionRegistry, ctx ContextBase) {
-
 	rt.ctx = Context{ContextBase: ctx}
+	if ctx.Root != nil {
+		rt.ctx.RecoverySite = NewRecoverySite(rt.ctx)
+	}
 	InitAll(reg, rt.ctx)
 }
 
