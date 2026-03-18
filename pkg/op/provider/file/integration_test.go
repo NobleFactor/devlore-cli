@@ -102,6 +102,11 @@ func TestStarlark(t *testing.T) {
 
 	// defaults: remove without prune/boundary
 	assertBool(t, result, "result_defaults_remove")
+
+	// find: recursive ** pattern
+	assertListLen(t, result, "result_find_go", 2)  // top.go + deep/deep.go
+	assertListLen(t, result, "result_find_md", 1)  // deep/notes.md
+	assertListLen(t, result, "result_find_all", 3) // all three files
 }
 
 // endregion
@@ -217,6 +222,23 @@ func assertBool(t *testing.T, globals starlark.StringDict, key string) {
 	}
 	if v != starlark.True {
 		t.Errorf("%s = %v, want true", key, v)
+	}
+}
+
+func assertListLen(t *testing.T, globals starlark.StringDict, key string, want int) {
+	t.Helper()
+	v, ok := globals[key]
+	if !ok {
+		t.Errorf("missing global %q", key)
+		return
+	}
+	list, ok := v.(*starlark.List)
+	if !ok {
+		t.Errorf("%s: expected List, got %s", key, v.Type())
+		return
+	}
+	if list.Len() != want {
+		t.Errorf("%s: len = %d, want %d", key, list.Len(), want)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
@@ -766,6 +767,136 @@ func (p *Provider) Glob(pattern string, honorGitignore bool) ([]string, error) {
 	return filtered, nil
 }
 
+// Find returns file paths matching a glob pattern with recursive ** support.
+//
+// Unlike [Glob], which uses Go's [filepath.Glob] (no ** support), Find walks the directory tree
+// and matches each entry against the pattern. The ** wildcard matches zero or more directory levels.
+//
+// +devlore:defaults honorGitignore=true
+//
+// Parameters:
+//   - pattern: Glob pattern with ** support (e.g., "**/*.go", "src/**/*.yaml")
+//   - honorGitignore: If true, filter results using gitignore rules
+//
+// Returns:
+//   - []string: List of matching file paths
+//   - error: any error from walking the directory tree
+func (p *Provider) Find(pattern string, honorGitignore bool) ([]string, error) {
+	root, matchPattern := splitFindPattern(pattern)
+	if root == "" {
+		root = "."
+	}
+
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("find: resolve root %q: %w", root, err)
+	}
+
+	tracker, err := p.newTrackerIfEnabled(absRoot, honorGitignore)
+	if err != nil {
+		return nil, fmt.Errorf("find: gitignore tracker: %w", err)
+	}
+
+	var matches []string
+	walkErr := filepath.WalkDir(absRoot, func(entryAbs string, d fs.DirEntry, walkDirErr error) error {
+		if walkDirErr != nil {
+			return walkDirErr
+		}
+
+		relPath, relErr := filepath.Rel(absRoot, entryAbs)
+		if relErr != nil {
+			return relErr
+		}
+
+		if relPath == "." {
+			return nil
+		}
+
+		if skip := p.applyGitignore(tracker, d, relPath); skip != nil {
+			if errors.Is(skip, errSkipEntry) {
+				return nil
+			}
+			return skip
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		if matchDoublestar(matchPattern, relPath) {
+			matches = append(matches, entryAbs)
+		}
+
+		return nil
+	})
+
+	if walkErr != nil {
+		return nil, fmt.Errorf("find: walk %q: %w", absRoot, walkErr)
+	}
+
+	return matches, nil
+}
+
+// splitFindPattern splits a pattern like "src/**/*.go" into a root directory ("src")
+// and a match pattern ("**/*.go"). If the pattern starts with **, root is empty.
+func splitFindPattern(pattern string) (root, match string) {
+	idx := strings.Index(pattern, "**")
+	if idx < 0 {
+		// No ** — treat the directory part as root, filename as match.
+		return filepath.Dir(pattern), filepath.Base(pattern)
+	}
+	root = strings.TrimRight(pattern[:idx], string(filepath.Separator))
+	match = pattern[idx:]
+	return root, match
+}
+
+// matchDoublestar matches a path against a pattern containing ** wildcards.
+// ** matches zero or more directory levels. Other wildcards follow filepath.Match rules.
+func matchDoublestar(pattern, path string) bool {
+	parts := strings.Split(pattern, "**")
+	if len(parts) == 1 {
+		return pathMatch(pattern, path)
+	}
+
+	// Common case: prefix**suffix (e.g., "**/*.go" → prefix="", suffix="/*.go").
+	if len(parts) == 2 {
+		return matchDoublestarSingle(parts[0], parts[1], path)
+	}
+
+	// Multiple ** segments — fall back to simple tail match.
+	tail := strings.TrimLeft(parts[len(parts)-1], string(filepath.Separator))
+	return pathMatch(tail, filepath.Base(path))
+}
+
+// matchDoublestarSingle handles patterns with exactly one ** wildcard.
+func matchDoublestarSingle(rawPrefix, rawSuffix, path string) bool {
+	prefix := strings.TrimRight(rawPrefix, string(filepath.Separator))
+	suffix := strings.TrimLeft(rawSuffix, string(filepath.Separator))
+
+	if prefix != "" {
+		if !strings.HasPrefix(path, prefix+string(filepath.Separator)) && path != prefix {
+			return false
+		}
+		path = strings.TrimPrefix(path, prefix+string(filepath.Separator))
+	}
+
+	// Match suffix against every possible tail of the remaining path.
+	segments := strings.Split(path, string(filepath.Separator))
+	for i := range segments {
+		tail := strings.Join(segments[i:], string(filepath.Separator))
+		if pathMatch(suffix, tail) {
+			return true
+		}
+	}
+	return false
+}
+
+// pathMatch wraps filepath.Match, treating errors as non-matches.
+func pathMatch(pattern, name string) bool {
+	ok, err := filepath.Match(pattern, name)
+	return err == nil && ok
+}
+
 // IsDir returns true if the resource exists and is a directory.
 //
 // Parameters:
@@ -815,6 +946,9 @@ func (p *Provider) IsFile(resource Resource) (bool, error) {
 // Returns:
 //   - string: The absolute path of the created directory
 func (p *Provider) Mkdir(resource Resource, mode os.FileMode) (Resource, error) {
+	if mode == 0 {
+		mode = 0o755
+	}
 	return resource, p.mkdirAll(resource.SourcePath.Abs(), mode)
 }
 

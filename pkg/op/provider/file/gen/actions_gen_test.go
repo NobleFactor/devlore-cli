@@ -123,6 +123,7 @@ func TestActionNames(t *testing.T) {
 		"file.write_text",
 		"file.exists",
 		"file.glob",
+		"file.find",
 		"file.is_dir",
 		"file.is_file",
 		"file.mkdir",
@@ -157,6 +158,7 @@ func TestRegister(t *testing.T) {
 		"file.write_text",
 		"file.exists",
 		"file.glob",
+		"file.find",
 		"file.is_dir",
 		"file.is_file",
 		"file.mkdir",
@@ -469,6 +471,29 @@ func TestGlobAction_DryRun(t *testing.T) {
 	output := ctx.Writer.(*bytes.Buffer).String()
 	if !strings.Contains(output, "[dry-run] file.glob") {
 		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.glob")
+	}
+}
+
+func TestFindAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "file.find")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.find") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.find")
 	}
 }
 
