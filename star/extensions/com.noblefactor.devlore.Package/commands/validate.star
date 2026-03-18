@@ -40,24 +40,21 @@ def find_files(target, pattern):
             break
         search_root = file.join(search_root, part)
 
-    if not file.exists(search_root) or not file.is_directory(search_root):
+    if not file.exists(search_root) or not file.is_dir(search_root):
         return []
 
-    files = []
-    def collect(entry):
-        if not entry.is_dir and entry.name == filename:
-            files.append(file.join(search_root, entry.path))
-    file.walk_tree(root=search_root, callback=collect)
-    return files
+    return file.find(file.join(search_root, "**", filename))
 
 def validate_file(file_path, schema_json):
     """Validate a single file against a schema."""
-    content = file.read(file_path)
-    data = yaml.decode(content)
-    if data == None:
+    content = file.read_text(file_path)
+    doc = yaml.parse(content)
+    if doc.parsed == None:
         return False, ["Failed to parse YAML"]
 
-    valid, errors = schema.validate(data, schema_json)
+    result = doc.validate(schema_json)
+    valid = result.valid
+    errors = result.errors
     return valid, errors
 
 
@@ -66,12 +63,12 @@ def _resolve_target(ctx):
     target = ctx.args.get("target", "")
     if not target:
         sibling = file.join("..", "devlore-registry")
-        if file.is_directory(sibling):
+        if file.is_dir(sibling):
             target = sibling
             ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
-    if not file.is_directory(target):
+    if not file.is_dir(target):
         fail("Target path not found: " + target)
     return target
 
@@ -89,7 +86,7 @@ def run(ctx):
         if not file.exists(schema_path):
             continue
 
-        schema_json = file.read(schema_path)
+        schema_json = file.read_text(schema_path)
         files = find_files(target, config["pattern"])
 
         if len(files) == 0:

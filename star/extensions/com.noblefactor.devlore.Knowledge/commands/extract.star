@@ -56,7 +56,7 @@ def run(ctx):
             fail("--source required (no ../devlore-cli found)")
 
     # Validate paths exist
-    if not file.is_directory(source):
+    if not file.is_dir(source):
         fail("Source path not found: " + source)
 
     # Build knowledge for selected domain(s)
@@ -79,7 +79,7 @@ def _resolve_target(ctx):
             ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
-    if not file.is_directory(target):
+    if not file.is_dir(target):
         fail("Target path not found: " + target)
     return target
 
@@ -87,7 +87,7 @@ def _resolve_target(ctx):
 def _find_sibling(name):
     """Find a sibling directory by name."""
     sibling = file.join("..", name)
-    if file.is_directory(sibling):
+    if file.is_dir(sibling):
         return sibling
     return ""
 
@@ -157,14 +157,13 @@ def _build_ns_descriptions(starlark_path):
     """
     descriptions = {"(root)": "Top-level graph construction primitives"}
     provider_base = file.join(starlark_path, "..", "execution", "provider")
-    if not file.is_directory(provider_base):
+    if not file.is_dir(provider_base):
         return descriptions
 
-    for entry in file.list(provider_base):
-        if not entry.is_dir:
+    for provider_path in file.glob(file.join(provider_base, "*")):
+        if not file.is_dir(provider_path):
             continue
-        ns = str(entry.name)
-        provider_path = file.join(provider_base, ns)
+        ns = file.name(provider_path)
         doc = str(goast.type_doc(provider_path, "Provider"))
         if doc:
             # Join paragraph lines into one string, stopping at blank lines or directives.
@@ -654,7 +653,7 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
     ui.note("Building onboarding knowledge (Starlark API)...")
 
     starlark_path = file.join(source, "internal", "starlark")
-    if not file.is_directory(starlark_path):
+    if not file.is_dir(starlark_path):
         fail("Starlark package not found: " + starlark_path)
 
     # Parse the API using Go AST primitives
@@ -683,7 +682,7 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
         changes_detected = False
         new_content = yaml.encode(api)
         if file.exists(reference_path):
-            current_content = file.read(reference_path)
+            current_content = file.read_text(reference_path)
             if current_content != new_content:
                 changes_detected = True
                 ui.note("  Changes detected in reference.yaml")
@@ -692,7 +691,7 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
             ui.note("  Creating new reference.yaml")
 
         if changes_detected:
-            file.write(reference_path, new_content)
+            file.write_text(reference_path, new_content)
             ui.success("  Wrote " + reference_path)
         else:
             ui.success("  No changes to reference.yaml")
@@ -704,7 +703,7 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
 
         md_changed = False
         if file.exists(md_path):
-            current_md = file.read(md_path)
+            current_md = file.read_text(md_path)
             if current_md != md_content:
                 md_changed = True
                 ui.note("  Changes detected in reference.md")
@@ -713,7 +712,7 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
             ui.note("  Creating new reference.md")
 
         if md_changed:
-            file.write(md_path, md_content)
+            file.write_text(md_path, md_content)
             ui.success("  Wrote " + md_path)
         else:
             ui.success("  No changes to reference.md")
@@ -924,15 +923,15 @@ def build_migration_knowledge(source, target):
     ui.note("Building migration knowledge...")
 
     migrate_path = file.join(source, "internal", "writ", "migrate")
-    if not file.is_directory(migrate_path):
+    if not file.is_dir(migrate_path):
         fail("Migrate source not found: " + migrate_path)
 
     execution_path = file.join(source, "internal", "execution")
-    if not file.is_directory(execution_path):
+    if not file.is_dir(execution_path):
         fail("Execution source not found: " + execution_path)
 
     knowledge_path = file.join(target, "knowledge", "migration")
-    if not file.is_directory(knowledge_path):
+    if not file.is_dir(knowledge_path):
         fail("Migration knowledge path not found: " + knowledge_path)
 
     # Step 1: Parse Go source files
@@ -957,14 +956,12 @@ def build_migration_knowledge(source, target):
     # Step 2: Load registry signature files
     signatures_path = file.join(knowledge_path, "signatures")
     registry_systems = []
-    if file.is_directory(signatures_path):
-        for entry in file.list(signatures_path):
-            if entry.name.endswith(".yaml"):
-                sig_path = file.join(signatures_path, entry.name)
-                content = file.read(sig_path)
+    if file.is_dir(signatures_path):
+        for sig_path in file.glob(file.join(signatures_path, "*.yaml")):
+                content = file.read_text(sig_path)
                 sig = yaml.decode(content)
                 if sig.get("name"):
-                    system_name = entry.name.replace(".yaml", "")
+                    system_name = file.name(sig_path).replace(".yaml", "")
                     registry_systems.append(system_name)
 
     # Step 3: Load writ-structure.yaml for platform validation
@@ -972,7 +969,7 @@ def build_migration_knowledge(source, target):
     registry_platforms = []
     registry_platform_aliases = []
     if file.exists(writ_structure_path):
-        content = file.read(writ_structure_path)
+        content = file.read_text(writ_structure_path)
         structure = yaml.decode(content)
         segments = structure.get("naming", {}).get("segments", {})
         platform_list = segments.get("platforms", [])
@@ -1007,7 +1004,7 @@ def build_migration_knowledge(source, target):
 
     changes_detected = False
     if file.exists(systems_ref_path):
-        current_content = file.read(systems_ref_path)
+        current_content = file.read_text(systems_ref_path)
         new_content = yaml.encode(systems_ref)
         if current_content != new_content:
             changes_detected = True
@@ -1017,7 +1014,7 @@ def build_migration_knowledge(source, target):
         ui.note("  Creating new systems-reference.yaml")
 
     if changes_detected:
-        file.write(systems_ref_path, yaml.encode(systems_ref))
+        file.write_text(systems_ref_path, yaml.encode(systems_ref))
         ui.success("  Wrote " + systems_ref_path)
     else:
         ui.success("  No changes to systems-reference.yaml")
@@ -1040,7 +1037,7 @@ _SCHEMA_OVERRIDES = {
 def generate_execution_schema(source, knowledge_path, execution):
     """Generate engine-graph.json schema from Go struct definitions."""
     schemas_path = file.join(knowledge_path, "schemas")
-    if not file.is_directory(schemas_path):
+    if not file.is_dir(schemas_path):
         ui.warn("  Schemas path not found: " + schemas_path)
         return
 
@@ -1139,7 +1136,7 @@ def generate_execution_schema(source, knowledge_path, execution):
 
     changes_detected = False
     if file.exists(engine_schema_path):
-        current_content = file.read(engine_schema_path)
+        current_content = file.read_text(engine_schema_path)
         if current_content != new_content:
             changes_detected = True
             ui.note("  Changes detected in engine-graph.json")
@@ -1148,7 +1145,7 @@ def generate_execution_schema(source, knowledge_path, execution):
         ui.note("  Creating new engine-graph.json")
 
     if changes_detected:
-        file.write(engine_schema_path, new_content)
+        file.write_text(engine_schema_path, new_content)
         ui.success("  Wrote " + engine_schema_path)
     else:
         ui.success("  No changes to engine-graph.json")
@@ -1280,7 +1277,7 @@ def validate_signature_coverage(source_systems, signatures_path):
         if not file.exists(sig_file):
             ui.warn("  Missing signature file: " + sig_file)
         else:
-            content = file.read(sig_file)
+            content = file.read_text(sig_file)
             sig = yaml.decode(content)
             if not sig.get("name"):
                 ui.warn("  Signature missing 'name': " + sig_file)
@@ -1305,7 +1302,7 @@ def build_ops_knowledge(source, target):
     ui.note("Building ops knowledge (operation surface)...")
 
     execution_path = file.join(source, "internal", "execution")
-    if not file.is_directory(execution_path):
+    if not file.is_dir(execution_path):
         fail("Execution source not found: " + execution_path)
 
     # Discover *Service structs
@@ -1384,7 +1381,7 @@ def build_ops_knowledge(source, target):
 
         changes_detected = False
         if file.exists(mapping_path):
-            current_content = file.read(mapping_path)
+            current_content = file.read_text(mapping_path)
             if current_content != mapping_yaml:
                 changes_detected = True
                 ui.note("  Changes detected in " + mapping_file)
@@ -1393,7 +1390,7 @@ def build_ops_knowledge(source, target):
             ui.note("  Creating new " + mapping_file)
 
         if changes_detected:
-            file.write(mapping_path, mapping_yaml)
+            file.write_text(mapping_path, mapping_yaml)
             ui.success("  Wrote " + mapping_path)
         else:
             ui.success("  No changes to " + mapping_file)

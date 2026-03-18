@@ -44,7 +44,7 @@ def build_modelfile(knowledge_path, domain, model):
     # Include each asset type in order
     for asset_type, section_name, extension in SYSTEM_ASSET_ORDER:
         asset_dir = file.join(knowledge_path, asset_type)
-        if not file.is_directory(asset_dir):
+        if not file.is_dir(asset_dir):
             continue
 
         section_content = _build_section(asset_dir, section_name, extension)
@@ -75,7 +75,7 @@ def _build_section(asset_dir, section_name, extension):
 
     for filename in files:
         filepath = file.join(asset_dir, filename)
-        content = file.read(filepath)
+        content = file.read_text(filepath)
 
         # Skip baseline/generated files in examples
         if filename.startswith("baseline-"):
@@ -107,15 +107,11 @@ def _list_asset_files(dir_path, extension=""):
         return []
 
     files = []
-    def collect(entry):
-        if entry.is_dir:
-            return "skip"
-        if entry.name.startswith("."):
-            return
-        if extension and not entry.name.endswith(extension):
-            return
-        files.append(entry.name)
-    file.walk_tree(root=dir_path, callback=collect)
+    pattern = "*" + extension if extension else "*"
+    for path in file.glob(file.join(dir_path, pattern)):
+        name = file.name(path)
+        if not file.is_dir(path) and not name.startswith("."):
+            files.append(name)
     return sorted(files)
 
 
@@ -129,12 +125,12 @@ def _resolve_target(ctx):
     target = ctx.args.get("target", "")
     if not target:
         sibling = file.join("..", "devlore-registry")
-        if file.is_directory(sibling):
+        if file.is_dir(sibling):
             target = sibling
             ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
-    if not file.is_directory(target):
+    if not file.is_dir(target):
         fail("Target path not found: " + target)
     return target
 
@@ -142,26 +138,27 @@ def _resolve_target(ctx):
 def _list_knowledge_domains(target):
     """List all knowledge domains in the target."""
     knowledge_path = file.join(target, "knowledge")
-    if not file.is_directory(knowledge_path):
+    if not file.is_dir(knowledge_path):
         return []
 
     domains = []
-    for entry in file.list(knowledge_path):
-        if entry.is_dir and not entry.name.startswith("."):
-            domains.append(entry.name)
+    for path in file.glob(file.join(knowledge_path, "*")):
+        name = file.name(path)
+        if file.is_dir(path) and not name.startswith("."):
+            domains.append(name)
     return sorted(domains)
 
 
 def _build_domain(target, domain, model):
     """Build Modelfile for a single domain."""
     knowledge_path = file.join(target, "knowledge", domain)
-    if not file.is_directory(knowledge_path):
+    if not file.is_dir(knowledge_path):
         fail("Knowledge domain not found: " + domain)
 
     content = build_modelfile(knowledge_path, domain, model)
     output_path = file.join(target, "Modelfile." + domain)
 
-    file.write(output_path, content)
+    file.write_text(output_path, content)
     ui.success("Generated: " + output_path)
 
     # Show stats
