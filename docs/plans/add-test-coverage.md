@@ -158,13 +158,13 @@ These need network/platform services. Use interface mocks or skip when unavailab
 
 Flow is handwritten (not generated). Test through the `Plan` receiver and action `Do()`.
 
-- [ ] **complete** — create terminal node via Plan, execute action
-- [ ] **degraded** — format string with args/kwargs, verify error message
-- [ ] **fatal** — verify FatalError return
-- [ ] **choose** — branch selection with condition evaluation
-- [ ] **gather** — parallel fan-out collection
-- [ ] **elevate** — privilege escalation marker
-- [ ] **wait_until** — condition polling
+- [x] **complete** — Plan receiver creates node, Do() returns output slot
+- [x] **degraded** — Plan receiver packs format/args/kwargs into slots, Do() renders message
+- [x] **fatal** — Plan receiver packs format/args, Do() returns FatalError
+- [x] **choose** — already covered by 15+ unit tests in flow_test.go
+- [x] **gather** — already covered by 20+ unit tests in flow_test.go
+- [x] **elevate** — already covered by unit tests (stub passthrough)
+- [x] **wait_until** — already covered by 10+ unit tests in flow_test.go
 
 **Files** (2 new):
 
@@ -208,6 +208,20 @@ The current `Render` method conflates template execution with metadata injection
 | `internal/execution/lifecycle_test.go` | Modify |
 | `pkg/op/provider/template/testdata/integration.star` | Create |
 | `pkg/op/provider/template/integration_test.go` | Modify |
+
+### Phase 8: Versioning test (issue #82)
+
+Issue #82 (versioning with timestamps and commit hashes) is implemented — the Makefile injects
+Version, Commit, and BuildDate via ldflags — but has no runtime test verifying the injection.
+
+- [ ] **version command** — verify `NewVersionCmd()` outputs non-default values after `make build`
+- [ ] Verify variables are not stuck at `"dev"` / `"none"` / `"unknown"` defaults
+
+**Files**:
+
+| File | Action |
+| --- | --- |
+| `internal/cli/version_test.go` | Create |
 
 ## Out of Scope
 
