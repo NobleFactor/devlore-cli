@@ -362,8 +362,8 @@ func TestCall_StructReturn(t *testing.T) {
 	result := callMethod(t, r, "get_point")
 
 	// testPoint has X and Y fields.
-	if result.Type() != "struct" {
-		t.Fatalf("type = %q, want struct", result.Type())
+	if result.Type() != "test_point" {
+		t.Fatalf("type = %q, want test_point", result.Type())
 	}
 
 	ha, ok := result.(starlark.HasAttrs)

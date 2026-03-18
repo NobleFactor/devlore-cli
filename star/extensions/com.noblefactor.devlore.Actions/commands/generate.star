@@ -77,7 +77,7 @@ def load_template(name, ext_dir):
     if name not in LOCAL_TEMPLATES:
         fail("unknown template: " + name)
     path = file.join(ext_dir, "templates", LOCAL_TEMPLATES[name])
-    return file.read(path)
+    return file.read_text(path)
 
 def to_snake(name):
     """Convert CamelCase to snake_case."""
@@ -1156,7 +1156,7 @@ def gen_file(ctx, template_name, descriptor, filename, label, method_count, outp
         out_dir = file.parent(out_path)
         if not file.exists(out_dir):
             file.mkdir(out_dir)
-        file.write(out_path, code)
+        file.write_text(out_path, code)
         ui.success("Wrote " + out_path)
     else:
         ui.note("--- " + filename + " ---")

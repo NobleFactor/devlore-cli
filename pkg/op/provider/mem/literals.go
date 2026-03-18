@@ -10,6 +10,8 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // FormatLiteral serializes a frozen Starlark value as a valid Starlark
@@ -63,8 +65,11 @@ func formatValue(v starlark.Value, depth int) (string, error) {
 	case *starlark.Dict:
 		return formatDict(v, depth)
 
+	case *op.StructValue:
+		return formatAttrs(v, depth)
+
 	case *starlarkstruct.Struct:
-		return formatStruct(v, depth)
+		return formatAttrs(v, depth)
 
 	case *starlark.Set:
 		return "", fmt.Errorf("FormatLiteral: set type not supported (use list)")
@@ -115,7 +120,7 @@ func formatDict(d *starlark.Dict, depth int) (string, error) {
 	return b.String(), nil
 }
 
-func formatStruct(s *starlarkstruct.Struct, depth int) (string, error) {
+func formatAttrs(s starlark.HasAttrs, depth int) (string, error) {
 	names := s.AttrNames()
 	sort.Strings(names) // deterministic ordering
 

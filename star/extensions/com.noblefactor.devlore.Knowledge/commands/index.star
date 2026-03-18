@@ -26,13 +26,10 @@ def list_files(dir_path):
         return []
 
     files = []
-    def collect(entry):
-        if entry.is_dir:
-            return "skip"
-        if entry.name.startswith("."):
-            return
-        files.append(entry.name)
-    file.walk_tree(root=dir_path, callback=collect)
+    for path in file.glob(file.join(dir_path, "*")):
+        name = file.name(path)
+        if not file.is_dir(path) and not name.startswith("."):
+            files.append(name)
     return sorted(files)
 
 def build_asset_entries(dir_path):
@@ -60,12 +57,12 @@ def _resolve_target(ctx):
     target = ctx.args.get("target", "")
     if not target:
         sibling = file.join("..", "devlore-registry")
-        if file.is_directory(sibling):
+        if file.is_dir(sibling):
             target = sibling
             ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
-    if not file.is_directory(target):
+    if not file.is_dir(target):
         fail("Target path not found: " + target)
     return target
 
@@ -84,12 +81,11 @@ def run(ctx):
     domains_processed = 0
     total_assets = 0
 
-    for entry in file.list(knowledge_dir):
-        if not entry.is_dir:
+    for domain_path in file.glob(file.join(knowledge_dir, "*")):
+        if not file.is_dir(domain_path):
             continue
 
-        domain_name = entry.name
-        domain_path = entry.path
+        domain_name = file.name(domain_path)
 
         index = build_index(domain_name, domain_path)
 
@@ -111,7 +107,7 @@ def run(ctx):
             print(index_content)
             print("---")
         else:
-            file.write(index_path, index_content)
+            file.write_text(index_path, index_content)
             ui.success("Wrote: " + index_path + " (" + str(asset_count) + " assets)")
 
         domains_processed = domains_processed + 1

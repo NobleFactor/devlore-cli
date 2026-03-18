@@ -1,7 +1,7 @@
 ---
 title: "Marshal Go struct methods to Starlark"
 issue: TBD
-status: draft
+status: complete
 created: 2026-03-18
 updated: 2026-03-18
 ---
@@ -82,12 +82,12 @@ In the `reflect.Struct` case, for structs with no exported fields, check `starla
 
 ### Phase 1: Extend `typeInfo` with method discovery
 
-- [ ] Add `methodInfo` struct (Go name, Starlark name, hasError flag)
-- [ ] Add `methods []methodInfo` and `byMethod map[string]*methodInfo` to `typeInfo`
-- [ ] In `getTypeInfo`, after field loop, iterate `reflect.PointerTo(t).NumMethod()` and collect eligible methods
-- [ ] Exclude `String` if it matches `fmt.Stringer` signature
-- [ ] Include method names in `attrList` (sorted alongside field names)
-- [ ] Cache the snake_case type name in `typeInfo` (avoid recomputing `camelToSnake` per marshal)
+- [x] Add `methodInfo` struct (Go name, Starlark name, hasError flag)
+- [x] Add `methods []methodInfo` and `byMethod map[string]*methodInfo` to `typeInfo`
+- [x] In `getTypeInfo`, after field loop, iterate `reflect.PointerTo(t).NumMethod()` and collect eligible methods
+- [x] Exclude `String` if it matches `fmt.Stringer` signature
+- [x] Include method names in `attrList` (sorted alongside field names)
+- [x] Cache the snake_case type name in `typeInfo` (avoid recomputing `camelToSnake` per marshal)
 
 **Files**:
 
@@ -95,11 +95,11 @@ In the `reflect.Struct` case, for structs with no exported fields, check `starla
 
 ### Phase 2: `StructValue` type
 
-- [ ] Define `StructValue` struct (typeName, goValue, info)
-- [ ] Implement `starlark.Value`: `String()`, `Type()`, `Freeze()`, `Truth()`, `Hash()`
-- [ ] Implement `starlark.HasAttrs`: `Attr()`, `AttrNames()`
-- [ ] `Attr()` resolves fields first (marshal via `marshalReflect`), then methods (call + marshal)
-- [ ] `String()` delegates to `fmt.Stringer` if available, otherwise formats attrs
+- [x] Define `StructValue` struct (typeName, goValue, info)
+- [x] Implement `starlark.Value`: `String()`, `Type()`, `Freeze()`, `Truth()`, `Hash()`
+- [x] Implement `starlark.HasAttrs`: `Attr()`, `AttrNames()`
+- [x] `Attr()` resolves fields first (marshal via `marshalReflect`), then methods (call + marshal)
+- [x] `String()` delegates to `fmt.Stringer` if available, otherwise formats attrs
 
 **Files**:
 
@@ -107,9 +107,9 @@ In the `reflect.Struct` case, for structs with no exported fields, check `starla
 
 ### Phase 3: Wire `marshalStruct` to produce `StructValue`
 
-- [ ] Replace `marshalStruct` body: wrap Go value in `StructValue`
-- [ ] For non-addressable values, create pointer via `reflect.New`
-- [ ] Remove pre-baked `starlark.StringDict` construction
+- [x] Replace `marshalStruct` body: wrap Go value in `StructValue`
+- [x] For non-addressable values, create pointer via `reflect.New`
+- [x] Remove pre-baked `starlark.StringDict` construction
 
 **Files**:
 
@@ -117,9 +117,9 @@ In the `reflect.Struct` case, for structs with no exported fields, check `starla
 
 ### Phase 4: Update unmarshal and `FormatLiteral`
 
-- [ ] Add `*StructValue` case to `unmarshalStruct`
-- [ ] Add `*StructValue` case to `unmarshalToAny`
-- [ ] Add `*StructValue` case to `FormatLiteral` in `pkg/op/provider/mem/literals.go`
+- [x] Add `*StructValue` case to `unmarshalStruct`
+- [x] Add `*StructValue` case to `unmarshalToAny`
+- [x] Add `*StructValue` case to `FormatLiteral` in `pkg/op/provider/mem/literals.go`
 
 **Files**:
 
@@ -128,8 +128,8 @@ In the `reflect.Struct` case, for structs with no exported fields, check `starla
 
 ### Phase 5: `starlark.Value` passthrough
 
-- [ ] In the `reflect.Struct` case of `marshalReflect`, check `starlark.Value` for fieldless structs
-- [ ] Place check before the existing `starvalue.Marshaler` check
+- [x] In the `reflect.Struct` case of `marshalReflect`, check `starlark.Value` for fieldless structs
+- [x] Place check before the existing `starvalue.Marshaler` check
 
 **Files**:
 
@@ -137,18 +137,18 @@ In the `reflect.Struct` case, for structs with no exported fields, check `starla
 
 ### Phase 6: Tests
 
-- [ ] Test field access via `Attr()` returns correct marshaled value
-- [ ] Test method with `func() T` signature appears as attr (lazy, called on access)
-- [ ] Test method with `func() (T, error)` appears as attr (success path)
-- [ ] Test method with `func() (T, error)` propagates error on access
-- [ ] Test methods with unsupported signatures are ignored
-- [ ] Test `String()` excluded from attrs, used for representation
-- [ ] Test `AttrNames()` includes both fields and methods, sorted
-- [ ] Test type implementing `starlark.Value` is returned directly
-- [ ] Test unmarshal round-trip through `StructValue`
-- [ ] Test `FormatLiteral` handles `StructValue`
-- [ ] Update existing tests that assert `*starlarkstruct.Struct` to expect `*StructValue`
-- [ ] Run `make check` to verify no regressions
+- [x] Test field access via `Attr()` returns correct marshaled value
+- [x] Test method with `func() T` signature appears as attr (lazy, called on access)
+- [x] Test method with `func() (T, error)` appears as attr (success path)
+- [x] Test method with `func() (T, error)` propagates error on access
+- [x] Test methods with unsupported signatures are ignored
+- [x] Test `String()` excluded from attrs, used for representation
+- [x] Test `AttrNames()` includes both fields and methods, sorted
+- [x] Test type implementing `starlark.Value` is returned directly
+- [x] Test unmarshal round-trip through `StructValue`
+- [x] Test `FormatLiteral` handles `StructValue`
+- [x] Update existing tests that assert `*starlarkstruct.Struct` to expect `*StructValue`
+- [x] Run `make check` to verify no regressions
 
 **Files**:
 
