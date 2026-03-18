@@ -222,6 +222,7 @@ happens. The safe order: (a) update `star`, (b) add exported constructors alongs
 `init()`, (c) run `make generate` to produce gen files, (d) verify tests pass with both paths
 active, (e) delete hand-written `init()` functions.
 
+<<<<<<< Updated upstream
 - [x] Extend `star` codegen to read `resource.go` and emit `gen/resource.gen.go`
 - [x] Add exported constructors (`ResourceFromValue`) alongside existing `init()` in each
       `resource.go` — both paths active temporarily
@@ -253,18 +254,45 @@ active, (e) delete hand-written `init()` functions.
   constructor registration
 - `pkg/op/provider/git/provider_test.go` — Modified: added test `init()` for cross-package
   constructor registration
+=======
+- [ ] Extend `star` codegen to read `resource.go` and emit `gen/resource.gen.go`
+- [ ] Add exported constructors (`ResourceFromValue`) alongside existing `init()` in each
+      `resource.go` — both paths active temporarily
+- [ ] Run `make generate` and verify `gen/resource.gen.go` files are produced
+- [ ] Verify resource `init()` fires via existing `register.go` blank imports (DC4 — no changes
+      to `register.go` needed)
+- [ ] Verify all existing tests pass with both registration paths active
+- [ ] Delete hand-written `init()` functions from each `resource.go`
+- [ ] Verify tests pass with only generated registration
+
+**Files**:
+
+- `noblefactor-ops/cmd/star` — Modify: extend codegen to read resource.go (do this first)
+- `pkg/op/provider/file/resource.go` — Modify: export constructor, delete `init()`
+- `pkg/op/provider/git/resource.go` — Modify: same
+- `pkg/op/provider/pkg/resource.go` — Modify: same
+- `pkg/op/provider/service/resource.go` — Modify: same
+- `pkg/op/provider/appnet/resource.go` — Modify: same
+- `pkg/op/provider/mem/resource.go` — Modify: same (constructor only; callable extractor in Phase 3)
+- `pkg/op/provider/*/gen/resource.gen.go` — Create: generated resource descriptors
+>>>>>>> Stashed changes
 
 ### Phase 3: Generalize callable extraction ✅
 
 Fold the callable extractor into the marshaler so `mem` no longer needs a special registration.
 Split into three sub-phases, each independently testable.
 
+<<<<<<< Updated upstream
 #### Phase 3a: Revert `*os.Root` from extraction chain ✅
+=======
+#### Phase 3a: Revert `*os.Root` from extraction chain
+>>>>>>> Stashed changes
 
 Remove the dead `*os.Root` parameter from the extraction pipeline. This is a standalone correction
 (DC5) with no behavioral change — `readSource` falls back to `os.ReadFile` unconditionally after
 this change.
 
+<<<<<<< Updated upstream
 - [x] Remove `root` parameter from `Extract`, `ExtractWithName`, `synthesize`, `extractLambdaBody`,
       `extractDefSource`
 - [x] Replace `readSource(filename, root)` with direct `os.ReadFile(filename)`; delete `readSource`
@@ -282,6 +310,60 @@ this change.
 - `pkg/op/callable_test.go` — Modified: updated `ExtractCallable` and `RegisterCallableExtractor`
   calls
 - `pkg/op/planned_reflect.go` — Modified: dropped `nil` root argument from `ExtractCallable` call
+=======
+- [ ] Remove `root` parameter from `Extract`, `ExtractWithName`, `synthesize`, `extractLambdaBody`,
+      `extractDefSource`
+- [ ] Replace `readSource(filename, root)` with direct `os.ReadFile(filename)`; delete `readSource`
+- [ ] Remove `*os.Root` from `callableExtractorFn` and `RegisterCallableExtractor` signatures
+- [ ] Update `ExtractCallable` signature and its call site in `planned_reflect.go`
+- [ ] Update all extraction tests
+- [ ] `make test` — verify no behavioral change
+
+**Files**:
+
+- `pkg/op/provider/mem/extract.go` — Modify: remove `root` parameter from all extraction functions
+- `pkg/op/provider/mem/extract_test.go` — Modify: update tests
+- `pkg/op/callable.go` — Modify: remove `*os.Root` from extractor signatures
+- `pkg/op/planned_reflect.go` — Modify: drop `nil` root argument from `ExtractCallable` call
+
+#### Phase 3b: Merge callable logic into the marshaler
+
+Move the callable adapter infrastructure from `callable.go` into `starvalue_marshal.go`. The
+extraction pipeline stays in `mem` as domain code — only the registration plumbing and adapter
+logic move.
+
+- [ ] Move `CallableResource` interface, `buildCallableFunc`, `initCallableSlots`,
+      `makeErrorReturn`, `unmarshalReturn`, `isCallableResource`, `isFuncType` into
+      `starvalue_marshal.go`
+- [ ] Delete `callable.go`
+- [ ] `make test` — verify no behavioral change
+
+**Files**:
+
+- `pkg/op/callable.go` — Delete: merge into `starvalue_marshal.go`
+- `pkg/op/starvalue_marshal.go` — Modify: absorb callable adapter logic
+
+#### Phase 3c: Remove special-case registration, unify through marshaler
+
+Replace `RegisterCallableExtractor` / `ExtractCallable` with the standard `AnnounceResource` /
+lazy `Init()` pattern. Rewire `planned_reflect.go` and `action_reflect.go` to go through the
+marshaler for callable coercion.
+
+- [ ] Register `mem.Extract` + `mem.Compile` as a resource constructor via `AnnounceResource`
+- [ ] Remove `RegisterCallableExtractor`, `callableExtractorFn`, and `ExtractCallable` —
+      replaced by `sync.Once`-protected descriptor (DC1)
+- [ ] Update `planned_reflect.go` to use marshaler for `*starlark.Function → func(...)` coercion
+- [ ] Update `action_reflect.go` to remove callable special-case
+- [ ] Remove `RegisterCallableExtractor` call from `mem/resource.go` init
+- [ ] `make test` — verify callable tests pass
+
+**Files**:
+
+- `pkg/op/starvalue_marshal.go` — Modify: handle `*starlark.Function → func(...)` natively
+- `pkg/op/planned_reflect.go` — Modify: remove direct `ExtractCallable` call
+- `pkg/op/action_reflect.go` — Modify: remove callable special-case
+- `pkg/op/provider/mem/resource.go` — Modify: remove `RegisterCallableExtractor` from init
+>>>>>>> Stashed changes
 
 #### Phase 3b: Merge callable logic into the marshaler ✅
 
