@@ -82,7 +82,7 @@ func Construct[T any](value any) (T, error) {
 
 // Marshal converts a Go value to a [starlark.Value].
 //
-// Structs become starlarkstruct.Struct. Primitives, slices, maps, and pointers are handled recursively.
+// Structs become [StructValue] with lazy attr dispatch. Primitives, slices, maps, and pointers are handled recursively.
 // Values already implementing starlark.Value pass through unchanged.
 //
 // Parameters:
@@ -138,11 +138,14 @@ type receiverEntry struct {
 	params  MethodParams
 }
 
-// typeInfo caches struct introspection results for Starlark field mapping.
+// typeInfo caches struct introspection results for Starlark field and method mapping.
 type typeInfo struct {
+	typeName string // cached camelToSnake(Type().Name())
 	fields   []fieldInfo
-	attrList []string              // sorted Starlark attribute names
-	byName   map[string]*fieldInfo // starlark name → field
+	methods  []methodInfo
+	attrList []string               // sorted Starlark attribute names (fields + methods)
+	byName   map[string]*fieldInfo  // starlark name → field
+	byMethod map[string]*methodInfo // starlark name → method
 }
 
 // fieldInfo maps a single exported Go struct field to its Starlark name.
@@ -150,6 +153,13 @@ type fieldInfo struct {
 	index    int
 	starName string
 	goType   reflect.Type
+}
+
+// methodInfo maps an exported Go method to its Starlark name.
+type methodInfo struct {
+	name     string // Go method name (CamelCase)
+	starName string // snake_case Starlark name
+	hasError bool   // true for func() (T, error)
 }
 
 // endregion
@@ -290,6 +300,9 @@ func extractCallable(fn *starlark.Function, funcType string) (CallableResource, 
 	return result.(CallableResource), nil
 }
 
+// stringerType is the [reflect.Type] for the [fmt.Stringer] interface.
+var stringerType = reflect.TypeOf((*fmt.Stringer)(nil)).Elem()
+
 // getTypeInfo returns cached struct metadata for the given type.
 // If t is a pointer type, the element type is used.
 //
@@ -297,7 +310,7 @@ func extractCallable(fn *starlark.Function, funcType string) (CallableResource, 
 //   - t: the [reflect.Type] to introspect (pointer or struct).
 //
 // Returns:
-//   - *typeInfo: the cached field metadata.
+//   - *typeInfo: the cached field and method metadata.
 func getTypeInfo(t reflect.Type) *typeInfo {
 
 	for t.Kind() == reflect.Pointer {
@@ -308,9 +321,12 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 	}
 
 	info := &typeInfo{
-		byName: make(map[string]*fieldInfo),
+		typeName: camelToSnake(t.Name()),
+		byName:   make(map[string]*fieldInfo),
+		byMethod: make(map[string]*methodInfo),
 	}
 
+	// Discover exported fields.
 	for i := range t.NumField() {
 		f := t.Field(i)
 		if !f.IsExported() {
@@ -336,14 +352,85 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 		info.byName[name] = &info.fields[len(info.fields)-1]
 	}
 
-	info.attrList = make([]string, len(info.fields))
-	for i, f := range info.fields {
-		info.attrList[i] = f.starName
+	// Discover eligible methods.
+	discoverMethods(t, info)
+
+	// Build sorted attr list from fields + methods.
+	info.attrList = make([]string, 0, len(info.fields)+len(info.methods))
+	for _, f := range info.fields {
+		info.attrList = append(info.attrList, f.starName)
+	}
+	for _, m := range info.methods {
+		info.attrList = append(info.attrList, m.starName)
 	}
 	sort.Strings(info.attrList)
 
 	actual, _ := typeCache.LoadOrStore(t, info)
 	return actual.(*typeInfo)
+}
+
+// discoverMethods populates info.methods and info.byMethod with eligible
+// zero-arg methods from the pointer type of t. A method is eligible if it is
+// exported, takes no arguments (beyond the receiver), and returns either one
+// value or (value, error). String() is excluded when the type implements
+// [fmt.Stringer] (reserved for value representation).
+//
+// Parameters:
+//   - t: the struct [reflect.Type] (not a pointer).
+//   - info: the typeInfo to populate with discovered methods.
+func discoverMethods(t reflect.Type, info *typeInfo) {
+
+	pt := reflect.PointerTo(t)
+	for i := range pt.NumMethod() {
+		m := pt.Method(i)
+		if !m.IsExported() {
+			continue
+		}
+
+		mt := m.Type
+		numIn := mt.NumIn() - 1 // exclude receiver
+		numOut := mt.NumOut()
+
+		if numIn != 0 {
+			continue
+		}
+
+		// Exclude String() matching fmt.Stringer — reserved for value representation.
+		if m.Name == "String" && pt.Implements(stringerType) {
+			continue
+		}
+
+		snakeName := camelToSnake(m.Name)
+
+		switch numOut {
+		case 1:
+			if mt.Out(0).Implements(errorType) {
+				continue // func() error is not useful
+			}
+			mi := methodInfo{
+				name:     m.Name,
+				starName: snakeName,
+				hasError: false,
+			}
+			info.methods = append(info.methods, mi)
+			info.byMethod[snakeName] = &info.methods[len(info.methods)-1]
+
+		case 2:
+			if !mt.Out(1).Implements(errorType) {
+				continue
+			}
+			if mt.Out(0).Implements(errorType) {
+				continue // both returns are error
+			}
+			mi := methodInfo{
+				name:     m.Name,
+				starName: snakeName,
+				hasError: true,
+			}
+			info.methods = append(info.methods, mi)
+			info.byMethod[snakeName] = &info.methods[len(info.methods)-1]
+		}
+	}
 }
 
 // initCallableSlots finds CallableResource values in slots that target
@@ -552,12 +639,21 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 		return marshalMap(rv)
 
 	case reflect.Struct:
-		// If the struct has no exported fields but implements Marshaler,
-		// use custom serialization (e.g., ResourceBase with private fields).
+		// If the struct has no exported fields, try custom serialization
+		// before falling through to marshalStruct. Check starlark.Value
+		// first (most fundamental), then starvalue.Marshaler.
 		// Structs WITH exported fields go through marshalStruct, where each
 		// embedded field gets its own Marshaler check via recursive calls.
 		info := getTypeInfo(rv.Type())
 		if len(info.fields) == 0 && rv.CanInterface() {
+			if sv, ok := rv.Interface().(starlark.Value); ok {
+				return sv, nil
+			}
+			if rv.CanAddr() {
+				if sv, ok := rv.Addr().Interface().(starlark.Value); ok {
+					return sv, nil
+				}
+			}
 			if m, ok := rv.Interface().(starvalue.Marshaler); ok {
 				return m.MarshalStarvalue()
 			}
@@ -598,29 +694,34 @@ func marshalSlice(rv reflect.Value) (starlark.Value, error) {
 	return starlark.NewList(elems), nil
 }
 
-// marshalStruct converts a [reflect.Value] struct to a starlarkstruct.Struct.
-// Exported fields are mapped to Starlark attributes using snake_case names.
+// marshalStruct converts a [reflect.Value] struct to a [StructValue] with lazy
+// attr dispatch. Fields and methods are resolved on access, not at construction.
 //
 // Parameters:
 //   - rv: the [reflect.Value] of kind Struct to convert.
 //
 // Returns:
-//   - starlark.Value: the converted Starlark struct.
-//   - error: non-nil if any field cannot be marshaled.
+//   - starlark.Value: the [StructValue] wrapping the Go struct.
+//   - error: always nil (construction cannot fail).
 func marshalStruct(rv reflect.Value) (starlark.Value, error) {
 
 	info := getTypeInfo(rv.Type())
-	dict := make(starlark.StringDict, len(info.fields))
-	for i := range info.fields {
-		fi := &info.fields[i]
-		val, err := marshalReflect(rv.Field(fi.index))
-		if err != nil {
-			return nil, fmt.Errorf("marshal: field %s: %w", fi.starName, err)
-		}
-		dict[fi.starName] = val
+
+	// Ensure we have a pointer so methods (including pointer-receiver)
+	// can be called. If the value is not addressable, create a copy.
+	var ptr reflect.Value
+	if rv.CanAddr() {
+		ptr = rv.Addr()
+	} else {
+		ptr = reflect.New(rv.Type())
+		ptr.Elem().Set(rv)
 	}
-	typeName := camelToSnake(rv.Type().Name())
-	return starlarkstruct.FromStringDict(starlark.String(typeName), dict), nil
+
+	return &StructValue{
+		typeName: info.typeName,
+		goValue:  ptr,
+		info:     info,
+	}, nil
 }
 
 // registerReceiverParamsReflect stores receiver params using the runtime
@@ -831,64 +932,95 @@ func unmarshalSlice(list *starlark.List, rv reflect.Value) error {
 	return nil
 }
 
-// unmarshalStruct converts a starlarkstruct.Struct or starlark.Dict into a
-// typed Go struct via reflection. Fields are matched by Starlark name.
+// unmarshalStruct converts a [StructValue], starlarkstruct.Struct, or starlark.Dict
+// into a typed Go struct via reflection. Fields are matched by Starlark name.
 //
 // Parameters:
-//   - sv: the Starlark value (must be *starlarkstruct.Struct or *starlark.Dict).
+//   - sv: the Starlark value (must be *StructValue, *starlarkstruct.Struct, or *starlark.Dict).
 //   - rv: the [reflect.Value] of kind Struct to populate.
 //
 // Returns:
-//   - error: non-nil if sv is neither a struct nor dict, or if any field fails.
+//   - error: non-nil if sv is an unsupported type, or if any field fails.
 func unmarshalStruct(sv starlark.Value, rv reflect.Value) error {
 
 	info := getTypeInfo(rv.Type())
 
-	// Accept starlarkstruct.Struct or *starlark.Dict.
+	// Accept *starlark.Dict (checked first — it implements HasAttrs but
+	// needs key-based lookup) or HasAttrs (StructValue, starlarkstruct.Struct).
 	switch v := sv.(type) {
-	case *starlarkstruct.Struct:
-		for i := range info.fields {
-			fi := &info.fields[i]
-			attr, err := v.Attr(fi.starName)
-			if err != nil {
-				continue // Field not present in Starlark struct; leave zero.
-			}
-			if err := unmarshalValue(attr, rv.Field(fi.index)); err != nil {
-				return fmt.Errorf("field %s: %w", fi.starName, err)
-			}
-		}
-		return nil
-
 	case *starlark.Dict:
-		for i := range info.fields {
-			fi := &info.fields[i]
-			val, found, err := v.Get(starlark.String(fi.starName))
-			if err != nil {
-				return fmt.Errorf("field %s: %w", fi.starName, err)
-			}
-			if !found {
-				continue
-			}
-			if err := unmarshalValue(val, rv.Field(fi.index)); err != nil {
-				return fmt.Errorf("field %s: %w", fi.starName, err)
-			}
-		}
-		return nil
+		return unmarshalDict(v, rv, info)
+
+	case starlark.HasAttrs:
+		return unmarshalHasAttrs(v, rv, info)
 
 	default:
 		return fmt.Errorf("unmarshal: expected struct or dict, got %s", sv.Type())
 	}
 }
 
-// unmarshalStructToAny converts a starlarkstruct.Struct to a map[string]any.
+// unmarshalHasAttrs populates a Go struct from a [starlark.HasAttrs] value
+// (e.g., [StructValue] or starlarkstruct.Struct). Fields are matched by name.
 //
 // Parameters:
-//   - s: the Starlark struct to convert.
+//   - v: the Starlark value with named attributes.
+//   - rv: the [reflect.Value] of kind Struct to populate.
+//   - info: the cached type metadata for the target struct.
+//
+// Returns:
+//   - error: non-nil if any field fails to unmarshal.
+func unmarshalHasAttrs(v starlark.HasAttrs, rv reflect.Value, info *typeInfo) error {
+
+	for i := range info.fields {
+		fi := &info.fields[i]
+		attr, err := v.Attr(fi.starName)
+		if err != nil {
+			continue // Field not present; leave zero.
+		}
+		if err := unmarshalValue(attr, rv.Field(fi.index)); err != nil {
+			return fmt.Errorf("field %s: %w", fi.starName, err)
+		}
+	}
+	return nil
+}
+
+// unmarshalDict populates a Go struct from a [starlark.Dict]. Fields are matched by name.
+//
+// Parameters:
+//   - dict: the Starlark dict to read from.
+//   - rv: the [reflect.Value] of kind Struct to populate.
+//   - info: the cached type metadata for the target struct.
+//
+// Returns:
+//   - error: non-nil if any field fails to unmarshal.
+func unmarshalDict(dict *starlark.Dict, rv reflect.Value, info *typeInfo) error {
+
+	for i := range info.fields {
+		fi := &info.fields[i]
+		val, found, err := dict.Get(starlark.String(fi.starName))
+		if err != nil {
+			return fmt.Errorf("field %s: %w", fi.starName, err)
+		}
+		if !found {
+			continue
+		}
+		if err := unmarshalValue(val, rv.Field(fi.index)); err != nil {
+			return fmt.Errorf("field %s: %w", fi.starName, err)
+		}
+	}
+	return nil
+}
+
+// unmarshalAttrsToAny converts any [starlark.HasAttrs] value to a map[string]any.
+// Works for both [StructValue] and starlarkstruct.Struct.
+//
+// Parameters:
+//   - s: the Starlark value with named attributes.
 //
 // Returns:
 //   - map[string]any: the native Go map keyed by attribute names.
 //   - error: non-nil if any attribute cannot be converted.
-func unmarshalStructToAny(s *starlarkstruct.Struct) (map[string]any, error) {
+func unmarshalAttrsToAny(s starlark.HasAttrs) (map[string]any, error) {
 
 	names := s.AttrNames()
 	result := make(map[string]any, len(names))
@@ -940,8 +1072,10 @@ func unmarshalToAny(sv starlark.Value) (any, error) {
 		return unmarshalListToAny(v)
 	case *starlark.Dict:
 		return unmarshalDictToAny(v)
+	case *StructValue:
+		return unmarshalAttrsToAny(v)
 	case *starlarkstruct.Struct:
-		return unmarshalStructToAny(v)
+		return unmarshalAttrsToAny(v)
 	default:
 		return nil, fmt.Errorf("unmarshal: unsupported starlark type %s", sv.Type())
 	}
@@ -989,6 +1123,16 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 		rv = rv.Elem()
 	}
 
+	// Fast path: if the Starlark value is a StructValue wrapping a Go value
+	// whose type matches the target, extract the Go value directly.
+	if svs, ok := sv.(*StructValue); ok {
+		goElem := svs.goValue.Elem()
+		if goElem.Type() == rv.Type() {
+			rv.Set(goElem)
+			return nil
+		}
+	}
+
 	// Constructor registry: build complex Go types from simpler Starlark values.
 	// If the Starlark value is already a struct whose type name matches the
 	// target Go type, skip the constructor and unmarshal fields directly.
@@ -998,6 +1142,9 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			if name, ok := ss.Constructor().(starlark.String); ok {
 				alreadyTarget = string(name) == camelToSnake(rv.Type().Name())
 			}
+		}
+		if svs, ok := sv.(*StructValue); ok {
+			alreadyTarget = svs.typeName == camelToSnake(rv.Type().Name())
 		}
 		if !alreadyTarget {
 			native, err := unmarshalToAny(sv)
