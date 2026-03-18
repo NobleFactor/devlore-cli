@@ -22,11 +22,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func testCtx(t *testing.T) (op.Context, string) {
+func testCtx(t *testing.T) (ctx op.Context, dir string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir = t.TempDir()
 	root := op.NewRootReaderWriter(dir)
-	ctx := op.Context{
+	ctx = op.Context{
 		ContextBase: op.ContextBase{
 			Context: context.Background(),
 			Writer:  &bytes.Buffer{},
@@ -90,6 +90,18 @@ func TestStarlark(t *testing.T) {
 
 	// remove
 	assertBool(t, result, "result_removed")
+
+	// defaults: write_text without mode
+	assertStringEQ(t, result, "result_defaults_write", "default mode")
+
+	// defaults: mkdir without mode
+	assertBool(t, result, "result_defaults_mkdir")
+
+	// defaults: glob without honor_gitignore
+	assertListNotEmpty(t, result, "result_defaults_glob")
+
+	// defaults: remove without prune/boundary
+	assertBool(t, result, "result_defaults_remove")
 }
 
 // endregion
@@ -222,6 +234,23 @@ func assertStringEQ(t *testing.T, globals starlark.StringDict, key, want string)
 	}
 	if string(s) != want {
 		t.Errorf("%s = %q, want %q", key, string(s), want)
+	}
+}
+
+func assertListNotEmpty(t *testing.T, globals starlark.StringDict, key string) {
+	t.Helper()
+	v, ok := globals[key]
+	if !ok {
+		t.Errorf("missing global %q", key)
+		return
+	}
+	list, ok := v.(*starlark.List)
+	if !ok {
+		t.Errorf("%s: expected List, got %s", key, v.Type())
+		return
+	}
+	if list.Len() == 0 {
+		t.Errorf("%s: list is empty, want non-empty", key)
 	}
 }
 

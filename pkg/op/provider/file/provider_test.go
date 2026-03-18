@@ -1242,7 +1242,6 @@ func TestMkdir_Idempotent(t *testing.T) {
 // --- ReadText ---
 
 func TestReadText_ReturnsFileContents(t *testing.T) {
-
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
@@ -1261,7 +1260,6 @@ func TestReadText_ReturnsFileContents(t *testing.T) {
 }
 
 func TestReadText_NonExistent_ReturnsError(t *testing.T) {
-
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	_, err := p.ReadText(Resource{SourcePath: op.NewPath("", filepath.Join(tmp, "nonexistent.txt"))})
@@ -1273,7 +1271,6 @@ func TestReadText_NonExistent_ReturnsError(t *testing.T) {
 // --- ReadBytes ---
 
 func TestReadBytes_ReturnsFileContents(t *testing.T) {
-
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.bin")
 	data := []byte{0x00, 0x01, 0x02, 0xff}
@@ -1298,7 +1295,6 @@ func TestReadBytes_ReturnsFileContents(t *testing.T) {
 }
 
 func TestReadBytes_NonExistent_ReturnsError(t *testing.T) {
-
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	_, err := p.ReadBytes(Resource{SourcePath: op.NewPath("", filepath.Join(tmp, "nonexistent.bin"))})
@@ -1773,7 +1769,6 @@ func TestIsDirAndNotEmpty(t *testing.T) {
 
 // resolveReadlink reads the symlink target and resolves relative targets to absolute paths.
 func resolveReadlink(t *testing.T, linkPath string) string {
-
 	t.Helper()
 
 	got, err := os.Readlink(linkPath)
