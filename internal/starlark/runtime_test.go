@@ -93,7 +93,7 @@ func (p *rtTestCountingImmProvider) NewExecuting(_ op.Context) starlark.Value {
 // ---------------------------------------------------------------------------
 
 func TestRuntimeRegisterActions(t *testing.T) {
-	op.Announce(&rtTestActionProvider{actionName: "_test_actions.do"})
+	op.AnnounceReceiver(&rtTestActionProvider{actionName: "_test_actions.do"})
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
@@ -109,9 +109,9 @@ func TestRuntimeRegisterActions(t *testing.T) {
 }
 
 func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
-	op.Announce(&rtTestAllActsProvider{})
+	op.AnnounceReceiver(&rtTestAllActsProvider{})
 
-	// No Providers — but actions should still be registered.
+	// No Receivers — but actions should still be registered.
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
@@ -127,8 +127,8 @@ func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 
 func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	immProv := &rtTestImmediateProvider{name: "_test_imm2"}
-	op.Announce(&rtTestPlannedProvider{name: "_test_plan2"})
-	op.Announce(immProv)
+	op.AnnounceReceiver(&rtTestPlannedProvider{name: "_test_plan2"})
+	op.AnnounceReceiver(immProv)
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
@@ -166,11 +166,11 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 }
 
 func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
-	op.Announce(&rtTestImmediateProvider{name: "_test_not_included"})
+	op.AnnounceReceiver(&rtTestImmediateProvider{name: "_test_not_included"})
 
 	// Pass a different provider — "_test_not_included" should be excluded.
 	otherProv := &rtTestImmediateProvider{name: "_test_other"}
-	op.Announce(otherProv)
+	op.AnnounceReceiver(otherProv)
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
@@ -193,7 +193,7 @@ func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 }
 
 func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
-	op.Announce(&rtTestImmediateProvider{name: "_test_loadable"})
+	op.AnnounceReceiver(&rtTestImmediateProvider{name: "_test_loadable"})
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
@@ -259,7 +259,7 @@ func TestRuntimeLoaderRejectsUnknownProvider(t *testing.T) {
 
 func TestRuntimeLoaderCachesResults(t *testing.T) {
 	callCount := 0
-	op.Announce(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
+	op.AnnounceReceiver(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").
@@ -281,7 +281,7 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 }
 
 func TestRuntimeLoaderLoadsPlan(t *testing.T) {
-	op.Announce(&rtTestPlannedProvider{name: "_test_plan_load"})
+	op.AnnounceReceiver(&rtTestPlannedProvider{name: "_test_plan_load"})
 
 	rt := loreStar.NewRuntime(
 		op.NewBindingConfig("test").

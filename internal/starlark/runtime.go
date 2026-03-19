@@ -46,7 +46,7 @@ func NewRuntime(cfg *op.BindingConfig) *Runtime {
 // region Behaviors
 
 // RegisterActions registers all providers' actions with the registry.
-// All providers' actions are always registered regardless of Providers selections — the action
+// All providers' actions are always registered regardless of Receivers selections — the action
 // registry is for the executor, not the script environment.
 //
 // Parameters:
@@ -205,7 +205,7 @@ func (rt *Runtime) buildPlanModule(graph *op.Graph, project string, reg *op.Acti
 func collectPlannedProviders() map[string]op.PlanningReceiverFactory {
 
 	planned := make(map[string]op.PlanningReceiverFactory)
-	for _, p := range op.Providers() {
+	for _, p := range op.Receivers() {
 		if pp, ok := p.(op.PlanningReceiverFactory); ok {
 			planned[p.ReceiverName()] = pp
 		}

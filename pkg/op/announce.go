@@ -15,17 +15,17 @@ var (
 	announced  = make(map[reflect.Type]ReceiverFactory)
 )
 
-// Announce records a provider descriptor. Called in init().
+// AnnounceReceiver records a provider descriptor. Called in init().
 // Does zero initialization — stores the value for later InitAll callback.
 // Duplicate announcements of the same type are deduplicated.
 //
 // Parameters:
 //   - p: the provider to announce.
-func Announce(p ReceiverFactory) {
+func AnnounceReceiver(factory ReceiverFactory) {
 
 	announceMu.Lock()
 	defer announceMu.Unlock()
-	announced[reflect.TypeOf(p)] = p
+	announced[reflect.TypeOf(factory)] = factory
 }
 
 // InitAll calls Register on every announced provider.
@@ -48,11 +48,11 @@ func InitAll(reg *ActionRegistry, ctx Context) {
 	}
 }
 
-// Providers returns all announced providers (for introspection/debugging).
+// Receivers returns all announced providers (for introspection/debugging).
 //
 // Returns:
 //   - []ReceiverFactory: a copy of the announced provider list.
-func Providers() []ReceiverFactory {
+func Receivers() []ReceiverFactory {
 
 	announceMu.Lock()
 	defer announceMu.Unlock()
@@ -73,10 +73,10 @@ func resetAnnounced() {
 
 // --- Resource announcement ---
 
-// ResourceDescriptor describes a resource type for lazy registration. Generated code calls
+// ResourceFactory describes a resource type for lazy registration. Generated code calls
 // AnnounceResource in init() with a lightweight descriptor. The descriptor's Init method is called
 // exactly once on first use to complete registration (e.g., RegisterConstructor).
-type ResourceDescriptor interface {
+type ResourceFactory interface {
 	// Name returns a human-readable name for the resource type (e.g., "file.Resource").
 	Name() string
 
@@ -88,37 +88,37 @@ type ResourceDescriptor interface {
 	Init() error
 }
 
-// resourceEntry wraps a ResourceDescriptor with sync.Once for exactly-once initialization and error caching.
+// resourceEntry wraps a ResourceFactory with sync.Once for exactly-once initialization and error caching.
 type resourceEntry struct {
-	desc ResourceDescriptor
-	once sync.Once
-	err  error
+	factory ResourceFactory
+	once    sync.Once
+	err     error
 }
 
 // init calls the descriptor's Init exactly once. Subsequent calls return the cached error (nil on success).
 func (e *resourceEntry) init() error {
 
 	e.once.Do(func() {
-		e.err = e.desc.Init()
+		e.err = e.factory.Init()
 	})
 	return e.err
 }
 
 // resourceRegistry maps reflect.ProviderType → *resourceEntry. Populated by AnnounceResource in init(),
-// consulted by loadConstructor on first use.
+// consulted by ensureResourceInit on first use.
 var resourceRegistry sync.Map
 
 // AnnounceResource records a resource descriptor for lazy initialization. Called in generated init()
 // functions. Does zero initialization — stores the descriptor for later lazy Init on first use.
 //
 // Parameters:
-//   - desc: resource descriptor providing ReceiverName, ProviderType, and Init
-func AnnounceResource(desc ResourceDescriptor) {
+//   - factory: resource descriptor providing ReceiverName, ProviderType, and Init
+func AnnounceResource(factory ResourceFactory) {
 
-	resourceRegistry.Store(desc.Type(), &resourceEntry{desc: desc})
+	resourceRegistry.Store(factory.Type(), &resourceEntry{factory: factory})
 }
 
-// loadConstructor looks up a constructor for the given type. If no constructor is registered but a
+// ensureResourceInit looks up a constructor for the given type. If no constructor is registered but a
 // resource descriptor has been announced, calls Init to complete registration (exactly once, with
 // error caching).
 //
@@ -128,7 +128,7 @@ func AnnounceResource(desc ResourceDescriptor) {
 // Returns:
 //   - constructor function, true if found (either already registered or lazily initialized)
 //   - nil, false if no constructor and no announced descriptor
-func loadConstructor(targetType reflect.Type) (func(any) (any, error), bool) {
+func ensureResourceInit(targetType reflect.Type) (func(any) (any, error), bool) {
 
 	// Fast path: constructor already registered.
 	if ctor, ok := constructorRegistry.Load(targetType); ok {

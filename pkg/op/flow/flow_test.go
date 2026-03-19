@@ -161,14 +161,14 @@ func flowContext(graph *op.Graph, nodeID string) *op.Context {
 
 func TestFlowProviderAnnounced(t *testing.T) {
 	var found bool
-	for _, p := range op.Providers() {
+	for _, p := range op.Receivers() {
 		if p.ReceiverName() == "flow" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("flow provider not found in op.Providers()")
+		t.Fatal("flow provider not found in op.Receivers()")
 	}
 }
 

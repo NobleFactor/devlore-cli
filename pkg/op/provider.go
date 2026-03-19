@@ -21,13 +21,13 @@ type ReceiverFactory interface {
 
 // PlanningReceiverFactory is optional. Checked via type assertion during InitAll.
 //
-// Providers that contribute a plan sub-namespace (e.g., plan.file) implement this.
+// Receivers that contribute a plan sub-namespace (e.g., plan.file) implement this.
 type PlanningReceiverFactory interface {
 	NewPlanning(graph *Graph, project string, reg *ActionRegistry) starlark.Value
 }
 
 // ExecutingReceiverFactory is optional. Checked via type assertion during InitAll.
-// Providers that contribute an immediate receiver (e.g., file, ui) implement this.
+// Receivers that contribute an immediate receiver (e.g., file, ui) implement this.
 type ExecutingReceiverFactory interface {
 	NewExecuting(ctx Context) starlark.Value
 }

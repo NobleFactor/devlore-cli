@@ -15,14 +15,14 @@ import (
 )
 
 func init() {
-	op.Announce(Receiver)
+	op.AnnounceReceiver(Receiver)
 }
 
 // Receiver is the ReceiverFactory for the staranalysis provider.
-var Receiver op.ReceiverFactory = &Factory{}
+var Receiver op.ReceiverFactory = &receiverFactory{}
 
-// Factory implements op.ReceiverFactory for the staranalysis provider.
-type Factory struct {
+// factory implements op.ReceiverFactory for the staranalysis provider.
+type receiverFactory struct {
 	provider *provider.Provider
 	root     op.Root
 }
@@ -39,7 +39,7 @@ type Factory struct {
 //
 // Returns:
 //   - op.ContextProvider: the provider instance.
-func (f *Factory) GetOrCreateProvider(ctx op.Context) op.ContextProvider {
+func (f *receiverFactory) GetOrCreateProvider(ctx op.Context) op.ContextProvider {
 
 	if f.provider == nil || f.root != ctx.Root {
 		f.provider = provider.NewProvider(ctx)
@@ -52,7 +52,7 @@ func (f *Factory) GetOrCreateProvider(ctx op.Context) op.ContextProvider {
 //
 // Returns:
 //   - reflect.Type: the provider's concrete type.
-func (f *Factory) ProviderType() reflect.Type {
+func (f *receiverFactory) ProviderType() reflect.Type {
 	return reflect.TypeOf((*provider.Provider)(nil)).Elem()
 }
 
@@ -60,7 +60,7 @@ func (f *Factory) ProviderType() reflect.Type {
 //
 // Returns:
 //   - string: the receiver name "staranalysis".
-func (f *Factory) ReceiverName() string { return "staranalysis" }
+func (f *receiverFactory) ReceiverName() string { return "staranalysis" }
 
 // endregion
 
@@ -73,7 +73,7 @@ func (f *Factory) ReceiverName() string { return "staranalysis" }
 //
 // Returns:
 //   - starlark.Value: the executing receiver.
-func (f *Factory) NewExecuting(ctx op.Context) starlark.Value {
+func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
 	return op.WrapProviderInExecutingReceiver(f, provider.NewProvider(ctx))
 }
 
@@ -82,7 +82,7 @@ func (f *Factory) NewExecuting(ctx op.Context) starlark.Value {
 // Parameters:
 //   - registry: the action registry (unused for immediate-only providers).
 //   - ctx: the execution context (unused).
-func (f *Factory) Register(_ *op.ActionRegistry, _ op.Context) {
+func (f *receiverFactory) Register(_ *op.ActionRegistry, _ op.Context) {
 	op.RegisterReceiverParams(f, Params)
 }
 

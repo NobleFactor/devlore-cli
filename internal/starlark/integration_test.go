@@ -24,7 +24,7 @@ import (
 //  1. Pre-injected globals (ui) are available without load()
 //  2. On-demand loading via @devlore// works
 //  3. Loaded names are accessible in function scope (closure)
-//  4. Providers not in With() are not in globals
+//  4. Receivers not in With() are not in globals
 //  5. Loader cache deduplicates factory calls
 func TestLoadIntegration(t *testing.T) {
 

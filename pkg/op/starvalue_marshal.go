@@ -73,7 +73,7 @@ type CallableInput struct {
 //   - error: non-nil if no constructor is registered for T or if it rejects the value.
 func Construct[T any](value any) (T, error) {
 	t := reflect.TypeOf((*T)(nil)).Elem()
-	ctor, ok := loadConstructor(t)
+	ctor, ok := ensureResourceInit(t)
 	if !ok {
 		var zero T
 		return zero, fmt.Errorf("no constructor registered for %s", t)
@@ -279,7 +279,7 @@ func camelToSnake(s string) string {
 //   - bool: true if construction succeeded.
 func constructResource(targetType reflect.Type, value any) (Resource, bool) {
 
-	ctor, ok := loadConstructor(targetType)
+	ctor, ok := ensureResourceInit(targetType)
 	if !ok {
 		return nil, false
 	}
@@ -315,7 +315,7 @@ func constructResource(targetType reflect.Type, value any) (Resource, bool) {
 //   - error: non-nil if no extractor is registered or extraction fails.
 func extractCallable(fn *starlark.Function, funcType string) (CallableResource, error) {
 
-	ctor, ok := loadConstructor(callableResourceType)
+	ctor, ok := ensureResourceInit(callableResourceType)
 	if !ok {
 		return nil, fmt.Errorf("no callable extractor registered (mem package not imported?)")
 	}
@@ -435,6 +435,11 @@ func classifyMethodReturnOk(mt reflect.Type) (hasError, ok bool) {
 //   - t: the struct [reflect.Type] (not a pointer).
 //   - info: the typeInfo to populate with discovered methods.
 func discoverMethods(t reflect.Type, info *typeInfo) {
+
+	// Ensure resource type params are registered before lookup.
+	// ResourceFactory.Init() is lazy; this triggers it so RegisterTypeParams
+	// runs before we cache the type's method metadata.
+	ensureResourceInit(t)
 
 	typeParams, _ := lookupTypeParams(t)
 
@@ -1222,7 +1227,7 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 	// Constructor registry: build complex Go types from simpler Starlark values.
 	// If the Starlark value is already a struct whose type name matches the
 	// target Go type, skip the constructor and unmarshal fields directly.
-	if ctor, ok := loadConstructor(rv.Type()); ok {
+	if ctor, ok := ensureResourceInit(rv.Type()); ok {
 		alreadyTarget := false
 		if ss, ok := sv.(*starlarkstruct.Struct); ok {
 			if name, ok := ss.Constructor().(starlark.String); ok {

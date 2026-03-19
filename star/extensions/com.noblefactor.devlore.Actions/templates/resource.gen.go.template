@@ -13,9 +13,21 @@ import (
 	provider "{{.provider_import}}"
 {{- end}}
 )
+{{- if .resource_params}}
+
+// resourceParams maps Go method names on {{.provider}}.Resource to Starlark parameter name lists.
+var resourceParams = op.MethodParams{
+{{- range .resource_params}}
+	"{{.name}}": { {{- range $i, $p := .params}}{{if $i}}, {{end}}"{{$p}}"{{- end -}} },
+{{- end}}
+}
+{{- end}}
 
 func init() {
 	op.AnnounceResource(&resourceFactory{})
+{{- if .resource_params}}
+	op.RegisterTypeParams(reflect.TypeOf({{.provider_type_prefix}}Resource{}), resourceParams)
+{{- end}}
 }
 
 type resourceFactory struct{}
@@ -31,15 +43,6 @@ func (d *resourceFactory) Name() string { return "{{.provider}}.Resource" }
 // Returns:
 //   - reflect.Type: the resource's concrete type.
 func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf({{.provider_type_prefix}}Resource{}) }
-{{- if .resource_params}}
-
-// ResourceParams maps Go method names on {{.provider}}.Resource to Starlark parameter name lists.
-var ResourceParams = op.MethodParams{
-{{- range .resource_params}}
-	"{{.name}}": { {{- range $i, $p := .params}}{{if $i}}, {{end}}"{{$p}}"{{- end -}} },
-{{- end}}
-}
-{{- end}}
 
 // Init registers the resource constructor with the framework.
 //
@@ -47,8 +50,5 @@ var ResourceParams = op.MethodParams{
 //   - error: always nil.
 func (d *resourceFactory) Init() error {
 	op.RegisterConstructor({{.provider_type_prefix}}{{.constructor_name}})
-{{- if .resource_params}}
-	op.RegisterTypeParams(d.Type(), ResourceParams)
-{{- end}}
 	return nil
 }

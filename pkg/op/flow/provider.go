@@ -40,5 +40,5 @@ func (p *flowProvider) NewPlanning(graph *op.Graph, project string, reg *op.Acti
 }
 
 func init() {
-	op.Announce(&flowProvider{})
+	op.AnnounceReceiver(&flowProvider{})
 }
