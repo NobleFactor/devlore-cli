@@ -19,6 +19,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/internal/output"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -735,7 +736,7 @@ func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,goc
 }
 
 func newInspectCmd() *cobra.Command {
-	var output cli.OutputFlags
+	var opts output.Options
 
 	cmd := &cobra.Command{
 		Use:   "inspect <package>",
@@ -755,7 +756,7 @@ Output is JSON by default for scripting. Use --format for alternatives.`,
 		},
 	}
 
-	cli.AddOutputFlags(cmd, &output)
+	cli.AddOutputFlags(cmd, &opts)
 
 	return cmd
 }

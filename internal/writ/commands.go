@@ -24,6 +24,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lore"
+	"github.com/NobleFactor/devlore-cli/internal/output"
 	"github.com/NobleFactor/devlore-cli/internal/writ/identity"
 	"github.com/NobleFactor/devlore-cli/internal/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/internal/writ/segment"
@@ -553,7 +554,7 @@ func loadViewAndCopiedFiles(cfg *UpgradeConfig) (*execution.StateView, map[strin
 		return nil, nil, fmt.Errorf("no deployment receipts found; run 'writ deploy' first")
 	}
 
-	if cli.GetString("writ", "repo", true) == "" {
+	if viper.GetString("writ.repo") == "" {
 		return nil, nil, fmt.Errorf("no repo configured; set writ.repo in config or use WRIT_REPO env var")
 	}
 
@@ -1464,7 +1465,7 @@ func copyFile(src, dst string) error {
 }
 
 func newInspectCmd() *cobra.Command {
-	var output cli.OutputFlags
+	var opts output.Options
 
 	cmd := &cobra.Command{
 		Use:   "inspect <project|file>",
@@ -1485,7 +1486,7 @@ Output is JSON by default for scripting. Use --format for alternatives.`,
 		},
 	}
 
-	cli.AddOutputFlags(cmd, &output)
+	cli.AddOutputFlags(cmd, &opts)
 
 	return cmd
 }
