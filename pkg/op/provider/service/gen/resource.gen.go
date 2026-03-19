@@ -13,28 +13,28 @@ import (
 )
 
 func init() {
-	op.AnnounceResource(&serviceResource{})
+	op.AnnounceResource(&resourceFactory{})
 }
 
-type serviceResource struct{}
+type resourceFactory struct{}
 
 // Name returns the qualified resource descriptor name.
 //
 // Returns:
 //   - string: the resource name "service.Resource".
-func (d *serviceResource) Name() string { return "service.Resource" }
+func (d *resourceFactory) Name() string { return "service.Resource" }
 
 // Type returns the reflect.Type of the resource struct.
 //
 // Returns:
 //   - reflect.Type: the resource's concrete type.
-func (d *serviceResource) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
+func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
 
 // Init registers the resource constructor with the framework.
 //
 // Returns:
 //   - error: always nil.
-func (d *serviceResource) Init() error {
+func (d *resourceFactory) Init() error {
 	op.RegisterConstructor(provider.ResourceFromValue)
 	return nil
 }

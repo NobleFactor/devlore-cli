@@ -5,6 +5,7 @@ package op
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -78,6 +79,34 @@ func (v *testStarlarkValue) Type() string          { return "test_starlark_value
 func (v *testStarlarkValue) Freeze()               {}
 func (v *testStarlarkValue) Truth() starlark.Bool  { return starlark.True }
 func (v *testStarlarkValue) Hash() (uint32, error) { return 0, nil }
+
+// testParamMethod has a method with one string parameter, registered via typeParamsRegistry.
+type testParamMethod struct {
+	Prefix string `starlark:"prefix"`
+}
+
+func (t *testParamMethod) Greet(name string) string {
+	return t.Prefix + " " + name
+}
+
+func (t *testParamMethod) GreetErr(name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("name required")
+	}
+	return t.Prefix + " " + name, nil
+}
+
+// ZeroArg is a zero-arg method that should remain auto-invoked.
+func (t *testParamMethod) ZeroArg() string {
+	return "zero"
+}
+
+func init() {
+	RegisterTypeParams(reflect.TypeOf(testParamMethod{}), MethodParams{
+		"Greet":    {"name"},
+		"GreetErr": {"name"},
+	})
+}
 
 // endregion
 
@@ -342,6 +371,173 @@ func TestStructValue_UnmarshalRoundTrip(t *testing.T) {
 	}
 	if result != original {
 		t.Errorf("round-trip: got %+v, want %+v", result, original)
+	}
+}
+
+// endregion
+
+// region PARAMETERIZED METHOD TESTS
+
+func TestDiscoverMethods_ParameterizedMethodDiscovered(t *testing.T) {
+	info := getTypeInfo(reflect.TypeOf(testParamMethod{}))
+
+	mi, ok := info.byMethod["greet"]
+	if !ok {
+		t.Fatal("expected method 'greet' in byMethod")
+	}
+	if mi.numIn != 1 {
+		t.Errorf("greet numIn = %d, want 1", mi.numIn)
+	}
+	if len(mi.paramNames) != 1 || mi.paramNames[0] != "name" {
+		t.Errorf("greet paramNames = %v, want [name]", mi.paramNames)
+	}
+}
+
+func TestStructValue_ParameterizedMethodReturnsBuiltin(t *testing.T) {
+	v := &testParamMethod{Prefix: "Hello"}
+	sv, err := Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	ha := sv.(starlark.HasAttrs)
+
+	attr, err := ha.Attr("greet")
+	if err != nil {
+		t.Fatalf("Attr(greet) error: %v", err)
+	}
+	if _, ok := attr.(*starlark.Builtin); !ok {
+		t.Fatalf("expected *starlark.Builtin, got %T", attr)
+	}
+}
+
+func TestStructValue_ParameterizedMethodPositionalArg(t *testing.T) {
+	v := &testParamMethod{Prefix: "Hello"}
+	sv, err := Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	ha := sv.(starlark.HasAttrs)
+
+	attr, err := ha.Attr("greet")
+	if err != nil {
+		t.Fatalf("Attr(greet) error: %v", err)
+	}
+	builtin := attr.(*starlark.Builtin)
+	result, err := starlark.Call(&starlark.Thread{}, builtin, starlark.Tuple{starlark.String("World")}, nil)
+	if err != nil {
+		t.Fatalf("call error: %v", err)
+	}
+	if s, ok := result.(starlark.String); !ok || string(s) != "Hello World" {
+		t.Errorf("result = %v, want %q", result, "Hello World")
+	}
+}
+
+func TestStructValue_ParameterizedMethodKeywordArg(t *testing.T) {
+	v := &testParamMethod{Prefix: "Hi"}
+	sv, err := Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	ha := sv.(starlark.HasAttrs)
+
+	attr, err := ha.Attr("greet")
+	if err != nil {
+		t.Fatalf("Attr(greet) error: %v", err)
+	}
+	builtin := attr.(*starlark.Builtin)
+	kwargs := []starlark.Tuple{{starlark.String("name"), starlark.String("Bob")}}
+	result, err := starlark.Call(&starlark.Thread{}, builtin, nil, kwargs)
+	if err != nil {
+		t.Fatalf("call error: %v", err)
+	}
+	if s, ok := result.(starlark.String); !ok || string(s) != "Hi Bob" {
+		t.Errorf("result = %v, want %q", result, "Hi Bob")
+	}
+}
+
+func TestStructValue_ParameterizedMethodErrorPropagation(t *testing.T) {
+	v := &testParamMethod{Prefix: "Hi"}
+	sv, err := Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	ha := sv.(starlark.HasAttrs)
+
+	attr, err := ha.Attr("greet_err")
+	if err != nil {
+		t.Fatalf("Attr(greet_err) error: %v", err)
+	}
+	builtin := attr.(*starlark.Builtin)
+	_, err = starlark.Call(&starlark.Thread{}, builtin, starlark.Tuple{starlark.String("")}, nil)
+	if err == nil {
+		t.Fatal("expected error from greet_err with empty name")
+	}
+	if !strings.Contains(err.Error(), "name required") {
+		t.Errorf("error = %q, want to contain %q", err, "name required")
+	}
+}
+
+func TestStructValue_ParameterizedMethodMissingArg(t *testing.T) {
+	v := &testParamMethod{Prefix: "Hi"}
+	sv, err := Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	ha := sv.(starlark.HasAttrs)
+
+	attr, err := ha.Attr("greet")
+	if err != nil {
+		t.Fatalf("Attr(greet) error: %v", err)
+	}
+	builtin := attr.(*starlark.Builtin)
+	_, err = starlark.Call(&starlark.Thread{}, builtin, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for missing required arg")
+	}
+}
+
+func TestStructValue_ZeroArgMethodStillAutoInvoked(t *testing.T) {
+	v := &testParamMethod{Prefix: "Hi"}
+	sv, err := Marshal(v)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	ha := sv.(starlark.HasAttrs)
+
+	result, err := ha.Attr("zero_arg")
+	if err != nil {
+		t.Fatalf("Attr(zero_arg) error: %v", err)
+	}
+	// Zero-arg methods are auto-invoked, returning the value directly (not a Builtin).
+	if _, ok := result.(*starlark.Builtin); ok {
+		t.Error("zero-arg method should be auto-invoked, not return a Builtin")
+	}
+	if s, ok := result.(starlark.String); !ok || string(s) != "zero" {
+		t.Errorf("zero_arg = %v, want %q", result, "zero")
+	}
+}
+
+func TestStructValue_UnregisteredParamMethodExcluded(t *testing.T) {
+	// testUnsupportedSig.Transform takes a param but is NOT registered.
+	info := getTypeInfo(reflect.TypeOf(testUnsupportedSig{}))
+
+	if _, ok := info.byMethod["transform"]; ok {
+		t.Error("unregistered parameterized method should not appear in byMethod")
+	}
+}
+
+func TestStructValue_AttrNamesIncludesParameterizedMethods(t *testing.T) {
+	info := getTypeInfo(reflect.TypeOf(testParamMethod{}))
+
+	found := false
+	for _, name := range info.attrList {
+		if name == "greet" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("attrList = %v, want to contain 'greet'", info.attrList)
 	}
 }
 

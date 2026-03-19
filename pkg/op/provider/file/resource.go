@@ -6,13 +6,11 @@ package file
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -142,28 +140,6 @@ func (r *Resource) Resolve(root op.Root) error {
 
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
-
-// WriteTo allows the Resource to be streamed directly to any io.Writer. I/O is scoped through [op.Root].
-//
-// For efficiency, it uses [io.Copy] which automatically attempts a zero-copy syscall before falling back to a 32KB
-// buffer.
-//
-// Parameters:
-//   - root: [op.Root] for scoped I/O
-//   - writer: io.Writer to write to
-//
-// Returns:
-//   - int64: number of bytes written
-//   - error: any error that occurred during writing
-func (r *Resource) WriteTo(root op.Root, writer io.Writer) (_ int64, err error) {
-	f, err := root.Open(root.NewPath(r.SourcePath.Abs()))
-	if err != nil {
-		return 0, err
-	}
-	defer iox.Close(&err, f)
-
-	return io.Copy(writer, f)
-}
 
 // endregion
 

@@ -5,7 +5,6 @@
 package encryption
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -33,8 +32,8 @@ func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resour
 	root := p.Context().Root
 
 	// 1. Read the source file into memory
-	buffer := bytes.NewBuffer(make([]byte, 0, source.Size))
-	if _, err := source.WriteTo(root, buffer); err != nil {
+	data, err := root.ReadFile(root.NewPath(source.SourcePath.Abs()))
+	if err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to read source: %w", err)
 	}
 
@@ -44,7 +43,7 @@ func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resour
 		return file.Resource{}, Tombstone{}, fmt.Errorf("sops client not configured")
 	}
 
-	cleartext, err := sopsClient.Decrypt(buffer.Bytes(), source.SourcePath.Abs())
+	cleartext, err := sopsClient.Decrypt(data, source.SourcePath.Abs())
 	if err != nil {
 		return file.Resource{}, Tombstone{}, fmt.Errorf("sops decryption failed: %w", err)
 	}

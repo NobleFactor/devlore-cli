@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -158,19 +157,4 @@ func ResourceFromValue(v any) (Resource, error) {
 type ValidationResult struct {
 	Valid  bool     `json:"valid"  starlark:"valid"`
 	Errors []string `json:"errors" starlark:"errors"`
-}
-
-func init() {
-	op.AnnounceResource(&yamlResourceDesc{})
-}
-
-// yamlResourceDesc is the resource descriptor for yaml.Resource.
-type yamlResourceDesc struct{}
-
-func (d *yamlResourceDesc) Name() string       { return "yaml.Resource" }
-func (d *yamlResourceDesc) Type() reflect.Type { return reflect.TypeOf(Resource{}) }
-
-func (d *yamlResourceDesc) Init() error {
-	op.RegisterConstructor(ResourceFromValue)
-	return nil
 }

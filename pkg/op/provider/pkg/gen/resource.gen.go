@@ -13,28 +13,28 @@ import (
 )
 
 func init() {
-	op.AnnounceResource(&pkgResource{})
+	op.AnnounceResource(&resourceFactory{})
 }
 
-type pkgResource struct{}
+type resourceFactory struct{}
 
 // Name returns the qualified resource descriptor name.
 //
 // Returns:
 //   - string: the resource name "pkg.Resource".
-func (d *pkgResource) Name() string { return "pkg.Resource" }
+func (d *resourceFactory) Name() string { return "pkg.Resource" }
 
 // Type returns the reflect.Type of the resource struct.
 //
 // Returns:
 //   - reflect.Type: the resource's concrete type.
-func (d *pkgResource) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
+func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
 
 // Init registers the resource constructor with the framework.
 //
 // Returns:
 //   - error: always nil.
-func (d *pkgResource) Init() error {
+func (d *resourceFactory) Init() error {
 	op.RegisterConstructor(provider.ResourceFromValue)
 	return nil
 }

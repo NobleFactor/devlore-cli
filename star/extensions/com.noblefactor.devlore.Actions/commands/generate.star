@@ -670,6 +670,51 @@ def detect_resource(path):
 
     return constructor_name
 
+def detect_resource_params(path):
+    """Detect parameterized methods on the Resource struct.
+
+    Finds exported methods on *Resource that take parameters and return
+    (T) or (T, error). Methods returning only error are excluded (not
+    useful as Starlark callables). Methods with unnamed parameters (_)
+    are excluded (cannot be called by name from Starlark).
+
+    Returns a list of {"name": GoName, "params": [snake_name, ...]} dicts,
+    or [] if none found.
+    """
+    methods = goast.methods(path, receiver_type="Resource")
+    result = []
+    for m in methods:
+        if m.name[0].islower():
+            continue
+        if m.name in SKIP_METHODS:
+            continue
+        if not m.params:
+            continue
+        # Reject error-only returns.
+        if m.returns in ["error", "(error)"]:
+            continue
+        # Accept (T) or (T, error) returns only.
+        ret = m.returns
+        if ret.startswith("(") and ret.endswith(")"):
+            inner = ret[1:-1]
+            parts = [p.strip() for p in inner.split(",")]
+            if len(parts) > 2:
+                continue
+            if len(parts) == 2 and parts[1] != "error":
+                continue
+        # Skip methods with unnamed parameters.
+        has_unnamed = False
+        param_names = []
+        for p in m.params:
+            if p.name == "_" or not p.name:
+                has_unnamed = True
+                break
+            param_names.append(to_snake(p.name))
+        if has_unnamed:
+            continue
+        result.append({"name": m.name, "params": param_names})
+    return result
+
 # =============================================================================
 # Generation: Gen/ Mode
 # =============================================================================
@@ -911,12 +956,14 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     # -------------------------------------------------------------------------
     constructor_name = detect_resource(path)
     if constructor_name:
+        resource_params = detect_resource_params(path)
         resource_desc = {
             "package": pkg,
             "provider": provider,
             "provider_import": provider_import,
             "provider_type_prefix": "provider.",
             "constructor_name": constructor_name,
+            "resource_params": resource_params,
         }
         gen_file(ctx, "resource", resource_desc, "gen/resource.gen.go",
                  "Resource", 1, output_dir, write_files)
@@ -1204,12 +1251,14 @@ def run(ctx):
         write_files = ctx.args.get("write", "false") == "true"
         provider = path.split("/")[-1]
         provider_import = compute_provider_import(path)
+        resource_params = detect_resource_params(path)
         resource_desc = {
             "package": provider,
             "provider": provider,
             "provider_import": provider_import,
             "provider_type_prefix": "provider.",
             "constructor_name": constructor_name,
+            "resource_params": resource_params,
         }
         gen_file(ctx, "resource", resource_desc, "gen/resource.gen.go",
                  "Resource", 1, output_dir, write_files)
