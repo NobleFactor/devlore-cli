@@ -36,7 +36,7 @@ type ContextBase struct {
 	Writer io.Writer
 
 	// SopsClient provides SOPS operations (decryption, signing, verification). Nil when SOPS is not configured (no
-	// .sops.yaml found). Providers access this via p.Context().SopsClient.
+	// .sops.yaml found). Receivers access this via p.Context().SopsClient.
 	SopsClient *sops.Client
 
 	// Data holds tool-provided context: template variables, identities, segment maps, etc. Each tool populates this

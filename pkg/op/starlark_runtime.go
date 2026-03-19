@@ -88,7 +88,7 @@ func (rt *StarlarkRuntime) Initialize(reg *ActionRegistry, ctx ContextBase) {
 //   - bool: true if the provider was found and implements ExecutingReceiverFactory.
 func (rt *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
 
-	for _, p := range Providers() {
+	for _, p := range Receivers() {
 		if p.ReceiverName() != name {
 			continue
 		}
@@ -107,7 +107,7 @@ func (rt *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
 func (rt *StarlarkRuntime) BuildReceivers() starlark.StringDict {
 
 	globals := starlark.StringDict{}
-	for _, p := range Providers() {
+	for _, p := range Receivers() {
 		if !rt.included[p.ReceiverName()] {
 			continue
 		}

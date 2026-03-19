@@ -44,6 +44,10 @@ func (s *StructValue) Attr(name string) (starlark.Value, error) {
 
 	// Methods second.
 	if mi, ok := s.info.byMethod[name]; ok {
+		if mi.numIn > 0 {
+			bridge := buildStructMethodBridge(s.typeName, s.goValue, mi)
+			return starlark.NewBuiltin(s.typeName+"."+mi.starName, bridge), nil
+		}
 		return s.callMethod(mi)
 	}
 
@@ -123,6 +127,56 @@ func (s *StructValue) Type() string {
 }
 
 // endregion
+
+// endregion
+
+// region UNEXPORTED FUNCTIONS
+
+// buildStructMethodBridge creates a [builtinFunc] that bridges a parameterized
+// Go method on a [StructValue] to Starlark. Unlike [buildMethodBridge] in
+// receiver_reflect.go, this bridge has no catalog, recovery stack, or
+// compensation concerns — it is for plain struct methods.
+//
+// Parameters:
+//   - typeName: the snake_case type name for error messages.
+//   - goValue: the reflected pointer to the Go struct.
+//   - mi: the method metadata (must have numIn > 0).
+//
+// Returns:
+//   - builtinFunc: the Starlark-callable bridge function.
+func buildStructMethodBridge(typeName string, goValue reflect.Value, mi *methodInfo) builtinFunc {
+
+	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		vals := make([]starlark.Value, mi.numIn)
+		pairs := make([]any, 0, mi.numIn*2)
+		for i, name := range mi.paramNames {
+			pairs = append(pairs, name, &vals[i])
+		}
+		if err := starlark.UnpackArgs(mi.starName, args, kwargs, pairs...); err != nil {
+			return nil, err
+		}
+
+		// Convert Starlark values → Go values. methodType includes the
+		// receiver at index 0; user params start at index 1.
+		goArgs := make([]reflect.Value, mi.numIn)
+		for i, sv := range vals {
+			paramType := mi.methodType.In(i + 1)
+			if sv == nil {
+				goArgs[i] = reflect.Zero(paramType)
+				continue
+			}
+			goVal := reflect.New(paramType).Elem()
+			if err := unmarshalValue(sv, goVal); err != nil {
+				name := strings.TrimSuffix(mi.paramNames[i], "?")
+				return nil, fmt.Errorf("%s.%s: param %s: %w", typeName, mi.starName, name, err)
+			}
+			goArgs[i] = goVal
+		}
+
+		results := goValue.MethodByName(mi.name).Call(goArgs)
+		return classifyReturn(results)
+	}
+}
 
 // endregion
 

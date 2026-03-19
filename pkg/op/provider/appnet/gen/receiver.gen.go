@@ -15,14 +15,14 @@ import (
 )
 
 func init() {
-	op.Announce(Receiver)
+	op.AnnounceReceiver(Receiver)
 }
 
 // Receiver is the ReceiverFactory for the appnet provider.
-var Receiver op.ReceiverFactory = &Factory{}
+var Receiver op.ReceiverFactory = &receiverFactory{}
 
-// Factory implements op.ReceiverFactory for the appnet provider.
-type Factory struct {
+// factory implements op.ReceiverFactory for the appnet provider.
+type receiverFactory struct {
 	provider *provider.Provider
 	root     op.Root
 }
@@ -39,7 +39,7 @@ type Factory struct {
 //
 // Returns:
 //   - op.ContextProvider: the provider instance.
-func (f *Factory) GetOrCreateProvider(ctx op.Context) op.ContextProvider {
+func (f *receiverFactory) GetOrCreateProvider(ctx op.Context) op.ContextProvider {
 
 	if f.provider == nil || f.root != ctx.Root {
 		f.provider = provider.NewProvider(ctx)
@@ -52,7 +52,7 @@ func (f *Factory) GetOrCreateProvider(ctx op.Context) op.ContextProvider {
 //
 // Returns:
 //   - reflect.Type: the provider's concrete type.
-func (f *Factory) ProviderType() reflect.Type {
+func (f *receiverFactory) ProviderType() reflect.Type {
 	return reflect.TypeOf((*provider.Provider)(nil)).Elem()
 }
 
@@ -60,7 +60,7 @@ func (f *Factory) ProviderType() reflect.Type {
 //
 // Returns:
 //   - string: the receiver name "appnet".
-func (f *Factory) ReceiverName() string { return "appnet" }
+func (f *receiverFactory) ReceiverName() string { return "appnet" }
 
 // endregion
 
@@ -75,7 +75,7 @@ func (f *Factory) ReceiverName() string { return "appnet" }
 //
 // Returns:
 //   - starlark.Value: the planning receiver.
-func (f *Factory) NewPlanning(graph *op.Graph, project string, registry *op.ActionRegistry) starlark.Value {
+func (f *receiverFactory) NewPlanning(graph *op.Graph, project string, registry *op.ActionRegistry) starlark.Value {
 	return op.WrapProviderInPlanningReceiver(f, graph, project, registry, Params)
 }
 
@@ -84,7 +84,7 @@ func (f *Factory) NewPlanning(graph *op.Graph, project string, registry *op.Acti
 // Parameters:
 //   - registry: the action registry to populate.
 //   - ctx: the execution context.
-func (f *Factory) Register(registry *op.ActionRegistry, ctx op.Context) {
+func (f *receiverFactory) Register(registry *op.ActionRegistry, ctx op.Context) {
 
 	op.RegisterActions(registry, f, Params)
 }

@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -136,19 +135,4 @@ func ResourceFromValue(v any) (Resource, error) {
 type ValidationResult struct {
 	Valid  bool     `json:"valid"  starlark:"valid"`
 	Errors []string `json:"errors" starlark:"errors"`
-}
-
-func init() {
-	op.AnnounceResource(&jsonResourceDesc{})
-}
-
-// jsonResourceDesc is the resource descriptor for json.Resource.
-type jsonResourceDesc struct{}
-
-func (d *jsonResourceDesc) Name() string       { return "json.Resource" }
-func (d *jsonResourceDesc) Type() reflect.Type { return reflect.TypeOf(Resource{}) }
-
-func (d *jsonResourceDesc) Init() error {
-	op.RegisterConstructor(ResourceFromValue)
-	return nil
 }

@@ -12,29 +12,35 @@ import (
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/json"
 )
 
-func init() {
-	op.AnnounceResource(&jsonResource{})
+// resourceParams maps Go method names on json.Resource to Starlark parameter name lists.
+var resourceParams = op.MethodParams{
+	"Validate": {"schema_json"},
 }
 
-type jsonResource struct{}
+func init() {
+	op.AnnounceResource(&resourceFactory{})
+	op.RegisterTypeParams(reflect.TypeOf(provider.Resource{}), resourceParams)
+}
+
+type resourceFactory struct{}
 
 // Name returns the qualified resource descriptor name.
 //
 // Returns:
 //   - string: the resource name "json.Resource".
-func (d *jsonResource) Name() string { return "json.Resource" }
+func (d *resourceFactory) Name() string { return "json.Resource" }
 
 // Type returns the reflect.Type of the resource struct.
 //
 // Returns:
 //   - reflect.Type: the resource's concrete type.
-func (d *jsonResource) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
+func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
 
 // Init registers the resource constructor with the framework.
 //
 // Returns:
 //   - error: always nil.
-func (d *jsonResource) Init() error {
+func (d *resourceFactory) Init() error {
 	op.RegisterConstructor(provider.ResourceFromValue)
 	return nil
 }

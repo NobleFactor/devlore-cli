@@ -13,28 +13,28 @@ import (
 )
 
 func init() {
-	op.AnnounceResource(&appnetResource{})
+	op.AnnounceResource(&resourceFactory{})
 }
 
-type appnetResource struct{}
+type resourceFactory struct{}
 
 // Name returns the qualified resource descriptor name.
 //
 // Returns:
 //   - string: the resource name "appnet.Resource".
-func (d *appnetResource) Name() string { return "appnet.Resource" }
+func (d *resourceFactory) Name() string { return "appnet.Resource" }
 
 // Type returns the reflect.Type of the resource struct.
 //
 // Returns:
 //   - reflect.Type: the resource's concrete type.
-func (d *appnetResource) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
+func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
 
 // Init registers the resource constructor with the framework.
 //
 // Returns:
 //   - error: always nil.
-func (d *appnetResource) Init() error {
+func (d *resourceFactory) Init() error {
 	op.RegisterConstructor(provider.ResourceFromValue)
 	return nil
 }

@@ -18,7 +18,7 @@ import (
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 
 	// Blank import triggers init() in all provider packages,
-	// which call op.Announce() to self-register.
+	// which call op.AnnounceReceiver() to self-register.
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 

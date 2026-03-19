@@ -4,12 +4,12 @@
 package cli
 
 import (
-	"bytes"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/NobleFactor/devlore-cli/internal/output"
 )
 
 func TestExitCodes(t *testing.T) {
@@ -82,10 +82,9 @@ func TestExitCode(t *testing.T) {
 
 func TestAddOutputFlags(t *testing.T) {
 	cmd := &cobra.Command{Use: "test"}
-	var flags OutputFlags
-	AddOutputFlags(cmd, &flags)
+	var opts output.Options
+	AddOutputFlags(cmd, &opts)
 
-	// Check format flag
 	formatFlag := cmd.Flags().Lookup("format")
 	if formatFlag == nil {
 		t.Fatal("expected --format flag to be added")
@@ -94,196 +93,33 @@ func TestAddOutputFlags(t *testing.T) {
 		t.Errorf("expected --format default 'json', got %q", formatFlag.DefValue)
 	}
 
-	// Check filter flag
 	filterFlag := cmd.Flags().Lookup("filter")
 	if filterFlag == nil {
 		t.Fatal("expected --filter flag to be added")
 	}
 }
 
-func TestAddMutationFlags(t *testing.T) {
-	cmd := &cobra.Command{Use: "test"}
-	var flags MutationFlags
-	AddMutationFlags(cmd, &flags)
-
-	// Check passthru flag
-	passthruFlag := cmd.Flags().Lookup("passthru")
-	if passthruFlag == nil {
-		t.Fatal("expected --passthru flag to be added")
-	}
-
-	// Check format flag
-	formatFlag := cmd.Flags().Lookup("format")
-	if formatFlag == nil {
-		t.Fatal("expected --format flag to be added")
-	}
-}
-
-func TestRenderJSON(t *testing.T) {
-	data := struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}{Name: "test", Version: "1.0.0"}
-
-	var buf bytes.Buffer
-	err := Render(&buf, data, OutputFlags{Format: "json"})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	output := buf.String()
-	if !strings.Contains(output, `"name": "test"`) {
-		t.Errorf("expected JSON output to contain name field, got %q", output)
-	}
-	if !strings.Contains(output, `"version": "1.0.0"`) {
-		t.Errorf("expected JSON output to contain version field, got %q", output)
-	}
-}
-
-func TestRenderYAML(t *testing.T) {
-	data := struct {
-		Name    string `yaml:"name"`
-		Version string `yaml:"version"`
-	}{Name: "test", Version: "1.0.0"}
-
-	var buf bytes.Buffer
-	err := Render(&buf, data, OutputFlags{Format: "yaml"})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	output := buf.String()
-	if !strings.Contains(output, "name: test") {
-		t.Errorf("expected YAML output to contain name field, got %q", output)
-	}
-	if !strings.Contains(output, "version: 1.0.0") {
-		t.Errorf("expected YAML output to contain version field, got %q", output)
-	}
-}
-
-func TestRenderTable(t *testing.T) {
-	data := []struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}{
-		{Name: "pkg1", Version: "1.0.0"},
-		{Name: "pkg2", Version: "2.0.0"},
-	}
-
-	var buf bytes.Buffer
-	err := Render(&buf, data, OutputFlags{Format: "table"})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	output := buf.String()
-	// Check for header
-	if !strings.Contains(strings.ToUpper(output), "NAME") {
-		t.Errorf("expected table output to contain NAME header, got %q", output)
-	}
-	// Check for data
-	if !strings.Contains(output, "pkg1") {
-		t.Errorf("expected table output to contain 'pkg1', got %q", output)
-	}
-	if !strings.Contains(output, "pkg2") {
-		t.Errorf("expected table output to contain 'pkg2', got %q", output)
-	}
-}
-
-func TestRenderTemplate(t *testing.T) {
-	data := []struct {
-		Name    string
-		Version string
-	}{
-		{Name: "test", Version: "1.0.0"},
-	}
-
-	var buf bytes.Buffer
-	err := Render(&buf, data, OutputFlags{Format: "{{.Name}}:{{.Version}}"})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	output := strings.TrimSpace(buf.String())
-	if output != "test:1.0.0" {
-		t.Errorf("expected template output 'test:1.0.0', got %q", output)
-	}
-}
-
-func TestRenderWithFilter(t *testing.T) {
-	data := []struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}{
-		{Name: "foo", Version: "1.0.0"},
-		{Name: "bar", Version: "2.0.0"},
-		{Name: "foo", Version: "3.0.0"},
-	}
-
-	var buf bytes.Buffer
-	err := Render(&buf, data, OutputFlags{Format: "json", Filter: []string{"name=foo"}})
-	if err != nil {
-		t.Fatalf("Render failed: %v", err)
-	}
-
-	output := buf.String()
-	// Should contain foo entries
-	if !strings.Contains(output, "foo") {
-		t.Errorf("expected filtered output to contain 'foo', got %q", output)
-	}
-	// Should not contain bar (filtered out)
-	if strings.Contains(output, `"name": "bar"`) {
-		t.Errorf("expected filtered output to NOT contain 'bar', got %q", output)
-	}
-}
-
-func TestRenderMutation(t *testing.T) {
-	data := struct {
-		Changed bool `json:"changed"`
-	}{Changed: true}
-
-	// With passthru=false, should output nothing
-	var buf1 bytes.Buffer
-	err := RenderMutation(&buf1, data, MutationFlags{Passthru: false})
-	if err != nil {
-		t.Fatalf("RenderMutation failed: %v", err)
-	}
-	if buf1.Len() > 0 {
-		t.Errorf("expected no output with passthru=false, got %q", buf1.String())
-	}
-
-	// With passthru=true, should output
-	var buf2 bytes.Buffer
-	err = RenderMutation(&buf2, data, MutationFlags{Passthru: true, Format: "json"})
-	if err != nil {
-		t.Fatalf("RenderMutation failed: %v", err)
-	}
-	if buf2.Len() == 0 {
-		t.Error("expected output with passthru=true")
-	}
-}
-
 func TestSetProgramName(t *testing.T) {
-	original := output.ProgramName
-	defer func() { output.ProgramName = original }()
+	original := statusOutput.ProgramName
+	defer func() { statusOutput.ProgramName = original }()
 
 	SetProgramName("testprog")
-	if output.ProgramName != "testprog" {
-		t.Errorf("expected ProgramName 'testprog', got %q", output.ProgramName)
+	if statusOutput.ProgramName != "testprog" {
+		t.Errorf("expected ProgramName 'testprog', got %q", statusOutput.ProgramName)
 	}
 }
 
 func TestSetSilent(t *testing.T) {
-	original := output.Silent
-	defer func() { output.Silent = original }()
+	original := statusOutput.Silent
+	defer func() { statusOutput.Silent = original }()
 
 	SetSilent(true)
-	if !output.Silent {
+	if !statusOutput.Silent {
 		t.Error("expected Silent to be true")
 	}
 
 	SetSilent(false)
-	if output.Silent {
+	if statusOutput.Silent {
 		t.Error("expected Silent to be false")
 	}
 }
@@ -297,98 +133,5 @@ func TestFailureReturnsError(t *testing.T) {
 	expected := "test error: detail"
 	if err.Error() != expected {
 		t.Errorf("expected error message %q, got %q", expected, err.Error())
-	}
-}
-
-func TestToSlice(t *testing.T) {
-	// Single item should be wrapped
-	single := struct{ Name string }{Name: "test"}
-	result := toSlice(single)
-	if len(result) != 1 {
-		t.Errorf("expected single item to produce slice of length 1, got %d", len(result))
-	}
-
-	// Slice should be preserved
-	slice := []string{"a", "b", "c"}
-	result2 := toSlice(slice)
-	if len(result2) != 3 {
-		t.Errorf("expected slice of length 3, got %d", len(result2))
-	}
-
-	// Pointer to slice should work
-	result3 := toSlice(&slice)
-	if len(result3) != 3 {
-		t.Errorf("expected pointer to slice to produce length 3, got %d", len(result3))
-	}
-}
-
-func TestGetFieldNames(t *testing.T) {
-	type TestStruct struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}
-
-	item := TestStruct{Name: "test", Version: "1.0"}
-	fields := getFieldNames(item)
-
-	// Should have 2 fields
-	if len(fields) != 2 {
-		t.Errorf("expected 2 fields, got %d: %v", len(fields), fields)
-	}
-}
-
-func TestGetFieldValue(t *testing.T) {
-	type TestStruct struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}
-
-	item := TestStruct{Name: "test", Version: "1.0"}
-
-	// Get by json tag
-	val := getFieldValue(item, "name")
-	if val != "test" {
-		t.Errorf("expected value 'test', got %v", val)
-	}
-
-	// Get by field name
-	val2 := getFieldValue(item, "Version")
-	if val2 != "1.0" {
-		t.Errorf("expected value '1.0', got %v", val2)
-	}
-
-	// Non-existent field
-	val3 := getFieldValue(item, "nonexistent")
-	if val3 != nil {
-		t.Errorf("expected nil for non-existent field, got %v", val3)
-	}
-}
-
-func TestMatchesFilter(t *testing.T) {
-	type TestStruct struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}
-
-	item := TestStruct{Name: "test", Version: "1.0"}
-
-	tests := []struct {
-		filter   string
-		expected bool
-	}{
-		{"name=test", true},
-		{"name=TEST", true}, // case insensitive
-		{"name=other", false},
-		{"version=1.0", true},
-		{"invalid", true}, // invalid filter (no =) is skipped
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.filter, func(t *testing.T) {
-			result := matchesFilter(item, tt.filter)
-			if result != tt.expected {
-				t.Errorf("matchesFilter(%q) = %v, want %v", tt.filter, result, tt.expected)
-			}
-		})
 	}
 }

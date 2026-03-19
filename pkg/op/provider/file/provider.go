@@ -1215,11 +1215,12 @@ func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
 //   - a pointer to a buffer with the contents of the file
 //   - any error from reading the file
 func (p *Provider) read(resource Resource) (*bytes.Buffer, error) {
-	var buffer bytes.Buffer
-	if _, err := resource.WriteTo(p.Context().Root, &buffer); err != nil {
+	root := p.Context().Root
+	data, err := root.ReadFile(root.NewPath(resource.SourcePath.Abs()))
+	if err != nil {
 		return nil, err
 	}
-	return &buffer, nil
+	return bytes.NewBuffer(data), nil
 }
 
 // readLink reads the destination of a symlink. Always returns an absolute path.

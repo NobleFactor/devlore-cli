@@ -27,6 +27,12 @@ var constructorRegistry sync.Map
 // type, it calls WrapProviderInExecutingReceiver instead of flattening to fields.
 var receiverParamsRegistry sync.Map
 
+// typeParamsRegistry maps [reflect.Type] (struct, not pointer) to
+// [MethodParams]. Types like yaml.Resource register their parameterized
+// methods here so [discoverMethods] can expose them as Starlark callables
+// instead of filtering them out.
+var typeParamsRegistry sync.Map
+
 // typeCache stores struct introspection results, keyed by [reflect.Type].
 // Computed once per type, concurrent-safe, amortized O(1) lookups.
 var typeCache sync.Map
@@ -67,7 +73,7 @@ type CallableInput struct {
 //   - error: non-nil if no constructor is registered for T or if it rejects the value.
 func Construct[T any](value any) (T, error) {
 	t := reflect.TypeOf((*T)(nil)).Elem()
-	ctor, ok := loadConstructor(t)
+	ctor, ok := ensureResourceInit(t)
 	if !ok {
 		var zero T
 		return zero, fmt.Errorf("no constructor registered for %s", t)
@@ -128,6 +134,23 @@ func RegisterReceiverParams(factory ReceiverFactory, params MethodParams) {
 	registerReceiverParamsReflect(factory, params)
 }
 
+// RegisterTypeParams stores method parameter metadata for a struct type.
+// When [discoverMethods] encounters a method with parameters on a type
+// registered here, it accepts the method and records its param names so
+// [StructValue.Attr] can return a Starlark callable instead of filtering
+// the method out.
+//
+// Parameters:
+//   - t: the struct [reflect.Type] (not a pointer).
+//   - params: maps Go method names (CamelCase) to Starlark parameter name lists.
+func RegisterTypeParams(t reflect.Type, params MethodParams) {
+
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	typeParamsRegistry.Store(t, params)
+}
+
 // endregion
 
 // region UNEXPORTED TYPES
@@ -157,9 +180,12 @@ type fieldInfo struct {
 
 // methodInfo maps an exported Go method to its Starlark name.
 type methodInfo struct {
-	name     string // Go method name (CamelCase)
-	starName string // snake_case Starlark name
-	hasError bool   // true for func() (T, error)
+	name       string       // Go method name (CamelCase)
+	starName   string       // snake_case Starlark name
+	hasError   bool         // true for func() (T, error)
+	paramNames []string     // Starlark param names (nil for zero-arg methods)
+	numIn      int          // number of parameters (excluding receiver)
+	methodType reflect.Type // method signature (set for parameterized methods)
 }
 
 // endregion
@@ -253,7 +279,7 @@ func camelToSnake(s string) string {
 //   - bool: true if construction succeeded.
 func constructResource(targetType reflect.Type, value any) (Resource, bool) {
 
-	ctor, ok := loadConstructor(targetType)
+	ctor, ok := ensureResourceInit(targetType)
 	if !ok {
 		return nil, false
 	}
@@ -289,7 +315,7 @@ func constructResource(targetType reflect.Type, value any) (Resource, bool) {
 //   - error: non-nil if no extractor is registered or extraction fails.
 func extractCallable(fn *starlark.Function, funcType string) (CallableResource, error) {
 
-	ctor, ok := loadConstructor(callableResourceType)
+	ctor, ok := ensureResourceInit(callableResourceType)
 	if !ok {
 		return nil, fmt.Errorf("no callable extractor registered (mem package not imported?)")
 	}
@@ -369,16 +395,53 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 	return actual.(*typeInfo)
 }
 
+// classifyMethodReturnOk checks whether a method's return signature is
+// eligible for Starlark exposure: (T) or (T, error). Returns hasError
+// and ok.
+//
+// Parameters:
+//   - mt: the method's [reflect.Type].
+//
+// Returns:
+//   - hasError: true when the return pattern is (T, error).
+//   - ok: true when the return pattern is eligible.
+func classifyMethodReturnOk(mt reflect.Type) (hasError, ok bool) {
+
+	switch mt.NumOut() {
+	case 1:
+		if mt.Out(0).Implements(errorType) {
+			return false, false
+		}
+		return false, true
+	case 2:
+		if !mt.Out(1).Implements(errorType) || mt.Out(0).Implements(errorType) {
+			return false, false
+		}
+		return true, true
+	default:
+		return false, false
+	}
+}
+
 // discoverMethods populates info.methods and info.byMethod with eligible
-// zero-arg methods from the pointer type of t. A method is eligible if it is
-// exported, takes no arguments (beyond the receiver), and returns either one
-// value or (value, error). String() is excluded when the type implements
-// [fmt.Stringer] (reserved for value representation).
+// methods from the pointer type of t. Zero-arg methods are accepted
+// unconditionally (returns (T) or (T, error)). Methods with parameters
+// are accepted only when their type is registered in [typeParamsRegistry]
+// and the method name appears in the registered [MethodParams].
+// String() is excluded when the type implements [fmt.Stringer] (reserved
+// for value representation).
 //
 // Parameters:
 //   - t: the struct [reflect.Type] (not a pointer).
 //   - info: the typeInfo to populate with discovered methods.
 func discoverMethods(t reflect.Type, info *typeInfo) {
+
+	// Ensure resource type params are registered before lookup.
+	// ResourceFactory.Init() is lazy; this triggers it so RegisterTypeParams
+	// runs before we cache the type's method metadata.
+	ensureResourceInit(t)
+
+	typeParams, _ := lookupTypeParams(t)
 
 	pt := reflect.PointerTo(t)
 	for i := range pt.NumMethod() {
@@ -389,47 +452,44 @@ func discoverMethods(t reflect.Type, info *typeInfo) {
 
 		mt := m.Type
 		numIn := mt.NumIn() - 1 // exclude receiver
-		numOut := mt.NumOut()
-
-		if numIn != 0 {
-			continue
-		}
 
 		// Exclude String() matching fmt.Stringer — reserved for value representation.
 		if m.Name == "String" && pt.Implements(stringerType) {
 			continue
 		}
 
-		snakeName := camelToSnake(m.Name)
+		hasError, ok := classifyMethodReturnOk(mt)
+		if !ok {
+			continue
+		}
 
-		switch numOut {
-		case 1:
-			if mt.Out(0).Implements(errorType) {
-				continue // func() error is not useful
-			}
-			mi := methodInfo{
-				name:     m.Name,
-				starName: snakeName,
-				hasError: false,
-			}
-			info.methods = append(info.methods, mi)
-			info.byMethod[snakeName] = &info.methods[len(info.methods)-1]
-
-		case 2:
-			if !mt.Out(1).Implements(errorType) {
+		// Parameterized methods: accept only when registered with matching param count.
+		if numIn > 0 {
+			paramNames, found := typeParams[m.Name]
+			if !found || len(paramNames) != numIn {
 				continue
 			}
-			if mt.Out(0).Implements(errorType) {
-				continue // both returns are error
-			}
 			mi := methodInfo{
-				name:     m.Name,
-				starName: snakeName,
-				hasError: true,
+				name:       m.Name,
+				starName:   camelToSnake(m.Name),
+				hasError:   hasError,
+				paramNames: paramNames,
+				numIn:      numIn,
+				methodType: mt,
 			}
 			info.methods = append(info.methods, mi)
-			info.byMethod[snakeName] = &info.methods[len(info.methods)-1]
+			info.byMethod[mi.starName] = &info.methods[len(info.methods)-1]
+			continue
 		}
+
+		// Zero-arg methods.
+		mi := methodInfo{
+			name:     m.Name,
+			starName: camelToSnake(m.Name),
+			hasError: hasError,
+		}
+		info.methods = append(info.methods, mi)
+		info.byMethod[mi.starName] = &info.methods[len(info.methods)-1]
 	}
 }
 
@@ -498,6 +558,26 @@ func isCallableResource(v any) bool {
 func isFuncType(t reflect.Type) bool {
 
 	return t.Kind() == reflect.Func
+}
+
+// lookupTypeParams returns the method params for the given struct type.
+//
+// Parameters:
+//   - t: the [reflect.Type] to look up (pointer or struct).
+//
+// Returns:
+//   - MethodParams: the stored params.
+//   - bool: true if found.
+func lookupTypeParams(t reflect.Type) (MethodParams, bool) {
+
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	v, ok := typeParamsRegistry.Load(t)
+	if !ok {
+		return nil, false
+	}
+	return v.(MethodParams), true
 }
 
 // lookupReceiverParams returns the receiver entry for the given type.
@@ -1147,7 +1227,7 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 	// Constructor registry: build complex Go types from simpler Starlark values.
 	// If the Starlark value is already a struct whose type name matches the
 	// target Go type, skip the constructor and unmarshal fields directly.
-	if ctor, ok := loadConstructor(rv.Type()); ok {
+	if ctor, ok := ensureResourceInit(rv.Type()); ok {
 		alreadyTarget := false
 		if ss, ok := sv.(*starlarkstruct.Struct); ok {
 			if name, ok := ss.Constructor().(starlark.String); ok {

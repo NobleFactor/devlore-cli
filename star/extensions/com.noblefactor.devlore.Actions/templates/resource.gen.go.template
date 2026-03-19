@@ -13,30 +13,42 @@ import (
 	provider "{{.provider_import}}"
 {{- end}}
 )
+{{- if .resource_params}}
+
+// resourceParams maps Go method names on {{.provider}}.Resource to Starlark parameter name lists.
+var resourceParams = op.MethodParams{
+{{- range .resource_params}}
+	"{{.name}}": { {{- range $i, $p := .params}}{{if $i}}, {{end}}"{{$p}}"{{- end -}} },
+{{- end}}
+}
+{{- end}}
 
 func init() {
-	op.AnnounceResource(&{{.provider}}Resource{})
+	op.AnnounceResource(&resourceFactory{})
+{{- if .resource_params}}
+	op.RegisterTypeParams(reflect.TypeOf({{.provider_type_prefix}}Resource{}), resourceParams)
+{{- end}}
 }
 
-type {{.provider}}Resource struct{}
+type resourceFactory struct{}
 
 // Name returns the qualified resource descriptor name.
 //
 // Returns:
 //   - string: the resource name "{{.provider}}.Resource".
-func (d *{{.provider}}Resource) Name() string { return "{{.provider}}.Resource" }
+func (d *resourceFactory) Name() string { return "{{.provider}}.Resource" }
 
 // Type returns the reflect.Type of the resource struct.
 //
 // Returns:
 //   - reflect.Type: the resource's concrete type.
-func (d *{{.provider}}Resource) Type() reflect.Type { return reflect.TypeOf({{.provider_type_prefix}}Resource{}) }
+func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf({{.provider_type_prefix}}Resource{}) }
 
 // Init registers the resource constructor with the framework.
 //
 // Returns:
 //   - error: always nil.
-func (d *{{.provider}}Resource) Init() error {
+func (d *resourceFactory) Init() error {
 	op.RegisterConstructor({{.provider_type_prefix}}{{.constructor_name}})
 	return nil
 }

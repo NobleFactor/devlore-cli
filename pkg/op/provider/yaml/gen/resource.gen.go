@@ -12,29 +12,35 @@ import (
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml"
 )
 
-func init() {
-	op.AnnounceResource(&yamlResource{})
+// resourceParams maps Go method names on yaml.Resource to Starlark parameter name lists.
+var resourceParams = op.MethodParams{
+	"Validate": {"schema_json"},
 }
 
-type yamlResource struct{}
+func init() {
+	op.AnnounceResource(&resourceFactory{})
+	op.RegisterTypeParams(reflect.TypeOf(provider.Resource{}), resourceParams)
+}
+
+type resourceFactory struct{}
 
 // Name returns the qualified resource descriptor name.
 //
 // Returns:
 //   - string: the resource name "yaml.Resource".
-func (d *yamlResource) Name() string { return "yaml.Resource" }
+func (d *resourceFactory) Name() string { return "yaml.Resource" }
 
 // Type returns the reflect.Type of the resource struct.
 //
 // Returns:
 //   - reflect.Type: the resource's concrete type.
-func (d *yamlResource) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
+func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
 
 // Init registers the resource constructor with the framework.
 //
 // Returns:
 //   - error: always nil.
-func (d *yamlResource) Init() error {
+func (d *resourceFactory) Init() error {
 	op.RegisterConstructor(provider.ResourceFromValue)
 	return nil
 }

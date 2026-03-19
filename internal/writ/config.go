@@ -52,7 +52,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 
 	// Single-repo mode (when no layers configured)
 	if len(layerSources) == 0 {
-		sourceRoot := cli.GetString("writ", "repo", true)
+		sourceRoot := viper.GetString("writ.repo")
 		if sourceRoot == "" {
 			return nil, fmt.Errorf("no layer configured; use 'writ migrate <source>' to migrate your environment to a writ layer")
 		}
@@ -106,7 +106,7 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 	cfg.Force, _ = cmd.Flags().GetBool("force") //nolint:errcheck // flag registered by AddCommand
 
 	// Source root
-	sourceRoot := cli.GetString("writ", "repo", true)
+	sourceRoot := viper.GetString("writ.repo")
 	if sourceRoot != "" {
 		cfg.SourceRoot = expandPath(sourceRoot)
 	}
@@ -150,7 +150,7 @@ func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, 
 	cfg.JSONOutput, _ = cmd.Flags().GetBool("json")  //nolint:errcheck // flag registered by AddCommand
 
 	// Source root
-	sourceRoot := cli.GetString("writ", "repo", true)
+	sourceRoot := viper.GetString("writ.repo")
 	if sourceRoot == "" {
 		return nil, fmt.Errorf("no repo configured; set writ.repo in config or use WRIT_REPO env var")
 	}

@@ -89,12 +89,12 @@ func TestAnnounce_and_Providers(t *testing.T) {
 
 	a := &announceTestProviderAlpha{name: "alpha"}
 	b := &announceTestProviderBeta{name: "beta"}
-	Announce(a)
-	Announce(b)
+	AnnounceReceiver(a)
+	AnnounceReceiver(b)
 
-	providers := Providers()
+	providers := Receivers()
 	if len(providers) != 2 {
-		t.Fatalf("Providers() returned %d, want 2", len(providers))
+		t.Fatalf("Receivers() returned %d, want 2", len(providers))
 	}
 
 	names := map[string]bool{}
@@ -102,22 +102,22 @@ func TestAnnounce_and_Providers(t *testing.T) {
 		names[p.ReceiverName()] = true
 	}
 	if !names["alpha"] {
-		t.Error("expected alpha in Providers()")
+		t.Error("expected alpha in Receivers()")
 	}
 	if !names["beta"] {
-		t.Error("expected beta in Providers()")
+		t.Error("expected beta in Receivers()")
 	}
 }
 
 func TestProviders_returns_copy(t *testing.T) {
 	resetAnnounced()
 
-	Announce(&announceTestProviderAlpha{name: "x"})
+	AnnounceReceiver(&announceTestProviderAlpha{name: "x"})
 
-	p1 := Providers()
-	p2 := Providers()
+	p1 := Receivers()
+	p2 := Receivers()
 	if &p1[0] == &p2[0] {
-		t.Error("Providers() returned same backing array, want independent copies")
+		t.Error("Receivers() returned same backing array, want independent copies")
 	}
 }
 
@@ -126,8 +126,8 @@ func TestInitAll_calls_Register(t *testing.T) {
 
 	a := &announceTestProviderAlpha{name: "alpha"}
 	b := &announceTestProviderBeta{name: "beta"}
-	Announce(a)
-	Announce(b)
+	AnnounceReceiver(a)
+	AnnounceReceiver(b)
 
 	reg := NewActionRegistry()
 	InitAll(reg, Context{})
@@ -150,11 +150,11 @@ func TestInitAll_PlannedProvider_type_assertion(t *testing.T) {
 	resetAnnounced()
 
 	pp := &announceTestPlannedProvider{name: "planned"}
-	Announce(pp)
+	AnnounceReceiver(pp)
 
-	providers := Providers()
+	providers := Receivers()
 	if len(providers) != 1 {
-		t.Fatalf("Providers() returned %d, want 1", len(providers))
+		t.Fatalf("Receivers() returned %d, want 1", len(providers))
 	}
 
 	p, ok := providers[0].(PlanningReceiverFactory)
@@ -171,11 +171,11 @@ func TestInitAll_ImmediateProvider_type_assertion(t *testing.T) {
 	resetAnnounced()
 
 	ip := &announceTestImmediateProvider{name: "immediate"}
-	Announce(ip)
+	AnnounceReceiver(ip)
 
-	providers := Providers()
+	providers := Receivers()
 	if len(providers) != 1 {
-		t.Fatalf("Providers() returned %d, want 1", len(providers))
+		t.Fatalf("Receivers() returned %d, want 1", len(providers))
 	}
 
 	p, ok := providers[0].(ExecutingReceiverFactory)
@@ -192,9 +192,9 @@ func TestInitAll_plain_provider_not_PlannedProvider(t *testing.T) {
 	resetAnnounced()
 
 	plain := &announceTestProviderAlpha{name: "plain"}
-	Announce(plain)
+	AnnounceReceiver(plain)
 
-	providers := Providers()
+	providers := Receivers()
 	if _, ok := providers[0].(PlanningReceiverFactory); ok {
 		t.Error("plain provider should not satisfy PlanningReceiverFactory")
 	}
@@ -212,15 +212,15 @@ func TestAnnounce_concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			Announce(&announceTestProviderAlpha{name: "concurrent"})
+			AnnounceReceiver(&announceTestProviderAlpha{name: "concurrent"})
 			_ = n
 		}(i)
 	}
 	wg.Wait()
 
-	providers := Providers()
+	providers := Receivers()
 	if len(providers) != 1 {
-		t.Errorf("Providers() returned %d, want 1 (same type deduplicates)", len(providers))
+		t.Errorf("Receivers() returned %d, want 1 (same type deduplicates)", len(providers))
 	}
 }
 
@@ -230,12 +230,12 @@ func TestAnnounce_deduplicates_same_type(t *testing.T) {
 	// Announcing the same type twice keeps only the last value.
 	first := &announceTestProviderAlpha{name: "first"}
 	second := &announceTestProviderAlpha{name: "second"}
-	Announce(first)
-	Announce(second)
+	AnnounceReceiver(first)
+	AnnounceReceiver(second)
 
-	providers := Providers()
+	providers := Receivers()
 	if len(providers) != 1 {
-		t.Fatalf("Providers() returned %d, want 1", len(providers))
+		t.Fatalf("Receivers() returned %d, want 1", len(providers))
 	}
 	if providers[0].ReceiverName() != "second" {
 		t.Errorf("expected last-announced value, got %q", providers[0].ReceiverName())
@@ -250,15 +250,15 @@ type testResource struct {
 	Value string
 }
 
-// testResourceDescriptor implements ResourceDescriptor for testResource.
-type testResourceDescriptor struct {
+// testResourceFactory implements ResourceFactory for testResource.
+type testResourceFactory struct {
 	initCalled int
 	initErr    error
 }
 
-func (d *testResourceDescriptor) Name() string       { return "test.Resource" }
-func (d *testResourceDescriptor) Type() reflect.Type { return reflect.TypeOf(testResource{}) }
-func (d *testResourceDescriptor) Init() error {
+func (d *testResourceFactory) Name() string       { return "test.Resource" }
+func (d *testResourceFactory) Type() reflect.Type { return reflect.TypeOf(testResource{}) }
+func (d *testResourceFactory) Init() error {
 	d.initCalled++
 	if d.initErr != nil {
 		return d.initErr
@@ -280,7 +280,7 @@ func TestAnnounceResource_LazyInit(t *testing.T) {
 		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
 	})
 
-	desc := &testResourceDescriptor{}
+	desc := &testResourceFactory{}
 	AnnounceResource(desc)
 
 	// Constructor should not be registered yet.
@@ -288,10 +288,10 @@ func TestAnnounceResource_LazyInit(t *testing.T) {
 		t.Fatal("constructor should not be registered before first use")
 	}
 
-	// loadConstructor should trigger lazy init.
-	ctor, ok := loadConstructor(reflect.TypeOf(testResource{}))
+	// ensureResourceInit should trigger lazy init.
+	ctor, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
 	if !ok {
-		t.Fatal("loadConstructor returned false after announcement")
+		t.Fatal("ensureResourceInit returned false after announcement")
 	}
 	if desc.initCalled != 1 {
 		t.Fatalf("Init called %d times, want 1", desc.initCalled)
@@ -318,12 +318,12 @@ func TestAnnounceResource_InitCalledOnce(t *testing.T) {
 		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
 	})
 
-	desc := &testResourceDescriptor{}
+	desc := &testResourceFactory{}
 	AnnounceResource(desc)
 
-	// Call loadConstructor multiple times.
+	// Call ensureResourceInit multiple times.
 	for range 5 {
-		_, _ = loadConstructor(reflect.TypeOf(testResource{}))
+		_, _ = ensureResourceInit(reflect.TypeOf(testResource{}))
 	}
 
 	if desc.initCalled != 1 {
@@ -338,22 +338,22 @@ func TestAnnounceResource_InitErrorCached(t *testing.T) {
 		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
 	})
 
-	desc := &testResourceDescriptor{initErr: fmt.Errorf("init failed")}
+	desc := &testResourceFactory{initErr: fmt.Errorf("init failed")}
 	AnnounceResource(desc)
 
 	// First call: Init fails, constructor not registered.
-	_, ok := loadConstructor(reflect.TypeOf(testResource{}))
+	_, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
 	if ok {
-		t.Fatal("loadConstructor should return false when Init fails")
+		t.Fatal("ensureResourceInit should return false when Init fails")
 	}
 	if desc.initCalled != 1 {
 		t.Fatalf("Init called %d times, want 1", desc.initCalled)
 	}
 
 	// Second call: error cached, Init not retried.
-	_, ok = loadConstructor(reflect.TypeOf(testResource{}))
+	_, ok = ensureResourceInit(reflect.TypeOf(testResource{}))
 	if ok {
-		t.Fatal("loadConstructor should still return false (cached error)")
+		t.Fatal("ensureResourceInit should still return false (cached error)")
 	}
 	if desc.initCalled != 1 {
 		t.Errorf("Init called %d times, want 1 (error should be cached)", desc.initCalled)
@@ -364,9 +364,9 @@ func TestAnnounceResource_NoDescriptor(t *testing.T) {
 	resetAnnouncedResources()
 
 	// No descriptor announced for testResource.
-	_, ok := loadConstructor(reflect.TypeOf(testResource{}))
+	_, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
 	if ok {
-		t.Fatal("loadConstructor should return false when no descriptor announced")
+		t.Fatal("ensureResourceInit should return false when no descriptor announced")
 	}
 }
 
@@ -382,13 +382,13 @@ func TestAnnounceResource_FastPath(t *testing.T) {
 		return testResource{Value: "eager"}, nil
 	})
 
-	desc := &testResourceDescriptor{}
+	desc := &testResourceFactory{}
 	AnnounceResource(desc)
 
-	// loadConstructor should find the existing constructor without calling Init.
-	ctor, ok := loadConstructor(reflect.TypeOf(testResource{}))
+	// ensureResourceInit should find the existing constructor without calling Init.
+	ctor, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
 	if !ok {
-		t.Fatal("loadConstructor should find eagerly registered constructor")
+		t.Fatal("ensureResourceInit should find eagerly registered constructor")
 	}
 	if desc.initCalled != 0 {
 		t.Errorf("Init called %d times, want 0 (fast path should skip Init)", desc.initCalled)
@@ -411,7 +411,7 @@ func TestAnnounceResource_ConcurrentFirstUse(t *testing.T) {
 		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
 	})
 
-	desc := &testResourceDescriptor{}
+	desc := &testResourceFactory{}
 	AnnounceResource(desc)
 
 	var wg sync.WaitGroup
@@ -420,7 +420,7 @@ func TestAnnounceResource_ConcurrentFirstUse(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			_, ok := loadConstructor(reflect.TypeOf(testResource{}))
+			_, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
 			results[n] = ok
 		}(i)
 	}
@@ -429,7 +429,7 @@ func TestAnnounceResource_ConcurrentFirstUse(t *testing.T) {
 	// All goroutines should succeed.
 	for i, ok := range results {
 		if !ok {
-			t.Errorf("goroutine %d: loadConstructor returned false", i)
+			t.Errorf("goroutine %d: ensureResourceInit returned false", i)
 		}
 	}
 
