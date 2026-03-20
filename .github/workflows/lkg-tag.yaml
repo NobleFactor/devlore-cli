@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: SSPL-1.0
+name: LKG Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to tag as LKG"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  tag-lkg:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify admin role
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/${{ github.actor }}/permission" --jq '.permission')
+          if [[ "$PERMISSION" != "admin" ]]; then
+            echo "::error::Only admins can create LKG tags. ${{ github.actor }} has '$PERMISSION' permission."
+            exit 1
+          fi
+
+      - name: Resolve PR metadata
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_JSON=$(gh api "repos/${{ github.repository }}/pulls/${{ inputs.pr }}")
+
+          MERGED=$(echo "$PR_JSON" | jq -r '.merged')
+          if [[ "$MERGED" != "true" ]]; then
+            echo "::error::PR #${{ inputs.pr }} is not merged."
+            exit 1
+          fi
+
+          MERGE_SHA=$(echo "$PR_JSON" | jq -r '.merge_commit_sha')
+          BASE_BRANCH=$(echo "$PR_JSON" | jq -r '.base.ref')
+          PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
+
+          echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "pr_title=$PR_TITLE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push LKG tag
+        run: |
+          TAG_NAME="${{ steps.pr.outputs.base_branch }}/lkg"
+          MERGE_SHA="${{ steps.pr.outputs.merge_sha }}"
+          PR_TITLE="${{ steps.pr.outputs.pr_title }}"
+
+          git tag -f -a "$TAG_NAME" "$MERGE_SHA" -m "LKG: PR #${{ inputs.pr }} - ${PR_TITLE}
+          Tagged by: ${{ github.actor }}
+          Merge commit: ${MERGE_SHA}"
+
+          git push origin "$TAG_NAME" --force
+
+      - name: Summary
+        run: |
+          echo "## LKG Tag Updated" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: \`${{ steps.pr.outputs.base_branch }}/lkg\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR: #${{ inputs.pr }} — ${{ steps.pr.outputs.pr_title }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${{ steps.pr.outputs.merge_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tagged by: \`${{ github.actor }}\`" >> "$GITHUB_STEP_SUMMARY"
