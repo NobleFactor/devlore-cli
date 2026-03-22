@@ -70,7 +70,7 @@ def _resolve_target(ctx):
 def run(ctx):
     """Main entry point."""
     target = _resolve_target(ctx)
-    dry_run = ctx.args.get("dry_run", "") == "true"
+    dry_run = ctx.args.get("dry_run", False)
 
     knowledge_dir = file.join(target, "knowledge")
 
