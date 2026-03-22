@@ -1223,7 +1223,7 @@ def run(ctx):
     if not path:
         fail("--source is required")
 
-    gen_mode = ctx.args.get("gen", "false") == "true"
+    gen_mode = ctx.args.get("gen", False)
 
     # All providers use the same struct name
     struct_name = "Provider"
@@ -1246,9 +1246,9 @@ def run(ctx):
 
         # Resource-only package: generate resource descriptor and return.
         if not gen_mode:
-            fail("--gen=true is required")
+            fail("--gen is required")
         output_dir = ctx.args.get("output", "")
-        write_files = ctx.args.get("write", "false") == "true"
+        write_files = ctx.args.get("write", False)
         provider = path.split("/")[-1]
         provider_import = compute_provider_import(path)
         resource_params = detect_resource_params(path)
@@ -1310,13 +1310,13 @@ def run(ctx):
     # Parse common flags
     # -------------------------------------------------------------------------
     output_dir = ctx.args.get("output", "")
-    write_files = ctx.args.get("write", "false") == "true"
+    write_files = ctx.args.get("write", False)
 
     # -------------------------------------------------------------------------
     # Dispatch to gen/ mode
     # -------------------------------------------------------------------------
     if not gen_mode:
-        fail("--gen=true is required")
+        fail("--gen is required")
 
     generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, lifetime,
                       all_method_names, all_descriptors,
