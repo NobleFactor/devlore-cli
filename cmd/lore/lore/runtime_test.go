@@ -310,6 +310,6 @@ type testAction struct{ name string }
 
 func (a *testAction) Name() string           { return a.name }
 func (a *testAction) Params() []op.ParamInfo { return nil }
-func (a *testAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
+func (a *testAction) Do(_ *op.Context, _ map[string]any) (result op.Result, complement op.Complement, err error) {
 	return nil, nil, nil
 }

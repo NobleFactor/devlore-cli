@@ -179,7 +179,7 @@ func fetchContent(ctx context.Context, source string) (content, sourceURL string
 		if err != nil {
 			return "", "", err
 		}
-		resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: URL from user-provided source input
+		resp, err := http.DefaultClient.Do(req) //nolint:gosec,bodyclose // G704: URL from user-provided source input; body closed via iox.Close
 		if err != nil {
 			return "", "", err
 		}

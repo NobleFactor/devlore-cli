@@ -9,12 +9,12 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/devlore-test/devloretest"
 	staranalysisgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis/gen"
 	starcodegen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
 	starcomplexitygen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcomplexity/gen"
 	starindexgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex/gen"
 	starstatsgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats/gen"
-	"github.com/NobleFactor/devlore-cli/cmd/devlore-test/devloretest"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 	jsongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"

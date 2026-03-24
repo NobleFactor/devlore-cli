@@ -142,7 +142,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() { _ = os.RemoveAll(tmpDir) }() //nolint:errcheck // best-effort cleanup
 
 	// 2. Create Runtime with requested providers
 	cfg := op.NewBindingConfig("devlore-test").
@@ -170,7 +170,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	// 7. Create TestContext rooted at .devlore/tmp/ under tmpDir
 	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
-	if err := os.MkdirAll(testTmpDir, 0o755); err != nil {
+	if err := os.MkdirAll(testTmpDir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating test tmp dir: %w", err)
 	}
 	tc := NewTestContext(testTmpDir, root)
@@ -219,32 +219,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	}
 
 	// 12. Wrap unphased nodes in a main phase for saga-pattern compensation.
-	//     Nodes created by choose-branch lambdas already belong to branch
-	//     phases; the remaining nodes (predicates, choose, top-level actions)
-	//     must be wrapped so the executor runs them and choose can dispatch
-	//     branch phases internally.
-	phasedNodes := make(map[string]bool)
-	for _, ph := range graph.Phases {
-		for _, id := range ph.NodeIDs {
-			phasedNodes[id] = true
-		}
-	}
-	var mainNodeIDs []string
-	for _, n := range graph.Nodes {
-		if !phasedNodes[n.ID] {
-			mainNodeIDs = append(mainNodeIDs, n.ID)
-		}
-	}
-	if len(mainNodeIDs) > 0 {
-		mainPhase := &op.Phase{
-			ID:     "phase.test",
-			Name:   "test",
-			Status: op.PhasePending,
-		}
-		mainPhase.NodeIDs = mainNodeIDs
-		// Prepend main phase so it runs before branch phases.
-		graph.Phases = append([]*op.Phase{mainPhase}, graph.Phases...)
-	}
+	wrapUnphasedNodes(graph)
 
 	// 13. Execute graph
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
@@ -308,6 +283,35 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 	}
 
 	return result
+}
+
+// wrapUnphasedNodes wraps nodes not already assigned to a phase into a "test" main phase.
+// Nodes created by choose-branch lambdas already belong to branch phases; the remaining nodes
+// (predicates, choose, top-level actions) must be wrapped so the executor runs them and choose
+// can dispatch branch phases internally.
+func wrapUnphasedNodes(graph *op.Graph) {
+	phasedNodes := make(map[string]bool)
+	for _, ph := range graph.Phases {
+		for _, id := range ph.NodeIDs {
+			phasedNodes[id] = true
+		}
+	}
+	var mainNodeIDs []string
+	for _, n := range graph.Nodes {
+		if !phasedNodes[n.ID] {
+			mainNodeIDs = append(mainNodeIDs, n.ID)
+		}
+	}
+	if len(mainNodeIDs) > 0 {
+		mainPhase := &op.Phase{
+			ID:     "phase.test",
+			Name:   "test",
+			Status: op.PhasePending,
+		}
+		mainPhase.NodeIDs = mainNodeIDs
+		// Prepend main phase so it runs before branch phases.
+		graph.Phases = append([]*op.Phase{mainPhase}, graph.Phases...)
+	}
 }
 
 // hasErrorExpectation returns true if any expectation is of kind "error".

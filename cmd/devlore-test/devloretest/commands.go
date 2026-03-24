@@ -110,9 +110,7 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) (err error
 	defer iox.Close(&err, graphOut)
 
 	// Build and run.
-	var opts []Option
-	opts = append(opts, WithWriter(graphOut))
-	opts = append(opts, WithGraphBuilder(), WithReceivers(filegen.Receiver))
+	opts := []Option{WithWriter(graphOut), WithGraphBuilder(), WithReceivers(filegen.Receiver)}
 	if dryRun {
 		opts = append(opts, WithDryRun())
 	}
@@ -167,7 +165,7 @@ func writeSummary(dest string, result *Result) (err error) {
 	return err
 }
 
-func writeReceipt(dest string, format string, graph *op.Graph) (err error) {
+func writeReceipt(dest, format string, graph *op.Graph) (err error) {
 	if graph == nil {
 		return nil
 	}

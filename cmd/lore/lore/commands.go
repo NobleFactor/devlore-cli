@@ -12,10 +12,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/NobleFactor/devlore-cli/cmd/lore/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/cmd/lore/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
@@ -237,8 +237,8 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	fmt.Println("\nDeploying packages...")
 
 	// Create action registry and executor
-	registry := op.NewActionRegistry()
-	op.InitAll(registry, op.Context{})
+	actionReg := op.NewActionRegistry()
+	op.InitAll(actionReg, op.Context{})
 	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
 		DryRun: cfg.DryRun,
 	})
@@ -254,7 +254,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			Platform:       detectPlatform(),
 			Features:       features,
 			DryRun:         cfg.DryRun,
-			ActionRegistry: registry,
+			ActionRegistry: actionReg,
 		})
 		if err != nil {
 			cli.Error("Error building graph for %q: %v", rp.pkg.Name, err)
