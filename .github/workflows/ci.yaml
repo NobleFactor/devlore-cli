@@ -45,13 +45,13 @@ jobs:
           golangci-lint version
 
       - name: Lint Go
-        run: ./build/star lint go --path=./...
+        run: ./build/star lint go ./...
 
       - name: Test
         run: make test-race
 
       - name: Lint Shell
-        run: ./build/star lint shell --path=.
+        run: ./build/star lint shell .
 
       - name: Code metrics
         run: |

@@ -543,6 +543,8 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 				rawDoc = commentGroupRaw(fn.Doc)
 			}
 
+			scope := src.name + "::" + recvType + "." + fn.Name.Name
+
 			result = append(result, MethodResult{
 				Name:         fn.Name.Name,
 				ReceiverType: recvType,
@@ -551,6 +553,7 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 				File:         src.name,
 				Line:         fset.Position(fn.Pos()).Line,
 				Doc:          rawDoc,
+				Scope:        scope,
 			})
 		}
 	}
