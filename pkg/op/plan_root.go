@@ -1,33 +1,31 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package starlark
+package op
 
 import (
 	"fmt"
 	"sort"
 
 	"go.starlark.net/starlark"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // PlanRoot implements the top-level plan namespace using the slot-based model.
 // Sub-namespaces are populated from PlanningReceiverFactory implementations selected by
-// Runtime. Flow actions (choose, source, gather) are built-in.
+// StarlarkRuntime. Flow actions (choose, source, gather) are built-in.
 type PlanRoot struct {
-	graph   *op.Graph
+	graph   *Graph
 	project string
-	reg     *op.ActionRegistry
+	reg     *ActionRegistry
 
 	// Sub-namespaces built from announced PlanningReceiverFactory implementations.
 	plans map[string]starlark.Value
 }
 
 // NewPlanRootFromProviders creates a PlanRoot from announced PlanningReceiverFactory
-// implementations. Consumers select providers via Runtime, which passes the
+// implementations. Consumers select providers via StarlarkRuntime, which passes the
 // filtered provider map here.
-func NewPlanRootFromProviders(graph *op.Graph, project string, reg *op.ActionRegistry, providers map[string]op.PlanningReceiverFactory) *PlanRoot {
+func NewPlanRootFromProviders(graph *Graph, project string, reg *ActionRegistry, providers map[string]PlanningReceiverFactory) *PlanRoot {
 	plans := make(map[string]starlark.Value, len(providers))
 	for name, p := range providers {
 		plans[name] = p.NewPlanning(graph, project, reg)
@@ -110,7 +108,7 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 
 	// The "when" must be an Promise — the promise of a boolean from a predicate node.
-	predOutput, ok := when.(*op.Promise)
+	predOutput, ok := when.(*Promise)
 	if !ok {
 		return nil, fmt.Errorf("choose: when must be a predicate output (e.g., plan.file.exists(...)), got %s", when.Type())
 	}
@@ -125,11 +123,11 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 
 	// Collect nodes added by the callback into a branch phase.
-	branchPhaseID := op.GenerateNodeID("choose-branch")
-	branchPhase := &op.Phase{
+	branchPhaseID := GenerateNodeID("choose-branch")
+	branchPhase := &Phase{
 		ID:     branchPhaseID,
 		Name:   "choose-branch",
-		Status: op.PhasePending,
+		Status: PhasePending,
 		Branch: true,
 	}
 	for i := nodesBefore; i < len(p.graph.Nodes); i++ {
@@ -139,20 +137,20 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 
 	// Create the choose node. The "when" slot is a promise that resolves
 	// to the predicate node's boolean result at execution time.
-	chooseNode := &op.Node{
-		ID:      op.GenerateNodeID("choose"),
+	chooseNode := &Node{
+		ID:      GenerateNodeID("choose"),
 		Action:  p.reg.MustGet("flow.choose"),
 		Project: p.project,
 	}
 
 	// Wire predicate output → choose "when" slot via FillSlot (creates edge).
-	if err := op.FillSlot(chooseNode, p.graph, "when", predOutput); err != nil {
+	if err := FillSlot(chooseNode, p.graph, "when", predOutput); err != nil {
 		return nil, fmt.Errorf("choose: when: %w", err)
 	}
 	chooseNode.SetSlotImmediate("then", branchPhaseID)
 
 	p.graph.Nodes = append(p.graph.Nodes, chooseNode)
-	return op.NewPromise(chooseNode, p.graph, ""), nil
+	return NewPromise(chooseNode, p.graph, ""), nil
 }
 
 // source creates a source file artifact.
@@ -168,18 +166,18 @@ func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 		return nil, err
 	}
 
-	node := &op.Node{
-		ID:      op.GenerateNodeID("source"),
+	node := &Node{
+		ID:      GenerateNodeID("source"),
 		Action:  p.reg.MustGet("file.read_text"),
 		Project: p.project,
 	}
 
-	if err := op.FillSlot(node, p.graph, "resource", path); err != nil {
+	if err := FillSlot(node, p.graph, "resource", path); err != nil {
 		return nil, fmt.Errorf("source: resource: %w", err)
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return op.NewPromise(node, p.graph, ""), nil
+	return NewPromise(node, p.graph, ""), nil
 }
 
 // gather creates a list of promises for fan-in parallel execution.
@@ -200,7 +198,7 @@ func (p *PlanRoot) gather(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 
 	elems := make([]starlark.Value, len(args))
 	for i, arg := range args {
-		if _, ok := arg.(*op.Promise); !ok {
+		if _, ok := arg.(*Promise); !ok {
 			return nil, fmt.Errorf("gather: argument %d must be an Promise, got %s", i+1, arg.Type())
 		}
 		elems[i] = arg

@@ -3,16 +3,28 @@
 
 package op
 
-import "go.starlark.net/starlark"
+import (
+	"fmt"
+	"strings"
 
-// StarlarkRuntime manages an immediate-mode Starlark scripting runtime using announced
-// receivers. Receivers listed in BindingConfig.Receivers are constructed as Starlark globals.
+	"go.starlark.net/starlark"
+)
+
+// loaderEntry caches the result of resolving a provider module.
+type loaderEntry struct {
+	globals starlark.StringDict
+	err     error
+}
+
+// StarlarkRuntime manages a Starlark scripting runtime using announced receivers.
+// Receivers listed in BindingConfig.Receivers are constructed as Starlark globals.
 // External consumers (e.g., noblefactor-ops) use this to obtain framework-managed receivers
 // without hand-coding receiver construction.
 type StarlarkRuntime struct {
 	cfg      *BindingConfig
 	included map[string]bool
 	ctx      Context // stored by Initialize for receiver context injection
+	cache    map[string]*loaderEntry
 }
 
 // NewStarlarkRuntime creates a runtime with the given configuration.
@@ -32,6 +44,7 @@ func NewStarlarkRuntime(cfg *BindingConfig) *StarlarkRuntime {
 	return &StarlarkRuntime{
 		cfg:      cfg,
 		included: included,
+		cache:    make(map[string]*loaderEntry),
 	}
 }
 
@@ -78,6 +91,18 @@ func (rt *StarlarkRuntime) Initialize(reg *ActionRegistry, ctx ContextBase) {
 	InitAll(reg, rt.ctx)
 }
 
+// RegisterActions registers all providers' actions with the registry.
+// All providers' actions are always registered regardless of Receivers selections — the action
+// registry is for the executor, not the script environment.
+//
+// Parameters:
+//   - reg: the action registry to populate.
+//   - ctx: the execution context for provider initialization.
+func (rt *StarlarkRuntime) RegisterActions(reg *ActionRegistry, ctx Context) {
+
+	rt.Initialize(reg, ctx.ContextBase)
+}
+
 // BuildReceiver constructs a single immediate receiver by provider name.
 //
 // Parameters:
@@ -118,6 +143,62 @@ func (rt *StarlarkRuntime) BuildReceivers() starlark.StringDict {
 	return globals
 }
 
+// BuildGlobals constructs the Starlark globals dict for a consumer.
+// Only receivers listed in cfg.Receivers appear as globals.
+// If GraphBuilder is enabled, a PlanRoot is built from all announced PlanningReceiverFactory implementations.
+//
+// Parameters:
+//   - graph: the execution graph for plan namespace construction.
+//   - project: the project name passed to planned providers.
+//   - reg: the action registry for plan namespace construction.
+//
+// Returns:
+//   - starlark.StringDict: the complete globals dict for Starlark execution.
+func (rt *StarlarkRuntime) BuildGlobals(graph *Graph, project string, reg *ActionRegistry) starlark.StringDict {
+
+	// Start with immediate receivers from the base runtime.
+	globals := rt.BuildReceivers()
+
+	// Build "plan" if requested.
+	if rt.HasGraphBuilder() {
+		planned := collectPlannedProviders()
+		if len(planned) > 0 {
+			globals["plan"] = NewPlanRootFromProviders(graph, project, reg, planned)
+		}
+	}
+
+	return globals
+}
+
+// ConfigureThread sets thread.Load to the @devlore// module loader.
+// The loader resolves provider names from the runtime and caches instances.
+// Must be called before starlark.ExecFileOptions.
+//
+// Parameters:
+//   - thread: the Starlark thread to configure.
+//   - graph: the execution graph for module resolution.
+//   - project: the project name for module resolution.
+//   - reg: the action registry for module resolution.
+func (rt *StarlarkRuntime) ConfigureThread(thread *starlark.Thread, graph *Graph, project string, reg *ActionRegistry) {
+
+	thread.Load = rt.makeLoader(graph, project, reg)
+}
+
+// NewPopulatedRegistry creates an ActionRegistry with all provider actions registered.
+// Shorthand for NewActionRegistry() + RegisterActions().
+//
+// Parameters:
+//   - ctx: the execution context for provider initialization.
+//
+// Returns:
+//   - *ActionRegistry: the populated registry.
+func (rt *StarlarkRuntime) NewPopulatedRegistry(ctx Context) *ActionRegistry {
+
+	reg := NewActionRegistry()
+	rt.RegisterActions(reg, ctx)
+	return reg
+}
+
 // endregion
 
 // endregion
@@ -146,6 +227,94 @@ func (rt *StarlarkRuntime) buildOne(p ReceiverFactory) starlark.Value {
 	return recv
 }
 
+// makeLoader creates the thread.Load function for @devlore// modules.
+//
+// Parameters:
+//   - graph: the execution graph for provider resolution.
+//   - project: the project name for provider resolution.
+//   - reg: the action registry for provider resolution.
+//
+// Returns:
+//   - func: a Starlark module loader function.
+func (rt *StarlarkRuntime) makeLoader(graph *Graph, project string, reg *ActionRegistry) func(*starlark.Thread, string) (starlark.StringDict, error) {
+
+	return func(_ *starlark.Thread, module string) (starlark.StringDict, error) {
+		if !strings.HasPrefix(module, "@devlore//") {
+			return nil, fmt.Errorf("unknown module: %s (use @devlore// prefix)", module)
+		}
+
+		name := strings.TrimPrefix(module, "@devlore//")
+
+		if e, ok := rt.cache[name]; ok {
+			return e.globals, e.err
+		}
+
+		globals, err := rt.resolveProvider(name, graph, project, reg)
+		rt.cache[name] = &loaderEntry{globals, err}
+		return globals, err
+	}
+}
+
+// resolveProvider creates a Starlark module dict for a single provider.
+//
+// Parameters:
+//   - name: the provider name to resolve.
+//   - graph: the execution graph for plan module construction.
+//   - project: the project name for plan module construction.
+//   - reg: the action registry for plan module construction.
+//
+// Returns:
+//   - starlark.StringDict: the module globals.
+//   - error: non-nil if the provider is not found.
+func (rt *StarlarkRuntime) resolveProvider(name string, graph *Graph, project string, reg *ActionRegistry) (starlark.StringDict, error) {
+
+	// Special case: plan aggregate
+	if name == "plan" {
+		return rt.buildPlanModule(graph, project, reg)
+	}
+
+	recv, ok := rt.BuildReceiver(name)
+	if !ok {
+		return nil, fmt.Errorf("provider %q not found or has no immediate factory", name)
+	}
+	return starlark.StringDict{name: recv}, nil
+}
+
+// buildPlanModule constructs a plan module from all announced PlanningReceiverFactory implementations.
+//
+// Parameters:
+//   - graph: the execution graph for plan construction.
+//   - project: the project name for plan construction.
+//   - reg: the action registry for plan construction.
+//
+// Returns:
+//   - starlark.StringDict: the plan module globals.
+//   - error: non-nil if no planned providers are registered.
+func (rt *StarlarkRuntime) buildPlanModule(graph *Graph, project string, reg *ActionRegistry) (starlark.StringDict, error) {
+
+	planned := collectPlannedProviders()
+	if len(planned) == 0 {
+		return nil, fmt.Errorf("no planned providers registered")
+	}
+	plan := NewPlanRootFromProviders(graph, project, reg, planned)
+	return starlark.StringDict{"plan": plan}, nil
+}
+
 // endregion
 
 // endregion
+
+// collectPlannedProviders returns all announced PlanningReceiverFactory implementations.
+//
+// Returns:
+//   - map[string]PlanningReceiverFactory: provider name to PlanningReceiverFactory mapping.
+func collectPlannedProviders() map[string]PlanningReceiverFactory {
+
+	planned := make(map[string]PlanningReceiverFactory)
+	for _, p := range Receivers() {
+		if pp, ok := p.(PlanningReceiverFactory); ok {
+			planned[p.ReceiverName()] = pp
+		}
+	}
+	return planned
+}

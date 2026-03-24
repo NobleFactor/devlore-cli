@@ -149,14 +149,13 @@ def _derive_attr_prefix(attr_method):
     return ""
 
 
-def _build_ns_descriptions(starlark_path):
+def _build_ns_descriptions(provider_base):
     """Build namespace descriptions from provider type doc comments.
 
     Scans each provider directory for a Provider type and extracts its
     first-line doc comment. Returns {"file": "File system ...", ...}.
     """
     descriptions = {"(root)": "Top-level graph construction primitives"}
-    provider_base = file.join(starlark_path, "..", "execution", "provider")
     if not file.is_dir(provider_base):
         return descriptions
 
@@ -195,7 +194,7 @@ def _build_ns_descriptions(starlark_path):
     return descriptions
 
 
-def _parse_devlore_api(path):
+def _parse_devlore_api(path, provider_base):
     """Parse devlore-cli Starlark API from Go source files.
 
     Uses goast.methods() and goast.calls() to extract:
@@ -344,7 +343,7 @@ def _parse_devlore_api(path):
             phase[namespace].append(entry)
 
     # Step 6: Extract namespace descriptions from provider type docs
-    ns_descriptions = _build_ns_descriptions(path)
+    ns_descriptions = _build_ns_descriptions(provider_base)
 
     return {
         "valid": len(violations) == 0,
@@ -652,13 +651,14 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
     """Build Starlark API reference from devlore-cli source."""
     ui.note("Building onboarding knowledge (Starlark API)...")
 
-    starlark_path = file.join(source, "internal", "starlark")
+    starlark_path = file.join(source, "cmd", "lore", "lore")
     if not file.is_dir(starlark_path):
         fail("Starlark package not found: " + starlark_path)
 
     # Parse the API using Go AST primitives
+    provider_base = file.join(source, "pkg", "op", "provider")
     ui.note("  Scanning " + starlark_path + "...")
-    api = _parse_devlore_api(starlark_path)
+    api = _parse_devlore_api(starlark_path, provider_base)
 
     # Count bindings
     binding_count = _count_bindings(api)

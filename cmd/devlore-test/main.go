@@ -7,8 +7,8 @@ package main
 import (
 	"os"
 
+	"github.com/NobleFactor/devlore-cli/cmd/devlore-test/devloretest"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/devloretest"
 
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )

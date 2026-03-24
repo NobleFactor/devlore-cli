@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package starlark_test
+package lore_test
 
 import (
 	"bytes"
@@ -10,7 +10,6 @@ import (
 
 	"go.starlark.net/starlark"
 
-	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -95,7 +94,7 @@ func (p *rtTestCountingImmProvider) NewExecuting(_ op.Context) starlark.Value {
 func TestRuntimeRegisterActions(t *testing.T) {
 	op.AnnounceReceiver(&rtTestActionProvider{actionName: "_test_actions.do"})
 
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -112,7 +111,7 @@ func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 	op.AnnounceReceiver(&rtTestAllActsProvider{})
 
 	// No Receivers — but actions should still be registered.
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -130,7 +129,7 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	op.AnnounceReceiver(&rtTestPlannedProvider{name: "_test_plan2"})
 	op.AnnounceReceiver(immProv)
 
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithGraphBuilder().
 			WithReceivers(immProv).
@@ -152,7 +151,7 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	}
 
 	// Verify PlanRoot has the test sub-namespace.
-	planRoot, ok := globals["plan"].(*loreStar.PlanRoot)
+	planRoot, ok := globals["plan"].(*op.PlanRoot)
 	if !ok {
 		t.Fatalf("expected globals['plan'] to be *PlanRoot, got %T", globals["plan"])
 	}
@@ -172,7 +171,7 @@ func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 	otherProv := &rtTestImmediateProvider{name: "_test_other"}
 	op.AnnounceReceiver(otherProv)
 
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithReceivers(otherProv).
 			WithWriter(&bytes.Buffer{}),
@@ -195,7 +194,7 @@ func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 	op.AnnounceReceiver(&rtTestImmediateProvider{name: "_test_loadable"})
 
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -224,7 +223,7 @@ func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 }
 
 func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -241,7 +240,7 @@ func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
 }
 
 func TestRuntimeLoaderRejectsUnknownProvider(t *testing.T) {
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -261,7 +260,7 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 	callCount := 0
 	op.AnnounceReceiver(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
 
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -283,7 +282,7 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 	op.AnnounceReceiver(&rtTestPlannedProvider{name: "_test_plan_load"})
 
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -301,7 +300,7 @@ func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'plan' in loaded globals")
 	}
-	if _, ok := plan.(*loreStar.PlanRoot); !ok {
+	if _, ok := plan.(*op.PlanRoot); !ok {
 		t.Errorf("expected *PlanRoot, got %T", plan)
 	}
 }
@@ -311,6 +310,6 @@ type testAction struct{ name string }
 
 func (a *testAction) Name() string           { return a.name }
 func (a *testAction) Params() []op.ParamInfo { return nil }
-func (a *testAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.Complement, error) {
+func (a *testAction) Do(_ *op.Context, _ map[string]any) (result op.Result, complement op.Complement, err error) {
 	return nil, nil, nil
 }

@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/lore"
 	"github.com/NobleFactor/devlore-cli/internal/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"

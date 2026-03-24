@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package starlarktest
+package devloretest
 
 import (
 	"fmt"
@@ -244,7 +244,7 @@ func (tc *TestContext) starExpectError(_ *starlark.Thread, _ *starlark.Builtin, 
 
 	// Validate the pattern compiles
 	if _, err := regexp.Compile(pattern); err != nil {
-		return nil, fmt.Errorf("t.expect_error: invalid regex: %v", err)
+		return nil, fmt.Errorf("t.expect_error: invalid regex: %w", err)
 	}
 
 	tc.expectations = append(tc.expectations, Expectation{
@@ -318,7 +318,7 @@ func (tc *TestContext) starMkdir(_ *starlark.Thread, _ *starlark.Builtin, args s
 		return nil, err
 	}
 
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return nil, fmt.Errorf("t.mkdir: %w", err)
 	}
 
@@ -333,11 +333,11 @@ func (tc *TestContext) starWrite(_ *starlark.Thread, _ *starlark.Builtin, args s
 	}
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("t.write: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return nil, fmt.Errorf("t.write: %w", err)
 	}
 

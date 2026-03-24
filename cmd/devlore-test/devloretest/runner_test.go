@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package starlarktest_test
+package devloretest_test
 
 import (
 	"context"
@@ -9,12 +9,12 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/devlore-test/devloretest"
 	staranalysisgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis/gen"
 	starcodegen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
 	starcomplexitygen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcomplexity/gen"
 	starindexgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex/gen"
 	starstatsgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats/gen"
-	"github.com/NobleFactor/devlore-cli/internal/starlarktest"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 	jsongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
@@ -38,7 +38,7 @@ func testdataDir(t *testing.T) string {
 
 func TestWriteText(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := starlarktest.NewRunner(script, starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -58,7 +58,7 @@ func TestWriteText(t *testing.T) {
 
 func TestCopy(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_copy.star")
-	runner := starlarktest.NewRunner(script, starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -75,7 +75,7 @@ func TestCopy(t *testing.T) {
 
 func TestWriteAndRead(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_and_read.star")
-	runner := starlarktest.NewRunner(script, starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -89,7 +89,7 @@ func TestWriteAndRead(t *testing.T) {
 
 func TestCompensation(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_compensation.star")
-	runner := starlarktest.NewRunner(script, starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -103,7 +103,7 @@ func TestCompensation(t *testing.T) {
 
 func TestTrace(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := starlarktest.NewRunner(script, starlarktest.WithTrace(), starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithTrace(), devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -178,7 +178,7 @@ func TestIsFile(t *testing.T) {
 func runScript(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := starlarktest.NewRunner(script, starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -194,7 +194,7 @@ func runScript(t *testing.T, name string) {
 func runScriptDryRun(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := starlarktest.NewRunner(script, starlarktest.WithDryRun(), starlarktest.WithGraphBuilder())
+	runner := devloretest.NewRunner(script, devloretest.WithDryRun(), devloretest.WithGraphBuilder())
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -210,7 +210,7 @@ func runScriptDryRun(t *testing.T, name string) {
 func runScriptImm(t *testing.T, name string, providers ...op.ReceiverFactory) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := starlarktest.NewRunner(script, starlarktest.WithReceivers(providers...))
+	runner := devloretest.NewRunner(script, devloretest.WithReceivers(providers...))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -368,7 +368,7 @@ func TestFlowFatalRecovery(t *testing.T) {
 
 func TestDryRun(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := starlarktest.NewRunner(script, starlarktest.WithDryRun(), starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithDryRun(), devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
