@@ -38,18 +38,18 @@ BUILD_TAGS ?=
 
 ### STAR
 
-# Code generator (star binary from sibling repo).
-STAR_REPO ?= ../noblefactor-ops
-STAR ?= $(STAR_REPO)/bin/star
+# Code generator (star binary, built from cmd/star).
+STAR ?= build/star
 
 ## VARIABLES (static)
 
-# Provider source root.
+# Provider source roots.
 P := pkg/op/provider
+SP := cmd/star/provider
 
 ## TARGETS
 
-.PHONY: all build clean test test-race vet lint shell-lint complexity check dev docs dist dist-all star generate generate-register help
+.PHONY: all build clean test test-race vet lint shell-lint complexity check dev docs dist dist-all star generate inventory help
 
 ##@ Help
 
@@ -62,26 +62,39 @@ help: ## Show available targets
 
 all: build
 
-star: ## Build the star code generator from noblefactor-ops
-	cd $(STAR_REPO) && go build -o bin/star ./cmd/star
+star: inventory ## Build the star code generator
+	go build $(LDFLAGS) -o build/star ./cmd/star
 
-build: generate ## Build all binaries (lore, writ, devlore-test)
+build: generate ## Build all binaries (lore, star, writ, devlore-test)
 	go build $(LDFLAGS) -o build/lore ./cmd/lore
+	go build $(LDFLAGS) -o build/star ./cmd/star
 	go build $(LDFLAGS) -o build/writ ./cmd/writ
 	go build $(LDFLAGS) -o build/devlore-test ./cmd/devlore-test
 
-clean: ## Remove build artifacts, generated files, and gen/ directories
+clean: ## Remove build artifacts
 	rm -rf build/
-	rm -f $(P)/register.go
-	find $(P) -type d -name gen -exec rm -rf {} +
 
 ##@ Test
 
-test: generate ## Run tests (use BUILD_TAGS=e2e to include E2E tests)
-	go test $(if $(BUILD_TAGS),-tags '$(BUILD_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -timeout 60s
+# TAGS controls which tests run. Default: all (untagged + integration + e2e).
+# Examples:
+#   make test              # all tests
+#   make test TAGS=        # untagged only (unit tests)
+#   make test TAGS=integration  # untagged + integration
+#   make test TAGS=e2e     # untagged + e2e
+#   make test-race TAGS=integration  # untagged + integration with race detector
+TAGS ?= all
+ifeq ($(TAGS),all)
+  _TAGS := integration,e2e
+else
+  _TAGS := $(TAGS)
+endif
 
-test-race: generate ## Run tests with race detector
-	go test $(if $(BUILD_TAGS),-tags '$(BUILD_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 -race -timeout 120s
+test: generate ## Run tests (TAGS=all|integration|e2e|"", default: all)
+	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -timeout 60s
+
+test-race: generate ## Run tests with race detector (TAGS=all|integration|e2e|"", default: all)
+	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 -race -timeout 120s
 
 ##@ Quality
 
@@ -234,32 +247,32 @@ $(P)/shell/gen/params.gen.go \
 $(P)/shell/gen/receiver.gen.go &: $(P)/shell/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/shell --gen=true --write=true --output=$(P)/shell
 
-# --- access=immediate providers ---
+# --- star-specific providers (cmd/star/provider) ---
 
-$(P)/staranalysis/gen/params.gen.go \
-$(P)/staranalysis/gen/receiver.gen.go \
-$(P)/staranalysis/gen/receiver_gen_test.go &: $(P)/staranalysis/provider.go | star
-	$(STAR) devlore actions generate --source=$(P)/staranalysis --gen=true --write=true --output=$(P)/staranalysis
+$(SP)/staranalysis/gen/params.gen.go \
+$(SP)/staranalysis/gen/receiver.gen.go \
+$(SP)/staranalysis/gen/receiver_gen_test.go &: $(SP)/staranalysis/provider.go | star
+	$(STAR) devlore actions generate --source=$(SP)/staranalysis --gen=true --write=true --output=$(SP)/staranalysis
 
-$(P)/starcode/gen/params.gen.go \
-$(P)/starcode/gen/receiver.gen.go \
-$(P)/starcode/gen/receiver_gen_test.go &: $(P)/starcode/provider.go | star
-	$(STAR) devlore actions generate --source=$(P)/starcode --gen=true --write=true --output=$(P)/starcode
+$(SP)/starcode/gen/params.gen.go \
+$(SP)/starcode/gen/receiver.gen.go \
+$(SP)/starcode/gen/receiver_gen_test.go &: $(SP)/starcode/provider.go | star
+	$(STAR) devlore actions generate --source=$(SP)/starcode --gen=true --write=true --output=$(SP)/starcode
 
-$(P)/starcomplexity/gen/params.gen.go \
-$(P)/starcomplexity/gen/receiver.gen.go \
-$(P)/starcomplexity/gen/receiver_gen_test.go &: $(P)/starcomplexity/provider.go | star
-	$(STAR) devlore actions generate --source=$(P)/starcomplexity --gen=true --write=true --output=$(P)/starcomplexity
+$(SP)/starcomplexity/gen/params.gen.go \
+$(SP)/starcomplexity/gen/receiver.gen.go \
+$(SP)/starcomplexity/gen/receiver_gen_test.go &: $(SP)/starcomplexity/provider.go | star
+	$(STAR) devlore actions generate --source=$(SP)/starcomplexity --gen=true --write=true --output=$(SP)/starcomplexity
 
-$(P)/starindex/gen/params.gen.go \
-$(P)/starindex/gen/receiver.gen.go \
-$(P)/starindex/gen/receiver_gen_test.go &: $(P)/starindex/provider.go | star
-	$(STAR) devlore actions generate --source=$(P)/starindex --gen=true --write=true --output=$(P)/starindex
+$(SP)/starindex/gen/params.gen.go \
+$(SP)/starindex/gen/receiver.gen.go \
+$(SP)/starindex/gen/receiver_gen_test.go &: $(SP)/starindex/provider.go | star
+	$(STAR) devlore actions generate --source=$(SP)/starindex --gen=true --write=true --output=$(SP)/starindex
 
-$(P)/starstats/gen/params.gen.go \
-$(P)/starstats/gen/receiver.gen.go \
-$(P)/starstats/gen/receiver_gen_test.go &: $(P)/starstats/provider.go | star
-	$(STAR) devlore actions generate --source=$(P)/starstats --gen=true --write=true --output=$(P)/starstats
+$(SP)/starstats/gen/params.gen.go \
+$(SP)/starstats/gen/receiver.gen.go \
+$(SP)/starstats/gen/receiver_gen_test.go &: $(SP)/starstats/provider.go | star
+	$(STAR) devlore actions generate --source=$(SP)/starstats --gen=true --write=true --output=$(SP)/starstats
 
 $(P)/ui/gen/params.gen.go \
 $(P)/ui/gen/receiver.gen.go \
@@ -271,7 +284,7 @@ $(P)/ui/gen/receiver_gen_test.go &: $(P)/ui/provider.go | star
 $(P)/mem/gen/resource.gen.go: $(P)/mem/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/mem --gen=true --write=true --output=$(P)/mem
 
-GEN_PROVIDERS := \
+NEW_OP_INVENTORY := \
 	$(P)/appnet/gen/receiver.gen.go \
 	$(P)/archive/gen/receiver.gen.go \
 	$(P)/encryption/gen/receiver.gen.go \
@@ -284,29 +297,17 @@ GEN_PROVIDERS := \
 	$(P)/regexp/gen/receiver.gen.go \
 	$(P)/service/gen/receiver.gen.go \
 	$(P)/shell/gen/receiver.gen.go \
-	$(P)/staranalysis/gen/receiver.gen.go \
-	$(P)/starcode/gen/receiver.gen.go \
-	$(P)/starcomplexity/gen/receiver.gen.go \
-	$(P)/starindex/gen/receiver.gen.go \
-	$(P)/starstats/gen/receiver.gen.go \
+	$(SP)/staranalysis/gen/receiver.gen.go \
+	$(SP)/starcode/gen/receiver.gen.go \
+	$(SP)/starcomplexity/gen/receiver.gen.go \
+	$(SP)/starindex/gen/receiver.gen.go \
+	$(SP)/starstats/gen/receiver.gen.go \
 	$(P)/template/gen/receiver.gen.go \
 	$(P)/ui/gen/receiver.gen.go \
 	$(P)/yaml/gen/receiver.gen.go
 
-generate-register: $(GEN_PROVIDERS) ## Generate provider register.go with blank imports
-	echo '// Code generated by make generate-register; DO NOT EDIT.' > $(P)/register.go
-	echo '' >> $(P)/register.go
-	echo '// Package provider triggers init() in all provider packages via blank imports.' >> $(P)/register.go
-	echo '// Importing this package causes every provider to call op.Announce(), making' >> $(P)/register.go
-	echo '// them available for op.InitAll().' >> $(P)/register.go
-	echo 'package provider' >> $(P)/register.go
-	echo '' >> $(P)/register.go
-	echo 'import (' >> $(P)/register.go
-	echo '	_ "github.com/NobleFactor/devlore-cli/pkg/op/flow"' >> $(P)/register.go
-	for dir in $$(find $(P) -type d -name gen | sort); do
-		pkg=$$(echo $$dir | sed 's|^|github.com/NobleFactor/devlore-cli/|')
-		echo "	_ \"$$pkg\"" >> $(P)/register.go
-	done
-	echo ')' >> $(P)/register.go
+inventory: ## Generate inventory files from op.Announce* call sites
+	go run ./tools/New-OpInventory pkg/op/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli pkg/op
+	go run ./tools/New-OpInventory cmd/star/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli cmd/star
 
-generate: generate-register ## Run all code generation
+generate: $(NEW_OP_INVENTORY) inventory ## Run all code generation

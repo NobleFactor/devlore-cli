@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.Setup
+description: Run all setup tasks
+
+commands:
+  - name: setup
+    help: Run all setup tasks (tools check, config init, hooks install)
+    implementation: commands/setup.star

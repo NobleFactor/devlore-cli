@@ -43,7 +43,7 @@ def build_args(ctx, tool_path):
 
     return args
 
-def run(ctx):
+def run(command, ctx):
     """Run a Starlark test script that plans and executes a graph."""
     tool_path = resolve_tool_path(ctx)
 

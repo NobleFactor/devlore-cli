@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintCopyright
+description: Check or fix copyright headers in source files
+
+commands:
+  - name: lint.copyright
+    help: Check or fix copyright headers in source files
+    implementation: commands/lint-copyright.star
+    args:
+      - name: path
+        help: Paths to check (files or directories)
+        default: "."
+        variadic: true
+    flags:
+      - name: fix
+        type: bool
+        default: "false"
+        help: Add missing headers and update old format
+
+config:
+  path: lint.copyright
+  type: CopyrightConfig
+  fields:
+    enabled: bool
+    license: string
+    holder: string
+    patterns: "map[string]interface{}"
+    exclude: "[]string"
+  defaults:
+    enabled: false
+    license: "auto"
+    patterns:
+      go:
+        match: '// SPDX-License-Identifier: \S+\s*\n// Copyright.*All rights reserved\.'
+        replace: "// SPDX-License-Identifier: {license}\n// Copyright {holder}. All rights reserved."
+      star:
+        match: '# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.'
+        replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved."
+      shell:
+        match: '# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.'
+        replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved."
+    exclude:
+      - "**/testdata/**"
+      - "**/vendor/**"

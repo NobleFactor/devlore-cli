@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.ConfigSync
+description: Sync tool configs from star.yaml
+
+commands:
+  - name: config.sync
+    help: Sync tool configs (.golangci.yaml, etc.) from star.yaml
+    implementation: commands/config-sync.star
+
+config:
+  path: precommit
+  type: PrecommitConfig
+  fields:
+    hooks: "[]interface{}"
+  defaults: {}

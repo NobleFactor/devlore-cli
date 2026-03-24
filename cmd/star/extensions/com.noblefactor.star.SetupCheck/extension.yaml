@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.SetupCheck
+description: Check setup status without making changes
+
+commands:
+  - name: setup.check
+    help: Check setup status without making changes
+    implementation: commands/setup-check.star

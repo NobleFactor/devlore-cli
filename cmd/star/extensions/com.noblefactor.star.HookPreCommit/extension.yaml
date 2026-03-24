@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.HookPreCommit
+description: Run pre-commit checks (called by git pre-commit hook)
+
+commands:
+  - name: hook.pre-commit
+    help: Run pre-commit checks (called by git pre-commit hook)
+    implementation: commands/hook-pre-commit.star

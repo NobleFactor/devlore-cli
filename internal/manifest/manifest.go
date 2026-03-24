@@ -78,12 +78,7 @@ func (e *PackageEntry) String() string {
 //   - error: read or parse error
 func Load(path string) (*PackagesManifest, error) {
 
-	var m PackagesManifest
-	if err := document.Read(path, &m); err != nil {
-		return nil, err
-	}
-
-	return &m, nil
+	return document.ReadFile[PackagesManifest](path)
 }
 
 // Validate validates a packages-manifest file against structural rules. Returns nil if valid, or an error describing
@@ -96,12 +91,12 @@ func Load(path string) (*PackagesManifest, error) {
 //   - error: validation error or nil
 func Validate(path string) error {
 
-	var doc map[string]interface{}
-	if err := document.Read(path, &doc); err != nil {
+	doc, err := document.ReadFile[map[string]interface{}](path)
+	if err != nil {
 		return err
 	}
 
-	return validateDoc(doc)
+	return validateDoc(*doc)
 }
 
 // Actions

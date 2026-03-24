@@ -203,12 +203,12 @@ func loadExistingIndex(domainPath string) *KnowledgeIndex {
 
 	indexPath := filepath.Join(domainPath, "index.yaml")
 
-	var index KnowledgeIndex
-	if found, _ := document.ReadIfExists(indexPath, &index); !found {
+	index, err := document.ReadFile[KnowledgeIndex](indexPath)
+	if err != nil {
 		return &KnowledgeIndex{}
 	}
 
-	return &index
+	return index
 }
 
 func listFiles(dir string) ([]string, error) {

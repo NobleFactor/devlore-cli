@@ -382,12 +382,7 @@ func (b *StateViewBuilder) loadReceipts(dir string) ([]*op.Graph, error) {
 //   - error: read or parse error
 func (b *StateViewBuilder) loadReceipt(path string) (*op.Graph, error) {
 
-	var g op.Graph
-	if err := document.Read(path, &g); err != nil {
-		return nil, err
-	}
-
-	return &g, nil
+	return document.ReadFile[op.Graph](path)
 }
 
 // includeGraph checks if a graph should be included based on options.

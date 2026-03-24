@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.HookPrePush
+description: Run pre-push checks (called by git pre-push hook)
+
+commands:
+  - name: hook.pre-push
+    help: Run pre-push checks (called by git pre-push hook)
+    implementation: commands/hook-pre-push.star

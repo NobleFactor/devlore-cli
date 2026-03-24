@@ -94,10 +94,10 @@ func (p *PlanRoot) AttrNames() []string {
 // producing a boolean that flows into Choose's "when" slot via an edge.
 //
 // Arguments:
-//   - when: An Output from a predicate action (e.g., plan.file.exists(path))
+//   - when: An Promise from a predicate action (e.g., plan.file.exists(path))
 //   - then: A callable that builds graph nodes for the true branch
 //
-// Returns: Output of the choose node
+// Returns: Promise of the choose node
 func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var when starlark.Value
 	var then starlark.Callable
@@ -109,8 +109,8 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 		return nil, err
 	}
 
-	// The "when" must be an Output — the promise of a boolean from a predicate node.
-	predOutput, ok := when.(*op.Output)
+	// The "when" must be an Promise — the promise of a boolean from a predicate node.
+	predOutput, ok := when.(*op.Promise)
 	if !ok {
 		return nil, fmt.Errorf("choose: when must be a predicate output (e.g., plan.file.exists(...)), got %s", when.Type())
 	}
@@ -152,7 +152,7 @@ func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args sta
 	chooseNode.SetSlotImmediate("then", branchPhaseID)
 
 	p.graph.Nodes = append(p.graph.Nodes, chooseNode)
-	return op.NewOutput(chooseNode, p.graph, ""), nil
+	return op.NewPromise(chooseNode, p.graph, ""), nil
 }
 
 // source creates a source file artifact.
@@ -179,33 +179,32 @@ func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark
 	}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
-	return op.NewOutput(node, p.graph, ""), nil
+	return op.NewPromise(node, p.graph, ""), nil
 }
 
-// gather creates a handle for parallel execution of multiple nodes.
+// gather creates a list of promises for fan-in parallel execution.
 // Usage: plan.gather(promise1, promise2, ...)
 //
-// This collects multiple promises into a single handle. When the handle is
-// passed to another operation, it creates edges from ALL gathered nodes to
-// the consumer, enabling parallel execution.
+// Returns a list of Promise values. When the list is passed to another
+// operation's slot, FillSlot creates edges from ALL gathered nodes to the
+// consumer, enabling parallel execution.
 //
 // Arguments:
-//   - promises: Two or more Output values to gather
+//   - promises: Two or more Promise values to gather
 //
-// Returns: Gather handle that can be passed to other operations
+// Returns: list of Promise values
 func (p *PlanRoot) gather(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
 	}
 
-	outputs := make([]*op.Output, 0, len(args))
+	elems := make([]starlark.Value, len(args))
 	for i, arg := range args {
-		output, ok := arg.(*op.Output)
-		if !ok {
-			return nil, fmt.Errorf("gather: argument %d must be an Output, got %s", i+1, arg.Type())
+		if _, ok := arg.(*op.Promise); !ok {
+			return nil, fmt.Errorf("gather: argument %d must be an Promise, got %s", i+1, arg.Type())
 		}
-		outputs = append(outputs, output)
+		elems[i] = arg
 	}
 
-	return op.NewGather(p.graph, outputs...), nil
+	return starlark.NewList(elems), nil
 }

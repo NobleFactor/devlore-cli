@@ -22,17 +22,10 @@ jobs:
           app-id: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_ID }}
           private-key: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY }}
           owner: NobleFactor
-          repositories: noblefactor-ops,devlore.noblefactor.com
+          repositories: devlore.noblefactor.com
 
       - name: Checkout CLI repo
         uses: actions/checkout@v4
-
-      - name: Clone noblefactor-ops
-        uses: actions/checkout@v4
-        with:
-          repository: NobleFactor/noblefactor-ops
-          path: noblefactor-ops
-          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -46,7 +39,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Generate CLI docs
-        run: make docs STAR_REPO=./noblefactor-ops DEVLORE_VERSION=${{ steps.version.outputs.version }}
+        run: make docs DEVLORE_VERSION=${{ steps.version.outputs.version }}
 
       - name: Checkout site repo
         uses: actions/checkout@v4
