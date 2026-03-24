@@ -7,8 +7,8 @@ package main
 import (
 	"os"
 
+	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/lore"
 )
 
 func main() {

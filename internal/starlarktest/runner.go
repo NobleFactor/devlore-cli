@@ -14,7 +14,6 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -152,7 +151,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	if r.withGraphBuilder {
 		cfg.WithGraphBuilder()
 	}
-	bs := loreStar.NewRuntime(cfg)
+	bs := op.NewStarlarkRuntime(cfg)
 
 	// 3. Create ActionRegistry with all provider actions
 	reg := op.NewActionRegistry()

@@ -13,7 +13,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
-	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 )
@@ -393,7 +392,7 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, ac
 	}
 
 	// Create phase context with name and action.
-	phaseCtx := &loreStar.PhaseContext{
+	phaseCtx := &PhaseContext{
 		PhaseName: action.PhaseName,
 		Action:    "deploy",
 	}
@@ -424,7 +423,7 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, ac
 // Returns:
 //   - *starlark.Thread: the configured Starlark thread.
 //   - starlark.StringDict: the global namespace.
-//   - *loreStar.PackageContext: the package context for the script.
+//   - *PackageContext: the package context for the script.
 //   - error: reserved for future use (currently always nil).
 func prepareScriptEnv(
 	graph *op.Graph,
@@ -435,10 +434,10 @@ func prepareScriptEnv(
 ) (
 	*starlark.Thread,
 	starlark.StringDict,
-	*loreStar.PackageContext,
+	*PackageContext,
 	error, //nolint:unparam // error return reserved for future use
 ) {
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("lore").
 			WithGraphBuilder().
 			WithReceivers(uigen.Receiver).
@@ -452,7 +451,7 @@ func prepareScriptEnv(
 	features := lifecycle.EnabledFeatures(cfg.Features)
 	settings := lifecycle.ResolvedSettings(cfg.Settings)
 
-	pkgContext := &loreStar.PackageContext{
+	pkgContext := &PackageContext{
 		Name:       pkg.Name,
 		Version:    pkg.Version,
 		Features:   features,

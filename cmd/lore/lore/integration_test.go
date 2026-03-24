@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package starlark_test
+package lore_test
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 
@@ -28,7 +27,7 @@ import (
 //  5. Loader cache deduplicates factory calls
 func TestLoadIntegration(t *testing.T) {
 
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithReceivers(uigen.Receiver).
 			WithWriter(&bytes.Buffer{}),
@@ -79,7 +78,7 @@ func TestLoadIntegration(t *testing.T) {
 
 // TestLoadIntegrationUnknownModule verifies that loading an unknown module produces a clear error.
 func TestLoadIntegrationUnknownModule(t *testing.T) {
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -110,7 +109,7 @@ func TestLoadIntegrationUnknownModule(t *testing.T) {
 
 // TestLoadIntegrationBadPrefix verifies that a non-@devlore// load fails.
 func TestLoadIntegrationBadPrefix(t *testing.T) {
-	rt := loreStar.NewRuntime(
+	rt := op.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)

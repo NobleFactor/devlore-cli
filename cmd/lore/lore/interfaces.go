@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package starlark provides the Starlark scripting runtime for devlore.
-package starlark
+// Package lore provides the runtime types and execution engine for the lore CLI.
+package lore
 
 // =============================================================================
 // Phase Script Arguments
