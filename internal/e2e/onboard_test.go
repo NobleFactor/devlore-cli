@@ -138,7 +138,7 @@ func TestOnboard_E2E(t *testing.T) {
 	// Get provider using devlore's standard configuration
 	provider, skipReason := GetTestProvider(ctx)
 	if provider == nil {
-		t.Fatalf("E2E test environment not ready: %s", skipReason)
+		t.Skipf("E2E test environment not ready: %s", skipReason)
 	}
 	t.Logf("Using provider: %s (%s)", provider.Name(), provider.Model())
 
