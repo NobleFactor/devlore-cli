@@ -178,8 +178,8 @@ func buildPlannedBridge(
 
 			// Plan-time type validation for immediate values.
 			if i+1 < mt.NumIn() {
-				if _, isOutput := sv.(*Output); !isOutput {
-					if _, isGather := sv.(*Gather); !isGather {
+				if _, isOutput := sv.(*Promise); !isOutput {
+					if _, isList := sv.(*starlark.List); !isList {
 						if goVal := node.GetSlot(cleanName); goVal != nil {
 							if err := validateSlotType(goVal, mt.In(i+1)); err != nil {
 								return nil, fmt.Errorf("%s: param %s: %w", snakeName, cleanName, err)
@@ -207,7 +207,7 @@ func buildPlannedBridge(
 
 		// 5. Append to graph and return promise.
 		graph.Nodes = append(graph.Nodes, node)
-		return NewOutput(node, graph, ""), nil
+		return NewPromise(node, graph, ""), nil
 	}
 }
 
@@ -263,10 +263,10 @@ func shadowOutputParam(graph *Graph, mt reflect.Type, vals []starlark.Value, par
 	}
 
 	// Skip promises — they'll be shadowed at execution time.
-	if _, ok := sv.(*Output); ok {
+	if _, ok := sv.(*Promise); ok {
 		return nil
 	}
-	if _, ok := sv.(*Gather); ok {
+	if _, ok := sv.(*starlark.List); ok {
 		return nil
 	}
 
@@ -308,10 +308,10 @@ func resolveResourceParam(graph *Graph, sv starlark.Value, paramType reflect.Typ
 	}
 
 	// Skip promises and gathers — they'll be shadowed at execution time.
-	if _, ok := sv.(*Output); ok {
+	if _, ok := sv.(*Promise); ok {
 		return
 	}
-	if _, ok := sv.(*Gather); ok {
+	if _, ok := sv.(*starlark.List); ok {
 		return
 	}
 

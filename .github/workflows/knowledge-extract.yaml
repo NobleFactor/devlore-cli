@@ -26,19 +26,12 @@ jobs:
           app-id: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_ID }}
           private-key: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY }}
           owner: NobleFactor
-          repositories: noblefactor-ops,devlore-registry
+          repositories: devlore-registry
 
       - name: Checkout devlore-cli
         uses: actions/checkout@v4
         with:
           path: devlore-cli
-
-      - name: Checkout noblefactor-ops
-        uses: actions/checkout@v4
-        with:
-          repository: NobleFactor/noblefactor-ops
-          token: ${{ steps.app-token.outputs.token }}
-          path: noblefactor-ops
 
       - name: Checkout devlore-registry
         uses: actions/checkout@v4
@@ -52,16 +45,16 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-          cache-dependency-path: noblefactor-ops/go.sum
+          cache-dependency-path: devlore-cli/go.sum
 
       - name: Build star tool
-        working-directory: noblefactor-ops
-        run: go build -o bin/star ./cmd/star
+        working-directory: devlore-cli
+        run: make star
 
       - name: Build knowledge base
         working-directory: devlore-cli
         run: |
-          ${{ github.workspace }}/noblefactor-ops/bin/star devlore knowledge extract \
+          ./build/star devlore knowledge extract \
             --domain all \
             --source ${{ github.workspace }}/devlore-cli \
             --target ${{ github.workspace }}/devlore-registry
@@ -69,13 +62,13 @@ jobs:
       - name: Validate package schemas
         working-directory: devlore-cli
         run: |
-          ${{ github.workspace }}/noblefactor-ops/bin/star devlore package validate \
+          ./build/star devlore package validate \
             --target=${{ github.workspace }}/devlore-registry
 
       - name: Validate knowledge schemas
         working-directory: devlore-cli
         run: |
-          ${{ github.workspace }}/noblefactor-ops/bin/star devlore knowledge validate \
+          ./build/star devlore knowledge validate \
             --target=${{ github.workspace }}/devlore-registry
 
       - name: Report knowledge changes (PR only)

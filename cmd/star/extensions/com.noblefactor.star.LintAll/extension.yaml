@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintAll
+description: Run all configured linters
+
+commands:
+  - name: lint.all
+    help: Run all configured linters
+    implementation: commands/lint-all.star
+    args:
+      - name: path
+        help: Paths to lint (files or directories)
+        default: "."
+        variadic: true
+    flags:
+      - name: fix
+        type: bool
+        default: "false"
+        help: Auto-fix issues where possible

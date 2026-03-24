@@ -96,12 +96,12 @@ func DefaultTestConfig() TestConfig {
 //   - error: read or parse error
 func LoadTestConfig(path string) (TestConfig, error) {
 
-	var cfg TestConfig
-	if err := document.Read(path, &cfg); err != nil {
+	cfg, err := document.ReadFile[TestConfig](path)
+	if err != nil {
 		return TestConfig{}, err
 	}
 
-	return cfg, nil
+	return *cfg, nil
 }
 
 // CreateProvider creates a model.Provider from a ProviderConfig.

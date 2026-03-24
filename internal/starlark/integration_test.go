@@ -17,7 +17,7 @@ import (
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 
 	// Ensure providers are registered via init().
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcode/gen"
+	_ "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
 )
 
 // TestLoadIntegration executes a .star script that uses load("@devlore//starcode") and verifies that:

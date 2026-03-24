@@ -88,7 +88,7 @@ func (f *Plan) AttrNames() []string {
 //   - kwargs: optional "output" keyword argument
 //
 // Returns:
-//   - starlark.Value: an [op.Output] promise for the terminal node
+//   - starlark.Value: an [op.Promise] promise for the terminal node
 //   - error: any error from slot filling
 func (f *Plan) complete(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var output starlark.Value = starlark.None
@@ -108,7 +108,7 @@ func (f *Plan) complete(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	f.graph.Nodes = append(f.graph.Nodes, node)
-	return op.NewOutput(node, f.graph, ""), nil
+	return op.NewPromise(node, f.graph, ""), nil
 }
 
 // degraded creates a flow.degraded terminal node in the graph.
@@ -123,7 +123,7 @@ func (f *Plan) complete(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 //   - kwargs: optional keyword arguments for string formatting
 //
 // Returns:
-//   - starlark.Value: an [op.Output] promise for the terminal node
+//   - starlark.Value: an [op.Promise] promise for the terminal node
 //   - error: any error from slot filling
 func (f *Plan) degraded(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
@@ -152,7 +152,7 @@ func (f *Plan) degraded(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	f.graph.Nodes = append(f.graph.Nodes, node)
-	return op.NewOutput(node, f.graph, ""), nil
+	return op.NewPromise(node, f.graph, ""), nil
 }
 
 // fatal creates a flow.fatal terminal node in the graph.
@@ -166,7 +166,7 @@ func (f *Plan) degraded(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 //   - kwargs: optional keyword arguments for string formatting
 //
 // Returns:
-//   - starlark.Value: an [op.Output] promise for the terminal node
+//   - starlark.Value: an [op.Promise] promise for the terminal node
 //   - error: any error from slot filling
 func (f *Plan) fatal(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if len(args) < 1 {
@@ -192,7 +192,7 @@ func (f *Plan) fatal(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tupl
 	}
 
 	f.graph.Nodes = append(f.graph.Nodes, node)
-	return op.NewOutput(node, f.graph, ""), nil
+	return op.NewPromise(node, f.graph, ""), nil
 }
 
 // fillListSlot packs Starlark values into indexed sub-slots on a node. Promise values create edges; immediates are

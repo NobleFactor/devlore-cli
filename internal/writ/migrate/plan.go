@@ -16,9 +16,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-
-	// Blank import triggers init() in all provider packages.
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 // Options controls migration behavior.

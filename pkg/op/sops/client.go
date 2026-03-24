@@ -98,9 +98,5 @@ func findConfig(dir string) string {
 //   - error: read or parse error
 func parseConfig(path string) (*sopsConfig, error) {
 
-	var cfg sopsConfig
-	if err := document.Read(path, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+	return document.ReadFile[sopsConfig](path)
 }

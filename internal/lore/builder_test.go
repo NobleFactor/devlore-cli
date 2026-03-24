@@ -12,6 +12,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
 // runGraph is a test helper that calls RunNodes with the graph's nodes and edges.

@@ -8,6 +8,7 @@ package lorepackage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -101,16 +102,15 @@ func (r *Registry) SyncInfo() (*registry.SyncInfo, error) {
 
 	infoPath := filepath.Join(r.cacheDir, ".sync-info.yaml")
 
-	var info registry.SyncInfo
-	found, err := document.ReadIfExists(infoPath, &info)
+	info, err := document.ReadFile[registry.SyncInfo](infoPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	if !found {
-		return nil, nil
-	}
 
-	return &info, nil
+	return info, nil
 }
 
 // ReadFile reads a file from the cache.

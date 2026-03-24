@@ -1,12 +1,6 @@
 extension: com.noblefactor.devlore.Test
 description: Test harness for Starlark graph planning and execution
 
-receivers:
-  - name: ui
-    builtin: true
-    type: UiReceiver
-    description: Status output (note, warn, success, fail)
-
 commands:
   - name: devlore.test.run
     help: Run a Starlark test script that plans and executes a graph

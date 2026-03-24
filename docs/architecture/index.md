@@ -53,11 +53,18 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 - [Rust Migration](8-rust-migration.md) — Architecture decisions for porting devlore-cli to Rust (draft — long-term)
 
+### 9. Star
+
+- [Star Extensions](star-extensions.md) — Extension model, discovery, loading, runtime types (`star.Extension`, `star.Command`)
+  - Star Configuration — Config hierarchy, schema, on-demand resolution (planned)
+  - Star WASM Receivers — WASM sandboxing, capabilities, host module (planned)
+
 ## Overview
 
-The devlore-cli consists of two main tools that share a common execution engine:
+The devlore-cli consists of three tools that share a common execution engine:
 
 - **writ** — File tree management (dotfiles, configs, templates)
 - **lore** — Package management (software installation, configuration)
+- **star** — Starlark-powered operations tool (linting, setup, hooks, project automation)
 
-Both tools produce execution graphs that are processed by the shared engine in `pkg/op/` and `internal/execution/`.
+All three tools consume the shared provider framework in `pkg/op/` and the starlark runtime. Writ and lore produce execution graphs processed by the engine in `internal/execution/`. Star uses a lightweight command model where extensions define commands in Starlark and providers supply the bindings.

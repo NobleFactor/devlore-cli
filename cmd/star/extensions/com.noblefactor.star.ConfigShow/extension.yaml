@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.ConfigShow
+description: Show merged configuration from star.yaml hierarchy
+
+commands:
+  - name: config.show
+    help: Show merged configuration from star.yaml hierarchy
+    implementation: commands/config-show.star

@@ -171,7 +171,7 @@ def _build_domain(target, domain, model):
 # COMMANDS
 # =============================================================================
 
-def run(ctx):
+def run(command, ctx):
     """Generate Modelfile from knowledge domain."""
     target = _resolve_target(ctx)
     domain = ctx.args.get("domain", "all")

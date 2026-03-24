@@ -4,12 +4,6 @@
 extension: com.noblefactor.devlore.Package
 description: Devlore lore package management - index, validate, and sign packages
 
-receivers:
-  - name: ui
-    builtin: true
-    type: UiReceiver
-    description: Status output (note, warn, success, fail)
-
 commands:
   - name: devlore.package.index
     help: Generate index.yaml and cross-reference.yaml for lore packages

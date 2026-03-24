@@ -9,11 +9,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/internal/starlarktest"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/e2e/testrunner"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
@@ -66,7 +66,7 @@ The script uses plan.* bindings to build a graph and t.* assertions to
 verify expectations after execution.
 
 Three output streams can be independently routed:
-  graph    Output from the software under test
+  graph    Promise from the software under test
   summary  JSON test result (passed, node_count, failures)
   receipt  Full serialized execution graph
 
@@ -88,7 +88,7 @@ All streams default to /dev/stdout. Route to files or /dev/null:
 	cmd.Flags().Bool("trace", false, "Enable Starlark step trace")
 	cmd.Flags().String("provider", "", "Restrict to a specific provider")
 	cmd.Flags().String("receipt-format", "yaml", "Receipt format: json or yaml")
-	cmd.Flags().Var(outputs, "output", "Output routing: summary|receipt|graph=destination (repeatable)")
+	cmd.Flags().Var(outputs, "output", "Promise routing: summary|receipt|graph=destination (repeatable)")
 
 	return cmd
 }
@@ -111,20 +111,20 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) (err error
 	defer iox.Close(&err, graphOut)
 
 	// Build and run.
-	var opts []testrunner.Option
-	opts = append(opts, testrunner.WithWriter(graphOut))
-	opts = append(opts, testrunner.WithGraphBuilder(), testrunner.WithReceivers(filegen.Receiver))
+	var opts []starlarktest.Option
+	opts = append(opts, starlarktest.WithWriter(graphOut))
+	opts = append(opts, starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
 	if dryRun {
-		opts = append(opts, testrunner.WithDryRun())
+		opts = append(opts, starlarktest.WithDryRun())
 	}
 	if trace {
-		opts = append(opts, testrunner.WithTrace())
+		opts = append(opts, starlarktest.WithTrace())
 	}
 	if provider != "" {
-		opts = append(opts, testrunner.WithProvider(provider))
+		opts = append(opts, starlarktest.WithProvider(provider))
 	}
 
-	runner := testrunner.New(script, opts...)
+	runner := starlarktest.NewRunner(script, opts...)
 	result, err := runner.Start(cmd.Context())
 	if err != nil {
 		return err
@@ -153,7 +153,7 @@ func openDest(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644) //nolint:gosec // G304: path from CLI flag
 }
 
-func writeSummary(dest string, result *testrunner.Result) (err error) {
+func writeSummary(dest string, result *starlarktest.Result) (err error) {
 	f, err := openDest(dest)
 	if err != nil {
 		return err

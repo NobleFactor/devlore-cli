@@ -16,17 +16,13 @@ type testDoc struct {
 	Count int    `yaml:"count" json:"count"`
 }
 
-// --- Read ---
+// --- Read (io.Reader) ---
 
 func TestRead_YAML(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "data.yaml")
-	if err := os.WriteFile(path, []byte("name: alice\ncount: 42\n"), 0o600); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	var doc testDoc
-	if err := Read(path, &doc); err != nil {
+	r := strings.NewReader("name: alice\ncount: 42\n")
+	doc, err := Read[testDoc](r)
+	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
 
@@ -40,13 +36,9 @@ func TestRead_YAML(t *testing.T) {
 
 func TestRead_JSON(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "data.json")
-	if err := os.WriteFile(path, []byte(`{"name":"bob","count":7}`), 0o600); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	var doc testDoc
-	if err := Read(path, &doc); err != nil {
+	r := strings.NewReader(`{"name":"bob","count":7}`)
+	doc, err := Read[testDoc](r)
+	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
 
@@ -58,9 +50,51 @@ func TestRead_JSON(t *testing.T) {
 	}
 }
 
-func TestRead_MissingFileReturnsError(t *testing.T) {
+// --- ReadFile ---
 
-	err := Read(filepath.Join(t.TempDir(), "nope.yaml"), &testDoc{})
+func TestReadFile_YAML(t *testing.T) {
+
+	path := filepath.Join(t.TempDir(), "data.yaml")
+	if err := os.WriteFile(path, []byte("name: alice\ncount: 42\n"), 0o600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	doc, err := ReadFile[testDoc](path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	if doc.Name != "alice" {
+		t.Errorf("Name = %q, want %q", doc.Name, "alice")
+	}
+	if doc.Count != 42 {
+		t.Errorf("Count = %d, want %d", doc.Count, 42)
+	}
+}
+
+func TestReadFile_JSON(t *testing.T) {
+
+	path := filepath.Join(t.TempDir(), "data.json")
+	if err := os.WriteFile(path, []byte(`{"name":"bob","count":7}`), 0o600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	doc, err := ReadFile[testDoc](path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	if doc.Name != "bob" {
+		t.Errorf("Name = %q, want %q", doc.Name, "bob")
+	}
+	if doc.Count != 7 {
+		t.Errorf("Count = %d, want %d", doc.Count, 7)
+	}
+}
+
+func TestReadFile_MissingFileReturnsError(t *testing.T) {
+
+	_, err := ReadFile[testDoc](filepath.Join(t.TempDir(), "nope.yaml"))
 	if err == nil {
 		t.Fatal("expected error for missing file, got nil")
 	}
@@ -69,14 +103,14 @@ func TestRead_MissingFileReturnsError(t *testing.T) {
 	}
 }
 
-func TestRead_MalformedContentReturnsParseError(t *testing.T) {
+func TestReadFile_MalformedContentReturnsParseError(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "bad.yaml")
 	if err := os.WriteFile(path, []byte(":\n  :\n    - }{"), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
-	err := Read(path, &testDoc{})
+	_, err := ReadFile[testDoc](path)
 	if err == nil {
 		t.Fatal("expected parse error, got nil")
 	}
@@ -85,61 +119,15 @@ func TestRead_MalformedContentReturnsParseError(t *testing.T) {
 	}
 }
 
-func TestRead_ErrorIncludesFilePath(t *testing.T) {
+func TestReadFile_ErrorIncludesFilePath(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "missing.yaml")
-	err := Read(path, &testDoc{})
+	_, err := ReadFile[testDoc](path)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), path) {
 		t.Errorf("error should contain path %q: %v", path, err)
-	}
-}
-
-// --- ReadIfExists ---
-
-func TestReadIfExists_MissingFileReturnsFalseNil(t *testing.T) {
-
-	found, err := ReadIfExists(filepath.Join(t.TempDir(), "nope.yaml"), &testDoc{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if found {
-		t.Error("expected found=false for missing file")
-	}
-}
-
-func TestReadIfExists_PresentFileReturnsTrueNil(t *testing.T) {
-
-	path := filepath.Join(t.TempDir(), "data.yaml")
-	if err := os.WriteFile(path, []byte("name: carol\ncount: 3\n"), 0o600); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	var doc testDoc
-	found, err := ReadIfExists(path, &doc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !found {
-		t.Error("expected found=true for present file")
-	}
-	if doc.Name != "carol" {
-		t.Errorf("Name = %q, want %q", doc.Name, "carol")
-	}
-}
-
-func TestReadIfExists_MalformedContentReturnsError(t *testing.T) {
-
-	path := filepath.Join(t.TempDir(), "bad.json")
-	if err := os.WriteFile(path, []byte("{not json}"), 0o600); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	_, err := ReadIfExists(path, &testDoc{})
-	if err == nil {
-		t.Fatal("expected parse error for malformed content, got nil")
 	}
 }
 
@@ -162,9 +150,9 @@ func TestWrite_YAMLCreatesFileWith0o600(t *testing.T) {
 		t.Errorf("permission = %o, want %o", perm, 0o600)
 	}
 
-	var readBack testDoc
-	if err := Read(path, &readBack); err != nil {
-		t.Fatalf("Read back: %v", err)
+	readBack, err := ReadFile[testDoc](path)
+	if err != nil {
+		t.Fatalf("ReadFile back: %v", err)
 	}
 	if readBack.Name != "dave" || readBack.Count != 99 {
 		t.Errorf("round-trip failed: got %+v", readBack)
@@ -188,9 +176,9 @@ func TestWrite_JSONCreatesFileWith0o600(t *testing.T) {
 		t.Errorf("permission = %o, want %o", perm, 0o600)
 	}
 
-	var readBack testDoc
-	if err := Read(path, &readBack); err != nil {
-		t.Fatalf("Read back: %v", err)
+	readBack, err := ReadFile[testDoc](path)
+	if err != nil {
+		t.Fatalf("ReadFile back: %v", err)
 	}
 	if readBack.Name != "eve" || readBack.Count != 5 {
 		t.Errorf("round-trip failed: got %+v", readBack)
@@ -335,13 +323,13 @@ func TestRoundTrip_YAMLReadWritePreservesData(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	var restored testDoc
-	if err := Read(path, &restored); err != nil {
-		t.Fatalf("Read: %v", err)
+	restored, err := ReadFile[testDoc](path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
 	}
 
-	if restored != original {
-		t.Errorf("round-trip mismatch: got %+v, want %+v", restored, original)
+	if *restored != original {
+		t.Errorf("round-trip mismatch: got %+v, want %+v", *restored, original)
 	}
 }
 
@@ -355,12 +343,12 @@ func TestRoundTrip_JSONReadWritePreservesData(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	var restored testDoc
-	if err := Read(path, &restored); err != nil {
-		t.Fatalf("Read: %v", err)
+	restored, err := ReadFile[testDoc](path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
 	}
 
-	if restored != original {
-		t.Errorf("round-trip mismatch: got %+v, want %+v", restored, original)
+	if *restored != original {
+		t.Errorf("round-trip mismatch: got %+v, want %+v", *restored, original)
 	}
 }

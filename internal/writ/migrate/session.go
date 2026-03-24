@@ -17,9 +17,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-
-	// Blank import triggers init() in all provider packages.
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 // SessionState represents a state in the migration session.
@@ -533,7 +530,7 @@ func (s *Session) executeStep() *console.Step {
 		s.aiResponse = fmt.Sprintf("Migration complete. Receipt saved to:\n`%s`", receiptPath)
 	}
 
-	// Output analysis + execution_graph JSON to stdout
+	// Promise analysis + execution_graph JSON to stdout
 	s.outputJSON()
 
 	s.result = &SessionResult{

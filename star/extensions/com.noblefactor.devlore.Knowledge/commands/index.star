@@ -67,7 +67,7 @@ def _resolve_target(ctx):
     return target
 
 
-def run(ctx):
+def run(command, ctx):
     """Main entry point."""
     target = _resolve_target(ctx)
     dry_run = ctx.args.get("dry_run", False)
