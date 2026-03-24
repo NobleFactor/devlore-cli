@@ -152,7 +152,7 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	}
 
 	// Verify PlanRoot has the test sub-namespace.
-	planRoot, ok := globals["plan"].(*loreStar.PlanRoot)
+	planRoot, ok := globals["plan"].(*op.PlanRoot)
 	if !ok {
 		t.Fatalf("expected globals['plan'] to be *PlanRoot, got %T", globals["plan"])
 	}
@@ -301,7 +301,7 @@ func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'plan' in loaded globals")
 	}
-	if _, ok := plan.(*loreStar.PlanRoot); !ok {
+	if _, ok := plan.(*op.PlanRoot); !ok {
 		t.Errorf("expected *PlanRoot, got %T", plan)
 	}
 }

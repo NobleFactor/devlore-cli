@@ -77,7 +77,7 @@ func (rt *Runtime) BuildGlobals(graph *op.Graph, project string, reg *op.ActionR
 	if rt.HasGraphBuilder() {
 		planned := collectPlannedProviders()
 		if len(planned) > 0 {
-			globals["plan"] = NewPlanRootFromProviders(graph, project, reg, planned)
+			globals["plan"] = op.NewPlanRootFromProviders(graph, project, reg, planned)
 		}
 	}
 
@@ -190,7 +190,7 @@ func (rt *Runtime) buildPlanModule(graph *op.Graph, project string, reg *op.Acti
 	if len(planned) == 0 {
 		return nil, fmt.Errorf("no planned providers registered")
 	}
-	plan := NewPlanRootFromProviders(graph, project, reg, planned)
+	plan := op.NewPlanRootFromProviders(graph, project, reg, planned)
 	return starlark.StringDict{"plan": plan}, nil
 }
 
