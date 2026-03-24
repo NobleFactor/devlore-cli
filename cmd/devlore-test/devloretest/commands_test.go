@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/internal/starlarktest"
-
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
@@ -26,7 +24,7 @@ func writeScript(t *testing.T, content string) string {
 
 // runCmd executes the run subcommand with outputs routed to temp files.
 // Returns parsed summary and any error from execution.
-func runCmd(t *testing.T, script string, extraArgs ...string) (starlarktest.Result, error) {
+func runCmd(t *testing.T, script string, extraArgs ...string) (Result, error) {
 	t.Helper()
 	dir := t.TempDir()
 	summaryFile := filepath.Join(dir, "summary.json")
@@ -47,7 +45,7 @@ func runCmd(t *testing.T, script string, extraArgs ...string) (starlarktest.Resu
 	cmd.SetArgs(args)
 	err := cmd.Execute()
 
-	var result starlarktest.Result
+	var result Result
 	if data, readErr := os.ReadFile(summaryFile); readErr == nil {
 		_ = json.Unmarshal(data, &result)
 	}

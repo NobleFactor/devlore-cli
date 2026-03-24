@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/starlarktest"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -111,20 +110,20 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) (err error
 	defer iox.Close(&err, graphOut)
 
 	// Build and run.
-	var opts []starlarktest.Option
-	opts = append(opts, starlarktest.WithWriter(graphOut))
-	opts = append(opts, starlarktest.WithGraphBuilder(), starlarktest.WithReceivers(filegen.Receiver))
+	var opts []Option
+	opts = append(opts, WithWriter(graphOut))
+	opts = append(opts, WithGraphBuilder(), WithReceivers(filegen.Receiver))
 	if dryRun {
-		opts = append(opts, starlarktest.WithDryRun())
+		opts = append(opts, WithDryRun())
 	}
 	if trace {
-		opts = append(opts, starlarktest.WithTrace())
+		opts = append(opts, WithTrace())
 	}
 	if provider != "" {
-		opts = append(opts, starlarktest.WithProvider(provider))
+		opts = append(opts, WithProvider(provider))
 	}
 
-	runner := starlarktest.NewRunner(script, opts...)
+	runner := NewRunner(script, opts...)
 	result, err := runner.Start(cmd.Context())
 	if err != nil {
 		return err
@@ -153,7 +152,7 @@ func openDest(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644) //nolint:gosec // G304: path from CLI flag
 }
 
-func writeSummary(dest string, result *starlarktest.Result) (err error) {
+func writeSummary(dest string, result *Result) (err error) {
 	f, err := openDest(dest)
 	if err != nil {
 		return err

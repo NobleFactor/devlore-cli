@@ -40,7 +40,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	scriptPath = filepath.Join(root, "internal", "starlarktest", "data", "test_hello.star")
+	scriptPath = filepath.Join(root, "cmd", "devlore-test", "devloretest", "data", "test_hello.star")
 
 	build := exec.Command("go", "build", "-o", binary, "./cmd/devlore-test")
 	build.Dir = root
