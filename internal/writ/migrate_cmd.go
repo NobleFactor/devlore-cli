@@ -61,7 +61,7 @@ Use --dry-run to preview without making changes.`,
 	cmd.Flags().Bool("link", true, "Create symlink from layer to source (default)")
 	cmd.Flags().Bool("move", false, "Move content to layer directory, delete source")
 	cmd.Flags().String("layer", "personal", "Target layer: personal, team, or base")
-	cmd.Flags().String("format", "json", "Output format: json (default), yaml, text (for --dry-run)")
+	cmd.Flags().String("format", "json", "Promise format: json (default), yaml, text (for --dry-run)")
 	cmd.Flags().String("system", "", "Override auto-detection with a specific source system")
 	cmd.Flags().Bool("non-interactive", false, "Migrate without interactive prompts")
 	cmd.Flags().Int("tree-depth", 0, "Max directory depth to scan (default: 10, use lower values for smaller context)")

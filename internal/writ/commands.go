@@ -33,10 +33,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
-
-	// Blank import triggers init() in all provider packages,
-	// which call op.AnnounceReceiver() to self-register.
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -760,7 +756,7 @@ Status indicators:
 
 	cmd.Flags().Bool("drift", false, "Check for drift in copied files (default: true)")
 	cmd.Flags().Bool("fix", false, "Automatically repair detected issues")
-	cmd.Flags().Bool("json", false, "Output as JSON")
+	cmd.Flags().Bool("json", false, "Promise as JSON")
 
 	return cmd
 }
@@ -1105,7 +1101,7 @@ func outputReconcileText(report *reconcile.Report) error {
 	}
 	sort.Strings(projects)
 
-	// Output each project
+	// Promise each project
 	for _, project := range projects {
 		entries := byProject[project]
 		fmt.Printf("%s:\n", project)
@@ -1475,7 +1471,7 @@ func newInspectCmd() *cobra.Command {
 For a project: shows source location, deployed files, segments, and deploystate.
 For a file path: shows source, target, operations, checksums, and drift status.
 
-Output is JSON by default for scripting. Use --format for alternatives.`,
+Promise is JSON by default for scripting. Use --format for alternatives.`,
 		Example: `  writ inspect noblefactor
   writ inspect ~/.zshrc
   writ inspect noblefactor --format yaml

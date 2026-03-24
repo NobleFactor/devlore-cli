@@ -67,7 +67,7 @@ func (a *Choose) Do(ctx *op.Context, slots map[string]any) (result op.Result, co
 	ordered := execution.OrderNodes(phaseNodes, phaseEdges)
 
 	// Seed branch results from parent execution so cross-phase promise
-	// references (e.g., an Output captured in a lambda closure) resolve.
+	// references (e.g., an Promise captured in a lambda closure) resolve.
 	results := make(map[string]any)
 	for k, v := range ctx.Results {
 		results[k] = v

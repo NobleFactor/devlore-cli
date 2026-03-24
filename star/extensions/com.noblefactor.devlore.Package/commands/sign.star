@@ -28,7 +28,7 @@ def _resolve_target(ctx):
     return target
 
 
-def run(ctx):
+def run(command, ctx):
     """Sign a lore package with release key."""
     target = _resolve_target(ctx)
     env = ctx.args.get("env", "dev")

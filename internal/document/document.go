@@ -3,13 +3,13 @@
 
 // Package document provides structured document I/O for YAML and JSON files. It encapsulates the read-deserialize and
 // serialize-write patterns used throughout the codebase, with consistent error wrapping, permission modes, directory
-// creation, and optional-file semantics.
+// creation, and format detection.
 package document
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,54 +30,58 @@ type Option func(*writeOpts)
 
 // Fallible actions
 
-// Read deserializes a structured document from disk into v. Format is inferred from the file extension: .json → JSON,
-// .yaml/.yml/anything else → YAML.
+// Read deserializes a structured document from a reader. YAML decoding is used unconditionally since JSON is a valid
+// subset of YAML.
+//
+// Type Parameters:
+//   - T: the target type for deserialization
 //
 // Parameters:
-//   - path: filesystem path to the document
-//   - v: pointer to the target value for deserialization
+//   - r: the reader to read from
 //
 // Returns:
-//   - error: wraps both I/O and parse errors with the file path for context
-func Read(path string, v any) error {
+//   - *T: pointer to the deserialized value
+//   - error: wraps read and parse errors
+func Read[T any](r io.Reader) (*T, error) {
 
-	data, err := os.ReadFile(path)
+	data, err := io.ReadAll(r)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		return nil, fmt.Errorf("read: %w", err)
 	}
 
-	if err := unmarshal(path, data, v); err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
+	var v T
+	if err := yaml.Unmarshal(data, &v); err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
 	}
 
-	return nil
+	return &v, nil
 }
 
-// ReadIfExists deserializes a structured document from disk into v. Returns (false, nil) when the file does not exist
-// instead of an error. All other errors are returned normally.
+// ReadFile deserializes a structured document from disk. Format is inferred from the file extension: .json → JSON,
+// .yaml/.yml/anything else → YAML.
+//
+// Type Parameters:
+//   - T: the target type for deserialization
 //
 // Parameters:
 //   - path: filesystem path to the document
-//   - v: pointer to the target value for deserialization
 //
 // Returns:
-//   - bool: true if the file was found and parsed successfully
+//   - *T: pointer to the deserialized value
 //   - error: wraps both I/O and parse errors with the file path for context
-func ReadIfExists(path string, v any) (bool, error) {
+func ReadFile[T any](path string) (*T, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, fmt.Errorf("read %s: %w", path, err)
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	if err := unmarshal(path, data, v); err != nil {
-		return false, fmt.Errorf("parse %s: %w", path, err)
+	var v T
+	if err := unmarshal(path, data, &v); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	return true, nil
+	return &v, nil
 }
 
 // Write serializes v to disk as a structured document. Format is inferred from the file extension. Creates parent

@@ -11,6 +11,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -63,11 +64,12 @@ func Path() string {
 //   - error: read or parse error
 func Load() (*Config, error) {
 
-	cfg := &Config{}
-
-	// Read config file
-	if _, err := document.ReadIfExists(Path(), cfg); err != nil {
-		return nil, err
+	cfg, err := document.ReadFile[Config](Path())
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		cfg = &Config{}
 	}
 
 	// Apply environment variable overrides

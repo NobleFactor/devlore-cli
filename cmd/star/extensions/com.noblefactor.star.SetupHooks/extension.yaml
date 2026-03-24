@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.SetupHooks
+description: Install pre-commit hooks
+
+commands:
+  - name: setup.hooks
+    help: Install pre-commit hooks
+    implementation: commands/setup-hooks.star

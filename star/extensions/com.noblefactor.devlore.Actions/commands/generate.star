@@ -760,7 +760,7 @@ def compute_provider_import(path):
         return module_path + "/" + rel
     return module_path
 
-def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, lifetime,
+def emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime,
                       all_method_names, provider_descriptors,
                       output_dir, write_files):
     """Generate receivers in gen/ mode with type graph walking."""
@@ -912,19 +912,19 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
     if provider_cross_imports:
         provider_desc["cross_package_imports"] = provider_cross_imports
 
-    gen_file(ctx, "params", provider_desc, "gen/params.gen.go",
+    emit_file(command, "params", provider_desc, "gen/params.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
-    gen_file(ctx, "receiver", provider_desc, "gen/receiver.gen.go",
+    emit_file(command, "receiver", provider_desc, "gen/receiver.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
 
     # Generate bridge tests for all action methods (pure, fallible, compensable).
     if access in ["planned", "both"]:
-        gen_file(ctx, "actions_test", provider_desc, "gen/actions_gen_test.go",
+        emit_file(command, "actions_test", provider_desc, "gen/actions_gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     # Generate receiver tests if access is immediate or both.
     if access in ["immediate", "both"]:
-        gen_file(ctx, "receiver_test", provider_desc, "gen/receiver_gen_test.go",
+        emit_file(command, "receiver_test", provider_desc, "gen/receiver_gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     generated_count = 1
@@ -945,7 +945,7 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
             "methods": dep_descs,
         }
         dep_filename = "gen/" + type_snake + ".gen.go"
-        gen_file(ctx, "dependent_type", dep_desc, dep_filename,
+        emit_file(command, "dependent_type", dep_desc, dep_filename,
                  type_name, len(dep_descs), output_dir, write_files)
 
     # Struct converters are no longer generated — op.Marshal handles all
@@ -965,7 +965,7 @@ def generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, li
             "constructor_name": constructor_name,
             "resource_params": resource_params,
         }
-        gen_file(ctx, "resource", resource_desc, "gen/resource.gen.go",
+        emit_file(command, "resource", resource_desc, "gen/resource.gen.go",
                  "Resource", 1, output_dir, write_files)
         generated_count += 1
 
@@ -1188,10 +1188,10 @@ def prepare_render_data(descriptor, template_name):
 
     return desc
 
-def gen_file(ctx, template_name, descriptor, filename, label, method_count, output_dir, write_files):
+def emit_file(command, template_name, descriptor, filename, label, method_count, output_dir, write_files):
     """Generate a single file from a template and descriptor."""
     ui.note("Generating %s for %s (%d items)..." % (template_name, label, method_count))
-    template_content = load_template(template_name, ctx.extension.dir)
+    template_content = load_template(template_name, command.extension.dir)
 
     # Pre-compute template values and render via goast.render()
     render_data = prepare_render_data(descriptor, template_name)
@@ -1213,7 +1213,7 @@ def gen_file(ctx, template_name, descriptor, filename, label, method_count, outp
 # Entry Point
 # =============================================================================
 
-def run(ctx):
+def run(command, ctx):
     """Generate receivers and actions from a provider struct."""
 
     # -------------------------------------------------------------------------
@@ -1260,7 +1260,7 @@ def run(ctx):
             "constructor_name": constructor_name,
             "resource_params": resource_params,
         }
-        gen_file(ctx, "resource", resource_desc, "gen/resource.gen.go",
+        emit_file(command, "resource", resource_desc, "gen/resource.gen.go",
                  "Resource", 1, output_dir, write_files)
         ui.success("Done. Generated resource descriptor for %s" % provider)
         return
@@ -1318,6 +1318,6 @@ def run(ctx):
     if not gen_mode:
         fail("--gen is required")
 
-    generate_gen_mode(ctx, path, provider, struct_short, struct_name, access, lifetime,
+    emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime,
                       all_method_names, all_descriptors,
                       output_dir, write_files)

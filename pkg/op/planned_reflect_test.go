@@ -91,10 +91,10 @@ func TestWrapProviderInPlanningReceiver_CreatesNode(t *testing.T) {
 		t.Fatalf("write() error: %v", err)
 	}
 
-	// Result should be an Output (promise).
-	output, ok := result.(*Output)
+	// Result should be an Promise (promise).
+	output, ok := result.(*Promise)
 	if !ok {
-		t.Fatalf("result = %T, want *Output", result)
+		t.Fatalf("result = %T, want *Promise", result)
 	}
 
 	// Verify node was created.

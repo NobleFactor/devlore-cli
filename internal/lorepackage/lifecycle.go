@@ -192,12 +192,7 @@ func LoadLifecycle(packageDir string) (*Lifecycle, error) {
 
 	path := filepath.Join(packageDir, "lifecycle.yaml")
 
-	var lifecycle Lifecycle
-	if err := document.Read(path, &lifecycle); err != nil {
-		return nil, err
-	}
-
-	return &lifecycle, nil
+	return document.ReadFile[Lifecycle](path)
 }
 
 // DiscoverPhaseScripts returns all phase scripts for a phase, ordered from

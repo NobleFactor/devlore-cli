@@ -4,6 +4,7 @@
 package credentials
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -38,12 +39,15 @@ func fileGet(key string) (string, error) {
 		return "", err
 	}
 
-	creds := make(map[string]string)
-	if _, err := document.ReadIfExists(path, &creds); err != nil {
+	creds, err := document.ReadFile[map[string]string](path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
 		return "", err
 	}
 
-	return creds[key], nil
+	return (*creds)[key], nil
 }
 
 // fileSet stores a credential in the credentials file.
@@ -62,13 +66,17 @@ func fileSet(key, secret string) error {
 	}
 
 	// Load existing credentials
-	creds := make(map[string]string)
-	if _, err := document.ReadIfExists(path, &creds); err != nil {
-		return err
+	creds, readErr := document.ReadFile[map[string]string](path)
+	if readErr != nil {
+		if !errors.Is(readErr, os.ErrNotExist) {
+			return readErr
+		}
+		empty := make(map[string]string)
+		creds = &empty
 	}
 
 	// Update
-	creds[key] = secret
+	(*creds)[key] = secret
 
 	// Write with header comment
 	header := "# DevLore credentials - stored with 0600 permissions\n" +
@@ -91,18 +99,17 @@ func fileDelete(key string) error {
 		return err
 	}
 
-	creds := make(map[string]string)
-	found, err := document.ReadIfExists(path, &creds)
+	creds, err := document.ReadFile[map[string]string](path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return err
 	}
-	if !found {
-		return nil
-	}
 
-	delete(creds, key)
+	delete(*creds, key)
 
-	if len(creds) == 0 {
+	if len(*creds) == 0 {
 		return os.Remove(path)
 	}
 

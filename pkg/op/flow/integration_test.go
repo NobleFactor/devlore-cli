@@ -100,15 +100,15 @@ func TestStarlark_PlanReceiver(t *testing.T) {
 		t.Errorf("fatal format slot = %v, want 'disk full on %%s'", fatalFormat)
 	}
 
-	// Starlark results should be Output promises.
+	// Starlark results should be Promise promises.
 	for _, key := range []string{"result_complete", "result_complete_out", "result_degraded", "result_fatal"} {
 		v, ok := result[key]
 		if !ok {
 			t.Errorf("missing global %q", key)
 			continue
 		}
-		if _, ok := v.(*op.Output); !ok {
-			t.Errorf("%s type = %T, want *op.Output", key, v)
+		if _, ok := v.(*op.Promise); !ok {
+			t.Errorf("%s type = %T, want *op.Promise", key, v)
 		}
 	}
 }

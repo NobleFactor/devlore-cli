@@ -7,6 +7,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -265,16 +266,18 @@ func newConfigPathCmd(_ ConfigInfo) *cobra.Command {
 //   - error: read or parse error
 func loadConfig(path string) (map[string]interface{}, error) {
 
-	config := make(map[string]interface{})
-	if _, err := document.ReadIfExists(path, &config); err != nil {
-		return nil, err
+	cfg, err := document.ReadFile[map[string]interface{}](path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		return make(map[string]interface{}), nil
+	}
+	if *cfg == nil {
+		return make(map[string]interface{}), nil
 	}
 
-	if config == nil {
-		config = make(map[string]interface{})
-	}
-
-	return config, nil
+	return *cfg, nil
 }
 
 // saveConfig saves the config map to file. Supports YAML and JSON formats, detected by file extension.

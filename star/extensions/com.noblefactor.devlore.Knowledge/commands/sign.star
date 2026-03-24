@@ -31,7 +31,7 @@ def _resolve_target(ctx):
     return target
 
 
-def run(ctx):
+def run(command, ctx):
     """Generate and sign index.yaml."""
     target = _resolve_target(ctx)
     env = ctx.args.get("env", "dev")

@@ -40,7 +40,7 @@ _KNOWN_PROPERTIES = {
 
 
 
-def run(ctx):
+def run(command, ctx):
     """Main entry point for extract command."""
     source = ctx.args.get("source", "")
     target = _resolve_target(ctx)

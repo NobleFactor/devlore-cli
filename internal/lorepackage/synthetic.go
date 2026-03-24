@@ -57,9 +57,8 @@ func (c *SyntheticCache) Get(source PackageSource, name string) *SyntheticPackag
 
 	path := c.cachePathForPackage(source, name)
 
-	var info SyntheticPackageInfo
-	found, _ := document.ReadIfExists(path, &info)
-	if !found {
+	info, err := document.ReadFile[SyntheticPackageInfo](path)
+	if err != nil {
 		return nil
 	}
 
@@ -73,7 +72,7 @@ func (c *SyntheticCache) Get(source PackageSource, name string) *SyntheticPackag
 		return nil // Expired
 	}
 
-	return &info
+	return info
 }
 
 // Put stores a synthetic package in the cache.
@@ -146,9 +145,9 @@ func (c *SyntheticCache) List() ([]SyntheticPackageInfo, error) {
 
 			path := filepath.Join(sourceDir, file.Name())
 
-			var info SyntheticPackageInfo
-			if found, _ := document.ReadIfExists(path, &info); found {
-				packages = append(packages, info)
+			info, err := document.ReadFile[SyntheticPackageInfo](path)
+			if err == nil {
+				packages = append(packages, *info)
 			}
 		}
 	}

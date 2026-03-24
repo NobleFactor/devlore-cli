@@ -4,20 +4,6 @@
 extension: com.noblefactor.devlore.Actions
 description: Devlore actions tooling - generate graph actions and validate API contracts
 
-receivers:
-  - name: goast
-    builtin: true
-    type: goast.Provider
-    description: Go source parsing and code generation
-  - name: file
-    builtin: true
-    type: FileReceiver
-    description: Filesystem operations
-  - name: ui
-    builtin: true
-    type: UiReceiver
-    description: Status output (note, warn, success, fail)
-
 commands:
   - name: devlore.actions.generate
     help: Generate Starlark plan receivers and execution graph actions from a resource provider

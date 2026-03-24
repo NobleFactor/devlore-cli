@@ -16,10 +16,6 @@ import (
 	loreStar "github.com/NobleFactor/devlore-cli/internal/starlark"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
-
-	// Blank import triggers init() in all provider packages,
-	// which call op.AnnounceReceiver() to self-register.
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"
 )
 
 // BuildResult contains the built execution graph and metadata for packages.

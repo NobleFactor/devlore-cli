@@ -23,7 +23,7 @@
 #   Exits with non-zero status if contract violations are found.
 #   Use --format=json for machine-readable output.
 
-def run(ctx):
+def run(command, ctx):
     """Main entry point."""
     source = ctx.args.get("source", "")
     output_format = ctx.args.get("format", "markdown")

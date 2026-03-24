@@ -4,12 +4,6 @@
 extension: com.noblefactor.devlore.Knowledge
 description: Devlore knowledge management - extract, index, validate, and sign knowledge artifacts
 
-receivers:
-  - name: ui
-    builtin: true
-    type: UiReceiver
-    description: Status output (note, warn, success, fail)
-
 commands:
   - name: devlore.knowledge.extract
     help: Extract knowledge artifacts from devlore-cli source

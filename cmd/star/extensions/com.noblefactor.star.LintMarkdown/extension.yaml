@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintMarkdown
+description: Run markdownlint and frontmatter check
+
+commands:
+  - name: lint.markdown
+    help: Run markdownlint and frontmatter check on markdown files
+    implementation: commands/lint-markdown.star
+    args:
+      - name: path
+        help: Paths to lint (files or directories)
+        default: "."
+        variadic: true
+    flags:
+      - name: fix
+        type: bool
+        default: "false"
+        help: Auto-fix issues where possible
+
+config:
+  path: lint.markdown
+  type: MarkdownLintConfig
+  fields:
+    path: string
+    exclude: "[]string"
+    config: "map[string]interface{}"
+  defaults:
+    path: "."
+    exclude:
+      - node_modules
+      - vendor
+      - .git
