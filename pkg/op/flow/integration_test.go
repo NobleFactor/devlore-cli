@@ -153,7 +153,7 @@ func TestActions_Degraded_RoundTrip(t *testing.T) {
 	graph := op.NewGraph("roundtrip")
 	p := plan.NewProvider(graph, "proj", reg)
 
-	promise, err := p.Degraded("timeout on %s", "db")
+	promise, err := p.Degraded("timeout on %s", []any{"db"}, nil)
 	if err != nil {
 		t.Fatalf("Degraded() error: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestActions_Fatal_RoundTrip(t *testing.T) {
 	graph := op.NewGraph("roundtrip")
 	p := plan.NewProvider(graph, "proj", reg)
 
-	promise, err := p.Fatal("out of memory")
+	promise, err := p.Fatal("out of memory", nil, nil)
 	if err != nil {
 		t.Fatalf("Fatal() error: %v", err)
 	}

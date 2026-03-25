@@ -129,17 +129,49 @@ func buildPlannedBridge(
 	project string,
 	reg *ActionRegistry,
 ) builtinFunc {
+	// Detect **kwargs param and build known-kwarg set for filtering.
+	var kwargsName string
+	knownKwargs := make(map[string]bool, len(paramNames))
+	regularParams := make([]string, 0, len(paramNames))
+	for _, name := range paramNames {
+		if strings.HasPrefix(name, "**") {
+			kwargsName = strings.TrimPrefix(name, "**")
+		} else {
+			regularParams = append(regularParams, name)
+			clean := strings.TrimPrefix(name, "*")
+			clean = strings.TrimSuffix(clean, "?")
+			knownKwargs[clean] = true
+		}
+	}
+
 	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		// 1. Unpack args as raw starlark.Value (slots store Starlark
 		//    values for deferred execution — NOT Go types).
 		//    Handle variadic params (*name) by stripping the prefix for
 		//    UnpackArgs and collecting them separately.
-		vals := make([]starlark.Value, len(paramNames))
-		pairs := make([]any, 0, len(paramNames)*2)
-		for i, name := range paramNames {
+		vals := make([]starlark.Value, len(regularParams))
+		pairs := make([]any, 0, len(regularParams)*2)
+		for i, name := range regularParams {
 			pairs = append(pairs, strings.TrimPrefix(name, "*"), &vals[i])
 		}
-		if err := starlark.UnpackArgs(snakeName, args, kwargs, pairs...); err != nil {
+
+		// Split kwargs: known → UnpackArgs, unknown → **kwargs dict slots.
+		var filteredKwargs []starlark.Tuple
+		var extraKwargs []starlark.Tuple
+		if kwargsName != "" {
+			for _, kv := range kwargs {
+				key, _ := starlark.AsString(kv[0])
+				if knownKwargs[key] {
+					filteredKwargs = append(filteredKwargs, kv)
+				} else {
+					extraKwargs = append(extraKwargs, kv)
+				}
+			}
+		} else {
+			filteredKwargs = kwargs
+		}
+
+		if err := starlark.UnpackArgs(snakeName, args, filteredKwargs, pairs...); err != nil {
 			return nil, err
 		}
 
@@ -152,8 +184,9 @@ func buildPlannedBridge(
 
 		// 3. Fill slots from Starlark values and resolve Resource params.
 		mt := method.Type
-		for i, name := range paramNames {
+		for i, name := range regularParams {
 			cleanName := strings.TrimSuffix(name, "?")
+			cleanName = strings.TrimPrefix(cleanName, "*")
 			sv := vals[i]
 			if sv == nil {
 				continue // Optional param not provided.
@@ -196,16 +229,27 @@ func buildPlannedBridge(
 			}
 		}
 
-		// 4. Shadow output Resource for compensable methods.
+		// 4. Fill **kwargs as dict sub-slots.
+		if kwargsName != "" {
+			for _, kv := range extraKwargs {
+				key, _ := starlark.AsString(kv[0])
+				subSlot := fmt.Sprintf("%s.%s", kwargsName, key)
+				if err := FillSlot(node, graph, subSlot, kv[1]); err != nil {
+					return nil, fmt.Errorf("%s: kwarg %s: %w", snakeName, key, err)
+				}
+			}
+		}
+
+		// 5. Shadow output Resource for compensable methods.
 		// For methods that return a Resource, shadow the last
 		// Resource-typed param (the write target). This supersedes the
 		// earlier Resolve, removing the destination from DiscoveryURIs
 		// so pre-flight won't reject missing targets.
-		if err := shadowOutputParam(graph, mt, vals, paramNames, node.ID); err != nil {
+		if err := shadowOutputParam(graph, mt, vals, regularParams, node.ID); err != nil {
 			return nil, err
 		}
 
-		// 5. Append to graph and return promise.
+		// 6. Append to graph and return promise.
 		graph.Nodes = append(graph.Nodes, node)
 		return NewPromise(node, graph, ""), nil
 	}

@@ -252,46 +252,71 @@ func buildMethodBridge(
 
 	methodType := method.Type
 
-	// Separate named params from the variadic param (at most one, always last).
+	// Separate named params from variadic (*) and kwargs (**) params.
 	var variadicName string // snake_case name without "*"
 	var variadicIdx int     // index in paramNames
+	var kwargsName string   // snake_case name without "**"
+	var kwargsIdx int       // index in paramNames
 	namedParams := make([]string, 0, len(paramNames))
 	for i, p := range paramNames {
-		if strings.HasPrefix(p, "*") {
+		switch {
+		case strings.HasPrefix(p, "**"):
+			kwargsName = strings.TrimPrefix(p, "**")
+			kwargsIdx = i
+		case strings.HasPrefix(p, "*"):
 			variadicName = strings.TrimPrefix(p, "*")
 			variadicIdx = i
-		} else {
+		default:
 			namedParams = append(namedParams, p)
 		}
 	}
 	numNamed := len(namedParams)
 	numParams := len(paramNames)
 
+	// Build set of known kwarg names for filtering.
+	knownKwargs := make(map[string]bool, numNamed+1)
+	for _, name := range namedParams {
+		knownKwargs[strings.TrimSuffix(name, "?")] = true
+	}
+	if variadicName != "" {
+		knownKwargs[variadicName] = true
+	}
+
 	return func(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		if variadicName == "" {
-			// --- Non-variadic path ---
+		if variadicName == "" && kwargsName == "" {
+			// --- Simple path: no variadic, no kwargs ---
 			return callNonVariadic(receiverName, providerVal, method, methodType, snakeName, paramNames, numParams, receiver, thread, args, kwargs)
 		}
 
-		// --- Variadic path ---
-		// 1. Unpack named (non-variadic) params.
+		// --- Extended path: variadic and/or kwargs ---
+		// 1. Unpack named params.
 		namedVals := make([]starlark.Value, numNamed)
 		pairs := make([]any, 0, numNamed*2)
 		for i, name := range namedParams {
 			pairs = append(pairs, name, &namedVals[i])
 		}
 
-		// Extract the variadic keyword if present, so UnpackArgs doesn't
-		// reject it as unexpected.
+		// Split kwargs: known → UnpackArgs, variadic → extracted, rest → **kwargs.
 		var kwVariadic starlark.Value
 		var filteredKwargs []starlark.Tuple
+		var extraKwargs []starlark.Tuple
 		for _, kv := range kwargs {
 			key, _ := starlark.AsString(kv[0])
-			if key == variadicName {
+			switch {
+			case key == variadicName:
 				kwVariadic = kv[1]
-			} else {
+			case knownKwargs[key]:
 				filteredKwargs = append(filteredKwargs, kv)
+			default:
+				extraKwargs = append(extraKwargs, kv)
 			}
+		}
+
+		// Reject unknown kwargs if no **kwargs param to collect them.
+		if kwargsName == "" && len(extraKwargs) > 0 {
+			key, _ := starlark.AsString(extraKwargs[0][0])
+			return nil, fmt.Errorf("%s: %s() got unexpected keyword argument %q",
+				receiverName, snakeName, key)
 		}
 
 		// Positional args beyond the named params are variadic candidates.
@@ -306,27 +331,7 @@ func buildMethodBridge(
 			return nil, err
 		}
 
-		// 2. Resolve the variadic value.
-		if len(positionalVariadic) > 0 && kwVariadic != nil {
-			return nil, fmt.Errorf("%s: %s() got both positional and keyword args for variadic param %q",
-				receiverName, snakeName, variadicName)
-		}
-
-		var variadicList *starlark.List
-		if len(positionalVariadic) > 0 {
-			elems := make([]starlark.Value, len(positionalVariadic))
-			copy(elems, positionalVariadic)
-			variadicList = starlark.NewList(elems)
-		} else if kwVariadic != nil {
-			list, ok := kwVariadic.(*starlark.List)
-			if !ok {
-				return nil, fmt.Errorf("%s.%s: keyword %s must be a list, got %s",
-					receiverName, snakeName, variadicName, kwVariadic.Type())
-			}
-			variadicList = list
-		}
-
-		// 3. Build Go args: named params + variadic slice.
+		// 2. Build Go args.
 		goArgs := make([]reflect.Value, numParams+1)
 		goArgs[0] = providerVal
 
@@ -336,6 +341,17 @@ func buildMethodBridge(
 				goArgs[i+1] = reflect.Zero(paramType)
 				continue
 			}
+
+			if starFn, ok := sv.(starlark.Callable); ok && paramType.Kind() == reflect.Func {
+				adapted, err := buildCallableFunc(starFn, thread, paramType)
+				if err != nil {
+					name := strings.TrimSuffix(namedParams[i], "?")
+					return nil, fmt.Errorf("%s.%s: param %s: adapt callable: %w", receiverName, snakeName, name, err)
+				}
+				goArgs[i+1] = reflect.ValueOf(adapted)
+				continue
+			}
+
 			goVal := reflect.New(paramType).Elem()
 			if err := unmarshalValue(sv, goVal); err != nil {
 				name := strings.TrimSuffix(namedParams[i], "?")
@@ -344,23 +360,64 @@ func buildMethodBridge(
 			goArgs[i+1] = goVal
 		}
 
-		// Variadic param: unmarshal list → Go slice type.
-		// For CallSlice, the variadic arg must be the slice itself.
-		variadicGoType := methodType.In(variadicIdx + 1) // e.g. []string
-		if variadicList == nil || variadicList.Len() == 0 {
-			goArgs[variadicIdx+1] = reflect.Zero(variadicGoType)
-		} else {
-			goVal := reflect.New(variadicGoType).Elem()
-			if err := unmarshalValue(variadicList, goVal); err != nil {
-				return nil, fmt.Errorf("%s.%s: param %s: %w", receiverName, snakeName, variadicName, err)
+		// 3. Resolve the variadic value (if present).
+		if variadicName != "" {
+			if len(positionalVariadic) > 0 && kwVariadic != nil {
+				return nil, fmt.Errorf("%s: %s() got both positional and keyword args for variadic param %q",
+					receiverName, snakeName, variadicName)
 			}
-			goArgs[variadicIdx+1] = goVal
+
+			var variadicList *starlark.List
+			if len(positionalVariadic) > 0 {
+				elems := make([]starlark.Value, len(positionalVariadic))
+				copy(elems, positionalVariadic)
+				variadicList = starlark.NewList(elems)
+			} else if kwVariadic != nil {
+				list, ok := kwVariadic.(*starlark.List)
+				if !ok {
+					return nil, fmt.Errorf("%s.%s: keyword %s must be a list, got %s",
+						receiverName, snakeName, variadicName, kwVariadic.Type())
+				}
+				variadicList = list
+			}
+
+			variadicGoType := methodType.In(variadicIdx + 1)
+			if variadicList == nil || variadicList.Len() == 0 {
+				goArgs[variadicIdx+1] = reflect.Zero(variadicGoType)
+			} else {
+				goVal := reflect.New(variadicGoType).Elem()
+				if err := unmarshalValue(variadicList, goVal); err != nil {
+					return nil, fmt.Errorf("%s.%s: param %s: %w", receiverName, snakeName, variadicName, err)
+				}
+				goArgs[variadicIdx+1] = goVal
+			}
 		}
 
-		// 4. Call via CallSlice (variadic methods).
-		results := method.Func.CallSlice(goArgs)
+		// 4. Build **kwargs map from extra keyword args.
+		if kwargsName != "" {
+			kwargsMap := make(map[string]any, len(extraKwargs))
+			for _, kv := range extraKwargs {
+				key, _ := starlark.AsString(kv[0])
+				val, err := unmarshalToAny(kv[1])
+				if err != nil {
+					return nil, fmt.Errorf("%s.%s: kwarg %s: %w", receiverName, snakeName, key, err)
+				}
+				kwargsMap[key] = val
+			}
+			goArgs[kwargsIdx+1] = reflect.ValueOf(kwargsMap)
+		}
 
-		// 5. Shadow Resource results in catalog.
+		// 5. Call the Go method.
+		// CallSlice only when Go-variadic (has *args but no **kwargs).
+		// When **kwargs is present, *args maps to an explicit []T param.
+		var results []reflect.Value
+		if variadicName != "" && kwargsName == "" {
+			results = method.Func.CallSlice(goArgs)
+		} else {
+			results = method.Func.Call(goArgs)
+		}
+
+		// 6. Shadow Resource results in catalog.
 		if receiver.catalog != nil && len(results) > 0 {
 			lastIdx := len(results) - 1
 			isErr := results[lastIdx].Type().Implements(errorType) && !results[lastIdx].IsNil()

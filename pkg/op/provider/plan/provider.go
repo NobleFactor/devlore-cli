@@ -65,11 +65,12 @@ func (p *Provider) Complete(output any) (*op.Promise, error) {
 // Parameters:
 //   - format: format string (immediate or Promise).
 //   - args: positional format arguments (each may be immediate or Promise).
+//   - kwargs: keyword arguments for template rendering (each may be immediate or Promise).
 //
 // Returns:
 //   - *op.Promise: promise for the terminal node.
 //   - error: any error from slot filling.
-func (p *Provider) Degraded(format any, args ...any) (*op.Promise, error) {
+func (p *Provider) Degraded(format any, args []any, kwargs map[string]any) (*op.Promise, error) {
 	node := &op.Node{
 		ID:      op.GenerateNodeID("degraded"),
 		Action:  p.reg.MustGet("flow.degraded"),
@@ -78,6 +79,7 @@ func (p *Provider) Degraded(format any, args ...any) (*op.Promise, error) {
 
 	p.fillSlot(node, "format", format)
 	p.fillListSlot(node, "args", args)
+	p.fillDictSlot(node, "kwargs", kwargs)
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return op.NewPromise(node, p.graph, ""), nil
@@ -88,11 +90,12 @@ func (p *Provider) Degraded(format any, args ...any) (*op.Promise, error) {
 // Parameters:
 //   - format: format string (immediate or Promise).
 //   - args: positional format arguments (each may be immediate or Promise).
+//   - kwargs: keyword arguments for template rendering (each may be immediate or Promise).
 //
 // Returns:
 //   - *op.Promise: promise for the terminal node.
 //   - error: any error from slot filling.
-func (p *Provider) Fatal(format any, args ...any) (*op.Promise, error) {
+func (p *Provider) Fatal(format any, args []any, kwargs map[string]any) (*op.Promise, error) {
 	node := &op.Node{
 		ID:      op.GenerateNodeID("fatal"),
 		Action:  p.reg.MustGet("flow.fatal"),
@@ -101,6 +104,7 @@ func (p *Provider) Fatal(format any, args ...any) (*op.Promise, error) {
 
 	p.fillSlot(node, "format", format)
 	p.fillListSlot(node, "args", args)
+	p.fillDictSlot(node, "kwargs", kwargs)
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return op.NewPromise(node, p.graph, ""), nil
@@ -229,6 +233,14 @@ func (p *Provider) fillListSlot(node *op.Node, slotName string, values []any) {
 		p.fillSlot(node, subSlot, v)
 	}
 	node.SetSlotImmediate(slotName+".len", len(values))
+}
+
+// fillDictSlot packs key-value pairs into keyed sub-slots on a node.
+func (p *Provider) fillDictSlot(node *op.Node, slotName string, kwargs map[string]any) {
+	for key, v := range kwargs {
+		subSlot := fmt.Sprintf("%s.%s", slotName, key)
+		p.fillSlot(node, subSlot, v)
+	}
 }
 
 // endregion
