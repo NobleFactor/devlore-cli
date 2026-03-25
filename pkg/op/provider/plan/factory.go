@@ -12,8 +12,8 @@ import (
 // Params maps Go method names to Starlark parameter name lists.
 var Params = op.MethodParams{
 	"Complete":  {"output?"},
-	"Degraded":  {"format", "*args"},
-	"Fatal":     {"format", "*args"},
+	"Degraded":  {"format", "*args", "**kwargs"},
+	"Fatal":     {"format", "*args", "**kwargs"},
 	"WaitUntil": {"target", "predicate", "timeout", "interval?"},
 	"Gather":    {"*promises"},
 	"Choose":    {"when", "then"},
