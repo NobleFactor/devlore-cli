@@ -13,6 +13,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
