@@ -10,31 +10,28 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// PlanRoot implements the top-level plan namespace using the slot-based model.
-// Sub-namespaces are populated from PlanningReceiverFactory implementations selected by
-// StarlarkRuntime. Flow actions (choose, source, gather) are built-in.
+// PlanRoot implements the top-level plan namespace. It delegates method
+// lookups to the plan Provider's executing receiver and routes sub-namespace
+// lookups (plan.file, plan.git, etc.) to PlanningReceiverFactory implementations.
 type PlanRoot struct {
-	graph   *Graph
-	project string
-	reg     *ActionRegistry
+	// planReceiver is the plan Provider wrapped as an ExecutingReceiver.
+	// Handles: choose, source, gather, complete, degraded, fatal, wait_until.
+	planReceiver *ExecutingReceiver
 
 	// Sub-namespaces built from announced PlanningReceiverFactory implementations.
 	plans map[string]starlark.Value
 }
 
-// NewPlanRootFromProviders creates a PlanRoot from announced PlanningReceiverFactory
-// implementations. Consumers select providers via StarlarkRuntime, which passes the
-// filtered provider map here.
-func NewPlanRootFromProviders(graph *Graph, project string, reg *ActionRegistry, providers map[string]PlanningReceiverFactory) *PlanRoot {
+// NewPlanRoot creates a PlanRoot from a plan executing receiver and announced
+// PlanningReceiverFactory implementations.
+func NewPlanRoot(planReceiver *ExecutingReceiver, providers map[string]PlanningReceiverFactory, graph *Graph, project string, reg *ActionRegistry) *PlanRoot {
 	plans := make(map[string]starlark.Value, len(providers))
 	for name, p := range providers {
 		plans[name] = p.NewPlanning(graph, project, reg)
 	}
 	return &PlanRoot{
-		graph:   graph,
-		project: project,
-		reg:     reg,
-		plans:   plans,
+		planReceiver: planReceiver,
+		plans:        plans,
 	}
 }
 
@@ -53,156 +50,25 @@ func (p *PlanRoot) Truth() starlark.Bool { return true }
 // Hash implements starlark.Value.
 func (p *PlanRoot) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: plan") }
 
-// Attr implements starlark.HasAttrs.
+// Attr implements starlark.HasAttrs. Sub-namespaces are checked first,
+// then the plan Provider's executing receiver handles method lookups.
 func (p *PlanRoot) Attr(name string) (starlark.Value, error) {
-	// Dynamic sub-namespaces from registry
+	// Sub-namespace routing (plan.file, plan.git, etc.)
 	if plan, ok := p.plans[name]; ok {
 		return plan, nil
 	}
 
-	// Top-level bindings (graph construction primitives)
-	switch name {
-	case "choose":
-		return starlark.NewBuiltin("plan.choose", p.choose), nil
-	case "source":
-		return starlark.NewBuiltin("plan.source", p.source), nil
-	case "gather":
-		return starlark.NewBuiltin("plan.gather", p.gather), nil
-	default:
-		return nil, starlark.NoSuchAttrError(fmt.Sprintf("plan has no attribute %q", name))
-	}
+	// Delegate to plan Provider's executing receiver.
+	return p.planReceiver.Attr(name)
 }
 
 // AttrNames implements starlark.HasAttrs.
 func (p *PlanRoot) AttrNames() []string {
-	names := make([]string, 0, len(p.plans)+3)
+	names := make([]string, 0, len(p.plans))
 	for name := range p.plans {
 		names = append(names, name)
 	}
-	names = append(names, "choose", "source", "gather")
+	names = append(names, p.planReceiver.AttrNames()...)
 	sort.Strings(names)
 	return names
-}
-
-// choose creates a conditional branch in the execution graph.
-// Usage: plan.choose(when=predicate_output, then=callback)
-//
-// The "when" argument is the output of a predicate action (a bool-returning
-// provider method like plan.file.exists(path)). The predicate node runs first,
-// producing a boolean that flows into Choose's "when" slot via an edge.
-//
-// Arguments:
-//   - when: An Promise from a predicate action (e.g., plan.file.exists(path))
-//   - then: A callable that builds graph nodes for the true branch
-//
-// Returns: Promise of the choose node
-func (p *PlanRoot) choose(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var when starlark.Value
-	var then starlark.Callable
-
-	if err := starlark.UnpackArgs("choose", args, kwargs,
-		"when", &when,
-		"then", &then,
-	); err != nil {
-		return nil, err
-	}
-
-	// The "when" must be an Promise — the promise of a boolean from a predicate node.
-	predOutput, ok := when.(*Promise)
-	if !ok {
-		return nil, fmt.Errorf("choose: when must be a predicate output (e.g., plan.file.exists(...)), got %s", when.Type())
-	}
-
-	// Snapshot current graph state to track nodes added by the callback.
-	nodesBefore := len(p.graph.Nodes)
-
-	// Execute the callback to build sub-graph nodes.
-	_, err := starlark.Call(thread, then, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("choose: then callback: %w", err)
-	}
-
-	// Collect nodes added by the callback into a branch phase.
-	branchPhaseID := GenerateNodeID("choose-branch")
-	branchPhase := &Phase{
-		ID:     branchPhaseID,
-		Name:   "choose-branch",
-		Status: PhasePending,
-		Branch: true,
-	}
-	for i := nodesBefore; i < len(p.graph.Nodes); i++ {
-		branchPhase.NodeIDs = append(branchPhase.NodeIDs, p.graph.Nodes[i].ID)
-	}
-	p.graph.Phases = append(p.graph.Phases, branchPhase)
-
-	// Create the choose node. The "when" slot is a promise that resolves
-	// to the predicate node's boolean result at execution time.
-	chooseNode := &Node{
-		ID:      GenerateNodeID("choose"),
-		Action:  p.reg.MustGet("flow.choose"),
-		Project: p.project,
-	}
-
-	// Wire predicate output → choose "when" slot via FillSlot (creates edge).
-	if err := FillSlot(chooseNode, p.graph, "when", predOutput); err != nil {
-		return nil, fmt.Errorf("choose: when: %w", err)
-	}
-	chooseNode.SetSlotImmediate("then", branchPhaseID)
-
-	p.graph.Nodes = append(p.graph.Nodes, chooseNode)
-	return NewPromise(chooseNode, p.graph, ""), nil
-}
-
-// source creates a source file artifact.
-// Usage: plan.source(path)
-//
-// Slots:
-//   - path: Path to existing source file (immediate only)
-//
-// Returns: Promise of the source file
-func (p *PlanRoot) source(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var path starlark.Value
-	if err := starlark.UnpackArgs("source", args, kwargs, "path", &path); err != nil {
-		return nil, err
-	}
-
-	node := &Node{
-		ID:      GenerateNodeID("source"),
-		Action:  p.reg.MustGet("file.read_text"),
-		Project: p.project,
-	}
-
-	if err := FillSlot(node, p.graph, "resource", path); err != nil {
-		return nil, fmt.Errorf("source: resource: %w", err)
-	}
-
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return NewPromise(node, p.graph, ""), nil
-}
-
-// gather creates a list of promises for fan-in parallel execution.
-// Usage: plan.gather(promise1, promise2, ...)
-//
-// Returns a list of Promise values. When the list is passed to another
-// operation's slot, FillSlot creates edges from ALL gathered nodes to the
-// consumer, enabling parallel execution.
-//
-// Arguments:
-//   - promises: Two or more Promise values to gather
-//
-// Returns: list of Promise values
-func (p *PlanRoot) gather(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	if len(args) < 2 {
-		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(args))
-	}
-
-	elems := make([]starlark.Value, len(args))
-	for i, arg := range args {
-		if _, ok := arg.(*Promise); !ok {
-			return nil, fmt.Errorf("gather: argument %d must be an Promise, got %s", i+1, arg.Type())
-		}
-		elems[i] = arg
-	}
-
-	return starlark.NewList(elems), nil
 }

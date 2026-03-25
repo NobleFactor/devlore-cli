@@ -161,9 +161,8 @@ func (rt *StarlarkRuntime) BuildGlobals(graph *Graph, project string, reg *Actio
 
 	// Build "plan" if requested.
 	if rt.HasGraphBuilder() {
-		planned := collectPlannedProviders()
-		if len(planned) > 0 {
-			globals["plan"] = NewPlanRootFromProviders(graph, project, reg, planned)
+		if planRoot := rt.buildPlanRoot(graph, project, reg); planRoot != nil {
+			globals["plan"] = planRoot
 		}
 	}
 
@@ -280,7 +279,7 @@ func (rt *StarlarkRuntime) resolveProvider(name string, graph *Graph, project st
 	return starlark.StringDict{name: recv}, nil
 }
 
-// buildPlanModule constructs a plan module from all announced PlanningReceiverFactory implementations.
+// buildPlanModule constructs a plan module for @devlore//plan import.
 //
 // Parameters:
 //   - graph: the execution graph for plan construction.
@@ -289,15 +288,36 @@ func (rt *StarlarkRuntime) resolveProvider(name string, graph *Graph, project st
 //
 // Returns:
 //   - starlark.StringDict: the plan module globals.
-//   - error: non-nil if no planned providers are registered.
+//   - error: non-nil if no plan receiver factory is registered.
 func (rt *StarlarkRuntime) buildPlanModule(graph *Graph, project string, reg *ActionRegistry) (starlark.StringDict, error) {
 
-	planned := collectPlannedProviders()
-	if len(planned) == 0 {
-		return nil, fmt.Errorf("no planned providers registered")
+	planRoot := rt.buildPlanRoot(graph, project, reg)
+	if planRoot == nil {
+		return nil, fmt.Errorf("no plan receiver factory registered")
 	}
-	plan := NewPlanRootFromProviders(graph, project, reg, planned)
-	return starlark.StringDict{"plan": plan}, nil
+	return starlark.StringDict{"plan": planRoot}, nil
+}
+
+// buildPlanRoot creates a PlanRoot from the announced PlanReceiverFactory and
+// PlanningReceiverFactory implementations.
+func (rt *StarlarkRuntime) buildPlanRoot(graph *Graph, project string, reg *ActionRegistry) *PlanRoot {
+
+	// Find the plan receiver factory.
+	var planReceiver *ExecutingReceiver
+	for _, p := range Receivers() {
+		if pf, ok := p.(PlanReceiverFactory); ok {
+			planReceiver = pf.NewExecuting(graph, project, reg)
+			break
+		}
+	}
+	if planReceiver == nil {
+		return nil
+	}
+
+	// Collect sub-namespace providers (plan.file, plan.git, etc.).
+	planned := collectPlannedProviders()
+
+	return NewPlanRoot(planReceiver, planned, graph, project, reg)
 }
 
 // endregion

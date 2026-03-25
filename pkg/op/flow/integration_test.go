@@ -12,6 +12,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/flow"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
 func TestMain(m *testing.M) {
@@ -26,11 +27,12 @@ func TestStarlark_PlanReceiver(t *testing.T) {
 	reg.Register(&flow.Complete{})
 	reg.Register(&flow.Degraded{})
 	reg.Register(&flow.Fatal{})
+	op.RegisterReceiverParams(plan.Factory, plan.Params)
 
 	graph := op.NewGraph("flow-integration")
-	plan := flow.NewFlowPlan(graph, "testproject", reg)
+	receiver := plan.Factory.(op.PlanReceiverFactory).NewExecuting(graph, "testproject", reg)
 
-	globals := starlark.StringDict{"flow": plan}
+	globals := starlark.StringDict{"plan": receiver}
 
 	thread := &starlark.Thread{
 		Name:  "flow-integration",
@@ -122,19 +124,14 @@ func TestActions_Complete_RoundTrip(t *testing.T) {
 	reg.Register(&flow.Complete{})
 
 	graph := op.NewGraph("roundtrip")
-	plan := flow.NewFlowPlan(graph, "proj", reg)
+	p := plan.NewProvider(graph, "proj", reg)
 
-	// Plan: call flow.complete(output="hello") from Starlark.
-	attr, err := plan.Attr("complete")
+	promise, err := p.Complete("hello")
 	if err != nil {
-		t.Fatalf("Attr(complete) error: %v", err)
+		t.Fatalf("Complete() error: %v", err)
 	}
-	builtin := attr.(*starlark.Builtin)
-	_, err = builtin.CallInternal(nil, nil, []starlark.Tuple{
-		{starlark.String("output"), starlark.String("hello")},
-	})
-	if err != nil {
-		t.Fatalf("complete() error: %v", err)
+	if promise == nil {
+		t.Fatal("Complete() returned nil promise")
 	}
 
 	// Execute: call Do() on the created node.
@@ -154,20 +151,14 @@ func TestActions_Degraded_RoundTrip(t *testing.T) {
 	reg.Register(&flow.Degraded{})
 
 	graph := op.NewGraph("roundtrip")
-	plan := flow.NewFlowPlan(graph, "proj", reg)
+	p := plan.NewProvider(graph, "proj", reg)
 
-	// Plan: call flow.degraded("timeout on %s", "db") from Starlark.
-	attr, err := plan.Attr("degraded")
+	promise, err := p.Degraded("timeout on %s", "db")
 	if err != nil {
-		t.Fatalf("Attr(degraded) error: %v", err)
+		t.Fatalf("Degraded() error: %v", err)
 	}
-	builtin := attr.(*starlark.Builtin)
-	_, err = builtin.CallInternal(nil,
-		starlark.Tuple{starlark.String("timeout on %s"), starlark.String("db")},
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("degraded() error: %v", err)
+	if promise == nil {
+		t.Fatal("Degraded() returned nil promise")
 	}
 
 	// Execute: call Do() on the created node.
@@ -188,20 +179,14 @@ func TestActions_Fatal_RoundTrip(t *testing.T) {
 	reg.Register(&flow.Fatal{})
 
 	graph := op.NewGraph("roundtrip")
-	plan := flow.NewFlowPlan(graph, "proj", reg)
+	p := plan.NewProvider(graph, "proj", reg)
 
-	// Plan: call flow.fatal("out of memory") from Starlark.
-	attr, err := plan.Attr("fatal")
+	promise, err := p.Fatal("out of memory")
 	if err != nil {
-		t.Fatalf("Attr(fatal) error: %v", err)
+		t.Fatalf("Fatal() error: %v", err)
 	}
-	builtin := attr.(*starlark.Builtin)
-	_, err = builtin.CallInternal(nil,
-		starlark.Tuple{starlark.String("out of memory")},
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("fatal() error: %v", err)
+	if promise == nil {
+		t.Fatal("Fatal() returned nil promise")
 	}
 
 	// Execute: call Do() on the created node.

@@ -32,6 +32,15 @@ type ExecutingReceiverFactory interface {
 	NewExecuting(ctx Context) starlark.Value
 }
 
+// PlanReceiverFactory is implemented by the plan provider's factory.
+// The plan provider is an executing receiver whose methods create graph nodes
+// during script evaluation. Unlike PlanningReceiverFactory (which creates
+// planning-mode wrappers for other providers), PlanReceiverFactory creates
+// the plan namespace's own receiver.
+type PlanReceiverFactory interface {
+	NewExecuting(graph *Graph, project string, reg *ActionRegistry) *ExecutingReceiver
+}
+
 // ContextProvider is an interface for objects that can supply an execution [Context].
 //
 // Actions that need access to the execution environment implement this interface to receive the [Context] during graph
