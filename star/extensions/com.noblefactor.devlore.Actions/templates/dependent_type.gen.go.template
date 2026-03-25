@@ -26,6 +26,7 @@ var {{.type_name}}Params = op.MethodParams{
 }
 
 // {{.type_name}}Factory provides the minimal ReceiverFactory interface for dependent type marshaling.
+//
 // When op.Marshal encounters a *{{.provider_type_prefix}}{{.type_name}}, the receiver params registry
 // directs it to WrapProviderInExecutingReceiver using this factory.
 type {{.type_name}}Factory struct{}

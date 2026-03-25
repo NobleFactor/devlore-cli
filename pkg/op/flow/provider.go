@@ -6,8 +6,6 @@ package flow
 import (
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -32,11 +30,6 @@ func (p *flowProvider) Register(reg *op.ActionRegistry, _ op.Context) {
 	reg.Register(&Complete{})
 	reg.Register(&Degraded{})
 	reg.Register(&Fatal{})
-}
-
-// NewPlanning implements op.PlanningReceiverFactory.
-func (p *flowProvider) NewPlanning(graph *op.Graph, project string, reg *op.ActionRegistry) starlark.Value {
-	return NewFlowPlan(graph, project, reg)
 }
 
 func init() {

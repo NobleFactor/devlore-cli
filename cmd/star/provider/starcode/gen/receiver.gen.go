@@ -32,6 +32,7 @@ type receiverFactory struct {
 // region State management
 
 // GetOrCreateProvider returns a cached provider for the given context, creating one if needed.
+//
 // The provider is invalidated when the Root changes.
 //
 // Parameters:

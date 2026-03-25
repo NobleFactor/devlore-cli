@@ -1168,6 +1168,12 @@ func unmarshalToAny(sv starlark.Value) (any, error) {
 	case *starlarkstruct.Struct:
 		return unmarshalAttrsToAny(v)
 	default:
+		// Pass through Go pointer handles. Known starlark types (List, Dict,
+		// StructValue) are handled above; remaining pointers are framework
+		// handles (e.g., *Promise) that should flow through as-is.
+		if reflect.TypeOf(sv).Kind() == reflect.Pointer {
+			return sv, nil
+		}
 		return nil, fmt.Errorf("unmarshal: unsupported starlark type %s", sv.Type())
 	}
 }
@@ -1203,6 +1209,14 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			return nil
 		}
 		rv.Set(reflect.Zero(rv.Type()))
+		return nil
+	}
+
+	// Pass through Go pointer handles: if the starlark.Value is directly
+	// assignable to the target type, use it as-is. This handles framework
+	// types like *Promise that implement starlark.Value.
+	if reflect.TypeOf(sv).AssignableTo(rv.Type()) {
+		rv.Set(reflect.ValueOf(sv))
 		return nil
 	}
 
