@@ -8,10 +8,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // FormatLiteral serializes a frozen Starlark value as a valid Starlark
@@ -65,7 +64,7 @@ func formatValue(v starlark.Value, depth int) (string, error) {
 	case *starlark.Dict:
 		return formatDict(v, depth)
 
-	case *op.StructValue:
+	case *bind.StructValue:
 		return formatAttrs(v, depth)
 
 	case *starlarkstruct.Struct:

@@ -9,17 +9,18 @@ import (
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml"
 )
 
 // resourceParams maps Go method names on yaml.Resource to Starlark parameter name lists.
-var resourceParams = op.MethodParams{
+var resourceParams = bind.MethodParams{
 	"Validate": {"schema_json"},
 }
 
 func init() {
 	op.AnnounceResource(&resourceFactory{})
-	op.RegisterTypeParams(reflect.TypeOf(provider.Resource{}), resourceParams)
+	bind.RegisterTypeParams(reflect.TypeOf(provider.Resource{}), resourceParams)
 }
 
 type resourceFactory struct{}

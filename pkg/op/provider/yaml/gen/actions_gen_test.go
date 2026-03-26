@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 )
 
@@ -63,7 +64,7 @@ func makeRegistry(t *testing.T) *op.ActionRegistry {
 
 	t.Helper()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, yamlgen.Receiver, yamlgen.Params)
+	bind.RegisterActions(reg, yamlgen.Receiver, yamlgen.Params)
 	return reg
 }
 

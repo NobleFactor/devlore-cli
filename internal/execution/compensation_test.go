@@ -14,6 +14,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"github.com/NobleFactor/devlore-cli/pkg/op/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
@@ -25,7 +26,7 @@ import (
 func fileAction(t *testing.T, p *file.Provider, name string) op.Action {
 	t.Helper()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, filegen.Receiver, filegen.Params)
+	bind.RegisterActions(reg, filegen.Receiver, filegen.Params)
 	a, ok := reg.Get(name)
 	if !ok {
 		t.Fatalf("action %q not registered", name)

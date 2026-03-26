@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -41,7 +42,7 @@ func TestStarlark(t *testing.T) {
 	ctx, buf := testCtx()
 	p := ui.NewProvider(ctx)
 	p.Color = false // disable ANSI for easier assertion
-	receiver := op.WrapProviderInExecutingReceiver(uigen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(uigen.Receiver, p)
 
 	globals := starlark.StringDict{"ui": receiver}
 
@@ -90,7 +91,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Note(t *testing.T) {
 	ctx, buf := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, uigen.Receiver, uigen.Params)
+	bind.RegisterActions(reg, uigen.Receiver, uigen.Params)
 
 	a, ok := reg.Get("ui.note")
 	if !ok {
@@ -110,7 +111,7 @@ func TestActions_Note(t *testing.T) {
 func TestActions_Fail(t *testing.T) {
 	ctx, _ := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, uigen.Receiver, uigen.Params)
+	bind.RegisterActions(reg, uigen.Receiver, uigen.Params)
 
 	a, ok := reg.Get("ui.fail")
 	if !ok {

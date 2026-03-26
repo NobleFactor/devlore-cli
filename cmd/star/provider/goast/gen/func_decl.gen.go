@@ -10,14 +10,15 @@ import (
 
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/goast"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 func init() {
-	op.RegisterReceiverParams(&FuncDeclFactory{}, FuncDeclParams)
+	bind.RegisterReceiverParams(&FuncDeclFactory{}, FuncDeclParams)
 }
 
 // FuncDeclParams maps Go method names to Starlark parameter name lists.
-var FuncDeclParams = op.MethodParams{
+var FuncDeclParams = bind.MethodParams{
 	"DeclName":     {},
 	"DeclKind":     {},
 	"DeclComment":  {},

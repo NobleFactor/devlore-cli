@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"errors"
-	"slices"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
 
@@ -52,8 +52,8 @@ func (p *testProvider) Write(path, content string) (string, map[string]any, erro
 func (p *testProvider) CompensateWrite(_ map[string]any) error { return nil }
 
 // NoResult pattern: (NoResult, map[string]any, error).
-func (p *testProvider) Remove(path string) (NoResult, map[string]any, error) {
-	return NoResult{}, map[string]any{"path": path}, nil
+func (p *testProvider) Remove(path string) (op.NoResult, map[string]any, error) {
+	return op.NoResult{}, map[string]any{"path": path}, nil
 }
 
 // Compensate method for Remove.
@@ -449,45 +449,6 @@ func TestCall_MultiReturn_NoError(t *testing.T) {
 	}
 }
 
-// --- Override tests ---
-
-func TestOverride_ReplacesMethod(t *testing.T) {
-	r := wrapTestReceiver("test", &testProvider{}, testParams)
-
-	r.Override("greet",
-		func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-			return starlark.String("overridden"), nil
-		},
-	)
-
-	result := callMethod(t, r, "greet", starlark.String("ignored"))
-	s, _ := starlark.AsString(result)
-	if s != "overridden" {
-		t.Errorf("overridden greet = %q, want 'overridden'", s)
-	}
-}
-
-func TestOverride_AddsNewMethod(t *testing.T) {
-	r := wrapTestReceiver("test", &testProvider{}, testParams)
-
-	r.Override("custom_method",
-		func(_ *starlark.Thread, _ *starlark.Builtin, _ starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
-			return starlark.String("custom"), nil
-		},
-	)
-
-	// Verify it's in attr list.
-	if !slices.Contains(r.AttrNames(), "custom_method") {
-		t.Error("custom_method not in AttrNames()")
-	}
-
-	result := callMethod(t, r, "custom_method")
-	s, _ := starlark.AsString(result)
-	if s != "custom" {
-		t.Errorf("custom_method = %q, want 'custom'", s)
-	}
-}
-
 // --- Starlark interface tests ---
 
 func TestExecutingReceiver_StarlarkValue(t *testing.T) {
@@ -518,7 +479,7 @@ func TestCall_NoResultReturn(t *testing.T) {
 // --- Catalog integration tests ---
 
 func TestWrapProviderInExecutingReceiver_CatalogShadow(t *testing.T) {
-	catalog := NewResourceCatalog()
+	catalog := op.NewResourceCatalog()
 	r := wrapTestReceiver("test", &actionProvider{}, MethodParams{
 		"Create": {"path"},
 	})
@@ -539,9 +500,12 @@ func TestWrapProviderInExecutingReceiver_CatalogShadow(t *testing.T) {
 	if !ok {
 		t.Fatalf("catalog.Lookup(%q) failed", id)
 	}
-	base := entry.resourceBase()
-	if base.originID != "test.create" {
-		t.Errorf("originID = %q, want %q", base.originID, "test.create")
+	origin, found := op.ExtractResource(entry)
+	if !found {
+		t.Fatal("ExtractResource did not find resource identity")
+	}
+	if origin != "test.create" {
+		t.Errorf("originID = %q, want %q", origin, "test.create")
 	}
 }
 
@@ -554,7 +518,7 @@ func TestWrapProviderInExecutingReceiver_NoCatalog_NoShadow(t *testing.T) {
 }
 
 func TestWrapProviderInExecutingReceiver_CatalogError_NoShadow(t *testing.T) {
-	catalog := NewResourceCatalog()
+	catalog := op.NewResourceCatalog()
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)
 
@@ -569,7 +533,7 @@ func TestWrapProviderInExecutingReceiver_CatalogError_NoShadow(t *testing.T) {
 }
 
 func TestWrapProviderInExecutingReceiver_CatalogNonResource_NoShadow(t *testing.T) {
-	catalog := NewResourceCatalog()
+	catalog := op.NewResourceCatalog()
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)
 
@@ -582,7 +546,7 @@ func TestWrapProviderInExecutingReceiver_CatalogNonResource_NoShadow(t *testing.
 }
 
 func TestWrapProviderInExecutingReceiver_CatalogNoResult_NoShadow(t *testing.T) {
-	catalog := NewResourceCatalog()
+	catalog := op.NewResourceCatalog()
 	r := wrapTestReceiver("test", &testProvider{}, testParams)
 	r.SetCatalog(catalog)
 

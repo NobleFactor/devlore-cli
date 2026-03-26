@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -83,7 +84,7 @@ func TestStarlark(t *testing.T) {
 	destDir := filepath.Join(dir, "extracted")
 
 	p := archive.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(archivegen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(archivegen.Receiver, p)
 
 	globals := starlark.StringDict{
 		"archive":      receiver,
@@ -130,7 +131,7 @@ func TestActions_Extract(t *testing.T) {
 	destDir := filepath.Join(dir, "action_extracted")
 
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, archivegen.Receiver, archivegen.Params)
+	bind.RegisterActions(reg, archivegen.Receiver, archivegen.Params)
 
 	a, ok := reg.Get("archive.extract")
 	if !ok {

@@ -5,10 +5,12 @@
 
 package lint
 
-import "github.com/NobleFactor/devlore-cli/pkg/op"
+import (
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+)
 
 // Params maps Go method names to Starlark parameter name lists.
-var Params = op.MethodParams{
+var Params = bind.MethodParams{
 	"Go":          {"paths?", "config?", "skip_mod_tidy?"},
 	"Shell":       {"files?", "severity?", "indent?"},
 	"Markdown":    {"files?", "fix?"},

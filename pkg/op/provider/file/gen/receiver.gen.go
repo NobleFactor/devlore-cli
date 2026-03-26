@@ -11,6 +11,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
@@ -75,7 +76,7 @@ func (f *receiverFactory) ReceiverName() string { return "file" }
 // Returns:
 //   - starlark.Value: the executing receiver.
 func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
-	return op.WrapProviderInExecutingReceiver(f, provider.NewProvider(ctx))
+	return bind.WrapProviderInExecutingReceiver(f, provider.NewProvider(ctx))
 }
 
 // NewPlanning creates a Starlark receiver that records method calls as graph nodes.
@@ -88,7 +89,7 @@ func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
 // Returns:
 //   - starlark.Value: the planning receiver.
 func (f *receiverFactory) NewPlanning(graph *op.Graph, project string, registry *op.ActionRegistry) starlark.Value {
-	return op.WrapProviderInPlanningReceiver(f, graph, project, registry, Params)
+	return bind.WrapProviderInPlanningReceiver(f, graph, project, registry, Params)
 }
 
 // Register registers all actions and receiver params for this provider.
@@ -98,8 +99,8 @@ func (f *receiverFactory) NewPlanning(graph *op.Graph, project string, registry 
 //   - ctx: the execution context.
 func (f *receiverFactory) Register(registry *op.ActionRegistry, ctx op.Context) {
 
-	op.RegisterActions(registry, f, Params)
-	op.RegisterReceiverParams(f, Params)
+	bind.RegisterActions(registry, f, Params)
+	bind.RegisterReceiverParams(f, Params)
 }
 
 // endregion

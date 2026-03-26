@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -84,7 +85,7 @@ func testCtx() op.Context {
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
 	p := serviceprov.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(servicegen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(servicegen.Receiver, p)
 
 	globals := starlark.StringDict{"service": receiver}
 
@@ -118,7 +119,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Exists(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, servicegen.Receiver, servicegen.Params)
+	bind.RegisterActions(reg, servicegen.Receiver, servicegen.Params)
 
 	a, ok := reg.Get("service.exists")
 	if !ok {
@@ -137,7 +138,7 @@ func TestActions_Exists(t *testing.T) {
 func TestActions_Running(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, servicegen.Receiver, servicegen.Params)
+	bind.RegisterActions(reg, servicegen.Receiver, servicegen.Params)
 
 	a, ok := reg.Get("service.running")
 	if !ok {

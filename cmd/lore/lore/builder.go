@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -437,7 +438,7 @@ func prepareScriptEnv(
 	*PackageContext,
 	error, //nolint:unparam // error return reserved for future use
 ) {
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("lore").
 			WithGraphBuilder().
 			WithReceivers(uigen.Receiver).

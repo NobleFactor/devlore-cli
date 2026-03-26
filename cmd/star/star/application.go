@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	commandsprov "github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -32,7 +33,7 @@ type Application struct {
 	registry *ExtensionRegistry
 	commands map[string]*Command
 	config   *config.Config // Unified config for builtin and extension config
-	star     *op.StarlarkRuntime
+	star     *bind.StarlarkRuntime
 	data     map[string]any // Shared context data (dry_run, config, etc.)
 
 	// UIProvider is the canonical UI output provider.
@@ -45,7 +46,7 @@ func NewRuntime() *Application {
 	cfg := op.NewBindingConfig("star").
 		WithReceivers(op.Receivers()...).
 		WithColor()
-	star := op.NewStarlarkRuntime(cfg)
+	star := bind.NewStarlarkRuntime(cfg)
 
 	// Initialize the framework runtime so BuildReceivers can construct providers.
 	// Root is set to the current working directory so file.Provider can perform I/O.

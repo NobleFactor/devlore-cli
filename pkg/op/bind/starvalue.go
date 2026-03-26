@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package starvalue defines interfaces for custom Starlark value
-// serialization. Types that implement Marshaler or Unmarshaler control
-// how they are converted to and from starlark.Value representations.
-package starvalue
+// Package bind defines interfaces for custom Starlark value serialization.
+//
+// Types that implement Marshaler or Unmarshaler control how they are converted to and from starlark.Value
+// representations.
+package bind
 
 import "go.starlark.net/starlark"
 

@@ -6,6 +6,7 @@ package mem
 import (
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -16,7 +17,7 @@ func TestCallableImplementsResource(t *testing.T) {
 }
 
 func TestCallableImplementsCallableResource(t *testing.T) {
-	var _ op.CallableResource = (*Callable)(nil)
+	var _ bind.CallableResource = (*Callable)(nil)
 }
 
 func TestNewCallable(t *testing.T) {

@@ -1,41 +1,19 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"fmt"
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"unicode"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op/starvalue"
 )
-
-// constructorRegistry maps [reflect.Type] → func(any) (any, error).
-// Types like Blob register a constructor so the reflection bridge can
-// construct them from simpler Starlark representations (e.g. string → Blob).
-var constructorRegistry sync.Map
-
-// receiverParamsRegistry maps [reflect.Type] (struct, not pointer) to
-// receiverEntry. When marshalReflect encounters a pointer to a registered
-// type, it calls WrapProviderInExecutingReceiver instead of flattening to fields.
-var receiverParamsRegistry sync.Map
-
-// typeParamsRegistry maps [reflect.Type] (struct, not pointer) to
-// [MethodParams]. Types like yaml.Resource register their parameterized
-// methods here so [discoverMethods] can expose them as Starlark callables
-// instead of filtering them out.
-var typeParamsRegistry sync.Map
-
-// typeCache stores struct introspection results, keyed by [reflect.Type].
-// Computed once per type, concurrent-safe, amortized O(1) lookups.
-var typeCache sync.Map
 
 // callableResourceType is the [reflect.Type] for the CallableResource interface, used as the key in the constructor
 // registry for callable extraction.
@@ -46,7 +24,7 @@ var callableResourceType = reflect.TypeOf((*CallableResource)(nil)).Elem()
 // CallableResource is the interface that mem.Callable satisfies.
 // It allows pkg/op to work with callables without importing the mem package.
 type CallableResource interface {
-	Resource
+	op.Resource
 	Init(thread *starlark.Thread) error
 	Fn() starlark.Callable
 	FuncTypeName() string
@@ -62,29 +40,6 @@ type CallableInput struct {
 // endregion
 
 // region EXPORTED FUNCTIONS
-
-// Construct uses the constructor registry to convert value to type T.
-//
-// Parameters:
-//   - value: the value to convert via the registered constructor.
-//
-// Returns:
-//   - T: the constructed value.
-//   - error: non-nil if no constructor is registered for T or if it rejects the value.
-func Construct[T any](value any) (T, error) {
-	t := reflect.TypeOf((*T)(nil)).Elem()
-	ctor, ok := ensureResourceInit(t)
-	if !ok {
-		var zero T
-		return zero, fmt.Errorf("no constructor registered for %s", t)
-	}
-	result, err := ctor(value)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	return result.(T), nil
-}
 
 // Marshal converts a Go value to a [starlark.Value].
 //
@@ -108,58 +63,7 @@ func Marshal(v any) (starlark.Value, error) {
 	return marshalReflect(reflect.ValueOf(v))
 }
 
-// RegisterConstructor registers a function that constructs a Go value
-// from a simpler representation (e.g., string → Blob via NewBlob).
-//
-// Parameters:
-//   - fn: constructor function converting any → (T, error).
-func RegisterConstructor[T any](fn func(any) (T, error)) {
-
-	t := reflect.TypeOf((*T)(nil)).Elem()
-	constructorRegistry.Store(t, func(v any) (any, error) {
-		return fn(v)
-	})
-}
-
-// RegisterReceiverParams stores receiver params for a provider type.
-// Called by RegisterActions as a side effect for providers with
-// actions, and directly by immediate-only providers in their Register()
-// callback.
-//
-// Parameters:
-//   - factory: the ReceiverFactory whose ProviderType is used as the registry key.
-//   - params: maps Go method names to Starlark parameter name lists.
-func RegisterReceiverParams(factory ReceiverFactory, params MethodParams) {
-
-	registerReceiverParamsReflect(factory, params)
-}
-
-// RegisterTypeParams stores method parameter metadata for a struct type.
-// When [discoverMethods] encounters a method with parameters on a type
-// registered here, it accepts the method and records its param names so
-// [StructValue.Attr] can return a Starlark callable instead of filtering
-// the method out.
-//
-// Parameters:
-//   - t: the struct [reflect.Type] (not a pointer).
-//   - params: maps Go method names (CamelCase) to Starlark parameter name lists.
-func RegisterTypeParams(t reflect.Type, params MethodParams) {
-
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	typeParamsRegistry.Store(t, params)
-}
-
 // endregion
-
-// region UNEXPORTED TYPES
-
-// receiverEntry pairs a provider name with its method parameter metadata.
-type receiverEntry struct {
-	factory ReceiverFactory
-	params  MethodParams
-}
 
 // typeInfo caches struct introspection results for Starlark field and method mapping.
 type typeInfo struct {
@@ -277,9 +181,9 @@ func camelToSnake(s string) string {
 // Returns:
 //   - Resource: the constructed resource, or nil.
 //   - bool: true if construction succeeded.
-func constructResource(targetType reflect.Type, value any) (Resource, bool) {
+func constructResource(targetType reflect.Type, value any) (op.Resource, bool) {
 
-	ctor, ok := ensureResourceInit(targetType)
+	ctor, ok := op.LookupConstructor(targetType)
 	if !ok {
 		return nil, false
 	}
@@ -294,9 +198,9 @@ func constructResource(targetType reflect.Type, value any) (Resource, bool) {
 	if rv.Kind() == reflect.Struct && reflect.PointerTo(rv.Type()).Implements(resourceType) {
 		ptr := reflect.New(rv.Type())
 		ptr.Elem().Set(rv)
-		return ptr.Interface().(Resource), true
+		return ptr.Interface().(op.Resource), true
 	}
-	if r, ok := result.(Resource); ok {
+	if r, ok := result.(op.Resource); ok {
 		return r, true
 	}
 	return nil, false
@@ -315,7 +219,7 @@ func constructResource(targetType reflect.Type, value any) (Resource, bool) {
 //   - error: non-nil if no extractor is registered or extraction fails.
 func extractCallable(fn *starlark.Function, funcType string) (CallableResource, error) {
 
-	ctor, ok := ensureResourceInit(callableResourceType)
+	ctor, ok := op.LookupConstructor(callableResourceType)
 	if !ok {
 		return nil, fmt.Errorf("no callable extractor registered (mem package not imported?)")
 	}
@@ -439,7 +343,7 @@ func discoverMethods(t reflect.Type, info *typeInfo) {
 	// Ensure resource type params are registered before lookup.
 	// ResourceFactory.Init() is lazy; this triggers it so RegisterTypeParams
 	// runs before we cache the type's method metadata.
-	ensureResourceInit(t)
+	op.LookupConstructor(t)
 
 	typeParams, _ := lookupTypeParams(t)
 
@@ -506,7 +410,7 @@ func discoverMethods(t reflect.Type, info *typeInfo) {
 //
 // Returns:
 //   - error: non-nil if callable initialization or adaptation fails.
-func initCallableSlots(ctx *Context, slots map[string]any, methodType reflect.Type, paramNames []string) error {
+func initCallableSlots(ctx *op.Context, slots map[string]any, methodType reflect.Type, paramNames []string) error {
 
 	for i, name := range paramNames {
 		callable, ok := slots[name].(CallableResource)
@@ -578,26 +482,6 @@ func lookupTypeParams(t reflect.Type) (MethodParams, bool) {
 		return nil, false
 	}
 	return v.(MethodParams), true
-}
-
-// lookupReceiverParams returns the receiver entry for the given type.
-//
-// Parameters:
-//   - t: the [reflect.Type] to look up (pointer or struct).
-//
-// Returns:
-//   - receiverEntry: the stored entry.
-//   - bool: true if found.
-func lookupReceiverParams(t reflect.Type) (receiverEntry, bool) {
-
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	v, ok := receiverParamsRegistry.Load(t)
-	if !ok {
-		return receiverEntry{}, false
-	}
-	return v.(receiverEntry), true
 }
 
 // makeErrorReturn builds a [reflect.Value] slice for an error return.
@@ -688,7 +572,7 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 	// struct's exported fields to be marshaled normally, with only the
 	// embedded ResourceBase using its Marshaler).
 	if rv.Kind() != reflect.Struct && rv.CanInterface() {
-		if m, ok := rv.Interface().(starvalue.Marshaler); ok {
+		if m, ok := rv.Interface().(Marshaler); ok {
 			return m.MarshalStarvalue()
 		}
 	}
@@ -734,11 +618,11 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 					return sv, nil
 				}
 			}
-			if m, ok := rv.Interface().(starvalue.Marshaler); ok {
+			if m, ok := rv.Interface().(Marshaler); ok {
 				return m.MarshalStarvalue()
 			}
 			if rv.CanAddr() {
-				if m, ok := rv.Addr().Interface().(starvalue.Marshaler); ok {
+				if m, ok := rv.Addr().Interface().(Marshaler); ok {
 					return m.MarshalStarvalue()
 				}
 			}
@@ -818,20 +702,6 @@ func marshalStruct(rv reflect.Value) (starlark.Value, error) {
 // registerReceiverParamsReflect stores receiver params using the runtime
 // [reflect.Type] of the provider pointer.
 //
-// Parameters:
-//   - factory: the ReceiverFactory whose ProviderType is used as the registry key.
-//   - params: maps Go method names to Starlark parameter name lists.
-func registerReceiverParamsReflect(factory ReceiverFactory, params MethodParams) {
-
-	providerType := factory.ProviderType()
-
-	if providerType.Kind() == reflect.Ptr {
-		providerType = providerType.Elem()
-	}
-
-	receiverParamsRegistry.Store(providerType, receiverEntry{factory: factory, params: params})
-}
-
 // unmarshal populates a Go value from a starlark.Value.
 // target must be a non-nil pointer. For *any targets, native Go types
 // (string, int, bool, float64, nil, []any, map[string]any) are returned.
@@ -1241,7 +1111,7 @@ func unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 	// Constructor registry: build complex Go types from simpler Starlark values.
 	// If the Starlark value is already a struct whose type name matches the
 	// target Go type, skip the constructor and unmarshal fields directly.
-	if ctor, ok := ensureResourceInit(rv.Type()); ok {
+	if ctor, ok := op.LookupConstructor(rv.Type()); ok {
 		alreadyTarget := false
 		if ss, ok := sv.(*starlarkstruct.Struct); ok {
 			if name, ok := ss.Constructor().(starlark.String); ok {

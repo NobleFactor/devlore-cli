@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	jsongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
 )
 
@@ -63,7 +64,7 @@ func makeRegistry(t *testing.T) *op.ActionRegistry {
 
 	t.Helper()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, jsongen.Receiver, jsongen.Params)
+	bind.RegisterActions(reg, jsongen.Receiver, jsongen.Params)
 	return reg
 }
 

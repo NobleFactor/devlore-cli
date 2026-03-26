@@ -32,13 +32,12 @@ type ExecutingReceiverFactory interface {
 	NewExecuting(ctx Context) starlark.Value
 }
 
-// PlanReceiverFactory is implemented by the plan provider's factory.
-// The plan provider is an executing receiver whose methods create graph nodes
-// during script evaluation. Unlike PlanningReceiverFactory (which creates
-// planning-mode wrappers for other providers), PlanReceiverFactory creates
-// the plan namespace's own receiver.
-type PlanReceiverFactory interface {
-	NewExecuting(graph *Graph, project string, reg *ActionRegistry) *ExecutingReceiver
+// AttributeResolver is implemented by providers that expose dynamic attributes
+// beyond their own methods. When the bridge encounters an unknown attribute,
+// it checks if the provider implements AttributeResolver and delegates to it.
+// The returned value is marshaled to a starlark.Value.
+type AttributeResolver interface {
+	ResolveAttr(name string) any
 }
 
 // ContextProvider is an interface for objects that can supply an execution [Context].
@@ -70,6 +69,11 @@ func NewProviderBase(ctx Context) ProviderBase {
 // Context returns the context associated with this provider's lifetime.
 func (p *ProviderBase) Context() Context {
 	return p.ctx
+}
+
+// SetContext replaces the context for this provider.
+func (p *ProviderBase) SetContext(ctx Context) {
+	p.ctx = ctx
 }
 
 func (p *ProviderBase) providerBase() *ProviderBase { return p }

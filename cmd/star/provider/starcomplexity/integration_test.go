@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starcomplexity"
 	starcomplexitygen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcomplexity/gen"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func TestMain(m *testing.M) {
@@ -54,7 +55,7 @@ func starlarkFileList(files []string) *starlark.List {
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
 	p := starcomplexity.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(starcomplexitygen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(starcomplexitygen.Receiver, p)
 
 	globals := starlark.StringDict{
 		"starcomplexity": receiver,
@@ -88,7 +89,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_ComputeComplexity(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, starcomplexitygen.Receiver, starcomplexitygen.Params)
+	bind.RegisterActions(reg, starcomplexitygen.Receiver, starcomplexitygen.Params)
 
 	a, ok := reg.Get("starcomplexity.compute_complexity")
 	if !ok {

@@ -238,7 +238,7 @@ func TestAnnounce_deduplicates_same_type(t *testing.T) {
 		t.Fatalf("Receivers() returned %d, want 1", len(providers))
 	}
 	if providers[0].ReceiverName() != "second" {
-		t.Errorf("expected last-announced value, got %q", providers[0].ReceiverName())
+		t.Errorf("expected last-announcedReceivers value, got %q", providers[0].ReceiverName())
 	}
 }
 
@@ -274,11 +274,8 @@ func (d *testResourceFactory) Init() error {
 }
 
 func TestAnnounceResource_LazyInit(t *testing.T) {
-	resetAnnouncedResources()
-	t.Cleanup(func() {
-		resetAnnouncedResources()
-		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
-	})
+	ResetResourceRegistry()
+	t.Cleanup(ResetResourceRegistry)
 
 	desc := &testResourceFactory{}
 	AnnounceResource(desc)
@@ -288,10 +285,10 @@ func TestAnnounceResource_LazyInit(t *testing.T) {
 		t.Fatal("constructor should not be registered before first use")
 	}
 
-	// ensureResourceInit should trigger lazy init.
-	ctor, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
+	// LookupConstructor should trigger lazy init.
+	ctor, ok := LookupConstructor(reflect.TypeOf(testResource{}))
 	if !ok {
-		t.Fatal("ensureResourceInit returned false after announcement")
+		t.Fatal("LookupConstructor returned false after announcement")
 	}
 	if desc.initCalled != 1 {
 		t.Fatalf("Init called %d times, want 1", desc.initCalled)
@@ -312,18 +309,15 @@ func TestAnnounceResource_LazyInit(t *testing.T) {
 }
 
 func TestAnnounceResource_InitCalledOnce(t *testing.T) {
-	resetAnnouncedResources()
-	t.Cleanup(func() {
-		resetAnnouncedResources()
-		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
-	})
+	ResetResourceRegistry()
+	t.Cleanup(ResetResourceRegistry)
 
 	desc := &testResourceFactory{}
 	AnnounceResource(desc)
 
-	// Call ensureResourceInit multiple times.
+	// Call LookupConstructor multiple times.
 	for range 5 {
-		_, _ = ensureResourceInit(reflect.TypeOf(testResource{}))
+		_, _ = LookupConstructor(reflect.TypeOf(testResource{}))
 	}
 
 	if desc.initCalled != 1 {
@@ -332,28 +326,25 @@ func TestAnnounceResource_InitCalledOnce(t *testing.T) {
 }
 
 func TestAnnounceResource_InitErrorCached(t *testing.T) {
-	resetAnnouncedResources()
-	t.Cleanup(func() {
-		resetAnnouncedResources()
-		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
-	})
+	ResetResourceRegistry()
+	t.Cleanup(ResetResourceRegistry)
 
 	desc := &testResourceFactory{initErr: fmt.Errorf("init failed")}
 	AnnounceResource(desc)
 
 	// First call: Init fails, constructor not registered.
-	_, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
+	_, ok := LookupConstructor(reflect.TypeOf(testResource{}))
 	if ok {
-		t.Fatal("ensureResourceInit should return false when Init fails")
+		t.Fatal("LookupConstructor should return false when Init fails")
 	}
 	if desc.initCalled != 1 {
 		t.Fatalf("Init called %d times, want 1", desc.initCalled)
 	}
 
 	// Second call: error cached, Init not retried.
-	_, ok = ensureResourceInit(reflect.TypeOf(testResource{}))
+	_, ok = LookupConstructor(reflect.TypeOf(testResource{}))
 	if ok {
-		t.Fatal("ensureResourceInit should still return false (cached error)")
+		t.Fatal("LookupConstructor should still return false (cached error)")
 	}
 	if desc.initCalled != 1 {
 		t.Errorf("Init called %d times, want 1 (error should be cached)", desc.initCalled)
@@ -361,21 +352,18 @@ func TestAnnounceResource_InitErrorCached(t *testing.T) {
 }
 
 func TestAnnounceResource_NoDescriptor(t *testing.T) {
-	resetAnnouncedResources()
+	ResetResourceRegistry()
 
-	// No descriptor announced for testResource.
-	_, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
+	// No descriptor announcedReceivers for testResource.
+	_, ok := LookupConstructor(reflect.TypeOf(testResource{}))
 	if ok {
-		t.Fatal("ensureResourceInit should return false when no descriptor announced")
+		t.Fatal("LookupConstructor should return false when no descriptor announcedReceivers")
 	}
 }
 
 func TestAnnounceResource_FastPath(t *testing.T) {
-	resetAnnouncedResources()
-	t.Cleanup(func() {
-		resetAnnouncedResources()
-		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
-	})
+	ResetResourceRegistry()
+	t.Cleanup(ResetResourceRegistry)
 
 	// Register constructor directly (simulating existing eager registration).
 	RegisterConstructor(func(v any) (testResource, error) {
@@ -385,10 +373,10 @@ func TestAnnounceResource_FastPath(t *testing.T) {
 	desc := &testResourceFactory{}
 	AnnounceResource(desc)
 
-	// ensureResourceInit should find the existing constructor without calling Init.
-	ctor, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
+	// LookupConstructor should find the existing constructor without calling Init.
+	ctor, ok := LookupConstructor(reflect.TypeOf(testResource{}))
 	if !ok {
-		t.Fatal("ensureResourceInit should find eagerly registered constructor")
+		t.Fatal("LookupConstructor should find eagerly registered constructor")
 	}
 	if desc.initCalled != 0 {
 		t.Errorf("Init called %d times, want 0 (fast path should skip Init)", desc.initCalled)
@@ -405,11 +393,8 @@ func TestAnnounceResource_FastPath(t *testing.T) {
 }
 
 func TestAnnounceResource_ConcurrentFirstUse(t *testing.T) {
-	resetAnnouncedResources()
-	t.Cleanup(func() {
-		resetAnnouncedResources()
-		constructorRegistry.Delete(reflect.TypeOf(testResource{}))
-	})
+	ResetResourceRegistry()
+	t.Cleanup(ResetResourceRegistry)
 
 	desc := &testResourceFactory{}
 	AnnounceResource(desc)
@@ -420,7 +405,7 @@ func TestAnnounceResource_ConcurrentFirstUse(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			_, ok := ensureResourceInit(reflect.TypeOf(testResource{}))
+			_, ok := LookupConstructor(reflect.TypeOf(testResource{}))
 			results[n] = ok
 		}(i)
 	}
@@ -429,7 +414,7 @@ func TestAnnounceResource_ConcurrentFirstUse(t *testing.T) {
 	// All goroutines should succeed.
 	for i, ok := range results {
 		if !ok {
-			t.Errorf("goroutine %d: ensureResourceInit returned false", i)
+			t.Errorf("goroutine %d: LookupConstructor returned false", i)
 		}
 	}
 

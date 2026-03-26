@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	regexpgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 )
 
@@ -63,7 +64,7 @@ func makeRegistry(t *testing.T) *op.ActionRegistry {
 
 	t.Helper()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, regexpgen.Receiver, regexpgen.Params)
+	bind.RegisterActions(reg, regexpgen.Receiver, regexpgen.Params)
 	return reg
 }
 

@@ -5,10 +5,10 @@
 
 package pkg
 
-import "github.com/NobleFactor/devlore-cli/pkg/op"
+import "github.com/NobleFactor/devlore-cli/pkg/op/bind"
 
 // Params maps Go method names to Starlark parameter name lists.
-var Params = op.MethodParams{
+var Params = bind.MethodParams{
 	"Install":      {"packages", "manager", "cask"},
 	"Remove":       {"packages", "manager", "cask"},
 	"Upgrade":      {"packages", "manager", "cask"},

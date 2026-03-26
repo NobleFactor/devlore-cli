@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -35,7 +36,7 @@ func testCtx() op.Context {
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := op.WrapProviderInExecutingReceiver(yamlgen.Receiver, yamlprov.NewProvider(ctx))
+	receiver := bind.WrapProviderInExecutingReceiver(yamlgen.Receiver, yamlprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"yaml": receiver}
 
@@ -70,7 +71,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Encode(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, yamlgen.Receiver, yamlgen.Params)
+	bind.RegisterActions(reg, yamlgen.Receiver, yamlgen.Params)
 
 	a, ok := reg.Get("yaml.encode")
 	if !ok {
@@ -94,7 +95,7 @@ func TestActions_Encode(t *testing.T) {
 func TestActions_Decode(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, yamlgen.Receiver, yamlgen.Params)
+	bind.RegisterActions(reg, yamlgen.Receiver, yamlgen.Params)
 
 	a, ok := reg.Get("yaml.decode")
 	if !ok {

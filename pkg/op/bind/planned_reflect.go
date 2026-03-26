@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"fmt"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
 
@@ -19,9 +19,9 @@ import (
 type PlanningReceiver struct {
 	receiver
 	providerName string
-	graph        *Graph
+	graph        *op.Graph
 	project      string
-	reg          *ActionRegistry
+	reg          *op.ActionRegistry
 	methods      map[string]*plannedBridge
 	attrList     []string
 }
@@ -34,10 +34,10 @@ type plannedBridge struct {
 // WrapProviderInPlanningReceiver wraps a provider for planned-mode use. Only methods with
 // a corresponding registered action in reg are exposed.
 func WrapProviderInPlanningReceiver(
-	factory ReceiverFactory,
-	graph *Graph,
+	factory op.ReceiverFactory,
+	graph *op.Graph,
 	project string,
-	reg *ActionRegistry,
+	reg *op.ActionRegistry,
 	params MethodParams,
 ) *PlanningReceiver {
 
@@ -91,19 +91,6 @@ func WrapProviderInPlanningReceiver(
 	return p
 }
 
-// Override replaces a method's auto-generated planned bridge with a
-// custom one.
-func (p *PlanningReceiver) Override(name string, fn builtinFunc) {
-	p.methods[name] = &plannedBridge{
-		name:   name,
-		bridge: fn,
-	}
-	if !slices.Contains(p.attrList, name) {
-		p.attrList = append(p.attrList, name)
-		sort.Strings(p.attrList)
-	}
-}
-
 // Attr implements starlark.HasAttrs.
 func (p *PlanningReceiver) Attr(name string) (starlark.Value, error) {
 	if m, ok := p.methods[name]; ok {
@@ -125,9 +112,9 @@ func buildPlannedBridge(
 	providerName, snakeName, actionName string,
 	paramNames []string,
 	method reflect.Method,
-	graph *Graph,
+	graph *op.Graph,
 	project string,
-	reg *ActionRegistry,
+	reg *op.ActionRegistry,
 ) builtinFunc {
 	// Detect **kwargs param and build known-kwarg set for filtering.
 	var kwargsName string
@@ -176,8 +163,8 @@ func buildPlannedBridge(
 		}
 
 		// 2. Create node.
-		node := &Node{
-			ID:      GenerateNodeID(providerName + "-" + snakeName),
+		node := &op.Node{
+			ID:      op.GenerateNodeID(providerName + "-" + snakeName),
 			Action:  reg.MustGet(actionName),
 			Project: project,
 		}
@@ -260,7 +247,7 @@ func buildPlannedBridge(
 // the last Resource-typed parameter (conventionally the destination) is
 // shadowed with the node's ID. This removes the destination from
 // DiscoveryURIs so pre-flight won't reject files that don't exist yet.
-func shadowOutputParam(graph *Graph, mt reflect.Type, vals []starlark.Value, paramNames []string, nodeID string) error {
+func shadowOutputParam(graph *op.Graph, mt reflect.Type, vals []starlark.Value, paramNames []string, nodeID string) error {
 	if graph.Catalog == nil {
 		return nil
 	}
@@ -346,7 +333,7 @@ func implementsResource(t reflect.Type) bool {
 // resolveResourceParam checks if a Starlark slot value targets a Resource-typed
 // parameter. For immediate (non-promise) values, it constructs a plan-time
 // Resource and calls catalog.Resolve to register the URI.
-func resolveResourceParam(graph *Graph, sv starlark.Value, paramType reflect.Type) {
+func resolveResourceParam(graph *op.Graph, sv starlark.Value, paramType reflect.Type) {
 	if graph.Catalog == nil {
 		return
 	}

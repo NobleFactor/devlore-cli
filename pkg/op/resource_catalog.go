@@ -9,6 +9,9 @@ import (
 	"sync"
 )
 
+// resourceType is cached for result-type classification.
+var resourceType = reflect.TypeOf((*Resource)(nil)).Elem()
+
 // ResourceCatalog is the append-only catalog of all resources created during
 // a single planning session. One per Graph. It owns the ledger (the log of
 // all resource versions) and the namespace (URI → current resource ID).
@@ -148,7 +151,7 @@ func (c *ResourceCatalog) catalogLocked(r Resource, originID string) string {
 //     returned by provider methods, stamped by [shadowResult])
 //   - map[string]any with "uri"/"id"/"origin_id" keys (produced by
 //     unmarshal when a starlarkstruct.Struct is decoded to *any)
-func extractResource(v any) (originID string, ok bool) {
+func ExtractResource(v any) (originID string, ok bool) {
 	if v == nil {
 		return "", false
 	}

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -94,7 +95,7 @@ func (p *rtTestCountingImmProvider) NewExecuting(_ op.Context) starlark.Value {
 func TestRuntimeRegisterActions(t *testing.T) {
 	op.AnnounceReceiver(&rtTestActionProvider{actionName: "_test_actions.do"})
 
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -111,7 +112,7 @@ func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 	op.AnnounceReceiver(&rtTestAllActsProvider{})
 
 	// No Receivers — but actions should still be registered.
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -129,7 +130,7 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	op.AnnounceReceiver(&rtTestPlannedProvider{name: "_test_plan2"})
 	op.AnnounceReceiver(immProv)
 
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithGraphBuilder().
 			WithReceivers(immProv).
@@ -150,14 +151,14 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 		t.Error("expected '_test_imm2' in globals")
 	}
 
-	// Verify PlanRoot has the test sub-namespace.
-	planRoot, ok := globals["plan"].(*op.PlanRoot)
+	// Verify plan receiver has the test sub-namespace.
+	planRecv, ok := globals["plan"].(starlark.HasAttrs)
 	if !ok {
-		t.Fatalf("expected globals['plan'] to be *PlanRoot, got %T", globals["plan"])
+		t.Fatalf("expected globals['plan'] to implement HasAttrs, got %T", globals["plan"])
 	}
-	attr, err := planRoot.Attr("_test_plan2")
+	attr, err := planRecv.Attr("_test_plan2")
 	if err != nil {
-		t.Fatalf("PlanRoot.Attr('_test_plan2') error: %v", err)
+		t.Fatalf("plan.Attr('_test_plan2') error: %v", err)
 	}
 	if attr.String() != `"test-plan-value"` {
 		t.Errorf("expected test-plan-value, got %s", attr.String())
@@ -171,7 +172,7 @@ func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 	otherProv := &rtTestImmediateProvider{name: "_test_other"}
 	op.AnnounceReceiver(otherProv)
 
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithReceivers(otherProv).
 			WithWriter(&bytes.Buffer{}),
@@ -194,7 +195,7 @@ func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 	op.AnnounceReceiver(&rtTestImmediateProvider{name: "_test_loadable"})
 
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -223,7 +224,7 @@ func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 }
 
 func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -240,7 +241,7 @@ func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
 }
 
 func TestRuntimeLoaderRejectsUnknownProvider(t *testing.T) {
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -260,7 +261,7 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 	callCount := 0
 	op.AnnounceReceiver(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
 
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -282,7 +283,7 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 	op.AnnounceReceiver(&rtTestPlannedProvider{name: "_test_plan_load"})
 
-	rt := op.NewStarlarkRuntime(
+	rt := bind.NewStarlarkRuntime(
 		op.NewBindingConfig("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -300,8 +301,8 @@ func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'plan' in loaded globals")
 	}
-	if _, ok := plan.(*op.PlanRoot); !ok {
-		t.Errorf("expected *PlanRoot, got %T", plan)
+	if _, ok := plan.(starlark.HasAttrs); !ok {
+		t.Errorf("expected starlark.HasAttrs, got %T", plan)
 	}
 }
 

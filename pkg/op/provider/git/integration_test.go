@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -90,7 +91,7 @@ func TestStarlark(t *testing.T) {
 
 	ctx := testCtx(t)
 	p := gitprov.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(gitgen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(gitgen.Receiver, p)
 
 	globals := starlark.StringDict{
 		"git_prov":        receiver,
@@ -132,7 +133,7 @@ func TestActions_Clone(t *testing.T) {
 
 	ctx := testCtx(t)
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, gitgen.Receiver, gitgen.Params)
+	bind.RegisterActions(reg, gitgen.Receiver, gitgen.Params)
 
 	a, ok := reg.Get("git.clone")
 	if !ok {

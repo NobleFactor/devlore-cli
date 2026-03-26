@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"filippo.io/age"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"github.com/getsops/sops/v3"
 	"github.com/getsops/sops/v3/aes"
 	sopsage "github.com/getsops/sops/v3/age"
@@ -131,7 +132,7 @@ func TestStarlark(t *testing.T) {
 	dstPath := filepath.Join(dir, "secret.dec.yaml")
 
 	p := encryption.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(encryptiongen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(encryptiongen.Receiver, p)
 
 	globals := starlark.StringDict{
 		"encryption":  receiver,
@@ -194,7 +195,7 @@ func TestActions_DecryptSopsFile(t *testing.T) {
 	dest := file.NewResource(dstPath)
 
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, encryptiongen.Receiver, encryptiongen.Params)
+	bind.RegisterActions(reg, encryptiongen.Receiver, encryptiongen.Params)
 
 	a, ok := reg.Get("encryption.decrypt_sops_file")
 	if !ok {
