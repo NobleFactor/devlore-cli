@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	encryptiongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
 )
 
@@ -63,7 +64,7 @@ func makeRegistry(t *testing.T) *op.ActionRegistry {
 
 	t.Helper()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, encryptiongen.Receiver, encryptiongen.Params)
+	bind.RegisterActions(reg, encryptiongen.Receiver, encryptiongen.Params)
 	return reg
 }
 

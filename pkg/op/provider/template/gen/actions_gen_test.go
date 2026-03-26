@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	templategen "github.com/NobleFactor/devlore-cli/pkg/op/provider/template/gen"
 )
 
@@ -63,7 +64,7 @@ func makeRegistry(t *testing.T) *op.ActionRegistry {
 
 	t.Helper()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, templategen.Receiver, templategen.Params)
+	bind.RegisterActions(reg, templategen.Receiver, templategen.Params)
 	return reg
 }
 

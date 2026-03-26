@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -44,7 +45,7 @@ func testCtx() op.Context {
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := op.WrapProviderInExecutingReceiver(platformgen.Receiver, platform.NewProvider(ctx))
+	receiver := bind.WrapProviderInExecutingReceiver(platformgen.Receiver, platform.NewProvider(ctx))
 
 	globals := starlark.StringDict{"platform": receiver}
 
@@ -79,7 +80,7 @@ func TestStarlark(t *testing.T) {
 func TestActions(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, platformgen.Receiver, platformgen.Params)
+	bind.RegisterActions(reg, platformgen.Receiver, platformgen.Params)
 
 	tests := []struct {
 		action string

@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -42,7 +43,7 @@ func testCtx(t *testing.T) (ctx op.Context, dir string) {
 func TestStarlark(t *testing.T) {
 	ctx, dir := testCtx(t)
 	p := file.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(filegen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(filegen.Receiver, p)
 
 	globals := starlark.StringDict{
 		"file":     receiver,
@@ -116,7 +117,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_WriteText_ReadText(t *testing.T) {
 	ctx, dir := testCtx(t)
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, filegen.Receiver, filegen.Params)
+	bind.RegisterActions(reg, filegen.Receiver, filegen.Params)
 
 	// write_text
 	writeAction, ok := reg.Get("file.write_text")
@@ -159,7 +160,7 @@ func TestActions_WriteText_ReadText(t *testing.T) {
 func TestActions_Exists(t *testing.T) {
 	ctx, dir := testCtx(t)
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, filegen.Receiver, filegen.Params)
+	bind.RegisterActions(reg, filegen.Receiver, filegen.Params)
 
 	a, ok := reg.Get("file.exists")
 	if !ok {
@@ -188,7 +189,7 @@ func TestActions_Exists(t *testing.T) {
 func TestActions_Join(t *testing.T) {
 	ctx, _ := testCtx(t)
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, filegen.Receiver, filegen.Params)
+	bind.RegisterActions(reg, filegen.Receiver, filegen.Params)
 
 	a, ok := reg.Get("file.join")
 	if !ok {

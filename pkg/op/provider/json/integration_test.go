@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -35,7 +36,7 @@ func testCtx() op.Context {
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := op.WrapProviderInExecutingReceiver(jsongen.Receiver, jsonprov.NewProvider(ctx))
+	receiver := bind.WrapProviderInExecutingReceiver(jsongen.Receiver, jsonprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"json": receiver}
 
@@ -73,7 +74,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Encode(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, jsongen.Receiver, jsongen.Params)
+	bind.RegisterActions(reg, jsongen.Receiver, jsongen.Params)
 
 	a, ok := reg.Get("json.encode")
 	if !ok {
@@ -97,7 +98,7 @@ func TestActions_Encode(t *testing.T) {
 func TestActions_Decode(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, jsongen.Receiver, jsongen.Params)
+	bind.RegisterActions(reg, jsongen.Receiver, jsongen.Params)
 
 	a, ok := reg.Get("json.decode")
 	if !ok {
@@ -121,7 +122,7 @@ func TestActions_Decode(t *testing.T) {
 func TestActions_EncodeIndent(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, jsongen.Receiver, jsongen.Params)
+	bind.RegisterActions(reg, jsongen.Receiver, jsongen.Params)
 
 	a, ok := reg.Get("json.encode_indent")
 	if !ok {

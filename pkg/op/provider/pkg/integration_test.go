@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -61,7 +62,7 @@ func testCtx() op.Context {
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
 	p := pkgprov.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(pkggen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(pkggen.Receiver, p)
 
 	globals := starlark.StringDict{"pkg": receiver}
 
@@ -93,7 +94,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Installed(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
+	bind.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
 
 	a, ok := reg.Get("pkg.installed")
 	if !ok {
@@ -112,7 +113,7 @@ func TestActions_Installed(t *testing.T) {
 func TestActions_NotInstalled(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
+	bind.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
 
 	a, ok := reg.Get("pkg.not_installed")
 	if !ok {
@@ -131,7 +132,7 @@ func TestActions_NotInstalled(t *testing.T) {
 func TestActions_Update(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
+	bind.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
 
 	a, ok := reg.Get("pkg.update")
 	if !ok {

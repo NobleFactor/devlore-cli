@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
 
@@ -15,10 +16,10 @@ import (
 // thereby fanning-out to many nodes in the graph.
 type Promise struct {
 	// node is the action that produces this output
-	node *Node
+	node *op.Node
 
 	// graph is the execution graph (for creating edges)
-	graph *Graph
+	graph *op.Graph
 
 	// slot identifies which output of the node this represents (empty = default)
 	slot string
@@ -33,7 +34,7 @@ type Promise struct {
 //
 // Returns:
 //   - *Promise: the new promise handle.
-func NewPromise(node *Node, graph *Graph, slot string) *Promise {
+func NewPromise(node *op.Node, graph *op.Graph, slot string) *Promise {
 
 	return &Promise{
 		node:  node,
@@ -50,7 +51,7 @@ func NewPromise(node *Node, graph *Graph, slot string) *Promise {
 //
 // Returns:
 //   - *Graph: the graph this output belongs to.
-func (p *Promise) Graph() *Graph {
+func (p *Promise) Graph() *op.Graph {
 
 	return p.graph
 }
@@ -59,7 +60,7 @@ func (p *Promise) Graph() *Graph {
 //
 // Returns:
 //   - *Node: the producing node.
-func (p *Promise) Node() *Node {
+func (p *Promise) Node() *op.Node {
 
 	return p.node
 }
@@ -143,9 +144,9 @@ func (p *Promise) AttrNames() []string {
 //
 // Parameters:
 //   - consumer: the node that should depend on this output's producer.
-func (p *Promise) DependOn(consumer *Node) {
+func (p *Promise) DependOn(consumer *op.Node) {
 
-	p.graph.Edges = append(p.graph.Edges, Edge{
+	p.graph.Edges = append(p.graph.Edges, op.Edge{
 		From: p.node.ID,
 		To:   consumer.ID,
 	})
@@ -157,13 +158,13 @@ func (p *Promise) DependOn(consumer *Node) {
 // Parameters:
 //   - consumer: the node receiving the promise.
 //   - slotName: the slot to fill.
-func (p *Promise) FillSlot(consumer *Node, slotName string) {
+func (p *Promise) FillSlot(consumer *op.Node, slotName string) {
 
 	// Set the slot to reference this output's node
 	consumer.SetSlotPromise(slotName, p.node.ID, p.slot)
 
 	// Create edge: producer must complete before consumer
-	p.graph.Edges = append(p.graph.Edges, Edge{
+	p.graph.Edges = append(p.graph.Edges, op.Edge{
 		From: p.node.ID,
 		To:   consumer.ID,
 	})
@@ -235,18 +236,18 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 		return nil, fmt.Errorf("retry: max_attempts must be non-negative, got %d", maxAttempts)
 	}
 
-	policy := &RetryPolicy{
+	policy := &op.RetryPolicy{
 		MaxAttempts: maxAttempts,
 	}
 
 	if backoff != "" {
 		switch backoff {
 		case "none":
-			policy.Backoff = BackoffNone
+			policy.Backoff = op.BackoffNone
 		case "linear":
-			policy.Backoff = BackoffLinear
+			policy.Backoff = op.BackoffLinear
 		case "exponential":
-			policy.Backoff = BackoffExponential
+			policy.Backoff = op.BackoffExponential
 		default:
 			return nil, fmt.Errorf("retry: unknown backoff %q (use none, linear, exponential)", backoff)
 		}
@@ -282,7 +283,7 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 //
 // Returns:
 //   - error: non-nil if the value cannot be unmarshaled.
-func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) error {
+func FillSlot(node *op.Node, graph *op.Graph, slotName string, value starlark.Value) error {
 
 	// Promise: create edge, value flows at runtime
 	if output, ok := value.(*Promise); ok {
@@ -314,8 +315,8 @@ func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) e
 	// create an implicit edge from the origin node to the consumer. This
 	// enables automatic dependency ordering when a resource produced by
 	// one node flows to another.
-	if originID, ok := extractResource(goVal); ok {
-		graph.Edges = append(graph.Edges, Edge{From: originID, To: node.ID})
+	if originID, ok := op.ExtractResource(goVal); ok {
+		graph.Edges = append(graph.Edges, op.Edge{From: originID, To: node.ID})
 	}
 
 	node.SetSlotImmediate(slotName, goVal)
@@ -326,7 +327,7 @@ func FillSlot(node *Node, graph *Graph, slotName string, value starlark.Value) e
 // If so, it creates edges and indexed sub-slots for each element (fan-in)
 // and returns true. If any element is not an *Promise, it returns false
 // without modifying the node or graph.
-func fillOutputList(node *Node, graph *Graph, slotName string, list *starlark.List) bool {
+func fillOutputList(node *op.Node, graph *op.Graph, slotName string, list *starlark.List) bool {
 	n := list.Len()
 	if n == 0 {
 		return false
@@ -346,7 +347,7 @@ func fillOutputList(node *Node, graph *Graph, slotName string, list *starlark.Li
 	for i, output := range outputs {
 		subSlot := fmt.Sprintf("%s[%d]", slotName, i)
 		node.SetSlotPromise(subSlot, output.node.ID, output.slot)
-		graph.Edges = append(graph.Edges, Edge{
+		graph.Edges = append(graph.Edges, op.Edge{
 			From: output.node.ID,
 			To:   node.ID,
 		})

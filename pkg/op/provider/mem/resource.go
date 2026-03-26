@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 // Resource represents an in-memory data resource identified by a mem: URI.
@@ -81,13 +82,15 @@ func NewResourceWithData(contentType, qualifier string, data []byte) Resource {
 // sync.Once protection.
 type callableDesc struct{}
 
-func (d *callableDesc) Name() string       { return "mem.Callable" }
-func (d *callableDesc) Type() reflect.Type { return reflect.TypeOf((*op.CallableResource)(nil)).Elem() }
+func (d *callableDesc) Name() string { return "mem.Callable" }
+func (d *callableDesc) Type() reflect.Type {
+	return reflect.TypeOf((*bind.CallableResource)(nil)).Elem()
+}
 
 func (d *callableDesc) Init() error {
 
-	op.RegisterConstructor[op.CallableResource](func(v any) (op.CallableResource, error) {
-		input, ok := v.(op.CallableInput)
+	op.RegisterConstructor[bind.CallableResource](func(v any) (bind.CallableResource, error) {
+		input, ok := v.(bind.CallableInput)
 		if !ok {
 			return nil, fmt.Errorf("mem.Callable: expected CallableInput, got %T", v)
 		}

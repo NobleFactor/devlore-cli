@@ -12,6 +12,7 @@ import (
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode"
 	starcodegen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 func TestMain(m *testing.M) {
@@ -21,7 +22,7 @@ func TestMain(m *testing.M) {
 
 func TestAttrNames(t *testing.T) {
 
-	r := op.WrapProviderInExecutingReceiver(starcodegen.Receiver, &provider.Provider{})
+	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &provider.Provider{})
 	names := r.AttrNames()
 	if len(names) == 0 {
 		t.Fatal("AttrNames() returned empty list")
@@ -35,7 +36,7 @@ func TestAttrNames(t *testing.T) {
 
 func TestAttr(t *testing.T) {
 
-	r := op.WrapProviderInExecutingReceiver(starcodegen.Receiver, &provider.Provider{})
+	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &provider.Provider{})
 	for _, name := range r.AttrNames() {
 		attr, err := r.Attr(name)
 		if err != nil {
@@ -50,7 +51,7 @@ func TestAttr(t *testing.T) {
 
 func TestAttr_Unknown(t *testing.T) {
 
-	r := op.WrapProviderInExecutingReceiver(starcodegen.Receiver, &provider.Provider{})
+	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &provider.Provider{})
 	_, err := r.Attr("nonexistent_method")
 	if err == nil {
 		t.Error("Attr(nonexistent_method) error = nil, want error")
@@ -59,7 +60,7 @@ func TestAttr_Unknown(t *testing.T) {
 
 func TestType(t *testing.T) {
 
-	r := op.WrapProviderInExecutingReceiver(starcodegen.Receiver, &provider.Provider{})
+	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &provider.Provider{})
 	if got := r.Type(); got != "starcode" {
 		t.Errorf("Type() = %q, want %q", got, "starcode")
 	}

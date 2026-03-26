@@ -9,8 +9,10 @@ package plan
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 var _ op.ContextProvider = (*Provider)(nil) // Interface Guard
@@ -20,18 +22,12 @@ var _ op.ContextProvider = (*Provider)(nil) // Interface Guard
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-
-	graph   *op.Graph
-	project string
-	reg     *op.ActionRegistry
 }
 
-// NewProvider creates a plan Provider bound to the given graph.
-func NewProvider(graph *op.Graph, project string, reg *op.ActionRegistry) *Provider {
+// NewProvider creates a plan Provider bound to the given context.
+func NewProvider(ctx op.Context) *Provider {
 	return &Provider{
-		graph:   graph,
-		project: project,
-		reg:     reg,
+		ProviderBase: op.NewProviderBase(ctx),
 	}
 }
 
@@ -41,23 +37,27 @@ func NewProvider(graph *op.Graph, project string, reg *op.ActionRegistry) *Provi
 
 // Complete creates a terminal node representing healthy conclusion.
 //
+// +devlore:defaults output=None
+//
 // Parameters:
 //   - output: optional output value (immediate or Promise).
 //
 // Returns:
-//   - *op.Promise: promise for the terminal node.
+//   - *bind.Promise: promise for the terminal node.
 //   - error: any error from slot filling.
-func (p *Provider) Complete(output any) (*op.Promise, error) {
+func (p *Provider) Complete(output any) (*bind.Promise, error) {
+	ctx := p.Context()
+	graph := ctx.Graph
 	node := &op.Node{
 		ID:      op.GenerateNodeID("complete"),
-		Action:  p.reg.MustGet("flow.complete"),
-		Project: p.project,
+		Action:  p.actionRegistry().MustGet("flow.complete"),
+		Project: p.project(),
 	}
 
 	p.fillSlot(node, "output", output)
 
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return op.NewPromise(node, p.graph, ""), nil
+	graph.Nodes = append(graph.Nodes, node)
+	return bind.NewPromise(node, graph, ""), nil
 }
 
 // Degraded creates a terminal node representing degraded conclusion.
@@ -68,21 +68,23 @@ func (p *Provider) Complete(output any) (*op.Promise, error) {
 //   - kwargs: keyword arguments for template rendering (each may be immediate or Promise).
 //
 // Returns:
-//   - *op.Promise: promise for the terminal node.
+//   - *bind.Promise: promise for the terminal node.
 //   - error: any error from slot filling.
-func (p *Provider) Degraded(format any, args []any, kwargs map[string]any) (*op.Promise, error) {
+func (p *Provider) Degraded(format any, args []any, kwargs map[string]any) (*bind.Promise, error) {
+	ctx := p.Context()
+	graph := ctx.Graph
 	node := &op.Node{
 		ID:      op.GenerateNodeID("degraded"),
-		Action:  p.reg.MustGet("flow.degraded"),
-		Project: p.project,
+		Action:  p.actionRegistry().MustGet("flow.degraded"),
+		Project: p.project(),
 	}
 
 	p.fillSlot(node, "format", format)
 	p.fillListSlot(node, "args", args)
 	p.fillDictSlot(node, "kwargs", kwargs)
 
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return op.NewPromise(node, p.graph, ""), nil
+	graph.Nodes = append(graph.Nodes, node)
+	return bind.NewPromise(node, graph, ""), nil
 }
 
 // Fatal creates a terminal node representing fatal conclusion.
@@ -93,51 +95,56 @@ func (p *Provider) Degraded(format any, args []any, kwargs map[string]any) (*op.
 //   - kwargs: keyword arguments for template rendering (each may be immediate or Promise).
 //
 // Returns:
-//   - *op.Promise: promise for the terminal node.
+//   - *bind.Promise: promise for the terminal node.
 //   - error: any error from slot filling.
-func (p *Provider) Fatal(format any, args []any, kwargs map[string]any) (*op.Promise, error) {
+func (p *Provider) Fatal(format any, args []any, kwargs map[string]any) (*bind.Promise, error) {
+	ctx := p.Context()
+	graph := ctx.Graph
 	node := &op.Node{
 		ID:      op.GenerateNodeID("fatal"),
-		Action:  p.reg.MustGet("flow.fatal"),
-		Project: p.project,
+		Action:  p.actionRegistry().MustGet("flow.fatal"),
+		Project: p.project(),
 	}
 
 	p.fillSlot(node, "format", format)
 	p.fillListSlot(node, "args", args)
 	p.fillDictSlot(node, "kwargs", kwargs)
 
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return op.NewPromise(node, p.graph, ""), nil
+	graph.Nodes = append(graph.Nodes, node)
+	return bind.NewPromise(node, graph, ""), nil
 }
 
 // WaitUntil creates a synchronization node that polls a predicate.
 //
+// +devlore:defaults interval=0
+//
 // Parameters:
 //   - target: the value to evaluate (typically a Promise).
 //   - predicate: callable that takes the target and returns bool.
-//   - timeout: maximum wait time (Go duration string, e.g. "5m").
-//   - interval: poll interval (Go duration string, default "5s"). Optional.
+//   - timeout: maximum wait time.
+//   - interval: poll interval (default 5s). Optional.
 //
 // Returns:
-//   - *op.Promise: promise for the wait node output.
+//   - *bind.Promise: promise for the wait node output.
 //   - error: any error from slot filling.
-func (p *Provider) WaitUntil(target, predicate any, timeout, interval string) (*op.Promise, error) {
-
+func (p *Provider) WaitUntil(target, predicate any, timeout, interval time.Duration) (*bind.Promise, error) {
+	ctx := p.Context()
+	graph := ctx.Graph
 	node := &op.Node{
 		ID:      op.GenerateNodeID("wait-until"),
-		Action:  p.reg.MustGet("flow.wait_until"),
-		Project: p.project,
+		Action:  p.actionRegistry().MustGet("flow.wait_until"),
+		Project: p.project(),
 	}
 
 	p.fillSlot(node, "target", target)
 	p.fillSlot(node, "predicate", predicate)
 	p.fillSlot(node, "timeout", timeout)
-	if interval != "" {
+	if interval > 0 {
 		p.fillSlot(node, "interval", interval)
 	}
 
-	p.graph.Nodes = append(p.graph.Nodes, node)
-	return op.NewPromise(node, p.graph, ""), nil
+	graph.Nodes = append(graph.Nodes, node)
+	return bind.NewPromise(node, graph, ""), nil
 }
 
 // Gather collects promises for fan-in parallel execution.
@@ -146,9 +153,9 @@ func (p *Provider) WaitUntil(target, predicate any, timeout, interval string) (*
 //   - promises: two or more Promise values to gather.
 //
 // Returns:
-//   - []*op.Promise: the gathered promises.
+//   - []*bind.Promise: the gathered promises.
 //   - error: if fewer than 2 promises provided.
-func (p *Provider) Gather(promises ...*op.Promise) ([]*op.Promise, error) {
+func (p *Provider) Gather(promises ...*bind.Promise) ([]*bind.Promise, error) {
 	if len(promises) < 2 {
 		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(promises))
 	}
@@ -163,11 +170,14 @@ func (p *Provider) Gather(promises ...*op.Promise) ([]*op.Promise, error) {
 //   - then: callable that builds graph nodes for the true branch.
 //
 // Returns:
-//   - *op.Promise: promise for the choose node.
+//   - *bind.Promise: promise for the choose node.
 //   - error: any error during branch construction.
-func (p *Provider) Choose(when *op.Promise, then func() error) (*op.Promise, error) {
+func (p *Provider) Choose(when *bind.Promise, then func() error) (*bind.Promise, error) {
+	ctx := p.Context()
+	graph := ctx.Graph
+
 	// Snapshot current graph state to track nodes added by the callback.
-	nodesBefore := len(p.graph.Nodes)
+	nodesBefore := len(graph.Nodes)
 
 	// Execute the callback to build sub-graph nodes.
 	if err := then(); err != nil {
@@ -182,24 +192,24 @@ func (p *Provider) Choose(when *op.Promise, then func() error) (*op.Promise, err
 		Status: op.PhasePending,
 		Branch: true,
 	}
-	for i := nodesBefore; i < len(p.graph.Nodes); i++ {
-		branchPhase.NodeIDs = append(branchPhase.NodeIDs, p.graph.Nodes[i].ID)
+	for i := nodesBefore; i < len(graph.Nodes); i++ {
+		branchPhase.NodeIDs = append(branchPhase.NodeIDs, graph.Nodes[i].ID)
 	}
-	p.graph.Phases = append(p.graph.Phases, branchPhase)
+	graph.Phases = append(graph.Phases, branchPhase)
 
 	// Create the choose node.
 	chooseNode := &op.Node{
 		ID:      op.GenerateNodeID("choose"),
-		Action:  p.reg.MustGet("flow.choose"),
-		Project: p.project,
+		Action:  p.actionRegistry().MustGet("flow.choose"),
+		Project: p.project(),
 	}
 
 	// Wire predicate output → choose "when" slot (creates edge).
 	when.FillSlot(chooseNode, "when")
 	chooseNode.SetSlotImmediate("then", branchPhaseID)
 
-	p.graph.Nodes = append(p.graph.Nodes, chooseNode)
-	return op.NewPromise(chooseNode, p.graph, ""), nil
+	graph.Nodes = append(graph.Nodes, chooseNode)
+	return bind.NewPromise(chooseNode, graph, ""), nil
 }
 
 // endregion
@@ -210,13 +220,42 @@ func (p *Provider) Choose(when *op.Promise, then func() error) (*op.Promise, err
 
 // region Behaviors
 
+// actionRegistry returns the ActionRegistry from the context.
+func (p *Provider) actionRegistry() *op.ActionRegistry {
+	return p.Context().Data["action_registry"].(*op.ActionRegistry)
+}
+
+// project returns the project name from the context.
+func (p *Provider) project() string {
+	return p.Context().Data["project"].(string)
+}
+
+// ResolveAttr implements op.AttributeResolver. It routes sub-namespace lookups
+// (e.g., plan.file, plan.git) to the corresponding PlanningReceiverFactory.
+func (p *Provider) ResolveAttr(name string) any {
+	ctx := p.Context()
+	for _, r := range op.Receivers() {
+		if r.ReceiverName() != name {
+			continue
+		}
+		if pf, ok := r.(op.PlanningReceiverFactory); ok {
+			return pf.NewPlanning(
+				ctx.Graph,
+				p.project(),
+				p.actionRegistry(),
+			)
+		}
+	}
+	return nil
+}
+
 // fillSlot fills a slot on a node from a Go value.
 // Handles Promise, nil, and immediate values.
 func (p *Provider) fillSlot(node *op.Node, slotName string, value any) {
 	if value == nil {
 		return
 	}
-	if promise, ok := value.(*op.Promise); ok {
+	if promise, ok := value.(*bind.Promise); ok {
 		promise.FillSlot(node, slotName)
 		return
 	}

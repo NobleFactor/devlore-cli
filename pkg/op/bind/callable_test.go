@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"bytes"
@@ -9,13 +9,14 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 )
 
 // mockCallableResource implements CallableResource for testing.
 type mockCallableResource struct {
-	ResourceBase
+	op.ResourceBase
 	funcType string
 	initErr  error
 	fn       starlark.Callable
@@ -32,11 +33,11 @@ func TestCallableResourceInterface(t *testing.T) {
 
 func TestExtractCallable_NoConstructor(t *testing.T) {
 	// With no callable constructor announced, extractCallable should fail.
-	resetAnnouncedResources()
-	defer resetAnnouncedResources()
+	op.ResetResourceRegistry()
+	defer op.ResetResourceRegistry()
 
 	// Clear any registered constructor for CallableResource.
-	constructorRegistry.Delete(callableResourceType)
+	op.ResetResourceRegistry()
 
 	_, err := extractCallable(nil, "TestType")
 	if err == nil {
@@ -47,7 +48,7 @@ func TestExtractCallable_NoConstructor(t *testing.T) {
 func TestExtractCallable_WithConstructor(t *testing.T) {
 	// Register a callable constructor directly for testing.
 	called := false
-	RegisterConstructor[CallableResource](func(v any) (CallableResource, error) {
+	op.RegisterConstructor[CallableResource](func(v any) (CallableResource, error) {
 		called = true
 		input, ok := v.(CallableInput)
 		if !ok {
@@ -60,7 +61,7 @@ func TestExtractCallable_WithConstructor(t *testing.T) {
 		m.SetURI("mem:callable/file.Reducer/test")
 		return m, nil
 	})
-	defer constructorRegistry.Delete(callableResourceType)
+	defer op.ResetResourceRegistry()
 
 	cr, err := extractCallable(nil, "file.Reducer")
 	if err != nil {
@@ -227,8 +228,8 @@ func TestInitCallableSlots_ReplacesCallable(t *testing.T) {
 	type fakeMethod func(fakeProvider, targetFunc)
 	methodType := reflect.TypeOf(fakeMethod(nil))
 
-	ctx := &Context{
-		ContextBase: ContextBase{
+	ctx := &op.Context{
+		ContextBase: op.ContextBase{
 			Context: context.Background(),
 			Writer:  &bytes.Buffer{},
 		},
@@ -263,8 +264,8 @@ func TestInitCallableSlots_ReplacesCallable(t *testing.T) {
 }
 
 func TestInitCallableSlots_SkipsNonCallable(t *testing.T) {
-	ctx := &Context{
-		ContextBase: ContextBase{
+	ctx := &op.Context{
+		ContextBase: op.ContextBase{
 			Context: context.Background(),
 			Writer:  &bytes.Buffer{},
 		},

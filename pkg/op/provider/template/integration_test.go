@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -36,7 +37,7 @@ func testCtx() op.Context {
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := op.WrapProviderInExecutingReceiver(templategen.Receiver, templateprov.NewProvider(ctx))
+	receiver := bind.WrapProviderInExecutingReceiver(templategen.Receiver, templateprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"template": receiver}
 
@@ -69,7 +70,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_RenderText(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, templategen.Receiver, templategen.Params)
+	bind.RegisterActions(reg, templategen.Receiver, templategen.Params)
 
 	a, ok := reg.Get("template.render_text")
 	if !ok {
@@ -96,7 +97,7 @@ func TestActions_RenderText(t *testing.T) {
 func TestActions_RenderBytes(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, templategen.Receiver, templategen.Params)
+	bind.RegisterActions(reg, templategen.Receiver, templategen.Params)
 
 	a, ok := reg.Get("template.render_bytes")
 	if !ok {

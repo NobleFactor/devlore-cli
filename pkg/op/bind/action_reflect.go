@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // actionBase holds shared fields for all reflected action types.
 type actionBase struct {
-	factory    ReceiverFactory
+	factory    op.ReceiverFactory
 	method     reflect.Method
 	name       string
 	paramNames []string
@@ -19,20 +21,20 @@ type actionBase struct {
 
 func (a *actionBase) Name() string { return a.name }
 
-func (a *actionBase) getProvider(ctx Context) reflect.Value {
+func (a *actionBase) getProvider(ctx op.Context) reflect.Value {
 	return reflect.ValueOf(a.factory.GetOrCreateProvider(ctx))
 }
 
-func (a *actionBase) Params() []ParamInfo {
-	params := make([]ParamInfo, len(a.paramNames))
+func (a *actionBase) Params() []op.ParamInfo {
+	params := make([]op.ParamInfo, len(a.paramNames))
 	for i, name := range a.paramNames {
-		params[i] = ParamInfo{Name: name, Type: a.method.Type.In(i + 1)}
+		params[i] = op.ParamInfo{Name: name, Type: a.method.Type.In(i + 1)}
 	}
 	return params
 }
 
 // coerceArgs converts slot values to Go method parameter types.
-func (a *actionBase) coerceArgs(ctx Context, slots map[string]any) ([]reflect.Value, error) {
+func (a *actionBase) coerceArgs(ctx op.Context, slots map[string]any) ([]reflect.Value, error) {
 
 	methodType := a.method.Type
 	goArgs := make([]reflect.Value, len(a.paramNames)+1)
@@ -67,7 +69,7 @@ func (a *actionBase) callMethod(goArgs []reflect.Value) []reflect.Value {
 }
 
 // dryRunLog writes dry-run output to the context writer.
-func (a *actionBase) dryRunLog(ctx *Context, slots map[string]any) {
+func (a *actionBase) dryRunLog(ctx *op.Context, slots map[string]any) {
 	_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] %s", a.name)
 	for _, name := range a.paramNames {
 		_, _ = fmt.Fprintf(ctx.Writer, " %v", slots[name])
@@ -80,7 +82,7 @@ type reflectedPureAction struct {
 	actionBase
 }
 
-func (a *reflectedPureAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+func (a *reflectedPureAction) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Complement, error) {
 	if err := initCallableSlots(ctx, slots, a.method.Type, a.paramNames); err != nil {
 		panic(fmt.Sprintf("%s: %v", a.name, err))
 	}
@@ -98,10 +100,10 @@ func (a *reflectedPureAction) Do(ctx *Context, slots map[string]any) (Result, Co
 
 	results := a.callMethod(goArgs)
 
-	var result Result
+	var result op.Result
 	if len(results) > 0 {
 		v := results[0].Interface()
-		if _, isNoResult := v.(NoResult); !isNoResult {
+		if _, isNoResult := v.(op.NoResult); !isNoResult {
 			result = v
 		}
 	}
@@ -115,7 +117,7 @@ type reflectedFallibleAction struct {
 	actionBase
 }
 
-func (a *reflectedFallibleAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+func (a *reflectedFallibleAction) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Complement, error) {
 	if err := initCallableSlots(ctx, slots, a.method.Type, a.paramNames); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", a.name, err)
 	}
@@ -146,7 +148,7 @@ type reflectedCompensableAction struct {
 	compensate reflect.Method
 }
 
-func (a *reflectedCompensableAction) Do(ctx *Context, slots map[string]any) (Result, Complement, error) {
+func (a *reflectedCompensableAction) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Complement, error) {
 	if err := initCallableSlots(ctx, slots, a.method.Type, a.paramNames); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", a.name, err)
 	}
@@ -171,7 +173,7 @@ func (a *reflectedCompensableAction) Do(ctx *Context, slots map[string]any) (Res
 	return result, undoState, doErr
 }
 
-func (a *reflectedCompensableAction) Undo(ctx *Context, state Complement) error {
+func (a *reflectedCompensableAction) Undo(ctx *op.Context, state op.Complement) error {
 	if state == nil {
 		return nil
 	}
@@ -189,7 +191,7 @@ func (a *reflectedCompensableAction) Undo(ctx *Context, state Complement) error 
 // errorType and noResultType are cached for return-type classification.
 var (
 	errorType    = reflect.TypeOf((*error)(nil)).Elem()
-	noResultType = reflect.TypeOf(NoResult{})
+	noResultType = reflect.TypeOf(op.NoResult{})
 )
 
 // validateSlotType checks whether a Go value can be coerced to a target type
@@ -225,7 +227,7 @@ func validateSlotType(goVal any, targetType reflect.Type) error {
 	}
 
 	// Constructor registry (includes lazy init from resource announcements).
-	if _, ok := ensureResourceInit(targetType); ok {
+	if _, ok := op.LookupConstructor(targetType); ok {
 		return nil
 	}
 
@@ -272,7 +274,7 @@ func coerceSlotValue(slotValue any, targetType reflect.Type) (reflect.Value, err
 		return coerceSlice(sv, targetType)
 	}
 
-	if ctor, ok := ensureResourceInit(targetType); ok {
+	if ctor, ok := op.LookupConstructor(targetType); ok {
 		result, err := ctor(slotValue)
 		if err != nil {
 			return reflect.Value{}, err
@@ -328,7 +330,7 @@ func coerceSlice(srcSlice reflect.Value, targetType reflect.Type) (reflect.Value
 //
 //	0 → (nil, error)
 //	1 → (result, error)
-func classifyFallibleReturn(results []reflect.Value) (Result, error) {
+func classifyFallibleReturn(results []reflect.Value) (op.Result, error) {
 	n := len(results)
 	if n == 0 {
 		return nil, nil
@@ -342,10 +344,10 @@ func classifyFallibleReturn(results []reflect.Value) (Result, error) {
 		n--
 	}
 
-	var result Result
+	var result op.Result
 	if n > 0 {
 		v := results[0].Interface()
-		if _, isNoResult := v.(NoResult); !isNoResult {
+		if _, isNoResult := v.(op.NoResult); !isNoResult {
 			result = v
 		}
 	}
@@ -360,7 +362,7 @@ func classifyFallibleReturn(results []reflect.Value) (Result, error) {
 //	0 → (nil, nil, error)
 //	1 → (result, nil, error)
 //	2 → (result, undoState, error)
-func classifyCompensableReturn(results []reflect.Value) (Result, Complement, error) {
+func classifyCompensableReturn(results []reflect.Value) (op.Result, op.Complement, error) {
 	n := len(results)
 	if n == 0 {
 		return nil, nil, nil
@@ -374,12 +376,12 @@ func classifyCompensableReturn(results []reflect.Value) (Result, Complement, err
 		n--
 	}
 
-	var result Result
-	var undoState Complement
+	var result op.Result
+	var undoState op.Complement
 
 	if n > 0 {
 		v := results[0].Interface()
-		if _, isNoResult := v.(NoResult); !isNoResult {
+		if _, isNoResult := v.(op.NoResult); !isNoResult {
 			result = v
 		}
 	}
@@ -391,14 +393,14 @@ func classifyCompensableReturn(results []reflect.Value) (Result, Complement, err
 }
 
 // resourceType is cached for result-type classification.
-var resourceType = reflect.TypeOf((*Resource)(nil)).Elem()
+var resourceType = reflect.TypeOf((*op.Resource)(nil)).Elem()
 
 // shadowResult shadows Resource results in the catalog without changing the
 // result type. ReceiverFactory methods return resources by value (e.g., file.Resource).
 // The Resource interface requires pointer receivers (resourceBase), so a
 // temporary pointer is created for the Shadow call. The catalog stamps
 // id/originID on the underlying ResourceBase; the stamped value is returned.
-func shadowResult(result Result, catalog *ResourceCatalog, originID string) Result {
+func shadowResult(result op.Result, catalog *op.ResourceCatalog, originID string) op.Result {
 	if result == nil || catalog == nil {
 		return result
 	}
@@ -408,7 +410,7 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 
 	// Already satisfies Resource (pointer type or interface).
 	if t.Implements(resourceType) {
-		_, _ = catalog.Shadow(result.(Resource), originID)
+		_, _ = catalog.Shadow(result.(op.Resource), originID)
 		return result
 	}
 
@@ -418,7 +420,7 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 	if t.Kind() == reflect.Struct && reflect.PointerTo(t).Implements(resourceType) {
 		ptr := reflect.New(t)
 		ptr.Elem().Set(rv)
-		_, _ = catalog.Shadow(ptr.Interface().(Resource), originID)
+		_, _ = catalog.Shadow(ptr.Interface().(op.Resource), originID)
 		return ptr.Elem().Interface()
 	}
 
@@ -430,11 +432,11 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 		if directImpl || ptrImpl {
 			for i := 0; i < rv.Len(); i++ {
 				if directImpl {
-					_, _ = catalog.Shadow(rv.Index(i).Interface().(Resource), originID)
+					_, _ = catalog.Shadow(rv.Index(i).Interface().(op.Resource), originID)
 				} else {
 					ptr := reflect.New(et)
 					ptr.Elem().Set(rv.Index(i))
-					_, _ = catalog.Shadow(ptr.Interface().(Resource), originID)
+					_, _ = catalog.Shadow(ptr.Interface().(op.Resource), originID)
 				}
 			}
 		}
@@ -452,7 +454,7 @@ func shadowResult(result Result, catalog *ResourceCatalog, originID string) Resu
 //
 // Every CompensableAction (3 returns) must have a Compensate<GoName>
 // companion method. Missing pairs panic at registration time.
-func RegisterActions(registry *ActionRegistry, factory ReceiverFactory, params MethodParams) {
+func RegisterActions(registry *op.ActionRegistry, factory op.ReceiverFactory, params MethodParams) {
 
 	registerReceiverParamsReflect(factory, params)
 	pt := reflect.PointerTo(factory.ProviderType())

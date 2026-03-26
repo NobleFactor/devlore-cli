@@ -6,9 +6,8 @@ package lore
 import (
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // packageContextReceiver wraps PackageContext as a Starlark receiver.
@@ -60,7 +59,7 @@ func (r *packageContextReceiver) Attr(name string) (starlark.Value, error) {
 	case "setting":
 		return starlark.NewBuiltin("package.setting", r.setting), nil
 	default:
-		return nil, op.NoSuchAttrError("package", name)
+		return nil, bind.NoSuchAttrError("package", name)
 	}
 }
 

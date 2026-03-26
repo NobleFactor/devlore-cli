@@ -11,6 +11,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -43,7 +44,7 @@ func TestStarlark(t *testing.T) {
 
 	ctx := testCtx()
 	p := appnet.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(appnetgen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(appnetgen.Receiver, p)
 
 	globals := starlark.StringDict{
 		"appnet":   receiver,
@@ -82,7 +83,7 @@ func TestActions_Download(t *testing.T) {
 
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, appnetgen.Receiver, appnetgen.Params)
+	bind.RegisterActions(reg, appnetgen.Receiver, appnetgen.Params)
 
 	a, ok := reg.Get("appnet.download")
 	if !ok {

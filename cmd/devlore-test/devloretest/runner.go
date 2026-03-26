@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -151,7 +152,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	if r.withGraphBuilder {
 		cfg.WithGraphBuilder()
 	}
-	bs := op.NewStarlarkRuntime(cfg)
+	bs := bind.NewStarlarkRuntime(cfg)
 
 	// 3. Create ActionRegistry with all provider actions
 	reg := op.NewActionRegistry()

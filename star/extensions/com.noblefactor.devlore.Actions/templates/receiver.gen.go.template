@@ -13,6 +13,7 @@ import (
 {{- end}}
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
 {{- end}}
@@ -80,7 +81,7 @@ func (f *receiverFactory) ReceiverName() string { return "{{.provider}}" }
 // Returns:
 //   - starlark.Value: the executing receiver.
 func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
-	return op.WrapProviderInExecutingReceiver(f, {{.provider_type_prefix}}NewProvider(ctx))
+	return bind.WrapProviderInExecutingReceiver(f, {{.provider_type_prefix}}NewProvider(ctx))
 }
 {{- end}}
 {{- if .has_planned}}
@@ -95,7 +96,7 @@ func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
 // Returns:
 //   - starlark.Value: the planning receiver.
 func (f *receiverFactory) NewPlanning(graph *op.Graph, project string, registry *op.ActionRegistry) starlark.Value {
-	return op.WrapProviderInPlanningReceiver(f, graph, project, registry, Params)
+	return bind.WrapProviderInPlanningReceiver(f, graph, project, registry, Params)
 }
 {{- end}}
 {{- if .has_actions}}
@@ -107,9 +108,9 @@ func (f *receiverFactory) NewPlanning(graph *op.Graph, project string, registry 
 //   - ctx: the execution context.
 func (f *receiverFactory) Register(registry *op.ActionRegistry, ctx op.Context) {
 
-	op.RegisterActions(registry, f, Params)
+	bind.RegisterActions(registry, f, Params)
 {{- if .has_immediate}}
-	op.RegisterReceiverParams(f, Params)
+	bind.RegisterReceiverParams(f, Params)
 {{- end}}
 }
 {{- else}}
@@ -120,7 +121,7 @@ func (f *receiverFactory) Register(registry *op.ActionRegistry, ctx op.Context) 
 //   - registry: the action registry (unused for immediate-only providers).
 //   - ctx: the execution context (unused).
 func (f *receiverFactory) Register(_ *op.ActionRegistry, _ op.Context) {
-	op.RegisterReceiverParams(f, Params)
+	bind.RegisterReceiverParams(f, Params)
 }
 {{- end}}
 

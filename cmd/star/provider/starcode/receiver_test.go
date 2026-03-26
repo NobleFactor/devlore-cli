@@ -8,11 +8,12 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode"
 	starcodegen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func TestMain(m *testing.M) {
@@ -22,7 +23,7 @@ func TestMain(m *testing.M) {
 
 // TestReceiverAttrNames verifies StarcodeReceiver.AttrNames returns the expected attribute list.
 func TestReceiverAttrNames(t *testing.T) {
-	r := op.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
+	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
 	names := r.AttrNames()
 
 	if len(names) != 1 {
@@ -35,7 +36,7 @@ func TestReceiverAttrNames(t *testing.T) {
 
 // TestReceiverAttrUnknown verifies StarcodeReceiver.Attr returns an error for unknown attributes.
 func TestReceiverAttrUnknown(t *testing.T) {
-	r := op.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
+	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
 
 	val, err := r.Attr("bogus")
 	if err == nil {
@@ -48,7 +49,7 @@ func TestReceiverAttrUnknown(t *testing.T) {
 
 // TestReceiverAttrCapture verifies StarcodeReceiver.Attr returns a value for the "capture" attribute.
 func TestReceiverAttrCapture(t *testing.T) {
-	r := op.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
+	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
 
 	val, err := r.Attr("capture")
 	if err != nil {
@@ -62,7 +63,7 @@ func TestReceiverAttrCapture(t *testing.T) {
 // TestSourcesValueAttrNames verifies SourcesValue.AttrNames returns the expected sorted list.
 // TODO: Re-enable when dependent type wrappers are implemented (see generate.star TODO).
 func TestSourcesValueAttrNames(t *testing.T) {
-	val, _ := op.Marshal(&starcode.Sources{Root: ".", Files: nil})
+	val, _ := bind.Marshal(&starcode.Sources{Root: ".", Files: nil})
 	sv := val.(starlark.HasAttrs)
 	names := sv.AttrNames()
 
@@ -84,7 +85,7 @@ func TestSourcesValueAttrNames(t *testing.T) {
 
 // TestSourcesValueAttrUnknown verifies SourcesValue.Attr returns an error for unknown attributes.
 func TestSourcesValueAttrUnknown(t *testing.T) {
-	v, _ := op.Marshal(&starcode.Sources{Root: ".", Files: nil})
+	v, _ := bind.Marshal(&starcode.Sources{Root: ".", Files: nil})
 	sv := v.(starlark.HasAttrs)
 
 	val, err := sv.Attr("bogus")
@@ -98,7 +99,7 @@ func TestSourcesValueAttrUnknown(t *testing.T) {
 
 // TestSourcesValueAttrPaths verifies SourcesValue.Attr returns a value for "paths".
 func TestSourcesValueAttrPaths(t *testing.T) {
-	v, _ := op.Marshal(&starcode.Sources{Root: ".", Files: nil})
+	v, _ := bind.Marshal(&starcode.Sources{Root: ".", Files: nil})
 	sv := v.(starlark.HasAttrs)
 
 	val, err := sv.Attr("paths")
@@ -112,7 +113,7 @@ func TestSourcesValueAttrPaths(t *testing.T) {
 
 // TestSourcesValueAttrCount verifies SourcesValue.Attr returns a value for "count".
 func TestSourcesValueAttrCount(t *testing.T) {
-	v, _ := op.Marshal(&starcode.Sources{Root: ".", Files: nil})
+	v, _ := bind.Marshal(&starcode.Sources{Root: ".", Files: nil})
 	sv := v.(starlark.HasAttrs)
 
 	val, err := sv.Attr("count")

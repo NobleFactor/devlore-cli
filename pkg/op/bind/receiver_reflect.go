@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"fmt"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
 
@@ -29,8 +29,8 @@ type ExecutingReceiver struct {
 	providerValue reflect.Value
 	methods       map[string]*methodBridge
 	attrList      []string
-	catalog       *ResourceCatalog // optional; set via SetCatalog
-	stack         *RecoveryStack   // optional; set via SetStack
+	catalog       *op.ResourceCatalog // optional; set via SetCatalog
+	stack         *op.RecoveryStack   // optional; set via SetStack
 }
 
 // methodBridge pairs a snake_case method name with its Starlark bridge function.
@@ -51,7 +51,7 @@ type methodBridge struct {
 //
 // Returns:
 //   - *ExecutingReceiver: the wrapped receiver with method bridges.
-func WrapProviderInExecutingReceiver(factory ReceiverFactory, provider any) *ExecutingReceiver {
+func WrapProviderInExecutingReceiver(factory op.ReceiverFactory, provider any) *ExecutingReceiver {
 
 	name := factory.ReceiverName()
 
@@ -113,18 +113,19 @@ func WrapProviderInExecutingReceiver(factory ReceiverFactory, provider any) *Exe
 //
 // Parameters:
 //   - c: the resource catalog to use.
-func (r *ExecutingReceiver) SetCatalog(c *ResourceCatalog) { r.catalog = c }
+func (r *ExecutingReceiver) SetCatalog(c *op.ResourceCatalog) { r.catalog = c }
 
 // SetContext injects the execution Context into the receiver's underlying provider.
 // This allows immediate receivers to access Context-scoped services like RecoverySite.
 //
 // Parameters:
 //   - ctx: the execution context to inject.
-func (r *ExecutingReceiver) SetContext(ctx Context) {
+func (r *ExecutingReceiver) SetContext(ctx op.Context) {
 
 	if r.providerValue.Kind() == reflect.Ptr && !r.providerValue.IsNil() {
-		if cp, ok := r.providerValue.Interface().(ContextProvider); ok {
-			cp.providerBase().ctx = ctx
+		type contextSetter interface{ SetContext(op.Context) }
+		if cs, ok := r.providerValue.Interface().(contextSetter); ok {
+			cs.SetContext(ctx)
 		}
 	}
 }
@@ -133,7 +134,7 @@ func (r *ExecutingReceiver) SetContext(ctx Context) {
 //
 // Parameters:
 //   - s: the recovery stack to use.
-func (r *ExecutingReceiver) SetStack(s *RecoveryStack) { r.stack = s }
+func (r *ExecutingReceiver) SetStack(s *op.RecoveryStack) { r.stack = s }
 
 // endregion
 
@@ -152,15 +153,25 @@ func (r *ExecutingReceiver) SetStack(s *RecoveryStack) { r.stack = s }
 func (r *ExecutingReceiver) Attr(name string) (starlark.Value, error) {
 
 	m, ok := r.methods[name]
-	if !ok {
-		return nil, NoSuchAttrError(r.receiver.name, name)
+	if ok {
+		if m.property {
+			// Properties are called eagerly — invoke the bridge with no args
+			// and return the result directly.
+			return m.bridge(nil, nil, nil, nil)
+		}
+		return starlark.NewBuiltin(r.receiver.name+"."+name, m.bridge), nil
 	}
-	if m.property {
-		// Properties are called eagerly — invoke the bridge with no args
-		// and return the result directly.
-		return m.bridge(nil, nil, nil, nil)
+
+	// Dynamic attributes: if the provider implements AttributeResolver,
+	// delegate unknown attribute lookups to it. The returned value is
+	// sent through the marshaler.
+	if ar, ok := r.providerValue.Interface().(op.AttributeResolver); ok {
+		if val := ar.ResolveAttr(name); val != nil {
+			return Marshal(val)
+		}
 	}
-	return starlark.NewBuiltin(r.receiver.name+"."+name, m.bridge), nil
+
+	return nil, NoSuchAttrError(r.receiver.name, name)
 }
 
 // AttrNames implements starlark.HasAttrs.
@@ -170,26 +181,6 @@ func (r *ExecutingReceiver) Attr(name string) (starlark.Value, error) {
 func (r *ExecutingReceiver) AttrNames() []string {
 
 	return r.attrList
-}
-
-// Override replaces a method's auto-generated bridge with a custom one.
-// Used for methods with unusual signatures (Callable params, variadic
-// args, non-zero defaults).
-//
-// Parameters:
-//   - name: the snake_case method name to override.
-//   - fn: the custom bridge function.
-func (r *ExecutingReceiver) Override(name string, fn builtinFunc) {
-
-	r.methods[name] = &methodBridge{
-		name:   name,
-		bridge: fn,
-	}
-	// Rebuild attr list if new method added.
-	if !slices.Contains(r.attrList, name) {
-		r.attrList = append(r.attrList, name)
-		sort.Strings(r.attrList)
-	}
 }
 
 // endregion

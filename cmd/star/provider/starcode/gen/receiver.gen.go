@@ -8,6 +8,7 @@ package starcode
 import (
 	"reflect"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode"
@@ -75,7 +76,7 @@ func (f *receiverFactory) ReceiverName() string { return "starcode" }
 // Returns:
 //   - starlark.Value: the executing receiver.
 func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
-	return op.WrapProviderInExecutingReceiver(f, provider.NewProvider(ctx))
+	return bind.WrapProviderInExecutingReceiver(f, provider.NewProvider(ctx))
 }
 
 // Register registers receiver params for this provider.
@@ -84,7 +85,7 @@ func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
 //   - registry: the action registry (unused for immediate-only providers).
 //   - ctx: the execution context (unused).
 func (f *receiverFactory) Register(_ *op.ActionRegistry, _ op.Context) {
-	op.RegisterReceiverParams(f, Params)
+	bind.RegisterReceiverParams(f, Params)
 }
 
 // endregion

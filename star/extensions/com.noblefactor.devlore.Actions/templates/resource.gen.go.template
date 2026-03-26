@@ -9,6 +9,9 @@ import (
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+{{- if .resource_params}}
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+{{- end}}
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
 {{- end}}
@@ -16,7 +19,7 @@ import (
 {{- if .resource_params}}
 
 // resourceParams maps Go method names on {{.provider}}.Resource to Starlark parameter name lists.
-var resourceParams = op.MethodParams{
+var resourceParams = bind.MethodParams{
 {{- range .resource_params}}
 	"{{.name}}": { {{- range $i, $p := .params}}{{if $i}}, {{end}}"{{$p}}"{{- end -}} },
 {{- end}}
@@ -26,7 +29,7 @@ var resourceParams = op.MethodParams{
 func init() {
 	op.AnnounceResource(&resourceFactory{})
 {{- if .resource_params}}
-	op.RegisterTypeParams(reflect.TypeOf({{.provider_type_prefix}}Resource{}), resourceParams)
+	bind.RegisterTypeParams(reflect.TypeOf({{.provider_type_prefix}}Resource{}), resourceParams)
 {{- end}}
 }
 

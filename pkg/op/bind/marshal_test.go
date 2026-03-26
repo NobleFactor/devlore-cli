@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
@@ -823,14 +824,14 @@ type testConstructable struct {
 }
 
 func TestUnmarshal_WithConstructor(t *testing.T) {
-	RegisterConstructor(func(v any) (testConstructable, error) {
+	op.RegisterConstructor(func(v any) (testConstructable, error) {
 		s, ok := v.(string)
 		if !ok {
 			return testConstructable{}, fmt.Errorf("expected string, got %T", v)
 		}
 		return testConstructable{Value: s, Extra: len(s)}, nil
 	})
-	defer constructorRegistry.Delete(reflect.TypeOf(testConstructable{}))
+	defer op.ResetResourceRegistry()
 
 	var got testConstructable
 	if err := unmarshal(starlark.String("world"), &got); err != nil {
@@ -842,14 +843,14 @@ func TestUnmarshal_WithConstructor(t *testing.T) {
 }
 
 func TestUnmarshal_Constructor_InvalidInput(t *testing.T) {
-	RegisterConstructor(func(v any) (testConstructable, error) {
+	op.RegisterConstructor(func(v any) (testConstructable, error) {
 		s, ok := v.(string)
 		if !ok {
 			return testConstructable{}, fmt.Errorf("expected string, got %T", v)
 		}
 		return testConstructable{Value: s}, nil
 	})
-	defer constructorRegistry.Delete(reflect.TypeOf(testConstructable{}))
+	defer op.ResetResourceRegistry()
 
 	var got testConstructable
 	err := unmarshal(starlark.MakeInt(42), &got)

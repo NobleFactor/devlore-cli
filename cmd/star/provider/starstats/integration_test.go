@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats"
 	starstatsgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats/gen"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func TestMain(m *testing.M) {
@@ -54,7 +55,7 @@ func starlarkFileList(files []string) *starlark.List {
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
 	p := starstats.NewProvider(ctx)
-	receiver := op.WrapProviderInExecutingReceiver(starstatsgen.Receiver, p)
+	receiver := bind.WrapProviderInExecutingReceiver(starstatsgen.Receiver, p)
 
 	globals := starlark.StringDict{
 		"starstats":  receiver,
@@ -90,7 +91,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_ComputeStats(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	op.RegisterActions(reg, starstatsgen.Receiver, starstatsgen.Params)
+	bind.RegisterActions(reg, starstatsgen.Receiver, starstatsgen.Params)
 
 	a, ok := reg.Get("starstats.compute_stats")
 	if !ok {

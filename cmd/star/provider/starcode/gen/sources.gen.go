@@ -10,14 +10,15 @@ import (
 
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 func init() {
-	op.RegisterReceiverParams(&SourcesFactory{}, SourcesParams)
+	bind.RegisterReceiverParams(&SourcesFactory{}, SourcesParams)
 }
 
 // SourcesParams maps Go method names to Starlark parameter name lists.
-var SourcesParams = op.MethodParams{
+var SourcesParams = bind.MethodParams{
 	"Paths":   {},
 	"Count":   {},
 	"Index":   {"with_docstrings?", "with_globals?"},

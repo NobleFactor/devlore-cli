@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op
+package bind
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
 
@@ -22,15 +23,15 @@ var (
 // --- Helpers ---
 
 // makeTestGraph creates a minimal graph for testing.
-func makeTestGraph() *Graph {
-	return &Graph{Version: "1", Tool: "test", Catalog: NewResourceCatalog()}
+func makeTestGraph() *op.Graph {
+	return &op.Graph{Version: "1", Tool: "test", Catalog: op.NewResourceCatalog()}
 }
 
 // makeTestNode creates a node with the given ID and an optional stub action.
-func makeTestNode(id, action string) *Node {
-	n := &Node{ID: id}
+func makeTestNode(id, action string) *op.Node {
+	n := &op.Node{ID: id}
 	if action != "" {
-		n.Action = StubAction(action)
+		n.Action = op.StubAction(action)
 	}
 	return n
 }
@@ -158,12 +159,12 @@ func TestOutputFillSlot(t *testing.T) {
 func TestOutputPath(t *testing.T) {
 	tests := []struct {
 		name  string
-		slots map[string]SlotValue
+		slots map[string]op.SlotValue
 		want  string
 	}{
 		{
 			name:  "path present",
-			slots: map[string]SlotValue{"path": {Immediate: "/tmp/file"}},
+			slots: map[string]op.SlotValue{"path": {Immediate: "/tmp/file"}},
 			want:  "/tmp/file",
 		},
 		{
@@ -173,12 +174,12 @@ func TestOutputPath(t *testing.T) {
 		},
 		{
 			name:  "path not string",
-			slots: map[string]SlotValue{"path": {Immediate: 42}},
+			slots: map[string]op.SlotValue{"path": {Immediate: 42}},
 			want:  "",
 		},
 		{
 			name:  "path is promise",
-			slots: map[string]SlotValue{"path": {NodeRef: "other"}},
+			slots: map[string]op.SlotValue{"path": {NodeRef: "other"}},
 			want:  "",
 		},
 	}
@@ -536,7 +537,7 @@ func TestFillSlotUnsupportedType(t *testing.T) {
 
 // testFileResource embeds op.ResourceBase for testing implicit edge creation.
 type testFileResource struct {
-	ResourceBase
+	op.ResourceBase
 	SourcePath string
 }
 
@@ -602,7 +603,7 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 	consumer := makeTestNode("reader", "file.read")
 
 	// A plain ResourceBase with origin.
-	res := new(NewResourceBase("file:///baz"))
+	res := new(op.NewResourceBase("file:///baz"))
 	if _, err := g.Catalog.Shadow(res, "producer"); err != nil {
 		t.Fatalf("Shadow error: %v", err)
 	}
@@ -655,7 +656,7 @@ func TestOutputRetryBuiltin(t *testing.T) {
 		name        string
 		kwargs      []starlark.Tuple
 		wantMax     int
-		wantBackoff BackoffStrategy
+		wantBackoff op.BackoffStrategy
 		wantErr     bool
 	}{
 		{
@@ -672,7 +673,7 @@ func TestOutputRetryBuiltin(t *testing.T) {
 				{starlark.String("backoff"), starlark.String("exponential")},
 			},
 			wantMax:     5,
-			wantBackoff: BackoffExponential,
+			wantBackoff: op.BackoffExponential,
 		},
 		{
 			name: "linear backoff with delays",
@@ -683,7 +684,7 @@ func TestOutputRetryBuiltin(t *testing.T) {
 				{starlark.String("max_delay"), starlark.String("10s")},
 			},
 			wantMax:     2,
-			wantBackoff: BackoffLinear,
+			wantBackoff: op.BackoffLinear,
 		},
 		{
 			name: "negative max_attempts",

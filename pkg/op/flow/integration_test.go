@@ -11,8 +11,10 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"github.com/NobleFactor/devlore-cli/pkg/op/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
+	plangen "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan/gen"
 )
 
 func TestMain(m *testing.M) {
@@ -27,10 +29,18 @@ func TestStarlark_PlanReceiver(t *testing.T) {
 	reg.Register(&flow.Complete{})
 	reg.Register(&flow.Degraded{})
 	reg.Register(&flow.Fatal{})
-	op.RegisterReceiverParams(plan.Factory, plan.Params)
+	bind.RegisterReceiverParams(plangen.Receiver, plangen.Params)
 
 	graph := op.NewGraph("flow-integration")
-	receiver := plan.Factory.(op.PlanReceiverFactory).NewExecuting(graph, "testproject", reg)
+	ctx := op.Context{
+		Graph: graph,
+	}
+	ctx.Data = map[string]any{
+		"project":         "testproject",
+		"action_registry": reg,
+	}
+	factory := plangen.Receiver.(op.ExecutingReceiverFactory)
+	receiver := factory.NewExecuting(ctx)
 
 	globals := starlark.StringDict{"plan": receiver}
 
@@ -109,7 +119,7 @@ func TestStarlark_PlanReceiver(t *testing.T) {
 			t.Errorf("missing global %q", key)
 			continue
 		}
-		if _, ok := v.(*op.Promise); !ok {
+		if _, ok := v.(*bind.Promise); !ok {
 			t.Errorf("%s type = %T, want *op.Promise", key, v)
 		}
 	}
@@ -124,7 +134,12 @@ func TestActions_Complete_RoundTrip(t *testing.T) {
 	reg.Register(&flow.Complete{})
 
 	graph := op.NewGraph("roundtrip")
-	p := plan.NewProvider(graph, "proj", reg)
+	p := plan.NewProvider(op.Context{
+		Graph: graph,
+		ContextBase: op.ContextBase{Data: map[string]any{
+			"project": "proj", "action_registry": reg,
+		}},
+	})
 
 	promise, err := p.Complete("hello")
 	if err != nil {
@@ -151,7 +166,12 @@ func TestActions_Degraded_RoundTrip(t *testing.T) {
 	reg.Register(&flow.Degraded{})
 
 	graph := op.NewGraph("roundtrip")
-	p := plan.NewProvider(graph, "proj", reg)
+	p := plan.NewProvider(op.Context{
+		Graph: graph,
+		ContextBase: op.ContextBase{Data: map[string]any{
+			"project": "proj", "action_registry": reg,
+		}},
+	})
 
 	promise, err := p.Degraded("timeout on %s", []any{"db"}, nil)
 	if err != nil {
@@ -179,7 +199,12 @@ func TestActions_Fatal_RoundTrip(t *testing.T) {
 	reg.Register(&flow.Fatal{})
 
 	graph := op.NewGraph("roundtrip")
-	p := plan.NewProvider(graph, "proj", reg)
+	p := plan.NewProvider(op.Context{
+		Graph: graph,
+		ContextBase: op.ContextBase{Data: map[string]any{
+			"project": "proj", "action_registry": reg,
+		}},
+	})
 
 	promise, err := p.Fatal("out of memory", nil, nil)
 	if err != nil {
