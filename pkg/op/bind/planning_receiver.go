@@ -13,15 +13,15 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// PlanningReceiver wraps a provider's method signatures for planned-mode
-// Starlark use. Each call creates a graph Node instead of executing the
-// method directly.
+// PlanningReceiver wraps a provider's method signatures for planned-mode Starlark use.
+//
+// Each call creates a graph Node instead of executing the method directly.
 type PlanningReceiver struct {
 	receiver
 	providerName string
 	graph        *op.Graph
 	project      string
-	reg          *op.ActionRegistry
+	reg          *op.ReceiverRegistry
 	methods      map[string]*plannedBridge
 	attrList     []string
 }
@@ -31,15 +31,10 @@ type plannedBridge struct {
 	bridge builtinFunc
 }
 
-// WrapProviderInPlanningReceiver wraps a provider for planned-mode use. Only methods with
-// a corresponding registered action in reg are exposed.
-func WrapProviderInPlanningReceiver(
-	factory op.ReceiverFactory,
-	graph *op.Graph,
-	project string,
-	reg *op.ActionRegistry,
-	params MethodParams,
-) *PlanningReceiver {
+// WrapProviderInPlanningReceiver wraps a provider for planned-mode use.
+//
+// Only methods with a corresponding registered action in reg are exposed.
+func WrapProviderInPlanningReceiver(factory op.ReceiverFactory, graph *op.Graph, project string, registry *op.ReceiverRegistry) *PlanningReceiver {
 
 	receiverName := factory.ReceiverName()
 
@@ -48,7 +43,7 @@ func WrapProviderInPlanningReceiver(
 		providerName: factory.ReceiverName(),
 		graph:        graph,
 		project:      project,
-		reg:          reg,
+		reg:          registry,
 		methods:      make(map[string]*plannedBridge),
 	}
 
@@ -66,16 +61,16 @@ func WrapProviderInPlanningReceiver(
 		actionName := receiverName + "." + snakeName
 
 		// Only expose methods that have a registered action.
-		if _, ok := reg.Get(actionName); !ok {
+		if _, ok := registry.Get(actionName); !ok {
 			continue
 		}
 
-		paramNames, ok := params[m.Name]
-		if !ok {
+		paramNames := factory.MethodParamsFor(m.Name)
+		if paramNames == nil {
 			continue
 		}
 
-		bridge := buildPlannedBridge(receiverName, snakeName, actionName, paramNames, m, graph, project, reg)
+		bridge := buildPlannedBridge(receiverName, snakeName, actionName, paramNames, m, graph, project, registry)
 		p.methods[snakeName] = &plannedBridge{
 			name:   snakeName,
 			bridge: bridge,
@@ -105,21 +100,24 @@ func (p *PlanningReceiver) AttrNames() []string {
 }
 
 // buildPlannedBridge creates a builtinFunc that creates a graph Node.
-// The reflect.Method is used to inspect parameter types for catalog
-// resolution: immediate values passed to Resource-typed parameters
-// are resolved in the graph's catalog at plan time.
+//
+// The [reflect.Method] is used to inspect parameter types for catalog resolution: immediate values passed to
+// Resource-typed parameters are resolved in the graph's catalog at plan time.
 func buildPlannedBridge(
 	providerName, snakeName, actionName string,
 	paramNames []string,
 	method reflect.Method,
 	graph *op.Graph,
 	project string,
-	reg *op.ActionRegistry,
+	reg *op.ReceiverRegistry,
 ) builtinFunc {
+
 	// Detect **kwargs param and build known-kwarg set for filtering.
+
 	var kwargsName string
 	knownKwargs := make(map[string]bool, len(paramNames))
 	regularParams := make([]string, 0, len(paramNames))
+
 	for _, name := range paramNames {
 		if strings.HasPrefix(name, "**") {
 			kwargsName = strings.TrimPrefix(name, "**")
@@ -242,17 +240,19 @@ func buildPlannedBridge(
 	}
 }
 
-// shadowOutputParam shadows the output Resource parameter in the catalog at
-// plan time. For compensable methods (3+ returns) that return a Resource type,
-// the last Resource-typed parameter (conventionally the destination) is
-// shadowed with the node's ID. This removes the destination from
-// DiscoveryURIs so pre-flight won't reject files that don't exist yet.
+// shadowOutputParam shadows the output Resource parameter in the catalog at plan time.
+//
+// For compensable methods (3 returns) that return a Resource type, the last Resource-typed parameter (conventionally
+// the destination) is shadowed with the node's ID. This removes the destination from DiscoveryURIs so pre-flight won't
+// reject files that don't exist yet.
 func shadowOutputParam(graph *op.Graph, mt reflect.Type, vals []starlark.Value, paramNames []string, nodeID string) error {
+
 	if graph.Catalog == nil {
 		return nil
 	}
 
 	// Only compensable methods (numNonError >= 2) modify state.
+
 	numNonError := mt.NumOut()
 	if numNonError > 0 && mt.Out(mt.NumOut()-1).Implements(errorType) {
 		numNonError--
@@ -262,7 +262,9 @@ func shadowOutputParam(graph *op.Graph, mt reflect.Type, vals []starlark.Value, 
 	}
 
 	// Check if the first non-error return is a Resource type.
+
 	resultType := mt.Out(0)
+
 	if resultType == noResultType {
 		return nil
 	}
@@ -271,6 +273,7 @@ func shadowOutputParam(graph *op.Graph, mt reflect.Type, vals []starlark.Value, 
 	}
 
 	// Find all Resource-typed parameter indices.
+
 	var resourceParamIndices []int
 	for i := range paramNames {
 		paramIdx := i + 1 // skip receiver
@@ -287,6 +290,7 @@ func shadowOutputParam(graph *op.Graph, mt reflect.Type, vals []starlark.Value, 
 	}
 
 	// Shadow the last Resource-typed parameter (destination convention).
+
 	lastIdx := resourceParamIndices[len(resourceParamIndices)-1]
 	sv := vals[lastIdx]
 	if sv == nil {
@@ -294,6 +298,7 @@ func shadowOutputParam(graph *op.Graph, mt reflect.Type, vals []starlark.Value, 
 	}
 
 	// Skip promises — they'll be shadowed at execution time.
+
 	if _, ok := sv.(*Promise); ok {
 		return nil
 	}
@@ -321,8 +326,7 @@ func shadowOutputParam(graph *op.Graph, mt reflect.Type, vals []starlark.Value, 
 	return nil
 }
 
-// implementsResource returns true if t satisfies the Resource interface
-// either directly or via pointer (for value types with pointer receivers).
+// implementsResource returns true if t satisfies the [op.Resource] interface either directly or indirectly by pointer.
 func implementsResource(t reflect.Type) bool {
 	if t.Implements(resourceType) {
 		return true
@@ -330,10 +334,11 @@ func implementsResource(t reflect.Type) bool {
 	return t.Kind() == reflect.Struct && reflect.PointerTo(t).Implements(resourceType)
 }
 
-// resolveResourceParam checks if a Starlark slot value targets a Resource-typed
-// parameter. For immediate (non-promise) values, it constructs a plan-time
-// Resource and calls catalog.Resolve to register the URI.
+// resolveResourceParam checks if a Starlark slot value targets a Resource-typed parameter.
+//
+// For immediate (non-promise) values, it constructs a plan-time Resource and calls catalog.Resolve to register the URI.
 func resolveResourceParam(graph *op.Graph, sv starlark.Value, paramType reflect.Type) {
+
 	if graph.Catalog == nil {
 		return
 	}
@@ -347,18 +352,21 @@ func resolveResourceParam(graph *op.Graph, sv starlark.Value, paramType reflect.
 	}
 
 	// Check if the parameter type satisfies Resource.
+
 	if !paramType.Implements(resourceType) &&
 		!(paramType.Kind() == reflect.Struct && reflect.PointerTo(paramType).Implements(resourceType)) {
 		return
 	}
 
 	// Unmarshal the Starlark value to get the Go representation.
+
 	var goVal any
 	if err := unmarshal(sv, &goVal); err != nil {
 		return // best-effort; errors are caught later during execution
 	}
 
 	// Use the plan-time constructor to create a URI-only Resource.
+
 	r, ok := constructResource(paramType, goVal)
 	if !ok {
 		return

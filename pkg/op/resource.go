@@ -7,9 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-
-	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 )
 
 // URI scheme constants.
@@ -55,6 +52,16 @@ func NewResourceBase(uri string) ResourceBase {
 // URI returns the cached canonical URI of this resource.
 func (b *ResourceBase) URI() string {
 	return b.uri
+}
+
+// ID returns the catalog-stamped identity of this resource.
+func (b *ResourceBase) ID() string {
+	return b.id
+}
+
+// OriginID returns the catalog-stamped origin node ID.
+func (b *ResourceBase) OriginID() string {
+	return b.originID
 }
 
 // SetURI updates the cached URI. Concrete types call this after Resolve()
@@ -137,17 +144,6 @@ func (b *ResourceBase) Format(v any) string {
 // catalog to stamp id and originID. This method seals the Resource interface.
 func (b *ResourceBase) resourceBase() *ResourceBase {
 	return b
-}
-
-// MarshalStarvalue implements [starvalue.Marshaler]. It serializes the
-// private identity fields (uri, id, originID) so they survive the
-// Go → Starlark → Go round-trip used by [FillSlot].
-func (b *ResourceBase) MarshalStarvalue() (starlark.Value, error) {
-	return starlarkstruct.FromStringDict(starlark.String("resource_base"), starlark.StringDict{
-		"uri":       starlark.String(b.uri),
-		"id":        starlark.String(b.id),
-		"origin_id": starlark.String(b.originID),
-	}), nil
 }
 
 // Tombstone is the interface for all compensation state types.

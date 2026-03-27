@@ -19,13 +19,26 @@ func init() {
 	op.AnnounceReceiver(Receiver)
 }
 
-// Receiver is the ReceiverFactory for the ui provider.
-var Receiver op.ReceiverFactory = &receiverFactory{}
+var (
+	providerType = reflect.TypeOf((*provider.Provider)(nil)).Elem()
 
-// factory implements op.ReceiverFactory for the ui provider.
+	// Receiver is the ReceiverFactory for the ui provider.
+	Receiver op.ReceiverFactory = &receiverFactory{
+		methodParams: bind.MethodParams{
+			"Error":   {"msg"},
+			"Note":    {"msg"},
+			"Success": {"msg"},
+			"Warn":    {"msg"},
+			"Fail":    {"msg"},
+		},
+	}
+)
+
+// receiverFactory implements op.ReceiverFactory for the ui provider.
 type receiverFactory struct {
-	provider *provider.Provider
-	root     op.Root
+	methodParams bind.MethodParams
+	provider     *provider.Provider
+	root         op.Root
 }
 
 // region EXPORTED METHODS
@@ -35,14 +48,7 @@ type receiverFactory struct {
 // GetOrCreateProvider returns a cached provider for the given context, creating one if needed.
 //
 // The provider is invalidated when the Root changes.
-//
-// Parameters:
-//   - ctx: the execution context providing Root and platform state.
-//
-// Returns:
-//   - op.ContextProvider: the provider instance.
 func (f *receiverFactory) GetOrCreateProvider(ctx op.Context) op.ContextProvider {
-
 	if f.provider == nil || f.root != ctx.Root {
 		f.provider = provider.NewProvider(ctx)
 		f.root = ctx.Root
@@ -50,18 +56,22 @@ func (f *receiverFactory) GetOrCreateProvider(ctx op.Context) op.ContextProvider
 	return f.provider
 }
 
+// MethodParams returns all method parameter name lists.
+func (f *receiverFactory) MethodParams() map[string][]string {
+	return f.methodParams
+}
+
+// MethodParamsFor returns the parameter name list for the given method.
+func (f *receiverFactory) MethodParamsFor(name string) []string {
+	return f.methodParams[name]
+}
+
 // ProviderType returns the reflect.Type of the underlying provider struct.
-//
-// Returns:
-//   - reflect.Type: the provider's concrete type.
 func (f *receiverFactory) ProviderType() reflect.Type {
-	return reflect.TypeOf((*provider.Provider)(nil)).Elem()
+	return providerType
 }
 
 // ReceiverName returns the Starlark receiver name for this provider.
-//
-// Returns:
-//   - string: the receiver name "ui".
 func (f *receiverFactory) ReceiverName() string { return "ui" }
 
 // endregion
@@ -69,24 +79,12 @@ func (f *receiverFactory) ReceiverName() string { return "ui" }
 // region Behaviors
 
 // NewExecuting creates a Starlark receiver that dispatches method calls to a fresh provider.
-//
-// Parameters:
-//   - ctx: the execution context.
-//
-// Returns:
-//   - starlark.Value: the executing receiver.
 func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
 	return bind.WrapProviderInExecutingReceiver(f, provider.NewProvider(ctx))
 }
 
-// Register registers receiver params for this provider.
-//
-// Parameters:
-//   - registry: the action registry (unused for immediate-only providers).
-//   - ctx: the execution context (unused).
-func (f *receiverFactory) Register(_ *op.ActionRegistry, _ op.Context) {
-	bind.RegisterReceiverParams(f, Params)
-}
+// Register is a no-op for immediate-only providers.
+func (f *receiverFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {}
 
 // endregion
 

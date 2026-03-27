@@ -59,12 +59,12 @@ func dryRunCtx(t *testing.T) *op.Context {
 //   - t: the test instance.
 //
 // Returns:
-//   - *op.ActionRegistry: the populated registry.
-func makeRegistry(t *testing.T) *op.ActionRegistry {
+//   - *op.ReceiverRegistry: the populated registry.
+func makeRegistry(t *testing.T) *op.ReceiverRegistry {
 
 	t.Helper()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver, regexpgen.Params)
+	bind.RegisterActions(reg, regexpgen.Receiver)
 	return reg
 }
 
@@ -77,7 +77,7 @@ func makeRegistry(t *testing.T) *op.ActionRegistry {
 //
 // Returns:
 //   - op.Action: the registered action.
-func getAction(t *testing.T, reg *op.ActionRegistry, name string) op.Action {
+func getAction(t *testing.T, reg *op.ReceiverRegistry, name string) op.Action {
 
 	t.Helper()
 	a, ok := reg.Get(name)
@@ -96,7 +96,7 @@ func getAction(t *testing.T, reg *op.ActionRegistry, name string) op.Action {
 //
 // Returns:
 //   - op.CompensableAction: the compensable action.
-func getCompensable(t *testing.T, reg *op.ActionRegistry, name string) op.CompensableAction {
+func getCompensable(t *testing.T, reg *op.ReceiverRegistry, name string) op.CompensableAction {
 
 	t.Helper()
 	a := getAction(t, reg, name)

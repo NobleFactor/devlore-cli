@@ -91,7 +91,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_IndexFiles(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, starindexgen.Receiver, starindexgen.Params)
+	bind.RegisterActions(reg, starindexgen.Receiver)
 
 	a, ok := reg.Get("starindex.index_files")
 	if !ok {

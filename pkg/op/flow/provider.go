@@ -14,7 +14,9 @@ import (
 // Flow actions are special-cased: they have no backing provider struct.
 type flowProvider struct{}
 
-func (p *flowProvider) ReceiverName() string { return "flow" }
+func (p *flowProvider) MethodParams() map[string][]string         { return nil }
+func (p *flowProvider) MethodParamsFor(_ string) []string         { return nil }
+func (p *flowProvider) ReceiverName() string                      { return "flow" }
 
 func (p *flowProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
 
@@ -22,7 +24,7 @@ func (p *flowProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*flowProvider)(nil)).Elem()
 }
 
-func (p *flowProvider) Register(reg *op.ActionRegistry, _ op.Context) {
+func (p *flowProvider) Register(_ op.Context, reg *op.ReceiverRegistry) {
 	reg.Register(&Choose{})
 	reg.Register(&Gather{})
 	reg.Register(&Elevate{})

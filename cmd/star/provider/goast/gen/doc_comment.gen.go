@@ -14,11 +14,11 @@ import (
 )
 
 func init() {
-	bind.RegisterReceiverParams(&DocCommentFactory{}, DocCommentParams)
+	bind.RegisterReceiverParams(&DocCommentFactory{}, DocCommentMethodParams)
 }
 
-// DocCommentParams maps Go method names to Starlark parameter name lists.
-var DocCommentParams = bind.MethodParams{
+// DocCommentMethodParams maps Go method names to Starlark parameter name lists.
+var DocCommentMethodParams = bind.MethodParams{
 	"Text": {},
 }
 
@@ -43,12 +43,20 @@ func (f *DocCommentFactory) ProviderType() reflect.Type {
 // ReceiverName returns the Starlark receiver name for this dependent type.
 func (f *DocCommentFactory) ReceiverName() string { return "doc_comment" }
 
+// MethodParams returns the complete method-to-parameter mapping for DocComment.
+func (f *DocCommentFactory) MethodParams() map[string][]string { return DocCommentMethodParams }
+
+// MethodParamsFor returns the parameter names for the given method.
+func (f *DocCommentFactory) MethodParamsFor(name string) []string {
+	return DocCommentMethodParams[name]
+}
+
 // endregion
 
 // region Behaviors
 
 // Register is a no-op — dependent types do not register actions.
-func (f *DocCommentFactory) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (f *DocCommentFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {}
 
 // endregion
 

@@ -26,10 +26,12 @@ type rtTestActionProvider struct {
 
 func (p *rtTestActionProvider) ReceiverName() string                                { return "_test_actions" }
 func (p *rtTestActionProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestActionProvider) MethodParams() map[string][]string                   { return nil }
+func (p *rtTestActionProvider) MethodParamsFor(_ string) []string                   { return nil }
 func (p *rtTestActionProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestActionProvider)(nil)).Elem()
 }
-func (p *rtTestActionProvider) Register(reg *op.ActionRegistry, _ op.Context) {
+func (p *rtTestActionProvider) Register(_ op.Context, reg *op.ReceiverRegistry) {
 	reg.Register(&testAction{name: p.actionName})
 }
 
@@ -38,10 +40,12 @@ type rtTestAllActsProvider struct{}
 
 func (p *rtTestAllActsProvider) ReceiverName() string                                { return "_test_all_acts" }
 func (p *rtTestAllActsProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestAllActsProvider) MethodParams() map[string][]string                   { return nil }
+func (p *rtTestAllActsProvider) MethodParamsFor(_ string) []string                   { return nil }
 func (p *rtTestAllActsProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestAllActsProvider)(nil)).Elem()
 }
-func (p *rtTestAllActsProvider) Register(reg *op.ActionRegistry, _ op.Context) {
+func (p *rtTestAllActsProvider) Register(_ op.Context, reg *op.ReceiverRegistry) {
 	reg.Register(&testAction{name: "_test_all_acts.do"})
 }
 
@@ -50,11 +54,13 @@ type rtTestPlannedProvider struct{ name string }
 
 func (p *rtTestPlannedProvider) ReceiverName() string                                { return p.name }
 func (p *rtTestPlannedProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestPlannedProvider) MethodParams() map[string][]string                   { return nil }
+func (p *rtTestPlannedProvider) MethodParamsFor(_ string) []string                   { return nil }
 func (p *rtTestPlannedProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestPlannedProvider)(nil)).Elem()
 }
-func (p *rtTestPlannedProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
-func (p *rtTestPlannedProvider) NewPlanning(_ *op.Graph, _ string, _ *op.ActionRegistry) starlark.Value {
+func (p *rtTestPlannedProvider) Register(_ op.Context, _ *op.ReceiverRegistry) {}
+func (p *rtTestPlannedProvider) NewPlanning(_ *op.Graph, _ string, _ *op.ReceiverRegistry) starlark.Value {
 	return starlark.String("test-plan-value")
 }
 
@@ -63,10 +69,12 @@ type rtTestImmediateProvider struct{ name string }
 
 func (p *rtTestImmediateProvider) ReceiverName() string                                { return p.name }
 func (p *rtTestImmediateProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestImmediateProvider) MethodParams() map[string][]string                   { return nil }
+func (p *rtTestImmediateProvider) MethodParamsFor(_ string) []string                   { return nil }
 func (p *rtTestImmediateProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestImmediateProvider)(nil)).Elem()
 }
-func (p *rtTestImmediateProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (p *rtTestImmediateProvider) Register(_ op.Context, _ *op.ReceiverRegistry) {}
 func (p *rtTestImmediateProvider) NewExecuting(_ op.Context) starlark.Value {
 	return starlark.String("test-imm-value")
 }
@@ -79,10 +87,12 @@ type rtTestCountingImmProvider struct {
 
 func (p *rtTestCountingImmProvider) ReceiverName() string                                { return p.name }
 func (p *rtTestCountingImmProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (p *rtTestCountingImmProvider) MethodParams() map[string][]string                   { return nil }
+func (p *rtTestCountingImmProvider) MethodParamsFor(_ string) []string                   { return nil }
 func (p *rtTestCountingImmProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestCountingImmProvider)(nil)).Elem()
 }
-func (p *rtTestCountingImmProvider) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (p *rtTestCountingImmProvider) Register(_ op.Context, _ *op.ReceiverRegistry) {}
 func (p *rtTestCountingImmProvider) NewExecuting(_ op.Context) starlark.Value {
 	*p.callCount++
 	return starlark.String("cached-value")

@@ -7,8 +7,6 @@ import (
 	"context"
 	"io"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
@@ -80,7 +78,7 @@ type Context struct {
 
 	// Thread is a Starlark execution thread for callable initialization. Created by the executor at execution time.
 	// Actions that need to invoke mem.Callable functions call Init(ctx.Thread) before Fn().
-	Thread *starlark.Thread
+	Thread any
 
 	// Results holds the accumulated node results from the current execution. Flow actions (choose, gather) use this
 	// to resolve cross-phase promise references in branch nodes.

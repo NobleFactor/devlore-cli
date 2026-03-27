@@ -231,7 +231,7 @@ func (e *GraphExecutor) runFlat(ctx context.Context, g *op.Graph) (err error) {
 	execCtx.Catalog = g.Catalog
 	execCtx.Graph = g
 
-	// Create a fresh ActionRegistry with per-graph provider instances
+	// Create a fresh ReceiverRegistry with per-graph provider instances
 	// and hydrate any stub actions from deserialized graphs.
 	if err := e.hydrateProviders(g, *execCtx); err != nil {
 		return err
@@ -290,7 +290,7 @@ func (e *GraphExecutor) RunPhased(ctx context.Context, g *op.Graph) (err error) 
 	execCtx.Catalog = g.Catalog
 	execCtx.Graph = g
 
-	// Create a fresh ActionRegistry with per-graph provider instances
+	// Create a fresh ReceiverRegistry with per-graph provider instances
 	// and hydrate any stub actions from deserialized graphs.
 	if err := e.hydrateProviders(g, *execCtx); err != nil {
 		return err
@@ -767,7 +767,7 @@ func pathDepth(path string) int {
 	return strings.Count(path, string(filepath.Separator))
 }
 
-// hydrateProviders creates a fresh ActionRegistry with per-graph provider instances.
+// hydrateProviders creates a fresh ReceiverRegistry with per-graph provider instances.
 // Stub actions (from deserialized graphs) are replaced with real actions.
 // Non-stub actions (from planning) get their provider's context updated.
 //

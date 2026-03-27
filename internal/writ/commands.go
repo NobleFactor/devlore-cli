@@ -691,7 +691,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 }
 
 // buildUpgradeChain builds the node chain for a multi-action upgrade pipeline.
-func buildUpgradeChain(reg *op.ActionRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*op.Node, []op.Edge) {
+func buildUpgradeChain(reg *op.ReceiverRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*op.Node, []op.Edge) {
 	hasDecrypt := hasDecryptAction(actions)
 	var nodes []*op.Node
 	var edges []op.Edge

@@ -16,14 +16,18 @@ import (
 // --- Test factory for planned mode ---
 
 // testProviderFactory wraps testProvider for planned-mode tests.
-type testProviderFactory struct{}
+type testProviderFactory struct {
+	params map[string][]string
+}
 
 func (f *testProviderFactory) ReceiverName() string                                { return "test" }
 func (f *testProviderFactory) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
+func (f *testProviderFactory) MethodParams() map[string][]string                   { return f.params }
+func (f *testProviderFactory) MethodParamsFor(name string) []string                { return f.params[name] }
 func (f *testProviderFactory) ProviderType() reflect.Type {
 	return reflect.TypeOf((*testProvider)(nil)).Elem()
 }
-func (f *testProviderFactory) Register(_ *op.ActionRegistry, _ op.Context) {}
+func (f *testProviderFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {}
 
 // --- Test actions for planned mode ---
 
@@ -51,17 +55,32 @@ func (a *stubValidateAction) Do(_ *op.Context, _ map[string]any) (op.Result, op.
 	return nil, nil, nil
 }
 
+// scopedFactory wraps an actionFactory with a custom subset of method params.
+// This lets planned-mode tests restrict which methods WrapProviderInPlanningReceiver
+// exposes, since the function now reads params from the factory interface.
+type scopedFactory struct {
+	*actionFactory
+	params map[string][]string
+}
+
+func (f *scopedFactory) MethodParams() map[string][]string  { return f.params }
+func (f *scopedFactory) MethodParamsFor(name string) []string { return f.params[name] }
+
+func newScopedFactory(params map[string][]string) *scopedFactory {
+	return &scopedFactory{actionFactory: newActionFactory(), params: params}
+}
+
 func TestWrapProviderInPlanningReceiver_MethodFiltering(t *testing.T) {
 	reg := op.NewActionRegistry()
 	reg.Register(&stubWriteAction{})
 	// Note: "test.validate" NOT registered, so validate should not appear.
 
 	graph := &op.Graph{}
-	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "proj", reg, MethodParams{
+	p := WrapProviderInPlanningReceiver(&testProviderFactory{params: MethodParams{
 		"Write":    {"path", "content"},
 		"Validate": {"s"},
 		"Greet":    {"name"}, // No action registered.
-	})
+	}}, graph, "proj", reg)
 
 	names := p.AttrNames()
 	if len(names) != 1 || names[0] != "write" {
@@ -74,9 +93,9 @@ func TestWrapProviderInPlanningReceiver_CreatesNode(t *testing.T) {
 	reg.Register(&stubWriteAction{})
 
 	graph := &op.Graph{}
-	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "myproject", reg, MethodParams{
+	p := WrapProviderInPlanningReceiver(&testProviderFactory{params: MethodParams{
 		"Write": {"path", "content"},
-	})
+	}}, graph, "myproject", reg)
 
 	attr, err := p.Attr("write")
 	if err != nil {
@@ -120,9 +139,9 @@ func TestWrapProviderInPlanningReceiver_SlotsPopulated(t *testing.T) {
 	reg.Register(&stubWriteAction{})
 
 	graph := &op.Graph{}
-	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "proj", reg, MethodParams{
+	p := WrapProviderInPlanningReceiver(&testProviderFactory{params: MethodParams{
 		"Write": {"path", "content"},
-	})
+	}}, graph, "proj", reg)
 
 	attr, _ := p.Attr("write")
 	builtin := attr.(*starlark.Builtin)
@@ -151,10 +170,10 @@ func TestWrapProviderInPlanningReceiver_PromiseChaining(t *testing.T) {
 	reg.Register(&stubValidateAction{})
 
 	graph := &op.Graph{}
-	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "proj", reg, MethodParams{
+	p := WrapProviderInPlanningReceiver(&testProviderFactory{params: MethodParams{
 		"Write":    {"path", "content"},
 		"Validate": {"s"},
-	})
+	}}, graph, "proj", reg)
 
 	// First call: write.
 	writeAttr, _ := p.Attr("write")
@@ -199,9 +218,9 @@ func TestWrapProviderInPlanningReceiver_OptionalParams(t *testing.T) {
 	reg.Register(&stubWriteAction{})
 
 	graph := &op.Graph{}
-	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "proj", reg, MethodParams{
+	p := WrapProviderInPlanningReceiver(&testProviderFactory{params: MethodParams{
 		"Write": {"path", "content?"},
-	})
+	}}, graph, "proj", reg)
 
 	attr, _ := p.Attr("write")
 	builtin := attr.(*starlark.Builtin)
@@ -239,14 +258,13 @@ func TestWrapProviderInPlanningReceiver_ResolvesResourceParams(t *testing.T) {
 
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
 	// Touch takes an actionResource parameter — should trigger catalog resolution.
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Touch": {"res"},
-	})
+	scoped := newScopedFactory(MethodParams{"Touch": {"res"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	attr, _ := p.Attr("touch")
 	builtin := attr.(*starlark.Builtin)
@@ -269,14 +287,12 @@ func TestWrapProviderInPlanningReceiver_ResolvesResourceParams(t *testing.T) {
 func TestWrapProviderInPlanningReceiver_SkipsPromiseResolution(t *testing.T) {
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Create": {"path"},
-		"Delete": {"path"},
-	})
+	scoped := newScopedFactory(MethodParams{"Create": {"path"}, "Delete": {"path"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	// First call: create returns a promise.
 	createAttr, _ := p.Attr("create")
@@ -321,15 +337,14 @@ func TestWrapProviderInPlanningReceiver_ShadowsOutputResource(t *testing.T) {
 
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
 	// Transfer takes 2 actionResource params (source, dest) and returns
 	// (actionResource, map[string]any, error) — compensable.
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Transfer": {"source", "dest"},
-	})
+	scoped := newScopedFactory(MethodParams{"Transfer": {"source", "dest"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	attr, _ := p.Attr("transfer")
 	builtin := attr.(*starlark.Builtin)
@@ -391,15 +406,14 @@ func TestWrapProviderInPlanningReceiver_ShadowsSingleResourceOutput(t *testing.T
 
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
 	// Stamp takes 1 actionResource param (dest) and returns
 	// (actionResource, map[string]any, error) — compensable.
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Stamp": {"dest"},
-	})
+	scoped := newScopedFactory(MethodParams{"Stamp": {"dest"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	attr, _ := p.Attr("stamp")
 	builtin := attr.(*starlark.Builtin)
@@ -448,14 +462,13 @@ func TestWrapProviderInPlanningReceiver_ConflictDetection(t *testing.T) {
 
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
 	// Transfer takes 2 Resource params — the last (dest) is shadowed.
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Transfer": {"source", "dest"},
-	})
+	scoped := newScopedFactory(MethodParams{"Transfer": {"source", "dest"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	attr, _ := p.Attr("transfer")
 	builtin := attr.(*starlark.Builtin)
@@ -485,14 +498,13 @@ func TestWrapProviderInPlanningReceiver_ConflictDetection(t *testing.T) {
 func TestWrapProviderInPlanningReceiver_TypeValidation_RejectsWrongType(t *testing.T) {
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
 	// Validate takes a string param "path".
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Validate": {"path"},
-	})
+	scoped := newScopedFactory(MethodParams{"Validate": {"path"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	attr, _ := p.Attr("validate")
 	builtin := attr.(*starlark.Builtin)
@@ -517,14 +529,13 @@ func TestWrapProviderInPlanningReceiver_TypeValidation_RejectsWrongType(t *testi
 func TestWrapProviderInPlanningReceiver_TypeValidation_AcceptsValid(t *testing.T) {
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
 	// Mkdir takes (string, os.FileMode) — int is convertible to FileMode.
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Mkdir": {"path", "mode"},
-	})
+	scoped := newScopedFactory(MethodParams{"Mkdir": {"path", "mode"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	attr, _ := p.Attr("mkdir")
 	builtin := attr.(*starlark.Builtin)
@@ -552,14 +563,13 @@ func TestWrapProviderInPlanningReceiver_TypeValidation_AcceptsConstructable(t *t
 
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
 	// Touch takes an actionResource — string should be accepted (constructor exists).
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Touch": {"res"},
-	})
+	scoped := newScopedFactory(MethodParams{"Touch": {"res"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	attr, _ := p.Attr("touch")
 	builtin := attr.(*starlark.Builtin)
@@ -575,14 +585,12 @@ func TestWrapProviderInPlanningReceiver_TypeValidation_AcceptsConstructable(t *t
 func TestWrapProviderInPlanningReceiver_TypeValidation_SkipsPromises(t *testing.T) {
 	reg := op.NewActionRegistry()
 	factory := newActionFactory()
-	RegisterActions(reg, factory, actionParams)
+	RegisterActions(reg, factory)
 
 	graph := op.NewGraph("test")
 
-	p := WrapProviderInPlanningReceiver(factory, graph, "proj", reg, MethodParams{
-		"Create":   {"path"},
-		"Validate": {"path"},
-	})
+	scoped := newScopedFactory(MethodParams{"Create": {"path"}, "Validate": {"path"}})
+	p := WrapProviderInPlanningReceiver(scoped, graph, "proj", reg)
 
 	// Create returns a promise.
 	createAttr, _ := p.Attr("create")
@@ -608,7 +616,7 @@ func TestWrapProviderInPlanningReceiver_TypeValidation_SkipsPromises(t *testing.
 func TestWrapProviderInPlanningReceiver_NoSuchAttr(t *testing.T) {
 	reg := op.NewActionRegistry()
 	graph := &op.Graph{}
-	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "proj", reg, MethodParams{})
+	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "proj", reg)
 
 	_, err := p.Attr("nonexistent")
 	if err == nil {
@@ -619,7 +627,7 @@ func TestWrapProviderInPlanningReceiver_NoSuchAttr(t *testing.T) {
 func TestPlanningReceiver_StarlarkValue(t *testing.T) {
 	reg := op.NewActionRegistry()
 	graph := &op.Graph{}
-	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "proj", reg, MethodParams{})
+	p := WrapProviderInPlanningReceiver(&testProviderFactory{}, graph, "proj", reg)
 
 	if p.String() != "plan.test" {
 		t.Errorf("String() = %q, want 'plan.test'", p.String())

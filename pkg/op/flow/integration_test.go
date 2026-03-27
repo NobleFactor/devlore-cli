@@ -29,7 +29,6 @@ func TestStarlark_PlanReceiver(t *testing.T) {
 	reg.Register(&flow.Complete{})
 	reg.Register(&flow.Degraded{})
 	reg.Register(&flow.Fatal{})
-	bind.RegisterReceiverParams(plangen.Receiver, plangen.Params)
 
 	graph := op.NewGraph("flow-integration")
 	ctx := op.Context{
@@ -39,7 +38,7 @@ func TestStarlark_PlanReceiver(t *testing.T) {
 		"project":         "testproject",
 		"action_registry": reg,
 	}
-	factory := plangen.Receiver.(op.ExecutingReceiverFactory)
+	factory := plangen.Receiver.(bind.ExecutingReceiverFactory)
 	receiver := factory.NewExecuting(ctx)
 
 	globals := starlark.StringDict{"plan": receiver}

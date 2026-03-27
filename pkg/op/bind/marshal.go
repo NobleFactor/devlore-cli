@@ -15,30 +15,6 @@ import (
 	"go.starlark.net/starlarkstruct"
 )
 
-// callableResourceType is the [reflect.Type] for the CallableResource interface, used as the key in the constructor
-// registry for callable extraction.
-var callableResourceType = reflect.TypeOf((*CallableResource)(nil)).Elem()
-
-// region EXPORTED TYPES
-
-// CallableResource is the interface that mem.Callable satisfies.
-// It allows pkg/op to work with callables without importing the mem package.
-type CallableResource interface {
-	op.Resource
-	Init(thread *starlark.Thread) error
-	Fn() starlark.Callable
-	FuncTypeName() string
-}
-
-// CallableInput carries the parameters needed for callable extraction. Used as the constructor input for the
-// CallableResource constructor registered by the mem package via AnnounceResource.
-type CallableInput struct {
-	Fn       *starlark.Function
-	FuncType string
-}
-
-// endregion
-
 // region EXPORTED FUNCTIONS
 
 // Marshal converts a Go value to a [starlark.Value].
@@ -64,6 +40,20 @@ func Marshal(v any) (starlark.Value, error) {
 }
 
 // endregion
+
+// Marshaler is implemented by types that can marshal themselves into a Starlark value.
+//
+// Check for this interface before walking struct fields via reflection. This is the same pattern as [json.Marshaler].
+type Marshaler interface {
+	MarshalStarvalue() (starlark.Value, error)
+}
+
+// Unmarshaler is implemented by types that can unmarshal a Starlark value into themselves.
+//
+// Check for this interface before assigning fields via reflection. This is the same pattern as [json.Unmarshaler].
+type Unmarshaler interface {
+	UnmarshalStarvalue(starlark.Value) error
+}
 
 // typeInfo caches struct introspection results for Starlark field and method mapping.
 type typeInfo struct {
@@ -96,50 +86,8 @@ type methodInfo struct {
 
 // region UNEXPORTED FUNCTIONS
 
-// buildCallableFunc creates a Go function value matching targetType that
-// delegates to the Starlark callable. All arguments are marshaled
-// Go→Starlark and passed to the callable. The callable must match the
-// full signature of the Go func type. Returns are unmarshaled Starlark→Go.
-//
-// Parameters:
-//   - fn: the Starlark callable to wrap.
-//   - thread: the Starlark thread for function calls.
-//   - targetType: the Go func [reflect.Type] to produce.
-//
-// Returns:
-//   - any: the adapted Go function value matching targetType.
-//   - error: non-nil if adaptation fails.
-func buildCallableFunc(fn starlark.Callable, thread *starlark.Thread, targetType reflect.Type) (any, error) {
-
-	numIn := targetType.NumIn()
-	numOut := targetType.NumOut()
-
-	// Build adapter function via reflect.MakeFunc.
-	adapter := reflect.MakeFunc(targetType, func(args []reflect.Value) []reflect.Value {
-		// Marshal all Go args → Starlark.
-		starArgs := make(starlark.Tuple, numIn)
-		for i := range numIn {
-			sv, err := Marshal(args[i].Interface())
-			if err != nil {
-				return makeErrorReturn(targetType, numOut, fmt.Errorf("callable arg %d: marshal: %w", i, err))
-			}
-			starArgs[i] = sv
-		}
-
-		// Call the Starlark function.
-		result, err := starlark.Call(thread, fn, starArgs, nil)
-		if err != nil {
-			return makeErrorReturn(targetType, numOut, fmt.Errorf("callable %s: %w", fn.Name(), err))
-		}
-
-		// Unmarshal return values.
-		return unmarshalReturn(targetType, numOut, result)
-	})
-
-	return adapter.Interface(), nil
-}
-
 // camelToSnake converts a CamelCase identifier to snake_case.
+//
 // Consecutive uppercase letters are treated as an acronym (e.g., "XMLParser" → "xml_parser").
 //
 // Parameters:
@@ -172,6 +120,7 @@ func camelToSnake(s string) string {
 }
 
 // constructResource creates a Resource using the constructor registry.
+//
 // Returns nil, false if no constructor exists for the given type.
 //
 // Parameters:
@@ -187,14 +136,16 @@ func constructResource(targetType reflect.Type, value any) (op.Resource, bool) {
 	if !ok {
 		return nil, false
 	}
+
 	result, err := ctor(value)
 	if err != nil {
 		return nil, false
 	}
 
-	// The result is typically a value type. Create a temporary pointer
-	// to satisfy the Resource interface (pointer receivers).
+	// The result is typically a value type. Create a temporary pointer to satisfy the Resource interface
+
 	rv := reflect.ValueOf(result)
+
 	if rv.Kind() == reflect.Struct && reflect.PointerTo(rv.Type()).Implements(resourceType) {
 		ptr := reflect.New(rv.Type())
 		ptr.Elem().Set(rv)
@@ -203,12 +154,13 @@ func constructResource(targetType reflect.Type, value any) (op.Resource, bool) {
 	if r, ok := result.(op.Resource); ok {
 		return r, true
 	}
+
 	return nil, false
 }
 
-// extractCallable looks up the callable constructor from the registry and
-// extracts the given Starlark function. The mem package registers a constructor
-// via AnnounceResource that handles extraction and compilation.
+// extractCallable looks up the callable constructor from the registry and extracts the given Starlark function.
+//
+// The mem package registers a constructor via AnnounceResource that handles extraction and compilation.
 //
 // Parameters:
 //   - fn: the Starlark function to extract.
@@ -234,6 +186,7 @@ func extractCallable(fn *starlark.Function, funcType string) (CallableResource, 
 var stringerType = reflect.TypeOf((*fmt.Stringer)(nil)).Elem()
 
 // getTypeInfo returns cached struct metadata for the given type.
+//
 // If t is a pointer type, the element type is used.
 //
 // Parameters:
@@ -299,9 +252,7 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 	return actual.(*typeInfo)
 }
 
-// classifyMethodReturnOk checks whether a method's return signature is
-// eligible for Starlark exposure: (T) or (T, error). Returns hasError
-// and ok.
+// classifyMethodReturnOk checks whether a method's return signature is eligible for Starlark exposure.
 //
 // Parameters:
 //   - mt: the method's [reflect.Type].
@@ -327,28 +278,27 @@ func classifyMethodReturnOk(mt reflect.Type) (hasError, ok bool) {
 	}
 }
 
-// discoverMethods populates info.methods and info.byMethod with eligible
-// methods from the pointer type of t. Zero-arg methods are accepted
-// unconditionally (returns (T) or (T, error)). Methods with parameters
-// are accepted only when their type is registered in [typeParamsRegistry]
-// and the method name appears in the registered [MethodParams].
-// String() is excluded when the type implements [fmt.Stringer] (reserved
-// for value representation).
+// discoverMethods populates info.methods and info.byMethod with eligible methods from the pointer type of t.
+//
+// Zero-arg methods are accepted unconditionally (returns (T) or (T, error)). Methods with parameters are accepted only
+// when their type is registered in [typeParamsRegistry] and the method name appears in the registered [MethodParams].
+// String() is excluded when the type implements [fmt.Stringer] (reserved for value representation).
 //
 // Parameters:
 //   - t: the struct [reflect.Type] (not a pointer).
 //   - info: the typeInfo to populate with discovered methods.
 func discoverMethods(t reflect.Type, info *typeInfo) {
 
-	// Ensure resource type params are registered before lookup.
-	// ResourceFactory.Init() is lazy; this triggers it so RegisterTypeParams
-	// runs before we cache the type's method metadata.
+	// Ensure resource type params are registered before lookup. ResourceFactory.Init() is lazy; this triggers it so
+	// RegisterTypeParams runs before we cache the type's method metadata.
+
 	op.LookupConstructor(t)
 
 	typeParams, _ := lookupTypeParams(t)
-
 	pt := reflect.PointerTo(t)
+
 	for i := range pt.NumMethod() {
+
 		m := pt.Method(i)
 		if !m.IsExported() {
 			continue
@@ -358,6 +308,7 @@ func discoverMethods(t reflect.Type, info *typeInfo) {
 		numIn := mt.NumIn() - 1 // exclude receiver
 
 		// Exclude String() matching fmt.Stringer — reserved for value representation.
+
 		if m.Name == "String" && pt.Implements(stringerType) {
 			continue
 		}
@@ -368,6 +319,7 @@ func discoverMethods(t reflect.Type, info *typeInfo) {
 		}
 
 		// Parameterized methods: accept only when registered with matching param count.
+
 		if numIn > 0 {
 			paramNames, found := typeParams[m.Name]
 			if !found || len(paramNames) != numIn {
@@ -387,6 +339,7 @@ func discoverMethods(t reflect.Type, info *typeInfo) {
 		}
 
 		// Zero-arg methods.
+
 		mi := methodInfo{
 			name:     m.Name,
 			starName: camelToSnake(m.Name),
@@ -397,10 +350,10 @@ func discoverMethods(t reflect.Type, info *typeInfo) {
 	}
 }
 
-// initCallableSlots finds CallableResource values in slots that target
-// func-typed method parameters, initializes them, and replaces the slot
-// value with an adapted Go function. This runs in Do() before coerceArgs
-// so the standard coercion path sees a directly-assignable func value.
+// initCallableSlots finds CallableResource values in slots that target func-typed method parameters, initializes them,
+// and replaces the slot value with an adapted Go function.
+//
+// This runs in Do() before coerceArgs so the standard coercion path sees a directly-assignable func value.
 //
 // Parameters:
 //   - ctx: the execution context (provides the Starlark thread).
@@ -426,16 +379,18 @@ func initCallableSlots(ctx *op.Context, slots map[string]any, methodType reflect
 			continue
 		}
 
-		if err := callable.Init(ctx.Thread); err != nil {
+		thread := ThreadFrom(*ctx)
+		if err := callable.Init(thread); err != nil {
 			return fmt.Errorf("param %s: init callable: %w", name, err)
 		}
 
-		adapted, err := buildCallableFunc(callable.Fn(), ctx.Thread, paramType)
+		adapted, err := buildCallableFunc(callable.Fn(), thread, paramType)
 		if err != nil {
 			return fmt.Errorf("param %s: adapt callable: %w", name, err)
 		}
 		slots[name] = adapted
 	}
+
 	return nil
 }
 
@@ -484,28 +439,6 @@ func lookupTypeParams(t reflect.Type) (MethodParams, bool) {
 	return v.(MethodParams), true
 }
 
-// makeErrorReturn builds a [reflect.Value] slice for an error return.
-// Convention: the last return is error; preceding returns are zero values.
-//
-// Parameters:
-//   - funcType: the Go func [reflect.Type] for return type introspection.
-//   - numOut: the number of return values.
-//   - err: the error to place in the last return slot.
-//
-// Returns:
-//   - []reflect.Value: zero values for all returns except the last, which holds err.
-func makeErrorReturn(funcType reflect.Type, numOut int, err error) []reflect.Value {
-
-	out := make([]reflect.Value, numOut)
-	for i := range numOut - 1 {
-		out[i] = reflect.Zero(funcType.Out(i))
-	}
-	if numOut > 0 {
-		out[numOut-1] = reflect.ValueOf(&err).Elem()
-	}
-	return out
-}
-
 // marshalMap converts a [reflect.Value] map to a starlark.Dict.
 //
 // Parameters:
@@ -538,8 +471,9 @@ func marshalMap(rv reflect.Value) (starlark.Value, error) {
 }
 
 // marshalReflect converts a [reflect.Value] to a starlark.Value.
-// Pointer-to-struct types registered in the receiver params registry are
-// wrapped as ExecutingReceivers; all others are dispatched by kind.
+//
+// Pointer-to-struct types registered in the receiver params registry are wrapped as ExecutingReceivers; all others are
+// dispatched by kind.
 //
 // Parameters:
 //   - rv: the [reflect.Value] to convert.
@@ -550,8 +484,9 @@ func marshalMap(rv reflect.Value) (starlark.Value, error) {
 func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 
 	// Check receiver params registry for pointer-to-struct types.
-	// Registered types get wrapped as ExecutingReceivers (with methods)
-	// instead of flattened to field-only structs.
+	//
+	// Registered types get wrapped as ExecutingReceivers (with methods) instead of flattened to field-only structs.
+
 	if rv.Kind() == reflect.Pointer && !rv.IsNil() {
 		if entry, ok := lookupReceiverParams(rv.Type()); ok {
 			return WrapProviderInExecutingReceiver(entry.factory, rv.Interface()), nil
@@ -565,12 +500,12 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 		rv = rv.Elem()
 	}
 
-	// Check starvalue.Marshaler for non-struct types. Struct types are
-	// handled inside the struct case to avoid short-circuiting when
-	// Marshaler is promoted from an embedded field (e.g., file.Resource
-	// embeds ResourceBase which implements Marshaler — we want the outer
-	// struct's exported fields to be marshaled normally, with only the
-	// embedded ResourceBase using its Marshaler).
+	// Check starvalue.Marshaler for non-struct types.
+	//
+	// Struct types are handled inside the struct case to avoid short-circuiting when Marshaler is promoted from an
+	// embedded field (e.g., file.Resource embeds ResourceBase which implements Marshaler — we want the outer struct's
+	// exported fields to be marshaled normally, with only the embedded ResourceBase using its Marshaler).
+
 	if rv.Kind() != reflect.Struct && rv.CanInterface() {
 		if m, ok := rv.Interface().(Marshaler); ok {
 			return m.MarshalStarvalue()
@@ -603,12 +538,14 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 		return marshalMap(rv)
 
 	case reflect.Struct:
-		// If the struct has no exported fields, try custom serialization
-		// before falling through to marshalStruct. Check starlark.Value
-		// first (most fundamental), then starvalue.Marshaler.
-		// Structs WITH exported fields go through marshalStruct, where each
-		// embedded field gets its own Marshaler check via recursive calls.
+
+		// If the struct has no exported fields, try custom serialization before falling through to marshalStruct.
+		//
+		// Check starlark.Value first (most fundamental), then starvalue.Marshaler. Structs WITH exported fields go
+		// through marshalStruct, where each embedded field gets its own Marshaler check via recursive calls.
+
 		info := getTypeInfo(rv.Type())
+
 		if len(info.fields) == 0 && rv.CanInterface() {
 			if sv, ok := rv.Interface().(starlark.Value); ok {
 				return sv, nil
@@ -629,9 +566,10 @@ func marshalReflect(rv reflect.Value) (starlark.Value, error) {
 		}
 
 		// Check receiver params registry for value-type structs.
-		// Methods that take arguments are registered here; StructValue
-		// only exposes zero-arg methods. Create a pointer so
-		// WrapProviderInExecutingReceiver can work with it.
+		//
+		// Methods that take arguments are registered here; StructValue only exposes zero-arg methods. Create a pointer
+		// so WrapProviderInExecutingReceiver can work with it.
+
 		if entry, ok := lookupReceiverParams(rv.Type()); ok {
 			ptr := reflect.New(rv.Type())
 			ptr.Elem().Set(rv)
@@ -669,8 +607,9 @@ func marshalSlice(rv reflect.Value) (starlark.Value, error) {
 	return starlark.NewList(elems), nil
 }
 
-// marshalStruct converts a [reflect.Value] struct to a [StructValue] with lazy
-// attr dispatch. Fields and methods are resolved on access, not at construction.
+// marshalStruct converts a [reflect.Value] struct to a [StructValue] with lazy attr dispatch.
+//
+// Fields and methods are resolved on access, not at construction.
 //
 // Parameters:
 //   - rv: the [reflect.Value] of kind Struct to convert.
@@ -682,8 +621,9 @@ func marshalStruct(rv reflect.Value) (starlark.Value, error) {
 
 	info := getTypeInfo(rv.Type())
 
-	// Ensure we have a pointer so methods (including pointer-receiver)
-	// can be called. If the value is not addressable, create a copy.
+	// Ensure we have a pointer so methods (including pointer-receiver) can be called.
+	//
+	// If the value is not addressable, create a copy.
 	var ptr reflect.Value
 	if rv.CanAddr() {
 		ptr = rv.Addr()
@@ -699,13 +639,10 @@ func marshalStruct(rv reflect.Value) (starlark.Value, error) {
 	}, nil
 }
 
-// registerReceiverParamsReflect stores receiver params using the runtime
-// [reflect.Type] of the provider pointer.
-//
 // unmarshal populates a Go value from a starlark.Value.
-// target must be a non-nil pointer. For *any targets, native Go types
-// (string, int, bool, float64, nil, []any, map[string]any) are returned.
-// For struct targets, starlarkstruct.Struct fields are matched by name.
+//
+// The target must be a non-nil pointer. For *any targets, native Go types (string, int, bool, float64, nil, []any,
+// map[string]any) are returned. For struct targets, starlarkstruct.Struct fields are matched by name.
 //
 // Parameters:
 //   - sv: the Starlark value to convert.
@@ -748,39 +685,84 @@ func unmarshalDictToAny(dict *starlark.Dict) (map[string]any, error) {
 }
 
 // unmarshalListToAny converts a starlark.List to a native Go slice.
-// Returns []string for homogeneous string lists, []any otherwise.
+//
+// Returns a typed Go slice ([]string, []int, []bool, []float64, [][]byte) for
+// homogeneous scalar lists, []any otherwise.
 //
 // Parameters:
 //   - list: the Starlark list to convert.
 //
 // Returns:
-//   - any: the native Go slice ([]string or []any).
+//   - any: the native Go slice ([]string, []int, []bool, []float64, [][]byte, or []any).
 //   - error: non-nil if any element cannot be converted.
 func unmarshalListToAny(list *starlark.List) (any, error) {
 
 	n := list.Len()
 	if n == 0 {
-		return []string{}, nil
+		return []any{}, nil
 	}
 
-	// Try homogeneous []string first.
-	allStrings := true
-	for i := range n {
-		if _, ok := list.Index(i).(starlark.String); !ok {
-			allStrings = false
+	// Check whether all elements share the same Starlark type.
+
+	firstType := reflect.TypeOf(list.Index(0))
+	homogeneous := true
+
+	for i := 1; i < n; i++ {
+		if reflect.TypeOf(list.Index(i)) != firstType {
+			homogeneous = false
 			break
 		}
 	}
 
-	if allStrings {
-		result := make([]string, n)
-		for i := range n {
-			result[i] = string(list.Index(i).(starlark.String))
+	// Build a typed Go slice for homogeneous scalar lists.
+
+	if homogeneous {
+
+		switch list.Index(0).(type) {
+
+		case starlark.String:
+			result := make([]string, n)
+			for i := range n {
+				result[i] = string(list.Index(i).(starlark.String))
+			}
+			return result, nil
+
+		case starlark.Int:
+			result := make([]int, n)
+			for i := range n {
+				v, ok := list.Index(i).(starlark.Int).Int64()
+				if !ok {
+					return nil, fmt.Errorf("list index %d: int value out of range", i)
+				}
+				result[i] = int(v)
+			}
+			return result, nil
+
+		case starlark.Bool:
+			result := make([]bool, n)
+			for i := range n {
+				result[i] = bool(list.Index(i).(starlark.Bool))
+			}
+			return result, nil
+
+		case starlark.Float:
+			result := make([]float64, n)
+			for i := range n {
+				result[i] = float64(list.Index(i).(starlark.Float))
+			}
+			return result, nil
+
+		case starlark.Bytes:
+			result := make([][]byte, n)
+			for i := range n {
+				result[i] = []byte(list.Index(i).(starlark.Bytes))
+			}
+			return result, nil
 		}
-		return result, nil
 	}
 
 	result := make([]any, n)
+
 	for i := range n {
 		val, err := unmarshalToAny(list.Index(i))
 		if err != nil {
@@ -788,6 +770,7 @@ func unmarshalListToAny(list *starlark.List) (any, error) {
 		}
 		result[i] = val
 	}
+
 	return result, nil
 }
 
@@ -816,60 +799,9 @@ func unmarshalMap(dict *starlark.Dict, rv reflect.Value) error {
 		}
 		m.SetMapIndex(key, val)
 	}
+
 	rv.Set(m)
 	return nil
-}
-
-// unmarshalReturn converts a Starlark result into the target func's return
-// values. Convention: first return is the result (via unmarshalToAny), last
-// return is error (nil on success). Middle returns are zero values.
-//
-// Parameters:
-//   - funcType: the Go func [reflect.Type] for return type introspection.
-//   - numOut: the number of return values.
-//   - result: the Starlark value to unmarshal into the first return slot.
-//
-// Returns:
-//   - []reflect.Value: the populated return values.
-func unmarshalReturn(funcType reflect.Type, numOut int, result starlark.Value) []reflect.Value {
-
-	out := make([]reflect.Value, numOut)
-
-	if numOut == 0 {
-		return out
-	}
-
-	// Last return is error — set to nil.
-	if numOut > 0 && funcType.Out(numOut-1).Implements(errorType) {
-		out[numOut-1] = reflect.Zero(funcType.Out(numOut - 1))
-	}
-
-	// First return is the result value.
-	if numOut >= 1 {
-		goVal, err := unmarshalToAny(result)
-		if err != nil {
-			return makeErrorReturn(funcType, numOut, err)
-		}
-		if goVal == nil {
-			out[0] = reflect.Zero(funcType.Out(0))
-		} else {
-			rv := reflect.ValueOf(goVal)
-			if rv.Type().AssignableTo(funcType.Out(0)) {
-				out[0] = rv
-			} else if rv.Type().ConvertibleTo(funcType.Out(0)) {
-				out[0] = rv.Convert(funcType.Out(0))
-			} else {
-				out[0] = reflect.Zero(funcType.Out(0))
-			}
-		}
-	}
-
-	// Middle returns (between first result and last error) are zero.
-	for i := 1; i < numOut-1; i++ {
-		out[i] = reflect.Zero(funcType.Out(i))
-	}
-
-	return out
 }
 
 // unmarshalSlice converts a starlark.List into a typed Go slice via reflection.

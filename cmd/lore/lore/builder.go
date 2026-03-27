@@ -59,14 +59,14 @@ type BuildConfig struct {
 
 	// ActionRegistry provides access to execution actions.
 	// Must be set before calling Build.
-	ActionRegistry *op.ActionRegistry
+	ActionRegistry *op.ReceiverRegistry
 }
 
 // Planner encapsulates package resolution for adding installation nodes
 // and phases to an execution graph. Used by both lore.Build() and writ deploy.
 type Planner struct {
 	Platform       string
-	ActionRegistry *op.ActionRegistry
+	ActionRegistry *op.ReceiverRegistry
 	RegistryClient *lorepackage.Registry
 	Features       []string
 	Settings       map[string]string
@@ -165,7 +165,7 @@ func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, erro
 //   - resolvedReg: the action registry (created if nil on Planner).
 //   - resolvedRegistry: the package registry client (created if nil on Planner).
 //   - err: non-nil if creating the registry client fails.
-func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ActionRegistry, resolvedRegistry *lorepackage.Registry, err error) {
+func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ReceiverRegistry, resolvedRegistry *lorepackage.Registry, err error) {
 	targetPlatform := p.Platform
 	if targetPlatform == "" {
 		targetPlatform = detectPlatform()
@@ -293,7 +293,7 @@ func BuildFromPackages(packages []string, targetPlatform string) (*BuildResult, 
 //
 // Returns:
 //   - error: non-nil if script execution or node building fails.
-func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform string, cfg BuildConfig, reg *op.ActionRegistry) error { //nolint:gocognit
+func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform string, cfg BuildConfig, reg *op.ReceiverRegistry) error { //nolint:gocognit
 
 	action := lorepackage.Deploy
 	phases := lorepackage.PhaseOrder(action)
@@ -358,7 +358,7 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 // Returns:
 //   - *op.RetryPolicy: the retry policy if configured, or nil.
 //   - error: non-nil if script execution fails.
-func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ActionRegistry) (*op.RetryPolicy, error) {
+func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ReceiverRegistry) (*op.RetryPolicy, error) {
 	thread, globals, pkgContext, err := prepareScriptEnv(graph, pkg, action, cfg, reg)
 	if err != nil {
 		return nil, err
@@ -431,7 +431,7 @@ func prepareScriptEnv(
 	pkg *lorepackage.Release,
 	action *lorepackage.ScriptAction,
 	cfg BuildConfig,
-	reg *op.ActionRegistry,
+	reg *op.ReceiverRegistry,
 ) (
 	*starlark.Thread,
 	starlark.StringDict,
@@ -486,7 +486,7 @@ func prepareScriptEnv(
 //
 // Returns:
 //   - error: reserved for future use (currently always nil).
-func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *op.ActionRegistry) error { //nolint:unparam // error return reserved for future use
+func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *op.ReceiverRegistry) error { //nolint:unparam // error return reserved for future use
 	// Determine the dotted action name
 	var actionName string
 	switch action.Command {

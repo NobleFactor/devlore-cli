@@ -23,6 +23,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
 - [Action Namespaces](3-operation-namespaces.md) ([status](3-operation-namespaces.status.md)) — How to add new action namespaces to the execution engine
   - [Provider Loading and Lifetime](3.1-provider-loading.md) ([status](3.1-provider-loading.status.md)) — Module loading via `@devlore//`, provider lifetime model
   - [Projected Provider API](3.2-projected-provider-api.md) ([status](3.2-projected-provider-api.status.md)) — Reflection-based Go struct to Starlark bindings
+  - [Static Starlark Value Codegen](3.3-static-starlark-codegen.md) — Generated starlark.Value implementations replacing reflection (draft)
 
 ### 4. Resources
 

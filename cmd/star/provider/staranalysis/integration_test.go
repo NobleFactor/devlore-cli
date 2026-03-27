@@ -92,7 +92,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Analyze(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, staranalysisgen.Receiver, staranalysisgen.Params)
+	bind.RegisterActions(reg, staranalysisgen.Receiver)
 
 	a, ok := reg.Get("staranalysis.analyze")
 	if !ok {

@@ -220,9 +220,9 @@ func (p *Provider) Choose(when *bind.Promise, then func() error) (*bind.Promise,
 
 // region Behaviors
 
-// actionRegistry returns the ActionRegistry from the context.
-func (p *Provider) actionRegistry() *op.ActionRegistry {
-	return p.Context().Data["action_registry"].(*op.ActionRegistry)
+// actionRegistry returns the ReceiverRegistry from the context.
+func (p *Provider) actionRegistry() *op.ReceiverRegistry {
+	return p.Context().Data["action_registry"].(*op.ReceiverRegistry)
 }
 
 // project returns the project name from the context.
@@ -238,7 +238,7 @@ func (p *Provider) ResolveAttr(name string) any {
 		if r.ReceiverName() != name {
 			continue
 		}
-		if pf, ok := r.(op.PlanningReceiverFactory); ok {
+		if pf, ok := r.(bind.PlanningReceiverFactory); ok {
 			return pf.NewPlanning(
 				ctx.Graph,
 				p.project(),

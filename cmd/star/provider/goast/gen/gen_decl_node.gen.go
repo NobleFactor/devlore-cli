@@ -14,11 +14,11 @@ import (
 )
 
 func init() {
-	bind.RegisterReceiverParams(&GenDeclNodeFactory{}, GenDeclNodeParams)
+	bind.RegisterReceiverParams(&GenDeclNodeFactory{}, GenDeclNodeMethodParams)
 }
 
-// GenDeclNodeParams maps Go method names to Starlark parameter name lists.
-var GenDeclNodeParams = bind.MethodParams{
+// GenDeclNodeMethodParams maps Go method names to Starlark parameter name lists.
+var GenDeclNodeMethodParams = bind.MethodParams{
 	"DeclName":    {},
 	"DeclKind":    {},
 	"DeclComment": {},
@@ -65,6 +65,14 @@ func (f *GenDeclNodeFactory) ProviderType() reflect.Type {
 //   - string: the receiver name "gen_decl_node".
 func (f *GenDeclNodeFactory) ReceiverName() string { return "gen_decl_node" }
 
+// MethodParams returns the complete method-to-parameter mapping for GenDeclNode.
+func (f *GenDeclNodeFactory) MethodParams() map[string][]string { return GenDeclNodeMethodParams }
+
+// MethodParamsFor returns the parameter names for the given method.
+func (f *GenDeclNodeFactory) MethodParamsFor(name string) []string {
+	return GenDeclNodeMethodParams[name]
+}
+
 // endregion
 
 // region Behaviors
@@ -72,9 +80,9 @@ func (f *GenDeclNodeFactory) ReceiverName() string { return "gen_decl_node" }
 // Register is a no-op — dependent types do not register actions.
 //
 // Parameters:
-//   - registry: the action registry (unused).
 //   - ctx: the execution context (unused).
-func (f *GenDeclNodeFactory) Register(_ *op.ActionRegistry, _ op.Context) {}
+//   - registry: the receiver registry (unused).
+func (f *GenDeclNodeFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {}
 
 // endregion
 

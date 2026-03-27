@@ -80,7 +80,7 @@ func TestStarlark(t *testing.T) {
 func TestActions(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, platformgen.Receiver, platformgen.Params)
+	bind.RegisterActions(reg, platformgen.Receiver)
 
 	tests := []struct {
 		action string

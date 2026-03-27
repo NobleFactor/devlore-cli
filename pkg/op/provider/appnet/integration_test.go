@@ -83,7 +83,7 @@ func TestActions_Download(t *testing.T) {
 
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, appnetgen.Receiver, appnetgen.Params)
+	bind.RegisterActions(reg, appnetgen.Receiver)
 
 	a, ok := reg.Get("appnet.download")
 	if !ok {

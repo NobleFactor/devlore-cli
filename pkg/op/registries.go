@@ -30,8 +30,8 @@ func AnnounceReceiver(factory ReceiverFactory) {
 
 // InitAll calls Register on every announcedReceivers receiver.
 //
-// Called once by the framework when it is ready to build an ActionRegistry.
-func InitAll(registry *ActionRegistry, ctx Context) {
+// Called once by the framework when it is ready to build an ReceiverRegistry.
+func InitAll(registry *ReceiverRegistry, ctx Context) {
 
 	announcedReceiversMutex.Lock()
 	factories := make([]ReceiverFactory, 0, len(announcedReceivers))
@@ -43,7 +43,7 @@ func InitAll(registry *ActionRegistry, ctx Context) {
 	announcedReceiversMutex.Unlock()
 
 	for _, p := range factories {
-		p.Register(registry, ctx)
+		p.Register(ctx, registry)
 	}
 }
 

@@ -164,7 +164,7 @@ func TestWrapProviderInExecutingReceiver_UnlistedMethodExcluded(t *testing.T) {
 
 	_, err := r.Attr("internal_helper")
 	if err == nil {
-		t.Error("Method not in MethodParams should not be exposed")
+		t.Error("Method not in MethodParamsFor should not be exposed")
 	}
 }
 

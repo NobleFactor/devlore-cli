@@ -461,7 +461,7 @@ func TestVerifyResult(t *testing.T) {
 // --- Multi-Scope Graph Building ---
 
 // stubRegistry creates an action registry with stub actions for testing.
-func stubRegistry(names ...string) *op.ActionRegistry {
+func stubRegistry(names ...string) *op.ReceiverRegistry {
 	t := op.NewActionRegistry()
 	for _, name := range names {
 		t.Register(op.StubAction(name))

@@ -71,7 +71,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Encode(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, yamlgen.Receiver, yamlgen.Params)
+	bind.RegisterActions(reg, yamlgen.Receiver)
 
 	a, ok := reg.Get("yaml.encode")
 	if !ok {
@@ -95,7 +95,7 @@ func TestActions_Encode(t *testing.T) {
 func TestActions_Decode(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, yamlgen.Receiver, yamlgen.Params)
+	bind.RegisterActions(reg, yamlgen.Receiver)
 
 	a, ok := reg.Get("yaml.decode")
 	if !ok {

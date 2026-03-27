@@ -117,7 +117,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_WriteText_ReadText(t *testing.T) {
 	ctx, dir := testCtx(t)
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, filegen.Receiver, filegen.Params)
+	bind.RegisterActions(reg, filegen.Receiver)
 
 	// write_text
 	writeAction, ok := reg.Get("file.write_text")
@@ -160,7 +160,7 @@ func TestActions_WriteText_ReadText(t *testing.T) {
 func TestActions_Exists(t *testing.T) {
 	ctx, dir := testCtx(t)
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, filegen.Receiver, filegen.Params)
+	bind.RegisterActions(reg, filegen.Receiver)
 
 	a, ok := reg.Get("file.exists")
 	if !ok {
@@ -189,7 +189,7 @@ func TestActions_Exists(t *testing.T) {
 func TestActions_Join(t *testing.T) {
 	ctx, _ := testCtx(t)
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, filegen.Receiver, filegen.Params)
+	bind.RegisterActions(reg, filegen.Receiver)
 
 	a, ok := reg.Get("file.join")
 	if !ok {

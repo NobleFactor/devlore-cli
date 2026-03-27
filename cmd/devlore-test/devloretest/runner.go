@@ -154,7 +154,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	}
 	bs := bind.NewStarlarkRuntime(cfg)
 
-	// 3. Create ActionRegistry with all provider actions
+	// 3. Create ReceiverRegistry with all provider actions
 	reg := op.NewActionRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer iox.Close(&err, root)

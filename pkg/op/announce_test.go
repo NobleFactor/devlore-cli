@@ -12,6 +12,18 @@ import (
 	"go.starlark.net/starlark"
 )
 
+// testPlanningReceiverFactory mirrors testPlanningReceiverFactory for type-assertion tests
+// without importing bind (which would create an import cycle).
+type testPlanningReceiverFactory interface {
+	NewPlanning(graph *Graph, project string, reg *ReceiverRegistry) starlark.Value
+}
+
+// testExecutingReceiverFactory mirrors testExecutingReceiverFactory for type-assertion tests
+// without importing bind (which would create an import cycle).
+type testExecutingReceiverFactory interface {
+	NewExecuting(ctx Context) starlark.Value
+}
+
 // announceTestProviderAlpha is a minimal ReceiverFactory for testing.
 type announceTestProviderAlpha struct {
 	name       string
@@ -20,10 +32,12 @@ type announceTestProviderAlpha struct {
 
 func (p *announceTestProviderAlpha) ReceiverName() string                          { return p.name }
 func (p *announceTestProviderAlpha) GetOrCreateProvider(_ Context) ContextProvider { return nil }
+func (p *announceTestProviderAlpha) MethodParams() map[string][]string             { return nil }
+func (p *announceTestProviderAlpha) MethodParamsFor(_ string) []string             { return nil }
 func (p *announceTestProviderAlpha) ProviderType() reflect.Type {
 	return reflect.TypeOf((*announceTestProviderAlpha)(nil)).Elem()
 }
-func (p *announceTestProviderAlpha) Register(reg *ActionRegistry, _ Context) {
+func (p *announceTestProviderAlpha) Register(_ Context, reg *ReceiverRegistry) {
 	p.registered = true
 	reg.Register(&registryTestAction{name: p.name + ".action"})
 }
@@ -36,10 +50,12 @@ type announceTestProviderBeta struct {
 
 func (p *announceTestProviderBeta) ReceiverName() string                          { return p.name }
 func (p *announceTestProviderBeta) GetOrCreateProvider(_ Context) ContextProvider { return nil }
+func (p *announceTestProviderBeta) MethodParams() map[string][]string             { return nil }
+func (p *announceTestProviderBeta) MethodParamsFor(_ string) []string             { return nil }
 func (p *announceTestProviderBeta) ProviderType() reflect.Type {
 	return reflect.TypeOf((*announceTestProviderBeta)(nil)).Elem()
 }
-func (p *announceTestProviderBeta) Register(reg *ActionRegistry, _ Context) {
+func (p *announceTestProviderBeta) Register(_ Context, reg *ReceiverRegistry) {
 	p.registered = true
 	reg.Register(&registryTestAction{name: p.name + ".action"})
 }
@@ -53,13 +69,15 @@ type announceTestPlannedProvider struct {
 
 func (p *announceTestPlannedProvider) ReceiverName() string                          { return p.name }
 func (p *announceTestPlannedProvider) GetOrCreateProvider(_ Context) ContextProvider { return nil }
+func (p *announceTestPlannedProvider) MethodParams() map[string][]string             { return nil }
+func (p *announceTestPlannedProvider) MethodParamsFor(_ string) []string             { return nil }
 func (p *announceTestPlannedProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*announceTestPlannedProvider)(nil)).Elem()
 }
-func (p *announceTestPlannedProvider) Register(reg *ActionRegistry, _ Context) {
+func (p *announceTestPlannedProvider) Register(_ Context, reg *ReceiverRegistry) {
 	p.registered = true
 }
-func (p *announceTestPlannedProvider) NewPlanning(_ *Graph, _ string, _ *ActionRegistry) starlark.Value {
+func (p *announceTestPlannedProvider) NewPlanning(_ *Graph, _ string, _ *ReceiverRegistry) starlark.Value {
 	p.plannedCalled = true
 	return starlark.None
 }
@@ -73,10 +91,12 @@ type announceTestImmediateProvider struct {
 
 func (p *announceTestImmediateProvider) ReceiverName() string                          { return p.name }
 func (p *announceTestImmediateProvider) GetOrCreateProvider(_ Context) ContextProvider { return nil }
+func (p *announceTestImmediateProvider) MethodParams() map[string][]string             { return nil }
+func (p *announceTestImmediateProvider) MethodParamsFor(_ string) []string             { return nil }
 func (p *announceTestImmediateProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*announceTestImmediateProvider)(nil)).Elem()
 }
-func (p *announceTestImmediateProvider) Register(reg *ActionRegistry, _ Context) {
+func (p *announceTestImmediateProvider) Register(_ Context, reg *ReceiverRegistry) {
 	p.registered = true
 }
 func (p *announceTestImmediateProvider) NewExecuting(_ Context) starlark.Value {
@@ -157,7 +177,7 @@ func TestInitAll_PlannedProvider_type_assertion(t *testing.T) {
 		t.Fatalf("Receivers() returned %d, want 1", len(providers))
 	}
 
-	p, ok := providers[0].(PlanningReceiverFactory)
+	p, ok := providers[0].(testPlanningReceiverFactory)
 	if !ok {
 		t.Fatal("expected PlanningReceiverFactory type assertion to succeed")
 	}
@@ -178,7 +198,7 @@ func TestInitAll_ImmediateProvider_type_assertion(t *testing.T) {
 		t.Fatalf("Receivers() returned %d, want 1", len(providers))
 	}
 
-	p, ok := providers[0].(ExecutingReceiverFactory)
+	p, ok := providers[0].(testExecutingReceiverFactory)
 	if !ok {
 		t.Fatal("expected ExecutingReceiverFactory type assertion to succeed")
 	}
@@ -195,10 +215,10 @@ func TestInitAll_plain_provider_not_PlannedProvider(t *testing.T) {
 	AnnounceReceiver(plain)
 
 	providers := Receivers()
-	if _, ok := providers[0].(PlanningReceiverFactory); ok {
+	if _, ok := providers[0].(testPlanningReceiverFactory); ok {
 		t.Error("plain provider should not satisfy PlanningReceiverFactory")
 	}
-	if _, ok := providers[0].(ExecutingReceiverFactory); ok {
+	if _, ok := providers[0].(testExecutingReceiverFactory); ok {
 		t.Error("plain provider should not satisfy ExecutingReceiverFactory")
 	}
 }
