@@ -131,7 +131,7 @@ func TestActions_Extract(t *testing.T) {
 	destDir := filepath.Join(dir, "action_extracted")
 
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, archivegen.Receiver, archivegen.Params)
+	bind.RegisterActions(reg, archivegen.Receiver)
 
 	a, ok := reg.Get("archive.extract")
 	if !ok {

@@ -8,24 +8,40 @@ package commands
 import (
 	"reflect"
 
-	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 
+	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 func init() {
 	op.AnnounceReceiver(Receiver)
 }
 
-// Receiver is the ReceiverFactory for the commands provider.
-var Receiver op.ReceiverFactory = &receiverFactory{}
+var (
+	// providerType is the type of the commands provider.
+	providerType = reflect.TypeOf((*provider.Provider)(nil)).Elem()
+
+	// Receiver is the ReceiverFactory for instances of the commands provider.
+	Receiver op.ReceiverFactory = &receiverFactory{
+		methodParams: bind.MethodParams{
+			"Current":  {},
+			"Parent":   {},
+			"Siblings": {},
+			"Children": {"parent?"},
+			"Query":    {"pattern"},
+			"Get":      {"name"},
+			"Run":      {"name", "flags"},
+		},
+	}
+)
 
 // factory implements op.ReceiverFactory for the commands provider.
 type receiverFactory struct {
-	provider *provider.Provider
-	root     op.Root
+	methodParams bind.MethodParams
+	provider     *provider.Provider
+	root         op.Root
 }
 
 // region EXPORTED METHODS
@@ -33,6 +49,7 @@ type receiverFactory struct {
 // region State management
 
 // GetOrCreateProvider returns a cached provider for the given context, creating one if needed.
+//
 // The provider is invalidated when the Root changes.
 //
 // Parameters:
@@ -49,12 +66,28 @@ func (f *receiverFactory) GetOrCreateProvider(ctx op.Context) op.ContextProvider
 	return f.provider
 }
 
+// MethodParams returns the parameter names for the methods of the underlying provider struct.
+//
+// Returns:
+//   - bind.MethodParams: the parameter names for the methods of the underlying provider struct.
+func (f *receiverFactory) MethodParams() map[string][]string {
+	return f.methodParams
+}
+
+// MethodParamsFor returns the parameter names for a specific method of the underlying provider struct.
+//
+// Returns:
+//   - bind.MethodParams: the parameter names for the methods of the underlying provider struct.
+func (f *receiverFactory) MethodParamsFor(name string) []string {
+	return f.methodParams[name]
+}
+
 // ProviderType returns the reflect.Type of the underlying provider struct.
 //
 // Returns:
 //   - reflect.Type: the provider's concrete type.
 func (f *receiverFactory) ProviderType() reflect.Type {
-	return reflect.TypeOf((*provider.Provider)(nil)).Elem()
+	return providerType
 }
 
 // ReceiverName returns the Starlark receiver name for this provider.
@@ -81,10 +114,9 @@ func (f *receiverFactory) NewExecuting(ctx op.Context) starlark.Value {
 // Register registers receiver params for this provider.
 //
 // Parameters:
+//   - ctx: the execution context.
 //   - registry: the action registry (unused for immediate-only providers).
-//   - ctx: the execution context (unused).
-func (f *receiverFactory) Register(_ *op.ActionRegistry, _ op.Context) {
-	bind.RegisterReceiverParams(f, Params)
+func (f *receiverFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {
 }
 
 // endregion

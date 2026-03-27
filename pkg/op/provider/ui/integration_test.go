@@ -91,7 +91,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Note(t *testing.T) {
 	ctx, buf := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, uigen.Receiver, uigen.Params)
+	bind.RegisterActions(reg, uigen.Receiver)
 
 	a, ok := reg.Get("ui.note")
 	if !ok {
@@ -111,7 +111,7 @@ func TestActions_Note(t *testing.T) {
 func TestActions_Fail(t *testing.T) {
 	ctx, _ := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, uigen.Receiver, uigen.Params)
+	bind.RegisterActions(reg, uigen.Receiver)
 
 	a, ok := reg.Get("ui.fail")
 	if !ok {

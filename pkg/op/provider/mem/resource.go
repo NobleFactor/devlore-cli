@@ -83,6 +83,7 @@ func NewResourceWithData(contentType, qualifier string, data []byte) Resource {
 type callableDesc struct{}
 
 func (d *callableDesc) Name() string { return "mem.Callable" }
+
 func (d *callableDesc) Type() reflect.Type {
 	return reflect.TypeOf((*bind.CallableResource)(nil)).Elem()
 }

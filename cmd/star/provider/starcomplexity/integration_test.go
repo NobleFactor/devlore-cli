@@ -89,7 +89,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_ComputeComplexity(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, starcomplexitygen.Receiver, starcomplexitygen.Params)
+	bind.RegisterActions(reg, starcomplexitygen.Receiver)
 
 	a, ok := reg.Get("starcomplexity.compute_complexity")
 	if !ok {

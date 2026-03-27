@@ -43,7 +43,6 @@ SKIP_METHODS = [
 # Template to output filename mapping.
 GEN_TEMPLATE_FILES = {
     "receiver": "gen/receiver.gen.go",
-    "params": "gen/params.gen.go",
     "actions_test": "gen/actions_gen_test.go",
     "receiver_test": "gen/receiver_gen_test.go",
     "resource": "gen/resource.gen.go",
@@ -53,7 +52,6 @@ GEN_TEMPLATE_FILES = {
 # Local templates shipped with this extension (loaded from templates/ dir).
 LOCAL_TEMPLATES = {
     "receiver": "receiver.gen.go.template",
-    "params": "params.gen.go.template",
     "actions_test": "actions_gen_test.go.template",
     "receiver_test": "receiver_gen_test.go.template",
     "resource": "resource.gen.go.template",
@@ -920,8 +918,6 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     if provider_cross_imports:
         provider_desc["cross_package_imports"] = provider_cross_imports
 
-    emit_file(command, "params", provider_desc, "gen/params.gen.go",
-             struct_short, len(provider_method_descs), output_dir, write_files)
     emit_file(command, "receiver", provider_desc, "gen/receiver.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
 

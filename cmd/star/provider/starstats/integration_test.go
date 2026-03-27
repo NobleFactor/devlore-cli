@@ -91,7 +91,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_ComputeStats(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, starstatsgen.Receiver, starstatsgen.Params)
+	bind.RegisterActions(reg, starstatsgen.Receiver)
 
 	a, ok := reg.Get("starstats.compute_stats")
 	if !ok {

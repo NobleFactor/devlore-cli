@@ -1,9 +1,9 @@
 ---
 title: "Extract starlark infrastructure from pkg/op into pkg/op/bind"
 issue: 264
-status: draft
+status: in-progress
 created: 2026-03-24
-updated: 2026-03-24
+updated: 2026-03-25
 ---
 
 # Plan: Extract Starlark Infrastructure from pkg/op
@@ -13,317 +13,168 @@ updated: 2026-03-24
 Split `pkg/op` into a starlark-free core (`pkg/op`) and a starlark binding
 package (`pkg/op/bind`). Create a plan provider (`pkg/op/provider/plan`) that
 implements graph-construction as a regular immediate provider. Flatten the plan
-namespace so all graph-construction primitives are top-level (`plan.choose`,
-`plan.complete`, `plan.wait_until`, etc.) and eliminate the `plan.flow`
-sub-namespace. After this change, `pkg/op` has zero imports of
-`go.starlark.net`.
+namespace. Consolidate registries. Unify method dispatch.
 
-One commit per phase. `make check` must pass at each phase boundary.
+## Phase Status
+
+| Phase | Status | PR |
+|-------|--------|-----|
+| 1. Create plan provider, flatten plan namespace | complete | #266 |
+| 1.50. Add **kwargs to receiver bridges | complete | #267 |
+| 2+3+4. Create bind, move files, sever starlark, update codegen | complete | #268 |
+| 5+6. Sever starlark, consolidate registries, unify method dispatch | in-progress | — |
+
+## What Phase 5+6 Covers
+
+### Sever starlark from pkg/op (Phase 5)
+
+- `Context.Thread` → `any`; `bind.ThreadFrom()` accessor
+- `ResourceBase.MarshalStarvalue()` removed; `ID()`, `OriginID()` exported;
+  StructValue marshals via method dispatch
+- `PlanningReceiverFactory`, `ExecutingReceiverFactory` moved to `bind/receiver.go`
+- `dependent_type.gen.go.template` updated for bind imports
+- `pkg/op` has zero `go.starlark.net` imports in source files
+
+### Consolidate registries (Phase 6)
+
+Two registries:
+
+1. **`ReceiverRegistry`** (`pkg/op/registry.go`) — single registry for
+   providers AND resources. Stores `ReceiverFactory` entries and `Method`
+   entries. Replaces `ActionRegistry`, `announcedReceivers`,
+   `receiverParamsRegistry`, `resourceRegistry`, and `constructorRegistry`.
+
+2. **Type cache** (`pkg/op/bind/registries.go`) — marshal struct introspection
+   cache. Bind-only, used for starlark marshaling.
+
+### Unifying Providers and Resources
+
+Providers and Resources are both Go types with methods and properties. The
+difference is lifecycle and role:
+
+- **Provider** — lives outside the graph, implements actions, cached by factory
+- **Resource** — flows through the graph as data, has properties and methods
+
+Same underpinnings:
+- Both have methods described by `Method`
+- Both get starlark receivers via the same bridge (`WrapProviderInExecutingReceiver`)
+- Both marshal the same way (`StructValue` for properties, method bridges for callables)
+- Both register in the same `ReceiverRegistry` with the same `Method` entries
+
+The codegen difference is just what it emits — provider vs resource directives
+control factory shape and action registration. The underlying template and
+`Method` type are shared.
+
+### Method type
+
+`Method` is a callable — not just metadata. It implements the `Action`
+interface for graph dispatch and provides the same information for starlark
+bridge construction. One type for both dispatch paths.
+
+```go
+// pkg/op/method.go
+type Method struct {
+    Factory    ReceiverFactory
+    Reflect    reflect.Method
+    Name       string       // "file.write_text"
+    ParamNames []string     // cleaned: no ?, *, **
+    Compensate reflect.Method
+    Kind       MethodKind   // pure, fallible, compensable
+}
+
+// Graph dispatch — implements Action interface
+func (m *Method) Do(ctx *Context, slots map[string]any) (Result, Complement, error)
+```
+
+Graph execution: nodes reference Methods by action name. The executor looks up
+the Method in the registry and calls `Do`.
+
+Starlark bridges: `WrapProviderInExecutingReceiver` and
+`WrapProviderInPlanningReceiver` read Method entries to build closures. One
+reflection pass at registration. Zero at bridge construction.
+
+Tests: `method.Do(ctx, slots)` — direct dispatch, no receiver wrapper needed.
+
+### ReceiverRegistry
+
+```go
+type ReceiverRegistry struct {
+    factories map[string]ReceiverFactory  // by receiver name
+    methods   map[string]*Method          // by action name
+}
+```
+
+Provider methods get action names (`"file.write_text"`) for graph dispatch.
+Resource methods get type-scoped entries for marshal/receiver construction.
+Same `Method` type, same lookup, same bridges.
+
+### ReceiverFactory interface
+
+```go
+type ReceiverFactory interface {
+    GetOrCreateProvider(ctx Context) ContextProvider
+    MethodParams() map[string][]string
+    MethodParamsFor(name string) []string
+    ProviderType() reflect.Type
+    ReceiverName() string
+    Register(ctx Context, registry *ReceiverRegistry)
+}
+```
+
+### Generated receiver (single file)
+
+No separate `params.gen.go`. MethodParams inline in the factory var. One file
+per provider gen package:
+
+```go
+var Receiver op.ReceiverFactory = &receiverFactory{
+    methodParams: bind.MethodParams{
+        "WriteText": {"destination", "content", "mode?"},
+        ...
+    },
+}
+```
+
+### AttributeResolver
+
+Dynamic sub-namespace routing for the plan Provider:
+
+```go
+type AttributeResolver interface {
+    ResolveAttr(name string) any
+}
+```
+
+The bridge checks this via type assertion when an unknown attribute is
+requested. The returned value goes through `Marshal`.
 
 ## Goals
 
-1. **`pkg/op` is starlark-free** -- zero `go.starlark.net` imports
-2. **`pkg/op/bind` owns all starlark binding infrastructure** -- runtime, marshal, receivers, promise
-3. **`bind` has a minimal public API** -- consumers interact with `bind.StarlarkRuntime` and `bind.StarlarkConfig` only; other exported symbols exist for generated receiver code, not for direct use
-4. **Plan is a provider** -- `pkg/op/provider/plan` implements graph-construction as a fallible immediate provider; no starlark imports in the provider itself
-5. **Flat plan namespace** -- `plan.choose`, `plan.source`, `plan.gather`, `plan.complete`, `plan.degraded`, `plan.fatal`, `plan.wait_until` are all top-level; `plan.flow` sub-namespace eliminated
-6. **No circular dependencies** -- `bind` imports `op`, never the reverse
-7. **Generated receiver code updated** -- imports `bind` for binding infrastructure
-
-## Non-Goals
-
-- Creating separate Go modules (this is a package-level split within the same module)
-- Changing action execution behavior
-- Renaming `pkg/op` itself (future work)
-
-## Current State
-
-`pkg/op` has 23 root-level `.go` files. Eleven import `go.starlark.net`:
-
-| Starlark-dependent (moving to bind) | Role                                                               |
-| ------------------------------------ | ------------------------------------------------------------------ |
-| `starlark_runtime.go`                | StarlarkRuntime, BuildGlobals, ConfigureThread, module loader      |
-| `plan_root.go`                       | PlanRoot namespace (choose, source, gather)                        |
-| `starvalue_marshal.go`               | Marshal, Unmarshal, CallableResource, buildCallableFunc            |
-| `starvalue_struct.go`                | StructValue (starlark.Value wrapper for Go structs)                |
-| `receiver.go`                        | receiver base type, builtinFunc                                    |
-| `receiver_reflect.go`                | ExecutingReceiver, WrapProviderInExecutingReceiver                 |
-| `planned_reflect.go`                 | PlanningReceiver, WrapProviderInPlanningReceiver, FillSlot         |
-| `promise.go`                         | Promise (starlark.Value for deferred node output)                  |
-| `resource.go`                        | ResourceBase.MarshalStarvalue (one method)                         |
-| `context.go`                         | Context.Thread field (one field)                                   |
-| `provider.go`                        | PlanningReceiverFactory, ExecutingReceiverFactory (two interfaces) |
-
-Starlark-free files (12) stay in `pkg/op` unchanged.
-
-### Plan namespace today
-
-```
-plan.choose(when, then)           # plan_root.go (handwritten starlark)
-plan.source(path)                 # plan_root.go (handwritten starlark)
-plan.gather(promise, ...)         # plan_root.go (handwritten starlark)
-plan.flow.complete(output?)       # flow/planned.go (handwritten starlark, sub-namespace)
-plan.flow.degraded(format, ...)   # flow/planned.go (handwritten starlark)
-plan.flow.fatal(format, ...)      # flow/planned.go (handwritten starlark)
-plan.file.write(...)              # generated via PlanningReceiverFactory
-plan.git.clone(...)               # generated via PlanningReceiverFactory
-```
-
-### Plan namespace after
-
-```
-plan.choose(when, then)                                # provider/plan.Provider method
-plan.source(path)                                      # provider/plan.Provider method
-plan.gather(promises ...)                               # provider/plan.Provider method
-plan.complete(output?)                                  # provider/plan.Provider method
-plan.degraded(format, *args, **kwargs)                  # provider/plan.Provider method
-plan.fatal(format, *args, **kwargs)                     # provider/plan.Provider method
-plan.wait_until(target, predicate, timeout, interval?)  # provider/plan.Provider method
-plan.file.write(...)                                    # sub-namespace (immediate receiver)
-plan.git.clone(...)                                     # sub-namespace (immediate receiver)
-```
-
-## Key Design Decision: Plan as a Provider
-
-Today, PlanRoot is handwritten starlark code -- it directly constructs
-`starlark.Value`, `starlark.Builtin`, etc. This makes it starlark
-infrastructure that must live in `bind`.
-
-Instead, plan becomes a regular provider at `pkg/op/provider/plan/`. Its methods
-are pure Go -- they take Go types, create graph nodes, and return Promises. The
-starlark binding is handled by the generated receiver, same as file, json, etc.
-
-```go
-// pkg/op/provider/plan/provider.go -- no starlark imports
-type Provider struct {
-    op.ProviderBase
-    graph   *op.Graph
-    project string
-    reg     *op.ActionRegistry
-}
-
-func (p *Provider) Source(resource string) (*op.Promise, error) { ... }
-func (p *Provider) Complete(output any) (*op.Promise, error) { ... }
-func (p *Provider) Degraded(format string, args ...any) (*op.Promise, error) { ... }
-func (p *Provider) Fatal(format string, args ...any) (*op.Promise, error) { ... }
-func (p *Provider) WaitUntil(target, predicate any, timeout string) (*op.Promise, error) { ... }
-func (p *Provider) Gather(promises ...*op.Promise) ([]*op.Promise, error) { ... }
-func (p *Provider) Choose(when *op.Promise, then func() error) (*op.Promise, error) { ... }
-```
-
-Plan sub-namespaces (`plan.file`, `plan.git`, etc.) are immediate receivers
-returned by the existing PlanningReceiverFactory pattern -- same as PlanRoot
-does today. PlanRoot becomes a thin starlark adapter in `bind` that wraps the
-plan Provider's immediate receiver and injects sub-namespace receivers as
-additional attributes.
-
-**Consequences:**
-
-- `plan_root.go` does NOT move to `bind` as a starlark file. It becomes
-  `pkg/op/provider/plan/provider.go` (pure Go).
-- PlanRoot in `bind` shrinks to namespace assembly: plan Provider receiver +
-  sub-namespace injection. No graph-construction logic.
-- `bind` contains no domain logic -- only infrastructure (runtime, marshal,
-  receiver base types, promise).
-- `choose`'s callable parameter (`then func() error`) is converted from
-  `starlark.Callable` by the marshal infrastructure, same as `mem.Callable`.
-
-## Key Design Decision: bind Public API
-
-The `pkg/op/bind` package exposes a minimal public API for consumers:
-
-- `bind.StarlarkRuntime` -- the runtime that executes starlark scripts
-- `bind.StarlarkConfig` (or similar) -- configuration for constructing a runtime
-
-Other exported symbols (`WrapProviderInExecutingReceiver`,
-`PlanningReceiverFactory`, `Marshal`, etc.) exist solely for generated receiver
-code in `gen/` subpackages. They are not part of the intended consumer API.
+1. `pkg/op` starlark-free except for Context.StarlarkThread() accessor
+2. `pkg/op/bind` owns all starlark binding infrastructure
+3. Single `ReceiverRegistry` for providers, resources, and their methods
+4. `Method` type shared between graph execution and starlark bridges
+5. Providers and Resources unified — same Method, same bridges, same registry
+6. Generated receiver code in one file with inline params
+7. No `Override` on receivers
+8. No `PlanRoot` — plan Provider is a regular ExecutingReceiver with AttributeResolver
 
 ## Dependency Model
 
 ```
 pkg/op/bind
-  -> pkg/op                     (core types: Graph, Node, Action, Context, ...)
+  -> pkg/op                     (core types: Graph, Node, Context, Method, ...)
   -> go.starlark.net/starlark   (starlark runtime)
 
 pkg/op
-  -> (no starlark imports)
+  -> go.starlark.net/starlark   (Context.StarlarkThread() accessor only)
 
 pkg/op/provider/plan
-  -> pkg/op                     (Graph, Node, Promise, ActionRegistry)
-  -> (no starlark imports)
+  -> pkg/op                     (ProviderBase, Graph, Node)
+  -> pkg/op/bind                (Promise, PlanningReceiverFactory)
 
-pkg/op/provider/plan/gen
-  -> pkg/op                     (core types)
-  -> pkg/op/bind                (binding infrastructure)
-  -> pkg/op/provider/plan       (provider implementation)
-
-pkg/op/provider/file/gen
-  -> pkg/op                     (core types)
-  -> pkg/op/bind                (binding infrastructure)
-
-pkg/op/flow
-  -> pkg/op                     (Action interface, Graph, Node)
-  -> (no starlark imports -- planned.go deleted)
+pkg/op/provider/*/gen
+  -> pkg/op                     (core types, ReceiverFactory)
+  -> pkg/op/bind                (WrapProviderIn*Receiver, MethodParams)
+  -> pkg/op/provider/*          (provider implementation)
 ```
-
-## Entanglement Resolution
-
-Three things in `pkg/op` currently reference starlark types. None are needed
-by `op` itself -- they serve the starlark layer. Resolution:
-
-### 1. Context.Thread \*starlark.Thread
-
-`op.Context` is used by every provider. The `Thread` field is only read by
-starlark marshal infrastructure (moving to `bind`).
-
-**Resolution:** Change to `Thread any`. The `bind` package provides a typed
-accessor:
-
-```go
-// pkg/op/bind
-func ThreadFrom(ctx op.Context) *starlark.Thread {
-    if ctx.Thread == nil { return nil }
-    return ctx.Thread.(*starlark.Thread)
-}
-```
-
-### 2. ResourceBase.MarshalStarvalue()
-
-Method on `op.ResourceBase` that returns `starlark.Value`. Only called by
-`starvalue_marshal.go` (moving to `bind`).
-
-**Resolution:** Remove the method from ResourceBase. The marshal dispatch in
-`bind` handles ResourceBase directly:
-
-```go
-// pkg/op/bind
-func marshalResourceBase(b *op.ResourceBase) (starlark.Value, error) { ... }
-```
-
-The `starvalue.Marshaler` interface and `starvalue/` subpackage move to `bind`.
-
-### 3. PlanningReceiverFactory / ExecutingReceiverFactory
-
-Interfaces in `op/provider.go` that return `starlark.Value`. Only consumed by
-`StarlarkRuntime` (moving to `bind`) and generated receiver code.
-
-**Resolution:** Move both interfaces to `bind`. `op.ReceiverFactory` stays in
-`op` (starlark-free). The runtime in `bind` does type assertions against the
-`bind`-defined interfaces. Generated code implements interfaces from both
-packages.
-
-## Implementation Phases
-
-### Phase 1: Create plan provider and flatten plan namespace
-
-Create `pkg/op/provider/plan/` with a Provider whose methods implement
-graph-construction as pure Go. Move `complete`, `degraded`, `fatal` from
-`flow.Plan` into the plan Provider. Implement `wait_until`. Move `choose`,
-`source`, `gather` from `plan_root.go` into the plan Provider.
-
-Update PlanRoot to delegate to the plan Provider (wrapping it as an immediate
-receiver) while retaining sub-namespace dispatch. Remove `flow.Plan`,
-`flow.NewFlowPlan`, and `flowProvider.NewPlanning`.
-
-- [ ] Create `pkg/op/provider/plan/provider.go` with Provider struct
-- [ ] Implement Source, Complete, Degraded, Fatal, WaitUntil, Gather, Choose
-- [ ] Move `fillListSlot`, `fillDictSlot` helpers to plan provider
-- [ ] Update PlanRoot to delegate top-level methods to plan Provider
-- [ ] Remove `flow.Plan`, `flow.NewFlowPlan` (`flow/planned.go`)
-- [ ] Remove `PlanningReceiverFactory` from `flowProvider`
-- [ ] Update tests -- `plan.flow.complete` -> `plan.complete`, etc.
-- [ ] Verify: `make check` passes
-
-**Files**:
-
-| File | Action |
-| --- | --- |
-| `pkg/op/provider/plan/provider.go` | Create -- plan Provider with graph-construction methods |
-| `pkg/op/plan_root.go` | Modify -- delegate to plan Provider, keep sub-namespace routing |
-| `pkg/op/flow/planned.go` | Delete -- methods moved to plan Provider |
-| `pkg/op/flow/provider.go` | Modify -- remove NewPlanning, remove starlark import |
-| `pkg/op/flow/flow_test.go` | Modify -- update tests |
-| `pkg/op/flow/integration_test.go` | Modify -- use plan.complete instead of plan.flow.complete |
-
-### Phase 2: Create `pkg/op/bind` package
-
-Create the package and move starlark binding infrastructure from `pkg/op`.
-PlanRoot (now a thin namespace adapter) moves here.
-
-**File mapping**:
-
-| Source (`pkg/op/`) | Destination (`pkg/op/bind/`) |
-| --- | --- |
-| `starlark_runtime.go` | `runtime.go` |
-| `plan_root.go` | `plan_root.go` (thin: namespace assembly only) |
-| `starvalue_marshal.go` | `marshal.go` |
-| `starvalue_struct.go` | `struct.go` |
-| `starvalue/starvalue.go` | absorbed into `bind/` (Marshaler, Unmarshaler interfaces) |
-| `receiver.go` | `receiver.go` |
-| `receiver_reflect.go` | `receiver_reflect.go` |
-| `planned_reflect.go` | `planned_reflect.go` |
-| `promise.go` | `promise.go` |
-
-Move tests alongside their source files.
-
-- [ ] Create `pkg/op/bind/` package
-- [ ] Move files (git mv + package rename + add `op.` prefix for core types)
-- [ ] Move `PlanningReceiverFactory`, `ExecutingReceiverFactory` to `bind`
-- [ ] Move `starvalue.Marshaler`, `starvalue.Unmarshaler` to `bind`
-- [ ] Verify: `make vet` passes
-
-### Phase 3: Sever starlark references from `pkg/op`
-
-Remove the three starlark entanglements from `op` core.
-
-- [ ] `context.go`: Change `Thread *starlark.Thread` to `Thread any`
-- [ ] `resource.go`: Remove `MarshalStarvalue()` method from ResourceBase
-- [ ] `resource.go`: Remove `go.starlark.net` imports
-- [ ] `provider.go`: Remove `PlanningReceiverFactory`, `ExecutingReceiverFactory` (now in bind)
-- [ ] `provider.go`: Remove `go.starlark.net` import
-- [ ] `bind/marshal.go`: Add `marshalResourceBase` function
-- [ ] `bind/runtime.go`: Add `ThreadFrom` accessor
-- [ ] Delete `pkg/op/starvalue/` (absorbed into bind)
-- [ ] Verify: `pkg/op` has zero `go.starlark.net` imports
-- [ ] Verify: `make vet` passes
-
-### Phase 4: Update generated code and code generator
-
-Update the code generator to emit imports from `pkg/op/bind` instead of
-`pkg/op` for binding infrastructure. Generate receiver for the plan provider.
-
-- [ ] Update generator templates: `WrapProviderInExecutingReceiver` -> `bind.WrapProviderInExecutingReceiver`
-- [ ] Update generator templates: `WrapProviderInPlanningReceiver` -> `bind.WrapProviderInPlanningReceiver`
-- [ ] Update generator templates: `RegisterActions` -> `bind.RegisterActions`
-- [ ] Update generator templates: `RegisterReceiverParams` -> `bind.RegisterReceiverParams`
-- [ ] Update generator templates: `PlanningReceiverFactory` -> `bind.PlanningReceiverFactory`
-- [ ] Update generator templates: `ExecutingReceiverFactory` -> `bind.ExecutingReceiverFactory`
-- [ ] Generate receiver for `pkg/op/provider/plan/gen/`
-- [ ] Regenerate all receiver code
-- [ ] Verify: `make check` passes
-
-### Phase 5: Update consumers and verify
-
-Update all consumers of moved types.
-
-- [ ] Update `cmd/lore/lore/` imports
-- [ ] Update `cmd/devlore-test/devloretest/` imports
-- [ ] Update `cmd/star/star/` imports
-- [ ] Update `internal/execution/` imports
-- [ ] Update `pkg/op/flow/` imports (if any remain)
-- [ ] Update `pkg/op/provider/mem/` imports (callable, extract)
-- [ ] Grep for stale import paths -- zero matches
-- [ ] `make check` passes from repo root
-- [ ] Verify `pkg/op` has zero `go.starlark.net` in imports: `grep -r 'go.starlark.net' pkg/op/*.go` returns nothing
-
-## Risks
-
-| Risk | Mitigation |
-| --- | --- |
-| `Context.Thread any` loses type safety | Single typed accessor `bind.ThreadFrom` centralizes the assertion; compile-time safety at the boundary |
-| Generated code imports both `op` and `bind` | No cycle -- gen packages are leaves; generator templates updated in Phase 4 |
-| `choose`'s callable parameter | Marshal infrastructure already converts starlark.Callable to Go func via `buildCallableFunc`; plan Provider accepts `func() error` |
-| `mem.Callable` imports starlark for `starlark.Thread` | Already in provider subpackage; imports `bind` instead of `op` for marshal types |
-| Large diff across generated files | Phase 4 regeneration is mechanical -- verify with `go generate ./... && git diff` |
-| Plan Provider needs Graph and ActionRegistry not on Context | Provider constructor receives these; they're available at plan-time construction |

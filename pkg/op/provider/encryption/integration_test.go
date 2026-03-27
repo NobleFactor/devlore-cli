@@ -195,7 +195,7 @@ func TestActions_DecryptSopsFile(t *testing.T) {
 	dest := file.NewResource(dstPath)
 
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, encryptiongen.Receiver, encryptiongen.Params)
+	bind.RegisterActions(reg, encryptiongen.Receiver)
 
 	a, ok := reg.Get("encryption.decrypt_sops_file")
 	if !ok {

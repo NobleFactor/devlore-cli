@@ -119,7 +119,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Exists(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, servicegen.Receiver, servicegen.Params)
+	bind.RegisterActions(reg, servicegen.Receiver)
 
 	a, ok := reg.Get("service.exists")
 	if !ok {
@@ -138,7 +138,7 @@ func TestActions_Exists(t *testing.T) {
 func TestActions_Running(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, servicegen.Receiver, servicegen.Params)
+	bind.RegisterActions(reg, servicegen.Receiver)
 
 	a, ok := reg.Get("service.running")
 	if !ok {

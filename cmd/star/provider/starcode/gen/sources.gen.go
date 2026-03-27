@@ -14,11 +14,10 @@ import (
 )
 
 func init() {
-	bind.RegisterReceiverParams(&SourcesFactory{}, SourcesParams)
+	bind.RegisterReceiverParams(&SourcesFactory{}, SourcesMethodParams)
 }
 
-// SourcesParams maps Go method names to Starlark parameter name lists.
-var SourcesParams = bind.MethodParams{
+var SourcesMethodParams = bind.MethodParams{
 	"Paths":   {},
 	"Count":   {},
 	"Index":   {"with_docstrings?", "with_globals?"},
@@ -27,49 +26,11 @@ var SourcesParams = bind.MethodParams{
 }
 
 // SourcesFactory provides the minimal ReceiverFactory interface for dependent type marshaling.
-//
-// When op.Marshal encounters a *provider.Sources, the receiver params registry
-// directs it to WrapProviderInExecutingReceiver using this factory.
 type SourcesFactory struct{}
 
-// region EXPORTED METHODS
-
-// region State management
-
-// GetOrCreateProvider returns nil — dependent types are not created by factories.
-//
-// Parameters:
-//   - ctx: the execution context (unused).
-//
-// Returns:
-//   - op.ContextProvider: always nil.
 func (f *SourcesFactory) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-
-// ProviderType returns the reflect.Type of the dependent type struct.
-//
-// Returns:
-//   - reflect.Type: the dependent type's concrete type.
-func (f *SourcesFactory) ProviderType() reflect.Type {
-	return reflect.TypeOf(provider.Sources{})
-}
-
-// ReceiverName returns the Starlark receiver name for this dependent type.
-//
-// Returns:
-//   - string: the receiver name "sources".
-func (f *SourcesFactory) ReceiverName() string { return "sources" }
-
-// endregion
-
-// region Behaviors
-
-// Register is a no-op — dependent types do not register actions.
-//
-// Parameters:
-//   - registry: the action registry (unused).
-//   - ctx: the execution context (unused).
-func (f *SourcesFactory) Register(_ *op.ActionRegistry, _ op.Context) {}
-
-// endregion
-
-// endregion
+func (f *SourcesFactory) MethodParams() map[string][]string                   { return SourcesMethodParams }
+func (f *SourcesFactory) MethodParamsFor(name string) []string                { return SourcesMethodParams[name] }
+func (f *SourcesFactory) ProviderType() reflect.Type                          { return reflect.TypeOf(provider.Sources{}) }
+func (f *SourcesFactory) ReceiverName() string                                { return "sources" }
+func (f *SourcesFactory) Register(_ op.Context, _ *op.ReceiverRegistry)       {}

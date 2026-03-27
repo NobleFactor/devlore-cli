@@ -19,13 +19,28 @@ func init() {
 	op.AnnounceReceiver(Receiver)
 }
 
-// Receiver is the ReceiverFactory for the pkg provider.
-var Receiver op.ReceiverFactory = &receiverFactory{}
+var (
+	providerType = reflect.TypeOf((*provider.Provider)(nil)).Elem()
 
-// factory implements op.ReceiverFactory for the pkg provider.
+	// Receiver is the ReceiverFactory for the pkg provider.
+	Receiver op.ReceiverFactory = &receiverFactory{
+		methodParams: bind.MethodParams{
+			"Install":      {"packages", "manager", "cask"},
+			"Remove":       {"packages", "manager", "cask"},
+			"Upgrade":      {"packages", "manager", "cask"},
+			"Update":       {"manager"},
+			"Installed":    {"name"},
+			"NotInstalled": {"name"},
+			"VersionGTE":   {"name", "version"},
+		},
+	}
+)
+
+// receiverFactory implements op.ReceiverFactory for the pkg provider.
 type receiverFactory struct {
-	provider *provider.Provider
-	root     op.Root
+	methodParams bind.MethodParams
+	provider     *provider.Provider
+	root         op.Root
 }
 
 // region EXPORTED METHODS
@@ -35,14 +50,7 @@ type receiverFactory struct {
 // GetOrCreateProvider returns a cached provider for the given context, creating one if needed.
 //
 // The provider is invalidated when the Root changes.
-//
-// Parameters:
-//   - ctx: the execution context providing Root and platform state.
-//
-// Returns:
-//   - op.ContextProvider: the provider instance.
 func (f *receiverFactory) GetOrCreateProvider(ctx op.Context) op.ContextProvider {
-
 	if f.provider == nil || f.root != ctx.Root {
 		f.provider = provider.NewProvider(ctx)
 		f.root = ctx.Root
@@ -50,18 +58,22 @@ func (f *receiverFactory) GetOrCreateProvider(ctx op.Context) op.ContextProvider
 	return f.provider
 }
 
+// MethodParams returns all method parameter name lists.
+func (f *receiverFactory) MethodParams() map[string][]string {
+	return f.methodParams
+}
+
+// MethodParamsFor returns the parameter name list for the given method.
+func (f *receiverFactory) MethodParamsFor(name string) []string {
+	return f.methodParams[name]
+}
+
 // ProviderType returns the reflect.Type of the underlying provider struct.
-//
-// Returns:
-//   - reflect.Type: the provider's concrete type.
 func (f *receiverFactory) ProviderType() reflect.Type {
-	return reflect.TypeOf((*provider.Provider)(nil)).Elem()
+	return providerType
 }
 
 // ReceiverName returns the Starlark receiver name for this provider.
-//
-// Returns:
-//   - string: the receiver name "pkg".
 func (f *receiverFactory) ReceiverName() string { return "pkg" }
 
 // endregion
@@ -69,26 +81,13 @@ func (f *receiverFactory) ReceiverName() string { return "pkg" }
 // region Behaviors
 
 // NewPlanning creates a Starlark receiver that records method calls as graph nodes.
-//
-// Parameters:
-//   - graph: the operation graph to populate.
-//   - project: the project identifier.
-//   - registry: the action registry for node creation.
-//
-// Returns:
-//   - starlark.Value: the planning receiver.
-func (f *receiverFactory) NewPlanning(graph *op.Graph, project string, registry *op.ActionRegistry) starlark.Value {
-	return bind.WrapProviderInPlanningReceiver(f, graph, project, registry, Params)
+func (f *receiverFactory) NewPlanning(graph *op.Graph, project string, registry *op.ReceiverRegistry) starlark.Value {
+	return bind.WrapProviderInPlanningReceiver(f, graph, project, registry)
 }
 
-// Register registers all actions and receiver params for this provider.
-//
-// Parameters:
-//   - registry: the action registry to populate.
-//   - ctx: the execution context.
-func (f *receiverFactory) Register(registry *op.ActionRegistry, ctx op.Context) {
-
-	bind.RegisterActions(registry, f, Params)
+// Register registers all actions for this provider.
+func (f *receiverFactory) Register(ctx op.Context, registry *op.ReceiverRegistry) {
+	bind.RegisterActions(registry, f)
 }
 
 // endregion

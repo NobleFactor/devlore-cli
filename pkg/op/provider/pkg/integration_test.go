@@ -94,7 +94,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Installed(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
+	bind.RegisterActions(reg, pkggen.Receiver)
 
 	a, ok := reg.Get("pkg.installed")
 	if !ok {
@@ -113,7 +113,7 @@ func TestActions_Installed(t *testing.T) {
 func TestActions_NotInstalled(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
+	bind.RegisterActions(reg, pkggen.Receiver)
 
 	a, ok := reg.Get("pkg.not_installed")
 	if !ok {
@@ -132,7 +132,7 @@ func TestActions_NotInstalled(t *testing.T) {
 func TestActions_Update(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, pkggen.Receiver, pkggen.Params)
+	bind.RegisterActions(reg, pkggen.Receiver)
 
 	a, ok := reg.Get("pkg.update")
 	if !ok {

@@ -22,14 +22,14 @@ import (
 //	    plan.file.link("/usr/local/bin/foo", source="/path/to/foo")
 type Plan struct {
 	mu      sync.Mutex
-	reg     *op.ActionRegistry
+	reg     *op.ReceiverRegistry
 	graph   *op.Graph
 	project string // default project for new nodes
 	nodeID  int    // auto-incrementing node ID
 }
 
 // NewPlan creates a new plan for building an execution graph.
-func NewPlan(reg *op.ActionRegistry, project string) *Plan {
+func NewPlan(reg *op.ReceiverRegistry, project string) *Plan {
 	return &Plan{
 		reg:     reg,
 		graph:   &op.Graph{Nodes: []*op.Node{}, Edges: []op.Edge{}},

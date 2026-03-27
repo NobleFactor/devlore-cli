@@ -94,7 +94,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_Match(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver, regexpgen.Params)
+	bind.RegisterActions(reg, regexpgen.Receiver)
 
 	a, ok := reg.Get("regexp.match")
 	if !ok {
@@ -113,7 +113,7 @@ func TestActions_Match(t *testing.T) {
 func TestActions_Find(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver, regexpgen.Params)
+	bind.RegisterActions(reg, regexpgen.Receiver)
 
 	a, ok := reg.Get("regexp.find")
 	if !ok {
@@ -132,7 +132,7 @@ func TestActions_Find(t *testing.T) {
 func TestActions_Replace(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver, regexpgen.Params)
+	bind.RegisterActions(reg, regexpgen.Receiver)
 
 	a, ok := reg.Get("regexp.replace")
 	if !ok {
@@ -151,7 +151,7 @@ func TestActions_Replace(t *testing.T) {
 func TestActions_Split(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver, regexpgen.Params)
+	bind.RegisterActions(reg, regexpgen.Receiver)
 
 	a, ok := reg.Get("regexp.split")
 	if !ok {

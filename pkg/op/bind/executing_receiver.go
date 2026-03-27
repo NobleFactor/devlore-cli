@@ -18,12 +18,10 @@ import (
 type MethodParams map[string][]string
 
 // ExecutingReceiver wraps a Go struct for immediate-mode Starlark use.
-// Exported methods become Starlark builtins; method dispatch, argument
-// unpacking, and return value marshaling are handled by reflection.
 //
-// Optional catalog and stack fields enable resource management
-// integration. When set, Resource results are shadowed in the catalog
-// after successful dispatch.
+// Exported methods become Starlark builtins; method dispatch, argument unpacking, and return value marshaling are
+// handled by reflection. Optional catalog and stack fields enable resource management integration. When set, Resource
+// results are shadowed in the catalog after successful dispatch.
 type ExecutingReceiver struct {
 	receiver
 	providerValue reflect.Value
@@ -57,7 +55,14 @@ func WrapProviderInExecutingReceiver(factory op.ReceiverFactory, provider any) *
 
 	entry, ok := lookupReceiverParams(reflect.TypeOf(provider))
 	if !ok {
-		panic(fmt.Sprintf("WrapProviderInExecutingReceiver(%s): no params registered — was RegisterActions called?", name))
+		// Auto-register params from the factory interface. This handles
+		// providers whose Register method does not call RegisterActions
+		// (e.g., immediate-only generated receivers).
+		registerReceiverParamsReflect(factory, factory.MethodParams())
+		entry, ok = lookupReceiverParams(reflect.TypeOf(provider))
+		if !ok {
+			panic(fmt.Sprintf("WrapProviderInExecutingReceiver(%s): no params registered — was RegisterActions called?", name))
+		}
 	}
 
 	rv := reflect.ValueOf(provider)

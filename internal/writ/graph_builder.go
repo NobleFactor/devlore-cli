@@ -74,7 +74,7 @@ func NewScopedGraph(cfg *Config, scope, targetRoot string) *op.Graph {
 // Returns:
 //   - []string: manifest source paths discovered during tree walk
 //   - error: tree build or node creation error
-func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []string, err error) {
+func BuildTree(g *op.Graph, cfg *Config, reg *op.ReceiverRegistry) (manifests []string, err error) {
 
 	result, err := tree.Build(tree.BuildConfig{
 		SourceRoot: cfg.SourceRoot,
@@ -103,7 +103,7 @@ func BuildTree(g *op.Graph, cfg *Config, reg *op.ActionRegistry) (manifests []st
 //
 // Returns:
 //   - []string: manifest source paths
-func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ActionRegistry) []string { //nolint:gocognit
+func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRegistry) []string { //nolint:gocognit
 
 	var manifests []string
 
@@ -295,7 +295,7 @@ func resolveManifests(g *op.Graph, planner *lore.Planner, manifests []string) er
 // DeployGraphBuilder builds execution graphs for deploy operations.
 type DeployGraphBuilder struct {
 	config  *Config
-	reg     *op.ActionRegistry
+	reg     *op.ReceiverRegistry
 	Planner *lore.Planner // nil means skip manifest resolution
 }
 
@@ -307,7 +307,7 @@ type DeployGraphBuilder struct {
 //
 // Returns:
 //   - *DeployGraphBuilder: configured builder
-func NewDeployGraphBuilder(cfg *DeployConfig, reg *op.ActionRegistry) *DeployGraphBuilder {
+func NewDeployGraphBuilder(cfg *DeployConfig, reg *op.ReceiverRegistry) *DeployGraphBuilder {
 	return &DeployGraphBuilder{config: &cfg.Config, reg: reg}
 }
 
@@ -396,13 +396,13 @@ func sortedKeys(m map[string][]*tree.FileEntry) []string {
 // DecommissionGraphBuilder builds execution graphs for decommission operations.
 type DecommissionGraphBuilder struct {
 	config *Config
-	reg    *op.ActionRegistry
+	reg    *op.ReceiverRegistry
 	view   *execution.StateView
 	force  bool
 }
 
 // NewDecommissionGraphBuilder creates a new decommission graph builder.
-func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateView, reg *op.ActionRegistry) *DecommissionGraphBuilder {
+func NewDecommissionGraphBuilder(cfg *DecommissionConfig, view *execution.StateView, reg *op.ReceiverRegistry) *DecommissionGraphBuilder {
 	return &DecommissionGraphBuilder{
 		config: &cfg.Config,
 		reg:    reg,

@@ -70,7 +70,7 @@ func TestStarlark(t *testing.T) {
 func TestActions_RenderText(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, templategen.Receiver, templategen.Params)
+	bind.RegisterActions(reg, templategen.Receiver)
 
 	a, ok := reg.Get("template.render_text")
 	if !ok {
@@ -97,7 +97,7 @@ func TestActions_RenderText(t *testing.T) {
 func TestActions_RenderBytes(t *testing.T) {
 	ctx := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, templategen.Receiver, templategen.Params)
+	bind.RegisterActions(reg, templategen.Receiver)
 
 	a, ok := reg.Get("template.render_bytes")
 	if !ok {

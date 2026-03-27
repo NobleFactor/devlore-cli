@@ -10,8 +10,9 @@ import (
 )
 
 // receiver provides common implementations for Starlark binding namespaces.
-// Embed this in concrete types to satisfy starlark.Value. Concrete types
-// must implement starlark.HasAttrs (Attr and AttrNames) themselves.
+//
+// Embed this in concrete types to satisfy starlark.Value. Concrete types must implement starlark.HasAttrs (Attr and
+// AttrNames) themselves.
 type receiver struct {
 	name string
 }
@@ -43,11 +44,3 @@ func (r receiver) Truth() starlark.Bool {
 func (r receiver) Hash() (uint32, error) {
 	return 0, fmt.Errorf("unhashable type: %s", r.name)
 }
-
-// NoSuchAttrError returns an error for an unknown attribute.
-func NoSuchAttrError(receiver, attr string) error {
-	return fmt.Errorf("%s has no .%s attribute", receiver, attr)
-}
-
-// builtinFunc is the signature for builtin function implementations.
-type builtinFunc func(thread *starlark.Thread, fn *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error)

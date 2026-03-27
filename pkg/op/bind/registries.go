@@ -31,14 +31,6 @@ func RegisterReceiverParams(factory op.ReceiverFactory, params MethodParams) {
 	registerReceiverParamsReflect(factory, params)
 }
 
-func registerReceiverParamsReflect(factory op.ReceiverFactory, params MethodParams) {
-	providerType := factory.ProviderType()
-	if providerType.Kind() == reflect.Ptr {
-		providerType = providerType.Elem()
-	}
-	receiverParamsRegistry.Store(providerType, receiverEntry{factory: factory, params: params})
-}
-
 func lookupReceiverParams(t reflect.Type) (receiverEntry, bool) {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -48,6 +40,14 @@ func lookupReceiverParams(t reflect.Type) (receiverEntry, bool) {
 		return receiverEntry{}, false
 	}
 	return v.(receiverEntry), true
+}
+
+func registerReceiverParamsReflect(factory op.ReceiverFactory, params MethodParams) {
+	providerType := factory.ProviderType()
+	if providerType.Kind() == reflect.Ptr {
+		providerType = providerType.Elem()
+	}
+	receiverParamsRegistry.Store(providerType, receiverEntry{factory: factory, params: params})
 }
 
 // endregion

@@ -10,13 +10,14 @@ import (
 
 // registryTestAction is a minimal Action implementation for testing the registry.
 type registryTestAction struct {
-	name string
+	name   string
+	result any
 }
 
 func (a *registryTestAction) Name() string        { return a.name }
 func (a *registryTestAction) Params() []ParamInfo { return nil }
 func (a *registryTestAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
-	return nil, nil, nil
+	return a.result, nil, nil
 }
 
 func TestNewActionRegistry(t *testing.T) {
@@ -24,8 +25,8 @@ func TestNewActionRegistry(t *testing.T) {
 	if reg == nil {
 		t.Fatal("NewActionRegistry() returned nil")
 	}
-	if len(reg.actions) != 0 {
-		t.Errorf("new registry has %d actions, want 0", len(reg.actions))
+	if len(reg.methods) != 0 {
+		t.Errorf("new registry has %d methods, want 0", len(reg.methods))
 	}
 }
 
@@ -110,8 +111,8 @@ func TestNames_Empty(t *testing.T) {
 
 func TestRegister_Overwrites(t *testing.T) {
 	reg := NewActionRegistry()
-	original := &registryTestAction{name: "file.link"}
-	replacement := &registryTestAction{name: "file.link"}
+	original := &registryTestAction{name: "file.link", result: "original"}
+	replacement := &registryTestAction{name: "file.link", result: "replacement"}
 	reg.Register(original)
 	reg.Register(replacement)
 
@@ -119,9 +120,10 @@ func TestRegister_Overwrites(t *testing.T) {
 	if !ok {
 		t.Fatal("Get(file.link) returned false after overwrite")
 	}
-	// Verify the replacement is what we get back (same pointer)
-	if got != replacement {
-		t.Error("Get(file.link) did not return the replacement action")
+	// Verify overwrite by calling Do — should dispatch to replacement.
+	result, _, _ := got.Do(nil, nil)
+	if result != "replacement" {
+		t.Errorf("Do() = %v, want 'replacement'", result)
 	}
 }
 

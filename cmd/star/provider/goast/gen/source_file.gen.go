@@ -14,11 +14,11 @@ import (
 )
 
 func init() {
-	bind.RegisterReceiverParams(&SourceFileFactory{}, SourceFileParams)
+	bind.RegisterReceiverParams(&SourceFileFactory{}, SourceFileMethodParams)
 }
 
-// SourceFileParams maps Go method names to Starlark parameter name lists.
-var SourceFileParams = bind.MethodParams{
+// SourceFileMethodParams maps Go method names to Starlark parameter name lists.
+var SourceFileMethodParams = bind.MethodParams{
 	"Decls":           {},
 	"Types":           {},
 	"GetType":         {"name"},
@@ -67,6 +67,14 @@ func (f *SourceFileFactory) ProviderType() reflect.Type {
 //   - string: the receiver name "source_file".
 func (f *SourceFileFactory) ReceiverName() string { return "source_file" }
 
+// MethodParams returns the complete method-to-parameter mapping for SourceFile.
+func (f *SourceFileFactory) MethodParams() map[string][]string { return SourceFileMethodParams }
+
+// MethodParamsFor returns the parameter names for the given method.
+func (f *SourceFileFactory) MethodParamsFor(name string) []string {
+	return SourceFileMethodParams[name]
+}
+
 // endregion
 
 // region Behaviors
@@ -74,9 +82,9 @@ func (f *SourceFileFactory) ReceiverName() string { return "source_file" }
 // Register is a no-op — dependent types do not register actions.
 //
 // Parameters:
-//   - registry: the action registry (unused).
 //   - ctx: the execution context (unused).
-func (f *SourceFileFactory) Register(_ *op.ActionRegistry, _ op.Context) {}
+//   - registry: the receiver registry (unused).
+func (f *SourceFileFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {}
 
 // endregion
 

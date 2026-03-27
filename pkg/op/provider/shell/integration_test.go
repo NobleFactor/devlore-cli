@@ -85,7 +85,7 @@ func TestActions_Exec(t *testing.T) {
 
 	ctx, buf := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, shellgen.Receiver, shellgen.Params)
+	bind.RegisterActions(reg, shellgen.Receiver)
 
 	a, ok := reg.Get("shell.exec")
 	if !ok {
@@ -112,7 +112,7 @@ func TestActions_Exec(t *testing.T) {
 func TestActions_Exec_EmptyCommand(t *testing.T) {
 	ctx, _ := testCtx()
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, shellgen.Receiver, shellgen.Params)
+	bind.RegisterActions(reg, shellgen.Receiver)
 
 	a, ok := reg.Get("shell.exec")
 	if !ok {

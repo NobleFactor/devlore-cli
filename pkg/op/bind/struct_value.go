@@ -12,9 +12,9 @@ import (
 )
 
 // StructValue wraps a Go struct for Starlark with lazy attr dispatch.
-// Fields are marshaled on access; eligible methods are called on access.
-// This is an internal implementation detail of [Marshal] — Go programmers
-// do not construct StructValue directly.
+//
+// Fields are marshaled on access; eligible methods are called on access. This is an internal implementation detail of
+// [Marshal] — Go programmers do not construct StructValue directly.
 type StructValue struct {
 	typeName string
 	goValue  reflect.Value // pointer to the Go struct (always addressable)
@@ -26,6 +26,7 @@ type StructValue struct {
 // region Behaviors
 
 // Attr implements [starlark.HasAttrs]. Fields are resolved first, then methods.
+//
 // Field values are marshaled on each access. Methods are called on each access
 // and their return values marshaled.
 //

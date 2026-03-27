@@ -133,7 +133,7 @@ func TestActions_Clone(t *testing.T) {
 
 	ctx := testCtx(t)
 	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, gitgen.Receiver, gitgen.Params)
+	bind.RegisterActions(reg, gitgen.Receiver)
 
 	a, ok := reg.Get("git.clone")
 	if !ok {

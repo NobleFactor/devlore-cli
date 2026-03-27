@@ -665,7 +665,7 @@ func (g *Graph) CollectPhaseNodes(phase *Phase) ([]*Node, []Edge) {
 // HydrateGraph replaces stub actions on graph nodes with real actions from the registry.
 // This enables loaded/deserialized graphs to be executed. Nodes with no action name
 // (e.g., nodes that were never serialized with an action) are skipped.
-func HydrateGraph(g *Graph, reg *ActionRegistry) error {
+func HydrateGraph(g *Graph, reg *ReceiverRegistry) error {
 	for _, n := range g.Nodes {
 		name := n.ActionName()
 		if name == "" {

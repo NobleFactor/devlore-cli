@@ -67,8 +67,11 @@ func (f *actionFactory) ProviderType() reflect.Type {
 	return reflect.TypeOf((*actionProvider)(nil)).Elem()
 }
 
-func (f *actionFactory) Register(reg *op.ActionRegistry, _ op.Context) {
-	RegisterActions(reg, f, actionParams)
+func (f *actionFactory) MethodParams() map[string][]string    { return actionParams }
+func (f *actionFactory) MethodParamsFor(name string) []string { return actionParams[name] }
+
+func (f *actionFactory) Register(_ op.Context, reg *op.ReceiverRegistry) {
+	RegisterActions(reg, f)
 }
 
 func newActionFactory() *actionFactory {
@@ -122,7 +125,7 @@ func (p *actionProvider) Create(path string) (actionResource, string, error) {
 	return r, "undo:" + path, nil
 }
 
-func (p *actionProvider) CompensateCreate(state string) error {
+func (p *actionProvider) CompensateCreate(_ string) error {
 	return nil
 }
 
@@ -136,7 +139,7 @@ func (p *actionProvider) Stamp(dest actionResource) (actionResource, map[string]
 	return dest, map[string]any{"dest": dest.SourcePath}, nil
 }
 
-func (p *actionProvider) CompensateStamp(state map[string]any) error {
+func (p *actionProvider) CompensateStamp(_ map[string]any) error {
 	return nil
 }
 
@@ -145,7 +148,7 @@ func (p *actionProvider) Transfer(source, dest actionResource) (actionResource, 
 	return dest, map[string]any{"source": source.SourcePath, "dest": dest.SourcePath}, nil
 }
 
-func (p *actionProvider) CompensateTransfer(state map[string]any) error {
+func (p *actionProvider) CompensateTransfer(_ map[string]any) error {
 	return nil
 }
 
@@ -154,7 +157,7 @@ func (p *actionProvider) Delete(path string) (op.NoResult, map[string]any, error
 	return op.NoResult{}, map[string]any{"path": path}, nil
 }
 
-func (p *actionProvider) CompensateDelete(state map[string]any) error {
+func (p *actionProvider) CompensateDelete(_ map[string]any) error {
 	return nil
 }
 
@@ -188,7 +191,7 @@ var actionParams = MethodParams{
 
 func TestReflectedAction_Params(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.copy")
 	params := action.Params()
@@ -208,7 +211,7 @@ func TestReflectedAction_Params(t *testing.T) {
 
 func TestReflectedAction_Params_ResourceType(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.touch")
 	params := action.Params()
@@ -225,7 +228,7 @@ func TestReflectedAction_Params_ResourceType(t *testing.T) {
 
 func TestReflectedAction_Params_Compensable(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	// Compensable actions inherit Params from reflectedAction.
 	action := reg.MustGet("test.create")
@@ -247,7 +250,7 @@ func TestStubAction_Params_Nil(t *testing.T) {
 
 func TestReflectedAction_Params_NoArgs(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.noop")
 	params := action.Params()
@@ -530,7 +533,7 @@ func TestClassifyCompensableReturn_ValueComplementError(t *testing.T) {
 
 func TestRegisterActions_ActionNames(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	names := reg.Names()
 	sort.Strings(names)
@@ -563,56 +566,73 @@ func TestRegisterActions_ActionNames(t *testing.T) {
 
 func TestRegisterActions_PureAction(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
-	action, ok := reg.Get("test.exists")
+	testAction, ok := reg.Get("test.exists")
 	if !ok {
 		t.Fatal("Exists should be registered as a pure Action (no error return)")
 	}
-	if _, isPure := action.(*reflectedPureAction); !isPure {
-		t.Errorf("Exists should be *reflectedPureAction, got %T", action)
+	m, isMethod := testAction.(*op.Method)
+	if !isMethod {
+		t.Errorf("Exists should be *op.Method, got %T", testAction)
+	} else if m.Kind != op.MethodPure {
+		t.Errorf("Exists should be MethodPure, got %v", m.Kind)
 	}
 }
 
 func TestRegisterActions_CompensableDetection(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
-	// Copy has CompensateCopy → CompensableAction.
-	action, ok := reg.Get("test.copy")
+	// Copy has CompensateCopy → compensable.
+	copyMethod, ok := reg.Method("test.copy")
 	if !ok {
 		t.Fatal("test.copy not registered")
 	}
-	if _, ok := action.(op.CompensableAction); !ok {
-		t.Error("test.copy should implement CompensableAction")
+	if copyMethod.Kind != op.MethodCompensable {
+		t.Errorf("test.copy should be MethodCompensable, got %v", copyMethod.Kind)
 	}
 
-	// Read has no CompensateRead → plain Action.
-	action, ok = reg.Get("test.read")
+	// Read has no CompensateRead → fallible.
+	readMethod, ok := reg.Method("test.read")
 	if !ok {
 		t.Fatal("test.read not registered")
 	}
-	if _, ok := action.(op.CompensableAction); ok {
-		t.Error("test.read should NOT implement CompensableAction")
+	if readMethod.Kind == op.MethodCompensable {
+		t.Error("test.read should NOT be MethodCompensable")
 	}
 }
 
 func TestRegisterActions_SkipsMissingMethod(t *testing.T) {
-	params := MethodParams{
-		"NonExistent": {"a"},
-	}
+	factory := &actionFactory{p: &actionProvider{}}
+	// Override MethodParams to only include a non-existent method.
+	missingFactory := &missingMethodFactory{actionFactory: factory}
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), params)
+	RegisterActions(reg, missingFactory)
 	if len(reg.Names()) != 0 {
 		t.Errorf("expected no registrations, got %v", reg.Names())
 	}
+}
+
+// missingMethodFactory wraps actionFactory but returns only a non-existent method in MethodParams.
+type missingMethodFactory struct {
+	*actionFactory
+}
+
+func (f *missingMethodFactory) MethodParams() map[string][]string {
+	return MethodParams{"NonExistent": {"a"}}
+}
+
+func (f *missingMethodFactory) MethodParamsFor(name string) []string {
+	m := f.MethodParams()
+	return m[name]
 }
 
 // --- reflectedAction.Do tests ---
 
 func TestReflectedAction_Do(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.read")
 	ctx := &op.Context{
@@ -637,7 +657,7 @@ func TestReflectedAction_Do(t *testing.T) {
 
 func TestReflectedAction_Do_Compensable(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.copy")
 	ctx := &op.Context{
@@ -666,7 +686,7 @@ func TestReflectedAction_Do_Compensable(t *testing.T) {
 
 func TestReflectedAction_Do_ErrorOnly(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.validate")
 	ctx := &op.Context{
@@ -694,7 +714,7 @@ func TestReflectedAction_Do_ErrorOnly(t *testing.T) {
 
 func TestReflectedAction_Do_TypeCoercion(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.mkdir")
 	ctx := &op.Context{
@@ -717,7 +737,7 @@ func TestReflectedAction_Do_TypeCoercion(t *testing.T) {
 
 func TestReflectedAction_Do_Constructor(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.deploy")
 	ctx := &op.Context{
@@ -740,7 +760,7 @@ func TestReflectedAction_Do_Constructor(t *testing.T) {
 
 func TestReflectedAction_Do_MapToStruct(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.configure")
 	ctx := &op.Context{
@@ -766,7 +786,7 @@ func TestReflectedAction_Do_MapToStruct(t *testing.T) {
 
 func TestReflectedAction_Do_MissingSlot(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.read")
 	ctx := &op.Context{
@@ -787,7 +807,7 @@ func TestReflectedAction_Do_MissingSlot(t *testing.T) {
 
 func TestReflectedAction_Do_CoercionError(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.read")
 	ctx := &op.Context{
@@ -812,7 +832,7 @@ func TestReflectedAction_Do_CoercionError(t *testing.T) {
 
 func TestReflectedAction_DryRun(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	var buf bytes.Buffer
 	action := reg.MustGet("test.read")
@@ -844,7 +864,7 @@ func TestReflectedAction_DryRun(t *testing.T) {
 
 func TestReflectedAction_DryRun_MultipleSlots(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	var buf bytes.Buffer
 	action := reg.MustGet("test.copy")
@@ -875,13 +895,9 @@ func TestReflectedAction_DryRun_MultipleSlots(t *testing.T) {
 
 func TestReflectedCompensableAction_Undo(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
-	action := reg.MustGet("test.copy")
-	ca, ok := action.(op.CompensableAction)
-	if !ok {
-		t.Fatal("test.copy should be CompensableAction")
-	}
+	m, _ := reg.Method("test.copy")
 
 	ctx := &op.Context{
 		ContextBase: op.ContextBase{
@@ -891,7 +907,7 @@ func TestReflectedCompensableAction_Undo(t *testing.T) {
 	}
 	state := map[string]any{"source": "/a", "dest": "/b"}
 
-	err := ca.Undo(ctx, state)
+	err := m.Undo(ctx, state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -899,10 +915,9 @@ func TestReflectedCompensableAction_Undo(t *testing.T) {
 
 func TestReflectedCompensableAction_UndoNil(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
-	action := reg.MustGet("test.copy")
-	ca := action.(op.CompensableAction)
+	m, _ := reg.Method("test.copy")
 
 	ctx := &op.Context{
 		ContextBase: op.ContextBase{
@@ -911,7 +926,7 @@ func TestReflectedCompensableAction_UndoNil(t *testing.T) {
 		},
 	}
 
-	err := ca.Undo(ctx, nil)
+	err := m.Undo(ctx, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -919,10 +934,9 @@ func TestReflectedCompensableAction_UndoNil(t *testing.T) {
 
 func TestReflectedCompensableAction_UndoError(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
-	action := reg.MustGet("test.copy")
-	ca := action.(op.CompensableAction)
+	m, _ := reg.Method("test.copy")
 
 	ctx := &op.Context{
 		ContextBase: op.ContextBase{
@@ -932,7 +946,7 @@ func TestReflectedCompensableAction_UndoError(t *testing.T) {
 	}
 	state := map[string]any{"fail": true}
 
-	err := ca.Undo(ctx, state)
+	err := m.Undo(ctx, state)
 	if err == nil {
 		t.Fatal("expected compensate error")
 	}
@@ -979,7 +993,7 @@ func TestClassifyCompensableReturn_NoResult_WithComplement(t *testing.T) {
 
 func TestReflectedAction_Do_NoResult(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action := reg.MustGet("test.delete")
 	ctx := &op.Context{
@@ -1004,7 +1018,7 @@ func TestReflectedAction_Do_NoResult(t *testing.T) {
 
 func TestReflectedAction_Delete_IsCompensable(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	action, ok := reg.Get("test.delete")
 	if !ok {
@@ -1019,7 +1033,7 @@ func TestReflectedAction_Delete_IsCompensable(t *testing.T) {
 
 func TestReflectedAction_Do_ShadowsResource(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	catalog := op.NewResourceCatalog()
 	action := reg.MustGet("test.create")
@@ -1071,7 +1085,7 @@ func TestReflectedAction_Do_ShadowsResource(t *testing.T) {
 
 func TestReflectedAction_Do_NoCatalog_Unchanged(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	// No catalog — result should be returned unchanged.
 	action := reg.MustGet("test.create")
@@ -1093,7 +1107,7 @@ func TestReflectedAction_Do_NoCatalog_Unchanged(t *testing.T) {
 
 func TestReflectedAction_Do_NonResource_Unchanged(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	catalog := op.NewResourceCatalog()
 	action := reg.MustGet("test.read")
@@ -1121,7 +1135,7 @@ func TestReflectedAction_Do_NonResource_Unchanged(t *testing.T) {
 
 func TestReflectedAction_Do_NoResult_NotShadowed(t *testing.T) {
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, newActionFactory(), actionParams)
+	RegisterActions(reg, newActionFactory())
 
 	catalog := op.NewResourceCatalog()
 	action := reg.MustGet("test.delete")
@@ -1152,23 +1166,27 @@ func TestReflectedAction_Do_NoResult_NotShadowed(t *testing.T) {
 // exercise registration-time validation (panic tests). GetOrCreateProvider
 // is never called because these tests panic before any action executes.
 type stubFactory[T any] struct {
-	name string
+	name   string
+	params map[string][]string
 }
 
 func (f *stubFactory[T]) ReceiverName() string { return f.name }
 
 func (f *stubFactory[T]) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
 
+func (f *stubFactory[T]) MethodParams() map[string][]string    { return f.params }
+func (f *stubFactory[T]) MethodParamsFor(name string) []string { return f.params[name] }
+
 func (f *stubFactory[T]) ProviderType() reflect.Type {
 	return reflect.TypeOf((*T)(nil)).Elem()
 }
 
-func (f *stubFactory[T]) Register(reg *op.ActionRegistry, _ op.Context) {}
+func (f *stubFactory[T]) Register(_ op.Context, _ *op.ReceiverRegistry) {}
 
 // unpairedProvider has a method with 3 returns but no Compensate companion.
 type unpairedProvider struct{}
 
-func (p *unpairedProvider) Destroy(path string) (string, map[string]any, error) {
+func (p *unpairedProvider) Destroy(_ string) (string, map[string]any, error) {
 	return "", nil, nil
 }
 
@@ -1185,23 +1203,20 @@ func TestRegisterActions_MissingCompensate_Panics(t *testing.T) {
 	}()
 
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, &stubFactory[unpairedProvider]{name: "test"}, MethodParams{
-		"Destroy": {"path"},
-	})
+	RegisterActions(reg, &stubFactory[unpairedProvider]{name: "test", params: map[string][]string{"Destroy": {"path"}}})
 }
 
-// orphanedCompensateProvider has a Compensate method whose forward method
-// is in params but doesn't return error (so it's skipped), making the
-// compensator orphaned.
+// orphanedCompensateProvider has a Compensate method whose forward method is in params but doesn't return error (so
+// it's skipped), making the compensator orphaned.
 type orphanedCompensateProvider struct{}
 
 // Ghost has no error return — it won't register as an action.
-func (p *orphanedCompensateProvider) Ghost(path string) bool {
+func (p *orphanedCompensateProvider) Ghost(_ string) bool {
 	return true
 }
 
 // CompensateGhost exists but Ghost is not an action → orphaned.
-func (p *orphanedCompensateProvider) CompensateGhost(state map[string]any) error {
+func (p *orphanedCompensateProvider) CompensateGhost(_ map[string]any) error {
 	return nil
 }
 
@@ -1223,20 +1238,18 @@ func TestRegisterActions_OrphanedCompensate_Panics(t *testing.T) {
 	reg := op.NewActionRegistry()
 	// Ghost is in params but won't register (no error return).
 	// CompensateGhost is orphaned.
-	RegisterActions(reg, &stubFactory[orphanedCompensateProvider]{name: "test"}, MethodParams{
-		"Ghost": {"path"},
-	})
+	RegisterActions(reg, &stubFactory[orphanedCompensateProvider]{name: "test", params: map[string][]string{"Ghost": {"path"}}})
 }
 
 // badSignatureProvider has a Compensate method with wrong signature.
 type badSignatureProvider struct{}
 
-func (p *badSignatureProvider) Write(path string) (string, map[string]any, error) {
+func (p *badSignatureProvider) Write(_ string) (string, map[string]any, error) {
 	return "", nil, nil
 }
 
 // CompensateWrite has too many params — should be func(state) error.
-func (p *badSignatureProvider) CompensateWrite(state map[string]any, extra string) error {
+func (p *badSignatureProvider) CompensateWrite(_ map[string]any, _ string) error {
 	return nil
 }
 
@@ -1256,19 +1269,17 @@ func TestRegisterActions_BadCompensateSignature_Panics(t *testing.T) {
 	}()
 
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, &stubFactory[badSignatureProvider]{name: "test"}, MethodParams{
-		"Write": {"path"},
-	})
+	RegisterActions(reg, &stubFactory[badSignatureProvider]{name: "test", params: map[string][]string{"Write": {"path"}}})
 }
 
 // badReturnProvider has a Compensate method that returns (string, error) instead of just error.
 type badReturnProvider struct{}
 
-func (p *badReturnProvider) Store(path string) (string, map[string]any, error) {
+func (p *badReturnProvider) Store(_ string) (string, map[string]any, error) {
 	return "", nil, nil
 }
 
-func (p *badReturnProvider) CompensateStore(state map[string]any) (string, error) {
+func (p *badReturnProvider) CompensateStore(_ map[string]any) (string, error) {
 	return "", nil
 }
 
@@ -1288,7 +1299,5 @@ func TestRegisterActions_BadCompensateReturn_Panics(t *testing.T) {
 	}()
 
 	reg := op.NewActionRegistry()
-	RegisterActions(reg, &stubFactory[badReturnProvider]{name: "test"}, MethodParams{
-		"Store": {"path"},
-	})
+	RegisterActions(reg, &stubFactory[badReturnProvider]{name: "test", params: map[string][]string{"Store": {"path"}}})
 }
