@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"filippo.io/age"
@@ -20,16 +21,14 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
-	encryptiongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
+	encryptionprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 	sopsclient "github.com/NobleFactor/devlore-cli/pkg/op/sops"
-
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen" // register file.Resource constructor
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
@@ -83,7 +82,7 @@ func sopsEncrypt(t *testing.T, plainYAML []byte) ([]byte, string) {
 	return encrypted, identity.String()
 }
 
-func testCtx(t *testing.T, dir string) op.Context {
+func testCtx(t *testing.T, dir string) *op.ExecutionContext {
 	t.Helper()
 
 	sopsConfig := filepath.Join(dir, ".sops.yaml")
@@ -97,14 +96,23 @@ func testCtx(t *testing.T, dir string) op.Context {
 	}
 
 	root := op.NewRootReaderWriter(dir)
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context:    context.Background(),
-			Writer:     &bytes.Buffer{},
-			Root:       root,
-			SopsClient: client,
-		},
+	return &op.ExecutionContext{
+		Context:    context.Background(),
+		Writer:     &bytes.Buffer{},
+		Root:       root,
+		Registry:   op.NewReceiverRegistry(),
+		SopsClient: client,
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[encryptionprov.Provider]())
+	if !ok {
+		t.Fatal("encryption provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
@@ -123,16 +131,17 @@ func TestStarlark(t *testing.T) {
 
 	ctx := testCtx(t, dir)
 
-	// Resolve source so it has size metadata.
-	source := file.NewResource(srcPath)
-	if err := source.Resolve(ctx.Root); err != nil {
+	source, err := file.NewResource(ctx, srcPath)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+	if err := source.Resolve(); err != nil {
 		t.Fatalf("resolve source: %v", err)
 	}
 
 	dstPath := filepath.Join(dir, "secret.dec.yaml")
 
-	p := encryption.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(encryptiongen.Receiver, p)
+	receiver := bind.NewProvider(receiverType(t), encryptionprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{
 		"encryption":  receiver,
@@ -186,39 +195,50 @@ func TestActions_DecryptSopsFile(t *testing.T) {
 
 	ctx := testCtx(t, dir)
 
-	source := file.NewResource(srcPath)
-	if err := source.Resolve(ctx.Root); err != nil {
+	source, err := file.NewResource(ctx, srcPath)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+	if err := source.Resolve(); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 
 	dstPath := filepath.Join(dir, "secret.dec.yaml")
-	dest := file.NewResource(dstPath)
-
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, encryptiongen.Receiver)
-
-	a, ok := reg.Get("encryption.decrypt_sops_file")
-	if !ok {
-		t.Fatal("action encryption.decrypt_sops_file not registered")
+	dest, err := file.NewResource(ctx, dstPath)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
 	}
 
-	result, complement, err := a.Do(&ctx, map[string]any{
+	a, err := ctx.ActionByName("encryption.decrypt_sops_file")
+	if err != nil {
+		t.Fatalf("action encryption.decrypt_sops_file not registered: %v", err)
+	}
+
+	result, complement, doErr := a.Do(ctx, map[string]any{
 		"source":      source,
 		"destination": dest,
 	})
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
+	if doErr != nil {
+		t.Fatalf("Do() error = %v", doErr)
 	}
 
-	res, ok := result.(file.Resource)
+	res, ok := result.(*file.Resource)
 	if !ok {
-		t.Fatalf("result type = %T, want file.Resource", result)
+		t.Fatalf("result type = %T, want *file.Resource", result)
 	}
 	if res.SourcePath.Abs() != dstPath {
 		t.Errorf("result path = %q, want %q", res.SourcePath.Abs(), dstPath)
 	}
 	if complement == nil {
 		t.Error("complement = nil, want non-nil tombstone")
+	}
+
+	decrypted, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatalf("reading decrypted: %v", err)
+	}
+	if !bytes.Contains(decrypted, []byte("value")) {
+		t.Errorf("decrypted missing 'value': %s", decrypted)
 	}
 }
 

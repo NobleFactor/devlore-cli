@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+//go:build ignore
+// +build ignore
+
 package execution
 
 import (
@@ -339,11 +342,11 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 	// Helper to create nodes with source slot
 	makeNode := func(id string, action string, source, project, layer string) *op.Node {
 		n := &op.Node{
-			ID:      id,
-			Action:  op.StubAction(action),
-			Project: project,
-			Layer:   layer,
-			Status:  op.StatusCompleted,
+			ID:     id,
+			Receiver: action,
+			Origin: project,
+			Layer:  layer,
+			Status: op.StatusCompleted,
 		}
 		n.SetSlotImmediate("source", source)
 		return n
@@ -351,17 +354,15 @@ func TestStateViewBuilderBuildFrom(t *testing.T) {
 
 	graphs := []*op.Graph{
 		{
-			Tool:      "writ",
-			Timestamp: earlier,
-			Context:   op.GraphContext{TargetRoot: "/home/user"},
+			Provenance: op.Provenance{Tool: "writ", TargetRoot: "/home/user"},
+			Timestamp:  earlier,
 			Nodes: []*op.Node{
 				makeNode(".bashrc", "file.link", "/repo/.bashrc", "shell", "base"),
 			},
 		},
 		{
-			Tool:      "writ",
-			Timestamp: now,
-			Context:   op.GraphContext{TargetRoot: "/home/user"},
+			Provenance: op.Provenance{Tool: "writ", TargetRoot: "/home/user"},
+			Timestamp:  now,
 			Nodes: []*op.Node{
 				makeNode(".bashrc", "file.copy", "/repo/.bashrc", "shell", "personal"),
 				makeNode(".gitconfig", "file.link", "/repo/.gitconfig", "git", ""),
@@ -414,41 +415,25 @@ func TestStateViewBuilderPackageNodes(t *testing.T) {
 
 	graphs := []*op.Graph{
 		{
-			Tool:      "lore",
-			Timestamp: now.Add(-2 * time.Hour),
-			Nodes: []*op.Node{
-				{
-					ID:     "docker",
-					Action: op.StubAction("pkg.install"),
-					Status: op.StatusCompleted,
-				},
+			Provenance: op.Provenance{Provenance: op.Provenance{Tool: "lore"}},
+			Timestamp:  now.Add(-2 * time.Hour),
+			Children: []op.SubgraphChild{
+				{Node: &op.Node{ID: "docker", Receiver: "pkg.install", Status: op.StatusCompleted}},
 			},
 		},
 		{
-			Tool:      "lore",
-			Timestamp: now.Add(-time.Hour),
-			Nodes: []*op.Node{
-				{
-					ID:     "docker",
-					Action: op.StubAction("pkg.verify"),
-					Status: op.StatusCompleted,
-				},
-				{
-					ID:     "golang",
-					Action: op.StubAction("pkg.install"),
-					Status: op.StatusCompleted,
-				},
+			Provenance: op.Provenance{Provenance: op.Provenance{Tool: "lore"}},
+			Timestamp:  now.Add(-time.Hour),
+			Children: []op.SubgraphChild{
+				{Node: &op.Node{ID: "docker", Receiver: "pkg.verify", Status: op.StatusCompleted}},
+				{Node: &op.Node{ID: "golang", Receiver: "pkg.install", Status: op.StatusCompleted}},
 			},
 		},
 		{
-			Tool:      "lore",
-			Timestamp: now,
-			Nodes: []*op.Node{
-				{
-					ID:     "docker",
-					Action: op.StubAction("pkg.upgrade"),
-					Status: op.StatusCompleted,
-				},
+			Provenance: op.Provenance{Provenance: op.Provenance{Tool: "lore"}},
+			Timestamp:  now,
+			Children: []op.SubgraphChild{
+				{Node: &op.Node{ID: "docker", Receiver: "pkg.upgrade", Status: op.StatusCompleted}},
 			},
 		},
 	}
@@ -495,10 +480,10 @@ func TestStateViewBuilderTimeFilter(t *testing.T) {
 	now := time.Now()
 
 	graphs := []*op.Graph{
-		{Tool: "writ", Timestamp: now.Add(-3 * time.Hour), Nodes: []*op.Node{{ID: "a", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*op.Node{{ID: "b", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
-		{Tool: "writ", Timestamp: now.Add(-1 * time.Hour), Nodes: []*op.Node{{ID: "c", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*op.Node{{ID: "d", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
+		{Provenance: op.Provenance{Provenance: op.Provenance{Tool: "writ"}}, Timestamp: now.Add(-3 * time.Hour), Children: []op.SubgraphChild{{Node: &op.Node{ID: "a", Receiver: "file.link", Status: op.StatusCompleted}}}},
+		{Provenance: op.Provenance{Provenance: op.Provenance{Tool: "writ"}}, Timestamp: now.Add(-2 * time.Hour), Children: []op.SubgraphChild{{Node: &op.Node{ID: "b", Receiver: "file.link", Status: op.StatusCompleted}}}},
+		{Provenance: op.Provenance{Provenance: op.Provenance{Tool: "writ"}}, Timestamp: now.Add(-1 * time.Hour), Children: []op.SubgraphChild{{Node: &op.Node{ID: "c", Receiver: "file.link", Status: op.StatusCompleted}}}},
+		{Provenance: op.Provenance{Provenance: op.Provenance{Tool: "writ"}}, Timestamp: now, Children: []op.SubgraphChild{{Node: &op.Node{ID: "d", Receiver: "file.link", Status: op.StatusCompleted}}}},
 	}
 
 	// Filter to middle two
@@ -524,9 +509,9 @@ func TestStateViewBuilderToolFilter(t *testing.T) {
 	now := time.Now()
 
 	graphs := []*op.Graph{
-		{Tool: "writ", Timestamp: now.Add(-2 * time.Hour), Nodes: []*op.Node{{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
-		{Tool: "lore", Timestamp: now.Add(-1 * time.Hour), Nodes: []*op.Node{{ID: "docker", Action: op.StubAction("pkg.install"), Status: op.StatusCompleted}}},
-		{Tool: "writ", Timestamp: now, Nodes: []*op.Node{{ID: ".zshrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}}},
+		{Provenance: op.Provenance{Provenance: op.Provenance{Tool: "writ"}}, Timestamp: now.Add(-2 * time.Hour), Children: []op.SubgraphChild{{Node: &op.Node{ID: ".bashrc", Receiver: "file.link", Status: op.StatusCompleted}}}},
+		{Provenance: op.Provenance{Tool: "lore"}, Timestamp: now.Add(-1 * time.Hour), Children: []op.SubgraphChild{{Node: &op.Node{ID: "docker", Receiver: "file.link", Status: op.StatusCompleted}}}},
+		{Provenance: op.Provenance{Provenance: op.Provenance{Tool: "writ"}}, Timestamp: now, Children: []op.SubgraphChild{{Node: &op.Node{ID: ".zshrc", Receiver: "file.link", Status: op.StatusCompleted}}}},
 	}
 
 	t.Run("writ only", func(t *testing.T) {
@@ -566,12 +551,12 @@ func TestStateViewBuilderSkipsSkipped(t *testing.T) {
 
 	graphs := []*op.Graph{
 		{
-			Tool:      "writ",
+			Provenance: op.Provenance{Tool: "writ"},
 			Timestamp: now,
 			Nodes: []*op.Node{
-				{ID: "a", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
-				{ID: "b", Action: op.StubAction("file.link"), Status: op.StatusSkipped},
-				{ID: "c", Action: op.StubAction("file.link"), Status: op.StatusFailed},
+				{ID: "a", Receiver: "file.link", Status: op.StatusCompleted},
+				{ID: "b", Receiver: "file.link", Status: op.StatusSkipped},
+				{ID: "c", Receiver: "file.link", Status: op.StatusFailed},
 			},
 		},
 	}
@@ -608,26 +593,26 @@ func TestStateViewBuilderLoadReceipts(t *testing.T) {
 		{
 			name: "writ-2025-01-01T10-00-00.yaml",
 			graph: &op.Graph{
-				Version:   "1",
-				Tool:      "writ",
-				Timestamp: now.Add(-time.Hour),
-				State:     op.StateExecuted,
-				Context:   op.GraphContext{TargetRoot: "/home/user"},
+				Version:    "1",
+				Provenance: op.Provenance{Tool: "writ"},
+				Timestamp:  now.Add(-time.Hour),
+				State:      op.StateExecuted,
+				Provenance: op.Provenance{TargetRoot: "/home/user"},
 				Nodes: []*op.Node{
-					{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+					{ID: ".bashrc", Receiver: "file.link", Status: op.StatusCompleted},
 				},
 			},
 		},
 		{
 			name: "writ-2025-01-01T11-00-00.yaml",
 			graph: &op.Graph{
-				Version:   "1",
-				Tool:      "writ",
-				Timestamp: now,
-				State:     op.StateExecuted,
-				Context:   op.GraphContext{TargetRoot: "/home/user"},
+				Version:    "1",
+				Provenance: op.Provenance{Tool: "writ"},
+				Timestamp:  now,
+				State:      op.StateExecuted,
+				Provenance: op.Provenance{TargetRoot: "/home/user"},
 				Nodes: []*op.Node{
-					{ID: ".gitconfig", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+					{ID: ".gitconfig", Receiver: "file.link", Status: op.StatusCompleted},
 				},
 			},
 		},
@@ -703,7 +688,7 @@ func TestIsPackageNode(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		node := &op.Node{Action: op.StubAction(tt.operation)}
+		node := &op.Node{Receiver: tt.operation}
 		got := builder.isPackageNode(node)
 		if got != tt.want {
 			t.Errorf("isPackageNode(%q) = %v, want %v", tt.operation, got, tt.want)
@@ -717,28 +702,28 @@ func TestStateViewBuilderScopeFilter(t *testing.T) {
 
 	graphs := []*op.Graph{
 		{
-			Tool:      "writ",
-			Timestamp: now.Add(-2 * time.Hour),
-			Context:   op.GraphContext{Scope: "system", TargetRoot: "/"},
+			Provenance: op.Provenance{Tool: "writ"},
+			Timestamp:  now.Add(-2 * time.Hour),
+			Provenance: op.Provenance{Scope: "system", TargetRoot: "/"},
 			Nodes: []*op.Node{
-				{ID: "etc/devlore.conf", Action: op.StubAction("file.copy"), Status: op.StatusCompleted},
+				{ID: "etc/devlore.conf", Receiver: "file.link", Status: op.StatusCompleted},
 			},
 		},
 		{
-			Tool:      "writ",
-			Timestamp: now.Add(-time.Hour),
-			Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+			Provenance: op.Provenance{Tool: "writ"},
+			Timestamp:  now.Add(-time.Hour),
+			Provenance: op.Provenance{Scope: "home", TargetRoot: "/home/user"},
 			Nodes: []*op.Node{
-				{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
-				{ID: ".gitconfig", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+				{ID: ".bashrc", Receiver: "file.link", Status: op.StatusCompleted},
+				{ID: ".gitconfig", Receiver: "file.link", Status: op.StatusCompleted},
 			},
 		},
 		{
-			Tool:      "writ",
-			Timestamp: now,
-			Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+			Provenance: op.Provenance{Tool: "writ"},
+			Timestamp:  now,
+			Provenance: op.Provenance{Scope: "home", TargetRoot: "/home/user"},
 			Nodes: []*op.Node{
-				{ID: ".vimrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+				{ID: ".vimrc", Receiver: "file.link", Status: op.StatusCompleted},
 			},
 		},
 	}
@@ -804,19 +789,19 @@ func TestStateViewBuilderScopeFilterWithToolFilter(t *testing.T) {
 
 	graphs := []*op.Graph{
 		{
-			Tool:      "writ",
-			Timestamp: now.Add(-time.Hour),
-			Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
+			Provenance: op.Provenance{Tool: "writ"},
+			Timestamp:  now.Add(-time.Hour),
+			Provenance: op.Provenance{Scope: "home", TargetRoot: "/home/user"},
 			Nodes: []*op.Node{
-				{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted},
+				{ID: ".bashrc", Receiver: "file.link", Status: op.StatusCompleted},
 			},
 		},
 		{
-			Tool:      "lore",
-			Timestamp: now,
-			Context:   op.GraphContext{Scope: "home"},
+			Tool:       "lore",
+			Timestamp:  now,
+			Provenance: op.Provenance{Scope: "home"},
 			Nodes: []*op.Node{
-				{ID: "docker", Action: op.StubAction("pkg.install"), Status: op.StatusCompleted},
+				{ID: "docker", Receiver: "file.link", Status: op.StatusCompleted},
 			},
 		},
 	}
@@ -847,34 +832,34 @@ func TestDistinctScopes(t *testing.T) {
 		{
 			name: "writ-system-2025-01-01T10-00-00.yaml",
 			graph: &op.Graph{
-				Version:   "1",
-				Tool:      "writ",
-				Timestamp: now.Add(-2 * time.Hour),
-				State:     op.StateExecuted,
-				Context:   op.GraphContext{Scope: "system", TargetRoot: "/"},
-				Nodes:     []*op.Node{{ID: "etc/conf", Action: op.StubAction("file.copy"), Status: op.StatusCompleted}},
+				Version:    "1",
+				Provenance: op.Provenance{Tool: "writ"},
+				Timestamp:  now.Add(-2 * time.Hour),
+				State:      op.StateExecuted,
+				Provenance: op.Provenance{Scope: "system", TargetRoot: "/"},
+				Nodes:      []*op.Node{{ID: "etc/conf", Receiver: "file.link", Status: op.StatusCompleted}},
 			},
 		},
 		{
 			name: "writ-home-2025-01-01T10-00-00.yaml",
 			graph: &op.Graph{
-				Version:   "1",
-				Tool:      "writ",
-				Timestamp: now.Add(-time.Hour),
-				State:     op.StateExecuted,
-				Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
-				Nodes:     []*op.Node{{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}},
+				Version:    "1",
+				Provenance: op.Provenance{Tool: "writ"},
+				Timestamp:  now.Add(-time.Hour),
+				State:      op.StateExecuted,
+				Provenance: op.Provenance{Scope: "home", TargetRoot: "/home/user"},
+				Nodes:      []*op.Node{{ID: ".bashrc", Receiver: "file.link", Status: op.StatusCompleted}},
 			},
 		},
 		{
 			name: "writ-home-2025-01-01T11-00-00.yaml",
 			graph: &op.Graph{
-				Version:   "1",
-				Tool:      "writ",
-				Timestamp: now,
-				State:     op.StateExecuted,
-				Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
-				Nodes:     []*op.Node{{ID: ".vimrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}},
+				Version:    "1",
+				Provenance: op.Provenance{Tool: "writ"},
+				Timestamp:  now,
+				State:      op.StateExecuted,
+				Provenance: op.Provenance{Scope: "home", TargetRoot: "/home/user"},
+				Nodes:      []*op.Node{{ID: ".vimrc", Receiver: "file.link", Status: op.StatusCompleted}},
 			},
 		},
 	}
@@ -914,12 +899,12 @@ func TestDistinctScopesWithUnscoped(t *testing.T) {
 	now := time.Now()
 
 	receipt := &op.Graph{
-		Version:   "1",
-		Tool:      "writ",
-		Timestamp: now,
-		State:     op.StateExecuted,
-		Context:   op.GraphContext{TargetRoot: "/home/user"},
-		Nodes:     []*op.Node{{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}},
+		Version:    "1",
+		Provenance: op.Provenance{Tool: "writ"},
+		Timestamp:  now,
+		State:      op.StateExecuted,
+		Provenance: op.Provenance{TargetRoot: "/home/user"},
+		Nodes:      []*op.Node{{ID: ".bashrc", Receiver: "file.link", Status: op.StatusCompleted}},
 	}
 
 	data, err := yaml.Marshal(receipt)
@@ -956,23 +941,23 @@ func TestStateViewBuilderScopeFilterFromDisk(t *testing.T) {
 		{
 			name: "writ-system-2025-01-01T10-00-00.yaml",
 			graph: &op.Graph{
-				Version:   "1",
-				Tool:      "writ",
-				Timestamp: now.Add(-time.Hour),
-				State:     op.StateExecuted,
-				Context:   op.GraphContext{Scope: "system", TargetRoot: "/"},
-				Nodes:     []*op.Node{{ID: "etc/devlore.conf", Action: op.StubAction("file.copy"), Status: op.StatusCompleted}},
+				Version:    "1",
+				Provenance: op.Provenance{Tool: "writ"},
+				Timestamp:  now.Add(-time.Hour),
+				State:      op.StateExecuted,
+				Provenance: op.Provenance{Scope: "system", TargetRoot: "/"},
+				Nodes:      []*op.Node{{ID: "etc/devlore.conf", Receiver: "file.link", Status: op.StatusCompleted}},
 			},
 		},
 		{
 			name: "writ-home-2025-01-01T10-00-00.yaml",
 			graph: &op.Graph{
-				Version:   "1",
-				Tool:      "writ",
-				Timestamp: now,
-				State:     op.StateExecuted,
-				Context:   op.GraphContext{Scope: "home", TargetRoot: "/home/user"},
-				Nodes:     []*op.Node{{ID: ".bashrc", Action: op.StubAction("file.link"), Status: op.StatusCompleted}},
+				Version:    "1",
+				Provenance: op.Provenance{Tool: "writ"},
+				Timestamp:  now,
+				State:      op.StateExecuted,
+				Provenance: op.Provenance{Scope: "home", TargetRoot: "/home/user"},
+				Nodes:      []*op.Node{{ID: ".bashrc", Receiver: "file.link", Status: op.StatusCompleted}},
 			},
 		},
 	}

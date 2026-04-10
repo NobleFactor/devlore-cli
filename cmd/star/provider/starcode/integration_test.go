@@ -8,12 +8,15 @@ import (
 	"path/filepath"
 	"testing"
 
+	"reflect"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode"
-	starcodegen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
+	_ "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
 )
 
 func testdataDir(t *testing.T) string {
@@ -31,8 +34,13 @@ func testdataDir(t *testing.T) string {
 func TestIntegrationEndToEnd(t *testing.T) {
 	root := testdataDir(t)
 
-	// Create receiver exactly as init() would, but pointing at testdata
-	receiver := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: root})
+	// Create receiver using registry lookup, pointing at testdata
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[starcode.Provider]())
+	if !ok {
+		t.Fatal("starcode provider type not registered")
+	}
+	receiver := bind.NewProvider(rt.(op.ProviderReceiverType), &starcode.Provider{Root: root})
 
 	globals := starlark.StringDict{
 		"starcode": receiver,

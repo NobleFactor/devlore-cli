@@ -9,34 +9,44 @@ import (
 	"os"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	jsonprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/json"
-	jsongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx() op.Context {
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[jsonprov.Provider]())
+	if !ok {
+		t.Fatal("json provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := bind.WrapProviderInExecutingReceiver(jsongen.Receiver, jsonprov.NewProvider(ctx))
+	receiver := bind.NewProvider(receiverType(t), jsonprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"json": receiver}
 
@@ -73,15 +83,13 @@ func TestStarlark(t *testing.T) {
 
 func TestActions_Encode(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, jsongen.Receiver)
 
-	a, ok := reg.Get("json.encode")
-	if !ok {
-		t.Fatal("action json.encode not registered")
+	a, err := ctx.ActionByName("json.encode")
+	if err != nil {
+		t.Fatalf("action json.encode not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"value": map[string]any{"key": "val"}})
+	result, _, err := a.Do(ctx, map[string]any{"value": map[string]any{"key": "val"}})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -97,15 +105,13 @@ func TestActions_Encode(t *testing.T) {
 
 func TestActions_Decode(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, jsongen.Receiver)
 
-	a, ok := reg.Get("json.decode")
-	if !ok {
-		t.Fatal("action json.decode not registered")
+	a, err := ctx.ActionByName("json.decode")
+	if err != nil {
+		t.Fatalf("action json.decode not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"data": `{"color":"red"}`})
+	result, _, err := a.Do(ctx, map[string]any{"data": `{"color":"red"}`})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -121,15 +127,13 @@ func TestActions_Decode(t *testing.T) {
 
 func TestActions_EncodeIndent(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, jsongen.Receiver)
 
-	a, ok := reg.Get("json.encode_indent")
-	if !ok {
-		t.Fatal("action json.encode_indent not registered")
+	a, err := ctx.ActionByName("json.encode_indent")
+	if err != nil {
+		t.Fatalf("action json.encode_indent not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"value": map[string]any{"a": 1}, "indent": "  "})
+	result, _, err := a.Do(ctx, map[string]any{"value": map[string]any{"a": 1}, "indent": "  "})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}

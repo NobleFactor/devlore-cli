@@ -9,23 +9,26 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// ResourceFromValue constructs a service.Resource from a string service name.
+// NewResource creates a service.Resource from a value.
 //
 // Parameters:
-//   - v: expected to be a string service name
+//   - ctx: the execution context.
+//   - value: expected to be a string service name.
 //
 // Returns:
-//   - Resource: initialized with the given name
-//   - error: if v is not a string
-func ResourceFromValue(v any) (Resource, error) {
+//   - *Resource: the initialized resource.
+//   - error: if value is not a string.
+func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
-	s, ok := v.(string)
+	name, ok := value.(string)
 	if !ok {
-		return Resource{}, fmt.Errorf("service.Resource: expected string name, got %T", v)
+		return nil, fmt.Errorf("service.Resource: expected string name, got %T", value)
 	}
-	r := Resource{Name: s}
-	r.SetURI(r.buildURI())
-	return r, nil
+
+	return &Resource{
+		ResourceBase: op.NewResourceBase(ctx, "svc:"+name),
+		Name:         name,
+	}, nil
 }
 
 // Resource represents a system service.
@@ -36,11 +39,6 @@ type Resource struct {
 
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
-
-// buildURI computes the opaque svc: URI.
-func (r *Resource) buildURI() string {
-	return "svc:" + r.Name
-}
 
 // Tombstone holds service-specific compensation state.
 type Tombstone struct {

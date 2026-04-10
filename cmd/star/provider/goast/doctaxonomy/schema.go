@@ -25,10 +25,10 @@ func DefaultRegistry() *SchemaRegistry {
 		},
 	})
 	reg.Register(CommentSchema{
-		Name: "package_doc", Format: "go", NodeType: "Package",
-		SummaryPrefix: `Package {name}\b`,
+		Name: "package_doc", Format: "go", NodeType: "PkgPath",
+		SummaryPrefix: `PkgPath {name}\b`,
 		Elements: []SchemaElement{
-			{Name: "summary", Production: "item", Consumes: "Paragraph / Heading", Prefix: "Package {name}", Required: "true", Order: 1},
+			{Name: "summary", Production: "item", Consumes: "Paragraph / Heading", Prefix: "PkgPath {name}", Required: "true", Order: 1},
 			{Name: "body", Production: "item", Consumes: "*(Paragraph / Code / Heading)", Order: 2},
 		},
 	})

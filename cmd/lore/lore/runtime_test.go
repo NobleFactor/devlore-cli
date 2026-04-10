@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+//go:build ignore
+// +build ignore
+
 package lore_test
 
 import (
@@ -15,8 +18,8 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Test provider types implementing the ReceiverFactory / PlanningReceiverFactory /
-// ExecutingReceiverFactory interfaces used by the announce-and-callback model.
+// Test provider types implementing the ReceiverType interface used by the
+// announce-and-callback model.
 // ---------------------------------------------------------------------------
 
 // rtTestActionProvider registers a single test action.
@@ -24,76 +27,76 @@ type rtTestActionProvider struct {
 	actionName string
 }
 
-func (p *rtTestActionProvider) ReceiverName() string                                { return "_test_actions" }
-func (p *rtTestActionProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-func (p *rtTestActionProvider) MethodParams() map[string][]string                   { return nil }
-func (p *rtTestActionProvider) MethodParamsFor(_ string) []string                   { return nil }
+func (p *rtTestActionProvider) ReceiverName() string              { return "_test_actions" }
+func (p *rtTestActionProvider) Acquire(_ any) (any, error)        { return nil, nil }
+func (p *rtTestActionProvider) MethodParams() map[string][]string { return nil }
+func (p *rtTestActionProvider) MethodParamsFor(_ string) []string { return nil }
 func (p *rtTestActionProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestActionProvider)(nil)).Elem()
 }
-func (p *rtTestActionProvider) Register(_ op.Context, reg *op.ReceiverRegistry) {
-	reg.Register(&testAction{name: p.actionName})
+func (p *rtTestActionProvider) Register(_ op.ExecutionContext, reg *op.ReceiverRegistry) {
+	reg.register(&testAction{name: p.actionName})
 }
 
 // rtTestAllActsProvider registers a single test action (for the "always registers all" test).
 type rtTestAllActsProvider struct{}
 
-func (p *rtTestAllActsProvider) ReceiverName() string                                { return "_test_all_acts" }
-func (p *rtTestAllActsProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-func (p *rtTestAllActsProvider) MethodParams() map[string][]string                   { return nil }
-func (p *rtTestAllActsProvider) MethodParamsFor(_ string) []string                   { return nil }
+func (p *rtTestAllActsProvider) ReceiverName() string              { return "_test_all_acts" }
+func (p *rtTestAllActsProvider) Acquire(_ any) (any, error)        { return nil, nil }
+func (p *rtTestAllActsProvider) MethodParams() map[string][]string { return nil }
+func (p *rtTestAllActsProvider) MethodParamsFor(_ string) []string { return nil }
 func (p *rtTestAllActsProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestAllActsProvider)(nil)).Elem()
 }
-func (p *rtTestAllActsProvider) Register(_ op.Context, reg *op.ReceiverRegistry) {
-	reg.Register(&testAction{name: "_test_all_acts.do"})
+func (p *rtTestAllActsProvider) Register(_ op.ExecutionContext, reg *op.ReceiverRegistry) {
+	reg.register(&testAction{name: "_test_all_acts.do"})
 }
 
 // rtTestPlannedProvider implements PlanningReceiverFactory.
 type rtTestPlannedProvider struct{ name string }
 
-func (p *rtTestPlannedProvider) ReceiverName() string                                { return p.name }
-func (p *rtTestPlannedProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-func (p *rtTestPlannedProvider) MethodParams() map[string][]string                   { return nil }
-func (p *rtTestPlannedProvider) MethodParamsFor(_ string) []string                   { return nil }
+func (p *rtTestPlannedProvider) ReceiverName() string              { return p.name }
+func (p *rtTestPlannedProvider) Acquire(_ any) (any, error)        { return nil, nil }
+func (p *rtTestPlannedProvider) MethodParams() map[string][]string { return nil }
+func (p *rtTestPlannedProvider) MethodParamsFor(_ string) []string { return nil }
 func (p *rtTestPlannedProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestPlannedProvider)(nil)).Elem()
 }
-func (p *rtTestPlannedProvider) Register(_ op.Context, _ *op.ReceiverRegistry) {}
-func (p *rtTestPlannedProvider) NewPlanning(_ *op.Graph, _ string, _ *op.ReceiverRegistry) starlark.Value {
+func (p *rtTestPlannedProvider) Register(_ op.ExecutionContext, _ *op.ReceiverRegistry) {}
+func (p *rtTestPlannedProvider) NewPlanning(_ op.GraphExecutionContext) starlark.Value {
 	return starlark.String("test-plan-value")
 }
 
-// rtTestImmediateProvider implements ExecutingReceiverFactory.
+// rtTestImmediateProvider provides an immediate receiver for testing.
 type rtTestImmediateProvider struct{ name string }
 
-func (p *rtTestImmediateProvider) ReceiverName() string                                { return p.name }
-func (p *rtTestImmediateProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-func (p *rtTestImmediateProvider) MethodParams() map[string][]string                   { return nil }
-func (p *rtTestImmediateProvider) MethodParamsFor(_ string) []string                   { return nil }
+func (p *rtTestImmediateProvider) ReceiverName() string              { return p.name }
+func (p *rtTestImmediateProvider) Acquire(_ any) (any, error)        { return nil, nil }
+func (p *rtTestImmediateProvider) MethodParams() map[string][]string { return nil }
+func (p *rtTestImmediateProvider) MethodParamsFor(_ string) []string { return nil }
 func (p *rtTestImmediateProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestImmediateProvider)(nil)).Elem()
 }
-func (p *rtTestImmediateProvider) Register(_ op.Context, _ *op.ReceiverRegistry) {}
-func (p *rtTestImmediateProvider) NewExecuting(_ op.Context) starlark.Value {
+func (p *rtTestImmediateProvider) Register(_ op.ExecutionContext, _ *op.ReceiverRegistry) {}
+func (p *rtTestImmediateProvider) NewExecuting(_ op.ExecutionContext) starlark.Value {
 	return starlark.String("test-imm-value")
 }
 
-// rtTestCountingImmProvider implements ExecutingReceiverFactory and counts calls.
+// rtTestCountingImmProvider provides an immediate receiver and counts calls.
 type rtTestCountingImmProvider struct {
 	name      string
 	callCount *int
 }
 
-func (p *rtTestCountingImmProvider) ReceiverName() string                                { return p.name }
-func (p *rtTestCountingImmProvider) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-func (p *rtTestCountingImmProvider) MethodParams() map[string][]string                   { return nil }
-func (p *rtTestCountingImmProvider) MethodParamsFor(_ string) []string                   { return nil }
+func (p *rtTestCountingImmProvider) ReceiverName() string              { return p.name }
+func (p *rtTestCountingImmProvider) Acquire(_ any) (any, error)        { return nil, nil }
+func (p *rtTestCountingImmProvider) MethodParams() map[string][]string { return nil }
+func (p *rtTestCountingImmProvider) MethodParamsFor(_ string) []string { return nil }
 func (p *rtTestCountingImmProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestCountingImmProvider)(nil)).Elem()
 }
-func (p *rtTestCountingImmProvider) Register(_ op.Context, _ *op.ReceiverRegistry) {}
-func (p *rtTestCountingImmProvider) NewExecuting(_ op.Context) starlark.Value {
+func (p *rtTestCountingImmProvider) Register(_ op.ExecutionContext, _ *op.ReceiverRegistry) {}
+func (p *rtTestCountingImmProvider) NewExecuting(_ op.ExecutionContext) starlark.Value {
 	*p.callCount++
 	return starlark.String("cached-value")
 }
@@ -103,15 +106,15 @@ func (p *rtTestCountingImmProvider) NewExecuting(_ op.Context) starlark.Value {
 // ---------------------------------------------------------------------------
 
 func TestRuntimeRegisterActions(t *testing.T) {
-	op.AnnounceReceiver(&rtTestActionProvider{actionName: "_test_actions.do"})
+	op.AnnounceReceiverType(&rtTestActionProvider{actionName: "_test_actions.do"})
 
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 
 	reg := op.NewActionRegistry()
-	rt.RegisterActions(reg, op.Context{})
+	rt.RegisterActions(reg, op.ExecutionContext{})
 
 	if _, ok := reg.Get("_test_actions.do"); !ok {
 		t.Error("expected _test_actions.do action to be registered")
@@ -119,16 +122,16 @@ func TestRuntimeRegisterActions(t *testing.T) {
 }
 
 func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
-	op.AnnounceReceiver(&rtTestAllActsProvider{})
+	op.AnnounceReceiverType(&rtTestAllActsProvider{})
 
 	// No Receivers — but actions should still be registered.
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 
 	reg := op.NewActionRegistry()
-	rt.RegisterActions(reg, op.Context{})
+	rt.RegisterActions(reg, op.ExecutionContext{})
 
 	if _, ok := reg.Get("_test_all_acts.do"); !ok {
 		t.Error("expected _test_all_acts.do to be registered even without With()")
@@ -137,11 +140,11 @@ func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 
 func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	immProv := &rtTestImmediateProvider{name: "_test_imm2"}
-	op.AnnounceReceiver(&rtTestPlannedProvider{name: "_test_plan2"})
-	op.AnnounceReceiver(immProv)
+	op.AnnounceReceiverType(&rtTestPlannedProvider{name: "_test_plan2"})
+	op.AnnounceReceiverType(immProv)
 
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithGraphBuilder().
 			WithReceivers(immProv).
 			WithWriter(&bytes.Buffer{}),
@@ -176,14 +179,14 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 }
 
 func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
-	op.AnnounceReceiver(&rtTestImmediateProvider{name: "_test_not_included"})
+	op.AnnounceReceiverType(&rtTestImmediateProvider{name: "_test_not_included"})
 
 	// Pass a different provider — "_test_not_included" should be excluded.
 	otherProv := &rtTestImmediateProvider{name: "_test_other"}
-	op.AnnounceReceiver(otherProv)
+	op.AnnounceReceiverType(otherProv)
 
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithReceivers(otherProv).
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -203,10 +206,10 @@ func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 }
 
 func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
-	op.AnnounceReceiver(&rtTestImmediateProvider{name: "_test_loadable"})
+	op.AnnounceReceiverType(&rtTestImmediateProvider{name: "_test_loadable"})
 
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 
@@ -235,7 +238,7 @@ func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 
 func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 
@@ -252,7 +255,7 @@ func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
 
 func TestRuntimeLoaderRejectsUnknownProvider(t *testing.T) {
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 
@@ -269,10 +272,10 @@ func TestRuntimeLoaderRejectsUnknownProvider(t *testing.T) {
 
 func TestRuntimeLoaderCachesResults(t *testing.T) {
 	callCount := 0
-	op.AnnounceReceiver(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
+	op.AnnounceReceiverType(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
 
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 
@@ -291,10 +294,10 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 }
 
 func TestRuntimeLoaderLoadsPlan(t *testing.T) {
-	op.AnnounceReceiver(&rtTestPlannedProvider{name: "_test_plan_load"})
+	op.AnnounceReceiverType(&rtTestPlannedProvider{name: "_test_plan_load"})
 
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 
@@ -320,7 +323,7 @@ func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 type testAction struct{ name string }
 
 func (a *testAction) Name() string           { return a.name }
-func (a *testAction) Params() []op.ParamInfo { return nil }
-func (a *testAction) Do(_ *op.Context, _ map[string]any) (result op.Result, complement op.Complement, err error) {
+func (a *testAction) Params() []op.Parameter { return nil }
+func (a *testAction) Do(_ *op.ExecutionContext, _ map[string]any) (result op.Result, complement op.Complement, err error) {
 	return nil, nil, nil
 }

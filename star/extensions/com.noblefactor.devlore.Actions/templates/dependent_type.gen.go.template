@@ -9,28 +9,15 @@ import (
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
 {{- end}}
 )
 
 func init() {
-	bind.RegisterReceiverParams(&{{.type_name}}Factory{}, {{.type_name}}MethodParams)
-}
-
-var {{.type_name}}MethodParams = bind.MethodParams{
+	op.AnnounceType(reflect.TypeFor[{{.provider_type_prefix}}{{.type_name}}](), map[string][]string{
 {{- range .methods}}
-	"{{.name}}": { {{.param_names_list}} },
+		"{{.name}}": { {{.param_names_list}} },
 {{- end}}
+	})
 }
-
-// {{.type_name}}Factory provides the minimal ReceiverFactory interface for dependent type marshaling.
-type {{.type_name}}Factory struct{}
-
-func (f *{{.type_name}}Factory) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-func (f *{{.type_name}}Factory) MethodParams() map[string][]string                  { return {{.type_name}}MethodParams }
-func (f *{{.type_name}}Factory) MethodParamsFor(name string) []string               { return {{.type_name}}MethodParams[name] }
-func (f *{{.type_name}}Factory) ProviderType() reflect.Type                         { return reflect.TypeOf({{.provider_type_prefix}}{{.type_name}}{}) }
-func (f *{{.type_name}}Factory) ReceiverName() string                               { return "{{.starlark_name}}" }
-func (f *{{.type_name}}Factory) Register(_ op.Context, _ *op.ReceiverRegistry)      {}

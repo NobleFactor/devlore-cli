@@ -19,7 +19,7 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -31,7 +31,7 @@ func (p *Provider) Exec(command string) (string, error) {
 	if command == "" {
 		return "", fmt.Errorf("no command specified")
 	}
-	w := p.Context().Writer
+	w := p.ExecutionContext().Writer
 	cmd := exec.CommandContext(context.Background(), "sh", "-c", command) //nolint:gosec // G204: command built from provider inputs
 	cmd.Stdout = w
 	cmd.Stderr = w
@@ -43,7 +43,7 @@ func (p *Provider) Exec(command string) (string, error) {
 // Parameters:
 //   - command: PowerShell command string to execute
 func (p *Provider) PowerShell(command string) (string, error) {
-	w := p.Context().Writer
+	w := p.ExecutionContext().Writer
 	cmd := exec.CommandContext(context.Background(), "powershell", "-Command", command) //nolint:gosec // G204: command built from provider inputs
 	cmd.Stdout = w
 	cmd.Stderr = w

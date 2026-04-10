@@ -7,28 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
-
-// ResourceFromValue constructs a file.Resource from a string path.
-//
-// Parameters:
-//   - v: expected to be a string file path
-//
-// Returns:
-//   - Resource: initialized with the given path
-//   - error: if v is not a string
-func ResourceFromValue(v any) (Resource, error) {
-	s, ok := v.(string)
-	if !ok {
-		return Resource{}, fmt.Errorf("file.Resource: expected string path, got %T", v)
-	}
-	return NewResource(s), nil
-}
 
 // Resource represents a handle to data that can be streamed.
 type Resource struct {
@@ -42,13 +25,28 @@ type Resource struct {
 	Checksum   string
 }
 
-// NewResource creates a [Resource] with the given source path. The constructor
-// is pure computation — no I/O, no error. Metadata (size, mode, checksum)
-// is populated later by [Resource.Resolve].
-func NewResource(path string) Resource {
-	r := Resource{SourcePath: op.NewPath("", path)}
-	r.SetURI(r.buildURI())
-	return r
+// NewResource constructs a file.Resource from a string path.
+//
+// Parameters:
+//   - ctx: execution context.
+//   - value: a string file path.
+//
+// Returns:
+//   - Resource: initialized with the given path.
+//   - error: if value is not a string.
+func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+
+	path, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("file.Resource: expected string path, got %T", value)
+	}
+
+	sourcePath := ctx.Root.NewPath(path)
+
+	return &Resource{
+		ResourceBase: op.NewResourceBase(ctx, "file://"+sourcePath.Abs()),
+		SourcePath:   sourcePath,
+	}, nil
 }
 
 // region EXPORTED METHODS
@@ -62,14 +60,13 @@ func (r *Resource) Exists() bool {
 }
 
 // Refresh re-populates the resource's metadata by performing a fresh stat and re-calculating the checksum. Call after
-// any successful physical mutation. I/O is scoped through [op.Root].
-//
-// Parameters:
-//   - root: [op.Root] for scoped I/O
+// any successful physical mutation.
 //
 // Returns:
-//   - error: any stat or read error
-func (r *Resource) Refresh(root op.Root) error {
+//   - error: any stat or read error.
+func (r *Resource) Refresh() error {
+
+	root := r.ExecutionContext().Root
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return err
@@ -78,17 +75,17 @@ func (r *Resource) Refresh(root op.Root) error {
 	return r.refreshWith(info, checksumFile(root, r.SourcePath.Abs()))
 }
 
-// RefreshWith updates metadata after a write operation using a known checksum and size. A stat is still performed to
-// capture kernel-assigned identity (Inode, Device). I/O is scoped through [op.Root].
+// RefreshWith updates metadata after a write operation using a known checksum. A stat is still performed to capture
+// kernel-assigned identity (Inode, Device).
 //
 // Parameters:
-//   - root: [op.Root] for scoped I/O
-//   - checksum: Pre-computed checksum string
-//   - size: Known file size in bytes
+//   - checksum: pre-computed checksum string.
 //
 // Returns:
-//   - error: any stat error
-func (r *Resource) RefreshWith(root op.Root, checksum string) error {
+//   - error: any stat error.
+func (r *Resource) RefreshWith(checksum string) error {
+
+	root := r.ExecutionContext().Root
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return err
@@ -97,21 +94,17 @@ func (r *Resource) RefreshWith(root op.Root, checksum string) error {
 	return r.refreshWith(info, checksum)
 }
 
-// Resolve populates the resource's metadata by canonicalizing the path and performing a stat. If the file does not
-// exist, Resolve returns nil and metadata remains empty ([Resource.Exists] returns false). Other stat errors are
-// returned. I/O is scoped through [op.Root] and SourcePath.Rel is populated.
-//
-// Parameters:
-//   - root: [op.Root] for scoped I/O
+// Resolve rebinds the source path to the execution root and populates metadata via stat. The path is canonical from
+// construction; rebinding updates Rel for confined I/O under the execution root. If the file does not exist, Resolve
+// returns nil and metadata remains empty ([Resource.Exists] returns false).
 //
 // Returns:
-//   - error: any stat error (not-exist is not an error)
-func (r *Resource) Resolve(root op.Root) error {
-	abs, err := filepath.Abs(r.SourcePath.Abs())
-	if err == nil {
-		r.SourcePath = root.NewPath(abs)
-		r.SetURI(r.buildURI())
-	}
+//   - error: any stat error (not-exist is not an error).
+func (r *Resource) Resolve() error {
+
+	root := r.ExecutionContext().Root
+
+	r.SourcePath = root.NewPath(r.SourcePath.Abs())
 
 	info, err := root.Stat(r.SourcePath)
 	if err != nil {
@@ -148,11 +141,6 @@ func (r *Resource) String() string { return r.Format(r) }
 // region UNEXPORTED METHODS
 
 // region Behaviors
-
-// buildURI computes the canonical file:// URI from SourcePath.
-func (r *Resource) buildURI() string {
-	return "file://" + r.SourcePath.Abs()
-}
 
 // refreshWith updates the Resource's metadata with the provided information.
 func (r *Resource) refreshWith(info os.FileInfo, checksum string) error {

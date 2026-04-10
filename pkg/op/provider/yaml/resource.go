@@ -36,14 +36,6 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
 
-// buildURI computes the opaque yaml: URI.
-func (r *Resource) buildURI() string {
-	if r.Hash != "" {
-		return SchemeYAML + ":" + r.Hash[:12]
-	}
-	return SchemeYAML + ":inline"
-}
-
 // Parsed returns the decoded Go value. The value is cached from the initial parse.
 func (r *Resource) Parsed() any {
 	return r.parsed
@@ -113,43 +105,35 @@ func normalizeForSchema(v any) (any, error) {
 	return result, nil
 }
 
-// NewResource creates a yaml.Resource from raw bytes and a pre-parsed Go value.
-func NewResource(data []byte, parsed any) Resource {
-	h := sha256.Sum256(data)
-
-	r := Resource{
-		Data:   data,
-		Hash:   hex.EncodeToString(h[:]),
-		parsed: parsed,
-	}
-	r.SetURI(r.buildURI())
-	return r
-}
-
-// ResourceFromValue constructs a yaml.Resource from a string yaml: URI.
+// NewResource creates a yaml.Resource from a value.
 //
 // Parameters:
-//   - v: expected to be a string in the format "yaml:<qualifier>"
+//   - ctx: the execution context.
+//   - value: expected to be []byte (raw YAML data).
 //
 // Returns:
-//   - Resource: initialized with the parsed URI
-//   - error: if v is not a string or the URI format is invalid
-func ResourceFromValue(v any) (Resource, error) {
-	s, ok := v.(string)
-	if !ok {
-		return Resource{}, fmt.Errorf("yaml.Resource: expected string URI, got %T", v)
+//   - *Resource: the initialized resource.
+//   - error: if value is not a supported type.
+func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+
+	var data []byte
+
+	switch v := value.(type) {
+	case []byte:
+		data = v
+	default:
+		return nil, fmt.Errorf("yaml.Resource: expected []byte, got %T", value)
 	}
 
-	if !strings.HasPrefix(s, SchemeYAML+":") {
-		return Resource{}, fmt.Errorf("yaml.Resource: expected yaml: URI, got %q", s)
+	checksum := sha256.Sum256(data)
+	hash := hex.EncodeToString(checksum[:])
+
+	r := &Resource{
+		ResourceBase: op.NewResourceBase(ctx, SchemeYAML+":"+hash[:12]),
+		Data:         data,
+		Hash:         hash,
 	}
 
-	qualifier := s[len(SchemeYAML+":"):]
-
-	r := Resource{
-		Hash: qualifier,
-	}
-	r.SetURI(s)
 	return r, nil
 }
 

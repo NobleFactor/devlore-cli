@@ -13,28 +13,11 @@ import (
 )
 
 func init() {
-	op.AnnounceResource(&resourceFactory{})
-}
-
-type resourceFactory struct{}
-
-// Name returns the qualified resource descriptor name.
-//
-// Returns:
-//   - string: the resource name "git.Resource".
-func (d *resourceFactory) Name() string { return "git.Resource" }
-
-// Type returns the reflect.Type of the resource struct.
-//
-// Returns:
-//   - reflect.Type: the resource's concrete type.
-func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
-
-// Init registers the resource constructor with the framework.
-//
-// Returns:
-//   - error: always nil.
-func (d *resourceFactory) Init() error {
-	op.RegisterConstructor(provider.ResourceFromValue)
-	return nil
+	op.AnnounceResource(
+		reflect.TypeFor[provider.Resource](),
+		func(ctx *op.ExecutionContext, value any) (any, error) {
+			return provider.NewResource(ctx, value)
+		},
+		nil,
+	)
 }

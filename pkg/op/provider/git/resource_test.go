@@ -9,72 +9,61 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func init() { op.RegisterConstructor(ResourceFromValue) }
+// --- gitURI ---
 
-func TestResourceURI_LocalClone(t *testing.T) {
-	r, err := op.Construct[Resource]("/tmp/repo")
-	if err != nil {
-		t.Fatalf("Construct: %v", err)
-	}
+func TestGitURI_LocalClone(t *testing.T) {
 	want := "git:/tmp/repo"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
+	if got := gitURI("", "/tmp/repo", ""); got != want {
+		t.Errorf("gitURI() = %q, want %q", got, want)
 	}
 }
 
-func TestResourceURI_RemoteURL(t *testing.T) {
-	r := Resource{URL: "https://github.com/org/repo", ClonePath: "/tmp/repo"}
-	r.SetURI(r.buildURI())
+func TestGitURI_RemoteURL(t *testing.T) {
 	want := "git:https://github.com/org/repo"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
+	if got := gitURI("https://github.com/org/repo", "/tmp/repo", ""); got != want {
+		t.Errorf("gitURI() = %q, want %q", got, want)
 	}
 }
 
-func TestResourceURI_WithRef(t *testing.T) {
-	r := Resource{URL: "https://github.com/org/repo", Ref: "abc123"}
-	r.SetURI(r.buildURI())
+func TestGitURI_WithRef(t *testing.T) {
 	want := "git:https://github.com/org/repo#abc123"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
+	if got := gitURI("https://github.com/org/repo", "", "abc123"); got != want {
+		t.Errorf("gitURI() = %q, want %q", got, want)
 	}
 }
 
-func TestResourceURI_EscapesFragment(t *testing.T) {
-	r := Resource{URL: "https://github.com/org/repo#readme", Ref: "main"}
-	r.SetURI(r.buildURI())
+func TestGitURI_EscapesFragment(t *testing.T) {
 	want := "git:https://github.com/org/repo%23readme#main"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
+	if got := gitURI("https://github.com/org/repo#readme", "", "main"); got != want {
+		t.Errorf("gitURI() = %q, want %q", got, want)
 	}
 }
 
-func TestResourceURI_EscapesQuery(t *testing.T) {
-	r := Resource{URL: "https://github.com/org/repo?token=abc"}
-	r.SetURI(r.buildURI())
+func TestGitURI_EscapesQuery(t *testing.T) {
 	want := "git:https://github.com/org/repo%3Ftoken=abc"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
+	if got := gitURI("https://github.com/org/repo?token=abc", "", ""); got != want {
+		t.Errorf("gitURI() = %q, want %q", got, want)
 	}
 }
 
-func TestResourceURI_LocalCloneScheme(t *testing.T) {
-	r, err := op.Construct[Resource]("/tmp/repo")
-	if err != nil {
-		t.Fatalf("Construct: %v", err)
+func TestGitURI_LocalCloneScheme(t *testing.T) {
+	r := Resource{
+		ResourceBase: op.NewResourceBase(nil, gitURI("", "/tmp/repo", "")),
+		ClonePath:    "/tmp/repo",
 	}
 	if r.Scheme() != "git" {
 		t.Errorf("Scheme() = %q, want %q", r.Scheme(), "git")
 	}
-	// Local absolute paths produce hierarchical URIs (path starts with /)
 	if r.Path() != "/tmp/repo" {
 		t.Errorf("Path() = %q, want %q", r.Path(), "/tmp/repo")
 	}
 }
 
-func TestResourceURI_RemoteOpaqueScheme(t *testing.T) {
-	r := Resource{URL: "https://github.com/org/repo"}
-	r.SetURI(r.buildURI())
+func TestGitURI_RemoteOpaqueScheme(t *testing.T) {
+	r := Resource{
+		ResourceBase: op.NewResourceBase(nil, gitURI("https://github.com/org/repo", "", "")),
+		URL:          "https://github.com/org/repo",
+	}
 	if r.Scheme() != "git" {
 		t.Errorf("Scheme() = %q, want %q", r.Scheme(), "git")
 	}
@@ -82,6 +71,8 @@ func TestResourceURI_RemoteOpaqueScheme(t *testing.T) {
 		t.Errorf("Opaque() = %q, want %q", r.Opaque(), "https://github.com/org/repo")
 	}
 }
+
+// --- Interface guards ---
 
 func TestResourceImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
@@ -91,15 +82,7 @@ func TestTombstoneImplementsInterface(t *testing.T) {
 	var _ op.Tombstone = (*Tombstone)(nil)
 }
 
-func TestConstructorRoundTrip(t *testing.T) {
-	r, err := op.Construct[Resource]("/tmp/myrepo")
-	if err != nil {
-		t.Fatalf("Construct: %v", err)
-	}
-	if r.ClonePath != "/tmp/myrepo" {
-		t.Errorf("ClonePath = %q, want %q", r.ClonePath, "/tmp/myrepo")
-	}
-}
+// --- escapeInnerURI / unescapeInnerURI ---
 
 func TestEscapeInnerURI(t *testing.T) {
 	tests := []struct {

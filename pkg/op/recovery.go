@@ -44,14 +44,14 @@ func (s *RecoveryStack) Do(
 }
 
 // PushAction pushes a recovery entry onto the stack when complement is non-nil.
-// A nil complement signals that the action produced no undo state, so there is
+// A nil complement signals that the do produced no undo state, so there is
 // nothing to compensate and the call is a no-op.
-func (s *RecoveryStack) PushAction(ctx *Context, action Action, complement any) {
+func (s *RecoveryStack) PushAction(ctx *ExecutionContext, action Action, complement any) {
 	if complement == nil {
 		return
 	}
 	type undoer interface {
-		Undo(ctx *Context, complement Complement) error
+		Undo(ctx *ExecutionContext, complement Complement) error
 	}
 	u, ok := action.(undoer)
 	if !ok {

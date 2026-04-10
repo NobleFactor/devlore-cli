@@ -17,7 +17,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/migrate"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -203,7 +203,7 @@ func runMigrateTestWithProvider(t *testing.T, fixture MigrateFixture, provider m
 		"detected_system": string(graph.Analysis.System),
 		"expected_system": fixture.Expected.System,
 		"projects":        graph.Analysis.Projects,
-		"rename_count":    len(graph.Graph.Nodes),
+		"rename_count":    len(graph.Graph.Nodes()),
 	}
 
 	return result
@@ -224,10 +224,10 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *op.G
 
 	actualRenames := make(map[string]string)
 	if graph != nil {
-		for _, node := range graph.Nodes {
+		for _, node := range graph.Nodes() {
 			// Extract relative paths from source/target slots
-			src, _ := node.GetSlot("source").(string)
-			tgt, _ := node.GetSlot("path").(string)
+			src, _ := node.SlotByName("source").(string)
+			tgt, _ := node.SlotByName("path").(string)
 			source := filepath.Base(src)
 			target := filepath.Base(tgt)
 			actualRenames[source] = target

@@ -13,10 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-var _ op.ContextProvider = (*Provider)(nil)
+var _ op.Provider = (*Provider)(nil)
 
 // Provider provides shell script analysis operations: lint (shellcheck), format (shfmt),
 // parse (structural extraction), and complexity (cyclomatic metrics).
@@ -27,7 +28,7 @@ type Provider struct {
 }
 
 // NewProvider creates a shellcheck provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -546,7 +547,7 @@ func matchExternalCommand(line string) string {
 	return cmd
 }
 
-// collectShellFiles returns all shell files in a path.
+// CollectShellFiles returns all shell files in a path.
 func CollectShellFiles(path string) ([]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -577,19 +578,24 @@ func CollectShellFiles(path string) ([]string, error) {
 
 // isShellFile checks if a file is a shell script.
 func isShellFile(path string) bool {
+
 	ext := filepath.Ext(path)
+
 	if ext == ".sh" || ext == ".bash" || ext == ".zsh" {
 		return true
 	}
 
 	f, err := os.Open(path)
+
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+
+	defer iox.Close(&err, f)
 
 	buf := make([]byte, 256)
 	n, err := f.Read(buf)
+
 	if err != nil || n == 0 {
 		return false
 	}

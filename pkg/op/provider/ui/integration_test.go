@@ -10,30 +10,40 @@ import (
 	"strings"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
-	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx() (op.Context, *bytes.Buffer) {
+func testCtx() (*op.ExecutionContext, *bytes.Buffer) {
 	buf := &bytes.Buffer{}
-	ctx := op.Context{
-		ContextBase: op.ContextBase{
-			Context:     context.Background(),
-			Writer:      buf,
-			ProgramName: "test",
-		},
+	ctx := &op.ExecutionContext{
+		Context:     context.Background(),
+		Writer:      buf,
+		ProgramName: "test",
+		Registry:    op.NewReceiverRegistry(),
 	}
 	return ctx, buf
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[ui.Provider]())
+	if !ok {
+		t.Fatal("ui provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
@@ -42,7 +52,7 @@ func TestStarlark(t *testing.T) {
 	ctx, buf := testCtx()
 	p := ui.NewProvider(ctx)
 	p.Color = false // disable ANSI for easier assertion
-	receiver := bind.WrapProviderInExecutingReceiver(uigen.Receiver, p)
+	receiver := bind.NewProvider(receiverType(t), p)
 
 	globals := starlark.StringDict{"ui": receiver}
 
@@ -85,47 +95,6 @@ func TestStarlark(t *testing.T) {
 }
 
 // endregion
-
-// region Action dispatch
-
-func TestActions_Note(t *testing.T) {
-	ctx, buf := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, uigen.Receiver)
-
-	a, ok := reg.Get("ui.note")
-	if !ok {
-		t.Fatal("action ui.note not registered")
-	}
-
-	_, _, err := a.Do(&ctx, map[string]any{"msg": "action note"})
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-
-	if !strings.Contains(buf.String(), "action note") {
-		t.Errorf("output = %q, want to contain 'action note'", buf.String())
-	}
-}
-
-func TestActions_Fail(t *testing.T) {
-	ctx, _ := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, uigen.Receiver)
-
-	a, ok := reg.Get("ui.fail")
-	if !ok {
-		t.Fatal("action ui.fail not registered")
-	}
-
-	_, _, err := a.Do(&ctx, map[string]any{"msg": "fatal error"})
-	if err == nil {
-		t.Fatal("expected error from ui.fail, got nil")
-	}
-	if !strings.Contains(err.Error(), "fatal error") {
-		t.Errorf("error = %q, want to contain 'fatal error'", err)
-	}
-}
 
 // endregion
 

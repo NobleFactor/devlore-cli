@@ -44,7 +44,7 @@ type Provider struct {
 	Color bool
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
 		Writer:       ctx.Writer,

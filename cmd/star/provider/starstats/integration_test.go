@@ -10,17 +10,18 @@ import (
 	"path/filepath"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats"
-	starstatsgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats/gen"
+	_ "github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
@@ -33,13 +34,22 @@ func sampleFiles(t *testing.T) []string {
 	return []string{abs}
 }
 
-func testCtx() op.Context {
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[starstats.Provider]())
+	if !ok {
+		t.Fatal("starstats provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 func starlarkFileList(files []string) *starlark.List {
@@ -55,7 +65,7 @@ func starlarkFileList(files []string) *starlark.List {
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
 	p := starstats.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(starstatsgen.Receiver, p)
+	receiver := bind.NewProvider(receiverType(t), p)
 
 	globals := starlark.StringDict{
 		"starstats":  receiver,
@@ -82,38 +92,6 @@ func TestStarlark(t *testing.T) {
 	assertIntGE(t, result, "result_file_count", 1)
 	assertIntGE(t, result, "result_total_bytes", 1)
 	assertIntGE(t, result, "result_total_loc", 1)
-}
-
-// endregion
-
-// region Action dispatch
-
-func TestActions_ComputeStats(t *testing.T) {
-	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, starstatsgen.Receiver)
-
-	a, ok := reg.Get("starstats.compute_stats")
-	if !ok {
-		t.Fatal("action starstats.compute_stats not registered")
-	}
-
-	result, _, err := a.Do(&ctx, map[string]any{
-		"files":      sampleFiles(t),
-		"with_bytes": true,
-		"with_loc":   true,
-	})
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-
-	st, ok := result.(*starstats.Stats)
-	if !ok {
-		t.Fatalf("result type = %T, want *starstats.Stats", result)
-	}
-	if st.Totals.FileCount < 1 {
-		t.Errorf("file_count = %d, want >= 1", st.Totals.FileCount)
-	}
 }
 
 // endregion

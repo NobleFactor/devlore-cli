@@ -5,16 +5,17 @@ package bind
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
+
+	"reflect"
 
 	"go.starlark.net/starlark"
 )
 
-// StructValue wraps a Go struct for Starlark with lazy attr dispatch.
+// StructValue wraps a Go struct for Starlark with lazy field dispatch.
 //
-// Fields are marshaled on access; eligible methods are called on access. This is an internal implementation detail of
-// [Marshal] — Go programmers do not construct StructValue directly.
+// Fields are marshaled on access. This is an internal implementation detail of [Marshal] — Go programmers do not
+// construct StructValue directly. Types that need method dispatch should be registered as providers or resources.
 type StructValue struct {
 	typeName string
 	goValue  reflect.Value // pointer to the Go struct (always addressable)
@@ -25,31 +26,18 @@ type StructValue struct {
 
 // region Behaviors
 
-// Attr implements [starlark.HasAttrs]. Fields are resolved first, then methods.
-//
-// Field values are marshaled on each access. Methods are called on each access
-// and their return values marshaled.
+// Attr implements [starlark.HasAttrs]. Fields are resolved by marshaling the Go struct field.
 //
 // Parameters:
 //   - name: the attribute name to look up.
 //
 // Returns:
-//   - starlark.Value: the marshaled field value or method result.
-//   - error: non-nil if the attribute does not exist or marshaling/method call fails.
+//   - starlark.Value: the marshaled field value.
+//   - error: non-nil if the attribute does not exist or marshaling fails.
 func (s *StructValue) Attr(name string) (starlark.Value, error) {
 
-	// Fields first.
 	if fi, ok := s.info.byName[name]; ok {
 		return marshalReflect(s.goValue.Elem().Field(fi.index))
-	}
-
-	// Methods second.
-	if mi, ok := s.info.byMethod[name]; ok {
-		if mi.numIn > 0 {
-			bridge := buildStructMethodBridge(s.typeName, s.goValue, mi)
-			return starlark.NewBuiltin(s.typeName+"."+mi.starName, bridge), nil
-		}
-		return s.callMethod(mi)
 	}
 
 	return nil, NoSuchAttrError(s.typeName, name)
@@ -58,7 +46,7 @@ func (s *StructValue) Attr(name string) (starlark.Value, error) {
 // AttrNames implements [starlark.HasAttrs].
 //
 // Returns:
-//   - []string: sorted list of field and method names.
+//   - []string: sorted list of field names.
 func (s *StructValue) AttrNames() []string {
 
 	return s.info.attrList
@@ -84,7 +72,6 @@ func (s *StructValue) Hash() (uint32, error) {
 //   - string: the string representation.
 func (s *StructValue) String() string {
 
-	// Delegate to fmt.Stringer if available.
 	if stringer, ok := s.goValue.Interface().(fmt.Stringer); ok {
 		return stringer.String()
 	}
@@ -128,82 +115,5 @@ func (s *StructValue) Type() string {
 }
 
 // endregion
-
-// endregion
-
-// region UNEXPORTED FUNCTIONS
-
-// buildStructMethodBridge creates a [builtinFunc] that bridges a parameterized
-// Go method on a [StructValue] to Starlark. Unlike [buildMethodBridge] in
-// receiver_reflect.go, this bridge has no catalog, recovery stack, or
-// compensation concerns — it is for plain struct methods.
-//
-// Parameters:
-//   - typeName: the snake_case type name for error messages.
-//   - goValue: the reflected pointer to the Go struct.
-//   - mi: the method metadata (must have numIn > 0).
-//
-// Returns:
-//   - builtinFunc: the Starlark-callable bridge function.
-func buildStructMethodBridge(typeName string, goValue reflect.Value, mi *methodInfo) builtinFunc {
-
-	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		vals := make([]starlark.Value, mi.numIn)
-		pairs := make([]any, 0, mi.numIn*2)
-		for i, name := range mi.paramNames {
-			pairs = append(pairs, name, &vals[i])
-		}
-		if err := starlark.UnpackArgs(mi.starName, args, kwargs, pairs...); err != nil {
-			return nil, err
-		}
-
-		// Convert Starlark values → Go values. methodType includes the
-		// receiver at index 0; user params start at index 1.
-		goArgs := make([]reflect.Value, mi.numIn)
-		for i, sv := range vals {
-			paramType := mi.methodType.In(i + 1)
-			if sv == nil {
-				goArgs[i] = reflect.Zero(paramType)
-				continue
-			}
-			goVal := reflect.New(paramType).Elem()
-			if err := unmarshalValue(sv, goVal); err != nil {
-				name := strings.TrimSuffix(mi.paramNames[i], "?")
-				return nil, fmt.Errorf("%s.%s: param %s: %w", typeName, mi.starName, name, err)
-			}
-			goArgs[i] = goVal
-		}
-
-		results := goValue.MethodByName(mi.name).Call(goArgs)
-		return classifyReturn(results)
-	}
-}
-
-// endregion
-
-// region UNEXPORTED METHODS
-
-// callMethod invokes a zero-arg Go method and marshals its return value.
-//
-// Parameters:
-//   - mi: the method metadata.
-//
-// Returns:
-//   - starlark.Value: the marshaled return value.
-//   - error: non-nil if the method returns an error or marshaling fails.
-func (s *StructValue) callMethod(mi *methodInfo) (starlark.Value, error) {
-
-	results := s.goValue.MethodByName(mi.name).Call(nil)
-
-	if mi.hasError && !results[1].IsNil() {
-		return nil, fmt.Errorf("%s.%s: %w", s.typeName, mi.starName, results[1].Interface().(error))
-	}
-
-	sv, err := marshalReflect(results[0])
-	if err != nil {
-		return nil, fmt.Errorf("%s.%s: %w", s.typeName, mi.starName, err)
-	}
-	return sv, nil
-}
 
 // endregion

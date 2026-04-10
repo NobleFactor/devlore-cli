@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func testdataDir(t *testing.T) string {
@@ -20,7 +22,7 @@ func testdataDir(t *testing.T) string {
 
 func TestCaptureAllStar(t *testing.T) {
 	root := testdataDir(t)
-	p := &Provider{Root: root}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter(root)}), Root: root}
 
 	sources, err := p.Capture("*.star", false, false)
 	if err != nil {
@@ -41,7 +43,7 @@ func TestCaptureAllStar(t *testing.T) {
 
 func TestCaptureRecursive(t *testing.T) {
 	root := testdataDir(t)
-	p := &Provider{Root: root}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter(root)}), Root: root}
 
 	sources, err := p.Capture("**/*.star", false, false)
 	if err != nil {
@@ -58,7 +60,7 @@ func TestCaptureExcludesBzl(t *testing.T) {
 	writeFile(t, filepath.Join(tmp, "test.star"), "x = 1\n")
 	writeFile(t, filepath.Join(tmp, "build.bzl"), "y = 2\n")
 
-	p := &Provider{Root: tmp}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter(tmp)}), Root: tmp}
 
 	// Without include_bzl
 	sources, err := p.Capture("*", false, false)
@@ -81,7 +83,7 @@ func TestCaptureExcludesBzl(t *testing.T) {
 
 func TestCaptureEmptyPattern(t *testing.T) {
 	tmp := t.TempDir()
-	p := &Provider{Root: tmp}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter(tmp)}), Root: tmp}
 
 	sources, err := p.Capture("*.star", false, false)
 	if err != nil {
@@ -103,7 +105,7 @@ func TestCaptureGitignore(t *testing.T) {
 	writeFile(t, filepath.Join(tmp, "keep.star"), "x = 1\n")
 	writeFile(t, filepath.Join(tmp, "ignored.star"), "y = 2\n")
 
-	p := &Provider{Root: tmp}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter(tmp)}), Root: tmp}
 
 	// With gitignore enabled
 	sources, err := p.Capture("*.star", true, false)
@@ -126,7 +128,7 @@ func TestCaptureGitignore(t *testing.T) {
 
 func TestSourcesPaths(t *testing.T) {
 	root := testdataDir(t)
-	p := &Provider{Root: root}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter(root)}), Root: root}
 
 	sources, err := p.Capture("*.star", false, false)
 	if err != nil {
@@ -147,7 +149,7 @@ func TestSourcesPaths(t *testing.T) {
 
 func TestSourcesFilesAreSorted(t *testing.T) {
 	root := testdataDir(t)
-	p := &Provider{Root: root}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter(root)}), Root: root}
 
 	sources, err := p.Capture("*.star", false, false)
 	if err != nil {

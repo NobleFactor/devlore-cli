@@ -320,8 +320,8 @@ func (b *StateViewBuilder) BuildFrom(graphs []*op.Graph) *StateView {
 
 	// Set target root from first graph that has it
 	for _, g := range filtered {
-		if g.Context.TargetRoot != "" && view.Files.Root == "" {
-			view.Files.Root = g.Context.TargetRoot
+		if g.Provenance.TargetRoot != "" && view.Files.Root == "" {
+			view.Files.Root = g.Provenance.TargetRoot
 			break
 		}
 	}
@@ -388,7 +388,7 @@ func (b *StateViewBuilder) loadReceipt(path string) (*op.Graph, error) {
 // includeGraph checks if a graph should be included based on options.
 func (b *StateViewBuilder) includeGraph(g *op.Graph) bool {
 	// Filter by scope
-	if b.opts.Scope != "" && g.Context.Scope != b.opts.Scope {
+	if b.opts.Scope != "" && g.Provenance.Scope != b.opts.Scope {
 		return false
 	}
 
@@ -404,7 +404,7 @@ func (b *StateViewBuilder) includeGraph(g *op.Graph) bool {
 	if len(b.opts.Tools) > 0 {
 		found := false
 		for _, t := range b.opts.Tools {
-			if g.Tool == t {
+			if g.Provenance.Tool == t {
 				found = true
 				break
 			}
@@ -419,7 +419,7 @@ func (b *StateViewBuilder) includeGraph(g *op.Graph) bool {
 
 // isTransformOnlyNode returns true if the node is an intermediate transform.
 func isTransformOnlyNode(node *op.Node) bool {
-	switch node.ActionName() {
+	switch node.Receiver {
 	case "template.render_text", "template.render_bytes", "encryption.decrypt":
 		return true
 	}
@@ -430,7 +430,7 @@ func isTransformOnlyNode(node *op.Node) bool {
 func (b *StateViewBuilder) processGraph(view *StateView, g *op.Graph) {
 	receiptName := g.Filename()
 
-	for _, node := range g.Nodes {
+	for _, node := range g.Nodes() {
 		// Skip skipped nodes and intermediate transform nodes
 		if node.Status == op.StatusSkipped || isTransformOnlyNode(node) {
 			continue
@@ -439,8 +439,8 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *op.Graph) {
 		record := HistoryRecord{
 			Timestamp: g.Timestamp,
 			Receipt:   receiptName,
-			Tool:      g.Tool,
-			Action:    node.ActionName(),
+			Tool:      g.Provenance.Tool,
+			Action:    node.Receiver,
 			Status:    node.Status,
 		}
 
@@ -455,7 +455,7 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *op.Graph) {
 
 // isPackageNode determines if a node represents a package lifecycle action.
 func (b *StateViewBuilder) isPackageNode(node *op.Node) bool {
-	switch node.ActionName() {
+	switch node.Receiver {
 	case "pkg.prepare", "pkg.install", "pkg.verify", "pkg.upgrade", "pkg.uninstall", "pkg.cleanup",
 		"pkg.remove":
 		return true
@@ -481,15 +481,15 @@ func (b *StateViewBuilder) addPackageRecord(view *StateView, node *op.Node, reco
 
 // addFileRecord adds a file deployment record to the view.
 func (b *StateViewBuilder) addFileRecord(view *StateView, node *op.Node, record HistoryRecord) {
-	relTarget := node.ID                         // Relative target path is the node ID
-	source, _ := node.GetSlot("source").(string) //nolint:errcheck // zero value (empty) is acceptable
+	relTarget := node.ID                            // Relative target path is the node ID
+	source, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
 
 	entry, ok := view.Files.Entries[relTarget]
 	if !ok {
 		entry = &FileEntry{
 			Target:  relTarget,
 			Source:  source,
-			Project: node.Project,
+			Project: node.Origin,
 			Layer:   node.Layer,
 			History: make([]HistoryRecord, 0),
 		}
@@ -499,8 +499,8 @@ func (b *StateViewBuilder) addFileRecord(view *StateView, node *op.Node, record 
 		if source != "" {
 			entry.Source = source
 		}
-		if node.Project != "" {
-			entry.Project = node.Project
+		if node.Origin != "" {
+			entry.Project = node.Origin
 		}
 		if node.Layer != "" {
 			entry.Layer = node.Layer
@@ -528,7 +528,7 @@ func (b *StateViewBuilder) DistinctScopes(receiptsDir string) ([]string, error) 
 
 	seen := make(map[string]bool)
 	for _, g := range graphs {
-		seen[g.Context.Scope] = true
+		seen[g.Provenance.Scope] = true
 	}
 
 	scopes := make([]string, 0, len(seen))

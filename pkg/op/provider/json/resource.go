@@ -35,14 +35,6 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
 
-// buildURI computes the opaque json: URI.
-func (r *Resource) buildURI() string {
-	if r.Hash != "" {
-		return SchemeJSON + ":" + r.Hash[:12]
-	}
-	return SchemeJSON + ":inline"
-}
-
 // Parsed returns the decoded Go value. The value is cached from the initial parse.
 func (r *Resource) Parsed() any {
 	return r.parsed
@@ -91,44 +83,36 @@ func (r *Resource) Validate(schemaJSON string) (ValidationResult, error) {
 	return ValidationResult{Valid: true}, nil
 }
 
-// NewResource creates a json.Resource from raw bytes and a pre-parsed Go value.
-func NewResource(data []byte, parsed any) Resource {
-	h := sha256.Sum256(data)
-
-	r := Resource{
-		Data:   data,
-		Hash:   hex.EncodeToString(h[:]),
-		parsed: parsed,
-	}
-	r.SetURI(r.buildURI())
-	return r
-}
-
-// ResourceFromValue constructs a json.Resource from a string json: URI.
+// NewResource creates a json.Resource from a value.
 //
 // Parameters:
-//   - v: expected to be a string in the format "json:<qualifier>"
+//   - ctx: the execution context.
+//   - value: expected to be []byte (raw JSON data) or a pre-parsed Go value.
 //
 // Returns:
-//   - Resource: initialized with the parsed URI
-//   - error: if v is not a string or the URI format is invalid
-func ResourceFromValue(v any) (Resource, error) {
-	s, ok := v.(string)
-	if !ok {
-		return Resource{}, fmt.Errorf("json.Resource: expected string URI, got %T", v)
+//   - *Resource: the initialized resource.
+//   - error: if value is not a supported type.
+func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+
+	var data []byte
+	var parsed any
+
+	switch v := value.(type) {
+	case []byte:
+		data = v
+	default:
+		return nil, fmt.Errorf("json.Resource: expected []byte, got %T", value)
 	}
 
-	if !strings.HasPrefix(s, SchemeJSON+":") {
-		return Resource{}, fmt.Errorf("json.Resource: expected json: URI, got %q", s)
-	}
+	h := sha256.Sum256(data)
+	hash := hex.EncodeToString(h[:])
 
-	qualifier := s[len(SchemeJSON+":"):]
-
-	r := Resource{
-		Hash: qualifier,
-	}
-	r.SetURI(s)
-	return r, nil
+	return &Resource{
+		ResourceBase: op.NewResourceBase(ctx, SchemeJSON+":"+hash[:12]),
+		Data:         data,
+		Hash:         hash,
+		parsed:       parsed,
+	}, nil
 }
 
 // ValidationResult holds the outcome of a JSON Schema validation.

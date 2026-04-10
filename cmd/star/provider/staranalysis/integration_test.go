@@ -10,17 +10,18 @@ import (
 	"path/filepath"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis"
-	staranalysisgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis/gen"
+	_ "github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
@@ -33,12 +34,11 @@ func sampleFiles(t *testing.T) []string {
 	return []string{abs}
 }
 
-func testCtx() op.Context {
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
 	}
 }
 
@@ -52,10 +52,20 @@ func starlarkFileList(files []string) *starlark.List {
 
 // region Starlark integration
 
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[staranalysis.Provider]())
+	if !ok {
+		t.Fatal("staranalysis provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
+}
+
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
 	p := staranalysis.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(staranalysisgen.Receiver, p)
+	receiver := bind.NewProvider(receiverType(t), p)
 
 	globals := starlark.StringDict{
 		"staranalysis": receiver,
@@ -83,45 +93,6 @@ func TestStarlark(t *testing.T) {
 	assertBool(t, result, "result_has_complexity")
 	assertBool(t, result, "result_has_index")
 	assertIntGE(t, result, "result_hotspot_count", 0)
-}
-
-// endregion
-
-// region Action dispatch
-
-func TestActions_Analyze(t *testing.T) {
-	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, staranalysisgen.Receiver)
-
-	a, ok := reg.Get("staranalysis.analyze")
-	if !ok {
-		t.Fatal("action staranalysis.analyze not registered")
-	}
-
-	result, _, err := a.Do(&ctx, map[string]any{
-		"files": sampleFiles(t),
-		"cfg": staranalysis.AnalysisConfig{
-			Hotspots:            true,
-			CyclomaticThreshold: 2,
-			CognitiveThreshold:  2,
-			WithIndex:           true,
-		},
-	})
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-
-	report, ok := result.(*staranalysis.AnalysisReport)
-	if !ok {
-		t.Fatalf("result type = %T, want *staranalysis.AnalysisReport", result)
-	}
-	if report.Stats == nil {
-		t.Error("expected non-nil Stats")
-	}
-	if report.Index == nil {
-		t.Error("expected non-nil Index (WithIndex=true)")
-	}
 }
 
 // endregion

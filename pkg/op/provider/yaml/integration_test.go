@@ -9,34 +9,44 @@ import (
 	"os"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	yamlprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml"
-	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx() op.Context {
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[yamlprov.Provider]())
+	if !ok {
+		t.Fatal("yaml provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := bind.WrapProviderInExecutingReceiver(yamlgen.Receiver, yamlprov.NewProvider(ctx))
+	receiver := bind.NewProvider(receiverType(t), yamlprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"yaml": receiver}
 
@@ -70,15 +80,13 @@ func TestStarlark(t *testing.T) {
 
 func TestActions_Encode(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, yamlgen.Receiver)
 
-	a, ok := reg.Get("yaml.encode")
-	if !ok {
-		t.Fatal("action yaml.encode not registered")
+	a, err := ctx.ActionByName("yaml.encode")
+	if err != nil {
+		t.Fatalf("action yaml.encode not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"value": map[string]any{"key": "val"}})
+	result, _, err := a.Do(ctx, map[string]any{"value": map[string]any{"key": "val"}})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -94,15 +102,13 @@ func TestActions_Encode(t *testing.T) {
 
 func TestActions_Decode(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, yamlgen.Receiver)
 
-	a, ok := reg.Get("yaml.decode")
-	if !ok {
-		t.Fatal("action yaml.decode not registered")
+	a, err := ctx.ActionByName("yaml.decode")
+	if err != nil {
+		t.Fatalf("action yaml.decode not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"data": "color: green\n"})
+	result, _, err := a.Do(ctx, map[string]any{"data": "color: green\n"})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}

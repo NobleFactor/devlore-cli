@@ -11,12 +11,12 @@ import (
 func TestRenderText_Simple(t *testing.T) {
 	p := &Provider{}
 	data := map[string]any{
-		"Source":  "/src/file.txt",
-		"Target":  "/dst/file.txt",
-		"Project": "myproject",
+		"Source": "/src/file.txt",
+		"Target": "/dst/file.txt",
+		"Origin": "myproject",
 	}
 
-	got, err := p.RenderText("src={{ .Source }} dst={{ .Target }} proj={{ .Project }}", data)
+	got, err := p.RenderText("src={{ .Source }} dst={{ .Target }} proj={{ .Origin }}", data)
 	if err != nil {
 		t.Fatalf("RenderText() error = %v", err)
 	}
@@ -30,12 +30,12 @@ func TestRenderText_Simple(t *testing.T) {
 func TestRenderText_WithVars(t *testing.T) {
 	p := &Provider{}
 	data := map[string]any{
-		"user":    "alice",
-		"count":   42,
-		"Project": "proj",
+		"user":   "alice",
+		"count":  42,
+		"Origin": "proj",
 	}
 
-	got, err := p.RenderText("user={{ .user }} count={{ .count }} project={{ .Project }}", data)
+	got, err := p.RenderText("user={{ .user }} count={{ .count }} project={{ .Origin }}", data)
 	if err != nil {
 		t.Fatalf("RenderText() error = %v", err)
 	}

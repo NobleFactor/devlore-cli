@@ -42,18 +42,22 @@ SKIP_METHODS = [
 
 # Template to output filename mapping.
 GEN_TEMPLATE_FILES = {
-    "receiver": "gen/receiver.gen.go",
-    "actions_test": "gen/actions_gen_test.go",
-    "receiver_test": "gen/receiver_gen_test.go",
+    "provider": "gen/provider.gen.go",
+    "receiver_type_test": "gen/receiver_type.gen_test.go",
+    "module_test": "gen/module.gen_test.go",
+    "action_test": "gen/action.gen_test.go",
+    "planner_test": "gen/planner.gen_test.go",
     "resource": "gen/resource.gen.go",
     # dependent_type uses dynamic filenames: gen/<type_snake>.gen.go
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
 LOCAL_TEMPLATES = {
-    "receiver": "receiver.gen.go.template",
-    "actions_test": "actions_gen_test.go.template",
-    "receiver_test": "receiver_gen_test.go.template",
+    "provider": "provider.gen.go.template",
+    "receiver_type_test": "receiver_type.gen_test.go.template",
+    "module_test": "module.gen_test.go.template",
+    "action_test": "action.gen_test.go.template",
+    "planner_test": "planner.gen_test.go.template",
     "resource": "resource.gen.go.template",
     "dependent_type": "dependent_type.gen.go.template",
 }
@@ -563,6 +567,10 @@ def collect_type_graph(path, provider_methods, structs_by_name):
             return
         seen[type_name] = True
 
+        # Resource types are handled by the resource template path, not dependent_type.
+        if type_name == "Resource":
+            return
+
         # Check if this type has methods (→ dependent type with HasAttrs wrapper)
         type_methods = goast.methods(path, receiver_type=type_name)
         has_methods = False
@@ -660,15 +668,17 @@ def detect_resource(path):
     if not has_resource:
         return ""
 
-    # Look for constructor function: func(any) (Resource, error)
+    # Look for constructor function: func(*op.ExecutionContext, any) (*Resource, error)
     funcs = goast.funcs(path)
     constructor_name = ""
     for fn in funcs:
-        if fn.returns != "(Resource, error)":
+        if fn.returns not in ["(*Resource, error)", "(Resource, error)"]:
             continue
-        if len(fn.params) != 1:
+        if len(fn.params) != 2:
             continue
-        if fn.params[0].type not in ["any", "interface{}"]:
+        if fn.params[0].type != "*op.ExecutionContext":
+            continue
+        if fn.params[1].type not in ["any", "interface{}"]:
             continue
         if constructor_name:
             fail("multiple resource constructors found in %s: %s and %s" % (path, constructor_name, fn.name))
@@ -918,17 +928,26 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     if provider_cross_imports:
         provider_desc["cross_package_imports"] = provider_cross_imports
 
-    emit_file(command, "receiver", provider_desc, "gen/receiver.gen.go",
+    emit_file(command, "provider", provider_desc, "gen/provider.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate bridge tests for all action methods (pure, fallible, compensable).
-    if access in ["planned", "both"]:
-        emit_file(command, "actions_test", provider_desc, "gen/actions_gen_test.go",
+    # Generate receiver type tests (always — type descriptor exists for all providers).
+    emit_file(command, "receiver_type_test", provider_desc, "gen/receiver_type.gen_test.go",
+             struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # Generate module tests (starlark module protocol).
+    if access in ["immediate", "both"]:
+        emit_file(command, "module_test", provider_desc, "gen/module.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate receiver tests if access is immediate or both.
-    if access in ["immediate", "both"]:
-        emit_file(command, "receiver_test", provider_desc, "gen/receiver_gen_test.go",
+    # Generate action tests (action wrappers — dry-run, compensable, undo).
+    if access in ["planned", "both"]:
+        emit_file(command, "action_test", provider_desc, "gen/action.gen_test.go",
+                 struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # Generate planner tests (planning receiver — node creation from starlark calls).
+    if access in ["planned", "both"]:
+        emit_file(command, "planner_test", provider_desc, "gen/planner.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     generated_count = 1
@@ -1176,12 +1195,18 @@ def prepare_render_data(descriptor, template_name):
     # Pre-compute provider type prefix
     desc["provider_type_prefix"] = compute_provider_type_prefix(desc)
 
-    # Pre-compute descriptor fields for receiver template
-    if template_name == "receiver":
+    # Pre-compute descriptor fields for provider template
+    if template_name == "provider":
         access = desc.get("access", "immediate")
         desc["has_actions"] = access in ["planned", "both"]
         desc["has_planned"] = access in ["planned", "both"]
         desc["has_immediate"] = access in ["immediate", "both"]
+        if access == "immediate":
+            desc["roles"] = "op.RoleModule"
+        elif access == "planned":
+            desc["roles"] = "op.RoleAction"
+        else:
+            desc["roles"] = "op.RoleModule|op.RoleAction"
 
     # Add derived fields to each method
     methods = list(desc.get("methods", []))

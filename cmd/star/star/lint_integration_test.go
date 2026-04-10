@@ -64,7 +64,7 @@ func setupLintRuntime(t *testing.T, testDir string) (*Application, error) {
 	}
 
 	// Create runtime
-	r := NewRuntime()
+	r := NewApplication()
 
 	// Change to test directory for config loading
 	origDir, err := os.Getwd()
@@ -519,7 +519,7 @@ func TestLintCommands_NoConfigOutsideGitRepo(t *testing.T) {
 		t.Fatalf("findProjectRoot: %v", err)
 	}
 
-	r := NewRuntime()
+	r := NewApplication()
 
 	origDir, err := os.Getwd()
 	if err != nil {

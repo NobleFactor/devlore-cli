@@ -82,7 +82,7 @@ func TestExtractTarGz(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	dest, state, err := p.Extract(file.Resource{SourcePath: op.NewPath("", archivePath)}, file.Resource{SourcePath: op.NewPath("", prefix)})
+	dest, state, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", archivePath)}, &file.Resource{SourcePath: op.NewPath("", prefix)})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestExtractZip(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	dest, state, err := p.Extract(file.Resource{SourcePath: op.NewPath("", archivePath)}, file.Resource{SourcePath: op.NewPath("", prefix)})
+	dest, state, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", archivePath)}, &file.Resource{SourcePath: op.NewPath("", prefix)})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestExtractZip(t *testing.T) {
 
 func TestExtractUnsupportedFormat(t *testing.T) {
 	p := &Provider{}
-	_, _, err := p.Extract(file.Resource{SourcePath: op.NewPath("", "foo.rar")}, file.Resource{SourcePath: op.NewPath("", t.TempDir())})
+	_, _, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", "foo.rar")}, &file.Resource{SourcePath: op.NewPath("", t.TempDir())})
 	if err == nil {
 		t.Fatal("expected error for unsupported format")
 	}
@@ -170,7 +170,7 @@ func TestZipSlipProtectionTarGz(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	_, _, err := p.Extract(file.Resource{SourcePath: op.NewPath("", archivePath)}, file.Resource{SourcePath: op.NewPath("", prefix)})
+	_, _, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", archivePath)}, &file.Resource{SourcePath: op.NewPath("", prefix)})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestZipSlipProtectionZip(t *testing.T) {
 
 	prefix := filepath.Join(tmp, "out")
 	p := &Provider{}
-	_, _, err := p.Extract(file.Resource{SourcePath: op.NewPath("", archivePath)}, file.Resource{SourcePath: op.NewPath("", prefix)})
+	_, _, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", archivePath)}, &file.Resource{SourcePath: op.NewPath("", prefix)})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}

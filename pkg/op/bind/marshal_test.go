@@ -817,21 +817,27 @@ func TestGetTypeInfo_HiddenField(t *testing.T) {
 
 // --- Constructor registry tests ---
 
-// testConstructable is a test type for constructor registry.
+// testConstructable is a test type for resource construction.
 type testConstructable struct {
 	Value string
 	Extra int
 }
 
+func init() {
+	op.AnnounceResource(
+		reflect.TypeOf(testConstructable{}),
+		func(_ *op.ExecutionContext, v any) (any, error) {
+			s, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("expected string, got %T", v)
+			}
+			return &testConstructable{Value: s, Extra: len(s)}, nil
+		},
+		nil,
+	)
+}
+
 func TestUnmarshal_WithConstructor(t *testing.T) {
-	op.RegisterConstructor(func(v any) (testConstructable, error) {
-		s, ok := v.(string)
-		if !ok {
-			return testConstructable{}, fmt.Errorf("expected string, got %T", v)
-		}
-		return testConstructable{Value: s, Extra: len(s)}, nil
-	})
-	defer op.ResetResourceRegistry()
 
 	var got testConstructable
 	if err := unmarshal(starlark.String("world"), &got); err != nil {
@@ -843,14 +849,6 @@ func TestUnmarshal_WithConstructor(t *testing.T) {
 }
 
 func TestUnmarshal_Constructor_InvalidInput(t *testing.T) {
-	op.RegisterConstructor(func(v any) (testConstructable, error) {
-		s, ok := v.(string)
-		if !ok {
-			return testConstructable{}, fmt.Errorf("expected string, got %T", v)
-		}
-		return testConstructable{Value: s}, nil
-	})
-	defer op.ResetResourceRegistry()
 
 	var got testConstructable
 	err := unmarshal(starlark.MakeInt(42), &got)

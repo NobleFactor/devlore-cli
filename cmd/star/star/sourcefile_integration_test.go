@@ -110,7 +110,7 @@ var MaxRetries = 3
 	starScript := `def run(command, ctx):
     ast = goast.load_source_file("` + testGoPath + `")
 
-    # --- Package name (string return = eagerly evaluated property) ---
+    # --- PkgPath name (string return = eagerly evaluated property) ---
     if ast.package_name != "example":
         fail("expected package 'example', got '%s'" % ast.package_name)
 
@@ -143,7 +143,7 @@ var MaxRetries = 3
     if backup.returns == "":
         fail("expected returns on Backup")
 
-    # --- Params on method ---
+    # --- Parameters on method ---
     params = list(backup.params)
     if len(params) != 1:
         fail("expected 1 param on Backup, got %d" % len(params))
@@ -210,7 +210,7 @@ var MaxRetries = 3
 	}
 	t.Cleanup(func() { os.Chdir(origDir) })
 
-	r := NewRuntime()
+	r := NewApplication()
 
 	// Load the test extension.
 	if err := r.LoadExtensionsFrom(filepath.Join(dir, "star", "extensions")); err != nil {

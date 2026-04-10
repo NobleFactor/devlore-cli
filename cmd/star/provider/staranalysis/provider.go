@@ -6,10 +6,10 @@
 package staranalysis
 
 import (
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starcomplexity"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // AnalysisConfig controls what the Analyze function produces.
@@ -47,7 +47,7 @@ type Provider struct {
 	Root string
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	if ctx.Root != nil {
 		p.Root = ctx.Root.Name()

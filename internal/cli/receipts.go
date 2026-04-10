@@ -104,7 +104,7 @@ func WriteReceiptWithSigningDir(g *op.Graph, producer, signingDir string) (strin
 	}
 
 	// Update "latest" symlink for this producer (scope-aware via graph context).
-	latestPath := LatestReceiptPath(producer, g.Context.Scope)
+	latestPath := LatestReceiptPath(producer, g.Provenance.Scope)
 	os.Remove(latestPath)                //nolint:errcheck // best-effort cleanup
 	_ = os.Symlink(filename, latestPath) //nolint:errcheck // best-effort symlink, not critical
 

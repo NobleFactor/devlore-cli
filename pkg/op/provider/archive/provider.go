@@ -27,7 +27,7 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -40,9 +40,9 @@ func NewProvider(ctx op.Context) *Provider {
 // Parameters:
 //   - source: file resource identifying the archive file (tar.gz, tgz, or zip)
 //   - prefix: file resource identifying the extraction directory
-func (p *Provider) Extract(source, prefix file.Resource) (file.Resource, Tombstone, error) {
+func (p *Provider) Extract(source, prefix *file.Resource) (*file.Resource, Tombstone, error) {
 	if err := os.MkdirAll(prefix.SourcePath.Abs(), 0o750); err != nil {
-		return file.Resource{}, Tombstone{}, fmt.Errorf("create prefix dir: %w", err)
+		return nil, Tombstone{}, fmt.Errorf("create prefix dir: %w", err)
 	}
 
 	var created []string
@@ -55,11 +55,11 @@ func (p *Provider) Extract(source, prefix file.Resource) (file.Resource, Tombsto
 	case strings.HasSuffix(lower, ".zip"):
 		created, err = extractZip(source.SourcePath.Abs(), prefix.SourcePath.Abs())
 	default:
-		return file.Resource{}, Tombstone{}, fmt.Errorf("unsupported archive format: %s", source.SourcePath.Abs())
+		return nil, Tombstone{}, fmt.Errorf("unsupported archive format: %s", source.SourcePath.Abs())
 	}
 
 	if err != nil {
-		return file.Resource{}, Tombstone{}, err
+		return nil, Tombstone{}, err
 	}
 
 	return prefix, Tombstone{
@@ -77,7 +77,7 @@ func (p *Provider) CompensateExtract(state Tombstone) error {
 
 	// Remove files in reverse order (deepest first).
 	for i := len(state.CreatedFiles) - 1; i >= 0; i-- {
-		os.Remove(state.CreatedFiles[i]) //nolint:errcheck // best-effort cleanup
+		_ = os.Remove(state.CreatedFiles[i])
 	}
 
 	// Clean up empty directories under dest.
@@ -91,12 +91,12 @@ func removeEmptyDirs(root string) error {
 			return nil //nolint:nilerr // intentional: skip unsupported entries
 		}
 		// Try to remove — fails silently if non-empty
-		os.Remove(path) //nolint:errcheck // best-effort cleanup
+		_ = os.Remove(path)
 		return nil
 	})
 }
 
-func extractTarGz(source, prefix string) (created []string, err error) { //nolint:gocognit
+func extractTarGz(source, prefix string) (created []string, err error) {
 
 	f, err := os.Open(source)
 	if err != nil {
@@ -131,18 +131,18 @@ func extractTarGz(source, prefix string) (created []string, err error) { //nolin
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(hdr.Mode&0o777)); err != nil { //nolint:gosec // G303: path comes from trusted archive content
+			if err := os.MkdirAll(target, os.FileMode(hdr.Mode&0o777)); err != nil {
 				return created, err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil { //nolint:gosec // G303: path comes from trusted archive content
+			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 				return created, err
 			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode&0o777)) //nolint:gosec // G304: path comes from trusted archive content
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode&0o777))
 			if err != nil {
 				return created, err
 			}
-			if _, err := io.Copy(out, io.LimitReader(tr, 1<<30)); err != nil { //nolint:gosec // G110: bounded to 1 GiB
+			if _, err := io.Copy(out, io.LimitReader(tr, 1<<30)); err != nil {
 				return created, errors.Join(err, out.Close())
 			}
 			if err := out.Close(); err != nil {
@@ -193,7 +193,7 @@ func extractZip(source, prefix string) (created []string, err error) {
 			return created, errors.Join(err, rc.Close())
 		}
 
-		if _, err := io.Copy(out, io.LimitReader(rc, 1<<30)); err != nil { //nolint:gosec // G110: bounded to 1 GiB
+		if _, err := io.Copy(out, io.LimitReader(rc, 1<<30)); err != nil {
 			return created, errors.Join(err, out.Close(), rc.Close())
 		}
 		if err := out.Close(); err != nil {

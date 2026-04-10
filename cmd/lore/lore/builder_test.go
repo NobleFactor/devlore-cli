@@ -9,16 +9,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
-// runGraph is a test helper that calls RunNodes with the graph's nodes and edges.
-func runGraph(ctx context.Context, eng *execution.GraphExecutor, g *op.Graph) ([]*execution.NodeResult, error) {
-	return eng.RunNodes(ctx, g.Nodes, g.Edges)
+// runGraph is a test helper that runs a graph and returns the result.
+func runGraph(_ context.Context, eng *op.GraphExecutor, g *op.Graph) (any, error) {
+	return eng.Run(g)
 }
 
 func TestBuild_WithNativePMPackage(t *testing.T) {
@@ -41,18 +40,18 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 	}
 
 	// Should have at least one node for the install phase
-	if len(result.Graph.Nodes) == 0 {
+	if len(result.Graph.Nodes()) == 0 {
 		t.Error("expected at least 1 node, got 0")
 	}
 
 	// The first node should be a namespaced pkg.install action
 	found := false
-	for _, node := range result.Graph.Nodes {
-		if node.ActionName() == "pkg.install" {
+	for _, node := range result.Graph.Nodes() {
+		if node.Receiver == "pkg.install" {
 			found = true
 			// Verify slot values
-			if node.GetSlot("packages") != "curl" {
-				t.Errorf("expected packages 'curl', got %q", node.GetSlot("packages"))
+			if node.SlotByName("packages") != "curl" {
+				t.Errorf("expected packages 'curl', got %q", node.SlotByName("packages"))
 			}
 			break
 		}
@@ -62,15 +61,15 @@ func TestBuild_WithNativePMPackage(t *testing.T) {
 	}
 
 	// Verify graph context is populated
-	ctx := result.Graph.Context
+	ctx := result.Graph.Provenance
 	if ctx.Scope != "curl" {
-		t.Errorf("Context.Scope = %q, want %q", ctx.Scope, "curl")
+		t.Errorf("ExecutionContext.Scope = %q, want %q", ctx.Scope, "curl")
 	}
 	if len(ctx.Packages) != 1 || ctx.Packages[0] != "curl" {
-		t.Errorf("Context.Packages = %v, want [curl]", ctx.Packages)
+		t.Errorf("ExecutionContext.Packages = %v, want [curl]", ctx.Packages)
 	}
 	if ctx.TargetPlatform != "Linux.Debian" {
-		t.Errorf("Context.TargetPlatform = %q, want %q", ctx.TargetPlatform, "Linux.Debian")
+		t.Errorf("ExecutionContext.TargetPlatform = %q, want %q", ctx.TargetPlatform, "Linux.Debian")
 	}
 }
 
@@ -107,8 +106,8 @@ func TestBuild_PlatformDetection(t *testing.T) {
 
 			// All platforms use the namespaced "pkg.install" action
 			found := false
-			for _, node := range result.Graph.Nodes {
-				if node.ActionName() == "pkg.install" {
+			for _, node := range result.Graph.Nodes() {
+				if node.Receiver == "pkg.install" {
 					found = true
 					break
 				}
@@ -147,12 +146,12 @@ func TestBuildFromManifest(t *testing.T) {
 	}
 
 	// Verify graph context for multi-package build
-	ctx := result.Graph.Context
+	ctx := result.Graph.Provenance
 	if ctx.Scope != "curl+jq" {
-		t.Errorf("Context.Scope = %q, want %q", ctx.Scope, "curl+jq")
+		t.Errorf("ExecutionContext.Scope = %q, want %q", ctx.Scope, "curl+jq")
 	}
 	if len(ctx.Packages) != 2 {
-		t.Errorf("Context.Packages = %v, want [curl, jq]", ctx.Packages)
+		t.Errorf("ExecutionContext.Packages = %v, want [curl, jq]", ctx.Packages)
 	}
 }
 
@@ -197,53 +196,40 @@ func TestBuild_MutuallyExclusiveConfig(t *testing.T) {
 
 func TestEngineRunsPackageInstallActions(t *testing.T) {
 	// Integration test: build graph and run through engine with DryRun
-	reg := op.NewActionRegistry()
-
-	// Register all actions (file + package)
-	tmpDir := t.TempDir()
-	root := op.NewRootReaderWriter(tmpDir)
-	defer func() { _ = root.Close() }()
-	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
-	op.InitAll(reg, opCtx)
-
-	eng := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, DryRun: true})
+	eng, err := op.NewGraphExecutor("test", op.Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewGraphExecutor: %v", err)
+	}
 
 	// Create a graph with a namespaced pkg.install node
 	node := &op.Node{
-		ID:     "package-install-testpkg",
-		Action: reg.MustGet("pkg.install"),
+		ID:       "package-install-testpkg",
+		Receiver: "pkg.install",
 	}
 	node.SetSlotImmediate("packages", []string{"testpkg"})
 	node.SetSlotImmediate("manager", "brew")
 	node.SetSlotImmediate("cask", false)
 	graph := &op.Graph{
-		Nodes: []*op.Node{node},
+		State:    op.StatePending,
+		Children: []op.SubgraphChild{{Node: node}},
 	}
 
-	results, err := runGraph(context.Background(), eng, graph)
-	if err != nil {
-		t.Fatalf("Run failed: %v", err)
+	_, runErr := runGraph(context.Background(), eng, graph)
+	if runErr != nil {
+		t.Fatalf("Run failed: %v", runErr)
 	}
 
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
-
-	if results[0].Status != execution.ResultCompleted {
-		t.Errorf("expected status completed, got %s (error: %v)", results[0].Status, results[0].Error)
+	if graph.Children[0].Node.Status != op.StatusCompleted {
+		t.Errorf("expected status completed, got %s (error: %s)", graph.Children[0].Node.Status, graph.Children[0].Node.Error)
 	}
 }
 
 func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	// Test that all namespaced package actions can execute in dry-run mode
-	reg := op.NewActionRegistry()
-	tmpDir := t.TempDir()
-	root := op.NewRootReaderWriter(tmpDir)
-	defer func() { _ = root.Close() }()
-	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
-	op.InitAll(reg, opCtx)
-
-	eng := execution.NewGraphExecutor(execution.ExecutorOptions{Root: tmpDir, DryRun: true})
+	eng, err := op.NewGraphExecutor("test", op.Options{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewGraphExecutor: %v", err)
+	}
 
 	// All platforms use these four namespaced package actions
 	actions := []string{
@@ -253,8 +239,8 @@ func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 	for _, opName := range actions {
 		t.Run(opName, func(t *testing.T) {
 			node := &op.Node{
-				ID:     "test-" + opName,
-				Action: reg.MustGet(opName),
+				ID:       "test-" + opName,
+				Receiver: opName,
 			}
 			node.SetSlotImmediate("manager", "brew")
 			if opName != "pkg.update" {
@@ -263,16 +249,17 @@ func TestEngineRunsNamespacedPackageActions(t *testing.T) {
 			}
 
 			graph := &op.Graph{
-				Nodes: []*op.Node{node},
+				State:    op.StatePending,
+				Children: []op.SubgraphChild{{Node: node}},
 			}
 
-			results, err := runGraph(context.Background(), eng, graph)
+			_, err := runGraph(context.Background(), eng, graph)
 			if err != nil {
 				t.Fatalf("Run failed: %v", err)
 			}
 
-			if results[0].Status != execution.ResultCompleted {
-				t.Errorf("expected completed, got %s", results[0].Status)
+			if graph.Children[0].Node.Status != op.StatusCompleted {
+				t.Errorf("expected completed, got %s", graph.Children[0].Node.Status)
 			}
 		})
 	}
@@ -296,8 +283,8 @@ func TestNativePMNodeMetadata(t *testing.T) {
 
 	// Find the install node (uses namespaced "pkg.install" action)
 	var installNode *op.Node
-	for _, node := range result.Graph.Nodes {
-		if node.ActionName() == "pkg.install" {
+	for _, node := range result.Graph.Nodes() {
+		if node.Receiver == "pkg.install" {
 			installNode = node
 			break
 		}
@@ -308,10 +295,10 @@ func TestNativePMNodeMetadata(t *testing.T) {
 	}
 
 	// Verify required slots
-	if installNode.GetSlot("packages") == "" {
+	if installNode.SlotByName("packages") == "" {
 		t.Error("expected packages slot to be set")
 	}
-	if installNode.GetSlot("phase") == "" {
+	if installNode.SlotByName("phase") == "" {
 		t.Error("expected phase slot to be set")
 	}
 	// Note: manager is NOT set for namespaced actions
@@ -369,23 +356,19 @@ func TestBuildPhased_NativePMCreatesPhases(t *testing.T) {
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	// Native PM only has the "install" phase (required phase for deploy).
-	if len(result.Graph.Phases) != 1 {
-		t.Fatalf("expected 1 phase, got %d", len(result.Graph.Phases))
+	// Native PM only has the "install" subgraph (required for deploy).
+	sg := result.Graph.SubgraphByID("subgraph.curl.install")
+	if sg == nil {
+		t.Fatal("expected subgraph subgraph.curl.install to be present")
 	}
-
-	phase := result.Graph.Phases[0]
-	if phase.Name != "install" {
-		t.Errorf("expected phase name 'install', got %q", phase.Name)
+	if sg.Name != "install" {
+		t.Errorf("expected subgraph name 'install', got %q", sg.Name)
 	}
-	if phase.ID != "phase.curl.install" {
-		t.Errorf("expected phase ID 'phase.curl.install', got %q", phase.ID)
+	if sg.Status != op.SubgraphPending {
+		t.Errorf("expected status pending, got %q", sg.Status)
 	}
-	if phase.Status != op.PhasePending {
-		t.Errorf("expected status pending, got %q", phase.Status)
-	}
-	if len(phase.NodeIDs) != 1 {
-		t.Errorf("expected 1 node ID, got %d", len(phase.NodeIDs))
+	if len(sg.Children) != 1 {
+		t.Errorf("expected 1 child, got %d", len(sg.Children))
 	}
 }
 
@@ -407,18 +390,17 @@ def install(package, phase):
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	if len(result.Graph.Phases) != 1 {
-		t.Fatalf("expected 1 phase, got %d", len(result.Graph.Phases))
+	sg := result.Graph.SubgraphByID("subgraph.testpkg.install")
+	if sg == nil {
+		t.Fatal("expected subgraph subgraph.testpkg.install to be present")
 	}
-
-	phase := result.Graph.Phases[0]
-	if phase.Name != "install" {
-		t.Errorf("expected phase name 'install', got %q", phase.Name)
+	if sg.Name != "install" {
+		t.Errorf("expected subgraph name 'install', got %q", sg.Name)
 	}
-	if len(phase.NodeIDs) == 0 {
-		t.Error("expected at least 1 node in phase")
+	if len(sg.Children) == 0 {
+		t.Error("expected at least 1 child in subgraph")
 	}
-	if phase.Retry != nil {
+	if sg.Retry != nil {
 		t.Error("expected no retry policy")
 	}
 }
@@ -442,25 +424,24 @@ def install(package, phase):
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	if len(result.Graph.Phases) != 1 {
-		t.Fatalf("expected 1 phase, got %d", len(result.Graph.Phases))
+	sg := result.Graph.SubgraphByID("subgraph.testpkg.install")
+	if sg == nil {
+		t.Fatal("expected subgraph subgraph.testpkg.install to be present")
 	}
-
-	phase := result.Graph.Phases[0]
-	if phase.Retry == nil {
+	if sg.Retry == nil {
 		t.Fatal("expected retry policy")
 	}
-	if phase.Retry.MaxAttempts != 3 {
-		t.Errorf("MaxAttempts = %d, want 3", phase.Retry.MaxAttempts)
+	if sg.Retry.MaxAttempts != 3 {
+		t.Errorf("MaxAttempts = %d, want 3", sg.Retry.MaxAttempts)
 	}
-	if phase.Retry.Backoff != op.BackoffExponential {
-		t.Errorf("Backoff = %q, want exponential", phase.Retry.Backoff)
+	if sg.Retry.Backoff != op.BackoffExponential {
+		t.Errorf("Backoff = %q, want exponential", sg.Retry.Backoff)
 	}
-	if phase.Retry.InitialDelay != "1s" {
-		t.Errorf("InitialDelay = %q, want '1s'", phase.Retry.InitialDelay)
+	if sg.Retry.InitialDelay != "1s" {
+		t.Errorf("InitialDelay = %q, want '1s'", sg.Retry.InitialDelay)
 	}
-	if phase.Retry.MaxDelay != "30s" {
-		t.Errorf("MaxDelay = %q, want '30s'", phase.Retry.MaxDelay)
+	if sg.Retry.MaxDelay != "30s" {
+		t.Errorf("MaxDelay = %q, want '30s'", sg.Retry.MaxDelay)
 	}
 }
 
@@ -487,38 +468,37 @@ def provision(package, phase):
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	// Should have 2 phases: install, provision (no compensate phases).
-	if len(result.Graph.Phases) != 2 {
-		var names []string
-		for _, p := range result.Graph.Phases {
-			names = append(names, p.Name)
-		}
-		t.Fatalf("expected 2 phases, got %d: %v", len(result.Graph.Phases), names)
+	// Should have 2 subgraphs: install, provision.
+	installSG := result.Graph.SubgraphByID("subgraph.ripgrep.install")
+	provisionSG := result.Graph.SubgraphByID("subgraph.ripgrep.provision")
+
+	if installSG == nil {
+		t.Fatal("expected subgraph subgraph.ripgrep.install to be present")
+	}
+	if provisionSG == nil {
+		t.Fatal("expected subgraph subgraph.ripgrep.provision to be present")
 	}
 
-	installPhase := result.Graph.Phases[0]
-	provisionPhase := result.Graph.Phases[1]
-
-	if installPhase.Name != "install" {
-		t.Errorf("phase[0] = %q, want 'install'", installPhase.Name)
+	if installSG.Name != "install" {
+		t.Errorf("install subgraph name = %q, want 'install'", installSG.Name)
 	}
-	if installPhase.Retry == nil || installPhase.Retry.MaxAttempts != 2 {
-		t.Error("install phase should have retry with max_attempts=2")
+	if installSG.Retry == nil || installSG.Retry.MaxAttempts != 2 {
+		t.Error("install subgraph should have retry with max_attempts=2")
 	}
 
-	if provisionPhase.Name != "provision" {
-		t.Errorf("phase[1] = %q, want 'provision'", provisionPhase.Name)
+	if provisionSG.Name != "provision" {
+		t.Errorf("provision subgraph name = %q, want 'provision'", provisionSG.Name)
 	}
-	if provisionPhase.Retry != nil {
-		t.Error("provision phase should not have retry policy")
+	if provisionSG.Retry != nil {
+		t.Error("provision subgraph should not have retry policy")
 	}
 
-	// Verify nodes are correctly assigned to phases.
-	if len(installPhase.NodeIDs) == 0 {
-		t.Error("install phase has no nodes")
+	// Verify children are correctly assigned to subgraphs.
+	if len(installSG.Children) == 0 {
+		t.Error("install subgraph has no children")
 	}
-	if len(provisionPhase.NodeIDs) == 0 {
-		t.Error("provision phase has no nodes")
+	if len(provisionSG.Children) == 0 {
+		t.Error("provision subgraph has no children")
 	}
 }
 
@@ -606,8 +586,8 @@ def install(package, phase):
 
 	// Verify the graph has nodes (proves plan.pkg.install() worked).
 	found := false
-	for _, node := range result.Graph.Nodes {
-		if node.ActionName() == "pkg.install" {
+	for _, node := range result.Graph.Nodes() {
+		if node.Receiver == "pkg.install" {
 			found = true
 			break
 		}
@@ -630,11 +610,9 @@ func TestPlanner_PlanPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := op.NewActionRegistry()
+	reg := op.NewReceiverRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer func() { _ = root.Close() }()
-	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
-	op.InitAll(reg, opCtx)
 
 	planner := &Planner{
 		Platform:       "Linux.Debian",
@@ -655,23 +633,21 @@ func TestPlanner_PlanPackages(t *testing.T) {
 	}
 
 	// Verify nodes were added to the graph
-	if len(graph.Nodes) == 0 {
+	if len(graph.Nodes()) == 0 {
 		t.Error("expected nodes to be added to graph")
 	}
 
-	// Verify phases were added
-	if len(graph.Phases) == 0 {
-		t.Error("expected phases to be added to graph")
+	// Verify subgraphs were added
+	if len(graph.Children) == 0 {
+		t.Error("expected children to be added to graph")
 	}
 }
 
 func TestPlanner_PlanByName(t *testing.T) {
 	tmpDir := t.TempDir()
-	reg := op.NewActionRegistry()
+	reg := op.NewReceiverRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer func() { _ = root.Close() }()
-	opCtx := op.Context{ContextBase: op.ContextBase{Root: root}}
-	op.InitAll(reg, opCtx)
 
 	planner := &Planner{
 		Platform:       "Darwin",
@@ -691,7 +667,7 @@ func TestPlanner_PlanByName(t *testing.T) {
 		t.Errorf("names = %v, want [git, vim]", names)
 	}
 
-	if len(graph.Nodes) == 0 {
+	if len(graph.Nodes()) == 0 {
 		t.Error("expected nodes to be added to graph")
 	}
 }

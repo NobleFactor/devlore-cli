@@ -10,80 +10,20 @@ import (
 
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/goast"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 func init() {
-	bind.RegisterReceiverParams(&GenDeclNodeFactory{}, GenDeclNodeMethodParams)
+	op.AnnounceType(reflect.TypeFor[provider.GenDeclNode](), map[string][]string{
+		"DeclName":    {},
+		"DeclKind":    {},
+		"DeclComment": {},
+		"DeclStyle":   {},
+		"Name":        {},
+		"Comment":     {},
+		"Kind":        {},
+		"Specs":       {},
+		"Methods":     {},
+		"GetMethod":   {"name"},
+		"Entries":     {},
+	})
 }
-
-// GenDeclNodeMethodParams maps Go method names to Starlark parameter name lists.
-var GenDeclNodeMethodParams = bind.MethodParams{
-	"DeclName":    {},
-	"DeclKind":    {},
-	"DeclComment": {},
-	"DeclStyle":   {},
-	"Name":        {},
-	"Comment":     {},
-	"Kind":        {},
-	"Specs":       {},
-	"Methods":     {},
-	"GetMethod":   {"name"},
-	"Entries":     {},
-}
-
-// GenDeclNodeFactory provides the minimal ReceiverFactory interface for dependent type marshaling.
-//
-// When op.Marshal encounters a *provider.GenDeclNode, the receiver params registry
-// directs it to WrapProviderInExecutingReceiver using this factory.
-type GenDeclNodeFactory struct{}
-
-// region EXPORTED METHODS
-
-// region State management
-
-// GetOrCreateProvider returns nil — dependent types are not created by factories.
-//
-// Parameters:
-//   - ctx: the execution context (unused).
-//
-// Returns:
-//   - op.ContextProvider: always nil.
-func (f *GenDeclNodeFactory) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-
-// ProviderType returns the reflect.Type of the dependent type struct.
-//
-// Returns:
-//   - reflect.Type: the dependent type's concrete type.
-func (f *GenDeclNodeFactory) ProviderType() reflect.Type {
-	return reflect.TypeOf(provider.GenDeclNode{})
-}
-
-// ReceiverName returns the Starlark receiver name for this dependent type.
-//
-// Returns:
-//   - string: the receiver name "gen_decl_node".
-func (f *GenDeclNodeFactory) ReceiverName() string { return "gen_decl_node" }
-
-// MethodParams returns the complete method-to-parameter mapping for GenDeclNode.
-func (f *GenDeclNodeFactory) MethodParams() map[string][]string { return GenDeclNodeMethodParams }
-
-// MethodParamsFor returns the parameter names for the given method.
-func (f *GenDeclNodeFactory) MethodParamsFor(name string) []string {
-	return GenDeclNodeMethodParams[name]
-}
-
-// endregion
-
-// region Behaviors
-
-// Register is a no-op — dependent types do not register actions.
-//
-// Parameters:
-//   - ctx: the execution context (unused).
-//   - registry: the receiver registry (unused).
-func (f *GenDeclNodeFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {}
-
-// endregion
-
-// endregion

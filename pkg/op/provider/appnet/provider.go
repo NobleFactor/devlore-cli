@@ -21,7 +21,7 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -29,13 +29,13 @@ func NewProvider(ctx op.Context) *Provider {
 //
 // Parameters:
 //   - url: network resource identifying the URL to fetch
-func (p *Provider) Download(url Resource) (_ []byte, err error) {
+func (p *Provider) Download(url *Resource) (_ []byte, err error) {
 	rawURL := url.SourceURL.String()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL comes from plan configuration
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}

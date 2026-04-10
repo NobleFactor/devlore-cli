@@ -7,11 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"reflect"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 // Resource represents an in-memory data resource identified by a mem: URI.
@@ -24,27 +21,93 @@ import (
 // detection — NOT part of the URI. Two resources with the same URI but different hashes trigger a catalog shadow.
 type Resource struct {
 	op.ResourceBase
-	ContentType string // "callable", "json", "template", etc.
-	Qualifier   string // type-specific qualifier (e.g., "file.Reducer/myfn" for callables)
+	ContentType string // "callable", "json", "template", "function", etc.
+	Namespace   string // receiver type or grouping (e.g., "file.Reducer") — empty when not applicable
+	Name        string // specific identifier (e.g., "count_python_files", "config")
 	Data        []byte // raw content
 	Hash        string // SHA-256 of Data — metadata, NOT part of URI
 }
 
-// String returns a compact JSON representation of the resource.
-func (r *Resource) String() string { return r.Format(r) }
-
-// buildURI computes the opaque mem: URI.
+// ResourceSpec carries identity and payload for constructing a mem.Resource.
 //
-// Format: mem:<content-type>/<qualifier>
-func (r *Resource) buildURI() string {
-	if r.Qualifier != "" {
-		return "mem:" + r.ContentType + "/" + r.Qualifier
-	}
-	return "mem:" + r.ContentType
+// ContentType classifies the content (e.g., "callable", "json", "template", "function").
+// Namespace is the receiver type or grouping (e.g., "file.Reducer", "Predicate") — empty for non-function resources.
+// Name is the specific identifier (e.g., "count_python_files", "config").
+// Data is an optional payload — []byte for plain resources, *starlark.Function for Function resources.
+type ResourceSpec struct {
+	ContentType string
+	Namespace   string
+	Name        string
+	Data        any
 }
+
+// URI returns the canonical mem: URI for this spec.
+//
+// Returns:
+//   - string: the opaque URI (e.g., "mem:function/file.Reducer/count_python_files").
+func (s ResourceSpec) URI() string {
+
+	uri := "mem:" + s.ContentType
+	if s.Namespace != "" {
+		uri += "/" + s.Namespace
+	}
+	if s.Name != "" {
+		uri += "/" + s.Name
+	}
+	return uri
+}
+
+// NewResource constructs a mem.Resource from a [ResourceSpec].
+//
+// If spec.Data is a []byte, it is stored as Data and the hash is computed.
+//
+// Parameters:
+//   - ctx: execution context.
+//   - value: a [ResourceSpec] with ContentType, Qualifier, and optional Data.
+//
+// Returns:
+//   - *Resource: the constructed resource.
+//   - error: if value is not a ResourceSpec or ContentType is empty.
+func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+
+	spec, ok := value.(ResourceSpec)
+	if !ok {
+		return nil, fmt.Errorf("mem.Resource: expected ResourceSpec, got %T", value)
+	}
+
+	if spec.ContentType == "" {
+		return nil, fmt.Errorf("mem.Resource: empty content type")
+	}
+
+	r := &Resource{
+		ResourceBase: op.NewResourceBase(ctx, spec.URI()),
+		ContentType:  spec.ContentType,
+		Namespace:    spec.Namespace,
+		Name:         spec.Name,
+	}
+
+	if data, ok := spec.Data.([]byte); ok {
+		r.Data = data
+		r.ComputeHash()
+	}
+
+	return r, nil
+}
+
+// region EXPORTED METHODS
+
+// region State management
+
+// String returns a compact JSON representation of the resource.
+func (r *Resource) String() string { return r.ResourceBase.Format(r) }
+
+// endregion
+
+// region Behaviors
 
 // ComputeHash calculates the SHA-256 hash of Data and stores it in Hash.
 func (r *Resource) ComputeHash() {
+
 	if len(r.Data) == 0 {
 		r.Hash = ""
 		return
@@ -53,97 +116,7 @@ func (r *Resource) ComputeHash() {
 	r.Hash = hex.EncodeToString(h[:])
 }
 
-// NewResource creates a mem.Resource with the given content type and qualifier.
-//
-// Data must be set separately; Hash is computed when ComputeHash is called.
-func NewResource(contentType, qualifier string) Resource {
-	r := Resource{
-		ContentType: contentType,
-		Qualifier:   qualifier,
-	}
-	r.SetURI(r.buildURI())
-	return r
-}
+// endregion
 
-// NewResourceWithData creates a mem.Resource with content and computes the hash.
-func NewResourceWithData(contentType, qualifier string, data []byte) Resource {
-	r := Resource{
-		ContentType: contentType,
-		Qualifier:   qualifier,
-		Data:        data,
-	}
-	r.SetURI(r.buildURI())
-	r.ComputeHash()
-	return r
-}
+// endregion
 
-// callableDesc is a resource descriptor for the CallableResource type. It registers the extraction
-// pipeline (Extract + Compile) as a constructor via AnnounceResource, enabling lazy init with
-// sync.Once protection.
-type callableDesc struct{}
-
-func (d *callableDesc) Name() string { return "mem.Callable" }
-
-func (d *callableDesc) Type() reflect.Type {
-	return reflect.TypeOf((*bind.CallableResource)(nil)).Elem()
-}
-
-func (d *callableDesc) Init() error {
-
-	op.RegisterConstructor[bind.CallableResource](func(v any) (bind.CallableResource, error) {
-		input, ok := v.(bind.CallableInput)
-		if !ok {
-			return nil, fmt.Errorf("mem.Callable: expected CallableInput, got %T", v)
-		}
-		c, err := Extract(input.Fn, input.FuncType)
-		if err != nil {
-			return nil, err
-		}
-		if err := c.Compile(); err != nil {
-			return nil, err
-		}
-		return c, nil
-	})
-	return nil
-}
-
-func init() {
-	op.AnnounceResource(&callableDesc{})
-}
-
-// ResourceFromValue constructs a mem.Resource from a string mem: URI.
-//
-// Parameters:
-//   - v: expected to be a string in the format "mem:<content-type>[/<qualifier>]"
-//
-// Returns:
-//   - Resource: initialized with the parsed content type and qualifier
-//   - error: if v is not a string or the URI format is invalid
-func ResourceFromValue(v any) (Resource, error) {
-
-	s, ok := v.(string)
-	if !ok {
-		return Resource{}, fmt.Errorf("mem.Resource: expected string URI, got %T", v)
-	}
-
-	// Parse a mem: URI back into ContentType and Qualifier. Expected format: mem:<content-type>[/<qualifier>]
-
-	if !strings.HasPrefix(s, "mem:") {
-		return Resource{}, fmt.Errorf("mem.Resource: expected mem: URI, got %q", s)
-	}
-
-	opaque := s[len("mem:"):]
-	contentType, qualifier, _ := strings.Cut(opaque, "/")
-
-	if contentType == "" {
-		return Resource{}, fmt.Errorf("mem.Resource: empty content type in %q", s)
-	}
-
-	r := Resource{
-		ContentType: contentType,
-		Qualifier:   qualifier,
-	}
-
-	r.SetURI(r.buildURI())
-	return r, nil
-}

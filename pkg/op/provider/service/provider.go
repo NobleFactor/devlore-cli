@@ -11,19 +11,19 @@ import (
 )
 
 // Provider provides platform-agnostic service management.
-// Platform-specific behavior is delegated to p.Context().Platform.ServiceManager.
+// Platform-specific behavior is delegated to p.ExecutionContext().Platform.ServiceManager.
 //
 // +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) serviceManager() (op.ServiceManager, error) {
-	plat := p.Context().Platform
+	plat := p.ExecutionContext().Platform
 	if plat == nil || plat.ServiceManager == nil {
 		return nil, fmt.Errorf("no service manager available")
 	}
@@ -36,19 +36,19 @@ func (p *Provider) serviceManager() (op.ServiceManager, error) {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Disable(name Resource) (Resource, Tombstone, error) {
+func (p *Provider) Disable(name *Resource) (*Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return Resource{}, Tombstone{}, err
+		return nil, Tombstone{}, err
 	}
 
 	wasEnabled := sm.IsEnabled(name.Name)
 
 	r := sm.Disable(name.Name)
 	if !r.OK {
-		return Resource{}, Tombstone{}, fmt.Errorf("disable %s failed: %s", name.Name, r.Stderr)
+		return nil, Tombstone{}, fmt.Errorf("disable %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "disabled service %s\n", name.Name) //nolint:errcheck // status output
+	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "disabled service %s\n", name.Name) //nolint:errcheck // status output
 	return name, Tombstone{Name: name.Name, WasEnabled: wasEnabled}, nil
 }
 
@@ -73,19 +73,19 @@ func (p *Provider) CompensateDisable(state Tombstone) error {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Enable(name Resource) (Resource, Tombstone, error) {
+func (p *Provider) Enable(name *Resource) (*Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return Resource{}, Tombstone{}, err
+		return nil, Tombstone{}, err
 	}
 
 	wasEnabled := sm.IsEnabled(name.Name)
 
 	r := sm.Enable(name.Name)
 	if !r.OK {
-		return Resource{}, Tombstone{}, fmt.Errorf("enable %s failed: %s", name.Name, r.Stderr)
+		return nil, Tombstone{}, fmt.Errorf("enable %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "enabled service %s\n", name.Name) //nolint:errcheck // status output
+	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "enabled service %s\n", name.Name) //nolint:errcheck // status output
 	return name, Tombstone{Name: name.Name, WasEnabled: wasEnabled}, nil
 }
 
@@ -111,21 +111,21 @@ func (p *Provider) CompensateEnable(state Tombstone) error {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Restart(name Resource) (Resource, Tombstone, error) {
+func (p *Provider) Restart(name *Resource) (*Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return Resource{}, Tombstone{}, err
+		return nil, Tombstone{}, err
 	}
 
 	r := sm.Stop(name.Name)
 	if !r.OK {
-		return Resource{}, Tombstone{}, fmt.Errorf("stop before restart: %s", r.Stderr)
+		return nil, Tombstone{}, fmt.Errorf("stop before restart: %s", r.Stderr)
 	}
 	r = sm.Start(name.Name)
 	if !r.OK {
-		return Resource{}, Tombstone{}, fmt.Errorf("start after restart: %s", r.Stderr)
+		return nil, Tombstone{}, fmt.Errorf("start after restart: %s", r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "restarted service %s\n", name.Name) //nolint:errcheck // status output
+	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "restarted service %s\n", name.Name) //nolint:errcheck // status output
 	return name, Tombstone{Name: name.Name}, nil
 }
 
@@ -138,19 +138,19 @@ func (p *Provider) CompensateRestart(_ Tombstone) error {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Start(name Resource) (Resource, Tombstone, error) {
+func (p *Provider) Start(name *Resource) (*Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return Resource{}, Tombstone{}, err
+		return nil, Tombstone{}, err
 	}
 
 	wasRunning := sm.IsRunning(name.Name)
 
 	r := sm.Start(name.Name)
 	if !r.OK {
-		return Resource{}, Tombstone{}, fmt.Errorf("start %s failed: %s", name.Name, r.Stderr)
+		return nil, Tombstone{}, fmt.Errorf("start %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "started service %s\n", name.Name) //nolint:errcheck // status output
+	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "started service %s\n", name.Name) //nolint:errcheck // status output
 	return name, Tombstone{Name: name.Name, WasRunning: wasRunning}, nil
 }
 
@@ -175,19 +175,19 @@ func (p *Provider) CompensateStart(state Tombstone) error {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Stop(name Resource) (Resource, Tombstone, error) {
+func (p *Provider) Stop(name *Resource) (*Resource, Tombstone, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return Resource{}, Tombstone{}, err
+		return nil, Tombstone{}, err
 	}
 
 	wasRunning := sm.IsRunning(name.Name)
 
 	r := sm.Stop(name.Name)
 	if !r.OK {
-		return Resource{}, Tombstone{}, fmt.Errorf("stop %s failed: %s", name.Name, r.Stderr)
+		return nil, Tombstone{}, fmt.Errorf("stop %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.Context().Writer, "stopped service %s\n", name.Name) //nolint:errcheck // status output
+	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "stopped service %s\n", name.Name) //nolint:errcheck // status output
 	return name, Tombstone{Name: name.Name, WasRunning: wasRunning}, nil
 }
 
@@ -214,7 +214,7 @@ func (p *Provider) CompensateStop(state Tombstone) error {
 //
 // Parameters:
 //   - name: service resource to check
-func (p *Provider) Enabled(name Resource) (bool, error) {
+func (p *Provider) Enabled(name *Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err
@@ -226,7 +226,7 @@ func (p *Provider) Enabled(name Resource) (bool, error) {
 //
 // Parameters:
 //   - name: service resource to check
-func (p *Provider) Exists(name Resource) (bool, error) {
+func (p *Provider) Exists(name *Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err
@@ -238,7 +238,7 @@ func (p *Provider) Exists(name Resource) (bool, error) {
 //
 // Parameters:
 //   - name: service resource to check
-func (p *Provider) Running(name Resource) (bool, error) {
+func (p *Provider) Running(name *Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err

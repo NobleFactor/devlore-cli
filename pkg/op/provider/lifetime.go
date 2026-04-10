@@ -11,6 +11,6 @@ type Lifetime string
 // Lifetime constants define caching, sharing, and cleanup behavior.
 const (
 	Stateless Lifetime = "stateless" // safe to cache indefinitely and share across threads
-	Phase     Lifetime = "phase"     // fresh instance per phase; Close() at phase boundary
+	Subgraph  Lifetime = "subgraph"  // fresh instance per subgraph; Close() at subgraph boundary
 	Session   Lifetime = "session"   // single instance for the session; Close() at session end
 )

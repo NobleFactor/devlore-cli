@@ -20,7 +20,7 @@ import (
 // TestConfigIntegration verifies that every extension declaring a config
 // section in its extension.yaml can:
 //
-//  1. Register its config spec and serve correct defaults via ConfigAccessor
+//  1. register its config spec and serve correct defaults via ConfigAccessor
 //  2. Accept YAML overrides via LoadFromFiles and reflect them through ConfigAccessor
 //  3. Expose the same values through the Starlark config.get() attribute chain
 //
@@ -71,7 +71,7 @@ func TestConfigIntegration(t *testing.T) {
 				config.SetGitWorkspaceRoot(t.TempDir())
 				defer config.ResetGitWorkspaceRoot()
 
-				r := NewRuntime()
+				r := NewApplication()
 				if err := r.LoadExtensionsFrom(extDir); err != nil {
 					t.Fatalf("LoadExtensionsFrom: %v", err)
 				}
@@ -114,7 +114,7 @@ func TestConfigIntegration(t *testing.T) {
 				config.SetGitWorkspaceRoot(tmpDir)
 				defer config.ResetGitWorkspaceRoot()
 
-				r := NewRuntime()
+				r := NewApplication()
 				if err := r.LoadExtensionsFrom(extDir); err != nil {
 					t.Fatalf("LoadExtensionsFrom: %v", err)
 				}
@@ -138,7 +138,7 @@ func TestConfigIntegration(t *testing.T) {
 				config.SetGitWorkspaceRoot(t.TempDir())
 				defer config.ResetGitWorkspaceRoot()
 
-				r := NewRuntime()
+				r := NewApplication()
 				if err := r.LoadExtensionsFrom(extDir); err != nil {
 					t.Fatalf("LoadExtensionsFrom: %v", err)
 				}

@@ -228,7 +228,7 @@ func TestSplit_WithCount(t *testing.T) {
 func TestCache_ReuseCompiledPattern(t *testing.T) {
 	p := &Provider{}
 
-	// Call twice with same pattern — second should use cache.
+	// Do twice with same pattern — second should use cache.
 	_, err := p.Match(`\d+`, "abc123")
 	if err != nil {
 		t.Fatalf("first Match() error: %v", err)

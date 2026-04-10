@@ -1,0 +1,493 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package op
+
+import (
+	"fmt"
+	"iter"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+// ReceiverType is the base interface for all receiver descriptors.
+//
+// Callers that need provider-specific or resource-specific behavior assert to [ProviderReceiverType] or
+// [ResourceReceiverType].
+type ReceiverType interface {
+	ReceiverName() string
+	ProviderType() reflect.Type
+	Methods() iter.Seq[*Method]
+	MethodByName(name string) (*Method, bool)
+	Do(method string, receiver any, args []any) (reflect.Value, reflect.Value, error)
+}
+
+// ProviderReceiverType extends [ReceiverType] with provider-specific capabilities.
+type ProviderReceiverType interface {
+	ReceiverType
+	Roles() ProviderRole
+	Construct() ProviderConstructor
+}
+
+// ProviderRole declares what roles a provider supports.
+type ProviderRole int
+
+const (
+	// RoleModule declares a provider as an immediate-mode starlark global.
+	RoleModule ProviderRole = 1 << iota
+
+	// RoleAction declares a provider as a plan-mode graph node creator.
+	RoleAction
+)
+
+// ResourceReceiverType extends [ReceiverType] with resource-specific capabilities.
+//
+// Resources are data types that flow through starlark code or an execution graph. They are constructed by coercing a
+// raw value (e.g., a string path becomes a file.Resource).
+type ResourceReceiverType interface {
+	ReceiverType
+	Construct() ResourceConstructor
+}
+
+// ProviderConstructor creates a provider instance bound to the given execution context.
+type ProviderConstructor func(ctx *ExecutionContext) (any, error)
+
+// ResourceConstructor coerces a value into a typed resource.
+//
+// Parameters:
+//   - ctx: the execution context.
+//   - value: type-specific input (e.g., a string path for file, a [mem.ResourceSpec] for mem).
+//
+// Returns:
+//   - any: the constructed resource.
+//   - error: non-nil if construction fails.
+type ResourceConstructor func(ctx *ExecutionContext, value any) (any, error)
+
+// receiverType holds the fields common to all receiver descriptors.
+//
+// It can be used to represent any Go type by reflection.
+type receiverType struct {
+	providerType  reflect.Type
+	name          string
+	methods       []*Method
+	methodMap     map[string]*Method
+	dispatchTable *sync.Map
+}
+
+// dispatcher is the cached dispatch closure signature.
+type dispatcher func(receiver any, args []any) (reflect.Value, reflect.Value, error)
+
+// NewReceiverType creates a ReceiverType for an arbitrary Go type via reflection.
+//
+// Parameters:
+//   - providerType: the Go type (pointer or struct).
+//   - methodParameters: starlark parameter names per Go method, or nil for positional names.
+//
+// Returns:
+//   - ReceiverType: the receiver type descriptor.
+//   - error: non-nil if the type cannot be introspected.
+func NewReceiverType(providerType reflect.Type, methodParameters map[string][]string) (ReceiverType, error) {
+
+	base, err := newReceiverType(providerType, methodParameters)
+	if err != nil {
+		return nil, err
+	}
+	return &base, nil
+}
+
+// MethodByName returns the method registered under the given Go name.
+//
+// Parameters:
+//   - name: the Go method name (CamelCase, e.g., "WriteText").
+//
+// Returns:
+//   - *Method: the method descriptor.
+//   - bool: true if found.
+func (t *receiverType) MethodByName(name string) (*Method, bool) {
+	m, ok := t.methodMap[name]
+	return m, ok
+}
+
+// Methods returns an iterator over the receiver's methods, sorted by name.
+//
+// Returns:
+//   - iter.Seq[*Method]: the method iterator.
+func (t *receiverType) Methods() iter.Seq[*Method] {
+
+	return func(yield func(*Method) bool) {
+		for _, m := range t.methods {
+			if !yield(m) {
+				return
+			}
+		}
+	}
+}
+
+// ProviderType returns the reflect.Type of the provider or resource struct.
+//
+// Returns:
+//   - reflect.Type: the type.
+func (t *receiverType) ProviderType() reflect.Type { return t.providerType }
+
+// ReceiverName returns the name used to identify this receiver in starlark.
+//
+// Returns:
+//   - string: the receiver name (e.g., "file", "file.Resource").
+func (t *receiverType) ReceiverName() string { return t.name }
+
+// Do invokes the named method on receiver with the given arguments.
+//
+// On the first call for a given method, Do builds and caches an optimized dispatch closure that captures the method's
+// reflect.Func, pre-computed zero values for nil arguments, and the return extraction path. Subsequent calls bypass all
+// per-method setup and go straight through the cached closure.
+//
+// Parameters:
+//   - method: the Go method name (CamelCase, e.g., "WriteText").
+//   - receiver: the Go object to invoke the method on.
+//   - args: positional arguments (nil entries become zero values of the parameter type).
+//
+// Returns:
+//   - reflect.Value: the result (invalid if the method returns nothing).
+//   - reflect.Value: the compensation state (invalid unless compensable).
+//   - error: the method's error return, or a lookup error if the method doesn't exist.
+func (t *receiverType) Do(method string, receiver any, args []any) (reflect.Value, reflect.Value, error) {
+
+	fn, ok := t.dispatchTable.Load(method)
+
+	if !ok {
+		m, found := t.methodMap[method]
+		if !found {
+			return reflect.Value{}, reflect.Value{}, fmt.Errorf("%s has no method %s", t.name, method)
+		}
+		fn, _ = t.dispatchTable.LoadOrStore(method, compileDispatcher(m))
+	}
+
+	return fn.(dispatcher)(receiver, args)
+}
+
+// providerReceiverType is the concrete descriptor for providers.
+type providerReceiverType struct {
+	receiverType
+	roles     ProviderRole
+	construct ProviderConstructor
+}
+
+// NewProviderReceiverType creates a [ProviderReceiverType] from a provider's reflect.Type and its capabilities.
+//
+// Parameters:
+//   - providerType: the provider's reflect.Type.
+//   - construct: creates a provider instance from ExecutionContext.
+//   - roles: the provider's declared roles (RoleModule, RoleAction, or both).
+//   - methodParameters: starlark parameter names per Go method.
+//
+// Returns:
+//   - ProviderReceiverType: the descriptor.
+//   - error: non-nil if method classification fails.
+func NewProviderReceiverType(
+	providerType reflect.Type,
+	construct ProviderConstructor,
+	roles ProviderRole,
+	methodParameters map[string][]string,
+) (ProviderReceiverType, error) {
+
+	base, err := newReceiverType(providerType, methodParameters)
+	if err != nil {
+		return nil, err
+	}
+
+	return &providerReceiverType{
+		receiverType: base,
+		construct:    construct,
+		roles:        roles,
+	}, nil
+}
+
+// region EXPORTED METHODS
+
+// region State management
+
+// Construct returns the provider constructor function.
+//
+// Returns:
+//   - ProviderConstructor: the constructor.
+func (rt *providerReceiverType) Construct() ProviderConstructor { return rt.construct }
+
+// Roles returns the provider's declared roles.
+//
+// Returns:
+//   - ProviderRole: the role flags.
+func (rt *providerReceiverType) Roles() ProviderRole { return rt.roles }
+
+// endregion
+
+// endregion
+
+// resourceReceiverType is the concrete descriptor for resources.
+type resourceReceiverType struct {
+	receiverType
+	construct ResourceConstructor
+}
+
+// NewResourceReceiverType creates a [ResourceReceiverType] from a resource's reflect.Type.
+//
+// Parameters:
+//   - resourceType: the resource's reflect.Type.
+//   - construct: coerces a raw value into the typed resource.
+//   - methodParameters: starlark parameter names per Go method.
+//
+// Returns:
+//   - ResourceReceiverType: the descriptor.
+//   - error: non-nil if method classification fails.
+func NewResourceReceiverType(
+	resourceType reflect.Type,
+	construct ResourceConstructor,
+	methodParameters map[string][]string,
+) (ResourceReceiverType, error) {
+
+	base, err := newReceiverType(resourceType, methodParameters)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resourceReceiverType{
+		receiverType: base,
+		construct:    construct,
+	}, nil
+}
+
+// region EXPORTED METHODS
+
+// region State management
+
+// Construct returns the resource constructor (coercion function).
+//
+// Returns:
+//   - ResourceConstructor: the constructor.
+func (rt *resourceReceiverType) Construct() ResourceConstructor { return rt.construct }
+
+// endregion
+
+// endregion
+
+// newReceiverType builds the shared descriptor fields from a reflect.Type and method parameter map.
+//
+// Parameters:
+//   - providerType: the reflect.Type of the provider or resource.
+//   - methodParameters: starlark parameter names per Go method.
+//
+// Returns:
+//   - *receiverType: the populated base.
+//   - error: non-nil if method classification fails.
+func newReceiverType(providerType reflect.Type, methodParameters map[string][]string) (receiverType, error) {
+
+	name := receiverName(providerType)
+	methods := make([]*Method, 0, len(methodParameters))
+	methodMap := make(map[string]*Method, len(methodParameters))
+
+	// Use the pointer type so pointer-receiver methods are visible to reflect.
+	methodType := providerType
+	if methodType.Kind() != reflect.Ptr {
+		methodType = reflect.PointerTo(methodType)
+	}
+
+	if methodParameters != nil {
+
+		for reflectedMethod := range methodType.Methods() {
+
+			if parameters, ok := methodParameters[reflectedMethod.Name]; ok {
+
+				method, err := methodFromReflectedMethod(methodType, reflectedMethod, parameters)
+
+				if err != nil {
+					return receiverType{}, err
+				}
+
+				methodMap[method.Name()] = method
+				methods = append(methods, method)
+			}
+		}
+
+	} else {
+
+		for reflectedMethod := range methodType.Methods() {
+
+			numParams := reflectedMethod.Type.NumIn() - 1 // exclude receiver
+			parameters := make([]string, numParams)
+
+			for i := range numParams {
+				parameters[i] = strconv.Itoa(i)
+			}
+
+			method, err := methodFromReflectedMethod(providerType, reflectedMethod, parameters)
+
+			if err != nil {
+				return receiverType{}, err
+			}
+
+			methodMap[method.Name()] = method
+			methods = append(methods, method)
+		}
+	}
+
+	return receiverType{
+		providerType:  providerType,
+		name:          name,
+		methods:       methods,
+		methodMap:     methodMap,
+		dispatchTable: &sync.Map{},
+	}, nil
+}
+
+// region HELPER FUNCTIONS
+
+// compileDispatcher creates an optimized dispatch closure for a method.
+//
+// The closure captures the method's reflect.Func, pre-computed zero values, the variadic flag, and the return
+// extraction path so that none of this work repeats on subsequent calls.
+func compileDispatcher(m *Method) dispatcher {
+
+	fn := m.do.Func
+	numParams := m.do.Type.NumIn() - 1
+	isVariadic := m.do.Type.IsVariadic()
+
+	// Pre-compute zero values for each parameter type.
+
+	zeros := make([]reflect.Value, numParams)
+
+	for i := range numParams {
+		zeros[i] = reflect.Zero(m.do.Type.In(i + 1))
+	}
+
+	// Select the return extraction path once.
+
+	callMethod := func(args []reflect.Value) []reflect.Value {
+		if isVariadic {
+			return fn.CallSlice(args)
+		}
+		return fn.Call(args)
+	}
+
+	packArgs := func(receiver any, args []any) []reflect.Value {
+
+		values := make([]reflect.Value, len(args)+1)
+		values[0] = reflect.ValueOf(receiver)
+
+		for i, arg := range args {
+			if arg == nil {
+				values[i+1] = zeros[i]
+			} else {
+				values[i+1] = reflect.ValueOf(arg)
+			}
+		}
+
+		return values
+	}
+
+	toErrorOrNil := func(rv reflect.Value) error {
+		if rv.IsNil() {
+			return nil
+		}
+		return rv.Interface().(error)
+	}
+
+	switch m.kind {
+	case MethodAction:
+		return func(receiver any, args []any) (reflect.Value, reflect.Value, error) {
+			callMethod(packArgs(receiver, args))
+			return reflect.Value{}, reflect.Value{}, nil
+		}
+
+	case MethodFallibleAction:
+		return func(receiver any, args []any) (reflect.Value, reflect.Value, error) {
+			results := callMethod(packArgs(receiver, args))
+			return reflect.Value{}, reflect.Value{}, toErrorOrNil(results[0])
+		}
+
+	case MethodFunction:
+		return func(receiver any, args []any) (reflect.Value, reflect.Value, error) {
+			results := callMethod(packArgs(receiver, args))
+			return results[0], reflect.Value{}, nil
+		}
+
+	case MethodFallibleFunction:
+		return func(receiver any, args []any) (reflect.Value, reflect.Value, error) {
+			results := callMethod(packArgs(receiver, args))
+			return results[0], reflect.Value{}, toErrorOrNil(results[1])
+		}
+
+	case MethodCompensableFunction:
+		return func(receiver any, args []any) (reflect.Value, reflect.Value, error) {
+			results := callMethod(packArgs(receiver, args))
+			return results[0], results[1], toErrorOrNil(results[2])
+		}
+	}
+
+	panic("unreachable")
+}
+
+// methodFromReflectedMethod creates a [Method] from a reflected Go method on a receiver type.
+//
+// Companion discovery is automatic:
+//   - If a method with name "<Name>Planned" exists on the receiver type, it is attached as the plan-time output
+//     spec companion. Its signature must match the forward method (same parameters) and return (T, error) where T
+//     matches the forward method's first return type. [NewMethod] validates the match and returns an error on
+//     mismatch.
+//   - If the forward method is compensable (returns T, U, error), a method with name "Compensate<Name>" is
+//     required on the receiver type. Its absence is a fatal error.
+//
+// Parameters:
+//   - providerType: the reflect.Type of the receiver (pointer type) for companion lookup.
+//   - method: the reflected Go method.
+//   - parameters: parameter names matching the method's non-receiver parameters.
+//
+// Returns:
+//   - *Method: the classified method.
+//   - error: non-nil if the return signature is invalid or a required companion is missing.
+func methodFromReflectedMethod(providerType reflect.Type, method reflect.Method, parameters []string) (*Method, error) {
+
+	mt := method.Type
+	numOut := mt.NumOut()
+	lastIsError := numOut > 0 && mt.Out(numOut-1).Implements(errorType)
+
+	var plannedMethod *reflect.Method
+
+	if planned, ok := providerType.MethodByName(method.Name + "Planned"); ok {
+		plannedMethod = &planned
+	}
+
+	var undoMethod *reflect.Method
+
+	if numOut == 3 && lastIsError {
+		compensateName := "Compensate" + method.Name
+		compensateMethod, ok := providerType.MethodByName(compensateName)
+		if !ok {
+			return nil, fmt.Errorf("compensable method %s requires a %s companion on %s",
+				method.Name,
+				compensateName,
+				providerType.Elem().Name())
+		}
+		undoMethod = &compensateMethod
+	}
+
+	return NewMethod(&method, parameters, plannedMethod, undoMethod)
+}
+
+func receiverName(providerType reflect.Type) string {
+
+	if providerType.Kind() == reflect.Ptr {
+		providerType = providerType.Elem()
+	}
+
+	switch providerType.Name() {
+	case "Provider":
+		return providerType.PkgPath()[strings.LastIndex(providerType.PkgPath(), "/")+1:]
+	case "Resource":
+		return providerType.PkgPath()[strings.LastIndex(providerType.PkgPath(), "/")+1:] + ".Resource"
+	default:
+		return providerType.Name()
+	}
+}
+
+// endregion

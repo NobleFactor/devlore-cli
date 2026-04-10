@@ -101,68 +101,15 @@ func (t *testParamMethod) ZeroArg() string {
 	return "zero"
 }
 
-func init() {
-	RegisterTypeParams(reflect.TypeOf(testParamMethod{}), MethodParams{
-		"Greet":    {"name"},
-		"GreetErr": {"name"},
-	})
-}
 
 // endregion
 
-// region METHOD DISCOVERY TESTS
+// region TYPEINFO TESTS
 
-func TestGetTypeInfo_DiscoversMethods(t *testing.T) {
+func TestGetTypeInfo_AttrListIncludesFields(t *testing.T) {
 	info := getTypeInfo(reflect.TypeOf(testParagraph{}))
 
-	if len(info.methods) != 2 {
-		t.Fatalf("expected 2 methods, got %d", len(info.methods))
-	}
-
-	if _, ok := info.byMethod["text"]; !ok {
-		t.Error("expected method 'text' in byMethod")
-	}
-	if _, ok := info.byMethod["word_count"]; !ok {
-		t.Error("expected method 'word_count' in byMethod")
-	}
-}
-
-func TestGetTypeInfo_ExcludesUnsupportedSignatures(t *testing.T) {
-	info := getTypeInfo(reflect.TypeOf(testUnsupportedSig{}))
-
-	if len(info.methods) != 0 {
-		names := make([]string, 0, len(info.methods))
-		for _, m := range info.methods {
-			names = append(names, m.starName)
-		}
-		t.Errorf("expected 0 methods, got %d: %v", len(info.methods), names)
-	}
-}
-
-func TestGetTypeInfo_ExcludesStringerFromMethods(t *testing.T) {
-	info := getTypeInfo(reflect.TypeOf(testStringer{}))
-
-	if _, ok := info.byMethod["string"]; ok {
-		t.Error("String() should not appear as a method attr")
-	}
-}
-
-func TestGetTypeInfo_MethodWithError(t *testing.T) {
-	info := getTypeInfo(reflect.TypeOf(testWithError{}))
-
-	mi, ok := info.byMethod["compute"]
-	if !ok {
-		t.Fatal("expected method 'compute' in byMethod")
-	}
-	if !mi.hasError {
-		t.Error("expected hasError=true for Compute() (string, error)")
-	}
-}
-
-func TestGetTypeInfo_AttrListIncludesMethodsAndFields(t *testing.T) {
-	info := getTypeInfo(reflect.TypeOf(testParagraph{}))
-
-	want := []string{"text", "word_count", "words"}
+	want := []string{"words"}
 	if !reflect.DeepEqual(info.attrList, want) {
 		t.Errorf("attrList = %v, want %v", info.attrList, want)
 	}
@@ -205,68 +152,6 @@ func TestStructValue_FieldAttr(t *testing.T) {
 	}
 }
 
-func TestStructValue_MethodAttr(t *testing.T) {
-	p := &testParagraph{Words: []string{"hello", "world"}}
-	sv, err := Marshal(p)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	ha := sv.(starlark.HasAttrs)
-
-	textVal, err := ha.Attr("text")
-	if err != nil {
-		t.Fatalf("Attr(text) error: %v", err)
-	}
-	s, ok := textVal.(starlark.String)
-	if !ok {
-		t.Fatalf("expected starlark.String, got %T", textVal)
-	}
-	if string(s) != "hello world" {
-		t.Errorf("text = %q, want %q", string(s), "hello world")
-	}
-}
-
-func TestStructValue_MethodWithErrorSuccess(t *testing.T) {
-	v := &testWithError{ShouldFail: false}
-	sv, err := Marshal(v)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	ha := sv.(starlark.HasAttrs)
-
-	result, err := ha.Attr("compute")
-	if err != nil {
-		t.Fatalf("Attr(compute) error: %v", err)
-	}
-	s, ok := result.(starlark.String)
-	if !ok {
-		t.Fatalf("expected starlark.String, got %T", result)
-	}
-	if string(s) != "ok" {
-		t.Errorf("compute = %q, want %q", string(s), "ok")
-	}
-}
-
-func TestStructValue_MethodWithErrorPropagates(t *testing.T) {
-	v := &testWithError{ShouldFail: true}
-	sv, err := Marshal(v)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	ha := sv.(starlark.HasAttrs)
-
-	_, err = ha.Attr("compute")
-	if err == nil {
-		t.Fatal("expected error from Attr(compute)")
-	}
-	if !strings.Contains(err.Error(), "computation failed") {
-		t.Errorf("error = %q, want to contain %q", err, "computation failed")
-	}
-}
-
 func TestStructValue_NoSuchAttr(t *testing.T) {
 	p := &testParagraph{Words: []string{"a"}}
 	sv, err := Marshal(p)
@@ -282,22 +167,6 @@ func TestStructValue_NoSuchAttr(t *testing.T) {
 	}
 }
 
-func TestStructValue_AttrNames(t *testing.T) {
-	p := &testParagraph{Words: []string{"a"}}
-	sv, err := Marshal(p)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	ha := sv.(starlark.HasAttrs)
-	names := ha.AttrNames()
-
-	want := []string{"text", "word_count", "words"}
-	if !reflect.DeepEqual(names, want) {
-		t.Errorf("AttrNames = %v, want %v", names, want)
-	}
-}
-
 // endregion
 
 // region STRING REPRESENTATION TESTS
@@ -310,29 +179,6 @@ func TestStructValue_StringWithStringer(t *testing.T) {
 	}
 	if sv.String() != "custom:hello" {
 		t.Errorf("String() = %q, want %q", sv.String(), "custom:hello")
-	}
-}
-
-func TestStructValue_StringWithoutStringer(t *testing.T) {
-	p := &testPoint{X: 10, Y: 20}
-	sv, err := Marshal(p)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-	got := sv.String()
-	if !strings.Contains(got, "test_point(") {
-		t.Errorf("String() = %q, want to contain %q", got, "test_point(")
-	}
-}
-
-func TestStructValue_Type(t *testing.T) {
-	p := &testParagraph{Words: []string{"a"}}
-	sv, err := Marshal(p)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-	if sv.Type() != "test_paragraph" {
-		t.Errorf("Type() = %q, want %q", sv.Type(), "test_paragraph")
 	}
 }
 
@@ -378,21 +224,6 @@ func TestStructValue_UnmarshalRoundTrip(t *testing.T) {
 
 // region PARAMETERIZED METHOD TESTS
 
-func TestDiscoverMethods_ParameterizedMethodDiscovered(t *testing.T) {
-	info := getTypeInfo(reflect.TypeOf(testParamMethod{}))
-
-	mi, ok := info.byMethod["greet"]
-	if !ok {
-		t.Fatal("expected method 'greet' in byMethod")
-	}
-	if mi.numIn != 1 {
-		t.Errorf("greet numIn = %d, want 1", mi.numIn)
-	}
-	if len(mi.paramNames) != 1 || mi.paramNames[0] != "name" {
-		t.Errorf("greet paramNames = %v, want [name]", mi.paramNames)
-	}
-}
-
 func TestStructValue_ParameterizedMethodReturnsBuiltin(t *testing.T) {
 	v := &testParamMethod{Prefix: "Hello"}
 	sv, err := Marshal(v)
@@ -429,29 +260,6 @@ func TestStructValue_ParameterizedMethodPositionalArg(t *testing.T) {
 	}
 	if s, ok := result.(starlark.String); !ok || string(s) != "Hello World" {
 		t.Errorf("result = %v, want %q", result, "Hello World")
-	}
-}
-
-func TestStructValue_ParameterizedMethodKeywordArg(t *testing.T) {
-	v := &testParamMethod{Prefix: "Hi"}
-	sv, err := Marshal(v)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-	ha := sv.(starlark.HasAttrs)
-
-	attr, err := ha.Attr("greet")
-	if err != nil {
-		t.Fatalf("Attr(greet) error: %v", err)
-	}
-	builtin := attr.(*starlark.Builtin)
-	kwargs := []starlark.Tuple{{starlark.String("name"), starlark.String("Bob")}}
-	result, err := starlark.Call(&starlark.Thread{}, builtin, nil, kwargs)
-	if err != nil {
-		t.Fatalf("call error: %v", err)
-	}
-	if s, ok := result.(starlark.String); !ok || string(s) != "Hi Bob" {
-		t.Errorf("result = %v, want %q", result, "Hi Bob")
 	}
 }
 
@@ -493,51 +301,6 @@ func TestStructValue_ParameterizedMethodMissingArg(t *testing.T) {
 	_, err = starlark.Call(&starlark.Thread{}, builtin, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing required arg")
-	}
-}
-
-func TestStructValue_ZeroArgMethodStillAutoInvoked(t *testing.T) {
-	v := &testParamMethod{Prefix: "Hi"}
-	sv, err := Marshal(v)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-	ha := sv.(starlark.HasAttrs)
-
-	result, err := ha.Attr("zero_arg")
-	if err != nil {
-		t.Fatalf("Attr(zero_arg) error: %v", err)
-	}
-	// Zero-arg methods are auto-invoked, returning the value directly (not a Builtin).
-	if _, ok := result.(*starlark.Builtin); ok {
-		t.Error("zero-arg method should be auto-invoked, not return a Builtin")
-	}
-	if s, ok := result.(starlark.String); !ok || string(s) != "zero" {
-		t.Errorf("zero_arg = %v, want %q", result, "zero")
-	}
-}
-
-func TestStructValue_UnregisteredParamMethodExcluded(t *testing.T) {
-	// testUnsupportedSig.Transform takes a param but is NOT registered.
-	info := getTypeInfo(reflect.TypeOf(testUnsupportedSig{}))
-
-	if _, ok := info.byMethod["transform"]; ok {
-		t.Error("unregistered parameterized method should not appear in byMethod")
-	}
-}
-
-func TestStructValue_AttrNamesIncludesParameterizedMethods(t *testing.T) {
-	info := getTypeInfo(reflect.TypeOf(testParamMethod{}))
-
-	found := false
-	for _, name := range info.attrList {
-		if name == "greet" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("attrList = %v, want to contain 'greet'", info.attrList)
 	}
 }
 

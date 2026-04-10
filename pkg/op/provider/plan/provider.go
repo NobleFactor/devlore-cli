@@ -2,9 +2,9 @@
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 // Package plan provides graph-construction actions for the plan namespace.
-// Its methods execute during script evaluation to create nodes in the
-// operation graph. The plan Provider is an executing receiver — not a planning
-// receiver — because its methods run immediately to build the graph.
+//
+// Its methods execute during script evaluation to create nodes in the operation graph. The plan Provider is an
+// executing receiver — not a planning receiver — because its methods run immediately to build the graph.
 package plan
 
 import (
@@ -15,25 +15,102 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
-var _ op.ContextProvider = (*Provider)(nil) // Interface Guard
+var _ op.Provider = (*Provider)(nil) // Interface Guard
 
 // Provider creates graph nodes for plan-time graph construction.
 //
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
+	Graph *op.Graph
 }
 
 // NewProvider creates a plan Provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+//
+// The graph is obtained from ctx.Data["graph"]. If no graph is provided, a new one is created.
+func NewProvider(ctx *op.ExecutionContext) *Provider {
+	graph, _ := ctx.Data["graph"].(*op.Graph)
+	if graph == nil {
+		graph = op.NewGraph(ctx)
+	}
 	return &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
-	}
+		Graph:        graph}
 }
 
 // region EXPORTED METHODS
 
-// region Behaviors
+// Choose creates a conditional branch in the execution graph.
+//
+// Parameters:
+//   - when: Promise from a predicate action (bool-returning).
+//   - then: callable that builds graph nodes for the true branch.
+//
+// Returns:
+//   - *bind.Promise: promise for the choose node.
+//   - error: any error during branch construction.
+func (p *Provider) Choose(when *bind.Promise, then func() error) (*bind.Promise, error) {
+
+	// Snapshot current children to capture nodes added by the callback.
+
+	childrenBefore := len(p.Graph.Children)
+
+	// Execute the callback to build sub-graph nodes.
+
+	if err := then(); err != nil {
+		return nil, fmt.Errorf("choose: then callback: %w", err)
+	}
+
+	// Move newly added children into a branch subgraph.
+
+	branchID := op.GenerateNodeID("choose-branch")
+
+	newChildren := p.Graph.Children[childrenBefore:]
+
+	branchSG := &op.Subgraph{
+		ID:       branchID,
+		Name:     "choose-branch",
+		Children: append([]op.SubgraphChild{}, newChildren...),
+		Status:   op.SubgraphPending,
+		Branch:   true,
+	}
+
+	p.Graph.Children = p.Graph.Children[:childrenBefore]
+
+	// Move edges whose endpoints are both in this branch subgraph.
+	childIDs := make(map[string]bool, len(newChildren))
+	for _, c := range newChildren {
+		childIDs[c.ChildID()] = true
+	}
+
+	var kept []op.Edge
+	for _, e := range p.Graph.Edges {
+		if childIDs[e.From] && childIDs[e.To] {
+			branchSG.Edges = append(branchSG.Edges, e)
+		} else {
+			kept = append(kept, e)
+		}
+	}
+	p.Graph.Edges = kept
+
+	p.Graph.AddSubgraph(branchSG)
+
+	// Create the choose node.
+
+	chooseNode := &op.Node{
+		ID:       op.GenerateNodeID("choose"),
+		Receiver: "flow.choose",
+	}
+
+	// Wire predicate output → choose "when" slot (creates edge).
+
+	when.FillSlot(chooseNode, "when")
+	chooseNode.SetSlotImmediate("then", branchID)
+
+	p.Graph.AddNode(chooseNode)
+
+	return bind.NewPromise(p.Graph, chooseNode, ""), nil
+}
 
 // Complete creates a terminal node representing healthy conclusion.
 //
@@ -46,18 +123,16 @@ func NewProvider(ctx op.Context) *Provider {
 //   - *bind.Promise: promise for the terminal node.
 //   - error: any error from slot filling.
 func (p *Provider) Complete(output any) (*bind.Promise, error) {
-	ctx := p.Context()
-	graph := ctx.Graph
+
 	node := &op.Node{
-		ID:      op.GenerateNodeID("complete"),
-		Action:  p.actionRegistry().MustGet("flow.complete"),
-		Project: p.project(),
+		ID:       op.GenerateNodeID("complete"),
+		Receiver: "flow.complete",
 	}
 
 	p.fillSlot(node, "output", output)
+	p.Graph.AddNode(node)
 
-	graph.Nodes = append(graph.Nodes, node)
-	return bind.NewPromise(node, graph, ""), nil
+	return bind.NewPromise(p.Graph, node, ""), nil
 }
 
 // Degraded creates a terminal node representing degraded conclusion.
@@ -71,20 +146,18 @@ func (p *Provider) Complete(output any) (*bind.Promise, error) {
 //   - *bind.Promise: promise for the terminal node.
 //   - error: any error from slot filling.
 func (p *Provider) Degraded(format any, args []any, kwargs map[string]any) (*bind.Promise, error) {
-	ctx := p.Context()
-	graph := ctx.Graph
+
 	node := &op.Node{
-		ID:      op.GenerateNodeID("degraded"),
-		Action:  p.actionRegistry().MustGet("flow.degraded"),
-		Project: p.project(),
+		ID:       op.GenerateNodeID("degraded"),
+		Receiver: "flow.degraded",
 	}
 
 	p.fillSlot(node, "format", format)
 	p.fillListSlot(node, "args", args)
 	p.fillDictSlot(node, "kwargs", kwargs)
 
-	graph.Nodes = append(graph.Nodes, node)
-	return bind.NewPromise(node, graph, ""), nil
+	p.Graph.AddNode(node)
+	return bind.NewPromise(p.Graph, node, ""), nil
 }
 
 // Fatal creates a terminal node representing fatal conclusion.
@@ -98,20 +171,35 @@ func (p *Provider) Degraded(format any, args []any, kwargs map[string]any) (*bin
 //   - *bind.Promise: promise for the terminal node.
 //   - error: any error from slot filling.
 func (p *Provider) Fatal(format any, args []any, kwargs map[string]any) (*bind.Promise, error) {
-	ctx := p.Context()
-	graph := ctx.Graph
+
 	node := &op.Node{
-		ID:      op.GenerateNodeID("fatal"),
-		Action:  p.actionRegistry().MustGet("flow.fatal"),
-		Project: p.project(),
+		ID:       op.GenerateNodeID("fatal"),
+		Receiver: "flow.fatal",
 	}
 
 	p.fillSlot(node, "format", format)
 	p.fillListSlot(node, "args", args)
 	p.fillDictSlot(node, "kwargs", kwargs)
 
-	graph.Nodes = append(graph.Nodes, node)
-	return bind.NewPromise(node, graph, ""), nil
+	p.Graph.AddNode(node)
+	return bind.NewPromise(p.Graph, node, ""), nil
+}
+
+// Gather collects promises for fan-in parallel execution.
+//
+// Parameters:
+//   - promises: two or more Promise values to gather.
+//
+// Returns:
+//   - []*bind.Promise: the gathered promises.
+//   - error: if fewer than 2 promises provided.
+func (p *Provider) Gather(promises ...*bind.Promise) ([]*bind.Promise, error) {
+
+	if len(promises) < 2 {
+		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(promises))
+	}
+
+	return promises, nil
 }
 
 // WaitUntil creates a synchronization node that polls a predicate.
@@ -124,92 +212,40 @@ func (p *Provider) Fatal(format any, args []any, kwargs map[string]any) (*bind.P
 //   - timeout: maximum wait time.
 //   - interval: poll interval (default 5s). Optional.
 //
+// Is
 // Returns:
 //   - *bind.Promise: promise for the wait node output.
 //   - error: any error from slot filling.
 func (p *Provider) WaitUntil(target, predicate any, timeout, interval time.Duration) (*bind.Promise, error) {
-	ctx := p.Context()
-	graph := ctx.Graph
+
 	node := &op.Node{
-		ID:      op.GenerateNodeID("wait-until"),
-		Action:  p.actionRegistry().MustGet("flow.wait_until"),
-		Project: p.project(),
+		ID:       op.GenerateNodeID("wait-until"),
+		Receiver: "flow.wait_until",
 	}
 
 	p.fillSlot(node, "target", target)
 	p.fillSlot(node, "predicate", predicate)
 	p.fillSlot(node, "timeout", timeout)
+
 	if interval > 0 {
 		p.fillSlot(node, "interval", interval)
 	}
 
-	graph.Nodes = append(graph.Nodes, node)
-	return bind.NewPromise(node, graph, ""), nil
+	p.Graph.AddNode(node)
+	return bind.NewPromise(p.Graph, node, ""), nil
 }
 
-// Gather collects promises for fan-in parallel execution.
+// ResolveAttr implements op.AttributeResolver.
 //
-// Parameters:
-//   - promises: two or more Promise values to gather.
-//
-// Returns:
-//   - []*bind.Promise: the gathered promises.
-//   - error: if fewer than 2 promises provided.
-func (p *Provider) Gather(promises ...*bind.Promise) ([]*bind.Promise, error) {
-	if len(promises) < 2 {
-		return nil, fmt.Errorf("gather: expected at least 2 arguments, got %d", len(promises))
+// It routes sub-namespace lookups (e.g., plan.file, plan.git) to the corresponding [bind.Planner].
+func (p *Provider) ResolveAttr(name string) any {
+
+	prt, ok := p.ExecutionContext().Registry.ActionByName(name)
+	if !ok {
+		return nil
 	}
 
-	return promises, nil
-}
-
-// Choose creates a conditional branch in the execution graph.
-//
-// Parameters:
-//   - when: Promise from a predicate action (bool-returning).
-//   - then: callable that builds graph nodes for the true branch.
-//
-// Returns:
-//   - *bind.Promise: promise for the choose node.
-//   - error: any error during branch construction.
-func (p *Provider) Choose(when *bind.Promise, then func() error) (*bind.Promise, error) {
-	ctx := p.Context()
-	graph := ctx.Graph
-
-	// Snapshot current graph state to track nodes added by the callback.
-	nodesBefore := len(graph.Nodes)
-
-	// Execute the callback to build sub-graph nodes.
-	if err := then(); err != nil {
-		return nil, fmt.Errorf("choose: then callback: %w", err)
-	}
-
-	// Collect nodes added by the callback into a branch phase.
-	branchPhaseID := op.GenerateNodeID("choose-branch")
-	branchPhase := &op.Phase{
-		ID:     branchPhaseID,
-		Name:   "choose-branch",
-		Status: op.PhasePending,
-		Branch: true,
-	}
-	for i := nodesBefore; i < len(graph.Nodes); i++ {
-		branchPhase.NodeIDs = append(branchPhase.NodeIDs, graph.Nodes[i].ID)
-	}
-	graph.Phases = append(graph.Phases, branchPhase)
-
-	// Create the choose node.
-	chooseNode := &op.Node{
-		ID:      op.GenerateNodeID("choose"),
-		Action:  p.actionRegistry().MustGet("flow.choose"),
-		Project: p.project(),
-	}
-
-	// Wire predicate output → choose "when" slot (creates edge).
-	when.FillSlot(chooseNode, "when")
-	chooseNode.SetSlotImmediate("then", branchPhaseID)
-
-	graph.Nodes = append(graph.Nodes, chooseNode)
-	return bind.NewPromise(chooseNode, graph, ""), nil
+	return bind.NewPlanner(prt, p.Graph)
 }
 
 // endregion
@@ -220,36 +256,8 @@ func (p *Provider) Choose(when *bind.Promise, then func() error) (*bind.Promise,
 
 // region Behaviors
 
-// actionRegistry returns the ReceiverRegistry from the context.
-func (p *Provider) actionRegistry() *op.ReceiverRegistry {
-	return p.Context().Data["action_registry"].(*op.ReceiverRegistry)
-}
-
-// project returns the project name from the context.
-func (p *Provider) project() string {
-	return p.Context().Data["project"].(string)
-}
-
-// ResolveAttr implements op.AttributeResolver. It routes sub-namespace lookups
-// (e.g., plan.file, plan.git) to the corresponding PlanningReceiverFactory.
-func (p *Provider) ResolveAttr(name string) any {
-	ctx := p.Context()
-	for _, r := range op.Receivers() {
-		if r.ReceiverName() != name {
-			continue
-		}
-		if pf, ok := r.(bind.PlanningReceiverFactory); ok {
-			return pf.NewPlanning(
-				ctx.Graph,
-				p.project(),
-				p.actionRegistry(),
-			)
-		}
-	}
-	return nil
-}
-
 // fillSlot fills a slot on a node from a Go value.
+//
 // Handles Promise, nil, and immediate values.
 func (p *Provider) fillSlot(node *op.Node, slotName string, value any) {
 	if value == nil {

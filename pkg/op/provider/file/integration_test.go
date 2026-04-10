@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
@@ -15,35 +16,51 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx(t *testing.T) (ctx op.Context, dir string) {
+func testCtx(t *testing.T) (ctx *op.ExecutionContext, dir string) {
 	t.Helper()
 	dir = t.TempDir()
 	root := op.NewRootReaderWriter(dir)
-	ctx = op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-			Root:    root,
-		},
+	ctx = &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Root:     root,
+		Registry: op.NewReceiverRegistry(),
 	}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
 	return ctx, dir
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[file.Provider]())
+	if !ok {
+		t.Fatal("file provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
+}
+
+func fileRes(t *testing.T, ctx *op.ExecutionContext, path string) *file.Resource {
+	t.Helper()
+	r, err := file.NewResource(ctx, path)
+	if err != nil {
+		t.Fatalf("NewResource(%q): %v", path, err)
+	}
+	return r
 }
 
 // region Starlark integration
 
 func TestStarlark(t *testing.T) {
 	ctx, dir := testCtx(t)
-	p := file.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(filegen.Receiver, p)
+	receiver := bind.NewProvider(receiverType(t), file.NewProvider(ctx))
 
 	globals := starlark.StringDict{
 		"file":     receiver,
@@ -116,17 +133,14 @@ func TestStarlark(t *testing.T) {
 
 func TestActions_WriteText_ReadText(t *testing.T) {
 	ctx, dir := testCtx(t)
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, filegen.Receiver)
 
-	// write_text
-	writeAction, ok := reg.Get("file.write_text")
-	if !ok {
-		t.Fatal("action file.write_text not registered")
+	writeAction, err := ctx.ActionByName("file.write_text")
+	if err != nil {
+		t.Fatalf("action file.write_text not registered: %v", err)
 	}
 
-	dest := file.NewResource(dir + "/action_test.txt")
-	_, _, err := writeAction.Do(&ctx, map[string]any{
+	dest := fileRes(t, ctx, dir+"/action_test.txt")
+	_, _, err = writeAction.Do(ctx, map[string]any{
 		"destination": dest,
 		"content":     "action content",
 		"mode":        os.FileMode(0o644),
@@ -135,13 +149,12 @@ func TestActions_WriteText_ReadText(t *testing.T) {
 		t.Fatalf("write_text Do() error = %v", err)
 	}
 
-	// read_text
-	readAction, ok := reg.Get("file.read_text")
-	if !ok {
-		t.Fatal("action file.read_text not registered")
+	readAction, err := ctx.ActionByName("file.read_text")
+	if err != nil {
+		t.Fatalf("action file.read_text not registered: %v", err)
 	}
 
-	result, _, err := readAction.Do(&ctx, map[string]any{
+	result, _, err := readAction.Do(ctx, map[string]any{
 		"resource": dest,
 	})
 	if err != nil {
@@ -159,16 +172,14 @@ func TestActions_WriteText_ReadText(t *testing.T) {
 
 func TestActions_Exists(t *testing.T) {
 	ctx, dir := testCtx(t)
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, filegen.Receiver)
 
-	a, ok := reg.Get("file.exists")
-	if !ok {
-		t.Fatal("action file.exists not registered")
+	a, err := ctx.ActionByName("file.exists")
+	if err != nil {
+		t.Fatalf("action file.exists not registered: %v", err)
 	}
 
 	// Existing directory.
-	result, _, err := a.Do(&ctx, map[string]any{"resource": file.NewResource(dir)})
+	result, _, err := a.Do(ctx, map[string]any{"resource": fileRes(t, ctx, dir)})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -177,7 +188,7 @@ func TestActions_Exists(t *testing.T) {
 	}
 
 	// Non-existing path.
-	result, _, err = a.Do(&ctx, map[string]any{"resource": file.NewResource(dir + "/nope")})
+	result, _, err = a.Do(ctx, map[string]any{"resource": fileRes(t, ctx, dir+"/nope")})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -188,15 +199,13 @@ func TestActions_Exists(t *testing.T) {
 
 func TestActions_Join(t *testing.T) {
 	ctx, _ := testCtx(t)
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, filegen.Receiver)
 
-	a, ok := reg.Get("file.join")
-	if !ok {
-		t.Fatal("action file.join not registered")
+	a, err := ctx.ActionByName("file.join")
+	if err != nil {
+		t.Fatalf("action file.join not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"parts": []string{"a", "b", "c.txt"}})
+	result, _, err := a.Do(ctx, map[string]any{"parts": []string{"a", "b", "c.txt"}})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}

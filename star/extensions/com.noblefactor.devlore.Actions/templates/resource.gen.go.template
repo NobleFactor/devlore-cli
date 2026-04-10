@@ -9,49 +9,25 @@ import (
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-{{- if .resource_params}}
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
-{{- end}}
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
 {{- end}}
 )
-{{- if .resource_params}}
-
-// resourceParams maps Go method names on {{.provider}}.Resource to Starlark parameter name lists.
-var resourceParams = bind.MethodParams{
-{{- range .resource_params}}
-	"{{.name}}": { {{- range $i, $p := .params}}{{if $i}}, {{end}}"{{$p}}"{{- end -}} },
-{{- end}}
-}
-{{- end}}
 
 func init() {
-	op.AnnounceResource(&resourceFactory{})
+	op.AnnounceResource(
+		reflect.TypeFor[{{.provider_type_prefix}}Resource](),
+		func(ctx *op.ExecutionContext, value any) (any, error) {
+			return {{.provider_type_prefix}}NewResource(ctx, value)
+		},
 {{- if .resource_params}}
-	bind.RegisterTypeParams(reflect.TypeOf({{.provider_type_prefix}}Resource{}), resourceParams)
+		map[string][]string{
+{{- range .resource_params}}
+			"{{.name}}": { {{- range $i, $p := .params}}{{if $i}}, {{end}}"{{$p}}"{{- end -}} },
 {{- end}}
-}
-
-type resourceFactory struct{}
-
-// Name returns the qualified resource descriptor name.
-//
-// Returns:
-//   - string: the resource name "{{.provider}}.Resource".
-func (d *resourceFactory) Name() string { return "{{.provider}}.Resource" }
-
-// Type returns the reflect.Type of the resource struct.
-//
-// Returns:
-//   - reflect.Type: the resource's concrete type.
-func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf({{.provider_type_prefix}}Resource{}) }
-
-// Init registers the resource constructor with the framework.
-//
-// Returns:
-//   - error: always nil.
-func (d *resourceFactory) Init() error {
-	op.RegisterConstructor({{.provider_type_prefix}}{{.constructor_name}})
-	return nil
+		},
+{{- else}}
+		nil,
+{{- end}}
+	)
 }

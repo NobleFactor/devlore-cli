@@ -122,7 +122,7 @@ type SourceFile struct {
 	funcDecls []*FuncDecl
 	typeIndex map[string]*GenDeclNode
 	funcIndex map[string]*FuncDecl
-	ctx       op.Context
+	ctx       *op.ExecutionContext
 }
 
 // GenDeclNode represents a general declaration (type, var, const, import).
@@ -482,7 +482,7 @@ func (sf *SourceFile) Cleanup() {
 			if cd, ok := decl.(*CommentDecl); ok {
 				dc := sf.styleDoc(
 					DocComment{doc: cd.doc, present: true, style: StylePackageDoc},
-					styleContext{nodeType: "Package", name: sf.file.Name.Name},
+					styleContext{nodeType: "PkgPath", name: sf.file.Name.Name},
 				)
 				cd.doc = dc.doc
 			}

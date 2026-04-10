@@ -12,13 +12,13 @@ import (
 	"testing"
 )
 
-func mustResource(t *testing.T, raw string) Resource {
+func mustResource(t *testing.T, raw string) *Resource {
 	t.Helper()
 	u, err := url.Parse(raw)
 	if err != nil {
 		t.Fatalf("url.Parse(%q): %v", raw, err)
 	}
-	return Resource{SourceURL: u}
+	return &Resource{SourceURL: u}
 }
 
 func TestDownloadSuccess(t *testing.T) {

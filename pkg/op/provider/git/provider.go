@@ -21,7 +21,7 @@ type Provider struct {
 	cloneFn func(url, path string) error
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -33,15 +33,15 @@ func NewProvider(ctx op.Context) *Provider {
 // Parameters:
 //   - url: network resource identifying the git repository
 //   - destination: file resource identifying the local clone directory
-func (p *Provider) Clone(url netprov.Resource, destination file.Resource) (Resource, Tombstone, error) {
+func (p *Provider) Clone(url *netprov.Resource, destination *file.Resource) (*Resource, Tombstone, error) {
 	if err := p.doClone(url.SourceURL.String(), destination.SourcePath.Abs()); err != nil {
-		return Resource{}, Tombstone{}, err
+		return nil, Tombstone{}, err
 	}
 	r := &Resource{
 		URL:       url.SourceURL.String(),
 		ClonePath: destination.SourcePath.Abs(),
 	}
-	return *r, Tombstone{
+	return r, Tombstone{
 		TombstoneBase: op.NewTombstoneBase(r),
 		ClonedPath:    destination.SourcePath.Abs(),
 	}, nil
@@ -62,12 +62,12 @@ func (p *Provider) CompensateClone(state Tombstone) error {
 // Parameters:
 //   - repo: git resource identifying the local repository
 //   - ref: Branch, tag, or commit to check out
-func (p *Provider) Checkout(repo Resource, ref string) (Resource, error) {
+func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 	cmd := exec.Command("git", "-C", repo.ClonePath, "checkout", ref)
-	cmd.Stdout = p.Context().Writer
-	cmd.Stderr = p.Context().Writer
+	cmd.Stdout = p.ExecutionContext().Writer
+	cmd.Stderr = p.ExecutionContext().Writer
 	if err := cmd.Run(); err != nil {
-		return Resource{}, err
+		return nil, err
 	}
 	repo.Ref = ref
 	return repo, nil
@@ -77,12 +77,12 @@ func (p *Provider) Checkout(repo Resource, ref string) (Resource, error) {
 //
 // Parameters:
 //   - repo: git resource identifying the local repository
-func (p *Provider) Pull(repo Resource) (Resource, error) {
+func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 	cmd := exec.Command("git", "-C", repo.ClonePath, "pull")
-	cmd.Stdout = p.Context().Writer
-	cmd.Stderr = p.Context().Writer
+	cmd.Stdout = p.ExecutionContext().Writer
+	cmd.Stderr = p.ExecutionContext().Writer
 	if err := cmd.Run(); err != nil {
-		return Resource{}, err
+		return nil, err
 	}
 	return repo, nil
 }
@@ -92,7 +92,7 @@ func (p *Provider) doClone(url, path string) error {
 		return p.cloneFn(url, path)
 	}
 	cmd := exec.Command("git", "clone", url, path)
-	cmd.Stdout = p.Context().Writer
-	cmd.Stderr = p.Context().Writer
+	cmd.Stdout = p.ExecutionContext().Writer
+	cmd.Stderr = p.ExecutionContext().Writer
 	return cmd.Run()
 }

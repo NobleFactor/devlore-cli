@@ -101,7 +101,7 @@ func TestNode_GetSlot(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := n.GetSlot(tt.slotName)
+			got := n.SlotByName(tt.slotName)
 			if got != tt.want {
 				t.Errorf("GetSlot(%q) = %v, want %v", tt.slotName, got, tt.want)
 			}
@@ -111,7 +111,7 @@ func TestNode_GetSlot(t *testing.T) {
 
 func TestNode_GetSlot_NilSlots(t *testing.T) {
 	n := &Node{ID: "empty"}
-	if got := n.GetSlot("anything"); got != nil {
+	if got := n.SlotByName("anything"); got != nil {
 		t.Errorf("GetSlot on nil Slots = %v, want nil", got)
 	}
 }
@@ -372,24 +372,17 @@ func TestNode_ResolvedSlots_Mixed(t *testing.T) {
 	}
 }
 
-// --- Node.ActionName ---
+// --- Node.Receiver ---
 
-func TestNode_ActionName(t *testing.T) {
-	tests := []struct {
-		name   string
-		action Action
-		want   string
-	}{
-		{"with action", &stubAction{name: "file.link"}, "file.link"},
-		{"nil action", nil, ""},
+func TestNode_Receiver(t *testing.T) {
+	n := &Node{ID: "test", Receiver: "file.link"}
+	if n.Receiver != "file.link" {
+		t.Errorf("Receiver = %q, want %q", n.Receiver, "file.link")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			n := &Node{ID: "test", Action: tt.action}
-			if got := n.ActionName(); got != tt.want {
-				t.Errorf("ActionName() = %q, want %q", got, tt.want)
-			}
-		})
+
+	empty := &Node{ID: "test"}
+	if empty.Receiver != "" {
+		t.Errorf("Receiver = %q, want empty", empty.Receiver)
 	}
 }
 
@@ -397,15 +390,15 @@ func TestNode_ActionName(t *testing.T) {
 
 func TestNode_JSON_RoundTrip(t *testing.T) {
 	original := &Node{
-		ID:     "test-node",
-		Action: StubAction("file.link"),
-		Status: StatusPending,
+		ID:       "test-node",
+		Receiver: "file.link",
+		Status:   StatusPending,
 		Slots: map[string]SlotValue{
 			"source": {Immediate: "/src/file"},
 			"target": {Immediate: "/dst/file"},
 		},
-		Project: "myproject",
-		Layer:   "base",
+		Origin: "myproject",
+		Layer:  "base",
 	}
 
 	data, err := json.Marshal(original)
@@ -421,39 +414,39 @@ func TestNode_JSON_RoundTrip(t *testing.T) {
 	if decoded.ID != original.ID {
 		t.Errorf("ID = %q, want %q", decoded.ID, original.ID)
 	}
-	if decoded.ActionName() != "file.link" {
-		t.Errorf("ActionName() = %q, want %q", decoded.ActionName(), "file.link")
+	if decoded.Receiver != "file.link" {
+		t.Errorf("Receiver = %q, want %q", decoded.Receiver, "file.link")
 	}
 	if decoded.Status != original.Status {
 		t.Errorf("Status = %q, want %q", decoded.Status, original.Status)
 	}
-	if decoded.Project != original.Project {
-		t.Errorf("Project = %q, want %q", decoded.Project, original.Project)
+	if decoded.Origin != original.Origin {
+		t.Errorf("Origin = %q, want %q", decoded.Origin, original.Origin)
 	}
 	if decoded.Layer != original.Layer {
 		t.Errorf("Layer = %q, want %q", decoded.Layer, original.Layer)
 	}
-	if decoded.GetSlot("source") != "/src/file" {
-		t.Errorf("source slot = %v, want /src/file", decoded.GetSlot("source"))
+	if decoded.SlotByName("source") != "/src/file" {
+		t.Errorf("source slot = %v, want /src/file", decoded.SlotByName("source"))
 	}
 }
 
-func TestNode_JSON_EmptyAction(t *testing.T) {
+func TestNode_JSON_EmptyReceiver(t *testing.T) {
 	data := `{"id":"n1","status":"pending"}`
 	var n Node
 	if err := json.Unmarshal([]byte(data), &n); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if n.ActionName() != "" {
-		t.Errorf("ActionName() = %q, want empty", n.ActionName())
+	if n.Receiver != "" {
+		t.Errorf("Receiver = %q, want empty", n.Receiver)
 	}
 }
 
-func TestNode_JSON_ActionFieldPresent(t *testing.T) {
+func TestNode_JSON_ReceiverFieldPresent(t *testing.T) {
 	n := Node{
-		ID:     "n1",
-		Action: StubAction("template.render_bytes"),
-		Status: StatusCompleted,
+		ID:       "n1",
+		Receiver: "template.render_bytes",
+		Status:   StatusCompleted,
 	}
 	data, err := json.Marshal(&n)
 	if err != nil {
@@ -463,8 +456,8 @@ func TestNode_JSON_ActionFieldPresent(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("Unmarshal raw error: %v", err)
 	}
-	if raw["action"] != "template.render_bytes" {
-		t.Errorf("JSON action field = %v, want template.render", raw["action"])
+	if raw["receiver"] != "template.render_bytes" {
+		t.Errorf("JSON receiver field = %v, want template.render_bytes", raw["receiver"])
 	}
 }
 
@@ -472,9 +465,9 @@ func TestNode_JSON_ActionFieldPresent(t *testing.T) {
 
 func TestNode_YAML_RoundTrip(t *testing.T) {
 	original := &Node{
-		ID:     "yaml-node",
-		Action: StubAction("pkg.install"),
-		Status: StatusCompleted,
+		ID:       "yaml-node",
+		Receiver: "pkg.install",
+		Status:   StatusCompleted,
 		Slots: map[string]SlotValue{
 			"package": {Immediate: "vim"},
 		},
@@ -496,14 +489,14 @@ func TestNode_YAML_RoundTrip(t *testing.T) {
 	if decoded.ID != original.ID {
 		t.Errorf("ID = %q, want %q", decoded.ID, original.ID)
 	}
-	if decoded.ActionName() != "pkg.install" {
-		t.Errorf("ActionName() = %q, want %q", decoded.ActionName(), "pkg.install")
+	if decoded.Receiver != "pkg.install" {
+		t.Errorf("Receiver = %q, want %q", decoded.Receiver, "pkg.install")
 	}
 	if decoded.Status != original.Status {
 		t.Errorf("Status = %q, want %q", decoded.Status, original.Status)
 	}
-	if decoded.GetSlot("package") != "vim" {
-		t.Errorf("package slot = %v, want vim", decoded.GetSlot("package"))
+	if decoded.SlotByName("package") != "vim" {
+		t.Errorf("package slot = %v, want vim", decoded.SlotByName("package"))
 	}
 }
 
@@ -513,18 +506,18 @@ func TestNode_YAML_EmptyAction(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(input), &n); err != nil {
 		t.Fatalf("YAML Unmarshal error: %v", err)
 	}
-	if n.ActionName() != "" {
-		t.Errorf("ActionName() = %q, want empty", n.ActionName())
+	if n.Receiver != "" {
+		t.Errorf("Receiver = %q, want empty", n.Receiver)
 	}
 }
 
-// --- Graph.PhaseByID ---
+// --- Graph.SubgraphByID ---
 
-func TestGraph_PhaseByID(t *testing.T) {
+func TestGraph_SubgraphByID(t *testing.T) {
 	g := &Graph{
-		Phases: []*Phase{
-			{ID: "phase.install", Name: "install"},
-			{ID: "phase.configure", Name: "configure"},
+		Children: []SubgraphChild{
+			{Subgraph: &Subgraph{ID: "phase.install", Name: "install"}},
+			{Subgraph: &Subgraph{ID: "phase.configure", Name: "configure"}},
 		},
 	}
 
@@ -540,106 +533,32 @@ func TestGraph_PhaseByID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := g.PhaseByID(tt.phaseID)
+			p := g.SubgraphByID(tt.phaseID)
 			if tt.wantNil {
 				if p != nil {
-					t.Errorf("PhaseByID(%q) = %v, want nil", tt.phaseID, p)
+					t.Errorf("SubgraphByID(%q) = %v, want nil", tt.phaseID, p)
 				}
 				return
 			}
 			if p == nil {
-				t.Fatalf("PhaseByID(%q) = nil, want phase %q", tt.phaseID, tt.want)
+				t.Fatalf("SubgraphByID(%q) = nil, want subgraph %q", tt.phaseID, tt.want)
 			}
 			if p.Name != tt.want {
-				t.Errorf("PhaseByID(%q).ReceiverName = %q, want %q", tt.phaseID, p.Name, tt.want)
+				t.Errorf("SubgraphByID(%q).Name = %q, want %q", tt.phaseID, p.Name, tt.want)
 			}
 		})
 	}
 }
 
-func TestGraph_PhaseByID_NilPhases(t *testing.T) {
+func TestGraph_SubgraphByID_NilChildren(t *testing.T) {
 	g := &Graph{}
-	if p := g.PhaseByID("any"); p != nil {
-		t.Errorf("PhaseByID on nil Phases = %v, want nil", p)
+	if p := g.SubgraphByID("any"); p != nil {
+		t.Errorf("SubgraphByID on nil Children = %v, want nil", p)
 	}
 }
 
-// --- Graph.CollectPhaseNodes ---
-
-func TestGraph_CollectPhaseNodes(t *testing.T) {
-	g := &Graph{
-		Nodes: []*Node{
-			{ID: "a"},
-			{ID: "b"},
-			{ID: "c"},
-			{ID: "d"},
-		},
-		Edges: []Edge{
-			{From: "a", To: "b"},
-			{From: "b", To: "c"},
-			{From: "c", To: "d"},
-			{From: "a", To: "d"},
-		},
-	}
-	phase := &Phase{
-		ID:      "phase.1",
-		NodeIDs: []string{"a", "b"},
-	}
-
-	nodes, edges := g.CollectPhaseNodes(phase)
-
-	if len(nodes) != 2 {
-		t.Fatalf("expected 2 nodes, got %d", len(nodes))
-	}
-	if nodes[0].ID != "a" || nodes[1].ID != "b" {
-		t.Errorf("nodes = [%q, %q], want [a, b]", nodes[0].ID, nodes[1].ID)
-	}
-	if len(edges) != 1 {
-		t.Fatalf("expected 1 intra-phase edge, got %d", len(edges))
-	}
-	if edges[0].From != "a" || edges[0].To != "b" {
-		t.Errorf("edge = {%q, %q}, want {a, b}", edges[0].From, edges[0].To)
-	}
-}
-
-func TestGraph_CollectPhaseNodes_Empty(t *testing.T) {
-	g := &Graph{
-		Nodes: []*Node{{ID: "a"}},
-		Edges: []Edge{{From: "a", To: "b"}},
-	}
-	phase := &Phase{ID: "empty", NodeIDs: []string{}}
-
-	nodes, edges := g.CollectPhaseNodes(phase)
-	if len(nodes) != 0 {
-		t.Errorf("expected 0 nodes, got %d", len(nodes))
-	}
-	if len(edges) != 0 {
-		t.Errorf("expected 0 edges, got %d", len(edges))
-	}
-}
-
-func TestGraph_CollectPhaseNodes_PreservesOrder(t *testing.T) {
-	g := &Graph{
-		Nodes: []*Node{
-			{ID: "z"},
-			{ID: "a"},
-			{ID: "m"},
-		},
-	}
-	phase := &Phase{
-		ID:      "phase.order",
-		NodeIDs: []string{"m", "z"},
-	}
-
-	nodes, _ := g.CollectPhaseNodes(phase)
-	if len(nodes) != 2 {
-		t.Fatalf("expected 2 nodes, got %d", len(nodes))
-	}
-	// Graph order is z, m (order in g.Nodes), not phase order (m, z).
-	if nodes[0].ID != "z" || nodes[1].ID != "m" {
-		t.Errorf("nodes = [%q, %q], want [z, m] (graph order)", nodes[0].ID, nodes[1].ID)
-	}
-}
+// NOTE: collectPhaseNodes tests removed — that method was part of the old Phase model
+// and has been superseded by the Subgraph/Children tree structure.
 
 // --- GitStyleChecksum ---
 
@@ -672,7 +591,7 @@ func TestGitStyleChecksum_DifferentInputs(t *testing.T) {
 
 	c3 := GitStyleChecksum("receipt", "a.yaml", []byte("data"))
 	if c1 == c3 {
-		t.Error("different object types should produce different checksums")
+		t.Error("different object receiverTypes should produce different checksums")
 	}
 
 	c4 := GitStyleChecksum("graph", "a.yaml", []byte("different"))
@@ -681,104 +600,91 @@ func TestGitStyleChecksum_DifferentInputs(t *testing.T) {
 	}
 }
 
-// --- StubAction ---
 
-func TestStubAction_Name(t *testing.T) {
-	a := StubAction("file.link")
-	if a.Name() != "file.link" {
-		t.Errorf("ReceiverName() = %q, want %q", a.Name(), "file.link")
-	}
-}
+// --- Graph.Summary ---
 
-func TestStubAction_Do_ReturnsError(t *testing.T) {
-	a := StubAction("file.link")
-	_, _, err := a.Do(nil, nil)
-	if err == nil {
-		t.Fatal("StubAction.Do() should return an error")
-	}
-	if !strings.Contains(err.Error(), "stub action") {
-		t.Errorf("error = %q, want containing 'stub action'", err)
-	}
-	if !strings.Contains(err.Error(), "HydrateGraph") {
-		t.Errorf("error = %q, want containing 'HydrateGraph'", err)
-	}
-}
-
-// --- Graph.ComputeSummary ---
-
-func TestGraph_ComputeSummary(t *testing.T) {
+func TestGraph_Summary(t *testing.T) {
 	g := &Graph{
-		Nodes: []*Node{
-			{ID: "link1", Action: StubAction("file.link"), Status: StatusCompleted},
-			{ID: "link2", Action: StubAction("file.link"), Status: StatusCompleted},
-			{ID: "tmpl1", Action: StubAction("template.render_bytes"), Status: StatusCompleted},
-			{ID: "sec1", Action: StubAction("encryption.decrypt"), Status: StatusCompleted},
-			{ID: "copy1", Action: StubAction("file.copy"), Status: StatusCompleted},
-			{ID: "pkg1", Action: StubAction("pkg.install"), Status: StatusCompleted},
-			{ID: "pkg2", Action: StubAction("pkg.upgrade"), Status: StatusCompleted},
-			{ID: "pkg3", Action: StubAction("pkg.remove"), Status: StatusCompleted},
-			{ID: "skip1", Action: StubAction("file.link"), Status: StatusSkipped},
-			{ID: "fail1", Action: StubAction("file.link"), Status: StatusFailed},
-			{ID: "pend1", Action: StubAction("file.link"), Status: StatusPending},
+		Children: []SubgraphChild{
+			{Node: &Node{ID: "link1", Receiver: "file.link", Status: StatusCompleted}},
+			{Node: &Node{ID: "link2", Receiver: "file.link", Status: StatusCompleted}},
+			{Node: &Node{ID: "tmpl1", Receiver: "template.render_bytes", Status: StatusCompleted}},
+			{Node: &Node{ID: "sec1", Receiver: "encryption.decrypt", Status: StatusCompleted}},
+			{Node: &Node{ID: "copy1", Receiver: "file.copy", Status: StatusCompleted}},
+			{Node: &Node{ID: "pkg1", Receiver: "pkg.install", Status: StatusCompleted}},
+			{Node: &Node{ID: "pkg2", Receiver: "pkg.upgrade", Status: StatusCompleted}},
+			{Node: &Node{ID: "pkg3", Receiver: "pkg.remove", Status: StatusCompleted}},
+			{Node: &Node{ID: "skip1", Receiver: "file.link", Status: StatusSkipped}},
+			{Node: &Node{ID: "fail1", Receiver: "file.link", Status: StatusFailed}},
+			{Node: &Node{ID: "pend1", Receiver: "file.link", Status: StatusPending}},
 		},
 	}
 
-	g.ComputeSummary()
-	s := g.Summary
+	s := g.Summary()
+	byAction := s.ByAction()
 
-	if s.TotalFiles != 5 {
-		t.Errorf("TotalFiles = %d, want 5", s.TotalFiles)
+	if s.Completed() != 8 {
+		t.Errorf("Completed() = %d, want 8", s.Completed())
 	}
-	if s.Links != 2 {
-		t.Errorf("Links = %d, want 2", s.Links)
+	if s.Skipped() != 1 {
+		t.Errorf("Skipped() = %d, want 1", s.Skipped())
 	}
-	if s.Templates != 1 {
-		t.Errorf("Templates = %d, want 1", s.Templates)
+	if s.Failed() != 1 {
+		t.Errorf("Failed() = %d, want 1", s.Failed())
 	}
-	if s.Secrets != 1 {
-		t.Errorf("Secrets = %d, want 1", s.Secrets)
+	if s.Total() != 11 {
+		t.Errorf("Total() = %d, want 11", s.Total())
 	}
-	if s.Copies != 1 {
-		t.Errorf("Copies = %d, want 1", s.Copies)
+	if byAction["file.link"].Completed() != 2 {
+		t.Errorf("ByAction[file.link].Completed() = %d, want 2", byAction["file.link"].Completed())
 	}
-	if s.Packages != 3 {
-		t.Errorf("Packages = %d, want 3", s.Packages)
+	if byAction["file.link"].Failed() != 1 {
+		t.Errorf("ByAction[file.link].Failed() = %d, want 1", byAction["file.link"].Failed())
 	}
-	if s.Skipped != 1 {
-		t.Errorf("Skipped = %d, want 1", s.Skipped)
+	if byAction["file.link"].Skipped() != 1 {
+		t.Errorf("ByAction[file.link].Skipped() = %d, want 1", byAction["file.link"].Skipped())
 	}
-	if s.Failed != 1 {
-		t.Errorf("Failed = %d, want 1", s.Failed)
+	if byAction["file.link"].Total() != 5 {
+		t.Errorf("ByAction[file.link].Total() = %d, want 5", byAction["file.link"].Total())
+	}
+	if byAction["template.render_bytes"].Completed() != 1 {
+		t.Errorf("ByAction[template.render_bytes].Completed() = %d, want 1", byAction["template.render_bytes"].Completed())
+	}
+	if byAction["pkg.install"].Completed() != 1 {
+		t.Errorf("ByAction[pkg.install].Completed() = %d, want 1", byAction["pkg.install"].Completed())
 	}
 }
 
-func TestGraph_ComputeSummary_EmptyGraph(t *testing.T) {
+func TestGraph_Summary_EmptyGraph(t *testing.T) {
 	g := &Graph{}
-	g.ComputeSummary()
-	s := g.Summary
-	if s.TotalFiles != 0 || s.Links != 0 || s.Packages != 0 || s.Skipped != 0 || s.Failed != 0 {
-		t.Errorf("empty graph summary should be all zeros, got %+v", s)
+	s := g.Summary()
+	if s.Completed() != 0 || s.Failed() != 0 || s.Skipped() != 0 || s.Total() != 0 {
+		t.Errorf("empty graph summary should be all zeros")
+	}
+	if len(s.ByAction()) != 0 {
+		t.Errorf("empty graph ByAction should be empty, got %v", s.ByAction())
 	}
 }
 
-func TestGraph_ComputeSummary_ResetsOnRecompute(t *testing.T) {
+func TestGraph_Summary_ResetsOnRecompute(t *testing.T) {
 	g := &Graph{
-		Nodes: []*Node{
-			{ID: "a", Action: StubAction("file.link"), Status: StatusCompleted},
+		Children: []SubgraphChild{
+			{Node: &Node{ID: "a", Receiver: "file.link", Status: StatusCompleted}},
 		},
 	}
-	g.ComputeSummary()
-	if g.Summary.Links != 1 {
-		t.Fatalf("first compute: Links = %d, want 1", g.Summary.Links)
+	s := g.Summary()
+	if s.ByAction()["file.link"].Completed() != 1 {
+		t.Fatalf("first compute: file.link.Completed() = %d, want 1", s.ByAction()["file.link"].Completed())
 	}
 
 	// Remove node and recompute: summary should reset.
-	g.Nodes = nil
-	g.ComputeSummary()
-	if g.Summary.Links != 0 {
-		t.Errorf("recompute after clearing nodes: Links = %d, want 0", g.Summary.Links)
+	g.Children = nil
+	s = g.Summary()
+	if len(s.ByAction()) != 0 {
+		t.Errorf("recompute after clearing nodes: ByAction should be empty, got %v", s.ByAction())
 	}
 }
+
 
 // --- HydrateGraph ---
 
@@ -788,79 +694,9 @@ type testAction struct {
 }
 
 func (a *testAction) Name() string        { return a.name }
-func (a *testAction) Params() []ParamInfo { return nil }
-func (a *testAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
+func (a *testAction) Params() []Parameter { return nil }
+func (a *testAction) Do(_ *ExecutionContext, _ map[string]any) (Result, Complement, error) {
 	return nil, nil, nil
-}
-
-func TestHydrateGraph_ReplacesStubs(t *testing.T) {
-	g := &Graph{
-		Nodes: []*Node{
-			{ID: "n1", Action: StubAction("file.link")},
-			{ID: "n2", Action: StubAction("template.render_bytes")},
-		},
-	}
-	reg := NewActionRegistry()
-	reg.Register(&testAction{name: "file.link"})
-	reg.Register(&testAction{name: "template.render_bytes"})
-
-	if err := HydrateGraph(g, reg); err != nil {
-		t.Fatalf("HydrateGraph error: %v", err)
-	}
-
-	// Verify stubs were replaced: Do should not error.
-	for _, n := range g.Nodes {
-		_, _, err := n.Action.Do(nil, nil)
-		if err != nil {
-			t.Errorf("node %q: Do() returned error after hydration: %v", n.ID, err)
-		}
-	}
-}
-
-func TestHydrateGraph_MissingAction(t *testing.T) {
-	g := &Graph{
-		Nodes: []*Node{
-			{ID: "n1", Action: StubAction("unknown.action")},
-		},
-	}
-	reg := NewActionRegistry()
-
-	err := HydrateGraph(g, reg)
-	if err == nil {
-		t.Fatal("HydrateGraph should error on missing action")
-	}
-	if !strings.Contains(err.Error(), "unknown action") {
-		t.Errorf("error = %q, want containing 'unknown action'", err)
-	}
-	if !strings.Contains(err.Error(), "unknown.action") {
-		t.Errorf("error = %q, want containing action name", err)
-	}
-}
-
-func TestHydrateGraph_SkipsNilAction(t *testing.T) {
-	g := &Graph{
-		Nodes: []*Node{
-			{ID: "n1", Action: nil},
-			{ID: "n2", Action: StubAction("file.link")},
-		},
-	}
-	reg := NewActionRegistry()
-	reg.Register(&testAction{name: "file.link"})
-
-	if err := HydrateGraph(g, reg); err != nil {
-		t.Fatalf("HydrateGraph error: %v", err)
-	}
-	if g.Nodes[0].Action != nil {
-		t.Error("nil action node should remain nil after hydration")
-	}
-}
-
-func TestHydrateGraph_EmptyGraph(t *testing.T) {
-	g := &Graph{}
-	reg := NewActionRegistry()
-	if err := HydrateGraph(g, reg); err != nil {
-		t.Fatalf("HydrateGraph on empty graph should succeed, got: %v", err)
-	}
 }
 
 // --- fieldAccess ---
@@ -908,8 +744,8 @@ func TestGraph_Filename(t *testing.T) {
 	ts, _ := time.Parse(time.RFC3339, "2025-06-15T10:30:45Z")
 
 	t.Run("unscoped", func(t *testing.T) {
-		g := &Graph{Tool: "writ", Timestamp: ts}
-		want := "writ-2025-06-15T10-30-45.yaml"
+		g := &Graph{Timestamp: ts}
+		want := "2025-06-15T10-30-45.yaml"
 		if got := g.Filename(); got != want {
 			t.Errorf("Filename() = %q, want %q", got, want)
 		}
@@ -917,95 +753,45 @@ func TestGraph_Filename(t *testing.T) {
 
 	t.Run("scoped", func(t *testing.T) {
 		g := &Graph{
-			Tool:      "writ",
-			Timestamp: ts,
-			Context:   GraphContext{Scope: "home"},
+			Timestamp:  ts,
+			Provenance: Provenance{Scope: "home"},
 		}
-		want := "writ-home-2025-06-15T10-30-45.yaml"
+		want := "home-2025-06-15T10-30-45.yaml"
 		if got := g.Filename(); got != want {
 			t.Errorf("Filename() = %q, want %q", got, want)
 		}
 	})
 }
 
-// --- Summary.String ---
-
-func TestSummary_String_Writ(t *testing.T) {
-	s := Summary{
-		TotalFiles: 10,
-		Links:      5,
-		Templates:  3,
-		Secrets:    1,
-		Copies:     1,
-		Skipped:    2,
-		Failed:     1,
-	}
-	got := s.String()
-	if !strings.Contains(got, "10 files") {
-		t.Errorf("missing total files in %q", got)
-	}
-	if !strings.Contains(got, "5 links") {
-		t.Errorf("missing links in %q", got)
-	}
-	if !strings.Contains(got, "3 templates") {
-		t.Errorf("missing templates in %q", got)
-	}
-	if !strings.Contains(got, "1 secrets") {
-		t.Errorf("missing secrets in %q", got)
-	}
-	if !strings.Contains(got, "1 copies") {
-		t.Errorf("missing copies in %q", got)
-	}
-	if !strings.Contains(got, "2 skipped") {
-		t.Errorf("missing skipped in %q", got)
-	}
-	if !strings.Contains(got, "1 failed") {
-		t.Errorf("missing failed in %q", got)
-	}
-}
-
-func TestSummary_String_Lore(t *testing.T) {
-	s := Summary{
-		Packages: 5,
-		Skipped:  1,
-		Failed:   2,
-	}
-	got := s.String()
-	if !strings.Contains(got, "5 packages") {
-		t.Errorf("missing packages in %q", got)
-	}
-	if !strings.Contains(got, "1 skipped") {
-		t.Errorf("missing skipped in %q", got)
-	}
-	if !strings.Contains(got, "2 failed") {
-		t.Errorf("missing failed in %q", got)
-	}
-}
-
-func TestSummary_String_MinimalWrit(t *testing.T) {
-	s := Summary{TotalFiles: 0}
-	got := s.String()
-	if got != "0 files" {
-		t.Errorf("String() = %q, want %q", got, "0 files")
-	}
-}
-
 // --- NewGraph resource fields ---
 
-func TestNewGraph_InitializesCatalog(t *testing.T) {
-	g := NewGraph("test")
-	if g.Catalog == nil {
-		t.Fatal("NewGraph().Catalog is nil")
+func TestNewGraph_InitializesState(t *testing.T) {
+	g := NewGraph(&ExecutionContext{})
+	if g.State != StatePending {
+		t.Errorf("NewGraph().State = %q, want %q", g.State, StatePending)
 	}
-	if g.Catalog.Len() != 0 {
-		t.Errorf("new graph catalog length = %d, want 0", g.Catalog.Len())
+	if g.Version != GraphFormatVersion {
+		t.Errorf("NewGraph().Version = %q, want %q", g.Version, GraphFormatVersion)
+	}
+}
+
+// testGraphResource is a minimal Resource for testing catalog behavior without
+// depending on a concrete provider.
+type testGraphResource struct {
+	ResourceBase
+}
+
+func newTestGraphResource(uri string) *testGraphResource {
+	return &testGraphResource{
+		ResourceBase: NewResourceBase(&ExecutionContext{}, uri),
 	}
 }
 
 func TestGraph_CatalogNotSerialized(t *testing.T) {
-	g := NewGraph("test")
-	g.Catalog.Resolve("file:///foo")
-	g.Catalog.Resolve("file:///bar")
+	g := NewGraph(&ExecutionContext{})
+	g.Catalog = NewResourceCatalog()
+	g.Catalog.Resolve(newTestGraphResource("file:///foo"))
+	g.Catalog.Resolve(newTestGraphResource("file:///bar"))
 
 	data, err := json.Marshal(g)
 	if err != nil {
@@ -1015,21 +801,5 @@ func TestGraph_CatalogNotSerialized(t *testing.T) {
 	// Catalog should not appear in JSON.
 	if strings.Contains(string(data), "catalog") {
 		t.Error("Catalog should not be serialized to JSON")
-	}
-}
-
-// --- Node.GetID / GetProject ---
-
-func TestNode_GetID(t *testing.T) {
-	n := &Node{ID: "my-node"}
-	if n.GetID() != "my-node" {
-		t.Errorf("GetID() = %q, want %q", n.GetID(), "my-node")
-	}
-}
-
-func TestNode_GetProject(t *testing.T) {
-	n := &Node{Project: "myproject"}
-	if n.GetProject() != "myproject" {
-		t.Errorf("GetProject() = %q, want %q", n.GetProject(), "myproject")
 	}
 }

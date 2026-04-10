@@ -8,22 +8,33 @@ import (
 	"sort"
 	"testing"
 
+	"reflect"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode"
-	starcodegen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
+	_ "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
+}
+
+func starcodeReceiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[starcode.Provider]())
+	if !ok {
+		t.Fatal("starcode provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // TestReceiverAttrNames verifies StarcodeReceiver.AttrNames returns the expected attribute list.
 func TestReceiverAttrNames(t *testing.T) {
-	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
+	r := bind.NewProvider(starcodeReceiverType(t), &starcode.Provider{Root: "."})
 	names := r.AttrNames()
 
 	if len(names) != 1 {
@@ -36,7 +47,7 @@ func TestReceiverAttrNames(t *testing.T) {
 
 // TestReceiverAttrUnknown verifies StarcodeReceiver.Attr returns an error for unknown attributes.
 func TestReceiverAttrUnknown(t *testing.T) {
-	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
+	r := bind.NewProvider(starcodeReceiverType(t), &starcode.Provider{Root: "."})
 
 	val, err := r.Attr("bogus")
 	if err == nil {
@@ -49,7 +60,7 @@ func TestReceiverAttrUnknown(t *testing.T) {
 
 // TestReceiverAttrCapture verifies StarcodeReceiver.Attr returns a value for the "capture" attribute.
 func TestReceiverAttrCapture(t *testing.T) {
-	r := bind.WrapProviderInExecutingReceiver(starcodegen.Receiver, &starcode.Provider{Root: "."})
+	r := bind.NewProvider(starcodeReceiverType(t), &starcode.Provider{Root: "."})
 
 	val, err := r.Attr("capture")
 	if err != nil {
@@ -67,7 +78,7 @@ func TestSourcesValueAttrNames(t *testing.T) {
 	sv := val.(starlark.HasAttrs)
 	names := sv.AttrNames()
 
-	want := []string{"analyze", "count", "index", "paths", "stats"}
+	want := []string{"analyze", "count", "files", "index", "paths", "root", "stats"}
 	if len(names) != len(want) {
 		t.Fatalf("AttrNames length = %d, want %d", len(names), len(want))
 	}

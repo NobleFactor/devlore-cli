@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
@@ -16,22 +17,30 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
-	appnetgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet/gen"
+	appnetprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx() op.Context {
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[appnetprov.Provider]())
+	if !ok {
+		t.Fatal("appnet provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
@@ -43,8 +52,7 @@ func TestStarlark(t *testing.T) {
 	defer srv.Close()
 
 	ctx := testCtx()
-	p := appnet.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(appnetgen.Receiver, p)
+	receiver := bind.NewProvider(receiverType(t), appnetprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{
 		"appnet":   receiver,
@@ -82,19 +90,17 @@ func TestActions_Download(t *testing.T) {
 	defer srv.Close()
 
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, appnetgen.Receiver)
 
-	a, ok := reg.Get("appnet.download")
-	if !ok {
-		t.Fatal("action appnet.download not registered")
+	a, err := ctx.ActionByName("appnet.download")
+	if err != nil {
+		t.Fatalf("action appnet.download not registered: %v", err)
 	}
 
-	res, resErr := appnet.ResourceFromValue(srv.URL)
+	res, resErr := appnetprov.NewResource(nil, srv.URL)
 	if resErr != nil {
-		t.Fatalf("ResourceFromValue: %v", resErr)
+		t.Fatalf("NewResource: %v", resErr)
 	}
-	result, _, err := a.Do(&ctx, map[string]any{"url": res})
+	result, _, err := a.Do(ctx, map[string]any{"url": res})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}

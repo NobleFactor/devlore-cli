@@ -12,84 +12,17 @@ import (
 	"go.starlark.net/syntax"
 )
 
-// Extract introspects a *starlark.Function and produces a self-contained Callable with synthesized source text. The
-// synthetic file inlines all closure bindings as module-level constants, making it independent of the original script.
-//
-// The function name is derived from fn.ReceiverName() (or "<action>.<param>" for lambdas when the caller provides a fallback
-// via ExtractWithName).
-//
-// Parameters:
-//   - fn: Starlark function to extract
-//   - funcType: Go type name the callable satisfies (e.g., "file.Reducer")
-//
-// Returns:
-//   - *Callable: the extracted callable with synthesized source
-//   - error: any extraction error
-func Extract(fn *starlark.Function, funcType string) (*Callable, error) {
-
-	name := fn.Name()
-	if name == "lambda" {
-		name = "_lambda"
-	}
-	return ExtractWithName(fn, funcType, name)
-}
-
-// ExtractWithName is like Extract but allows the caller to specify the callable name (useful for lambdas where the
-// default name is "lambda").
-//
-// Parameters:
-//   - fn: Starlark function to extract
-//   - funcType: Go type name the callable satisfies (e.g., "file.Reducer")
-//   - name: ReceiverName for the callable (overrides fn.ReceiverName())
-//
-// Returns:
-//   - *Callable: the extracted callable with synthesized source
-//   - error: any extraction error
-func ExtractWithName(fn *starlark.Function, funcType, name string) (*Callable, error) {
-	c := NewCallable(funcType, name)
-
-	// Introspect parameters.
-	params := make([]string, fn.NumParams())
-	for i := range fn.NumParams() {
-		p, _ := fn.Param(i)
-		params[i] = p
-	}
-	c.ParamNames = params
-	c.NumParams = fn.NumParams()
-
-	// Record original position for diagnostics.
-	pos := fn.Position()
-	if pos.IsValid() {
-		c.OriginalPos = pos.String()
-	}
-
-	// Build synthetic source.
-	source, err := synthesize(fn, params)
-	if err != nil {
-		return nil, fmt.Errorf("extract %s: %w", name, err)
-	}
-	c.SetSource(source)
-
-	// Set the function name in the synthetic file.
-	if fn.Name() == "lambda" {
-		c.FuncName = "_callable"
-	} else {
-		c.FuncName = fn.Name()
-	}
-
-	return c, nil
-}
-
 // synthesize builds the synthetic source file text.
 //
 // Parameters:
-//   - fn: Starlark function whose source to extract and synthesize
-//   - params: Parameter names for the function
+//   - fn: starlark function whose source to extract and synthesize.
+//   - params: parameter names for the function.
 //
 // Returns:
-//   - []byte: synthetic source text
-//   - error: any extraction error
+//   - []byte: synthetic source text.
+//   - error: any extraction error.
 func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
+
 	var b strings.Builder
 
 	// Header comment.
@@ -114,9 +47,6 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 
 	// Function body.
 	if fn.Name() == "lambda" {
-		// For lambdas, we need to extract the expression from source and
-		// wrap it in a def. If source extraction fails, we fall back to
-		// a stub that documents the issue.
 		body, err := extractLambdaBody(fn)
 		if err != nil {
 			return nil, fmt.Errorf("lambda extraction: %w", err)
@@ -124,7 +54,6 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 		_, _ = fmt.Fprintf(&b, "def _callable(%s):\n", strings.Join(params, ", "))
 		_, _ = fmt.Fprintf(&b, "    return %s\n", body)
 	} else {
-		// For named functions, extract the full def from source.
 		defText, err := extractDefSource(fn)
 		if err != nil {
 			return nil, fmt.Errorf("def extraction: %w", err)
@@ -142,11 +71,11 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 // fn.Position().
 //
 // Parameters:
-//   - fn: Starlark function whose source to extract
+//   - fn: starlark function whose source to extract.
 //
 // Returns:
-//   - string: the lambda body expression text
-//   - error: any read or parse error
+//   - string: the lambda body expression text.
+//   - error: any read or parse error.
 func extractLambdaBody(fn *starlark.Function) (string, error) {
 
 	pos := fn.Position()
@@ -159,7 +88,6 @@ func extractLambdaBody(fn *starlark.Function) (string, error) {
 		return "", fmt.Errorf("read source %s: %w", pos.Filename(), err)
 	}
 
-	// Parse the source file to find the lambda expression at the given position.
 	f, err := new(syntax.FileOptions).Parse(pos.Filename(), data, 0)
 	if err != nil {
 		return "", fmt.Errorf("parse source %s: %w", pos.Filename(), err)
@@ -184,7 +112,6 @@ func extractLambdaBody(fn *starlark.Function) (string, error) {
 		return "", fmt.Errorf("lambda not found at %s", pos)
 	}
 
-	// Extract the body expression text from source bytes.
 	bodyStart, bodyEnd := lambdaExpr.Body.Span()
 	body := extractSpan(data, bodyStart, bodyEnd)
 	return strings.TrimSpace(body), nil
@@ -193,11 +120,11 @@ func extractLambdaBody(fn *starlark.Function) (string, error) {
 // extractDefSource reads the source file and extracts the full def statement.
 //
 // Parameters:
-//   - fn: Starlark function whose source to extract
+//   - fn: starlark function whose source to extract.
 //
 // Returns:
-//   - string: the full def statement text
-//   - error: any read or parse error
+//   - string: the full def statement text.
+//   - error: any read or parse error.
 func extractDefSource(fn *starlark.Function) (string, error) {
 
 	pos := fn.Position()
@@ -239,13 +166,22 @@ func extractDefSource(fn *starlark.Function) (string, error) {
 }
 
 // extractSpan extracts text from source bytes between two positions.
+//
+// Parameters:
+//   - data: the source file bytes.
+//   - start: the start position.
+//   - end: the end position.
+//
+// Returns:
+//   - string: the extracted text.
 func extractSpan(data []byte, start, end syntax.Position) string {
+
 	lines := strings.Split(string(data), "\n")
 
-	startLine := int(start.Line) - 1 // 1-indexed to 0-indexed
+	startLine := int(start.Line) - 1
 	endLine := int(end.Line) - 1
-	startCol := int(start.Col) - 1 // 1-indexed inclusive → 0-indexed inclusive (slice start)
-	endCol := int(end.Col)         // 1-indexed inclusive → 0-indexed exclusive (slice end)
+	startCol := int(start.Col) - 1
+	endCol := int(end.Col)
 
 	if startLine < 0 || startLine >= len(lines) {
 		return ""
@@ -267,17 +203,14 @@ func extractSpan(data []byte, start, end syntax.Position) string {
 	}
 
 	var b strings.Builder
-	// First line from startCol to end.
 	if startCol < len(lines[startLine]) {
 		b.WriteString(lines[startLine][startCol:])
 	}
 	b.WriteString("\n")
-	// Middle lines in full.
 	for i := startLine + 1; i < endLine; i++ {
 		b.WriteString(lines[i])
 		b.WriteString("\n")
 	}
-	// Last line from start to endCol.
 	if endLine < len(lines) {
 		lastLine := lines[endLine]
 		if endCol > len(lastLine) {
@@ -287,24 +220,4 @@ func extractSpan(data []byte, start, end syntax.Position) string {
 	}
 
 	return b.String()
-}
-
-// ValidateArity checks that a function's arity is compatible with the
-// target action's expected parameter range.
-func ValidateArity(fn *starlark.Function, minParams, maxParams int) error {
-	numRequired := 0
-	for i := range fn.NumParams() {
-		if fn.ParamDefault(i) == nil {
-			numRequired++
-		}
-	}
-	if numRequired > maxParams {
-		return fmt.Errorf("%s requires %d args but target accepts at most %d",
-			fn.Name(), numRequired, maxParams)
-	}
-	if fn.NumParams() < minParams && !fn.HasVarargs() {
-		return fmt.Errorf("%s accepts %d args but target requires at least %d",
-			fn.Name(), fn.NumParams(), minParams)
-	}
-	return nil
 }

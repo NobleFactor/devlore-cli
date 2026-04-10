@@ -41,7 +41,7 @@ type Provider struct {
 	Root string
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	if ctx.Root != nil {
 		p.Root = ctx.Root.Name()

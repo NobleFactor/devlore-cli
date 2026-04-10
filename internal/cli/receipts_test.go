@@ -16,23 +16,18 @@ import (
 // createTestGraph creates a minimal test graph for receipt testing.
 func createTestGraph() *op.Graph {
 	node := &op.Node{
-		ID:     ".bashrc",
-		Action: op.StubAction("file.link"),
-		Status: op.StatusCompleted,
+		ID:       ".bashrc",
+		Receiver: "file.link",
+		Status:   op.StatusCompleted,
 	}
 	node.SetSlotImmediate("source", "/home/user/env/.bashrc")
 	node.SetSlotImmediate("path", "/home/user/.bashrc")
 
 	return &op.Graph{
 		Version:   "5",
-		Tool:      "test",
 		Timestamp: time.Date(2026, 1, 21, 10, 30, 0, 0, time.UTC),
 		State:     op.StateExecuted,
-		Platform: op.Platform{
-			OS:   "darwin",
-			Arch: "arm64",
-		},
-		Nodes: []*op.Node{node},
+		Children:  []op.SubgraphChild{{Node: node}},
 	}
 }
 
@@ -178,17 +173,15 @@ func TestLoadReceipt(t *testing.T) {
 	receiptPath := filepath.Join(tmpDir, "test-2026-01-21T10-30-00.yaml")
 
 	receiptContent := `version: "5"
-tool: test
 timestamp: 2026-01-21T10:30:00Z
 state: executed
-platform:
-  os: darwin
-  arch: arm64
-context: {}
-nodes:
-  - id: .bashrc
-    action: file.link
-    status: completed
+provenance:
+  tool: test
+children:
+  - node:
+      id: .bashrc
+      action: file.link
+      status: completed
 checksum: "sha256:abc123"
 `
 	if err := os.WriteFile(receiptPath, []byte(receiptContent), 0o644); err != nil {
@@ -203,17 +196,17 @@ checksum: "sha256:abc123"
 	if g.Version != "5" {
 		t.Errorf("expected Version '5', got %q", g.Version)
 	}
-	if g.Tool != "test" {
-		t.Errorf("expected Tool 'test', got %q", g.Tool)
+	if g.Provenance.Tool != "test" {
+		t.Errorf("expected Tool 'test', got %q", g.Provenance.Tool)
 	}
 	if g.Checksum != "sha256:abc123" {
 		t.Errorf("expected Checksum 'sha256:abc123', got %q", g.Checksum)
 	}
-	if len(g.Nodes) != 1 {
-		t.Fatalf("expected 1 node, got %d", len(g.Nodes))
+	if len(g.Nodes()) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(g.Nodes()))
 	}
-	if g.Nodes[0].ID != ".bashrc" {
-		t.Errorf("expected node ID '.bashrc', got %q", g.Nodes[0].ID)
+	if g.Nodes()[0].ID != ".bashrc" {
+		t.Errorf("expected node ID '.bashrc', got %q", g.Nodes()[0].ID)
 	}
 }
 

@@ -150,9 +150,9 @@ lint:
 	}
 
 	// Create provider with config in context — same wiring as the runtime.
-	ctx := op.Context{ContextBase: op.ContextBase{
+	ctx := &op.ExecutionContext{
 		Data: map[string]any{"config": cfg},
-	}}
+	}
 	p := NewProvider(ctx)
 
 	// schemaRegistry should return config-based registry, not defaults.
@@ -194,9 +194,9 @@ lint:
 	}
 
 	// package_doc should still be present from defaults.
-	pkgDoc := reg.Lookup("Package", "go")
+	pkgDoc := reg.Lookup("PkgPath", "go")
 	if pkgDoc == nil {
-		t.Fatal("schemaRegistry missing Package schema — defaults lost")
+		t.Fatal("schemaRegistry missing PkgPath schema — defaults lost")
 	}
 }
 

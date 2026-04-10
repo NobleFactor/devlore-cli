@@ -717,6 +717,528 @@ ActionRegistrar: func(reg *op.ActionRegistry, ctx op.Context) {
 The provider reads `p.Context().Writer`, `p.Context().Platform`, etc.
 for the duration of the graph or script. No per-method context parameters.
 
+### 6.8 Output Specs
+
+For the catalog to be built at plan time, the planner must know the
+identity of every resource each node will produce — **before** the node
+runs. The types of a method's input parameters tell the planner which
+parameters are resources (inputs), but not which input parameter becomes
+the output URI. Name-based heuristics ("last resource param is the
+output") are fragile — they handle the `Copy(source, destination)` case
+but fail for `Remove(path, prune, boundary)` and similar shapes.
+
+The solution is a **declared output** pattern, borrowed from Bazel and
+Terraform: every resource-producing method declares a pure function that
+computes its output resource identity from the method's input slot
+values. This is an **output spec**. The framework calls it at plan time;
+the forward method calls it at execution time. One source of truth.
+
+This matches established prior art:
+
+- **Bazel** — rule implementations call `ctx.actions.declare_file(name)`
+  during the analysis phase (before execution) to pre-declare output
+  files. Output filenames are computed from attrs as pure Starlark.
+- **Terraform** — providers implement `PlanResourceChange`. Attributes
+  knowable at plan time are computed; unknown attributes are marked
+  "known after apply". The provider surfaces identity upfront where
+  possible and uses a sentinel for dynamic cases.
+- **Nix derivations** — every derivation has a deterministic output path
+  computed from inputs before the build runs. Identity is a pure function
+  of inputs.
+- **Mokhov, Mitchell, Peyton Jones (ICFP 2018), "Build Systems à la
+  Carte"** — formalizes the distinction between *applicative* tasks
+  (outputs knowable at plan time) and *monadic* tasks (outputs depend on
+  runtime values).
+
+Our output spec is applicative by default with a monadic escape hatch via
+an unknown sentinel.
+
+#### OutputSpec type
+
+```go
+// OutputSpec computes the identity of a resource that a method will
+// produce, from the method's input slot values. Pure: no I/O, no
+// target-machine state, no mutation. Called at plan time.
+//
+// The returned Resource has identity (URI) set but metadata empty —
+// equivalent to a pending-state resource. The catalog stamps id and
+// originID when it shadows the spec's output.
+//
+// Returns (KnownAtExecution, nil) when the output identity depends on
+// runtime values (e.g., target machine's package manager). The planner
+// skips plan-time shadowing for such outputs; the executor shadows the
+// real return value post-dispatch.
+type OutputSpec func(slots map[string]any) (Resource, error)
+
+// KnownAtExecution is the sentinel that an output spec returns when
+// the output identity cannot be determined at plan time but will be
+// available after the forward method runs. Analogous to Terraform's
+// "known after apply" marker.
+//
+// The name is temporal, not uncertain: the value is a legitimate
+// resource identity that exists once the producing node has executed.
+var KnownAtExecution Resource = knownAtExecution{}
+```
+
+#### Authoring convention
+
+The output spec for a forward method is authored as a sibling Go method
+with the same input signature (less the `error` return) and a single
+resource return type. By naming convention, `Copy`'s output spec is
+`CopyPlanned`, `WriteText`'s is `WriteTextPlanned`, `Clone`'s is
+`ClonePlanned`.
+
+The "`Planned`" suffix is deliberate: it names **what** the function
+returns (the planned identity of the resource that the forward method
+will produce) and **when** the function runs (the plan phase, pure, no
+side effects). It pairs with the `KnownAtExecution` sentinel: the
+planned identity is either knowable at plan time or explicitly deferred
+until execution.
+
+The sibling method is **pure**: it constructs the identity without
+touching the filesystem, network, or package manager. It is authored by
+the provider developer; the codegen discovers it by naming convention and
+generates the `OutputSpec` closure that unmarshals slot values into the
+sibling's parameter types.
+
+Methods that produce no resource (or whose resource output is dynamic
+and deferred) have no sibling. The codegen emits no output spec entry.
+Such methods rely on execution-time shadowing.
+
+#### Companion triplet
+
+Every provider method that mutates external state is a member of a
+**companion triplet**: the forward method, its planned output spec, and
+its compensation companion. Not every triplet is complete — the shape
+depends on the method's action kind.
+
+| Member | Required when | Purity | Runs when |
+|---|---|---|---|
+| `X` (forward) | Always | Side-effecting | Execution phase, on the target machine |
+| `XPlanned` (output spec) | `X` returns a resource | Pure — no I/O, no target state | Plan phase, plus invoked internally by `X` for identity construction |
+| `CompensateX` (compensation) | `X` is compensable (returns `(T, U, error)`) | Side-effecting — restores prior state | Rollback phase, given the tombstone `X` returned |
+
+Only `X` is registered as an action and exposed to starlark.
+`XPlanned` and `CompensateX` are companions: the codegen emits them
+into the provider's metadata (output spec map, compensation companion
+pointer) but they do not appear as methods on the starlark receiver.
+The naming convention is also what excludes them from the starlark
+method enumeration.
+
+**Source order convention.** Members of a triplet are placed adjacent
+in the provider's source file in this order: forward, planned,
+compensate.
+
+```go
+func (p *Provider) Copy(...)         { /* ... */ }
+func (p *Provider) CopyPlanned(...)  { /* ... */ }
+func (p *Provider) CompensateCopy(...) { /* ... */ }
+```
+
+This does not match alphabetical order (alphabetical puts
+`CompensateCopy` first), but it matches the reading order a developer
+wants when scanning the triplet: what the method does, what it produces,
+how it rolls back. The codegen emits generated sections in the same
+order. The style guide enforces the convention for hand-written
+provider code.
+
+**Static checks the codegen enforces:**
+
+1. A method whose first non-error return is a resource type must have
+   a `Planned` sibling.
+2. A `Planned` sibling whose corresponding forward method's first
+   non-error return is NOT a resource is a codegen error.
+3. A `Planned` sibling's input signature must match its forward
+   method's input signature exactly.
+4. A `Planned` sibling's return type must match its forward method's
+   first non-error return type.
+5. A compensable method must have a `Compensate*` companion (already
+   enforced by `NewMethod` today).
+6. A `Compensate*` companion for a non-compensable method is a codegen
+   error (already enforced).
+
+Either the developer satisfies all six rules and the codegen generates
+a working provider, or codegen fails with a specific message. There is
+no runtime grey area.
+
+#### The forward method uses its own output spec
+
+The critical property: **the forward method calls its own output spec**
+as the first step. Identity construction is factored out of the forward
+method into the spec, so the developer writes it once and both the
+planner and the forward method call the same function.
+
+Example — `file.Copy`:
+
+```go
+// Copy writes source to destinationPath and returns the destination
+// resource with its metadata populated.
+func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (*Resource, Tombstone, error) {
+    // 1. Identity construction — reuse the output spec so Copy and
+    //    CopyPlanned agree on URI construction rules.
+    dest, err := p.CopyPlanned(source, destinationPath, mode)
+    if err != nil {
+        return nil, Tombstone{}, err
+    }
+
+    // 2. Pre-write hook: archive any existing file at the destination.
+    tombstone, err := p.prepareWrite(dest)
+    if err != nil {
+        return nil, Tombstone{}, err
+    }
+
+    // 3. Do the work.
+    if err := p.copyContents(source.SourcePath, dest.SourcePath, mode); err != nil {
+        return nil, tombstone, err
+    }
+
+    // 4. Post-write metadata refresh — transition pending to resolved.
+    if err := dest.Resolve(); err != nil {
+        return dest, tombstone, err
+    }
+
+    return dest, tombstone, nil
+}
+
+// CopyPlanned is the output spec for Copy. Pure: no I/O.
+// Identity-only; metadata is zero-valued until Resolve().
+func (p *Provider) CopyPlanned(source *Resource, destinationPath string, _ os.FileMode) (*Resource, error) {
+    return NewResource(p.Context(), destinationPath)
+}
+
+// CompensateCopy undoes a Copy by restoring the original file from recovery.
+func (p *Provider) CompensateCopy(undo Tombstone) error {
+    return p.compensateWrite(undo)
+}
+```
+
+Identity construction lives in one place. Bug fixes to URI rules
+propagate automatically to both planning and execution. The framework
+and the implementation cannot drift.
+
+Source order is forward, planned, compensate — the companion-triplet
+convention.
+
+#### Benefits beyond planning
+
+If the output spec existed only for the planner, it would be duplicated
+work and developers would resent it. The sell is that the forward method
+*uses* it, and several framework capabilities require it:
+
+1. **Single source of identity construction.** One function owns URI
+   rules; planning and execution share it.
+2. **Unit testability.** Output specs are pure and trivially testable
+   without filesystem or network setup.
+3. **Dry-run support for free.** In dry-run mode, the executor calls
+   the output spec instead of the forward method. Dry-run reports what
+   would be produced without running side effects. No per-method dry-run
+   branch.
+4. **Receipt hydration.** When a graph is loaded from disk (receipt
+   replay, cross-machine execution), slot values come back as raw data.
+   `Rebind` walks nodes and calls each method's output spec to
+   reconstruct typed output resources from the recorded input slots.
+   The catalog rebuilds itself from pure data — no stored resource
+   objects to deserialize.
+5. **Plan-time conflict detection.** Before any node executes, the
+   planner has shadowed every known-at-plan output. Two nodes writing
+   to the same URI collide immediately with a clear error. No silent
+   race.
+6. **Implicit edges via URI matching.** A downstream node that reads
+   `/etc/foo` calls `catalog.Resolve` with the typed file resource. The
+   catalog has a shadowed entry from an upstream
+   `plan.file.write_text(destinationPath="/etc/foo")`. Resolve returns
+   the shadowed version; the planner adds an edge writer → reader.
+7. **Compensation cleanup knows what to undo.** The output spec is the
+   same function both the writer and the compensator rely on to
+   identify the affected URI.
+8. **Speculative: skip-if-unchanged.** Once identity is decoupled from
+   side effects, preflight can compare the pending output's content
+   hash (if the spec computes one) against the existing file and mark
+   the node completed without running. Deferred — not required for
+   correctness.
+
+#### Planning with output specs
+
+```
+Starlark call: plan.file.copy(source_file=src, destination_filename="/etc/foo", destination_file_mode=0o644)
+    │
+    ▼
+planner.dispatch("file.copy", args)
+    ├─ Unpack input slots:
+    │   └─ source_file (Resource), destination_filename (string), destination_file_mode (int)
+    ├─ Coerce resource-typed inputs to typed resources via the registry
+    │   └─ source_file → *file.Resource (via catalog.Resolve — discovery)
+    ├─ Create the node
+    ├─ Fill input slots with typed values
+    ├─ method.OutputSpec != nil?  Yes (CopyPlanned registered)
+    │   ├─ Call spec(slots) → *file.Resource{uri: "file:///etc/foo"}
+    │   ├─ catalog.Shadow(pending, node.ID)
+    │   └─ Store pending resource as the node's output handle
+    ├─ Return Promise(node, "")
+```
+
+Subsequent `plan.file.read_text(resource="/etc/foo")` at plan time:
+
+```
+planner.dispatch("file.read_text", args)
+    ├─ Coerce resource to *file.Resource
+    ├─ catalog.Resolve(res) → canonical (the pending entry from Copy!)
+    ├─ canonical has originID set → planner creates implicit edge
+    │   from Copy node to ReadText node
+    └─ Fill slot with canonical resource
+```
+
+The implicit edge is the payoff. The developer didn't wire it
+explicitly. The catalog did it because both nodes referenced the same
+URI and the output spec put it there at plan time.
+
+#### Execution with output specs
+
+```
+Executor.Run(ctx, graph)
+    │
+    ├─ Preflight: resolve discovery entries against target
+    │   (unchanged — pending entries skipped because they have origins)
+    │
+    ├─ For each node in execution order:
+    │   ├─ Resolve slot values (pending entries already in slots)
+    │   ├─ Call method.Do(ctx, slots) → result, complement, error
+    │   ├─ Post-dispatch: if the result is a resource and the catalog
+    │   │   has a pending entry for its URI owned by this node,
+    │   │   transition pending → resolved by copying metadata from
+    │   │   result into the cataloged entry.
+    │   ├─ If the method had no output spec (monadic case) but returned
+    │   │   a resource, shadow the result now (late shadowing).
+    │   └─ Push recovery entry, continue.
+```
+
+#### Monadic outputs (unknown at plan time)
+
+Some methods cannot compute their output identity at plan time because
+it depends on runtime values. The canonical example is `pkg.Install`
+on a cross-platform graph: the installed package's URI depends on which
+package manager the target machine has (`pkg:apt/foo` vs
+`pkg:brew/foo`), and the planner doesn't know the target.
+
+These methods have an output spec that returns `KnownAtExecution`:
+
+```go
+func (p *Provider) InstallPlanned(name string, _ string, _ bool) (*Resource, error) {
+    return op.KnownAtExecution, nil
+}
+```
+
+The planner sees `KnownAtExecution` and skips plan-time shadowing. The
+executor shadows the real result after dispatch. Implicit edges via
+URI matching don't work for these outputs at plan time, but explicit
+promise passing still does. Plan-time conflict detection is skipped
+for these outputs too — the system does not know what URI they will
+claim.
+
+The phrasing mirrors Terraform's user-facing
+`(known after apply)` marker and its underlying semantics: the value
+is a legitimate resource identity that exists once the producing node
+has run, just not before. It is a temporal statement, not an
+uncertainty statement.
+
+In the build-systems literature (Mokhov, Mitchell, Peyton Jones, ICFP
+2018, "Build Systems à la Carte") this is the applicative-vs-monadic
+split: applicative tasks have outputs knowable at plan time; monadic
+tasks have outputs that depend on runtime values. Our default is
+applicative; `KnownAtExecution` is the exit.
+
+#### Codegen
+
+The codegen scans provider source for method pairs `X`/`XPlanned` where
+the signature of `XPlanned` matches `X`'s input signature (modulo the
+error return and with a single resource return). For each pair it
+emits an entry in the provider's registration:
+
+```go
+op.AnnounceProvider(
+    reflect.TypeFor[provider.Provider](),
+    op.RoleAction,
+    func(ctx *op.ExecutionContext) (any, error) { return provider.NewProvider(ctx), nil },
+    map[string][]string{
+        "Copy": {"source_file", "destination_filename", "destination_file_mode"},
+        // ...
+    },
+    map[string]op.OutputSpec{
+        "Copy": func(slots map[string]any) (op.Resource, error) {
+            p := mustProvider()  // cached provider instance
+            return p.CopyPlanned(
+                slots["source_file"].(*Resource),
+                slots["destination_filename"].(string),
+                slots["destination_file_mode"].(os.FileMode),
+            )
+        },
+        // ...
+    },
+)
+```
+
+No annotation language. No struct tags. The naming convention is the
+only authoring contract.
+
+#### Summary
+
+| Aspect | Before (heuristics) | After (output specs) |
+|---|---|---|
+| Output parameter identification | Name matching (fragile) | Sibling method with typed inputs (deterministic) |
+| Identity construction | Duplicated in forward method and planner | Single function called by both |
+| Plan-time shadowing | Heuristic-gated, incorrect for Remove-family | Explicit, type-safe, authored per method |
+| Dry-run | Separate code path per method | Call the output spec instead of the forward method |
+| Receipt hydration | Not supported | Output spec reconstructs pending resources from slots |
+| Runtime-dependent outputs | Undefined behavior | `KnownAtExecution` sentinel, execution-time shadowing |
+| Prior art | None | Bazel declared outputs, Terraform planned state |
+
+### 6.9 Comparison to Bazel Declared Outputs
+
+Our closest analogue is Bazel's analysis-phase output declaration. The
+pattern is similar in intent — "describe what a rule will produce
+before running it" — but diverges in authoring syntax, call timing,
+and reuse.
+
+#### Side-by-side: a compile-like rule
+
+**Bazel rule (Starlark):**
+
+```python
+def _my_compile_impl(ctx):
+    # Analysis phase. Pure Starlark, no subprocesses yet.
+    # Declare the output file at a computed path:
+    out = ctx.actions.declare_file(ctx.label.name + ".o")
+
+    # Register an action that will populate `out` at execution time:
+    ctx.actions.run(
+        executable = ctx.executable._compiler,
+        inputs = [ctx.file.src],
+        outputs = [out],                 # <-- framework now knows this path
+        arguments = [ctx.file.src.path, out.path],
+    )
+
+    return [DefaultInfo(files = depset([out]))]
+
+my_compile = rule(
+    implementation = _my_compile_impl,
+    attrs = {
+        "src": attr.label(allow_single_file = True),
+        "_compiler": attr.label(executable = True, cfg = "exec",
+                                default = Label("//tools:compiler")),
+    },
+)
+```
+
+**Our equivalent (Go):**
+
+```go
+// Compile is the forward method. Calls its own output spec to
+// construct the result, then does the work.
+func (p *Provider) Compile(src *file.Resource) (*file.Resource, Tombstone, error) {
+    out, err := p.CompilePlanned(src)
+    if err != nil {
+        return nil, Tombstone{}, err
+    }
+
+    tombstone, err := p.prepareWrite(out)
+    if err != nil {
+        return nil, Tombstone{}, err
+    }
+
+    if err := exec.Command(compilerPath, src.SourcePath.Abs(), out.SourcePath.Abs()).Run(); err != nil {
+        return nil, tombstone, err
+    }
+
+    if err := out.Resolve(); err != nil {
+        return out, tombstone, err
+    }
+    return out, tombstone, nil
+}
+
+// CompilePlanned is the output spec for Compile. Pure: no I/O.
+func (p *Provider) CompilePlanned(src *file.Resource) (*file.Resource, error) {
+    outPath := strings.TrimSuffix(src.SourcePath.Rel(),
+        filepath.Ext(src.SourcePath.Rel())) + ".o"
+    return file.NewResource(p.Context(), outPath)
+}
+
+// CompensateCompile removes the compiled output on rollback.
+func (p *Provider) CompensateCompile(undo Tombstone) error {
+    return p.compensateWrite(undo)
+}
+```
+
+Source order: forward, planned, compensate.
+
+#### Structural comparison
+
+| Concern | Bazel | Ours |
+|---|---|---|
+| **Phase separation** | Hard. Analysis (Starlark) and execution (subprocess) are distinct phases. `_impl` runs in analysis; declared files are populated later by actions. | Soft. Output spec is a sibling Go method; forward method calls it synchronously before doing work. Framework can call the spec independently without ever running the forward method. |
+| **Authoring location** | `ctx.actions.declare_file(name)` inline in the rule impl. Output naming is a string expression over `ctx.label.name` / `ctx.attr.*`. | Sibling method `XPlanned` next to forward method `X`. Input signature is identical to `X` so the compiler type-checks the connection. |
+| **Language** | Starlark — interpreted, dynamic-typed, no compiler checks that the declared output matches what the action produces. | Go — static typing. `CompilePlanned`'s return type is the same resource type that `Compile` returns. Codegen enforces the signature pairing. |
+| **Discovery mechanism** | Bazel inspects the rule's return value (providers) plus the actions registered via `ctx.actions.*`. `outputs` are tracked in the action graph. | Codegen scans provider source for the `X` + `XPlanned` method pair by naming convention. Emits an entry in the generated `provider.gen.go`. |
+| **Separation of identity and work** | Explicit: `declare_file` creates the `File` handle; `ctx.actions.run` registers the action that populates it. The action doesn't own identity. | Explicit: `XPlanned` creates the resource identity; `X` populates metadata after running the work. The forward method calls the spec internally so both agree. |
+| **Reuse between framework and action** | Framework uses `File.path` to wire downstream consumers. The action's subprocess is opaque to Bazel — it just reads the declared path. | Framework calls `CompilePlanned` at plan time to populate the catalog. The forward method calls `CompilePlanned` at execution time to construct the result. Same function, same rules. |
+| **Dynamism (deferred outputs)** | **Tree artifacts** (`declare_directory`): output is a directory whose contents are discovered at execution time. Plus experimental **dynamic dependencies** where an action can discover additional inputs/outputs mid-execution. | `KnownAtExecution` sentinel returned by the output spec. The planner skips plan-time shadowing; the executor shadows the real return value post-dispatch. Phrasing and semantics borrowed from Terraform's `(known after apply)`. |
+| **Conflict detection** | At analysis time. Two rules declaring the same output file fail the build immediately. | At plan time via `catalog.Shadow`. Two nodes shadowing the same URI return a conflict error from the planner. |
+| **Implicit edges via shared identity** | Not really. Bazel uses explicit `inputs`/`outputs` lists on every action. Dependencies are declared, not discovered. | Yes. A reader calling `catalog.Resolve` on an already-shadowed URI gets the canonical entry with `originID` set. The planner creates the edge automatically. |
+| **Pure-function guarantee** | Starlark analysis is enforced pure: no `os.stat`, no file reads. The Starlark interpreter literally rejects I/O during analysis. | By convention only — `XPlanned` is documented as pure, but Go doesn't enforce it. Code review and unit tests are the enforcement. Could be strengthened with a linter. |
+| **Receipt / replay** | Bazel's action cache and remote execution replay actions by hashing their declared inputs and outputs. The declaration is what makes the hash deterministic. | `Rebind` at graph load walks nodes, calls each method's output spec with the recorded slot values, and reconstructs the catalog's pending entries. Same function, different caller. |
+
+#### Where we diverge intentionally
+
+**Bazel declares outputs via a framework call (`declare_file`) inside
+the rule impl.** The rule impl is imperative — it can do arbitrary
+computation to build the filename, but the act of declaring is explicit.
+Our output spec is a separate pure function with a typed signature; the
+"declaration" is the function itself, and the typed input signature is
+what the codegen uses to wire the planner.
+
+**Bazel's rules produce actions; our methods ARE the actions.** Bazel
+has a rule impl (`_my_compile_impl`) that registers actions as a side
+effect. We have a method (`Compile`) that *is* the side-effecting
+operation. Bazel's analysis/execution split is reified in the data
+(actions are data structures); ours is reified in the function (the
+spec is a function, the forward method is a function, they share input
+types).
+
+**Bazel's analysis is Starlark-interpreted; ours is Go-compiled.** Our
+static typing catches bugs Bazel would catch only at analysis runtime.
+The tradeoff: Bazel rules are easier to author dynamically (string
+manipulation, dict attrs), ours require named Go functions with
+declared parameter types.
+
+**Our output spec is callable by the forward method; Bazel's
+`declare_file` is not reusable by the action.** The Bazel action is a
+subprocess — it can't invoke `declare_file`, that's a Starlark-only
+operation. Our sibling-method pattern lets the forward method reuse
+identity construction, eliminating drift. This is the sell to the
+provider developer: you write the identity logic once and the framework
+uses it for free.
+
+**Bazel has no direct equivalent to our implicit-edges-via-URI-matching.**
+Bazel edges are declared explicitly in rule `inputs`. Our planner reads
+the catalog and creates edges from shared URIs. The output spec is what
+puts the URIs in the catalog at plan time so reads later can discover
+them.
+
+#### Terminology adopted
+
+From Bazel: "**declared output**" (the catalog-level concept), "**plan
+phase**" (our analog of Bazel's analysis phase, same pure-function
+discipline).
+
+From Terraform: "**known after apply**" semantics and the temporal
+framing, adopted as `KnownAtExecution` for our sentinel — the output is
+a legitimate resource identity that exists once the producing node has
+run, not an uncertain value.
+
+From Mokhov et al., "Build Systems à la Carte" (ICFP 2018): "**applicative
+tasks**" (outputs knowable at plan time) and "**monadic tasks**" (outputs
+depend on runtime values). Our default is applicative; `KnownAtExecution`
+is the exit for genuinely monadic outputs.
+
 ## 7. Integration with Current Architecture
 
 ### 7.1 Relationship to Output/FillSlot

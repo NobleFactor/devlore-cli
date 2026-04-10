@@ -77,15 +77,22 @@ func (m *mockServiceManager) NeedsSudo() bool { return false }
 // newTestProvider creates a Provider wired to the given mock.
 func newTestProvider(sm *mockServiceManager) *Provider {
 	return &Provider{
-		ProviderBase: op.NewProviderBase(op.Context{
-			ContextBase: op.ContextBase{
-				Writer: io.Discard,
-				Platform: &op.Platform{
-					ServiceManager: sm,
-				},
+		ProviderBase: op.NewProviderBase(&op.ExecutionContext{
+			Writer: io.Discard,
+			Platform: &op.Platform{
+				ServiceManager: sm,
 			},
 		}),
 	}
+}
+
+func res(t *testing.T, name string) *Resource {
+	t.Helper()
+	r, err := NewResource(&op.ExecutionContext{}, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }
 
 func TestStart(t *testing.T) {
@@ -94,7 +101,7 @@ func TestStart(t *testing.T) {
 	sm.running["nginx"] = false
 
 	p := newTestProvider(sm)
-	result, state, err := p.Start(Resource{Name: "nginx"})
+	result, state, err := p.Start(res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -115,7 +122,7 @@ func TestStartAlreadyRunning(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	result, state, err := p.Start(Resource{Name: "nginx"})
+	result, state, err := p.Start(res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -132,7 +139,7 @@ func TestStartError(t *testing.T) {
 	sm.startFail = true
 
 	p := newTestProvider(sm)
-	_, _, err := p.Start(Resource{Name: "nginx"})
+	_, _, err := p.Start(res(t, "nginx"))
 	if err == nil {
 		t.Fatal("Start() expected error, got nil")
 	}
@@ -179,7 +186,7 @@ func TestStop(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	result, state, err := p.Stop(Resource{Name: "nginx"})
+	result, state, err := p.Stop(res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
@@ -227,7 +234,7 @@ func TestRestart(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	result, state, err := p.Restart(Resource{Name: "nginx"})
+	result, state, err := p.Restart(res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Restart() error = %v", err)
 	}
@@ -248,7 +255,7 @@ func TestRestartError(t *testing.T) {
 		sm.stopFail = true
 
 		p := newTestProvider(sm)
-		_, _, err := p.Restart(Resource{Name: "nginx"})
+		_, _, err := p.Restart(res(t, "nginx"))
 		if err == nil {
 			t.Fatal("Restart() expected error from Stop, got nil")
 		}
@@ -259,7 +266,7 @@ func TestRestartError(t *testing.T) {
 		sm.startFail = true
 
 		p := newTestProvider(sm)
-		_, _, err := p.Restart(Resource{Name: "nginx"})
+		_, _, err := p.Restart(res(t, "nginx"))
 		if err == nil {
 			t.Fatal("Restart() expected error from Start, got nil")
 		}
@@ -271,7 +278,7 @@ func TestEnable(t *testing.T) {
 	sm.enabled["nginx"] = false
 
 	p := newTestProvider(sm)
-	result, state, err := p.Enable(Resource{Name: "nginx"})
+	result, state, err := p.Enable(res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Enable() error = %v", err)
 	}
@@ -319,7 +326,7 @@ func TestDisable(t *testing.T) {
 	sm.enabled["nginx"] = true
 
 	p := newTestProvider(sm)
-	result, state, err := p.Disable(Resource{Name: "nginx"})
+	result, state, err := p.Disable(res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Disable() error = %v", err)
 	}
@@ -374,7 +381,7 @@ func TestPredicates(t *testing.T) {
 	p := newTestProvider(sm)
 
 	t.Run("Exists true", func(t *testing.T) {
-		got, err := p.Exists(Resource{Name: "nginx"})
+		got, err := p.Exists(res(t, "nginx"))
 		if err != nil {
 			t.Fatalf("Exists() error = %v", err)
 		}
@@ -384,7 +391,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Exists false", func(t *testing.T) {
-		got, err := p.Exists(Resource{Name: "missing"})
+		got, err := p.Exists(res(t, "missing"))
 		if err != nil {
 			t.Fatalf("Exists() error = %v", err)
 		}
@@ -394,7 +401,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Running true", func(t *testing.T) {
-		got, err := p.Running(Resource{Name: "nginx"})
+		got, err := p.Running(res(t, "nginx"))
 		if err != nil {
 			t.Fatalf("Running() error = %v", err)
 		}
@@ -404,7 +411,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Running false", func(t *testing.T) {
-		got, err := p.Running(Resource{Name: "stopped"})
+		got, err := p.Running(res(t, "stopped"))
 		if err != nil {
 			t.Fatalf("Running() error = %v", err)
 		}
@@ -414,7 +421,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Enabled true", func(t *testing.T) {
-		got, err := p.Enabled(Resource{Name: "nginx"})
+		got, err := p.Enabled(res(t, "nginx"))
 		if err != nil {
 			t.Fatalf("Enabled() error = %v", err)
 		}
@@ -424,7 +431,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Enabled false", func(t *testing.T) {
-		got, err := p.Enabled(Resource{Name: "disabled"})
+		got, err := p.Enabled(res(t, "disabled"))
 		if err != nil {
 			t.Fatalf("Enabled() error = %v", err)
 		}

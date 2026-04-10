@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
@@ -15,11 +16,10 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	pkgprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
-	pkggen "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
@@ -29,6 +29,7 @@ type mockPM struct {
 }
 
 func (m *mockPM) Name() string                             { return "mock" }
+func (m *mockPM) ParsePURL(id string) op.PURL              { return op.PURL{Type: "mock", Name: id} }
 func (m *mockPM) Installed(name string) bool               { _, ok := m.installed[name]; return ok }
 func (m *mockPM) Version(name string) string               { return m.installed[name] }
 func (m *mockPM) Available(_ string) bool                  { return true }
@@ -39,30 +40,45 @@ func (m *mockPM) Update() op.PlatformResult                { return op.PlatformR
 func (m *mockPM) AddRepo(_, _, _ string) op.PlatformResult { return op.PlatformResult{OK: true} }
 func (m *mockPM) NeedsSudo() bool                          { return false }
 
-func testCtx() op.Context {
+func testCtx() *op.ExecutionContext {
 	pm := &mockPM{installed: map[string]string{"curl": "7.88.0"}}
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-			Platform: &op.Platform{
-				OS:             "linux",
-				Arch:           "amd64",
-				PackageManager: pm,
-				PackageManagers: map[string]op.PackageManager{
-					"mock": pm,
-				},
-			},
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
+		Platform: &op.Platform{
+			OS:              "linux",
+			Arch:            "amd64",
+			PackageManager:  pm,
+			PackageManagers: map[string]op.PackageManager{"mock": pm},
 		},
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[pkgprov.Provider]())
+	if !ok {
+		t.Fatal("pkg provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
+}
+
+func pkgRes(t *testing.T, ctx *op.ExecutionContext, name string) *pkgprov.Resource {
+	t.Helper()
+	r, err := pkgprov.NewResource(ctx, name)
+	if err != nil {
+		t.Fatalf("NewResource(%q): %v", name, err)
+	}
+	return r
 }
 
 // region Starlark integration
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	p := pkgprov.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(pkggen.Receiver, p)
+	receiver := bind.NewProvider(receiverType(t), pkgprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"pkg": receiver}
 
@@ -93,15 +109,13 @@ func TestStarlark(t *testing.T) {
 
 func TestActions_Installed(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, pkggen.Receiver)
 
-	a, ok := reg.Get("pkg.installed")
-	if !ok {
-		t.Fatal("action pkg.installed not registered")
+	a, err := ctx.ActionByName("pkg.installed")
+	if err != nil {
+		t.Fatalf("action pkg.installed not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"name": pkgprov.NewResource("curl")})
+	result, _, err := a.Do(ctx, map[string]any{"name": pkgRes(t, ctx, "curl")})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -112,15 +126,13 @@ func TestActions_Installed(t *testing.T) {
 
 func TestActions_NotInstalled(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, pkggen.Receiver)
 
-	a, ok := reg.Get("pkg.not_installed")
-	if !ok {
-		t.Fatal("action pkg.not_installed not registered")
+	a, err := ctx.ActionByName("pkg.not_installed")
+	if err != nil {
+		t.Fatalf("action pkg.not_installed not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"name": pkgprov.NewResource("missing-pkg")})
+	result, _, err := a.Do(ctx, map[string]any{"name": pkgRes(t, ctx, "missing-pkg")})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -131,15 +143,13 @@ func TestActions_NotInstalled(t *testing.T) {
 
 func TestActions_Update(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, pkggen.Receiver)
 
-	a, ok := reg.Get("pkg.update")
-	if !ok {
-		t.Fatal("action pkg.update not registered")
+	a, err := ctx.ActionByName("pkg.update")
+	if err != nil {
+		t.Fatalf("action pkg.update not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"manager": ""})
+	result, _, err := a.Do(ctx, map[string]any{"manager": ""})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}

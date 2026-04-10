@@ -18,7 +18,7 @@ type Provider struct {
 }
 
 // NewProvider creates a YAML provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -48,14 +48,23 @@ func (p *Provider) Decode(data string) (any, error) {
 // Parse decodes a YAML string into a [Resource] that holds the parsed Go value.
 //
 // Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource whose
-// internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go roundtrips.
-func (p *Provider) Parse(data string) (Resource, error) {
+// internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go round-trips.
+func (p *Provider) Parse(data string) (*Resource, error) {
+
 	raw := []byte(data)
 
 	var parsed any
+
 	if err := yaml.Unmarshal(raw, &parsed); err != nil {
-		return Resource{}, fmt.Errorf("yaml parse: %w", err)
+		return nil, fmt.Errorf("yaml parse: %w", err)
 	}
 
-	return NewResource(raw, parsed), nil
+	r, err := NewResource(p.ExecutionContext(), raw)
+
+	if err != nil {
+		return nil, err
+	}
+
+	r.parsed = parsed
+	return r, nil
 }

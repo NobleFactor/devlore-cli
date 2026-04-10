@@ -16,13 +16,15 @@ const recoveryDir = ".devlore/recovery"
 // RecoverySite manages archival and restoration of resources within the authority boundary.
 //
 // All operations use zero-copy renames for files and byte serialization for data. The recovery directory is
-// .devlore/recovery/ within the op.Root authority boundary. All I/O goes through Context.Root.
+// .devlore/recovery/ within the op.Root authority boundary. All I/O goes through ExecutionContext.Root.
 type RecoverySite struct {
-	ctx Context
+	ctx *ExecutionContext
 }
 
-// NewRecoverySite creates a RecoverySite with the given Context. The Context must have a non-nil Root.
-func NewRecoverySite(ctx Context) *RecoverySite {
+// NewRecoverySite creates a RecoverySite with the given ExecutionContext.
+//
+// The ExecutionContext must have a non-nil Root.
+func NewRecoverySite(ctx *ExecutionContext) *RecoverySite {
 	return &RecoverySite{ctx: ctx}
 }
 
@@ -137,10 +139,9 @@ func (s *RecoverySite) RestoreFile(original Path, recoveryID string) error {
 	return nil
 }
 
-// --- Internal functions ---
-
-// recoveryParentDir returns the parent directory of a root-relative path. Uses simple string splitting to avoid
-// filepath.Dir's absolute path normalization.
+// recoveryParentDir returns the parent directory of a root-relative path.
+//
+// Uses simple string splitting to avoid filepath.Dir's absolute path normalization.
 func recoveryParentDir(path string) string {
 	for i := len(path) - 1; i >= 0; i-- {
 		if path[i] == '/' {

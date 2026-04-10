@@ -57,12 +57,18 @@ func newDarwin() *Platform {
 }
 
 // =============================================================================
-// Homebrew Package Manager
+// Homebrew PkgPath Manager
 // =============================================================================
 
 type brewManager struct{}
 
 func (m *brewManager) Name() string { return "brew" }
+
+func (m *brewManager) ParsePURL(id string) PURL {
+
+	name, version, _ := strings.Cut(id, "@")
+	return PURL{Type: "brew", Name: name, Version: version}
+}
 
 func (m *brewManager) Installed(name string) bool {
 	if runShellCommand("brew list --formula "+name, false).OK {
@@ -132,12 +138,18 @@ func (m *brewManager) AddRepo(url, keyURL, name string) PlatformResult {
 func (m *brewManager) NeedsSudo() bool { return false }
 
 // =============================================================================
-// MacPorts Package Manager
+// MacPorts PkgPath Manager
 // =============================================================================
 
 type portManager struct{}
 
 func (m *portManager) Name() string { return "port" }
+
+func (m *portManager) ParsePURL(id string) PURL {
+
+	name, version, _ := strings.Cut(id, "@")
+	return PURL{Type: "port", Name: name, Version: version}
+}
 
 func (m *portManager) Installed(name string) bool {
 	return runShellCommand("port installed "+name+" | grep -q "+name, false).OK

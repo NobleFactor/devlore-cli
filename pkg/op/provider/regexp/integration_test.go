@@ -9,34 +9,44 @@ import (
 	"os"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	regexpprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp"
-	regexpgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx() op.Context {
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[regexpprov.Provider]())
+	if !ok {
+		t.Fatal("regexp provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := bind.WrapProviderInExecutingReceiver(regexpgen.Receiver, regexpprov.NewProvider(ctx))
+	receiver := bind.NewProvider(receiverType(t), regexpprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"regexp": receiver}
 
@@ -93,15 +103,13 @@ func TestStarlark(t *testing.T) {
 
 func TestActions_Match(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver)
 
-	a, ok := reg.Get("regexp.match")
-	if !ok {
-		t.Fatal("action regexp.match not registered")
+	a, err := ctx.ActionByName("regexp.match")
+	if err != nil {
+		t.Fatalf("action regexp.match not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"pattern": `\d+`, "text": "abc123"})
+	result, _, err := a.Do(ctx, map[string]any{"pattern": `\d+`, "text": "abc123"})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -112,15 +120,13 @@ func TestActions_Match(t *testing.T) {
 
 func TestActions_Find(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver)
 
-	a, ok := reg.Get("regexp.find")
-	if !ok {
-		t.Fatal("action regexp.find not registered")
+	a, err := ctx.ActionByName("regexp.find")
+	if err != nil {
+		t.Fatalf("action regexp.find not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"pattern": `\d+`, "text": "abc123def"})
+	result, _, err := a.Do(ctx, map[string]any{"pattern": `\d+`, "text": "abc123def"})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -131,15 +137,13 @@ func TestActions_Find(t *testing.T) {
 
 func TestActions_Replace(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver)
 
-	a, ok := reg.Get("regexp.replace")
-	if !ok {
-		t.Fatal("action regexp.replace not registered")
+	a, err := ctx.ActionByName("regexp.replace")
+	if err != nil {
+		t.Fatalf("action regexp.replace not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"pattern": `\d+`, "text": "a1b2", "replacement": "X"})
+	result, _, err := a.Do(ctx, map[string]any{"pattern": `\d+`, "text": "a1b2", "replacement": "X"})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -150,15 +154,13 @@ func TestActions_Replace(t *testing.T) {
 
 func TestActions_Split(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, regexpgen.Receiver)
 
-	a, ok := reg.Get("regexp.split")
-	if !ok {
-		t.Fatal("action regexp.split not registered")
+	a, err := ctx.ActionByName("regexp.split")
+	if err != nil {
+		t.Fatalf("action regexp.split not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"pattern": `,`, "text": "a,b,c", "count": -1})
+	result, _, err := a.Do(ctx, map[string]any{"pattern": `,`, "text": "a,b,c", "count": -1})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}

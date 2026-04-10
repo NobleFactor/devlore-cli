@@ -10,34 +10,44 @@ import (
 	"strings"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	templateprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
-	templategen "github.com/NobleFactor/devlore-cli/pkg/op/provider/template/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/template/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx() op.Context {
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[templateprov.Provider]())
+	if !ok {
+		t.Fatal("template provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := bind.WrapProviderInExecutingReceiver(templategen.Receiver, templateprov.NewProvider(ctx))
+	receiver := bind.NewProvider(receiverType(t), templateprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"template": receiver}
 
@@ -69,15 +79,13 @@ func TestStarlark(t *testing.T) {
 
 func TestActions_RenderText(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, templategen.Receiver)
 
-	a, ok := reg.Get("template.render_text")
-	if !ok {
-		t.Fatal("action template.render_text not registered")
+	a, err := ctx.ActionByName("template.render_text")
+	if err != nil {
+		t.Fatalf("action template.render_text not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{
+	result, _, err := a.Do(ctx, map[string]any{
 		"content": "Hello {{ .Name }}",
 		"data":    map[string]any{"Name": "Bob"},
 	})
@@ -96,15 +104,13 @@ func TestActions_RenderText(t *testing.T) {
 
 func TestActions_RenderBytes(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, templategen.Receiver)
 
-	a, ok := reg.Get("template.render_bytes")
-	if !ok {
-		t.Fatal("action template.render_bytes not registered")
+	a, err := ctx.ActionByName("template.render_bytes")
+	if err != nil {
+		t.Fatalf("action template.render_bytes not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{
+	result, _, err := a.Do(ctx, map[string]any{
 		"content": []byte("val={{ .X }}"),
 		"data":    map[string]any{"X": "99"},
 	})

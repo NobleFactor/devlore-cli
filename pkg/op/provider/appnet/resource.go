@@ -11,48 +11,47 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// ResourceFromValue constructs an appnet.Resource from a string URL.
-//
-// Parameters:
-//   - v: expected to be a string URL
-//
-// Returns:
-//   - Resource: initialized with the parsed URL
-//   - error: if v is not a string or the URL is invalid
-func ResourceFromValue(v any) (Resource, error) {
-
-	s, ok := v.(string)
-	if !ok {
-		return Resource{}, fmt.Errorf("appnet.Resource: expected string URL, got %T", v)
-	}
-	u, err := url.Parse(s)
-	if err != nil {
-		return Resource{}, fmt.Errorf("appnet.Resource: invalid URL %q: %w", s, err)
-	}
-	r := Resource{SourceURL: u}
-	r.SetURI(r.buildURI())
-	return r, nil
-}
-
 // Resource represents a network resource identified by a URL.
 //
-// The SourceURL holds the original URL as provided (with transport scheme,
-// original casing, etc.). The canonical URI produced by [URI] is an opaque
-// appnet: URI wrapping the normalized, transport-independent URL with
-// targeted escaping of # and ? characters.
+// The SourceURL holds the original URL as provided (with transport scheme, original casing, etc.). The canonical URI
+// produced by [URI] is an opaque appnet: URI wrapping the normalized, transport-independent URL with targeted escaping
+// of # and ? characters.
 type Resource struct {
 	op.ResourceBase
 	SourceURL *url.URL
 }
 
+// NewResource constructs an appnet.Resource from a string URL.
+//
+// Parameters:
+//   - value: expected to be a string URL
+//
+// Returns:
+//   - Resource: initialized with the parsed URL
+//   - error: if v is not a string or the URL is invalid
+func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+
+	sourceURL, ok := value.(string)
+
+	if !ok {
+		return nil, fmt.Errorf("appnet.Resource: expected string URL, got %T", value)
+	}
+
+	canonicalSourceURL, err := canonicalURL(sourceURL)
+
+	if err != nil {
+		return nil, err
+	}
+
+	r := Resource{
+		ResourceBase: op.NewResourceBase(ctx, "appnet:"+escapeInnerURI(transportIndependentURI(canonicalSourceURL))),
+		SourceURL:    canonicalSourceURL}
+
+	return &r, nil
+}
+
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
-
-// buildURI computes the opaque appnet: URI.
-// The inner URL is normalized and wrapped with targeted escaping.
-func (r *Resource) buildURI() string {
-	return "appnet:" + escapeInnerURI(r.canonicalAuthority())
-}
 
 // escapeInnerURI percent-encodes # and ? so they don't interfere with
 // the outer URI's fragment and query parsing.
@@ -71,7 +70,16 @@ func escapeInnerURI(s string) string {
 	return string(b)
 }
 
-// canonicalAuthority produces the canonical host+path+query string.
+// transportIndependentURI produces host+path+query without the transport scheme.
+func transportIndependentURI(u *url.URL) string {
+	s := u.Host + u.EscapedPath()
+	if u.RawQuery != "" {
+		s += "?" + u.RawQuery
+	}
+	return s
+}
+
+// canonicalURL produces the canonical host+path+query string.
 //
 // Normalization rules (RFC 3986):
 //   - Lowercase hostname
@@ -80,30 +88,43 @@ func escapeInnerURI(s string) string {
 //   - Strip trailing /
 //   - Collapse double // in path (except leading)
 //   - Sort query parameters by key
-func (r *Resource) canonicalAuthority() string {
+func canonicalURL(value string) (*url.URL, error) {
+
+	sourceURL, err := url.Parse(value)
+
+	if err != nil {
+		return nil, fmt.Errorf("appnet.Resource: invalid URL %q: %w", value, err)
+	}
+
 	// Host: lowercase, strip default port
-	host := strings.ToLower(r.SourceURL.Hostname())
-	port := r.SourceURL.Port()
-	if port != "" && !isDefaultPort(r.SourceURL.Scheme, port) {
+
+	host := strings.ToLower(sourceURL.Hostname())
+	port := sourceURL.Port()
+
+	if port != "" && !isDefaultPort(sourceURL.Scheme, port) {
 		host += ":" + port
 	}
 
 	// Path: normalize encoding, collapse slashes, strip trailing /
-	p := normalizePercentEncoding(r.SourceURL.EscapedPath())
+
+	p := normalizePercentEncoding(sourceURL.EscapedPath())
 	p = collapseSlashes(p)
 	p = strings.TrimRight(p, "/")
+
 	if p == "" {
 		p = "/"
 	}
 
 	// Query: sorted by key (url.Values.Encode sorts alphabetically)
-	q := r.SourceURL.Query().Encode()
 
-	result := host + p
-	if q != "" {
-		result += "?" + q
-	}
-	return result
+	q := sourceURL.Query().Encode()
+
+	sourceURL.Host = host
+	sourceURL.RawPath = p
+	sourceURL.Path, _ = url.PathUnescape(p)
+	sourceURL.RawQuery = q
+
+	return sourceURL, nil
 }
 
 // isDefaultPort returns true if port matches the well-known default for scheme.
@@ -116,8 +137,7 @@ func isDefaultPort(scheme, port string) bool {
 	return defaults[scheme] == port
 }
 
-// collapseSlashes replaces runs of multiple / with a single / in the path,
-// preserving the leading /.
+// collapseSlashes replaces runs of multiple / with a single / in the path, preserving the leading /.
 func collapseSlashes(p string) string {
 	if p == "" {
 		return p
@@ -136,8 +156,8 @@ func collapseSlashes(p string) string {
 	return lead + strings.Join(parts, "/")
 }
 
-// normalizePercentEncoding uppercases hex digits in percent-encoded sequences
-// and decodes unreserved characters (RFC 3986 §2.3: A-Z a-z 0-9 - . _ ~).
+// normalizePercentEncoding uppercases hex digits in percent-encoded sequences and decodes unreserved characters (RFC
+// 3986 §2.3: A-Z a-z 0-9 - . _ ~).
 func normalizePercentEncoding(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

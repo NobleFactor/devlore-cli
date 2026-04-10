@@ -18,7 +18,7 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -27,36 +27,39 @@ func NewProvider(ctx op.Context) *Provider {
 // Parameters:
 //   - source: file resource identifying the encrypted SOPS file
 //   - destination: file resource identifying where to write the decrypted content
-func (p *Provider) DecryptSopsFile(source file.Resource, destination file.Resource) (file.Resource, Tombstone, error) {
+func (p *Provider) DecryptSopsFile(source *file.Resource, destination *file.Resource) (*file.Resource, Tombstone, error) {
 
-	root := p.Context().Root
+	root := p.ExecutionContext().Root
 
 	// 1. Read the source file into memory
 	data, err := root.ReadFile(root.NewPath(source.SourcePath.Abs()))
 	if err != nil {
-		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to read source: %w", err)
+		return nil, Tombstone{}, fmt.Errorf("failed to read source: %w", err)
 	}
 
 	// 2. Decrypt via SopsClient
-	sopsClient := p.Context().SopsClient
+	sopsClient := p.ExecutionContext().SopsClient
 	if sopsClient == nil {
-		return file.Resource{}, Tombstone{}, fmt.Errorf("sops client not configured")
+		return nil, Tombstone{}, fmt.Errorf("sops client not configured")
 	}
 
 	cleartext, err := sopsClient.Decrypt(data, source.SourcePath.Abs())
 	if err != nil {
-		return file.Resource{}, Tombstone{}, fmt.Errorf("sops decryption failed: %w", err)
+		return nil, Tombstone{}, fmt.Errorf("sops decryption failed: %w", err)
 	}
 
 	// 3. Write cleartext to the destination path
 	if err := root.WriteFile(root.NewPath(destination.SourcePath.Abs()), cleartext, 0o600); err != nil {
-		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to write destination: %w", err)
+		return nil, Tombstone{}, fmt.Errorf("failed to write destination: %w", err)
 	}
 
 	// 4. Wrap the new file in a Resource
-	result := file.NewResource(destination.SourcePath.Abs())
-	if err := result.Resolve(root); err != nil {
-		return file.Resource{}, Tombstone{}, fmt.Errorf("failed to resolve destination: %w", err)
+	result, err := file.NewResource(p.ExecutionContext(), destination.SourcePath.Abs())
+	if err != nil {
+		return nil, Tombstone{}, fmt.Errorf("failed to create resource: %w", err)
+	}
+	if err := result.Resolve(); err != nil {
+		return nil, Tombstone{}, fmt.Errorf("failed to resolve destination: %w", err)
 	}
 
 	return result, Tombstone{DestinationPath: destination.SourcePath.Abs()}, nil
@@ -69,6 +72,6 @@ func (p *Provider) CompensateDecryptSopsFile(state Tombstone) error {
 		return nil
 	}
 
-	root := p.Context().Root
+	root := p.ExecutionContext().Root
 	return root.Remove(root.NewPath(state.DestinationPath))
 }

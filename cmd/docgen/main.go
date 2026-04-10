@@ -14,7 +14,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 	"github.com/NobleFactor/devlore-cli/internal/tools/docgen"
-	"github.com/NobleFactor/devlore-cli/internal/writ"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ"
 )
 
 func main() {

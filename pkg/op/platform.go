@@ -58,6 +58,7 @@ func (p *Platform) AllInstalledBy(name string) []PackageManager {
 // PackageManager abstracts package manager operations.
 type PackageManager interface {
 	Name() string
+	ParsePURL(id string) PURL
 	Installed(name string) bool
 	Version(name string) string
 	Available(name string) bool

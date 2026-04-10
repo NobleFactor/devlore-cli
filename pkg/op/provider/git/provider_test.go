@@ -13,16 +13,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
-func init() {
-	op.RegisterConstructor(netprov.ResourceFromValue)
-	op.RegisterConstructor(file.ResourceFromValue)
-}
 
 func TestCloneViaHook(t *testing.T) {
 	var gotURL, gotPath string
 
 	p := &Provider{
-		ProviderBase: op.NewProviderBase(op.Context{}),
+		ProviderBase: op.NewProviderBase(&op.ExecutionContext{}),
 		cloneFn: func(url, path string) error {
 			gotURL = url
 			gotPath = path
@@ -58,7 +54,7 @@ func TestCloneViaHook(t *testing.T) {
 func TestCloneHookError(t *testing.T) {
 	hookErr := errors.New("clone failed")
 	p := &Provider{
-		ProviderBase: op.NewProviderBase(op.Context{}),
+		ProviderBase: op.NewProviderBase(&op.ExecutionContext{}),
 		cloneFn: func(_, _ string) error {
 			return hookErr
 		},
@@ -71,8 +67,8 @@ func TestCloneHookError(t *testing.T) {
 	if !errors.Is(err, hookErr) {
 		t.Fatalf("Clone error = %v, want %v", err, hookErr)
 	}
-	if result.ClonePath != "" {
-		t.Errorf("result.ClonePath = %q, want empty", result.ClonePath)
+	if result != nil {
+		t.Errorf("result = %v, want nil", result)
 	}
 	if state.ClonedPath != "" {
 		t.Errorf("state.ClonedPath = %q, want empty", state.ClonedPath)
@@ -86,7 +82,7 @@ func TestCompensateClone(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	p := &Provider{ProviderBase: op.NewProviderBase(op.Context{})}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{})}
 	if err := p.CompensateClone(Tombstone{ClonedPath: dir}); err != nil {
 		t.Fatalf("CompensateClone: %v", err)
 	}
@@ -97,26 +93,27 @@ func TestCompensateClone(t *testing.T) {
 }
 
 func TestCompensateCloneEmptyPath(t *testing.T) {
-	p := &Provider{ProviderBase: op.NewProviderBase(op.Context{})}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{})}
 	if err := p.CompensateClone(Tombstone{}); err != nil {
 		t.Fatalf("CompensateClone(empty) = %v, want nil", err)
 	}
 }
 
-func mustNetResource(t *testing.T, raw string) netprov.Resource {
+func mustNetResource(t *testing.T, raw string) *netprov.Resource {
 	t.Helper()
-	r, err := op.Construct[netprov.Resource](raw)
+	r, err := netprov.NewResource(&op.ExecutionContext{}, raw)
 	if err != nil {
-		t.Fatalf("Construct net.Resource(%q): %v", raw, err)
+		t.Fatalf("NewResource(%q): %v", raw, err)
 	}
 	return r
 }
 
-func mustFileResource(t *testing.T, path string) file.Resource {
+func mustFileResource(t *testing.T, path string) *file.Resource {
 	t.Helper()
-	r, err := op.Construct[file.Resource](path)
+	ctx := &op.ExecutionContext{Root: op.NewRootReaderWriter("/")}
+	r, err := file.NewResource(ctx, path)
 	if err != nil {
-		t.Fatalf("Construct file.Resource(%q): %v", path, err)
+		t.Fatalf("NewResource(%q): %v", path, err)
 	}
 	return r
 }

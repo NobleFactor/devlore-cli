@@ -153,7 +153,7 @@ Generate shell completions with:
 	}
 
 	// Create runtime early so we can bind flags to it
-	runtime := starruntime.NewRuntime()
+	runtime := starruntime.NewApplication()
 
 	// Global flags
 	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
@@ -295,7 +295,7 @@ func loadStarlarkCommands(rootCmd *cobra.Command, runtime *starruntime.Applicati
 		return err
 	}
 
-	// Register each Starlark command with cobra.
+	// register each Starlark command with cobra.
 	for _, cmd := range runtime.Commands() {
 		registerStarlarkCommand(rootCmd, cmd)
 	}

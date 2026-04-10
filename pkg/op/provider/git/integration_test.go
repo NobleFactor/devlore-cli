@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
@@ -19,14 +20,13 @@ import (
 	appnetprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	gitprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
-	gitgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
 
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet/gen" // register appnet.Resource constructor
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"   // register file.Resource constructor
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
@@ -73,14 +73,23 @@ func createBareRepo(t *testing.T) string {
 	return bare
 }
 
-func testCtx(t *testing.T) op.Context {
-	t.Helper()
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
+		Root:     op.NewRootReaderWriter("/"),
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[gitprov.Provider]())
+	if !ok {
+		t.Fatal("git provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
@@ -89,9 +98,8 @@ func TestStarlark(t *testing.T) {
 	bareRepo := createBareRepo(t)
 	cloneDest := filepath.Join(t.TempDir(), "cloned")
 
-	ctx := testCtx(t)
-	p := gitprov.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(gitgen.Receiver, p)
+	ctx := testCtx()
+	receiver := bind.NewProvider(receiverType(t), gitprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{
 		"git_prov":        receiver,
@@ -131,31 +139,34 @@ func TestActions_Clone(t *testing.T) {
 	bareRepo := createBareRepo(t)
 	cloneDest := filepath.Join(t.TempDir(), "action_cloned")
 
-	ctx := testCtx(t)
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, gitgen.Receiver)
+	ctx := testCtx()
 
-	a, ok := reg.Get("git.clone")
-	if !ok {
-		t.Fatal("action git.clone not registered")
-	}
-
-	urlRes, err := appnetprov.ResourceFromValue(bareRepo)
+	a, err := ctx.ActionByName("git.clone")
 	if err != nil {
-		t.Fatalf("ResourceFromValue: %v", err)
+		t.Fatalf("action git.clone not registered: %v", err)
 	}
 
-	result, complement, doErr := a.Do(&ctx, map[string]any{
+	urlRes, err := appnetprov.NewResource(nil, bareRepo)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	fileRes, err := file.NewResource(ctx, cloneDest)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	result, complement, doErr := a.Do(ctx, map[string]any{
 		"url":         urlRes,
-		"destination": file.NewResource(cloneDest),
+		"destination": fileRes,
 	})
 	if doErr != nil {
 		t.Fatalf("Do() error = %v", doErr)
 	}
 
-	res, ok := result.(gitprov.Resource)
+	res, ok := result.(*gitprov.Resource)
 	if !ok {
-		t.Fatalf("result type = %T, want git.Resource", result)
+		t.Fatalf("result type = %T, want *git.Resource", result)
 	}
 	if res.ClonePath != cloneDest {
 		t.Errorf("ClonePath = %q, want %q", res.ClonePath, cloneDest)

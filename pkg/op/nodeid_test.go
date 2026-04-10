@@ -33,9 +33,9 @@ func TestGenerateNodeID_WithComponents(t *testing.T) {
 }
 
 func TestGenerateNodeID_SingleComponent(t *testing.T) {
-	id := GenerateNodeID("action", "link")
-	if !strings.HasPrefix(id, "action-link-") {
-		t.Errorf("GenerateNodeID(action,link) = %q, want prefix action-link-", id)
+	id := GenerateNodeID("do", "link")
+	if !strings.HasPrefix(id, "do-link-") {
+		t.Errorf("GenerateNodeID(do,link) = %q, want prefix do-link-", id)
 	}
 }
 

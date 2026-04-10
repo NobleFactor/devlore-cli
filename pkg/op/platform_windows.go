@@ -66,12 +66,22 @@ func runWindowsCommand(command string, elevated bool) PlatformResult {
 }
 
 // =============================================================================
-// winget Package Manager
+// winget PkgPath Manager
 // =============================================================================
 
 type wingetManager struct{}
 
 func (m *wingetManager) Name() string { return "winget" }
+
+func (m *wingetManager) ParsePURL(id string) PURL {
+
+	raw, version, _ := strings.Cut(id, "@")
+	ns, name, ok := strings.Cut(raw, ".")
+	if !ok {
+		return PURL{Type: "winget", Name: raw, Version: version}
+	}
+	return PURL{Type: "winget", Namespace: ns, Name: name, Version: version}
+}
 
 func (m *wingetManager) Installed(name string) bool {
 	result := runWindowsCommand("winget list --id "+name, false)

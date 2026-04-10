@@ -9,7 +9,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-var _ op.ContextProvider = (*Provider)(nil)
+var _ op.Provider = (*Provider)(nil)
 
 // Provider provides configuration operations: get (merged config), show (config with sources),
 // and sync (write tool-specific config files).
@@ -20,12 +20,12 @@ type Provider struct {
 }
 
 // NewProvider creates a config provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) loadConfig() (*cfg.Config, error) {
-	if c, ok := p.Context().Data["config"].(*cfg.Config); ok && c != nil {
+	if c, ok := p.ExecutionContext().Data["config"].(*cfg.Config); ok && c != nil {
 		return c, nil
 	}
 	return cfg.Load()

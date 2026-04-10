@@ -10,78 +10,18 @@ import (
 
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/goast"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 func init() {
-	bind.RegisterReceiverParams(&FuncDeclFactory{}, FuncDeclMethodParams)
+	op.AnnounceType(reflect.TypeFor[provider.FuncDecl](), map[string][]string{
+		"DeclName":     {},
+		"DeclKind":     {},
+		"DeclComment":  {},
+		"DeclStyle":    {},
+		"Name":         {},
+		"Comment":      {},
+		"ReceiverType": {},
+		"Params":       {},
+		"Returns":      {},
+	})
 }
-
-// FuncDeclMethodParams maps Go method names to Starlark parameter name lists.
-var FuncDeclMethodParams = bind.MethodParams{
-	"DeclName":     {},
-	"DeclKind":     {},
-	"DeclComment":  {},
-	"DeclStyle":    {},
-	"Name":         {},
-	"Comment":      {},
-	"ReceiverType": {},
-	"Params":       {},
-	"Returns":      {},
-}
-
-// FuncDeclFactory provides the minimal ReceiverFactory interface for dependent type marshaling.
-//
-// When op.Marshal encounters a *provider.FuncDecl, the receiver params registry
-// directs it to WrapProviderInExecutingReceiver using this factory.
-type FuncDeclFactory struct{}
-
-// region EXPORTED METHODS
-
-// region State management
-
-// GetOrCreateProvider returns nil — dependent types are not created by factories.
-//
-// Parameters:
-//   - ctx: the execution context (unused).
-//
-// Returns:
-//   - op.ContextProvider: always nil.
-func (f *FuncDeclFactory) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-
-// ProviderType returns the reflect.Type of the dependent type struct.
-//
-// Returns:
-//   - reflect.Type: the dependent type's concrete type.
-func (f *FuncDeclFactory) ProviderType() reflect.Type {
-	return reflect.TypeOf(provider.FuncDecl{})
-}
-
-// ReceiverName returns the Starlark receiver name for this dependent type.
-//
-// Returns:
-//   - string: the receiver name "func_decl".
-func (f *FuncDeclFactory) ReceiverName() string { return "func_decl" }
-
-// MethodParams returns the complete method-to-parameter mapping for FuncDecl.
-func (f *FuncDeclFactory) MethodParams() map[string][]string { return FuncDeclMethodParams }
-
-// MethodParamsFor returns the parameter names for the given method.
-func (f *FuncDeclFactory) MethodParamsFor(name string) []string {
-	return FuncDeclMethodParams[name]
-}
-
-// endregion
-
-// region Behaviors
-
-// Register is a no-op — dependent types do not register actions.
-//
-// Parameters:
-//   - ctx: the execution context (unused).
-//   - registry: the receiver registry (unused).
-func (f *FuncDeclFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {}
-
-// endregion
-
-// endregion

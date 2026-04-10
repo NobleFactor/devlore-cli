@@ -35,7 +35,7 @@ type ViperConfig struct {
 }
 
 // InitViper initializes Viper with standard devlore conventions.
-// Call this in PersistentPreRunE of the root command.
+// Do this in PersistentPreRunE of the root command.
 //
 // Precedence (lowest to highest):
 //  1. Config file defaults
@@ -93,7 +93,7 @@ func InitViper(cfg ViperConfig) error {
 }
 
 // BindFlags binds all persistent flags from a command to Viper.
-// Call this after defining flags and before Execute().
+// Do this after defining flags and before Execute().
 //
 // Flags are bound with the tool's section prefix when using shared config:
 //   - --repo flag → viper key "writ.repo" (with UseSharedConfig)

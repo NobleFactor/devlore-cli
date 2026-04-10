@@ -9,17 +9,18 @@ import (
 	"os"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
-	platformgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
@@ -31,21 +32,30 @@ var testPlatform = &op.Platform{
 	Version:  "24.04",
 }
 
-func testCtx() op.Context {
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context:  context.Background(),
-			Writer:   &bytes.Buffer{},
-			Platform: testPlatform,
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Platform: testPlatform,
+		Registry: op.NewReceiverRegistry(),
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[platform.Provider]())
+	if !ok {
+		t.Fatal("platform provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	receiver := bind.WrapProviderInExecutingReceiver(platformgen.Receiver, platform.NewProvider(ctx))
+	receiver := bind.NewProvider(receiverType(t), platform.NewProvider(ctx))
 
 	globals := starlark.StringDict{"platform": receiver}
 
@@ -79,8 +89,6 @@ func TestStarlark(t *testing.T) {
 
 func TestActions(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, platformgen.Receiver)
 
 	tests := []struct {
 		action string
@@ -95,11 +103,11 @@ func TestActions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.action, func(t *testing.T) {
-			a, ok := reg.Get(tt.action)
-			if !ok {
-				t.Fatalf("action %q not registered", tt.action)
+			a, err := ctx.ActionByName(tt.action)
+			if err != nil {
+				t.Fatalf("action %q not registered: %v", tt.action, err)
 			}
-			result, _, err := a.Do(&ctx, map[string]any{})
+			result, _, err := a.Do(ctx, map[string]any{})
 			if err != nil {
 				t.Fatalf("Do() error = %v", err)
 			}

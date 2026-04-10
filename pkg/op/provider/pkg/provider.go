@@ -10,19 +10,19 @@ import (
 )
 
 // Provider provides platform-independent package management.
-// Platform-specific behavior is delegated to p.Context().Platform.
+// Platform-specific behavior is delegated to p.ExecutionContext().Platform.
 //
 // +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) platform() (*op.Platform, error) {
-	plat := p.Context().Platform
+	plat := p.ExecutionContext().Platform
 	if plat == nil {
 		return nil, fmt.Errorf("no platform available")
 	}
@@ -30,7 +30,7 @@ func (p *Provider) platform() (*op.Platform, error) {
 }
 
 // packageNames extracts the ReceiverName field from each Resource.
-func packageNames(resources []Resource) []string {
+func packageNames(resources []*Resource) []string {
 	names := make([]string, len(resources))
 	for i, r := range resources {
 		names[i] = r.Name
@@ -45,9 +45,9 @@ func packageNames(resources []Resource) []string {
 //
 // Parameters:
 //   - packages: package resources to install
-//   - manager: Package manager override (empty for auto-detect)
+//   - manager: PkgPath manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Install(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
+func (p *Provider) Install(packages []*Resource, manager string, cask bool) (result []*Resource, state Tombstone, err error) {
 	if len(packages) == 0 {
 		return nil, Tombstone{}, fmt.Errorf("no packages specified")
 	}
@@ -84,7 +84,7 @@ func (p *Provider) Install(packages []Resource, manager string, cask bool) (resu
 	}
 
 	resolvedType := packageManager.Name()
-	result = make([]Resource, len(packages))
+	result = make([]*Resource, len(packages))
 	for i, pkg := range packages {
 		result[i] = pkg
 		result[i].Type = resolvedType
@@ -98,8 +98,7 @@ func (p *Provider) Install(packages []Resource, manager string, cask bool) (resu
 	}, nil
 }
 
-// CompensateInstall undoes an Install by removing packages that weren't
-// already installed before the action.
+// CompensateInstall undoes an installation by removing packages that weren't already installed before the action.
 func (p *Provider) CompensateInstall(state Tombstone) error {
 	if len(state.Packages) == 0 {
 		return nil
@@ -152,9 +151,9 @@ func (p *Provider) CompensateInstall(state Tombstone) error {
 //
 // Parameters:
 //   - packages: package resources to remove
-//   - manager: Package manager override (empty for auto-detect)
+//   - manager: PkgPath manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Remove(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
+func (p *Provider) Remove(packages []*Resource, manager string, cask bool) (result []*Resource, state Tombstone, err error) {
 	if len(packages) == 0 {
 		return nil, Tombstone{}, fmt.Errorf("no packages specified")
 	}
@@ -191,7 +190,7 @@ func (p *Provider) Remove(packages []Resource, manager string, cask bool) (resul
 			resolvedType = plat.PackageManager.Name()
 		}
 	}
-	result = make([]Resource, len(packages))
+	result = make([]*Resource, len(packages))
 	for i, pkg := range packages {
 		result[i] = pkg
 		result[i].Type = resolvedType
@@ -234,9 +233,9 @@ func (p *Provider) CompensateRemove(state Tombstone) error {
 //
 // Parameters:
 //   - packages: package resources to upgrade
-//   - manager: Package manager override (empty for auto-detect)
+//   - manager: PkgPath manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Upgrade(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
+func (p *Provider) Upgrade(packages []*Resource, manager string, cask bool) (result []*Resource, state Tombstone, err error) {
 	if len(packages) == 0 {
 		return nil, Tombstone{}, fmt.Errorf("no packages specified")
 	}
@@ -273,7 +272,7 @@ func (p *Provider) Upgrade(packages []Resource, manager string, cask bool) (resu
 	}
 
 	resolvedType := packageManager.Name()
-	result = make([]Resource, len(packages))
+	result = make([]*Resource, len(packages))
 	for i, pkg := range packages {
 		result[i] = pkg
 		result[i].Type = resolvedType
@@ -299,7 +298,7 @@ func (p *Provider) CompensateUpgrade(_ Tombstone) error {
 // Update refreshes the package manager index.
 //
 // Parameters:
-//   - manager: Package manager override (empty for auto-detect)
+//   - manager: PkgPath manager override (empty for auto-detect)
 func (p *Provider) Update(manager string) (string, error) {
 	plat, err := p.platform()
 	if err != nil {
@@ -324,7 +323,7 @@ func (p *Provider) Update(manager string) (string, error) {
 //
 // Parameters:
 //   - name: package resource to check
-func (p *Provider) Installed(name Resource) (bool, error) {
+func (p *Provider) Installed(name *Resource) (bool, error) {
 	plat, err := p.platform()
 	if err != nil {
 		return false, err
@@ -339,7 +338,7 @@ func (p *Provider) Installed(name Resource) (bool, error) {
 //
 // Parameters:
 //   - name: package resource to check
-func (p *Provider) NotInstalled(name Resource) (bool, error) {
+func (p *Provider) NotInstalled(name *Resource) (bool, error) {
 	plat, err := p.platform()
 	if err != nil {
 		return false, err
@@ -355,7 +354,7 @@ func (p *Provider) NotInstalled(name Resource) (bool, error) {
 // Parameters:
 //   - name: package resource to check
 //   - version: Minimum version string to compare against
-func (p *Provider) VersionGTE(name Resource, version string) (bool, error) {
+func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 	plat, err := p.platform()
 	if err != nil {
 		return false, err

@@ -106,7 +106,7 @@ func (c *Command) Run(flags map[string]string, positional ...string) error {
 		c.runtime.data["current_command"] = c.Name
 	}
 
-	// Call run(command, ctx).
+	// Do run(command, ctx).
 	_, err := starlark.Call(thread, c.RunFunc, starlark.Tuple{c, ctx}, nil)
 	if err != nil {
 		var evalErr *starlark.EvalError

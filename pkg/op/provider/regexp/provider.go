@@ -19,7 +19,7 @@ type Provider struct {
 	cache sync.Map // pattern string → *regexp.Regexp
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 

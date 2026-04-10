@@ -34,11 +34,11 @@ type Promise struct {
 //
 // Returns:
 //   - *Promise: the new promise handle.
-func NewPromise(node *op.Node, graph *op.Graph, slot string) *Promise {
+func NewPromise(graph *op.Graph, node *op.Node, slot string) *Promise {
 
 	return &Promise{
-		node:  node,
 		graph: graph,
+		node:  node,
 		slot:  slot,
 	}
 }
@@ -71,7 +71,7 @@ func (p *Promise) Node() *op.Node {
 //   - string: the path slot value, or empty string if not present or not a string.
 func (p *Promise) Path() string {
 
-	path, ok := p.node.GetSlot("path").(string)
+	path, ok := p.node.SlotByName("path").(string)
 	if !ok {
 		return ""
 	}
@@ -112,7 +112,7 @@ func (p *Promise) Attr(name string) (starlark.Value, error) {
 		return starlark.NewBuiltin("output.retry", p.retryBuiltin), nil
 	default:
 		// Get the value from the node's slots and convert to Starlark
-		slotVal := p.node.GetSlot(name)
+		slotVal := p.node.SlotByName(name)
 		if slotVal == nil {
 			return nil, starlark.NoSuchAttrError(fmt.Sprintf("Promise has no attribute %q", name))
 		}
@@ -302,6 +302,18 @@ func FillSlot(node *op.Node, graph *op.Graph, slotName string, value starlark.Va
 
 	// None: skip (optional parameter not provided)
 	if _, ok := value.(starlark.NoneType); ok {
+		return nil
+	}
+
+	// Resource passthrough: if the starlark value wraps a Go resource,
+	// extract it directly — preserves identity and origin through the
+	// planning layer without a lossy marshal→unmarshal round-trip.
+	if v, ok := value.(*Value); ok {
+		goVal := v.receiver
+		if originID, found := op.ExtractResource(goVal); found {
+			graph.Edges = append(graph.Edges, op.Edge{From: originID, To: node.ID})
+		}
+		node.SetSlotImmediate(slotName, goVal)
 		return nil
 	}
 

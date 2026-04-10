@@ -24,16 +24,12 @@ var (
 
 // makeTestGraph creates a minimal graph for testing.
 func makeTestGraph() *op.Graph {
-	return &op.Graph{Version: "1", Tool: "test", Catalog: op.NewResourceCatalog()}
+	return &op.Graph{Version: "1", Provenance: op.Provenance{Tool: "test"}, Catalog: op.NewResourceCatalog()}
 }
 
 // makeTestNode creates a node with the given ID and an optional stub action.
 func makeTestNode(id, action string) *op.Node {
-	n := &op.Node{ID: id}
-	if action != "" {
-		n.Action = op.StubAction(action)
-	}
-	return n
+	return &op.Node{ID: id, Receiver: action}
 }
 
 // resolveInput extracts an *Promise from a Starlark value. Test helper only.
@@ -49,7 +45,7 @@ func resolveInput(value starlark.Value) (*Promise, error) {
 func TestNewOutput(t *testing.T) {
 	g := makeTestGraph()
 	n := makeTestNode("n1", "file.copy")
-	out := NewPromise(n, g, "result")
+	out := NewPromise(g, n, "result")
 
 	if out.Node() != n {
 		t.Errorf("Node() = %v, want %v", out.Node(), n)
@@ -74,7 +70,7 @@ func TestOutputString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out := NewPromise(makeTestNode(tt.nodeID, ""), makeTestGraph(), "")
+			out := NewPromise(makeTestGraph(), makeTestNode(tt.nodeID, ""), "")
 			if got := out.String(); got != tt.want {
 				t.Errorf("String() = %q, want %q", got, tt.want)
 			}
@@ -83,21 +79,21 @@ func TestOutputString(t *testing.T) {
 }
 
 func TestOutputType(t *testing.T) {
-	out := NewPromise(makeTestNode("n1", ""), makeTestGraph(), "")
+	out := NewPromise(makeTestGraph(), makeTestNode("n1", ""), "")
 	if got := out.Type(); got != "Promise" {
 		t.Errorf("ProviderType() = %q, want %q", got, "Promise")
 	}
 }
 
 func TestOutputTruth(t *testing.T) {
-	out := NewPromise(makeTestNode("n1", ""), makeTestGraph(), "")
+	out := NewPromise(makeTestGraph(), makeTestNode("n1", ""), "")
 	if got := out.Truth(); got != true {
 		t.Errorf("Truth() = %v, want true", got)
 	}
 }
 
 func TestOutputHash(t *testing.T) {
-	out := NewPromise(makeTestNode("n1", ""), makeTestGraph(), "")
+	out := NewPromise(makeTestGraph(), makeTestNode("n1", ""), "")
 	_, err := out.Hash()
 	if err == nil {
 		t.Fatal("Hash() expected error, got nil")
@@ -110,7 +106,7 @@ func TestOutputHash(t *testing.T) {
 func TestOutputNodeGraphSlot(t *testing.T) {
 	g := makeTestGraph()
 	n := makeTestNode("abc", "file.link")
-	out := NewPromise(n, g, "out-slot")
+	out := NewPromise(g, n, "out-slot")
 
 	if out.Node() != n {
 		t.Error("Node() returned wrong node")
@@ -127,7 +123,7 @@ func TestOutputFillSlot(t *testing.T) {
 	g := makeTestGraph()
 	producer := makeTestNode("producer", "file.copy")
 	consumer := makeTestNode("consumer", "file.link")
-	out := NewPromise(producer, g, "default")
+	out := NewPromise(g, producer, "default")
 
 	out.FillSlot(consumer, "src")
 
@@ -187,7 +183,7 @@ func TestOutputPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			n := makeTestNode("n1", "")
 			n.Slots = tt.slots
-			out := NewPromise(n, makeTestGraph(), "")
+			out := NewPromise(makeTestGraph(), n, "")
 			if got := out.Path(); got != tt.want {
 				t.Errorf("Path() = %q, want %q", got, tt.want)
 			}
@@ -199,7 +195,7 @@ func TestOutputDependOn(t *testing.T) {
 	g := makeTestGraph()
 	producer := makeTestNode("producer", "file.copy")
 	consumer := makeTestNode("consumer", "file.link")
-	out := NewPromise(producer, g, "")
+	out := NewPromise(g, producer, "")
 
 	out.DependOn(consumer)
 
@@ -221,7 +217,7 @@ func TestOutputAttr(t *testing.T) {
 	n := makeTestNode("test-node", "file.copy")
 	n.SetSlotImmediate("path", "/tmp/out")
 	g := makeTestGraph()
-	out := NewPromise(n, g, "my-slot")
+	out := NewPromise(g, n, "my-slot")
 
 	tests := []struct {
 		name    string
@@ -260,7 +256,7 @@ func TestOutputAttr(t *testing.T) {
 func TestOutputAttrRetry(t *testing.T) {
 	n := makeTestNode("r1", "appnet.download")
 	g := makeTestGraph()
-	out := NewPromise(n, g, "")
+	out := NewPromise(g, n, "")
 
 	val, err := out.Attr("retry")
 	if err != nil {
@@ -275,7 +271,7 @@ func TestOutputAttrNames(t *testing.T) {
 	n := makeTestNode("n1", "")
 	n.SetSlotImmediate("path", "/tmp")
 	n.SetSlotImmediate("mode", "0644")
-	out := NewPromise(n, makeTestGraph(), "")
+	out := NewPromise(makeTestGraph(), n, "")
 
 	names := out.AttrNames()
 	sort.Strings(names)
@@ -300,7 +296,7 @@ func TestFillSlotOutput(t *testing.T) {
 	g := makeTestGraph()
 	producer := makeTestNode("producer", "file.copy")
 	consumer := makeTestNode("consumer", "file.link")
-	out := NewPromise(producer, g, "default")
+	out := NewPromise(g, producer, "default")
 
 	if err := FillSlot(consumer, g, "input", out); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
@@ -323,8 +319,8 @@ func TestFillSlotOutput(t *testing.T) {
 
 func TestFillSlotOutputList(t *testing.T) {
 	g := makeTestGraph()
-	o1 := NewPromise(makeTestNode("a", ""), g, "")
-	o2 := NewPromise(makeTestNode("b", ""), g, "")
+	o1 := NewPromise(g, makeTestNode("a", ""), "")
+	o2 := NewPromise(g, makeTestNode("b", ""), "")
 	list := starlark.NewList([]starlark.Value{o1, o2})
 	consumer := makeTestNode("consumer", "")
 
@@ -542,9 +538,10 @@ type testFileResource struct {
 }
 
 func newTestFileResource(path string) *testFileResource {
-	r := &testFileResource{SourcePath: path}
-	r.SetURI("file://" + path)
-	return r
+	return &testFileResource{
+		ResourceBase: op.NewResourceBase(&op.ExecutionContext{}, "file://"+path),
+		SourcePath:   path,
+	}
 }
 
 func TestFillSlotImplicitEdge_ResourceWithOrigin(t *testing.T) {
@@ -582,7 +579,7 @@ func TestFillSlotImplicitEdge_ResourceWithoutOrigin(t *testing.T) {
 	// A discovered resource (no origin) — FillSlot should NOT create an edge.
 	res := newTestFileResource("/bar")
 	// Resolve creates a discovery entry with no origin.
-	g.Catalog.Resolve("file:///bar")
+	g.Catalog.Resolve(res)
 
 	val, err := Marshal(res)
 	if err != nil {
@@ -603,7 +600,8 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 	consumer := makeTestNode("reader", "file.read")
 
 	// A plain ResourceBase with origin.
-	res := new(op.NewResourceBase("file:///baz"))
+	rb := op.NewResourceBase(&op.ExecutionContext{}, "file:///baz")
+	res := &rb
 	if _, err := g.Catalog.Shadow(res, "producer"); err != nil {
 		t.Fatalf("Shadow error: %v", err)
 	}
@@ -628,7 +626,7 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 // --- resolveInput ---
 
 func TestResolveInput(t *testing.T) {
-	out := NewPromise(makeTestNode("n1", ""), makeTestGraph(), "")
+	out := NewPromise(makeTestGraph(), makeTestNode("n1", ""), "")
 
 	got, err := resolveInput(out)
 	if err != nil {
@@ -705,7 +703,7 @@ func TestOutputRetryBuiltin(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			n := makeTestNode("r1", "appnet.download")
-			out := NewPromise(n, makeTestGraph(), "")
+			out := NewPromise(makeTestGraph(), n, "")
 
 			val, err := out.Attr("retry")
 			if err != nil {
@@ -753,7 +751,7 @@ func TestOutputRetryBuiltin(t *testing.T) {
 
 func TestOutputRetryBuiltinDelays(t *testing.T) {
 	n := makeTestNode("r1", "appnet.download")
-	out := NewPromise(n, makeTestGraph(), "")
+	out := NewPromise(makeTestGraph(), n, "")
 
 	val, err := out.Attr("retry")
 	if err != nil {
@@ -791,7 +789,7 @@ func TestOutputFillSlotMultipleConsumers(t *testing.T) {
 	producer := makeTestNode("producer", "file.copy")
 	consumer1 := makeTestNode("c1", "file.link")
 	consumer2 := makeTestNode("c2", "file.link")
-	out := NewPromise(producer, g, "default")
+	out := NewPromise(g, producer, "default")
 
 	out.FillSlot(consumer1, "input")
 	out.FillSlot(consumer2, "input")

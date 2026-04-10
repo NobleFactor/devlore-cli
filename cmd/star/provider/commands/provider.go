@@ -12,7 +12,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-var _ op.ContextProvider = (*Provider)(nil)
+var _ op.Provider = (*Provider)(nil)
 
 // DataKeyCommandTree is the context Data key for the CommandTree.
 const DataKeyCommandTree = "command_tree"
@@ -28,17 +28,17 @@ type Provider struct {
 }
 
 // NewProvider creates a commands provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) tree() CommandTree {
-	t, _ := p.Context().Data[DataKeyCommandTree].(CommandTree)
+	t, _ := p.ExecutionContext().Data[DataKeyCommandTree].(CommandTree)
 	return t
 }
 
 func (p *Provider) currentCommand() string {
-	s, _ := p.Context().Data[DataKeyCurrentCommand].(string)
+	s, _ := p.ExecutionContext().Data[DataKeyCurrentCommand].(string)
 	return s
 }
 

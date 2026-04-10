@@ -69,10 +69,10 @@ func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 			}
 
 		case "node_count":
-			if len(graph.Nodes) != exp.Count {
+			if len(graph.Nodes()) != exp.Count {
 				failures = append(failures, Failure{
 					Expectation: fmt.Sprintf("node_count(%d)", exp.Count),
-					Message:     fmt.Sprintf("got %d nodes", len(graph.Nodes)),
+					Message:     fmt.Sprintf("got %d nodes", len(graph.Nodes())),
 				})
 			}
 

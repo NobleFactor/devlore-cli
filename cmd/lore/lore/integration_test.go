@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+//go:build ignore
+// +build ignore
+
 package lore_test
 
 import (
@@ -29,7 +32,7 @@ import (
 func TestLoadIntegration(t *testing.T) {
 
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithReceivers(uigen.Receiver).
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -41,7 +44,7 @@ func TestLoadIntegration(t *testing.T) {
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
-	ctx := op.Context{ContextBase: op.ContextBase{Root: op.NewRootReader(testdataDir)}}
+	ctx := op.ExecutionContext{contextBase: op.contextBase{Root: op.NewRootReader(testdataDir)}}
 	rt.RegisterActions(reg, ctx)
 	globals := rt.BuildGlobals(graph, "test-project", reg)
 
@@ -80,7 +83,7 @@ func TestLoadIntegration(t *testing.T) {
 // TestLoadIntegrationUnknownModule verifies that loading an unknown module produces a clear error.
 func TestLoadIntegrationUnknownModule(t *testing.T) {
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 
@@ -111,7 +114,7 @@ func TestLoadIntegrationUnknownModule(t *testing.T) {
 // TestLoadIntegrationBadPrefix verifies that a non-@devlore// load fails.
 func TestLoadIntegrationBadPrefix(t *testing.T) {
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("test").
+		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
 

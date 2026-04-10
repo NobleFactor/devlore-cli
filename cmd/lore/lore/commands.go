@@ -15,7 +15,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
@@ -237,11 +236,11 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	fmt.Println("\nDeploying packages...")
 
 	// Create action registry and executor
-	actionReg := op.NewActionRegistry()
-	op.InitAll(actionReg, op.Context{})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
-		DryRun: cfg.DryRun,
-	})
+	actionReg := op.NewReceiverRegistry()
+	executor, err := op.NewGraphExecutor("lore", op.Options{})
+	if err != nil {
+		return fmt.Errorf("creating executor: %w", err)
+	}
 
 	var lastErr error
 	for _, rp := range resolved {
@@ -262,27 +261,23 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			continue
 		}
 
-		if len(buildResult.Graph.Nodes) == 0 {
+		if len(buildResult.Graph.Nodes()) == 0 {
 			if cfg.Verbose {
 				cli.Note("No actions for %q", rp.pkg.Name)
 			}
 			continue
 		}
 
-		results, err := executor.RunNodes(ctx, buildResult.Graph.Nodes, buildResult.Graph.Edges)
-		if err != nil {
+		if _, err := executor.Run(buildResult.Graph); err != nil {
 			cli.Error("Error deploying %q: %v", rp.pkg.Name, err)
 			lastErr = err
 			continue
 		}
 
-		// Check for failures
-		for _, r := range results {
-			if r.Status == execution.ResultFailed {
-				cli.Error("Deployment failed for %q: %v", rp.pkg.Name, r.Error)
-				lastErr = fmt.Errorf("deployment failed for %s", rp.pkg.Name)
-				break
-			}
+		// Check for failures via graph state
+		if buildResult.Graph.State == op.StateFailed {
+			cli.Error("Deployment failed for %q", rp.pkg.Name)
+			lastErr = fmt.Errorf("deployment failed for %s", rp.pkg.Name)
 		}
 	}
 
@@ -472,9 +467,9 @@ func newSearchCmd() *cobra.Command {
 		Long: `Search for packages across the lore registry and native package managers.
 
 Results show the package source and confidence level:
-  HIGH   - Package is in the lore registry with full lifecycle support
-  MEDIUM - Package found in native PM and verified to exist
-  LOW    - Package synthesized but not verified
+  HIGH   - PkgPath is in the lore registry with full lifecycle support
+  MEDIUM - PkgPath found in native PM and verified to exist
+  LOW    - PkgPath synthesized but not verified
 
 Use --lore-only to search only the lore lorepackage.
 Use --native-only to search only the native package manager.`,
@@ -786,7 +781,7 @@ func newAuditCmd() *cobra.Command {
 		Long: `View security audit log entries.
 
 The audit log records security-sensitive actions:
-  - pmm.fetch: Package fetch with signature status
+  - pmm.fetch: PkgPath fetch with signature status
   - pmm.verify: Signature verification results
   - privilege.request: Sudo/elevation requests
   - binary.download: Upstream binary downloads with hash verification

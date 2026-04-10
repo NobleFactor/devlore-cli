@@ -82,12 +82,18 @@ func detectLinuxPackageManager(distro string) PackageManager { //nolint:ireturn 
 }
 
 // =============================================================================
-// APT Package Manager (Debian, Ubuntu)
+// APT PkgPath Manager (Debian, Ubuntu)
 // =============================================================================
 
 type aptManager struct{}
 
 func (m *aptManager) Name() string { return "apt" }
+
+func (m *aptManager) ParsePURL(id string) PURL {
+
+	name, version, _ := strings.Cut(id, "@")
+	return PURL{Type: "deb", Name: name, Version: version}
+}
 
 func (m *aptManager) Installed(name string) bool {
 	return runShellCommand("dpkg-query -W "+name, false).OK
@@ -156,12 +162,18 @@ func (m *aptManager) AddRepo(url, keyURL, name string) PlatformResult {
 func (m *aptManager) NeedsSudo() bool { return true }
 
 // =============================================================================
-// DNF Package Manager (Fedora, RHEL)
+// DNF PkgPath Manager (Fedora, RHEL)
 // =============================================================================
 
 type dnfManager struct{}
 
 func (m *dnfManager) Name() string { return "dnf" }
+
+func (m *dnfManager) ParsePURL(id string) PURL {
+
+	name, version, _ := strings.Cut(id, "@")
+	return PURL{Type: "rpm", Name: name, Version: version}
+}
 
 func (m *dnfManager) Installed(name string) bool {
 	return runShellCommand("rpm -q "+name, false).OK
@@ -238,12 +250,18 @@ func (m *dnfManager) AddRepo(url, keyURL, _ string) PlatformResult {
 func (m *dnfManager) NeedsSudo() bool { return true }
 
 // =============================================================================
-// Pacman Package Manager (Arch, Manjaro, EndeavourOS)
+// Pacman PkgPath Manager (Arch, Manjaro, EndeavourOS)
 // =============================================================================
 
 type pacmanManager struct{}
 
 func (m *pacmanManager) Name() string { return "pacman" }
+
+func (m *pacmanManager) ParsePURL(id string) PURL {
+
+	name, version, _ := strings.Cut(id, "@")
+	return PURL{Type: "alpm", Name: name, Version: version}
+}
 
 func (m *pacmanManager) Installed(name string) bool {
 	return runShellCommand("pacman -Q "+name, false).OK

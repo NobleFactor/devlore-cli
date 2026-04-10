@@ -19,7 +19,7 @@ type Config struct {
 }
 
 // New creates a Config with an empty extension hierarchy.
-// Call RegisterExtension() to add config specs, then LoadFromFiles() to populate.
+// Do RegisterExtension() to add config specs, then LoadFromFiles() to populate.
 func New() *Config {
 	return &Config{
 		extensions: newExtensionsConfig("star/config.yaml"),

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -16,24 +17,30 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
-	shellgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell/gen"
+	shellprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx() (op.Context, *bytes.Buffer) {
-	buf := &bytes.Buffer{}
-	ctx := op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  buf,
-		},
+func testCtx() *op.ExecutionContext {
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
 	}
-	return ctx, buf
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[shellprov.Provider]())
+	if !ok {
+		t.Fatal("shell provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
@@ -43,8 +50,8 @@ func TestStarlark(t *testing.T) {
 		t.Skip("shell.exec uses sh -c, skipping on windows")
 	}
 
-	ctx, buf := testCtx()
-	receiver := bind.WrapProviderInExecutingReceiver(shellgen.Receiver, shell.NewProvider(ctx))
+	ctx := testCtx()
+	receiver := bind.NewProvider(receiverType(t), shellprov.NewProvider(ctx))
 
 	globals := starlark.StringDict{"shell": receiver}
 
@@ -68,7 +75,7 @@ func TestStarlark(t *testing.T) {
 	assertStringEQ(t, result, "result_exec", "echo hello")
 	assertStringEQ(t, result, "result_exec_type", "string")
 
-	// Verify echo output was written to the buffer.
+	buf := ctx.Writer.(*bytes.Buffer)
 	if !strings.Contains(buf.String(), "hello") {
 		t.Errorf("output = %q, want to contain 'hello'", buf.String())
 	}
@@ -83,16 +90,14 @@ func TestActions_Exec(t *testing.T) {
 		t.Skip("shell.exec uses sh -c, skipping on windows")
 	}
 
-	ctx, buf := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, shellgen.Receiver)
+	ctx := testCtx()
 
-	a, ok := reg.Get("shell.exec")
-	if !ok {
-		t.Fatal("action shell.exec not registered")
+	a, err := ctx.ActionByName("shell.exec")
+	if err != nil {
+		t.Fatalf("action shell.exec not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"command": "echo action_test"})
+	result, _, err := a.Do(ctx, map[string]any{"command": "echo action_test"})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -104,22 +109,21 @@ func TestActions_Exec(t *testing.T) {
 	if s != "echo action_test" {
 		t.Errorf("result = %q, want 'echo action_test'", s)
 	}
+	buf := ctx.Writer.(*bytes.Buffer)
 	if !strings.Contains(buf.String(), "action_test") {
 		t.Errorf("output = %q, want to contain 'action_test'", buf.String())
 	}
 }
 
 func TestActions_Exec_EmptyCommand(t *testing.T) {
-	ctx, _ := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, shellgen.Receiver)
+	ctx := testCtx()
 
-	a, ok := reg.Get("shell.exec")
-	if !ok {
-		t.Fatal("action shell.exec not registered")
+	a, err := ctx.ActionByName("shell.exec")
+	if err != nil {
+		t.Fatalf("action shell.exec not registered: %v", err)
 	}
 
-	_, _, err := a.Do(&ctx, map[string]any{"command": ""})
+	_, _, err = a.Do(ctx, map[string]any{"command": ""})
 	if err == nil {
 		t.Fatal("expected error for empty command, got nil")
 	}

@@ -13,10 +13,8 @@ import (
 
 func newTestProvider() *Provider {
 	return &Provider{
-		ProviderBase: op.NewProviderBase(op.Context{
-			ContextBase: op.ContextBase{
-				Writer: &bytes.Buffer{},
-			},
+		ProviderBase: op.NewProviderBase(&op.ExecutionContext{
+			Writer: &bytes.Buffer{},
 		}),
 	}
 }
@@ -31,7 +29,7 @@ func TestExecSuccess(t *testing.T) {
 	if summary != "echo hello" {
 		t.Errorf("summary = %q, want %q", summary, "echo hello")
 	}
-	buf := p.Context().Writer.(*bytes.Buffer)
+	buf := p.ExecutionContext().Writer.(*bytes.Buffer)
 	if !strings.Contains(buf.String(), "hello") {
 		t.Errorf("output = %q, want it to contain %q", buf.String(), "hello")
 	}

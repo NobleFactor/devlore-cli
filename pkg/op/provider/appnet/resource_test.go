@@ -9,16 +9,14 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func init() { op.RegisterConstructor(ResourceFromValue) }
-
 func TestResourceImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
 
 func TestConstructorRoundTrip(t *testing.T) {
-	r, err := op.Construct[Resource]("https://example.com/file.tar.gz")
+	r, err := NewResource(&op.ExecutionContext{}, "https://example.com/file.tar.gz")
 	if err != nil {
-		t.Fatalf("Construct: %v", err)
+		t.Fatalf("NewResource: %v", err)
 	}
 	if r.SourceURL.String() != "https://example.com/file.tar.gz" {
 		t.Errorf("SourceURL = %q, want %q", r.SourceURL.String(), "https://example.com/file.tar.gz")
@@ -26,16 +24,16 @@ func TestConstructorRoundTrip(t *testing.T) {
 }
 
 func TestConstructorInvalidURL(t *testing.T) {
-	_, err := op.Construct[Resource]("://bad")
+	_, err := NewResource(&op.ExecutionContext{}, "://bad")
 	if err == nil {
-		t.Fatal("Construct: expected error for invalid URL")
+		t.Fatal("NewResource: expected error for invalid URL")
 	}
 }
 
 func TestConstructorWrongType(t *testing.T) {
-	_, err := op.Construct[Resource](42)
+	_, err := NewResource(&op.ExecutionContext{}, 42)
 	if err == nil {
-		t.Fatal("Construct: expected error for non-string")
+		t.Fatal("NewResource: expected error for non-string")
 	}
 }
 
@@ -143,9 +141,9 @@ func TestURICanonicalization(t *testing.T) {
 
 func mustParse(t *testing.T, raw string) *Resource {
 	t.Helper()
-	r, err := op.Construct[Resource](raw)
+	r, err := NewResource(&op.ExecutionContext{}, raw)
 	if err != nil {
-		t.Fatalf("Construct(%q): %v", raw, err)
+		t.Fatalf("NewResource(%q): %v", raw, err)
 	}
-	return &r
+	return r
 }

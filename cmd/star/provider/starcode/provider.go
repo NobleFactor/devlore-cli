@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package starcode provides Starlark source file capture with glob pattern matching,
-// .gitignore awareness, and optional .bzl file inclusion.
+// Package starcode provides Starlark source file capture with glob pattern matching, .gitignore awareness, and optional
+// .bzl file inclusion.
 package starcode
 
 import (
@@ -11,12 +11,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	ignore "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	ignore "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 )
 
 // Provider performs Starlark source capture.
@@ -27,7 +27,7 @@ type Provider struct {
 	Root string
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	if ctx.Root != nil {
 		p.Root = ctx.Root.Name()
@@ -36,10 +36,9 @@ func NewProvider(ctx op.Context) *Provider {
 }
 
 // Capture collects Starlark source files matching the given pattern.
-// If gitignore is true, files excluded by .gitignore rules are skipped.
-// If includeBzl is true, .bzl files are included alongside .star files.
 //
-// +devlore:defaults gitignore=true,includeBzl=true
+// If gitignore is true, files excluded by .gitignore rules are skipped. If includeBzl is true, .bzl files are included
+// alongside .star files.
 //
 // Parameters:
 //   - pattern: the glob pattern to match (supports **).
@@ -49,6 +48,8 @@ func NewProvider(ctx op.Context) *Provider {
 // Returns:
 //   - *Sources: the captured file set with root and sorted paths.
 //   - error: non-nil if the root directory cannot be resolved or the walk fails.
+//
+// +devlore:defaults gitignore=true,includeBzl=true
 func (p *Provider) Capture(pattern string, gitignore, includeBzl bool) (*Sources, error) {
 	root := p.Root
 	if root == "" {
@@ -67,7 +68,7 @@ func (p *Provider) Capture(pattern string, gitignore, includeBzl bool) (*Sources
 	var files []string
 
 	if strings.Contains(pattern, "**") {
-		files, err = captureRecursive(absRoot, pattern, gitignore, includeBzl)
+		files, err = p.captureRecursive(absRoot, pattern, gitignore, includeBzl)
 	} else {
 		var tracker *ignore.Tracker
 		if gitignore {
@@ -165,7 +166,7 @@ func (s *Sources) Analyze(cfg staranalysis.AnalysisConfig) (*staranalysis.Analys
 	return (&staranalysis.Provider{Root: s.Root}).Analyze(s.Files, cfg)
 }
 
-// captureRecursive walks the tree using file.ReceiverFactory.WalkTree and matches
+// captureRecursive walks the tree using file.ReceiverType.WalkTree and matches
 // files against the glob pattern.
 //
 // Parameters:
@@ -177,10 +178,10 @@ func (s *Sources) Analyze(cfg staranalysis.AnalysisConfig) (*staranalysis.Analys
 // Returns:
 //   - []string: absolute paths of matched files.
 //   - error: non-nil if the walk fails.
-func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) ([]string, error) {
+func (p *Provider) captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) ([]string, error) {
 	var files []string
 
-	visitor := file.Reducer(func(initial any, resource file.Resource, relPath string, _ *op.RecoveryStack) (any, error) {
+	visitor := file.Reducer(func(initial any, resource *file.Resource, relPath string, _ *op.RecoveryStack) (any, error) {
 		if resource.Mode.IsDir() {
 			return initial, nil
 		}
@@ -201,8 +202,9 @@ func captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) 
 		return initial, nil
 	})
 
-	fp := file.NewProvider(op.Context{ContextBase: op.ContextBase{Root: op.NewRootReader(absRoot)}})
-	_, _, err := fp.WalkTree(file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, honorGitignore)
+	fp := file.NewProvider(p.ExecutionContext())
+	_, _, err := fp.WalkTree(&file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, honorGitignore)
+
 	if err != nil {
 		return nil, err
 	}

@@ -12,35 +12,45 @@ import (
 	"path/filepath"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/archive"
-	archivegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen" // register file.Resource constructor
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
-func testCtx(t *testing.T) (op.Context, string) {
+func testCtx(t *testing.T) (*op.ExecutionContext, string) {
 	t.Helper()
 	dir := t.TempDir()
 	root := op.NewRootReaderWriter(dir)
-	ctx := op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-			Root:    root,
-		},
+	ctx := &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Root:     root,
+		Registry: op.NewReceiverRegistry(),
 	}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
 	return ctx, dir
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[archive.Provider]())
+	if !ok {
+		t.Fatal("archive provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // createTestTarGz creates a tar.gz with a single file inside.
@@ -84,7 +94,7 @@ func TestStarlark(t *testing.T) {
 	destDir := filepath.Join(dir, "extracted")
 
 	p := archive.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(archivegen.Receiver, p)
+	receiver := bind.NewProvider(receiverType(t), p)
 
 	globals := starlark.StringDict{
 		"archive":      receiver,
@@ -130,26 +140,31 @@ func TestActions_Extract(t *testing.T) {
 	archivePath := createTestTarGz(t, dir)
 	destDir := filepath.Join(dir, "action_extracted")
 
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, archivegen.Receiver)
-
-	a, ok := reg.Get("archive.extract")
-	if !ok {
-		t.Fatal("action archive.extract not registered")
+	a, err := ctx.ActionByName("archive.extract")
+	if err != nil {
+		t.Fatalf("action archive.extract not registered: %v", err)
 	}
 
-	result, complement, err := a.Do(&ctx, map[string]any{
-		"source": file.NewResource(archivePath),
-		"prefix": file.NewResource(destDir),
+	sourceRes, err := file.NewResource(ctx, archivePath)
+	if err != nil {
+		t.Fatalf("NewResource(source): %v", err)
+	}
+	prefixRes, err := file.NewResource(ctx, destDir)
+	if err != nil {
+		t.Fatalf("NewResource(prefix): %v", err)
+	}
+	result, complement, err := a.Do(ctx, map[string]any{
+		"source": sourceRes,
+		"prefix": prefixRes,
 	})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
 
-	// Result should be a file.Resource for the dest dir.
-	res, ok := result.(file.Resource)
+	// Result should be a *file.Resource for the dest dir.
+	res, ok := result.(*file.Resource)
 	if !ok {
-		t.Fatalf("result type = %T, want file.Resource", result)
+		t.Fatalf("result type = %T, want *file.Resource", result)
 	}
 	if res.SourcePath.Abs() != destDir {
 		t.Errorf("result path = %q, want %q", res.SourcePath.Abs(), destDir)

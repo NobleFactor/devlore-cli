@@ -5,7 +5,6 @@
 package star
 
 import (
-	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -41,24 +40,18 @@ type Application struct {
 	UIProvider *ui.Provider
 }
 
-// NewRuntime creates a new Starlark runtime.
-func NewRuntime() *Application {
-	cfg := op.NewBindingConfig("star").
-		WithReceivers(op.Receivers()...).
-		WithColor()
-	star := bind.NewStarlarkRuntime(cfg)
-
-	// Initialize the framework runtime so BuildReceivers can construct providers.
-	// Root is set to the current working directory so file.Provider can perform I/O.
-	// RecoverySite is auto-created by Initialize when Root is non-nil.
+// NewApplication creates a new star Application with a fully initialized Starlark runtime.
+func NewApplication() *Application {
 	wd, _ := os.Getwd()
 	data := map[string]any{"dry_run": DryRun}
-	star.Initialize(op.NewActionRegistry(), op.ContextBase{
-		Context: context.Background(),
-		Writer:  os.Stderr,
-		Root:    op.NewRootReaderWriter(wd),
-		Data:    data,
-	})
+
+	registry := op.NewReceiverRegistry()
+	cfg := op.NewRuntimeEnvironmentSpec("star", registry).
+		WithModules(registry.Modules()...).
+		WithRoot(op.NewRootReaderWriter(wd)).
+		WithData(data).
+		WithColor()
+	star := bind.NewStarlarkRuntime(cfg)
 
 	// UIProvider is exposed for --silent flag wiring in main.
 	uip := &ui.Provider{
@@ -103,7 +96,7 @@ func (r *Application) DiscoverAndLoad(loader *ExtensionLoader) error {
 		return err
 	}
 
-	// Step 2: Register — add to registry, register config schemas, load config.
+	// Step 2: register — add to registry, register config schemas, load config.
 	for _, ext := range exts {
 		if err := r.registry.Register(ext); err != nil {
 			return fmt.Errorf("register extension %s: %w", ext.Name, err)
@@ -217,7 +210,7 @@ func (r *Application) loadCommand(ext *Extension, cmd *Command) error {
 	}
 
 	// Build predeclared environment.
-	predeclared := r.star.BuildReceivers()
+	predeclared := r.star.Predeclared()
 
 	// Dialect options shared by the main script and any load() targets.
 	fileOpts := syntax.FileOptions{
@@ -283,7 +276,7 @@ func (r *Application) loadCommand(ext *Extension, cmd *Command) error {
 	cmd.predeclared = predeclared
 	cmd.runtime = r
 
-	// Register with space-separated name (e.g., "lint.go" -> "lint go").
+	// register with space-separated name (e.g., "lint.go" -> "lint go").
 	cmdName := strings.ReplaceAll(cmd.Name, ".", " ")
 	r.commands[cmdName] = cmd
 

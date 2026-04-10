@@ -10,36 +10,49 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// ResourceFromValue constructs a pkg.Resource from a string package name.
+// NewResource creates a pkg.Resource from a value.
+//
+// The value is a string package name with an optional manager prefix (e.g., "jq", "brew:jq", "port:wget",
+// "Microsoft.VisualStudioCode@1.89"). When no prefix is present, the platform's default package manager is used.
+// The manager's ParsePURL method formulates the purl identity from the package name.
 //
 // Parameters:
-//   - v: expected to be a string package name
+//   - ctx: the execution context (must have Platform set).
+//   - value: expected to be a string package name.
 //
 // Returns:
-//   - Resource: initialized with the given name
-//   - error: if v is not a string
-func ResourceFromValue(v any) (Resource, error) {
+//   - *Resource: the initialized resource with a valid purl URI.
+//   - error: if value is not a string or the manager prefix is unknown.
+func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
-	s, ok := v.(string)
+	raw, ok := value.(string)
+
 	if !ok {
-		return Resource{}, fmt.Errorf("pkg.Resource: expected string name, got %T", v)
+		return nil, fmt.Errorf("pkg.Resource: expected string, got %T", value)
 	}
-	return NewResource(s), nil
-}
 
-// NewResource creates a Resource with the given package name.
-// The ProviderType is left empty for auto-detection at Resolve() time.
-func NewResource(name string) Resource {
-	r := Resource{Name: name}
-	r.SetURI(r.buildURI())
-	return r
-}
+	// Parse optional manager prefix (e.g., "brew:jq", "port:wget").
 
-// NewTypedResource creates a Resource with explicit package name and type.
-func NewTypedResource(name, typ string) Resource {
-	r := Resource{Name: name, Type: typ}
-	r.SetURI(r.buildURI())
-	return r
+	var mgr op.PackageManager
+
+	if prefix, after, ok := strings.Cut(raw, ":"); ok {
+		mgr = ctx.Platform.GetPackageManager(prefix)
+		if mgr == nil {
+			return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", prefix)
+		}
+		raw = after
+	} else {
+		mgr = ctx.Platform.PackageManager
+	}
+
+	purl := mgr.ParsePURL(raw)
+
+	return &Resource{
+		ResourceBase: op.NewResourceBase(ctx, purl.String()),
+		Name:         purl.Name,
+		Type:         purl.Type,
+		Version:      purl.Version,
+	}, nil
 }
 
 // Resource represents a system package.
@@ -53,39 +66,31 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
 
-// buildURI computes the purl-compliant opaque URI.
-func (r *Resource) buildURI() string {
-	if r.Type == "winget" {
-		// Split "Microsoft.VisualStudioCode" → namespace "Microsoft" / name "VisualStudioCode"
-		if ns, name, ok := strings.Cut(r.Name, "."); ok {
-			s := "pkg:winget/" + ns + "/" + name
-			if r.Version != "" {
-				s += "@" + r.Version
-			}
-			return s
-		}
-	}
-	s := "pkg:" + r.Type + "/" + r.Name
-	if r.Version != "" {
-		s += "@" + r.Version
-	}
-	return s
-}
+// Resolve populates Version from the installed package version via the platform's package manager.
+//
+// Type and Name are established at construction time. Version is the only field that requires runtime resolution. If the
+// platform or manager is unavailable, Version is left empty — no error.
+//
+// Parameters:
+//   - root: unused (package version queries do not use the confined root).
+//
+// Returns:
+//   - error: always nil.
+func (r *Resource) Resolve() error {
 
-// Purl returns the canonical package-url string. For this implementation,
-// URI() and Purl() produce the same string.
-func (r *Resource) Purl() string {
-	return r.URI()
-}
+	ctx := r.ExecutionContext()
 
-// Resolve populates Type from the platform's default package manager
-// (when not specified at plan time) and Version from the installed
-// package version. The executor injects platform context before calling
-// Resolve().
-func (r *Resource) Resolve(_ op.Root) error {
-	// ProviderType and Version resolution requires platform context, which is
-	// injected by the executor. This is a skeleton — the executor calls
-	// Resolve() after platform injection.
+	if ctx == nil || ctx.Platform == nil {
+		return nil
+	}
+
+	mgr := ctx.Platform.GetPackageManager(r.Type)
+
+	if mgr == nil {
+		return nil
+	}
+
+	r.Version = mgr.Version(r.Name)
 	return nil
 }
 
@@ -97,4 +102,5 @@ type Tombstone struct {
 	Cask             bool
 	AlreadyInstalled []string
 	PreviousVersions map[string]string
+
 }

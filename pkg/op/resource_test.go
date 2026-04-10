@@ -8,22 +8,15 @@ import (
 )
 
 func TestResourceBase_URI(t *testing.T) {
-	base := NewResourceBase("file:///foo")
+	base := NewResourceBase(nil, "file:///foo")
 	if base.URI() != "file:///foo" {
 		t.Errorf("URI() = %q, want file:///foo", base.URI())
 	}
 }
 
-func TestResourceBase_SetURI(t *testing.T) {
-	base := NewResourceBase("file:///foo")
-	base.SetURI("file:///bar")
-	if base.URI() != "file:///bar" {
-		t.Errorf("URI() = %q, want file:///bar", base.URI())
-	}
-}
 
 func TestResourceBase_ParseHierarchicalURI(t *testing.T) {
-	base := NewResourceBase("file:///usr/local/bin")
+	base := NewResourceBase(nil, "file:///usr/local/bin")
 	if base.Scheme() != "file" {
 		t.Errorf("Scheme() = %q, want file", base.Scheme())
 	}
@@ -39,7 +32,7 @@ func TestResourceBase_ParseHierarchicalURI(t *testing.T) {
 }
 
 func TestResourceBase_ParseOpaqueURI(t *testing.T) {
-	base := NewResourceBase("pkg:brew/jq@1.7")
+	base := NewResourceBase(nil, "pkg:brew/jq@1.7")
 	if base.Scheme() != "pkg" {
 		t.Errorf("Scheme() = %q, want pkg", base.Scheme())
 	}
@@ -55,7 +48,7 @@ func TestResourceBase_ParseOpaqueURI(t *testing.T) {
 }
 
 func TestResourceBase_ParseFragment(t *testing.T) {
-	base := NewResourceBase("mem:callable/file.Reducer/myfn#node1")
+	base := NewResourceBase(nil, "mem:callable/file.Reducer/myfn#node1")
 	if base.Scheme() != "mem" {
 		t.Errorf("Scheme() = %q, want mem", base.Scheme())
 	}
@@ -65,14 +58,14 @@ func TestResourceBase_ParseFragment(t *testing.T) {
 }
 
 func TestResourceBase_SatisfiesInterface(t *testing.T) {
-	var r Resource = new(NewResourceBase("file:///bar"))
+	var r Resource = new(NewResourceBase(nil, "file:///bar"))
 	if r.URI() != "file:///bar" {
 		t.Errorf("Resource.URI() = %q, want file:///bar", r.URI())
 	}
 }
 
 func TestResourceBase_ParseInvalidURI(t *testing.T) {
-	base := NewResourceBase("://bad")
+	base := NewResourceBase(nil, "://bad")
 	if base.Scheme() != "" {
 		t.Errorf("Scheme() = %q, want empty for invalid URI", base.Scheme())
 	}
@@ -85,8 +78,5 @@ type testEmbeddingResource struct {
 }
 
 func (r *testEmbeddingResource) URI() string {
-	if r.ResourceBase.URI() == "" {
-		r.SetURI("file://" + r.SourcePath)
-	}
 	return r.ResourceBase.URI()
 }

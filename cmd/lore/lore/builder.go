@@ -15,7 +15,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 )
 
 // BuildResult contains the built execution graph and metadata for packages.
@@ -173,8 +172,7 @@ func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ReceiverRe
 
 	reg := p.ActionRegistry
 	if reg == nil {
-		reg = op.NewActionRegistry()
-		op.InitAll(reg, op.Context{})
+		reg = op.NewReceiverRegistry()
 	}
 
 	regClient := p.RegistryClient
@@ -211,16 +209,24 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		targetPlatform = detectPlatform()
 	}
 
+	reg := cfg.ActionRegistry
+	if reg == nil {
+		reg = op.NewReceiverRegistry()
+	}
+
 	p := &Planner{
 		Platform:       targetPlatform,
-		ActionRegistry: cfg.ActionRegistry,
+		ActionRegistry: reg,
 		RegistryClient: cfg.RegistryClient,
 		Features:       cfg.Features,
 		Settings:       cfg.Settings,
 		DryRun:         cfg.DryRun,
 	}
 
-	graph := op.NewGraph("lore")
+	graph := op.NewGraph(&op.ExecutionContext{
+		ProgramName: "lore",
+		Registry:    reg,
+	})
 
 	var packages []string
 	var err error
@@ -233,7 +239,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		return nil, err
 	}
 
-	graph.Context = op.GraphContext{
+	graph.Provenance = op.Provenance{
 		Scope:          strings.Join(packages, "+"),
 		Packages:       packages,
 		TargetPlatform: targetPlatform,
@@ -304,41 +310,57 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 			continue
 		}
 
-		phaseID := fmt.Sprintf("phase.%s.%s", pkg.Name, phaseName)
-		phase := &op.Phase{
-			ID:     phaseID,
+		sgID := fmt.Sprintf("subgraph.%s.%s", pkg.Name, phaseName)
+		sg := &op.Subgraph{
+			ID:     sgID,
 			Name:   phaseName,
-			Status: op.PhasePending,
+			Status: op.SubgraphPending,
 		}
 
-		// Snapshot current node count to track which nodes this phase adds.
-		nodesBefore := len(graph.Nodes)
+		// Snapshot current children count to capture nodes added by sub-functions.
+		childrenBefore := len(graph.Children)
 
 		for _, action := range actions {
 			switch a := action.(type) {
 			case *lorepackage.ScriptAction:
 				retryPolicy, err := executeScriptAction(graph, pkg, targetPlatform, a, cfg, reg)
 				if err != nil {
-					return fmt.Errorf("phase %q: %w", phaseName, err)
+					return fmt.Errorf("subgraph %q: %w", phaseName, err)
 				}
-				if retryPolicy != nil && phase.Retry == nil {
-					phase.Retry = retryPolicy
+				if retryPolicy != nil && sg.Retry == nil {
+					sg.Retry = retryPolicy
 				}
 			case *lorepackage.NativePMAction:
 				if err := addNativePMNodes(graph, pkg, a, reg); err != nil {
-					return fmt.Errorf("phase %q: %w", phaseName, err)
+					return fmt.Errorf("subgraph %q: %w", phaseName, err)
 				}
 			default:
 				return fmt.Errorf("unknown action type: %T", action)
 			}
 		}
 
-		// Collect forward node IDs.
-		for i := nodesBefore; i < len(graph.Nodes); i++ {
-			phase.NodeIDs = append(phase.NodeIDs, graph.Nodes[i].ID)
+		// Move newly added children from graph root into the subgraph.
+		newChildren := graph.Children[childrenBefore:]
+		sg.Children = append(sg.Children, newChildren...)
+		graph.Children = graph.Children[:childrenBefore]
+
+		// Move edges whose endpoints are both in this subgraph.
+		childIDs := make(map[string]bool, len(newChildren))
+		for _, c := range newChildren {
+			childIDs[c.ChildID()] = true
 		}
 
-		graph.Phases = append(graph.Phases, phase)
+		var kept []op.Edge
+		for _, e := range graph.Edges {
+			if childIDs[e.From] && childIDs[e.To] {
+				sg.Edges = append(sg.Edges, e)
+			} else {
+				kept = append(kept, e)
+			}
+		}
+		graph.Edges = kept
+
+		graph.AddSubgraph(sg)
 	}
 
 	return nil
@@ -398,7 +420,7 @@ func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, ac
 		Action:    "deploy",
 	}
 
-	// Call: install(package, phase) — plan is a global, not an argument.
+	// Do: install(package, phase) — plan is a global, not an argument.
 	args := starlark.Tuple{
 		pkgContext.ToStarlark(),
 		phaseCtx.ToStarlark(),
@@ -439,14 +461,14 @@ func prepareScriptEnv(
 	error, //nolint:unparam // error return reserved for future use
 ) {
 	rt := bind.NewStarlarkRuntime(
-		op.NewBindingConfig("lore").
-			WithGraphBuilder().
-			WithReceivers(uigen.Receiver).
+		op.NewRuntimeEnvironmentSpec("lore", reg).
+			WithModules(reg.Modules()...).
+			WithData(map[string]any{"graph": graph}).
 			WithWriter(os.Stdout).
 			WithColor(),
 	)
 
-	globals := rt.BuildGlobals(graph, pkg.Name, reg)
+	globals := rt.Predeclared()
 
 	lifecycle := pkg.Lifecycle()
 	features := lifecycle.EnabledFeatures(cfg.Features)
@@ -469,14 +491,13 @@ func prepareScriptEnv(
 		},
 	}
 
-	rt.ConfigureThread(thread, graph, pkg.Name, reg)
 	return thread, globals, pkgContext, nil
 }
 
 // addNativePMNodes adds nodes for a native package manager action.
 // Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that
 // work on all platforms. The actual package manager is determined at execution
-// time via op.Context.Platform.
+// time via op.ExecutionContext.Platform.
 //
 // Parameters:
 //   - graph: the execution graph to populate.
@@ -502,14 +523,14 @@ func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepac
 
 	// Create the node with resolved action
 	node := &op.Node{
-		ID:      fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName),
-		Action:  reg.MustGet(actionName),
-		Project: pkg.Name,
+		ID:       fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName),
+		Receiver: actionName,
+		Origin:   pkg.Name,
 	}
 	node.SetSlotImmediate("packages", strings.Join(action.Packages, ","))
 	node.SetSlotImmediate("phase", action.PhaseName)
 
-	graph.Nodes = append(graph.Nodes, node)
+	graph.AddNode(node)
 	return nil
 }
 

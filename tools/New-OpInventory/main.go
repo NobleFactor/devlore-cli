@@ -31,7 +31,7 @@ import (
 // announceSelectors are the op.Announce* functions that trigger self-registration
 // via init().
 var announceSelectors = map[string]bool{
-	"AnnounceReceiver": true,
+	"AnnounceProvider": true,
 	"AnnounceResource": true,
 }
 

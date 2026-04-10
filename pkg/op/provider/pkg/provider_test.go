@@ -58,6 +58,9 @@ func (m *mockPackageManager) AddRepo(_, _, _ string) op.PlatformResult {
 }
 
 func (m *mockPackageManager) NeedsSudo() bool { return false }
+func (m *mockPackageManager) ParsePURL(id string) op.PURL {
+	return op.PURL{Type: m.name, Name: id}
+}
 
 // --- Helpers ---
 
@@ -71,15 +74,20 @@ func newMockPackageManager() *mockPackageManager {
 
 func newTestProvider(packageManager *mockPackageManager) *Provider {
 	return &Provider{
-		ProviderBase: op.NewProviderBase(op.Context{
-			ContextBase: op.ContextBase{
-				Writer: io.Discard,
-				Platform: &op.Platform{
-					PackageManager:  packageManager,
-					PackageManagers: map[string]op.PackageManager{packageManager.Name(): packageManager},
-				},
+		ProviderBase: op.NewProviderBase(&op.ExecutionContext{
+			Writer: io.Discard,
+			Platform: &op.Platform{
+				PackageManager:  packageManager,
+				PackageManagers: map[string]op.PackageManager{packageManager.Name(): packageManager},
 			},
 		}),
+	}
+}
+
+func res(name string) *Resource {
+	return &Resource{
+		ResourceBase: op.NewResourceBase(&op.ExecutionContext{}, "pkg:apt/"+name),
+		Name:         name,
 	}
 }
 
@@ -89,7 +97,7 @@ func TestInstall(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Install([]Resource{{Name: "vim"}, {Name: "git"}}, "", false)
+	result, state, err := p.Install([]*Resource{res("vim"), res("git")}, "", false)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -130,7 +138,7 @@ func TestInstallWithAlreadyInstalled(t *testing.T) {
 	packageManager.installed["vim"] = true
 	p := newTestProvider(packageManager)
 
-	_, state, err := p.Install([]Resource{{Name: "vim"}, {Name: "git"}}, "", false)
+	_, state, err := p.Install([]*Resource{res("vim"), res("git")}, "", false)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -144,7 +152,7 @@ func TestInstallError(t *testing.T) {
 	packageManager.installErr = "disk full"
 	p := newTestProvider(packageManager)
 
-	_, _, err := p.Install([]Resource{{Name: "vim"}}, "", false)
+	_, _, err := p.Install([]*Resource{res("vim")}, "", false)
 	if err == nil {
 		t.Fatal("Install() expected error when package manager fails")
 	}
@@ -200,7 +208,7 @@ func TestUpgrade(t *testing.T) {
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Upgrade([]Resource{{Name: "vim"}}, "", false)
+	result, state, err := p.Upgrade([]*Resource{res("vim")}, "", false)
 	if err != nil {
 		t.Fatalf("Upgrade() error = %v", err)
 	}
@@ -236,7 +244,7 @@ func TestRemove(t *testing.T) {
 	packageManager.installed["git"] = true
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Remove([]Resource{{Name: "vim"}, {Name: "git"}}, "", false)
+	result, state, err := p.Remove([]*Resource{res("vim"), res("git")}, "", false)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -315,7 +323,7 @@ func TestPredicates(t *testing.T) {
 	p := newTestProvider(packageManager)
 
 	t.Run("Installed true", func(t *testing.T) {
-		got, err := p.Installed(Resource{Name: "vim"})
+		got, err := p.Installed(res("vim"))
 		if err != nil {
 			t.Fatalf("Installed() error = %v", err)
 		}
@@ -325,7 +333,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("Installed false", func(t *testing.T) {
-		got, err := p.Installed(Resource{Name: "emacs"})
+		got, err := p.Installed(res("emacs"))
 		if err != nil {
 			t.Fatalf("Installed() error = %v", err)
 		}
@@ -335,7 +343,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("NotInstalled true", func(t *testing.T) {
-		got, err := p.NotInstalled(Resource{Name: "emacs"})
+		got, err := p.NotInstalled(res("emacs"))
 		if err != nil {
 			t.Fatalf("NotInstalled() error = %v", err)
 		}
@@ -345,7 +353,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("NotInstalled false", func(t *testing.T) {
-		got, err := p.NotInstalled(Resource{Name: "vim"})
+		got, err := p.NotInstalled(res("vim"))
 		if err != nil {
 			t.Fatalf("NotInstalled() error = %v", err)
 		}
@@ -355,7 +363,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE true", func(t *testing.T) {
-		got, err := p.VersionGTE(Resource{Name: "vim"}, "8.0")
+		got, err := p.VersionGTE(res("vim"), "8.0")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}
@@ -365,7 +373,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE false", func(t *testing.T) {
-		got, err := p.VersionGTE(Resource{Name: "vim"}, "9.1")
+		got, err := p.VersionGTE(res("vim"), "9.1")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}
@@ -375,7 +383,7 @@ func TestPredicates(t *testing.T) {
 	})
 
 	t.Run("VersionGTE not installed", func(t *testing.T) {
-		got, err := p.VersionGTE(Resource{Name: "emacs"}, "1.0")
+		got, err := p.VersionGTE(res("emacs"), "1.0")
 		if err != nil {
 			t.Fatalf("VersionGTE() error = %v", err)
 		}

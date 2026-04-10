@@ -14,7 +14,6 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -76,7 +75,7 @@ func WithWriter(w io.Writer) Option {
 //
 // Returns:
 //   - Option: a runner option that sets the receiver list.
-func WithReceivers(receivers ...op.ReceiverFactory) Option {
+func WithReceivers(receivers ...op.ReceiverType) Option {
 	return func(r *Runner) {
 		r.receivers = append(r.receivers, receivers...)
 	}
@@ -97,7 +96,7 @@ type Runner struct {
 	trace            bool
 	provider         string
 	writer           io.Writer
-	receivers        []op.ReceiverFactory
+	receivers        []op.ReceiverType
 	withGraphBuilder bool
 	graph            *op.Graph
 }
@@ -145,29 +144,29 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }() //nolint:errcheck // best-effort cleanup
 
-	// 2. Create Runtime with requested providers
-	cfg := op.NewBindingConfig("devlore-test").
-		WithReceivers(r.receivers...).
-		WithWriter(r.writer)
-	if r.withGraphBuilder {
-		cfg.WithGraphBuilder()
-	}
-	bs := bind.NewStarlarkRuntime(cfg)
-
-	// 3. Create ReceiverRegistry with all provider actions
-	reg := op.NewActionRegistry()
+	// 2. Create ReceiverRegistry and Graph
+	reg := op.NewReceiverRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer iox.Close(&err, root)
-	opCtx := op.Context{ContextBase: op.NewContextBase(root)}
-	opCtx.RecoverySite = op.NewRecoverySite(opCtx)
-	bs.RegisterActions(reg, opCtx)
 
-	// 4. Create Graph
-	graph := op.NewGraph("devlore-test")
+	graph := op.NewGraph(&op.ExecutionContext{
+		ProgramName: "devlore-test",
+		Registry:    reg,
+		Root:        root,
+	})
 	r.graph = graph
 
-	// 6. Build Starlark globals
-	globals := bs.BuildGlobals(graph, "devlore-test", reg)
+	// 3. Create Runtime with graph in Data so the plan provider can find it
+	bs := bind.NewStarlarkRuntime(
+		op.NewRuntimeEnvironmentSpec("devlore-test", reg).
+			WithModules(reg.Modules()...).
+			WithRoot(root).
+			WithWriter(r.writer).
+			WithData(map[string]any{"graph": graph}),
+	)
+
+	// 4. Build Starlark globals
+	globals := bs.Predeclared()
 
 	// 7. Create TestContext rooted at .devlore/tmp/ under tmpDir
 	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
@@ -185,7 +184,6 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		Name:  "devlore-test",
 		Print: tracer.PrintHandler(),
 	}
-	bs.ConfigureThread(thread, graph, "devlore-test", reg)
 
 	// 10. Read and execute .star script
 	scriptData, err := os.ReadFile(r.script)
@@ -213,27 +211,23 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		return nil, fmt.Errorf("executing script: %w", err)
 	}
 
-	// 11. Hydrate graph (actions are already set by planned bindings, but
-	//     this ensures any deserialized stubs are resolved)
-	if err := op.HydrateGraph(graph, reg); err != nil {
-		return nil, fmt.Errorf("hydrating graph: %w", err)
-	}
+	// 11. Wrap unphased nodes in a main phase for saga-pattern compensation.
+	wrapUngroupedNodes(graph)
 
-	// 12. Wrap unphased nodes in a main phase for saga-pattern compensation.
-	wrapUnphasedNodes(graph)
-
-	// 13. Execute graph
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
+	// 12. Execute graph
+	executor, execInitErr := op.NewGraphExecutor("devlore-test", op.Options{
 		Root:   tmpDir,
 		DryRun: r.dryRun,
-		Writer: r.writer,
 	})
-
-	if tracer.Enabled() {
-		tracer.Record("executing graph: %d nodes", len(graph.Nodes))
+	if execInitErr != nil {
+		return nil, fmt.Errorf("creating executor: %w", execInitErr)
 	}
 
-	execErr := executor.Run(ctx, graph)
+	if tracer.Enabled() {
+		tracer.Record("executing graph: %d nodes", len(graph.Nodes()))
+	}
+
+	_, execErr := executor.Run(graph)
 
 	if tracer.Enabled() {
 		if execErr != nil {
@@ -265,7 +259,7 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 
 	result := &Result{
 		Passed:           len(failures) == 0,
-		NodeCount:        len(graph.Nodes),
+		NodeCount:        len(graph.Nodes()),
 		ExpectationCount: len(tc.Expectations()),
 		Failures:         failures,
 	}
@@ -286,33 +280,54 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 	return result
 }
 
-// wrapUnphasedNodes wraps nodes not already assigned to a phase into a "test" main phase.
-// Nodes created by choose-branch lambdas already belong to branch phases; the remaining nodes
-// (predicates, choose, top-level actions) must be wrapped so the executor runs them and choose
-// can dispatch branch phases internally.
-func wrapUnphasedNodes(graph *op.Graph) {
-	phasedNodes := make(map[string]bool)
-	for _, ph := range graph.Phases {
-		for _, id := range ph.NodeIDs {
-			phasedNodes[id] = true
+// wrapUngroupedNodes wraps root-level node children into a "test" main subgraph.
+// Nodes created by choose-branch lambdas already belong to branch subgraphs; the remaining
+// root-level nodes (predicates, choose, top-level actions) must be wrapped so the executor
+// runs them and choose can dispatch branch subgraphs internally.
+func wrapUngroupedNodes(graph *op.Graph) {
+
+	var nodeChildren []op.SubgraphChild
+	var sgChildren []op.SubgraphChild
+
+	for _, c := range graph.Children {
+		if c.Node != nil {
+			nodeChildren = append(nodeChildren, c)
+		} else {
+			sgChildren = append(sgChildren, c)
 		}
 	}
-	var mainNodeIDs []string
-	for _, n := range graph.Nodes {
-		if !phasedNodes[n.ID] {
-			mainNodeIDs = append(mainNodeIDs, n.ID)
+
+	if len(nodeChildren) == 0 {
+		return
+	}
+
+	// Collect IDs of nodes being moved into the main subgraph.
+	nodeIDs := make(map[string]bool, len(nodeChildren))
+	for _, c := range nodeChildren {
+		nodeIDs[c.ChildID()] = true
+	}
+
+	// Move edges whose endpoints are both in the main subgraph.
+	var mainEdges, keptEdges []op.Edge
+	for _, e := range graph.Edges {
+		if nodeIDs[e.From] && nodeIDs[e.To] {
+			mainEdges = append(mainEdges, e)
+		} else {
+			keptEdges = append(keptEdges, e)
 		}
 	}
-	if len(mainNodeIDs) > 0 {
-		mainPhase := &op.Phase{
-			ID:     "phase.test",
-			Name:   "test",
-			Status: op.PhasePending,
-		}
-		mainPhase.NodeIDs = mainNodeIDs
-		// Prepend main phase so it runs before branch phases.
-		graph.Phases = append([]*op.Phase{mainPhase}, graph.Phases...)
+	graph.Edges = keptEdges
+
+	mainSG := &op.Subgraph{
+		ID:       "subgraph.test",
+		Name:     "test",
+		Children: nodeChildren,
+		Edges:    mainEdges,
+		Status:   op.SubgraphPending,
 	}
+
+	// Prepend main subgraph so it runs before branch subgraphs.
+	graph.Children = append([]op.SubgraphChild{{Subgraph: mainSG}}, sgChildren...)
 }
 
 // hasErrorExpectation returns true if any expectation is of kind "error".

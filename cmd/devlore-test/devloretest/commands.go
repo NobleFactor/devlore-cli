@@ -15,7 +15,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
 // outputFlags collects repeated --output key=dest flags.
@@ -110,7 +109,7 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) (err error
 	defer iox.Close(&err, graphOut)
 
 	// Build and run.
-	opts := []Option{WithWriter(graphOut), WithGraphBuilder(), WithReceivers(filegen.Receiver)}
+	opts := []Option{WithWriter(graphOut)}
 	if dryRun {
 		opts = append(opts, WithDryRun())
 	}

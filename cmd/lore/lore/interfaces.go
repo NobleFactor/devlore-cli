@@ -15,12 +15,12 @@ package lore
 //       phase.retry(max_attempts=3, backoff="exponential")
 //       plan.package.install(package.name)
 //
-// - package: Context about the package being deployed
+// - package: ExecutionContext about the package being deployed
 // - phase:   Phase context (name, action, retry)
 // - plan:    Global — graph-building operations that add nodes to the execution graph
 
 // =============================================================================
-// Package Context
+// Package ExecutionContext
 // =============================================================================
 
 // PackageContext provides information about the package being deployed.

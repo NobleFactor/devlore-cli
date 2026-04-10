@@ -194,7 +194,7 @@ func setupExtension(t *testing.T, testDir string) (*Application, error) {
 	})
 
 	// Create runtime (Root picks up current working directory)
-	r := NewRuntime()
+	r := NewApplication()
 
 	// Load extensions from the project's star/extensions directory
 	extDir := filepath.Join(projectRoot, "cmd", "star", "extensions")

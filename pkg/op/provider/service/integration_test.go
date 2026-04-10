@@ -9,17 +9,18 @@ import (
 	"os"
 	"testing"
 
+	"reflect"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	serviceprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
-	servicegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
 )
 
 func TestMain(m *testing.M) {
-	op.InitAll(op.NewActionRegistry(), op.Context{})
 	os.Exit(m.Run())
 }
 
@@ -54,38 +55,47 @@ func (m *mockSM) Enable(_ string) op.PlatformResult  { return op.PlatformResult{
 func (m *mockSM) Disable(_ string) op.PlatformResult { return op.PlatformResult{OK: true} }
 func (m *mockSM) NeedsSudo() bool                    { return false }
 
-func sshRes(t *testing.T) serviceprov.Resource {
+func sshRes(t *testing.T) *service.Resource {
 	t.Helper()
-	r, err := serviceprov.ResourceFromValue("sshd")
+	r, err := service.NewResource(nil, "sshd")
 	if err != nil {
-		t.Fatalf("ResourceFromValue: %v", err)
+		t.Fatalf("NewResource: %v", err)
 	}
 	return r
 }
 
-func testCtx() op.Context {
+func testCtx() *op.ExecutionContext {
 	sm := &mockSM{services: map[string]struct{ running, enabled bool }{
 		"sshd": {running: true, enabled: true},
 	}}
-	return op.Context{
-		ContextBase: op.ContextBase{
-			Context: context.Background(),
-			Writer:  &bytes.Buffer{},
-			Platform: &op.Platform{
-				OS:             "linux",
-				Arch:           "amd64",
-				ServiceManager: sm,
-			},
+	return &op.ExecutionContext{
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Registry: op.NewReceiverRegistry(),
+		Platform: &op.Platform{
+			OS:             "linux",
+			Arch:           "amd64",
+			ServiceManager: sm,
 		},
 	}
+}
+
+func receiverType(t *testing.T) op.ProviderReceiverType {
+	t.Helper()
+	reg := op.NewReceiverRegistry()
+	rt, ok := reg.TypeByReflection(reflect.TypeFor[service.Provider]())
+	if !ok {
+		t.Fatal("service provider type not registered")
+	}
+	return rt.(op.ProviderReceiverType)
 }
 
 // region Starlark integration
 
 func TestStarlark(t *testing.T) {
 	ctx := testCtx()
-	p := serviceprov.NewProvider(ctx)
-	receiver := bind.WrapProviderInExecutingReceiver(servicegen.Receiver, p)
+	bind.SetRegistry(ctx.Registry)
+	receiver := bind.NewProvider(receiverType(t), service.NewProvider(ctx))
 
 	globals := starlark.StringDict{"service": receiver}
 
@@ -118,15 +128,13 @@ func TestStarlark(t *testing.T) {
 
 func TestActions_Exists(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, servicegen.Receiver)
 
-	a, ok := reg.Get("service.exists")
-	if !ok {
-		t.Fatal("action service.exists not registered")
+	a, err := ctx.ActionByName("service.exists")
+	if err != nil {
+		t.Fatalf("action service.exists not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"name": sshRes(t)})
+	result, _, err := a.Do(ctx, map[string]any{"name": sshRes(t)})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -137,15 +145,13 @@ func TestActions_Exists(t *testing.T) {
 
 func TestActions_Running(t *testing.T) {
 	ctx := testCtx()
-	reg := op.NewActionRegistry()
-	bind.RegisterActions(reg, servicegen.Receiver)
 
-	a, ok := reg.Get("service.running")
-	if !ok {
-		t.Fatal("action service.running not registered")
+	a, err := ctx.ActionByName("service.running")
+	if err != nil {
+		t.Fatalf("action service.running not registered: %v", err)
 	}
 
-	result, _, err := a.Do(&ctx, map[string]any{"name": sshRes(t)})
+	result, _, err := a.Do(ctx, map[string]any{"name": sshRes(t)})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}

@@ -18,7 +18,7 @@ import (
 
 // newTestProvider creates a Provider suitable for unit tests.
 func newTestProvider() *Provider {
-	return NewProvider(op.Context{})
+	return NewProvider(&op.ExecutionContext{})
 }
 
 // writeTempGoFile writes content to a temporary.go file and returns its path.

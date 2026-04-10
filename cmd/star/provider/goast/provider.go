@@ -36,7 +36,7 @@ type Provider struct {
 
 // NewProvider creates a new Provider. Validates that all six comment styles have handlers in the merged config. Missing
 // styles are repaired from defaults with a warning.
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	return p
 }
@@ -126,7 +126,7 @@ func (p *Provider) Callable(path, name string) (CallableResult, error) {
 //
 // +devlore:defaults name=
 func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
-	fset, body, err := p.findScopeBody(scope)
+	fileSet, body, err := p.findScopeBody(scope)
 	if err != nil {
 		return nil, fmt.Errorf("goast.calls: %w", err)
 	}
@@ -185,7 +185,7 @@ func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 			Name:      funcName,
 			Qualifier: qualifier,
 			FullName:  fullName,
-			Line:      fset.Position(call.Pos()).Line,
+			Line:      fileSet.Position(call.Pos()).Line,
 			Args:      args,
 		})
 
@@ -207,7 +207,7 @@ func (p *Provider) CheckLineWidth(content string, width int) ([]LineViolation, e
 //
 // +devlore:defaults typeName=
 func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error) {
-	fset, body, err := p.findScopeBody(scope)
+	fileSet, body, err := p.findScopeBody(scope)
 	if err != nil {
 		return nil, fmt.Errorf("goast.composites: %w", err)
 	}
@@ -264,7 +264,7 @@ func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error)
 
 		result = append(result, CompositeResult{
 			TypeName: tn,
-			Line:     fset.Position(comp.Pos()).Line,
+			Line:     fileSet.Position(comp.Pos()).Line,
 			Fields:   fields,
 		})
 
@@ -296,7 +296,7 @@ func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error
 
 	var groups []group
 	for _, file := range files {
-		fset, node, err := p.parseFile(file)
+		fileSet, node, err := p.parseFile(file)
 		if err != nil {
 			continue
 		}
@@ -343,7 +343,7 @@ func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error
 					currentConsts = append(currentConsts, constEntry{
 						name:  n.Name,
 						value: value,
-						line:  fset.Position(n.Pos()).Line,
+						line:  fileSet.Position(n.Pos()).Line,
 					})
 				}
 			}
@@ -455,8 +455,8 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 
 	var result []FuncResult
 	for _, src := range sources {
-		fset := token.NewFileSet()
-		node, err := parser.ParseFile(fset, src.name, src.content, parser.ParseComments)
+		fileSet := token.NewFileSet()
+		node, err := parser.ParseFile(fileSet, src.name, src.content, parser.ParseComments)
 		if err != nil {
 			continue
 		}
@@ -482,7 +482,7 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 				Returns: returns,
 				Params:  extractParams(fn.Type.Params, nil),
 				File:    src.name,
-				Line:    fset.Position(fn.Pos()).Line,
+				Line:    fileSet.Position(fn.Pos()).Line,
 				Doc:     rawDoc,
 			})
 		}
@@ -504,8 +504,8 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 
 	var result []MethodResult
 	for _, src := range sources {
-		fset := token.NewFileSet()
-		node, err := parser.ParseFile(fset, src.name, src.content, parser.ParseComments)
+		fileSet := token.NewFileSet()
+		node, err := parser.ParseFile(fileSet, src.name, src.content, parser.ParseComments)
 		if err != nil {
 			continue
 		}
@@ -520,14 +520,14 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 				continue
 			}
 
-			recvType := receiverTypeName(fn.Recv.List[0].Type)
+			typeName := receiverTypeName(fn.Recv.List[0].Type)
 			if receiverType != "" {
 				if strings.HasPrefix(receiverType, "*") {
-					if recvType != receiverType {
+					if typeName != receiverType {
 						continue
 					}
 				} else {
-					if strings.TrimPrefix(recvType, "*") != receiverType {
+					if strings.TrimPrefix(typeName, "*") != receiverType {
 						continue
 					}
 				}
@@ -543,15 +543,15 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 				rawDoc = commentGroupRaw(fn.Doc)
 			}
 
-			scope := src.name + "::" + recvType + "." + fn.Name.Name
+			scope := src.name + "::" + typeName + "." + fn.Name.Name
 
 			result = append(result, MethodResult{
 				Name:         fn.Name.Name,
-				ReceiverType: recvType,
+				ReceiverType: typeName,
 				Returns:      retStr,
 				Params:       extractParams(fn.Type.Params, nil),
 				File:         src.name,
-				Line:         fset.Position(fn.Pos()).Line,
+				Line:         fileSet.Position(fn.Pos()).Line,
 				Doc:          rawDoc,
 				Scope:        scope,
 			})
@@ -702,7 +702,7 @@ func (p *Provider) LoadSourceFile(path string) (*SourceFile, error) {
 		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}
 	sf.filename = path
-	ctx := p.Context()
+	ctx := p.ExecutionContext()
 	ctx.Data["schema_registry"] = p.schemaRegistry()
 	ctx.Data["spacing_rules"] = p.spacingRules()
 	ctx.Data["line_width"] = p.configLineWidth()
@@ -720,7 +720,7 @@ func (p *Provider) schemaRegistry() *doctaxonomy.SchemaRegistry {
 
 // configSchemas attempts to build a SchemaRegistry from the config stored in the provider's context data.
 func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
-	cfgVal, ok := p.Context().Data["config"]
+	cfgVal, ok := p.ExecutionContext().Data["config"]
 	if !ok || cfgVal == nil {
 		return nil
 	}
@@ -740,7 +740,7 @@ func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
 
 // spacingRules reads SpacingRules from config, falling back to defaults.
 func (p *Provider) spacingRules() SpacingRules {
-	cfgVal, ok := p.Context().Data["config"]
+	cfgVal, ok := p.ExecutionContext().Data["config"]
 	if !ok || cfgVal == nil {
 		return DefaultSpacingRules()
 	}
@@ -795,7 +795,7 @@ func spacingRulesFromConfig(val interface{}) SpacingRules {
 
 // configLineWidth reads the line width from config, defaulting to 120.
 func (p *Provider) configLineWidth() int {
-	cfgVal, ok := p.Context().Data["config"]
+	cfgVal, ok := p.ExecutionContext().Data["config"]
 	if !ok || cfgVal == nil {
 		return 120
 	}
@@ -824,8 +824,8 @@ func (p *Provider) SortDeclarations(path, scope, order string) (string, error) {
 		return "", fmt.Errorf("goast.sort_declarations: %w", err)
 	}
 
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	fileSet := token.NewFileSet()
+	node, err := parser.ParseFile(fileSet, path, content, parser.ParseComments)
 	if err != nil {
 		return "", fmt.Errorf("goast.sort_declarations: %w", err)
 	}
@@ -851,12 +851,12 @@ func (p *Provider) SortDeclarations(path, scope, order string) (string, error) {
 			continue
 		}
 
-		dStart := fset.Position(fn.Pos()).Line
-		dEnd := fset.Position(fn.End()).Line
+		dStart := fileSet.Position(fn.Pos()).Line
+		dEnd := fileSet.Position(fn.End()).Line
 
 		// Include doc comment.
 		if fn.Doc != nil {
-			docStart := fset.Position(fn.Doc.Pos()).Line
+			docStart := fileSet.Position(fn.Doc.Pos()).Line
 			if docStart < dStart {
 				dStart = docStart
 			}
@@ -935,7 +935,7 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 
 	var result []StructResult
 	for _, file := range files {
-		fset, node, err := p.parseFile(file)
+		fileSet, node, err := p.parseFile(file)
 		if err != nil {
 			continue
 		}
@@ -1004,7 +1004,7 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 				result = append(result, StructResult{
 					Name:   ts.Name.Name,
 					File:   filepath.Base(file),
-					Line:   fset.Position(ts.Pos()).Line,
+					Line:   fileSet.Position(ts.Pos()).Line,
 					Fields: fields,
 				})
 			}

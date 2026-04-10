@@ -2,7 +2,7 @@
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 /*
-Package model provides an opaque LLM provider interface and configuration.
+PkgPath model provides an opaque LLM provider interface and configuration.
 
 # Provider Interface
 
@@ -11,11 +11,11 @@ Callers interact only through this interface—they don't need to know whether
 the underlying provider is Anthropic, OpenAI, Ollama, etc.
 
 	type Provider interface {
-	    Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
+	    Chat(ctx context.ExecutionContext, req ChatRequest) (*ChatResponse, error)
 	    ReceiverName() string       // Provider name (also keystore account)
 	    Model() string      // Model identifier
 	    Endpoint() string   // API endpoint (empty = default)
-	    Available(ctx context.Context) bool
+	    Available(ctx context.ExecutionContext) bool
 	}
 
 The interface exposes queryable attributes (provider, model, endpoint) but

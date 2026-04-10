@@ -55,8 +55,8 @@ func TestLifecycle_DiscoverRegisterActivate(t *testing.T) {
 		}
 	}
 
-	// Step 2+3: Register and Activate via DiscoverAndLoad on a fresh runtime.
-	runtime := star.NewRuntime()
+	// Step 2+3: register and Activate via DiscoverAndLoad on a fresh runtime.
+	runtime := star.NewApplication()
 	if err := runtime.DiscoverAndLoad(loader); err != nil {
 		t.Fatalf("DiscoverAndLoad() error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestLifecycle_EmbeddedExtensions(t *testing.T) {
 	embeddedFS := os.DirFS(extDir)
 
 	loader := star.NewExtensionLoader(embeddedFS)
-	runtime := star.NewRuntime()
+	runtime := star.NewApplication()
 
 	if err := runtime.DiscoverAndLoad(loader); err != nil {
 		t.Fatalf("DiscoverAndLoad() error: %v", err)
@@ -134,7 +134,7 @@ func TestLifecycle_DeduplicationProjectOverridesEmbedded(t *testing.T) {
 	}
 
 	yaml := `extension: ` + extName + `
-description: Project-local override
+description: Origin-local override
 commands:
   - name: lint.all
     help: OVERRIDDEN
@@ -174,7 +174,7 @@ commands:
 		t.Fatalf("extension %s not found", extName)
 	}
 
-	if lintAll.Description != "Project-local override" {
+	if lintAll.Description != "Origin-local override" {
 		t.Errorf("expected project-local override, got description %q", lintAll.Description)
 	}
 

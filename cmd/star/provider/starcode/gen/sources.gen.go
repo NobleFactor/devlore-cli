@@ -10,27 +10,14 @@ import (
 
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 func init() {
-	bind.RegisterReceiverParams(&SourcesFactory{}, SourcesMethodParams)
+	op.AnnounceType(reflect.TypeFor[provider.Sources](), map[string][]string{
+		"Paths":   {},
+		"Count":   {},
+		"Index":   {"with_docstrings?", "with_globals?"},
+		"Stats":   {"with_bytes?", "with_loc?"},
+		"Analyze": {"cfg?"},
+	})
 }
-
-var SourcesMethodParams = bind.MethodParams{
-	"Paths":   {},
-	"Count":   {},
-	"Index":   {"with_docstrings?", "with_globals?"},
-	"Stats":   {"with_bytes?", "with_loc?"},
-	"Analyze": {"cfg?"},
-}
-
-// SourcesFactory provides the minimal ReceiverFactory interface for dependent type marshaling.
-type SourcesFactory struct{}
-
-func (f *SourcesFactory) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-func (f *SourcesFactory) MethodParams() map[string][]string                   { return SourcesMethodParams }
-func (f *SourcesFactory) MethodParamsFor(name string) []string                { return SourcesMethodParams[name] }
-func (f *SourcesFactory) ProviderType() reflect.Type                          { return reflect.TypeOf(provider.Sources{}) }
-func (f *SourcesFactory) ReceiverName() string                                { return "sources" }
-func (f *SourcesFactory) Register(_ op.Context, _ *op.ReceiverRegistry)       {}

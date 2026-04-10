@@ -52,7 +52,7 @@ type Provider struct {
 	Root string
 }
 
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.ExecutionContext) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	if ctx.Root != nil {
 		p.Root = ctx.Root.Name()
@@ -219,7 +219,7 @@ func (w *complexityWalker) walkExpr(expr syntax.Expr) {
 
 	case *syntax.CallExpr:
 		w.walkExpr(e.Fn)
-		w.walkExprs(e.Args)
+		w.walkExpressions(e.Args)
 
 	case *syntax.Comprehension:
 		w.walkComprehension(e)
@@ -235,10 +235,10 @@ func (w *complexityWalker) walkExpr(expr syntax.Expr) {
 		w.walkExpr(e.X)
 
 	case *syntax.TupleExpr:
-		w.walkExprs(e.List)
+		w.walkExpressions(e.List)
 
 	case *syntax.ListExpr:
-		w.walkExprs(e.List)
+		w.walkExpressions(e.List)
 
 	case *syntax.DictExpr:
 		w.walkDictEntries(e.List)
@@ -254,8 +254,8 @@ func (w *complexityWalker) walkExpr(expr syntax.Expr) {
 	}
 }
 
-func (w *complexityWalker) walkExprs(exprs []syntax.Expr) {
-	for _, expr := range exprs {
+func (w *complexityWalker) walkExpressions(expressions []syntax.Expr) {
+	for _, expr := range expressions {
 		w.walkExpr(expr)
 	}
 }

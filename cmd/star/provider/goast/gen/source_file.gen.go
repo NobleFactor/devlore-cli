@@ -10,82 +10,22 @@ import (
 
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/goast"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
 func init() {
-	bind.RegisterReceiverParams(&SourceFileFactory{}, SourceFileMethodParams)
+	op.AnnounceType(reflect.TypeFor[provider.SourceFile](), map[string][]string{
+		"Decls":           {},
+		"Types":           {},
+		"GetType":         {"name"},
+		"Funcs":           {},
+		"GetFunc":         {"name"},
+		"Vars":            {},
+		"Consts":          {},
+		"PackageName":     {},
+		"Name":            {},
+		"Cleanup":         {},
+		"Save":            {},
+		"SaveAs":          {"path"},
+		"CheckCompliance": {},
+	})
 }
-
-// SourceFileMethodParams maps Go method names to Starlark parameter name lists.
-var SourceFileMethodParams = bind.MethodParams{
-	"Decls":           {},
-	"Types":           {},
-	"GetType":         {"name"},
-	"Funcs":           {},
-	"GetFunc":         {"name"},
-	"Vars":            {},
-	"Consts":          {},
-	"PackageName":     {},
-	"Name":            {},
-	"Cleanup":         {},
-	"Save":            {},
-	"SaveAs":          {"path"},
-	"CheckCompliance": {},
-}
-
-// SourceFileFactory provides the minimal ReceiverFactory interface for dependent type marshaling.
-//
-// When op.Marshal encounters a *provider.SourceFile, the receiver params registry
-// directs it to WrapProviderInExecutingReceiver using this factory.
-type SourceFileFactory struct{}
-
-// region EXPORTED METHODS
-
-// region State management
-
-// GetOrCreateProvider returns nil — dependent types are not created by factories.
-//
-// Parameters:
-//   - ctx: the execution context (unused).
-//
-// Returns:
-//   - op.ContextProvider: always nil.
-func (f *SourceFileFactory) GetOrCreateProvider(_ op.Context) op.ContextProvider { return nil }
-
-// ProviderType returns the reflect.Type of the dependent type struct.
-//
-// Returns:
-//   - reflect.Type: the dependent type's concrete type.
-func (f *SourceFileFactory) ProviderType() reflect.Type {
-	return reflect.TypeOf(provider.SourceFile{})
-}
-
-// ReceiverName returns the Starlark receiver name for this dependent type.
-//
-// Returns:
-//   - string: the receiver name "source_file".
-func (f *SourceFileFactory) ReceiverName() string { return "source_file" }
-
-// MethodParams returns the complete method-to-parameter mapping for SourceFile.
-func (f *SourceFileFactory) MethodParams() map[string][]string { return SourceFileMethodParams }
-
-// MethodParamsFor returns the parameter names for the given method.
-func (f *SourceFileFactory) MethodParamsFor(name string) []string {
-	return SourceFileMethodParams[name]
-}
-
-// endregion
-
-// region Behaviors
-
-// Register is a no-op — dependent types do not register actions.
-//
-// Parameters:
-//   - ctx: the execution context (unused).
-//   - registry: the receiver registry (unused).
-func (f *SourceFileFactory) Register(_ op.Context, _ *op.ReceiverRegistry) {}
-
-// endregion
-
-// endregion

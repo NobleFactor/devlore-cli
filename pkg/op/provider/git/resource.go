@@ -11,23 +11,29 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// ResourceFromValue constructs a git.Resource from a string clone path.
+// NewResource creates a git.Resource from a value.
+//
+// The value is a string clone path. The path is canonicalized to an absolute path and the URI is computed at
+// construction time as "git:<escaped-path>".
 //
 // Parameters:
-//   - v: expected to be a string path
+//   - ctx: the execution context.
+//   - value: expected to be a string clone path.
 //
 // Returns:
-//   - Resource: initialized with the given clone path
-//   - error: if v is not a string
-func ResourceFromValue(v any) (Resource, error) {
+//   - *Resource: the initialized resource.
+//   - error: if value is not a string.
+func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
-	s, ok := v.(string)
+	path, ok := value.(string)
 	if !ok {
-		return Resource{}, fmt.Errorf("git.Resource: expected string path, got %T", v)
+		return nil, fmt.Errorf("git.Resource: expected string path, got %T", value)
 	}
-	r := Resource{ClonePath: s}
-	r.SetURI(r.buildURI())
-	return r, nil
+
+	return &Resource{
+		ResourceBase: op.NewResourceBase(ctx, gitURI("", path, "")),
+		ClonePath:    path,
+	}, nil
 }
 
 // Resource represents a cloned git repository.
@@ -41,20 +47,18 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
 
-// buildURI computes the opaque git: URI.
-//
-// Format: git:<encoded-repo-url>[?path=<path>]#<commit>
-// When URL is empty (local clone), the clone path is used as the opaque data.
-func (r *Resource) buildURI() string {
+// gitURI computes an opaque git: URI from a repository URL or clone path and optional ref.
+func gitURI(repoURL, clonePath, ref string) string {
+
 	var opaque string
-	if r.URL != "" {
-		opaque = escapeInnerURI(r.URL)
+	if repoURL != "" {
+		opaque = escapeInnerURI(repoURL)
 	} else {
-		opaque = escapeInnerURI(r.ClonePath)
+		opaque = escapeInnerURI(clonePath)
 	}
 	s := "git:" + opaque
-	if r.Ref != "" {
-		s += "#" + r.Ref
+	if ref != "" {
+		s += "#" + ref
 	}
 	return s
 }
@@ -87,12 +91,11 @@ func unescapeInnerURI(s string) string {
 	return u
 }
 
-// Resolve canonicalizes the clone path to an absolute path and updates the URI.
-func (r *Resource) Resolve(_ op.Root) error {
-	abs, err := filepath.Abs(r.ClonePath)
-	if err == nil {
+// Resolve canonicalizes the clone path to an absolute path at execution time.
+func (r *Resource) Resolve() error {
+
+	if abs, err := filepath.Abs(r.ClonePath); err == nil {
 		r.ClonePath = filepath.Clean(abs)
-		r.SetURI(r.buildURI())
 	}
 	return nil
 }
