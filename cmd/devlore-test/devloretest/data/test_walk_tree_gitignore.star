@@ -4,15 +4,15 @@
 # then walks with honor_gitignore=True to verify filtering.
 
 dir = t.tmp("walk_gi")
-file.mkdir(resource=dir, mode=0o755)
+file.mkdir(path=dir, mode=0o755)
 
 # Write .gitignore that excludes .log files.
-file.write_text(destination=t.tmp("walk_gi/.gitignore"), content="*.log\n", mode=0o644)
+file.write_text(destination_path=t.tmp("walk_gi/.gitignore"), content="*.log\n", mode=0o644)
 
 # Write a mix of included and excluded files.
-file.write_text(destination=t.tmp("walk_gi/keep.txt"), content="keep", mode=0o644)
-file.write_text(destination=t.tmp("walk_gi/skip.log"), content="skip", mode=0o644)
-file.write_text(destination=t.tmp("walk_gi/also_keep.md"), content="md", mode=0o644)
+file.write_text(destination_path=t.tmp("walk_gi/keep.txt"), content="keep", mode=0o644)
+file.write_text(destination_path=t.tmp("walk_gi/skip.log"), content="skip", mode=0o644)
+file.write_text(destination_path=t.tmp("walk_gi/also_keep.md"), content="md", mode=0o644)
 
 # Walk with gitignore filtering.
 def collector(initial, resource, path, stack):

@@ -44,7 +44,7 @@ func testProviderWithSops(t *testing.T, dir string) *Provider {
 	}
 
 	root := op.NewRootReaderWriter(dir)
-	ctx := &op.ExecutionContext{Root: root, SopsClient: client}
+	ctx := &op.ExecutionContext{Root: root, Sops: client}
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -89,9 +89,9 @@ func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
 	p := testProviderWithSops(t, tmp)
 	ctx := p.ExecutionContext()
 	source, _ := file.NewResource(ctx, "/nonexistent/encrypted.yaml")
-	dest, _ := file.NewResource(ctx, filepath.Join(tmp, "out.yaml"))
+	destination := filepath.Join(tmp, "out.yaml")
 
-	_, _, err := p.DecryptSopsFile(source, dest)
+	_, _, err := p.DecryptSopsFile(source, destination)
 	if err == nil {
 		t.Fatal("expected error for unresolvable source")
 	}
@@ -111,9 +111,9 @@ func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
 	if err := source.Resolve(); err != nil {
 		t.Fatal(err)
 	}
-	dest, _ := file.NewResource(ctx, filepath.Join(tmp, "out.yaml"))
+	destination := filepath.Join(tmp, "out.yaml")
 
-	_, _, err := p.DecryptSopsFile(source, dest)
+	_, _, err := p.DecryptSopsFile(source, destination)
 	if err == nil {
 		t.Fatal("expected error when SopsClient is nil")
 	}
@@ -191,14 +191,14 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 		t.Fatalf("resolving source: %v", err)
 	}
 
-	dstPath := filepath.Join(tmp, "secret.dec.yaml")
-	dest, _ := file.NewResource(ctx, dstPath)
-	result, tombstone, err := p.DecryptSopsFile(source, dest)
+	destination := filepath.Join(tmp, "secret.dec.yaml")
+
+	result, tombstone, err := p.DecryptSopsFile(source, destination)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
 
-	decrypted, err := os.ReadFile(dstPath)
+	decrypted, err := os.ReadFile(destination)
 	if err != nil {
 		t.Fatalf("reading decrypted file: %v", err)
 	}
@@ -210,11 +210,11 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 		t.Errorf("decrypted content missing 'world': %s", decrypted)
 	}
 
-	if result.SourcePath.Abs() != dstPath {
-		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), dstPath)
+	if result.SourcePath.Abs() != destination {
+		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), destination)
 	}
-	if tombstone.DestinationPath != dstPath {
-		t.Errorf("tombstone path = %q, want %q", tombstone.DestinationPath, dstPath)
+	if tombstone.DestinationPath != destination {
+		t.Errorf("tombstone path = %q, want %q", tombstone.DestinationPath, destination)
 	}
 }
 
@@ -237,15 +237,15 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dstPath := filepath.Join(tmp, "secret.dec.yaml")
-	dest, _ := file.NewResource(ctx, dstPath)
-	_, tombstone, err := p.DecryptSopsFile(source, dest)
+	destination := filepath.Join(tmp, "secret.dec.yaml")
+
+	_, tombstone, err := p.DecryptSopsFile(source, destination)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
 
 	// Decrypted file exists
-	if _, err := os.Stat(dstPath); err != nil {
+	if _, err := os.Stat(destination); err != nil {
 		t.Fatalf("decrypted file should exist: %v", err)
 	}
 
@@ -254,7 +254,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 		t.Fatalf("compensate: %v", err)
 	}
 
-	if _, err := os.Stat(dstPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
 		t.Error("compensate should have removed decrypted file")
 	}
 }

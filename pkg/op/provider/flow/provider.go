@@ -155,6 +155,7 @@ func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), time
 	}
 
 	matched, err := predicate(target)
+
 	if err != nil {
 		return nil, fmt.Errorf("wait_until: predicate error: %w", err)
 	}

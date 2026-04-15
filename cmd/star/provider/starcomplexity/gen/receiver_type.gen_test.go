@@ -90,7 +90,7 @@ func getCompensable(t *testing.T, reg *op.ReceiverRegistry, name string) op.Comp
 func TestReceiverType_Name(t *testing.T) {
 
 	rt := providerReceiverType(t)
-	if got := rt.ReceiverName(); got != "starcomplexity" {
+	if got := rt.Name(); got != "starcomplexity" {
 		t.Errorf("ReceiverName() = %q, want %q", got, "starcomplexity")
 	}
 }

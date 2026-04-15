@@ -258,7 +258,7 @@ func coerceSlotValue(ctx *ExecutionContext, slotValue any, targetType reflect.Ty
 	}
 
 	if c, ok := slotValue.(Convertible); ok {
-		return c.Convert(targetType)
+		return c.ConvertTo(targetType)
 	}
 
 	// Try resource constructor coercion (e.g., string → *file.Resource).

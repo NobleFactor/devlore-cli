@@ -121,7 +121,7 @@ func (e *GraphExecutor) newContext() (*ExecutionContext, error) {
 	ctx.Data = e.options.Data
 	ctx.DryRun = e.options.DryRun
 	ctx.RecoverySite = NewRecoverySite(&ctx)
-	ctx.SopsClient = e.options.SopsClient
+	ctx.Sops = e.options.SopsClient
 	ctx.Thread = *e.newThread()
 	ctx.Writer = e.options.Writer
 
@@ -201,6 +201,14 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 	summary := graph.Summary()
 
 	if err != nil {
+		// Unwind the recovery stack in LIFO order so every action that
+		// successfully completed before the failure gets its Compensate
+		// companion called. The stack was populated on each successful
+		// executeNode. Without this, TestCompensation-style rollback
+		// never runs.
+		if unwindErr := stack.Unwind(); unwindErr != nil {
+			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
+		}
 		graph.State = StateFailed
 		return nil, err
 	}
@@ -388,6 +396,48 @@ func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *R
 			NodeID: node.ID,
 			Status: ResultFailed,
 			Error:  fmt.Errorf("%s: %w", node.Receiver, err),
+		}
+	}
+
+	// Post-dispatch catalog reconciliation. See docs/architecture/4-resource-management.md §6.5, §6.8.
+	//
+	// If the method returned a Resource, the catalog records the resolved version so downstream nodes,
+	// receipts, and compensation can observe it.
+	//
+	//   - Plan-time-shadowed case: the Planned companion ran during planning and the catalog already has
+	//     a pending entry owned by this node. Transition fills the pending entry's metadata in place, so
+	//     every outstanding pointer to the pending resource sees the populated fields.
+	//   - Monadic case: no Planned companion (or the companion returned KnownAtExecution), so no pending
+	//     entry exists. Shadow the real result now under this node's origin.
+	//
+	// A Shadow/Transition failure means the node's side effect has already happened; we push the action
+	// onto the recovery stack before surfacing the catalog error so compensation can unwind it.
+	if resource, isResource := result.(Resource); isResource && resource != nil && !IsKnownAtExecution(resource) {
+		if node.graph.Catalog == nil {
+			node.graph.Catalog = NewResourceCatalog()
+		}
+		catalog := node.graph.Catalog
+
+		var catErr error
+		if pendingID := catalog.Current(resource.URI()); pendingID != "" {
+			if pending, ok := catalog.Lookup(pendingID); ok && pending.resourceBase().originID == node.ID {
+				catErr = catalog.Transition(resource, node.ID)
+			} else {
+				_, catErr = catalog.Shadow(resource, node.ID)
+			}
+		} else {
+			_, catErr = catalog.Shadow(resource, node.ID)
+		}
+
+		if catErr != nil {
+			stack.PushAction(ctx, action, complement)
+			e.hooks.FireNodeComplete(ctx, node.ID, nil, catErr)
+			node.Status = StatusFailed
+			return &NodeResult{
+				NodeID: node.ID,
+				Status: ResultFailed,
+				Error:  fmt.Errorf("%s: post-dispatch catalog: %w", node.Receiver, catErr),
+			}
 		}
 	}
 

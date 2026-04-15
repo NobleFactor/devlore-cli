@@ -64,10 +64,10 @@ func NewPlanner(rt op.ProviderReceiverType, graph *op.Graph) *Planner {
 // region State management
 
 // String implements starlark.Value.
-func (p *Planner) String() string { return "plan." + p.receiverType.ReceiverName() }
+func (p *Planner) String() string { return "plan." + p.receiverType.Name() }
 
 // Type implements starlark.Value.
-func (p *Planner) Type() string { return "plan." + p.receiverType.ReceiverName() }
+func (p *Planner) Type() string { return "plan." + p.receiverType.Name() }
 
 // Freeze implements starlark.Value.
 func (p *Planner) Freeze() {}
@@ -77,7 +77,7 @@ func (p *Planner) Truth() starlark.Bool { return true }
 
 // Hash implements starlark.Value.
 func (p *Planner) Hash() (uint32, error) {
-	return 0, fmt.Errorf("unhashable type: plan.%s", p.receiverType.ReceiverName())
+	return 0, fmt.Errorf("unhashable type: plan.%s", p.receiverType.Name())
 }
 
 // endregion
@@ -95,9 +95,9 @@ func (p *Planner) Hash() (uint32, error) {
 func (p *Planner) Attr(name string) (starlark.Value, error) {
 
 	if _, ok := p.methods[name]; !ok {
-		return nil, NoSuchAttrError("plan."+p.receiverType.ReceiverName(), name)
+		return nil, NoSuchAttrError("plan."+p.receiverType.Name(), name)
 	}
-	actionName := p.receiverType.ReceiverName() + "." + name
+	actionName := p.receiverType.Name() + "." + name
 	return starlark.NewBuiltin(actionName, p.dispatch), nil
 }
 
@@ -129,14 +129,16 @@ func (p *Planner) AttrNames() []string { return p.attrNames }
 func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 
 	actionName := builtin.Name()
+
 	name := actionName[strings.LastIndex(actionName, ".")+1:]
 	method := p.methods[name]
 	params := method.Parameters()
 
-	// Classify parameters. Build a clean-name → type map so we can coerce strings
-	// to typed resources at plan time. Every resource-typed parameter is an
-	// INPUT (discovery entry in the catalog); the method's output spec handles
-	// the output shadowing separately, after all slots are filled.
+	// Classify parameters.
+	//
+	// We build a clean-name → type map so we can coerce strings to typed resources at plan time. Every resource-typed
+	// parameter is an INPUT (discovery entry in the catalog); the method's output spec handles the output shadowing
+	// separately, after all slots are filled.
 
 	var kwargsName string
 	knownKwargs := make(map[string]bool, len(params))
@@ -155,7 +157,9 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 		}
 	}
 
-	// Unpack args as raw starlark values — slots store starlark values, not Go types.
+	// Unpack args as raw starlark values.
+	//
+	// Slots store Go types, not Starlark values.
 
 	values := make([]starlark.Value, len(regularParams))
 	pairs := make([]any, 0, len(regularParams)*2)
@@ -218,7 +222,7 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 			}
 		}
 
-		if err := FillSlot(node, p.graph, cleanName, sv); err != nil {
+		if err := fillSlot(p.graph, node, cleanName, sv); err != nil {
 			return nil, fmt.Errorf("%s: %w", cleanName, err)
 		}
 	}
@@ -229,7 +233,7 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 		for _, kv := range extraKwargs {
 			key, _ := starlark.AsString(kv[0])
 			subSlot := fmt.Sprintf("%s.%s", kwargsName, key)
-			if err := FillSlot(node, p.graph, subSlot, kv[1]); err != nil {
+			if err := fillSlot(p.graph, node, subSlot, kv[1]); err != nil {
 				return nil, fmt.Errorf("%s: kwarg %s: %w", actionName, key, err)
 			}
 		}
@@ -361,7 +365,7 @@ func (p *Planner) isResourceType(t reflect.Type) bool {
 //
 // Returns:
 //   - error: non-nil if coercion or catalog registration fails. The slot is left unset on error so the caller
-//     can fall through to [FillSlot] for normal handling.
+//     can fall through to [fillSlot] for normal handling.
 func (p *Planner) fillResourceSlot(node *op.Node, slotName string, targetType reflect.Type, sv starlark.Value) error {
 
 	// Only strings need coercion — other starlark values route through FillSlot as before.

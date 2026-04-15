@@ -298,7 +298,7 @@ func TestFillSlotOutput(t *testing.T) {
 	consumer := makeTestNode("consumer", "file.link")
 	out := NewPromise(g, producer, "default")
 
-	if err := FillSlot(consumer, g, "input", out); err != nil {
+	if err := fillSlot(g, consumer, "input", out); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -324,7 +324,7 @@ func TestFillSlotOutputList(t *testing.T) {
 	list := starlark.NewList([]starlark.Value{o1, o2})
 	consumer := makeTestNode("consumer", "")
 
-	if err := FillSlot(consumer, g, "deps", list); err != nil {
+	if err := fillSlot(g, consumer, "deps", list); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -356,7 +356,7 @@ func TestFillSlotMixedListFallsThrough(t *testing.T) {
 	list := starlark.NewList([]starlark.Value{starlark.String("a"), starlark.String("b")})
 	consumer := makeTestNode("consumer", "")
 
-	if err := FillSlot(consumer, g, "items", list); err != nil {
+	if err := fillSlot(g, consumer, "items", list); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -379,7 +379,7 @@ func TestFillSlotString(t *testing.T) {
 	g := makeTestGraph()
 	n := makeTestNode("n1", "")
 
-	if err := FillSlot(n, g, "path", starlark.String("/tmp/foo")); err != nil {
+	if err := fillSlot(g, n, "path", starlark.String("/tmp/foo")); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -396,7 +396,7 @@ func TestFillSlotInt(t *testing.T) {
 	g := makeTestGraph()
 	n := makeTestNode("n1", "")
 
-	if err := FillSlot(n, g, "count", starlark.MakeInt(42)); err != nil {
+	if err := fillSlot(g, n, "count", starlark.MakeInt(42)); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -413,7 +413,7 @@ func TestFillSlotBool(t *testing.T) {
 	g := makeTestGraph()
 	n := makeTestNode("n1", "")
 
-	if err := FillSlot(n, g, "force", starlark.Bool(true)); err != nil {
+	if err := fillSlot(g, n, "force", starlark.Bool(true)); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -430,7 +430,7 @@ func TestFillSlotFloat(t *testing.T) {
 	g := makeTestGraph()
 	n := makeTestNode("n1", "")
 
-	if err := FillSlot(n, g, "ratio", starlark.Float(3.14)); err != nil {
+	if err := fillSlot(g, n, "ratio", starlark.Float(3.14)); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -447,7 +447,7 @@ func TestFillSlotNone(t *testing.T) {
 	g := makeTestGraph()
 	n := makeTestNode("n1", "")
 
-	if err := FillSlot(n, g, "optional", starlark.None); err != nil {
+	if err := fillSlot(g, n, "optional", starlark.None); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -469,7 +469,7 @@ func TestFillSlotList(t *testing.T) {
 		starlark.String("gamma"),
 	})
 
-	if err := FillSlot(n, g, "items", list); err != nil {
+	if err := fillSlot(g, n, "items", list); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -494,7 +494,7 @@ func TestFillSlotDict(t *testing.T) {
 	_ = dict.SetKey(starlark.String("key1"), starlark.String("val1"))
 	_ = dict.SetKey(starlark.String("key2"), starlark.MakeInt(99))
 
-	if err := FillSlot(n, g, "env", dict); err != nil {
+	if err := fillSlot(g, n, "env", dict); err != nil {
 		t.Fatalf("FillSlot() error: %v", err)
 	}
 
@@ -520,7 +520,7 @@ func TestFillSlotUnsupportedType(t *testing.T) {
 
 	// starlark.Tuple is not handled by FillSlot.
 	tuple := starlark.Tuple{starlark.String("a"), starlark.String("b")}
-	err := FillSlot(n, g, "bad", tuple)
+	err := fillSlot(g, n, "bad", tuple)
 	if err == nil {
 		t.Fatal("expected error for unsupported type, got nil")
 	}
@@ -559,7 +559,7 @@ func TestFillSlotImplicitEdge_ResourceWithOrigin(t *testing.T) {
 		t.Fatalf("Marshal error: %v", err)
 	}
 
-	if err := FillSlot(consumer, g, "source_file", val); err != nil {
+	if err := fillSlot(g, consumer, "source_file", val); err != nil {
 		t.Fatalf("FillSlot error: %v", err)
 	}
 
@@ -586,7 +586,7 @@ func TestFillSlotImplicitEdge_ResourceWithoutOrigin(t *testing.T) {
 		t.Fatalf("Marshal error: %v", err)
 	}
 
-	if err := FillSlot(consumer, g, "source_file", val); err != nil {
+	if err := fillSlot(g, consumer, "source_file", val); err != nil {
 		t.Fatalf("FillSlot error: %v", err)
 	}
 
@@ -611,7 +611,7 @@ func TestFillSlotImplicitEdge_PlainResource(t *testing.T) {
 		t.Fatalf("Marshal error: %v", err)
 	}
 
-	if err := FillSlot(consumer, g, "input", val); err != nil {
+	if err := fillSlot(g, consumer, "input", val); err != nil {
 		t.Fatalf("FillSlot error: %v", err)
 	}
 

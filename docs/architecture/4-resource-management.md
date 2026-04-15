@@ -513,17 +513,29 @@ ResourceCatalog
 ├── ns:      map[string]string  ← URI → current id (namespace)
 ├── nextID:  int                ← monotonic counter
 └── methods:
-    ├── Resolve(uri) → id       ← discover or return existing
-    ├── Shadow(resource, originID) → id  ← new version, update namespace
-    ├── Lookup(id) → Resource, bool
+    ├── Resolve(r Resource) → (Resource, id)            ← discover or return canonical
+    ├── Shadow(r Resource, originID) → (id, error)      ← new version, update namespace, detect conflicts
+    ├── Transition(resolved Resource, originID) → error ← in-place pending → resolved
+    ├── Lookup(id) → (Resource, bool)
     ├── Current(uri) → id
+    ├── DiscoveryURIs() → []string                       ← preflight input set
     └── Len() → int
 ```
 
 The catalog stores `Resource` interface values, enabling polymorphic
 access to actual typed resources (e.g., `file.Resource`). It deduplicates
-by URI — if 5 nodes reference the same source path, `Resolve()` returns
-the same resource ID. Pre-flight resolution stats each unique URI once.
+by URI — if 5 nodes reference the same source path, `Resolve` returns
+the same canonical entry. Pre-flight resolution stats each unique URI once.
+
+**Typed resources in, typed resources out.** Both `Resolve` and `Shadow`
+take a caller-constructed `Resource` rather than a bare URI string. The
+caller coerces its input (a string path, a package identifier, a URL)
+into a typed resource via the resource type's registered constructor
+*before* reaching the catalog. The catalog never fabricates a concrete
+resource type itself — the concrete type always flows in from the
+caller. This matters because `entries` holds interface values, which
+require a concrete type to exist. A catalog that took only URIs would
+have no way to discover a new entry of the right concrete type.
 
 **Plan-time vs execution-time ownership:**
 
@@ -537,16 +549,45 @@ the same resource ID. Pre-flight resolution stats each unique URI once.
 
 ### 6.2 Catalog Operations
 
-The `ResourceCatalog` provides two core operations during planning:
+The `ResourceCatalog` provides three core operations:
 
-- **Resolve(uri)** — Returns the current resource ID for a URI. If the URI
-  has never been seen, catalogs a discovery (`ResourceBase` with URI only,
-  no `originID`). If the URI was previously shadowed, returns the shadowed
+- **Resolve(r)** *(plan time)* — Takes a typed resource with its URI set.
+  If the URI has never been seen, `r` is cataloged as a discovery entry
+  (empty `originID`, metadata empty) and returned as-is along with its
+  freshly-assigned catalog ID. If the URI was previously cataloged —
+  either as a discovery or shadowed by a producer — the canonical entry
+  is returned and `r` is discarded. Callers should always use the
+  returned `Resource` so downstream consumers observe the authoritative
   version.
 
-- **Shadow(resource, originID)** — Catalogs a new resource version in the
-  ledger, stamps its `id` and `originID`, updates the namespace to point
-  to it. Any subsequent `Resolve` for this URI returns the shadowed version.
+- **Shadow(r, originID)** *(plan time)* — Catalogs a new resource version
+  under `originID`, stamps the catalog `id` and `originID` on its
+  `ResourceBase`, and updates the namespace to point to it. Any
+  subsequent `Resolve` for this URI returns the shadowed version. Empty
+  `originID` is rejected. Write-write conflict detection: if the URI is
+  already shadowed by a *different* non-empty origin, `Shadow` returns
+  an error — two nodes targeting the same output URI collide
+  immediately with a clear message. Re-shadowing with the same origin
+  is permitted.
+
+- **Transition(resolved, originID)** *(execution time)* — Fills the
+  metadata of a pending entry in place with the metadata from the
+  resolved resource returned by the forward method. Finds the pending
+  entry by `resolved.URI()`, verifies the existing entry's origin
+  matches, then performs a reflection-based struct copy of
+  resource-specific fields from `resolved` onto the cataloged entry,
+  preserving the catalog identity fields (`id`, `originID`) on
+  `ResourceBase`. The mutation is in place: every outstanding pointer
+  to the pending resource — slots, promises, planner references —
+  observes the populated metadata immediately. No new ledger entry is
+  appended. This is the plumbing behind the §3.1 **pending → resolved**
+  state transition and the §6.5 post-flight metadata update pass.
+
+  `Transition` is the execution-phase mirror of `Shadow`: `Shadow`
+  creates a pending entry at plan time; `Transition` fills it at
+  execution time. The forward method is free to return a fresh,
+  fully-populated resource (typical case) — the catalog rebinds its
+  contents onto the existing pending entry without disturbing lineage.
 
 ### 6.3 Shadowing Walkthrough
 
@@ -557,23 +598,33 @@ Initial state:
   catalog.entries = []
   catalog.ns = {}
 
-Step 1: plan.file.write_text(destination="/etc/foo", content="v2", mode=0o644)
+Step 1: plan.file.write_text(destinationPath="/etc/foo", content="v2", mode=0o644)
   ├─ Node A created
-  ├─ uri = "file:///etc/foo"
-  ├─ catalog.Shadow(resource, nodeA.ID)
-  │   ├─ entries = [file.Resource{uri:"file:///etc/foo", id:"res-1", originID:"A"}]
+  ├─ Planned companion: pending = WriteTextPlanned(...) → *file.Resource{uri:"file:///etc/foo"}
+  ├─ catalog.Shadow(pending, nodeA.ID) → (id:"res-1", nil)
+  │   ├─ entries = [*file.Resource{uri:"file:///etc/foo", id:"res-1", originID:"A"}]
   │   └─ ns = {"file:///etc/foo" → "res-1"}
-  └─ return id "res-1"
 
 Step 2: plan.file.read(path="/etc/foo")
   ├─ Node B created
-  ├─ uri = "file:///etc/foo"
-  ├─ catalog.Resolve("file:///etc/foo")
-  │   └─ returns "res-1" (produced by node A)
-  ├─ Node B depends on Node A (via originID = "A")
+  ├─ Coerce "/etc/foo" → *file.Resource{uri:"file:///etc/foo"} (fresh, no origin)
+  ├─ catalog.Resolve(fresh) → (canonical, "res-1")
+  │   └─ canonical is the entry from Step 1; fresh is discarded
+  ├─ Node B reads canonical.originID = "A" → implicit edge Node A → Node B
   └─ Executor guarantees: A runs before B
 
-Result: write happens before read. No explicit Output passing needed.
+Execution time (Node A runs, producing a real file with populated metadata):
+  ├─ action.Do(...) → resolved *file.Resource{uri:"file:///etc/foo", Inode:..., Size:..., Checksum:...}
+  ├─ catalog.Transition(resolved, "A") → nil
+  │   ├─ locates the pending entry by URI
+  │   ├─ verifies origin matches
+  │   └─ copies Inode / Size / Checksum / … onto the existing entry in place,
+  │       preserving id="res-1" and originID="A"
+  └─ Node B (and all other holders of the pending pointer) now sees populated metadata
+
+Result: write happens before read. No explicit Output passing needed. The
+catalog's pending entry survived from plan time into execution time and
+transitioned to resolved in place — the same object, now with metadata.
 ```
 
 ### 6.4 Planning Data Flow (Pure — No I/O)
@@ -584,25 +635,29 @@ access. This is required because a graph is planned once and executed on
 many machines.
 
 ```
-Starlark call: plan.file.write_text(destination="/etc/foo", content="v2", mode=0o644)
+Starlark call: plan.file.write_text(destinationPath="/etc/foo", content="v2", mode=0o644)
     │
     ▼
-buildPlannedBridge.write_text()
-    ├─ coerce "/etc/foo" → file.Resource{uri: "file:///etc/foo", state: pending}
-    ├─ catalog.Shadow(resource, node.ID)             ← new entry in ledger
-    ├─ createNode("file.write_text")                 ← graph node
-    ├─ fillSlots(node, {destination: file.Resource{pending}, content, mode})
-    └─ return Output (promise)
+planner.dispatch("file.write_text", args)
+    ├─ createNode("file.write_text")
+    ├─ fillSlots(node, {destinationPath:"/etc/foo", content, mode})
+    ├─ method.HasPlanned? yes — WriteTextPlanned
+    │   ├─ pending := WriteTextPlanned(destinationPath, content, mode)
+    │   │   └─ *file.Resource{uri:"file:///etc/foo"} (pure, no I/O)
+    │   └─ catalog.Shadow(pending, node.ID) → (id, nil)
+    └─ return Promise(node.ID)
 
-Starlark call: plan.file.read(path="/etc/foo")
+Starlark call: plan.file.read(resource="/etc/foo")
     │
     ▼
-buildPlannedBridge.read()
-    ├─ coerce "/etc/foo" → file.Resource (type-tag only)
-    ├─ catalog.Resolve("file:///etc/foo")
-    │   └─ returns id from Shadow above → originID = write node
-    ├─ createNode("file.read") with implicit edge from write node
-    └─ return Output (promise)
+planner.dispatch("file.read", args)
+    ├─ Resource-typed slot: coerce "/etc/foo" → *file.Resource (fresh, type-tag only)
+    ├─ canonical, _ := catalog.Resolve(fresh)
+    │   └─ canonical is the pending entry from write_text's Shadow;
+    │      its originID is the write node
+    ├─ createNode("file.read"); implicit edge write → read via canonical.originID
+    ├─ fillSlots(node, {resource: canonical})
+    └─ return Promise(node.ID)
 ```
 
 ### 6.5 Execution Data Flow (Per Target Machine)
@@ -614,12 +669,13 @@ Node execution populates metadata for pending entries.
 ```
 Executor.Run(ctx, graph)  — on target machine
     │
-    ├─ Pre-flight: resolution pass (flat iteration over ledger)
-    │   ├─ For each entry with state=unresolved:
-    │   │   ├─ os.Stat on target machine → populate metadata
-    │   │   ├─ Mark entry as resolved
+    ├─ Pre-flight: resolution pass over catalog.DiscoveryURIs()
+    │   ├─ For each discovery URI (entry with originID == "", metadata empty):
+    │   │   ├─ Lookup the typed entry, call its Resolve() — os.Stat / version
+    │   │   │   query / etc. — populating metadata in place
     │   │   └─ Fail-fast if source does not exist
-    │   └─ Pending entries skipped (don't exist yet)
+    │   └─ Pending entries skipped (they have non-empty originID; their
+    │       producer will create them at execution time)
     │
     ├─ Pre-flight: tombstone scan
     │   ├─ For each resource slot with originID:
@@ -629,11 +685,16 @@ Executor.Run(ctx, graph)  — on target machine
     │
     ├─ For each node (topological order):
     │   ├─ action.Do(ctx, resolvedSlots) → result, complement, error
-    │   ├─ Post-flight: metadata update
-    │   │   ├─ Re-stat file for kernel-assigned identity
-    │   │   ├─ Record actual hash, inode, size in ledger
-    │   │   ├─ Mark pending resource as resolved
-    │   │   └─ Fulfill resource slot for downstream nodes
+    │   ├─ Post-dispatch: catalog reconciliation
+    │   │   ├─ If result is a Resource (and not KnownAtExecution):
+    │   │   │   ├─ catalog has a pending entry for this URI owned by this node?
+    │   │   │   │   └─ catalog.Transition(result, node.ID)
+    │   │   │   │       → in-place metadata copy onto pending entry, preserving id/originID
+    │   │   │   └─ otherwise (monadic / late shadow):
+    │   │   │       └─ catalog.Shadow(result, node.ID)
+    │   │   │           → new ledger entry, namespace points to it
+    │   │   └─ Shadow/Transition failure → push action to recovery stack,
+    │   │       then fail the node (side effect already happened)
     │   └─ Push recovery entry onto stack
     │
     └─ Same graph can be executed again on a different target
@@ -960,21 +1021,26 @@ work and developers would resent it. The sell is that the forward method
 #### Planning with output specs
 
 ```
-Starlark call: plan.file.copy(source_file=src, destination_filename="/etc/foo", destination_file_mode=0o644)
+Starlark call: plan.file.copy(source=src, destinationPath="/etc/foo", mode=0o644)
     │
     ▼
 planner.dispatch("file.copy", args)
     ├─ Unpack input slots:
-    │   └─ source_file (Resource), destination_filename (string), destination_file_mode (int)
-    ├─ Coerce resource-typed inputs to typed resources via the registry
-    │   └─ source_file → *file.Resource (via catalog.Resolve — discovery)
-    ├─ Create the node
-    ├─ Fill input slots with typed values
-    ├─ method.OutputSpec != nil?  Yes (CopyPlanned registered)
-    │   ├─ Call spec(slots) → *file.Resource{uri: "file:///etc/foo"}
-    │   ├─ catalog.Shadow(pending, node.ID)
-    │   └─ Store pending resource as the node's output handle
-    ├─ Return Promise(node, "")
+    │   └─ source (*file.Resource), destinationPath (string), mode (os.FileMode)
+    ├─ Coerce resource-typed inputs via the registered constructor
+    │   └─ source → *file.Resource; routed through catalog.Resolve as a discovery
+    ├─ Create the node and fill input slots with typed values
+    ├─ method.HasPlanned()?  Yes — CopyPlanned auto-discovered on the
+    │                        provider type by methodFromReflectedMethod,
+    │                        symmetric with Compensate<Name>.
+    │   ├─ receiver := rt.Construct()(ctx)
+    │   ├─ pending := method.Plan(receiver, args)
+    │   │   └─ invokes CopyPlanned via reflection with the filled slot values
+    │   │     → *file.Resource{uri:"file:///etc/foo"} (pure, no I/O)
+    │   ├─ catalog.Shadow(pending, node.ID) → (id, nil)
+    │   │   └─ stamps id and originID on pending's ResourceBase in place
+    │   └─ pending now lives in the ledger, addressable by URI
+    ├─ Return Promise(node.ID)
 ```
 
 Subsequent `plan.file.read_text(resource="/etc/foo")` at plan time:
@@ -998,17 +1064,20 @@ URI and the output spec put it there at plan time.
 Executor.Run(ctx, graph)
     │
     ├─ Preflight: resolve discovery entries against target
-    │   (unchanged — pending entries skipped because they have origins)
+    │   (pending entries skipped because they have non-empty originID)
     │
     ├─ For each node in execution order:
     │   ├─ Resolve slot values (pending entries already in slots)
     │   ├─ Call method.Do(ctx, slots) → result, complement, error
-    │   ├─ Post-dispatch: if the result is a resource and the catalog
-    │   │   has a pending entry for its URI owned by this node,
-    │   │   transition pending → resolved by copying metadata from
-    │   │   result into the cataloged entry.
-    │   ├─ If the method had no output spec (monadic case) but returned
-    │   │   a resource, shadow the result now (late shadowing).
+    │   ├─ Post-dispatch: if result is a Resource (and not KnownAtExecution):
+    │   │   ├─ catalog has a pending entry for result.URI() owned by this node?
+    │   │   │   → catalog.Transition(result, node.ID)
+    │   │   │     in-place metadata copy onto the pending entry,
+    │   │   │     preserving catalog id and originID
+    │   │   └─ otherwise (monadic case — Planned returned KnownAtExecution,
+    │   │      or no Planned companion exists):
+    │   │      → catalog.Shadow(result, node.ID)
+    │   │        (late shadow — first time the URI is seen)
     │   └─ Push recovery entry, continue.
 ```
 

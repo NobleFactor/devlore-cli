@@ -152,37 +152,46 @@ func (p *Provider) CompensateBackup(undo Tombstone) error {
 	return p.rename(recoveryID, resource.SourcePath.Abs())
 }
 
-// Copy copies a blob to the file at "destination" with the given mode.
+// Copy copies source's contents to a new file at destinationPath with the given mode.
 //
-// If the destination already exists, it is moved to a recovery site before writing.
+// Identity for the destination is constructed by [Provider.CopyPlanned] — the same function the planner calls at
+// plan time — so planning and execution agree on URI construction rules. If the destination already exists, it is
+// archived to the recovery site before writing. After the write succeeds, the destination resource's metadata is
+// populated via [Resource.Resolve], which is what the executor's post-dispatch [op.ResourceCatalog.Transition]
+// consumes to fill the pending entry in place.
 //
 // Parameters:
-//   - sourceFile: Resource wrapping the source file path
-//   - destinationFilename: Resource for the destination path
-//   - destinationFileMode: The file mode to use (default: 0644)
+//   - source: [file.Resource] of the file to copy from.
+//   - destinationPath: the path to write to. Coerced to a [file.Resource] via [Provider.CopyPlanned].
+//   - mode: the file mode for the new file. Zero defaults to 0o644.
 //
 // Returns:
-//   - result: Resource for the written file
-//   - undo: Tombstone for restoring the original state
-//   - err: any error that occurred during the copy
-func (p *Provider) Copy(sourceFile, destinationFilename *Resource, destinationFileMode os.FileMode) (result *Resource, undo Tombstone, err error) {
-	result, undo, err = p.prepareWrite(destinationFilename)
+//   - result: the destination [file.Resource] with populated metadata.
+//   - undo: [file.Tombstone] for restoring the original state at destination.
+//   - err: any error from identity construction, backup, or the copy itself.
+func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (result *Resource, undo Tombstone, err error) {
 
+	result, err = p.CopyPlanned(source, destinationPath, mode)
 	if err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	if destinationFileMode == 0 {
-		destinationFileMode = 0o644
+	result, undo, err = p.prepareWrite(result)
+	if err != nil {
+		return nil, Tombstone{}, err
 	}
 
-	src, err := p.open(sourceFile.SourcePath.Abs())
+	if mode == 0 {
+		mode = 0o644
+	}
+
+	src, err := p.open(source.SourcePath.Abs())
 	if err != nil {
 		return result, undo, err
 	}
 	defer iox.Close(&err, src)
 
-	dst, err := p.openFile(result.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
+	dst, err := p.openFile(result.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return result, undo, err
 	}
@@ -192,7 +201,30 @@ func (p *Provider) Copy(sourceFile, destinationFilename *Resource, destinationFi
 		return result, undo, err
 	}
 
+	if err := result.Resolve(); err != nil {
+		return result, undo, err
+	}
+
 	return result, undo, nil
+}
+
+// CopyPlanned is the Planned companion for [Provider.Copy]. Pure: no I/O, no target state.
+//
+// Constructs the identity (URI and SourcePath) of the destination file from destinationPath. Called at plan time
+// by the planner via reflection auto-discovery, and internally by [Provider.Copy] as the first step so both code
+// paths share a single source of truth for identity construction. The mode parameter does not affect identity and
+// is ignored.
+//
+// Parameters:
+//   - source: ignored; present to match [Provider.Copy]'s signature exactly (required by [op.Method.Plan]).
+//   - destinationPath: the destination path whose identity should be constructed.
+//   - mode: ignored.
+//
+// Returns:
+//   - *Resource: the destination resource with URI set and metadata empty (pending state).
+//   - error: any error from resource construction.
+func (p *Provider) CopyPlanned(_ *Resource, destinationPath string, _ os.FileMode) (*Resource, error) {
+	return NewResource(p.ExecutionContext(), destinationPath)
 }
 
 // CompensateCopy undoes a Copy by restoring the original file from recovery.
@@ -206,20 +238,28 @@ func (p *Provider) CompensateCopy(undo Tombstone) error {
 	return p.compensateWrite(undo)
 }
 
-// Link creates a symbolic link at target pointing to source.
+// Link creates a symbolic link at targetPath pointing to source.
 //
-// Idempotent: if target already points to source, calling this function is a no-op. If something else exists at target,
-// it is moved to recovery before creating the symbolic link to source.
+// Idempotent: if targetPath already points to source, calling this function is a no-op. If something else exists
+// at targetPath, it is moved to recovery before creating the symbolic link to source. Identity for the link
+// target is constructed by [Provider.LinkPlanned].
 //
 // Parameters:
-//   - source: [file.Resource] that the symbolic link will point to
-//   - target: [file.Resource] specifying the location where the symbolic link will be created
+//   - source: [file.Resource] that the symbolic link will point to.
+//   - targetPath: the path where the symbolic link will be created. Coerced to a [file.Resource] via
+//     [Provider.LinkPlanned].
 //
 // Returns:
-//   - result: [file.Resource] for the created symbolic link (the value of target)
-//   - undo: [file.Tombstone] for restoring the previous state of target
-//   - err: any error from creating the symbolic link
-func (p *Provider) Link(source, target *Resource) (result *Resource, undo Tombstone, err error) {
+//   - result: [file.Resource] for the created symbolic link.
+//   - undo: [file.Tombstone] for restoring the previous state of targetPath.
+//   - err: any error from creating the symbolic link.
+func (p *Provider) Link(source *Resource, targetPath string) (result *Resource, undo Tombstone, err error) {
+
+	target, err := p.LinkPlanned(source, targetPath)
+	if err != nil {
+		return nil, Tombstone{}, err
+	}
+
 	if info, err := p.lstat(target.SourcePath.Abs()); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			existing, readErr := p.readLink(target.SourcePath.Abs())
@@ -254,14 +294,23 @@ func (p *Provider) Link(source, target *Resource) (result *Resource, undo Tombst
 		return nil, Tombstone{}, err
 	}
 
-	if result, err = NewResource(p.ExecutionContext(),target.SourcePath.Abs()); err != nil {
+	if err = target.Resolve(); err != nil {
 		return nil, undo, err
 	}
+	return target, undo, nil
+}
 
-	if err = result.Resolve(); err != nil {
-		return nil, undo, err
-	}
-	return result, undo, nil
+// LinkPlanned is the Planned companion for [Provider.Link]. Pure: no I/O, no target state.
+//
+// Parameters:
+//   - source: ignored; present to match [Provider.Link]'s signature exactly.
+//   - targetPath: the link path whose identity should be constructed.
+//
+// Returns:
+//   - *Resource: the target resource with URI set and metadata empty.
+//   - error: any error from resource construction.
+func (p *Provider) LinkPlanned(_ *Resource, targetPath string) (*Resource, error) {
+	return NewResource(p.ExecutionContext(), targetPath)
 }
 
 // CompensateLink undoes a Link by removing the symlink and restoring whatever was there before.
@@ -275,43 +324,61 @@ func (p *Provider) CompensateLink(undo Tombstone) error {
 	return p.compensateWrite(undo)
 }
 
-// Move moves a file from source to destination using "os.Rename".
+// Move moves a file from source to destinationPath using "os.Rename".
+//
+// Identity for the destination is constructed by [Provider.MovePlanned].
 //
 // Parameters:
-//   - source: Resource at the source location
-//   - destination: Resource for the destination location
+//   - source: [file.Resource] at the source location.
+//   - destinationPath: the path to move to. Coerced to a [file.Resource] via [Provider.MovePlanned].
 //
 // Returns:
-//   - result: Resource at the destination
-//   - undo: Tombstone for moving the file back
-//   - err: any error
-func (p *Provider) Move(source, destination *Resource) (result *Resource, undo Tombstone, err error) {
+//   - result: the destination [file.Resource] with populated metadata.
+//   - undo: [file.Tombstone] for moving the file back.
+//   - err: any error.
+func (p *Provider) Move(source *Resource, destinationPath string) (result *Resource, undo Tombstone, err error) {
+
+	result, err = p.MovePlanned(source, destinationPath)
+	if err != nil {
+		return nil, Tombstone{}, err
+	}
+
 	if _, err := p.stat(source.SourcePath.Abs()); err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	if err := p.mkdirAll(filepath.Dir(destination.SourcePath.Abs()), 0o750); err != nil {
+	if err := p.mkdirAll(filepath.Dir(result.SourcePath.Abs()), 0o750); err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	if err := p.rename(source.SourcePath.Abs(), destination.SourcePath.Abs()); err != nil {
+	if err := p.rename(source.SourcePath.Abs(), result.SourcePath.Abs()); err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	if result, err = NewResource(p.ExecutionContext(),destination.SourcePath.Abs()); err != nil {
-		return nil, Tombstone{}, err
-	}
-	if err = result.Resolve(); err != nil {
+	if err := result.Resolve(); err != nil {
 		return nil, Tombstone{}, err
 	}
 
 	// Tombstone preserves the source's true identity. RecoveryID records where the data was moved to.
 	undo = Tombstone{
 		TombstoneBase: op.NewTombstoneBase(source),
-		RecoveryID:    destination.SourcePath.Abs(),
+		RecoveryID:    result.SourcePath.Abs(),
 	}
 
 	return result, undo, nil
+}
+
+// MovePlanned is the Planned companion for [Provider.Move]. Pure: no I/O, no target state.
+//
+// Parameters:
+//   - source: ignored; present to match [Provider.Move]'s signature exactly.
+//   - destinationPath: the destination path whose identity should be constructed.
+//
+// Returns:
+//   - *Resource: the destination resource with URI set and metadata empty.
+//   - error: any error from resource construction.
+func (p *Provider) MovePlanned(_ *Resource, destinationPath string) (*Resource, error) {
+	return NewResource(p.ExecutionContext(), destinationPath)
 }
 
 // CompensateMove undoes a Move by moving the file back to its original location.
@@ -666,21 +733,41 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 	return stack.Unwind()
 }
 
-// WriteBytes writes inline content to the file at "path" with the given mode.
+// WriteBytes writes inline byte content to a file at destinationPath with the given mode.
+//
+// Identity is constructed by [Provider.WriteBytesPlanned] — the same function the planner calls at plan time.
 //
 // +devlore:defaults mode=0
 //
 // Parameters:
-//   - destination: Resource for the file to write
-//   - content: String content to write to the file
+//   - destinationPath: the path to write to. Coerced to a [file.Resource] via [Provider.WriteBytesPlanned].
+//   - content: String content to write to the file.
 //   - mode: File permission bits (e.g., 0o644). Defaults to 0644 when 0.
 //
 // Returns:
-//   - result: Resource for the written file
-//   - undo: Tombstone for restoring the previous state
-//   - err: any error that occurred while writing
-func (p *Provider) WriteBytes(destination *Resource, content string, mode os.FileMode) (result *Resource, undo Tombstone, err error) {
-	return p.write(destination, []byte(content), mode)
+//   - result: the destination [file.Resource] with populated metadata.
+//   - undo: [file.Tombstone] for restoring the previous state.
+//   - err: any error that occurred while writing.
+func (p *Provider) WriteBytes(destinationPath string, content string, mode os.FileMode) (result *Resource, undo Tombstone, err error) {
+	dest, err := p.WriteBytesPlanned(destinationPath, content, mode)
+	if err != nil {
+		return nil, Tombstone{}, err
+	}
+	return p.write(dest, []byte(content), mode)
+}
+
+// WriteBytesPlanned is the Planned companion for [Provider.WriteBytes]. Pure: no I/O, no target state.
+//
+// Parameters:
+//   - destinationPath: the destination path whose identity should be constructed.
+//   - content: ignored; present to match [Provider.WriteBytes]'s signature exactly.
+//   - mode: ignored.
+//
+// Returns:
+//   - *Resource: the destination resource with URI set and metadata empty (pending state).
+//   - error: any error from resource construction.
+func (p *Provider) WriteBytesPlanned(destinationPath string, _ string, _ os.FileMode) (*Resource, error) {
+	return NewResource(p.ExecutionContext(), destinationPath)
 }
 
 // CompensateWriteBytes undoes a WriteBytes by restoring the original file.
@@ -694,21 +781,44 @@ func (p *Provider) CompensateWriteBytes(undo Tombstone) error {
 	return p.compensateWrite(undo)
 }
 
-// WriteText writes inline content to the file at "path" with the given mode.
+// WriteText writes inline content to a file at destinationPath with the given mode.
+//
+// Identity is constructed by [Provider.WriteTextPlanned] — the same function the planner calls at plan time — so
+// planning and execution agree on URI construction rules. After the write succeeds, the destination resource's
+// metadata is populated so the executor's post-dispatch [op.ResourceCatalog.Transition] can fill the pending
+// catalog entry in place.
 //
 // +devlore:defaults mode=0
 //
 // Parameters:
-//   - destination: Resource for the file to write
-//   - content: String content to write to the file
+//   - destinationPath: the path to write to. Coerced to a [file.Resource] via [Provider.WriteTextPlanned].
+//   - content: String content to write to the file.
 //   - mode: File permission bits (e.g., 0o644). Defaults to 0644 when 0.
 //
 // Returns:
-//   - result: Resource for the written file
-//   - undo: Tombstone for restoring the previous state
-//   - err: any error that occurred while writing
-func (p *Provider) WriteText(destination *Resource, content string, mode os.FileMode) (result *Resource, undo Tombstone, err error) {
-	return p.write(destination, []byte(content), mode)
+//   - result: the destination [file.Resource] with populated metadata.
+//   - undo: [file.Tombstone] for restoring the previous state.
+//   - err: any error that occurred while writing.
+func (p *Provider) WriteText(destinationPath string, content string, mode os.FileMode) (result *Resource, undo Tombstone, err error) {
+	dest, err := p.WriteTextPlanned(destinationPath, content, mode)
+	if err != nil {
+		return nil, Tombstone{}, err
+	}
+	return p.write(dest, []byte(content), mode)
+}
+
+// WriteTextPlanned is the Planned companion for [Provider.WriteText]. Pure: no I/O, no target state.
+//
+// Parameters:
+//   - destinationPath: the destination path whose identity should be constructed.
+//   - content: ignored; present to match [Provider.WriteText]'s signature exactly.
+//   - mode: ignored.
+//
+// Returns:
+//   - *Resource: the destination resource with URI set and metadata empty (pending state).
+//   - error: any error from resource construction.
+func (p *Provider) WriteTextPlanned(destinationPath string, _ string, _ os.FileMode) (*Resource, error) {
+	return NewResource(p.ExecutionContext(), destinationPath)
 }
 
 // CompensateWriteText undoes a WriteText by restoring the original file.
@@ -961,16 +1071,42 @@ func (p *Provider) IsFile(resource *Resource) (bool, error) {
 // +devlore:defaults mode=0755
 //
 // Parameters:
-//   - path: Absolute path of the directory to create
+//   - path: Absolute path of the directory to create. Coerced to a [file.Resource] via [Provider.MkdirPlanned].
 //   - mode: Directory permission bits (e.g., 0o755). Defaults to 0755 when 0.
 //
 // Returns:
-//   - string: The absolute path of the created directory
-func (p *Provider) Mkdir(resource *Resource, mode os.FileMode) (*Resource, error) {
+//   - *Resource: the directory resource with populated metadata.
+//   - error: any error from directory creation.
+func (p *Provider) Mkdir(path string, mode os.FileMode) (*Resource, error) {
+
+	result, err := p.MkdirPlanned(path, mode)
+	if err != nil {
+		return nil, err
+	}
+
 	if mode == 0 {
 		mode = 0o755
 	}
-	return resource, p.mkdirAll(resource.SourcePath.Abs(), mode)
+	if err := p.mkdirAll(result.SourcePath.Abs(), mode); err != nil {
+		return nil, err
+	}
+	if err := result.Resolve(); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+// MkdirPlanned is the Planned companion for [Provider.Mkdir]. Pure: no I/O, no target state.
+//
+// Parameters:
+//   - path: the directory path whose identity should be constructed.
+//   - mode: ignored.
+//
+// Returns:
+//   - *Resource: the directory resource with URI set and metadata empty.
+//   - error: any error from resource construction.
+func (p *Provider) MkdirPlanned(path string, _ os.FileMode) (*Resource, error) {
+	return NewResource(p.ExecutionContext(), path)
 }
 
 // ReadBytes returns the contents of a file [Resource].

@@ -97,11 +97,11 @@ func testCtx(t *testing.T, dir string) *op.ExecutionContext {
 
 	root := op.NewRootReaderWriter(dir)
 	return &op.ExecutionContext{
-		Context:    context.Background(),
-		Writer:     &bytes.Buffer{},
-		Root:       root,
-		Registry:   op.NewReceiverRegistry(),
-		SopsClient: client,
+		Context:  context.Background(),
+		Writer:   &bytes.Buffer{},
+		Root:     root,
+		Registry: op.NewReceiverRegistry(),
+		Sops:     client,
 	}
 }
 

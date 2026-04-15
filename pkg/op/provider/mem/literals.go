@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
@@ -63,9 +62,6 @@ func formatValue(v starlark.Value, depth int) (string, error) {
 
 	case *starlark.Dict:
 		return formatDict(v, depth)
-
-	case *bind.StructValue:
-		return formatAttrs(v, depth)
 
 	case *starlarkstruct.Struct:
 		return formatAttrs(v, depth)

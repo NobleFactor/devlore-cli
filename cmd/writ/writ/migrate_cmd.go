@@ -289,7 +289,7 @@ func clearExistingLayer(layerDir string, verbose bool) error {
 func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 	fp := &file.Provider{}
 
-	if _, err := fp.Mkdir(&file.Resource{SourcePath: op.NewPath("", filepath.Dir(layerDir))}, 0o755); err != nil {
+	if _, err := fp.Mkdir(filepath.Dir(layerDir), 0o755); err != nil {
 		return err
 	}
 	if err := clearExistingLayer(layerDir, verbose); err != nil {
@@ -299,7 +299,7 @@ func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 	if verbose {
 		cli.Note("Creating symlink: %s -> %s", layerDir, sourceRoot)
 	}
-	_, _, err := fp.Link(&file.Resource{SourcePath: op.NewPath("", sourceRoot)}, &file.Resource{SourcePath: op.NewPath("", layerDir)})
+	_, _, err := fp.Link(&file.Resource{SourcePath: op.NewPath("", sourceRoot)}, layerDir)
 	return err
 }
 
@@ -307,7 +307,7 @@ func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 	fp := &file.Provider{}
 
-	if _, err := fp.Mkdir(&file.Resource{SourcePath: op.NewPath("", filepath.Dir(layerDir))}, 0o755); err != nil {
+	if _, err := fp.Mkdir(filepath.Dir(layerDir), 0o755); err != nil {
 		return err
 	}
 	if err := clearExistingLayer(layerDir, verbose); err != nil {
@@ -317,7 +317,7 @@ func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 	if verbose {
 		cli.Note("Moving: %s -> %s", sourceRoot, layerDir)
 	}
-	_, _, err := fp.Move(&file.Resource{SourcePath: op.NewPath("", sourceRoot)}, &file.Resource{SourcePath: op.NewPath("", layerDir)})
+	_, _, err := fp.Move(&file.Resource{SourcePath: op.NewPath("", sourceRoot)}, layerDir)
 	return err
 }
 

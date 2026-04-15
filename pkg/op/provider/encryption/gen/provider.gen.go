@@ -17,6 +17,6 @@ func init() {
 		op.RoleAction,
 		func(ctx *op.ExecutionContext) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"DecryptSopsFile": {"source", "destination"},
+			"DecryptSopsFile": {"source", "destination_path"},
 		})
 }

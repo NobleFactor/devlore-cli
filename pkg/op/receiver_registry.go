@@ -37,7 +37,7 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 
 	mutex.Lock()
 	defer mutex.Unlock()
-	announcedReceiverTypes[rt.ReceiverName()] = rt
+	announcedReceiverTypes[rt.Name()] = rt
 }
 
 // AnnounceResource registers a resource type.
@@ -62,7 +62,7 @@ func AnnounceResource(
 
 	mutex.Lock()
 	defer mutex.Unlock()
-	announcedReceiverTypes[rt.ReceiverName()] = rt
+	announcedReceiverTypes[rt.Name()] = rt
 }
 
 // AnnounceType registers a bare receiver type for an arbitrary Go struct.
@@ -83,7 +83,7 @@ func AnnounceType(goType reflect.Type, methodParameters map[string][]string) {
 
 	mutex.Lock()
 	defer mutex.Unlock()
-	announcedReceiverTypes[base.ReceiverName()] = &base
+	announcedReceiverTypes[base.Name()] = &base
 }
 
 // ReceiverRegistry stores receiver types in four sorted lists plus cross-cutting lookup maps.
@@ -173,6 +173,49 @@ func (r *ReceiverRegistry) TypeByReflection(t reflect.Type) (ReceiverType, bool)
 	return rt, ok
 }
 
+// TypeByReflectionOrDerive returns the receiver type for the given Go type, deriving one via reflection if not
+// previously registered.
+//
+// Announced types (via [AnnounceProvider], [AnnounceResource], [AnnounceType]) are returned as-is. Unannounced types
+// get a derived [ReceiverType] with positional parameter names (arg0, arg1, ...) and are registered for future lookups.
+//
+// Parameters:
+//   - t: the reflect.Type to look up or derive (pointer or struct).
+//
+// Returns:
+//   - ReceiverType: the receiver type descriptor.
+func (r *ReceiverRegistry) TypeByReflectionOrDerive(t reflect.Type) ReceiverType {
+
+	if rt, ok := r.byType[t]; ok {
+		return rt
+	}
+
+	// Check the alternate form (pointer ↔ struct) since announced types may be stored under the struct type while
+	// callers pass the pointer type, or vice versa.
+
+	if t.Kind() == reflect.Pointer {
+		if rt, ok := r.byType[t.Elem()]; ok {
+			return rt
+		}
+	} else {
+		if rt, ok := r.byType[reflect.PointerTo(t)]; ok {
+			return rt
+		}
+	}
+
+	// Derive via reflection and register.
+
+	methodParams := deriveMethodParams(t)
+	rt, err := NewReceiverType(t, methodParams)
+
+	if err != nil {
+		rt, _ = NewReceiverType(t, nil)
+	}
+
+	r.register(rt)
+	return rt
+}
+
 // endregion
 
 // region Behaviors
@@ -187,12 +230,18 @@ func (r *ReceiverRegistry) TypeByReflection(t reflect.Type) (ReceiverType, bool)
 //   - bool: true if found.
 func (r *ReceiverRegistry) ActionByName(name string) (ProviderReceiverType, bool) {
 
-	for _, rt := range r.actions {
-		if rt.ReceiverName() == name {
-			return rt, true
-		}
+	rt, ok := r.byName[name]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	prt, ok := rt.(ProviderReceiverType)
+	if !ok {
+		return nil, false
+	}
+	if prt.Roles()&RoleAction == 0 {
+		return nil, false
+	}
+	return prt, true
 }
 
 // ModuleByName returns the module provider registered under the given name.
@@ -205,12 +254,18 @@ func (r *ReceiverRegistry) ActionByName(name string) (ProviderReceiverType, bool
 //   - bool: true if found.
 func (r *ReceiverRegistry) ModuleByName(name string) (ProviderReceiverType, bool) {
 
-	for _, rt := range r.modules {
-		if rt.ReceiverName() == name {
-			return rt, true
-		}
+	rt, ok := r.byName[name]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	prt, ok := rt.(ProviderReceiverType)
+	if !ok {
+		return nil, false
+	}
+	if prt.Roles()&RoleModule == 0 {
+		return nil, false
+	}
+	return prt, true
 }
 
 // PlannerByName returns the planner provider registered under the given name.
@@ -223,12 +278,18 @@ func (r *ReceiverRegistry) ModuleByName(name string) (ProviderReceiverType, bool
 //   - bool: true if found.
 func (r *ReceiverRegistry) PlannerByName(name string) (ProviderReceiverType, bool) {
 
-	for _, rt := range r.planners {
-		if rt.ReceiverName() == name {
-			return rt, true
-		}
+	rt, ok := r.byName[name]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	prt, ok := rt.(ProviderReceiverType)
+	if !ok {
+		return nil, false
+	}
+	if prt.Roles()&RoleAction == 0 {
+		return nil, false
+	}
+	return prt, true
 }
 
 // ResourceByName returns the resource type registered under the given name.
@@ -241,12 +302,15 @@ func (r *ReceiverRegistry) PlannerByName(name string) (ProviderReceiverType, boo
 //   - bool: true if found.
 func (r *ReceiverRegistry) ResourceByName(name string) (ResourceReceiverType, bool) {
 
-	for _, rt := range r.resources {
-		if rt.ReceiverName() == name {
-			return rt, true
-		}
+	rt, ok := r.byName[name]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	rrt, ok := rt.(ResourceReceiverType)
+	if !ok {
+		return nil, false
+	}
+	return rrt, true
 }
 
 // endregion
@@ -288,9 +352,9 @@ func (r *ReceiverRegistry) init() {
 //   - []ProviderReceiverType: the updated sorted slice.
 func insertSortedProvider(slice []ProviderReceiverType, rt ProviderReceiverType) []ProviderReceiverType {
 
-	name := rt.ReceiverName()
+	name := rt.Name()
 	idx := sort.Search(len(slice), func(i int) bool {
-		return slice[i].ReceiverName() >= name
+		return slice[i].Name() >= name
 	})
 
 	slice = append(slice, nil)
@@ -310,9 +374,9 @@ func insertSortedProvider(slice []ProviderReceiverType, rt ProviderReceiverType)
 //   - []ResourceReceiverType: the updated sorted slice.
 func insertSortedResource(slice []ResourceReceiverType, rt ResourceReceiverType) []ResourceReceiverType {
 
-	name := rt.ReceiverName()
+	name := rt.Name()
 	idx := sort.Search(len(slice), func(i int) bool {
-		return slice[i].ReceiverName() >= name
+		return slice[i].Name() >= name
 	})
 
 	slice = append(slice, nil)
@@ -328,7 +392,7 @@ func insertSortedResource(slice []ResourceReceiverType, rt ResourceReceiverType)
 //   - rt: the receiver type to register.
 func (r *ReceiverRegistry) register(rt ReceiverType) {
 
-	r.byName[rt.ReceiverName()] = rt
+	r.byName[rt.Name()] = rt
 	r.byType[rt.ProviderType()] = rt
 
 	switch v := rt.(type) {

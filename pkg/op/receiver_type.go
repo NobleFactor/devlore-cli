@@ -17,7 +17,7 @@ import (
 // Callers that need provider-specific or resource-specific behavior assert to [ProviderReceiverType] or
 // [ResourceReceiverType].
 type ReceiverType interface {
-	ReceiverName() string
+	Name() string
 	ProviderType() reflect.Type
 	Methods() iter.Seq[*Method]
 	MethodByName(name string) (*Method, bool)
@@ -135,7 +135,7 @@ func (t *receiverType) ProviderType() reflect.Type { return t.providerType }
 //
 // Returns:
 //   - string: the receiver name (e.g., "file", "file.Resource").
-func (t *receiverType) ReceiverName() string { return t.name }
+func (t *receiverType) Name() string { return t.name }
 
 // Do invokes the named method on receiver with the given arguments.
 //
@@ -472,6 +472,44 @@ func methodFromReflectedMethod(providerType reflect.Type, method reflect.Method,
 	}
 
 	return NewMethod(&method, parameters, plannedMethod, undoMethod)
+}
+
+// deriveMethodParams discovers exported methods on a Go type and generates positional parameter names.
+//
+// Used by [ReceiverRegistry.TypeByReflectionOrDerive] to build a [ReceiverType] for types not pre-announced via init().
+//
+// Parameters:
+//   - goType: the Go type to introspect (pointer or struct).
+//
+// Returns:
+//   - map[string][]string: method name → parameter names (arg0, arg1, ...).
+func deriveMethodParams(goType reflect.Type) map[string][]string {
+
+	ptrType := goType
+	if ptrType.Kind() != reflect.Pointer {
+		ptrType = reflect.PointerTo(ptrType)
+	}
+
+	params := make(map[string][]string)
+
+	for i := range ptrType.NumMethod() {
+		m := ptrType.Method(i)
+		if !m.IsExported() {
+			continue
+		}
+
+		mt := m.Type
+		numIn := mt.NumIn() - 1 // exclude receiver
+
+		names := make([]string, numIn)
+		for j := range numIn {
+			names[j] = fmt.Sprintf("arg%d", j)
+		}
+
+		params[m.Name] = names
+	}
+
+	return params
 }
 
 func receiverName(providerType reflect.Type) string {

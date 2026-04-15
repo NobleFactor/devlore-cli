@@ -248,7 +248,20 @@ def is_custom_return(returns):
     return ""
 
 def filter_methods(methods, include_list):
-    """Filter methods to public, non-interface, non-compensate methods."""
+    """Filter methods down to the user-facing public surface.
+
+    Excludes:
+      - unexported methods (lowercase first letter)
+      - framework methods listed in SKIP_METHODS
+      - Compensate<Name> companions (discovered by reflection at runtime)
+      - <Name>Planned companions (discovered by reflection at runtime)
+
+    Compensate and Planned companions are not registered as standalone
+    starlark-callable actions. They are attached to their forward method
+    by methodFromReflectedMethod in pkg/op/receiver_type.go via naming-
+    convention reflection lookup. See docs/architecture/4-resource-management.md
+    §6.8 "Companion triplet".
+    """
     filtered = []
     all_names = {}
     for m in methods:
@@ -260,6 +273,8 @@ def filter_methods(methods, include_list):
         if m.name in SKIP_METHODS:
             continue
         if m.name.startswith("Compensate"):
+            continue
+        if m.name.endswith("Planned"):
             continue
         if include_list and m.name not in include_list:
             continue

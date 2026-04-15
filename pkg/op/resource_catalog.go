@@ -9,22 +9,42 @@ import (
 	"sync"
 )
 
-// resourceType is cached for result-type classification.
-var resourceType = reflect.TypeOf((*Resource)(nil)).Elem()
-
-// ResourceCatalog is the append-only catalog of all resources created during a single planning session.
+// ResourceCatalog is the graph-level compositor that owns the append-only ledger of [Resource] entries and the
+// URI→ID namespace that makes URIs addressable.
 //
-// It owns the ledger (the log of all resource versions) and the namespace (URI → current resource ID). There is one
-// [ResourceCatalog] per [Graph].
+// One catalog per [Graph]. Created at plan time by the planner, consumed at execution time by the executor's
+// preflight pass and post-dispatch transition. See docs/architecture/4-resource-management.md §6.1-§6.5, §6.8.
+//
+// The catalog holds [Resource] interface values, which are pointers to concrete resource structs (e.g.,
+// [*file.Resource]). Preflight and node execution populate metadata fields on those structs in place; all
+// holders of the pointer see the updated fields. The ledger's append-only property refers to the sequence of
+// distinct resources, not to the mutability of their metadata.
+//
+// Three observable states, derived from an entry's origin and metadata:
+//
+//   - Unresolved: originID == "", metadata empty. A discovery entry created when the planner first sees a URI
+//     via [ResourceCatalog.Resolve]. The executor's preflight pass stats the target and populates metadata
+//     in place.
+//   - Pending: originID != "", metadata empty. A shadow entry created when a node's Planned companion
+//     constructs the identity of a resource the node will produce. [ResourceCatalog.Transition] populates its
+//     metadata in place after the forward method runs.
+//   - Resolved: metadata populated. Reached by preflight (from Unresolved) or by [ResourceCatalog.Transition]
+//     (from Pending).
+//
+// The catalog does not expose a [State] enum. States are a property of the underlying resource; the catalog
+// only tracks identity and lineage.
 type ResourceCatalog struct {
 	mu      sync.Mutex
 	entries []Resource        // append-only ledger
-	byID    map[string]int    // resource ID → index in entries
-	ns      map[string]string // URI → current resource ID (namespace)
-	nextID  int               // monotonic counter
+	byID    map[string]int    // id → index in entries
+	ns      map[string]string // URI → current id (the namespace)
+	nextID  int               // monotonic counter for id generation
 }
 
 // NewResourceCatalog creates an empty catalog.
+//
+// Returns:
+//   - *ResourceCatalog: the empty catalog.
 func NewResourceCatalog() *ResourceCatalog {
 	return &ResourceCatalog{
 		byID: make(map[string]int),
@@ -32,56 +52,86 @@ func NewResourceCatalog() *ResourceCatalog {
 	}
 }
 
+// region EXPORTED METHODS
+
+// region State management
+
 // Resolve returns the canonical resource for the given resource's URI, along with its catalog ID.
 //
 // If the URI has never been seen, r is cataloged as a discovery entry (no origin) and returned as-is.
-// If the URI was previously cataloged — either as a discovery or shadowed by a producer — the canonical entry is
-// returned and r is discarded. Callers should use the returned Resource, not the one they passed in, to ensure they
-// see the authoritative version.
+// If the URI was previously cataloged — either as a discovery or shadowed by a producer — the canonical entry
+// is returned and r is discarded. Callers should always use the returned Resource, not the one they passed
+// in, so downstream consumers observe the authoritative version.
 //
-// Resolve is the link-time lookup operation: a caller that has type-tagged a string into a typed resource uses this
-// method to get the catalog's canonical instance for that identity. It never fabricates placeholder entries — the
-// caller always provides a real, typed resource.
+// The caller is responsible for type-tagging the input: a raw string path becomes a *file.Resource via the
+// resource type's registered constructor before reaching the catalog. The catalog never fabricates a concrete
+// Resource type itself — the concrete type flows in from the caller.
+//
+// Resolve is the link-time lookup operation: planner dispatches use it to convert typed-but-unresolved inputs
+// into the catalog's canonical entries, picking up any `originID` that a producer has already stamped and so
+// creating implicit edges via URI matching.
+//
+// Parameters:
+//   - r: a typed resource with its URI set.
+//
+// Returns:
+//   - Resource: the canonical entry for r's URI.
+//   - string: the canonical entry's catalog ID.
 func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if id, ok := c.ns[r.URI()]; ok {
+	uri := r.URI()
+
+	if id, ok := c.ns[uri]; ok {
 		if idx, ok := c.byID[id]; ok {
 			return c.entries[idx], id
 		}
 	}
+
 	id := c.catalogLocked(r, "")
 	return r, id
 }
 
-// Shadow catalogs a new resource version, updates the namespace to point to it, and returns the new resource ID.
+// Shadow catalogs a new resource version under the given origin and updates the namespace to point to it.
 //
-// The resource must embed [ResourceBase] with its URI already set via [NewResourceBase].
+// Shadow is the plan-time output registration operation: a node's Planned companion constructs the identity
+// of the resource the node will produce, and the planner hands that identity to Shadow so subsequent
+// [ResourceCatalog.Resolve] calls for the same URI return the shadowed version — wiring downstream readers
+// to the producer via the stamped `originID`.
 //
-// Write-write conflict detection:
+// Write-write conflict detection: if the URI is already shadowed by a different non-empty origin, Shadow
+// returns an error. Two nodes targeting the same output URI collide immediately with a clear error. Discovery
+// entries (empty origin) are silently superseded. Re-shadowing with the same origin is permitted so the
+// executor's post-dispatch [ResourceCatalog.Transition] does not have to fight the conflict check.
 //
-// If the URI is already shadowed by a different origin (non-empty originID), Shadow returns an error. This catches
-// plan-time conflicts where two nodes target the same output. Discovery entries (originID == "") are silently
-// superseded.
+// Parameters:
+//   - r: the resource whose identity should be shadowed. URI must be set.
+//   - originID: the node ID claiming ownership of the URI. Must not be empty.
+//
+// Returns:
+//   - string: the catalog ID assigned to the newly-shadowed entry.
+//   - error: non-nil if another origin already shadows the same URI.
 func (c *ResourceCatalog) Shadow(r Resource, originID string) (string, error) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Detect write-write conflicts.
+	if originID == "" {
+		return "", fmt.Errorf("shadow: originID must not be empty")
+	}
 
-	if originID != "" {
-		uri := r.URI()
-		if existingID, ok := c.ns[uri]; ok {
-			if idx, ok := c.byID[existingID]; ok {
-				existingOrigin := c.entries[idx].resourceBase().originID
-				if existingOrigin != "" && existingOrigin != originID {
-					return "", fmt.Errorf(
-						"resource conflict: URI %q is targeted by both %q and %q",
-						uri, existingOrigin, originID,
-					)
-				}
+	uri := r.URI()
+
+	if existingID, ok := c.ns[uri]; ok {
+		if idx, ok := c.byID[existingID]; ok {
+			existingOrigin := c.entries[idx].resourceBase().originID
+			if existingOrigin != "" && existingOrigin != originID {
+				return "", fmt.Errorf(
+					"resource conflict: URI %q is targeted by both %q and %q",
+					uri, existingOrigin, originID,
+				)
 			}
 		}
 	}
@@ -89,7 +139,95 @@ func (c *ResourceCatalog) Shadow(r Resource, originID string) (string, error) {
 	return c.catalogLocked(r, originID), nil
 }
 
-// Lookup returns the resource with the given ID, or false if not found.
+// Transition fills the metadata of a pending entry with the metadata from the resolved resource returned by a
+// forward method, in place.
+//
+// Called by the executor's post-dispatch pass after the forward method returns. The pending entry — created
+// at plan time by [ResourceCatalog.Shadow] via the Planned companion — is located by resolved's URI. The
+// origin must match: only the node that shadowed the URI may transition it. The catalog's identity fields
+// (`id`, `originID`) on the pending entry are preserved; every other field is overwritten by a struct copy
+// from resolved via reflection.
+//
+// The mutation is in place: the interface value in the ledger and every outstanding pointer held by slots,
+// promises, and the planner all observe the resolved metadata immediately. No new ledger entry is appended.
+//
+// Parameters:
+//   - resolved: the fully-populated resource returned by the forward method. Its URI must match an existing
+//     pending entry, and its concrete type must match the pending entry's concrete type.
+//   - originID: the node ID that claimed the URI at plan time. Must equal the pending entry's `originID`.
+//
+// Returns:
+//   - error: non-nil if the URI is unknown, the entry has been removed, the origin does not match, or the
+//     concrete types differ.
+func (c *ResourceCatalog) Transition(resolved Resource, originID string) error {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if originID == "" {
+		return fmt.Errorf("transition: originID must not be empty")
+	}
+
+	uri := resolved.URI()
+
+	id, ok := c.ns[uri]
+	if !ok {
+		return fmt.Errorf("transition: no catalog entry for URI %q", uri)
+	}
+
+	idx, ok := c.byID[id]
+	if !ok {
+		return fmt.Errorf("transition: catalog id %q not in ledger", id)
+	}
+
+	existing := c.entries[idx]
+	existingBase := existing.resourceBase()
+
+	if existingBase.originID == "" {
+		return fmt.Errorf("transition: entry %q for URI %q is a discovery, not a pending shadow", id, uri)
+	}
+
+	if existingBase.originID != originID {
+		return fmt.Errorf(
+			"transition: origin mismatch for URI %q: entry owned by %q, transition requested by %q",
+			uri, existingBase.originID, originID,
+		)
+	}
+
+	existingVal := reflect.ValueOf(existing)
+	resolvedVal := reflect.ValueOf(resolved)
+
+	if existingVal.Kind() != reflect.Ptr || resolvedVal.Kind() != reflect.Ptr {
+		return fmt.Errorf("transition: resources must be pointers, got existing=%T resolved=%T", existing, resolved)
+	}
+
+	if existingVal.Type() != resolvedVal.Type() {
+		return fmt.Errorf("transition: type mismatch for URI %q: existing=%T resolved=%T", uri, existing, resolved)
+	}
+
+	// Preserve the catalog identity before the struct copy.
+	preservedBase := *existingBase
+
+	// In-place struct copy: mutates the concrete value behind the existing interface pointer. All outstanding
+	// holders of the pointer (slots, promises, planner references) see the populated metadata immediately.
+	existingVal.Elem().Set(resolvedVal.Elem())
+
+	// Restore the catalog identity. The resolved resource from the forward method may not have the catalog's
+	// id/originID stamped (if it came from a fresh construction path); preserving them ensures that Lookup by
+	// id continues to work and that shadowing lineage is not erased.
+	*existingBase = preservedBase
+
+	return nil
+}
+
+// Lookup returns the resource with the given catalog ID, or false if no entry exists for that ID.
+//
+// Parameters:
+//   - id: the catalog ID to look up.
+//
+// Returns:
+//   - Resource: the resource at that ID.
+//   - bool: true if the ID is known.
 func (c *ResourceCatalog) Lookup(id string) (Resource, bool) {
 
 	c.mu.Lock()
@@ -102,16 +240,14 @@ func (c *ResourceCatalog) Lookup(id string) (Resource, bool) {
 	return c.entries[idx], true
 }
 
-// Len returns the count of resources in the catalog.
-func (c *ResourceCatalog) Len() int {
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return len(c.entries)
-}
-
-// Current returns the current resource ID for a URI, or "".
+// Current returns the catalog ID of the entry currently authoritative for the given URI, or the empty string
+// if the URI has never been seen.
+//
+// Parameters:
+//   - uri: the URI to look up.
+//
+// Returns:
+//   - string: the current catalog ID for uri, or "" if not found.
 func (c *ResourceCatalog) Current(uri string) string {
 
 	c.mu.Lock()
@@ -120,10 +256,27 @@ func (c *ResourceCatalog) Current(uri string) string {
 	return c.ns[uri]
 }
 
-// DiscoveryURIs returns the URIs of catalog entries that were discovered (created by Resolve) but not yet shadowed.
+// Len returns the number of entries in the ledger.
 //
-// These are inputs that should exist on the target machine before execution begins. URIs whose current entry has been
-// superseded by Shadow are excluded.
+// Returns:
+//   - int: the entry count.
+func (c *ResourceCatalog) Len() int {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return len(c.entries)
+}
+
+// DiscoveryURIs returns the URIs of catalog entries that were cataloged as discoveries (originID == "") and
+// are still authoritative for their URI.
+//
+// A URI whose current entry has been shadowed by a producer is excluded — that URI is an output, not an
+// input. Used by the executor's preflight pass to stat each discovered URI against the target machine before
+// any node runs.
+//
+// Returns:
+//   - []string: the discovery URIs. Order is not guaranteed.
 func (c *ResourceCatalog) DiscoveryURIs() []string {
 
 	c.mu.Lock()
@@ -135,68 +288,88 @@ func (c *ResourceCatalog) DiscoveryURIs() []string {
 		if !ok {
 			continue
 		}
-		base := c.entries[idx].resourceBase()
-		if base.originID == "" {
+		if c.entries[idx].resourceBase().originID == "" {
 			uris = append(uris, uri)
 		}
 	}
 	return uris
 }
 
-// ExtractResource checks whether v carries resource identity and returns the originID if found.
+// endregion
+
+// endregion
+
+// resourceInterfaceType is cached for [ExtractResource]'s pointer-reachability check.
+var resourceInterfaceType = reflect.TypeOf((*Resource)(nil)).Elem()
+
+// ExtractResource reports whether v carries resource identity and, if so, returns its origin node ID.
 //
-// It is used by [FillSlot] to create implicit edges when a resource produced by one node flows to another.
+// Used by the planner's promise-filling path to create implicit edges: when a slot value is a resource whose
+// URI was produced by another node (non-empty originID), the planner adds an edge from the producer to the
+// consumer even though the developer never wired it explicitly.
 //
-// It handles three forms:
-//   - Values implementing the [Resource] interface (pointer receiverTypes) - Struct values whose pointer type implements
-//     [Resource] (value receiverTypes returned by provider methods, stamped by [shadowResult])
-//   - map[string]any with "uri"/"id"/"origin_id" keys (produced by unmarshal when a starlarkstruct.Struct is decoded to
-//     *any)
+// Three forms are accepted:
+//
+//   - Values that implement [Resource] directly (pointer receivers, the common case).
+//   - Struct values whose pointer type implements [Resource] — provider methods that return resources by
+//     value rather than pointer. A temporary addressable copy is created to read the origin.
+//   - map[string]any decoded from an unmarshaled starlark struct, with an "origin_id" key (optionally nested
+//     under "resource_base").
+//
+// Parameters:
+//   - v: any value.
+//
+// Returns:
+//   - string: the originID extracted from v, or "" if v carries no resource identity.
+//   - bool: true if originID is non-empty.
 func ExtractResource(v any) (originID string, ok bool) {
 
 	if v == nil {
 		return "", false
 	}
 
-	// Interface match — pointer receiverTypes.
-	if r, ok := v.(Resource); ok {
-		base := r.resourceBase()
-		return base.originID, base.originID != ""
+	// Interface match — pointer receivers.
+	if r, isResource := v.(Resource); isResource {
+		origin := r.resourceBase().originID
+		return origin, origin != ""
 	}
 
-	// Struct value whose pointer satisfies Resource. ReceiverType methods
-	// return resources by value; shadowResult stamps id/originID on the
-	// embedded ResourceBase. Create a temporary pointer to access it.
+	// Struct value whose pointer type satisfies Resource.
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Struct && reflect.PointerTo(rv.Type()).Implements(resourceType) {
+	if rv.Kind() == reflect.Struct && reflect.PointerTo(rv.Type()).Implements(resourceInterfaceType) {
 		ptr := reflect.New(rv.Type())
 		ptr.Elem().Set(rv)
 		r := ptr.Interface().(Resource)
-		base := r.resourceBase()
-		return base.originID, base.originID != ""
+		origin := r.resourceBase().originID
+		return origin, origin != ""
 	}
 
-	// map[string]any from Unmarshal of a starlark struct.
-	if m, ok := v.(map[string]any); ok {
-		origin, _ := m["origin_id"].(string)
-		if origin != "" {
+	// map[string]any decoded from a starlark struct.
+	if m, isMap := v.(map[string]any); isMap {
+		if origin, _ := m["origin_id"].(string); origin != "" {
 			return origin, true
 		}
-		// Check nested "resource_base" key for embedded ResourceBase.
-		if nested, ok := m["resource_base"].(map[string]any); ok {
-			origin, _ = nested["origin_id"].(string)
-			if origin != "" {
+		if nested, nestedOK := m["resource_base"].(map[string]any); nestedOK {
+			if origin, _ := nested["origin_id"].(string); origin != "" {
 				return origin, true
 			}
 		}
-		return "", false
 	}
 
 	return "", false
 }
 
-// catalogLocked adds a resource to the ledger, stamps its id and originID, updates the namespace, and returns the
-// assigned ID. Caller must hold c.mu.
+// region HELPER FUNCTIONS
+
+// catalogLocked appends r to the ledger, stamps its catalog id and originID on the embedded ResourceBase,
+// and updates the URI namespace to point to the new entry. Caller must hold c.mu.
+//
+// Parameters:
+//   - r: the resource to catalog.
+//   - originID: the origin to stamp on r's ResourceBase. Empty for discoveries, set for shadows.
+//
+// Returns:
+//   - string: the catalog ID assigned to the new entry.
 func (c *ResourceCatalog) catalogLocked(r Resource, originID string) string {
 
 	c.nextID++
@@ -209,5 +382,8 @@ func (c *ResourceCatalog) catalogLocked(r Resource, originID string) string {
 	c.byID[id] = len(c.entries)
 	c.entries = append(c.entries, r)
 	c.ns[r.URI()] = id
+
 	return id
 }
+
+// endregion

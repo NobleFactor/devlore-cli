@@ -22,12 +22,25 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-// DecryptSopsFile takes a file.Resource, reads it into memory, and decrypts it via SOPS.
+// DecryptSopsFile reads an encrypted SOPS file and writes the decrypted content to destinationPath.
+//
+// Identity for the destination is constructed by [Provider.DecryptSopsFilePlanned].
 //
 // Parameters:
-//   - source: file resource identifying the encrypted SOPS file
-//   - destination: file resource identifying where to write the decrypted content
-func (p *Provider) DecryptSopsFile(source *file.Resource, destination *file.Resource) (*file.Resource, Tombstone, error) {
+//   - source: [file.Resource] identifying the encrypted SOPS file.
+//   - destinationPath: the path where the decrypted content will be written. Coerced to a [file.Resource]
+//     via [Provider.DecryptSopsFilePlanned].
+//
+// Returns:
+//   - *file.Resource: the destination resource with populated metadata.
+//   - Tombstone: compensation state for removing the decrypted file.
+//   - error: any error from reading, decrypting, or writing.
+func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string) (*file.Resource, Tombstone, error) {
+
+	result, err := p.DecryptSopsFilePlanned(source, destinationPath)
+	if err != nil {
+		return nil, Tombstone{}, fmt.Errorf("failed to plan destination: %w", err)
+	}
 
 	root := p.ExecutionContext().Root
 
@@ -38,7 +51,7 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destination *file.Reso
 	}
 
 	// 2. Decrypt via SopsClient
-	sopsClient := p.ExecutionContext().SopsClient
+	sopsClient := p.ExecutionContext().Sops
 	if sopsClient == nil {
 		return nil, Tombstone{}, fmt.Errorf("sops client not configured")
 	}
@@ -49,20 +62,28 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destination *file.Reso
 	}
 
 	// 3. Write cleartext to the destination path
-	if err := root.WriteFile(root.NewPath(destination.SourcePath.Abs()), cleartext, 0o600); err != nil {
+	if err := root.WriteFile(root.NewPath(result.SourcePath.Abs()), cleartext, 0o600); err != nil {
 		return nil, Tombstone{}, fmt.Errorf("failed to write destination: %w", err)
 	}
 
-	// 4. Wrap the new file in a Resource
-	result, err := file.NewResource(p.ExecutionContext(), destination.SourcePath.Abs())
-	if err != nil {
-		return nil, Tombstone{}, fmt.Errorf("failed to create resource: %w", err)
-	}
 	if err := result.Resolve(); err != nil {
 		return nil, Tombstone{}, fmt.Errorf("failed to resolve destination: %w", err)
 	}
 
-	return result, Tombstone{DestinationPath: destination.SourcePath.Abs()}, nil
+	return result, Tombstone{DestinationPath: result.SourcePath.Abs()}, nil
+}
+
+// DecryptSopsFilePlanned is the Planned companion for [Provider.DecryptSopsFile]. Pure: no I/O.
+//
+// Parameters:
+//   - source: ignored; present to match [Provider.DecryptSopsFile]'s signature exactly.
+//   - destinationPath: the destination path whose identity should be constructed.
+//
+// Returns:
+//   - *file.Resource: the destination resource with URI set and metadata empty.
+//   - error: any error from resource construction.
+func (p *Provider) DecryptSopsFilePlanned(_ *file.Resource, destinationPath string) (*file.Resource, error) {
+	return file.NewResource(p.ExecutionContext(), destinationPath)
 }
 
 // CompensateDecryptSopsFile removes the decrypted file created by DecryptSopsFile.

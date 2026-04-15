@@ -4,7 +4,7 @@
 
 dest = t.tmp("bytes_output.bin")
 
-plan.file.write_bytes(destination=dest, content="raw bytes here", mode=0o644)
+plan.file.write_bytes(destination_path=dest, content="raw bytes here", mode=0o644)
 
 t.expect_file(dest, content="raw bytes here")
 t.expect_node_count(1)

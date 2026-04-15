@@ -25,13 +25,6 @@ type Result = any
 // parameter.
 type Complement = any
 
-// Convertible is implemented by types that support domain-specific type conversion.
-//
-// The coercion path checks: direct assignment, reflect.Convert, then Convertible.Convert.
-type Convertible interface {
-	Convert(targetType reflect.Type) (any, error)
-}
-
 // Parameter describes a single parameter accepted by an do's Do method.
 type Parameter struct {
 	Name string
@@ -60,4 +53,19 @@ type FallibleAction interface {
 type CompensableAction interface {
 	Action
 	Undo(ctx *ExecutionContext, complement Complement) error
+}
+
+// Comparable is implemented by types that define domain-specific equality.
+//
+// When two receivers of the same type are compared in starlark, the receiver checks for this interface before falling
+// back to Go's pointer identity (==).
+type Comparable interface {
+	Equal(other any) bool
+}
+
+// Convertible is implemented by types that support domain-specific type conversion.
+//
+// The coercion path checks: direct assignment, reflect.Convert, then Convertible.ConvertTo.
+type Convertible interface {
+	ConvertTo(targetType reflect.Type) (any, error)
 }

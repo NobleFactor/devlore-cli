@@ -7,7 +7,7 @@
 
 src = t.tmp("backup_src.txt")
 
-written = plan.file.write_text(destination=src, content="backup me", mode=0o644)
+written = plan.file.write_text(destination_path=src, content="backup me", mode=0o644)
 plan.file.backup(path=written, backup_suffix=".bak")
 
 # Backup is a rename — the original should no longer exist.

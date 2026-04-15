@@ -53,9 +53,9 @@ type ExecutionContext struct {
 	// Created by the executor or test runner; closed after execution completes.
 	Root Root
 
-	// SopsClient provides SOPS operations (decryption, signing, verification). Nil when SOPS is not configured (no
+	// Sops provides SOPS operations (decryption, signing, verification). Nil when SOPS is not configured (no
 	// .sops.yaml found). Receivers access this via p.ExecutionContext().SopsClient.
-	SopsClient *sops.Client
+	Sops *sops.Client
 
 	// Thread is a Starlark execution thread for callable initialization. Created by the executor at execution time.
 	// Actions that need to invoke mem.Function resources call Init(ctx.Thread) before Fn().
@@ -186,7 +186,7 @@ func (ctx *ExecutionContext) ExecuteSubgraph(graph *Graph, sg *Subgraph) (any, e
 //   - error: non-nil if construction fails.
 func (ctx *ExecutionContext) cachedProvider(prt ProviderReceiverType) (any, error) {
 
-	name := prt.ReceiverName()
+	name := prt.Name()
 
 	ctx.mu.Lock()
 	if p, ok := ctx.providers[name]; ok {

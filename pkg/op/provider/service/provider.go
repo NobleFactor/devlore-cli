@@ -52,6 +52,14 @@ func (p *Provider) Disable(name *Resource) (*Resource, Tombstone, error) {
 	return name, Tombstone{Name: name.Name, WasEnabled: wasEnabled}, nil
 }
 
+// DisablePlanned is the Planned companion for [Provider.Disable]. Pure: no I/O.
+//
+// A service mutation preserves the resource's identity — the output resource is the same one passed in. Shadowing
+// under the node's origin creates an implicit edge from this node to any downstream consumer of the service.
+func (p *Provider) DisablePlanned(name *Resource) (*Resource, error) {
+	return name, nil
+}
+
 // CompensateDisable undoes a Disable by enabling the service if it was
 // enabled before.
 func (p *Provider) CompensateDisable(state Tombstone) error {
@@ -87,6 +95,12 @@ func (p *Provider) Enable(name *Resource) (*Resource, Tombstone, error) {
 	}
 	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "enabled service %s\n", name.Name) //nolint:errcheck // status output
 	return name, Tombstone{Name: name.Name, WasEnabled: wasEnabled}, nil
+}
+
+// EnablePlanned is the Planned companion for [Provider.Enable]. Pure: no I/O. Returns the input resource
+// unchanged so the catalog shadows it under this node's origin.
+func (p *Provider) EnablePlanned(name *Resource) (*Resource, error) {
+	return name, nil
 }
 
 // CompensateEnable undoes an Enable by disabling the service if it
@@ -129,6 +143,12 @@ func (p *Provider) Restart(name *Resource) (*Resource, Tombstone, error) {
 	return name, Tombstone{Name: name.Name}, nil
 }
 
+// RestartPlanned is the Planned companion for [Provider.Restart]. Pure: no I/O. Returns the input resource
+// unchanged so the catalog shadows it under this node's origin.
+func (p *Provider) RestartPlanned(name *Resource) (*Resource, error) {
+	return name, nil
+}
+
 // CompensateRestart is a no-op. A restarted service was already running.
 func (p *Provider) CompensateRestart(_ Tombstone) error {
 	return nil
@@ -152,6 +172,12 @@ func (p *Provider) Start(name *Resource) (*Resource, Tombstone, error) {
 	}
 	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "started service %s\n", name.Name) //nolint:errcheck // status output
 	return name, Tombstone{Name: name.Name, WasRunning: wasRunning}, nil
+}
+
+// StartPlanned is the Planned companion for [Provider.Start]. Pure: no I/O. Returns the input resource
+// unchanged so the catalog shadows it under this node's origin.
+func (p *Provider) StartPlanned(name *Resource) (*Resource, error) {
+	return name, nil
 }
 
 // CompensateStart undoes a Start by stopping the service if it wasn't
@@ -189,6 +215,12 @@ func (p *Provider) Stop(name *Resource) (*Resource, Tombstone, error) {
 	}
 	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "stopped service %s\n", name.Name) //nolint:errcheck // status output
 	return name, Tombstone{Name: name.Name, WasRunning: wasRunning}, nil
+}
+
+// StopPlanned is the Planned companion for [Provider.Stop]. Pure: no I/O. Returns the input resource
+// unchanged so the catalog shadows it under this node's origin.
+func (p *Provider) StopPlanned(name *Resource) (*Resource, error) {
+	return name, nil
 }
 
 // CompensateStop undoes a Stop by starting the service if it was

@@ -9,7 +9,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	netprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // Provider provides git actions.
@@ -27,24 +26,53 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 // --- Compensable Pairs ---
 
-// Clone clones a repository from url into destination.
-// Returns the cloned git.Resource and a Tombstone for compensation.
+// Clone clones a repository from url into destinationPath.
+//
+// Identity for the cloned repository is constructed by [Provider.ClonePlanned] — the same function the planner
+// calls at plan time — so planning and execution agree on URI construction rules.
 //
 // Parameters:
-//   - url: network resource identifying the git repository
-//   - destination: file resource identifying the local clone directory
-func (p *Provider) Clone(url *netprov.Resource, destination *file.Resource) (*Resource, Tombstone, error) {
-	if err := p.doClone(url.SourceURL.String(), destination.SourcePath.Abs()); err != nil {
+//   - url: network resource identifying the git repository.
+//   - destinationPath: the local directory path where the repository will be cloned.
+//
+// Returns:
+//   - *Resource: the cloned git.Resource with populated metadata.
+//   - Tombstone: compensation state for removing the clone directory.
+//   - error: any error from cloning.
+func (p *Provider) Clone(url *netprov.Resource, destinationPath string) (*Resource, Tombstone, error) {
+
+	r, err := p.ClonePlanned(url, destinationPath)
+	if err != nil {
 		return nil, Tombstone{}, err
 	}
-	r := &Resource{
-		URL:       url.SourceURL.String(),
-		ClonePath: destination.SourcePath.Abs(),
+
+	if err := p.doClone(url.SourceURL.String(), r.ClonePath); err != nil {
+		return nil, Tombstone{}, err
 	}
+
+	r.URL = url.SourceURL.String()
+
+	if err := r.Resolve(); err != nil {
+		return r, Tombstone{}, err
+	}
+
 	return r, Tombstone{
 		TombstoneBase: op.NewTombstoneBase(r),
-		ClonedPath:    destination.SourcePath.Abs(),
+		ClonedPath:    r.ClonePath,
 	}, nil
+}
+
+// ClonePlanned is the Planned companion for [Provider.Clone]. Pure: no I/O, no network.
+//
+// Parameters:
+//   - url: ignored; present to match [Provider.Clone]'s signature exactly.
+//   - destinationPath: the clone path whose identity should be constructed.
+//
+// Returns:
+//   - *Resource: the clone resource with URI set and metadata empty.
+//   - error: any error from resource construction.
+func (p *Provider) ClonePlanned(_ *netprov.Resource, destinationPath string) (*Resource, error) {
+	return NewResource(p.ExecutionContext(), destinationPath)
 }
 
 // CompensateClone removes the cloned directory.

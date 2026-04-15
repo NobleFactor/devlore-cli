@@ -41,7 +41,7 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 	linkPath := filepath.Join(tmp, "link")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(&Resource{SourcePath: op.NewPath("", source)}, &Resource{SourcePath: op.NewPath("", linkPath)})
+	result, state, err := p.Link(&Resource{SourcePath: op.NewPath("", source)}, linkPath)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -79,7 +79,7 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(&Resource{SourcePath: op.NewPath("", newTarget)}, &Resource{SourcePath: op.NewPath("", linkPath)})
+	result, state, err := p.Link(&Resource{SourcePath: op.NewPath("", newTarget)}, linkPath)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -110,7 +110,7 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(&Resource{SourcePath: op.NewPath("", source)}, &Resource{SourcePath: op.NewPath("", linkPath)})
+	result, state, err := p.Link(&Resource{SourcePath: op.NewPath("", source)}, linkPath)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -131,7 +131,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 	linkPath := filepath.Join(tmp, "deep", "nested", "link")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Link(&Resource{SourcePath: op.NewPath("", source)}, &Resource{SourcePath: op.NewPath("", linkPath)})
+	_, _, err := p.Link(&Resource{SourcePath: op.NewPath("", source)}, linkPath)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -222,7 +222,7 @@ func TestCopy_WritesNewFile(t *testing.T) {
 	fileResource := testFileResource(t, []byte("hello world"))
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Copy(fileResource, &Resource{SourcePath: op.NewPath("", path)}, 0o600)
+	result, _, err := p.Copy(fileResource, path, 0o600)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -257,7 +257,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
-	_, _, err := p.Copy(blob, &Resource{SourcePath: op.NewPath("", path)}, 0o644)
+	_, _, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -277,7 +277,7 @@ func TestCopy_DefaultModeWhenZero(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("content"))
-	_, _, err := p.Copy(blob, &Resource{SourcePath: op.NewPath("", path)}, 0)
+	_, _, err := p.Copy(blob, path, 0)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -616,7 +616,7 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.WriteText(&Resource{SourcePath: op.NewPath("", path)}, "hello world", 0o644)
+	result, state, err := p.WriteText(path, "hello world", 0o644)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -642,7 +642,7 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.bin")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.WriteBytes(&Resource{SourcePath: op.NewPath("", path)}, "binary data", 0o600)
+	result, state, err := p.WriteBytes(path, "binary data", 0o600)
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -690,11 +690,7 @@ func TestMove(t *testing.T) {
 		t.Fatalf("Resolve error = %v", resErr)
 	}
 
-	dstRes, dstErr := NewResource(p.ExecutionContext(), dst)
-	if dstErr != nil {
-		t.Fatalf("NewResource error = %v", dstErr)
-	}
-	result, state, err := p.Move(srcRes, dstRes)
+	result, state, err := p.Move(srcRes, dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -791,11 +787,7 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 		t.Fatalf("Resolve error = %v", resErr)
 	}
 
-	dstRes, dstErr := NewResource(p.ExecutionContext(), dst)
-	if dstErr != nil {
-		t.Fatalf("NewResource error = %v", dstErr)
-	}
-	_, state, err := p.Move(srcRes, dstRes)
+	_, state, err := p.Move(srcRes, dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -840,7 +832,7 @@ func TestWriteText_DefaultModeWhenZero(t *testing.T) {
 	path := filepath.Join(tmp, "default-mode.txt")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.WriteText(&Resource{SourcePath: op.NewPath("", path)}, "content", 0)
+	_, _, err := p.WriteText(path, "content", 0)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -859,7 +851,7 @@ func TestWriteBytes_DefaultModeWhenZero(t *testing.T) {
 	path := filepath.Join(tmp, "default-mode.bin")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.WriteBytes(&Resource{SourcePath: op.NewPath("", path)}, "content", 0)
+	_, _, err := p.WriteBytes(path, "content", 0)
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -878,7 +870,7 @@ func TestWriteText_CreatesParentDirectories(t *testing.T) {
 	path := filepath.Join(tmp, "nested", "deep", "file.txt")
 
 	p := testProvider(t, tmp)
-	result, _, err := p.WriteText(&Resource{SourcePath: op.NewPath("", path)}, "nested content", 0o644)
+	result, _, err := p.WriteText(path, "nested content", 0o644)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -900,7 +892,7 @@ func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.txt")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteText(&Resource{SourcePath: op.NewPath("", path)}, "to be undone", 0o644)
+	_, state, err := p.WriteText(path, "to be undone", 0o644)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -925,7 +917,7 @@ func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.bin")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteBytes(&Resource{SourcePath: op.NewPath("", path)}, "to be undone", 0o600)
+	_, state, err := p.WriteBytes(path, "to be undone", 0o600)
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -1202,7 +1194,7 @@ func TestMkdir_CreatesDirectory(t *testing.T) {
 	path := filepath.Join(tmp, "newdir")
 
 	p := testProvider(t, tmp)
-	result, err := p.Mkdir(&Resource{SourcePath: op.NewPath("", path)}, 0o755)
+	result, err := p.Mkdir(path, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1224,7 +1216,7 @@ func TestMkdir_CreatesParents(t *testing.T) {
 	path := filepath.Join(tmp, "a", "b", "c")
 
 	p := testProvider(t, tmp)
-	_, err := p.Mkdir(&Resource{SourcePath: op.NewPath("", path)}, 0o755)
+	_, err := p.Mkdir(path, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1246,7 +1238,7 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, err := p.Mkdir(&Resource{SourcePath: op.NewPath("", path)}, 0o755)
+	_, err := p.Mkdir(path, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() on existing directory error = %v", err)
 	}
@@ -1559,7 +1551,7 @@ func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteText(&Resource{SourcePath: op.NewPath("", path)}, "replaced content", 0o644)
+	_, state, err := p.WriteText(path, "replaced content", 0o644)
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -1635,7 +1627,7 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("new content"))
-	_, state, err := p.Copy(blob, &Resource{SourcePath: op.NewPath("", path)}, 0o644)
+	_, state, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -1659,7 +1651,7 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
-	_, state, err := p.Copy(blob, &Resource{SourcePath: op.NewPath("", path)}, 0o644)
+	_, state, err := p.Copy(blob, path, 0o644)
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}

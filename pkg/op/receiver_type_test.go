@@ -598,8 +598,8 @@ func TestNewReceiverType_Public(t *testing.T) {
 		t.Fatalf("NewReceiverType: %v", err)
 	}
 
-	if rt.ReceiverName() != "testProvider" {
-		t.Errorf("ReceiverName = %q, want testProvider", rt.ReceiverName())
+	if rt.Name() != "testProvider" {
+		t.Errorf("ReceiverName = %q, want testProvider", rt.Name())
 	}
 
 	// Should have methods with positional names since nil was passed.

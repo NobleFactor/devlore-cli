@@ -5,8 +5,8 @@
 target = t.tmp("unlink_target.txt")
 link   = t.tmp("unlink_link.txt")
 
-written = plan.file.write_text(destination=target, content="keep me", mode=0o644)
-linked  = plan.file.link(source=written, target=link)
+written = plan.file.write_text(destination_path=target, content="keep me", mode=0o644)
+linked  = plan.file.link(source=written, target_path=link)
 plan.file.unlink(path=linked, prune=False, boundary="")
 
 t.expect_file(target, content="keep me")

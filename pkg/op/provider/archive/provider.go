@@ -33,20 +33,31 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 // --- Compensable Pairs ---
 
-// Extract extracts an archive (tar.gz or zip) from source into the prefix directory.
-// The archive format is detected from the file extension.
-// Returns compensation state with the list of created files.
+// Extract extracts an archive (tar.gz or zip) from source into the directory at prefixPath.
+//
+// Identity for the prefix directory is constructed by [Provider.ExtractPlanned]. The archive format is detected
+// from the source file's extension.
 //
 // Parameters:
-//   - source: file resource identifying the archive file (tar.gz, tgz, or zip)
-//   - prefix: file resource identifying the extraction directory
-func (p *Provider) Extract(source, prefix *file.Resource) (*file.Resource, Tombstone, error) {
+//   - source: [file.Resource] identifying the archive file (tar.gz, tgz, or zip).
+//   - prefixPath: the extraction directory path. Coerced to a [file.Resource] via [Provider.ExtractPlanned].
+//
+// Returns:
+//   - *file.Resource: the extraction directory resource with populated metadata.
+//   - Tombstone: compensation state with the list of created files.
+//   - error: any error from extraction.
+func (p *Provider) Extract(source *file.Resource, prefixPath string) (*file.Resource, Tombstone, error) {
+
+	prefix, err := p.ExtractPlanned(source, prefixPath)
+	if err != nil {
+		return nil, Tombstone{}, err
+	}
+
 	if err := os.MkdirAll(prefix.SourcePath.Abs(), 0o750); err != nil {
 		return nil, Tombstone{}, fmt.Errorf("create prefix dir: %w", err)
 	}
 
 	var created []string
-	var err error
 
 	lower := strings.ToLower(source.SourcePath.Abs())
 	switch {
@@ -62,10 +73,27 @@ func (p *Provider) Extract(source, prefix *file.Resource) (*file.Resource, Tombs
 		return nil, Tombstone{}, err
 	}
 
+	if err := prefix.Resolve(); err != nil {
+		return prefix, Tombstone{}, err
+	}
+
 	return prefix, Tombstone{
 		Dest:         prefix.SourcePath.Abs(),
 		CreatedFiles: created,
 	}, nil
+}
+
+// ExtractPlanned is the Planned companion for [Provider.Extract]. Pure: no I/O, no target state.
+//
+// Parameters:
+//   - source: ignored; present to match [Provider.Extract]'s signature exactly.
+//   - prefixPath: the extraction directory path whose identity should be constructed.
+//
+// Returns:
+//   - *file.Resource: the prefix directory resource with URI set and metadata empty.
+//   - error: any error from resource construction.
+func (p *Provider) ExtractPlanned(_ *file.Resource, prefixPath string) (*file.Resource, error) {
+	return file.NewResource(p.ExecutionContext(), prefixPath)
 }
 
 // CompensateExtract removes files created during extraction, then cleans up

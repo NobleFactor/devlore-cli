@@ -17,7 +17,7 @@ func init() {
 		op.RoleAction,
 		func(ctx *op.ExecutionContext) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Clone":    {"url", "destination"},
+			"Clone":    {"url", "destination_path"},
 			"Checkout": {"repo", "ref"},
 			"Pull":     {"repo"},
 		})

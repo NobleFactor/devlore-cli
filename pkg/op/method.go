@@ -432,10 +432,26 @@ func (m *Method) Plan(receiver any, args []any) (reflect.Value, error) {
 	goArgs[0] = reflect.ValueOf(receiver)
 
 	for i, arg := range args {
+
+		paramType := m.planned.Type.In(i + 1)
+
 		if arg == nil {
-			goArgs[i+1] = reflect.Zero(m.planned.Type.In(i + 1))
-		} else {
-			goArgs[i+1] = reflect.ValueOf(arg)
+			goArgs[i+1] = reflect.Zero(paramType)
+			continue
+		}
+
+		argVal := reflect.ValueOf(arg)
+
+		switch {
+		case argVal.Type().AssignableTo(paramType):
+			goArgs[i+1] = argVal
+		case argVal.Type().ConvertibleTo(paramType):
+			goArgs[i+1] = argVal.Convert(paramType)
+		default:
+			return reflect.Value{}, fmt.Errorf(
+				"method %s planned: arg %d: cannot convert %T to %s",
+				m.do.Name, i, arg, paramType,
+			)
 		}
 	}
 
@@ -462,7 +478,7 @@ func (m *Method) Undo(receiver any, complement any) error {
 	goArgs[1] = reflect.ValueOf(complement)
 
 	results := m.undo.Func.Call(goArgs)
-	return results[0].Interface().(error)
+	return errFromValue(results[0])
 }
 
 // endregion

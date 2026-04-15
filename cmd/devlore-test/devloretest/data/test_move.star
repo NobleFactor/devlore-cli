@@ -5,8 +5,8 @@
 src = t.tmp("move_src.txt")
 dst = t.tmp("move_dst.txt")
 
-written = plan.file.write_text(destination=src, content="moving data", mode=0o644)
-plan.file.move(source=written, destination=dst)
+written = plan.file.write_text(destination_path=src, content="moving data", mode=0o644)
+plan.file.move(source=written, destination_path=dst)
 
 t.expect_no_file(src)
 t.expect_file(dst, content="moving data")

@@ -27,9 +27,9 @@ func TestCloneViaHook(t *testing.T) {
 	}
 
 	url := mustNetResource(t, "https://example.com/repo.git")
-	dest := mustFileResource(t, "/tmp/clone-dest")
+	
 
-	result, state, err := p.Clone(url, dest)
+	result, state, err := p.Clone(url, "/tmp/clone-dest")
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -61,9 +61,8 @@ func TestCloneHookError(t *testing.T) {
 	}
 
 	url := mustNetResource(t, "https://example.com/repo.git")
-	dest := mustFileResource(t, "/tmp/dest")
 
-	result, state, err := p.Clone(url, dest)
+	result, state, err := p.Clone(url, "/tmp/dest")
 	if !errors.Is(err, hookErr) {
 		t.Fatalf("Clone error = %v, want %v", err, hookErr)
 	}

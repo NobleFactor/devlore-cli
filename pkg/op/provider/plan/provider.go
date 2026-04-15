@@ -9,6 +9,7 @@ package plan
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -22,20 +23,27 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-	Graph *op.Graph
+	Graph    *op.Graph
+	mu       sync.Mutex               // guards planners
+	planners map[string]*bind.Planner // cached planners by receiver name
 }
 
 // NewProvider creates a plan Provider bound to the given context.
 //
 // The graph is obtained from ctx.Data["graph"]. If no graph is provided, a new one is created.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.ExecutionContext, value any) *Provider {
+
 	graph, _ := ctx.Data["graph"].(*op.Graph)
+
 	if graph == nil {
 		graph = op.NewGraph(ctx)
 	}
+
 	return &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
-		Graph:        graph}
+		Graph:        graph,
+		planners:     make(map[string]*bind.Planner),
+	}
 }
 
 // region EXPORTED METHODS
@@ -112,79 +120,6 @@ func (p *Provider) Choose(when *bind.Promise, then func() error) (*bind.Promise,
 	return bind.NewPromise(p.Graph, chooseNode, ""), nil
 }
 
-// Complete creates a terminal node representing healthy conclusion.
-//
-// +devlore:defaults output=None
-//
-// Parameters:
-//   - output: optional output value (immediate or Promise).
-//
-// Returns:
-//   - *bind.Promise: promise for the terminal node.
-//   - error: any error from slot filling.
-func (p *Provider) Complete(output any) (*bind.Promise, error) {
-
-	node := &op.Node{
-		ID:       op.GenerateNodeID("complete"),
-		Receiver: "flow.complete",
-	}
-
-	p.fillSlot(node, "output", output)
-	p.Graph.AddNode(node)
-
-	return bind.NewPromise(p.Graph, node, ""), nil
-}
-
-// Degraded creates a terminal node representing degraded conclusion.
-//
-// Parameters:
-//   - format: format string (immediate or Promise).
-//   - args: positional format arguments (each may be immediate or Promise).
-//   - kwargs: keyword arguments for template rendering (each may be immediate or Promise).
-//
-// Returns:
-//   - *bind.Promise: promise for the terminal node.
-//   - error: any error from slot filling.
-func (p *Provider) Degraded(format any, args []any, kwargs map[string]any) (*bind.Promise, error) {
-
-	node := &op.Node{
-		ID:       op.GenerateNodeID("degraded"),
-		Receiver: "flow.degraded",
-	}
-
-	p.fillSlot(node, "format", format)
-	p.fillListSlot(node, "args", args)
-	p.fillDictSlot(node, "kwargs", kwargs)
-
-	p.Graph.AddNode(node)
-	return bind.NewPromise(p.Graph, node, ""), nil
-}
-
-// Fatal creates a terminal node representing fatal conclusion.
-//
-// Parameters:
-//   - format: format string (immediate or Promise).
-//   - args: positional format arguments (each may be immediate or Promise).
-//   - kwargs: keyword arguments for template rendering (each may be immediate or Promise).
-//
-// Returns:
-//   - *bind.Promise: promise for the terminal node.
-//   - error: any error from slot filling.
-func (p *Provider) Fatal(format any, args []any, kwargs map[string]any) (*bind.Promise, error) {
-
-	node := &op.Node{
-		ID:       op.GenerateNodeID("fatal"),
-		Receiver: "flow.fatal",
-	}
-
-	p.fillSlot(node, "format", format)
-	p.fillListSlot(node, "args", args)
-	p.fillDictSlot(node, "kwargs", kwargs)
-
-	p.Graph.AddNode(node)
-	return bind.NewPromise(p.Graph, node, ""), nil
-}
-
 // Gather collects promises for fan-in parallel execution.
 //
 // Parameters:
@@ -237,15 +172,25 @@ func (p *Provider) WaitUntil(target, predicate any, timeout, interval time.Durat
 
 // ResolveAttr implements op.AttributeResolver.
 //
-// It routes sub-namespace lookups (e.g., plan.file, plan.git) to the corresponding [bind.Planner].
+// It routes sub-namespace lookups (e.g., plan.file, plan.git) to the corresponding [bind.Planner]. Planners are
+// constructed once per receiver name and cached for the lifetime of this provider.
 func (p *Provider) ResolveAttr(name string) any {
 
-	prt, ok := p.ExecutionContext().Registry.ActionByName(name)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if planner, ok := p.planners[name]; ok {
+		return planner
+	}
+
+	prt, ok := p.ExecutionContext().Registry.PlannerByName(name)
 	if !ok {
 		return nil
 	}
 
-	return bind.NewPlanner(prt, p.Graph)
+	planner := bind.NewPlanner(prt, p.Graph)
+	p.planners[name] = planner
+	return planner
 }
 
 // endregion

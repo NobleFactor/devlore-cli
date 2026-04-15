@@ -41,10 +41,10 @@ type RuntimeEnvironmentSpec struct {
 	// Root provides scoped filesystem operations for providers.
 	Root Root
 
-	// SopsClient provides SOPS operations.
+	// Sops provides SOPS operations.
 	//
-	// Nil when SOPS is not configured.
-	SopsClient *sops.Client
+	// No Nil when SOPS is not configured.
+	Sops *sops.Client
 
 	// Writer is the output destination for immediate receivers (e.g., ui.note).
 	//
@@ -138,7 +138,7 @@ func (c *RuntimeEnvironmentSpec) WithRoot(root Root) *RuntimeEnvironmentSpec {
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithSops(client *sops.Client) *RuntimeEnvironmentSpec {
-	c.SopsClient = client
+	c.Sops = client
 	return c
 }
 

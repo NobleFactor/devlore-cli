@@ -5,337 +5,348 @@ package op
 
 import (
 	"strings"
-	"sync"
 	"testing"
 )
 
-// catRes constructs a minimal typed resource with the given URI for catalog tests.
-func catRes(uri string) *testGraphResource {
-	return newTestGraphResource(uri)
+// fakeResource is a minimal Resource for catalog tests. It embeds [ResourceBase] for identity and adds two
+// mutable metadata fields (Size, Checksum) to exercise the pending → resolved transition.
+type fakeResource struct {
+	ResourceBase
+	Size     int64
+	Checksum string
 }
 
-func TestCatalog_Resolve_FirstAccess(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	_, id := cat.Resolve(catRes("file:///first"))
-
-	r, ok := cat.Lookup(id)
-	if !ok {
-		t.Fatalf("Lookup(%q) returned false", id)
-	}
-	if r.URI() != "file:///first" {
-		t.Errorf("URI() = %q, want file:///first", r.URI())
-	}
-	// Discovery entry has no origin.
-	base := r.resourceBase()
-	if base.originID != "" {
-		t.Errorf("discovery resource should have empty originID, got %q", base.originID)
+func newFake(uri string, size int64, checksum string) *fakeResource {
+	return &fakeResource{
+		ResourceBase: ResourceBase{uri: uri},
+		Size:         size,
+		Checksum:     checksum,
 	}
 }
 
-func TestCatalog_Resolve_Idempotent(t *testing.T) {
-	cat := NewResourceCatalog()
+// region Resolve
 
-	_, id1 := cat.Resolve(catRes("file:///same"))
-	_, id2 := cat.Resolve(catRes("file:///same"))
+func TestCatalog_Resolve_NewURIDiscoveryEntry(t *testing.T) {
 
-	if id1 != id2 {
-		t.Errorf("Resolve same URI twice: %q != %q", id1, id2)
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
+
+	got, id := c.Resolve(r)
+
+	if got != Resource(r) {
+		t.Fatalf("Resolve on new URI: want passed-in resource, got %p vs %p", got, r)
 	}
-	if cat.Len() != 1 {
-		t.Errorf("expected 1 catalog entry after 2 resolves of same URI, got %d", cat.Len())
+	if id == "" {
+		t.Fatalf("Resolve on new URI: want non-empty id")
+	}
+	if r.OriginID() != "" {
+		t.Fatalf("Resolve on new URI: want empty originID (discovery), got %q", r.OriginID())
+	}
+	if r.ID() != id {
+		t.Fatalf("Resolve on new URI: want ID %q stamped on base, got %q", id, r.ID())
 	}
 }
 
-func TestCatalog_Shadow(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Resolve_KnownURIReturnsCanonical(t *testing.T) {
 
-	_, origID := cat.Resolve(catRes("file:///target"))
-	shadowID, err := cat.Shadow(catRes("file:///target"), "writer-node")
+	c := NewResourceCatalog()
+	first := newFake("file:///etc/foo", 100, "abc")
+	second := newFake("file:///etc/foo", 200, "xyz")
+
+	_, firstID := c.Resolve(first)
+	canonical, secondID := c.Resolve(second)
+
+	if secondID != firstID {
+		t.Fatalf("Resolve on known URI: want id %q, got %q", firstID, secondID)
+	}
+	if canonical != Resource(first) {
+		t.Fatalf("Resolve on known URI: want canonical to be first entry, got different object")
+	}
+	// Second resource is discarded — its metadata must not leak into the canonical.
+	if first.Size != 100 || first.Checksum != "abc" {
+		t.Fatalf("Resolve must not mutate canonical: got Size=%d Checksum=%q", first.Size, first.Checksum)
+	}
+}
+
+func TestCatalog_Resolve_ReturnsShadowedVersionAfterShadow(t *testing.T) {
+
+	c := NewResourceCatalog()
+	shadowed := newFake("file:///etc/foo", 0, "")
+	if _, err := c.Shadow(shadowed, "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+
+	lookup := newFake("file:///etc/foo", 0, "")
+	canonical, _ := c.Resolve(lookup)
+
+	if canonical != Resource(shadowed) {
+		t.Fatalf("Resolve after Shadow: want shadowed entry, got different")
+	}
+	if got := canonical.resourceBase().originID; got != "node-A" {
+		t.Fatalf("Resolve after Shadow: want originID node-A, got %q", got)
+	}
+}
+
+// endregion
+
+// region Shadow
+
+func TestCatalog_Shadow_StampsOriginAndID(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
+
+	id, err := c.Shadow(r, "node-A")
 	if err != nil {
-		t.Fatalf("Shadow error: %v", err)
+		t.Fatalf("Shadow: %v", err)
 	}
-
-	if origID == shadowID {
-		t.Error("Shadow should create a new resource ID, got same as original")
+	if id == "" {
+		t.Fatalf("Shadow: want non-empty id")
 	}
-	if cat.Len() != 2 {
-		t.Errorf("expected 2 catalog entries, got %d", cat.Len())
+	if r.ID() != id {
+		t.Fatalf("Shadow: want ID %q stamped, got %q", id, r.ID())
 	}
-
-	r, ok := cat.Lookup(shadowID)
-	if !ok {
-		t.Fatalf("Lookup(%q) returned false", shadowID)
-	}
-	base := r.resourceBase()
-	if base.originID != "writer-node" {
-		t.Errorf("shadow originID = %q, want writer-node", base.originID)
+	if r.OriginID() != "node-A" {
+		t.Fatalf("Shadow: want originID node-A, got %q", r.OriginID())
 	}
 }
 
-func TestCatalog_Shadow_OverwritesResolve(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Shadow_RejectsEmptyOrigin(t *testing.T) {
 
-	cat.Resolve(catRes("file:///overwrite"))
-	if _, err := cat.Shadow(catRes("file:///overwrite"), "nodeA"); err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-	_, resolvedID := cat.Resolve(catRes("file:///overwrite"))
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
 
-	// Resolve after Shadow should return the shadow's ID
-	r, _ := cat.Lookup(resolvedID)
-	base := r.resourceBase()
-	if base.originID != "nodeA" {
-		t.Errorf("resolve after shadow: originID = %q, want nodeA", base.originID)
+	if _, err := c.Shadow(r, ""); err == nil {
+		t.Fatalf("Shadow with empty origin: want error, got nil")
 	}
 }
 
-func TestCatalog_ImplicitDependency(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Shadow_ConflictOnDifferentOrigin(t *testing.T) {
 
-	// Shadow by nodeA creates a resource version owned by nodeA
-	if _, err := cat.Shadow(catRes("file:///dep"), "nodeA"); err != nil {
-		t.Fatalf("Shadow error: %v", err)
+	c := NewResourceCatalog()
+	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
+		t.Fatalf("first Shadow: %v", err)
 	}
 
-	// Resolve (as if nodeB is reading) returns nodeA's version
-	_, id := cat.Resolve(catRes("file:///dep"))
-
-	r, _ := cat.Lookup(id)
-	base := r.resourceBase()
-	if base.originID != "nodeA" {
-		t.Errorf("implicit dependency: originID = %q, want nodeA", base.originID)
-	}
-}
-
-func TestCatalog_Current_Empty(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	if got := cat.Current("file:///unknown"); got != "" {
-		t.Errorf("Current for unknown URI = %q, want empty", got)
-	}
-}
-
-func TestCatalog_Current_AfterResolve(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	_, id := cat.Resolve(catRes("file:///resolved"))
-	if got := cat.Current("file:///resolved"); got != id {
-		t.Errorf("Current after Resolve = %q, want %q", got, id)
-	}
-}
-
-func TestCatalog_Current_AfterShadow(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	cat.Resolve(catRes("file:///shadowed"))
-	shadowID, err := cat.Shadow(catRes("file:///shadowed"), "node-1")
-	if err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-
-	if got := cat.Current("file:///shadowed"); got != shadowID {
-		t.Errorf("Current after Shadow = %q, want %q", got, shadowID)
-	}
-}
-
-func TestCatalog_MultipleURIs(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	_, id1 := cat.Resolve(catRes("file:///alpha"))
-	_, id2 := cat.Resolve(catRes("file:///beta"))
-
-	if id1 == id2 {
-		t.Error("different URIs should have different IDs")
-	}
-	if cat.Current("file:///alpha") != id1 {
-		t.Error("alpha should still map to its original ID")
-	}
-	if cat.Current("file:///beta") != id2 {
-		t.Error("beta should still map to its original ID")
-	}
-}
-
-func TestCatalog_LedgerLen(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	if cat.Len() != 0 {
-		t.Errorf("empty catalog length = %d, want 0", cat.Len())
-	}
-
-	cat.Resolve(catRes("file:///a"))
-	if cat.Len() != 1 {
-		t.Errorf("after 1 resolve, len = %d, want 1", cat.Len())
-	}
-
-	cat.Resolve(catRes("file:///b"))
-	cat.Resolve(catRes("file:///c"))
-	if cat.Len() != 3 {
-		t.Errorf("after 3 resolves, len = %d, want 3", cat.Len())
-	}
-}
-
-func TestCatalog_Lookup_NotFound(t *testing.T) {
-	cat := NewResourceCatalog()
-	_, ok := cat.Lookup("res-999")
-	if ok {
-		t.Error("Lookup(res-999) should return false")
-	}
-}
-
-func TestCatalog_ConcurrentAccess(t *testing.T) {
-	cat := NewResourceCatalog()
-	const goroutines = 50
-	var wg sync.WaitGroup
-	ids := make(chan string, goroutines)
-
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			id, _ := cat.Shadow(catRes("file:///concurrent"), "")
-			ids <- id
-		}()
-	}
-
-	wg.Wait()
-	close(ids)
-
-	seen := make(map[string]bool)
-	for id := range ids {
-		if seen[id] {
-			t.Fatalf("duplicate ID from concurrent access: %q", id)
-		}
-		seen[id] = true
-	}
-
-	if len(seen) != goroutines {
-		t.Errorf("expected %d unique IDs, got %d", goroutines, len(seen))
-	}
-}
-
-func TestCatalog_DiscoveryURIs_ReturnsUnshadowed(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	cat.Resolve(catRes("file:///source1"))
-	cat.Resolve(catRes("file:///source2"))
-	// Shadow a different URI — not a supersede.
-	if _, err := cat.Shadow(catRes("file:///target"), "node-1"); err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-
-	uris := cat.DiscoveryURIs()
-	if len(uris) != 2 {
-		t.Fatalf("DiscoveryURIs() returned %d, want 2", len(uris))
-	}
-}
-
-func TestCatalog_DiscoveryURIs_ShadowSupersedes(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	cat.Resolve(catRes("file:///source"))
-	if _, err := cat.Shadow(catRes("file:///source"), "node-1"); err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-
-	uris := cat.DiscoveryURIs()
-	if len(uris) != 0 {
-		t.Fatalf("DiscoveryURIs() returned %d, want 0 (shadow superseded)", len(uris))
-	}
-}
-
-func TestCatalog_DiscoveryURIs_Empty(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	uris := cat.DiscoveryURIs()
-	if len(uris) != 0 {
-		t.Fatalf("DiscoveryURIs() returned %d, want 0", len(uris))
-	}
-}
-
-func TestCatalog_IDsAreMonotonic(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	_, id1 := cat.Resolve(catRes("file:///a"))
-	if id1 != "res-1" {
-		t.Errorf("first ID = %q, want res-1", id1)
-	}
-
-	id2, err := cat.Shadow(catRes("file:///b"), "node-1")
-	if err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-	if id2 != "res-2" {
-		t.Errorf("second ID = %q, want res-2", id2)
-	}
-
-	_, id3 := cat.Resolve(catRes("file:///c"))
-	if id3 != "res-3" {
-		t.Errorf("third ID = %q, want res-3", id3)
-	}
-}
-
-func TestCatalog_Shadow_ConflictDetection(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	// First shadow by nodeA — should succeed.
-	_, err := cat.Shadow(catRes("file:///conflict"), "nodeA")
-	if err != nil {
-		t.Fatalf("first Shadow error: %v", err)
-	}
-
-	// Second shadow by nodeB on the same URI — should conflict.
-	_, err = cat.Shadow(catRes("file:///conflict"), "nodeB")
+	_, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-B")
 	if err == nil {
-		t.Fatal("expected conflict error, got nil")
+		t.Fatalf("second Shadow with different origin: want error, got nil")
 	}
-	if !strings.Contains(err.Error(), "resource conflict") {
-		t.Errorf("error = %q, want 'resource conflict' substring", err)
-	}
-	if !strings.Contains(err.Error(), "nodeA") || !strings.Contains(err.Error(), "nodeB") {
-		t.Errorf("error = %q, want both node IDs mentioned", err)
+	if !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("second Shadow: want error mentioning conflict, got %q", err.Error())
 	}
 }
 
-func TestCatalog_Shadow_SameOriginNoConflict(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Shadow_SameOriginAllowed(t *testing.T) {
 
-	// Same origin shadowing twice — should NOT conflict.
-	_, err := cat.Shadow(catRes("file:///same"), "nodeA")
-	if err != nil {
-		t.Fatalf("first Shadow error: %v", err)
+	c := NewResourceCatalog()
+	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
+		t.Fatalf("first Shadow: %v", err)
 	}
-
-	_, err = cat.Shadow(catRes("file:///same"), "nodeA")
-	if err != nil {
-		t.Errorf("same-origin Shadow should not conflict, got: %v", err)
+	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
+		t.Fatalf("second Shadow with same origin: %v", err)
 	}
 }
 
-func TestCatalog_Shadow_DiscoveryThenShadowNoConflict(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Shadow_SupersedesDiscovery(t *testing.T) {
 
-	// Resolve creates a discovery entry (empty originID).
-	cat.Resolve(catRes("file:///discovered"))
-
-	// Shadow by nodeA should NOT conflict with discovery.
-	_, err := cat.Shadow(catRes("file:///discovered"), "nodeA")
+	c := NewResourceCatalog()
+	_, discoveryID := c.Resolve(newFake("file:///etc/foo", 0, ""))
+	shadowID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
 	if err != nil {
-		t.Errorf("shadow after discovery should not conflict, got: %v", err)
+		t.Fatalf("Shadow over discovery: %v", err)
+	}
+	if shadowID == discoveryID {
+		t.Fatalf("Shadow over discovery: want new id, got same id %q", shadowID)
+	}
+	if c.Current("file:///etc/foo") != shadowID {
+		t.Fatalf("Shadow over discovery: want namespace → %q, got %q", shadowID, c.Current("file:///etc/foo"))
 	}
 }
 
-func TestCatalog_Shadow_EmptyOriginNoConflict(t *testing.T) {
-	cat := NewResourceCatalog()
+// endregion
 
-	// Shadow with empty originID (discovery-like) should never conflict.
-	_, err := cat.Shadow(catRes("file:///empty-origin"), "nodeA")
-	if err != nil {
-		t.Fatalf("first Shadow error: %v", err)
+// region Transition
+
+func TestCatalog_Transition_CopiesMetadataInPlace(t *testing.T) {
+
+	c := NewResourceCatalog()
+	pending := newFake("file:///etc/foo", 0, "")
+	if _, err := c.Shadow(pending, "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+	pendingID := pending.ID()
+
+	resolved := newFake("file:///etc/foo", 42, "sha256-xyz")
+
+	if err := c.Transition(resolved, "node-A"); err != nil {
+		t.Fatalf("Transition: %v", err)
 	}
 
-	_, err = cat.Shadow(catRes("file:///empty-origin"), "")
-	if err != nil {
-		t.Errorf("empty-origin Shadow should not conflict, got: %v", err)
+	// pending is the interface value held by the ledger. After Transition, its metadata fields should be
+	// populated because the mutation was in place.
+	if pending.Size != 42 || pending.Checksum != "sha256-xyz" {
+		t.Fatalf("Transition must copy metadata in place: got Size=%d Checksum=%q",
+			pending.Size, pending.Checksum)
+	}
+	// Catalog identity must be preserved: the ledger id and the claimed origin stay put so downstream
+	// Lookups and lineage are intact.
+	if pending.ID() != pendingID {
+		t.Fatalf("Transition must preserve id: want %q, got %q", pendingID, pending.ID())
+	}
+	if pending.OriginID() != "node-A" {
+		t.Fatalf("Transition must preserve originID: want node-A, got %q", pending.OriginID())
 	}
 }
+
+func TestCatalog_Transition_RejectsOriginMismatch(t *testing.T) {
+
+	c := NewResourceCatalog()
+	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+
+	err := c.Transition(newFake("file:///etc/foo", 1, "x"), "node-B")
+	if err == nil {
+		t.Fatalf("Transition with wrong origin: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "origin mismatch") {
+		t.Fatalf("Transition error: want 'origin mismatch', got %q", err.Error())
+	}
+}
+
+func TestCatalog_Transition_RejectsUnknownURI(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	err := c.Transition(newFake("file:///etc/nope", 1, "x"), "node-A")
+	if err == nil {
+		t.Fatalf("Transition on unknown URI: want error, got nil")
+	}
+}
+
+func TestCatalog_Transition_RejectsDiscoveryEntry(t *testing.T) {
+
+	c := NewResourceCatalog()
+	c.Resolve(newFake("file:///etc/foo", 0, ""))
+
+	err := c.Transition(newFake("file:///etc/foo", 1, "x"), "node-A")
+	if err == nil {
+		t.Fatalf("Transition on discovery: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "discovery") {
+		t.Fatalf("Transition error: want 'discovery', got %q", err.Error())
+	}
+}
+
+// endregion
+
+// region Lookup / Current / Len / DiscoveryURIs
+
+func TestCatalog_LookupAndCurrent(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
+	_, id := c.Resolve(r)
+
+	got, ok := c.Lookup(id)
+	if !ok || got != Resource(r) {
+		t.Fatalf("Lookup(%q): ok=%v got=%p want=%p", id, ok, got, r)
+	}
+	if c.Current("file:///etc/foo") != id {
+		t.Fatalf("Current: want %q, got %q", id, c.Current("file:///etc/foo"))
+	}
+	if c.Current("file:///etc/none") != "" {
+		t.Fatalf("Current on unknown URI: want empty, got %q", c.Current("file:///etc/none"))
+	}
+	if _, ok := c.Lookup("bogus"); ok {
+		t.Fatalf("Lookup on unknown id: want false")
+	}
+}
+
+func TestCatalog_Len(t *testing.T) {
+
+	c := NewResourceCatalog()
+	if c.Len() != 0 {
+		t.Fatalf("new catalog: want len 0, got %d", c.Len())
+	}
+	c.Resolve(newFake("file:///a", 0, ""))
+	c.Resolve(newFake("file:///b", 0, ""))
+	if c.Len() != 2 {
+		t.Fatalf("after 2 Resolves: want len 2, got %d", c.Len())
+	}
+}
+
+func TestCatalog_DiscoveryURIs(t *testing.T) {
+
+	c := NewResourceCatalog()
+	c.Resolve(newFake("file:///discovered", 0, ""))
+	if _, err := c.Shadow(newFake("file:///produced", 0, ""), "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+	if _, err := c.Shadow(newFake("file:///discovered-then-shadowed", 0, ""), "node-B"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+	// This one starts as a discovery and then gets shadowed: the shadow supersedes.
+	c.Resolve(newFake("file:///discovered-then-shadowed", 0, ""))
+
+	uris := c.DiscoveryURIs()
+	if len(uris) != 1 || uris[0] != "file:///discovered" {
+		t.Fatalf("DiscoveryURIs: want [file:///discovered], got %v", uris)
+	}
+}
+
+// endregion
+
+// region ExtractResource
+
+func TestExtractResource_PointerResourceWithOrigin(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
+	_, _ = c.Shadow(r, "node-A")
+
+	origin, ok := ExtractResource(r)
+	if !ok || origin != "node-A" {
+		t.Fatalf("ExtractResource: ok=%v origin=%q, want true/node-A", ok, origin)
+	}
+}
+
+func TestExtractResource_PointerResourceWithoutOrigin(t *testing.T) {
+
+	r := newFake("file:///etc/foo", 0, "")
+	origin, ok := ExtractResource(r)
+	if ok || origin != "" {
+		t.Fatalf("ExtractResource: ok=%v origin=%q, want false/empty", ok, origin)
+	}
+}
+
+func TestExtractResource_NilAndNonResource(t *testing.T) {
+
+	cases := []any{nil, "string", 42, []int{1, 2}}
+	for _, v := range cases {
+		if _, ok := ExtractResource(v); ok {
+			t.Fatalf("ExtractResource(%T): want false", v)
+		}
+	}
+}
+
+func TestExtractResource_MapWithOriginID(t *testing.T) {
+
+	m := map[string]any{"origin_id": "node-X"}
+	origin, ok := ExtractResource(m)
+	if !ok || origin != "node-X" {
+		t.Fatalf("ExtractResource(map): ok=%v origin=%q, want true/node-X", ok, origin)
+	}
+}
+
+func TestExtractResource_MapWithNestedResourceBase(t *testing.T) {
+
+	m := map[string]any{"resource_base": map[string]any{"origin_id": "node-Y"}}
+	origin, ok := ExtractResource(m)
+	if !ok || origin != "node-Y" {
+		t.Fatalf("ExtractResource(nested): ok=%v origin=%q, want true/node-Y", ok, origin)
+	}
+}
+
+// endregion

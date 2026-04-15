@@ -37,8 +37,6 @@ type StarlarkRuntime struct {
 //   - *StarlarkRuntime: the initialized runtime.
 func NewStarlarkRuntime(cfg *op.RuntimeEnvironmentSpec) *StarlarkRuntime {
 
-	SetRegistry(cfg.Registry)
-
 	ctx := op.ExecutionContext{
 		Context:     context.Background(),
 		ProgramName: cfg.ProgramName,
@@ -48,7 +46,7 @@ func NewStarlarkRuntime(cfg *op.RuntimeEnvironmentSpec) *StarlarkRuntime {
 		Data:        cfg.Data,
 		DryRun:      cfg.DryRun,
 		Platform:    op.NewPlatform(),
-		SopsClient:  cfg.SopsClient,
+		Sops:        cfg.Sops,
 	}
 
 	if ctx.Root != nil {
@@ -68,7 +66,7 @@ func NewStarlarkRuntime(cfg *op.RuntimeEnvironmentSpec) *StarlarkRuntime {
 
 	for _, module := range cfg.Modules {
 		if receiver := runtime.buildOne(module); receiver != nil {
-			predeclared[module.ReceiverName()] = receiver
+			predeclared[module.Name()] = receiver
 		}
 	}
 
@@ -84,27 +82,27 @@ func NewStarlarkRuntime(cfg *op.RuntimeEnvironmentSpec) *StarlarkRuntime {
 //
 // Returns:
 //   - []op.ProviderReceiverType: the module list.
-func (sr *StarlarkRuntime) Modules() []op.ProviderReceiverType {
+func (rt *StarlarkRuntime) Modules() []op.ProviderReceiverType {
 
-	return sr.modules
+	return rt.modules
 }
 
 // Registry returns the receiver type registry.
 //
 // Returns:
 //   - *op.ReceiverRegistry: the registry.
-func (sr *StarlarkRuntime) Registry() *op.ReceiverRegistry {
+func (rt *StarlarkRuntime) Registry() *op.ReceiverRegistry {
 
-	return sr.registry
+	return rt.registry
 }
 
 // Predeclared returns the cached predeclared starlark globals dict built from the selected modules.
 //
 // Returns:
 //   - starlark.StringDict: the predeclared globals.
-func (sr *StarlarkRuntime) Predeclared() starlark.StringDict {
+func (rt *StarlarkRuntime) Predeclared() starlark.StringDict {
 
-	return sr.predeclared
+	return rt.predeclared
 }
 
 // endregion
@@ -119,13 +117,13 @@ func (sr *StarlarkRuntime) Predeclared() starlark.StringDict {
 // Returns:
 //   - starlark.Value: the constructed receiver, or nil if not found.
 //   - bool: true if the provider was found in the selected modules.
-func (sr *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
+func (rt *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
 
-	for _, mod := range sr.modules {
-		if mod.ReceiverName() != name {
+	for _, mod := range rt.modules {
+		if mod.Name() != name {
 			continue
 		}
-		if recv := sr.buildOne(mod); recv != nil {
+		if recv := rt.buildOne(mod); recv != nil {
 			return recv, true
 		}
 		return nil, false
@@ -148,7 +146,7 @@ func (sr *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
 // Returns:
 //   - starlark.StringDict: the script's global bindings after execution.
 //   - error: non-nil if the script fails to load or execute.
-func (sr *StarlarkRuntime) Invoke(script string, root string, data map[string]any, dryRun bool) (starlark.StringDict, error) {
+func (rt *StarlarkRuntime) Invoke(script string, root string, data map[string]any, dryRun bool) (starlark.StringDict, error) {
 
 	// Confine script loading to root.
 
@@ -167,8 +165,8 @@ func (sr *StarlarkRuntime) Invoke(script string, root string, data map[string]an
 
 	// Set per-invocation state on the shared ExecutionContext.
 
-	sr.ctx.Data = data
-	sr.ctx.DryRun = dryRun
+	rt.ctx.Data = data
+	rt.ctx.DryRun = dryRun
 
 	// Dialect options.
 
@@ -195,12 +193,12 @@ func (sr *StarlarkRuntime) Invoke(script string, root string, data map[string]an
 			if strings.HasPrefix(module, "@devlore//") {
 				name := strings.TrimPrefix(module, "@devlore//")
 
-				if e, ok := sr.cache[name]; ok {
+				if e, ok := rt.cache[name]; ok {
 					return e.globals, e.err
 				}
 
-				globals, loadErr := sr.resolveProvider(name)
-				sr.cache[name] = &loaderEntry{globals, loadErr}
+				globals, loadErr := rt.resolveProvider(name)
+				rt.cache[name] = &loaderEntry{globals, loadErr}
 				return globals, loadErr
 			}
 
@@ -215,7 +213,7 @@ func (sr *StarlarkRuntime) Invoke(script string, root string, data map[string]an
 				return nil, fmt.Errorf("load %s: %w", module, readErr)
 			}
 
-			globals, execErr := starlark.ExecFileOptions(&fileOpts, thread, module, moduleSrc, sr.predeclared)
+			globals, execErr := starlark.ExecFileOptions(&fileOpts, thread, module, moduleSrc, rt.predeclared)
 			if execErr != nil {
 				return nil, fmt.Errorf("load %s: %w", module, execErr)
 			}
@@ -224,7 +222,7 @@ func (sr *StarlarkRuntime) Invoke(script string, root string, data map[string]an
 		},
 	}
 
-	return starlark.ExecFileOptions(&fileOpts, thread, script, src, sr.predeclared)
+	return starlark.ExecFileOptions(&fileOpts, thread, script, src, rt.predeclared)
 }
 
 // endregion
@@ -252,9 +250,9 @@ type loaderEntry struct {
 //
 // Returns:
 //   - starlark.Value: the constructed receiver, or nil on failure.
-func (sr *StarlarkRuntime) buildOne(prt op.ProviderReceiverType) starlark.Value {
+func (rt *StarlarkRuntime) buildOne(prt op.ProviderReceiverType) starlark.Value {
 
-	raw, err := sr.ctx.ModuleByName(prt.ReceiverName())
+	raw, err := rt.ctx.ModuleByName(prt.Name())
 	if err != nil {
 		return nil
 	}
@@ -262,7 +260,7 @@ func (sr *StarlarkRuntime) buildOne(prt op.ProviderReceiverType) starlark.Value 
 	if !ok {
 		return nil
 	}
-	return NewProvider(prt, instance)
+	return rt.newReceiver(instance)
 }
 
 // resolveProvider creates a Starlark module dict for a single provider.
@@ -273,9 +271,9 @@ func (sr *StarlarkRuntime) buildOne(prt op.ProviderReceiverType) starlark.Value 
 // Returns:
 //   - starlark.StringDict: the module globals.
 //   - error: non-nil if the provider is not found.
-func (sr *StarlarkRuntime) resolveProvider(name string) (starlark.StringDict, error) {
+func (rt *StarlarkRuntime) resolveProvider(name string) (starlark.StringDict, error) {
 
-	receiver, ok := sr.BuildReceiver(name)
+	receiver, ok := rt.BuildReceiver(name)
 	if !ok {
 		return nil, fmt.Errorf("provider %q not found or not in module selection", name)
 	}

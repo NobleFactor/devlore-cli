@@ -3,7 +3,7 @@ title: "Extract starlark infrastructure from pkg/op into pkg/op/bind"
 issue: 264
 status: in-progress
 created: 2026-03-24
-updated: 2026-04-10 (Phase 9 auto-discovery reshape; superseded steps eliminated)
+updated: 2026-04-14 (node/subgraph interchangeability principle added to Phase 10 invariant; Phase 11 reframed as multi-node bundler; Phase 12 expanded with known flow-provider defects)
 ---
 
 # Plan: Extract Starlark Infrastructure from pkg/op
@@ -24,8 +24,11 @@ relationships, and codegen. Remove redundancy and framework code from providers.
 | 5+6. Sever starlark, consolidate registries, unify method dispatch | complete | #269 |
 | 7. Graph/executor restructuring, context, codegen | in-progress (test fixes remaining) | — |
 | 8. ReceiverType interface cleanup, unified dispatch | not-started | — |
-| 9. Output specs and the companion triplet | in-progress (framework done, provider rewrites remaining) | — |
-| 10. Catalog serialization, Rebind rehydration | not-started | — |
+| 9. Output specs and the companion triplet | in-progress (Steps 1–8 done; Step 9 triage paused pending Phase 10) | — |
+| 10. Slot = (Parameter, Value): type-driven fill and dispatch | not-started | — |
+| 11. Implement `plan.subgraph` as a flow provider method | not-started | — |
+| 12. Address defects on the flow provider | not-started | — |
+| 13. Catalog serialization, Rebind rehydration | not-started | — |
 
 ## What Phase 7 Covers (Current PR)
 
@@ -1056,23 +1059,470 @@ states build cleanly:
    `method.Plan(receiver, args)` instead of name heuristics. Methods with
    no `Planned` companion fall through to normal slot filling (no shadowing).
 3. ✅ Re-enable preflight in the executor with dry-run skip.
-4. Wire post-dispatch shadowing in the executor. Monadic methods
-   (`KnownAtExecution` case) benefit first: after the forward call, the
-   executor shadows the real resource with the node's ID. For plan-time-
-   shadowed methods, the executor transitions pending → resolved by
-   copying metadata from the real result.
-5. Extend `filter_methods` in `generate.star` to skip `*Planned` suffix
-   (symmetric with existing `Compensate*` skip). Regenerate `provider.gen.go`
-   files once the first `Planned` method lands.
-6. Rewrite `file.Copy` end to end as the reference implementation:
+4. ✅ Wire post-dispatch catalog reconciliation in the executor.
+   `executeNode` inspects the method result: if it's a `Resource` (not
+   `KnownAtExecution`), it calls `catalog.Transition(result, node.ID)`
+   for plan-time-shadowed outputs (metadata filled in place) or
+   `catalog.Shadow(result, node.ID)` for monadic outputs (late shadow).
+   Catalog failures push the action to the recovery stack before
+   surfacing the error, so compensation can unwind the already-performed
+   side effect. Implemented as part of the greenfield catalog rewrite.
+5. ✅ Extend `filter_methods` in `generate.star` to skip `*Planned` suffix
+   (symmetric with existing `Compensate*` skip). Regeneration of
+   `provider.gen.go` files happens when the first `Planned` method lands
+   in Step 6.
+6. ✅ Rewrite `file.Copy` end to end as the reference implementation:
    signature change (`destinationFilename *Resource` → `destinationPath string`),
-   add `CopyPlanned` sibling. Verify `plan.file.copy` tests pass.
-7. Apply the same pattern to the remaining file methods (Move, Link,
-   WriteText, WriteBytes, Mkdir, Backup).
-8. Apply to other providers (git, archive, encryption, service, pkg).
-9. Run all tests. Fix whatever remains.
+   add `CopyPlanned` sibling, source order forward/planned/compensate.
+   `Method.Plan` extended to convert args via `reflect.Convert` so starlark
+   int literals coerce to typed aliases like `os.FileMode`. Generated
+   `provider.gen.go` now lists `"Copy": {"source", "destination_path", "mode"}`;
+   `CopyPlanned` filtered out by the Step 5 generate.star change.
+7. ✅ Apply the same pattern to the remaining file methods:
+   - `WriteText(destinationPath string, content, mode)` + `WriteTextPlanned`
+   - `WriteBytes(destinationPath string, content, mode)` + `WriteBytesPlanned`
+   - `Move(source *Resource, destinationPath string)` + `MovePlanned`
+   - `Link(source *Resource, targetPath string)` + `LinkPlanned`
+   - `Mkdir(path string, mode)` + `MkdirPlanned`
+   - `Backup` unchanged (resource is input; output identity is
+     timestamp-dependent, so no Planned companion; post-dispatch
+     late-shadows via `catalog.Shadow`)
+   Non-test callers in `cmd/writ/writ/{commands,migrate_cmd}.go` and
+   `cmd/writ/writ/migrate/execute.go` updated to pass path strings.
+   Starlark test scripts bulk-renamed (`destination=`→`destination_path=`,
+   `target=`→`target_path=`, `mkdir(resource=`→`mkdir(path=`). Test
+   count 43 → 30 (13 file tests now passing).
+8. ✅ Apply the pattern to other providers:
+   - **git.Clone** → `(url *appnet.Resource, destinationPath string)` +
+     `ClonePlanned`; unused `file` import dropped.
+   - **archive.Extract** → `(source *file.Resource, prefixPath string)` +
+     `ExtractPlanned`.
+   - **encryption.DecryptSopsFile** → `(source *file.Resource, destinationPath string)` +
+     `DecryptSopsFilePlanned`.
+   - **service.{Disable, Enable, Restart, Start, Stop}** — no signature
+     changes. Each gets a trivial `XPlanned(name *Resource) (*Resource, error)`
+     that returns the input unchanged, so the catalog shadows the same
+     URI under this node's origin and creates implicit edges from the
+     state-mutation node to downstream service consumers.
+   - **pkg.{Install, Upgrade, Remove}** SKIPPED — return `[]*Resource`
+     (slice), not a single `*Resource`, so the signature doesn't fit
+     the single-Resource `Planned` shape validated by `NewMethod`.
+     Slice-shaped Planned companions would need a separate mechanism
+     (future work).
+   Total `Planned` companions in the codebase after Step 8: **14**
+   (6 file, 1 git, 1 archive, 1 encryption, 5 service).
+9. 🟡 Run all tests. Fix whatever remains.
+   **Done so far:**
+   - `pkg/op/executor.go:205` — added `stack.Unwind()` on execution
+     failure so compensation runs for previously-successful nodes.
+   - `pkg/op/method.go:481` — `Method.Undo` used `results[0].Interface().(error)`
+     which panics on nil error returns; changed to `errFromValue(results[0])`.
+   - `pkg/op/bind/marshal_test.go:818-861` — deleted `testConstructable`,
+     its `init()` `AnnounceResource` call, `TestUnmarshal_WithConstructor`,
+     and `TestUnmarshal_Constructor_InvalidInput`. These tests asserted
+     that `unmarshalValue` should consult a type→constructor lookup in
+     the receiver registry. That lookup does not exist and should not
+     be built.
+   - Provider test files updated for new signatures:
+     `pkg/op/provider/file/provider_test.go` (Link ×4, WriteText ×6,
+     WriteBytes ×3, Move ×2, Mkdir ×3),
+     `pkg/op/provider/archive/provider_test.go` (Extract ×5),
+     `pkg/op/provider/encryption/provider_test.go` (DecryptSopsFile ×4),
+     `pkg/op/provider/git/provider_test.go` (Clone ×2).
 
-## Phase 10: Catalog Serialization and Rebind Rehydration
+   **32 test failures remain (from 43 at start of Phase 9):**
+
+   Phase 7 incompleteness — flow provider + starlark function coercion:
+   - `TestChooseExists`, `TestChooseNotExists`, `TestIsDir`, `TestIsFile` —
+     `pkg/op/provider/plan/provider.go:52 Provider.Choose` takes
+     `then func() error`; `pkg/op/bind/marshal.go:947 unmarshalValue`
+     has no `reflect.Func` case. The fix is NOT a reflect.Func case —
+     it is implementing `Unmarshaler` (`pkg/op/bind/marshal.go:63`) on
+     the type that wraps starlark callables for Go consumption
+     (`pkg/op/provider/mem/function.go:39 Function`), so the existing
+     Unmarshaler check in the marshal path handles it.
+   - `TestWalkTreePlanned` — same class: `*starlark.Function` cannot
+     coerce to `file.Reducer` (`pkg/op/provider/file/provider.go`).
+
+   Phase 7 incompleteness — preflight + shell provenance:
+   - `TestSource` — `cmd/devlore-test/devloretest/data/test_source.star`
+     uses `plan.shell.exec` to create a file then `plan.file.read_text`
+     to read it. Preflight fails because `shell.exec` has no `Planned`
+     companion to shadow the output URI.
+
+   Phase 7 incompleteness — executor recovery site:
+   - `TestGraphLifecycle`, `TestGraphLifecycleWithPipeline` —
+     `pkg/op/lifecycle_test.go`: `file.link` fails with
+     `renameat . .devlore/recovery/...: invalid argument` (recovery
+     site rename into a subdirectory of the source).
+   - `TestActions_WriteText_ReadText` —
+     `pkg/op/provider/file/integration_test.go`: same recovery-site
+     rename failure.
+
+   Phase 7 incompleteness — provider test nil ExecutionContext:
+   - `TestExtractTarGz` — `pkg/op/provider/archive/provider_test.go:85`:
+     `ExtractPlanned` calls `p.ExecutionContext()` which is nil because
+     the test constructs `Provider{}` without an ExecutionContext.
+
+   Phase 7 incompleteness — receiver attribute resolution:
+   - `TestStarlark` (file, `pkg/op/provider/file/integration_test.go`) —
+     `result_root: expected String, got builtin_function_or_method`.
+   - `TestStarlark` (platform, `pkg/op/provider/platform/integration_test.go`) —
+     `result_arch: expected String, got builtin_function_or_method`.
+   - `TestLintCopyright_*` ×8 (`cmd/star/star/lint_copyright_test.go`) —
+     `cfg.lint.copyright` resolves `lint` as `builtin_function_or_method`
+     instead of a struct. Star config provider regression.
+   - `TestSourceFile_StarlarkIntegration`
+     (`cmd/star/star/sourcefile_integration_test.go`) — same class.
+   - `TestConfigSchemas_ProviderPicksUpConfig`
+     (`cmd/star/provider/goast/config_schema_test.go`) — same class.
+   - `TestIntegrationEndToEnd` (`cmd/star/provider/starcode/integration_test.go`) — same class.
+
+   Phase 7 incompleteness — git clone in test:
+   - `TestActions_Clone` (`pkg/op/provider/git/integration_test.go`) —
+     `exit status 128` from `git clone` (test environment issue or
+     missing test hook).
+
+   Phase 7 incompleteness — encryption integration:
+   - `TestActions_DecryptSopsFile`
+     (`pkg/op/provider/encryption/integration_test.go`) — destination
+     path resolves to a directory, not a file.
+
+   Devlore-test CLI output routing:
+   - `TestCLI_SummaryOnly`, `TestCLI_ReceiptOnlyYAML`,
+     `TestCLI_ReceiptOnlyJSON`, `TestCLI_RoutToFiles`
+     (`cmd/devlore-test/cli_test.go`) — output channel filtering
+     doesn't suppress shell.exec output when redirected.
+
+   Pkg provider (deferred — `[]*Resource` return shape):
+   - `TestPkgActions`, `TestEngineRunsPackageInstallActions`,
+     `TestEngineRunsNamespacedPackageActions`
+     (`cmd/lore/lore/runtime_test.go`, `cmd/lore/lore/integration_test.go`).
+
+## Phase 10: Slot = (Parameter, Value) — Type-Driven Fill and Dispatch
+
+### Invariant
+
+- A Node is a Go method call site. An Action wraps the Go method; the
+  Node places that call site in the graph.
+- **Nodes and subgraphs are interchangeable anywhere a reference is
+  valid.** There is one kind — an executable unit — that resolves to
+  either. Any API that takes a node reference must equally accept a
+  subgraph reference; any API that takes a subgraph reference must
+  equally accept a node reference. Node IDs and subgraph IDs share
+  one ID space, resolved uniformly.
+- Slots map one-to-one to the method's parameters. Slot identity =
+  `op.Parameter` (Name + Go Type).
+- **Values flowing through the graph are Go values.** `starlark.Value`
+  never crosses the `bind` → `op` boundary. Conversion happens exactly
+  once, at plan time, at the point of filling.
+- Edges carry Go values. A promise is a handle to a Go value produced
+  by an executable unit (node or subgraph) that will flow to a
+  consumer's slot.
+- Slot fill is binary:
+  1. **Immediate** — a Go value set at plan time.
+  2. **Promise** — a reference to an executable unit's output (node or
+     subgraph), resolved to a Go value at execution.
+
+No third slot mode. No starlark values in slots. No untyped
+`map[string]any` on the provider API.
+
+### Problem
+
+1. `op.SlotValue` today is a tri-mode payload union keyed externally by
+   name, carrying no `Parameter` identity. The authoritative
+   `Parameter.Name` / `Parameter.Type` contract lives on `*op.Method`
+   and never meets the value it governs.
+2. `bind.Planner.dispatch` (`pkg/op/bind/planner.go:141-156`) explodes
+   `Parameter{Name, Type}` into three parallel collections
+   (`regularParams`, `knownKwargs`, `paramTypes`), then partially
+   reassembles them — name-only on the general `FillSlot` path
+   (`:221`), name + type only for the resource special case in
+   `fillResourceSlot` (`:210`). Type integrity is broken at a
+   data-structure level before any conversion runs.
+3. The free `bind.FillSlot` (`pkg/op/bind/promise.go:302`) is dead code,
+   broken by construction: its signature has no channel to the
+   parameter's expected Go type, so it cannot verify or drive
+   conversion against the slot's contract.
+4. `bind.FillSlot`'s internal type switch over `starlark.Value` kinds
+   is exactly the "suss out the intent" spaghetti the registry was
+   built to prevent. `fillResourceSlot` compounds the problem by
+   hard-coding "resource accepts string" inside the planner instead
+   of letting resource types declare that capability themselves.
+5. `Action.Do(ctx, slots map[string]any)` (`pkg/op/action.go:40`) is a
+   framework-internal transport adapter that leaked into the provider
+   API. Every provider has to be complicit in the map, cast `any` to
+   expected Go types, and reimplement variadic/zero-value handling
+   that `*op.Method` reflection already does.
+6. The 32 remaining Phase 7 test failures are downstream symptoms of
+   these defects. Triage against an incoherent model is noise; the
+   model has to be made coherent first.
+
+### Goals
+
+1. `op.Slot = { Parameter op.Parameter; Value op.SlotValue }` — slot
+   identity bound to payload.
+2. `op.Node` carries both `Slots []*op.Slot` (ordered, matches
+   `method.Parameters()` order) and `SlotsByName map[string]*op.Slot`
+   (indexed). Slice for positional dispatch; map for name lookup in
+   promise / edge wiring.
+3. `op.SlotValue` collapses to **binary**:
+   `Immediate any | Promise{NodeRef, Slot}`. The proxy mode
+   (`GatherRef + Field`) does not survive — per-iteration bindings in
+   gather comprehensions are expressed as ordinary promises emitted
+   by iteration-step nodes.
+4. **Registry-owned per-type conversion.** `ReceiverType` (or a sibling
+   interface) exposes `FromStarlark(sv starlark.Value) (any, error)`.
+   Primitives (string, int, bool, float, bytes) and composite targets
+   (`[]T`, `map[K]V`, `time.Duration`, and struct-like resource
+   targets) register under the same uniform interface. Types declare
+   their own capabilities; `bind.FillSlot` never switches on
+   `starlark.Value` kind.
+5. `bind.FillSlot` becomes a thin graph-edge dispatcher. New signature
+   takes `*op.Slot` (carrying the Parameter) plus the `starlark.Value`.
+   Dispatch order:
+   - `*Promise` → edge + promise-ref in slot.
+   - list of `*Promise` → fan-in edges + indexed sub-slots.
+   - `*receiver` → unwrap the Go instance, optional provenance edge,
+     immediate in slot.
+   - otherwise → delegate to `slot.Parameter.Type`'s registered
+     converter to produce a Go value, immediate in slot.
+6. `fillResourceSlot` (`pkg/op/bind/planner.go:365-432`) is **deleted**.
+   String acceptance moves onto the resource type's converter; the
+   planner stops special-casing resources.
+7. `Planner.dispatch` stops exploding `Parameter`. It iterates
+   `method.Parameters()` once, building `[]*op.Slot` directly.
+8. **`Action.Do` is deleted from the public Action interface.**
+   Providers are pure Go structs with plain Go methods. `Planned` and
+   `Compensate` companions are discovered by reflection (Phase 9
+   already does this). The framework's internal reflection dispatcher
+   on `*op.Method` reads `Slot.Value` by `Parameter.Name`, assembles
+   `reflect.Value` args positionally, invokes the Go method, and
+   interprets the return tuple per `MethodKind`. **Nothing in the
+   provider's surface contains a `map[string]any`.**
+9. `(*op.Graph).Bind(ctx *ExecutionContext)` and
+   `(*op.Node).Bind(method *Method)` rebind `Parameter.Type` from the
+   registry on load, via `node.Receiver`. Slots serialize
+   `Parameter.Name` + `Value` only; `Parameter.Type` is reattached at
+   load. Mismatches (provider removed, method renamed, parameter
+   renamed) surface as explicit load errors.
+
+### Step outline
+
+1. **Introduce `op.Slot`.** Redefine `op.Node.Slots` to `[]*Slot`; add
+   `SlotsByName map[string]*Slot`. Update all `Set*Slot*` /
+   `SlotByName` / `RequireStringSlot` / `ResolvedSlots`. Collapse
+   `SlotValue` to `{ Immediate any, NodeRef string, Slot string }`;
+   remove gather-proxy fields.
+2. **Type-converter contract.** Add `FromStarlark(sv starlark.Value)
+   (any, error)` (or equivalent) on `ReceiverType`, with
+   implementations for primitive kinds and composites. Register
+   primitive types in `ReceiverRegistry` at init; resource types
+   already self-register.
+3. **Rewrite `bind.FillSlot`.** New signature takes `*op.Slot` + `starlark.Value`.
+   Graph-edge dispatch first; delegate to
+   `slot.Parameter.Type`'s converter for everything else. Delete the
+   dead free-function internals and its starlark-kind switch.
+4. **Collapse `Planner.dispatch`.** Single pass over
+   `method.Parameters()` producing `[]*op.Slot`. Delete
+   `regularParams` / `knownKwargs` / `paramTypes` parallel maps.
+   Delete `fillResourceSlot` entirely.
+5. **Delete `Action.Do`.** Remove the method from the `Action` interface
+   in `pkg/op/action.go`. Move reflection dispatch to
+   `(*op.Method).Invoke(receiver any, slots map[string]*Slot) (result, complement any, err error)`
+   (or similar) inside `pkg/op/method.go`. Update executor call sites
+   and the dispatch cache accordingly.
+6. **Retire the gather proxy.** Remove `GatherRef` / `Field` from
+   `SlotValue`. Refactor gather execution to emit per-iteration
+   promises from iteration-step nodes; consumer slots hold ordinary
+   `NodeRef + Slot` promises. Update `ResolvedSlots` and the gather
+   provider to match. See "Open question" below on scope.
+7. **Rebind.** Implement `(*Node).Bind(method)` and
+   `(*Graph).Bind(ctx)`. Update JSON / YAML round-trip so slots
+   serialize `Parameter.Name` + `Value` only; `Parameter.Type` is
+   reattached on load from the registry via `node.Receiver`.
+8. **Provider update.** Delete every provider's `Do` boilerplate.
+   Regenerate `*_gen.go` files under the new model. Hand-written
+   provider methods stay untouched — they already look right.
+9. **Executor update.** Gather, choose, recovery, and promise
+   resolution consume `Slot` / `SlotValue` under the new model. Any
+   `slot.Immediate.(T)` casts that survive replace with typed Slot
+   accessors.
+10. **Test triage.** Run the full suite. Most Phase 7 failures should
+    resolve as side effects of the coherent model. Triage residual
+    failures; fold legitimate bugs into follow-up fixes.
+
+### Open question — gather / choose starlark surface
+
+Intended semantics:
+
+- **gather** — parallel comprehension over a list: for each element,
+  execute a node or subgraph; collect results.
+- **choose** — serial short-circuit over **chained** `(when, then)`
+  cases. First match's `then` executes; rest are skipped. The `then`
+  clause accepts a **node (Promise) or a subgraph handle directly**.
+  No lambda.
+
+The slot invariant (binary fill; no proxy mode) holds regardless of
+which form the starlark surface takes. Reshaping the surface to match
+these semantics is **out of scope for Phase 10**; it becomes a
+follow-up phase with the following sub-decisions to resolve at that
+time:
+
+1. **How chained choose cases are expressed in starlark.** Kwargs
+   cannot repeat, so `when=...`, `then=...` pairs cannot stack.
+   Candidate forms:
+   - positional list of `(predicate, node_or_subgraph)` tuples:
+     `plan.choose((p1, n1), (p2, n2), otherwise=default)`;
+   - dedicated case constructor consumed positionally:
+     `plan.choose(plan.when(p1, n1), plan.when(p2, n2), plan.otherwise(default))`;
+   - chained API:
+     `plan.choose().when(p1, n1).when(p2, n2).otherwise(default)`.
+2. **How a subgraph is constructed in starlark.** Starlark has no
+   `with` blocks. Candidate forms:
+   - `plan.subgraph(n1, n2, ...)` takes explicit node handles built
+     eagerly in-place and bundles them;
+   - `plan.sequence(n1, n2, ...)` ordered variant;
+   - a single node handle is implicitly a single-node subgraph.
+3. **Eager node-handle semantics.** Today, calling
+   `plan.file.write_text(...)` appends a node to the main graph
+   eagerly. Passing that node as `then = node` requires the planner
+   to either (a) move it into a branch subgraph post-hoc, or
+   (b) defer its main-graph attachment until it is known whether any
+   choose claims it. The follow-up phase picks one.
+
+Phase 10's proxy-retirement step is unaffected: gather per-iteration
+bindings become ordinary promises emitted by iteration-step nodes
+regardless of whether the starlark surface is reshaped.
+
+### Blast radius
+
+- `pkg/op` — `Node`, new `Slot` type, `SlotValue` shrink, `Method`
+  dispatcher, `ReceiverType` converter contract, `ReceiverRegistry`
+  primitive registration, `Graph.Bind` / `Node.Bind`, executor,
+  recovery, serialization.
+- `pkg/op/bind` — `FillSlot` rewrite, `Planner.dispatch` collapse,
+  `fillResourceSlot` delete, `Promise` method signatures tighten.
+- `pkg/op/provider/*` — every provider's `Do` boilerplate deleted;
+  generated code regenerated; hand-written methods unchanged.
+- Codegen — templates stop emitting `Do(ctx, slots map[string]any)`.
+- Tests — any test reading `slot.Immediate.(T)` replaces with a typed
+  accessor; any test building nodes via ad-hoc `map[string]any`
+  slot-setting replaces with Slot-aware builders.
+
+### Dependencies and ordering
+
+- **Prerequisite for Phase 11.** Phase 11's rebind walk operates on the
+  new slot model and piggybacks on `(*Node).Bind(method)` introduced
+  here. Phase 11 cannot land first.
+- **Partially subsumes Phase 8's `Do` work.** Phase 8's
+  `ReceiverName` → `Name`, `ProviderType` → `Type`, and
+  `executingReceiver` rewiring remain narrow and may land first as a
+  separate PR. The `Do` → `Dispatch` rename becomes moot once `Do` is
+  deleted from the Action interface.
+- **Phase 9 Step 9 failure triage is paused** until this phase lands.
+  The 32 failures are expected to resolve or sharpen under the new
+  model.
+
+## Phase 11: Implement `plan.subgraph` as a Flow Provider Method
+
+### Problem
+
+End users author graphs in starlark, not Go. The Phase 7 work made
+`op.Subgraph` the Go-side universal execution unit, but did not ship
+a starlark constructor. For any use case that needs a **multi-node**
+executable unit — bundling several nodes into one branch body,
+grouping nodes under a single iteration body, etc. — users have no
+way to construct one.
+
+Single-node cases do **not** need `plan.subgraph`: under the
+node/subgraph interchangeability principle (see Phase 10 invariant),
+a node handle is itself a valid executable-unit reference, so
+`plan.flow.choose(when=predicate, then=some_node_promise)` works
+directly. Phase 11 is specifically about the N-node bundling case.
+
+### Goal
+
+`plan.subgraph(n1, n2, …)` is a starlark-callable that constructs an
+`op.Subgraph` from N node handles (and/or child subgraph handles) and
+returns a handle usable anywhere a node handle is accepted.
+Implemented as a method on the flow provider — reached via the plan
+namespace's Planner routing as `plan.flow.subgraph(…)`, with no
+special-case plumbing on `plan.Provider`.
+
+### To resolve during design
+
+- Signature in starlark: positional node handles bundled into a
+  subgraph, a callable body, or another form — to be settled with
+  the user during Phase 11 design.
+- Routing: whether `plan.subgraph` dispatches directly on the plan
+  provider, or is reached via the sub-namespace (`plan.flow.subgraph`)
+  through planner routing. Ties into the separate question of whether
+  `plan.choose` / `plan.gather` should themselves be namespaced as
+  `plan.flow.*`.
+- Eager-node reclamation: how content authored before the
+  `plan.subgraph(…)` call is moved from the main execution path into
+  the new subgraph (same concern as the open sub-decision about
+  eager node-handle semantics under Phase 10).
+
+### Dependencies
+
+Follows Phase 10's slot model. Precedes follow-up work that reshapes
+the `plan.choose` chained builder or the `plan.gather` parallel form
+to consume subgraph handles.
+
+## Phase 12: Address Defects on the Flow Provider
+
+### Problem
+
+The flow provider (`pkg/op/provider/flow/provider.go`) is the
+execution-time backbone for choose, gather, and subgraph bodies. It
+has accumulated defects during prior work that must be enumerated
+and fixed before it can be trusted in that role.
+
+### Known defects (non-exhaustive — user will add)
+
+1. **`Gather` is a stub.** `flow/provider.go:134` returns
+   `fmt.Errorf("gather: not yet implemented")`. The parallel
+   comprehension semantics (per-item body, concurrency limit,
+   ordered result collection) are not wired at all.
+2. **`Choose`'s `then` is an execution-time subgraph ID string.** Per
+   the node/subgraph interchangeability principle (Phase 10
+   invariant), it must accept any executable-unit reference — node
+   or subgraph. The internal lookup at `flow/provider.go:102`
+   (`p.Graph.SubgraphByID(then)`) needs to become a polymorphic
+   `ResolveByID` on the graph that returns either an `op.Node` or an
+   `op.Subgraph` under a shared interface.
+3. **`WaitUntil`'s `predicate func(any) (bool, error)`** cannot be
+   populated from a plan-time starlark expression. A plan-time user
+   has a Promise for a bool-producing node, not a Go `func`. The
+   signature needs to accept a Promise/predicate-node-reference,
+   with execution-time polling invoking that node's resolver.
+4. **`Gather`'s `do string` subgraph ID** has the same execution-time
+   specificity as `Choose`'s `then`. Same fix — accept any
+   executable-unit reference.
+5. **Plan-side hand-wired wrappers on `plan.Provider`.** Any
+   remaining `plan.Provider.<flow_method>` exists only because the
+   generic Planner routing cannot bind to the current flow
+   signatures. Once (2)-(4) are fixed and Phase 11 ships, those
+   wrappers disappear.
+
+### Graph-side work implied
+
+A single `(*op.Graph).ResolveByID(id string) (op.Executable, bool)`
+(or equivalent) that returns either a `*Node` or a `*Subgraph`
+behind a common `Executable` interface. Today `Graph.SubgraphByID`
+is the only lookup; node lookup goes through the `Results` map at
+execution time. Unifying these is prerequisite for (2) and (4).
+
+### Dependencies
+
+Precedes Phase 11 closure: once flow signatures accept executable
+references, `plan.subgraph` slots cleanly into the same Planner
+routing as every other flow method, and every `plan.Provider.<X>`
+hand-wrapper can be deleted without leaving user-facing regressions.
+
+## Phase 13: Catalog Serialization and Rebind Rehydration
 
 ### Problem
 
@@ -1139,9 +1589,11 @@ them) solves this.
 
 ### Ordering
 
-Phase 10 depends on Phase 9 being complete (`Planned` companions exist
-on every resource-producing provider method, and the executor's post-
-dispatch shadowing is wired). Within Phase 10:
+Phase 13 depends on Phase 9 (`Planned` companions exist on every
+resource-producing provider method, and the executor's post-dispatch
+shadowing is wired) **and Phase 10** (slot model carries `Parameter`
+identity; `(*Node).Bind(method)` exists to piggyback on). Within
+Phase 13:
 
 1. Implement `ResourceBase` custom marshal/unmarshal. Test round-trip
    at the resource level.
