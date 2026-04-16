@@ -372,14 +372,7 @@ func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *R
 		}
 	}
 
-	slots := node.ResolvedSlots(results)
-
-	// TODO: replace with DataRef slot kind — temporary bridge until DataRef is implemented
-	for key, value := range ctx.Data {
-		if _, exists := slots[key]; !exists {
-			slots[key] = value
-		}
-	}
+	slots := node.ResolvedSlots(ctx, results)
 
 	ctx.Results = results
 

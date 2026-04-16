@@ -86,8 +86,8 @@ func buildMigrationView(graph *op.Graph, analysis *MigrationAnalysis) *migration
 	// Build nodes
 	var nodes []nodeView
 	for _, node := range graph.Nodes() {
-		source, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
-		target, _ := node.SlotByName("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
+		source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
+		target, _ := node.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
 		nodes = append(nodes, nodeView{
 			ID:        node.ID,
 			Operation: node.Receiver,
@@ -184,14 +184,14 @@ func formatRenames(w io.Writer, graph *op.Graph, sourceRoot string) {
 	_, _ = fmt.Fprintf(w, "Directory renames (%d):\n", len(renameNodes)) //nolint:errcheck // table output
 	maxLen := 0
 	for _, node := range renameNodes {
-		source, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
+		source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
 		if len(source) > maxLen {
 			maxLen = len(source)
 		}
 	}
 	for _, node := range renameNodes {
-		src, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
-		tgt, _ := node.SlotByName("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
+		src, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
+		tgt, _ := node.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
 		source := shortenPath(src, sourceRoot)
 		target := shortenPath(tgt, sourceRoot)
 		_, _ = fmt.Fprintf(w, "  %-*s  →  %s\n", maxLen-len(sourceRoot), source, target) //nolint:errcheck // table output

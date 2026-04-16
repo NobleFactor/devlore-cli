@@ -4,15 +4,17 @@
 package op
 
 // Platform carries platform info plus runtime package/service managers.
-// Serializable fields are stored in graphs; runtime fields are injected
-// at execution time by NewPlatform().
+//
+// Serializable fields are stored in graphs; runtime fields are injected at execution time by NewPlatform().
 type Platform struct {
+
 	// Serializable info (used by Graph)
-	OS       string `json:"os" yaml:"os"`
-	Arch     string `json:"arch" yaml:"arch"`
-	Distro   string `json:"distro,omitempty" yaml:"distro,omitempty"`
-	Version  string `json:"version,omitempty" yaml:"version,omitempty"`
-	Hostname string `json:"hostname,omitempty" yaml:"hostname,omitempty"`
+	OS                 string `json:"os" yaml:"os"`
+	Arch               string `json:"arch" yaml:"arch"`
+	Distro             string `json:"distro,omitempty" yaml:"distro,omitempty"`
+	Version            string `json:"version,omitempty" yaml:"version,omitempty"`
+	Hostname           string `json:"hostname,omitempty" yaml:"hostname,omitempty"`
+	DefaultConcurrency int    `json:"default_concurrency,omitempty" yaml:"default_concurrency,omitempty"`
 
 	// Runtime — not serialized
 	PackageManager  PackageManager            `json:"-" yaml:"-"`
@@ -21,6 +23,7 @@ type Platform struct {
 }
 
 // GetPackageManager returns a specific package manager by name.
+//
 // Returns nil if unavailable.
 func (p *Platform) GetPackageManager(name string) PackageManager {
 	if p.PackageManagers == nil {
@@ -30,17 +33,20 @@ func (p *Platform) GetPackageManager(name string) PackageManager {
 }
 
 // InstalledBy returns the package manager that installed the named package.
+//
 // Returns nil if not installed by any known manager.
 func (p *Platform) InstalledBy(name string) PackageManager {
-	// Check preferred package manager first.
+
 	if p.PackageManager != nil && p.PackageManager.Installed(name) {
 		return p.PackageManager
 	}
+
 	for _, manager := range p.PackageManagers {
 		if manager.Installed(name) {
 			return manager
 		}
 	}
+
 	return nil
 }
 

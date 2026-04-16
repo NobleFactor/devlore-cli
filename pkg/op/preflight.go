@@ -77,7 +77,7 @@ func Preflight(graph *Graph) *PreflightResult {
 // nodeWritesToTarget returns true if the node's action produces a file at
 // node's "path" slot (link or copy).
 func nodeWritesToTarget(node *Node) bool {
-	path, _ := node.SlotByName("path").(string) //nolint:errcheck // zero value (empty) is acceptable
+	path, _ := node.SlotByName("path").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
 	if path == "" {
 		return false
 	}
@@ -86,7 +86,7 @@ func nodeWritesToTarget(node *Node) bool {
 
 // detectConflict checks if a target path has a conflict.
 func detectConflict(node *Node) Conflict {
-	path, _ := node.SlotByName("path").(string) //nolint:errcheck // zero value (empty) is acceptable
+	path, _ := node.SlotByName("path").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
 	if path == "" {
 		return Conflict{Node: node, Type: ConflictNone}
 	}
@@ -121,7 +121,7 @@ func detectConflict(node *Node) Conflict {
 			}
 		}
 
-		source, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
+		source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
 		if linkTarget == source {
 			return Conflict{
 				Node:         node,

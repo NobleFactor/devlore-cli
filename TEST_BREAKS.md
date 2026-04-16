@@ -2,14 +2,14 @@
 
 All code compiles. These are runtime failures only. 16 failing packages remain.
 
-## 1. Phase 9: String-to-resource coercion in starlark (8 TestStarlark + 2 bind)
+## 1. Phase 8: String-to-resource coercion in starlark (8 TestStarlark + 2 bind)
 
 **Root cause:** `executingReceiver.coerceResource` (`pkg/op/bind/executing_receiver.go:386`)
 uses a nil package-level `registry` global instead of the context's registry. When starlark
 passes a string where `*Resource` is expected, coercion silently fails and falls through to
 `unmarshalStruct` which rejects the string.
 
-**Fix:** Phase 9 work — fix `coerceResource` to get the registry from
+**Fix:** Phase 8 work — fix `coerceResource` to get the registry from
 `r.receiver.(op.Provider).ExecutionContext().Registry`, implement catalog-first lookup.
 
 **Affected packages (8 TestStarlark):**
@@ -25,7 +25,7 @@ passes a string where `*Resource` is expected, coercion silently fails and falls
 **Affected (bind unmarshal):**
 - `pkg/op/bind` — TestUnmarshal_WithConstructor, TestUnmarshal_Constructor_InvalidInput
 
-## 2. Phase 9: FillSlot resource passthrough (2 tests in pkg/op/bind)
+## 2. Phase 8: FillSlot resource passthrough (2 tests in pkg/op/bind)
 
 **Root cause:** `FillSlot` loses resource identity through marshal→unmarshal round-trip.
 Needs `*Value` extraction before unmarshal.
@@ -103,8 +103,8 @@ with starlark traceback.
 
 | Root cause | Failures | Packages |
 |------------|----------|----------|
-| Phase 9 coercion | 10 | 9 |
-| Phase 9 FillSlot | 2 | 1 |
+| Phase 8 coercion | 10 | 9 |
+| Phase 8 FillSlot | 2 | 1 |
 | Appnet URI format | 2+13 sub | 1 |
 | Dependent type params | 1 | 1 |
 | Graph/executor state | 8 | 2 |

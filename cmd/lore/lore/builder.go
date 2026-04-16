@@ -527,8 +527,8 @@ func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepac
 		Receiver: actionName,
 		Origin:   pkg.Name,
 	}
-	node.SetSlotImmediate("packages", strings.Join(action.Packages, ","))
-	node.SetSlotImmediate("phase", action.PhaseName)
+	node.SetSlot("packages", op.ImmediateValue{Value: strings.Join(action.Packages, ",")})
+	node.SetSlot("phase", op.ImmediateValue{Value: action.PhaseName})
 
 	graph.AddNode(node)
 	return nil

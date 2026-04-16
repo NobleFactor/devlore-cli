@@ -58,9 +58,9 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 
 	// Verify no target conflicts before starting
 	for _, node := range renameNodes {
-		target, err := node.RequireStringSlot("path")
-		if err != nil {
-			return fmt.Errorf("rename node %s: %w", node.ID, err)
+		target, ok := node.SlotByName("path").Immediate().(string)
+		if !ok || target == "" {
+			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID)
 		}
 		if exists(target) {
 			return fmt.Errorf("target directory %q already exists; aborting", target)
@@ -70,13 +70,13 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	// Perform renames
 	fp := file.NewProvider(&op.ExecutionContext{ProgramName: "writ", Root: op.NewRootReaderWriter(analysis.SourceRoot), Registry: op.NewReceiverRegistry()})
 	for _, node := range renameNodes {
-		source, err := node.RequireStringSlot("source")
-		if err != nil {
-			return fmt.Errorf("rename node %s: %w", node.ID, err)
+		source, ok := node.SlotByName("source").Immediate().(string)
+		if !ok || source == "" {
+			return fmt.Errorf("rename node %s: source slot missing or not a string", node.ID)
 		}
-		target, err := node.RequireStringSlot("path")
-		if err != nil {
-			return fmt.Errorf("rename node %s: %w", node.ID, err)
+		target, ok := node.SlotByName("path").Immediate().(string)
+		if !ok || target == "" {
+			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID)
 		}
 		if _, _, err := fp.Move(&file.Resource{SourcePath: op.NewPath("", source)}, target); err != nil {
 			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
@@ -115,8 +115,8 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 
 	for _, node := range graph.Nodes() {
 		if node.Receiver == "file.move" {
-			source, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
-			target, _ := node.SlotByName("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
+			source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
+			target, _ := node.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
 			renames = append(renames, Rename{From: source, To: target})
 		}
 	}

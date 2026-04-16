@@ -165,6 +165,16 @@ func (ctx *ExecutionContext) ExecuteSubgraph(graph *Graph, sg *Subgraph) (any, e
 	return e.executeSubgraph(graph, sg, ctx.Results, stack)
 }
 
+// Property returns a value from the tool-provided context data.
+func (ctx *ExecutionContext) Property(key string) (any, bool) {
+
+	if ctx.Data == nil {
+		return nil, false
+	}
+	v, ok := ctx.Data[key]
+	return v, ok
+}
+
 // endregion
 
 // endregion

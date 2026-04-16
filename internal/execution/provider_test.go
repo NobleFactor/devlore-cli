@@ -264,11 +264,14 @@ func TestServiceDisableDryRun(t *testing.T) {
 }
 
 func TestServiceEmptyName(t *testing.T) {
+
 	platform := &op.Platform{
 		ServiceManager: &mockServiceManager{startFail: true},
 	}
+
 	p := &service.Provider{Platform: platform}
 	_, _, err := p.Start("", io.Discard)
+
 	if err == nil {
 		t.Fatal("expected error for empty service name")
 	}

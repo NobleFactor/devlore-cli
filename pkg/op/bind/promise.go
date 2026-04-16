@@ -71,7 +71,7 @@ func (p *Promise) Node() *op.Node {
 //   - string: the path slot value, or empty string if not present or not a string.
 func (p *Promise) Path() string {
 
-	path, ok := p.node.SlotByName("path").(string)
+	path, ok := p.node.SlotByName("path").Immediate().(string)
 	if !ok {
 		return ""
 	}
@@ -113,10 +113,16 @@ func (p *Promise) Attr(name string) (starlark.Value, error) {
 	default:
 		// Get the value from the node's slots and convert to Starlark.
 
-		slotVal := p.node.SlotByName(name)
+		slot := p.node.SlotByName(name)
+
+		if slot == nil {
+			return nil, starlark.NoSuchAttrError(fmt.Sprintf("Promise has no attribute %q", name))
+		}
+
+		slotVal := slot.Immediate()
 
 		if slotVal == nil {
-			return nil, starlark.NoSuchAttrError(fmt.Sprintf("Promise has no attribute %q", name))
+			return nil, fmt.Errorf("slot %q: not an immediate value", name)
 		}
 
 		switch v := slotVal.(type) {
@@ -147,11 +153,8 @@ func (p *Promise) Attr(name string) (starlark.Value, error) {
 func (p *Promise) AttrNames() []string {
 
 	names := []string{"node_id", "retry", "slot"}
-	// Add slot names from the node
-	if p.node.Slots != nil {
-		for name := range p.node.Slots {
-			names = append(names, name)
-		}
+	for _, slot := range p.node.Slots {
+		names = append(names, slot.Parameter.Name)
 	}
 	return names
 }
@@ -177,7 +180,7 @@ func (p *Promise) DependOn(consumer *op.Node) {
 func (p *Promise) FillSlot(consumer *op.Node, slot string) {
 
 	// Set the slot to reference this output's node
-	consumer.SetSlotPromise(slot, p.node.ID, p.slot)
+	consumer.SetSlot(slot, op.PromiseValue{NodeRef: p.node.ID, Slot: p.slot})
 
 	// Create edge: producer must complete before consumer
 	p.graph.Edges = append(p.graph.Edges, op.Edge{
@@ -327,7 +330,7 @@ func fillSlot(graph *op.Graph, node *op.Node, slot string, value starlark.Value)
 		if originID, found := op.ExtractResource(goVal); found {
 			graph.Edges = append(graph.Edges, op.Edge{From: originID, To: node.ID})
 		}
-		node.SetSlotImmediate(slot, goVal)
+		node.SetSlot(slot, op.ImmediateValue{Value: goVal})
 		return nil
 	}
 
@@ -354,7 +357,7 @@ func fillSlot(graph *op.Graph, node *op.Node, slot string, value starlark.Value)
 		return fmt.Errorf("slot %q: unsupported starlark type %s", slot, value.Type())
 	}
 
-	node.SetSlotImmediate(slot, goVal)
+	node.SetSlot(slot, op.ImmediateValue{Value: goVal})
 	return nil
 }
 
@@ -381,12 +384,12 @@ func fillOutputList(node *op.Node, graph *op.Graph, slotName string, list *starl
 	// All elements are promises — create edges and indexed sub-slots.
 	for i, output := range outputs {
 		subSlot := fmt.Sprintf("%s[%d]", slotName, i)
-		node.SetSlotPromise(subSlot, output.node.ID, output.slot)
+		node.SetSlot(subSlot, op.PromiseValue{NodeRef: output.node.ID, Slot: output.slot})
 		graph.Edges = append(graph.Edges, op.Edge{
 			From: output.node.ID,
 			To:   node.ID,
 		})
 	}
-	node.SetSlotImmediate(slotName+".len", n)
+	node.SetSlot(slotName+".len", op.ImmediateValue{Value: n})
 	return true
 }

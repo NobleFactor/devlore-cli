@@ -268,6 +268,17 @@ func (m *Method) HasPlanned() bool { return m.planned != nil }
 //   - string: the method name (e.g., "WriteText").
 func (m *Method) Name() string { return m.do.Name }
 
+// ParameterByName returns the Parameter with the given name, if any.
+func (m *Method) ParameterByName(name string) (Parameter, bool) {
+
+	for _, p := range m.parameters {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return Parameter{}, false
+}
+
 // Parameters returns the method's named parameters (excluding the receiver).
 //
 // Returns:

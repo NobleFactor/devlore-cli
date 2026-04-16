@@ -8,6 +8,7 @@ package op
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -21,14 +22,15 @@ func newWindows() *Platform {
 
 	winget := &wingetManager{}
 	return &Platform{
-		OS:              "windows",
-		Arch:            detectArch(),
-		Distro:          "windows",
-		Version:         version,
-		Hostname:        hostname,
-		PackageManager:  winget,
-		PackageManagers: map[string]PackageManager{"winget": winget},
-		ServiceManager:  &windowsServiceManager{},
+		OS:                 "windows",
+		Arch:               detectArch(),
+		Distro:             "windows",
+		Version:            version,
+		Hostname:           hostname,
+		DefaultConcurrency: 4 * runtime.NumCPU(),
+		PackageManager:     winget,
+		PackageManagers:    map[string]PackageManager{"winget": winget},
+		ServiceManager:     &windowsServiceManager{},
 	}
 }
 

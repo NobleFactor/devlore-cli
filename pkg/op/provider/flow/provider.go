@@ -25,6 +25,11 @@ type Provider struct {
 	Graph *op.Graph
 }
 
+type Case struct {
+	When func() bool
+	Then func() any
+}
+
 // NewProvider creates a flow Provider bound to the given context.
 //
 // The graph is extracted from ctx.Data["graph"].
@@ -40,6 +45,29 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 }
 
 // region EXPORTED METHODS
+
+// Choose reads a boolean condition and executes the matching branch subgraph on the graph.
+//
+// Parameters:
+//   - when: condition value.
+//   - then: subgraph ID to execute when true.
+//
+// Returns:
+//   - any: the selected branch's terminal result.
+//   - error: non-nil if the branch fails.
+func (p *Provider) Choose(defaultValue func() any, cases ...Case) any {
+
+	for _, c := range cases {
+		if c.When != nil && c.When() {
+			if c.Then != nil {
+				return c.Then()
+			}
+			return nil
+		}
+	}
+
+	return defaultValue()
+}
 
 // Complete is the default, healthy conclusion of a graph path.
 //
@@ -67,6 +95,10 @@ func (p *Provider) Degraded(format string, args []any, kwargs map[string]any) st
 	return rendered.Error()
 }
 
+// Elevate marks the boundary between unprivileged and privileged execution.
+func (p *Provider) Elevate() {
+}
+
 // Fatal halts graph execution immediately.
 //
 // Parameters:
@@ -80,39 +112,12 @@ func (p *Provider) Fatal(format string, args []any, kwargs map[string]any) error
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 
-// Elevate marks the boundary between unprivileged and privileged execution.
-func (p *Provider) Elevate() {
-}
-
-// Choose reads a boolean condition and executes the matching branch subgraph on the graph.
-//
-// Parameters:
-//   - when: condition value.
-//   - then: subgraph ID to execute when true.
-//
-// Returns:
-//   - any: the selected branch's terminal result.
-//   - error: non-nil if the branch fails.
-func (p *Provider) Choose(when bool, then string) (any, error) {
-
-	if !when || then == "" {
-		return nil, nil
-	}
-
-	sg := p.Graph.SubgraphByID(then)
-	if sg == nil {
-		return nil, fmt.Errorf("choose: subgraph %q not found", then)
-	}
-
-	return p.executeSubgraph(sg)
-}
-
 // Gather executes a subgraph body once per item, collecting terminal results.
 //
 // Parameters:
 //   - items: the list of items to iterate over.
-//   - do: subgraph ID of the body to execute per item.
-//   - limit: max concurrent iterations (default 1 = sequential).
+//   - do: subgraph or node ID of the body to execute per item.
+//   - limit: max concurrent iterations (default: 4 * runtime.NumCPU())
 //
 // Returns:
 //   - []any: terminal node result from each iteration, in item order.
@@ -123,14 +128,18 @@ func (p *Provider) Gather(items []any, do string, limit int) ([]any, error) {
 		return []any{}, nil
 	}
 
-	sg := p.Graph.SubgraphByID(do)
-	if sg == nil {
+	if limit <= 0 {
+		limit = p.ExecutionContext().Platform.DefaultConcurrency
+	}
+
+	// TODO (david-noble) we must fetch a node or subgraph. they are one in the same from an operational perspective
+	nodeOrSubgraph := p.Graph.SubgraphByID(do)
+
+	if nodeOrSubgraph == nil {
 		return nil, fmt.Errorf("gather: subgraph %q not found", do)
 	}
 
-	// TODO: execute subgraph body per item with concurrency limit
-	_ = limit
-	_ = sg
+	// TODO (david-noble) execute subgraph body per item with concurrency limit
 	return nil, fmt.Errorf("gather: not yet implemented")
 }
 
@@ -190,13 +199,5 @@ func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), time
 }
 
 // endregion
-
-// region UNEXPORTED METHODS
-
-// executeSubgraph runs all nodes in a subgraph sequentially on the graph.
-func (p *Provider) executeSubgraph(sg *op.Subgraph) (any, error) {
-
-	return p.ExecutionContext().ExecuteSubgraph(p.Graph, sg)
-}
 
 // endregion

@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -23,14 +24,15 @@ func newLinux() *Platform {
 	}
 
 	return &Platform{
-		OS:              "linux",
-		Arch:            detectArch(),
-		Distro:          distro,
-		Version:         version,
-		Hostname:        hostname,
-		PackageManager:  packageManager,
-		PackageManagers: packageManagers,
-		ServiceManager:  &systemdManager{},
+		OS:                 "linux",
+		Arch:               detectArch(),
+		Distro:             distro,
+		Version:            version,
+		Hostname:           hostname,
+		DefaultConcurrency: 4 * runtime.NumCPU(),
+		PackageManager:     packageManager,
+		PackageManagers:    packageManagers,
+		ServiceManager:     &systemdManager{},
 	}
 }
 

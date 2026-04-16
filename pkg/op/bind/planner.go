@@ -215,10 +215,8 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 			if err := p.fillResourceSlot(node, cleanName, targetType, sv); err != nil {
 				return nil, fmt.Errorf("%s: %w", cleanName, err)
 			}
-			if node.Slots != nil {
-				if _, handled := node.Slots[cleanName]; handled {
-					continue
-				}
+			if node.SlotByName(cleanName) != nil {
+				continue
 			}
 		}
 
@@ -284,8 +282,10 @@ func (p *Planner) shadowPendingOutput(node *op.Node, method *op.Method) error {
 	args := make([]any, len(params))
 	for i, param := range params {
 		cleanName := strings.TrimSuffix(strings.TrimPrefix(param.Name, "*"), "?")
-		if slot, ok := node.Slots[cleanName]; ok && slot.IsImmediate() {
-			args[i] = slot.Immediate
+		if slot := node.SlotByName(cleanName); slot != nil {
+			if iv, ok := slot.Value.(op.ImmediateValue); ok {
+				args[i] = iv.Value
+			}
 		}
 	}
 
@@ -431,7 +431,7 @@ func (p *Planner) fillResourceSlot(node *op.Node, slotName string, targetType re
 			slotValue = rv.Elem().Interface()
 		}
 	}
-	node.SetSlotImmediate(slotName, slotValue)
+	node.SetSlot(slotName, op.ImmediateValue{Value: slotValue})
 	return nil
 }
 

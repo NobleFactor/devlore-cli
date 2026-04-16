@@ -331,10 +331,8 @@ type Node struct {
 	// Retry is the retry policy for this node (nil = no retry).
 	Retry *RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
 
-	// Slots holds input values for this node. Each slot can be:
-	// - Immediate: value known at analysis time
-	// - Promise: reference to another node's output (creates edge)
-	Slots map[string]SlotValue `json:"slots,omitempty" yaml:"slots,omitempty"`
+	// Slots holds input values for this node, ordered by method parameter position.
+	Slots []*Slot `json:"slots,omitempty" yaml:"slots,omitempty"`
 
 	// Status of this node: pending, completed, skipped, failed.
 	Status NodeStatus `json:"status" yaml:"status"`
@@ -342,8 +340,10 @@ type Node struct {
 	// Timestamp is when this action completed.
 	Timestamp string `json:"timestamp,omitempty" yaml:"timestamp,omitempty"`
 
-	graph  *Graph
-	action Action // override for testing — bypasses Receiver lookup when set
+	graph       *Graph
+	action      Action // override for testing — bypasses Receiver lookup when set
+	method      *Method
+	slotsByName map[string]*Slot
 }
 
 // region EXPORTED METHODS
@@ -375,100 +375,83 @@ func (n *Node) Action() (Action, error) {
 //   - *ExecutionContext: the graph's execution context.
 func (n *Node) ExecutionContext() *ExecutionContext { return n.graph.ctx }
 
-// SlotByName returns the resolved value of a slot.
-//
-// If the slot is a promise, returns nil (must be resolved by executor).
-func (n *Node) SlotByName(name string) any {
+// Bind associates this node with its resolved Method. Must be called before
+// SetSlotImmediate, SetSlotPromise, or SetSlotEnvironment.
+func (n *Node) Bind(method *Method) {
 
-	if n.Slots != nil {
-		if sv, ok := n.Slots[name]; ok {
-			if sv.IsImmediate() {
-				return sv.Immediate
-			}
-		}
-	}
-
-	return nil
+	n.method = method
+	n.rebuildSlotsByName()
 }
 
-// SetSlotImmediate sets a slot to an immediate value.
-func (n *Node) SetSlotImmediate(name string, value any) {
+// Method returns the bound method, or nil if unbound.
+func (n *Node) Method() *Method { return n.method }
 
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{Immediate: value}
+// SlotByName returns the Slot with the given parameter name, or nil if absent.
+func (n *Node) SlotByName(name string) *Slot {
+
+	return n.slotsByName[name]
 }
 
-// SetSlotPromise sets a slot to a promise (reference to another node).
-func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
+// SetSlot sets a slot's value. Node must be bound to a method.
+// The value may be any of ImmediateValue, PromiseValue, or EnvironmentValue.
+func (n *Node) SetSlot(name string, value SlotValue) {
 
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{NodeRef: nodeRef, Slot: slot}
-}
-
-// SetSlotProxy sets a slot to a gather proxy reference.
-func (n *Node) SetSlotProxy(name, gatherRef, field string) {
-
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{GatherRef: gatherRef, Field: field}
+	param := n.requireParam(name, "SetSlot")
+	n.setSlot(&Slot{Parameter: param, Value: value})
 }
 
 // endregion
 
 // region Behaviors
 
-// RequireStringSlot returns the string value of a required slot.
-// Returns an error if the slot is not set, or holds a non-string value.
-// An empty string is valid — use SlotByName for optional slots where zero value is acceptable.
-func (n *Node) RequireStringSlot(name string) (string, error) {
+// ResolvedSlots returns all slot values as a flat map, resolving promises and environment bindings.
+func (n *Node) ResolvedSlots(env RuntimeEnvironment, results map[string]any) map[string]any {
 
-	v := n.SlotByName(name)
-
-	if v == nil {
-		return "", fmt.Errorf("slot %q: not set", name)
+	out := make(map[string]any, len(n.Slots))
+	for _, slot := range n.Slots {
+		out[slot.Parameter.Name] = slot.Value.Resolve(env, results)
 	}
-
-	s, ok := v.(string)
-
-	if !ok {
-		return "", fmt.Errorf("slot %q: expected string, got %T", name, v)
-	}
-
-	return s, nil
+	return out
 }
 
-// ResolvedSlots returns all slot values as a flat map.
-// Promise slots are resolved from the results map; immediate slots are returned
-// directly. Proxy slots are resolved from the optional proxyCtx map (used by
-// gather for per-iteration item binding).
-// Pass nil for results when all slots are immediate (e.g., in tests).
-func (n *Node) ResolvedSlots(results map[string]any, proxyCtx ...map[string]any) map[string]any {
+// endregion
 
-	slots := make(map[string]any, len(n.Slots))
-	for name, sv := range n.Slots {
-		switch {
-		case sv.IsProxy():
-			if len(proxyCtx) > 0 && proxyCtx[0] != nil {
-				if item, ok := proxyCtx[0][sv.GatherRef]; ok {
-					slots[name] = fieldAccess(item, sv.Field)
-				}
-			}
-		case sv.IsPromise():
-			if results != nil {
-				if val, ok := results[sv.NodeRef]; ok {
-					slots[name] = val
-				}
-			}
-		default:
-			slots[name] = sv.Immediate
+// region UNEXPORTED NODE METHODS
+
+func (n *Node) requireParam(name, caller string) Parameter {
+
+	if n.method == nil {
+		panic(fmt.Sprintf("%s: node %q is not bound to a method", caller, n.ID))
+	}
+	param, ok := n.method.ParameterByName(name)
+	if !ok {
+		panic(fmt.Sprintf("%s: parameter %q not found on method %s", caller, name, n.method.Name()))
+	}
+	return param
+}
+
+func (n *Node) setSlot(slot *Slot) {
+
+	for i, existing := range n.Slots {
+		if existing.Parameter.Name == slot.Parameter.Name {
+			n.Slots[i] = slot
+			n.slotsByName[slot.Parameter.Name] = slot
+			return
 		}
 	}
-	return slots
+	n.Slots = append(n.Slots, slot)
+	if n.slotsByName == nil {
+		n.slotsByName = make(map[string]*Slot)
+	}
+	n.slotsByName[slot.Parameter.Name] = slot
+}
+
+func (n *Node) rebuildSlotsByName() {
+
+	n.slotsByName = make(map[string]*Slot, len(n.Slots))
+	for _, slot := range n.Slots {
+		n.slotsByName[slot.Parameter.Name] = slot
+	}
 }
 
 // endregion
@@ -538,42 +521,6 @@ type Provenance struct {
 	TargetRoot string `json:"target_root,omitempty" yaml:"target_root,omitempty"`
 }
 
-// SlotValue represents a value that fills a slot in a node.
-// Three variants, mutually exclusive:
-//   - Immediate: value known at analysis time
-//   - Promise: reference to another node's output (NodeRef)
-//   - Proxy: reference to a gather iteration item (GatherRef + Field)
-type SlotValue struct {
-	// Field is the field name to access on the proxy item.
-	Field string `json:"field,omitempty" yaml:"field,omitempty"`
-
-	// GatherRef is the gather node ID for proxy resolution.
-	GatherRef string `json:"gather_ref,omitempty" yaml:"gather_ref,omitempty"`
-
-	// Immediate is the direct value (any type, known at analysis time).
-	Immediate any `json:"immediate,omitempty" yaml:"immediate,omitempty"`
-
-	// NodeRef is the ID of the node that produces this value (promise).
-	NodeRef string `json:"node_ref,omitempty" yaml:"node_ref,omitempty"`
-
-	// Slot is which output slot of the referenced node (empty = default output).
-	Slot string `json:"slot,omitempty" yaml:"slot,omitempty"`
-}
-
-// IsImmediate returns true if this slot value is an immediate value.
-func (s SlotValue) IsImmediate() bool {
-	return !s.IsPromise() && !s.IsProxy()
-}
-
-// IsPromise returns true if this slot value is a promise (reference to another node).
-func (s SlotValue) IsPromise() bool {
-	return s.NodeRef != ""
-}
-
-// IsProxy returns true if this slot value is a gather proxy reference.
-func (s SlotValue) IsProxy() bool {
-	return s.GatherRef != ""
-}
 
 // ActionExecutionSummary provides execution statistics for a set of actions.
 type ActionExecutionSummary interface {
@@ -749,18 +696,6 @@ const (
 
 // region HELPER FUNCTIONS
 
-// fieldAccess extracts a named field from a value.
-// Supports map[string]any for structured items.
-func fieldAccess(item any, field string) any {
-
-	if field == "" {
-		return item
-	}
-	if m, ok := item.(map[string]any); ok {
-		return m[field]
-	}
-	return nil
-}
 
 // topologicalSortChildren orders children (nodes and subgraphs) respecting edge constraints (Kahn's algorithm).
 // Nodes and subgraphs are peers — both are vertices referenced by ChildID().

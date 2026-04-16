@@ -715,12 +715,12 @@ func buildUpgradeChain(reg *op.ReceiverRegistry, actions []string, relTarget str
 			Origin:   entry.Project,
 		}
 		if i == 0 {
-			node.SetSlotImmediate("source", entry.Source)
+			node.SetSlot("source", op.ImmediateValue{Value: entry.Source})
 		}
 		if isLast {
-			node.SetSlotImmediate("path", target)
+			node.SetSlot("path", op.ImmediateValue{Value: target})
 			if hasDecrypt {
-				node.SetSlotImmediate("mode", os.FileMode(0o600))
+				node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o600)})
 			}
 		}
 		nodes = append(nodes, node)
@@ -887,8 +887,8 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *op.Graph, checkDrift b
 		if isSkippableNode(n) {
 			continue
 		}
-		source, _ := n.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
-		target, _ := n.SlotByName("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
+		source, _ := n.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
+		target, _ := n.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
 		report.Entries = append(report.Entries, buildNodeEntry(n, source, target, checkDrift))
 	}
 }
