@@ -65,7 +65,13 @@ type Comparable interface {
 
 // Convertible is implemented by types that support domain-specific type conversion.
 //
-// The coercion path checks: direct assignment, reflect.Convert, then Convertible.ConvertTo.
+// Two directions:
+//   - ConvertTo: the receiver knows how to produce a value of the target type.
+//   - ConvertFrom: the receiver populates itself from the source value.
+//
+// ConvertFrom is a mutation method; callers instantiate a zero receiver
+// (via the registry when ctx is required) before calling ConvertFrom.
 type Convertible interface {
-	ConvertTo(targetType reflect.Type) (any, error)
+	ConvertTo(target reflect.Type) (any, error)
+	ConvertFrom(value any) error
 }

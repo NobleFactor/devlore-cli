@@ -89,7 +89,7 @@ func buildMigrationView(graph *op.Graph, analysis *MigrationAnalysis) *migration
 		source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
 		target, _ := node.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
 		nodes = append(nodes, nodeView{
-			ID:        node.ID,
+			ID:        node.ID(),
 			Operation: node.Receiver,
 			Source:    source,
 			Target:    target,
@@ -99,7 +99,7 @@ func buildMigrationView(graph *op.Graph, analysis *MigrationAnalysis) *migration
 
 	// Build edges
 	var edges []edgeView
-	for _, edge := range graph.Edges {
+	for _, edge := range graph.Root.Edges {
 		edges = append(edges, edgeView{
 			From: edge.From,
 			To:   edge.To,

@@ -157,12 +157,7 @@ func (ctx *ExecutionContext) ModuleByName(name string) (any, error) {
 //   - error: non-nil if the subgraph fails.
 func (ctx *ExecutionContext) ExecuteSubgraph(graph *Graph, sg *Subgraph) (any, error) {
 
-	e := &GraphExecutor{hooks: NewHookRegistry()}
-	stack := NewRecoveryStack()
-	if ctx.Results == nil {
-		ctx.Results = make(map[string]any)
-	}
-	return e.executeSubgraph(graph, sg, ctx.Results, stack)
+	return graph.Execute(sg, nil)
 }
 
 // Property returns a value from the tool-provided context data.

@@ -4,8 +4,39 @@ parent: "docs/plans/extract-starlark-from-op.md"
 issue: 264
 status: in-progress
 created: 2026-04-15
-updated: 2026-04-15
+updated: 2026-04-16
 ---
+
+## Implementation status
+
+| Step | Status | Notes |
+|---|---|---|
+| 1. op.Slot + sealed SlotValue; delete proxy | **complete** | committed in first checkpoint |
+| 2. ExecutableUnit interface (Parameters, ID) | **complete** | uncommitted. executableUnit base; Node + Subgraph embed; NewNode/NewSubgraph constructors; custom JSON/YAML marshalers preserve wire format. Subgraph.FinalizeParameters exists but not yet called by planner. |
+| 3a. Graph.Execute public API + Root field | **complete** | uncommitted. Graph.Root *Subgraph with "root" ID; Children()/Edges() read accessors; Graph.Execute(exec, overrides) with self-contained recovery stack. |
+| 3b. Top-level convergence + override wiring | **complete** | uncommitted. Run funnels through graph.executeWith; Node.ResolveSlots(env, results, overrides); executeChildren routes overrides to topological roots only; executeSubgraph threads overrides through retry loop. Full internal recursion via Graph.Execute deferred to step 9. |
+| 4. Unmarshaler + Convert infrastructure | **complete** | uncommitted. bind.Unmarshaler with 11 wrappers (bool, int, float, string, bytes, none, list, tuple, dict, set, function); *Promise and *receiver get Unmarshal methods. op.Convert(ctx, value, target) cascade with slice lift. Convertible extended with ConvertFrom; *mem.Function stub. No registry — polymorphism via Convertible + registry-based target instantiation. |
+| 5. Rewrite bind.FillSlot | not-started | consumes step 4's pipeline; replaces unmarshalValue and fillResourceSlot. |
+| 6. Collapse Planner.dispatch; delete fillResourceSlot | not-started | |
+| 7. Make Action.Do delegate to Method.Invoke | not-started | Action.Do stays as the framework's uniform execution interface. Its implementation in action_types.go's action/fallibleAction/compensableAction wrappers stops unpacking map[string]any and stops casting slot values; each Do becomes a one-line call to (*op.Method).Invoke(ctx, receiver, slots). compileDispatcher is the single reflection dispatch implementation. |
+| 8. Implement flow.Gather via unified Execute | not-started | per D7 design; gather binds items[i] per iteration under fresh scope. |
+| 9. Full recursion through Graph.Execute | not-started | observability choke point; follows gather so regressions surface in step 9 testing. |
+| 10. Rebind — Node.Bind / Graph.Bind | not-started | |
+| 11. Provider update — delete Do boilerplate, regen | not-started | |
+| 12. Executor update | not-started | |
+| 13. Test triage | not-started | most Phase 8 failures expected to resolve. |
+
+**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Step 1 is committed (`ee3aeca`); steps 2/3a/3b/4 are uncommitted working-tree changes. Tests remain broken pending T1 delete script at `~/Workspace/NobleFactor/go` (see: Phase 7 step 1 test rewrite policy, D2).
+
+**Open clean-up queued:**
+- Run `~/Workspace/NobleFactor/go` (currently holds the test-delete script) to delete ~30 broken hand-written test files. Keeping `pkg/op/recovery_test.go` (compiles clean) and generated `*.gen_test.go` files (will regen broken until codegen template is fixed in step 10).
+- Commit steps 2/3a/3b/4 as a single "checkpoint(phase-7): steps 2-4" commit when ready.
+
+**Recorded principles** (project memory):
+- `project_plan_time_validation` — graph is immutable after plan time; Execute trusts the precomputed surface and does not revalidate.
+- `project_subgraph_parameters_bubble` — Subgraph.Parameters() is the union-by-name of every topological root's parameters; name collisions are plan-time errors.
+- `project_phase_7_no_legacy` — Phase 7 end-state has no legacy remaining; every deprecated path is removed by phase completion.
+- `project_reexamine_registry_graph` — follow-up: reexamine whether writ's registryExecutionGraph types need to be separate from op.Graph.
 
 # Phase 7: Slot = (Parameter, Value)
 
@@ -142,6 +173,18 @@ SlotsByName map[string]*Slot         `json:"-"` // derived; rebuilt on load / mu
 Phase 7's invariant already states nodes and subgraphs are
 interchangeable anywhere a reference is valid. Extension: the
 interchangeability includes the parameter surface.
+
+**Plan time vs. execute time.** Parameter-surface validation
+(argument count, name match, root-union collision detection) happens
+**at plan time only**. The graph is immutable after planning
+completes. `Execute(exec, overrides)` trusts the precomputed surface
+and does not revalidate. This has two consequences:
+
+- `Parameters()` is a plan-time query. Call frequency is bounded by
+  the size of the plan, not by execution-time work (gather
+  iterations, choose branches, etc. do not call it).
+- No caching of `Parameters()` in step 2. Compute on demand;
+  composition cost is negligible at plan-time call frequencies.
 
 ```go
 // ExecutableUnit is anything that can be dispatched: a Node or a Subgraph.
@@ -342,10 +385,20 @@ step 8.
 2. **ExecutableUnit interface.** `Node` and `Subgraph` both implement
    `Parameters() []op.Parameter`. Subgraph declares its input surface
    explicitly.
-3. **Unified `Execute(exec, overrides)`.** Single executor entry point
-   with lexical scope rules. Top-level `Graph.Execute()` collapses to
-   `Execute(g.Root, nil)`. All choose / recovery / nested-subgraph
-   call sites converge here.
+3. **Unified `Execute(exec, overrides)`.** Public entry point.
+   Split into two sub-steps:
+   - **3a** — public API. `Graph.Execute(exec, overrides)` exists with
+     the right signature. Delegates to existing `executeNode` /
+     `executeSubgraph` internals. Rejects non-empty overrides.
+   - **3b** — top-level convergence + override wiring.
+     `GraphExecutor.Run(graph)` funnels through
+     `graph.Execute(graph.Root, nil)`. Overrides thread through
+     `Node.ResolveSlots(env, results, overrides)` and route to
+     topological root children only (non-root children receive
+     inputs via promises, not from outside). Subgraph-to-subgraph
+     recursion still goes directly through `executeChildren` /
+     `executeSubgraph`; full recursion through `Graph.Execute` is
+     step 9.
 4. **Type-converter contract.** `FromStarlark(sv starlark.Value)
    (any, error)` on `ReceiverType` (or a sibling interface —
    fork open). Primitives registered in `ReceiverRegistry` at init.
@@ -357,22 +410,43 @@ step 8.
    `method.Parameters()` producing `[]*op.Slot`. Delete
    `regularParams` / `knownKwargs` / `paramTypes` parallel maps.
    Delete `fillResourceSlot` entirely.
-7. **Delete `Action.Do`.** Remove from the `Action` interface. Move
-   reflection dispatch to `(*op.Method).Invoke(receiver any, slots
-   []*op.Slot) (result, complement, err)`.
+7. **Make `Action.Do` delegate to `Method.Invoke`.** `Action.Do`
+   stays as the framework's uniform execution interface. The
+   action/fallibleAction/compensableAction wrappers in
+   `action_types.go` stop unpacking `map[string]any` and stop casting
+   slot values. Each wrapper's `Do` becomes a one-line delegation:
+   `return method.Invoke(ctx, receiver, slots)`. The existing
+   `compileDispatcher` machinery on `*op.Method` — already doing
+   full reflection dispatch — is the single implementation;
+   `Method.Invoke` is its public entry point.
 8. **Implement Gather via unified `Execute`.** Per D7. Body declares
    its iteration input via `Parameters()`; gather binds items[i] per
    iteration under fresh scope.
-9. **Rebind.** `(*Node).Bind(method)` and `(*Graph).Bind(ctx)` rebind
-   `Parameter.Type` from the registry on load. Slots serialize
-   `Parameter.Name` + `Value` only; `Parameter.Type` reattached at
-   load via `node.Receiver`.
-10. **Provider update.** Delete every provider's `Do` boilerplate.
+9. **Full recursion through `Graph.Execute`.** Every recursion step
+   between executable units goes through `Graph.Execute(child,
+   childOverrides)`. `executeChildren`'s per-child switch dispatches
+   via `Graph.Execute` rather than calling `executeNode` /
+   `executeSubgraph` directly. Benefits:
+   - Single choke point for observability hooks — log events,
+     tracing, metrics live on `Graph.Execute` and see every unit
+     dispatch regardless of nesting depth.
+   - Scope rules (when they arrive) wrap a single function.
+   - Recursion path is uniform; no special cases for nested
+     subgraphs-in-subgraphs.
+   Done after gather (step 8) because gather is the first caller
+   that actually exercises deep recursion with overrides, so any
+   regressions surface in step 9's testing rather than being
+   discovered later.
+10. **Rebind.** `(*Node).Bind(method)` and `(*Graph).Bind(ctx)` rebind
+    `Parameter.Type` from the registry on load. Slots serialize
+    `Parameter.Name` + `Value` only; `Parameter.Type` reattached at
+    load via `node.Receiver`.
+11. **Provider update.** Delete every provider's `Do` boilerplate.
     Regenerate `*_gen.go`. Hand-written methods unchanged.
-11. **Executor update.** All executor call sites consume `Slot` /
+12. **Executor update.** All executor call sites consume `Slot` /
     `SlotValue` under the unified model. Replace surviving
     `slot.Immediate.(T)` casts with typed `Slot` accessors.
-12. **Test triage.** Run the full suite. Most Phase 9 failures
+13. **Test triage.** Run the full suite. Most Phase 8 failures
     should resolve as side effects of the coherent model. Fold
     legitimate residuals into follow-up fixes.
 

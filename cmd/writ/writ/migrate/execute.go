@@ -60,7 +60,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	for _, node := range renameNodes {
 		target, ok := node.SlotByName("path").Immediate().(string)
 		if !ok || target == "" {
-			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID)
+			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID())
 		}
 		if exists(target) {
 			return fmt.Errorf("target directory %q already exists; aborting", target)
@@ -72,11 +72,11 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	for _, node := range renameNodes {
 		source, ok := node.SlotByName("source").Immediate().(string)
 		if !ok || source == "" {
-			return fmt.Errorf("rename node %s: source slot missing or not a string", node.ID)
+			return fmt.Errorf("rename node %s: source slot missing or not a string", node.ID())
 		}
 		target, ok := node.SlotByName("path").Immediate().(string)
 		if !ok || target == "" {
-			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID)
+			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID())
 		}
 		if _, _, err := fp.Move(&file.Resource{SourcePath: op.NewPath("", source)}, target); err != nil {
 			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))

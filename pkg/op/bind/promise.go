@@ -5,6 +5,7 @@ package bind
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
@@ -105,7 +106,7 @@ func (p *Promise) Attr(name string) (starlark.Value, error) {
 
 	switch name {
 	case "node_id":
-		return starlark.String(p.node.ID), nil
+		return starlark.String(p.node.ID()), nil
 	case "slot":
 		return starlark.String(p.slot), nil
 	case "retry":
@@ -165,9 +166,9 @@ func (p *Promise) AttrNames() []string {
 //   - consumer: the node that should depend on this output's producer.
 func (p *Promise) DependOn(consumer *op.Node) {
 
-	p.graph.Edges = append(p.graph.Edges, op.Edge{
-		From: p.node.ID,
-		To:   consumer.ID,
+	p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{
+		From: p.node.ID(),
+		To:   consumer.ID(),
 	})
 }
 
@@ -180,13 +181,37 @@ func (p *Promise) DependOn(consumer *op.Node) {
 func (p *Promise) FillSlot(consumer *op.Node, slot string) {
 
 	// Set the slot to reference this output's node
-	consumer.SetSlot(slot, op.PromiseValue{NodeRef: p.node.ID, Slot: p.slot})
+	consumer.SetSlot(slot, op.PromiseValue{NodeRef: p.node.ID(), Slot: p.slot})
 
 	// Create edge: producer must complete before consumer
-	p.graph.Edges = append(p.graph.Edges, op.Edge{
-		From: p.node.ID,
-		To:   consumer.ID,
+	p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{
+		From: p.node.ID(),
+		To:   consumer.ID(),
 	})
+}
+
+// Unmarshal projects this promise onto a Go target. For a *Promise target
+// the pointer is stored directly; for a PromiseValue target the slot-ref
+// shape is stored; for any other target it errors — promises are not
+// directly resolvable to Go scalar types at plan time.
+func (p *Promise) Unmarshal(target reflect.Value) error {
+
+	promiseType := reflect.TypeOf((*Promise)(nil))
+	promiseValueType := reflect.TypeOf(op.PromiseValue{})
+
+	if target.Kind() == reflect.Interface {
+		target.Set(reflect.ValueOf(p))
+		return nil
+	}
+	if target.Type() == promiseType {
+		target.Set(reflect.ValueOf(p))
+		return nil
+	}
+	if target.Type() == promiseValueType {
+		target.Set(reflect.ValueOf(op.PromiseValue{NodeRef: p.node.ID(), Slot: p.slot}))
+		return nil
+	}
+	return fmt.Errorf("unmarshal: cannot assign Promise to %s (promises resolve at execute time)", target.Type())
 }
 
 // Freeze implements starlark.Value.
@@ -203,7 +228,7 @@ func (p *Promise) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: Pro
 //
 // Returns:
 //   - string: human-readable representation.
-func (p *Promise) String() string { return fmt.Sprintf("Promise(%s)", p.node.ID) }
+func (p *Promise) String() string { return fmt.Sprintf("Promise(%s)", p.node.ID()) }
 
 // Truth implements starlark.Value.
 //
@@ -328,7 +353,7 @@ func fillSlot(graph *op.Graph, node *op.Node, slot string, value starlark.Value)
 		// planning layer without a lossy marshal→unmarshal round-trip.
 		goVal := v.instance
 		if originID, found := op.ExtractResource(goVal); found {
-			graph.Edges = append(graph.Edges, op.Edge{From: originID, To: node.ID})
+			graph.Root.Edges = append(graph.Root.Edges, op.Edge{From: originID, To: node.ID()})
 		}
 		node.SetSlot(slot, op.ImmediateValue{Value: goVal})
 		return nil
@@ -384,10 +409,10 @@ func fillOutputList(node *op.Node, graph *op.Graph, slotName string, list *starl
 	// All elements are promises — create edges and indexed sub-slots.
 	for i, output := range outputs {
 		subSlot := fmt.Sprintf("%s[%d]", slotName, i)
-		node.SetSlot(subSlot, op.PromiseValue{NodeRef: output.node.ID, Slot: output.slot})
-		graph.Edges = append(graph.Edges, op.Edge{
-			From: output.node.ID,
-			To:   node.ID,
+		node.SetSlot(subSlot, op.PromiseValue{NodeRef: output.node.ID(), Slot: output.slot})
+		graph.Root.Edges = append(graph.Root.Edges, op.Edge{
+			From: output.node.ID(),
+			To:   node.ID(),
 		})
 	}
 	node.SetSlot(slotName+".len", op.ImmediateValue{Value: n})

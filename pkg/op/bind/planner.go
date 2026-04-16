@@ -191,10 +191,8 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 
 	// Create node.
 
-	node := &op.Node{
-		ID:       op.GenerateNodeID(actionName),
-		Receiver: actionName,
-	}
+	node := op.NewNode(op.GenerateNodeID(actionName))
+	node.Receiver = actionName
 
 	// Fill slots from starlark values. Every resource-typed parameter is
 	// coerced from a string to a typed resource and routed through the
@@ -320,7 +318,7 @@ func (p *Planner) shadowPendingOutput(node *op.Node, method *op.Method) error {
 	if p.graph.Catalog == nil {
 		p.graph.Catalog = op.NewResourceCatalog()
 	}
-	if _, err := p.graph.Catalog.Shadow(pending, node.ID); err != nil {
+	if _, err := p.graph.Catalog.Shadow(pending, node.ID()); err != nil {
 		return fmt.Errorf("shadow output: %w", err)
 	}
 	return nil
@@ -419,7 +417,7 @@ func (p *Planner) fillResourceSlot(node *op.Node, slotName string, targetType re
 	canonical, _ := p.graph.Catalog.Resolve(res)
 
 	if originID, hasOrigin := op.ExtractResource(canonical); hasOrigin {
-		p.graph.Edges = append(p.graph.Edges, op.Edge{From: originID, To: node.ID})
+		p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{From: originID, To: node.ID()})
 	}
 
 	// Store the canonical typed resource in the slot. If the target type is a

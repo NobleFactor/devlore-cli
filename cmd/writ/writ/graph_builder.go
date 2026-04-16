@@ -120,13 +120,11 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 
 		if len(actions) == 1 {
 			// Single operation — single node
-			node := &op.Node{
-				ID:     f.ID,
-				Receiver: actions[0],
-				Status: op.StatusPending,
-				Origin: f.Project,
-				Layer:  f.Layer,
-			}
+			node := op.NewNode(f.ID)
+			node.Receiver = actions[0]
+			node.Status = op.StatusPending
+			node.Origin = f.Project
+			node.Layer = f.Layer
 			node.SetSlot("source", op.ImmediateValue{Value: f.Source})
 			node.SetSlot("path", op.ImmediateValue{Value: f.Target})
 			if f.Mode != 0 {
@@ -143,13 +141,11 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 					nodeID = f.ID + ":" + action
 				}
 
-				node := &op.Node{
-					ID:     nodeID,
-					Receiver: action,
-					Status: op.StatusPending,
-					Origin: f.Project,
-					Layer:  f.Layer,
-				}
+				node := op.NewNode(nodeID)
+				node.Receiver = action
+				node.Status = op.StatusPending
+				node.Origin = f.Project
+				node.Layer = f.Layer
 				if i == 0 {
 					node.SetSlot("source", op.ImmediateValue{Value: f.Source})
 				}
@@ -162,8 +158,8 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 				g.AddNode(node)
 
 				if prevNode != nil {
-					g.Edges = append(g.Edges, op.Edge{
-						From: prevNode.ID, To: node.ID,
+					g.Root.Edges = append(g.Root.Edges, op.Edge{
+						From: prevNode.ID(), To: node.ID(),
 					})
 				}
 				prevNode = node
@@ -438,13 +434,11 @@ func (b *DecommissionGraphBuilder) Build() (*op.Graph, error) {
 		}
 
 		target := filepath.Join(b.view.Files.Root, relTarget)
-		node := &op.Node{
-			ID:     relTarget,
-			Receiver: action,
-			Status: op.StatusPending,
-			Origin: entry.Project,
-			Layer:  entry.Layer,
-		}
+		node := op.NewNode(relTarget)
+		node.Receiver = action
+		node.Status = op.StatusPending
+		node.Origin = entry.Project
+		node.Layer = entry.Layer
 		node.SetSlot("source", op.ImmediateValue{Value: entry.Source})
 		node.SetSlot("path", op.ImmediateValue{Value: target})
 

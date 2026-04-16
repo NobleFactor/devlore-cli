@@ -311,14 +311,12 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 		}
 
 		sgID := fmt.Sprintf("subgraph.%s.%s", pkg.Name, phaseName)
-		sg := &op.Subgraph{
-			ID:     sgID,
-			Name:   phaseName,
-			Status: op.SubgraphPending,
-		}
+		sg := op.NewSubgraph(sgID)
+		sg.Name = phaseName
+		sg.Status = op.SubgraphPending
 
 		// Snapshot current children count to capture nodes added by sub-functions.
-		childrenBefore := len(graph.Children)
+		childrenBefore := len(graph.Root.Children)
 
 		for _, action := range actions {
 			switch a := action.(type) {
@@ -340,9 +338,9 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 		}
 
 		// Move newly added children from graph root into the subgraph.
-		newChildren := graph.Children[childrenBefore:]
+		newChildren := graph.Root.Children[childrenBefore:]
 		sg.Children = append(sg.Children, newChildren...)
-		graph.Children = graph.Children[:childrenBefore]
+		graph.Root.Children = graph.Root.Children[:childrenBefore]
 
 		// Move edges whose endpoints are both in this subgraph.
 		childIDs := make(map[string]bool, len(newChildren))
@@ -351,14 +349,14 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 		}
 
 		var kept []op.Edge
-		for _, e := range graph.Edges {
+		for _, e := range graph.Root.Edges {
 			if childIDs[e.From] && childIDs[e.To] {
 				sg.Edges = append(sg.Edges, e)
 			} else {
 				kept = append(kept, e)
 			}
 		}
-		graph.Edges = kept
+		graph.Root.Edges = kept
 
 		graph.AddSubgraph(sg)
 	}
@@ -522,11 +520,9 @@ func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepac
 	}
 
 	// Create the node with resolved action
-	node := &op.Node{
-		ID:       fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName),
-		Receiver: actionName,
-		Origin:   pkg.Name,
-	}
+	node := op.NewNode(fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName))
+	node.Receiver = actionName
+	node.Origin = pkg.Name
 	node.SetSlot("packages", op.ImmediateValue{Value: strings.Join(action.Packages, ",")})
 	node.SetSlot("phase", op.ImmediateValue{Value: action.PhaseName})
 

@@ -193,10 +193,10 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 		}
 	}
 
-	results := make(map[string]any)
+	ctx.Results = make(map[string]any)
 	stack := NewRecoveryStack()
 
-	result, err := e.executeChildren(graph, graph.Children, graph.Edges, results, stack)
+	result, err := graph.executeWith(e, stack, graph.Root, nil)
 
 	summary := graph.Summary()
 
@@ -235,24 +235,38 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 // Returns:
 //   - any: the last node's output value, or nil if no node produced output.
 //   - error: non-nil if any child fails.
-func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, edges []Edge, results map[string]any, stack *RecoveryStack) (any, error) {
+func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, edges []Edge, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	sorted := SortChildren(children, edges)
+
+	// Topological roots — children with no incoming edges at this level —
+	// receive overrides. Non-root children consume their inputs via promises
+	// resolved from the results map, so overrides bypass them.
+	hasIncoming := make(map[string]bool, len(edges))
+	for _, edge := range edges {
+		hasIncoming[edge.To] = true
+	}
+
 	var lastResult any
 
 	for _, child := range sorted {
+		var childOverrides map[string]SlotValue
+		if !hasIncoming[child.ChildID()] {
+			childOverrides = overrides
+		}
+
 		switch {
 		case child.Node != nil:
-			nodeResult := e.executeNode(child.Node, results, stack)
+			nodeResult := e.executeNode(child.Node, results, stack, childOverrides)
 			if nodeResult.Status == ResultFailed {
 				return nil, nodeResult.Error
 			}
-			if v, ok := results[child.Node.ID]; ok {
+			if v, ok := results[child.Node.ID()]; ok {
 				lastResult = v
 			}
 
 		case child.Subgraph != nil:
-			sgResult, err := e.executeSubgraph(graph, child.Subgraph, results, stack)
+			sgResult, err := e.executeSubgraph(graph, child.Subgraph, results, stack, childOverrides)
 			if err != nil {
 				return nil, err
 			}
@@ -276,7 +290,7 @@ func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, 
 // Returns:
 //   - any: the last node's output value within the subgraph, or nil.
 //   - error: non-nil if the subgraph fails after all retry attempts.
-func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack) (any, error) {
+func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	maxAttempts := 1
 
@@ -306,11 +320,11 @@ func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[
 			resetSubgraphNodes(sg)
 		}
 
-		e.hooks.FireSubgraphStart(ctx, sg.ID)
+		e.hooks.FireSubgraphStart(ctx, sg.ID())
 
-		childResult, innerErr := e.executeChildren(graph, sg.Children, sg.Edges, results, stack)
+		childResult, innerErr := e.executeChildren(graph, sg.Children, sg.Edges, results, stack, overrides)
 
-		e.hooks.FireSubgraphComplete(ctx, sg.ID, innerErr)
+		e.hooks.FireSubgraphComplete(ctx, sg.ID(), innerErr)
 
 		attemptRecord := Attempt{
 			Number:    attempt + 1,
@@ -358,7 +372,7 @@ func resetSubgraphNodes(sg *Subgraph) {
 //
 // Returns:
 //   - *NodeResult: the execution outcome.
-func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *RecoveryStack) *NodeResult {
+func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
 
 	ctx := node.ExecutionContext()
 	action, err := node.Action()
@@ -366,27 +380,27 @@ func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *R
 	if err != nil {
 		node.Status = StatusFailed
 		return &NodeResult{
-			NodeID: node.ID,
+			NodeID: node.ID(),
 			Status: ResultFailed,
-			Error:  fmt.Errorf("node %s: %w", node.ID, err),
+			Error:  fmt.Errorf("node %s: %w", node.ID(), err),
 		}
 	}
 
-	slots := node.ResolvedSlots(ctx, results)
+	slots := node.ResolveSlots(ctx, results, overrides)
 
 	ctx.Results = results
 
-	e.hooks.FireNodeStart(ctx, node.ID, slots)
+	e.hooks.FireNodeStart(ctx, node.ID(), slots)
 
 	result, complement, err := action.Do(ctx, slots)
 
 	if err != nil {
 
-		e.hooks.FireNodeComplete(ctx, node.ID, nil, err)
+		e.hooks.FireNodeComplete(ctx, node.ID(), nil, err)
 		node.Status = StatusFailed
 
 		return &NodeResult{
-			NodeID: node.ID,
+			NodeID: node.ID(),
 			Status: ResultFailed,
 			Error:  fmt.Errorf("%s: %w", node.Receiver, err),
 		}
@@ -413,38 +427,38 @@ func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *R
 
 		var catErr error
 		if pendingID := catalog.Current(resource.URI()); pendingID != "" {
-			if pending, ok := catalog.Lookup(pendingID); ok && pending.resourceBase().originID == node.ID {
-				catErr = catalog.Transition(resource, node.ID)
+			if pending, ok := catalog.Lookup(pendingID); ok && pending.resourceBase().originID == node.ID() {
+				catErr = catalog.Transition(resource, node.ID())
 			} else {
-				_, catErr = catalog.Shadow(resource, node.ID)
+				_, catErr = catalog.Shadow(resource, node.ID())
 			}
 		} else {
-			_, catErr = catalog.Shadow(resource, node.ID)
+			_, catErr = catalog.Shadow(resource, node.ID())
 		}
 
 		if catErr != nil {
 			stack.PushAction(ctx, action, complement)
-			e.hooks.FireNodeComplete(ctx, node.ID, nil, catErr)
+			e.hooks.FireNodeComplete(ctx, node.ID(), nil, catErr)
 			node.Status = StatusFailed
 			return &NodeResult{
-				NodeID: node.ID,
+				NodeID: node.ID(),
 				Status: ResultFailed,
 				Error:  fmt.Errorf("%s: post-dispatch catalog: %w", node.Receiver, catErr),
 			}
 		}
 	}
 
-	e.hooks.FireNodeComplete(ctx, node.ID, result, nil)
+	e.hooks.FireNodeComplete(ctx, node.ID(), result, nil)
 
 	if result != nil {
-		results[node.ID] = result
+		results[node.ID()] = result
 	}
 
 	stack.PushAction(ctx, action, complement)
 	node.Status = StatusCompleted
 
 	return &NodeResult{
-		NodeID: node.ID,
+		NodeID: node.ID(),
 		Status: ResultCompleted,
 	}
 }

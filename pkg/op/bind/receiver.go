@@ -32,13 +32,6 @@ type Marshaler interface {
 	MarshalStarlark() (starlark.Value, error)
 }
 
-// Unmarshaler is implemented by Starlark values that want to coerce themselves into a specific Go [reflect.Type].
-//
-// Check for this interface before assigning fields via reflection.
-type Unmarshaler interface {
-	UnmarshalStarlark(reflect.Type) (any, error)
-}
-
 // receiver wraps a registered Go instance for starlark use.
 //
 // It implements [starlark.Value], [starlark.HasAttrs], and [starlark.Comparable]. Fields are resolved first by
@@ -211,21 +204,19 @@ func (r *receiver) Attr(name string) (starlark.Value, error) {
 //   - []string: sorted list of available method names.
 func (r *receiver) AttrNames() []string { return r.attrNames }
 
-// UnmarshalStarlark implements [Unmarshaler].
+// Unmarshal projects this receiver's wrapped Go instance into the target reflect.Value.
 //
-// Delegates to [op.Convertible] on the wrapped instance if available. Falls back to direct extraction when the
-// instance's type is assignable to the target.
-//
-// Parameters:
-//   - target: the Go type to coerce into.
-//
-// Returns:
-//   - any: the converted Go value.
-//   - error: non-nil if conversion is not supported.
-func (r *receiver) UnmarshalStarlark(target reflect.Type) (any, error) {
+// Delegates to [op.Convertible] on the wrapped instance if available. Falls back to direct
+// extraction when the instance's type is assignable to the target.
+func (r *receiver) Unmarshal(target reflect.Value) error {
 
 	if c, ok := r.instance.(op.Convertible); ok {
-		return c.ConvertTo(target)
+		val, err := c.ConvertTo(target.Type())
+		if err != nil {
+			return err
+		}
+		target.Set(reflect.ValueOf(val))
+		return nil
 	}
 
 	elem := reflect.ValueOf(r.instance)
@@ -233,11 +224,12 @@ func (r *receiver) UnmarshalStarlark(target reflect.Type) (any, error) {
 		elem = elem.Elem()
 	}
 
-	if elem.Type().AssignableTo(target) {
-		return elem.Interface(), nil
+	if elem.Type().AssignableTo(target.Type()) {
+		target.Set(elem)
+		return nil
 	}
 
-	return nil, fmt.Errorf("bind.receiver(%s): cannot coerce to %s", r.Type(), target)
+	return fmt.Errorf("bind.receiver(%s): cannot coerce to %s", r.Type(), target.Type())
 }
 
 // endregion
@@ -602,15 +594,7 @@ func (r *receiver)unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 	// Custom unmarshaler: let the starlark value coerce itself into the target Go type.
 
 	if u, ok := sv.(Unmarshaler); ok {
-
-		val, err := u.UnmarshalStarlark(rv.Type())
-
-		if err != nil {
-			return err
-		}
-
-		rv.Set(reflect.ValueOf(val))
-		return nil
+		return u.Unmarshal(rv)
 	}
 
 	// Pass through Go pointer handles: if the starlark.Value is directly assignable to the target type, use it as-is.

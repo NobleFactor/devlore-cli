@@ -3,7 +3,7 @@ title: "Extract starlark infrastructure from pkg/op into pkg/op/bind"
 issue: 264
 status: in-progress
 created: 2026-03-24
-updated: 2026-04-15 (Phase 7 design recorded in `extract-starlark-from-op/phase-7.md` sub-plan; unified `Execute` model and scope rules added; phases renumbered by execution order)
+updated: 2026-04-16 (Phase 7 steps 1-4 complete; step 1 committed, steps 2-4 uncommitted; design + implementation status tracked in sub-plan)
 ---
 
 # Plan: Extract Starlark Infrastructure from pkg/op
@@ -1323,14 +1323,16 @@ runtime overrides via `Execute`, not a structural slot variant.
    planner stops special-casing resources.
 7. `Planner.dispatch` stops exploding `Parameter`. It iterates
    `method.Parameters()` once, building `[]*op.Slot` directly.
-8. **`Action.Do` is deleted from the public Action interface.**
-   Providers are pure Go structs with plain Go methods. `Planned` and
-   `Compensate` companions are discovered by reflection (Phase 8
-   already does this). The framework's internal reflection dispatcher
-   on `*op.Method` reads `Slot.Value` by `Parameter.Name`, assembles
-   `reflect.Value` args positionally, invokes the Go method, and
-   interprets the return tuple per `MethodKind`. **Nothing in the
-   provider's surface contains a `map[string]any`.**
+8. **`Action.Do` delegates to `(*op.Method).Invoke`.**
+   `Action.Do` stays as the framework's uniform execution interface.
+   The `action` / `fallibleAction` / `compensableAction` wrappers in
+   `action_types.go` stop unpacking `map[string]any` and stop casting
+   slot values; each wrapper's `Do` becomes a one-line delegation to
+   `method.Invoke(ctx, receiver, slots)`. The existing
+   `compileDispatcher` on `*op.Method` is the single reflection
+   dispatch implementation. Providers are pure Go structs with plain
+   Go methods — no `Do` boilerplate. **Nothing in the provider's
+   surface contains a `map[string]any`.**
 9. `(*op.Graph).Bind(ctx *ExecutionContext)` and
    `(*op.Node).Bind(method *Method)` rebind `Parameter.Type` from the
    registry on load, via `node.Receiver`. Slots serialize
@@ -1355,7 +1357,7 @@ Summary of the updated 12-step outline:
 4. Type-converter contract on `ReceiverType`; register primitives.
 5. Rewrite `bind.FillSlot`.
 6. Collapse `Planner.dispatch`; delete `fillResourceSlot`.
-7. Delete `Action.Do`; move dispatch to `(*op.Method).Invoke`.
+7. Make `Action.Do` delegate to `(*op.Method).Invoke`; delete the slot-unpacking in action_types.go.
 8. Implement `flow.Gather` via unified `Execute`.
 9. Rebind — `(*Node).Bind(method)` / `(*Graph).Bind(ctx)`.
 10. Provider update — delete every `Do` boilerplate; regenerate.
