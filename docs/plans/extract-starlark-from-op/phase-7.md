@@ -16,7 +16,7 @@ updated: 2026-04-16
 | 3a. Graph.Execute public API + Root field | **complete** | uncommitted. Graph.Root *Subgraph with "root" ID; Children()/Edges() read accessors; Graph.Execute(exec, overrides) with self-contained recovery stack. |
 | 3b. Top-level convergence + override wiring | **complete** | uncommitted. Run funnels through graph.executeWith; Node.ResolveSlots(env, results, overrides); executeChildren routes overrides to topological roots only; executeSubgraph threads overrides through retry loop. Full internal recursion via Graph.Execute deferred to step 9. |
 | 4. Unmarshaler + Convert infrastructure | **complete** | uncommitted. bind.Unmarshaler with 11 wrappers (bool, int, float, string, bytes, none, list, tuple, dict, set, function); *Promise and *receiver get Unmarshal methods. op.Convert(ctx, value, target) cascade with slice lift. Convertible extended with ConvertFrom; *mem.Function stub. No registry — polymorphism via Convertible + registry-based target instantiation. |
-| 5. Rewrite bind.FillSlot | not-started | consumes step 4's pipeline; replaces unmarshalValue and fillResourceSlot. |
+| 5. Rewrite bind.FillSlot | not-started | `(*Planner).FillSlot` — method, not free function. Consumes step 4's pipeline; replaces `fillSlot` + `fillResourceSlot`. |
 | 6. Collapse Planner.dispatch; delete fillResourceSlot | not-started | |
 | 7. Make Action.Do delegate to Method.Invoke | not-started | Action.Do stays as the framework's uniform execution interface. Its implementation in action_types.go's action/fallibleAction/compensableAction wrappers stops unpacking map[string]any and stops casting slot values; each Do becomes a one-line call to (*op.Method).Invoke(ctx, receiver, slots). compileDispatcher is the single reflection dispatch implementation. |
 | 8. Implement flow.Gather via unified Execute | not-started | per D7 design; gather binds items[i] per iteration under fresh scope. |
@@ -402,10 +402,16 @@ step 8.
 4. **Type-converter contract.** `FromStarlark(sv starlark.Value)
    (any, error)` on `ReceiverType` (or a sibling interface —
    fork open). Primitives registered in `ReceiverRegistry` at init.
-5. **Rewrite `bind.FillSlot`.** New signature takes `*op.Slot` +
-   `starlark.Value`. Graph-edge dispatch first; delegate to
-   `slot.Parameter.Type`'s converter otherwise. Delete free-function
-   internals and the starlark-kind switch.
+5. **Rewrite `bind.FillSlot`.** Promote to a method on `*Planner`:
+   `func (p *Planner) FillSlot(node *op.Node, slot *op.Slot, value
+   starlark.Value) error`. No free functions — `p.graph` and
+   `p.graph.ExecutionContext()` supply graph and context. Graph-edge
+   dispatch first; delegate to `slot.Parameter.Type`'s converter via
+   `ToUnmarshaler` + `op.Convert` otherwise. Delete the free-function
+   `fillSlot` in `promise.go` and the starlark-kind switch.
+   Structurally parallels the executing-path twin `(*receiver).unmarshalValue`:
+   each dispatch role owns its own filling method; the shared substrate
+   is `ToUnmarshaler` + `op.Convert`.
 6. **Collapse `Planner.dispatch`.** Single pass over
    `method.Parameters()` producing `[]*op.Slot`. Delete
    `regularParams` / `knownKwargs` / `paramTypes` parallel maps.
