@@ -4,6 +4,7 @@
 package op
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -196,7 +197,7 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 	ctx.Results = make(map[string]any)
 	stack := NewRecoveryStack()
 
-	result, err := graph.dispatch(e, stack, graph.Root, ctx.Results, nil)
+	result, err := graph.dispatch(ctx.Context, e, stack, graph.Root, ctx.Results, nil)
 
 	summary := graph.Summary()
 
@@ -235,7 +236,7 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 // Returns:
 //   - any: the last node's output value, or nil if no node produced output.
 //   - error: non-nil if any child fails.
-func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, edges []Edge, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, children []SubgraphChild, edges []Edge, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	sorted := SortChildren(children, edges)
 
@@ -265,7 +266,7 @@ func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, 
 			continue
 		}
 
-		childResult, err := graph.dispatch(e, stack, unit, results, childOverrides)
+		childResult, err := graph.dispatch(ctx, e, stack, unit, results, childOverrides)
 		if err != nil {
 			return nil, err
 		}
@@ -288,7 +289,7 @@ func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, 
 // Returns:
 //   - any: the last node's output value within the subgraph, or nil.
 //   - error: non-nil if the subgraph fails after all retry attempts.
-func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	maxAttempts := 1
 
@@ -296,7 +297,7 @@ func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[
 		maxAttempts += sg.Retry.MaxAttempts
 	}
 
-	ctx := graph.ExecutionContext()
+	ec := graph.ExecutionContext()
 	var lastErr error
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -318,11 +319,11 @@ func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[
 			resetSubgraphNodes(sg)
 		}
 
-		e.hooks.FireSubgraphStart(ctx, sg.ID())
+		e.hooks.FireSubgraphStart(ec, sg.ID())
 
-		childResult, innerErr := e.executeChildren(graph, sg.Children, sg.Edges, results, stack, overrides)
+		childResult, innerErr := e.executeChildren(ctx, graph, sg.Children, sg.Edges, results, stack, overrides)
 
-		e.hooks.FireSubgraphComplete(ctx, sg.ID(), innerErr)
+		e.hooks.FireSubgraphComplete(ec, sg.ID(), innerErr)
 
 		attemptRecord := Attempt{
 			Number:    attempt + 1,
@@ -370,9 +371,22 @@ func resetSubgraphNodes(sg *Subgraph) {
 //
 // Returns:
 //   - *NodeResult: the execution outcome.
-func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
+func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
 
-	ctx := node.ExecutionContext()
+	// Cooperative cancellation check at unit entry. Honors both root/external
+	// cancel (tool signal handler) and any ancestor combinator's scoped cancel
+	// (e.g., a gather that cancelled its iterations on first failure) via ctx
+	// inheritance through dispatch.
+	if err := ctx.Err(); err != nil {
+		node.Status = StatusFailed
+		return &NodeResult{
+			NodeID: node.ID(),
+			Status: ResultFailed,
+			Error:  fmt.Errorf("node %s: %w", node.ID(), err),
+		}
+	}
+
+	ec := node.ExecutionContext()
 	action, err := node.Action()
 
 	if err != nil {
@@ -384,17 +398,17 @@ func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *R
 		}
 	}
 
-	slots := node.ResolveSlots(ctx, results, overrides)
+	slots := node.ResolveSlots(ec, results, overrides)
 
-	ctx.Results = results
+	ec.Results = results
 
-	e.hooks.FireNodeStart(ctx, node.ID(), slots)
+	e.hooks.FireNodeStart(ec, node.ID(), slots)
 
-	result, complement, err := action.Do(ctx, slots)
+	result, complement, err := action.Do(ec, slots)
 
 	if err != nil {
 
-		e.hooks.FireNodeComplete(ctx, node.ID(), nil, err)
+		e.hooks.FireNodeComplete(ec, node.ID(), nil, err)
 		node.Status = StatusFailed
 
 		return &NodeResult{
@@ -435,8 +449,8 @@ func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *R
 		}
 
 		if catErr != nil {
-			stack.PushAction(ctx, action, complement)
-			e.hooks.FireNodeComplete(ctx, node.ID(), nil, catErr)
+			stack.PushAction(ec, action, complement)
+			e.hooks.FireNodeComplete(ec, node.ID(), nil, catErr)
 			node.Status = StatusFailed
 			return &NodeResult{
 				NodeID: node.ID(),
@@ -446,13 +460,13 @@ func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *R
 		}
 	}
 
-	e.hooks.FireNodeComplete(ctx, node.ID(), result, nil)
+	e.hooks.FireNodeComplete(ec, node.ID(), result, nil)
 
 	if result != nil {
 		results[node.ID()] = result
 	}
 
-	stack.PushAction(ctx, action, complement)
+	stack.PushAction(ec, action, complement)
 	node.Status = StatusCompleted
 
 	return &NodeResult{

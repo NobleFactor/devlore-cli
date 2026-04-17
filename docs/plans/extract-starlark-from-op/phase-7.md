@@ -21,13 +21,14 @@ updated: 2026-04-16
 | 7. Make Action.Do delegate to Method.Invoke | **complete** | Added `(*op.Method).Invoke(ctx, receiver, slots map[string]any)` running slot values through `op.Convert` and calling the reflective Do. Action/fallibleAction/compensableAction wrappers simplified to construct provider + DryRun gate + delegate to Invoke. Deleted `prepareCall` and `coerceSlotValue` (subsumed). Flipped `(*receiver).dispatch` to natural-projection + Invoke: starlark args project to natural Go via `r.unmarshalValue` with interface target (keyed by raw Parameter.Name), Method.Invoke handles Go→target via op.Convert. Return marshaling switched to `r.marshal(result any)`; unregistered types get a ReceiverType via `TypeByReflectionOrDerive`. Graph execution is now starlark-free; starlark dies at the receiver.dispatch boundary. String→Resource regression resolved. |
 | 8. Implement flow.Gather via unified Execute | **complete** | Added `Graph.ResolveExecutable(id)` — single lookup over the shared Node/Subgraph ID space. Replaced the `flow.Provider.Gather` stub with the D7 implementation: resolves body via ResolveExecutable, validates `len(Parameters()) == 1`, drives N iterations through `Graph.Execute(body, {inputName: ImmediateValue{items[i]}})` with bounded concurrency (sem-channel of size `limit`), aggregates failures via `errors.Join`. Also included in this commit: `Convertible` → `Converter` rename across `pkg/op/action.go`, `pkg/op/convert.go`, `pkg/op/bind/receiver.go`, `pkg/op/provider/mem/function.go` — single method `Convert(target reflect.Type) (any, error)`; unused `ConvertFrom` deleted. |
 | 9. executeChildren funnels through Graph.dispatch | **complete** | Renamed `Graph.executeWith` → `Graph.dispatch` to name what it actually does. Signature gains an explicit `results map[string]any` parameter (dropped the implicit `g.ctx.Results` access). `executeChildren`'s per-child Node/Subgraph switch collapses into a single call to `graph.dispatch(e, stack, unit, results, childOverrides)` — one extraction of `ExecutableUnit` from `SubgraphChild`, one dispatch call per child. `Graph.Execute` and `GraphExecutor.Run` updated to pass their results map explicitly; `g.ctx.Results` init moved up to Graph.Execute. `dispatch` is now the single hook site for every unit invocation regardless of nesting depth. Does not touch RecoveryStack or gather — those are step 10. |
-| 10. Composite RecoveryStack; gather compensation fix | not-started | RecoveryStack becomes a composite: a stack is itself a valid entry on another stack (option A — stack implements the entry interface directly). Unwinding recurses LIFO into child stacks. Gather redesign: each iteration runs with a fresh RecoveryStack; coordinator holds stacks locally; on total success they push to the parent stack sequentially in completion order; on any failure the coordinator cancels outstanding iterations via ctx, unwinds held stacks in reverse completion order, and returns error with no residue on parent stack. Graph.Execute's fresh-stack bootstrap becomes TRUE external entry only — nested callers use an ambient-aware path. Plumbing for gather to reach ambient executor+stack (likely via ExecutionContext) decided during the step. |
-| 11. Rebind — Node.Bind / Graph.Bind | not-started | |
-| 12. Provider update — delete Do boilerplate, regen | not-started | |
-| 13. Executor update | not-started | |
-| 14. Test triage | not-started | most Phase 8 failures expected to resolve. |
+| 10. Gather compensation + scoped cancellation | **complete** | Gather rewritten: signature `Gather(ctx context.Context, items, do, limit) ([]any, Complement, error)` — `MethodCompensableFunction`. On success returns `[]*RecoveryStack` in completion order as complement; `executeNode`'s `PushAction` wraps it onto the parent stack. New `CompensateGather(stacks []*RecoveryStack) error` companion unwinds in reverse completion order. On failure: `gatherCancel()`, wait for all iterations, unwind held stacks locally, return `(nil, nil, err)` — nil-complement guard leaves no parent residue. Plumbing: `ctx context.Context` threaded through `dispatch`, `executeChildren`, `executeSubgraph`, `executeNode`; `executeNode` checks `ctx.Err()` at entry (honors root cancel + gather-internal cancel via inheritance). `Method.firstParamIsCtx` detection in `NewMethod` via `reflect.TypeOf((*context.Context)(nil)).Elem()`; `Method.Invoke` prepends ambient ctx when set. `Graph.ExecuteWithStack(ctx, exec, stack, overrides)` new public API — caller-owned stack, no bootstrap, no unwind on error. `executeNode`'s local `ctx` renamed to `ec` (ExecutionContext); `executeSubgraph`'s local `ctx` similarly renamed. No changes to `RecoveryStack` type. |
+| 11. Subgraph / choose cleanup | not-started | Fix `ExecutionContext.ExecuteSubgraph` at `context.go:158-161`: stop calling `graph.Execute(sg, nil)` (fresh stack bootstrap); route through an ambient-aware path that shares the caller's executor and stack. Audit `flow.Choose` for the same pattern; align with subgraph-scoped cancellation. Because subgraph children run sequentially, subgraphs do not derive their own scope ctx — they pass ctx through from their caller (ctx inheritance covers root cancel and ancestor-gather cancel). The only derivation sites after step 11 remain root + gather. If `Choose` or another combinator later needs self-initiated cancellation, that's its own future step. |
+| 12. Rebind — Node.Bind / Graph.Bind | not-started | |
+| 13. Provider update — delete Do boilerplate, regen | not-started | |
+| 14. Executor update | not-started | |
+| 15. Test triage | not-started | most Phase 8 failures expected to resolve. |
 
-**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Steps 1–9 complete. Step 10 is next.
+**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Steps 1–10 complete. Step 11 is next.
 
 **Recorded principles** (project memory):
 - `project_plan_time_validation` — graph is immutable after plan time; Execute trusts the precomputed surface and does not revalidate.
@@ -445,39 +446,77 @@ step 8.
    regressions surface in step 9's testing rather than being
    discovered later. Does not touch `RecoveryStack` or gather's
    compensation behavior — those move to step 10.
-10. **Composite `RecoveryStack`; gather compensation fix.**
-    `RecoveryStack` becomes a composite: a stack is itself a valid
-    entry on another stack (option A — `RecoveryStack` implements the
-    entry interface directly). Unwinding a composite entry recurses
-    LIFO into the child stack, then the parent continues.
+10. **Gather compensation + scoped cancellation.** Gather's Go
+    signature changes from `Gather(items, do, limit) ([]any, error)`
+    to
+    `Gather(ctx context.Context, items, do, limit) ([]any, Complement, error)` —
+    three returns promotes it to `MethodCompensableFunction`. No
+    changes to `RecoveryStack`'s type or internal shape; the existing
+    `Push` machinery already accepts any compensate closure.
 
-    Gather is redesigned around this. Each iteration runs with a
-    fresh `RecoveryStack`; the coordinator holds stacks locally, not
-    pushed to the parent yet. On total success the coordinator pushes
-    each iteration's stack to the parent stack sequentially in
-    completion order. On any iteration failure the coordinator
-    cancels outstanding iterations via `ctx`, unwinds the
-    locally-held and cancelled stacks in reverse completion order,
-    and returns error with no residue on the parent stack — as if
+    **Compensation.** On total success gather returns its iteration
+    stacks (in completion order) as the complement. The executor's
+    existing `PushAction` call in `executeNode` wraps the complement
+    as a single entry on the parent stack. A new
+    `CompensateGather(stacks []*RecoveryStack) error` companion on
+    `flow.Provider` unwinds each iteration stack in reverse
+    completion order when the parent stack later unwinds.
+
+    **Failure.** The coordinator calls `gatherCancel()` on the first
+    iteration failure, waits for all iterations to finish (outstanding
+    iterations bail at the next node via `ctx.Err()`), then unwinds
+    held stacks locally in reverse completion order and returns
+    `(nil, nil, err)`. `PushAction`'s `complement == nil` guard at
+    `recovery.go:50` leaves no residue on the parent stack — as if
     gather never ran.
 
-    `Graph.Execute`'s fresh-stack bootstrap is documented as TRUE
-    external entry only; nested callers (gather iteration bodies,
-    test harnesses running inside an active execution) use an
-    ambient-aware path that shares the existing executor and stack.
-    Plumbing for gather to reach the ambient executor and parent
-    stack (likely through `ExecutionContext`) is decided during the
-    step.
-11. **Rebind.** `(*Node).Bind(method)` and `(*Graph).Bind(ctx)` rebind
+    **Cancellation plumbing.** Thread `ctx context.Context` through
+    `dispatch`, `executeChildren`, `executeSubgraph`, `executeNode`.
+    `executeNode` reads `ctx.Err()` at entry — one check honors both
+    root/external cancel (set by the tool via signal handler) and
+    gather-internal cancel (inherited by iterations). `Method.Invoke`
+    detects when a provider method's first Go parameter is typed
+    `context.Context` and fills it from the ambient ctx; provider
+    methods that don't declare it skip the parameter (back-compatible
+    for every existing provider).
+
+    **Iteration dispatch API.**
+    `Graph.ExecuteWithStack(ctx, exec, stack, overrides) (any, error)` —
+    new public function. Accepts a caller-owned `RecoveryStack` and a
+    `context.Context`. Creates a fresh `GraphExecutor` and a fresh
+    results map per call (per-iteration scope per D6). Does NOT
+    bootstrap or unwind the caller's stack — on error, the stack is
+    returned whole so gather can decide (aggregate into complement, or
+    unwind locally).
+
+    **Not in this step:** `ExecutionContext.ExecuteSubgraph` fresh-
+    stack fix, `flow.Choose` audit — those move to step 11.
+11. **Subgraph / choose cleanup.** Fix
+    `ExecutionContext.ExecuteSubgraph` at `context.go:158-161`: stop
+    calling `graph.Execute(sg, nil)` (which bootstraps a fresh stack
+    and discards it); route through an ambient-aware path that shares
+    the caller's executor and stack. Audit `flow.Choose` for the same
+    pattern.
+
+    Subgraphs do not derive their own scope ctx — they pass ctx
+    through from their caller. Ctx inheritance covers both root cancel
+    (external) and ancestor-gather cancel (self-initiated); subgraph
+    children run sequentially, so no self-initiated cancel is needed
+    at the subgraph level. After step 11 the only derivation sites
+    remain **root** (tool main) and **gather** (combinator).
+
+    If `Choose` or another combinator later needs self-initiated
+    cancellation, that's its own future step — not this one.
+12. **Rebind.** `(*Node).Bind(method)` and `(*Graph).Bind(ctx)` rebind
     `Parameter.Type` from the registry on load. Slots serialize
     `Parameter.Name` + `Value` only; `Parameter.Type` reattached at
     load via `node.Receiver`.
-12. **Provider update.** Delete every provider's `Do` boilerplate.
+13. **Provider update.** Delete every provider's `Do` boilerplate.
     Regenerate `*_gen.go`. Hand-written methods unchanged.
-13. **Executor update.** All executor call sites consume `Slot` /
+14. **Executor update.** All executor call sites consume `Slot` /
     `SlotValue` under the unified model. Replace surviving
     `slot.Immediate.(T)` casts with typed `Slot` accessors.
-14. **Test triage.** Run the full suite. Most Phase 8 failures
+15. **Test triage.** Run the full suite. Most Phase 8 failures
     should resolve as side effects of the coherent model. Fold
     legitimate residuals into follow-up fixes.
 
@@ -507,17 +546,17 @@ old tests along with the proxy infrastructure; new tests are written
 against `Slot`, sealed `SlotValue`, `Bind(method)`, and unified
 `Execute`.
 
-### Fork E — `ImmediateValue.Value` wire format — RESOLVED: E1 (punt to step 11)
+### Fork E — `ImmediateValue.Value` wire format — RESOLVED: E1 (punt to step 12)
 
 Step 1 defines the Go types (`Slot`, `SlotValue` interface,
 `ImmediateValue`, `PromiseValue`, `EnvironmentValue`) with **no
-JSON/YAML tags on the sealed interface**. Serialization is designed in step 11 (Rebind),
+JSON/YAML tags on the sealed interface**. Serialization is designed in step 12 (Rebind),
 where catalog-driven rehydration requirements are concrete.
 
 `any` cannot round-trip through Go's `encoding/json` without a
 discriminator or an external type resolver — the marshaler works via
 reflection, but the unmarshaler has no type information and defaults
-to `map[string]any` / `[]any` / `float64`. Step 11 picks the
+to `map[string]any` / `[]any` / `float64`. Step 12 picks the
 mechanism (most likely catalog-driven rehydration per Rebind).
 
 ### Fork F — `DataRef` under the sealed `SlotValue` — RESOLVED: F4 (`EnvironmentValue`)

@@ -4,10 +4,16 @@
 package op
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
 )
+
+// contextType is cached for detecting provider methods whose first parameter
+// (after the receiver) is a context.Context handle, which [Method.Invoke]
+// auto-fills with the ambient cancellation ctx.
+var contextType = reflect.TypeOf((*context.Context)(nil)).Elem()
 
 // errorType is cached for return-type classification.
 var errorType = reflect.TypeOf((*error)(nil)).Elem()
@@ -52,11 +58,12 @@ const (
 //   - undo (Compensate<Name>): compensation companion for compensable methods, takes the complement returned by
 //     the forward method and reverses its effect.
 type Method struct {
-	do         *reflect.Method // forward method
-	kind       MethodKind      // classified from return signature
-	parameters []Parameter     // named parameters (excluding receiver)
-	planned    *reflect.Method // plan-time output spec companion; nil if the method has no plan-time output
-	undo       *reflect.Method // compensation companion; nil unless compensable
+	do              *reflect.Method // forward method
+	kind            MethodKind      // classified from return signature
+	parameters      []Parameter     // named parameters (excluding receiver and any leading ctx)
+	planned         *reflect.Method // plan-time output spec companion; nil if the method has no plan-time output
+	undo            *reflect.Method // compensation companion; nil unless compensable
+	firstParamIsCtx bool            // true when do's first parameter (after receiver) is context.Context
 }
 
 // NewMethod creates a [Method] from a reflected Go method, its parameter names, and its optional planned and undo
@@ -92,7 +99,17 @@ func NewMethod(do *reflect.Method, parameters []string, planned *reflect.Method,
 
 	methodType := do.Type
 
+	// Detect whether the first Go parameter (after the receiver at index 0) is a
+	// context.Context. If so, Method.Invoke auto-fills it with the ambient
+	// cancellation ctx and the remaining Go parameters align with the caller-
+	// supplied parameter names. The announce map lists user-declared parameters
+	// only — ctx is implicit.
+	firstParamIsCtx := methodType.NumIn() >= 2 && methodType.In(1) == contextType
+
 	expectedParams := methodType.NumIn() - 1
+	if firstParamIsCtx {
+		expectedParams--
+	}
 
 	if len(parameters) != expectedParams {
 		return nil, fmt.Errorf("expected %d parameter names for method %s, not %d: %s",
@@ -232,15 +249,21 @@ func NewMethod(do *reflect.Method, parameters []string, planned *reflect.Method,
 		}
 	}
 
-	// Build parameters
+	// Build parameters. If the Go method declares a leading context.Context, it
+	// sits at In(1) and user parameters start at In(2); otherwise user
+	// parameters start at In(1).
+	paramOffset := 1
+	if firstParamIsCtx {
+		paramOffset = 2
+	}
 
 	params := make([]Parameter, len(parameters))
 
 	for i, name := range parameters {
-		params[i] = Parameter{Name: name, Type: methodType.In(i + 1)}
+		params[i] = Parameter{Name: name, Type: methodType.In(i + paramOffset)}
 	}
 
-	return &Method{do: do, kind: kind, parameters: params, planned: planned, undo: undo}, nil
+	return &Method{do: do, kind: kind, parameters: params, planned: planned, undo: undo, firstParamIsCtx: firstParamIsCtx}, nil
 }
 
 // region EXPORTED METHODS
@@ -341,9 +364,16 @@ func (m *Method) ResultType() reflect.Type {
 func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]any) (Result, Complement, error) {
 
 	params := m.Parameters()
-	goArgs := make([]any, len(params))
+	goArgs := make([]any, 0, len(params)+1)
 
-	for i, p := range params {
+	// When the underlying Go method declares a leading context.Context,
+	// auto-fill it from the ambient cancellation context. Provider methods
+	// that don't declare it skip this.
+	if m.firstParamIsCtx {
+		goArgs = append(goArgs, ctx.Context)
+	}
+
+	for _, p := range params {
 		sv, ok := slots[p.Name]
 		if !ok {
 			cleanName := strings.TrimSuffix(strings.TrimLeft(p.Name, "*"), "?")
@@ -353,7 +383,7 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 		if err != nil {
 			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
 		}
-		goArgs[i] = val
+		goArgs = append(goArgs, val)
 	}
 
 	result, complement, err := m.Do(receiver, goArgs)

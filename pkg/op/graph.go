@@ -19,6 +19,7 @@
 package op
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -245,7 +246,7 @@ func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (an
 
 	e := &GraphExecutor{hooks: NewHookRegistry()}
 	stack := NewRecoveryStack()
-	result, err := g.dispatch(e, stack, exec, g.ctx.Results, overrides)
+	result, err := g.dispatch(g.ctx.Context, e, stack, exec, g.ctx.Results, overrides)
 	if err != nil {
 		if unwindErr := stack.Unwind(); unwindErr != nil {
 			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
@@ -254,26 +255,61 @@ func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (an
 	return result, err
 }
 
-// dispatch is the single Node/Subgraph dispatch site that every unit invocation
-// flows through. Callers supply the live [GraphExecutor], [RecoveryStack], and
-// results map, so the same executor state threads from top-level entry down
-// through recursive executeChildren calls. This is the hook site: observability
-// hooks attached here see every unit dispatch regardless of nesting depth.
+// ExecuteWithStack runs an ExecutableUnit against a caller-supplied recovery stack and
+// cancellation context. The caller owns the stack end-to-end: ExecuteWithStack neither
+// initializes it nor unwinds it on error, so the caller can inspect its contents after
+// the call and decide whether to compose them into a parent-scope complement or to
+// unwind them locally. Each call builds a fresh GraphExecutor and a fresh results map,
+// so observability hooks on the parent execution do not fire on the unit's body (a
+// known limitation addressed in a later step) and the results map reflects the D6
+// per-invocation scope rule.
 //
-// Graph.Execute and GraphExecutor.Run are the two external bootstraps that seed
-// a fresh executor and stack before calling dispatch; executeChildren reuses its
-// caller's executor and stack so compensation unwinding sees the entire chain.
-func (g *Graph) dispatch(e *GraphExecutor, stack *RecoveryStack, exec ExecutableUnit, results map[string]any, overrides map[string]SlotValue) (any, error) {
+// Intended for combinators that manage their own compensation and cancellation scope —
+// currently [flow.Provider.Gather], whose concurrent iterations each build a stack that
+// becomes part of gather's compensable complement on total success or is unwound
+// locally on failure. The ctx argument carries the combinator's scoped cancellation;
+// [Graph.dispatch] threads it down to executeNode's entry check so cancelled
+// iterations bail cooperatively.
+func (g *Graph) ExecuteWithStack(ctx context.Context, exec ExecutableUnit, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+
+	if exec == nil {
+		return nil, fmt.Errorf("ExecuteWithStack: exec is nil")
+	}
+	if g.ctx == nil {
+		return nil, fmt.Errorf("ExecuteWithStack: graph has no execution context; call Rebind first")
+	}
+	if stack == nil {
+		return nil, fmt.Errorf("ExecuteWithStack: stack is nil")
+	}
+	e := &GraphExecutor{hooks: NewHookRegistry()}
+	results := make(map[string]any)
+	return g.dispatch(ctx, e, stack, exec, results, overrides)
+}
+
+// dispatch is the single Node/Subgraph dispatch site that every unit invocation
+// flows through. Callers supply the live [GraphExecutor], [RecoveryStack], results
+// map, and [context.Context], so the same executor state and cancellation scope
+// thread from the top-level entry down through recursive executeChildren calls.
+// This is the hook site: observability hooks and cancellation checks attached here
+// (the ctx.Err() check happens in executeNode) see every unit dispatch regardless
+// of nesting depth.
+//
+// Graph.Execute and GraphExecutor.Run are the two external bootstraps that seed a
+// fresh executor and stack before calling dispatch; Graph.ExecuteWithStack is the
+// combinator entry (e.g. gather) that brings its own stack and scoped ctx.
+// executeChildren reuses its caller's executor, stack, and ctx so compensation
+// unwinding and cancellation propagation see the entire chain.
+func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryStack, exec ExecutableUnit, results map[string]any, overrides map[string]SlotValue) (any, error) {
 
 	switch unit := exec.(type) {
 	case *Node:
-		result := e.executeNode(unit, results, stack, overrides)
+		result := e.executeNode(ctx, unit, results, stack, overrides)
 		if result.Status == ResultFailed {
 			return nil, result.Error
 		}
 		return results[unit.ID()], nil
 	case *Subgraph:
-		return e.executeSubgraph(g, unit, results, stack, overrides)
+		return e.executeSubgraph(ctx, g, unit, results, stack, overrides)
 	default:
 		return nil, fmt.Errorf("dispatch: unknown ExecutableUnit type %T", exec)
 	}
