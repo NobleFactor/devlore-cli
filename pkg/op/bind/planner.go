@@ -107,6 +107,95 @@ func (p *Planner) Attr(name string) (starlark.Value, error) {
 //   - []string: sorted list of available method names.
 func (p *Planner) AttrNames() []string { return p.attrNames }
 
+// FillSlot populates a slot on a node from a starlark value.
+//
+// Graph-edge dispatch (Promise, list-of-Promises) comes first: these mutate
+// graph structure. Other values flow through the Unmarshaler pipeline with a
+// fall-back to [op.Convert] for target types Unmarshal cannot assign to
+// directly (notably registered resource types constructed from primitives).
+// After assignment, a Resource result is link-resolved against the graph
+// catalog and, if the linked entry carries a producer origin, an implicit
+// edge is added from the producer to this node.
+//
+// The caller supplies slot.Parameter pre-populated. FillSlot fills the
+// slot's value and installs it on the node via [op.Node.SetSlot].
+//
+// Parameters:
+//   - node: the node whose slot is being filled.
+//   - slot: the slot (Parameter pre-populated; Value will be filled).
+//   - value: the starlark value driving the fill.
+//
+// Returns:
+//   - error: non-nil if the value cannot be assigned to the slot's target type.
+func (p *Planner) FillSlot(node *op.Node, slot *op.Slot, value starlark.Value) error {
+
+	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(slot.Parameter.Name, "**"), "*"), "?")
+
+	// Promise: create edge, value flows at runtime.
+	if promise, ok := value.(*Promise); ok {
+		promise.FillSlot(node, name)
+		return nil
+	}
+
+	// List of Promises: fan-in via indexed sub-slots.
+	if list, ok := value.(*starlark.List); ok {
+		if n := list.Len(); n > 0 {
+			promises := make([]*Promise, n)
+			allPromises := true
+			for i := range n {
+				promise, ok := list.Index(i).(*Promise)
+				if !ok {
+					allPromises = false
+					break
+				}
+				promises[i] = promise
+			}
+			if allPromises {
+				for i, promise := range promises {
+					subSlot := fmt.Sprintf("%s[%d]", name, i)
+					node.SetSlot(subSlot, op.PromiseValue{NodeRef: promise.node.ID(), Slot: promise.slot})
+					p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{From: promise.node.ID(), To: node.ID()})
+				}
+				node.SetSlot(name+".len", op.ImmediateValue{Value: n})
+				return nil
+			}
+		}
+	}
+
+	// NoneType: skip optional parameter.
+	if _, ok := value.(starlark.NoneType); ok {
+		return nil
+	}
+
+	// *receiver: extract Go value directly; preserves identity and origin
+	// through the planning layer without a marshal→unmarshal round-trip.
+	if r, ok := value.(*receiver); ok {
+		goVal := r.instance
+		if originID, found := op.ExtractResource(goVal); found {
+			p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{From: originID, To: node.ID()})
+		}
+		node.SetSlot(name, op.ImmediateValue{Value: goVal})
+		return nil
+	}
+
+	// Generic path: unmarshal into target type; on mismatch, fall back to
+	// unmarshal-into-any + op.Convert so registry-based target instantiation
+	// (e.g., string → *file.Resource) takes over.
+	final, err := p.assignTarget(value, slot.Parameter.Type)
+	if err != nil {
+		return fmt.Errorf("slot %q: %w", name, err)
+	}
+
+	// Result-based dispatch: if the value is a Resource, link it against the
+	// graph catalog and pick up any producer origin as an implicit edge.
+	if res, ok := final.(op.Resource); ok {
+		final = p.linkResource(node, res, slot.Parameter.Type)
+	}
+
+	node.SetSlot(name, op.ImmediateValue{Value: final})
+	return nil
+}
+
 // endregion
 
 // endregion
@@ -136,24 +225,25 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 
 	// Classify parameters.
 	//
-	// We build a clean-name → type map so we can coerce strings to typed resources at plan time. Every resource-typed
-	// parameter is an INPUT (discovery entry in the catalog); the method's output spec handles the output shadowing
-	// separately, after all slots are filled.
+	// paramsByClean maps the cleaned parameter name (no *, ?, or ** markers) to the source op.Parameter, so the
+	// fill loop can construct slots carrying full Parameter identity (Name + Type) for FillSlot.
 
 	var kwargsName string
+	var kwargsParam op.Parameter
 	knownKwargs := make(map[string]bool, len(params))
 	regularParams := make([]string, 0, len(params))
-	paramTypes := make(map[string]reflect.Type, len(params))
+	paramsByClean := make(map[string]op.Parameter, len(params))
 
 	for _, param := range params {
 		if strings.HasPrefix(param.Name, "**") {
 			kwargsName = strings.TrimPrefix(param.Name, "**")
+			kwargsParam = param
 		} else {
 			regularParams = append(regularParams, param.Name)
 			clean := strings.TrimPrefix(param.Name, "*")
 			clean = strings.TrimSuffix(clean, "?")
 			knownKwargs[clean] = true
-			paramTypes[clean] = param.Type
+			paramsByClean[clean] = param
 		}
 	}
 
@@ -194,10 +284,10 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 	node := op.NewNode(op.GenerateNodeID(actionName))
 	node.Receiver = actionName
 
-	// Fill slots from starlark values. Every resource-typed parameter is
-	// coerced from a string to a typed resource and routed through the
-	// catalog as a discovery entry (input). The method's output spec
-	// handles shadowing the output after the loop.
+	// Fill slots from starlark values via the unified FillSlot pipeline.
+	// Resource-typed targets are handled by FillSlot's generic assign path
+	// (Unmarshaler + op.Convert) with link-time catalog resolution applied
+	// to any op.Resource result.
 
 	for i, paramName := range regularParams {
 
@@ -209,29 +299,25 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 			continue
 		}
 
-		if targetType, ok := paramTypes[cleanName]; ok {
-			if err := p.fillResourceSlot(node, cleanName, targetType, sv); err != nil {
-				return nil, fmt.Errorf("%s: %w", cleanName, err)
-			}
-			if node.SlotByName(cleanName) != nil {
-				continue
-			}
-		}
-
-		if err := fillSlot(p.graph, node, cleanName, sv); err != nil {
+		if err := p.FillSlot(node, &op.Slot{Parameter: paramsByClean[cleanName]}, sv); err != nil {
 			return nil, fmt.Errorf("%s: %w", cleanName, err)
 		}
 	}
 
-	// Fill **kwargs as dict sub-slots.
+	// Fill **kwargs as a single map slot matching the method's **kwargs
+	// parameter. The executing path (receiver.go) consumes this as one
+	// map[string]any argument; packing extras into a starlark.Dict here
+	// lets the dict unmarshaler project into the parameter's map target.
 
-	if kwargsName != "" {
+	if kwargsName != "" && len(extraKwargs) > 0 {
+		dict := starlark.NewDict(len(extraKwargs))
 		for _, kv := range extraKwargs {
-			key, _ := starlark.AsString(kv[0])
-			subSlot := fmt.Sprintf("%s.%s", kwargsName, key)
-			if err := fillSlot(p.graph, node, subSlot, kv[1]); err != nil {
-				return nil, fmt.Errorf("%s: kwarg %s: %w", actionName, key, err)
+			if err := dict.SetKey(kv[0], kv[1]); err != nil {
+				return nil, fmt.Errorf("%s: kwargs: %w", actionName, err)
 			}
+		}
+		if err := p.FillSlot(node, &op.Slot{Parameter: kwargsParam}, dict); err != nil {
+			return nil, fmt.Errorf("%s: kwargs: %w", actionName, err)
 		}
 	}
 
@@ -324,113 +410,65 @@ func (p *Planner) shadowPendingOutput(node *op.Node, method *op.Method) error {
 	return nil
 }
 
-// isResourceType returns true if the given type is a registered resource type.
-func (p *Planner) isResourceType(t reflect.Type) bool {
-	if t == nil {
-		return false
+// assignTarget unmarshals value into the target Go type, falling back to
+// op.Convert when direct unmarshaling cannot reach the target.
+//
+// The direct path preserves typed fidelity for structural types (e.g., maps
+// keyed by string, slices of typed elements) that the unmarshalers project
+// directly. The fallback path unmarshals into an interface target and lets
+// op.Convert handle target-type instantiation — notably registry-based
+// construction of Resource types from primitive sources (e.g., string →
+// *file.Resource).
+func (p *Planner) assignTarget(value starlark.Value, target reflect.Type) (any, error) {
+
+	u, err := ToUnmarshaler(value)
+	if err != nil {
+		return nil, err
 	}
-	elemType := t
-	if elemType.Kind() == reflect.Ptr {
-		elemType = elemType.Elem()
+	rv := reflect.New(target).Elem()
+	if err := u.Unmarshal(rv); err == nil {
+		return rv.Interface(), nil
 	}
-	if p.graph == nil || p.graph.ExecutionContext() == nil || p.graph.ExecutionContext().Registry == nil {
-		return false
+	var raw any
+	if err := u.Unmarshal(reflect.ValueOf(&raw).Elem()); err != nil {
+		return nil, err
 	}
-	rt, found := p.graph.ExecutionContext().Registry.TypeByReflection(elemType)
-	if !found {
-		return false
-	}
-	_, isResourceType := rt.(op.ResourceReceiverType)
-	return isResourceType
+	return op.Convert(p.graph.ExecutionContext(), raw, target)
 }
 
-// fillResourceSlot coerces a starlark string argument to a typed resource and routes it through the catalog as
-// an input (discovery entry).
+// linkResource performs link-time resolution of a Resource against the graph
+// catalog and wires the producer→consumer edge if the catalog hands back an
+// entry stamped with a producer origin.
 //
-// Every resource-typed parameter of a method is an input from the planner's perspective. Outputs are handled
-// separately by the method's output spec, called after all slots are filled in [Planner.shadowPendingOutput].
+// The catalog is an intern table keyed by URI. The first resource seen for a
+// URI is kept as a discovery entry; subsequent values for the same URI are
+// discarded in favor of the existing entry — which may already carry an
+// originID stamped by a producer node's Planned companion. When an origin is
+// present, an A→node edge wires the producer-consumer relationship the
+// author expressed by URI alone.
 //
-// The string is passed to the resource type's registered constructor (pure — no I/O) to build the typed resource.
-// If the URI is already cataloged (e.g., by an earlier node that shadowed it as its output), the canonical
-// shadowed entry is returned from [ResourceCatalog.Resolve] and an implicit edge is created from that origin to
-// the current node. Otherwise the resource is cataloged as a new discovery entry.
-//
-// Parameters:
-//   - node: the node whose slot is being filled.
-//   - slotName: the slot name.
-//   - targetType: the Go reflect.Type of the method parameter.
-//   - sv: the starlark value being assigned.
-//
-// Returns:
-//   - error: non-nil if coercion or catalog registration fails. The slot is left unset on error so the caller
-//     can fall through to [fillSlot] for normal handling.
-func (p *Planner) fillResourceSlot(node *op.Node, slotName string, targetType reflect.Type, sv starlark.Value) error {
-
-	// Only strings need coercion — other starlark values route through FillSlot as before.
-	if _, isString := sv.(starlark.String); !isString {
-		return nil
-	}
-	s, _ := starlark.AsString(sv)
-
-	// Check if the target type is a registered resource type.
-	elemType := targetType
-	isPtr := false
-	if elemType.Kind() == reflect.Ptr {
-		elemType = elemType.Elem()
-		isPtr = true
-	}
-
-	if p.graph == nil || p.graph.ExecutionContext() == nil || p.graph.ExecutionContext().Registry == nil {
-		return nil
-	}
-
-	ctx := p.graph.ExecutionContext()
-
-	rt, found := ctx.Registry.TypeByReflection(elemType)
-	if !found {
-		return nil
-	}
-	rrt, isResourceType := rt.(op.ResourceReceiverType)
-	if !isResourceType {
-		return nil
-	}
-
-	// Plan-time construction: pure, no I/O. The constructor must tolerate a
-	// context that has no Root/Platform/etc. populated — it is only used for
-	// identity and type, not for filesystem access.
-	constructed, err := rrt.Construct()(ctx, s)
-	if err != nil {
-		return fmt.Errorf("construct %s from %q: %w", elemType.Name(), s, err)
-	}
-	res, ok := constructed.(op.Resource)
-	if !ok {
-		return fmt.Errorf("constructor for %s did not return op.Resource", elemType.Name())
-	}
+// If the slot's target type is a value (not a pointer), the linked entry is
+// dereferenced for storage; pointer targets store the linked entry directly
+// so all holders observe the same instance.
+func (p *Planner) linkResource(node *op.Node, res op.Resource, target reflect.Type) any {
 
 	if p.graph.Catalog == nil {
 		p.graph.Catalog = op.NewResourceCatalog()
 	}
+	linked, _ := p.graph.Catalog.Resolve(res)
 
-	// Resolve as a discovery entry. If the URI was already shadowed by an
-	// earlier node's output spec, the canonical entry is returned with its
-	// originID set, and an implicit edge is created below.
-	canonical, _ := p.graph.Catalog.Resolve(res)
-
-	if originID, hasOrigin := op.ExtractResource(canonical); hasOrigin {
+	if originID, found := op.ExtractResource(linked); found {
 		p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{From: originID, To: node.ID()})
 	}
 
-	// Store the canonical typed resource in the slot. If the target type is a
-	// value (not pointer), dereference.
-	var slotValue any = canonical
-	if !isPtr {
-		rv := reflect.ValueOf(canonical)
-		if rv.Kind() == reflect.Ptr {
-			slotValue = rv.Elem().Interface()
-		}
+	if target.Kind() == reflect.Ptr {
+		return linked
 	}
-	node.SetSlot(slotName, op.ImmediateValue{Value: slotValue})
-	return nil
+	rv := reflect.ValueOf(linked)
+	if rv.Kind() == reflect.Ptr {
+		return rv.Elem().Interface()
+	}
+	return linked
 }
 
 // endregion

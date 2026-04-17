@@ -172,12 +172,13 @@ func (p *Promise) DependOn(consumer *op.Node) {
 	})
 }
 
-// fillSlot fills a slot in the consumer node with this promise, creating an edge.
-// This is called when a promise is passed to a plan function.
+// FillSlot fills a slot in the consumer node with this promise, creating the
+// producer→consumer edge that will carry the value at runtime. Called from
+// [Planner.FillSlot] when a promise is passed to a plan function.
 //
 // Parameters:
 //   - consumer: the node receiving the promise.
-//   - slotName: the slot to fill.
+//   - slot: the slot name to fill.
 func (p *Promise) FillSlot(consumer *op.Node, slot string) {
 
 	// Set the slot to reference this output's node
@@ -312,109 +313,3 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 
 // endregion
 
-// fillSlot fills a slot in a node of a graph with a Starlark value.
-//
-// Any slot accepts:
-//   - A promise (Promise): creates an edge, value flows at runtime
-//   - A list of promises: creates edges from all members (fan-in)
-//   - An immediate value: stored directly, known at analysis time
-//
-// Parameters:
-//   - node: the node whose slot to fill.
-//   - graph: the execution graph (for edge creation).
-//   - slotName: the slot to fill.
-//   - value: the Starlark value to assign.
-//
-// Returns:
-//   - error: non-nil if the value cannot be unmarshaled.
-func fillSlot(graph *op.Graph, node *op.Node, slot string, value starlark.Value) error {
-
-	// Promise: create edge, value flows at runtime
-
-	if output, ok := value.(*Promise); ok {
-		output.FillSlot(node, slot)
-		return nil
-	}
-
-	if list, ok := value.(*starlark.List); ok {
-		if fillOutputList(node, graph, slot, list) {
-			// Fan-in by creating edges from all members. Each Promise forms an indexed sub-slot and a dependency edge.
-			return nil
-		}
-		// Not a list of Outputs — fall through to immediate handling.
-	}
-
-	if _, ok := value.(starlark.NoneType); ok {
-		return nil // skip an optional parameter that was not provided.
-	}
-
-	if v, ok := value.(*receiver); ok {
-		// The starlark value wraps a Go resource so extract it directly. This preserves identity and origin through the
-		// planning layer without a lossy marshal→unmarshal round-trip.
-		goVal := v.instance
-		if originID, found := op.ExtractResource(goVal); found {
-			graph.Root.Edges = append(graph.Root.Edges, op.Edge{From: originID, To: node.ID()})
-		}
-		node.SetSlot(slot, op.ImmediateValue{Value: goVal})
-		return nil
-	}
-
-	// Immediate: convert starlark primitive to its native Go equivalent.
-
-	var goVal any
-
-	switch v := value.(type) {
-	case starlark.String:
-		goVal = string(v)
-	case starlark.Int:
-		i, ok := v.Int64()
-		if !ok {
-			return fmt.Errorf("slot %q: int value out of range", slot)
-		}
-		goVal = int(i)
-	case starlark.Bool:
-		goVal = bool(v)
-	case starlark.Float:
-		goVal = float64(v)
-	case starlark.Bytes:
-		goVal = []byte(v)
-	default:
-		return fmt.Errorf("slot %q: unsupported starlark type %s", slot, value.Type())
-	}
-
-	node.SetSlot(slot, op.ImmediateValue{Value: goVal})
-	return nil
-}
-
-// fillOutputList checks if a starlark.List contains only *Promise values.
-// If so, it creates edges and indexed sub-slots for each element (fan-in)
-// and returns true. If any element is not an *Promise, it returns false
-// without modifying the node or graph.
-func fillOutputList(node *op.Node, graph *op.Graph, slotName string, list *starlark.List) bool {
-	n := list.Len()
-	if n == 0 {
-		return false
-	}
-
-	// Validate all elements are *Promise before mutating anything.
-	outputs := make([]*Promise, n)
-	for i := range n {
-		output, ok := list.Index(i).(*Promise)
-		if !ok {
-			return false
-		}
-		outputs[i] = output
-	}
-
-	// All elements are promises — create edges and indexed sub-slots.
-	for i, output := range outputs {
-		subSlot := fmt.Sprintf("%s[%d]", slotName, i)
-		node.SetSlot(subSlot, op.PromiseValue{NodeRef: output.node.ID(), Slot: output.slot})
-		graph.Root.Edges = append(graph.Root.Edges, op.Edge{
-			From: output.node.ID(),
-			To:   node.ID(),
-		})
-	}
-	node.SetSlot(slotName+".len", op.ImmediateValue{Value: n})
-	return true
-}

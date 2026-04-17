@@ -11,12 +11,12 @@ updated: 2026-04-16
 
 | Step | Status | Notes |
 |---|---|---|
-| 1. op.Slot + sealed SlotValue; delete proxy | **complete** | committed in first checkpoint |
-| 2. ExecutableUnit interface (Parameters, ID) | **complete** | uncommitted. executableUnit base; Node + Subgraph embed; NewNode/NewSubgraph constructors; custom JSON/YAML marshalers preserve wire format. Subgraph.FinalizeParameters exists but not yet called by planner. |
-| 3a. Graph.Execute public API + Root field | **complete** | uncommitted. Graph.Root *Subgraph with "root" ID; Children()/Edges() read accessors; Graph.Execute(exec, overrides) with self-contained recovery stack. |
-| 3b. Top-level convergence + override wiring | **complete** | uncommitted. Run funnels through graph.executeWith; Node.ResolveSlots(env, results, overrides); executeChildren routes overrides to topological roots only; executeSubgraph threads overrides through retry loop. Full internal recursion via Graph.Execute deferred to step 9. |
-| 4. Unmarshaler + Convert infrastructure | **complete** | uncommitted. bind.Unmarshaler with 11 wrappers (bool, int, float, string, bytes, none, list, tuple, dict, set, function); *Promise and *receiver get Unmarshal methods. op.Convert(ctx, value, target) cascade with slice lift. Convertible extended with ConvertFrom; *mem.Function stub. No registry — polymorphism via Convertible + registry-based target instantiation. |
-| 5. Rewrite bind.FillSlot | not-started | `(*Planner).FillSlot` — method, not free function. Consumes step 4's pipeline; replaces `fillSlot` + `fillResourceSlot`. |
+| 1. op.Slot + sealed SlotValue; delete proxy | **complete** | committed `980b7fc`. |
+| 2. ExecutableUnit interface (Parameters, ID) | **complete** | committed `1ae8c15`. executableUnit base; Node + Subgraph embed; NewNode/NewSubgraph constructors; custom JSON/YAML marshalers preserve wire format. Subgraph.FinalizeParameters exists but not yet called by planner. |
+| 3a. Graph.Execute public API + Root field | **complete** | committed `1ae8c15`. Graph.Root *Subgraph with "root" ID; Children()/Edges() read accessors; Graph.Execute(exec, overrides) with self-contained recovery stack. |
+| 3b. Top-level convergence + override wiring | **complete** | committed `1ae8c15`. Run funnels through graph.executeWith; Node.ResolveSlots(env, results, overrides); executeChildren routes overrides to topological roots only; executeSubgraph threads overrides through retry loop. Full internal recursion via Graph.Execute deferred to step 9. |
+| 4. Unmarshaler + Convert infrastructure | **complete** | committed `1ae8c15`. bind.Unmarshaler with 11 wrappers (bool, int, float, string, bytes, none, list, tuple, dict, set, function); *Promise and *receiver get Unmarshal methods. op.Convert(ctx, value, target) cascade with slice lift. Convertible extended with ConvertFrom; *mem.Function stub. No registry — polymorphism via Convertible + registry-based target instantiation. |
+| 5. Rewrite bind.FillSlot | **complete** | `(*Planner).FillSlot(node, slot, value)` with result-based dispatch (no upfront target-type check). Helpers `assignTarget` (direct Unmarshal → fallback to Unmarshal-into-any + `op.Convert`) and `linkResource` (catalog link-time resolution + producer→consumer edge). Dispatch rewrites: `paramsByClean` map; `**kwargs` packs into a single `starlark.Dict` filling one map slot — aligns with executing path and kills the broken per-key sub-slot scheme. Deleted: `fillResourceSlot`, `isResourceType`, free-function `fillSlot`, `fillOutputList`. Executing-path string→Resource regression still present; defer to step 7. |
 | 6. Collapse Planner.dispatch; delete fillResourceSlot | not-started | |
 | 7. Make Action.Do delegate to Method.Invoke | not-started | Action.Do stays as the framework's uniform execution interface. Its implementation in action_types.go's action/fallibleAction/compensableAction wrappers stops unpacking map[string]any and stops casting slot values; each Do becomes a one-line call to (*op.Method).Invoke(ctx, receiver, slots). compileDispatcher is the single reflection dispatch implementation. |
 | 8. Implement flow.Gather via unified Execute | not-started | per D7 design; gather binds items[i] per iteration under fresh scope. |
@@ -26,11 +26,7 @@ updated: 2026-04-16
 | 12. Executor update | not-started | |
 | 13. Test triage | not-started | most Phase 8 failures expected to resolve. |
 
-**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Step 1 is committed (`ee3aeca`); steps 2/3a/3b/4 are uncommitted working-tree changes. Tests remain broken pending T1 delete script at `~/Workspace/NobleFactor/go` (see: Phase 7 step 1 test rewrite policy, D2).
-
-**Open clean-up queued:**
-- Run `~/Workspace/NobleFactor/go` (currently holds the test-delete script) to delete ~30 broken hand-written test files. Keeping `pkg/op/recovery_test.go` (compiles clean) and generated `*.gen_test.go` files (will regen broken until codegen template is fixed in step 10).
-- Commit steps 2/3a/3b/4 as a single "checkpoint(phase-7): steps 2-4" commit when ready.
+**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Steps 1–5 complete. Step 6 is next.
 
 **Recorded principles** (project memory):
 - `project_plan_time_validation` — graph is immutable after plan time; Execute trusts the precomputed surface and does not revalidate.
