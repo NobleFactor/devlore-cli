@@ -206,12 +206,12 @@ func (r *receiver) AttrNames() []string { return r.attrNames }
 
 // Unmarshal projects this receiver's wrapped Go instance into the target reflect.Value.
 //
-// Delegates to [op.Convertible] on the wrapped instance if available. Falls back to direct
+// Delegates to [op.Converter] on the wrapped instance if available. Falls back to direct
 // extraction when the instance's type is assignable to the target.
 func (r *receiver) Unmarshal(target reflect.Value) error {
 
-	if c, ok := r.instance.(op.Convertible); ok {
-		val, err := c.ConvertTo(target.Type())
+	if c, ok := r.instance.(op.Converter); ok {
+		val, err := c.Convert(target.Type())
 		if err != nil {
 			return err
 		}

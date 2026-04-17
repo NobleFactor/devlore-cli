@@ -8,8 +8,10 @@
 package flow
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -132,15 +134,42 @@ func (p *Provider) Gather(items []any, do string, limit int) ([]any, error) {
 		limit = p.ExecutionContext().Platform.DefaultConcurrency
 	}
 
-	// TODO (david-noble) we must fetch a node or subgraph. they are one in the same from an operational perspective
-	nodeOrSubgraph := p.Graph.SubgraphByID(do)
-
-	if nodeOrSubgraph == nil {
-		return nil, fmt.Errorf("gather: subgraph %q not found", do)
+	exec, err := p.Graph.ResolveExecutable(do)
+	if err != nil {
+		return nil, fmt.Errorf("gather: %w", err)
 	}
 
-	// TODO (david-noble) execute subgraph body per item with concurrency limit
-	return nil, fmt.Errorf("gather: not yet implemented")
+	params := exec.Parameters()
+	if len(params) != 1 {
+		return nil, fmt.Errorf("gather: body %q must declare exactly one parameter; got %d", do, len(params))
+	}
+	inputName := params[0].Name
+
+	results := make([]any, len(items))
+	errs := make([]error, len(items))
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+
+	for i, item := range items {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			r, runErr := p.Graph.Execute(exec, map[string]op.SlotValue{
+				inputName: op.ImmediateValue{Value: item},
+			})
+			if runErr != nil {
+				errs[i] = runErr
+				return
+			}
+			results[i] = r
+		}()
+	}
+	wg.Wait()
+
+	return results, errors.Join(errs...)
 }
 
 // WaitUntil polls a predicate at the configured interval until it returns true or the timeout expires.

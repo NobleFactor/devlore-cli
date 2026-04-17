@@ -191,7 +191,7 @@ func (f *Function) Init(thread *starlark.Thread) (starlark.Callable, error) {
 	return callable, nil
 }
 
-// Convert implements [op.Convertible].
+// Convert implements [op.Converter].
 //
 // Converts to any Go func type by building a bridge that marshals arguments, calls the underlying starlark function,
 // and unmarshals the result. The starlark function's parameter count must match the Go func's input count. Varargs and
@@ -203,17 +203,7 @@ func (f *Function) Init(thread *starlark.Thread) (starlark.Callable, error) {
 // Returns:
 //   - any: a Go function of the target type.
 //   - error: non-nil if the target is not a func type or the signature doesn't match.
-// ConvertFrom populates this Function from a source value. The canonical source
-// is a ResourceSpec with Data holding a *starlark.Function; that wiring is done
-// by a later phase that decomposes NewFunction into instantiate + ConvertFrom.
-// Until then, ConvertFrom returns an error indicating the operation is not
-// yet supported; the planner uses the ResourceReceiverType.Construct() path
-// (which is ctx-aware) for mem.Function construction.
-func (f *Function) ConvertFrom(_ any) error {
-	return fmt.Errorf("mem.Function.ConvertFrom: not yet implemented; use ResourceReceiverType.Construct() for ctx-aware construction")
-}
-
-func (f *Function) ConvertTo(target reflect.Type) (any, error) {
+func (f *Function) Convert(target reflect.Type) (any, error) {
 
 	if target.Kind() != reflect.Func {
 		return nil, fmt.Errorf("mem.Function: cannot convert to %s (not a func type)", target)

@@ -63,15 +63,10 @@ type Comparable interface {
 	Equal(other any) bool
 }
 
-// Convertible is implemented by types that support domain-specific type conversion.
-//
-// Two directions:
-//   - ConvertTo: the receiver knows how to produce a value of the target type.
-//   - ConvertFrom: the receiver populates itself from the source value.
-//
-// ConvertFrom is a mutation method; callers instantiate a zero receiver
-// (via the registry when ctx is required) before calling ConvertFrom.
-type Convertible interface {
-	ConvertTo(target reflect.Type) (any, error)
-	ConvertFrom(value any) error
+// Converter is implemented by source values that know how to project
+// themselves into specific target Go types. Step 3 of the [Convert] cascade
+// consults this interface when identity and assignability fail — the value
+// itself decides whether it can produce the requested target.
+type Converter interface {
+	Convert(target reflect.Type) (any, error)
 }

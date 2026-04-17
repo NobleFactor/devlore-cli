@@ -13,8 +13,8 @@ import (
 //  1. Identity — source type equals target type.
 //  2. Assignability — source type is assignable to target (covers concrete →
 //     interface, aliases, etc.).
-//  3. Source polymorphism — if value implements Convertible, delegate to
-//     value.ConvertTo(target).
+//  3. Source polymorphism — if value implements Converter, delegate to
+//     value.Convert(target).
 //  4. Target instantiation — if ctx.Registry has a ResourceReceiverType for
 //     target, call its ctx-aware constructor with value as the source. This
 //     is the ctx-passing site: target-side conversion implies instantiation,
@@ -44,11 +44,11 @@ func Convert(ctx *ExecutionContext, value any, target reflect.Type) (any, error)
 	}
 
 	// 3. Source polymorphism.
-	if c, ok := value.(Convertible); ok {
-		if out, err := c.ConvertTo(target); err == nil {
+	if c, ok := value.(Converter); ok {
+		if out, err := c.Convert(target); err == nil {
 			return out, nil
 		}
-		// ConvertTo didn't accept this target; fall through to other options.
+		// Converter didn't accept this target; fall through to other options.
 	}
 
 	// 4. Target instantiation via the registry (ctx-aware).

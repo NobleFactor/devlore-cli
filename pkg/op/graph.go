@@ -164,6 +164,25 @@ func (g *Graph) SubgraphByID(id string) *Subgraph {
 	return findSubgraph(g.Root.Children, id)
 }
 
+// ResolveExecutable returns the executable unit with the given ID, or an
+// error if no such unit exists. Nodes and subgraphs share one ID space
+// (Phase 7 invariant); ResolveExecutable is the single lookup gather,
+// choose, and other combinators use to resolve a body reference.
+func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
+	if g.Root != nil && g.Root.ID() == id {
+		return g.Root, nil
+	}
+	if sub := g.SubgraphByID(id); sub != nil {
+		return sub, nil
+	}
+	for _, node := range g.Nodes() {
+		if node.ID() == id {
+			return node, nil
+		}
+	}
+	return nil, fmt.Errorf("no executable unit with ID %q", id)
+}
+
 // findSubgraph recursively searches for a subgraph by ID.
 func findSubgraph(children []SubgraphChild, id string) *Subgraph {
 	for _, c := range children {
