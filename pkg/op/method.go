@@ -316,6 +316,53 @@ func (m *Method) ResultType() reflect.Type {
 
 // region Behaviors
 
+// Invoke coerces slot values into Go arguments via [Convert] and dispatches
+// to the wrapped method on the given receiver. Results are unpacked from
+// [reflect.Value] into the Action-layer shape (Result, Complement, error).
+//
+// Invoke is the single dispatch entry point for already-resolved slot
+// values — the plan path ([bind.Planner.FillSlot]) and the execute path
+// ([bind.receiver.dispatch]) both project starlark values down to Go
+// values first; Invoke then projects those Go values into the method
+// signature using the same [Convert] cascade both paths share.
+//
+// Parameters:
+//   - ctx: the execution context (carries registry, catalog, etc.).
+//   - receiver: the provider or resource instance to dispatch on.
+//   - slots: named slot values from the graph node; keys may be either the
+//     parameter's raw name (e.g., "boundary?") or its clean form
+//     ("boundary"). Both are accepted for compatibility with imperative
+//     graph builders.
+//
+// Returns:
+//   - Result: the method's return value, or nil for void methods.
+//   - Complement: the undo state for compensable methods, or nil.
+//   - error: non-nil on coercion failure or a fallible method's error.
+func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]any) (Result, Complement, error) {
+
+	params := m.Parameters()
+	goArgs := make([]any, len(params))
+
+	for i, p := range params {
+		sv, ok := slots[p.Name]
+		if !ok {
+			cleanName := strings.TrimSuffix(strings.TrimLeft(p.Name, "*"), "?")
+			sv = slots[cleanName]
+		}
+		val, err := Convert(ctx, sv, p.Type)
+		if err != nil {
+			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
+		}
+		goArgs[i] = val
+	}
+
+	result, complement, err := m.Do(receiver, goArgs)
+	if err != nil {
+		return nil, nil, err
+	}
+	return resultOrNil(result), complementOrNil(complement), nil
+}
+
 // Do calls the forward method on the receiver with the given arguments.
 //
 // The result and complement are returned as [reflect.Value]. Callers are responsible for marshaling arguments to the
