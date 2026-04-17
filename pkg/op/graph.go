@@ -239,9 +239,13 @@ func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (an
 		return nil, fmt.Errorf("Execute: graph has no execution context; call Rebind first")
 	}
 
+	if g.ctx.Results == nil {
+		g.ctx.Results = make(map[string]any)
+	}
+
 	e := &GraphExecutor{hooks: NewHookRegistry()}
 	stack := NewRecoveryStack()
-	result, err := g.executeWith(e, stack, exec, overrides)
+	result, err := g.dispatch(e, stack, exec, g.ctx.Results, overrides)
 	if err != nil {
 		if unwindErr := stack.Unwind(); unwindErr != nil {
 			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
@@ -250,26 +254,28 @@ func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (an
 	return result, err
 }
 
-// executeWith is the shared internal entry point used by both Execute and
-// GraphExecutor.Run. The caller supplies the executor and recovery stack so
-// Run can unwind the same stack that executeNode pushed onto.
-func (g *Graph) executeWith(e *GraphExecutor, stack *RecoveryStack, exec ExecutableUnit, overrides map[string]SlotValue) (any, error) {
-
-	if g.ctx.Results == nil {
-		g.ctx.Results = make(map[string]any)
-	}
+// dispatch is the single Node/Subgraph dispatch site that every unit invocation
+// flows through. Callers supply the live [GraphExecutor], [RecoveryStack], and
+// results map, so the same executor state threads from top-level entry down
+// through recursive executeChildren calls. This is the hook site: observability
+// hooks attached here see every unit dispatch regardless of nesting depth.
+//
+// Graph.Execute and GraphExecutor.Run are the two external bootstraps that seed
+// a fresh executor and stack before calling dispatch; executeChildren reuses its
+// caller's executor and stack so compensation unwinding sees the entire chain.
+func (g *Graph) dispatch(e *GraphExecutor, stack *RecoveryStack, exec ExecutableUnit, results map[string]any, overrides map[string]SlotValue) (any, error) {
 
 	switch unit := exec.(type) {
 	case *Node:
-		result := e.executeNode(unit, g.ctx.Results, stack, overrides)
+		result := e.executeNode(unit, results, stack, overrides)
 		if result.Status == ResultFailed {
 			return nil, result.Error
 		}
-		return g.ctx.Results[unit.ID()], nil
+		return results[unit.ID()], nil
 	case *Subgraph:
-		return e.executeSubgraph(g, unit, g.ctx.Results, stack, overrides)
+		return e.executeSubgraph(g, unit, results, stack, overrides)
 	default:
-		return nil, fmt.Errorf("Execute: unknown ExecutableUnit type %T", exec)
+		return nil, fmt.Errorf("dispatch: unknown ExecutableUnit type %T", exec)
 	}
 }
 

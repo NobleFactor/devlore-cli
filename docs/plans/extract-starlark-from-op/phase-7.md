@@ -20,13 +20,14 @@ updated: 2026-04-16
 | 6. Collapse Planner.dispatch; delete fillResourceSlot | **complete** | Single-pass classification producing `slots []*op.Slot` + paired `values []starlark.Value` + UnpackArgs `pairs`. Parallel maps (`regularParams`, `knownKwargs`, `paramsByClean`) deleted; kwarg filter now scans the slot sequence. `**kwargs` handled via a single `kwargsSlot *op.Slot` companion. `cleanName` extracted as a local closure (two call sites). `fillResourceSlot` was already removed in step 5. |
 | 7. Make Action.Do delegate to Method.Invoke | **complete** | Added `(*op.Method).Invoke(ctx, receiver, slots map[string]any)` running slot values through `op.Convert` and calling the reflective Do. Action/fallibleAction/compensableAction wrappers simplified to construct provider + DryRun gate + delegate to Invoke. Deleted `prepareCall` and `coerceSlotValue` (subsumed). Flipped `(*receiver).dispatch` to natural-projection + Invoke: starlark args project to natural Go via `r.unmarshalValue` with interface target (keyed by raw Parameter.Name), Method.Invoke handles Go→target via op.Convert. Return marshaling switched to `r.marshal(result any)`; unregistered types get a ReceiverType via `TypeByReflectionOrDerive`. Graph execution is now starlark-free; starlark dies at the receiver.dispatch boundary. String→Resource regression resolved. |
 | 8. Implement flow.Gather via unified Execute | **complete** | Added `Graph.ResolveExecutable(id)` — single lookup over the shared Node/Subgraph ID space. Replaced the `flow.Provider.Gather` stub with the D7 implementation: resolves body via ResolveExecutable, validates `len(Parameters()) == 1`, drives N iterations through `Graph.Execute(body, {inputName: ImmediateValue{items[i]}})` with bounded concurrency (sem-channel of size `limit`), aggregates failures via `errors.Join`. Also included in this commit: `Convertible` → `Converter` rename across `pkg/op/action.go`, `pkg/op/convert.go`, `pkg/op/bind/receiver.go`, `pkg/op/provider/mem/function.go` — single method `Convert(target reflect.Type) (any, error)`; unused `ConvertFrom` deleted. |
-| 9. Full recursion through Graph.Execute | not-started | observability choke point; follows gather so regressions surface in step 9 testing. |
-| 10. Rebind — Node.Bind / Graph.Bind | not-started | |
-| 11. Provider update — delete Do boilerplate, regen | not-started | |
-| 12. Executor update | not-started | |
-| 13. Test triage | not-started | most Phase 8 failures expected to resolve. |
+| 9. executeChildren funnels through Graph.dispatch | **complete** | Renamed `Graph.executeWith` → `Graph.dispatch` to name what it actually does. Signature gains an explicit `results map[string]any` parameter (dropped the implicit `g.ctx.Results` access). `executeChildren`'s per-child Node/Subgraph switch collapses into a single call to `graph.dispatch(e, stack, unit, results, childOverrides)` — one extraction of `ExecutableUnit` from `SubgraphChild`, one dispatch call per child. `Graph.Execute` and `GraphExecutor.Run` updated to pass their results map explicitly; `g.ctx.Results` init moved up to Graph.Execute. `dispatch` is now the single hook site for every unit invocation regardless of nesting depth. Does not touch RecoveryStack or gather — those are step 10. |
+| 10. Composite RecoveryStack; gather compensation fix | not-started | RecoveryStack becomes a composite: a stack is itself a valid entry on another stack (option A — stack implements the entry interface directly). Unwinding recurses LIFO into child stacks. Gather redesign: each iteration runs with a fresh RecoveryStack; coordinator holds stacks locally; on total success they push to the parent stack sequentially in completion order; on any failure the coordinator cancels outstanding iterations via ctx, unwinds held stacks in reverse completion order, and returns error with no residue on parent stack. Graph.Execute's fresh-stack bootstrap becomes TRUE external entry only — nested callers use an ambient-aware path. Plumbing for gather to reach ambient executor+stack (likely via ExecutionContext) decided during the step. |
+| 11. Rebind — Node.Bind / Graph.Bind | not-started | |
+| 12. Provider update — delete Do boilerplate, regen | not-started | |
+| 13. Executor update | not-started | |
+| 14. Test triage | not-started | most Phase 8 failures expected to resolve. |
 
-**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Steps 1–8 complete. Step 9 is next.
+**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Steps 1–9 complete. Step 10 is next.
 
 **Recorded principles** (project memory):
 - `project_plan_time_validation` — graph is immutable after plan time; Execute trusts the precomputed surface and does not revalidate.
@@ -424,31 +425,59 @@ step 8.
 8. **Implement Gather via unified `Execute`.** Per D7. Body declares
    its iteration input via `Parameters()`; gather binds items[i] per
    iteration under fresh scope.
-9. **Full recursion through `Graph.Execute`.** Every recursion step
-   between executable units goes through `Graph.Execute(child,
-   childOverrides)`. `executeChildren`'s per-child switch dispatches
-   via `Graph.Execute` rather than calling `executeNode` /
-   `executeSubgraph` directly. Benefits:
-   - Single choke point for observability hooks — log events,
-     tracing, metrics live on `Graph.Execute` and see every unit
-     dispatch regardless of nesting depth.
+9. **`executeChildren` funnels through `Graph.dispatch`.**
+   Narrow-scope dispatch convergence. Renames `Graph.executeWith`
+   to `Graph.dispatch` — naming what it actually does. `dispatch`
+   gains an explicit `results map[string]any` parameter;
+   `executeChildren`'s per-child Node/Subgraph switch collapses
+   into a single call to
+   `graph.dispatch(e, stack, unit, results, childOverrides)`.
+   `Graph.Execute` and `GraphExecutor.Run` update to pass their
+   results map explicitly. Benefits:
+   - `dispatch` becomes the single hook site — log events,
+     tracing, and metrics attach there and see every unit
+     invocation regardless of nesting depth.
    - Scope rules (when they arrive) wrap a single function.
    - Recursion path is uniform; no special cases for nested
      subgraphs-in-subgraphs.
    Done after gather (step 8) because gather is the first caller
    that actually exercises deep recursion with overrides, so any
    regressions surface in step 9's testing rather than being
-   discovered later.
-10. **Rebind.** `(*Node).Bind(method)` and `(*Graph).Bind(ctx)` rebind
+   discovered later. Does not touch `RecoveryStack` or gather's
+   compensation behavior — those move to step 10.
+10. **Composite `RecoveryStack`; gather compensation fix.**
+    `RecoveryStack` becomes a composite: a stack is itself a valid
+    entry on another stack (option A — `RecoveryStack` implements the
+    entry interface directly). Unwinding a composite entry recurses
+    LIFO into the child stack, then the parent continues.
+
+    Gather is redesigned around this. Each iteration runs with a
+    fresh `RecoveryStack`; the coordinator holds stacks locally, not
+    pushed to the parent yet. On total success the coordinator pushes
+    each iteration's stack to the parent stack sequentially in
+    completion order. On any iteration failure the coordinator
+    cancels outstanding iterations via `ctx`, unwinds the
+    locally-held and cancelled stacks in reverse completion order,
+    and returns error with no residue on the parent stack — as if
+    gather never ran.
+
+    `Graph.Execute`'s fresh-stack bootstrap is documented as TRUE
+    external entry only; nested callers (gather iteration bodies,
+    test harnesses running inside an active execution) use an
+    ambient-aware path that shares the existing executor and stack.
+    Plumbing for gather to reach the ambient executor and parent
+    stack (likely through `ExecutionContext`) is decided during the
+    step.
+11. **Rebind.** `(*Node).Bind(method)` and `(*Graph).Bind(ctx)` rebind
     `Parameter.Type` from the registry on load. Slots serialize
     `Parameter.Name` + `Value` only; `Parameter.Type` reattached at
     load via `node.Receiver`.
-11. **Provider update.** Delete every provider's `Do` boilerplate.
+12. **Provider update.** Delete every provider's `Do` boilerplate.
     Regenerate `*_gen.go`. Hand-written methods unchanged.
-12. **Executor update.** All executor call sites consume `Slot` /
+13. **Executor update.** All executor call sites consume `Slot` /
     `SlotValue` under the unified model. Replace surviving
     `slot.Immediate.(T)` casts with typed `Slot` accessors.
-13. **Test triage.** Run the full suite. Most Phase 8 failures
+14. **Test triage.** Run the full suite. Most Phase 8 failures
     should resolve as side effects of the coherent model. Fold
     legitimate residuals into follow-up fixes.
 
@@ -478,17 +507,17 @@ old tests along with the proxy infrastructure; new tests are written
 against `Slot`, sealed `SlotValue`, `Bind(method)`, and unified
 `Execute`.
 
-### Fork E — `ImmediateValue.Value` wire format — RESOLVED: E1 (punt to step 9)
+### Fork E — `ImmediateValue.Value` wire format — RESOLVED: E1 (punt to step 11)
 
 Step 1 defines the Go types (`Slot`, `SlotValue` interface,
 `ImmediateValue`, `PromiseValue`, `EnvironmentValue`) with **no
-JSON/YAML tags on the sealed interface**. Serialization is designed in step 9 (Rebind),
+JSON/YAML tags on the sealed interface**. Serialization is designed in step 11 (Rebind),
 where catalog-driven rehydration requirements are concrete.
 
 `any` cannot round-trip through Go's `encoding/json` without a
 discriminator or an external type resolver — the marshaler works via
 reflection, but the unmarshaler has no type information and defaults
-to `map[string]any` / `[]any` / `float64`. Step 9 picks the
+to `map[string]any` / `[]any` / `float64`. Step 11 picks the
 mechanism (most likely catalog-driven rehydration per Rebind).
 
 ### Fork F — `DataRef` under the sealed `SlotValue` — RESOLVED: F4 (`EnvironmentValue`)

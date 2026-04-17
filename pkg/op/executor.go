@@ -196,7 +196,7 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 	ctx.Results = make(map[string]any)
 	stack := NewRecoveryStack()
 
-	result, err := graph.executeWith(e, stack, graph.Root, nil)
+	result, err := graph.dispatch(e, stack, graph.Root, ctx.Results, nil)
 
 	summary := graph.Summary()
 
@@ -255,24 +255,22 @@ func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, 
 			childOverrides = overrides
 		}
 
+		var unit ExecutableUnit
 		switch {
 		case child.Node != nil:
-			nodeResult := e.executeNode(child.Node, results, stack, childOverrides)
-			if nodeResult.Status == ResultFailed {
-				return nil, nodeResult.Error
-			}
-			if v, ok := results[child.Node.ID()]; ok {
-				lastResult = v
-			}
-
+			unit = child.Node
 		case child.Subgraph != nil:
-			sgResult, err := e.executeSubgraph(graph, child.Subgraph, results, stack, childOverrides)
-			if err != nil {
-				return nil, err
-			}
-			if sgResult != nil {
-				lastResult = sgResult
-			}
+			unit = child.Subgraph
+		default:
+			continue
+		}
+
+		childResult, err := graph.dispatch(e, stack, unit, results, childOverrides)
+		if err != nil {
+			return nil, err
+		}
+		if childResult != nil {
+			lastResult = childResult
 		}
 	}
 
