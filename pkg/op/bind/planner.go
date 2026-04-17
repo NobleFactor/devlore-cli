@@ -223,49 +223,47 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 	method := p.methods[name]
 	params := method.Parameters()
 
-	// Classify parameters.
-	//
-	// paramsByClean maps the cleaned parameter name (no *, ?, or ** markers) to the source op.Parameter, so the
-	// fill loop can construct slots carrying full Parameter identity (Name + Type) for FillSlot.
+	cleanName := func(raw string) string {
+		return strings.TrimSuffix(strings.TrimPrefix(raw, "*"), "?")
+	}
 
-	var kwargsName string
-	var kwargsParam op.Parameter
-	knownKwargs := make(map[string]bool, len(params))
-	regularParams := make([]string, 0, len(params))
-	paramsByClean := make(map[string]op.Parameter, len(params))
+	// Single-pass classification: produce the slot sequence plus the scratch
+	// values slice and UnpackArgs pair list in lockstep. Slots carry full
+	// Parameter identity (Name + Type); nothing else does.
+
+	slots := make([]*op.Slot, 0, len(params))
+	values := make([]starlark.Value, 0, len(params))
+	pairs := make([]any, 0, len(params)*2)
+	var kwargsSlot *op.Slot
 
 	for _, param := range params {
 		if strings.HasPrefix(param.Name, "**") {
-			kwargsName = strings.TrimPrefix(param.Name, "**")
-			kwargsParam = param
-		} else {
-			regularParams = append(regularParams, param.Name)
-			clean := strings.TrimPrefix(param.Name, "*")
-			clean = strings.TrimSuffix(clean, "?")
-			knownKwargs[clean] = true
-			paramsByClean[clean] = param
+			kwargsSlot = &op.Slot{Parameter: param}
+			continue
 		}
+		slots = append(slots, &op.Slot{Parameter: param})
+		values = append(values, nil)
+		pairs = append(pairs, strings.TrimPrefix(param.Name, "*"), &values[len(values)-1])
 	}
 
-	// Unpack args as raw starlark values.
-	//
-	// Slots store Go types, not Starlark values.
-
-	values := make([]starlark.Value, len(regularParams))
-	pairs := make([]any, 0, len(regularParams)*2)
-	for i, paramName := range regularParams {
-		pairs = append(pairs, strings.TrimPrefix(paramName, "*"), &values[i])
-	}
-
-	// Split kwargs: known → UnpackArgs, unknown → **kwargs dict slots.
+	// Split kwargs: known → UnpackArgs, unknown → **kwargs dict slots. The
+	// predicate scans the slot sequence — fine at method-signature sizes, and
+	// avoids carrying a parallel lookup map.
 
 	var filteredKwargs []starlark.Tuple
 	var extraKwargs []starlark.Tuple
 
-	if kwargsName != "" {
+	if kwargsSlot != nil {
 		for _, kv := range kwargs {
 			key, _ := starlark.AsString(kv[0])
-			if knownKwargs[key] {
+			known := false
+			for _, slot := range slots {
+				if cleanName(slot.Parameter.Name) == key {
+					known = true
+					break
+				}
+			}
+			if known {
 				filteredKwargs = append(filteredKwargs, kv)
 			} else {
 				extraKwargs = append(extraKwargs, kv)
@@ -289,18 +287,16 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 	// (Unmarshaler + op.Convert) with link-time catalog resolution applied
 	// to any op.Resource result.
 
-	for i, paramName := range regularParams {
+	for i, slot := range slots {
 
-		cleanName := strings.TrimSuffix(paramName, "?")
-		cleanName = strings.TrimPrefix(cleanName, "*")
 		sv := values[i]
 
 		if sv == nil {
 			continue
 		}
 
-		if err := p.FillSlot(node, &op.Slot{Parameter: paramsByClean[cleanName]}, sv); err != nil {
-			return nil, fmt.Errorf("%s: %w", cleanName, err)
+		if err := p.FillSlot(node, slot, sv); err != nil {
+			return nil, fmt.Errorf("%s: %w", cleanName(slot.Parameter.Name), err)
 		}
 	}
 
@@ -309,14 +305,14 @@ func (p *Planner) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, a
 	// map[string]any argument; packing extras into a starlark.Dict here
 	// lets the dict unmarshaler project into the parameter's map target.
 
-	if kwargsName != "" && len(extraKwargs) > 0 {
+	if kwargsSlot != nil && len(extraKwargs) > 0 {
 		dict := starlark.NewDict(len(extraKwargs))
 		for _, kv := range extraKwargs {
 			if err := dict.SetKey(kv[0], kv[1]); err != nil {
 				return nil, fmt.Errorf("%s: kwargs: %w", actionName, err)
 			}
 		}
-		if err := p.FillSlot(node, &op.Slot{Parameter: kwargsParam}, dict); err != nil {
+		if err := p.FillSlot(node, kwargsSlot, dict); err != nil {
 			return nil, fmt.Errorf("%s: kwargs: %w", actionName, err)
 		}
 	}

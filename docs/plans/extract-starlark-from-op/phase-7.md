@@ -17,7 +17,7 @@ updated: 2026-04-16
 | 3b. Top-level convergence + override wiring | **complete** | committed `1ae8c15`. Run funnels through graph.executeWith; Node.ResolveSlots(env, results, overrides); executeChildren routes overrides to topological roots only; executeSubgraph threads overrides through retry loop. Full internal recursion via Graph.Execute deferred to step 9. |
 | 4. Unmarshaler + Convert infrastructure | **complete** | committed `1ae8c15`. bind.Unmarshaler with 11 wrappers (bool, int, float, string, bytes, none, list, tuple, dict, set, function); *Promise and *receiver get Unmarshal methods. op.Convert(ctx, value, target) cascade with slice lift. Convertible extended with ConvertFrom; *mem.Function stub. No registry — polymorphism via Convertible + registry-based target instantiation. |
 | 5. Rewrite bind.FillSlot | **complete** | `(*Planner).FillSlot(node, slot, value)` with result-based dispatch (no upfront target-type check). Helpers `assignTarget` (direct Unmarshal → fallback to Unmarshal-into-any + `op.Convert`) and `linkResource` (catalog link-time resolution + producer→consumer edge). Dispatch rewrites: `paramsByClean` map; `**kwargs` packs into a single `starlark.Dict` filling one map slot — aligns with executing path and kills the broken per-key sub-slot scheme. Deleted: `fillResourceSlot`, `isResourceType`, free-function `fillSlot`, `fillOutputList`. Executing-path string→Resource regression still present; defer to step 7. |
-| 6. Collapse Planner.dispatch; delete fillResourceSlot | not-started | |
+| 6. Collapse Planner.dispatch; delete fillResourceSlot | **complete** | Single-pass classification producing `slots []*op.Slot` + paired `values []starlark.Value` + UnpackArgs `pairs`. Parallel maps (`regularParams`, `knownKwargs`, `paramsByClean`) deleted; kwarg filter now scans the slot sequence. `**kwargs` handled via a single `kwargsSlot *op.Slot` companion. `cleanName` extracted as a local closure (two call sites). `fillResourceSlot` was already removed in step 5. |
 | 7. Make Action.Do delegate to Method.Invoke | not-started | Action.Do stays as the framework's uniform execution interface. Its implementation in action_types.go's action/fallibleAction/compensableAction wrappers stops unpacking map[string]any and stops casting slot values; each Do becomes a one-line call to (*op.Method).Invoke(ctx, receiver, slots). compileDispatcher is the single reflection dispatch implementation. |
 | 8. Implement flow.Gather via unified Execute | not-started | per D7 design; gather binds items[i] per iteration under fresh scope. |
 | 9. Full recursion through Graph.Execute | not-started | observability choke point; follows gather so regressions surface in step 9 testing. |
@@ -26,7 +26,7 @@ updated: 2026-04-16
 | 12. Executor update | not-started | |
 | 13. Test triage | not-started | most Phase 8 failures expected to resolve. |
 
-**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Steps 1–5 complete. Step 6 is next.
+**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Steps 1–6 complete. Step 7 is next.
 
 **Recorded principles** (project memory):
 - `project_plan_time_validation` — graph is immutable after plan time; Execute trusts the precomputed surface and does not revalidate.
