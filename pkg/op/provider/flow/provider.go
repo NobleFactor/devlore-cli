@@ -115,31 +115,28 @@ func (p *Provider) Fatal(format string, args []any, kwargs map[string]any) error
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 
-// Gather executes a subgraph body once per item, collecting terminal results.
+// Gather executes a subgraph body once per item, collecting terminal results across concurrent iterations.
 //
-// Gather is a compensable method. On total success it returns the per-iteration
-// recovery stacks (in completion order) as its complement; the executor's
-// PushAction wraps them into a single entry on the parent stack so a later
-// parent-level failure unwinds every iteration's work in reverse completion
-// order via CompensateGather. On any iteration failure gather cancels its
-// scoped ctx to signal the other iterations to bail at their next node,
-// waits for all iterations to finish, unwinds the locally-held stacks, and
-// returns (nil, nil, err) so no residue lands on the parent stack.
+// Gather is a compensable method. On total success it returns the per-iteration recovery stacks (in completion
+// order) as its complement; the executor's PushAction wraps them into a single entry on the parent stack so a
+// later parent-level failure unwinds every iteration's work in reverse completion order via CompensateGather.
+//
+// On any iteration failure gather cancels its scoped ctx to signal the other iterations to bail at their next
+// node, waits for all iterations to finish, unwinds the locally-held stacks, and returns (nil, nil, err) so no
+// residue lands on the parent stack.
+//
+// Cancellation scope is derived as a child of ctx: a cancel on ctx (root or ancestor gather) propagates down to
+// iterations, while a cancel on the derived gatherCtx stays scoped to this gather's iterations only.
 //
 // Parameters:
-//   - ctx: the ambient cancellation context. Gather derives a scoped child
-//     ctx (gatherCtx) for its iterations. Cancellation of ctx (root or
-//     ancestor gather) propagates down; cancellation of gatherCtx stays
-//     scoped to this gather's iterations.
+//   - ctx: the ambient cancellation context; a scoped child is derived for this gather's iterations.
 //   - items: the list of items to iterate over.
 //   - do: subgraph or node ID of the body to execute per item.
-//   - limit: max concurrent iterations (default: platform concurrency).
+//   - limit: max concurrent iterations; defaults to the platform concurrency when non-positive.
 //
 // Returns:
-//   - []any: terminal result from each iteration, indexed by original item
-//     order. Nil on any iteration failure.
-//   - op.Complement: `[]*op.RecoveryStack` in completion order on success,
-//     nil on failure.
+//   - []any: terminal result from each iteration, indexed by original item order; nil on failure.
+//   - op.Complement: []*op.RecoveryStack in completion order on success; nil on failure.
 //   - error: non-nil if any iteration failed or the body is malformed.
 func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int) ([]any, op.Complement, error) {
 
@@ -152,19 +149,19 @@ func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int
 	}
 
 	body, err := p.Graph.ResolveExecutable(do)
+
 	if err != nil {
 		return nil, nil, fmt.Errorf("gather: %w", err)
 	}
 
 	params := body.Parameters()
+
 	if len(params) != 1 {
 		return nil, nil, fmt.Errorf("gather: body %q must declare exactly one parameter; got %d", do, len(params))
 	}
+
 	inputName := params[0].Name
 
-	// Scope ctx for this gather. Cancelling it signals outstanding iterations
-	// via ctx inheritance through dispatch; executeNode's ctx.Err() check
-	// bails the next node.
 	gatherCtx, gatherCancel := context.WithCancel(ctx)
 	defer gatherCancel()
 
@@ -177,84 +174,95 @@ func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int
 
 	events := make(chan completion, len(items))
 	sem := make(chan struct{}, limit)
+
 	var wg sync.WaitGroup
 
 	for i, item := range items {
+
 		wg.Add(1)
 		sem <- struct{}{}
+
 		go func() {
+
 			defer wg.Done()
 			defer func() { <-sem }()
+
 			iterStack := op.NewRecoveryStack()
+
 			r, runErr := p.Graph.ExecuteWithStack(gatherCtx, body, iterStack, map[string]op.SlotValue{
 				inputName: op.ImmediateValue{Value: item},
 			})
+
 			events <- completion{index: i, result: r, stack: iterStack, err: runErr}
 		}()
 	}
 
-	// Collect completions in finish order. On the first failure, cancel the
-	// scope so the remaining iterations bail at their next node boundary.
 	completed := make([]completion, 0, len(items))
+
 	var firstErr error
+
 	for range items {
+
 		c := <-events
 		completed = append(completed, c)
+
 		if c.err != nil && firstErr == nil {
 			firstErr = c.err
 			gatherCancel()
 		}
 	}
+
 	wg.Wait()
 
 	if firstErr != nil {
-		// Failure path. Unwind every iteration stack in reverse completion
-		// order. Some stacks may be partially-populated from iterations that
-		// bailed mid-body; Unwind handles whatever entries were pushed.
+
 		var unwindErrs []error
+
 		for i := len(completed) - 1; i >= 0; i-- {
 			if err := completed[i].stack.Unwind(); err != nil {
 				unwindErrs = append(unwindErrs, err)
 			}
 		}
+
 		if len(unwindErrs) > 0 {
 			return nil, nil, fmt.Errorf("gather: %w; compensation: %w", firstErr, errors.Join(unwindErrs...))
 		}
+
 		return nil, nil, fmt.Errorf("gather: %w", firstErr)
 	}
 
-	// Success path. Results indexed by original item order. Iteration stacks
-	// returned in completion order as the complement; CompensateGather unwinds
-	// them in reverse completion order on parent-level failure.
 	results := make([]any, len(items))
 	stacks := make([]*op.RecoveryStack, len(completed))
+
 	for i, c := range completed {
 		results[c.index] = c.result
 		stacks[i] = c.stack
 	}
+
 	return results, stacks, nil
 }
 
-// CompensateGather unwinds the per-iteration recovery stacks accumulated by a
-// successful Gather. Called by the executor when the parent stack unwinds and
-// hits gather's compensable entry.
+// CompensateGather unwinds the per-iteration recovery stacks accumulated by a successful Gather.
 //
-// Stacks are unwound in reverse completion order: the iteration that finished
-// last (and therefore produced the freshest side effects) undoes first.
+// Called by the executor when the parent stack unwinds and hits gather's compensable entry. Stacks are unwound in
+// reverse completion order — the iteration that finished last (and therefore produced the freshest side effects)
+// undoes first, mirroring standard LIFO compensation semantics.
 //
 // Parameters:
 //   - stacks: the iteration stacks as returned by Gather, in completion order.
 //
 // Returns:
-//   - error: a joined error across any stack that failed to unwind; nil on
-//     total success.
+//   - error: a joined error across any stack that failed to unwind; nil on total success.
 func (p *Provider) CompensateGather(stacks []*op.RecoveryStack) error {
+
 	var errs []error
+
 	for i := len(stacks) - 1; i >= 0; i-- {
 		if err := stacks[i].Unwind(); err != nil {
 			errs = append(errs, err)
 		}
 	}
+
 	return errors.Join(errs...)
 }
 

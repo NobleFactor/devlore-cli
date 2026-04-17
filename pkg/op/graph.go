@@ -214,28 +214,32 @@ func (g *Graph) Rebind(ctx *ExecutionContext) {
 	}
 }
 
-// Execute runs an executable unit (Node or Subgraph) with caller-supplied
-// slot overrides. It is the unified entry point for every execution path:
-// top-level graph run, subgraph invocation, gather iteration, choose branch,
-// and test harness all funnel through here.
+// Execute runs an executable unit (Node or Subgraph) with caller-supplied slot overrides.
 //
-// Resolution order per slot:
-//  1. overrides[param.Name] if present.
-//  2. The unit's baked-in Slot.Value (ImmediateValue, PromiseValue, or
-//     EnvironmentValue), resolved via its Resolve(env, results) method.
+// Execute is the unified entry point for every top-level execution path: top-level graph runs, subgraph invocations,
+// gather iterations, choose branches, and test harnesses all funnel through here. Resolution order per slot is
+// overrides[param.Name] when present, then the unit's baked-in Slot.Value (ImmediateValue, PromiseValue, or
+// EnvironmentValue) resolved via its Resolve(env, results) method.
 //
-// Overrides route to topological root children only — non-root children
-// receive inputs via promises, not from outside the subgraph.
+// Overrides route to topological root children only — non-root children receive inputs via promises, not from outside
+// the subgraph. Overrides are runtime-only; they do not serialize into the graph.
 //
-// Overrides are runtime-only; they do not serialize into the graph.
+// Execute creates a fresh recovery stack scoped to this call; compensation on failure unwinds only actions executed
+// during this invocation. Nested combinators that need to own their own stack call [Graph.ExecuteWithStack] instead.
 //
-// Execute creates a fresh recovery stack scoped to this call; compensation
-// on failure unwinds only actions executed during this invocation.
+// Parameters:
+//   - exec: the executable unit to run.
+//   - overrides: caller-supplied slot overrides; nil for none.
+//
+// Returns:
+//   - any: the unit's terminal result, or nil when it produces no output.
+//   - error: non-nil if the unit fails or the graph is not yet rebound.
 func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (any, error) {
 
 	if exec == nil {
 		return nil, fmt.Errorf("Execute: exec is nil")
 	}
+
 	if g.ctx == nil {
 		return nil, fmt.Errorf("Execute: graph has no execution context; call Rebind first")
 	}
@@ -246,70 +250,98 @@ func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (an
 
 	e := &GraphExecutor{hooks: NewHookRegistry()}
 	stack := NewRecoveryStack()
+
 	result, err := g.dispatch(g.ctx.Context, e, stack, exec, g.ctx.Results, overrides)
+
 	if err != nil {
 		if unwindErr := stack.Unwind(); unwindErr != nil {
 			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
 	}
+
 	return result, err
 }
 
-// ExecuteWithStack runs an ExecutableUnit against a caller-supplied recovery stack and
-// cancellation context. The caller owns the stack end-to-end: ExecuteWithStack neither
-// initializes it nor unwinds it on error, so the caller can inspect its contents after
-// the call and decide whether to compose them into a parent-scope complement or to
-// unwind them locally. Each call builds a fresh GraphExecutor and a fresh results map,
-// so observability hooks on the parent execution do not fire on the unit's body (a
-// known limitation addressed in a later step) and the results map reflects the D6
-// per-invocation scope rule.
+// ExecuteWithStack runs an ExecutableUnit against a caller-supplied recovery stack and cancellation context.
 //
-// Intended for combinators that manage their own compensation and cancellation scope —
-// currently [flow.Provider.Gather], whose concurrent iterations each build a stack that
-// becomes part of gather's compensable complement on total success or is unwound
-// locally on failure. The ctx argument carries the combinator's scoped cancellation;
-// [Graph.dispatch] threads it down to executeNode's entry check so cancelled
-// iterations bail cooperatively.
+// The caller owns the stack end-to-end: ExecuteWithStack neither initializes it nor unwinds it on error, so the
+// caller can inspect its contents after the call and decide whether to compose them into a parent-scope complement
+// or unwind them locally. Each call builds a fresh GraphExecutor and a fresh results map, so observability hooks
+// on the parent execution do not fire on the unit's body (a known limitation addressed in a later step) and the
+// results map reflects the D6 per-invocation scope rule.
+//
+// Intended for combinators that manage their own compensation and cancellation scope — currently
+// [flow.Provider.Gather], whose concurrent iterations each build a stack that becomes part of gather's compensable
+// complement on total success or is unwound locally on failure. The ctx argument carries the combinator's scoped
+// cancellation; [Graph.dispatch] threads it down to executeNode's entry check so cancelled iterations bail
+// cooperatively.
+//
+// Parameters:
+//   - ctx: the combinator's scoped cancellation context; propagates to iteration bodies via dispatch.
+//   - exec: the executable unit to run for this iteration.
+//   - stack: the caller-owned recovery stack that collects the iteration's compensations.
+//   - overrides: caller-supplied slot overrides for the iteration, typically the bound iteration input.
+//
+// Returns:
+//   - any: the unit's terminal result, or nil when it produces no output.
+//   - error: non-nil if the unit fails or the graph is not yet rebound; the stack is returned to the caller intact.
 func (g *Graph) ExecuteWithStack(ctx context.Context, exec ExecutableUnit, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	if exec == nil {
 		return nil, fmt.Errorf("ExecuteWithStack: exec is nil")
 	}
+
 	if g.ctx == nil {
 		return nil, fmt.Errorf("ExecuteWithStack: graph has no execution context; call Rebind first")
 	}
+
 	if stack == nil {
 		return nil, fmt.Errorf("ExecuteWithStack: stack is nil")
 	}
+
 	e := &GraphExecutor{hooks: NewHookRegistry()}
 	results := make(map[string]any)
+
 	return g.dispatch(ctx, e, stack, exec, results, overrides)
 }
 
-// dispatch is the single Node/Subgraph dispatch site that every unit invocation
-// flows through. Callers supply the live [GraphExecutor], [RecoveryStack], results
-// map, and [context.Context], so the same executor state and cancellation scope
-// thread from the top-level entry down through recursive executeChildren calls.
-// This is the hook site: observability hooks and cancellation checks attached here
-// (the ctx.Err() check happens in executeNode) see every unit dispatch regardless
-// of nesting depth.
+// dispatch is the single Node/Subgraph dispatch site that every unit invocation flows through.
 //
-// Graph.Execute and GraphExecutor.Run are the two external bootstraps that seed a
-// fresh executor and stack before calling dispatch; Graph.ExecuteWithStack is the
-// combinator entry (e.g. gather) that brings its own stack and scoped ctx.
-// executeChildren reuses its caller's executor, stack, and ctx so compensation
-// unwinding and cancellation propagation see the entire chain.
+// Callers supply the live [GraphExecutor], [RecoveryStack], results map, and [context.Context], so the same executor
+// state and cancellation scope thread from the top-level entry down through recursive executeChildren calls. This is
+// the hook site: observability hooks and cancellation checks attached here (the ctx.Err() check happens in
+// executeNode) see every unit dispatch regardless of nesting depth.
+//
+// [Graph.Execute] and [GraphExecutor.Run] are the two external bootstraps that seed a fresh executor and stack
+// before calling dispatch; [Graph.ExecuteWithStack] is the combinator entry (e.g. gather) that brings its own
+// stack and scoped ctx. executeChildren reuses its caller's executor, stack, and ctx so compensation unwinding and
+// cancellation propagation see the entire chain.
+//
+// Parameters:
+//   - ctx: the cancellation context threaded from the nearest entry point.
+//   - e: the live executor whose hooks and state persist across the dispatch chain.
+//   - stack: the active recovery stack compensations are pushed onto.
+//   - exec: the executable unit to dispatch; must be a *Node or *Subgraph.
+//   - results: the accumulated node results for promise resolution.
+//   - overrides: caller-supplied slot overrides, if any.
+//
+// Returns:
+//   - any: the unit's terminal result, or nil when it produces no output.
+//   - error: non-nil if the unit fails or the exec type is unrecognized.
 func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryStack, exec ExecutableUnit, results map[string]any, overrides map[string]SlotValue) (any, error) {
 
 	switch unit := exec.(type) {
+
 	case *Node:
 		result := e.executeNode(ctx, unit, results, stack, overrides)
 		if result.Status == ResultFailed {
 			return nil, result.Error
 		}
 		return results[unit.ID()], nil
+
 	case *Subgraph:
 		return e.executeSubgraph(ctx, g, unit, results, stack, overrides)
+
 	default:
 		return nil, fmt.Errorf("dispatch: unknown ExecutableUnit type %T", exec)
 	}

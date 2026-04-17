@@ -339,23 +339,22 @@ func (m *Method) ResultType() reflect.Type {
 
 // region Behaviors
 
-// Invoke coerces slot values into Go arguments via [Convert] and dispatches
-// to the wrapped method on the given receiver. Results are unpacked from
-// [reflect.Value] into the Action-layer shape (Result, Complement, error).
+// Invoke coerces slot values into Go arguments via [Convert] and dispatches to the wrapped method on the given
+// receiver.
 //
-// Invoke is the single dispatch entry point for already-resolved slot
-// values — the plan path ([bind.Planner.FillSlot]) and the execute path
-// ([bind.receiver.dispatch]) both project starlark values down to Go
-// values first; Invoke then projects those Go values into the method
-// signature using the same [Convert] cascade both paths share.
+// Invoke is the single dispatch entry point for already-resolved slot values — the plan path
+// ([bind.Planner.FillSlot]) and the execute path ([bind.receiver.dispatch]) both project starlark values down to Go
+// values first; Invoke then projects those Go values into the method signature using the same [Convert] cascade both
+// paths share. Results are unpacked from [reflect.Value] into the Action-layer shape (Result, Complement, error).
+//
+// When the underlying Go method declares a leading context.Context, Invoke auto-fills it from ctx.Context; provider
+// methods that do not declare it are unaffected and their user-declared parameters remain the full Go argument list.
 //
 // Parameters:
-//   - ctx: the execution context (carries registry, catalog, etc.).
+//   - ctx: the execution context carrying registry, catalog, and the ambient cancellation context.
 //   - receiver: the provider or resource instance to dispatch on.
-//   - slots: named slot values from the graph node; keys may be either the
-//     parameter's raw name (e.g., "boundary?") or its clean form
-//     ("boundary"). Both are accepted for compatibility with imperative
-//     graph builders.
+//   - slots: named slot values from the graph node; keys may be the parameter's raw name (e.g., "boundary?") or its
+//     clean form ("boundary"). Both are accepted for compatibility with imperative graph builders.
 //
 // Returns:
 //   - Result: the method's return value, or nil for void methods.
@@ -366,30 +365,34 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 	params := m.Parameters()
 	goArgs := make([]any, 0, len(params)+1)
 
-	// When the underlying Go method declares a leading context.Context,
-	// auto-fill it from the ambient cancellation context. Provider methods
-	// that don't declare it skip this.
 	if m.firstParamIsCtx {
 		goArgs = append(goArgs, ctx.Context)
 	}
 
 	for _, p := range params {
+
 		sv, ok := slots[p.Name]
+
 		if !ok {
 			cleanName := strings.TrimSuffix(strings.TrimLeft(p.Name, "*"), "?")
 			sv = slots[cleanName]
 		}
+
 		val, err := Convert(ctx, sv, p.Type)
+
 		if err != nil {
 			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
 		}
+
 		goArgs = append(goArgs, val)
 	}
 
 	result, complement, err := m.Do(receiver, goArgs)
+
 	if err != nil {
 		return nil, nil, err
 	}
+
 	return resultOrNil(result), complementOrNil(complement), nil
 }
 

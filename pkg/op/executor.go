@@ -223,27 +223,31 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 	return result, nil
 }
 
-// executeChildren walks a sorted children list, executing each child.
-// Node children are executed directly. Subgraph children are entered recursively via executeSubgraph.
+// executeChildren walks a sorted children list, dispatching each child through [Graph.dispatch].
+//
+// Topological roots — children with no incoming edges at this level — receive overrides. Non-root children consume
+// their inputs via promises resolved from the results map, so overrides bypass them. Each child dispatches through
+// graph.dispatch, reusing the caller's executor, recovery stack, and cancellation context so compensation unwinding
+// and cancel propagation see the entire chain.
 //
 // Parameters:
-//   - graph: the root graph (for context access).
+//   - ctx: the cancellation context threaded from the caller.
+//   - graph: the root graph (for dispatch access).
 //   - children: the children to execute (declaration order).
 //   - edges: ordering constraints between children at this level.
 //   - results: the accumulated node results for promise resolution.
 //   - stack: the recovery stack for compensation.
+//   - overrides: caller-supplied slot overrides, routed to topological roots only.
 //
 // Returns:
-//   - any: the last node's output value, or nil if no node produced output.
+//   - any: the last child's output value, or nil if no child produced output.
 //   - error: non-nil if any child fails.
 func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, children []SubgraphChild, edges []Edge, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	sorted := SortChildren(children, edges)
 
-	// Topological roots — children with no incoming edges at this level —
-	// receive overrides. Non-root children consume their inputs via promises
-	// resolved from the results map, so overrides bypass them.
 	hasIncoming := make(map[string]bool, len(edges))
+
 	for _, edge := range edges {
 		hasIncoming[edge.To] = true
 	}
@@ -251,12 +255,14 @@ func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, child
 	var lastResult any
 
 	for _, child := range sorted {
+
 		var childOverrides map[string]SlotValue
 		if !hasIncoming[child.ChildID()] {
 			childOverrides = overrides
 		}
 
 		var unit ExecutableUnit
+
 		switch {
 		case child.Node != nil:
 			unit = child.Node
@@ -267,9 +273,11 @@ func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, child
 		}
 
 		childResult, err := graph.dispatch(ctx, e, stack, unit, results, childOverrides)
+
 		if err != nil {
 			return nil, err
 		}
+
 		if childResult != nil {
 			lastResult = childResult
 		}
@@ -280,14 +288,20 @@ func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, child
 
 // executeSubgraph runs a subgraph with retry logic, recursively executing its children.
 //
+// The subgraph does not derive its own cancellation scope — it propagates the caller's ctx down to its children.
+// External cancel (root) and ancestor-gather cancel both reach the children via ctx inheritance; executeNode's
+// entry-time ctx.Err() check picks them up at the next node boundary.
+//
 // Parameters:
-//   - graph: the root graph (for context access and compensation lookup).
+//   - ctx: the cancellation context threaded from the caller.
+//   - graph: the root graph (for dispatch access and compensation lookup).
 //   - sg: the subgraph to execute.
 //   - results: the accumulated node results for promise resolution.
 //   - stack: the recovery stack for compensation.
+//   - overrides: caller-supplied slot overrides, routed to topological roots within the subgraph.
 //
 // Returns:
-//   - any: the last node's output value within the subgraph, or nil.
+//   - any: the last child's output value within the subgraph, or nil.
 //   - error: non-nil if the subgraph fails after all retry attempts.
 func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
@@ -298,6 +312,7 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 	}
 
 	ec := graph.ExecutionContext()
+
 	var lastErr error
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -361,22 +376,24 @@ func resetSubgraphNodes(sg *Subgraph) {
 	}
 }
 
-// executeNode resolves slots, calls Do, stores the result, and pushes a recovery entry.
+// executeNode resolves slots, dispatches the action, stores the result, and pushes a recovery entry.
+//
+// Entry begins with a cooperative cancellation check: reading ctx.Err() catches both root/external cancel (the tool's
+// signal handler closing the root context) and any ancestor combinator's scoped cancel (e.g., a gather that called its
+// own cancel after the first iteration failure) via ctx inheritance through the dispatch chain. A cancelled check
+// returns a failed NodeResult before the action runs.
 //
 // Parameters:
-//   - ctx: the execution context.
+//   - ctx: the cancellation context threaded from dispatch; checked at entry.
 //   - node: the node to execute.
 //   - results: the accumulated results for promise resolution.
-//   - stack: the recovery stack for compensation.
+//   - stack: the recovery stack the node's compensation pushes onto.
+//   - overrides: caller-supplied slot overrides for this node, if any.
 //
 // Returns:
-//   - *NodeResult: the execution outcome.
+//   - *NodeResult: the execution outcome, including any cancellation or action error.
 func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
 
-	// Cooperative cancellation check at unit entry. Honors both root/external
-	// cancel (tool signal handler) and any ancestor combinator's scoped cancel
-	// (e.g., a gather that cancelled its iterations on first failure) via ctx
-	// inheritance through dispatch.
 	if err := ctx.Err(); err != nil {
 		node.Status = StatusFailed
 		return &NodeResult{
@@ -387,6 +404,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 	}
 
 	ec := node.ExecutionContext()
+
 	action, err := node.Action()
 
 	if err != nil {
