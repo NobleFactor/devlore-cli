@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -45,14 +46,15 @@ func newDarwin() *Platform {
 	}
 
 	return &Platform{
-		OS:              "darwin",
-		Arch:            detectArch(),
-		Distro:          "macos",
-		Version:         version,
-		Hostname:        hostname,
-		PackageManager:  preferred,
-		PackageManagers: packageManagers,
-		ServiceManager:  &launchdManager{},
+		OS:                 "darwin",
+		Arch:               detectArch(),
+		Distro:             "macos",
+		Version:            version,
+		Hostname:           hostname,
+		DefaultConcurrency: 4 * runtime.NumCPU(),
+		PackageManager:     preferred,
+		PackageManagers:    packageManagers,
+		ServiceManager:     &launchdManager{},
 	}
 }
 

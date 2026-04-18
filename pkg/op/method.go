@@ -4,10 +4,16 @@
 package op
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
 )
+
+// contextType is cached for detecting provider methods whose first parameter
+// (after the receiver) is a context.Context handle, which [Method.Invoke]
+// auto-fills with the ambient cancellation ctx.
+var contextType = reflect.TypeOf((*context.Context)(nil)).Elem()
 
 // errorType is cached for return-type classification.
 var errorType = reflect.TypeOf((*error)(nil)).Elem()
@@ -52,11 +58,12 @@ const (
 //   - undo (Compensate<Name>): compensation companion for compensable methods, takes the complement returned by
 //     the forward method and reverses its effect.
 type Method struct {
-	do         *reflect.Method // forward method
-	kind       MethodKind      // classified from return signature
-	parameters []Parameter     // named parameters (excluding receiver)
-	planned    *reflect.Method // plan-time output spec companion; nil if the method has no plan-time output
-	undo       *reflect.Method // compensation companion; nil unless compensable
+	do              *reflect.Method // forward method
+	kind            MethodKind      // classified from return signature
+	parameters      []Parameter     // named parameters (excluding receiver and any leading ctx)
+	planned         *reflect.Method // plan-time output spec companion; nil if the method has no plan-time output
+	undo            *reflect.Method // compensation companion; nil unless compensable
+	firstParamIsCtx bool            // true when do's first parameter (after receiver) is context.Context
 }
 
 // NewMethod creates a [Method] from a reflected Go method, its parameter names, and its optional planned and undo
@@ -92,7 +99,17 @@ func NewMethod(do *reflect.Method, parameters []string, planned *reflect.Method,
 
 	methodType := do.Type
 
+	// Detect whether the first Go parameter (after the receiver at index 0) is a
+	// context.Context. If so, Method.Invoke auto-fills it with the ambient
+	// cancellation ctx and the remaining Go parameters align with the caller-
+	// supplied parameter names. The announce map lists user-declared parameters
+	// only — ctx is implicit.
+	firstParamIsCtx := methodType.NumIn() >= 2 && methodType.In(1) == contextType
+
 	expectedParams := methodType.NumIn() - 1
+	if firstParamIsCtx {
+		expectedParams--
+	}
 
 	if len(parameters) != expectedParams {
 		return nil, fmt.Errorf("expected %d parameter names for method %s, not %d: %s",
@@ -232,15 +249,21 @@ func NewMethod(do *reflect.Method, parameters []string, planned *reflect.Method,
 		}
 	}
 
-	// Build parameters
+	// Build parameters. If the Go method declares a leading context.Context, it
+	// sits at In(1) and user parameters start at In(2); otherwise user
+	// parameters start at In(1).
+	paramOffset := 1
+	if firstParamIsCtx {
+		paramOffset = 2
+	}
 
 	params := make([]Parameter, len(parameters))
 
 	for i, name := range parameters {
-		params[i] = Parameter{Name: name, Type: methodType.In(i + 1)}
+		params[i] = Parameter{Name: name, Type: methodType.In(i + paramOffset)}
 	}
 
-	return &Method{do: do, kind: kind, parameters: params, planned: planned, undo: undo}, nil
+	return &Method{do: do, kind: kind, parameters: params, planned: planned, undo: undo, firstParamIsCtx: firstParamIsCtx}, nil
 }
 
 // region EXPORTED METHODS
@@ -267,6 +290,17 @@ func (m *Method) HasPlanned() bool { return m.planned != nil }
 // Returns:
 //   - string: the method name (e.g., "WriteText").
 func (m *Method) Name() string { return m.do.Name }
+
+// ParameterByName returns the Parameter with the given name, if any.
+func (m *Method) ParameterByName(name string) (Parameter, bool) {
+
+	for _, p := range m.parameters {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return Parameter{}, false
+}
 
 // Parameters returns the method's named parameters (excluding the receiver).
 //
@@ -304,6 +338,63 @@ func (m *Method) ResultType() reflect.Type {
 // endregion
 
 // region Behaviors
+
+// Invoke coerces slot values into Go arguments via [Convert] and dispatches to the wrapped method on the given
+// receiver.
+//
+// Invoke is the single dispatch entry point for already-resolved slot values — the plan path
+// ([bind.Planner.FillSlot]) and the execute path ([bind.receiver.dispatch]) both project starlark values down to Go
+// values first; Invoke then projects those Go values into the method signature using the same [Convert] cascade both
+// paths share. Results are unpacked from [reflect.Value] into the Action-layer shape (Result, Complement, error).
+//
+// When the underlying Go method declares a leading context.Context, Invoke auto-fills it from ctx.Context; provider
+// methods that do not declare it are unaffected and their user-declared parameters remain the full Go argument list.
+//
+// Parameters:
+//   - ctx: the execution context carrying registry, catalog, and the ambient cancellation context.
+//   - receiver: the provider or resource instance to dispatch on.
+//   - slots: named slot values from the graph node; keys may be the parameter's raw name (e.g., "boundary?") or its
+//     clean form ("boundary"). Both are accepted for compatibility with imperative graph builders.
+//
+// Returns:
+//   - Result: the method's return value, or nil for void methods.
+//   - Complement: the undo state for compensable methods, or nil.
+//   - error: non-nil on coercion failure or a fallible method's error.
+func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]any) (Result, Complement, error) {
+
+	params := m.Parameters()
+	goArgs := make([]any, 0, len(params)+1)
+
+	if m.firstParamIsCtx {
+		goArgs = append(goArgs, ctx.Context)
+	}
+
+	for _, p := range params {
+
+		sv, ok := slots[p.Name]
+
+		if !ok {
+			cleanName := strings.TrimSuffix(strings.TrimLeft(p.Name, "*"), "?")
+			sv = slots[cleanName]
+		}
+
+		val, err := Convert(ctx, sv, p.Type)
+
+		if err != nil {
+			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
+		}
+
+		goArgs = append(goArgs, val)
+	}
+
+	result, complement, err := m.Do(receiver, goArgs)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return resultOrNil(result), complementOrNil(complement), nil
+}
 
 // Do calls the forward method on the receiver with the given arguments.
 //

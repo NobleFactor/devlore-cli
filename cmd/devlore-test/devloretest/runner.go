@@ -289,7 +289,7 @@ func wrapUngroupedNodes(graph *op.Graph) {
 	var nodeChildren []op.SubgraphChild
 	var sgChildren []op.SubgraphChild
 
-	for _, c := range graph.Children {
+	for _, c := range graph.Root.Children {
 		if c.Node != nil {
 			nodeChildren = append(nodeChildren, c)
 		} else {
@@ -309,25 +309,23 @@ func wrapUngroupedNodes(graph *op.Graph) {
 
 	// Move edges whose endpoints are both in the main subgraph.
 	var mainEdges, keptEdges []op.Edge
-	for _, e := range graph.Edges {
+	for _, e := range graph.Root.Edges {
 		if nodeIDs[e.From] && nodeIDs[e.To] {
 			mainEdges = append(mainEdges, e)
 		} else {
 			keptEdges = append(keptEdges, e)
 		}
 	}
-	graph.Edges = keptEdges
+	graph.Root.Edges = keptEdges
 
-	mainSG := &op.Subgraph{
-		ID:       "subgraph.test",
-		Name:     "test",
-		Children: nodeChildren,
-		Edges:    mainEdges,
-		Status:   op.SubgraphPending,
-	}
+	mainSG := op.NewSubgraph("subgraph.test")
+	mainSG.Name = "test"
+	mainSG.Children = nodeChildren
+	mainSG.Edges = mainEdges
+	mainSG.Status = op.SubgraphPending
 
 	// Prepend main subgraph so it runs before branch subgraphs.
-	graph.Children = append([]op.SubgraphChild{{Subgraph: mainSG}}, sgChildren...)
+	graph.Root.Children = append([]op.SubgraphChild{{Subgraph: mainSG}}, sgChildren...)
 }
 
 // hasErrorExpectation returns true if any expectation is of kind "error".

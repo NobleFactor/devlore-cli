@@ -4,6 +4,7 @@
 package op
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -193,10 +194,10 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 		}
 	}
 
-	results := make(map[string]any)
+	ctx.Results = make(map[string]any)
 	stack := NewRecoveryStack()
 
-	result, err := e.executeChildren(graph, graph.Children, graph.Edges, results, stack)
+	result, err := graph.dispatch(ctx.Context, e, stack, graph.Root, ctx.Results, nil)
 
 	summary := graph.Summary()
 
@@ -222,43 +223,63 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 	return result, nil
 }
 
-// executeChildren walks a sorted children list, executing each child.
-// Node children are executed directly. Subgraph children are entered recursively via executeSubgraph.
+// executeChildren walks a sorted children list, dispatching each child through [Graph.dispatch].
+//
+// Topological roots — children with no incoming edges at this level — receive overrides. Non-root children consume
+// their inputs via promises resolved from the results map, so overrides bypass them. Each child dispatches through
+// graph.dispatch, reusing the caller's executor, recovery stack, and cancellation context so compensation unwinding
+// and cancel propagation see the entire chain.
 //
 // Parameters:
-//   - graph: the root graph (for context access).
+//   - ctx: the cancellation context threaded from the caller.
+//   - graph: the root graph (for dispatch access).
 //   - children: the children to execute (declaration order).
 //   - edges: ordering constraints between children at this level.
 //   - results: the accumulated node results for promise resolution.
 //   - stack: the recovery stack for compensation.
+//   - overrides: caller-supplied slot overrides, routed to topological roots only.
 //
 // Returns:
-//   - any: the last node's output value, or nil if no node produced output.
+//   - any: the last child's output value, or nil if no child produced output.
 //   - error: non-nil if any child fails.
-func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, edges []Edge, results map[string]any, stack *RecoveryStack) (any, error) {
+func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, children []SubgraphChild, edges []Edge, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	sorted := SortChildren(children, edges)
+
+	hasIncoming := make(map[string]bool, len(edges))
+
+	for _, edge := range edges {
+		hasIncoming[edge.To] = true
+	}
+
 	var lastResult any
 
 	for _, child := range sorted {
+
+		var childOverrides map[string]SlotValue
+		if !hasIncoming[child.ChildID()] {
+			childOverrides = overrides
+		}
+
+		var unit ExecutableUnit
+
 		switch {
 		case child.Node != nil:
-			nodeResult := e.executeNode(child.Node, results, stack)
-			if nodeResult.Status == ResultFailed {
-				return nil, nodeResult.Error
-			}
-			if v, ok := results[child.Node.ID]; ok {
-				lastResult = v
-			}
-
+			unit = child.Node
 		case child.Subgraph != nil:
-			sgResult, err := e.executeSubgraph(graph, child.Subgraph, results, stack)
-			if err != nil {
-				return nil, err
-			}
-			if sgResult != nil {
-				lastResult = sgResult
-			}
+			unit = child.Subgraph
+		default:
+			continue
+		}
+
+		childResult, err := graph.dispatch(ctx, e, stack, unit, results, childOverrides)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if childResult != nil {
+			lastResult = childResult
 		}
 	}
 
@@ -267,16 +288,22 @@ func (e *GraphExecutor) executeChildren(graph *Graph, children []SubgraphChild, 
 
 // executeSubgraph runs a subgraph with retry logic, recursively executing its children.
 //
+// The subgraph does not derive its own cancellation scope — it propagates the caller's ctx down to its children.
+// External cancel (root) and ancestor-gather cancel both reach the children via ctx inheritance; executeNode's
+// entry-time ctx.Err() check picks them up at the next node boundary.
+//
 // Parameters:
-//   - graph: the root graph (for context access and compensation lookup).
+//   - ctx: the cancellation context threaded from the caller.
+//   - graph: the root graph (for dispatch access and compensation lookup).
 //   - sg: the subgraph to execute.
 //   - results: the accumulated node results for promise resolution.
 //   - stack: the recovery stack for compensation.
+//   - overrides: caller-supplied slot overrides, routed to topological roots within the subgraph.
 //
 // Returns:
-//   - any: the last node's output value within the subgraph, or nil.
+//   - any: the last child's output value within the subgraph, or nil.
 //   - error: non-nil if the subgraph fails after all retry attempts.
-func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack) (any, error) {
+func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	maxAttempts := 1
 
@@ -284,7 +311,8 @@ func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[
 		maxAttempts += sg.Retry.MaxAttempts
 	}
 
-	ctx := graph.ExecutionContext()
+	ec := graph.ExecutionContext()
+
 	var lastErr error
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -306,11 +334,11 @@ func (e *GraphExecutor) executeSubgraph(graph *Graph, sg *Subgraph, results map[
 			resetSubgraphNodes(sg)
 		}
 
-		e.hooks.FireSubgraphStart(ctx, sg.ID)
+		e.hooks.FireSubgraphStart(ec, sg.ID())
 
-		childResult, innerErr := e.executeChildren(graph, sg.Children, sg.Edges, results, stack)
+		childResult, innerErr := e.executeChildren(ctx, graph, sg.Children, sg.Edges, results, stack, overrides)
 
-		e.hooks.FireSubgraphComplete(ctx, sg.ID, innerErr)
+		e.hooks.FireSubgraphComplete(ec, sg.ID(), innerErr)
 
 		attemptRecord := Attempt{
 			Number:    attempt + 1,
@@ -348,52 +376,61 @@ func resetSubgraphNodes(sg *Subgraph) {
 	}
 }
 
-// executeNode resolves slots, calls Do, stores the result, and pushes a recovery entry.
+// executeNode resolves slots, dispatches the action, stores the result, and pushes a recovery entry.
+//
+// Entry begins with a cooperative cancellation check: reading ctx.Err() catches both root/external cancel (the tool's
+// signal handler closing the root context) and any ancestor combinator's scoped cancel (e.g., a gather that called its
+// own cancel after the first iteration failure) via ctx inheritance through the dispatch chain. A cancelled check
+// returns a failed NodeResult before the action runs.
 //
 // Parameters:
-//   - ctx: the execution context.
+//   - ctx: the cancellation context threaded from dispatch; checked at entry.
 //   - node: the node to execute.
 //   - results: the accumulated results for promise resolution.
-//   - stack: the recovery stack for compensation.
+//   - stack: the recovery stack the node's compensation pushes onto.
+//   - overrides: caller-supplied slot overrides for this node, if any.
 //
 // Returns:
-//   - *NodeResult: the execution outcome.
-func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *RecoveryStack) *NodeResult {
+//   - *NodeResult: the execution outcome, including any cancellation or action error.
+func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
 
-	ctx := node.ExecutionContext()
+	if err := ctx.Err(); err != nil {
+		node.Status = StatusFailed
+		return &NodeResult{
+			NodeID: node.ID(),
+			Status: ResultFailed,
+			Error:  fmt.Errorf("node %s: %w", node.ID(), err),
+		}
+	}
+
+	ec := node.ExecutionContext()
+
 	action, err := node.Action()
 
 	if err != nil {
 		node.Status = StatusFailed
 		return &NodeResult{
-			NodeID: node.ID,
+			NodeID: node.ID(),
 			Status: ResultFailed,
-			Error:  fmt.Errorf("node %s: %w", node.ID, err),
+			Error:  fmt.Errorf("node %s: %w", node.ID(), err),
 		}
 	}
 
-	slots := node.ResolvedSlots(results)
+	slots := node.ResolveSlots(ec, results, overrides)
 
-	// TODO: replace with DataRef slot kind — temporary bridge until DataRef is implemented
-	for key, value := range ctx.Data {
-		if _, exists := slots[key]; !exists {
-			slots[key] = value
-		}
-	}
+	ec.Results = results
 
-	ctx.Results = results
+	e.hooks.FireNodeStart(ec, node.ID(), slots)
 
-	e.hooks.FireNodeStart(ctx, node.ID, slots)
-
-	result, complement, err := action.Do(ctx, slots)
+	result, complement, err := action.Do(ec, slots)
 
 	if err != nil {
 
-		e.hooks.FireNodeComplete(ctx, node.ID, nil, err)
+		e.hooks.FireNodeComplete(ec, node.ID(), nil, err)
 		node.Status = StatusFailed
 
 		return &NodeResult{
-			NodeID: node.ID,
+			NodeID: node.ID(),
 			Status: ResultFailed,
 			Error:  fmt.Errorf("%s: %w", node.Receiver, err),
 		}
@@ -420,38 +457,38 @@ func (e *GraphExecutor) executeNode(node *Node, results map[string]any, stack *R
 
 		var catErr error
 		if pendingID := catalog.Current(resource.URI()); pendingID != "" {
-			if pending, ok := catalog.Lookup(pendingID); ok && pending.resourceBase().originID == node.ID {
-				catErr = catalog.Transition(resource, node.ID)
+			if pending, ok := catalog.Lookup(pendingID); ok && pending.resourceBase().originID == node.ID() {
+				catErr = catalog.Transition(resource, node.ID())
 			} else {
-				_, catErr = catalog.Shadow(resource, node.ID)
+				_, catErr = catalog.Shadow(resource, node.ID())
 			}
 		} else {
-			_, catErr = catalog.Shadow(resource, node.ID)
+			_, catErr = catalog.Shadow(resource, node.ID())
 		}
 
 		if catErr != nil {
-			stack.PushAction(ctx, action, complement)
-			e.hooks.FireNodeComplete(ctx, node.ID, nil, catErr)
+			stack.PushAction(ec, action, complement)
+			e.hooks.FireNodeComplete(ec, node.ID(), nil, catErr)
 			node.Status = StatusFailed
 			return &NodeResult{
-				NodeID: node.ID,
+				NodeID: node.ID(),
 				Status: ResultFailed,
 				Error:  fmt.Errorf("%s: post-dispatch catalog: %w", node.Receiver, catErr),
 			}
 		}
 	}
 
-	e.hooks.FireNodeComplete(ctx, node.ID, result, nil)
+	e.hooks.FireNodeComplete(ec, node.ID(), result, nil)
 
 	if result != nil {
-		results[node.ID] = result
+		results[node.ID()] = result
 	}
 
-	stack.PushAction(ctx, action, complement)
+	stack.PushAction(ec, action, complement)
 	node.Status = StatusCompleted
 
 	return &NodeResult{
-		NodeID: node.ID,
+		NodeID: node.ID(),
 		Status: ResultCompleted,
 	}
 }

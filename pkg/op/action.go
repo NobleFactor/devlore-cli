@@ -63,9 +63,10 @@ type Comparable interface {
 	Equal(other any) bool
 }
 
-// Convertible is implemented by types that support domain-specific type conversion.
-//
-// The coercion path checks: direct assignment, reflect.Convert, then Convertible.ConvertTo.
-type Convertible interface {
-	ConvertTo(targetType reflect.Type) (any, error)
+// Converter is implemented by source values that know how to project
+// themselves into specific target Go types. Step 3 of the [Convert] cascade
+// consults this interface when identity and assignability fail — the value
+// itself decides whether it can produce the requested target.
+type Converter interface {
+	Convert(target reflect.Type) (any, error)
 }

@@ -358,8 +358,8 @@ func (s *Session) formatGraphForPrompt() string {
 			continue
 		}
 		// Show relative paths for readability
-		src, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
-		tgt, _ := node.SlotByName("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
+		src, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
+		tgt, _ := node.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
 		source := strings.TrimPrefix(src, s.opts.SourceRoot+"/")
 		target := strings.TrimPrefix(tgt, s.opts.SourceRoot+"/")
 		_, _ = fmt.Fprintf(&sb, "  %s -> %s\n", source, target)
@@ -435,10 +435,10 @@ func (s *Session) addRenameToGraph(source, target string) {
 
 	// Check if this rename already exists
 	for _, node := range s.graph.Nodes() {
-		src, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
+		src, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
 		if src == source {
 			// Update existing rename
-			node.SetSlotImmediate("path", target)
+			node.SetSlot("path", op.ImmediateValue{Value: target})
 			return
 		}
 	}
@@ -460,7 +460,7 @@ func (s *Session) removeRenameFromGraph(source string) {
 	// TODO: Graph needs a RemoveNode method to support this operation.
 	// Find and remove the node
 	// for i, node := range s.graph.Nodes() {
-	// 	src, _ := node.SlotByName("source").(string)
+	// 	src, _ := node.SlotByName("source").Immediate().(string)
 	// 	if src == source {
 	// 		// remove node at index i
 	// 		return

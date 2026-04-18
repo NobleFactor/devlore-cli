@@ -8,8 +8,11 @@
 package flow
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -23,6 +26,11 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 type Provider struct {
 	op.ProviderBase
 	Graph *op.Graph
+}
+
+type Case struct {
+	When func() bool
+	Then func() any
 }
 
 // NewProvider creates a flow Provider bound to the given context.
@@ -40,6 +48,29 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 }
 
 // region EXPORTED METHODS
+
+// Choose reads a boolean condition and executes the matching branch subgraph on the graph.
+//
+// Parameters:
+//   - when: condition value.
+//   - then: subgraph ID to execute when true.
+//
+// Returns:
+//   - any: the selected branch's terminal result.
+//   - error: non-nil if the branch fails.
+func (p *Provider) Choose(defaultValue func() any, cases ...Case) any {
+
+	for _, c := range cases {
+		if c.When != nil && c.When() {
+			if c.Then != nil {
+				return c.Then()
+			}
+			return nil
+		}
+	}
+
+	return defaultValue()
+}
 
 // Complete is the default, healthy conclusion of a graph path.
 //
@@ -67,6 +98,10 @@ func (p *Provider) Degraded(format string, args []any, kwargs map[string]any) st
 	return rendered.Error()
 }
 
+// Elevate marks the boundary between unprivileged and privileged execution.
+func (p *Provider) Elevate() {
+}
+
 // Fatal halts graph execution immediately.
 //
 // Parameters:
@@ -80,58 +115,155 @@ func (p *Provider) Fatal(format string, args []any, kwargs map[string]any) error
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 
-// Elevate marks the boundary between unprivileged and privileged execution.
-func (p *Provider) Elevate() {
-}
-
-// Choose reads a boolean condition and executes the matching branch subgraph on the graph.
+// Gather executes a subgraph body once per item, collecting terminal results across concurrent iterations.
+//
+// Gather is a compensable method. On total success it returns the per-iteration recovery stacks (in completion
+// order) as its complement; the executor's PushAction wraps them into a single entry on the parent stack so a
+// later parent-level failure unwinds every iteration's work in reverse completion order via CompensateGather.
+//
+// On any iteration failure gather cancels its scoped ctx to signal the other iterations to bail at their next
+// node, waits for all iterations to finish, unwinds the locally-held stacks, and returns (nil, nil, err) so no
+// residue lands on the parent stack.
+//
+// Cancellation scope is derived as a child of ctx: a cancel on ctx (root or ancestor gather) propagates down to
+// iterations, while a cancel on the derived gatherCtx stays scoped to this gather's iterations only.
 //
 // Parameters:
-//   - when: condition value.
-//   - then: subgraph ID to execute when true.
-//
-// Returns:
-//   - any: the selected branch's terminal result.
-//   - error: non-nil if the branch fails.
-func (p *Provider) Choose(when bool, then string) (any, error) {
-
-	if !when || then == "" {
-		return nil, nil
-	}
-
-	sg := p.Graph.SubgraphByID(then)
-	if sg == nil {
-		return nil, fmt.Errorf("choose: subgraph %q not found", then)
-	}
-
-	return p.executeSubgraph(sg)
-}
-
-// Gather executes a subgraph body once per item, collecting terminal results.
-//
-// Parameters:
+//   - ctx: the ambient cancellation context; a scoped child is derived for this gather's iterations.
 //   - items: the list of items to iterate over.
-//   - do: subgraph ID of the body to execute per item.
-//   - limit: max concurrent iterations (default 1 = sequential).
+//   - do: subgraph or node ID of the body to execute per item.
+//   - limit: max concurrent iterations; defaults to the platform concurrency when non-positive.
 //
 // Returns:
-//   - []any: terminal node result from each iteration, in item order.
-//   - error: non-nil if any iteration fails.
-func (p *Provider) Gather(items []any, do string, limit int) ([]any, error) {
+//   - []any: terminal result from each iteration, indexed by original item order; nil on failure.
+//   - op.Complement: []*op.RecoveryStack in completion order on success; nil on failure.
+//   - error: non-nil if any iteration failed or the body is malformed.
+func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int) ([]any, op.Complement, error) {
 
 	if len(items) == 0 {
-		return []any{}, nil
+		return []any{}, nil, nil
 	}
 
-	sg := p.Graph.SubgraphByID(do)
-	if sg == nil {
-		return nil, fmt.Errorf("gather: subgraph %q not found", do)
+	if limit <= 0 {
+		limit = p.ExecutionContext().Platform.DefaultConcurrency
 	}
 
-	// TODO: execute subgraph body per item with concurrency limit
-	_ = limit
-	_ = sg
-	return nil, fmt.Errorf("gather: not yet implemented")
+	body, err := p.Graph.ResolveExecutable(do)
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("gather: %w", err)
+	}
+
+	params := body.Parameters()
+
+	if len(params) != 1 {
+		return nil, nil, fmt.Errorf("gather: body %q must declare exactly one parameter; got %d", do, len(params))
+	}
+
+	inputName := params[0].Name
+
+	gatherCtx, gatherCancel := context.WithCancel(ctx)
+	defer gatherCancel()
+
+	type completion struct {
+		index  int
+		result any
+		stack  *op.RecoveryStack
+		err    error
+	}
+
+	events := make(chan completion, len(items))
+	sem := make(chan struct{}, limit)
+
+	var wg sync.WaitGroup
+
+	for i, item := range items {
+
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func() {
+
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			iterStack := op.NewRecoveryStack()
+
+			r, runErr := p.Graph.ExecuteWithStack(gatherCtx, body, iterStack, map[string]op.SlotValue{
+				inputName: op.ImmediateValue{Value: item},
+			})
+
+			events <- completion{index: i, result: r, stack: iterStack, err: runErr}
+		}()
+	}
+
+	completed := make([]completion, 0, len(items))
+
+	var firstErr error
+
+	for range items {
+
+		c := <-events
+		completed = append(completed, c)
+
+		if c.err != nil && firstErr == nil {
+			firstErr = c.err
+			gatherCancel()
+		}
+	}
+
+	wg.Wait()
+
+	if firstErr != nil {
+
+		var unwindErrs []error
+
+		for i := len(completed) - 1; i >= 0; i-- {
+			if err := completed[i].stack.Unwind(); err != nil {
+				unwindErrs = append(unwindErrs, err)
+			}
+		}
+
+		if len(unwindErrs) > 0 {
+			return nil, nil, fmt.Errorf("gather: %w; compensation: %w", firstErr, errors.Join(unwindErrs...))
+		}
+
+		return nil, nil, fmt.Errorf("gather: %w", firstErr)
+	}
+
+	results := make([]any, len(items))
+	stacks := make([]*op.RecoveryStack, len(completed))
+
+	for i, c := range completed {
+		results[c.index] = c.result
+		stacks[i] = c.stack
+	}
+
+	return results, stacks, nil
+}
+
+// CompensateGather unwinds the per-iteration recovery stacks accumulated by a successful Gather.
+//
+// Called by the executor when the parent stack unwinds and hits gather's compensable entry. Stacks are unwound in
+// reverse completion order — the iteration that finished last (and therefore produced the freshest side effects)
+// undoes first, mirroring standard LIFO compensation semantics.
+//
+// Parameters:
+//   - stacks: the iteration stacks as returned by Gather, in completion order.
+//
+// Returns:
+//   - error: a joined error across any stack that failed to unwind; nil on total success.
+func (p *Provider) CompensateGather(stacks []*op.RecoveryStack) error {
+
+	var errs []error
+
+	for i := len(stacks) - 1; i >= 0; i-- {
+		if err := stacks[i].Unwind(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // WaitUntil polls a predicate at the configured interval until it returns true or the timeout expires.
@@ -190,13 +322,5 @@ func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), time
 }
 
 // endregion
-
-// region UNEXPORTED METHODS
-
-// executeSubgraph runs all nodes in a subgraph sequentially on the graph.
-func (p *Provider) executeSubgraph(sg *op.Subgraph) (any, error) {
-
-	return p.ExecutionContext().ExecuteSubgraph(p.Graph, sg)
-}
 
 // endregion

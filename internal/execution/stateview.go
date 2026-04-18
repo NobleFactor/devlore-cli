@@ -465,7 +465,7 @@ func (b *StateViewBuilder) isPackageNode(node *op.Node) bool {
 
 // addPackageRecord adds a package lifecycle record to the view.
 func (b *StateViewBuilder) addPackageRecord(view *StateView, node *op.Node, record HistoryRecord) {
-	name := node.ID // Package name is the node ID
+	name := node.ID() // Package name is the node ID
 
 	entry, ok := view.Packages[name]
 	if !ok {
@@ -481,8 +481,8 @@ func (b *StateViewBuilder) addPackageRecord(view *StateView, node *op.Node, reco
 
 // addFileRecord adds a file deployment record to the view.
 func (b *StateViewBuilder) addFileRecord(view *StateView, node *op.Node, record HistoryRecord) {
-	relTarget := node.ID                            // Relative target path is the node ID
-	source, _ := node.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
+	relTarget := node.ID()                            // Relative target path is the node ID
+	source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
 
 	entry, ok := view.Files.Entries[relTarget]
 	if !ok {

@@ -30,40 +30,46 @@ const (
 // All subgraphs participate in the saga pattern: retry, compensation, status tracking.
 // Nodes and subgraphs are peers at any level — both are vertices in the same topological sort.
 type Subgraph struct {
-	// ID is the unique identifier (e.g., "install").
-	ID string `json:"id" yaml:"id"`
+	executableUnit
 
 	// Name is the subgraph name (e.g., "install").
-	Name string `json:"name" yaml:"name"`
+	Name string
 
 	// Children are the nodes and child subgraphs in declaration order.
 	// Execution proceeds through this list after topological sorting by edges at this level.
-	Children []SubgraphChild `json:"children" yaml:"children"`
+	Children []SubgraphChild
 
 	// Edges are ordering constraints between children at this level.
 	// Each edge references children by ID (both node IDs and subgraph IDs).
-	Edges []Edge `json:"edges,omitempty" yaml:"edges,omitempty"`
+	Edges []Edge
 
 	// Status of this subgraph: pending, completed, failed, rolled_back, skipped.
-	Status SubgraphStatus `json:"status" yaml:"status"`
+	Status SubgraphStatus
 
 	// Retry governs retry behavior when inner children fail.
-	Retry *RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
+	Retry *RetryPolicy
 
 	// Compensate is the ID of the compensating subgraph for rollback.
-	Compensate string `json:"compensate,omitempty" yaml:"compensate,omitempty"`
+	Compensate string
 
 	// Attempts records retry history (populated during execution).
-	Attempts []Attempt `json:"attempts,omitempty" yaml:"attempts,omitempty"`
+	Attempts []Attempt
 
 	// State holds execution metadata captured during the forward pass.
 	// The compensating subgraph reads this to know what to undo.
-	State map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
+	State map[string]any
 
 	// Branch marks this subgraph as a conditional branch owned by a choose action.
 	// Branch subgraphs are not executed directly by the top-level executor; they
 	// are dispatched by the choose action's Do method.
-	Branch bool `json:"branch,omitempty" yaml:"branch,omitempty"`
+	Branch bool
+}
+
+// NewSubgraph constructs a Subgraph with the given identifier. Additional
+// fields may be set on the returned pointer. The parameter surface is
+// populated later via FinalizeParameters once children and edges are set.
+func NewSubgraph(id string) *Subgraph {
+	return &Subgraph{executableUnit: executableUnit{id: id}}
 }
 
 // SubgraphChild is a child of a subgraph or graph — either a node or a nested subgraph.
@@ -76,10 +82,10 @@ type SubgraphChild struct {
 // ChildID returns the ID of this child, whether it is a node or a subgraph.
 func (c SubgraphChild) ChildID() string {
 	if c.Node != nil {
-		return c.Node.ID
+		return c.Node.ID()
 	}
 	if c.Subgraph != nil {
-		return c.Subgraph.ID
+		return c.Subgraph.ID()
 	}
 	return ""
 }

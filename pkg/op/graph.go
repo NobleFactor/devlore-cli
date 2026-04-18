@@ -19,6 +19,7 @@
 package op
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -40,46 +41,42 @@ const GraphFormatVersion = "6"
 // After Run(): State is "executed", represents the receipt
 type Graph struct {
 
+	// Root is the graph's root subgraph. All top-level children and edges live
+	// here. Graph.Children() / Graph.Edges() are read accessors that return
+	// Root's fields. Execution starts from Graph.Execute(g.Root, nil).
+	Root *Subgraph
+
 	// Catalog is the append-only resource catalog for planning.
 	//
 	// One per Graph. Not serialized — planning-only state.
-	Catalog *ResourceCatalog `json:"-" yaml:"-"`
+	Catalog *ResourceCatalog
 
 	// Checksum is the git-style integrity hash.
-	Checksum string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
+	Checksum string
 
 	// Collisions records source conflicts resolved during tree building (writ-specific).
-	Collisions []Collision `json:"collisions,omitempty" yaml:"collisions,omitempty"`
-
-	// Children are the root-level nodes and subgraphs in declaration order.
-	// This is the structural representation of the graph — a tree of nodes and subgraphs.
-	// Edges at this level provide ordering constraints between root-level children.
-	Children []SubgraphChild `json:"children" yaml:"children"`
-
-	// Edges are ordering constraints between root-level children.
-	// Each edge references children by ID (both node IDs and subgraph IDs).
-	Edges []Edge `json:"edges,omitempty" yaml:"edges,omitempty"`
+	Collisions []Collision
 
 	// Provenance records what was planned, from what sources, and for what scope.
-	Provenance Provenance `json:"provenance" yaml:"provenance"`
+	Provenance Provenance
 
 	// Rollback records compensating actions executed during rollback (populated on failure).
-	Rollback []RollbackEntry `json:"rollback,omitempty" yaml:"rollback,omitempty"`
+	Rollback []RollbackEntry
 
 	// Signature contains the cryptographic signature (optional).
-	Signature *sops.Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
+	Signature *sops.Signature
 
 	// State is the execution state (pending, executed, failed).
-	State GraphState `json:"state" yaml:"state"`
+	State GraphState
 
 	// Summary contains execution statistics (populated after Summary()).
 	summary GraphExecutionSummary
 
 	// Timestamp is when the graph was created/executed.
-	Timestamp time.Time `json:"timestamp" yaml:"timestamp"`
+	Timestamp time.Time
 
 	// Version is the graph format version.
-	Version string `json:"version" yaml:"version"`
+	Version string
 
 	// ctx is the execution context for this graph. Replaced by Rebind at the planning-to-execution handoff.
 	ctx *ExecutionContext
@@ -92,12 +89,19 @@ type Graph struct {
 func NewGraph(ctx *ExecutionContext) *Graph {
 
 	return &Graph{
+		Root:      NewSubgraph("root"),
 		Version:   GraphFormatVersion,
 		Timestamp: time.Now(),
 		State:     StatePending,
 		ctx:       ctx,
 	}
 }
+
+// Children returns the root-level children of the graph.
+func (g *Graph) Children() []SubgraphChild { return g.Root.Children }
+
+// Edges returns the ordering edges at the root level.
+func (g *Graph) Edges() []Edge { return g.Root.Edges }
 
 // region EXPORTED METHODS
 
@@ -109,7 +113,7 @@ func NewGraph(ctx *ExecutionContext) *Graph {
 //   - node: the node to append.
 func (g *Graph) AddNode(node *Node) {
 	node.graph = g
-	g.Children = append(g.Children, SubgraphChild{Node: node})
+	g.Root.Children = append(g.Root.Children, SubgraphChild{Node: node})
 }
 
 // AddSubgraph appends a subgraph as a root-level child of the graph.
@@ -117,14 +121,14 @@ func (g *Graph) AddNode(node *Node) {
 // Parameters:
 //   - sg: the subgraph to append.
 func (g *Graph) AddSubgraph(sg *Subgraph) {
-	g.Children = append(g.Children, SubgraphChild{Subgraph: sg})
+	g.Root.Children = append(g.Root.Children, SubgraphChild{Subgraph: sg})
 }
 
 // Nodes returns all nodes in the graph by walking the tree recursively.
 // The returned slice is in tree-walk order (depth-first, declaration order).
 func (g *Graph) Nodes() []*Node {
 	var nodes []*Node
-	collectNodes(g.Children, &nodes)
+	collectNodes(g.Root.Children, &nodes)
 	return nodes
 }
 
@@ -158,14 +162,33 @@ func (g *Graph) Filename() string {
 // SubgraphByID returns the subgraph with the given ID, or nil if not found.
 // Searches the tree recursively.
 func (g *Graph) SubgraphByID(id string) *Subgraph {
-	return findSubgraph(g.Children, id)
+	return findSubgraph(g.Root.Children, id)
+}
+
+// ResolveExecutable returns the executable unit with the given ID, or an
+// error if no such unit exists. Nodes and subgraphs share one ID space
+// (Phase 7 invariant); ResolveExecutable is the single lookup gather,
+// choose, and other combinators use to resolve a body reference.
+func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
+	if g.Root != nil && g.Root.ID() == id {
+		return g.Root, nil
+	}
+	if sub := g.SubgraphByID(id); sub != nil {
+		return sub, nil
+	}
+	for _, node := range g.Nodes() {
+		if node.ID() == id {
+			return node, nil
+		}
+	}
+	return nil, fmt.Errorf("no executable unit with ID %q", id)
 }
 
 // findSubgraph recursively searches for a subgraph by ID.
 func findSubgraph(children []SubgraphChild, id string) *Subgraph {
 	for _, c := range children {
 		if c.Subgraph != nil {
-			if c.Subgraph.ID == id {
+			if c.Subgraph.ID() == id {
 				return c.Subgraph
 			}
 			if found := findSubgraph(c.Subgraph.Children, id); found != nil {
@@ -191,6 +214,139 @@ func (g *Graph) Rebind(ctx *ExecutionContext) {
 	}
 }
 
+// Execute runs an executable unit (Node or Subgraph) with caller-supplied slot overrides.
+//
+// Execute is the unified entry point for every top-level execution path: top-level graph runs, subgraph invocations,
+// gather iterations, choose branches, and test harnesses all funnel through here. Resolution order per slot is
+// overrides[param.Name] when present, then the unit's baked-in Slot.Value (ImmediateValue, PromiseValue, or
+// EnvironmentValue) resolved via its Resolve(env, results) method.
+//
+// Overrides route to topological root children only — non-root children receive inputs via promises, not from outside
+// the subgraph. Overrides are runtime-only; they do not serialize into the graph.
+//
+// Execute creates a fresh recovery stack scoped to this call; compensation on failure unwinds only actions executed
+// during this invocation. Nested combinators that need to own their own stack call [Graph.ExecuteWithStack] instead.
+//
+// Parameters:
+//   - exec: the executable unit to run.
+//   - overrides: caller-supplied slot overrides; nil for none.
+//
+// Returns:
+//   - any: the unit's terminal result, or nil when it produces no output.
+//   - error: non-nil if the unit fails or the graph is not yet rebound.
+func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (any, error) {
+
+	if exec == nil {
+		return nil, fmt.Errorf("Execute: exec is nil")
+	}
+
+	if g.ctx == nil {
+		return nil, fmt.Errorf("Execute: graph has no execution context; call Rebind first")
+	}
+
+	if g.ctx.Results == nil {
+		g.ctx.Results = make(map[string]any)
+	}
+
+	e := &GraphExecutor{hooks: NewHookRegistry()}
+	stack := NewRecoveryStack()
+
+	result, err := g.dispatch(g.ctx.Context, e, stack, exec, g.ctx.Results, overrides)
+
+	if err != nil {
+		if unwindErr := stack.Unwind(); unwindErr != nil {
+			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
+		}
+	}
+
+	return result, err
+}
+
+// ExecuteWithStack runs an ExecutableUnit against a caller-supplied recovery stack and cancellation context.
+//
+// The caller owns the stack end-to-end: ExecuteWithStack neither initializes it nor unwinds it on error, so the
+// caller can inspect its contents after the call and decide whether to compose them into a parent-scope complement
+// or unwind them locally. Each call builds a fresh GraphExecutor and a fresh results map, so observability hooks
+// on the parent execution do not fire on the unit's body (a known limitation addressed in a later step) and the
+// results map reflects the D6 per-invocation scope rule.
+//
+// Intended for combinators that manage their own compensation and cancellation scope — currently
+// [flow.Provider.Gather], whose concurrent iterations each build a stack that becomes part of gather's compensable
+// complement on total success or is unwound locally on failure. The ctx argument carries the combinator's scoped
+// cancellation; [Graph.dispatch] threads it down to executeNode's entry check so cancelled iterations bail
+// cooperatively.
+//
+// Parameters:
+//   - ctx: the combinator's scoped cancellation context; propagates to iteration bodies via dispatch.
+//   - exec: the executable unit to run for this iteration.
+//   - stack: the caller-owned recovery stack that collects the iteration's compensations.
+//   - overrides: caller-supplied slot overrides for the iteration, typically the bound iteration input.
+//
+// Returns:
+//   - any: the unit's terminal result, or nil when it produces no output.
+//   - error: non-nil if the unit fails or the graph is not yet rebound; the stack is returned to the caller intact.
+func (g *Graph) ExecuteWithStack(ctx context.Context, exec ExecutableUnit, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+
+	if exec == nil {
+		return nil, fmt.Errorf("ExecuteWithStack: exec is nil")
+	}
+
+	if g.ctx == nil {
+		return nil, fmt.Errorf("ExecuteWithStack: graph has no execution context; call Rebind first")
+	}
+
+	if stack == nil {
+		return nil, fmt.Errorf("ExecuteWithStack: stack is nil")
+	}
+
+	e := &GraphExecutor{hooks: NewHookRegistry()}
+	results := make(map[string]any)
+
+	return g.dispatch(ctx, e, stack, exec, results, overrides)
+}
+
+// dispatch is the single Node/Subgraph dispatch site that every unit invocation flows through.
+//
+// Callers supply the live [GraphExecutor], [RecoveryStack], results map, and [context.Context], so the same executor
+// state and cancellation scope thread from the top-level entry down through recursive executeChildren calls. This is
+// the hook site: observability hooks and cancellation checks attached here (the ctx.Err() check happens in
+// executeNode) see every unit dispatch regardless of nesting depth.
+//
+// [Graph.Execute] and [GraphExecutor.Run] are the two external bootstraps that seed a fresh executor and stack
+// before calling dispatch; [Graph.ExecuteWithStack] is the combinator entry (e.g. gather) that brings its own
+// stack and scoped ctx. executeChildren reuses its caller's executor, stack, and ctx so compensation unwinding and
+// cancellation propagation see the entire chain.
+//
+// Parameters:
+//   - ctx: the cancellation context threaded from the nearest entry point.
+//   - e: the live executor whose hooks and state persist across the dispatch chain.
+//   - stack: the active recovery stack compensations are pushed onto.
+//   - exec: the executable unit to dispatch; must be a *Node or *Subgraph.
+//   - results: the accumulated node results for promise resolution.
+//   - overrides: caller-supplied slot overrides, if any.
+//
+// Returns:
+//   - any: the unit's terminal result, or nil when it produces no output.
+//   - error: non-nil if the unit fails or the exec type is unrecognized.
+func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryStack, exec ExecutableUnit, results map[string]any, overrides map[string]SlotValue) (any, error) {
+
+	switch unit := exec.(type) {
+
+	case *Node:
+		result := e.executeNode(ctx, unit, results, stack, overrides)
+		if result.Status == ResultFailed {
+			return nil, result.Error
+		}
+		return results[unit.ID()], nil
+
+	case *Subgraph:
+		return e.executeSubgraph(ctx, g, unit, results, stack, overrides)
+
+	default:
+		return nil, fmt.Errorf("dispatch: unknown ExecutableUnit type %T", exec)
+	}
+}
+
 // endregion
 
 // region Behaviors
@@ -210,10 +366,10 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	}
 
 	canonical := canonicalGraph{
-		Children:   g.Children,
+		Children:   g.Root.Children,
 		Collisions: g.Collisions,
 		Context:    g.Provenance,
-		Edges:      g.Edges,
+		Edges:      g.Root.Edges,
 		State:      g.State,
 		Timestamp:  g.Timestamp.Format(time.RFC3339),
 		Version:    g.Version,
@@ -308,42 +464,47 @@ const (
 
 // Node represents a single unit of work in an execution graph.
 type Node struct {
+	executableUnit
+
 	// Annotations holds extensible metadata (serialized to receipts).
-	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+	Annotations map[string]string
 
 	// Error message if status is failed.
-	Error string `json:"error,omitempty" yaml:"error,omitempty"`
-
-	// ID is the unique identifier (typically relative target path or package name).
-	ID string `json:"id" yaml:"id"`
+	Error string
 
 	// Layer is the repository layer (base, team, personal).
-	Layer string `json:"layer,omitempty" yaml:"layer,omitempty"`
+	Layer string
 
 	// Origin this node belongs to.
-	Origin string `json:"origin,omitempty" yaml:"origin,omitempty"`
+	Origin string
 
 	// Receiver is the dotted receiver + method name (e.g., "flow.complete", "file.write_text").
 	// At execution time, the executor splits this into receiver name and method name, looks up the
 	// ProviderReceiverType from the registry, constructs the provider, and dispatches via Method.Do.
-	Receiver string `json:"receiver" yaml:"receiver"`
+	Receiver string
 
 	// Retry is the retry policy for this node (nil = no retry).
-	Retry *RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
+	Retry *RetryPolicy
 
-	// Slots holds input values for this node. Each slot can be:
-	// - Immediate: value known at analysis time
-	// - Promise: reference to another node's output (creates edge)
-	Slots map[string]SlotValue `json:"slots,omitempty" yaml:"slots,omitempty"`
+	// Slots holds input values for this node, ordered by method parameter position.
+	Slots []*Slot
 
 	// Status of this node: pending, completed, skipped, failed.
-	Status NodeStatus `json:"status" yaml:"status"`
+	Status NodeStatus
 
 	// Timestamp is when this action completed.
-	Timestamp string `json:"timestamp,omitempty" yaml:"timestamp,omitempty"`
+	Timestamp string
 
-	graph  *Graph
-	action Action // override for testing — bypasses Receiver lookup when set
+	graph       *Graph
+	action      Action // override for testing — bypasses Receiver lookup when set
+	method      *Method
+	slotsByName map[string]*Slot
+}
+
+// NewNode constructs a Node with the given identifier. Additional fields may
+// be set on the returned pointer; the identifier is immutable after this call.
+func NewNode(id string) *Node {
+	return &Node{executableUnit: executableUnit{id: id}}
 }
 
 // region EXPORTED METHODS
@@ -375,100 +536,99 @@ func (n *Node) Action() (Action, error) {
 //   - *ExecutionContext: the graph's execution context.
 func (n *Node) ExecutionContext() *ExecutionContext { return n.graph.ctx }
 
-// SlotByName returns the resolved value of a slot.
-//
-// If the slot is a promise, returns nil (must be resolved by executor).
-func (n *Node) SlotByName(name string) any {
+// Bind associates this node with its resolved Method. Must be called before
+// SetSlot. Populates the node's parameter surface from the method.
+func (n *Node) Bind(method *Method) {
 
-	if n.Slots != nil {
-		if sv, ok := n.Slots[name]; ok {
-			if sv.IsImmediate() {
-				return sv.Immediate
-			}
-		}
-	}
-
-	return nil
+	n.method = method
+	n.parameters = method.Parameters()
+	n.rebuildSlotsByName()
 }
 
-// SetSlotImmediate sets a slot to an immediate value.
-func (n *Node) SetSlotImmediate(name string, value any) {
+// Method returns the bound method, or nil if unbound.
+func (n *Node) Method() *Method { return n.method }
 
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{Immediate: value}
+// SlotByName returns the Slot with the given parameter name, or nil if absent.
+func (n *Node) SlotByName(name string) *Slot {
+
+	return n.slotsByName[name]
 }
 
-// SetSlotPromise sets a slot to a promise (reference to another node).
-func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
+// SetSlot sets a slot's value. Node must be bound to a method.
+// The value may be any of ImmediateValue, PromiseValue, or EnvironmentValue.
+func (n *Node) SetSlot(name string, value SlotValue) {
 
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{NodeRef: nodeRef, Slot: slot}
-}
-
-// SetSlotProxy sets a slot to a gather proxy reference.
-func (n *Node) SetSlotProxy(name, gatherRef, field string) {
-
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{GatherRef: gatherRef, Field: field}
+	param := n.requireParam(name, "SetSlot")
+	n.setSlot(&Slot{Parameter: param, Value: value})
 }
 
 // endregion
 
 // region Behaviors
 
-// RequireStringSlot returns the string value of a required slot.
-// Returns an error if the slot is not set, or holds a non-string value.
-// An empty string is valid — use SlotByName for optional slots where zero value is acceptable.
-func (n *Node) RequireStringSlot(name string) (string, error) {
+// ResolvedSlots returns all slot values as a flat map, resolving promises and environment bindings.
+func (n *Node) ResolvedSlots(env RuntimeEnvironment, results map[string]any) map[string]any {
 
-	v := n.SlotByName(name)
-
-	if v == nil {
-		return "", fmt.Errorf("slot %q: not set", name)
-	}
-
-	s, ok := v.(string)
-
-	if !ok {
-		return "", fmt.Errorf("slot %q: expected string, got %T", name, v)
-	}
-
-	return s, nil
+	return n.ResolveSlots(env, results, nil)
 }
 
-// ResolvedSlots returns all slot values as a flat map.
-// Promise slots are resolved from the results map; immediate slots are returned
-// directly. Proxy slots are resolved from the optional proxyCtx map (used by
-// gather for per-iteration item binding).
-// Pass nil for results when all slots are immediate (e.g., in tests).
-func (n *Node) ResolvedSlots(results map[string]any, proxyCtx ...map[string]any) map[string]any {
+// ResolveSlots returns all slot values with caller-supplied overrides applied.
+// For each slot, if overrides contains an entry keyed by the parameter name,
+// that entry's Resolve is used; otherwise the baked-in Slot.Value is resolved.
+// Overrides whose keys do not match any slot parameter are silently ignored —
+// the caller-facing parameter surface is the authority.
+func (n *Node) ResolveSlots(env RuntimeEnvironment, results map[string]any, overrides map[string]SlotValue) map[string]any {
 
-	slots := make(map[string]any, len(n.Slots))
-	for name, sv := range n.Slots {
-		switch {
-		case sv.IsProxy():
-			if len(proxyCtx) > 0 && proxyCtx[0] != nil {
-				if item, ok := proxyCtx[0][sv.GatherRef]; ok {
-					slots[name] = fieldAccess(item, sv.Field)
-				}
-			}
-		case sv.IsPromise():
-			if results != nil {
-				if val, ok := results[sv.NodeRef]; ok {
-					slots[name] = val
-				}
-			}
-		default:
-			slots[name] = sv.Immediate
+	out := make(map[string]any, len(n.Slots))
+	for _, slot := range n.Slots {
+		name := slot.Parameter.Name
+		if ov, ok := overrides[name]; ok {
+			out[name] = ov.Resolve(env, results)
+			continue
+		}
+		out[name] = slot.Value.Resolve(env, results)
+	}
+	return out
+}
+
+// endregion
+
+// region UNEXPORTED NODE METHODS
+
+func (n *Node) requireParam(name, caller string) Parameter {
+
+	if n.method == nil {
+		panic(fmt.Sprintf("%s: node %q is not bound to a method", caller, n.ID()))
+	}
+	param, ok := n.method.ParameterByName(name)
+	if !ok {
+		panic(fmt.Sprintf("%s: parameter %q not found on method %s", caller, name, n.method.Name()))
+	}
+	return param
+}
+
+func (n *Node) setSlot(slot *Slot) {
+
+	for i, existing := range n.Slots {
+		if existing.Parameter.Name == slot.Parameter.Name {
+			n.Slots[i] = slot
+			n.slotsByName[slot.Parameter.Name] = slot
+			return
 		}
 	}
-	return slots
+	n.Slots = append(n.Slots, slot)
+	if n.slotsByName == nil {
+		n.slotsByName = make(map[string]*Slot)
+	}
+	n.slotsByName[slot.Parameter.Name] = slot
+}
+
+func (n *Node) rebuildSlotsByName() {
+
+	n.slotsByName = make(map[string]*Slot, len(n.Slots))
+	for _, slot := range n.Slots {
+		n.slotsByName[slot.Parameter.Name] = slot
+	}
 }
 
 // endregion
@@ -538,42 +698,6 @@ type Provenance struct {
 	TargetRoot string `json:"target_root,omitempty" yaml:"target_root,omitempty"`
 }
 
-// SlotValue represents a value that fills a slot in a node.
-// Three variants, mutually exclusive:
-//   - Immediate: value known at analysis time
-//   - Promise: reference to another node's output (NodeRef)
-//   - Proxy: reference to a gather iteration item (GatherRef + Field)
-type SlotValue struct {
-	// Field is the field name to access on the proxy item.
-	Field string `json:"field,omitempty" yaml:"field,omitempty"`
-
-	// GatherRef is the gather node ID for proxy resolution.
-	GatherRef string `json:"gather_ref,omitempty" yaml:"gather_ref,omitempty"`
-
-	// Immediate is the direct value (any type, known at analysis time).
-	Immediate any `json:"immediate,omitempty" yaml:"immediate,omitempty"`
-
-	// NodeRef is the ID of the node that produces this value (promise).
-	NodeRef string `json:"node_ref,omitempty" yaml:"node_ref,omitempty"`
-
-	// Slot is which output slot of the referenced node (empty = default output).
-	Slot string `json:"slot,omitempty" yaml:"slot,omitempty"`
-}
-
-// IsImmediate returns true if this slot value is an immediate value.
-func (s SlotValue) IsImmediate() bool {
-	return !s.IsPromise() && !s.IsProxy()
-}
-
-// IsPromise returns true if this slot value is a promise (reference to another node).
-func (s SlotValue) IsPromise() bool {
-	return s.NodeRef != ""
-}
-
-// IsProxy returns true if this slot value is a gather proxy reference.
-func (s SlotValue) IsProxy() bool {
-	return s.GatherRef != ""
-}
 
 // ActionExecutionSummary provides execution statistics for a set of actions.
 type ActionExecutionSummary interface {
@@ -749,18 +873,6 @@ const (
 
 // region HELPER FUNCTIONS
 
-// fieldAccess extracts a named field from a value.
-// Supports map[string]any for structured items.
-func fieldAccess(item any, field string) any {
-
-	if field == "" {
-		return item
-	}
-	if m, ok := item.(map[string]any); ok {
-		return m[field]
-	}
-	return nil
-}
 
 // topologicalSortChildren orders children (nodes and subgraphs) respecting edge constraints (Kahn's algorithm).
 // Nodes and subgraphs are peers — both are vertices referenced by ChildID().

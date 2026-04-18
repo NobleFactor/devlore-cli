@@ -32,13 +32,6 @@ type Marshaler interface {
 	MarshalStarlark() (starlark.Value, error)
 }
 
-// Unmarshaler is implemented by Starlark values that want to coerce themselves into a specific Go [reflect.Type].
-//
-// Check for this interface before assigning fields via reflection.
-type Unmarshaler interface {
-	UnmarshalStarlark(reflect.Type) (any, error)
-}
-
 // receiver wraps a registered Go instance for starlark use.
 //
 // It implements [starlark.Value], [starlark.HasAttrs], and [starlark.Comparable]. Fields are resolved first by
@@ -211,21 +204,19 @@ func (r *receiver) Attr(name string) (starlark.Value, error) {
 //   - []string: sorted list of available method names.
 func (r *receiver) AttrNames() []string { return r.attrNames }
 
-// UnmarshalStarlark implements [Unmarshaler].
+// Unmarshal projects this receiver's wrapped Go instance into the target reflect.Value.
 //
-// Delegates to [op.Convertible] on the wrapped instance if available. Falls back to direct extraction when the
-// instance's type is assignable to the target.
-//
-// Parameters:
-//   - target: the Go type to coerce into.
-//
-// Returns:
-//   - any: the converted Go value.
-//   - error: non-nil if conversion is not supported.
-func (r *receiver) UnmarshalStarlark(target reflect.Type) (any, error) {
+// Delegates to [op.Converter] on the wrapped instance if available. Falls back to direct
+// extraction when the instance's type is assignable to the target.
+func (r *receiver) Unmarshal(target reflect.Value) error {
 
-	if c, ok := r.instance.(op.Convertible); ok {
-		return c.ConvertTo(target)
+	if c, ok := r.instance.(op.Converter); ok {
+		val, err := c.Convert(target.Type())
+		if err != nil {
+			return err
+		}
+		target.Set(reflect.ValueOf(val))
+		return nil
 	}
 
 	elem := reflect.ValueOf(r.instance)
@@ -233,11 +224,12 @@ func (r *receiver) UnmarshalStarlark(target reflect.Type) (any, error) {
 		elem = elem.Elem()
 	}
 
-	if elem.Type().AssignableTo(target) {
-		return elem.Interface(), nil
+	if elem.Type().AssignableTo(target.Type()) {
+		target.Set(elem)
+		return nil
 	}
 
-	return nil, fmt.Errorf("bind.receiver(%s): cannot coerce to %s", r.Type(), target)
+	return fmt.Errorf("bind.receiver(%s): cannot coerce to %s", r.Type(), target.Type())
 }
 
 // endregion
@@ -602,15 +594,7 @@ func (r *receiver)unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 	// Custom unmarshaler: let the starlark value coerce itself into the target Go type.
 
 	if u, ok := sv.(Unmarshaler); ok {
-
-		val, err := u.UnmarshalStarlark(rv.Type())
-
-		if err != nil {
-			return err
-		}
-
-		rv.Set(reflect.ValueOf(val))
-		return nil
+		return u.Unmarshal(rv)
 	}
 
 	// Pass through Go pointer handles: if the starlark.Value is directly assignable to the target type, use it as-is.
@@ -1000,9 +984,13 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 		return nil, err
 	}
 
-	// Convert named starlark values to Go values.
+	// Project starlark values to their natural Go equivalents and collect
+	// them in a slots map keyed by each parameter's raw Name. Target-type
+	// matching is deferred to [op.Method.Invoke], which runs each slot
+	// through [op.Convert] against the method's declared parameter type.
+	// No starlark values survive past this boundary.
 
-	goArgs := make([]any, numParams)
+	slots := make(map[string]any, numParams)
 
 	for i, sv := range vals {
 
@@ -1010,14 +998,12 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 			continue
 		}
 
-		goVal := reflect.New(params[i].Type).Elem()
-
-		if err := r.unmarshalValue(sv, goVal); err != nil {
+		var val any
+		if err := r.unmarshalValue(sv, reflect.ValueOf(&val).Elem()); err != nil {
 			name := strings.TrimSuffix(namedParams[i], "?")
 			return nil, fmt.Errorf("%s: param %s: %w", actionName, name, err)
 		}
-
-		goArgs[i] = goVal.Interface()
+		slots[namedParams[i]] = val
 	}
 
 	// Resolve variadic parameter.
@@ -1047,16 +1033,12 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 			variadicList = list
 		}
 
-		variadicGoType := params[variadicIdx].Type
-
-		if variadicList == nil || variadicList.Len() == 0 {
-			goArgs[variadicIdx] = nil
-		} else {
-			goVal := reflect.New(variadicGoType).Elem()
-			if err := r.unmarshalValue(variadicList, goVal); err != nil {
+		if variadicList != nil && variadicList.Len() > 0 {
+			var val any
+			if err := r.unmarshalValue(variadicList, reflect.ValueOf(&val).Elem()); err != nil {
 				return nil, fmt.Errorf("%s: param %s: %w", actionName, variadicName, err)
 			}
-			goArgs[variadicIdx] = goVal.Interface()
+			slots[params[variadicIdx].Name] = val
 		}
 	}
 
@@ -1075,24 +1057,28 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 			kwargsMap[key] = val
 		}
 
-		goArgs[kwargsIdx] = kwargsMap
+		slots[params[kwargsIdx].Name] = kwargsMap
 	}
 
-	// Call the method.
+	// Dispatch through Method.Invoke: Go values in, Go values out. Invoke
+	// runs each slot through op.Convert against the parameter's declared
+	// type — string → *Resource via registry construction, []any → []string
+	// via slice-lift, etc. No special cases live here.
 
-	result, _, err := method.Do(r.instance, goArgs)
-
+	result, _, err := method.Invoke(r.executionContext(), r.instance, slots)
 	if err != nil {
 		return nil, err
 	}
 
-	// Marshal the result.
+	// Marshal the result back to starlark. TypeByReflectionOrDerive inside
+	// r.marshal handles unregistered struct returns by deriving a
+	// ReceiverType on demand so any Go type round-trips symmetrically.
 
-	if !result.IsValid() {
+	if result == nil {
 		return starlark.None, nil
 	}
 
-	return r.marshalReflect(result)
+	return r.marshal(result)
 }
 
 // CompareSameType implements starlark.Comparable.

@@ -33,16 +33,16 @@ func NewDependencyView(g *Graph) *DependencyView {
 
 	// Index nodes
 	for _, n := range g.Nodes() {
-		v.nodeByID[n.ID] = n
+		v.nodeByID[n.ID()] = n
 		// Initialize empty slices for all nodes
-		v.dependsOn[n.ID] = nil
-		v.dependents[n.ID] = nil
+		v.dependsOn[n.ID()] = nil
+		v.dependents[n.ID()] = nil
 	}
 
 	// Index edges
 	// Edge semantics: From -> To means "From must complete before To"
 	// So To depends on From
-	for _, e := range g.Edges {
+	for _, e := range g.Root.Edges {
 		v.dependsOn[e.To] = append(v.dependsOn[e.To], e.From)
 		v.dependents[e.From] = append(v.dependents[e.From], e.To)
 	}
@@ -81,7 +81,7 @@ func (v *DependencyView) NodeCount() int {
 
 // EdgeCount returns the number of edges in the graph.
 func (v *DependencyView) EdgeCount() int {
-	return len(v.graph.Edges)
+	return len(v.graph.Root.Edges)
 }
 
 // Roots returns nodes with no dependencies (can execute immediately).
@@ -347,7 +347,7 @@ func (v *DependencyView) IndependentSets() [][]string {
 	}
 
 	// Union nodes connected by edges
-	for _, e := range v.graph.Edges {
+	for _, e := range v.graph.Root.Edges {
 		union(e.From, e.To)
 	}
 
@@ -418,6 +418,7 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 
 	// Build subgraph
 	subgraph := &Graph{
+		Root:       NewSubgraph("root"),
 		Version:    v.graph.Version,
 		Timestamp:  v.graph.Timestamp,
 		State:      v.graph.State,
@@ -425,14 +426,14 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 	}
 
 	for _, n := range v.graph.Nodes() {
-		if nodeSet[n.ID] {
+		if nodeSet[n.ID()] {
 			subgraph.AddNode(n)
 		}
 	}
 
-	for _, e := range v.graph.Edges {
+	for _, e := range v.graph.Root.Edges {
 		if nodeSet[e.From] && nodeSet[e.To] {
-			subgraph.Edges = append(subgraph.Edges, e)
+			subgraph.Root.Edges = append(subgraph.Root.Edges, e)
 		}
 	}
 

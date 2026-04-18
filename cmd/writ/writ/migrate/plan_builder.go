@@ -25,7 +25,7 @@ type planBuilder struct {
 func newPlanBuilder(reg *op.ReceiverRegistry, project string) *planBuilder {
 	return &planBuilder{
 		reg:     reg,
-		graph:   &op.Graph{},
+		graph:   op.NewGraph(nil),
 		project: project,
 	}
 }
@@ -48,12 +48,11 @@ func (p *planBuilder) Mkdir(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID: p.nextID("mkdir"), Receiver: "file.mkdir",
-		Origin: p.project,
-	}
-	node.SetSlotImmediate("path", path)
-	node.SetSlotImmediate("mode", os.FileMode(0o755))
+	node := op.NewNode(p.nextID("mkdir"))
+	node.Receiver = "file.mkdir"
+	node.Origin = p.project
+	node.SetSlot("path", op.ImmediateValue{Value: path})
+	node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o755)})
 	p.graph.AddNode(node)
 	return node
 }
@@ -63,13 +62,11 @@ func (p *planBuilder) Link(source, path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("link"),
-		Receiver: "file.link",
-		Origin: p.project,
-	}
-	node.SetSlotImmediate("source", source)
-	node.SetSlotImmediate("path", path)
+	node := op.NewNode(p.nextID("link"))
+	node.Receiver = "file.link"
+	node.Origin = p.project
+	node.SetSlot("source", op.ImmediateValue{Value: source})
+	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
 	return node
 }
@@ -79,14 +76,12 @@ func (p *planBuilder) Copy(source, path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("copy"),
-		Receiver: "file.copy",
-		Origin: p.project,
-	}
-	node.SetSlotImmediate("source", source)
-	node.SetSlotImmediate("path", path)
-	node.SetSlotImmediate("mode", os.FileMode(0o644))
+	node := op.NewNode(p.nextID("copy"))
+	node.Receiver = "file.copy"
+	node.Origin = p.project
+	node.SetSlot("source", op.ImmediateValue{Value: source})
+	node.SetSlot("path", op.ImmediateValue{Value: path})
+	node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o644)})
 	p.graph.AddNode(node)
 	return node
 }
@@ -96,14 +91,12 @@ func (p *planBuilder) CopyWithMode(source, path string, mode os.FileMode) *op.No
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("copy"),
-		Receiver: "file.copy",
-		Origin: p.project,
-	}
-	node.SetSlotImmediate("source", source)
-	node.SetSlotImmediate("path", path)
-	node.SetSlotImmediate("mode", mode)
+	node := op.NewNode(p.nextID("copy"))
+	node.Receiver = "file.copy"
+	node.Origin = p.project
+	node.SetSlot("source", op.ImmediateValue{Value: source})
+	node.SetSlot("path", op.ImmediateValue{Value: path})
+	node.SetSlot("mode", op.ImmediateValue{Value: mode})
 	p.graph.AddNode(node)
 	return node
 }
@@ -116,13 +109,11 @@ func (p *planBuilder) Render(source string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("render"),
-		Receiver: "template.render_bytes",
-		Origin: p.project,
-	}
+	node := op.NewNode(p.nextID("render"))
+	node.Receiver = "template.render_bytes"
+	node.Origin = p.project
 	if source != "" {
-		node.SetSlotImmediate("source", source)
+		node.SetSlot("source", op.ImmediateValue{Value: source})
 	}
 	p.graph.AddNode(node)
 	return node
@@ -133,13 +124,11 @@ func (p *planBuilder) Decrypt(source string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("decrypt"),
-		Receiver: "encryption.decrypt",
-		Origin: p.project,
-	}
+	node := op.NewNode(p.nextID("decrypt"))
+	node.Receiver = "encryption.decrypt"
+	node.Origin = p.project
 	if source != "" {
-		node.SetSlotImmediate("source", source)
+		node.SetSlot("source", op.ImmediateValue{Value: source})
 	}
 	p.graph.AddNode(node)
 	return node
@@ -150,12 +139,10 @@ func (p *planBuilder) Remove(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("remove"),
-		Receiver: "file.remove",
-		Origin: p.project,
-	}
-	node.SetSlotImmediate("path", path)
+	node := op.NewNode(p.nextID("remove"))
+	node.Receiver = "file.remove"
+	node.Origin = p.project
+	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
 	return node
 }
@@ -165,12 +152,10 @@ func (p *planBuilder) Unlink(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("unlink"),
-		Receiver: "file.unlink",
-		Origin: p.project,
-	}
-	node.SetSlotImmediate("path", path)
+	node := op.NewNode(p.nextID("unlink"))
+	node.Receiver = "file.unlink"
+	node.Origin = p.project
+	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
 	return node
 }
@@ -180,12 +165,10 @@ func (p *planBuilder) Backup(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("backup"),
-		Receiver: "file.backup",
-		Origin: p.project,
-	}
-	node.SetSlotImmediate("path", path)
+	node := op.NewNode(p.nextID("backup"))
+	node.Receiver = "file.backup"
+	node.Origin = p.project
+	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
 	return node
 }
@@ -195,13 +178,11 @@ func (p *planBuilder) Rename(source, path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := &op.Node{
-		ID:     p.nextID("move"),
-		Receiver: "file.move",
-		Origin: p.project,
-	}
-	node.SetSlotImmediate("source", source)
-	node.SetSlotImmediate("path", path)
+	node := op.NewNode(p.nextID("move"))
+	node.Receiver = "file.move"
+	node.Origin = p.project
+	node.SetSlot("source", op.ImmediateValue{Value: source})
+	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
 	return node
 }
@@ -211,8 +192,8 @@ func (p *planBuilder) DependsOn(from, to *op.Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.graph.Edges = append(p.graph.Edges, op.Edge{
-		From: from.ID,
-		To:   to.ID,
+	p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{
+		From: from.ID(),
+		To:   to.ID(),
 	})
 }

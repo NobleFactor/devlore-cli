@@ -143,26 +143,14 @@ func (ctx *ExecutionContext) ModuleByName(name string) (any, error) {
 	return ctx.cachedProvider(prt)
 }
 
-// ExecuteSubgraph runs a subgraph using the context's shared results and recovery stack.
-//
-// This is the entry point for flow providers (Choose, Gather) that need to execute a subgraph
-// from within a provider method. It delegates to the executor's subgraph runner.
-//
-// Parameters:
-//   - graph: the root graph (for context access).
-//   - sg: the subgraph to execute.
-//
-// Returns:
-//   - any: the terminal node's output value, or nil.
-//   - error: non-nil if the subgraph fails.
-func (ctx *ExecutionContext) ExecuteSubgraph(graph *Graph, sg *Subgraph) (any, error) {
+// Property returns a value from the tool-provided context data.
+func (ctx *ExecutionContext) Property(key string) (any, bool) {
 
-	e := &GraphExecutor{hooks: NewHookRegistry()}
-	stack := NewRecoveryStack()
-	if ctx.Results == nil {
-		ctx.Results = make(map[string]any)
+	if ctx.Data == nil {
+		return nil, false
 	}
-	return e.executeSubgraph(graph, sg, ctx.Results, stack)
+	v, ok := ctx.Data[key]
+	return v, ok
 }
 
 // endregion

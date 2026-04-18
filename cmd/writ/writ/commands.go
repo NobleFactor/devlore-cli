@@ -662,11 +662,11 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	target := filepath.Join(targetRoot, relTarget)
 	nodes, edges := buildUpgradeChain(reg, actions, relTarget, entry, target)
 
-	graph := &op.Graph{}
+	graph := op.NewGraph(nil)
 	for _, node := range nodes {
 		graph.AddNode(node)
 	}
-	graph.Edges = edges
+	graph.Root.Edges = edges
 
 	eng, engErr := op.NewGraphExecutor("writ", op.Options{
 		Root:       targetRoot,
@@ -709,18 +709,16 @@ func buildUpgradeChain(reg *op.ReceiverRegistry, actions []string, relTarget str
 			nodeID = relTarget + ":" + opName
 		}
 
-		node := &op.Node{
-			ID:       nodeID,
-			Receiver: opName,
-			Origin:   entry.Project,
-		}
+		node := op.NewNode(nodeID)
+		node.Receiver = opName
+		node.Origin = entry.Project
 		if i == 0 {
-			node.SetSlotImmediate("source", entry.Source)
+			node.SetSlot("source", op.ImmediateValue{Value: entry.Source})
 		}
 		if isLast {
-			node.SetSlotImmediate("path", target)
+			node.SetSlot("path", op.ImmediateValue{Value: target})
 			if hasDecrypt {
-				node.SetSlotImmediate("mode", os.FileMode(0o600))
+				node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o600)})
 			}
 		}
 		nodes = append(nodes, node)
@@ -887,8 +885,8 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *op.Graph, checkDrift b
 		if isSkippableNode(n) {
 			continue
 		}
-		source, _ := n.SlotByName("source").(string) //nolint:errcheck // zero value (empty) is acceptable
-		target, _ := n.SlotByName("path").(string)   //nolint:errcheck // zero value (empty) is acceptable
+		source, _ := n.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
+		target, _ := n.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
 		report.Entries = append(report.Entries, buildNodeEntry(n, source, target, checkDrift))
 	}
 }
@@ -906,7 +904,7 @@ func isSkippableNode(n *op.Node) bool {
 // buildNodeEntry creates a reconcile entry from a graph node.
 func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
 	entry := reconcile.Entry{
-		RelTarget: n.ID,
+		RelTarget: n.ID(),
 		Source:    source,
 		Target:    target,
 		Project:   n.Origin,
