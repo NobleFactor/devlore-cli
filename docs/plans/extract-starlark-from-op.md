@@ -22,11 +22,11 @@ relationships, and codegen. Remove redundancy and framework code from providers.
 | 1.50. Add **kwargs to receiver bridges | complete | #267 |
 | 2+3+4. Create bind, move files, sever starlark, update codegen | complete | #268 |
 | 5+6. Sever starlark, consolidate registries, unify method dispatch | complete | #269 |
-| 7. Slot = (Parameter, Value): type-driven fill and dispatch | not-started | — |
-| 8. Output specs and the companion triplet | in-progress (Steps 1–8 done; Step 9 triage paused pending Phase 7) | — |
-| 9. Graph/executor restructuring, context, codegen | in-progress (test fixes remaining) | — |
-| 10. ReceiverType interface cleanup, unified dispatch | not-started | — |
-| 11. Implement `plan.subgraph` as a flow provider method | not-started | — |
+| 7. Slot = (Parameter, Value): type-driven fill and dispatch | in-progress (steps 1–10 complete; step 11 is the final cleanup) | — |
+| 8. Plan-time scope and grouping combinators | not-started | — |
+| 9. Output specs and the companion triplet | in-progress (Steps 1–8 done; Step 9 triage paused pending Phase 7) | — |
+| 10. Graph/executor restructuring, context, codegen | in-progress (test fixes remaining) | — |
+| 11. ReceiverType interface cleanup, unified dispatch | not-started | — |
 | 12. Address defects on the flow provider | not-started | — |
 | 13. Catalog serialization, Rebind rehydration | not-started | — |
 
@@ -719,7 +719,7 @@ Production code builds clean (`make build` passes). Only test files are broken.
 - `NewGraphExecutor()` — now takes `(name string, Options)` and returns `(*GraphExecutor, error)`
 - `g.Tool` — field removed from Graph
 
-## Phase 10: ReceiverType Interface Cleanup, Unified Dispatch
+## Phase 11: ReceiverType Interface Cleanup, Unified Dispatch
 
 ### Problem
 
@@ -796,7 +796,7 @@ Change `executingReceiver.Type()` from `return "module"` to
 The `ReceiverName` → `Name` rename is the widest change. Everything else
 is narrow.
 
-## Phase 8: Output Specs and the Companion Triplet
+## Phase 9: Output Specs and the Companion Triplet
 
 ### Problem
 
@@ -1438,52 +1438,124 @@ production emitted proxy slots.
   The 32 failures are expected to resolve or sharpen under the new
   model.
 
-## Phase 11: Implement `plan.subgraph` as a Flow Provider Method
+## Phase 8: Plan-Time Scope and Grouping Combinators
 
 ### Problem
 
-End users author graphs in starlark, not Go. The Phase 9 work made
-`op.Subgraph` the Go-side universal execution unit, but did not ship
-a starlark constructor. For any use case that needs a **multi-node**
-executable unit — bundling several nodes into one branch body,
-grouping nodes under a single iteration body, etc. — users have no
-way to construct one.
+Starlark is strict-eval. When a user writes:
 
-Single-node cases do **not** need `plan.subgraph`: under the
-node/subgraph interchangeability principle (see Phase 7 invariant),
-a node handle is itself a valid executable-unit reference, so
-`plan.flow.choose(when=predicate, then=some_node_promise)` works
-directly. Phase 11 is specifically about the N-node bundling case.
+```python
+plan.flow.choose(
+    defaultValue=plan.file.write_text(path, content),
+    case(when=pred, then=plan.file.remove(path)),
+)
+```
+
+`plan.file.write_text(...)` and `plan.file.remove(...)` are evaluated
+**before** `plan.flow.choose(...)` runs. By default they attach as
+nodes to the enclosing subgraph, so both files will be written AND the
+remove will run as part of the top-level graph walk, regardless of
+which case the `choose` selects. The semantic the user wants — only
+the chosen branch's work runs — requires that the authored actions
+attach to Choose's scope instead of the surrounding one.
+
+This problem generalizes across every grouping combinator:
+`plan.subgraph`, `plan.flow.choose`, `plan.flow.gather`, and
+`plan.flow.wait_until` each define a scope. `plan.*` calls authored
+lexically inside that scope should attach to a combinator-owned
+subgraph, not the top-level flow. The current plan layer has no such
+scope concept — every `plan.*` call attaches to the enclosing
+subgraph unconditionally.
+
+This phase absorbs what was formerly Phase 11 ("Implement
+`plan.subgraph` as a Flow Provider Method"). That phase addressed a
+special case of the general problem; the generalized design folds it
+in.
 
 ### Goal
 
-`plan.subgraph(n1, n2, …)` is a starlark-callable that constructs an
-`op.Subgraph` from N node handles (and/or child subgraph handles) and
-returns a handle usable anywhere a node handle is accepted.
-Implemented as a method on the flow provider — reached via the plan
-namespace's Planner routing as `plan.flow.subgraph(…)`, with no
-special-case plumbing on `plan.Provider`.
+Every grouping combinator owns a subgraph (or several — Choose owns
+one per case pair plus one for the default). `plan.*` calls lexically
+inside the combinator's scope attach to the combinator's owned
+subgraph. Side effects inside un-chosen, un-iterated, or un-triggered
+scopes never run.
 
-### To resolve during design
+The mechanism is **plan-time lambdas**. Combinators accept `lambda:`
+expressions at their scope-defining positions, and the planner
+evaluates those lambdas during planning with a scope stack that
+redirects nested `plan.*` calls to the current scope's subgraph.
+Execute-time lambdas remain forbidden — graph is immutable after plan
+time.
 
-- Signature in starlark: positional node handles bundled into a
-  subgraph, a callable body, or another form — to be settled with
-  the user during Phase 11 design.
-- Routing: whether `plan.subgraph` dispatches directly on the plan
-  provider, or is reached via the sub-namespace (`plan.flow.subgraph`)
-  through planner routing. Ties into the separate question of whether
-  `plan.choose` / `plan.gather` should themselves be namespaced as
-  `plan.flow.*`.
-- Eager-node reclamation: how content authored before the
-  `plan.subgraph(…)` call is moved from the main execution path into
-  the new subgraph (same concern as the open sub-decision about
-  eager node-handle semantics under Phase 7).
+Representative shapes:
+
+```python
+plan.subgraph(lambda: (
+    plan.file.mkdir(path=dir),
+    plan.file.write_text(destination=dir + "/hello", content="hi"),
+))
+
+plan.flow.choose(
+    defaultValue=lambda: plan.flow.complete(),
+    case(when=lambda: plan.service.is_healthy(svc="db"),
+         then=lambda: plan.flow.complete(output="ok")),
+    case(when=lambda: plan.service.is_down(svc="db"),
+         then=lambda: plan.flow.degraded("{{.svc}} unhealthy", svc="db")),
+)
+
+plan.flow.gather(items=paths, body=lambda path:
+    plan.file.write_text(destination=path, content="…"))
+
+plan.flow.wait_until(
+    predicate=lambda: plan.service.is_healthy(svc="db"),
+    timeout="5m",
+    interval="10s",
+)
+```
+
+### Design decisions to resolve
+
+Full design work happens in `docs/plans/extract-starlark-from-op/phase-8.md`.
+Key open decisions the phase doc will settle:
+
+- **D1 — Planner scope stack.** Data structure, access API from
+  `plan.*` call sites, push/pop contract.
+- **D2 — Plan-time lambdas.** Confirm lambdas as the deferral
+  mechanism over competing approaches (builder callbacks, code blocks,
+  explicit `plan.detach(...)` wrappers). The chosen-path rejection
+  rationale goes in phase-8.md.
+- **D3 — Detached subgraphs.** How combinator-owned subgraphs are
+  represented in the graph; how they're excluded from the top-level
+  execution walk; how their handles (Promises) distinguish from
+  top-level-attached Promises.
+- **D4 — `plan.subgraph(lambda: …)` primitive.** The explicit scope
+  primitive. Absorbs old Phase 11.
+- **D5 — `plan.flow.choose` API.** Case pairs (plan-time `when` +
+  `then` lambdas producing detached subgraphs), eager `defaultValue`,
+  `MethodCompensableFunction` semantics matching Gather, and a
+  `CompensateChoose` companion that unwinds the single chosen-branch
+  stack.
+- **D6 — `plan.flow.gather` API.** `body=lambda item: …` replaces the
+  current `do="subgraph-id"` positional. Migration path for existing
+  callers.
+- **D7 — `plan.flow.wait_until` API.** `predicate=lambda: …` scope,
+  timeout/interval parameters, behavior on timeout.
+- **D8 — Promise semantics for combinator scopes.** Combinator-owned
+  subgraphs produce handles that are still valid Promises but resolve
+  differently: rather than reading from `results[id]`, Choose /
+  Gather / WaitUntil dispatch them lazily via `ExecuteWithStack`.
+- **D9 — Migration of existing `.star` callers.** The current Choose
+  test files use the pre-redesign `when=/then=` kwargs form; Gather
+  callers pass string IDs to `do`. Both need to migrate to the new
+  lambda-based API.
 
 ### Dependencies
 
-Follows Phase 7's slot model. Precedes follow-up work that reshapes
-the `plan.choose` chained builder or the `plan.gather` parallel form
-to consume subgraph handles.
+Follows Phase 7's slot model. Touches the starlark→Go planner bridge,
+all grouping combinators (Choose, Gather, WaitUntil), and introduces
+`plan.subgraph` as a first-class primitive. Precedes the flow-provider
+defect work in Phase 12, which may uncover additional issues once the
+new combinator APIs are in place.
 
 ## Phase 12: Address Defects on the Flow Provider
 

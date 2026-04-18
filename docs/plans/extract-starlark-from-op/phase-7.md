@@ -22,7 +22,7 @@ updated: 2026-04-16
 | 8. Implement flow.Gather via unified Execute | **complete** | Added `Graph.ResolveExecutable(id)` — single lookup over the shared Node/Subgraph ID space. Replaced the `flow.Provider.Gather` stub with the D7 implementation: resolves body via ResolveExecutable, validates `len(Parameters()) == 1`, drives N iterations through `Graph.Execute(body, {inputName: ImmediateValue{items[i]}})` with bounded concurrency (sem-channel of size `limit`), aggregates failures via `errors.Join`. Also included in this commit: `Convertible` → `Converter` rename across `pkg/op/action.go`, `pkg/op/convert.go`, `pkg/op/bind/receiver.go`, `pkg/op/provider/mem/function.go` — single method `Convert(target reflect.Type) (any, error)`; unused `ConvertFrom` deleted. |
 | 9. executeChildren funnels through Graph.dispatch | **complete** | Renamed `Graph.executeWith` → `Graph.dispatch` to name what it actually does. Signature gains an explicit `results map[string]any` parameter (dropped the implicit `g.ctx.Results` access). `executeChildren`'s per-child Node/Subgraph switch collapses into a single call to `graph.dispatch(e, stack, unit, results, childOverrides)` — one extraction of `ExecutableUnit` from `SubgraphChild`, one dispatch call per child. `Graph.Execute` and `GraphExecutor.Run` updated to pass their results map explicitly; `g.ctx.Results` init moved up to Graph.Execute. `dispatch` is now the single hook site for every unit invocation regardless of nesting depth. Does not touch RecoveryStack or gather — those are step 10. |
 | 10. Gather compensation + scoped cancellation | **complete** | Gather rewritten: signature `Gather(ctx context.Context, items, do, limit) ([]any, Complement, error)` — `MethodCompensableFunction`. On success returns `[]*RecoveryStack` in completion order as complement; `executeNode`'s `PushAction` wraps it onto the parent stack. New `CompensateGather(stacks []*RecoveryStack) error` companion unwinds in reverse completion order. On failure: `gatherCancel()`, wait for all iterations, unwind held stacks locally, return `(nil, nil, err)` — nil-complement guard leaves no parent residue. Plumbing: `ctx context.Context` threaded through `dispatch`, `executeChildren`, `executeSubgraph`, `executeNode`; `executeNode` checks `ctx.Err()` at entry (honors root cancel + gather-internal cancel via inheritance). `Method.firstParamIsCtx` detection in `NewMethod` via `reflect.TypeOf((*context.Context)(nil)).Elem()`; `Method.Invoke` prepends ambient ctx when set. `Graph.ExecuteWithStack(ctx, exec, stack, overrides)` new public API — caller-owned stack, no bootstrap, no unwind on error. `executeNode`'s local `ctx` renamed to `ec` (ExecutionContext); `executeSubgraph`'s local `ctx` similarly renamed. No changes to `RecoveryStack` type. |
-| 11. Subgraph / choose cleanup | not-started | Fix `ExecutionContext.ExecuteSubgraph` at `context.go:158-161`: stop calling `graph.Execute(sg, nil)` (fresh stack bootstrap); route through an ambient-aware path that shares the caller's executor and stack. Audit `flow.Choose` for the same pattern; align with subgraph-scoped cancellation. Because subgraph children run sequentially, subgraphs do not derive their own scope ctx — they pass ctx through from their caller (ctx inheritance covers root cancel and ancestor-gather cancel). The only derivation sites after step 11 remain root + gather. If `Choose` or another combinator later needs self-initiated cancellation, that's its own future step. |
+| 11. Delete dead `ExecutionContext.ExecuteSubgraph` | not-started | `ExecutionContext.ExecuteSubgraph` at `context.go:158-161` has zero callers in the Go code after step 10 (gather now uses `Graph.ExecuteWithStack` directly; `flow.Choose` never dispatched subgraphs). The earlier concern that it bootstrapped a fresh stack is moot. Delete the method and its doc comment. `flow.Choose`'s own redesign — including lambda-based case pairs and scope-owned subgraphs — moves to Phase 8. |
 | 12. Rebind — Node.Bind / Graph.Bind | not-started | |
 | 13. Provider update — delete Do boilerplate, regen | not-started | |
 | 14. Executor update | not-started | |
@@ -491,22 +491,22 @@ step 8.
 
     **Not in this step:** `ExecutionContext.ExecuteSubgraph` fresh-
     stack fix, `flow.Choose` audit — those move to step 11.
-11. **Subgraph / choose cleanup.** Fix
-    `ExecutionContext.ExecuteSubgraph` at `context.go:158-161`: stop
-    calling `graph.Execute(sg, nil)` (which bootstraps a fresh stack
-    and discards it); route through an ambient-aware path that shares
-    the caller's executor and stack. Audit `flow.Choose` for the same
-    pattern.
+11. **Delete dead `ExecutionContext.ExecuteSubgraph`.**
+    `ExecutionContext.ExecuteSubgraph` at `context.go:158-161` has no
+    callers in Go code after step 10. Gather now drives each iteration
+    via `Graph.ExecuteWithStack` directly; `flow.Choose` never
+    dispatched subgraphs. The method's `graph.Execute(sg, nil)` body
+    bootstraps a fresh recovery stack that nothing uses. Delete the
+    method and its doc comment.
 
-    Subgraphs do not derive their own scope ctx — they pass ctx
-    through from their caller. Ctx inheritance covers both root cancel
-    (external) and ancestor-gather cancel (self-initiated); subgraph
-    children run sequentially, so no self-initiated cancel is needed
-    at the subgraph level. After step 11 the only derivation sites
-    remain **root** (tool main) and **gather** (combinator).
-
-    If `Choose` or another combinator later needs self-initiated
-    cancellation, that's its own future step — not this one.
+    `flow.Choose`'s larger redesign — lambda-based case pairs,
+    combinator-owned detached subgraphs, compensable complement —
+    belongs to Phase 8 (plan-time scope and grouping combinators), not
+    Phase 7. Cancellation plumbing landed in step 10: every dispatch
+    path threads `context.Context`; `executeNode` honors cancel at
+    entry; root and gather are the only derivation sites today; no
+    additional ctx work is needed for subgraph or choose at the Go
+    level.
 12. **Rebind.** `(*Node).Bind(method)` and `(*Graph).Bind(ctx)` rebind
     `Parameter.Type` from the registry on load. Slots serialize
     `Parameter.Name` + `Value` only; `Parameter.Type` reattached at
