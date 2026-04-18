@@ -2,7 +2,7 @@
 title: "Phase 7: Slot = (Parameter, Value) — type-driven fill and dispatch"
 parent: "docs/plans/extract-starlark-from-op.md"
 issue: 264
-status: in-progress
+status: complete
 created: 2026-04-15
 updated: 2026-04-16
 ---
@@ -22,13 +22,13 @@ updated: 2026-04-16
 | 8. Implement flow.Gather via unified Execute | **complete** | Added `Graph.ResolveExecutable(id)` — single lookup over the shared Node/Subgraph ID space. Replaced the `flow.Provider.Gather` stub with the D7 implementation: resolves body via ResolveExecutable, validates `len(Parameters()) == 1`, drives N iterations through `Graph.Execute(body, {inputName: ImmediateValue{items[i]}})` with bounded concurrency (sem-channel of size `limit`), aggregates failures via `errors.Join`. Also included in this commit: `Convertible` → `Converter` rename across `pkg/op/action.go`, `pkg/op/convert.go`, `pkg/op/bind/receiver.go`, `pkg/op/provider/mem/function.go` — single method `Convert(target reflect.Type) (any, error)`; unused `ConvertFrom` deleted. |
 | 9. executeChildren funnels through Graph.dispatch | **complete** | Renamed `Graph.executeWith` → `Graph.dispatch` to name what it actually does. Signature gains an explicit `results map[string]any` parameter (dropped the implicit `g.ctx.Results` access). `executeChildren`'s per-child Node/Subgraph switch collapses into a single call to `graph.dispatch(e, stack, unit, results, childOverrides)` — one extraction of `ExecutableUnit` from `SubgraphChild`, one dispatch call per child. `Graph.Execute` and `GraphExecutor.Run` updated to pass their results map explicitly; `g.ctx.Results` init moved up to Graph.Execute. `dispatch` is now the single hook site for every unit invocation regardless of nesting depth. Does not touch RecoveryStack or gather — those are step 10. |
 | 10. Gather compensation + scoped cancellation | **complete** | Gather rewritten: signature `Gather(ctx context.Context, items, do, limit) ([]any, Complement, error)` — `MethodCompensableFunction`. On success returns `[]*RecoveryStack` in completion order as complement; `executeNode`'s `PushAction` wraps it onto the parent stack. New `CompensateGather(stacks []*RecoveryStack) error` companion unwinds in reverse completion order. On failure: `gatherCancel()`, wait for all iterations, unwind held stacks locally, return `(nil, nil, err)` — nil-complement guard leaves no parent residue. Plumbing: `ctx context.Context` threaded through `dispatch`, `executeChildren`, `executeSubgraph`, `executeNode`; `executeNode` checks `ctx.Err()` at entry (honors root cancel + gather-internal cancel via inheritance). `Method.firstParamIsCtx` detection in `NewMethod` via `reflect.TypeOf((*context.Context)(nil)).Elem()`; `Method.Invoke` prepends ambient ctx when set. `Graph.ExecuteWithStack(ctx, exec, stack, overrides)` new public API — caller-owned stack, no bootstrap, no unwind on error. `executeNode`'s local `ctx` renamed to `ec` (ExecutionContext); `executeSubgraph`'s local `ctx` similarly renamed. No changes to `RecoveryStack` type. |
-| 11. Delete dead `ExecutionContext.ExecuteSubgraph` | not-started | `ExecutionContext.ExecuteSubgraph` at `context.go:158-161` has zero callers in the Go code after step 10 (gather now uses `Graph.ExecuteWithStack` directly; `flow.Choose` never dispatched subgraphs). The earlier concern that it bootstrapped a fresh stack is moot. Delete the method and its doc comment. `flow.Choose`'s own redesign — including lambda-based case pairs and scope-owned subgraphs — moves to Phase 8. |
+| 11. Delete dead `ExecutionContext.ExecuteSubgraph` | **complete** | Method and doc block at `context.go:146-161` deleted. Zero callers in Go code confirmed before removal. `flow.Choose`'s redesign moves to Phase 8. |
 | 12. Rebind — Node.Bind / Graph.Bind | not-started | |
 | 13. Provider update — delete Do boilerplate, regen | not-started | |
 | 14. Executor update | not-started | |
 | 15. Test triage | not-started | most Phase 8 failures expected to resolve. |
 
-**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Steps 1–10 complete. Step 11 is next.
+**Branch state:** `refactor/extract-starlark-from-op--phase-7-slots`. Phase 7 complete — all 11 steps landed. Follow-up work for grouping combinators (Choose / Gather builder / Subgraph primitive) moves to Phase 8.
 
 **Recorded principles** (project memory):
 - `project_plan_time_validation` — graph is immutable after plan time; Execute trusts the precomputed surface and does not revalidate.

@@ -22,7 +22,7 @@ relationships, and codegen. Remove redundancy and framework code from providers.
 | 1.50. Add **kwargs to receiver bridges | complete | #267 |
 | 2+3+4. Create bind, move files, sever starlark, update codegen | complete | #268 |
 | 5+6. Sever starlark, consolidate registries, unify method dispatch | complete | #269 |
-| 7. Slot = (Parameter, Value): type-driven fill and dispatch | in-progress (steps 1–10 complete; step 11 is the final cleanup) | — |
+| 7. Slot = (Parameter, Value): type-driven fill and dispatch | complete | — |
 | 8. Plan-time scope and grouping combinators | not-started | — |
 | 9. Output specs and the companion triplet | in-progress (Steps 1–8 done; Step 9 triage paused pending Phase 7) | — |
 | 10. Graph/executor restructuring, context, codegen | in-progress (test fixes remaining) | — |
