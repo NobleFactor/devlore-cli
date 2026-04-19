@@ -38,6 +38,26 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 // region EXPORTED METHODS
 
+// Options constructs a [bind.Options] value for use as the reserved `options` kwarg on any plan-mode dispatch.
+//
+// Exposed to starlark as `plan.options(label="...", retry_policy=...)`. Both parameters are optional: an empty label
+// triggers auto-labeling at dispatch time (format `<provider>.<method>#<N>`), and a nil retry policy means no retry
+// for the underlying node or subgraph.
+//
+// Parameters:
+//   - label: the user-supplied invocation label; empty triggers auto-labeling.
+//   - retryPolicy: the retry policy to apply to the invocation's node; nil means no retry.
+//
+// Returns:
+//   - *bind.Options: the constructed options value.
+func (p *Provider) Options(label string, retryPolicy *op.RetryPolicy) *bind.Options {
+
+	return &bind.Options{
+		Label:       label,
+		RetryPolicy: retryPolicy,
+	}
+}
+
 // ResolveAttr implements op.AttributeResolver.
 //
 // It routes sub-namespace lookups (e.g., plan.file, plan.git) to the corresponding [bind.Planner]. Planners are
