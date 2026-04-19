@@ -9,37 +9,44 @@ updated: 2026-04-19
 
 ## Implementation status
 
-| Step | Status | Notes |
-|---|---|---|
-| 1. Invocation registry + options types + plan.options builder | complete | `bind.Invocation`, `bind.InvocationRegistry` (ordered + byLabel + per-provider.method counts), `bind.Options{Label, RetryPolicy}` as pure data struct. `*plan.Provider.Options(label, retryPolicy) *bind.Options` method; codegen picks it up to expose starlark-side as `plan.options(...)`. |
-| 2a. Introduce `+devlore:root=true` directive | not-started | Per D12. Struct-level directive parsed by `generate.star` alongside `+devlore:access=` and `+devlore:lifetime=`. `ProviderRole` gains a placement-zone bit `RoleRoot` (bit 8) orthogonal to the existing dispatch-zone bits (`RoleModule`, `RoleAction`). Zone masks + `Dispatch()` / `Placement()` accessors. `op.ReceiverRegistry` gains `RootProviders() []ProviderReceiverType` filtered by the placement-zone bit. `AnnounceProvider` validates that at least one dispatch-zone bit is set. Existing 27 `AnnounceProvider` call sites untouched; only flow.Provider's future call site composes `RoleAction\|RoleRoot`. No consumer wired yet — the bit is plumbed through but not yet acted on by `StarlarkRuntime` or `plan.Provider`. |
-| 2b. Split plan/flow providers; unify planner | not-started | Per D12. `plan.Provider` (`access=immediate`, `root=false`) holds the plan namespace root — immediate methods `options`, `case`, `run`, `load`, `save` — plus the dispatch machinery collapsed from `bind.Planner`. `flow.Provider` is resurrected at `pkg/op/provider/flow/` (`access=planned`, `root=true`) and hosts the planner primitives `choose`, `gather`, `subgraph`, `wait_until`, `complete`, `degraded`, `fatal`, `elevate`. `plan.Provider` owns the `*op.Graph` and `*bind.InvocationRegistry`, discovers peer root-planned providers via `registry.RootProviders()`, caches sub-namespace child `*plan.Provider` instances for `plan.file`, `plan.git`, …, and builds a three-tier `Attr` dispatch with collision detection at construction. `FillSlot`, `shadowPendingOutput`, `assignTarget`, `linkResource` move onto `plan.Provider`. `StarlarkRuntime` registers modules per the access×root table (D12). `pkg/op/bind/planner.go` is deleted. |
-| 3. Reserved-kwarg enforcement at method registration | complete | `newReceiverType` rejects any provider method parameter list declaring `options`, `args` (without `*` prefix), or `kwargs` (without `**` prefix) as plain names. The `*args` and `**kwargs` variadic markers remain valid. Errors name the provider, method, and offending parameter. `reservedNameError` helper + table-driven tests cover plain / optional / variadic-decorated forms, the variadic markers, and ordinary names. |
-| 4. plan.Provider.dispatch intercepts options, constructs and registers invocations | not-started | Dispatch extracts the `options` kwarg before `starlark.UnpackArgs`, unwraps to `*bind.Options`, and removes it from the kwargs list. A `*bind.Invocation` is constructed around the new `*op.Node` and registered with the `*bind.InvocationRegistry` under the effective label (user-supplied via `Options.Label` or auto-labeled via `InvocationRegistry.AutoLabel`). `Options.RetryPolicy` applies to the node. Dispatch return stays `*bind.Promise` at this step. |
-| 5. bind.Invocation as starlark.Value; dispatch return switches to *Invocation | not-started | Add `Freeze`/`Hash`/`String`/`Truth`/`Type` and Promise-compatible `Attr`/`AttrNames` to `*bind.Invocation` so every callsite that consumed `*bind.Promise` continues to work. `plan.Provider.dispatch` return type changes from `*bind.Promise` to `*bind.Invocation`; Promise becomes an internal helper. |
-| 6. Planner FillSlot dispatch on target type | not-started | if slot expects op.ExecutableUnit → pull `invocation.Target`; else → pull `invocation.Result` and create edge. |
-| 7. ~~Merge flow provider into plan provider~~ | subsumed | Originally: move all flow methods into plan provider, delete flow package. Superseded by step 2b's plan/flow split with `root=true` (D12). The redesigns in steps 9–11 land directly on flow.Provider; no separate merge step needed. Kept in the table as a placeholder so subsequent step numbers stay stable across the plan history. |
-| 8. plan.subgraph primitive | not-started | New method on flow.Provider (planned + root); accepts variadic invocations; container output = list of terminal values (per D3). Absorbs old Phase 11. Starlark surface `plan.subgraph(...)`. Action name `subgraph`. |
-| 9. plan.choose redesign | not-started | On flow.Provider. Case{When, Then any}; CompensateChoose companion; detached-by-default branches; container-output-type inference per D3. Starlark surface `plan.choose(...)`. Action name `choose`. |
-| 10. plan.gather redesign | not-started | On flow.Provider. body is an invocation; Go side from Phase 7 step 10 stays; container-output-type inference per D3. Starlark surface `plan.gather(...)`. Action name `gather`. |
-| 11. plan.wait_until redesign | not-started | On flow.Provider. predicate is an invocation; timeout errors through normal Action.Do error channel; output = predicate's return type. Starlark surface `plan.wait_until(...)`. Action name `wait_until`. |
-| 12. plan.run explicit entry point | not-started | Immediate method on plan.Provider. `.star` files end with `plan.run(...)`; no implicit top-level graph; owns pre-flight with error aggregation. Companions `plan.load` and `plan.save` land here too — both immediate methods on plan.Provider for serializing and rehydrating graphs from starlark. |
-| 13. Orphan detection at plan-end | not-started | walk from root, mark reachable, collect unreached invocations as errors. |
-| 14. CanConvert on Converter + Planner.CanConvertTypes | not-started | type-only pre-flight conversion check; adds required CanConvert to op.Converter; method on plan.Provider implements the cascade. |
-| 15. Topological sort + plan-time type-check pass | not-started | order producer-before-consumer, walk Promise→slot bindings, apply Planner.CanConvertTypes, collect mismatches as errors. |
-| 16. Migration of existing .star callers | not-started | test_is_*.star files and doc snippets; switch from old Choose/Gather forms to the invocation-passing form. |
-| 17. Test triage | not-started | |
+Every step below is a commit unit — one step, one checkpoint commit on
+`refactor/extract-starlark-from-op.phase-8`.
 
-**Status:** in-progress. Steps 1 and 3 complete. Step 2 has been split into 2a
-(the `+devlore:root=true` codegen directive plus the `op.ProviderReceiverType`
-and `op.ReceiverRegistry` additions that carry it) and 2b (the plan/flow
-provider split with three-tier dispatch on `plan.Provider`). Steps 2a, 2b, 4,
-and beyond are still pending. Step 7 is subsumed by 2b — the flow merge is no
-longer needed once flow.Provider is registered as a `root=true` peer of
-plan.Provider. Design decisions below (including D12 — root providers) are
-resolved from the phase-8 discussion; step details get refined as each lands.
-Invariants I1–I4 (see full section) should be recorded as project memory when
-the phase lands.
+| # | Step | Status | Notes |
+|---|---|---|---|
+| 1 | Invocation registry + options types + plan.options builder | complete | `bind.Invocation`, `bind.InvocationRegistry` (ordered + byLabel + per-provider.method counts), `bind.Options{Label, RetryPolicy}` as pure data struct. `*plan.Provider.Options(label, retryPolicy) *bind.Options` method; codegen picks it up to expose starlark-side as `plan.options(...)`. |
+| 2 | `+devlore:root=true` directive & ProviderRole placement zone | complete | Per D12. `ProviderRole` is partitioned into dispatch zone (bits 0–7: `RoleModule`, `RoleAction`) and placement zone (bits 8–15: `RoleRoot`) with zone masks and `Dispatch()` / `Placement()` accessors. `AnnounceProvider` validates that at least one dispatch-zone bit is set. `ReceiverRegistry` gains `RootProviders() []ProviderReceiverType`. Codegen parses `+devlore:root=true` on the provider struct and threads it through to the generated `AnnounceProvider` call as `|op.RoleRoot`. `filter_ctx_param` added in `generate.star` to strip a leading `context.Context` from announced parameter lists. Test template `receiver_type.gen_test.go.template` updated from `rt.ReceiverName()` to `rt.Name()`. |
+| 3 | Reserved-kwarg enforcement at method registration | complete | `newReceiverType` rejects any provider method parameter list declaring `options`, `args` (without `*` prefix), or `kwargs` (without `**` prefix) as plain names. The `*args` and `**kwargs` variadic markers remain valid. Errors name the provider, method, and offending parameter. `reservedNameError` helper + table-driven tests cover plain / optional / variadic-decorated forms, the variadic markers, and ordinary names. |
+| 4 | flow.Provider declares `+devlore:root=true` | complete | Directive added to `pkg/op/provider/flow/provider.go` with an updated doc comment explaining the root semantics. Regenerated `pkg/op/provider/flow/gen/provider.gen.go`; roles expression is now `op.RoleAction\|op.RoleRoot`. Verified at runtime: `registry.RootProviders()` returns `flow` with `roles=0x102`, `dispatch=0x2` (RoleAction), `placement=0x100` (RoleRoot). No consumer wired yet — plumbing activation only. |
+| 5 | plan.Provider absorbs bind.Planner; children become child `*plan.Provider`; delete `pkg/op/bind/planner.go` | not-started | Structural unification. `FillSlot`, `dispatch`, `shadowPendingOutput`, `assignTarget`, `linkResource` move from `bind.Planner` to `plan.Provider`. `plan.Provider` gains `receiverType op.ProviderReceiverType` and `methods` / `attrNames` fields; becomes a `starlark.HasAttrs` itself. `plan.Provider.ResolveAttr` returns child `*plan.Provider` instances for sub-namespace access (file, git, …) instead of `*bind.Planner`. Child providers share the graph and registry with the root via pointer. Collision detection for child-namespace names vs. root's own methods. `pkg/op/bind/planner.go` deleted in the same commit. |
+| 6 | plan.Provider discovers root-planned peers; three-tier Attr with collision detection | not-started | plan.Provider scans `registry.RootProviders()` filtered to `RoleAction` at construction and builds a `peerBuiltins` map keyed by snake method name. Each entry is a `*starlark.Builtin` whose dispatch routes to the peer provider's planned-dispatch logic; the builtin's label uses the bare form because the source receiver is root. `Attr(name)` becomes a three-tier walk: Tier 1 (plan.Provider's own methods) → Tier 2 (peer builtins) → Tier 3 (child sub-namespaces). Any collision across Tier 1, Tier 2, or Tier 3 fails plan.Provider construction with a message naming both providers and the offending method. |
+| 7 | StarlarkRuntime access×root registration branches | not-started | `NewStarlarkRuntime`'s module-iteration loop (`pkg/op/bind/starlark_runtime.go:67`) branches on the access × root combination per D12. `access=immediate, root=false` stays top-level global (status quo). `access=immediate, root=true` installs each method as a top-level predeclared (reserved for future use). `access=planned, root=false` is NOT registered as a top-level global (status quo). `access=planned, root=true` is NOT registered either — plan.Provider discovers it via `registry.RootProviders()` and hosts its methods via Tier 2 dispatch. Verify current loop behavior for `planned` providers and align if drift exists. |
+| 8 | plan.Provider.dispatch intercepts options kwarg | not-started | Dispatch extracts the `options` kwarg before `starlark.UnpackArgs`, unwraps to `*bind.Options`, and removes it from the kwargs list. A `*bind.Invocation` is constructed around the new `*op.Node` and registered with the `*bind.InvocationRegistry` under the effective label (user-supplied via `Options.Label` or auto-labeled via `InvocationRegistry.AutoLabel`). `Options.RetryPolicy` applies to the node. Dispatch return stays `*bind.Promise` at this step. |
+| 9 | bind.Invocation as starlark.Value; dispatch returns `*Invocation` | not-started | Add `Freeze`/`Hash`/`String`/`Truth`/`Type` and Promise-compatible `Attr`/`AttrNames` to `*bind.Invocation` so every callsite that consumed `*bind.Promise` continues to work. `plan.Provider.dispatch` return type changes from `*bind.Promise` to `*bind.Invocation`; Promise becomes an internal helper. |
+| 10 | plan.Provider.FillSlot dispatches by target type | not-started | if slot expects `op.ExecutableUnit` → pull `invocation.Target`; else → pull `invocation.Result` and create edge. Replaces the current `*Promise` case in `FillSlot`. |
+| 11 | plan.subgraph primitive | not-started | New method on flow.Provider (planned + root); accepts variadic invocations; container output = list of terminal values (per D3). Absorbs old Phase 11. Starlark surface `plan.subgraph(...)`. Action name `subgraph`. |
+| 12 | plan.choose redesign | not-started | On flow.Provider. `Case{When any, Then any}`; CompensateChoose companion; detached-by-default branches; container-output-type inference per D3. `plan.case(...)` as an immediate method on plan.Provider for constructing `*Case` values. Starlark surface `plan.choose(...)`. Action name `choose`. |
+| 13 | plan.gather redesign | not-started | On flow.Provider. `body` is an invocation; Go side from Phase 7 step 10 stays; container-output-type inference per D3. Starlark surface `plan.gather(...)`. Action name `gather`. |
+| 14 | plan.wait_until redesign | not-started | On flow.Provider. `predicate` is an invocation; timeout errors through normal Action.Do error channel; output = predicate's return type. Starlark surface `plan.wait_until(...)`. Action name `wait_until`. |
+| 15 | plan.run + plan.load + plan.save | not-started | Immediate methods on plan.Provider. `plan.run(...)` is the explicit entry point: variadic invocations, wrapped in a subgraph when more than one is passed; owns pre-flight with error aggregation (D5). `plan.load(path)` rehydrates a graph from a serialized form; `plan.save(path)` serializes the current graph. Both load/save are immediate — no graph node, no invocation — callable from starlark for tooling that wants to round-trip graphs without executing them. |
+| 16 | Orphan detection at plan-end | not-started | Walk from `plan.run`'s root; mark reachable invocations; collect unreached registry entries as errors. Part of `plan.run`'s pre-flight pass per D4 + D5. |
+| 17 | CanConvert on Converter + plan.Provider.CanConvertTypes | not-started | Type-only pre-flight conversion check. `op.Converter` interface gains required `CanConvert(target reflect.Type) bool` method with the nil-safety contract (D9). `plan.Provider` gains `CanConvertTypes(source, target reflect.Type) bool` implementing the type-level cascade (D8). |
+| 18 | Topological sort + plan-time type-check pass | not-started | Order the graph producer-before-consumer; walk Promise→slot bindings in topological order; apply `plan.Provider.CanConvertTypes`; collect mismatches as errors joined with orphan errors per D5. |
+| 19 | Migration of existing .star callers | not-started | `cmd/devlore-test/devloretest/data/test_is_*.star` files and doc snippets; switch from old `plan.choose(when=..., then=...)` kwargs form to invocation-passing form with `plan.case(...)` members. Any `.star` usage of `plan.flow.<method>` (sub-namespace form) becomes `plan.<method>` (flat form) per D12. Per D11. |
+| 20 | Test triage | not-started | Run the full suite; fold residuals into follow-ups. Resolve the `bind.NewProvider` / `ReceiverName` template staleness flagged during step 2 (module test template references APIs removed during Phase 7/8 refactoring). |
+
+Plus one unresolved design discussion that must close before phase-8 exits:
+
+| # | Topic | Status |
+|---|---|---|
+| O1 | Marshaling design — argument-to-parameter-type matching via ReceiverType-hosted marshalers | open; direction stated, five questions pending |
+
+**Status:** in-progress. Steps 1–4 complete; 5–20 pending. Step 5 is
+the largest structural commit (plan.Provider absorbs bind.Planner,
+children transition to child plan.Provider instances,
+`bind/planner.go` deleted). Design decisions D1–D12 are resolved;
+D13 (marshaling) is pending and will be written once O1's five
+questions are answered.
 
 # Phase 8: Plan-time scope and grouping combinators
 
@@ -57,7 +64,7 @@ An invocation carries both representations needed at every binding site:
 the `op.ExecutableUnit` (for slots that want an executable reference —
 combinator bodies, branches, iteration targets) and a `Promise` (for
 slots that want a value — consumes the invocation's output via an edge).
-The binding layer (`plan.Provider.FillSlot` after step 2b; formerly
+The binding layer (`plan.Provider.FillSlot` after step 5; formerly
 `bind.Planner.FillSlot`) picks which field to use based on the target
 slot's type. Starlark authors don't distinguish — invocations are
 polymorphic at the call site. The binding layer handles the dispatch
@@ -363,7 +370,7 @@ func (r *InvocationRegistry) All() []*Invocation
 func (r *InvocationRegistry) ByLabel(label string) *Invocation
 ```
 
-Owned by the top-level `plan.Provider` (the unified planner; see step 2).
+Owned by the top-level `plan.Provider` (the unified planner; see step 5).
 Every `plan.Provider.dispatch` call registers the invocation it constructed
 before returning it to the starlark caller. Child `plan.Provider` instances
 for sub-namespaces share the registry with the top-level via pointer.
@@ -828,6 +835,81 @@ flattening root. The directive does not take a target argument
 second root emerges later, the directive extends to name its target
 then — not speculatively now.
 
+## Open discussions blocking phase-8 closure
+
+### O1 — Marshaling design: argument-to-parameter-type matching
+
+**Direction (stated by user):** marshaling is driven by the
+ReceiverType of the Go method argument. Every Go type that can
+appear as a method argument has a registered ReceiverType; that
+ReceiverType owns the marshaler for its type. Given a provider
+method whose parameter is typed `T`, the pipeline looks up the
+ReceiverType for `T` and asks it to produce a `T` from whatever
+starlark source the caller supplied. One lookup, one registry, no
+source-first dispatch, no fallback stage.
+
+**What this replaces.** The current two-stage pipeline — source-
+first `bind.Unmarshaler` dispatch (`pkg/op/bind/unmarshaler.go:30`)
+followed by `op.Convert` fallback (`pkg/op/bind/planner.go:418`) —
+is the wrong shape. It matches on source first and reaches the
+target through a fallback path; the target type authority is
+secondary. Under the stated direction that whole pipeline is
+replaced by a single target-driven lookup hosted on ReceiverType.
+
+**What this means for `pkg/op/bind/unmarshal_*.go`.** Those files
+(`unmarshal_bool.go`, `unmarshal_int.go`, `unmarshal_string.go`,
+`unmarshal_function.go`, …) each handle one starlark source type.
+Under the new direction they disappear as a source-first registry.
+Their per-source projection logic migrates into the ReceiverType
+that owns each target Go type (or its factory). The `ToUnmarshaler`
+dispatcher goes away; `bind.Unmarshaler` as an interface goes away
+or re-appears reshaped.
+
+**Open questions to close before D13.**
+
+1. **Marshal method shape.** Does ReceiverType gain a method like
+   `Marshal(ctx *ExecutionContext, source any) (any, error)`,
+   taking a generic `any` source? Or a different signature? The
+   method cannot take `starlark.Value` directly because
+   ReceiverType lives in `pkg/op` and `pkg/op` does not import
+   starlark — that boundary stays.
+
+2. **Ctx flow.** Several projections need ExecutionContext: resource
+   construction (file.Resource from a string path requires Root),
+   mem.Function construction (requires Thread for compile and
+   program Init). Ctx threads through `Marshal`. Confirm.
+
+3. **Compound target types.** A method parameter typed
+   `func(any) (bool, error)` is not announced — there's no
+   `AnnounceProvider`/`AnnounceResource` entry for function types.
+   `TypeByReflectionOrDerive` handles unregistered struct types
+   today; the equivalent for function types needs to exist and
+   needs to know to route through `*mem.Function` (i.e., the
+   starlark→mem.Function projection, then mem.Function.Convert
+   to the target func type). Similarly for slices, maps, pointers
+   to structs, etc. — the derivation rule per compound kind.
+
+4. **Source type admission.** The ReceiverType for `string` needs
+   to accept `starlark.String` as a source. The ReceiverType for
+   `*file.Resource` needs to accept a starlark string (representing
+   the path). The ReceiverType for `*mem.Function` needs to accept
+   a `*starlark.Function`. How does each ReceiverType express
+   which source shapes it handles? Is there a per-source-type
+   adapter registered separately, or does the ReceiverType type-
+   switch on the source internally?
+
+5. **Migration order for existing code.** `bind/unmarshal_*.go`
+   cannot be deleted until every consumer is ported. Which sites
+   currently call `ToUnmarshaler` / `Unmarshal` / `assignTarget`
+   need to migrate, and in what order, so that the old pipeline
+   and the new one do not have to coexist long?
+
+D13 gets written once the five questions above are answered. Until
+then, steps 4–7 (flow directive, plan.Provider restructure, peer
+dispatch, StarlarkRuntime registration) proceed without touching
+marshaling — plan.Provider's structural restructure and peer
+dispatch are orthogonal to this.
+
 ## Invariants
 
 ### I1 — Plan-time type checking
@@ -870,126 +952,141 @@ runs.
 
 ## Updated step outline
 
+The step numbers below match the Implementation status table at the
+top of this document. Each step is a commit unit.
+
 1. **Invocation registry + options types + `plan.options(...)` builder.**
-   Landed. Introduces `bind.Invocation{Target, Result}` per D1;
+   Landed. `bind.Invocation{Target, Result}` per D1;
    `bind.InvocationRegistry` with `ordered` + `byLabel` + per-provider.method
    `counts` and the methods `Register`/`AutoLabel`/`All`/`ByLabel` per D6;
    `bind.Options{Label, RetryPolicy}` as a pure data struct;
    `(*plan.Provider).Options(label, retryPolicy) *bind.Options`. Codegen
    picks up the new method and surfaces it starlark-side as
-   `plan.options(...)` — the `*bind.Options` return flows back through
-   the generic receiver marshalling path; it is not a `starlark.Value`
-   in its own right.
-2. **Split into 2a and 2b.**
-
-   **2a — Introduce `+devlore:root=true` directive.** Plumbing-only
-   step. Per D12. `generate.star` gains a parser for the struct-level
-   `+devlore:root=true` directive alongside the existing
-   `struct_access` and `struct_lifetime` parsers, and threads the
-   value through the provider descriptor. `op.ProviderReceiverType`
-   gains `IsRoot() bool` set at registration. `op.ReceiverRegistry`
-   gains `RootProviders() []ProviderReceiverType`. No consumer wired
-   yet — `StarlarkRuntime` and `plan.Provider` continue to ignore the
-   new property. Landed ahead of 2b so the codegen shape is ready
-   when 2b's dispatch wiring starts to query it.
-
-   **2b — Split plan/flow providers; unify planner.** Per D12.
-   `plan.Provider` keeps only its immediate methods (`Options`,
-   `Case`, `Run`, `Load`, `Save`) and absorbs the planner-side
-   dispatch machinery that lived on `bind.Planner` (FillSlot,
-   shadowPendingOutput, assignTarget, linkResource). `flow.Provider`
-   is resurrected at `pkg/op/provider/flow/` with
-   `+devlore:access=planned, +devlore:root=true` and hosts the eight
-   planner primitives (`Choose`, `Gather`, `Subgraph`, `WaitUntil`,
-   `Complete`, `Degraded`, `Fatal`, `Elevate`). `plan.Provider` owns
-   the `*op.Graph` and the `*bind.InvocationRegistry`, discovers peer
-   root-planned providers via `registry.RootProviders()` at
-   construction, caches sub-namespace child `*plan.Provider`
-   instances, and builds the three-tier `Attr` dispatch with
-   collision detection. `StarlarkRuntime` registers modules per the
-   access × root table (D12). `pkg/op/bind/planner.go` is deleted.
-   `bind.Promise`, `bind.Invocation`, `bind.InvocationRegistry`,
-   `bind.Options` stay in `pkg/op/bind/` as data types consumed by
-   the planner.
-3. **Reserved-kwarg enforcement at method registration.** `newReceiverType`
-   rejects any provider's method parameter list that declares `options`,
-   `args` (without `*` prefix), or `kwargs` (without `**` prefix) as
-   plain names. Program init fails with a clear message naming provider
-   and method.
-4. **`plan.Provider.dispatch` intercepts options, constructs and
-   registers invocations.** Dispatch extracts the `options` kwarg before
-   `starlark.UnpackArgs`, unwraps to `*bind.Options`, and removes it
-   from the kwargs list. A `*bind.Invocation` is constructed around the
-   new `*op.Node` and registered with the InvocationRegistry under the
-   effective label (user-supplied via `Options.Label` or auto-labeled
-   via `InvocationRegistry.AutoLabel`). `Options.RetryPolicy` applies
-   to the node. Dispatch return stays `*bind.Promise` at this step.
-5. **`bind.Invocation` as `starlark.Value`; dispatch return switches to
-   `*Invocation`.** Add `Freeze`/`Hash`/`String`/`Truth`/`Type` and
-   Promise-compatible `Attr`/`AttrNames` to `*bind.Invocation` so every
-   callsite that consumed `*bind.Promise` continues to work.
-   `plan.Provider.dispatch` return type changes from `*bind.Promise` to
-   `*bind.Invocation`; Promise becomes an internal helper.
-6. **`Planner.FillSlot` dispatch by target type.** Slot expects
-   `op.ExecutableUnit` → pull `invocation.Target`; else pull
-   `invocation.Result` and use the existing Promise/edge logic from
-   Phase 7.
-7. **Subsumed by 2b.** The flow merge originally described here is
-   unnecessary once 2b establishes flow.Provider as a `root=true`
-   peer of plan.Provider. flow.Provider's methods already surface
-   flat on `plan.*` through plan.Provider's Tier 2 dispatch; nothing
-   needs to be moved. The combinator redesigns in steps 9–11 land
-   directly on flow.Provider.
-8. **`plan.subgraph(invocations…)` primitive.** New method on
-   flow.Provider; takes variadic invocations, builds a subgraph. Owns
-   container-output-type inference for subgraph per D3: `[]T` when
-   terminals are homogeneous, `[]any` otherwise. Empty subgraph
-   errors. Absorbs old Phase 11. Starlark surface `plan.subgraph(...)`;
-   action name `subgraph`.
-9. **`plan.choose` redesign.** On flow.Provider. `Case{When any, Then
-   any}`; compensable method; `CompensateChoose` companion; lazy
-   dispatch of branches via `Graph.ExecuteWithStack`. Owns
-   container-output-type inference for choose per D3: `T` when
-   default and every case's Then are homogeneous, `any` otherwise.
-   Starlark surface `plan.choose(...)`; action name `choose`.
-   `plan.case(...)` — the case-construction immediate — lands on
-   plan.Provider (not flow.Provider) because it is a pure data
-   builder that runs immediately to produce a `*Case` value consumed
-   by `plan.choose`.
-10. **`plan.gather` redesign.** On flow.Provider. `body=invocation`;
-    existing Go-side Gather from Phase 7 step 10 stays; starlark-facing
-    builder changes. Owns container-output-type inference for gather
-    per D3: `[]T` where T is the body's return type; `[]any` when the
-    body returns `any`. Starlark surface `plan.gather(...)`; action
-    name `gather`.
-11. **`plan.wait_until` redesign.** On flow.Provider.
-    `predicate=invocation`; timeout surfaces as Action.Do error. Owns
-    container-output-type inference for wait_until per D3: the
-    predicate's return type. Starlark surface `plan.wait_until(...)`;
-    action name `wait_until`.
-12. **`plan.run(...)` explicit entry point, plus `plan.load` and
-    `plan.save`.** Immediate methods on plan.Provider. `plan.run`
-    takes variadic invocations, wraps them in a subgraph when more
-    than one is passed, materializes the graph, runs pre-flight, and
-    hands off to execution. No implicit top-level graph. Tool-runner
-    picks up the root invocation(s). Owns the pre-flight pass that
-    runs steps 13 + topological sort + 15 with error aggregation per
-    D5. Companions: `plan.load(path)` rehydrates a graph from a
-    serialized form; `plan.save(path)` serializes the current graph
-    to the given path. Both are immediate — no graph node, no
-    invocation — and are callable from starlark for tooling that
-    wants to round-trip graphs without executing them.
-13. **Orphan detection at plan-end.** Walk from `plan.run`'s root;
-    mark reachable; collect unreached registry entries as errors.
-14. **`CanConvert` method on `op.Converter` + `Planner.CanConvertTypes`
-    method.** Interface addition to `op.Converter` (D9); corresponding
-    method on `plan.Provider` implementing the type-level cascade (D8).
-15. **Topological sort + plan-time type-check pass.** Order the graph
-    producer-before-consumer, then walk Promise→slot bindings in
-    topological order; apply `Planner.CanConvertTypes`; collect
-    mismatches as errors.
-16. **Migration of existing `.star` callers.** Per D11.
-17. **Test triage.** Run the full suite; fold residuals into follow-ups.
+   `plan.options(...)`.
+2. **`+devlore:root=true` directive & ProviderRole placement zone.**
+   Landed. Per D12. `ProviderRole` partitioned into dispatch zone
+   (bits 0–7) and placement zone (bits 8–15); `RoleRoot` is the
+   first placement-zone bit. `AnnounceProvider` validates
+   `roles.Dispatch() != 0`. `ReceiverRegistry` gains
+   `RootProviders() []ProviderReceiverType`. Codegen parses
+   `+devlore:root=true` and threads it through to the
+   `AnnounceProvider` call as `|op.RoleRoot`. `filter_ctx_param`
+   helper in `generate.star` strips a leading `context.Context`.
+   Test template updated from `rt.ReceiverName()` to `rt.Name()`.
+3. **Reserved-kwarg enforcement at method registration.** Landed.
+   `newReceiverType` rejects any provider's method parameter list
+   that declares `options`, `args` (without `*` prefix), or
+   `kwargs` (without `**` prefix) as plain names. Program init
+   fails with a clear message naming provider and method.
+4. **flow.Provider declares `+devlore:root=true`.** Single
+   directive addition on `pkg/op/provider/flow/provider.go`.
+   Regenerate `pkg/op/provider/flow/gen/provider.gen.go`; roles
+   expression picks up `|op.RoleRoot`. Activates the RoleRoot
+   plumbing from step 2. No consumer wired yet — this is a
+   plumbing activation.
+5. **plan.Provider absorbs bind.Planner; children become child
+   `*plan.Provider`; delete `pkg/op/bind/planner.go`.** Structural
+   unification. `FillSlot`, `dispatch`, `shadowPendingOutput`,
+   `assignTarget`, `linkResource` move from `bind.Planner` to
+   `plan.Provider`. plan.Provider gains `receiverType` / `methods`
+   / `attrNames` fields and becomes a `starlark.HasAttrs` itself.
+   `plan.Provider.ResolveAttr` returns child `*plan.Provider`
+   instances instead of `*bind.Planner`. Child providers share the
+   graph and registry with the root via pointer. Collision
+   detection for child-namespace names vs. root's own methods.
+   `bind/planner.go` deleted. `bind.Promise`, `bind.Invocation`,
+   `bind.InvocationRegistry`, `bind.Options` stay as data types.
+6. **plan.Provider discovers root-planned peers; three-tier Attr
+   with collision detection.** plan.Provider scans
+   `registry.RootProviders()` filtered to `RoleAction` at
+   construction and builds a `peerBuiltins` map keyed by snake
+   method name. Each entry is a `*starlark.Builtin` whose dispatch
+   routes to the peer provider's planned-dispatch logic; the
+   builtin's label uses the bare form because the source receiver
+   is root. `Attr(name)` walks Tier 1 (plan.Provider's own
+   methods) → Tier 2 (peer builtins) → Tier 3 (child
+   sub-namespaces). Any collision fails plan.Provider construction
+   with a message naming both providers and the offending method.
+7. **StarlarkRuntime access × root registration branches.**
+   `NewStarlarkRuntime`'s module-iteration loop branches per D12's
+   access × root table. Root-planned providers are not registered
+   as top-level globals and not as plan sub-namespaces — they are
+   discovered by plan.Provider via `registry.RootProviders()`.
+   Non-root planned providers stay reachable only via
+   `plan.<name>.<method>`. Immediate-non-root stays top-level.
+   Immediate-root installs methods as top-level predeclared
+   entries (reserved for future use).
+8. **plan.Provider.dispatch intercepts options kwarg.** Dispatch
+   extracts the `options` kwarg before `starlark.UnpackArgs`,
+   unwraps to `*bind.Options`, and removes it from the kwargs
+   list. A `*bind.Invocation` is constructed around the new
+   `*op.Node` and registered with the InvocationRegistry under
+   the effective label (user-supplied via `Options.Label` or
+   auto-labeled via `InvocationRegistry.AutoLabel`).
+   `Options.RetryPolicy` applies to the node. Dispatch return
+   stays `*bind.Promise` at this step.
+9. **`bind.Invocation` as `starlark.Value`; dispatch returns
+   `*Invocation`.** Add `Freeze`/`Hash`/`String`/`Truth`/`Type`
+   and Promise-compatible `Attr`/`AttrNames` to `*bind.Invocation`
+   so every callsite that consumed `*bind.Promise` continues to
+   work. `plan.Provider.dispatch` return type changes from
+   `*bind.Promise` to `*bind.Invocation`; Promise becomes an
+   internal helper.
+10. **`plan.Provider.FillSlot` dispatches by target type.** Slot
+    expects `op.ExecutableUnit` → pull `invocation.Target`; else
+    pull `invocation.Result` and use the existing Promise/edge
+    logic from Phase 7. Replaces the current `*Promise` case in
+    `FillSlot`.
+11. **`plan.subgraph` primitive.** New method on flow.Provider;
+    takes variadic invocations, builds a subgraph. Owns
+    container-output-type inference for subgraph per D3: `[]T`
+    when terminals are homogeneous, `[]any` otherwise. Empty
+    subgraph errors. Absorbs old Phase 11. Starlark surface
+    `plan.subgraph(...)`; action name `subgraph`.
+12. **`plan.choose` redesign.** On flow.Provider. `Case{When any,
+    Then any}`; compensable method; `CompensateChoose` companion;
+    lazy dispatch of branches via `Graph.ExecuteWithStack`. Owns
+    container-output-type inference for choose per D3.
+    `plan.case(...)` lands on plan.Provider (not flow.Provider)
+    as an immediate data builder producing the `*Case` values
+    `plan.choose` consumes. Starlark surface `plan.choose(...)`;
+    action name `choose`.
+13. **`plan.gather` redesign.** On flow.Provider.
+    `body=invocation`; existing Go-side Gather from Phase 7
+    step 10 stays; starlark-facing builder changes. Owns
+    container-output-type inference for gather per D3. Starlark
+    surface `plan.gather(...)`; action name `gather`.
+14. **`plan.wait_until` redesign.** On flow.Provider.
+    `predicate=invocation`; timeout surfaces as Action.Do error.
+    Owns container-output-type inference for wait_until per D3.
+    Starlark surface `plan.wait_until(...)`; action name
+    `wait_until`.
+15. **`plan.run` + `plan.load` + `plan.save`.** Immediate methods
+    on plan.Provider. `plan.run(...)` is the explicit entry
+    point: variadic invocations, wrapped in a subgraph when more
+    than one is passed; owns pre-flight with error aggregation
+    (steps 16 + topological sort + 18). `plan.load(path)`
+    rehydrates a graph from a serialized form; `plan.save(path)`
+    serializes the current graph. Both load/save are immediate —
+    no graph node, no invocation.
+16. **Orphan detection at plan-end.** Walk from `plan.run`'s
+    root; mark reachable; collect unreached registry entries as
+    errors. Part of `plan.run`'s pre-flight pass per D4.
+17. **`CanConvert` method on `op.Converter` +
+    `plan.Provider.CanConvertTypes`.** Interface addition to
+    `op.Converter` (D9); corresponding method on `plan.Provider`
+    implementing the type-level cascade (D8).
+18. **Topological sort + plan-time type-check pass.** Order the
+    graph producer-before-consumer; walk Promise→slot bindings in
+    topological order; apply `plan.Provider.CanConvertTypes`;
+    collect mismatches as errors joined with orphan errors per
+    D5.
+19. **Migration of existing `.star` callers.** Per D11.
+    `cmd/devlore-test/devloretest/data/test_is_*.star` files; any
+    usage of `plan.flow.<method>` becomes `plan.<method>`.
+20. **Test triage.** Run the full suite; fold residuals into
+    follow-ups. Resolve `bind.NewProvider` / `ReceiverName`
+    template staleness flagged during step 2.
 
 ## Blast radius
 
@@ -1004,7 +1101,7 @@ runs.
   []ProviderReceiverType` returning providers with the `RoleRoot` bit
   set (general filter callable from any provider that needs to
   discover peers).
-- `pkg/op/bind/planner.go` — **deleted** in 2b. Its behaviors
+- `pkg/op/bind/planner.go` — **deleted** in step 5. Its behaviors
   (`dispatch`, `FillSlot`, `shadowPendingOutput`, `assignTarget`,
   `linkResource`) move onto `plan.Provider`. The type-level cascade
   `CanConvertTypes` (D8) lands on `plan.Provider` too.

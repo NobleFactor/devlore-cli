@@ -14,7 +14,7 @@ import (
 
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
-		op.RoleAction,
+		op.RoleAction|op.RoleRoot,
 		func(ctx *op.ExecutionContext) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
 			"Choose":    {"default_value", "*cases"},
