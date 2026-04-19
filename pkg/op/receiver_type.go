@@ -283,6 +283,19 @@ func (rt *resourceReceiverType) Construct() ResourceConstructor { return rt.cons
 func newReceiverType(providerType reflect.Type, methodParameters map[string][]string) (receiverType, error) {
 
 	name := receiverName(providerType)
+
+	// Reject reserved parameter names before building the method set. The
+	// planner uses "options", "args", and "kwargs" for cross-cutting concerns
+	// and for the variadic markers; provider methods cannot claim any of them
+	// as plain parameter names.
+	for methodName, params := range methodParameters {
+		for _, param := range params {
+			if err := reservedNameError(param); err != nil {
+				return receiverType{}, fmt.Errorf("provider %s method %s: %w", name, methodName, err)
+			}
+		}
+	}
+
 	methods := make([]*Method, 0, len(methodParameters))
 	methodMap := make(map[string]*Method, len(methodParameters))
 
@@ -341,6 +354,38 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]st
 }
 
 // region HELPER FUNCTIONS
+
+// reservedNameError returns an error if param declares a parameter name reserved by the planner.
+//
+// The name "options" is always reserved — providers cannot declare it in any form. The names "args" and "kwargs" are
+// reserved as plain parameter names; the variadic markers `*args` and `**kwargs` remain valid as catch-all positional
+// and catch-all keyword parameters respectively. Prefix (`*`, `**`) and suffix (`?`) decorators on a reserved name
+// (e.g., `options?`, `*options`) do not bypass the rule — the cleaned name is what matters.
+//
+// Parameters:
+//   - param: the raw parameter declaration as supplied in methodParameters.
+//
+// Returns:
+//   - error: non-nil with a descriptive message when param names a reserved identifier; nil otherwise.
+func reservedNameError(param string) error {
+
+	if param == "*args" || param == "**kwargs" {
+		return nil
+	}
+
+	cleaned := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(param, "**"), "*"), "?")
+
+	switch cleaned {
+	case "options":
+		return fmt.Errorf("declares reserved parameter %q (name reserved for the planner's options kwarg)", param)
+	case "args":
+		return fmt.Errorf("declares reserved parameter %q (name reserved; variadic positionals must be spelled %q)", param, "*args")
+	case "kwargs":
+		return fmt.Errorf("declares reserved parameter %q (name reserved; keyword catch-alls must be spelled %q)", param, "**kwargs")
+	}
+
+	return nil
+}
 
 // compileDispatcher creates an optimized dispatch closure for a method.
 //

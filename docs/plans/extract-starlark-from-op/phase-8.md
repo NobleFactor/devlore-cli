@@ -13,7 +13,7 @@ updated: 2026-04-18
 |---|---|---|
 | 1. Invocation registry + options types + plan.options builder | complete | `bind.Invocation`, `bind.InvocationRegistry` (ordered + byLabel + per-provider.method counts), `bind.Options{Label, RetryPolicy}` as pure data struct. `*plan.Provider.Options(label, retryPolicy) *bind.Options` method; codegen picks it up to expose starlark-side as `plan.options(...)`. |
 | 2. Unify planner: delete bind.Planner; plan.Provider owns Graph, InvocationRegistry, dispatch | not-started | `bind.Planner` is collapsed into `plan.Provider`. Top-level `plan.Provider` wraps the plan receiver type, owns the `*op.Graph` and the `*bind.InvocationRegistry`, and caches child `*plan.Provider` instances for sub-namespaces (`plan.file`, `plan.git`, …). Child providers share the graph and registry via pointer. `FillSlot`, `shadowPendingOutput`, `assignTarget`, `linkResource` move onto `plan.Provider`. `pkg/op/bind/planner.go` is deleted. |
-| 3. Reserved-kwarg enforcement at method registration | not-started | `newReceiverType` rejects method parameter lists that declare `options`, `args` (without `*` prefix), or `kwargs` (without `**` prefix) as plain names. Program init fails with a message naming provider and method. |
+| 3. Reserved-kwarg enforcement at method registration | complete | `newReceiverType` rejects any provider method parameter list declaring `options`, `args` (without `*` prefix), or `kwargs` (without `**` prefix) as plain names. The `*args` and `**kwargs` variadic markers remain valid. Errors name the provider, method, and offending parameter. `reservedNameError` helper + table-driven tests cover plain / optional / variadic-decorated forms, the variadic markers, and ordinary names. |
 | 4. plan.Provider.dispatch intercepts options, constructs and registers invocations | not-started | Dispatch extracts the `options` kwarg before `starlark.UnpackArgs`, unwraps to `*bind.Options`, and removes it from the kwargs list. A `*bind.Invocation` is constructed around the new `*op.Node` and registered with the `*bind.InvocationRegistry` under the effective label (user-supplied via `Options.Label` or auto-labeled via `InvocationRegistry.AutoLabel`). `Options.RetryPolicy` applies to the node. Dispatch return stays `*bind.Promise` at this step. |
 | 5. bind.Invocation as starlark.Value; dispatch return switches to *Invocation | not-started | Add `Freeze`/`Hash`/`String`/`Truth`/`Type` and Promise-compatible `Attr`/`AttrNames` to `*bind.Invocation` so every callsite that consumed `*bind.Promise` continues to work. `plan.Provider.dispatch` return type changes from `*bind.Promise` to `*bind.Invocation`; Promise becomes an internal helper. |
 | 6. Planner FillSlot dispatch on target type | not-started | if slot expects op.ExecutableUnit → pull `invocation.Target`; else → pull `invocation.Result` and create edge. |
@@ -29,8 +29,9 @@ updated: 2026-04-18
 | 16. Migration of existing .star callers | not-started | test_is_*.star files and doc snippets; switch from old Choose/Gather forms to the invocation-passing form. |
 | 17. Test triage | not-started | |
 
-**Status:** in-progress. Step 1 complete; step 2 starts next. Design decisions below
-are resolved from the phase-8 discussion; step details get refined as each lands.
+**Status:** in-progress. Steps 1 and 3 complete; step 2 (planner unification) and
+step 4 (options-kwarg interception) still pending. Design decisions below are
+resolved from the phase-8 discussion; step details get refined as each lands.
 Invariants I1–I3 (see full section) should be recorded as project memory when the
 phase lands.
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -182,6 +183,70 @@ func TestNewReceiverType_WrongParamCount_ReturnsError(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected error for wrong param count")
+	}
+}
+
+func TestNewReceiverType_RejectsReservedParameterNames(t *testing.T) {
+
+	_, err := newReceiverType(testProviderType, map[string][]string{
+		"Echo": {"options"},
+	})
+
+	if err == nil {
+		t.Fatal("expected error for reserved parameter name, got nil")
+	}
+
+	msg := err.Error()
+
+	if !strings.Contains(msg, "testProvider") {
+		t.Errorf("error should name the provider: %v", err)
+	}
+
+	if !strings.Contains(msg, "Echo") {
+		t.Errorf("error should name the offending method: %v", err)
+	}
+
+	if !strings.Contains(msg, "options") {
+		t.Errorf("error should name the offending parameter: %v", err)
+	}
+}
+
+// endregion
+
+// region reservedNameError
+
+func TestReservedNameError(t *testing.T) {
+
+	tests := []struct {
+		name    string
+		param   string
+		wantErr bool
+	}{
+		{"plain options", "options", true},
+		{"optional options", "options?", true},
+		{"star options", "*options", true},
+		{"double-star options", "**options", true},
+		{"plain args", "args", true},
+		{"optional args", "args?", true},
+		{"double-star args", "**args", true},
+		{"plain kwargs", "kwargs", true},
+		{"optional kwargs", "kwargs?", true},
+		{"star kwargs", "*kwargs", true},
+		{"variadic marker *args", "*args", false},
+		{"variadic marker **kwargs", "**kwargs", false},
+		{"ordinary name", "label", false},
+		{"ordinary optional", "value?", false},
+		{"ordinary variadic", "*items", false},
+		{"ordinary double-star", "**attrs", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := reservedNameError(tt.param)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("reservedNameError(%q) err = %v, wantErr = %v", tt.param, err, tt.wantErr)
+			}
+		})
 	}
 }
 
