@@ -91,7 +91,7 @@ func TestReceiverType_Name(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	if got := rt.Name(); got != "encryption" {
-		t.Errorf("ReceiverName() = %q, want %q", got, "encryption")
+		t.Errorf("Name() = %q, want %q", got, "encryption")
 	}
 }
 

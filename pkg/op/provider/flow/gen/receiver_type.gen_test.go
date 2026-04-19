@@ -91,7 +91,7 @@ func TestReceiverType_Name(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	if got := rt.Name(); got != "flow" {
-		t.Errorf("ReceiverName() = %q, want %q", got, "flow")
+		t.Errorf("Name() = %q, want %q", got, "flow")
 	}
 }
 
@@ -108,11 +108,11 @@ func TestReceiverType_Methods(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	expected := []string{
+		"Choose",
 		"Complete",
 		"Degraded",
-		"Fatal",
 		"Elevate",
-		"Choose",
+		"Fatal",
 		"Gather",
 		"WaitUntil",
 	}

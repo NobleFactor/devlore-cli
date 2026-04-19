@@ -91,7 +91,7 @@ func TestReceiverType_Name(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	if got := rt.Name(); got != "staranalysis" {
-		t.Errorf("ReceiverName() = %q, want %q", got, "staranalysis")
+		t.Errorf("Name() = %q, want %q", got, "staranalysis")
 	}
 }
 

@@ -159,6 +159,28 @@ def struct_lifetime(path):
             return value
     return "stateless"
 
+def struct_root(path):
+    """Extract the +devlore:root flag from the Provider struct's doc comment.
+
+    The +devlore:root=true directive sets the RoleRoot placement-zone bit on
+    the generated AnnounceProvider call, causing the provider's methods to
+    surface flat at their access-defined namespace root rather than nested
+    under the provider's own name. See Phase 8 D12 for the semantics.
+
+    Returns False if no directive is found (the default — methods surface
+    nested under the provider's name).
+    """
+    doc = goast.type_doc(path)
+    for line in doc.split("\n"):
+        line = line.strip().lstrip("/").strip()
+        if "+devlore:root=" in line:
+            idx = line.index("+devlore:root=")
+            value = line[idx + len("+devlore:root="):].strip()
+            if value not in ["true", "false"]:
+                fail("invalid +devlore:root value %r on Provider struct (valid: true, false)" % value)
+            return value == "true"
+    return False
+
 def parse_defaults(doc):
     """Parse +devlore:defaults from a method doc comment.
 
@@ -247,6 +269,18 @@ def is_custom_return(returns):
         return r[1:]
     return ""
 
+def filter_ctx_param(params):
+    """Strip a leading context.Context parameter from the params list.
+
+    When a provider method's first Go parameter is context.Context, [op.Method.Invoke] auto-fills it with the ambient
+    cancellation context and the remaining parameters align with the caller-supplied parameter names. The announce map
+    and starlark-facing surface must not list ctx — it is implicit. This helper mirrors the detection rule in
+    [op.NewMethod] (firstParamIsCtx).
+    """
+    if len(params) > 0 and params[0].type == "context.Context":
+        return params[1:]
+    return params
+
 def filter_methods(methods, include_list):
     """Filter methods down to the user-facing public surface.
 
@@ -324,7 +358,7 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
         pure = "error" not in m.returns
 
         params = []
-        for p in m.params:
+        for p in filter_ctx_param(m.params):
             # Struct param: emit the Go param name (not expanded fields).
             # The marshaler handles dict → struct conversion.
             if p.name in method_struct_params:
@@ -736,7 +770,7 @@ def detect_resource_params(path):
         # Skip methods with unnamed parameters.
         has_unnamed = False
         param_names = []
-        for p in m.params:
+        for p in filter_ctx_param(m.params):
             if p.name == "_" or not p.name:
                 has_unnamed = True
                 break
@@ -791,7 +825,7 @@ def compute_provider_import(path):
         return module_path + "/" + rel
     return module_path
 
-def emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime,
+def emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime, root,
                       all_method_names, provider_descriptors,
                       output_dir, write_files):
     """Generate receivers in gen/ mode with type graph walking."""
@@ -935,6 +969,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         "all_methods": list(all_names_raw.keys()),
         "access": access,
         "access_title": access_title(access),
+        "root": root,
         "lifetime": lifetime,
         "lifetime_title": lifetime_title(lifetime),
     }
@@ -1213,15 +1248,19 @@ def prepare_render_data(descriptor, template_name):
     # Pre-compute descriptor fields for provider template
     if template_name == "provider":
         access = desc.get("access", "immediate")
+        root = desc.get("root", False)
         desc["has_actions"] = access in ["planned", "both"]
         desc["has_planned"] = access in ["planned", "both"]
         desc["has_immediate"] = access in ["immediate", "both"]
         if access == "immediate":
-            desc["roles"] = "op.RoleModule"
+            roles = "op.RoleModule"
         elif access == "planned":
-            desc["roles"] = "op.RoleAction"
+            roles = "op.RoleAction"
         else:
-            desc["roles"] = "op.RoleModule|op.RoleAction"
+            roles = "op.RoleModule|op.RoleAction"
+        if root:
+            roles = roles + "|op.RoleRoot"
+        desc["roles"] = roles
 
     # Add derived fields to each method
     methods = list(desc.get("methods", []))
@@ -1321,8 +1360,11 @@ def run(command, ctx):
     struct_short = provider.title()
     access = struct_access(path)
     lifetime = struct_lifetime(path)
+    root = struct_root(path)
 
     ui.note("Provider access: " + access)
+    if root:
+        ui.note("Provider root: true")
 
     # -------------------------------------------------------------------------
     # Build basic method descriptors (without defaults/struct_param expansion)
@@ -1331,7 +1373,7 @@ def run(command, ctx):
 
     for m in filtered:
         params = []
-        for p in m.params:
+        for p in filter_ctx_param(m.params):
             # Infer *args from variadic (...T) or slice ([]T) params.
             # Infer **kwargs from map[string]any params.
             is_variadic = p.variadic or (p.type.startswith("[]") and not p.type.startswith("[]byte"))
@@ -1370,6 +1412,6 @@ def run(command, ctx):
     if not gen_mode:
         fail("--gen is required")
 
-    emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime,
+    emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime, root,
                       all_method_names, all_descriptors,
                       output_dir, write_files)

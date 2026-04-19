@@ -16,11 +16,11 @@ func TestActionNames(t *testing.T) {
 
 	reg := makeRegistry(t)
 	names := []string{
+		"flow.choose",
 		"flow.complete",
 		"flow.degraded",
-		"flow.fatal",
 		"flow.elevate",
-		"flow.choose",
+		"flow.fatal",
 		"flow.gather",
 		"flow.wait_until",
 	}
@@ -36,16 +36,39 @@ func TestRegister(t *testing.T) {
 
 	reg := makeRegistry(t)
 	expected := []string{
+		"flow.choose",
 		"flow.complete",
 		"flow.degraded",
-		"flow.fatal",
 		"flow.elevate",
-		"flow.choose",
+		"flow.fatal",
 		"flow.gather",
 		"flow.wait_until",
 	}
 	for _, name := range expected {
 		_ = getAction(t, reg, name)
+	}
+}
+
+func TestChooseAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "flow.choose")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] flow.choose") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] flow.choose")
 	}
 }
 
@@ -95,29 +118,6 @@ func TestDegradedAction_DryRun(t *testing.T) {
 	}
 }
 
-func TestFatalAction_DryRun(t *testing.T) {
-
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.fatal")
-	ctx := dryRunCtx(t)
-
-	result, undo, err := action.Do(ctx, map[string]any{})
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] flow.fatal") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] flow.fatal")
-	}
-}
-
 func TestElevateAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
@@ -141,10 +141,10 @@ func TestElevateAction_DryRun(t *testing.T) {
 	}
 }
 
-func TestChooseAction_DryRun(t *testing.T) {
+func TestFatalAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.choose")
+	action := getAction(t, reg, "flow.fatal")
 	ctx := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
@@ -159,8 +159,8 @@ func TestChooseAction_DryRun(t *testing.T) {
 	}
 
 	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] flow.choose") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] flow.choose")
+	if !strings.Contains(output, "[dry-run] flow.fatal") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] flow.fatal")
 	}
 }
 
@@ -210,12 +210,20 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 	}
 }
 
+func TestGatherAction_CompensableInterface(t *testing.T) {
+
+	reg := makeRegistry(t)
+	_ = getCompensable(t, reg, "flow.gather")
+}
+
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
 
-	names := []string{}
+	names := []string{
+		"flow.gather",
+	}
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {

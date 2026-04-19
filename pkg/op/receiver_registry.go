@@ -30,6 +30,10 @@ var (
 //   - methodParameters: starlark parameter names per Go method.
 func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct ProviderConstructor, methodParameters map[string][]string) {
 
+	if roles.Dispatch() == 0 {
+		panic(fmt.Sprintf("AnnounceProvider(%s): roles must set at least one dispatch-zone bit (RoleModule or RoleAction); got %#x", providerType, uint(roles)))
+	}
+
 	rt, err := NewProviderReceiverType(providerType, construct, roles, methodParameters)
 	if err != nil {
 		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
@@ -98,6 +102,7 @@ type ReceiverRegistry struct {
 	actions   []ProviderReceiverType        // sorted by name; providers with RoleAction
 	modules   []ProviderReceiverType        // sorted by name; providers with RoleModule
 	planners  []ProviderReceiverType        // sorted by name; mirrors actions for plan.* routing
+	roots     []ProviderReceiverType        // sorted by name; providers with the RoleRoot placement-zone bit
 	resources []ResourceReceiverType        // sorted by name; data types
 	byName    map[string]ReceiverType       // all receiver types by name
 	byType    map[reflect.Type]ReceiverType // all receiver types by reflect.Type
@@ -138,6 +143,16 @@ func (r *ReceiverRegistry) Modules() []ProviderReceiverType { return r.modules }
 // Returns:
 //   - []ProviderReceiverType: sorted by receiver name.
 func (r *ReceiverRegistry) Planners() []ProviderReceiverType { return r.planners }
+
+// RootProviders returns every provider with the [RoleRoot] placement-zone bit set.
+//
+// Root providers surface their methods flat at their access-defined namespace root rather than nested under the
+// provider's own name. Callers that need a specific dispatch mode filter the returned slice further via
+// [ProviderRole.Dispatch] — e.g., plan.Provider filters to RoleAction to discover its planner-primitive peers.
+//
+// Returns:
+//   - []ProviderReceiverType: sorted by receiver name.
+func (r *ReceiverRegistry) RootProviders() []ProviderReceiverType { return r.roots }
 
 // Resources returns all resource data types.
 //
@@ -404,6 +419,9 @@ func (r *ReceiverRegistry) register(rt ReceiverType) {
 		if roles&RoleAction != 0 {
 			r.actions = insertSortedProvider(r.actions, v)
 			r.planners = insertSortedProvider(r.planners, v)
+		}
+		if roles.Placement()&RoleRoot != 0 {
+			r.roots = insertSortedProvider(r.roots, v)
 		}
 	case ResourceReceiverType:
 		r.resources = insertSortedResource(r.resources, v)

@@ -700,3 +700,77 @@ func TestReceiverName_NonProvider(t *testing.T) {
 }
 
 // endregion
+
+// region ProviderRole zones
+
+func TestProviderRole_Dispatch_MasksPlacementBits(t *testing.T) {
+
+	cases := []struct {
+		name     string
+		role     ProviderRole
+		wantBits ProviderRole
+	}{
+		{"module only", RoleModule, RoleModule},
+		{"action only", RoleAction, RoleAction},
+		{"module and action", RoleModule | RoleAction, RoleModule | RoleAction},
+		{"action and root", RoleAction | RoleRoot, RoleAction},
+		{"module and root", RoleModule | RoleRoot, RoleModule},
+		{"root alone", RoleRoot, 0},
+		{"nothing", 0, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.role.Dispatch()
+			if got != tc.wantBits {
+				t.Errorf("(%#x).Dispatch() = %#x, want %#x", uint(tc.role), uint(got), uint(tc.wantBits))
+			}
+		})
+	}
+}
+
+func TestProviderRole_Placement_MasksDispatchBits(t *testing.T) {
+
+	cases := []struct {
+		name     string
+		role     ProviderRole
+		wantBits ProviderRole
+	}{
+		{"root set", RoleAction | RoleRoot, RoleRoot},
+		{"root with module", RoleModule | RoleRoot, RoleRoot},
+		{"no placement bits", RoleModule | RoleAction, 0},
+		{"module only", RoleModule, 0},
+		{"action only", RoleAction, 0},
+		{"root alone", RoleRoot, RoleRoot},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.role.Placement()
+			if got != tc.wantBits {
+				t.Errorf("(%#x).Placement() = %#x, want %#x", uint(tc.role), uint(got), uint(tc.wantBits))
+			}
+		})
+	}
+}
+
+func TestProviderRole_ZonesAreOrthogonal(t *testing.T) {
+
+	// Every defined bit lives in exactly one zone.
+	defined := []ProviderRole{RoleModule, RoleAction, RoleRoot}
+	for _, bit := range defined {
+		if bit.Dispatch()&bit.Placement() != 0 {
+			t.Errorf("bit %#x has overlap between Dispatch and Placement zones", uint(bit))
+		}
+		if bit.Dispatch() == 0 && bit.Placement() == 0 {
+			t.Errorf("bit %#x is outside both zones", uint(bit))
+		}
+	}
+
+	// Zone masks don't overlap.
+	if roleDispatchMask&rolePlacementMask != 0 {
+		t.Errorf("zone masks overlap: dispatch=%#x placement=%#x", uint(roleDispatchMask), uint(rolePlacementMask))
+	}
+}
+
+// endregion

@@ -32,15 +32,57 @@ type ProviderReceiverType interface {
 }
 
 // ProviderRole declares what roles a provider supports.
-type ProviderRole int
+//
+// ProviderRole is a bitflag partitioned into two zones:
+//
+//   - Dispatch zone (bits 0–7) declares how the provider's methods are invoked. Providers must set at least one bit in
+//     this zone; [AnnounceProvider] panics otherwise.
+//   - Placement zone (bits 8–15) modifies where the provider's methods surface in starlark. Orthogonal to the dispatch
+//     zone; optional.
+//
+// [ProviderRole.Dispatch] and [ProviderRole.Placement] project a role value onto its respective zone.
+type ProviderRole uint
 
+// Dispatch zone — bits 0–7. Declares how the provider's methods are invoked.
 const (
 	// RoleModule declares a provider as an immediate-mode starlark global.
 	RoleModule ProviderRole = 1 << iota
 
 	// RoleAction declares a provider as a plan-mode graph node creator.
 	RoleAction
+
+	// Bits 2–7 reserved for future dispatch modes.
 )
+
+// Placement zone — bits 8–15. Modifies where the provider's methods surface in starlark.
+const (
+	// RoleRoot declares that the provider's methods surface flat at their access-defined namespace root, rather than
+	// nested under the provider's own name. For a RoleAction provider, this means the methods appear directly under
+	// plan.* (e.g., plan.choose) rather than plan.<provider>.* (e.g., plan.flow.choose). For a RoleModule provider,
+	// this means the methods appear as top-level starlark globals (e.g., note()) rather than under the provider name
+	// (e.g., ui.note()).
+	RoleRoot ProviderRole = 1 << (iota + 8)
+
+	// Bits 9–15 reserved for future placement modifiers.
+)
+
+// Zone masks. Callers use these to extract the dispatch or placement bits from a role value.
+const (
+	roleDispatchMask  ProviderRole = 0x00FF
+	rolePlacementMask ProviderRole = 0xFF00
+)
+
+// Dispatch returns the dispatch-zone bits of r — which execution modes the provider supports.
+//
+// Returns:
+//   - ProviderRole: the role value masked to the dispatch zone.
+func (r ProviderRole) Dispatch() ProviderRole { return r & roleDispatchMask }
+
+// Placement returns the placement-zone bits of r — how the provider's methods are placed in the namespace.
+//
+// Returns:
+//   - ProviderRole: the role value masked to the placement zone.
+func (r ProviderRole) Placement() ProviderRole { return r & rolePlacementMask }
 
 // ResourceReceiverType extends [ReceiverType] with resource-specific capabilities.
 //

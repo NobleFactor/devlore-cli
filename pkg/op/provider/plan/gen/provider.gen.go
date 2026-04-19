@@ -17,11 +17,6 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.ExecutionContext) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Choose":    {"when", "then"},
-			"Complete":  {"output?"},
-			"Degraded":  {"format", "*args", "**kwargs"},
-			"Fatal":     {"format", "*args", "**kwargs"},
-			"Gather":    {"*promises"},
-			"WaitUntil": {"target", "predicate", "timeout", "interval?"},
+			"Options": {"label", "retry_policy"},
 		})
 }
