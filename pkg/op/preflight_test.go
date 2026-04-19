@@ -9,6 +9,18 @@ import (
 	"testing"
 )
 
+// testGraphResource is a minimal [Resource] for the preflight tests. It embeds [ResourceBase] to satisfy the
+// [Provider] + [Resource] interfaces without pulling in a domain provider package.
+type testGraphResource struct {
+	ResourceBase
+}
+
+// newTestGraphResource constructs a Resource with the given URI. A nil [ExecutionContext] is acceptable here — none of
+// the preflight tests reach into the context through the resource.
+func newTestGraphResource(uri string) *testGraphResource {
+	return &testGraphResource{ResourceBase: NewResourceBase(nil, uri)}
+}
+
 func TestResolveResources_NilCatalog(t *testing.T) {
 	err := ResolveResources(nil)
 	if err != nil {

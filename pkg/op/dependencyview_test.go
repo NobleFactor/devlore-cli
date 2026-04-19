@@ -10,15 +10,16 @@ import (
 
 // nodesGraph builds a Graph with the given node IDs as root-level children.
 func nodesGraph(ids []string, edges []Edge) *Graph {
-	var children []SubgraphChild
+	root := NewSubgraph("root")
 	for _, id := range ids {
-		children = append(children, SubgraphChild{Node: &Node{ID: id}})
+		root.Children = append(root.Children, SubgraphChild{Node: NewNode(id)})
 	}
-	return &Graph{Children: children, Edges: edges}
+	root.Edges = edges
+	return &Graph{Root: root}
 }
 
 func TestDependencyViewEmpty(t *testing.T) {
-	g := &Graph{}
+	g := &Graph{Root: NewSubgraph("root")}
 	v := NewDependencyView(g)
 
 	if v.NodeCount() != 0 {
