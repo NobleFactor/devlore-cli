@@ -271,6 +271,32 @@ func (p *Provider) CompensateGather(stacks []*op.RecoveryStack) error {
 	return errors.Join(errs...)
 }
 
+// Subgraph bundles a set of detached invocations into one executable unit.
+//
+// Surfaces in starlark as plan.subgraph(...) because flow is a root-planned provider (phase-8 D12). The variadic
+// children are detached invocations from prior plan.* calls; step 11's target-type dispatch fills the slot with
+// each child's structural reference (an [op.ExecutableUnit]) rather than a value-side promise. The container's
+// output is the list of terminal values produced by the children in topological order, typed []any per D3.
+//
+// Empty subgraphs are a plan-time error per D10 — enforced at plan.run materialization (step 16), not in this
+// method body. plan.run also walks the children to materialize the structural [op.Subgraph] in the executable
+// graph; this method is the codegen-discoverable signature that defines the surface, not the runtime executor of
+// the subgraph itself (which is handled by the [op.Graph] dispatcher once materialization completes).
+//
+// Parameters:
+//   - children: the variadic invocations bundled into this subgraph.
+//
+// Returns:
+//   - []any: the list of terminal values, in topological order.
+func (p *Provider) Subgraph(children ...op.ExecutableUnit) []any {
+
+	results := make([]any, 0, len(children))
+	for range children {
+		results = append(results, nil)
+	}
+	return results
+}
+
 // WaitUntil polls a predicate at the configured interval until it returns true or the timeout expires.
 //
 // Parameters:

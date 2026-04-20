@@ -114,6 +114,7 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Elevate",
 		"Fatal",
 		"Gather",
+		"Subgraph",
 		"WaitUntil",
 	}
 

@@ -25,7 +25,7 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 9 | NodeBuilder detaches from Graph | complete | Aligned dispatch with D5's detached-invocation model. `NodeBuilder` dropped its `graph *op.Graph` field and gained `ctx *op.ExecutionContext` + `catalog *op.ResourceCatalog`; new signature `NewNodeBuilder(rt, ctx, catalog, registry)`. `dispatch` no longer calls `graph.AddNode` — the node lives only on the returned `*Invocation` until plan.run (step 16) walks the reachable set and materializes a fresh `op.Graph`. `fillSlot` (list-of-promises branch and *receiver branch) stopped appending to `graph.Root.Edges`; the `PromiseValue{NodeRef, Slot}` in the consumer's slot already names the producer, and the Resource's `originID` (extractable via `op.ExtractResource`) names the resource-edge producer. `Promise` dropped its `graph` field, its `Graph()` accessor, and its `DependOn` method (unused); `NewPromise(node, slot)` has no graph argument. `Promise.FillSlot` now only sets the slot PromiseValue, no edge append. `shadowPendingOutput` uses `p.ctx` + `p.catalog` directly; `assignTarget` uses `p.ctx`; `linkResource` uses `p.catalog`. `plan.Provider` dropped `Graph *op.Graph` and gained `Catalog *op.ResourceCatalog`; `NewProvider` no longer calls `op.NewGraph`. Test template updated to construct `(ctx, catalog, registry)` instead of `(graph, registry)`; all 14 `*/gen/node_builder.gen_test.go` regenerated. |
 | 10 | starlarkbridge.Invocation as starlark.Value; dispatch returns `*Invocation` | complete | `*Invocation` now implements `starlark.Value` (`Freeze`/`Hash`/`String`/`Truth`/`Type`) and `starlark.HasAttrs` (`Attr`/`AttrNames`) by delegating to the wrapped `Result *Promise`. Added `Label string` field to `Invocation` (the registered label, used by `String()` and set by dispatch). `Invocation.FillSlot` delegates to `Result.FillSlot` for slot-fill compatibility. `Invocation.Unmarshal` projects to `*Invocation` / `*Promise` / `op.PromiseValue` / `interface{}`. `NodeBuilder.dispatch` now returns the `*Invocation` (instead of `*Promise`) with the label stamped. `NodeBuilder.fillSlot` replaces its `*Promise` branch with a `*Invocation` branch (list-of-promises becomes list-of-invocations). Promise remains as an internal helper for slot-assignment mechanics. Seven unit tests cover Invocation's starlark.Value surface + Attr delegation + Unmarshal projections. |
 | 11 | NodeBuilder.fillSlot dispatches by target type; catalog.Link extraction | complete | Per phase-8 D2. `fillSlot`'s `*Invocation` branch now reads the slot's target type and chooses: when `op.ExecutableUnit` is assignable to the target (slot wants the structural unit reference), set `ImmediateValue{Value: inv.Target}` — no PromiseValue, no edge implication; when not assignable, fall through to `inv.FillSlot(node, name)` which sets a PromiseValue (existing per-step-9 behavior). List-of-invocations branch follows the same rule per element: if the slot is `[]T` where `op.ExecutableUnit` is assignable to `T`, sub-slots hold ImmediateValue targets; otherwise PromiseValues. New package-level `executableUnitType = reflect.TypeFor[op.ExecutableUnit]()` cached at file scope for the AssignableTo check. **Refactor:** `op.ResourceCatalog` gains a `Link(resource Resource) Resource` convenience over `Resolve` for callers that only need the linked entry (slot-fill today, plan.load rehydration in step 16). `NodeBuilder.linkResource` deleted — its catalog-interning concern collapsed into the inline `catalog.Link(...)` call site, with the reflect-based pointer-vs-value reshape kept inline at the slot-fill site (it was always a slot-fill caller concern, not a Resource concern). Container methods landing in steps 12–15 take `op.ExecutableUnit` parameters and consume the unit references; value-typed parameters keep their PromiseValue behavior unchanged. |
-| 12 | plan.subgraph primitive | not-started | New method on flow.Provider (planned + root); accepts variadic invocations; container output = list of terminal values (per D3). Absorbs old Phase 11. Starlark surface `plan.subgraph(...)`. Action name `subgraph`. |
+| 12 | plan.subgraph primitive | complete | Added `Subgraph(children ...op.ExecutableUnit) []any` method to `pkg/op/provider/flow/provider.go`. Codegen picks it up; the regenerated announce map includes `"Subgraph": {"*children"}`. Surfaces in starlark as `plan.subgraph(...)` because flow is `RoleAction|RoleRoot`; action name `subgraph` (bare per D7). The variadic `op.ExecutableUnit` parameter triggers step 11's target-type dispatch — each child invocation's slot value is `ImmediateValue{inv.Target}` (structural reference, not a value-side promise). Return type `[]any` matches D3's container-output shape. The method body returns a length-`len(children)` slice of nils — the structural materialization (turning the Subgraph invocation into an `op.Subgraph` in the executable graph) is step 16's plan.run job, not this method's. Smoke-verified: `plan.Provider.ResolveAttr("subgraph")` now returns a `*starlark.Builtin` (previously nil). |
 | 13 | plan.choose redesign | not-started | On flow.Provider. `Case{When any, Then any}`; CompensateChoose companion; detached-by-default branches; container-output-type inference per D3. `plan.case(...)` as an immediate method on plan.Provider for constructing `*Case` values. Starlark surface `plan.choose(...)`. Action name `choose`. |
 | 14 | plan.gather redesign | not-started | On flow.Provider. `body` is an invocation; Go side from Phase 7 step 10 stays; container-output-type inference per D3. Starlark surface `plan.gather(...)`. Action name `gather`. |
 | 15 | plan.wait_until redesign | not-started | On flow.Provider. `predicate` is an invocation; timeout errors through normal Action.Do error channel; output = predicate's return type. Starlark surface `plan.wait_until(...)`. Action name `wait_until`. |
@@ -44,18 +44,19 @@ Plus unresolved design discussions that must close before phase-8 exits:
 | O2 | Toss the bind package — the 11 `unmarshal_*.go` files + `Unmarshaler` interface go; names survive | open; inventory captured, open questions tied to O1 |
 | O3 | Rename `pkg/op` → `pkg/workflow` and revisit type names | open; blast-radius surveyed, strawman considered, counter-proposal recorded |
 
-**Status:** in-progress. Steps 1–11 complete; 12–21 pending. Step
-11 made `NodeBuilder.fillSlot`'s `*Invocation` branch dispatch on
-the slot's target type per D2: `op.ExecutableUnit`-assignable
-slots receive `ImmediateValue{inv.Target}` (the structural unit
-reference); other slots stay on the PromiseValue path. The
-list-of-invocations branch follows the same per-element rule when
-the slot is a slice. Container methods landing in steps 12–15
-take `op.ExecutableUnit`-typed parameters to opt into the
-unit-reference path. Step 12 is next — `plan.subgraph` primitive
-on flow.Provider. Design decisions D1–D12 are resolved; D13
-(marshaling) is pending and will be written once O1's five
-questions are answered.
+**Status:** in-progress. Steps 1–12 complete; 13–21 pending. Step
+12 added `flow.Provider.Subgraph(children ...op.ExecutableUnit)
+[]any`, which codegen surfaces as `plan.subgraph(...)` because
+flow is `RoleAction|RoleRoot`. The variadic `op.ExecutableUnit`
+parameter triggers step 11's target-type dispatch: each child
+slot holds the structural unit reference, not a value-side
+promise. The method body is a stub returning a `[]any` of
+nils; structural materialization happens at plan.run (step 16),
+not here. Step 13 is next — `plan.choose` redesign on
+flow.Provider with `Case{When, Then}`, `CompensateChoose`
+companion, and detached-by-default branches. Design decisions
+D1–D12 are resolved; D13 (marshaling) is pending and will be
+written once O1's five questions are answered.
 
 # Phase 8: Plan-time scope and grouping combinators
 

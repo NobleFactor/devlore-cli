@@ -22,6 +22,7 @@ func TestActionNames(t *testing.T) {
 		"flow.elevate",
 		"flow.fatal",
 		"flow.gather",
+		"flow.subgraph",
 		"flow.wait_until",
 	}
 	for _, name := range names {
@@ -42,6 +43,7 @@ func TestRegister(t *testing.T) {
 		"flow.elevate",
 		"flow.fatal",
 		"flow.gather",
+		"flow.subgraph",
 		"flow.wait_until",
 	}
 	for _, name := range expected {
@@ -184,6 +186,29 @@ func TestGatherAction_DryRun(t *testing.T) {
 	output := ctx.Writer.(*bytes.Buffer).String()
 	if !strings.Contains(output, "[dry-run] flow.gather") {
 		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] flow.gather")
+	}
+}
+
+func TestSubgraphAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "flow.subgraph")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] flow.subgraph") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] flow.subgraph")
 	}
 }
 
