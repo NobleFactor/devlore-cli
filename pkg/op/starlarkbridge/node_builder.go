@@ -143,7 +143,8 @@ func (p *NodeBuilder) AttrNames() []string { return p.attrNames }
 
 // region UNEXPORTED METHODS
 
-// dispatch dispatches a starlark builtin invocation to create a graph node for deferred execution.
+// dispatch dispatches a starlark builtin invocation to create a detached graph node for deferred execution,
+// registers the resulting invocation in the session registry, and returns the invocation to the starlark caller.
 //
 // Parameters:
 //   - thread: the starlark thread.
@@ -152,8 +153,8 @@ func (p *NodeBuilder) AttrNames() []string { return p.attrNames }
 //   - kwargs: keyword starlark arguments.
 //
 // Returns:
-//   - starlark.Value: a [Promise] representing the deferred result.
-//   - error: non-nil if node creation fails.
+//   - starlark.Value: the newly-registered *Invocation, or an error value if dispatch fails.
+//   - error: non-nil if node creation, slot filling, planned shadowing, or registration fails.
 func (p *NodeBuilder) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 
 	// The builtin's label may be bare (root providers per D12) or dotted ("<provider>.<method>"). Recover the method
@@ -298,12 +299,12 @@ func (p *NodeBuilder) dispatch(thread *starlark.Thread, builtin *starlark.Builti
 		invLabel = p.registry.AutoLabel(label)
 	}
 
-	inv := &Invocation{Target: node, Result: promise}
+	inv := &Invocation{Label: invLabel, Target: node, Result: promise}
 	if err := p.registry.Register(invLabel, inv); err != nil {
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 
-	return promise, nil
+	return inv, nil
 }
 
 // extractOptionsKwarg scans kwargs for the reserved "options" key and, if found, removes it and unwraps the value
@@ -384,33 +385,34 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 
 	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(slot.Parameter.Name, "**"), "*"), "?")
 
-	// Promise: create edge, value flows at runtime.
+	// Invocation: the value returned by every plan.* call. Delegate to Invocation.FillSlot, which records the
+	// producer reference in the consumer slot via a PromiseValue. No graph edge is appended here — plan.run
+	// materializes edges from slots at graph construction (phase-8 D5).
 
-	if promise, ok := value.(*Promise); ok {
-		promise.FillSlot(node, name)
+	if inv, ok := value.(*Invocation); ok {
+		inv.FillSlot(node, name)
 		return nil
 	}
 
-	// List of Promises: fan-in via indexed sub-slots.
+	// List of Invocations: fan-in via indexed sub-slots. Each element contributes its own PromiseValue keyed
+	// "<name>[i]"; "<name>.len" holds the count. Plan.run flattens these at materialization.
 
 	if list, ok := value.(*starlark.List); ok {
 		if n := list.Len(); n > 0 {
-			promises := make([]*Promise, n)
-			allPromises := true
+			invocations := make([]*Invocation, n)
+			allInvocations := true
 			for i := range n {
-				promise, ok := list.Index(i).(*Promise)
+				inv, ok := list.Index(i).(*Invocation)
 				if !ok {
-					allPromises = false
+					allInvocations = false
 					break
 				}
-				promises[i] = promise
+				invocations[i] = inv
 			}
-			if allPromises {
-				for i, promise := range promises {
+			if allInvocations {
+				for i, inv := range invocations {
 					subSlot := fmt.Sprintf("%s[%d]", name, i)
-					node.SetSlot(subSlot, op.PromiseValue{NodeRef: promise.node.ID(), Slot: promise.slot})
-					// Producer→consumer edge is implicit in the PromiseValue's NodeRef; plan.run derives edges at
-					// materialization time from each node's slots (phase-8 D5).
+					inv.FillSlot(node, subSlot)
 				}
 				node.SetSlot(name+".len", op.ImmediateValue{Value: n})
 				return nil
@@ -479,8 +481,10 @@ func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) erro
 	// Build positional args from node slots in parameter order. Unresolved slots pass through as nil; Method.Plan
 	// substitutes zero values and the Planned method must tolerate them (or return KnownAtExecution if it cannot
 	// compute without them).
+
 	params := method.Parameters()
 	args := make([]any, len(params))
+
 	for i, param := range params {
 		cleanName := strings.TrimSuffix(strings.TrimPrefix(param.Name, "*"), "?")
 		if slot := node.SlotByName(cleanName); slot != nil {
@@ -492,26 +496,33 @@ func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) erro
 
 	// Construct a provider instance so the Planned method has its receiver context available. Planned is pure — the
 	// context is used only for identity construction (e.g., resolving paths under the confined root), not for I/O.
+
 	receiver, err := p.receiverType.Construct()(p.ctx)
+
 	if err != nil {
 		return fmt.Errorf("construct receiver: %w", err)
 	}
 
 	result, err := method.Plan(receiver, args)
+
 	if err != nil {
 		return fmt.Errorf("planned: %w", err)
 	}
+
 	if !result.IsValid() {
 		return nil
 	}
+
 	if kind := result.Kind(); (kind == reflect.Ptr || kind == reflect.Interface) && result.IsNil() {
 		return nil
 	}
 
 	pending, ok := result.Interface().(op.Resource)
+
 	if !ok {
 		return fmt.Errorf("planned companion for %s did not return op.Resource", method.Name())
 	}
+
 	if op.IsKnownAtExecution(pending) {
 		return nil
 	}
@@ -519,6 +530,7 @@ func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) erro
 	if _, err := p.catalog.Shadow(pending, node.ID()); err != nil {
 		return fmt.Errorf("shadow output: %w", err)
 	}
+
 	return nil
 }
 
@@ -531,17 +543,23 @@ func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) erro
 func (p *NodeBuilder) assignTarget(value starlark.Value, target reflect.Type) (any, error) {
 
 	u, err := ToUnmarshaler(value)
+
 	if err != nil {
 		return nil, err
 	}
+
 	rv := reflect.New(target).Elem()
+
 	if err := u.Unmarshal(rv); err == nil {
 		return rv.Interface(), nil
 	}
+
 	var raw any
+
 	if err := u.Unmarshal(reflect.ValueOf(&raw).Elem()); err != nil {
 		return nil, err
 	}
+
 	return op.Convert(p.ctx, raw, target)
 }
 

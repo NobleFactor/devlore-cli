@@ -1,0 +1,167 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package starlarkbridge
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"go.starlark.net/starlark"
+)
+
+// --- Helpers ---
+
+func makeInvocation(t *testing.T, label string) *Invocation {
+
+	t.Helper()
+
+	node := op.NewNode("test-node-1")
+	node.Receiver = "file.write_text"
+
+	return &Invocation{
+		Label:  label,
+		Target: node,
+		Result: NewPromise(node, ""),
+	}
+}
+
+// --- starlark.Value surface ---
+
+func TestInvocation_Type(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	if got := inv.Type(); got != "Invocation" {
+		t.Errorf("Type() = %q, want %q", got, "Invocation")
+	}
+}
+
+func TestInvocation_String(t *testing.T) {
+
+	inv := makeInvocation(t, "file.write_text#1")
+
+	want := "Invocation(file.write_text#1)"
+
+	if got := inv.String(); got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
+func TestInvocation_Truth(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	if got := inv.Truth(); got != starlark.True {
+		t.Errorf("Truth() = %v, want True", got)
+	}
+}
+
+func TestInvocation_Hash_Unhashable(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	if _, err := inv.Hash(); err == nil {
+		t.Error("Hash() error = nil, want non-nil (Invocation is unhashable)")
+	}
+}
+
+func TestInvocation_Freeze_NoOp(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	inv.Freeze() // should not panic
+}
+
+// --- starlark.HasAttrs surface (delegates to Result) ---
+
+func TestInvocation_Attr_DelegatesToPromise(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	attr, err := inv.Attr("node_id")
+	if err != nil {
+		t.Fatalf("Attr(node_id): %v", err)
+	}
+	if s, ok := attr.(starlark.String); !ok || string(s) != "test-node-1" {
+		t.Errorf("Attr(node_id) = %v, want starlark.String(%q)", attr, "test-node-1")
+	}
+}
+
+func TestInvocation_AttrNames_DelegatesToPromise(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	names := inv.AttrNames()
+
+	have := map[string]bool{}
+	for _, n := range names {
+		have[n] = true
+	}
+
+	for _, want := range []string{"node_id", "retry", "slot"} {
+		if !have[want] {
+			t.Errorf("AttrNames() missing %q; got %v", want, names)
+		}
+	}
+}
+
+// --- Unmarshal ---
+//
+// FillSlot is covered indirectly — it delegates to Promise.FillSlot, which relies on Node.SetSlot (requires a
+// method-bound consumer node, established by full dispatch in integration). The delegation itself is a one-line
+// pass-through not worth a unit-level harness.
+
+func TestInvocation_Unmarshal_ToInvocationPointer(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	var target *Invocation
+
+	if err := inv.Unmarshal(reflect.ValueOf(&target).Elem()); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if target != inv {
+		t.Errorf("target = %p, want %p", target, inv)
+	}
+}
+
+func TestInvocation_Unmarshal_ToPromisePointer(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	var target *Promise
+
+	if err := inv.Unmarshal(reflect.ValueOf(&target).Elem()); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if target != inv.Result {
+		t.Errorf("target = %p, want %p", target, inv.Result)
+	}
+}
+
+func TestInvocation_Unmarshal_ToPromiseValue(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	var target op.PromiseValue
+
+	if err := inv.Unmarshal(reflect.ValueOf(&target).Elem()); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if target.NodeRef != "test-node-1" {
+		t.Errorf("target.NodeRef = %q, want %q", target.NodeRef, "test-node-1")
+	}
+}
+
+func TestInvocation_Unmarshal_UnsupportedTarget(t *testing.T) {
+
+	inv := makeInvocation(t, "test#1")
+
+	var target string
+
+	if err := inv.Unmarshal(reflect.ValueOf(&target).Elem()); err == nil {
+		t.Error("Unmarshal(string target) error = nil, want error")
+	}
+}
