@@ -11,7 +11,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -108,7 +108,7 @@ func (p *rtTestCountingImmProvider) NewExecuting(_ op.ExecutionContext) starlark
 func TestRuntimeRegisterActions(t *testing.T) {
 	op.AnnounceReceiverType(&rtTestActionProvider{actionName: "_test_actions.do"})
 
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -125,7 +125,7 @@ func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 	op.AnnounceReceiverType(&rtTestAllActsProvider{})
 
 	// No Receivers — but actions should still be registered.
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -143,7 +143,7 @@ func TestRuntimeBuildGlobalsWithPlanAndImmediate(t *testing.T) {
 	op.AnnounceReceiverType(&rtTestPlannedProvider{name: "_test_plan2"})
 	op.AnnounceReceiverType(immProv)
 
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithGraphBuilder().
 			WithReceivers(immProv).
@@ -185,7 +185,7 @@ func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 	otherProv := &rtTestImmediateProvider{name: "_test_other"}
 	op.AnnounceReceiverType(otherProv)
 
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithReceivers(otherProv).
 			WithWriter(&bytes.Buffer{}),
@@ -208,7 +208,7 @@ func TestRuntimeBuildGlobalsOnlyIncludesProviders(t *testing.T) {
 func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 	op.AnnounceReceiverType(&rtTestImmediateProvider{name: "_test_loadable"})
 
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -237,7 +237,7 @@ func TestRuntimeConfigureThreadEnablesLoad(t *testing.T) {
 }
 
 func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -254,7 +254,7 @@ func TestRuntimeLoaderRejectsUnknownPrefix(t *testing.T) {
 }
 
 func TestRuntimeLoaderRejectsUnknownProvider(t *testing.T) {
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -274,7 +274,7 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 	callCount := 0
 	op.AnnounceReceiverType(&rtTestCountingImmProvider{name: "_test_cached", callCount: &callCount})
 
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -296,7 +296,7 @@ func TestRuntimeLoaderCachesResults(t *testing.T) {
 func TestRuntimeLoaderLoadsPlan(t *testing.T) {
 	op.AnnounceReceiverType(&rtTestPlannedProvider{name: "_test_plan_load"})
 
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)

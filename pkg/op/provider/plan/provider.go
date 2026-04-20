@@ -14,7 +14,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
 var _ op.Provider = (*Provider)(nil) // Interface Guard
@@ -27,7 +27,7 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 //   - Tier 2 — root-planned peer methods (e.g., flow.Provider's choose, gather, …) surfaced flat under plan.* via
 //     builtins discovered from [op.ReceiverRegistry.RootProviders] at construction.
 //   - Tier 3 — sub-namespace children (plan.file, plan.git, …) resolved lazily in ResolveAttr through
-//     [bind.NodeBuilder] adapters.
+//     [starlarkbridge.NodeBuilder] adapters.
 //
 // Any collision across the three tiers fails Provider construction with a message naming both providers and the
 // offending method. peerBuiltins is write-once at construction; adapters is lazily populated under mutex.
@@ -36,10 +36,10 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 type Provider struct {
 	op.ProviderBase
 	Graph        *op.Graph
-	mutex        sync.Mutex                           // guards adapters
-	adapters     map[string]*bind.NodeBuilder // Tier 3: cached plan adapters by sub-namespace provider name
-	peerBuiltins map[string]starlark.Value            // Tier 2: root-planned peer method builtins, write-once
-	rootNames    map[string]struct{}                  // names of root providers (excluded from Tier 3 resolution)
+	mutex        sync.Mutex                             // guards adapters
+	adapters     map[string]*starlarkbridge.NodeBuilder // Tier 3: cached plan adapters by sub-namespace provider name
+	peerBuiltins map[string]starlark.Value              // Tier 2: root-planned peer method builtins, write-once
+	rootNames    map[string]struct{}                    // names of root providers (excluded from Tier 3 resolution)
 }
 
 // NewProvider creates a plan Provider bound to the given context.
@@ -52,7 +52,7 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 	p := &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
 		Graph:        op.NewGraph(ctx),
-		adapters:     make(map[string]*bind.NodeBuilder),
+		adapters:     make(map[string]*starlarkbridge.NodeBuilder),
 		peerBuiltins: make(map[string]starlark.Value),
 		rootNames:    make(map[string]struct{}),
 	}
@@ -63,7 +63,7 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 // region EXPORTED METHODS
 
-// Options constructs a [bind.Options] value for use as the reserved `options` kwarg on any plan-mode dispatch.
+// Options constructs a [starlarkbridge.Options] value for use as the reserved `options` kwarg on any plan-mode dispatch.
 //
 // Exposed to starlark as `plan.options(label="...", retry_policy=...)`. Both parameters are optional: an empty label
 // triggers auto-labeling at dispatch time (format `<provider>.<method>#<N>`), and a nil retry policy means no retry
@@ -74,10 +74,10 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 //   - retryPolicy: the retry policy to apply to the invocation's node; nil means no retry.
 //
 // Returns:
-//   - *bind.Options: the constructed options value.
-func (p *Provider) Options(label string, retryPolicy *op.RetryPolicy) *bind.Options {
+//   - *starlarkbridge.Options: the constructed options value.
+func (p *Provider) Options(label string, retryPolicy *op.RetryPolicy) *starlarkbridge.Options {
 
-	return &bind.Options{
+	return &starlarkbridge.Options{
 		Label:       label,
 		RetryPolicy: retryPolicy,
 	}
@@ -113,7 +113,7 @@ func (p *Provider) ResolveAttr(name string) any {
 		return nil
 	}
 
-	adapter := bind.NewNodeBuilder(prt, p.Graph)
+	adapter := starlarkbridge.NewNodeBuilder(prt, p.Graph)
 	p.adapters[name] = adapter
 
 	return adapter
@@ -168,7 +168,7 @@ func (p *Provider) buildPeerBuiltins() {
 			continue
 		}
 
-		builder := bind.NewNodeBuilder(peer, p.Graph)
+		builder := starlarkbridge.NewNodeBuilder(peer, p.Graph)
 
 		for _, name := range builder.AttrNames() {
 

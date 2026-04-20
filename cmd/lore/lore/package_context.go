@@ -6,7 +6,7 @@ package lore
 import (
 	"fmt"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 )
 
@@ -59,7 +59,7 @@ func (r *packageContextReceiver) Attr(name string) (starlark.Value, error) {
 	case "setting":
 		return starlark.NewBuiltin("package.setting", r.setting), nil
 	default:
-		return nil, bind.NoSuchAttrError("package", name)
+		return nil, starlarkbridge.NoSuchAttrError("package", name)
 	}
 }
 

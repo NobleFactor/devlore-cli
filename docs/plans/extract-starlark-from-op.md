@@ -1,5 +1,5 @@
 ---
-title: "Extract starlark infrastructure from pkg/op into pkg/op/bind"
+title: "Extract starlark infrastructure from pkg/op into pkg/op/starlarkbridge"
 issue: 264
 status: in-progress
 created: 2026-03-24
@@ -11,7 +11,7 @@ updated: 2026-04-16 (Phase 7 steps 1-4 complete; step 1 committed, steps 2-4 unc
 ## Summary
 
 Split `pkg/op` into a starlark-free core (`pkg/op`) and a starlark binding
-package (`pkg/op/bind`). Clean up context ownership, receiver/action/method
+package (`pkg/op/starlarkbridge`). Clean up context ownership, receiver/action/method
 relationships, and codegen. Remove redundancy and framework code from providers.
 
 ## Phase Status
@@ -437,7 +437,7 @@ as the top-level saga runner. No special-case execution logic in the flow
 provider.
 
 `ResolveAttr` routes sub-namespace lookups (`plan.file`) by querying the
-registry for the action receiver type and wrapping it with `bind.NewNodeBuilder`.
+registry for the action receiver type and wrapping it with `starlarkbridge.NewNodeBuilder`.
 The return value is marshaled by the framework.
 
 ### Planning receiver routing
@@ -446,13 +446,13 @@ Starlark resolves `plan.file.write_text(...)` as three attribute lookups:
 
 1. `plan` → `ExecutingReceiver` wrapping plan Provider
 2. `.file` → `plan.Attr("file")` → falls through to `AttributeResolver` →
-   `ResolveAttr("file")` → registry lookup → `bind.NewNodeBuilder(prt, graph)` →
+   `ResolveAttr("file")` → registry lookup → `starlarkbridge.NewNodeBuilder(prt, graph)` →
    marshaled as starlark value
 3. `.write_text` → `Attr("write_text")` on the planning receiver → callable
 
 The framework handles marshaling. The plan provider handles routing via
 `ResolveAttr`. `ProviderReceiverType` provides the type descriptor;
-`bind.NewNodeBuilder` wraps it for plan-mode dispatch.
+`starlarkbridge.NewNodeBuilder` wraps it for plan-mode dispatch.
 
 ### Providers and Resources
 
@@ -629,12 +629,12 @@ Test templates:
 - `receiver_type.gen_test.go.template` — tests `ReceiverType` dispatch:
   name, type, method enumeration. Generated always.
 - `module.gen_test.go.template` — tests starlark module protocol:
-  `Attr`, `AttrNames`, `Type()` via `bind.NewProvider`. Generated when
+  `Attr`, `AttrNames`, `Type()` via `starlarkbridge.NewProvider`. Generated when
   access is `immediate` or `both`.
 - `action.gen_test.go.template` — tests action wrappers: dry-run dispatch,
   compensable interface, undo-nil. Generated when access is `planned` or
   `both`.
-- `node_builder.gen_test.go.template` — tests planning receiver: `bind.NewNodeBuilder`
+- `node_builder.gen_test.go.template` — tests planning receiver: `starlarkbridge.NewNodeBuilder`
   attr resolution, node creation from starlark calls. Generated when
   access is `planned` or `both`.
 
@@ -668,8 +668,8 @@ Production code builds clean (`make build` passes). Only test files are broken.
 
 - `pkg/op/announce_test.go`
 - `pkg/op/receiver_registry_test.go`
-- `pkg/op/bind/action_test.go`
-- `pkg/op/bind/callable_test.go`
+- `pkg/op/starlarkbridge/action_test.go`
+- `pkg/op/starlarkbridge/callable_test.go`
 - `internal/execution/compensation_test.go`
 - `internal/execution/execution_flow_test.go`
 
@@ -684,7 +684,7 @@ Production code builds clean (`make build` passes). Only test files are broken.
 #### 14 build failures remaining (tests don't compile)
 
 1. `pkg/op` — `subgraph_test.go`: `fileAction` undefined, old `NewGraphExecutor()`. `graph_test.go`: partially fixed
-2. `pkg/op/bind` — `promise_test.go`: `SetURI` removed. `receiver_factories_test.go`: `newReceiver` undefined
+2. `pkg/op/starlarkbridge` — `promise_test.go`: `SetURI` removed. `receiver_factories_test.go`: `newReceiver` undefined
 3. `pkg/op/provider/appnet` — `integration_test.go`: `op.contextBase`, `bind.WrapProviderInExecutingReceiver`
 4. `pkg/op/provider/encryption` — `integration_test.go`: stale refs
 5. `pkg/op/provider/file` — `provider_test.go`: `**Resource` double pointer
@@ -712,7 +712,7 @@ Production code builds clean (`make build` passes). Only test files are broken.
 #### Common patterns across build failures
 
 - `op.contextBase` — unexported struct removed. Fix: use `&op.ExecutionContext{Field: value}` directly
-- `bind.WrapProviderInExecutingReceiver` — removed. Fix: use `bind.NewProvider(prt, instance)`
+- `bind.WrapProviderInExecutingReceiver` — removed. Fix: use `starlarkbridge.NewProvider(prt, instance)`
 - `*.Receiver` exported variable — removed from gen packages. Fix: use `NewReceiverRegistry()` + lookup
 - `Resource{}` struct literals — must use `NewResource(nil, value)` to get proper ResourceBase/URI
 - `ExecutionContext{}` value — must be `&ExecutionContext{}` pointer
@@ -949,7 +949,7 @@ Work that landed alongside Phase 8 groundwork but was not in the original plan:
   boundary. Callers that held URI strings now construct the typed resource
   via the registered constructor and hand it to the catalog. ✅
 - **Plan-time string→resource coercion** in the planner
-  (`Planner.fillResourceSlot`, `pkg/op/bind/provider_node_builder.go:342`). Every
+  (`Planner.fillResourceSlot`, `pkg/op/starlarkbridge/node_builder.go:342`). Every
   resource-typed parameter whose starlark argument is a string is coerced
   to a typed resource via the resource type's registered constructor at
   plan time, then routed through `catalog.Resolve` as a discovery entry.
@@ -984,7 +984,7 @@ Apply the signature changes and author the `Planned` siblings for:
 
 ### Planner rewire — DONE
 
-`pkg/op/bind/provider_node_builder.go` `dispatch`:
+`pkg/op/starlarkbridge/node_builder.go` `dispatch`:
 
 1. Name-based output detection removed. ✅
 2. Resource-typed parameters are coerced via the type's registered
@@ -1030,8 +1030,8 @@ Apply the signature changes and author the `Planned` siblings for:
 - `pkg/op/resource.go` — `KnownAtExecution` sentinel. ✅
 - `pkg/op/receiver_type.go` — `methodFromReflectedMethod` auto-discovers
   `<Name>Planned` by reflection, symmetric with `Compensate<Name>`. ✅
-- `pkg/op/bind/provider_node_builder.go` — `dispatch` rewire. ✅
-- `pkg/op/bind/executing_receiver.go` — `coerceResource` reads registry
+- `pkg/op/starlarkbridge/node_builder.go` — `dispatch` rewire. ✅
+- `pkg/op/starlarkbridge/executing_receiver.go` — `coerceResource` reads registry
   from context. ✅
 - `pkg/op/executor.go` — preflight call (✅) + post-dispatch shadowing
   (not started)
@@ -1117,7 +1117,7 @@ states build cleanly:
      failure so compensation runs for previously-successful nodes.
    - `pkg/op/method.go:481` — `Method.Undo` used `results[0].Interface().(error)`
      which panics on nil error returns; changed to `errFromValue(results[0])`.
-   - `pkg/op/bind/marshal_test.go:818-861` — deleted `testConstructable`,
+   - `pkg/op/starlarkbridge/marshal_test.go:818-861` — deleted `testConstructable`,
      its `init()` `AnnounceResource` call, `TestUnmarshal_WithConstructor`,
      and `TestUnmarshal_Constructor_InvalidInput`. These tests asserted
      that `unmarshalValue` should consult a type→constructor lookup in
@@ -1135,9 +1135,9 @@ states build cleanly:
    Phase 9 incompleteness — flow provider + starlark function coercion:
    - `TestChooseExists`, `TestChooseNotExists`, `TestIsDir`, `TestIsFile` —
      `pkg/op/provider/plan/provider.go:52 Provider.Choose` takes
-     `then func() error`; `pkg/op/bind/marshal.go:947 unmarshalValue`
+     `then func() error`; `pkg/op/starlarkbridge/marshal.go:947 unmarshalValue`
      has no `reflect.Func` case. The fix is NOT a reflect.Func case —
-     it is implementing `Unmarshaler` (`pkg/op/bind/marshal.go:63`) on
+     it is implementing `Unmarshaler` (`pkg/op/starlarkbridge/marshal.go:63`) on
      the type that wraps starlark callables for Go consumption
      (`pkg/op/provider/mem/function.go:39 Function`), so the existing
      Unmarshaler check in the marshal path handles it.
@@ -1261,14 +1261,14 @@ runtime overrides via `Execute`, not a structural slot variant.
    name, carrying no `Parameter` identity. The authoritative
    `Parameter.Name` / `Parameter.Type` contract lives on `*op.Method`
    and never meets the value it governs.
-2. `bind.NodeBuilder.dispatch` (`pkg/op/bind/provider_node_builder.go:141-156`) explodes
+2. `starlarkbridge.NodeBuilder.dispatch` (`pkg/op/starlarkbridge/node_builder.go:141-156`) explodes
    `Parameter{Name, Type}` into three parallel collections
    (`regularParams`, `knownKwargs`, `paramTypes`), then partially
    reassembles them — name-only on the general `FillSlot` path
    (`:221`), name + type only for the resource special case in
    `fillResourceSlot` (`:210`). Type integrity is broken at a
    data-structure level before any conversion runs.
-3. The free `bind.FillSlot` (`pkg/op/bind/promise.go:302`) is dead code,
+3. The free `bind.FillSlot` (`pkg/op/starlarkbridge/promise.go:302`) is dead code,
    broken by construction: its signature has no channel to the
    parameter's expected Go type, so it cannot verify or drive
    conversion against the slot's contract.
@@ -1318,7 +1318,7 @@ runtime overrides via `Execute`, not a structural slot variant.
      immediate in slot.
    - otherwise → delegate to `slot.Parameter.Type`'s registered
      converter to produce a Go value, immediate in slot.
-6. `fillResourceSlot` (`pkg/op/bind/provider_node_builder.go:365-432`) is **deleted**.
+6. `fillResourceSlot` (`pkg/op/starlarkbridge/node_builder.go:365-432`) is **deleted**.
    String acceptance moves onto the resource type's converter; the
    planner stops special-casing resources.
 7. `NodeBuilder.dispatch` stops exploding `Parameter`. It iterates
@@ -1415,7 +1415,7 @@ production emitted proxy slots.
   dispatcher, `ReceiverType` converter contract, `ReceiverRegistry`
   primitive registration, `Graph.Bind` / `Node.Bind`, executor,
   recovery, serialization.
-- `pkg/op/bind` — `FillSlot` rewrite, `NodeBuilder.dispatch` collapse,
+- `pkg/op/starlarkbridge` — `FillSlot` rewrite, `NodeBuilder.dispatch` collapse,
   `fillResourceSlot` delete, `Promise` method signatures tighten.
 - `pkg/op/provider/*` — every provider's `Do` boilerplate deleted;
   generated code regenerated; hand-written methods unchanged.
@@ -1703,7 +1703,7 @@ Phase 13:
 ## Goals
 
 1. `pkg/op` starlark-free except for `Thread` on `ExecutionContext`
-2. `pkg/op/bind` owns all starlark binding infrastructure
+2. `pkg/op/starlarkbridge` owns all starlark binding infrastructure
 3. Single `ReceiverRegistry` for providers, resources, and their methods
 4. Actions fully generated — one struct per method, correct interface per kind
 5. Providers and Resources unified — same registry, same bridges
@@ -1720,7 +1720,7 @@ Phase 13:
 ## Dependency Model
 
 ```
-pkg/op/bind
+pkg/op/starlarkbridge
   -> pkg/op                     (core types: Graph, Node, ExecutionContext, ...)
   -> go.starlark.net/starlark   (starlark runtime)
 
@@ -1729,10 +1729,10 @@ pkg/op
 
 pkg/op/provider/plan
   -> pkg/op                     (ProviderBase, Graph, Node, ReceiverRegistry)
-  -> pkg/op/bind                (Promise)
+  -> pkg/op/starlarkbridge                (Promise)
 
 pkg/op/provider/*/gen
   -> pkg/op                     (core types, ReceiverType)
-  -> pkg/op/bind                (WrapProviderIn*Receiver, MethodParams)
+  -> pkg/op/starlarkbridge                (WrapProviderIn*Receiver, MethodParams)
   -> pkg/op/provider/*          (provider implementation)
 ```

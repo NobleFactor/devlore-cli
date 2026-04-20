@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -157,7 +157,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	r.graph = graph
 
 	// 3. Create Runtime with graph in Data so the plan provider can find it
-	bs := bind.NewStarlarkRuntime(
+	bs := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("devlore-test", reg).
 			WithModules(reg.Modules()...).
 			WithRoot(root).

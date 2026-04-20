@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	commandsprov "github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -32,7 +32,7 @@ type Application struct {
 	registry *ExtensionRegistry
 	commands map[string]*Command
 	config   *config.Config // Unified config for builtin and extension config
-	star     *bind.StarlarkRuntime
+	star     *starlarkbridge.Runtime
 	data     map[string]any // Shared context data (dry_run, config, etc.)
 
 	// UIProvider is the canonical UI output provider.
@@ -51,7 +51,7 @@ func NewApplication() *Application {
 		WithRoot(op.NewRootReaderWriter(wd)).
 		WithData(data).
 		WithColor()
-	star := bind.NewStarlarkRuntime(cfg)
+	star := starlarkbridge.NewRuntime(cfg)
 
 	// UIProvider is exposed for --silent flag wiring in main.
 	uip := &ui.Provider{

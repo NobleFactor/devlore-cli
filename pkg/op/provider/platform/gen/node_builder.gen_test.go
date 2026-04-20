@@ -9,14 +9,14 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
 func TestProviderNodeBuilder_AttrNames(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := bind.NewNodeBuilder(providerReceiverType(t), graph)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
 	names := p.AttrNames()
 	if len(names) == 0 {
 		t.Fatal("AttrNames() returned empty list")
@@ -31,7 +31,7 @@ func TestProviderNodeBuilder_AttrNames(t *testing.T) {
 func TestProviderNodeBuilder_Attr(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := bind.NewNodeBuilder(providerReceiverType(t), graph)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
 	for _, name := range p.AttrNames() {
 		attr, err := p.Attr(name)
 		if err != nil {
@@ -47,7 +47,7 @@ func TestProviderNodeBuilder_Attr(t *testing.T) {
 func TestProviderNodeBuilder_Attr_Unknown(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := bind.NewNodeBuilder(providerReceiverType(t), graph)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
 	_, err := p.Attr("nonexistent_method")
 	if err == nil {
 		t.Error("Attr(nonexistent_method) error = nil, want error")
@@ -57,7 +57,7 @@ func TestProviderNodeBuilder_Attr_Unknown(t *testing.T) {
 func TestProviderNodeBuilder_Type(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := bind.NewNodeBuilder(providerReceiverType(t), graph)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
 	if got := p.Type(); got != "plan.platform" {
 		t.Errorf("Type() = %q, want %q", got, "plan.platform")
 	}
@@ -66,7 +66,7 @@ func TestProviderNodeBuilder_Type(t *testing.T) {
 func TestProviderNodeBuilder_String(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := bind.NewNodeBuilder(providerReceiverType(t), graph)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
 	if got := p.String(); got != "plan.platform" {
 		t.Errorf("String() = %q, want %q", got, "plan.platform")
 	}

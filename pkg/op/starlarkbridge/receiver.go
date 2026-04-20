@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package bind
+package starlarkbridge
 
 import (
 	"fmt"
@@ -51,7 +51,7 @@ type receiver struct {
 //
 // Returns:
 //   - *receiver: the initialized Starlark receiver.
-func (rt *StarlarkRuntime) newReceiver(instance any) *receiver {
+func (rt *Runtime) newReceiver(instance any) *receiver {
 
 	receiverType := rt.registry.TypeByReflectionOrDerive(reflect.TypeOf(instance))
 
@@ -229,7 +229,7 @@ func (r *receiver) Unmarshal(target reflect.Value) error {
 		return nil
 	}
 
-	return fmt.Errorf("bind.receiver(%s): cannot coerce to %s", r.Type(), target.Type())
+	return fmt.Errorf("starlarkbridge.receiver(%s): cannot coerce to %s", r.Type(), target.Type())
 }
 
 // endregion
@@ -471,7 +471,7 @@ func (r *receiver) marshalSlice(rv reflect.Value) (starlark.Value, error) {
 //
 // Returns:
 //   - error: non-nil if the conversion fails.
-func (r *receiver)unmarshalValue(sv starlark.Value, rv reflect.Value) error {
+func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 
 	// Nil starlark value: set to zero.
 

@@ -112,7 +112,7 @@ func BindFlags(cmd *cobra.Command, toolName string, useSharedConfig bool) error 
 		}
 
 		if err := viper.BindPFlag(key, f); err != nil {
-			bindErr = fmt.Errorf("failed to bind flag %s: %w", f.Name, err)
+			bindErr = fmt.Errorf("failed to starlarkbridge flag %s: %w", f.Name, err)
 		}
 	})
 

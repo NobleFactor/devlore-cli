@@ -10,12 +10,12 @@ import (
 
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/lint"
 	_ "github.com/NobleFactor/devlore-cli/cmd/star/provider/lint/gen"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
 func TestModule_AttrNames(t *testing.T) {
 
-	r := bind.NewProvider(providerReceiverType(t), &provider.Provider{})
+	r := starlarkbridge.NewProvider(providerReceiverType(t), &provider.Provider{})
 	names := r.AttrNames()
 	if len(names) == 0 {
 		t.Fatal("AttrNames() returned empty list")
@@ -29,7 +29,7 @@ func TestModule_AttrNames(t *testing.T) {
 
 func TestModule_Attr(t *testing.T) {
 
-	r := bind.NewProvider(providerReceiverType(t), &provider.Provider{})
+	r := starlarkbridge.NewProvider(providerReceiverType(t), &provider.Provider{})
 	for _, name := range r.AttrNames() {
 		attr, err := r.Attr(name)
 		if err != nil {
@@ -44,7 +44,7 @@ func TestModule_Attr(t *testing.T) {
 
 func TestModule_Attr_Unknown(t *testing.T) {
 
-	r := bind.NewProvider(providerReceiverType(t), &provider.Provider{})
+	r := starlarkbridge.NewProvider(providerReceiverType(t), &provider.Provider{})
 	_, err := r.Attr("nonexistent_method")
 	if err == nil {
 		t.Error("Attr(nonexistent_method) error = nil, want error")
@@ -53,7 +53,7 @@ func TestModule_Attr_Unknown(t *testing.T) {
 
 func TestModule_Type(t *testing.T) {
 
-	r := bind.NewProvider(providerReceiverType(t), &provider.Provider{})
+	r := starlarkbridge.NewProvider(providerReceiverType(t), &provider.Provider{})
 	if got := r.Type(); got != "lint" {
 		t.Errorf("Type() = %q, want %q", got, "lint")
 	}

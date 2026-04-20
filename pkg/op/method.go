@@ -343,7 +343,7 @@ func (m *Method) ResultType() reflect.Type {
 // receiver.
 //
 // Invoke is the single dispatch entry point for already-resolved slot values — the plan path
-// ([bind.NodeBuilder.FillSlot]) and the execute path ([bind.receiver.dispatch]) both project starlark values down to Go
+// ([starlarkbridge.NodeBuilder.FillSlot]) and the execute path ([starlarkbridge.receiver.dispatch]) both project starlark values down to Go
 // values first; Invoke then projects those Go values into the method signature using the same [Convert] cascade both
 // paths share. Results are unpacked from [reflect.Value] into the Action-layer shape (Result, Complement, error).
 //

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package bind
+package starlarkbridge
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ import (
 // project itself into a Go target type.
 //
 // Built-in starlark types (String, Int, Bool, etc.) do not satisfy this
-// interface directly; they are wrapped by bind-side adapters at the boundary.
+// interface directly; they are wrapped by starlarkbridge-side adapters at the boundary.
 // Types we own (*Promise, *receiver) implement Unmarshal as first-class
 // methods.
 type Unmarshaler interface {

@@ -19,7 +19,7 @@
 #   lifetime=phase     — fresh instance per phase; cleanup between phases
 #   lifetime=session   — single instance for session; cleanup at session end
 #
-# // +devlore:bind Field=CfgField maps Provider struct fields to BindingConfig fields
+# // +devlore:starlarkbridge Field=CfgField maps Provider struct fields to BindingConfig fields
 #
 # Methods carry directives:
 #
@@ -222,19 +222,19 @@ def parse_struct_param(doc):
     return result
 
 def parse_bind_directives(path):
-    """Parse +devlore:bind directives from the Provider struct's doc comment.
+    """Parse +devlore:starlarkbridge directives from the Provider struct's doc comment.
 
     Returns a list of {"name": field_name, "cfg_field": cfg_field_name} dicts.
-    Example: '+devlore:bind Root=WorkDir'
+    Example: '+devlore:starlarkbridge Root=WorkDir'
     → [{"name": "Root", "cfg_field": "WorkDir"}]
     """
     doc = goast.type_doc(path)
     result = []
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
-        if "+devlore:bind " in line:
-            idx = line.index("+devlore:bind ")
-            pairs = line[idx + len("+devlore:bind "):].strip()
+        if "+devlore:starlarkbridge " in line:
+            idx = line.index("+devlore:starlarkbridge ")
+            pairs = line[idx + len("+devlore:starlarkbridge "):].strip()
             for pair in pairs.split(","):
                 pair = pair.strip()
                 if "=" in pair:
@@ -404,7 +404,7 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
     return descriptors
 
 def build_provider_fields(bindings, default_map, type_map = {}):
-    """Build provider_fields list from bind directives.
+    """Build provider_fields list from starlarkbridge directives.
 
     bindings: list from parse_bind_directives()
     default_map: field_name → default_value (e.g. {"Root": "."})
@@ -414,7 +414,7 @@ def build_provider_fields(bindings, default_map, type_map = {}):
     for b in bindings:
         cfg_field = b["cfg_field"]
         if cfg_field not in BINDING_CONFIG_FIELDS:
-            fail("+devlore:bind references unknown BindingConfig field: " + cfg_field)
+            fail("+devlore:starlarkbridge references unknown BindingConfig field: " + cfg_field)
         cfg_info = BINDING_CONFIG_FIELDS[cfg_field]
         default_val = default_map.get(b["name"], "")
         go_type = type_map.get(b["name"], "")
@@ -835,7 +835,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     ui.note("Provider import: " + provider_import)
 
     # -------------------------------------------------------------------------
-    # Parse bind directives for Provider field init
+    # Parse starlarkbridge directives for Provider field init
     # -------------------------------------------------------------------------
     bindings = parse_bind_directives(path)
     provider_fields = []

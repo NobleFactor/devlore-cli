@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -458,7 +458,7 @@ func prepareScriptEnv(
 	*PackageContext,
 	error, //nolint:unparam // error return reserved for future use
 ) {
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("lore", reg).
 			WithModules(reg.Modules()...).
 			WithData(map[string]any{"graph": graph}).

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -31,7 +31,7 @@ import (
 //  5. Loader cache deduplicates factory calls
 func TestLoadIntegration(t *testing.T) {
 
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithReceivers(uigen.Receiver).
 			WithWriter(&bytes.Buffer{}),
@@ -82,7 +82,7 @@ func TestLoadIntegration(t *testing.T) {
 
 // TestLoadIntegrationUnknownModule verifies that loading an unknown module produces a clear error.
 func TestLoadIntegrationUnknownModule(t *testing.T) {
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)
@@ -113,7 +113,7 @@ func TestLoadIntegrationUnknownModule(t *testing.T) {
 
 // TestLoadIntegrationBadPrefix verifies that a non-@devlore// load fails.
 func TestLoadIntegrationBadPrefix(t *testing.T) {
-	rt := bind.NewStarlarkRuntime(
+	rt := starlarkbridge.NewRuntime(
 		op.NewRuntimeEnvironmentSpec("test").
 			WithWriter(&bytes.Buffer{}),
 	)

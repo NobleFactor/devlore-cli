@@ -54,7 +54,7 @@ Every provider must appear in the `generate` target's dependency list.
 ```go
 // +devlore:access=both
 // +devlore:lifetime=stateless
-// +devlore:bind Root=WorkDir
+// +devlore:starlarkbridge Root=WorkDir
 type Provider struct {
     Root string
 }

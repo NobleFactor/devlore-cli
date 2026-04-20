@@ -15,7 +15,7 @@ updated: 2026-04-16
 | 2. ExecutableUnit interface (Parameters, ID) | **complete** | committed `1ae8c15`. executableUnit base; Node + Subgraph embed; NewNode/NewSubgraph constructors; custom JSON/YAML marshalers preserve wire format. Subgraph.FinalizeParameters exists but not yet called by planner. |
 | 3a. Graph.Execute public API + Root field | **complete** | committed `1ae8c15`. Graph.Root *Subgraph with "root" ID; Children()/Edges() read accessors; Graph.Execute(exec, overrides) with self-contained recovery stack. |
 | 3b. Top-level convergence + override wiring | **complete** | committed `1ae8c15`. Run funnels through graph.executeWith; Node.ResolveSlots(env, results, overrides); executeChildren routes overrides to topological roots only; executeSubgraph threads overrides through retry loop. Full internal recursion via Graph.Execute deferred to step 9. |
-| 4. Unmarshaler + Convert infrastructure | **complete** | committed `1ae8c15`. bind.Unmarshaler with 11 wrappers (bool, int, float, string, bytes, none, list, tuple, dict, set, function); *Promise and *receiver get Unmarshal methods. op.Convert(ctx, value, target) cascade with slice lift. Convertible extended with ConvertFrom; *mem.Function stub. No registry — polymorphism via Convertible + registry-based target instantiation. |
+| 4. Unmarshaler + Convert infrastructure | **complete** | committed `1ae8c15`. starlarkbridge.Unmarshaler with 11 wrappers (bool, int, float, string, bytes, none, list, tuple, dict, set, function); *Promise and *receiver get Unmarshal methods. op.Convert(ctx, value, target) cascade with slice lift. Convertible extended with ConvertFrom; *mem.Function stub. No registry — polymorphism via Convertible + registry-based target instantiation. |
 | 5. Rewrite bind.FillSlot | **complete** | `(*Planner).FillSlot(node, slot, value)` with result-based dispatch (no upfront target-type check). Helpers `assignTarget` (direct Unmarshal → fallback to Unmarshal-into-any + `op.Convert`) and `linkResource` (catalog link-time resolution + producer→consumer edge). Dispatch rewrites: `paramsByClean` map; `**kwargs` packs into a single `starlark.Dict` filling one map slot — aligns with executing path and kills the broken per-key sub-slot scheme. Deleted: `fillResourceSlot`, `isResourceType`, free-function `fillSlot`, `fillOutputList`. Executing-path string→Resource regression still present; defer to step 7. |
 | 6. Collapse NodeBuilder.dispatch; delete fillResourceSlot | **complete** | Single-pass classification producing `slots []*op.Slot` + paired `values []starlark.Value` + UnpackArgs `pairs`. Parallel maps (`regularParams`, `knownKwargs`, `paramsByClean`) deleted; kwarg filter now scans the slot sequence. `**kwargs` handled via a single `kwargsSlot *op.Slot` companion. `cleanName` extracted as a local closure (two call sites). `fillResourceSlot` was already removed in step 5. |
 | 7. Make Action.Do delegate to Method.Invoke | **complete** | Added `(*op.Method).Invoke(ctx, receiver, slots map[string]any)` running slot values through `op.Convert` and calling the reflective Do. Action/fallibleAction/compensableAction wrappers simplified to construct provider + DryRun gate + delegate to Invoke. Deleted `prepareCall` and `coerceSlotValue` (subsumed). Flipped `(*receiver).dispatch` to natural-projection + Invoke: starlark args project to natural Go via `r.unmarshalValue` with interface target (keyed by raw Parameter.Name), Method.Invoke handles Go→target via op.Convert. Return marshaling switched to `r.marshal(result any)`; unregistered types get a ReceiverType via `TypeByReflectionOrDerive`. Graph execution is now starlark-free; starlark dies at the receiver.dispatch boundary. String→Resource regression resolved. |
@@ -64,7 +64,7 @@ type Slot struct {
 Parameter identity travels with the value. The authoritative
 `Parameter.Name` / `Parameter.Type` contract from `*op.Method` meets
 the value it governs — the defect that forced three parallel
-collections in `bind.NodeBuilder.dispatch` is structurally impossible
+collections in `starlarkbridge.NodeBuilder.dispatch` is structurally impossible
 under this shape.
 
 ### D2 — `SlotValue` is a sealed three-variant interface
@@ -400,7 +400,7 @@ step 8.
 4. **Type-converter contract.** `FromStarlark(sv starlark.Value)
    (any, error)` on `ReceiverType` (or a sibling interface —
    fork open). Primitives registered in `ReceiverRegistry` at init.
-5. **Rewrite `bind.FillSlot`.** Promote to a method on `*Planner`:
+5. **Rewrite `starlarkbridge.FillSlot`.** Promote to a method on `*Planner`:
    `func (p *Planner) FillSlot(node *op.Node, slot *op.Slot, value
    starlark.Value) error`. No free functions — `p.graph` and
    `p.graph.ExecutionContext()` supply graph and context. Graph-edge
@@ -598,7 +598,7 @@ The executor's `ctx.Data` TODO bridge is deleted when
   `ReceiverRegistry` primitive registration, `ExecutableUnit`
   interface, `Subgraph.Parameters()`, unified `Execute`, `Graph.Bind` /
   `Node.Bind`, executor, recovery, serialization.
-- `pkg/op/bind` — `FillSlot` rewrite, `NodeBuilder.dispatch` collapse,
+- `pkg/op/starlarkbridge` — `FillSlot` rewrite, `NodeBuilder.dispatch` collapse,
   `fillResourceSlot` delete, `Promise` method signatures tighten.
 - `pkg/op/provider/flow` — real `Gather` implementation using unified
   `Execute`.

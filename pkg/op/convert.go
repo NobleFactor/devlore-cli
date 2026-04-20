@@ -22,7 +22,7 @@ import (
 //  5. Slice lift — if both types are slices, recurse element-wise via Convert.
 //  6. No path found — error.
 //
-// Convert is the op-side counterpart to bind.ToUnmarshaler: bind produces a
+// Convert is the op-side counterpart to starlarkbridge.ToUnmarshaler: starlarkbridge produces a
 // raw Go value from a starlark source; Convert reshapes that Go value into
 // the target parameter type expected by a method signature.
 func Convert(ctx *ExecutionContext, value any, target reflect.Type) (any, error) {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package bind
+package starlarkbridge
 
 import (
 	"context"
@@ -14,10 +14,10 @@ import (
 	"go.starlark.net/syntax"
 )
 
-// StarlarkRuntime manages a Starlark scripting runtime.
+// Runtime manages a Starlark scripting runtime.
 //
 // It constructs providers as Starlark globals from the selected modules and provides the @devlore// module loader.
-type StarlarkRuntime struct {
+type Runtime struct {
 	ctx         *op.ExecutionContext
 	cache       map[string]*loaderEntry
 	modules     []op.ProviderReceiverType
@@ -25,7 +25,7 @@ type StarlarkRuntime struct {
 	registry    *op.ReceiverRegistry
 }
 
-// NewStarlarkRuntime creates a fully initialized runtime from the given configuration.
+// NewRuntime creates a fully initialized runtime from the given configuration.
 //
 // The ExecutionContext is built internally from the config. Providers are constructed and cached as the predeclared
 // starlark globals. The config itself is not retained.
@@ -34,8 +34,8 @@ type StarlarkRuntime struct {
 //   - cfg: configuration specifying the registry, module selection, root, and runtime options.
 //
 // Returns:
-//   - *StarlarkRuntime: the initialized runtime.
-func NewStarlarkRuntime(cfg *op.RuntimeEnvironmentSpec) *StarlarkRuntime {
+//   - *Runtime: the initialized runtime.
+func NewRuntime(cfg *op.RuntimeEnvironmentSpec) *Runtime {
 
 	ctx := op.ExecutionContext{
 		Context:     context.Background(),
@@ -53,7 +53,7 @@ func NewStarlarkRuntime(cfg *op.RuntimeEnvironmentSpec) *StarlarkRuntime {
 		ctx.RecoverySite = op.NewRecoverySite(&ctx)
 	}
 
-	runtime := &StarlarkRuntime{
+	runtime := &Runtime{
 		ctx:      &ctx,
 		cache:    make(map[string]*loaderEntry),
 		modules:  cfg.Modules,
@@ -134,7 +134,7 @@ func NewStarlarkRuntime(cfg *op.RuntimeEnvironmentSpec) *StarlarkRuntime {
 //
 // Returns:
 //   - []op.ProviderReceiverType: the module list.
-func (rt *StarlarkRuntime) Modules() []op.ProviderReceiverType {
+func (rt *Runtime) Modules() []op.ProviderReceiverType {
 
 	return rt.modules
 }
@@ -143,7 +143,7 @@ func (rt *StarlarkRuntime) Modules() []op.ProviderReceiverType {
 //
 // Returns:
 //   - *op.ReceiverRegistry: the registry.
-func (rt *StarlarkRuntime) Registry() *op.ReceiverRegistry {
+func (rt *Runtime) Registry() *op.ReceiverRegistry {
 
 	return rt.registry
 }
@@ -152,7 +152,7 @@ func (rt *StarlarkRuntime) Registry() *op.ReceiverRegistry {
 //
 // Returns:
 //   - starlark.StringDict: the predeclared globals.
-func (rt *StarlarkRuntime) Predeclared() starlark.StringDict {
+func (rt *Runtime) Predeclared() starlark.StringDict {
 
 	return rt.predeclared
 }
@@ -169,36 +169,37 @@ func (rt *StarlarkRuntime) Predeclared() starlark.StringDict {
 // Returns:
 //   - starlark.Value: the constructed receiver, or nil if not found.
 //   - bool: true if the provider was found in the selected modules.
-func (rt *StarlarkRuntime) BuildReceiver(name string) (starlark.Value, bool) {
+func (rt *Runtime) BuildReceiver(name string) (starlark.Value, bool) {
 
 	for _, mod := range rt.modules {
 		if mod.Name() != name {
 			continue
 		}
-		if recv := rt.buildOne(mod); recv != nil {
-			return recv, true
+		if receiver := rt.buildOne(mod); receiver != nil {
+			return receiver, true
 		}
 		return nil, false
 	}
+
 	return nil, false
 }
 
 // Invoke executes a starlark script with per-invocation settings.
 //
-// Script loading is confined to root via os.OpenRoot — relative load() calls cannot escape. The @devlore// module
-// loader resolves provider names from the registry. DryRun and Data are set on the shared ExecutionContext for the
+// Script loading is confined to root via [os.OpenRoot] — relative load calls cannot escape. The `@devlore//` module
+// loader resolves provider names from the registry. DryRun and Data are set on the shared [op.ExecutionContext] for the
 // duration of the invocation.
 //
 // Parameters:
 //   - script: path to the script file, relative to root.
-//   - root: filesystem root for script loading (confined via os.OpenRoot).
+//   - root: filesystem root for script loading (confined via [os.OpenRoot]).
 //   - data: per-invocation context data (replaces ExecutionContext.Data for this invocation).
 //   - dryRun: per-invocation dry-run flag.
 //
 // Returns:
-//   - starlark.StringDict: the script's global bindings after execution.
+//   - [starlark.StringDict]: the script's global bindings after execution.
 //   - error: non-nil if the script fails to load or execute.
-func (rt *StarlarkRuntime) Invoke(script string, root string, data map[string]any, dryRun bool) (starlark.StringDict, error) {
+func (rt *Runtime) Invoke(script string, root string, data map[string]any, dryRun bool) (starlark.StringDict, error) {
 
 	// Confine script loading to root.
 
@@ -302,7 +303,7 @@ type loaderEntry struct {
 //
 // Returns:
 //   - starlark.Value: the constructed receiver, or nil on failure.
-func (rt *StarlarkRuntime) buildOne(prt op.ProviderReceiverType) starlark.Value {
+func (rt *Runtime) buildOne(prt op.ProviderReceiverType) starlark.Value {
 
 	raw, err := rt.ctx.ModuleByName(prt.Name())
 	if err != nil {
@@ -323,7 +324,7 @@ func (rt *StarlarkRuntime) buildOne(prt op.ProviderReceiverType) starlark.Value 
 // Returns:
 //   - starlark.StringDict: the module globals.
 //   - error: non-nil if the provider is not found.
-func (rt *StarlarkRuntime) resolveProvider(name string) (starlark.StringDict, error) {
+func (rt *Runtime) resolveProvider(name string) (starlark.StringDict, error) {
 
 	receiver, ok := rt.BuildReceiver(name)
 	if !ok {

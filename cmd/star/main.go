@@ -152,7 +152,7 @@ Generate shell completions with:
   star completion fish > ~/.config/fish/completions/star.fish`,
 	}
 
-	// Create runtime early so we can bind flags to it
+	// Create runtime early so we can starlarkbridge flags to it
 	runtime := starruntime.NewApplication()
 
 	// Global flags

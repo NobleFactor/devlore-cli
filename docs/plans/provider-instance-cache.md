@@ -25,7 +25,7 @@ Add a lazy provider instance cache to `ExecutionContext` so that providers can o
 | `ExecutionContext` | Has `Registry` field | No provider instance tracking |
 | `prepareCall()` | Calls `rt.Construct()(*ctx)` per action | Fresh instance every call |
 | `compensableAction.Undo()` | Calls `rt.Construct()(*ctx)` | Fresh instance for undo |
-| `StarlarkRuntime.buildOne()` | Calls `prt.Construct()(&rt.ctx)` | Fresh instance per module |
+| `Runtime.buildOne()` | Calls `prt.Construct()(&rt.ctx)` | Fresh instance per module |
 | `starcode.captureRecursive()` | Calls `file.NewProvider()` directly | Fabricates its own ExecutionContext |
 | `migrate/execute.go` | Calls `file.NewProvider()` directly | Fabricates its own ExecutionContext |
 
@@ -94,7 +94,7 @@ func ProviderAs[T any](ctx *ExecutionContext, name string) (T, error) {
 
 ### Requirement 4: Starlark runtime must use the cache exclusively
 
-`StarlarkRuntime.buildOne()` in `pkg/op/bind/starlark_runtime.go` must call `ctx.Provider()` instead of `prt.Construct()(&rt.ctx)`.
+`Runtime.buildOne()` in `pkg/op/starlarkbridge/runtime.go` must call `ctx.Provider()` instead of `prt.Construct()(&rt.ctx)`.
 
 ### Requirement 5: Eliminate direct NewProvider calls
 
@@ -118,13 +118,13 @@ func ProviderAs[T any](ctx *ExecutionContext, name string) (T, error) {
 
 - [ ] Update `prepareCall()` in `pkg/op/action_types.go` to use `ctx.Provider()`
 - [ ] Update `compensableAction.Undo()` in `pkg/op/action_types.go` to use `ctx.Provider()`
-- [ ] Update `StarlarkRuntime.buildOne()` in `pkg/op/bind/starlark_runtime.go` to use `ctx.Provider()`
+- [ ] Update `Runtime.buildOne()` in `pkg/op/starlarkbridge/runtime.go` to use `ctx.Provider()`
 - [ ] Verify tests pass
 
 **Files**:
 
 - `pkg/op/action_types.go` — Modify
-- `pkg/op/bind/starlark_runtime.go` — Modify
+- `pkg/op/starlarkbridge/runtime.go` — Modify
 
 ### Phase 3: Eliminate direct NewProvider calls
 
