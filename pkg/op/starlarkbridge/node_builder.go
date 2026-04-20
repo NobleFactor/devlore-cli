@@ -18,6 +18,12 @@ var (
 	_ starlark.HasAttrs = (*NodeBuilder)(nil) // Interface Guard: ensures *NodeBuilder implements starlark.HasAttrs.
 )
 
+// executableUnitType is the [reflect.Type] of [op.ExecutableUnit], cached for fillSlot's target-type dispatch
+// (phase-8 D2). When a slot's target type is assignable from ExecutableUnit, the slot receives the invocation's
+// Target as an ImmediateValue (a unit reference); otherwise the slot receives a PromiseValue carrying the
+// producer's NodeRef.
+var executableUnitType = reflect.TypeFor[op.ExecutableUnit]()
+
 // NodeBuilder wraps a provider's method signatures for plan-mode starlark use.
 //
 // It implements [starlark.Value] and [starlark.HasAttrs]. Each attribute access resolves a method on the underlying
@@ -32,9 +38,9 @@ var (
 // via [InvocationRegistry.AutoLabel]).
 //
 // ctx is the ambient execution context (used by assignTarget for [op.Convert] and by shadowPendingOutput for
-// provider construction). catalog is the session-scoped resource catalog (used by linkResource for URI interning
-// and by shadowPendingOutput for plan-time output shadowing). Both are owned by plan.Provider and shared across
-// every NodeBuilder it constructs.
+// provider construction). catalog is the session-scoped resource catalog (used by fillSlot via
+// [op.ResourceCatalog.Link] for URI interning and by shadowPendingOutput for plan-time output shadowing). Both are
+// owned by plan.Provider and shared across every NodeBuilder it constructs.
 type NodeBuilder struct {
 	receiverType op.ProviderReceiverType
 	ctx          *op.ExecutionContext
@@ -155,7 +161,7 @@ func (p *NodeBuilder) AttrNames() []string { return p.attrNames }
 // Returns:
 //   - starlark.Value: the newly-registered *Invocation, or an error value if dispatch fails.
 //   - error: non-nil if node creation, slot filling, planned shadowing, or registration fails.
-func (p *NodeBuilder) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 
 	// The builtin's label may be bare (root providers per D12) or dotted ("<provider>.<method>"). Recover the method
 	// name either way by taking the substring after the last dot — for bare labels, strings.LastIndex returns -1 and
@@ -385,17 +391,29 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 
 	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(slot.Parameter.Name, "**"), "*"), "?")
 
-	// Invocation: the value returned by every plan.* call. Delegate to Invocation.FillSlot, which records the
-	// producer reference in the consumer slot via a PromiseValue. No graph edge is appended here — plan.run
-	// materializes edges from slots at graph construction (phase-8 D5).
+	// Invocation: the value returned by every plan.* call. The slot's target type determines whether the consumer
+	// wants the unit reference itself (Target) or a value-side promise (Result), per phase-8 D2:
+	//
+	//   target type assignable from op.ExecutableUnit  → ImmediateValue{inv.Target}  (no promise; unit reference)
+	//   any other target type                          → PromiseValue via Result      (value flows at execute time)
+	//
+	// The unit-reference path is what container methods (subgraph, choose branches, gather body, wait_until
+	// predicate) consume: their parameter type is op.ExecutableUnit, and they need the structural reference, not a
+	// resolved value. Everything else stays on the PromiseValue path so the consumer's slot encodes the
+	// producer→consumer edge for plan.run to materialize.
 
 	if inv, ok := value.(*Invocation); ok {
-		inv.FillSlot(node, name)
+		if executableUnitType.AssignableTo(slot.Parameter.Type) {
+			node.SetSlot(name, op.ImmediateValue{Value: inv.Target})
+		} else {
+			inv.FillSlot(node, name)
+		}
 		return nil
 	}
 
-	// List of Invocations: fan-in via indexed sub-slots. Each element contributes its own PromiseValue keyed
-	// "<name>[i]"; "<name>.len" holds the count. Plan.run flattens these at materialization.
+	// List of Invocations: fan-in via indexed sub-slots. Each element contributes its own slot value ("<name>[i]")
+	// chosen by the same target-type rule as the scalar path above; the slot's element type drives the choice when
+	// the target is a slice. "<name>.len" holds the count. plan.run flattens these at materialization.
 
 	if list, ok := value.(*starlark.List); ok {
 		if n := list.Len(); n > 0 {
@@ -410,9 +428,15 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 				invocations[i] = inv
 			}
 			if allInvocations {
+				wantsUnit := slot.Parameter.Type.Kind() == reflect.Slice &&
+					executableUnitType.AssignableTo(slot.Parameter.Type.Elem())
 				for i, inv := range invocations {
 					subSlot := fmt.Sprintf("%s[%d]", name, i)
-					inv.FillSlot(node, subSlot)
+					if wantsUnit {
+						node.SetSlot(subSlot, op.ImmediateValue{Value: inv.Target})
+					} else {
+						inv.FillSlot(node, subSlot)
+					}
 				}
 				node.SetSlot(name+".len", op.ImmediateValue{Value: n})
 				return nil
@@ -448,11 +472,25 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 		return fmt.Errorf("slot %q: %w", name, err)
 	}
 
-	// Result-based dispatch: if the value is a Resource, link it against the graph catalog and pick up any producer
-	// origin as an implicit edge.
+	// Resource-typed values intern against the session catalog so the consumer slot ends up holding the canonical
+	// entry. Pointer slot targets store the linked Resource directly; value slot targets store the dereferenced
+	// inner value so all holders observe the same instance. The producer→consumer edge is implicit in the linked
+	// Resource's originID (extractable via op.ExtractResource at plan.run materialization, phase-8 D5).
 
-	if res, ok := final.(op.Resource); ok {
-		final = p.linkResource(node, res, slot.Parameter.Type)
+	if resource, ok := final.(op.Resource); ok {
+
+		linked := p.catalog.Link(resource)
+
+		if slot.Parameter.Type.Kind() == reflect.Ptr {
+			final = linked
+		} else {
+			rv := reflect.ValueOf(linked)
+			if rv.Kind() == reflect.Ptr {
+				final = rv.Elem().Interface()
+			} else {
+				final = linked
+			}
+		}
 	}
 
 	node.SetSlot(name, op.ImmediateValue{Value: final})
@@ -561,30 +599,6 @@ func (p *NodeBuilder) assignTarget(value starlark.Value, target reflect.Type) (a
 	}
 
 	return op.Convert(p.ctx, raw, target)
-}
-
-// linkResource performs link-time resolution of a [op.Resource] against the session catalog.
-//
-// The catalog is an intern table keyed by URI. The first resource seen for a URI is kept as a discovery entry;
-// subsequent values for the same URI are discarded in favor of the existing entry — which may already carry an
-// originID stamped by a producer node's Planned companion. When an origin is present, the producer→consumer edge is
-// implicit in the linked Resource stored on this node's slot; plan.run extracts it at materialization via
-// [op.ExtractResource] (phase-8 D5).
-//
-// If the slot's target type is a value (not a pointer), the linked entry is dereferenced for storage; pointer targets
-// store the linked entry directly so all holders observe the same instance.
-func (p *NodeBuilder) linkResource(node *op.Node, res op.Resource, target reflect.Type) any {
-
-	linked, _ := p.catalog.Resolve(res)
-
-	if target.Kind() == reflect.Ptr {
-		return linked
-	}
-	rv := reflect.ValueOf(linked)
-	if rv.Kind() == reflect.Ptr {
-		return rv.Elem().Interface()
-	}
-	return linked
 }
 
 // endregion

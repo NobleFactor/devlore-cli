@@ -94,6 +94,26 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 	return r, id
 }
 
+// Link interns the given resource and returns the canonical catalog entry, discarding the catalog ID.
+//
+// Link is a thin convenience over [ResourceCatalog.Resolve] for callers that only need the linked Resource —
+// notably the slot-fill path in [starlarkbridge.NodeBuilder] and the rehydration path in plan.load (step 16).
+// Behavior matches Resolve exactly: first sighting of a URI catalogs the input as a discovery entry; subsequent
+// sightings discard the input in favor of the canonical entry, which may already carry an originID stamped by
+// a producer node's Planned companion. The originID stays on the returned Resource for downstream consumers to
+// observe (extracted via [ExtractResource] at plan.run materialization to derive producer→consumer edges).
+//
+// Parameters:
+//   - resource: the resource to intern. URI must be set.
+//
+// Returns:
+//   - Resource: the canonical entry for resource's URI.
+func (c *ResourceCatalog) Link(resource Resource) Resource {
+
+	linked, _ := c.Resolve(resource)
+	return linked
+}
+
 // Shadow catalogs a new resource version under the given origin and updates the namespace to point to it.
 //
 // Shadow is the plan-time output registration operation: a node's Planned companion constructs the identity
