@@ -163,43 +163,43 @@ dist-clean: ## Remove distribution archives
 # Each grouped target (&:) fires one star invocation that produces all gen files.
 # Generation runs only when provider.go is newer than the gen outputs.
 #
-# access=both     → receiver_type.gen_test + action.gen_test + provider_node_builder.gen_test + module.gen_test + provider
-# access=planned  → receiver_type.gen_test + action.gen_test + provider_node_builder.gen_test + provider
+# access=both     → receiver_type.gen_test + action.gen_test + node_builder.gen_test + module.gen_test + provider
+# access=planned  → receiver_type.gen_test + action.gen_test + node_builder.gen_test + provider
 # access=immediate → receiver_type.gen_test + module.gen_test + provider
 
 # --- access=both providers ---
 
 $(P)/json/gen/receiver_type.gen_test.go \
 $(P)/json/gen/action.gen_test.go \
-$(P)/json/gen/provider_node_builder.gen_test.go \
+$(P)/json/gen/node_builder.gen_test.go \
 $(P)/json/gen/module.gen_test.go \
 $(P)/json/gen/provider.gen.go &: $(P)/json/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/json --gen=true --write=true --output=$(P)/json
 
 $(P)/platform/gen/receiver_type.gen_test.go \
 $(P)/platform/gen/action.gen_test.go \
-$(P)/platform/gen/provider_node_builder.gen_test.go \
+$(P)/platform/gen/node_builder.gen_test.go \
 $(P)/platform/gen/module.gen_test.go \
 $(P)/platform/gen/provider.gen.go &: $(P)/platform/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/platform --gen=true --write=true --output=$(P)/platform
 
 $(P)/regexp/gen/receiver_type.gen_test.go \
 $(P)/regexp/gen/action.gen_test.go \
-$(P)/regexp/gen/provider_node_builder.gen_test.go \
+$(P)/regexp/gen/node_builder.gen_test.go \
 $(P)/regexp/gen/module.gen_test.go \
 $(P)/regexp/gen/provider.gen.go &: $(P)/regexp/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/regexp --gen=true --write=true --output=$(P)/regexp
 
 $(P)/template/gen/receiver_type.gen_test.go \
 $(P)/template/gen/action.gen_test.go \
-$(P)/template/gen/provider_node_builder.gen_test.go \
+$(P)/template/gen/node_builder.gen_test.go \
 $(P)/template/gen/module.gen_test.go \
 $(P)/template/gen/provider.gen.go &: $(P)/template/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/template --gen=true --write=true --output=$(P)/template
 
 $(P)/yaml/gen/receiver_type.gen_test.go \
 $(P)/yaml/gen/action.gen_test.go \
-$(P)/yaml/gen/provider_node_builder.gen_test.go \
+$(P)/yaml/gen/node_builder.gen_test.go \
 $(P)/yaml/gen/module.gen_test.go \
 $(P)/yaml/gen/provider.gen.go &: $(P)/yaml/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/yaml --gen=true --write=true --output=$(P)/yaml
@@ -208,60 +208,60 @@ $(P)/yaml/gen/provider.gen.go &: $(P)/yaml/provider.go | star
 
 $(P)/appnet/gen/receiver_type.gen_test.go \
 $(P)/appnet/gen/action.gen_test.go \
-$(P)/appnet/gen/provider_node_builder.gen_test.go \
+$(P)/appnet/gen/node_builder.gen_test.go \
 $(P)/appnet/gen/provider.gen.go \
 $(P)/appnet/gen/resource.gen.go &: $(P)/appnet/provider.go $(P)/appnet/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/appnet --gen=true --write=true --output=$(P)/appnet
 
 $(P)/archive/gen/receiver_type.gen_test.go \
 $(P)/archive/gen/action.gen_test.go \
-$(P)/archive/gen/provider_node_builder.gen_test.go \
+$(P)/archive/gen/node_builder.gen_test.go \
 $(P)/archive/gen/provider.gen.go &: $(P)/archive/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/archive --gen=true --write=true --output=$(P)/archive
 
 $(P)/encryption/gen/receiver_type.gen_test.go \
 $(P)/encryption/gen/action.gen_test.go \
-$(P)/encryption/gen/provider_node_builder.gen_test.go \
+$(P)/encryption/gen/node_builder.gen_test.go \
 $(P)/encryption/gen/provider.gen.go &: $(P)/encryption/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/encryption --gen=true --write=true --output=$(P)/encryption
 
 $(P)/file/gen/receiver_type.gen_test.go \
 $(P)/file/gen/action.gen_test.go \
-$(P)/file/gen/provider_node_builder.gen_test.go \
+$(P)/file/gen/node_builder.gen_test.go \
 $(P)/file/gen/module.gen_test.go \
 $(P)/file/gen/provider.gen.go &: $(P)/file/provider.go $(P)/file/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/file --gen=true --write=true --output=$(P)/file
 
 $(P)/git/gen/receiver_type.gen_test.go \
 $(P)/git/gen/action.gen_test.go \
-$(P)/git/gen/provider_node_builder.gen_test.go \
+$(P)/git/gen/node_builder.gen_test.go \
 $(P)/git/gen/provider.gen.go \
 $(P)/git/gen/resource.gen.go &: $(P)/git/provider.go $(P)/git/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/git --gen=true --write=true --output=$(P)/git
 
 $(P)/pkg/gen/receiver_type.gen_test.go \
 $(P)/pkg/gen/action.gen_test.go \
-$(P)/pkg/gen/provider_node_builder.gen_test.go \
+$(P)/pkg/gen/node_builder.gen_test.go \
 $(P)/pkg/gen/provider.gen.go \
 $(P)/pkg/gen/resource.gen.go &: $(P)/pkg/provider.go $(P)/pkg/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/pkg --gen=true --write=true --output=$(P)/pkg
 
 $(P)/service/gen/receiver_type.gen_test.go \
 $(P)/service/gen/action.gen_test.go \
-$(P)/service/gen/provider_node_builder.gen_test.go \
+$(P)/service/gen/node_builder.gen_test.go \
 $(P)/service/gen/provider.gen.go \
 $(P)/service/gen/resource.gen.go &: $(P)/service/provider.go $(P)/service/resource.go | star
 	$(STAR) devlore actions generate --source=$(P)/service --gen=true --write=true --output=$(P)/service
 
 $(P)/shell/gen/receiver_type.gen_test.go \
 $(P)/shell/gen/action.gen_test.go \
-$(P)/shell/gen/provider_node_builder.gen_test.go \
+$(P)/shell/gen/node_builder.gen_test.go \
 $(P)/shell/gen/provider.gen.go &: $(P)/shell/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/shell --gen=true --write=true --output=$(P)/shell
 
 $(P)/flow/gen/receiver_type.gen_test.go \
 $(P)/flow/gen/action.gen_test.go \
-$(P)/flow/gen/provider_node_builder.gen_test.go \
+$(P)/flow/gen/node_builder.gen_test.go \
 $(P)/flow/gen/provider.gen.go &: $(P)/flow/provider.go | star
 	$(STAR) devlore actions generate --source=$(P)/flow --gen=true --write=true --output=$(P)/flow
 

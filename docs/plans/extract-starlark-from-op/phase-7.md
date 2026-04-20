@@ -17,7 +17,7 @@ updated: 2026-04-16
 | 3b. Top-level convergence + override wiring | **complete** | committed `1ae8c15`. Run funnels through graph.executeWith; Node.ResolveSlots(env, results, overrides); executeChildren routes overrides to topological roots only; executeSubgraph threads overrides through retry loop. Full internal recursion via Graph.Execute deferred to step 9. |
 | 4. Unmarshaler + Convert infrastructure | **complete** | committed `1ae8c15`. bind.Unmarshaler with 11 wrappers (bool, int, float, string, bytes, none, list, tuple, dict, set, function); *Promise and *receiver get Unmarshal methods. op.Convert(ctx, value, target) cascade with slice lift. Convertible extended with ConvertFrom; *mem.Function stub. No registry — polymorphism via Convertible + registry-based target instantiation. |
 | 5. Rewrite bind.FillSlot | **complete** | `(*Planner).FillSlot(node, slot, value)` with result-based dispatch (no upfront target-type check). Helpers `assignTarget` (direct Unmarshal → fallback to Unmarshal-into-any + `op.Convert`) and `linkResource` (catalog link-time resolution + producer→consumer edge). Dispatch rewrites: `paramsByClean` map; `**kwargs` packs into a single `starlark.Dict` filling one map slot — aligns with executing path and kills the broken per-key sub-slot scheme. Deleted: `fillResourceSlot`, `isResourceType`, free-function `fillSlot`, `fillOutputList`. Executing-path string→Resource regression still present; defer to step 7. |
-| 6. Collapse ProviderNodeBuilder.dispatch; delete fillResourceSlot | **complete** | Single-pass classification producing `slots []*op.Slot` + paired `values []starlark.Value` + UnpackArgs `pairs`. Parallel maps (`regularParams`, `knownKwargs`, `paramsByClean`) deleted; kwarg filter now scans the slot sequence. `**kwargs` handled via a single `kwargsSlot *op.Slot` companion. `cleanName` extracted as a local closure (two call sites). `fillResourceSlot` was already removed in step 5. |
+| 6. Collapse NodeBuilder.dispatch; delete fillResourceSlot | **complete** | Single-pass classification producing `slots []*op.Slot` + paired `values []starlark.Value` + UnpackArgs `pairs`. Parallel maps (`regularParams`, `knownKwargs`, `paramsByClean`) deleted; kwarg filter now scans the slot sequence. `**kwargs` handled via a single `kwargsSlot *op.Slot` companion. `cleanName` extracted as a local closure (two call sites). `fillResourceSlot` was already removed in step 5. |
 | 7. Make Action.Do delegate to Method.Invoke | **complete** | Added `(*op.Method).Invoke(ctx, receiver, slots map[string]any)` running slot values through `op.Convert` and calling the reflective Do. Action/fallibleAction/compensableAction wrappers simplified to construct provider + DryRun gate + delegate to Invoke. Deleted `prepareCall` and `coerceSlotValue` (subsumed). Flipped `(*receiver).dispatch` to natural-projection + Invoke: starlark args project to natural Go via `r.unmarshalValue` with interface target (keyed by raw Parameter.Name), Method.Invoke handles Go→target via op.Convert. Return marshaling switched to `r.marshal(result any)`; unregistered types get a ReceiverType via `TypeByReflectionOrDerive`. Graph execution is now starlark-free; starlark dies at the receiver.dispatch boundary. String→Resource regression resolved. |
 | 8. Implement flow.Gather via unified Execute | **complete** | Added `Graph.ResolveExecutable(id)` — single lookup over the shared Node/Subgraph ID space. Replaced the `flow.Provider.Gather` stub with the D7 implementation: resolves body via ResolveExecutable, validates `len(Parameters()) == 1`, drives N iterations through `Graph.Execute(body, {inputName: ImmediateValue{items[i]}})` with bounded concurrency (sem-channel of size `limit`), aggregates failures via `errors.Join`. Also included in this commit: `Convertible` → `Converter` rename across `pkg/op/action.go`, `pkg/op/convert.go`, `pkg/op/bind/receiver.go`, `pkg/op/provider/mem/function.go` — single method `Convert(target reflect.Type) (any, error)`; unused `ConvertFrom` deleted. |
 | 9. executeChildren funnels through Graph.dispatch | **complete** | Renamed `Graph.executeWith` → `Graph.dispatch` to name what it actually does. Signature gains an explicit `results map[string]any` parameter (dropped the implicit `g.ctx.Results` access). `executeChildren`'s per-child Node/Subgraph switch collapses into a single call to `graph.dispatch(e, stack, unit, results, childOverrides)` — one extraction of `ExecutableUnit` from `SubgraphChild`, one dispatch call per child. `Graph.Execute` and `GraphExecutor.Run` updated to pass their results map explicitly; `g.ctx.Results` init moved up to Graph.Execute. `dispatch` is now the single hook site for every unit invocation regardless of nesting depth. Does not touch RecoveryStack or gather — those are step 10. |
@@ -64,7 +64,7 @@ type Slot struct {
 Parameter identity travels with the value. The authoritative
 `Parameter.Name` / `Parameter.Type` contract from `*op.Method` meets
 the value it governs — the defect that forced three parallel
-collections in `bind.ProviderNodeBuilder.dispatch` is structurally impossible
+collections in `bind.NodeBuilder.dispatch` is structurally impossible
 under this shape.
 
 ### D2 — `SlotValue` is a sealed three-variant interface
@@ -410,7 +410,7 @@ step 8.
    Structurally parallels the executing-path twin `(*receiver).unmarshalValue`:
    each dispatch role owns its own filling method; the shared substrate
    is `ToUnmarshaler` + `op.Convert`.
-6. **Collapse `ProviderNodeBuilder.dispatch`.** Single pass over
+6. **Collapse `NodeBuilder.dispatch`.** Single pass over
    `method.Parameters()` producing `[]*op.Slot`. Delete
    `regularParams` / `knownKwargs` / `paramTypes` parallel maps.
    Delete `fillResourceSlot` entirely.
@@ -598,7 +598,7 @@ The executor's `ctx.Data` TODO bridge is deleted when
   `ReceiverRegistry` primitive registration, `ExecutableUnit`
   interface, `Subgraph.Parameters()`, unified `Execute`, `Graph.Bind` /
   `Node.Bind`, executor, recovery, serialization.
-- `pkg/op/bind` — `FillSlot` rewrite, `ProviderNodeBuilder.dispatch` collapse,
+- `pkg/op/bind` — `FillSlot` rewrite, `NodeBuilder.dispatch` collapse,
   `fillResourceSlot` delete, `Promise` method signatures tighten.
 - `pkg/op/provider/flow` — real `Gather` implementation using unified
   `Execute`.

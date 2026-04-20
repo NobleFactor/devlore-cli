@@ -18,8 +18,8 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 2 | `+devlore:root=true` directive & ProviderRole placement zone | complete | Per D12. `ProviderRole` is partitioned into dispatch zone (bits 0–7: `RoleModule`, `RoleAction`) and placement zone (bits 8–15: `RoleRoot`) with zone masks and `Dispatch()` / `Placement()` accessors. `AnnounceProvider` validates that at least one dispatch-zone bit is set. `ReceiverRegistry` gains `RootProviders() []ProviderReceiverType`. Codegen parses `+devlore:root=true` on the provider struct and threads it through to the generated `AnnounceProvider` call as `|op.RoleRoot`. `filter_ctx_param` added in `generate.star` to strip a leading `context.Context` from announced parameter lists. Test template `receiver_type.gen_test.go.template` updated from `rt.ReceiverName()` to `rt.Name()`. |
 | 3 | Reserved-kwarg enforcement at method registration | complete | `newReceiverType` rejects any provider method parameter list declaring `options`, `args` (without `*` prefix), or `kwargs` (without `**` prefix) as plain names. The `*args` and `**kwargs` variadic markers remain valid. Errors name the provider, method, and offending parameter. `reservedNameError` helper + table-driven tests cover plain / optional / variadic-decorated forms, the variadic markers, and ordinary names. |
 | 4 | flow.Provider declares `+devlore:root=true` | complete | Directive added to `pkg/op/provider/flow/provider.go` with an updated doc comment explaining the root semantics. Regenerated `pkg/op/provider/flow/gen/provider.gen.go`; roles expression is now `op.RoleAction\|op.RoleRoot`. Verified at runtime: `registry.RootProviders()` returns `flow` with `roles=0x102`, `dispatch=0x2` (RoleAction), `placement=0x100` (RoleRoot). No consumer wired yet — plumbing activation only. |
-| 5 | Rename `bind.Planner` → `bind.ProviderNodeBuilder` | complete | Type, constructor (`NewProviderNodeBuilder`), file (`bind/provider_node_builder.go`), codegen template (`provider_node_builder.gen_test.go.template`), generated filenames (`*/gen/provider_node_builder.gen_test.go`), generate.star dict keys, Makefile rule targets, and plan doc references all updated. Test function names `TestPlanner_*` → `TestProviderNodeBuilder_*`. Field in `plan/provider.go` renamed `planners` → `adapters` (holds `*bind.ProviderNodeBuilder` values). No behavior change; rename only. Supersedes the original "absorb into plan.Provider" plan — the revisit concluded that `bind.ProviderNodeBuilder` is a real abstraction (wrapper for a `ProviderReceiverType` + `Graph` pair that turns starlark attribute access into graph-node-creating builtins) and keeps its place in the `bind` package. |
-| 6 | plan.Provider discovers root-planned peers; three-tier Attr with collision detection | not-started | plan.Provider scans `registry.RootProviders()` filtered to `RoleAction` at construction and builds a `peerBuiltins` map keyed by snake method name. Each entry is a `*starlark.Builtin` whose dispatch routes to the peer provider's planned-dispatch logic; the builtin's label uses the bare form because the source receiver is root. `Attr(name)` becomes a three-tier walk: Tier 1 (plan.Provider's own methods) → Tier 2 (peer builtins) → Tier 3 (child sub-namespaces). Any collision across Tier 1, Tier 2, or Tier 3 fails plan.Provider construction with a message naming both providers and the offending method. |
+| 5 | Rename `bind.Planner` → `bind.NodeBuilder` | complete | Type, constructor (`NewNodeBuilder`), file (`bind/provider_node_builder.go`), codegen template (`node_builder.gen_test.go.template`), generated filenames (`*/gen/node_builder.gen_test.go`), generate.star dict keys, Makefile rule targets, and plan doc references all updated. Test function names `TestPlanner_*` → `TestProviderNodeBuilder_*`. Field in `plan/provider.go` renamed `planners` → `adapters` (holds `*bind.NodeBuilder` values). No behavior change; rename only. Supersedes the original "absorb into plan.Provider" plan — the revisit concluded that `bind.NodeBuilder` is a real abstraction (wrapper for a `ProviderReceiverType` + `Graph` pair that turns starlark attribute access into graph-node-creating builtins) and keeps its place in the `bind` package. |
+| 6 | plan.Provider discovers root-planned peers; three-tier Attr with collision detection | complete | `plan.Provider` gains `peerBuiltins map[string]starlark.Value` (Tier 2, write-once) and `rootNames map[string]struct{}` (to exclude roots from Tier 3). `NewProvider` calls `buildPeerBuiltins` which iterates `ctx.Registry.RootProviders()` filtered to `RoleAction`, constructs a `*bind.NodeBuilder` per peer, and stores each method as a `*starlark.Builtin` under its snake name. Collision detection panics at construction on: (a) peer method vs. plan.Provider's own method, (b) peer method vs. sub-namespace provider name, (c) peer method declared on multiple peers — each error identifies both offenders. `ResolveAttr` walks Tier 2 → Tier 3; root providers are excluded from Tier 3 so `plan.flow` returns nil. `bind.NodeBuilder.Attr` now selects builtin label form by placement bit (bare for root, `<provider>.<method>` for non-root). `bind.NodeBuilder.dispatch` writes `node.Receiver` as the always-dotted `<provider>.<method>` form for execute-time resolution independent of the builtin's display label. Smoke-verified: `plan.choose` / `plan.gather` / `plan.wait_until` / `plan.complete` / `plan.degraded` / `plan.fatal` / `plan.elevate` resolve to builtins; `plan.file` / `plan.git` resolve to `*bind.NodeBuilder` adapters; `plan.flow` returns nil. |
 | 7 | StarlarkRuntime access×root registration branches | not-started | `NewStarlarkRuntime`'s module-iteration loop (`pkg/op/bind/starlark_runtime.go:67`) branches on the access × root combination per D12. `access=immediate, root=false` stays top-level global (status quo). `access=immediate, root=true` installs each method as a top-level predeclared (reserved for future use). `access=planned, root=false` is NOT registered as a top-level global (status quo). `access=planned, root=true` is NOT registered either — plan.Provider discovers it via `registry.RootProviders()` and hosts its methods via Tier 2 dispatch. Verify current loop behavior for `planned` providers and align if drift exists. |
 | 8 | plan.Provider.dispatch intercepts options kwarg | not-started | Dispatch extracts the `options` kwarg before `starlark.UnpackArgs`, unwraps to `*bind.Options`, and removes it from the kwargs list. A `*bind.Invocation` is constructed around the new `*op.Node` and registered with the `*bind.InvocationRegistry` under the effective label (user-supplied via `Options.Label` or auto-labeled via `InvocationRegistry.AutoLabel`). `Options.RetryPolicy` applies to the node. Dispatch return stays `*bind.Promise` at this step. |
 | 9 | bind.Invocation as starlark.Value; dispatch returns `*Invocation` | not-started | Add `Freeze`/`Hash`/`String`/`Truth`/`Type` and Promise-compatible `Attr`/`AttrNames` to `*bind.Invocation` so every callsite that consumed `*bind.Promise` continues to work. `plan.Provider.dispatch` return type changes from `*bind.Promise` to `*bind.Invocation`; Promise becomes an internal helper. |
@@ -35,21 +35,25 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 19 | Migration of existing .star callers | not-started | `cmd/devlore-test/devloretest/data/test_is_*.star` files and doc snippets; switch from old `plan.choose(when=..., then=...)` kwargs form to invocation-passing form with `plan.case(...)` members. Any `.star` usage of `plan.flow.<method>` (sub-namespace form) becomes `plan.<method>` (flat form) per D12. Per D11. |
 | 20 | Test triage | not-started | Run the full suite; fold residuals into follow-ups. Resolve the `bind.NewProvider` / `ReceiverName` template staleness flagged during step 2 (module test template references APIs removed during Phase 7/8 refactoring). |
 
-Plus one unresolved design discussion that must close before phase-8 exits:
+Plus unresolved design discussions that must close before phase-8 exits:
 
 | # | Topic | Status |
 |---|---|---|
 | O1 | Marshaling design — argument-to-parameter-type matching via ReceiverType-hosted marshalers | open; direction stated, five questions pending |
+| O2 | Toss the bind package — the 11 `unmarshal_*.go` files + `Unmarshaler` interface go; names survive | open; inventory captured, open questions tied to O1 |
 
-**Status:** in-progress. Steps 1–5 complete; 6–20 pending. Step 5
-was refocused from "absorb into plan.Provider" to "rename to
-`bind.ProviderNodeBuilder`" after revisiting the abstraction: the
-type wraps `(ProviderReceiverType, Graph)` and manufactures
-starlark builtins that build graph nodes — a genuine role that
-belongs in the `bind` package as a named type. Step 6 (peer
-dispatch) now layers atop the renamed abstraction rather than
-absorbing it. Design decisions D1–D12 are resolved; D13
-(marshaling) is pending and will be written once O1's five
+**Status:** in-progress. Steps 1–6 complete; 7–20 pending. Step 6
+landed peer dispatch via `bind.NodeBuilder` (renamed from
+`bind.Planner` in step 5): `plan.Provider` discovers
+`RoleAction+RoleRoot` peers at construction, caches per-method
+builtins in a write-once map, walks Tier 2 → Tier 3 in
+`ResolveAttr`, and panics on any collision across the three tiers.
+`bind.NodeBuilder.dispatch` now writes an always-dotted
+`node.Receiver` for execute-time lookup while the starlark builtin
+label uses bare names for root receivers (display vs. lookup
+split). Step 7 is next — `StarlarkRuntime` registration branches
+per the access × root table. Design decisions D1–D12 are resolved;
+D13 (marshaling) is pending and will be written once O1's five
 questions are answered.
 
 # Phase 8: Plan-time scope and grouping combinators
@@ -69,7 +73,7 @@ the `op.ExecutableUnit` (for slots that want an executable reference —
 combinator bodies, branches, iteration targets) and a `Promise` (for
 slots that want a value — consumes the invocation's output via an edge).
 The binding layer (`plan.Provider.FillSlot` after step 5; formerly
-`bind.ProviderNodeBuilder.FillSlot`) picks which field to use based on the target
+`bind.NodeBuilder.FillSlot`) picks which field to use based on the target
 slot's type. Starlark authors don't distinguish — invocations are
 polymorphic at the call site. The binding layer handles the dispatch
 transparently.
@@ -199,7 +203,7 @@ caller sees.
 
 ### D2 — Argument binding: target-type dispatch
 
-`ProviderNodeBuilder.FillSlot` gains a case for `*bind.Invocation`:
+`NodeBuilder.FillSlot` gains a case for `*bind.Invocation`:
 
 ```
 When slot.Parameter.Type implements op.ExecutableUnit (or is assignable to it):
@@ -914,6 +918,81 @@ dispatch, StarlarkRuntime registration) proceed without touching
 marshaling — plan.Provider's structural restructure and peer
 dispatch are orthogonal to this.
 
+### O2 — The bind package is mostly garbage
+
+**User position (verbatim context):** "the bind directory is
+mostly garbage that needs to be completely tossed. we'll save the
+names and that's about it."
+
+Phase 8 cannot exit while `pkg/op/bind/` carries the current
+contents. The inventory below enumerates every file and records
+an initial read on whether it stays, gets reshaped, or goes. Final
+decisions defer to you.
+
+**Current contents of `pkg/op/bind/` (19 files):**
+
+| File | Role today | Initial read |
+|---|---|---|
+| `invocation.go` | `Invocation{Target, Result}` data type (D1). | Stays — names land; it's a data struct. |
+| `invocation_registry.go` | `InvocationRegistry` ledger (D6). | Stays — load-bearing for orphan detection, labels. |
+| `options.go` | `Options{Label, RetryPolicy}` data type (D7). | Stays — pure data. |
+| `promise.go` | `Promise` — plan-mode output handle + `starlark.Value` + `.retry()` builtin. | Uncertain. Under step 9 it folds into `Invocation`. Under O1's target-driven marshaling, its role may shrink further or move. |
+| `provider_node_builder.go` | `NodeBuilder` — adapts a `(ProviderReceiverType, Graph)` pair for plan-mode starlark dispatch. | Stays — real abstraction, named in step 5. The dispatch-internal helpers (`assignTarget`, `linkResource`, `shadowPendingOutput`, `FillSlot`) are candidates for relocation if target-driven marshaling (O1) moves slot-fill logic elsewhere. |
+| `receiver.go` | `bind.receiver` (unexported) — adapts a `(ReceiverType, instance)` pair for immediate-mode starlark dispatch. | Stays at the architectural level — the immediate-mode counterpart of `NodeBuilder`. Internal details (marshal / unmarshal / dispatch) want the same O1 rework as `NodeBuilder`. Possible rename to match the pair (e.g., `InstanceMethodBuilder`?). |
+| `starlark_runtime.go` | `StarlarkRuntime` — module registration, predeclared globals, script invocation. | Stays — the entry point for every starlark session. Step 7 updates its registration branches. |
+| `unmarshaler.go` | `Unmarshaler` interface + `ToUnmarshaler(starlark.Value)` source-first dispatcher. | **Goes.** Source-first dispatch is the wrong shape (O1). Target-driven marshaling via ReceiverType-hosted marshalers replaces it. |
+| `unmarshal_bool.go` | `boolUnmarshaler` projecting `starlark.Bool` onto bool targets. | **Goes.** Subsumed by target-driven marshaling. |
+| `unmarshal_bytes.go` | `bytesUnmarshaler`. | **Goes.** |
+| `unmarshal_dict.go` | `dictUnmarshaler`. | **Goes.** |
+| `unmarshal_float.go` | `floatUnmarshaler`. | **Goes.** |
+| `unmarshal_function.go` | `functionUnmarshaler` passing `*starlark.Function` through. | **Goes.** Target for `*mem.Function` or `func(...)(...)` reached via its own ReceiverType's marshaler. |
+| `unmarshal_int.go` | `intUnmarshaler`. | **Goes.** |
+| `unmarshal_list.go` | `listUnmarshaler`. | **Goes.** |
+| `unmarshal_none.go` | `noneUnmarshaler`. | **Goes.** |
+| `unmarshal_set.go` | `setUnmarshaler`. | **Goes.** |
+| `unmarshal_string.go` | `stringUnmarshaler`. | **Goes.** |
+| `unmarshal_tuple.go` | `tupleUnmarshaler`. | **Goes.** |
+
+**What "saving the names" means.** The decisions that survive the
+tossing are the type names and the package layout, not the
+implementations. Specifically:
+
+- `bind.Invocation`, `bind.InvocationRegistry`, `bind.Options` — the
+  data-type names.
+- `bind.NodeBuilder` — the plan-mode adapter name (step 5).
+- `bind.StarlarkRuntime` — the runtime entry-point name.
+- `bind.Promise` — the name, even if the shape compresses per step 9.
+- `bind.receiver` — the unexported immediate-mode adapter name (or a
+  new name decided alongside the rework).
+
+**What "tossing" means in terms of line count.** The 11
+`unmarshal_*.go` files plus `unmarshaler.go` add up to roughly
+900 lines of source-first dispatch plumbing. Under the
+target-driven marshaling model (O1's stated direction), all of
+that disappears. The surviving bind package is ~5 files of data
+types, adapters, and the runtime — the load-bearing pieces.
+
+**Exit criterion.** Phase 8 does not close while the `unmarshal_*`
+files and the `Unmarshaler` interface still exist. The concrete
+replacement is the target-driven marshaler on ReceiverType (O1).
+Write D13 → implement the replacement → delete the garbage.
+
+**Open questions that tie to O1.**
+
+- Which step actually performs the tossing? A dedicated step near
+  the end of phase 8 (before step 20, test triage), or in-line
+  with step 17 (CanConvert) / step 18 (plan-time type-check pass)
+  since those already touch the conversion cascade?
+- Does `receiver.go`'s unmarshal-into-struct logic
+  (`receiver.go:unmarshalValue`, `unmarshalMap`, `unmarshalSlice`,
+  `unmarshalStruct`, etc.) migrate alongside or does it get a
+  separate commit? The file is ~1200 lines today; much of it is
+  tangled with marshaling concerns that O1 addresses.
+- Does `Promise` survive or compress into `Invocation` per step 9?
+  Step 9's status in the table says Promise becomes an internal
+  helper; this O2 inventory treats that as an open question
+  because the answer affects what "saving the Promise name" means.
+
 ## Invariants
 
 ### I1 — Plan-time type checking
@@ -988,11 +1067,11 @@ top of this document. Each step is a commit unit.
    expression picks up `|op.RoleRoot`. Activates the RoleRoot
    plumbing from step 2. No consumer wired yet — this is a
    plumbing activation.
-5. **Rename `bind.Planner` → `bind.ProviderNodeBuilder`.** Landed.
-   Rename-only commit: type, constructor (`NewProviderNodeBuilder`),
+5. **Rename `bind.Planner` → `bind.NodeBuilder`.** Landed.
+   Rename-only commit: type, constructor (`NewNodeBuilder`),
    file (`bind/provider_node_builder.go`), codegen template
-   (`provider_node_builder.gen_test.go.template`), generated
-   filenames (`*/gen/provider_node_builder.gen_test.go`),
+   (`node_builder.gen_test.go.template`), generated
+   filenames (`*/gen/node_builder.gen_test.go`),
    `generate.star` dict keys, Makefile rule targets, test function
    names (`TestProviderNodeBuilder_*`), and plan doc references all
    updated. The `planners` field on `plan.Provider` was renamed
@@ -1123,7 +1202,7 @@ top of this document. Each step is a commit unit.
   pre-flight pass and error aggregation (D5).
 - `pkg/op/provider/plan/` — holds only immediate methods (`Options`,
   `Case`, `Run`, `Load`, `Save`) plus the planner-side dispatch
-  machinery collapsed from `bind.ProviderNodeBuilder`. Three-tier `Attr`
+  machinery collapsed from `bind.NodeBuilder`. Three-tier `Attr`
   dispatch, collision detection at construction.
 - `pkg/op/provider/flow/` — **resurrected** (not removed) as the
   root-planned peer provider for `plan.*` primitives. Tagged

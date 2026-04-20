@@ -14,33 +14,33 @@ import (
 )
 
 var (
-	_ starlark.Value    = (*ProviderNodeBuilder)(nil) // Interface Guard: ensures *ProviderNodeBuilder implements starlark.Value.
-	_ starlark.HasAttrs = (*ProviderNodeBuilder)(nil) // Interface Guard: ensures *ProviderNodeBuilder implements starlark.HasAttrs.
+	_ starlark.Value    = (*NodeBuilder)(nil) // Interface Guard: ensures *NodeBuilder implements starlark.Value.
+	_ starlark.HasAttrs = (*NodeBuilder)(nil) // Interface Guard: ensures *NodeBuilder implements starlark.HasAttrs.
 )
 
-// ProviderNodeBuilder wraps a provider's method signatures for plan-mode starlark use.
+// NodeBuilder wraps a provider's method signatures for plan-mode starlark use.
 //
 // It implements [starlark.Value] and [starlark.HasAttrs]. Each attribute access resolves a method on the underlying
 // [op.ProviderReceiverType] and returns a [starlark.Builtin] bound to the plan adapter's dispatch method, which creates
 // a graph node instead of executing the method directly.
 //
-// ProviderNodeBuilder does not embed [executingReceiver] — it operates on a graph, not a provider instance.
-type ProviderNodeBuilder struct {
+// NodeBuilder does not embed [executingReceiver] — it operates on a graph, not a provider instance.
+type NodeBuilder struct {
 	receiverType op.ProviderReceiverType
 	graph        *op.Graph
 	methods      map[string]*op.Method // snake_name → *Method
 	attrNames    []string              // sorted
 }
 
-// NewProviderNodeBuilder creates a [ProviderNodeBuilder] wrapping the given graph and receiver type.
+// NewNodeBuilder creates a [NodeBuilder] wrapping the given graph and receiver type.
 //
 // Parameters:
 //   - rt: the provider receiver type descriptor.
 //   - graph: the execution graph to append nodes to.
 //
 // Returns:
-//   - *ProviderNodeBuilder: the starlark-ready wrapper.
-func NewProviderNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph) *ProviderNodeBuilder {
+//   - *NodeBuilder: the starlark-ready wrapper.
+func NewNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph) *NodeBuilder {
 
 	methods := make(map[string]*op.Method)
 	names := make([]string, 0)
@@ -53,7 +53,7 @@ func NewProviderNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph) *Provid
 
 	sort.Strings(names)
 
-	return &ProviderNodeBuilder{
+	return &NodeBuilder{
 		receiverType: rt,
 		graph:        graph,
 		methods:      methods,
@@ -66,19 +66,19 @@ func NewProviderNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph) *Provid
 // region State management
 
 // String implements starlark.Value.
-func (p *ProviderNodeBuilder) String() string { return "plan." + p.receiverType.Name() }
+func (p *NodeBuilder) String() string { return "plan." + p.receiverType.Name() }
 
 // Type implements starlark.Value.
-func (p *ProviderNodeBuilder) Type() string { return "plan." + p.receiverType.Name() }
+func (p *NodeBuilder) Type() string { return "plan." + p.receiverType.Name() }
 
 // Freeze implements starlark.Value.
-func (p *ProviderNodeBuilder) Freeze() {}
+func (p *NodeBuilder) Freeze() {}
 
 // Truth implements starlark.Value.
-func (p *ProviderNodeBuilder) Truth() starlark.Bool { return true }
+func (p *NodeBuilder) Truth() starlark.Bool { return true }
 
 // Hash implements starlark.Value.
-func (p *ProviderNodeBuilder) Hash() (uint32, error) {
+func (p *NodeBuilder) Hash() (uint32, error) {
 	return 0, fmt.Errorf("unhashable type: plan.%s", p.receiverType.Name())
 }
 
@@ -88,26 +88,37 @@ func (p *ProviderNodeBuilder) Hash() (uint32, error) {
 
 // Attr implements starlark.HasAttrs.
 //
+// The builtin's label form depends on the receiver type's placement. Root providers (those with the RoleRoot placement
+// bit; see D12) surface their methods flat at the plan namespace root and receive bare-name labels (e.g., "choose").
+// Non-root providers keep the qualified "<provider>.<method>" form (e.g., "file.write_text"). The label is for display
+// only — dispatch recovers the method by short name regardless of label form, and the executor resolves nodes via the
+// always-dotted Node.Receiver written by dispatch.
+//
 // Parameters:
 //   - name: the snake_case attribute name to look up.
 //
 // Returns:
 //   - starlark.Value: a builtin bound to this plan adapter's dispatch method.
 //   - error: non-nil if the attribute does not exist.
-func (p *ProviderNodeBuilder) Attr(name string) (starlark.Value, error) {
+func (p *NodeBuilder) Attr(name string) (starlark.Value, error) {
 
 	if _, ok := p.methods[name]; !ok {
 		return nil, NoSuchAttrError("plan."+p.receiverType.Name(), name)
 	}
-	actionName := p.receiverType.Name() + "." + name
-	return starlark.NewBuiltin(actionName, p.dispatch), nil
+
+	label := name
+	if p.receiverType.Roles().Placement()&op.RoleRoot == 0 {
+		label = p.receiverType.Name() + "." + name
+	}
+
+	return starlark.NewBuiltin(label, p.dispatch), nil
 }
 
 // AttrNames implements starlark.HasAttrs.
 //
 // Returns:
 //   - []string: sorted list of available method names.
-func (p *ProviderNodeBuilder) AttrNames() []string { return p.attrNames }
+func (p *NodeBuilder) AttrNames() []string { return p.attrNames }
 
 // endregion
 
@@ -126,13 +137,21 @@ func (p *ProviderNodeBuilder) AttrNames() []string { return p.attrNames }
 // Returns:
 //   - starlark.Value: a [Promise] representing the deferred result.
 //   - error: non-nil if node creation fails.
-func (p *ProviderNodeBuilder) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (p *NodeBuilder) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 
-	actionName := builtin.Name()
-
-	name := actionName[strings.LastIndex(actionName, ".")+1:]
+	// The builtin's label may be bare (root providers per D12) or dotted ("<provider>.<method>"). Recover the method
+	// name either way by taking the substring after the last dot — for bare labels, strings.LastIndex returns -1 and
+	// the slice trims to the whole string. The always-dotted form computed below is what the executor uses to resolve
+	// the node at execute time.
+	label := builtin.Name()
+	name := label[strings.LastIndex(label, ".")+1:]
 	method := p.methods[name]
 	params := method.Parameters()
+
+	// actionName is the always-dotted "<provider>.<method>" form written onto the node for execute-time lookup via
+	// op.ExecutionContext.ActionByName. Display-side concerns (error messages, auto-labels) use the builtin's label,
+	// which reflects the receiver's placement (bare for root, dotted for non-root).
+	actionName := p.receiverType.Name() + "." + name
 
 	cleanName := func(raw string) string {
 		return strings.TrimSuffix(strings.TrimPrefix(raw, "*"), "?")
@@ -182,7 +201,7 @@ func (p *ProviderNodeBuilder) dispatch(thread *starlark.Thread, builtin *starlar
 		filteredKwargs = kwargs
 	}
 
-	if err := starlark.UnpackArgs(actionName, args, filteredKwargs, pairs...); err != nil {
+	if err := starlark.UnpackArgs(label, args, filteredKwargs, pairs...); err != nil {
 		return nil, err
 	}
 
@@ -216,11 +235,11 @@ func (p *ProviderNodeBuilder) dispatch(thread *starlark.Thread, builtin *starlar
 		dict := starlark.NewDict(len(extraKwargs))
 		for _, kv := range extraKwargs {
 			if err := dict.SetKey(kv[0], kv[1]); err != nil {
-				return nil, fmt.Errorf("%s: kwargs: %w", actionName, err)
+				return nil, fmt.Errorf("%s: kwargs: %w", label, err)
 			}
 		}
 		if err := p.fillSlot(node, kwargsSlot, dict); err != nil {
-			return nil, fmt.Errorf("%s: kwargs: %w", actionName, err)
+			return nil, fmt.Errorf("%s: kwargs: %w", label, err)
 		}
 	}
 
@@ -229,7 +248,7 @@ func (p *ProviderNodeBuilder) dispatch(thread *starlark.Thread, builtin *starlar
 	// KnownAtExecution, skip plan-time shadowing — the executor will shadow the real return value post-dispatch.
 	if method.HasPlanned() {
 		if err := p.shadowPendingOutput(node, method); err != nil {
-			return nil, fmt.Errorf("%s: %w", actionName, err)
+			return nil, fmt.Errorf("%s: %w", label, err)
 		}
 	}
 
@@ -257,7 +276,7 @@ func (p *ProviderNodeBuilder) dispatch(thread *starlark.Thread, builtin *starlar
 //
 // Returns:
 //   - error: non-nil if the value cannot be assigned to the slot's target type.
-func (p *ProviderNodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Value) error {
+func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Value) error {
 
 	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(slot.Parameter.Name, "**"), "*"), "?")
 
@@ -351,7 +370,7 @@ func (p *ProviderNodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starl
 //
 // Returns:
 //   - error: non-nil if provider construction, the Planned call, or catalog shadowing fails.
-func (p *ProviderNodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) error {
+func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) error {
 
 	// Build positional args from node slots in parameter order. Unresolved slots pass through as nil; Method.Plan
 	// substitutes zero values and the Planned method must tolerate them (or return KnownAtExecution if it cannot
@@ -408,7 +427,7 @@ func (p *ProviderNodeBuilder) shadowPendingOutput(node *op.Node, method *op.Meth
 // that the unmarshalers project directly. The fallback path unmarshals into an interface target and lets op.Convert
 // handle target-type instantiation — notably registry-based construction of Resource types from primitive sources
 // (e.g., string → *file.Resource).
-func (p *ProviderNodeBuilder) assignTarget(value starlark.Value, target reflect.Type) (any, error) {
+func (p *NodeBuilder) assignTarget(value starlark.Value, target reflect.Type) (any, error) {
 
 	u, err := ToUnmarshaler(value)
 	if err != nil {
@@ -435,7 +454,7 @@ func (p *ProviderNodeBuilder) assignTarget(value starlark.Value, target reflect.
 //
 // If the slot's target type is a value (not a pointer), the linked entry is dereferenced for storage; pointer targets
 // store the linked entry directly so all holders observe the same instance.
-func (p *ProviderNodeBuilder) linkResource(node *op.Node, res op.Resource, target reflect.Type) any {
+func (p *NodeBuilder) linkResource(node *op.Node, res op.Resource, target reflect.Type) any {
 
 	if p.graph.Catalog == nil {
 		p.graph.Catalog = op.NewResourceCatalog()

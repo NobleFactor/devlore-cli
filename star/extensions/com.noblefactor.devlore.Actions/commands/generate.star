@@ -46,7 +46,7 @@ GEN_TEMPLATE_FILES = {
     "receiver_type_test": "gen/receiver_type.gen_test.go",
     "module_test": "gen/module.gen_test.go",
     "action_test": "gen/action.gen_test.go",
-    "provider_node_builder_test": "gen/provider_node_builder.gen_test.go",
+    "node_builder_test": "gen/node_builder.gen_test.go",
     "resource": "gen/resource.gen.go",
     # dependent_type uses dynamic filenames: gen/<type_snake>.gen.go
 }
@@ -57,7 +57,7 @@ LOCAL_TEMPLATES = {
     "receiver_type_test": "receiver_type.gen_test.go.template",
     "module_test": "module.gen_test.go.template",
     "action_test": "action.gen_test.go.template",
-    "provider_node_builder_test": "provider_node_builder.gen_test.go.template",
+    "node_builder_test": "node_builder.gen_test.go.template",
     "resource": "resource.gen.go.template",
     "dependent_type": "dependent_type.gen.go.template",
 }
@@ -997,7 +997,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
 
     # Generate plan-adapter tests (plan adapter — node creation from starlark calls).
     if access in ["planned", "both"]:
-        emit_file(command, "provider_node_builder_test", provider_desc, "gen/provider_node_builder.gen_test.go",
+        emit_file(command, "node_builder_test", provider_desc, "gen/node_builder.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     generated_count = 1
