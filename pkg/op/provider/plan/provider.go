@@ -23,8 +23,8 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 type Provider struct {
 	op.ProviderBase
 	Graph    *op.Graph
-	mutex    sync.Mutex               // guards planners
-	planners map[string]*bind.Planner // cached planners by receiver name
+	mutex    sync.Mutex                   // guards adapters
+	adapters map[string]*bind.ProviderNodeBuilder // cached plan adapters by receiver name
 }
 
 // NewProvider creates a plan Provider bound to the given context.
@@ -32,7 +32,7 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
 		Graph:        op.NewGraph(ctx),
-		planners:     make(map[string]*bind.Planner),
+		adapters:     make(map[string]*bind.ProviderNodeBuilder),
 	}
 }
 
@@ -60,15 +60,15 @@ func (p *Provider) Options(label string, retryPolicy *op.RetryPolicy) *bind.Opti
 
 // ResolveAttr implements op.AttributeResolver.
 //
-// It routes sub-namespace lookups (e.g., plan.file, plan.git) to the corresponding [bind.Planner]. Planners are
+// It routes sub-namespace lookups (e.g., plan.file, plan.git) to the corresponding [bind.ProviderNodeBuilder]. Adapters are
 // constructed once per receiver name and cached for the lifetime of this provider.
 func (p *Provider) ResolveAttr(name string) any {
 
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	if planner, ok := p.planners[name]; ok {
-		return planner
+	if adapter, ok := p.adapters[name]; ok {
+		return adapter
 	}
 
 	prt, ok := p.ExecutionContext().Registry.PlannerByName(name)
@@ -77,10 +77,10 @@ func (p *Provider) ResolveAttr(name string) any {
 		return nil
 	}
 
-	planner := bind.NewPlanner(prt, p.Graph)
-	p.planners[name] = planner
+	adapter := bind.NewProviderNodeBuilder(prt, p.Graph)
+	p.adapters[name] = adapter
 
-	return planner
+	return adapter
 }
 
 // endregion

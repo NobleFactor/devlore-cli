@@ -174,7 +174,7 @@ func (p *Promise) DependOn(consumer *op.Node) {
 
 // FillSlot fills a slot in the consumer node with this promise, creating the
 // producer→consumer edge that will carry the value at runtime. Called from
-// [Planner.FillSlot] when a promise is passed to a plan function.
+// [ProviderNodeBuilder.fillSlot] when a promise is passed to a plan function.
 //
 // Parameters:
 //   - consumer: the node receiving the promise.
@@ -312,4 +312,3 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 // endregion
 
 // endregion
-

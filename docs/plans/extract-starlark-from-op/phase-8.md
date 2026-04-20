@@ -18,7 +18,7 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 2 | `+devlore:root=true` directive & ProviderRole placement zone | complete | Per D12. `ProviderRole` is partitioned into dispatch zone (bits 0–7: `RoleModule`, `RoleAction`) and placement zone (bits 8–15: `RoleRoot`) with zone masks and `Dispatch()` / `Placement()` accessors. `AnnounceProvider` validates that at least one dispatch-zone bit is set. `ReceiverRegistry` gains `RootProviders() []ProviderReceiverType`. Codegen parses `+devlore:root=true` on the provider struct and threads it through to the generated `AnnounceProvider` call as `|op.RoleRoot`. `filter_ctx_param` added in `generate.star` to strip a leading `context.Context` from announced parameter lists. Test template `receiver_type.gen_test.go.template` updated from `rt.ReceiverName()` to `rt.Name()`. |
 | 3 | Reserved-kwarg enforcement at method registration | complete | `newReceiverType` rejects any provider method parameter list declaring `options`, `args` (without `*` prefix), or `kwargs` (without `**` prefix) as plain names. The `*args` and `**kwargs` variadic markers remain valid. Errors name the provider, method, and offending parameter. `reservedNameError` helper + table-driven tests cover plain / optional / variadic-decorated forms, the variadic markers, and ordinary names. |
 | 4 | flow.Provider declares `+devlore:root=true` | complete | Directive added to `pkg/op/provider/flow/provider.go` with an updated doc comment explaining the root semantics. Regenerated `pkg/op/provider/flow/gen/provider.gen.go`; roles expression is now `op.RoleAction\|op.RoleRoot`. Verified at runtime: `registry.RootProviders()` returns `flow` with `roles=0x102`, `dispatch=0x2` (RoleAction), `placement=0x100` (RoleRoot). No consumer wired yet — plumbing activation only. |
-| 5 | plan.Provider absorbs bind.Planner; children become child `*plan.Provider`; delete `pkg/op/bind/planner.go` | not-started | Structural unification. `FillSlot`, `dispatch`, `shadowPendingOutput`, `assignTarget`, `linkResource` move from `bind.Planner` to `plan.Provider`. `plan.Provider` gains `receiverType op.ProviderReceiverType` and `methods` / `attrNames` fields; becomes a `starlark.HasAttrs` itself. `plan.Provider.ResolveAttr` returns child `*plan.Provider` instances for sub-namespace access (file, git, …) instead of `*bind.Planner`. Child providers share the graph and registry with the root via pointer. Collision detection for child-namespace names vs. root's own methods. `pkg/op/bind/planner.go` deleted in the same commit. |
+| 5 | Rename `bind.Planner` → `bind.ProviderNodeBuilder` | complete | Type, constructor (`NewProviderNodeBuilder`), file (`bind/provider_node_builder.go`), codegen template (`provider_node_builder.gen_test.go.template`), generated filenames (`*/gen/provider_node_builder.gen_test.go`), generate.star dict keys, Makefile rule targets, and plan doc references all updated. Test function names `TestPlanner_*` → `TestProviderNodeBuilder_*`. Field in `plan/provider.go` renamed `planners` → `adapters` (holds `*bind.ProviderNodeBuilder` values). No behavior change; rename only. Supersedes the original "absorb into plan.Provider" plan — the revisit concluded that `bind.ProviderNodeBuilder` is a real abstraction (wrapper for a `ProviderReceiverType` + `Graph` pair that turns starlark attribute access into graph-node-creating builtins) and keeps its place in the `bind` package. |
 | 6 | plan.Provider discovers root-planned peers; three-tier Attr with collision detection | not-started | plan.Provider scans `registry.RootProviders()` filtered to `RoleAction` at construction and builds a `peerBuiltins` map keyed by snake method name. Each entry is a `*starlark.Builtin` whose dispatch routes to the peer provider's planned-dispatch logic; the builtin's label uses the bare form because the source receiver is root. `Attr(name)` becomes a three-tier walk: Tier 1 (plan.Provider's own methods) → Tier 2 (peer builtins) → Tier 3 (child sub-namespaces). Any collision across Tier 1, Tier 2, or Tier 3 fails plan.Provider construction with a message naming both providers and the offending method. |
 | 7 | StarlarkRuntime access×root registration branches | not-started | `NewStarlarkRuntime`'s module-iteration loop (`pkg/op/bind/starlark_runtime.go:67`) branches on the access × root combination per D12. `access=immediate, root=false` stays top-level global (status quo). `access=immediate, root=true` installs each method as a top-level predeclared (reserved for future use). `access=planned, root=false` is NOT registered as a top-level global (status quo). `access=planned, root=true` is NOT registered either — plan.Provider discovers it via `registry.RootProviders()` and hosts its methods via Tier 2 dispatch. Verify current loop behavior for `planned` providers and align if drift exists. |
 | 8 | plan.Provider.dispatch intercepts options kwarg | not-started | Dispatch extracts the `options` kwarg before `starlark.UnpackArgs`, unwraps to `*bind.Options`, and removes it from the kwargs list. A `*bind.Invocation` is constructed around the new `*op.Node` and registered with the `*bind.InvocationRegistry` under the effective label (user-supplied via `Options.Label` or auto-labeled via `InvocationRegistry.AutoLabel`). `Options.RetryPolicy` applies to the node. Dispatch return stays `*bind.Promise` at this step. |
@@ -41,11 +41,15 @@ Plus one unresolved design discussion that must close before phase-8 exits:
 |---|---|---|
 | O1 | Marshaling design — argument-to-parameter-type matching via ReceiverType-hosted marshalers | open; direction stated, five questions pending |
 
-**Status:** in-progress. Steps 1–4 complete; 5–20 pending. Step 5 is
-the largest structural commit (plan.Provider absorbs bind.Planner,
-children transition to child plan.Provider instances,
-`bind/planner.go` deleted). Design decisions D1–D12 are resolved;
-D13 (marshaling) is pending and will be written once O1's five
+**Status:** in-progress. Steps 1–5 complete; 6–20 pending. Step 5
+was refocused from "absorb into plan.Provider" to "rename to
+`bind.ProviderNodeBuilder`" after revisiting the abstraction: the
+type wraps `(ProviderReceiverType, Graph)` and manufactures
+starlark builtins that build graph nodes — a genuine role that
+belongs in the `bind` package as a named type. Step 6 (peer
+dispatch) now layers atop the renamed abstraction rather than
+absorbing it. Design decisions D1–D12 are resolved; D13
+(marshaling) is pending and will be written once O1's five
 questions are answered.
 
 # Phase 8: Plan-time scope and grouping combinators
@@ -65,7 +69,7 @@ the `op.ExecutableUnit` (for slots that want an executable reference —
 combinator bodies, branches, iteration targets) and a `Promise` (for
 slots that want a value — consumes the invocation's output via an edge).
 The binding layer (`plan.Provider.FillSlot` after step 5; formerly
-`bind.Planner.FillSlot`) picks which field to use based on the target
+`bind.ProviderNodeBuilder.FillSlot`) picks which field to use based on the target
 slot's type. Starlark authors don't distinguish — invocations are
 polymorphic at the call site. The binding layer handles the dispatch
 transparently.
@@ -195,7 +199,7 @@ caller sees.
 
 ### D2 — Argument binding: target-type dispatch
 
-`Planner.FillSlot` gains a case for `*bind.Invocation`:
+`ProviderNodeBuilder.FillSlot` gains a case for `*bind.Invocation`:
 
 ```
 When slot.Parameter.Type implements op.ExecutableUnit (or is assignable to it):
@@ -850,7 +854,7 @@ source-first dispatch, no fallback stage.
 
 **What this replaces.** The current two-stage pipeline — source-
 first `bind.Unmarshaler` dispatch (`pkg/op/bind/unmarshaler.go:30`)
-followed by `op.Convert` fallback (`pkg/op/bind/planner.go:418`) —
+followed by `op.Convert` fallback (`pkg/op/bind/provider_node_builder.go:418`) —
 is the wrong shape. It matches on source first and reaches the
 target through a fallback path; the target type authority is
 secondary. Under the stated direction that whole pipeline is
@@ -984,18 +988,21 @@ top of this document. Each step is a commit unit.
    expression picks up `|op.RoleRoot`. Activates the RoleRoot
    plumbing from step 2. No consumer wired yet — this is a
    plumbing activation.
-5. **plan.Provider absorbs bind.Planner; children become child
-   `*plan.Provider`; delete `pkg/op/bind/planner.go`.** Structural
-   unification. `FillSlot`, `dispatch`, `shadowPendingOutput`,
-   `assignTarget`, `linkResource` move from `bind.Planner` to
-   `plan.Provider`. plan.Provider gains `receiverType` / `methods`
-   / `attrNames` fields and becomes a `starlark.HasAttrs` itself.
-   `plan.Provider.ResolveAttr` returns child `*plan.Provider`
-   instances instead of `*bind.Planner`. Child providers share the
-   graph and registry with the root via pointer. Collision
-   detection for child-namespace names vs. root's own methods.
-   `bind/planner.go` deleted. `bind.Promise`, `bind.Invocation`,
-   `bind.InvocationRegistry`, `bind.Options` stay as data types.
+5. **Rename `bind.Planner` → `bind.ProviderNodeBuilder`.** Landed.
+   Rename-only commit: type, constructor (`NewProviderNodeBuilder`),
+   file (`bind/provider_node_builder.go`), codegen template
+   (`provider_node_builder.gen_test.go.template`), generated
+   filenames (`*/gen/provider_node_builder.gen_test.go`),
+   `generate.star` dict keys, Makefile rule targets, test function
+   names (`TestProviderNodeBuilder_*`), and plan doc references all
+   updated. The `planners` field on `plan.Provider` was renamed
+   `adapters` mid-rename and retains that name. The original plan to
+   absorb the type into `plan.Provider` was superseded — it is a
+   genuine abstraction (wrapper for a `ProviderReceiverType` + `Graph`
+   pair that turns starlark attribute access into graph-node-creating
+   builtins) and stays in the `bind` package as a named type. Step 6
+   now layers peer dispatch on top of this abstraction rather than
+   replacing it.
 6. **plan.Provider discovers root-planned peers; three-tier Attr
    with collision detection.** plan.Provider scans
    `registry.RootProviders()` filtered to `RoleAction` at
@@ -1101,7 +1108,7 @@ top of this document. Each step is a commit unit.
   []ProviderReceiverType` returning providers with the `RoleRoot` bit
   set (general filter callable from any provider that needs to
   discover peers).
-- `pkg/op/bind/planner.go` — **deleted** in step 5. Its behaviors
+- `pkg/op/bind/provider_node_builder.go` — **deleted** in step 5. Its behaviors
   (`dispatch`, `FillSlot`, `shadowPendingOutput`, `assignTarget`,
   `linkResource`) move onto `plan.Provider`. The type-level cascade
   `CanConvertTypes` (D8) lands on `plan.Provider` too.
@@ -1116,7 +1123,7 @@ top of this document. Each step is a commit unit.
   pre-flight pass and error aggregation (D5).
 - `pkg/op/provider/plan/` — holds only immediate methods (`Options`,
   `Case`, `Run`, `Load`, `Save`) plus the planner-side dispatch
-  machinery collapsed from `bind.Planner`. Three-tier `Attr`
+  machinery collapsed from `bind.ProviderNodeBuilder`. Three-tier `Attr`
   dispatch, collision detection at construction.
 - `pkg/op/provider/flow/` — **resurrected** (not removed) as the
   root-planned peer provider for `plan.*` primitives. Tagged

@@ -437,7 +437,7 @@ as the top-level saga runner. No special-case execution logic in the flow
 provider.
 
 `ResolveAttr` routes sub-namespace lookups (`plan.file`) by querying the
-registry for the action receiver type and wrapping it with `bind.NewPlanner`.
+registry for the action receiver type and wrapping it with `bind.NewProviderNodeBuilder`.
 The return value is marshaled by the framework.
 
 ### Planning receiver routing
@@ -446,13 +446,13 @@ Starlark resolves `plan.file.write_text(...)` as three attribute lookups:
 
 1. `plan` → `ExecutingReceiver` wrapping plan Provider
 2. `.file` → `plan.Attr("file")` → falls through to `AttributeResolver` →
-   `ResolveAttr("file")` → registry lookup → `bind.NewPlanner(prt, graph)` →
+   `ResolveAttr("file")` → registry lookup → `bind.NewProviderNodeBuilder(prt, graph)` →
    marshaled as starlark value
 3. `.write_text` → `Attr("write_text")` on the planning receiver → callable
 
 The framework handles marshaling. The plan provider handles routing via
 `ResolveAttr`. `ProviderReceiverType` provides the type descriptor;
-`bind.NewPlanner` wraps it for plan-mode dispatch.
+`bind.NewProviderNodeBuilder` wraps it for plan-mode dispatch.
 
 ### Providers and Resources
 
@@ -634,7 +634,7 @@ Test templates:
 - `action.gen_test.go.template` — tests action wrappers: dry-run dispatch,
   compensable interface, undo-nil. Generated when access is `planned` or
   `both`.
-- `planner.gen_test.go.template` — tests planning receiver: `bind.NewPlanner`
+- `provider_node_builder.gen_test.go.template` — tests planning receiver: `bind.NewProviderNodeBuilder`
   attr resolution, node creation from starlark calls. Generated when
   access is `planned` or `both`.
 
@@ -650,7 +650,7 @@ Production code builds clean (`make build` passes). Only test files are broken.
 - Added `ExecutionContext.ExecuteSubgraph()` — delegates to executor for flow provider
 - Fixed `executingReceiver.Attr()` to check `AttributeResolver` fallback
 - Fixed `executingReceiver.Type()` to return `receiverType.ReceiverName()` instead of "module"
-- Fixed `Planner.Type()` to return `"plan." + name` instead of "module"
+- Fixed `ProviderNodeBuilder.Type()` to return `"plan." + name` instead of "module"
 - Fixed `Graph.Rebind()` to propagate ctx to child nodes
 - Fixed plan provider `NewProvider` to read graph from `ctx.Data["graph"]`
 - Fixed executor `newContext` to create `ReceiverRegistry`
@@ -949,7 +949,7 @@ Work that landed alongside Phase 8 groundwork but was not in the original plan:
   boundary. Callers that held URI strings now construct the typed resource
   via the registered constructor and hand it to the catalog. ✅
 - **Plan-time string→resource coercion** in the planner
-  (`Planner.fillResourceSlot`, `pkg/op/bind/planner.go:342`). Every
+  (`Planner.fillResourceSlot`, `pkg/op/bind/provider_node_builder.go:342`). Every
   resource-typed parameter whose starlark argument is a string is coerced
   to a typed resource via the resource type's registered constructor at
   plan time, then routed through `catalog.Resolve` as a discovery entry.
@@ -984,7 +984,7 @@ Apply the signature changes and author the `Planned` siblings for:
 
 ### Planner rewire — DONE
 
-`pkg/op/bind/planner.go` `dispatch`:
+`pkg/op/bind/provider_node_builder.go` `dispatch`:
 
 1. Name-based output detection removed. ✅
 2. Resource-typed parameters are coerced via the type's registered
@@ -1030,7 +1030,7 @@ Apply the signature changes and author the `Planned` siblings for:
 - `pkg/op/resource.go` — `KnownAtExecution` sentinel. ✅
 - `pkg/op/receiver_type.go` — `methodFromReflectedMethod` auto-discovers
   `<Name>Planned` by reflection, symmetric with `Compensate<Name>`. ✅
-- `pkg/op/bind/planner.go` — `dispatch` rewire. ✅
+- `pkg/op/bind/provider_node_builder.go` — `dispatch` rewire. ✅
 - `pkg/op/bind/executing_receiver.go` — `coerceResource` reads registry
   from context. ✅
 - `pkg/op/executor.go` — preflight call (✅) + post-dispatch shadowing
@@ -1261,7 +1261,7 @@ runtime overrides via `Execute`, not a structural slot variant.
    name, carrying no `Parameter` identity. The authoritative
    `Parameter.Name` / `Parameter.Type` contract lives on `*op.Method`
    and never meets the value it governs.
-2. `bind.Planner.dispatch` (`pkg/op/bind/planner.go:141-156`) explodes
+2. `bind.ProviderNodeBuilder.dispatch` (`pkg/op/bind/provider_node_builder.go:141-156`) explodes
    `Parameter{Name, Type}` into three parallel collections
    (`regularParams`, `knownKwargs`, `paramTypes`), then partially
    reassembles them — name-only on the general `FillSlot` path
@@ -1318,10 +1318,10 @@ runtime overrides via `Execute`, not a structural slot variant.
      immediate in slot.
    - otherwise → delegate to `slot.Parameter.Type`'s registered
      converter to produce a Go value, immediate in slot.
-6. `fillResourceSlot` (`pkg/op/bind/planner.go:365-432`) is **deleted**.
+6. `fillResourceSlot` (`pkg/op/bind/provider_node_builder.go:365-432`) is **deleted**.
    String acceptance moves onto the resource type's converter; the
    planner stops special-casing resources.
-7. `Planner.dispatch` stops exploding `Parameter`. It iterates
+7. `ProviderNodeBuilder.dispatch` stops exploding `Parameter`. It iterates
    `method.Parameters()` once, building `[]*op.Slot` directly.
 8. **`Action.Do` delegates to `(*op.Method).Invoke`.**
    `Action.Do` stays as the framework's uniform execution interface.
@@ -1356,7 +1356,7 @@ Summary of the updated 12-step outline:
    `Graph.Execute()` collapses to `Execute(g.Root, nil)`.
 4. Type-converter contract on `ReceiverType`; register primitives.
 5. Rewrite `bind.FillSlot`.
-6. Collapse `Planner.dispatch`; delete `fillResourceSlot`.
+6. Collapse `ProviderNodeBuilder.dispatch`; delete `fillResourceSlot`.
 7. Make `Action.Do` delegate to `(*op.Method).Invoke`; delete the slot-unpacking in action_types.go.
 8. Implement `flow.Gather` via unified `Execute`.
 9. Rebind — `(*Node).Bind(method)` / `(*Graph).Bind(ctx)`.
@@ -1415,7 +1415,7 @@ production emitted proxy slots.
   dispatcher, `ReceiverType` converter contract, `ReceiverRegistry`
   primitive registration, `Graph.Bind` / `Node.Bind`, executor,
   recovery, serialization.
-- `pkg/op/bind` — `FillSlot` rewrite, `Planner.dispatch` collapse,
+- `pkg/op/bind` — `FillSlot` rewrite, `ProviderNodeBuilder.dispatch` collapse,
   `fillResourceSlot` delete, `Promise` method signatures tighten.
 - `pkg/op/provider/*` — every provider's `Do` boilerplate deleted;
   generated code regenerated; hand-written methods unchanged.
