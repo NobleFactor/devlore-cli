@@ -36,6 +36,7 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 type Provider struct {
 	op.ProviderBase
 	Graph        *op.Graph
+	Invocations  *starlarkbridge.InvocationRegistry     // session-scoped ledger; every NodeBuilder registers here
 	mutex        sync.Mutex                             // guards adapters
 	adapters     map[string]*starlarkbridge.NodeBuilder // Tier 3: cached plan adapters by sub-namespace provider name
 	peerBuiltins map[string]starlark.Value              // Tier 2: root-planned peer method builtins, write-once
@@ -44,14 +45,15 @@ type Provider struct {
 
 // NewProvider creates a plan Provider bound to the given context.
 //
-// At construction, the Provider discovers every RoleAction+RoleRoot peer via the registry and builds Tier 2 builtins
-// for their methods. Any name collision across Tier 1 (Provider's own methods), Tier 2 (peer methods), or Tier 3
-// (sub-namespace provider names) is a program-init panic.
+// At construction, the Provider instantiates an InvocationRegistry and discovers every RoleAction+RoleRoot peer via
+// the registry, building Tier 2 builtins for their methods. Any name collision across Tier 1 (Provider's own
+// methods), Tier 2 (peer methods), or Tier 3 (sub-namespace provider names) is a program-init panic.
 func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 	p := &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
 		Graph:        op.NewGraph(ctx),
+		Invocations:  starlarkbridge.NewInvocationRegistry(),
 		adapters:     make(map[string]*starlarkbridge.NodeBuilder),
 		peerBuiltins: make(map[string]starlark.Value),
 		rootNames:    make(map[string]struct{}),
@@ -113,7 +115,7 @@ func (p *Provider) ResolveAttr(name string) any {
 		return nil
 	}
 
-	adapter := starlarkbridge.NewNodeBuilder(prt, p.Graph)
+	adapter := starlarkbridge.NewNodeBuilder(prt, p.Graph, p.Invocations)
 	p.adapters[name] = adapter
 
 	return adapter
@@ -168,7 +170,7 @@ func (p *Provider) buildPeerBuiltins() {
 			continue
 		}
 
-		builder := starlarkbridge.NewNodeBuilder(peer, p.Graph)
+		builder := starlarkbridge.NewNodeBuilder(peer, p.Graph, p.Invocations)
 
 		for _, name := range builder.AttrNames() {
 

@@ -25,22 +25,29 @@ var (
 // a graph node instead of executing the method directly.
 //
 // NodeBuilder does not embed [executingReceiver] — it operates on a graph, not a provider instance.
+//
+// registry is shared across every NodeBuilder that participates in the same planning session. Dispatch registers
+// one [Invocation] per method call under the effective label (user-supplied via [Options.Label] or auto-labeled
+// via [InvocationRegistry.AutoLabel]).
 type NodeBuilder struct {
 	receiverType op.ProviderReceiverType
 	graph        *op.Graph
+	registry     *InvocationRegistry
 	methods      map[string]*op.Method // snake_name → *Method
 	attrNames    []string              // sorted
 }
 
-// NewNodeBuilder creates a [NodeBuilder] wrapping the given graph and receiver type.
+// NewNodeBuilder creates a [NodeBuilder] wrapping the given graph, receiver type, and invocation registry.
 //
 // Parameters:
 //   - rt: the provider receiver type descriptor.
 //   - graph: the execution graph to append nodes to.
+//   - registry: the shared invocation registry; every NodeBuilder in a planning session uses the same registry
+//     so labels are session-unique and orphan detection can walk the full set.
 //
 // Returns:
 //   - *NodeBuilder: the starlark-ready wrapper.
-func NewNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph) *NodeBuilder {
+func NewNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph, registry *InvocationRegistry) *NodeBuilder {
 
 	methods := make(map[string]*op.Method)
 	names := make([]string, 0)
@@ -56,6 +63,7 @@ func NewNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph) *NodeBuilder {
 	return &NodeBuilder{
 		receiverType: rt,
 		graph:        graph,
+		registry:     registry,
 		methods:      methods,
 		attrNames:    names,
 	}
@@ -152,6 +160,14 @@ func (p *NodeBuilder) dispatch(thread *starlark.Thread, builtin *starlark.Builti
 	// op.ExecutionContext.ActionByName. Display-side concerns (error messages, auto-labels) use the builtin's label,
 	// which reflects the receiver's placement (bare for root, dotted for non-root).
 	actionName := p.receiverType.Name() + "." + name
+
+	// Extract the reserved `options` kwarg before UnpackArgs sees it. Options is a cross-cutting per-invocation
+	// concern (label + retry policy) reserved by the planner (D7). Method registration rejects any provider that
+	// declares options as a parameter name, so it never collides with method-level kwargs.
+	opts, kwargs, err := extractOptionsKwarg(kwargs)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
 
 	cleanName := func(raw string) string {
 		return strings.TrimSuffix(strings.TrimPrefix(raw, "*"), "?")
@@ -252,10 +268,87 @@ func (p *NodeBuilder) dispatch(thread *starlark.Thread, builtin *starlark.Builti
 		}
 	}
 
-	// Append to graph and return promise.
+	// Apply the retry policy from options (if supplied) to the node before it joins the graph.
+	if opts != nil && opts.RetryPolicy != nil {
+		node.Retry = opts.RetryPolicy
+	}
 
+	// Append to graph and register an Invocation under the effective label. User-supplied Options.Label wins;
+	// otherwise the registry auto-labels as "<label>#<N>" where <label> is the builtin's label form (bare for
+	// root receivers, dotted otherwise — matching D7's label examples). Label collisions fail plan-time.
 	p.graph.AddNode(node)
-	return NewPromise(p.graph, node, ""), nil
+
+	promise := NewPromise(p.graph, node, "")
+
+	invLabel := label
+	if opts != nil && opts.Label != "" {
+		invLabel = opts.Label
+	} else {
+		invLabel = p.registry.AutoLabel(label)
+	}
+
+	inv := &Invocation{Target: node, Result: promise}
+	if err := p.registry.Register(invLabel, inv); err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+
+	return promise, nil
+}
+
+// extractOptionsKwarg scans kwargs for the reserved "options" key and, if found, removes it and unwraps the value
+// to a *Options.
+//
+// The reserved name is guarded at method registration ([newReceiverType] rejects any provider method that declares
+// options as a parameter name), so this function cannot collide with a method-level kwarg. The unwrapped value
+// flows into the dispatch site's invocation-registration and retry-application steps.
+//
+// Accepted value shapes for the kwarg:
+//
+//   - A *receiver wrapping a *Options (produced by plan.options(...)). Returns the *Options.
+//   - starlark.None. Returns nil *Options; treated as "no options."
+//   - Anything else. Returns a descriptive error.
+//
+// Parameters:
+//   - kwargs: the caller-supplied keyword arguments.
+//
+// Returns:
+//   - *Options: the unwrapped options, or nil if the kwarg was absent or None.
+//   - []starlark.Tuple: kwargs with the "options" entry removed.
+//   - error: non-nil if the "options" value is of an unexpected type.
+func extractOptionsKwarg(kwargs []starlark.Tuple) (*Options, []starlark.Tuple, error) {
+
+	for i, kv := range kwargs {
+
+		key, _ := starlark.AsString(kv[0])
+		if key != "options" {
+			continue
+		}
+
+		var opts *Options
+
+		switch v := kv[1].(type) {
+
+		case *receiver:
+			o, ok := v.instance.(*Options)
+			if !ok {
+				return nil, nil, fmt.Errorf("options: expected *Options (from plan.options(...)), got %T", v.instance)
+			}
+			opts = o
+
+		case starlark.NoneType:
+			// explicit None — treated as no options
+
+		default:
+			return nil, nil, fmt.Errorf("options: expected value from plan.options(...), got %s", kv[1].Type())
+		}
+
+		filtered := make([]starlark.Tuple, 0, len(kwargs)-1)
+		filtered = append(filtered, kwargs[:i]...)
+		filtered = append(filtered, kwargs[i+1:]...)
+		return opts, filtered, nil
+	}
+
+	return nil, kwargs, nil
 }
 
 // fillSlot populates a slot on a node from a starlark value.

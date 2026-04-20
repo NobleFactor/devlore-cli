@@ -16,7 +16,8 @@ import (
 func TestProviderNodeBuilder_AttrNames(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
+	registry := starlarkbridge.NewInvocationRegistry()
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
 	names := p.AttrNames()
 	if len(names) == 0 {
 		t.Fatal("AttrNames() returned empty list")
@@ -31,7 +32,8 @@ func TestProviderNodeBuilder_AttrNames(t *testing.T) {
 func TestProviderNodeBuilder_Attr(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
+	registry := starlarkbridge.NewInvocationRegistry()
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
 	for _, name := range p.AttrNames() {
 		attr, err := p.Attr(name)
 		if err != nil {
@@ -47,7 +49,8 @@ func TestProviderNodeBuilder_Attr(t *testing.T) {
 func TestProviderNodeBuilder_Attr_Unknown(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
+	registry := starlarkbridge.NewInvocationRegistry()
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
 	_, err := p.Attr("nonexistent_method")
 	if err == nil {
 		t.Error("Attr(nonexistent_method) error = nil, want error")
@@ -57,7 +60,8 @@ func TestProviderNodeBuilder_Attr_Unknown(t *testing.T) {
 func TestProviderNodeBuilder_Type(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
+	registry := starlarkbridge.NewInvocationRegistry()
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
 	if got := p.Type(); got != "plan.pkg" {
 		t.Errorf("Type() = %q, want %q", got, "plan.pkg")
 	}
@@ -66,7 +70,8 @@ func TestProviderNodeBuilder_Type(t *testing.T) {
 func TestProviderNodeBuilder_String(t *testing.T) {
 
 	graph := &op.Graph{}
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph)
+	registry := starlarkbridge.NewInvocationRegistry()
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
 	if got := p.String(); got != "plan.pkg" {
 		t.Errorf("String() = %q, want %q", got, "plan.pkg")
 	}

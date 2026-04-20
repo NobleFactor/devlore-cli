@@ -21,7 +21,7 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 5 | Rename `starlarkbridge.NodeBuilder` → `starlarkbridge.NodeBuilder` | complete | Type, constructor (`NewNodeBuilder`), file (`bind/provider_node_builder.go`), codegen template (`node_builder.gen_test.go.template`), generated filenames (`*/gen/node_builder.gen_test.go`), generate.star dict keys, Makefile rule targets, and plan doc references all updated. Test function names `TestPlanner_*` → `TestProviderNodeBuilder_*`. Field in `plan/provider.go` renamed `planners` → `adapters` (holds `*starlarkbridge.NodeBuilder` values). No behavior change; rename only. Supersedes the original "absorb into plan.Provider" plan — the revisit concluded that `starlarkbridge.NodeBuilder` is a real abstraction (wrapper for a `ProviderReceiverType` + `Graph` pair that turns starlark attribute access into graph-node-creating builtins) and keeps its place in the `bind` package. |
 | 6 | plan.Provider discovers root-planned peers; three-tier Attr with collision detection | complete | `plan.Provider` gains `peerBuiltins map[string]starlark.Value` (Tier 2, write-once) and `rootNames map[string]struct{}` (to exclude roots from Tier 3). `NewProvider` calls `buildPeerBuiltins` which iterates `ctx.Registry.RootProviders()` filtered to `RoleAction`, constructs a `*starlarkbridge.NodeBuilder` per peer, and stores each method as a `*starlark.Builtin` under its snake name. Collision detection panics at construction on: (a) peer method vs. plan.Provider's own method, (b) peer method vs. sub-namespace provider name, (c) peer method declared on multiple peers — each error identifies both offenders. `ResolveAttr` walks Tier 2 → Tier 3; root providers are excluded from Tier 3 so `plan.flow` returns nil. `starlarkbridge.NodeBuilder.Attr` now selects builtin label form by placement bit (bare for root, `<provider>.<method>` for non-root). `starlarkbridge.NodeBuilder.dispatch` writes `node.Receiver` as the always-dotted `<provider>.<method>` form for execute-time resolution independent of the builtin's display label. Smoke-verified: `plan.choose` / `plan.gather` / `plan.wait_until` / `plan.complete` / `plan.degraded` / `plan.fatal` / `plan.elevate` resolve to builtins; `plan.file` / `plan.git` resolve to `*starlarkbridge.NodeBuilder` adapters; `plan.flow` returns nil. |
 | 7 | StarlarkRuntime access×root registration branches | complete | `NewStarlarkRuntime`'s module-iteration loop now explicitly branches on access × root per D12. `dispatch.&RoleModule == 0` (planned-only providers, root or non-root) → skip entirely; their methods surface via plan.* dispatch (Tier 2 for root, Tier 3 for non-root). `RoleModule + !root` → register as top-level global under `prt.Name()` (status quo for plan, ui, template, file/json/yaml/regexp/platform's module side). `RoleModule + root` → iterate the provider's methods and install each as its own top-level predeclared entry via `receiver.Attr(snake)`; collision against an existing predeclared panics. Reserved for future use; no Phase 8 provider claims this row. Smoke-verified: plan → "plan" global, flow → not registered, file/template → "file"/"template" globals for module side, git → not registered, ui → "ui" global. |
-| 8 | plan.Provider.dispatch intercepts options kwarg | not-started | Dispatch extracts the `options` kwarg before `starlark.UnpackArgs`, unwraps to `*starlarkbridge.Options`, and removes it from the kwargs list. A `*starlarkbridge.Invocation` is constructed around the new `*op.Node` and registered with the `*starlarkbridge.InvocationRegistry` under the effective label (user-supplied via `Options.Label` or auto-labeled via `InvocationRegistry.AutoLabel`). `Options.RetryPolicy` applies to the node. Dispatch return stays `*starlarkbridge.Promise` at this step. |
+| 8 | NodeBuilder.dispatch intercepts options kwarg | complete | `NodeBuilder` gains a `registry *InvocationRegistry` field; `NewNodeBuilder(rt, graph, registry)` threads it in. `plan.Provider` gains `Invocations *starlarkbridge.InvocationRegistry` (instantiated in `NewProvider`) and passes it to every NodeBuilder it constructs (Tier 2 peers + Tier 3 child adapters). `dispatch` now extracts the reserved `options` kwarg via `extractOptionsKwarg` before `starlark.UnpackArgs` — unwraps a `*receiver` wrapping `*Options` (or accepts `starlark.None`), filters the kwargs, and returns the Options value. After node creation and slot filling, `dispatch` registers an `*Invocation{Target: node, Result: promise}` under the effective label (user-supplied via `Options.Label` or auto-labeled via `registry.AutoLabel(label)` where label is the builtin's display label — bare for root, dotted otherwise). `Options.RetryPolicy` applies to `node.Retry` before the graph add. Dispatch return stays `*Promise` at this step (step 9 changes it to `*Invocation`). Five unit tests cover `extractOptionsKwarg`: absent, *receiver unwrap, None, wrong type, wrong receiver instance. |
 | 9 | starlarkbridge.Invocation as starlark.Value; dispatch returns `*Invocation` | not-started | Add `Freeze`/`Hash`/`String`/`Truth`/`Type` and Promise-compatible `Attr`/`AttrNames` to `*starlarkbridge.Invocation` so every callsite that consumed `*starlarkbridge.Promise` continues to work. `plan.Provider.dispatch` return type changes from `*starlarkbridge.Promise` to `*starlarkbridge.Invocation`; Promise becomes an internal helper. |
 | 10 | plan.Provider.FillSlot dispatches by target type | not-started | if slot expects `op.ExecutableUnit` → pull `invocation.Target`; else → pull `invocation.Result` and create edge. Replaces the current `*Promise` case in `FillSlot`. |
 | 11 | plan.subgraph primitive | not-started | New method on flow.Provider (planned + root); accepts variadic invocations; container output = list of terminal values (per D3). Absorbs old Phase 11. Starlark surface `plan.subgraph(...)`. Action name `subgraph`. |
@@ -41,18 +41,18 @@ Plus unresolved design discussions that must close before phase-8 exits:
 |---|---|---|
 | O1 | Marshaling design — argument-to-parameter-type matching via ReceiverType-hosted marshalers | open; direction stated, five questions pending |
 | O2 | Toss the bind package — the 11 `unmarshal_*.go` files + `Unmarshaler` interface go; names survive | open; inventory captured, open questions tied to O1 |
+| O3 | Rename `pkg/op` → `pkg/workflow` and revisit type names | open; blast-radius surveyed, strawman considered, counter-proposal recorded |
 
-**Status:** in-progress. Steps 1–7 complete; 8–20 pending. Step 7
-made `StarlarkRuntime`'s registration loop branch explicitly on
-access × root per D12: planned-only providers skip top-level
-registration (their methods surface via plan.* Tier 2 or Tier 3);
-non-root module providers register as globals under their name;
-root-immediate providers install each method as a top-level
-predeclared (reserved for future use). Step 8 is next —
-`plan.Provider.dispatch` intercepts the reserved `options` kwarg
-and constructs registered invocations. Design decisions D1–D12
-are resolved; D13 (marshaling) is pending and will be written
-once O1's five questions are answered.
+**Status:** in-progress. Steps 1–8 complete; 9–20 pending. Step 8
+wired `options` kwarg interception + invocation registration into
+`NodeBuilder.dispatch`: every dispatched method now produces a
+registered `*Invocation` under either a user-supplied label or an
+auto-generated one, with `Options.RetryPolicy` applied to the node
+before it joins the graph. Step 9 is next — promoting
+`*Invocation` to a `starlark.Value` and switching dispatch's
+return type from `*Promise` to `*Invocation`. Design decisions
+D1–D12 are resolved; D13 (marshaling) is pending and will be
+written once O1's five questions are answered.
 
 # Phase 8: Plan-time scope and grouping combinators
 
@@ -990,6 +990,129 @@ Write D13 → implement the replacement → delete the garbage.
   Step 9's status in the table says Promise becomes an internal
   helper; this O2 inventory treats that as an open question
   because the answer affects what "saving the Promise name" means.
+
+### O3 — Rename `pkg/op` → `pkg/workflow` and revisit type names
+
+**Motivation.** `op` is a terse package identifier that doesn't
+signal domain. Every consumer writes `op.Graph`, `op.Node`,
+`op.AnnounceProvider`, `op.RoleModule`, … — functional but opaque
+to a newcomer. "Workflow" is the accurate general term for "a
+graph of tasks with saga semantics" and aligns with the
+vocabulary used across orchestration systems (Temporal, Airflow,
+Conductor, Step Functions). Rename `pkg/op` → `pkg/workflow` and
+decide which type names travel along.
+
+**Blast radius.** Much larger than the `bind` → `starlarkbridge`
+rename. Estimated 400–600 files modified:
+
+- Every `.go` file under `pkg/op/...` changes its package
+  declaration or is moved.
+- Every consumer package (`cmd/*`, `internal/*`, every provider,
+  every gen file) updates imports and identifier references.
+- All 27 generated `provider.gen.go` files regenerate
+  (`op.AnnounceProvider` → `workflow.AnnounceProvider`, roles
+  constants, etc.).
+- Codegen templates (~20 `op.X` occurrences across
+  `provider.gen.go.template`, `receiver_type.gen_test.go.template`,
+  `module.gen_test.go.template`, `node_builder.gen_test.go.template`,
+  `action.gen_test.go.template`, `resource.gen.go.template`,
+  `dependent_type.gen.go.template`).
+- `generate.star` constants and comments.
+- Makefile — `$(P)` variable, every rule target path, the
+  `NEW_OP_INVENTORY` variable name.
+- `tools/New-OpInventory` — the tool name contains "Op"; decide
+  whether to rename to `New-WorkflowInventory` or leave as a
+  tooling artifact.
+- `pkg/op/inventory` subpackage → `pkg/workflow/inventory`; the
+  `inventory.gen.go` blank-import block regenerates.
+- Plan docs, architecture docs, guides.
+- **Cross-repo:** `devlore-registry` and every lore package
+  depend on `pkg/op/...` and will break until they also migrate.
+  Same pattern as the `bind` → `starlarkbridge` cross-repo cost.
+
+**Strawman proposal (from Gemini, paraphrased).**
+
+| Old | Proposed | Proposal rationale |
+|---|---|---|
+| `op` | `workflow` | Domain-accurate; aligns with industry vocab. |
+| `Graph` | `Plan` / `Definition` | Business concept over data structure. |
+| `Node` | `Task` / `Step` | Industry term for an executable unit. |
+| `Subgraph` | `Stage` / `Group` | Logical collection of tasks. |
+| `Executor` | `Engine` / `Runner` | The component that makes the workflow move. |
+| `ExecutableUnit` | `Activity` / `Unit` | Industry term (Temporal, Airflow). |
+
+Gemini's specific recommendation: Plan / Task / Engine.
+
+**Counter-proposal (rejecting most of the renames):**
+
+- **`op` → `workflow`** — **accept.** Best general term for this
+  package's domain; renames the outermost scope only.
+- **Keep `Graph`.** `Plan` collides hard with the starlark `plan`
+  namespace (`plan.run`, `plan.options`, `plan.choose`). Renaming
+  to `Plan` produces recursive prose: "plan.run executes the
+  Plan"; docs and code read as if `plan` and `Plan` are the same
+  thing. `Definition` is too vague. `Graph` is the DAG-vocabulary
+  term everyone uses and carries no ambiguity.
+- **Keep `Node`.** `Task` is industry-correct but the churn is
+  high — "node" is embedded in every log line, error message,
+  attempt history, serialized payload (`Node.Receiver`,
+  `Node.Status`, `Node.Retry`, `Node.Action`, `NodeResult`,
+  `nodeJSON`, `NodeBuilder`). Churn-to-benefit is poor.
+- **Keep `Subgraph`.** Per project memory, `Subgraph` is
+  recursive (it contains nodes AND other subgraphs, forming a
+  tree). `Stage` implies linear ordering — wrong shape. `Group`
+  is too weak for a type that owns saga semantics (retry,
+  compensation, attempt history).
+- **Optionally rename `Executor` → `Engine`.** Low-priority
+  taste change. `Engine` fits a workflow-themed package; decide
+  when the rest settles.
+- **Keep `ExecutableUnit`.** `Activity` is Temporal-specific
+  jargon that doesn't map cleanly (Temporal's Activity is
+  atomic; `ExecutableUnit` covers both atomic Nodes and composite
+  Subgraphs). `Unit` is vague. Current name is descriptive and
+  precise.
+- **Keep `Slot`, `Parameter`, `ReceiverType`, `Method`,
+  `Resource`, `Converter`, `RetryPolicy`.** Accurate names
+  already; no workflow-theme pressure on them.
+
+**Net effect under the counter-proposal:** package name changes;
+most type names stay. The consumer-facing diff is almost entirely
+`op.X` → `workflow.X` — mechanical and safe. Optional
+`Executor` → `Engine` is additive and can land separately.
+
+**Alternative package names considered (rejected):**
+
+- `core` — too vague; says nothing about the domain.
+- `engine` — conflicts with the optional `Executor` → `Engine`
+  type rename.
+- `orchestration` — accurate but long and marketing-flavored.
+- `graph` — elevates one type's name to the package.
+- `saga` — the pattern is central but not the whole package.
+- `exec` / `execution` — misses the planning side; the package
+  holds both planning and execution primitives.
+
+**Exit criterion.** Phase 8 exit defers the rename decision until
+the implementation steps (8–20) are done. Landing the rename
+before combinator redesigns would churn every step's diff
+unnecessarily; landing it after gives one clean rename-only
+commit with every downstream site updated in lockstep. The
+decision itself — accept package rename, keep type names —
+should be recorded as D14 when finalized, and the actual work
+scheduled as a follow-up task outside phase 8 if the cross-repo
+coordination cost justifies it.
+
+**Questions that tie into this decision.**
+
+- Does the `tools/New-OpInventory` tool name rename to
+  `New-WorkflowInventory`, or stay as a tooling artifact? If it
+  stays, the rename is not 100% grep-clean.
+- Does `ExecutionContext` shorten to `Context`? I lean no —
+  `workflow.Context` stutters conceptually against
+  `context.Context` (Go stdlib) and creates signature-level
+  ambiguity at every call site.
+- Is `Executor` → `Engine` in or out?
+- Do historical plan docs get updated for consistency, or stay
+  as frozen records of past state?
 
 ## Invariants
 
