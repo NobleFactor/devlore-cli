@@ -20,7 +20,7 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 4 | flow.Provider declares `+devlore:root=true` | complete | Directive added to `pkg/op/provider/flow/provider.go` with an updated doc comment explaining the root semantics. Regenerated `pkg/op/provider/flow/gen/provider.gen.go`; roles expression is now `op.RoleAction\|op.RoleRoot`. Verified at runtime: `registry.RootProviders()` returns `flow` with `roles=0x102`, `dispatch=0x2` (RoleAction), `placement=0x100` (RoleRoot). No consumer wired yet — plumbing activation only. |
 | 5 | Rename `bind.Planner` → `bind.NodeBuilder` | complete | Type, constructor (`NewNodeBuilder`), file (`bind/provider_node_builder.go`), codegen template (`node_builder.gen_test.go.template`), generated filenames (`*/gen/node_builder.gen_test.go`), generate.star dict keys, Makefile rule targets, and plan doc references all updated. Test function names `TestPlanner_*` → `TestProviderNodeBuilder_*`. Field in `plan/provider.go` renamed `planners` → `adapters` (holds `*bind.NodeBuilder` values). No behavior change; rename only. Supersedes the original "absorb into plan.Provider" plan — the revisit concluded that `bind.NodeBuilder` is a real abstraction (wrapper for a `ProviderReceiverType` + `Graph` pair that turns starlark attribute access into graph-node-creating builtins) and keeps its place in the `bind` package. |
 | 6 | plan.Provider discovers root-planned peers; three-tier Attr with collision detection | complete | `plan.Provider` gains `peerBuiltins map[string]starlark.Value` (Tier 2, write-once) and `rootNames map[string]struct{}` (to exclude roots from Tier 3). `NewProvider` calls `buildPeerBuiltins` which iterates `ctx.Registry.RootProviders()` filtered to `RoleAction`, constructs a `*bind.NodeBuilder` per peer, and stores each method as a `*starlark.Builtin` under its snake name. Collision detection panics at construction on: (a) peer method vs. plan.Provider's own method, (b) peer method vs. sub-namespace provider name, (c) peer method declared on multiple peers — each error identifies both offenders. `ResolveAttr` walks Tier 2 → Tier 3; root providers are excluded from Tier 3 so `plan.flow` returns nil. `bind.NodeBuilder.Attr` now selects builtin label form by placement bit (bare for root, `<provider>.<method>` for non-root). `bind.NodeBuilder.dispatch` writes `node.Receiver` as the always-dotted `<provider>.<method>` form for execute-time resolution independent of the builtin's display label. Smoke-verified: `plan.choose` / `plan.gather` / `plan.wait_until` / `plan.complete` / `plan.degraded` / `plan.fatal` / `plan.elevate` resolve to builtins; `plan.file` / `plan.git` resolve to `*bind.NodeBuilder` adapters; `plan.flow` returns nil. |
-| 7 | StarlarkRuntime access×root registration branches | not-started | `NewStarlarkRuntime`'s module-iteration loop (`pkg/op/bind/starlark_runtime.go:67`) branches on the access × root combination per D12. `access=immediate, root=false` stays top-level global (status quo). `access=immediate, root=true` installs each method as a top-level predeclared (reserved for future use). `access=planned, root=false` is NOT registered as a top-level global (status quo). `access=planned, root=true` is NOT registered either — plan.Provider discovers it via `registry.RootProviders()` and hosts its methods via Tier 2 dispatch. Verify current loop behavior for `planned` providers and align if drift exists. |
+| 7 | StarlarkRuntime access×root registration branches | complete | `NewStarlarkRuntime`'s module-iteration loop now explicitly branches on access × root per D12. `dispatch.&RoleModule == 0` (planned-only providers, root or non-root) → skip entirely; their methods surface via plan.* dispatch (Tier 2 for root, Tier 3 for non-root). `RoleModule + !root` → register as top-level global under `prt.Name()` (status quo for plan, ui, template, file/json/yaml/regexp/platform's module side). `RoleModule + root` → iterate the provider's methods and install each as its own top-level predeclared entry via `receiver.Attr(snake)`; collision against an existing predeclared panics. Reserved for future use; no Phase 8 provider claims this row. Smoke-verified: plan → "plan" global, flow → not registered, file/template → "file"/"template" globals for module side, git → not registered, ui → "ui" global. |
 | 8 | plan.Provider.dispatch intercepts options kwarg | not-started | Dispatch extracts the `options` kwarg before `starlark.UnpackArgs`, unwraps to `*bind.Options`, and removes it from the kwargs list. A `*bind.Invocation` is constructed around the new `*op.Node` and registered with the `*bind.InvocationRegistry` under the effective label (user-supplied via `Options.Label` or auto-labeled via `InvocationRegistry.AutoLabel`). `Options.RetryPolicy` applies to the node. Dispatch return stays `*bind.Promise` at this step. |
 | 9 | bind.Invocation as starlark.Value; dispatch returns `*Invocation` | not-started | Add `Freeze`/`Hash`/`String`/`Truth`/`Type` and Promise-compatible `Attr`/`AttrNames` to `*bind.Invocation` so every callsite that consumed `*bind.Promise` continues to work. `plan.Provider.dispatch` return type changes from `*bind.Promise` to `*bind.Invocation`; Promise becomes an internal helper. |
 | 10 | plan.Provider.FillSlot dispatches by target type | not-started | if slot expects `op.ExecutableUnit` → pull `invocation.Target`; else → pull `invocation.Result` and create edge. Replaces the current `*Promise` case in `FillSlot`. |
@@ -42,19 +42,17 @@ Plus unresolved design discussions that must close before phase-8 exits:
 | O1 | Marshaling design — argument-to-parameter-type matching via ReceiverType-hosted marshalers | open; direction stated, five questions pending |
 | O2 | Toss the bind package — the 11 `unmarshal_*.go` files + `Unmarshaler` interface go; names survive | open; inventory captured, open questions tied to O1 |
 
-**Status:** in-progress. Steps 1–6 complete; 7–20 pending. Step 6
-landed peer dispatch via `bind.NodeBuilder` (renamed from
-`bind.Planner` in step 5): `plan.Provider` discovers
-`RoleAction+RoleRoot` peers at construction, caches per-method
-builtins in a write-once map, walks Tier 2 → Tier 3 in
-`ResolveAttr`, and panics on any collision across the three tiers.
-`bind.NodeBuilder.dispatch` now writes an always-dotted
-`node.Receiver` for execute-time lookup while the starlark builtin
-label uses bare names for root receivers (display vs. lookup
-split). Step 7 is next — `StarlarkRuntime` registration branches
-per the access × root table. Design decisions D1–D12 are resolved;
-D13 (marshaling) is pending and will be written once O1's five
-questions are answered.
+**Status:** in-progress. Steps 1–7 complete; 8–20 pending. Step 7
+made `StarlarkRuntime`'s registration loop branch explicitly on
+access × root per D12: planned-only providers skip top-level
+registration (their methods surface via plan.* Tier 2 or Tier 3);
+non-root module providers register as globals under their name;
+root-immediate providers install each method as a top-level
+predeclared (reserved for future use). Step 8 is next —
+`plan.Provider.dispatch` intercepts the reserved `options` kwarg
+and constructs registered invocations. Design decisions D1–D12
+are resolved; D13 (marshaling) is pending and will be written
+once O1's five questions are answered.
 
 # Phase 8: Plan-time scope and grouping combinators
 

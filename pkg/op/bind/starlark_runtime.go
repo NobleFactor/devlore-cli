@@ -60,13 +60,65 @@ func NewStarlarkRuntime(cfg *op.RuntimeEnvironmentSpec) *StarlarkRuntime {
 		registry: cfg.Registry,
 	}
 
-	// Build predeclared globals from the selected modules.
+	// Build predeclared globals from the selected modules. Registration branches on the access × root combination
+	// declared by each provider (see phase-8 D12):
+	//
+	//   immediate, root=false → top-level global under the provider's name (status quo for plan, pkg, archive, …).
+	//   immediate, root=true  → each method installed as its own top-level predeclared entry; the provider instance
+	//                            itself is not exposed. Reserved; no Phase 8 provider uses this row.
+	//   planned,   root=false → NOT registered; reached via plan.<provider>.<method> through plan.Provider's
+	//                            sub-namespace dispatch (status quo for file, git, service, …).
+	//   planned,   root=true  → NOT registered; plan.Provider discovers the provider via registry.RootProviders()
+	//                            and hosts its methods flat at the plan namespace root via Tier 2 dispatch (flow).
+	//
+	// Providers that declare both RoleModule and RoleAction (access=both) register their module side per the
+	// dispatch-zone rows above; their planned side is reached via plan.* regardless of placement.
 
 	predeclared := starlark.StringDict{}
 
 	for _, module := range cfg.Modules {
-		if receiver := runtime.buildOne(module); receiver != nil {
-			predeclared[module.Name()] = receiver
+
+		dispatch := module.Roles().Dispatch()
+		isRoot := module.Roles().Placement()&op.RoleRoot != 0
+
+		if dispatch&op.RoleModule == 0 {
+			// No module-mode dispatch; provider is not addressable as a top-level global. Its planned side, if any,
+			// is reached via plan.* dispatch at runtime.
+			continue
+		}
+
+		if !isRoot {
+			if receiver := runtime.buildOne(module); receiver != nil {
+				predeclared[module.Name()] = receiver
+			}
+			continue
+		}
+
+		// Immediate + root: install each method as its own top-level predeclared entry.
+		recv := runtime.buildOne(module)
+		if recv == nil {
+			continue
+		}
+		hasAttrs, ok := recv.(starlark.HasAttrs)
+		if !ok {
+			panic(fmt.Sprintf(
+				"starlark runtime: provider %s (root immediate) receiver (%T) does not implement starlark.HasAttrs",
+				module.Name(), recv))
+		}
+		for m := range module.Methods() {
+			snake := camelToSnake(m.Name())
+			if existing, collides := predeclared[snake]; collides {
+				panic(fmt.Sprintf(
+					"starlark runtime: top-level global %q declared on both %s (root immediate) and existing predeclared (%T)",
+					snake, module.Name(), existing))
+			}
+			attr, err := hasAttrs.Attr(snake)
+			if err != nil {
+				panic(fmt.Sprintf(
+					"starlark runtime: constructing top-level builtin for %s.%s: %v",
+					module.Name(), snake, err))
+			}
+			predeclared[snake] = attr
 		}
 	}
 
