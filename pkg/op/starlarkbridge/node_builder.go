@@ -24,30 +24,38 @@ var (
 // [op.ProviderReceiverType] and returns a [starlark.Builtin] bound to the plan adapter's dispatch method, which creates
 // a graph node instead of executing the method directly.
 //
-// NodeBuilder does not embed [executingReceiver] — it operates on a graph, not a provider instance.
+// NodeBuilder is detached per phase-8 D5 — it does not hold a graph reference. Dispatch produces nodes that live on
+// the returned [Invocation]; the [op.Graph] is materialized later by plan.run from the reachable invocation set.
 //
 // registry is shared across every NodeBuilder that participates in the same planning session. Dispatch registers
 // one [Invocation] per method call under the effective label (user-supplied via [Options.Label] or auto-labeled
 // via [InvocationRegistry.AutoLabel]).
+//
+// ctx is the ambient execution context (used by assignTarget for [op.Convert] and by shadowPendingOutput for
+// provider construction). catalog is the session-scoped resource catalog (used by linkResource for URI interning
+// and by shadowPendingOutput for plan-time output shadowing). Both are owned by plan.Provider and shared across
+// every NodeBuilder it constructs.
 type NodeBuilder struct {
 	receiverType op.ProviderReceiverType
-	graph        *op.Graph
+	ctx          *op.ExecutionContext
+	catalog      *op.ResourceCatalog
 	registry     *InvocationRegistry
 	methods      map[string]*op.Method // snake_name → *Method
 	attrNames    []string              // sorted
 }
 
-// NewNodeBuilder creates a [NodeBuilder] wrapping the given graph, receiver type, and invocation registry.
+// NewNodeBuilder creates a detached [NodeBuilder] for the given receiver type.
 //
 // Parameters:
 //   - rt: the provider receiver type descriptor.
-//   - graph: the execution graph to append nodes to.
+//   - ctx: the ambient execution context (for op.Convert, provider construction).
+//   - catalog: the session-scoped resource catalog (for URI interning and plan-time output shadowing).
 //   - registry: the shared invocation registry; every NodeBuilder in a planning session uses the same registry
 //     so labels are session-unique and orphan detection can walk the full set.
 //
 // Returns:
 //   - *NodeBuilder: the starlark-ready wrapper.
-func NewNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph, registry *InvocationRegistry) *NodeBuilder {
+func NewNodeBuilder(rt op.ProviderReceiverType, ctx *op.ExecutionContext, catalog *op.ResourceCatalog, registry *InvocationRegistry) *NodeBuilder {
 
 	methods := make(map[string]*op.Method)
 	names := make([]string, 0)
@@ -62,7 +70,8 @@ func NewNodeBuilder(rt op.ProviderReceiverType, graph *op.Graph, registry *Invoc
 
 	return &NodeBuilder{
 		receiverType: rt,
-		graph:        graph,
+		ctx:          ctx,
+		catalog:      catalog,
 		registry:     registry,
 		methods:      methods,
 		attrNames:    names,
@@ -273,12 +282,14 @@ func (p *NodeBuilder) dispatch(thread *starlark.Thread, builtin *starlark.Builti
 		node.Retry = opts.RetryPolicy
 	}
 
-	// Append to graph and register an Invocation under the effective label. User-supplied Options.Label wins;
-	// otherwise the registry auto-labels as "<label>#<N>" where <label> is the builtin's label form (bare for
-	// root receivers, dotted otherwise — matching D7's label examples). Label collisions fail plan-time.
-	p.graph.AddNode(node)
-
-	promise := NewPromise(p.graph, node, "")
+	// Register an Invocation under the effective label. User-supplied Options.Label wins; otherwise the registry
+	// auto-labels as "<label>#<N>" where <label> is the builtin's label form (bare for root receivers, dotted
+	// otherwise — matching D7's label examples). Label collisions fail plan-time.
+	//
+	// The node is NOT added to any graph here — Nodes are detached until plan.run materializes the graph from the
+	// reachable invocation set (phase-8 D5). Producer→consumer edges live implicitly in each consumer node's slot
+	// (PromiseValue's NodeRef + Resource originIDs in ImmediateValue); plan.run extracts them at materialization.
+	promise := NewPromise(node, "")
 
 	invLabel := label
 	if opts != nil && opts.Label != "" {
@@ -398,7 +409,8 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 				for i, promise := range promises {
 					subSlot := fmt.Sprintf("%s[%d]", name, i)
 					node.SetSlot(subSlot, op.PromiseValue{NodeRef: promise.node.ID(), Slot: promise.slot})
-					p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{From: promise.node.ID(), To: node.ID()})
+					// Producer→consumer edge is implicit in the PromiseValue's NodeRef; plan.run derives edges at
+					// materialization time from each node's slots (phase-8 D5).
 				}
 				node.SetSlot(name+".len", op.ImmediateValue{Value: n})
 				return nil
@@ -414,12 +426,11 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 
 	// *receiver: extract Go value directly.
 	//
-	// Preserves identity and origin through the planning layer without a marshal→unmarshal round-trip.
+	// Preserves identity and origin through the planning layer without a marshal→unmarshal round-trip. If the
+	// extracted value carries an originID (resource produced by a prior node), the edge is implicit in the
+	// Resource stored in this node's slot; plan.run extracts it at materialization (phase-8 D5).
 	if r, ok := value.(*receiver); ok {
 		goVal := r.instance
-		if originID, found := op.ExtractResource(goVal); found {
-			p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{From: originID, To: node.ID()})
-		}
 		node.SetSlot(name, op.ImmediateValue{Value: goVal})
 		return nil
 	}
@@ -481,7 +492,7 @@ func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) erro
 
 	// Construct a provider instance so the Planned method has its receiver context available. Planned is pure — the
 	// context is used only for identity construction (e.g., resolving paths under the confined root), not for I/O.
-	receiver, err := p.receiverType.Construct()(p.graph.ExecutionContext())
+	receiver, err := p.receiverType.Construct()(p.ctx)
 	if err != nil {
 		return fmt.Errorf("construct receiver: %w", err)
 	}
@@ -505,10 +516,7 @@ func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) erro
 		return nil
 	}
 
-	if p.graph.Catalog == nil {
-		p.graph.Catalog = op.NewResourceCatalog()
-	}
-	if _, err := p.graph.Catalog.Shadow(pending, node.ID()); err != nil {
+	if _, err := p.catalog.Shadow(pending, node.ID()); err != nil {
 		return fmt.Errorf("shadow output: %w", err)
 	}
 	return nil
@@ -534,29 +542,22 @@ func (p *NodeBuilder) assignTarget(value starlark.Value, target reflect.Type) (a
 	if err := u.Unmarshal(reflect.ValueOf(&raw).Elem()); err != nil {
 		return nil, err
 	}
-	return op.Convert(p.graph.ExecutionContext(), raw, target)
+	return op.Convert(p.ctx, raw, target)
 }
 
-// linkResource performs link-time resolution of a [op.Resource] against the graph catalog and wires the
-// producer→consumer edge if the catalog hands back an entry stamped with a producer origin.
+// linkResource performs link-time resolution of a [op.Resource] against the session catalog.
 //
 // The catalog is an intern table keyed by URI. The first resource seen for a URI is kept as a discovery entry;
-// subsequent values for the same URI are discarded in favor of the existing entry — which may already carry an originID
-// stamped by a producer node's Planned companion. When an origin is present, an A→node edge wires the producer-consumer
-// relationship the author expressed by URI alone.
+// subsequent values for the same URI are discarded in favor of the existing entry — which may already carry an
+// originID stamped by a producer node's Planned companion. When an origin is present, the producer→consumer edge is
+// implicit in the linked Resource stored on this node's slot; plan.run extracts it at materialization via
+// [op.ExtractResource] (phase-8 D5).
 //
 // If the slot's target type is a value (not a pointer), the linked entry is dereferenced for storage; pointer targets
 // store the linked entry directly so all holders observe the same instance.
 func (p *NodeBuilder) linkResource(node *op.Node, res op.Resource, target reflect.Type) any {
 
-	if p.graph.Catalog == nil {
-		p.graph.Catalog = op.NewResourceCatalog()
-	}
-	linked, _ := p.graph.Catalog.Resolve(res)
-
-	if originID, found := op.ExtractResource(linked); found {
-		p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{From: originID, To: node.ID()})
-	}
+	linked, _ := p.catalog.Resolve(res)
 
 	if target.Kind() == reflect.Ptr {
 		return linked

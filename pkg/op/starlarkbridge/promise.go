@@ -11,51 +11,39 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// Promise represents the promise of an output that can flow through the graph to fill slots in other nodes.
+// Promise represents the promise of an output from a producing node. When passed to a plan function's slot, the
+// consumer's slot is filled with a [op.PromiseValue] that references the producer node by ID.
 //
-// When passed to a plan function's slot, it creates an edge in a graph. The same promise can flow to multiple slots,
-// thereby fanning-out to many nodes in the graph.
+// Per phase-8 D5, Promise is detached — it holds no graph reference. The producer→consumer edge is implicit in the
+// consumer slot's PromiseValue and is materialized by plan.run when it builds the [op.Graph] from the reachable
+// invocation set.
 type Promise struct {
 	// node is the action that produces this output
 	node *op.Node
-
-	// graph is the execution graph (for creating edges)
-	graph *op.Graph
 
 	// slot identifies which output of the node this represents (empty = default)
 	slot string
 }
 
-// NewPromise creates a new Promise (promise) representing a node's output.
+// NewPromise creates a new Promise representing a node's output.
 //
 // Parameters:
 //   - node: the producing node.
-//   - graph: the execution graph.
 //   - slot: which output slot this represents (empty for default).
 //
 // Returns:
 //   - *Promise: the new promise handle.
-func NewPromise(graph *op.Graph, node *op.Node, slot string) *Promise {
+func NewPromise(node *op.Node, slot string) *Promise {
 
 	return &Promise{
-		graph: graph,
-		node:  node,
-		slot:  slot,
+		node: node,
+		slot: slot,
 	}
 }
 
 // region EXPORTED METHODS
 
 // region State management
-
-// Graph returns the execution graph.
-//
-// Returns:
-//   - *Graph: the graph this output belongs to.
-func (p *Promise) Graph() *op.Graph {
-
-	return p.graph
-}
 
 // Node returns the node that produces this output.
 //
@@ -160,35 +148,18 @@ func (p *Promise) AttrNames() []string {
 	return names
 }
 
-// DependOn creates an edge making the given node depend on this output's node.
+// FillSlot fills a slot in the consumer node with this promise.
 //
-// Parameters:
-//   - consumer: the node that should depend on this output's producer.
-func (p *Promise) DependOn(consumer *op.Node) {
-
-	p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{
-		From: p.node.ID(),
-		To:   consumer.ID(),
-	})
-}
-
-// FillSlot fills a slot in the consumer node with this promise, creating the
-// producer→consumer edge that will carry the value at runtime. Called from
-// [NodeBuilder.fillSlot] when a promise is passed to a plan function.
+// The slot is set to a [op.PromiseValue] that references the producer node by ID. The producer→consumer edge is
+// implicit in this reference and materialized by plan.run when it walks the reachable invocation set and builds the
+// [op.Graph] (phase-8 D5). No edge struct is accumulated during dispatch.
 //
 // Parameters:
 //   - consumer: the node receiving the promise.
 //   - slot: the slot name to fill.
 func (p *Promise) FillSlot(consumer *op.Node, slot string) {
 
-	// Set the slot to reference this output's node
 	consumer.SetSlot(slot, op.PromiseValue{NodeRef: p.node.ID(), Slot: p.slot})
-
-	// Create edge: producer must complete before consumer
-	p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{
-		From: p.node.ID(),
-		To:   consumer.ID(),
-	})
 }
 
 // Unmarshal projects this promise onto a Go target. For a *Promise target

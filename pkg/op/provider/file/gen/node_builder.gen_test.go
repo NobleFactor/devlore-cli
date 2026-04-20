@@ -15,9 +15,10 @@ import (
 
 func TestProviderNodeBuilder_AttrNames(t *testing.T) {
 
-	graph := &op.Graph{}
+	ctx := &op.ExecutionContext{}
+	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
 	names := p.AttrNames()
 	if len(names) == 0 {
 		t.Fatal("AttrNames() returned empty list")
@@ -31,9 +32,10 @@ func TestProviderNodeBuilder_AttrNames(t *testing.T) {
 
 func TestProviderNodeBuilder_Attr(t *testing.T) {
 
-	graph := &op.Graph{}
+	ctx := &op.ExecutionContext{}
+	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
 	for _, name := range p.AttrNames() {
 		attr, err := p.Attr(name)
 		if err != nil {
@@ -48,9 +50,10 @@ func TestProviderNodeBuilder_Attr(t *testing.T) {
 
 func TestProviderNodeBuilder_Attr_Unknown(t *testing.T) {
 
-	graph := &op.Graph{}
+	ctx := &op.ExecutionContext{}
+	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
 	_, err := p.Attr("nonexistent_method")
 	if err == nil {
 		t.Error("Attr(nonexistent_method) error = nil, want error")
@@ -59,9 +62,10 @@ func TestProviderNodeBuilder_Attr_Unknown(t *testing.T) {
 
 func TestProviderNodeBuilder_Type(t *testing.T) {
 
-	graph := &op.Graph{}
+	ctx := &op.ExecutionContext{}
+	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
 	if got := p.Type(); got != "plan.file" {
 		t.Errorf("Type() = %q, want %q", got, "plan.file")
 	}
@@ -69,9 +73,10 @@ func TestProviderNodeBuilder_Type(t *testing.T) {
 
 func TestProviderNodeBuilder_String(t *testing.T) {
 
-	graph := &op.Graph{}
+	ctx := &op.ExecutionContext{}
+	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
-	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), graph, registry)
+	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
 	if got := p.String(); got != "plan.file" {
 		t.Errorf("String() = %q, want %q", got, "plan.file")
 	}
