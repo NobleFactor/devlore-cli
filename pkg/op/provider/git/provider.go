@@ -136,11 +136,10 @@ func (p *Provider) Clone(
 
 // CompensateClone removes the cloned directory.
 //
-// The path to remove is read from state's [Resource.SourcePath]. The compensation handle is the cloned
-// [*Resource] itself (per the Tombstone rule — git's Clone moves no object to a RecoverySite, so no tombstone
-// type mediates), and the Resource's identity already carries the clone location. A nil state is a no-op:
-// a nil compensation handle means [Provider.Clone] never produced a resource to reverse, so there is nothing
-// to undo.
+// The path to remove is read from state's [Resource.SourcePath]. The compensation handle is the cloned [*Resource]
+// itself (per the Tombstone rule — git's Clone moves no object to a RecoverySite, so no tombstone type mediates), and
+// the Resource's identity already carries the clone location. A nil state is a no-op: a nil compensation handle means
+// [Provider.Clone] never produced a resource to reverse, so there is nothing to undo.
 //
 // Parameters:
 //   - state: the [*Resource] returned by [Provider.Clone] as its compensation handle; may be nil.

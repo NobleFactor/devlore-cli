@@ -23,12 +23,13 @@ relationships, and codegen. Remove redundancy and framework code from providers.
 | 2+3+4. Create bind, move files, sever starlark, update codegen | complete | #268 |
 | 5+6. Sever starlark, consolidate registries, unify method dispatch | complete | #269 |
 | 7. Slot = (Parameter, Value): type-driven fill and dispatch | complete | — |
-| 8. Plan-time scope and grouping combinators | not-started | — |
+| 8. Plan-time scope and grouping combinators | in-progress | — |
 | 9. Output specs and the companion triplet | in-progress (Steps 1–8 done; Step 9 triage paused pending Phase 7) | — |
 | 10. Graph/executor restructuring, context, codegen | in-progress (test fixes remaining) | — |
 | 11. ReceiverType interface cleanup, unified dispatch | not-started | — |
 | 12. Address defects on the flow provider | not-started | — |
 | 13. Catalog serialization, Rebind rehydration | not-started | — |
+| 14. Compensation undo-type alignment | not-started | — |
 
 ## What Phase 9 Covers (Current PR)
 
@@ -1691,6 +1692,91 @@ Phase 13:
    `Rebind` on a loaded graph.
 5. Verify receipt loading (`internal/cli/receipts.go`) produces a
    fully-hydrated graph.
+
+## Phase 14: Compensation Undo-Type Alignment
+
+### Problem
+
+The term `Tombstone` is overloaded. `op.TombstoneBase` is the undo-state
+carrier for every compensable action, but its strict semantic meaning is
+narrower:
+
+> A tombstone exists for any object moved to a RecoverySite during the
+> forward action — a record of absence at the original location paired
+> with a recovery pointer at the new location.
+
+Most of today's compensable actions don't produce tombstones in this
+strict sense. Some create new resources (directory, link, extract — pure
+presence, no displacement). Some change the state of a still-present
+resource (service enable/disable, package install/remove — state
+capture, not displacement). Neither matches the tombstone semantic, but
+both currently return values typed `Tombstone`.
+
+### Classification
+
+The 23 compensable methods across providers divide into four buckets:
+
+**A — true tombstones** (displacement + RecoverySite): `file.Backup`,
+`file.Move`, and the preserving variants of `file.Remove` /
+`RemoveAll` / `Unlink` / `WriteBytes` / `WriteText`.
+
+**B — creation handles** (presence only): `file.Mkdir`, `file.Link`,
+`file.Copy`, `archive.Extract`, `encryption.DecryptSopsFile`. Undo slot
+is the created `*Resource` itself — `git.Clone` in Phase 8 establishes
+the pattern.
+
+**C — state captures** (neither absence nor RecoverySite): `service.*`
+(five methods), `pkg.Install` / `Remove` / `Upgrade`. Undo needs prior
+state; introduce a new op-level type.
+
+**D — already non-tombstone**: `flow.CompensateChoose` (takes
+`op.Complement`), `flow.CompensateGather` (takes `[]*op.RecoveryStack`).
+Unaffected.
+
+### Solution
+
+1. Audit every compensable pair; classify per Buckets A/B/C.
+2. Keep `Tombstone` for Bucket A; rename or remove the misnamed ones.
+3. Convert Bucket B forward methods to `(result *Resource, undo
+   *Resource, err error)` with `CompensateX(state *Resource) error`.
+4. Introduce a new op-level type (working name `op.Undoable` or
+   `op.StateRecord`) for Bucket C; convert those methods.
+5. Widen `op.RecoveryStack` and the compensation dispatcher to accept
+   the three undo shapes via a unified interface.
+6. Update codegen if method-return-shape detection needs to handle
+   heterogeneous undo types.
+7. Update every test, doc, and plan to reflect the classification.
+
+### Blast area
+
+- `pkg/op/resource.go` — `TombstoneBase` stays; new type/interface added.
+- `pkg/op/provider/file/` — 10 compensable methods.
+- `pkg/op/provider/service/` — 5 compensable methods.
+- `pkg/op/provider/pkg/` — 3 compensable methods.
+- `pkg/op/provider/archive/` — 1.
+- `pkg/op/provider/encryption/` — 1.
+- `pkg/op/provider/git/` — `Clone` already done; later git additions
+  classify per the same rule as they land.
+- Op infrastructure: recovery stack + dispatcher accept heterogeneous
+  undo types.
+- Codegen: method-dispatch adjustment if needed.
+- ~60 tests touched across providers.
+
+### Exit criterion
+
+`Tombstone` appears only where it's semantically accurate (Bucket A).
+Bucket B uses `*Resource` handles. Bucket C uses the new state-record
+type. Every `CompensateX` body reads the correct undo-state shape for
+its action's semantics. The compensation dispatcher composes the three
+shapes uniformly.
+
+### Dependencies
+
+- Follows Phase 8 (git.Clone conversion establishes the Bucket-B
+  pattern).
+- Precedes any downstream repo consuming the compensation surface
+  (`devlore-registry`, lore packages) — they'll need to re-audit
+  compensable method signatures once the shapes are stable.
 
 ## What Remains After Phase 9
 
