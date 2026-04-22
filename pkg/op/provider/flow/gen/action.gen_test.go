@@ -235,6 +235,12 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 	}
 }
 
+func TestChooseAction_CompensableInterface(t *testing.T) {
+
+	reg := makeRegistry(t)
+	_ = getCompensable(t, reg, "flow.choose")
+}
+
 func TestGatherAction_CompensableInterface(t *testing.T) {
 
 	reg := makeRegistry(t)
@@ -247,6 +253,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	ctx := newCtx(t)
 
 	names := []string{
+		"flow.choose",
 		"flow.gather",
 	}
 

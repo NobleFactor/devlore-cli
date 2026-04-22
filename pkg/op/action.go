@@ -54,19 +54,3 @@ type CompensableAction interface {
 	Action
 	Undo(ctx *ExecutionContext, complement Complement) error
 }
-
-// Comparable is implemented by types that define domain-specific equality.
-//
-// When two receivers of the same type are compared in starlark, the receiver checks for this interface before falling
-// back to Go's pointer identity (==).
-type Comparable interface {
-	Equal(other any) bool
-}
-
-// Converter is implemented by source values that know how to project
-// themselves into specific target Go types. Step 3 of the [Convert] cascade
-// consults this interface when identity and assignability fail — the value
-// itself decides whether it can produce the requested target.
-type Converter interface {
-	Convert(target reflect.Type) (any, error)
-}

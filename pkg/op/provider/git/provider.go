@@ -28,8 +28,7 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 // Clone clones a repository from url into destinationPath.
 //
-// Identity for the cloned repository is constructed by [Provider.ClonePlanned] — the same function the planner
-// calls at plan time — so planning and execution agree on URI construction rules.
+// Identity for the cloned repository is constructed by [git.NewResource].
 //
 // Parameters:
 //   - url: network resource identifying the git repository.
@@ -41,38 +40,26 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 //   - error: any error from cloning.
 func (p *Provider) Clone(url *netprov.Resource, destinationPath string) (*Resource, Tombstone, error) {
 
-	r, err := p.ClonePlanned(url, destinationPath)
+	destination, err := NewResource(p.ExecutionContext(), destinationPath)
+
 	if err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	if err := p.doClone(url.SourceURL.String(), r.ClonePath); err != nil {
+	if err := p.doClone(url.SourceURL.String(), destination.ClonePath); err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	r.URL = url.SourceURL.String()
+	destination.URL = url.SourceURL.String()
 
-	if err := r.Resolve(); err != nil {
-		return r, Tombstone{}, err
+	if err := destination.Resolve(); err != nil {
+		return destination, Tombstone{}, err
 	}
 
-	return r, Tombstone{
-		TombstoneBase: op.NewTombstoneBase(r),
-		ClonedPath:    r.ClonePath,
+	return destination, Tombstone{
+		TombstoneBase: op.NewTombstoneBase(destination),
+		ClonedPath:    destination.ClonePath,
 	}, nil
-}
-
-// ClonePlanned is the Planned companion for [Provider.Clone]. Pure: no I/O, no network.
-//
-// Parameters:
-//   - url: ignored; present to match [Provider.Clone]'s signature exactly.
-//   - destinationPath: the clone path whose identity should be constructed.
-//
-// Returns:
-//   - *Resource: the clone resource with URI set and metadata empty.
-//   - error: any error from resource construction.
-func (p *Provider) ClonePlanned(_ *netprov.Resource, destinationPath string) (*Resource, error) {
-	return NewResource(p.ExecutionContext(), destinationPath)
 }
 
 // CompensateClone removes the cloned directory.

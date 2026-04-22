@@ -108,6 +108,7 @@ func TestReceiverType_Methods(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	expected := []string{
+		"Case",
 		"Options",
 	}
 

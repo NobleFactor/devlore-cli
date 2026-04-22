@@ -33,9 +33,17 @@ type Provider struct {
 	Graph *op.Graph
 }
 
+// Case is one branch of a [Provider.Choose] dispatch.
+//
+// Both fields are typed any to accept the variety of values plan.choose's branches handle: literal scalars,
+// resolved values, or detached invocations from prior plan.* calls. The structural materialization at plan.run
+// (step 16) and the executor's choose dispatch resolve the values; this type is pure data.
+//
+// Constructed by plan.case(when=..., then=...) (an immediate method on plan.Provider) and passed as a variadic
+// argument to plan.choose.
 type Case struct {
-	When func() bool
-	Then func() any
+	When any // condition the branch tests against (literal, value, or invocation reference)
+	Then any // body the branch produces if When is truthy (literal, value, or invocation reference)
 }
 
 // NewProvider creates a flow Provider bound to the given context.
@@ -54,27 +62,69 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 // region EXPORTED METHODS
 
-// Choose reads a boolean condition and executes the matching branch subgraph on the graph.
+// Choose walks the cases in declaration order, resolving each case's When and yielding the first branch whose
+// When is truthy. Once a match is found, only that case's Then is evaluated; remaining cases are
+// short-circuited (their Whens and Thens are never resolved). If no case matches, defaultValue is returned.
+//
+// Surfaces in starlark as plan.choose(default_value, plan.case(when=..., then=...), ...) because flow is a
+// root-planned provider (phase-8 D12). Branches are detached by default per D5 — each plan.case is a pure data
+// container constructed by plan.case(...) and passed by value; the When and Then fields hold whatever the
+// starlark author supplied (literal scalar, op.Resource, or *starlarkbridge.Invocation reference), which the
+// executor's choose dispatch resolves at execute time. This method is the codegen-discoverable signature; the
+// structural materialization (lazy branch dispatch via [op.Graph.ExecuteWithStack]) is wired by plan.run
+// (step 16).
+//
+// Truthiness rule (the executor's contract; encoded here as the stub fallback):
+//
+//   - bool: true is truthy.
+//   - integer: zero is falsy, others truthy.
+//   - string: empty is falsy, others truthy.
+//   - nil: falsy.
+//   - anything else (op.Resource, non-nil pointer, etc.): truthy.
+//
+// When matches starlark.Value.Truth() for native starlark types. When a Case's When is an
+// *starlarkbridge.Invocation reference, the executor dispatches the When invocation and applies the truthiness
+// rule to its resolved value.
+//
+// Compensable per the [op.Method] convention: returns (result, complement, error). The complement is the
+// recovery state of whichever branch actually ran, so [Provider.CompensateChoose] can unwind it on a later
+// parent-level failure.
+//
+// Container output type per D3: T when defaultValue and every case's Then are homogeneous, any otherwise. Go
+// can't express the homogeneous case statically; the return type is any.
 //
 // Parameters:
-//   - when: condition value.
-//   - then: subgraph ID to execute when true.
+//   - defaultValue: the value used when no case's When is truthy.
+//   - cases: the variadic cases to evaluate in declaration order.
 //
 // Returns:
-//   - any: the selected branch's terminal result.
-//   - error: non-nil if the branch fails.
-func (p *Provider) Choose(defaultValue func() any, cases ...Case) any {
+//   - any: the chosen branch's value (or defaultValue when no case matches).
+//   - op.Complement: the recovery state of the executed branch, for [Provider.CompensateChoose].
+//   - error: non-nil if branch evaluation fails.
+func (p *Provider) Choose(defaultCase any, cases ...Case) (any, op.Complement, error) {
 
 	for _, c := range cases {
-		if c.When != nil && c.When() {
-			if c.Then != nil {
-				return c.Then()
-			}
-			return nil
+		if isTruthy(c.When) {
+			return c.Then, nil, nil
 		}
 	}
 
-	return defaultValue()
+	return defaultCase, nil, nil
+}
+
+// CompensateChoose unwinds the recovery state captured by a successful [Provider.Choose] call.
+//
+// Stub at this step — the structural execution that produces a meaningful complement is wired by plan.run
+// (step 16). The stub returns nil so the compensable-pair contract is satisfied at codegen + plan time.
+//
+// Parameters:
+//   - complement: the recovery state returned by the forward Choose call.
+//
+// Returns:
+//   - error: non-nil if the unwind fails.
+func (p *Provider) CompensateChoose(complement op.Complement) error {
+
+	return nil
 }
 
 // Complete is the default, healthy conclusion of a graph path.
@@ -107,7 +157,7 @@ func (p *Provider) Degraded(format string, args []any, kwargs map[string]any) st
 func (p *Provider) Elevate() {
 }
 
-// Fatal halts graph execution immediately.
+// Failed halts graph execution immediately.
 //
 // Parameters:
 //   - format: format string.
@@ -116,7 +166,7 @@ func (p *Provider) Elevate() {
 //
 // Returns:
 //   - error: always non-nil FatalError.
-func (p *Provider) Fatal(format string, args []any, kwargs map[string]any) error {
+func (p *Provider) Failed(format string, args []any, kwargs map[string]any) error {
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 

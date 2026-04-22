@@ -10,9 +10,8 @@ import (
 	"strings"
 )
 
-// contextType is cached for detecting provider methods whose first parameter
-// (after the receiver) is a context.Context handle, which [Method.Invoke]
-// auto-fills with the ambient cancellation ctx.
+// contextType is cached for detecting provider methods whose first parameter (after the receiver) is a context.Context
+// handle, which [Method.Invoke] autofills with the ambient cancellation context.
 var contextType = reflect.TypeOf((*context.Context)(nil)).Elem()
 
 // errorType is cached for return-type classification.
@@ -52,21 +51,22 @@ const (
 // Starlark receivers wrap a Method for immediate dispatch. Method itself is neither — it is the callable they both
 // delegate to.
 //
-// A method may have up to two companion methods on the same receiver type, discovered by reflection:
-//   - planned (<Name>Planned): plan-time output spec, computes the identity of the resource the method will
-//     produce from the same inputs. Pure — no I/O.
+// Any method of a provider may have a plan companion; no method need have one. Companions are discovered by
+// reflection on the receiver type, using a name-prefix convention:
+//   - plan (Plan<Name>): plan-time output spec, computes the identity of the resource the method will produce
+//     from the same inputs. Pure — no I/O.
 //   - undo (Compensate<Name>): compensation companion for compensable methods, takes the complement returned by
 //     the forward method and reverses its effect.
 type Method struct {
 	do              *reflect.Method // forward method
 	kind            MethodKind      // classified from return signature
 	parameters      []Parameter     // named parameters (excluding receiver and any leading ctx)
-	planned         *reflect.Method // plan-time output spec companion; nil if the method has no plan-time output
+	plan            *reflect.Method // plan-time output spec companion; nil if the method has no plan companion
 	undo            *reflect.Method // compensation companion; nil unless compensable
-	firstParamIsCtx bool            // true when do's first parameter (after receiver) is context.Context
+	firstParamIsCtx bool            // true when `do`'s first parameter (after receiver) is context.Context
 }
 
-// NewMethod creates a [Method] from a reflected Go method, its parameter names, and its optional planned and undo
+// NewMethod creates a [Method] from a reflected Go method, its parameter names, and its optional plan and undo
 // companions.
 //
 // Classification rules:
@@ -79,9 +79,9 @@ type Method struct {
 // Returns an error if:
 //   - paramNames length doesn't match method parameter count (excluding receiver)
 //   - return signature does not match any known method kind
-//   - planned companion provided for a method that produces no result
-//   - planned companion parameter list differs from do
-//   - planned companion return signature is not (T, error) where T matches do's first result
+//   - plan companion provided for a method that produces no result
+//   - plan companion parameter list differs from do
+//   - plan companion return signature is not (T, error) where T matches `do`'s first result
 //   - compensable method has no Compensate companion
 //   - Compensate companion provided for non-compensable method
 //   - Compensate companion signature is not func(receiver, complement) error
@@ -89,21 +89,19 @@ type Method struct {
 // Parameters:
 //   - do: the reflected Go method to wrap.
 //   - parameters: parameter names matching the method's non-receiver parameters.
-//   - planned: the Planned companion method, or nil if the method has no plan-time output spec.
+//   - plan: the Plan<Name> companion method, or nil if the method has no plan companion.
 //   - undo: the Compensate companion method, or nil for non-compensable methods.
 //
 // Returns:
 //   - *Method: the classified method.
 //   - error: non-nil if validation fails.
-func NewMethod(do *reflect.Method, parameters []string, planned *reflect.Method, undo *reflect.Method) (*Method, error) {
+func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, undo *reflect.Method) (*Method, error) {
 
 	methodType := do.Type
 
-	// Detect whether the first Go parameter (after the receiver at index 0) is a
-	// context.Context. If so, Method.Invoke auto-fills it with the ambient
-	// cancellation ctx and the remaining Go parameters align with the caller-
-	// supplied parameter names. The announce map lists user-declared parameters
-	// only — ctx is implicit.
+	// Detect whether the first Go parameter (after the receiver at index 0) is a context.Context. If so, Method.Invoke
+	// autofills it with the ambient cancellation ctx and the remaining Go parameters align with the caller supplied
+	// parameter names. The `announce` map lists user-declared parameters only — ctx is implicit.
 	firstParamIsCtx := methodType.NumIn() >= 2 && methodType.In(1) == contextType
 
 	expectedParams := methodType.NumIn() - 1
@@ -164,55 +162,55 @@ func NewMethod(do *reflect.Method, parameters []string, planned *reflect.Method,
 		return nil, err
 	}
 
-	// Cross-validate planned
+	// Cross-validate plan
 
-	if planned != nil {
+	if plan != nil {
 
 		if kind == MethodAction || kind == MethodFallibleAction {
-			return nil, fmt.Errorf("planned companion %s provided for method %s which produces no result",
-				planned.Name,
+			return nil, fmt.Errorf("plan companion %s provided for method %s which produces no result",
+				plan.Name,
 				do.Name)
 		}
 
-		plannedType := planned.Type
+		planType := plan.Type
 
-		if plannedType.NumIn() != methodType.NumIn() {
-			return nil, fmt.Errorf("planned companion %s for method %s must accept %d parameters, got %d",
-				planned.Name,
+		if planType.NumIn() != methodType.NumIn() {
+			return nil, fmt.Errorf("plan companion %s for method %s must accept %d parameters, got %d",
+				plan.Name,
 				do.Name,
 				methodType.NumIn()-1,
-				plannedType.NumIn()-1)
+				planType.NumIn()-1)
 		}
 
 		for i := 1; i < methodType.NumIn(); i++ {
-			if plannedType.In(i) != methodType.In(i) {
-				return nil, fmt.Errorf("planned companion %s for method %s: parameter %d type mismatch: got %s, want %s",
-					planned.Name,
+			if planType.In(i) != methodType.In(i) {
+				return nil, fmt.Errorf("plan companion %s for method %s: parameter %d type mismatch: got %s, want %s",
+					plan.Name,
 					do.Name,
 					i-1,
-					plannedType.In(i),
+					planType.In(i),
 					methodType.In(i))
 			}
 		}
 
-		if plannedType.NumOut() != 2 {
-			return nil, fmt.Errorf("planned companion %s for method %s must return exactly 2 values (result, error), got %d",
-				planned.Name,
+		if planType.NumOut() != 2 {
+			return nil, fmt.Errorf("plan companion %s for method %s must return exactly 2 values (result, error), got %d",
+				plan.Name,
 				do.Name,
-				plannedType.NumOut())
+				planType.NumOut())
 		}
 
-		if plannedType.Out(0) != methodType.Out(0) {
-			return nil, fmt.Errorf("planned companion %s for method %s: result type mismatch: got %s, want %s",
-				planned.Name,
+		if planType.Out(0) != methodType.Out(0) {
+			return nil, fmt.Errorf("plan companion %s for method %s: result type mismatch: got %s, want %s",
+				plan.Name,
 				do.Name,
-				plannedType.Out(0),
+				planType.Out(0),
 				methodType.Out(0))
 		}
 
-		if !plannedType.Out(1).Implements(errorType) {
-			return nil, fmt.Errorf("planned companion %s for method %s: second return value must implement error",
-				planned.Name,
+		if !planType.Out(1).Implements(errorType) {
+			return nil, fmt.Errorf("plan companion %s for method %s: second return value must implement error",
+				plan.Name,
 				do.Name)
 		}
 	}
@@ -263,7 +261,7 @@ func NewMethod(do *reflect.Method, parameters []string, planned *reflect.Method,
 		params[i] = Parameter{Name: name, Type: methodType.In(i + paramOffset)}
 	}
 
-	return &Method{do: do, kind: kind, parameters: params, planned: planned, undo: undo, firstParamIsCtx: firstParamIsCtx}, nil
+	return &Method{do: do, kind: kind, parameters: params, plan: plan, undo: undo, firstParamIsCtx: firstParamIsCtx}, nil
 }
 
 // region EXPORTED METHODS
@@ -276,14 +274,14 @@ func NewMethod(do *reflect.Method, parameters []string, planned *reflect.Method,
 //   - MethodKind: the kind (action, fallible action, function, fallible function, or compensable function).
 func (m *Method) Kind() MethodKind { return m.kind }
 
-// HasPlanned reports whether this method has a Planned companion.
+// HasPlan reports whether this method has a Plan<Name> companion.
 //
-// A non-nil planned companion means the method produces a resource whose identity can be computed at plan time
+// A non-nil plan companion means the method produces a resource whose identity can be computed at plan time
 // from the method's input slot values. The planner calls [Method.Plan] to populate the catalog's pending entries.
 //
 // Returns:
-//   - bool: true if the method has a Planned companion.
-func (m *Method) HasPlanned() bool { return m.planned != nil }
+//   - bool: true if the method has a Plan<Name> companion.
+func (m *Method) HasPlan() bool { return m.plan != nil }
 
 // Name returns the Go method name (CamelCase).
 //
@@ -347,7 +345,7 @@ func (m *Method) ResultType() reflect.Type {
 // values first; Invoke then projects those Go values into the method signature using the same [Convert] cascade both
 // paths share. Results are unpacked from [reflect.Value] into the Action-layer shape (Result, Complement, error).
 //
-// When the underlying Go method declares a leading context.Context, Invoke auto-fills it from ctx.Context; provider
+// When the underlying Go method declares a leading context.Context, Invoke autofills it from ctx.Context; provider
 // methods that do not declare it are unaffected and their user-declared parameters remain the full Go argument list.
 //
 // Parameters:
@@ -496,27 +494,27 @@ func (m *Method) String() string {
 	return b.String()
 }
 
-// Plan calls the Planned companion on the receiver with the given arguments.
+// Plan calls the Plan<Name> companion on the receiver with the given arguments.
 //
-// The Planned companion must be pure — no I/O, no target-machine state, no mutation. The planner calls it at plan
+// The Plan companion must be pure — no I/O, no target-machine state, no mutation. The planner calls it at plan
 // time to compute the identity of the resource the forward method will produce. The returned [reflect.Value] holds
 // the resource (typed as the method's first return value). Callers that need a strongly-typed [Resource] assert the
 // value's Interface() to op.Resource.
 //
-// A zero-value slot is passed as the parameter type's zero value (the Planned method must tolerate missing inputs,
+// A zero-value slot is passed as the parameter type's zero value (the Plan method must tolerate missing inputs,
 // or return [KnownAtExecution] when it cannot compute an identity without them).
 //
 // Parameters:
-//   - receiver: the provider instance to call the Planned method on.
+//   - receiver: the provider instance to call the Plan method on.
 //   - args: positional arguments matching the method's non-receiver parameters (nil entries become zero values).
 //
 // Returns:
-//   - reflect.Value: the resource value returned by the Planned method.
-//   - error: the Planned method's error return, or a lookup error if the method has no Planned companion.
+//   - reflect.Value: the resource value returned by the Plan method.
+//   - error: the Plan method's error return, or a lookup error if the method has no Plan companion.
 func (m *Method) Plan(receiver any, args []any) (reflect.Value, error) {
 
-	if m.planned == nil {
-		return reflect.Value{}, fmt.Errorf("method %s has no planned companion", m.do.Name)
+	if m.plan == nil {
+		return reflect.Value{}, fmt.Errorf("method %s has no plan companion", m.do.Name)
 	}
 
 	goArgs := make([]reflect.Value, len(args)+1)
@@ -524,7 +522,7 @@ func (m *Method) Plan(receiver any, args []any) (reflect.Value, error) {
 
 	for i, arg := range args {
 
-		paramType := m.planned.Type.In(i + 1)
+		paramType := m.plan.Type.In(i + 1)
 
 		if arg == nil {
 			goArgs[i+1] = reflect.Zero(paramType)
@@ -540,13 +538,13 @@ func (m *Method) Plan(receiver any, args []any) (reflect.Value, error) {
 			goArgs[i+1] = argVal.Convert(paramType)
 		default:
 			return reflect.Value{}, fmt.Errorf(
-				"method %s planned: arg %d: cannot convert %T to %s",
+				"method %s plan: arg %d: cannot convert %T to %s",
 				m.do.Name, i, arg, paramType,
 			)
 		}
 	}
 
-	results := m.planned.Func.Call(goArgs)
+	results := m.plan.Func.Call(goArgs)
 	return results[0], errFromValue(results[1])
 }
 
@@ -569,6 +567,7 @@ func (m *Method) Undo(receiver any, complement any) error {
 	goArgs[1] = reflect.ValueOf(complement)
 
 	results := m.undo.Func.Call(goArgs)
+
 	return errFromValue(results[0])
 }
 

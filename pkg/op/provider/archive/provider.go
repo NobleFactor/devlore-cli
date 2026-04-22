@@ -35,26 +35,36 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 // Extract extracts an archive (tar.gz or zip) from source into the directory at prefixPath.
 //
-// Identity for the prefix directory is constructed by [Provider.ExtractPlanned]. The archive format is detected
-// from the source file's extension.
+// The prefix directory must already exist as a directory. Extract does not create it — callers are responsible
+// for arranging the prefix (e.g., via plan.file.mkdir upstream). This mirrors the semantics of the tar(1) -C
+// flag, which fails if the target directory is missing. Extract returns an error when prefixPath does not exist
+// or exists but is not a directory. The archive format is detected from the source file's extension.
 //
 // Parameters:
 //   - source: [file.Resource] identifying the archive file (tar.gz, tgz, or zip).
-//   - prefixPath: the extraction directory path. Coerced to a [file.Resource] via [Provider.ExtractPlanned].
+//   - prefixPath: the extraction directory path. Must exist as a directory; Extract does not create it.
 //
 // Returns:
 //   - *file.Resource: the extraction directory resource with populated metadata.
 //   - Tombstone: compensation state with the list of created files.
-//   - error: any error from extraction.
+//   - error: any error from extraction, including "prefix does not exist" or "prefix is not a directory."
 func (p *Provider) Extract(source *file.Resource, prefixPath string) (*file.Resource, Tombstone, error) {
 
-	prefix, err := p.ExtractPlanned(source, prefixPath)
+	destination, err := file.NewResource(p.ExecutionContext(), prefixPath)
 	if err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	if err := os.MkdirAll(prefix.SourcePath.Abs(), 0o750); err != nil {
-		return nil, Tombstone{}, fmt.Errorf("create prefix dir: %w", err)
+	if err := destination.Resolve(); err != nil {
+		return nil, Tombstone{}, err
+	}
+
+	if !destination.Exists() {
+		return nil, Tombstone{}, fmt.Errorf("prefix directory does not exist: %s", prefixPath)
+	}
+
+	if !destination.Mode.IsDir() {
+		return nil, Tombstone{}, fmt.Errorf("prefix path is not a directory: %s", prefixPath)
 	}
 
 	var created []string
@@ -62,9 +72,9 @@ func (p *Provider) Extract(source *file.Resource, prefixPath string) (*file.Reso
 	lower := strings.ToLower(source.SourcePath.Abs())
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		created, err = extractTarGz(source.SourcePath.Abs(), prefix.SourcePath.Abs())
+		created, err = extractTarGz(source.SourcePath.Abs(), destination.SourcePath.Abs())
 	case strings.HasSuffix(lower, ".zip"):
-		created, err = extractZip(source.SourcePath.Abs(), prefix.SourcePath.Abs())
+		created, err = extractZip(source.SourcePath.Abs(), destination.SourcePath.Abs())
 	default:
 		return nil, Tombstone{}, fmt.Errorf("unsupported archive format: %s", source.SourcePath.Abs())
 	}
@@ -73,31 +83,17 @@ func (p *Provider) Extract(source *file.Resource, prefixPath string) (*file.Reso
 		return nil, Tombstone{}, err
 	}
 
-	if err := prefix.Resolve(); err != nil {
-		return prefix, Tombstone{}, err
+	if err := destination.Resolve(); err != nil {
+		return destination, Tombstone{}, err
 	}
 
-	return prefix, Tombstone{
-		Dest:         prefix.SourcePath.Abs(),
+	return destination, Tombstone{
+		Dest:         destination.SourcePath.Abs(),
 		CreatedFiles: created,
 	}, nil
 }
 
-// ExtractPlanned is the Planned companion for [Provider.Extract]. Pure: no I/O, no target state.
-//
-// Parameters:
-//   - source: ignored; present to match [Provider.Extract]'s signature exactly.
-//   - prefixPath: the extraction directory path whose identity should be constructed.
-//
-// Returns:
-//   - *file.Resource: the prefix directory resource with URI set and metadata empty.
-//   - error: any error from resource construction.
-func (p *Provider) ExtractPlanned(_ *file.Resource, prefixPath string) (*file.Resource, error) {
-	return file.NewResource(p.ExecutionContext(), prefixPath)
-}
-
-// CompensateExtract removes files created during extraction, then cleans up
-// empty directories under dest.
+// CompensateExtract removes files created during extraction, then cleans up empty directories under dest.
 func (p *Provider) CompensateExtract(state Tombstone) error {
 	if state.Dest == "" {
 		return nil

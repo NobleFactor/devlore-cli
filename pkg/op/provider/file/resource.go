@@ -4,11 +4,15 @@
 package file
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"syscall"
 	"time"
+
+	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -38,7 +42,41 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
 	path, ok := value.(string)
 	if !ok {
-		return nil, fmt.Errorf("file.Resource: expected string path, got %T", value)
+		return nil, fmt.Errorf("file.Resource: expected string, got %T", value)
+	}
+
+	parsed, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("file.Resource: invalid input %q: %w", path, err)
+	}
+
+	if parsed.Scheme != "" && parsed.Scheme != "file" {
+		return nil, fmt.Errorf("file.Resource: expected file scheme, got %q in %q", parsed.Scheme, path)
+	}
+
+	if parsed.Scheme == "file" {
+
+		if parsed.User != nil {
+			return nil, fmt.Errorf("file.Resource: userinfo not permitted in %q", path)
+		}
+
+		if parsed.Host != "" && parsed.Host != "localhost" {
+			return nil, fmt.Errorf("file.Resource: unexpected host %q in %q", parsed.Host, path)
+		}
+
+		if parsed.RawQuery != "" {
+			return nil, fmt.Errorf("file.Resource: query not permitted in %q", path)
+		}
+
+		if parsed.Fragment != "" {
+			return nil, fmt.Errorf("file.Resource: fragment not permitted in %q", path)
+		}
+
+		if parsed.Opaque != "" {
+			return nil, fmt.Errorf("file.Resource: opaque form not permitted in %q; use file:///path", path)
+		}
+
+		path = parsed.Path
 	}
 
 	sourcePath := ctx.Root.NewPath(path)
@@ -131,8 +169,133 @@ func (r *Resource) Resolve() error {
 	return nil
 }
 
-// String returns a compact JSON representation of the resource.
-func (r *Resource) String() string { return r.Format(r) }
+// String returns a debug-oriented single-line representation of the resource suitable for log lines and IDE
+// debug windows.
+//
+// Returns:
+//   - string: "file.Resource{uri=<URI>, exists=<bool>, size=<bytes>, mode=<file-mode>}".
+func (r *Resource) String() string {
+	return fmt.Sprintf("file.Resource{uri=%s, exists=%t, size=%d, mode=%v}",
+		r.URI(), r.Exists(), r.Size, r.Mode)
+}
+
+// UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
+//
+// Parameters:
+//   - data: JSON-encoded string containing the resource's URI or path.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the JSON does not decode as a string, or resource
+//     construction fails.
+func (r *Resource) UnmarshalJSON(data []byte) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("file.Resource: UnmarshalJSON requires ExecutionContext on receiver")
+	}
+
+	var uri string
+	if err := json.Unmarshal(data, &uri); err != nil {
+		return err
+	}
+
+	built, err := NewResource(r.ExecutionContext(), uri)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalStarlark populates the receiver from a [starlark.String] containing a file path or file URI.
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
+//
+// Parameters:
+//   - sv: a starlark value expected to be a [starlark.String].
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the value is not a [starlark.String], or resource
+//     construction fails.
+func (r *Resource) UnmarshalStarlark(sv starlark.Value) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("file.Resource: UnmarshalStarlark requires ExecutionContext on receiver")
+	}
+
+	s, ok := sv.(starlark.String)
+	if !ok {
+		return fmt.Errorf("file.Resource: expected starlark.String, got %s", sv.Type())
+	}
+
+	built, err := NewResource(r.ExecutionContext(), string(s))
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalText populates the receiver from raw UTF-8 bytes containing a file path or file URI.
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
+//
+// Parameters:
+//   - text: UTF-8 bytes containing the resource's URI or path.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing or resource construction fails.
+func (r *Resource) UnmarshalText(text []byte) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("file.Resource: UnmarshalText requires ExecutionContext on receiver")
+	}
+
+	built, err := NewResource(r.ExecutionContext(), string(text))
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalYAML populates the receiver from a YAML scalar (a file path or file URI).
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
+//
+// Parameters:
+//   - unmarshal: callback supplied by the YAML decoder that projects the current node into the given target.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the YAML node does not decode as a string, or resource
+//     construction fails.
+func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("file.Resource: UnmarshalYAML requires ExecutionContext on receiver")
+	}
+
+	var uri string
+	if err := unmarshal(&uri); err != nil {
+		return err
+	}
+
+	built, err := NewResource(r.ExecutionContext(), uri)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
 
 // endregion
 

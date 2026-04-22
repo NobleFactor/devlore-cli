@@ -7,7 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"reflect"
+
+	"go.starlark.net/starlark"
 )
+
+// stringType is the cached [reflect.Type] of the Go string type, consulted by [ResourceBase.CanConvert] and
+// [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
+var stringType = reflect.TypeOf("")
 
 // Resource is the interface for all resource receiverTypes.
 //
@@ -125,6 +132,126 @@ func (b *ResourceBase) Format(value any) string {
 		return fmt.Sprintf("%v", value)
 	}
 	return string(data)
+}
+
+// CanConvert reports whether this resource can project itself into the given target Go type.
+//
+// The baseline projection is URI → string: any ResourceBase knows how to produce its URI as a Go string. Concrete
+// Resource types extend this by overriding [ResourceBase.CanConvert] to accept additional targets (e.g., a
+// file.Resource that projects to an op.Path) and delegating to this method for the string case.
+//
+// Parameters:
+//   - target: the destination Go type the caller wants to project the resource into.
+//
+// Returns:
+//   - bool: true if target is the Go string type; false otherwise.
+func (b *ResourceBase) CanConvert(target reflect.Type) bool {
+	return target == stringType
+}
+
+// Convert projects this resource into the given target Go type.
+//
+// The baseline projection is URI → string, matching [ResourceBase.CanConvert]. Concrete Resource types that
+// recognize additional targets override [ResourceBase.Convert] and delegate to this method for the string case.
+//
+// Parameters:
+//   - target: the destination Go type the caller wants to project the resource into.
+//
+// Returns:
+//   - any: the resource's URI (as a Go string) when target is string.
+//   - error: non-nil if target is not a conversion this base recognizes.
+func (b *ResourceBase) Convert(target reflect.Type) (any, error) {
+
+	if target == stringType {
+		return b.uri, nil
+	}
+
+	return nil, fmt.Errorf("resource: cannot convert %s to %s", b.uri, target)
+}
+
+// Equal reports whether b and other identify the same resource.
+//
+// Equality is URI-based and loose with respect to the concrete Go type: any two values implementing [Resource]
+// whose URIs match are equal. A URI collision across concrete types (e.g., a file URI embedded in an
+// appnet.Resource) is treated as a caller-side construction error, not a case Equal needs to disambiguate — the
+// URI is the sole identity.
+//
+// Contract (mirroring the [java.lang.Object.equals] properties):
+//   - Reflexive: b.Equal(b) returns true.
+//   - Symmetric: b.Equal(x) returns true iff x.Equal(b) returns true.
+//   - Transitive: if b.Equal(x) and x.Equal(y), then b.Equal(y).
+//   - Consistent: repeated calls return the same result while URIs are stable.
+//   - Nil-safe: b.Equal(nil) returns false.
+//
+// Parameters:
+//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//
+// Returns:
+//   - bool: true if other is a [Resource] with the same URI as b.
+func (b *ResourceBase) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	o, ok := other.(Resource)
+	if !ok {
+		return false
+	}
+
+	return b.uri == o.URI()
+}
+
+// MarshalJSON marshals the resource to its JSON wire form, which is the URI as a JSON-encoded string.
+//
+// The URI is the resource's identity and the only field required for round-trip through JSON: catalog rehydration
+// reconstructs the resource via [NewResource] from the stored URI. Concrete Resource types that need to persist
+// additional fields (cached metadata, domain-specific state) override [ResourceBase.MarshalJSON] with their own
+// serialization.
+//
+// Returns:
+//   - []byte: the JSON-encoded URI string.
+//   - error: any error from [json.Marshal]; none under normal conditions.
+func (b *ResourceBase) MarshalJSON() ([]byte, error) {
+	return json.Marshal(b.uri)
+}
+
+// MarshalStarlark projects the resource as a starlark value — the URI as a [starlark.String].
+//
+// Callers on the starlark side receive a string whose text is the canonical URI. Round-trip through
+// [UnmarshalStarlark] (implemented per concrete Resource type) reconstructs an equivalent resource.
+//
+// Returns:
+//   - starlark.Value: a [starlark.String] containing the resource's URI.
+//   - error: nil under normal conditions; included to satisfy the [starlarkbridge.Marshaler] interface.
+func (b *ResourceBase) MarshalStarlark() (starlark.Value, error) {
+	return starlark.String(b.uri), nil
+}
+
+// MarshalText marshals the resource to its text wire form, which is the URI as raw UTF-8 bytes.
+//
+// The text form is consumed by stdlib encoders ([encoding/json] for map keys, [encoding/xml] for attributes), YAML
+// scalar emission via [yaml.v3], CLI flag ingestion via [flag.TextVar], and most env/config parsers. Round-trip
+// through [UnmarshalText] (implemented per concrete Resource type) reconstructs an equivalent resource.
+//
+// Returns:
+//   - []byte: the URI as UTF-8 bytes.
+//   - error: nil under normal conditions; included to satisfy the [encoding.TextMarshaler] interface.
+func (b *ResourceBase) MarshalText() ([]byte, error) {
+	return []byte(b.uri), nil
+}
+
+// MarshalYAML marshals the resource for YAML encoding as a bare string scalar — the URI.
+//
+// Returning a plain string (rather than a struct) yields a clean YAML scalar in serialized form, avoiding the
+// nested-object shape that reflection-based YAML marshaling would produce. Concrete Resource types that need to
+// persist additional fields override [ResourceBase.MarshalYAML] with their own representation.
+//
+// Returns:
+//   - any: the URI string.
+//   - error: nil under normal conditions; included to satisfy the yaml.Marshaler interface.
+func (b *ResourceBase) MarshalYAML() (any, error) {
+	return b.uri, nil
 }
 
 // Resolve populates provider-specific metadata via I/O (e.g., os.Stat for files).

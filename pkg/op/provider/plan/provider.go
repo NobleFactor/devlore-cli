@@ -14,6 +14,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
@@ -69,6 +70,28 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 }
 
 // region EXPORTED METHODS
+
+// Case constructs a [flow.Case] value for use as a variadic argument to plan.choose.
+//
+// Exposed to starlark as `plan.case(when=..., then=...)`. Both fields are typed any so the starlark author can
+// pass literals, resolved values, or detached invocations from prior plan.* calls; the executor's choose dispatch
+// resolves them at execute time per phase-8 D5. Empty cases (both fields nil) compose with `plan.choose`'s
+// defaultValue path — no when ever matches, defaultValue wins — but supplying an empty case is unusual and not a
+// validation error here.
+//
+// Parameters:
+//   - when: the condition the branch tests against (literal, value, or invocation reference).
+//   - then: the body the branch produces if when is truthy.
+//
+// Returns:
+//   - *flow.Case: the constructed case, ready to pass to plan.choose.
+func (p *Provider) Case(when any, then any) *flow.Case {
+
+	return &flow.Case{
+		When: when,
+		Then: then,
+	}
+}
 
 // Options constructs a [starlarkbridge.Options] value for use as the reserved `options` kwarg on any plan-mode dispatch.
 //

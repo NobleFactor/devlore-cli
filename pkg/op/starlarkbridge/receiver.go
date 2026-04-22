@@ -23,18 +23,6 @@ var (
 // receiver wraps a registered Go instance for starlark use.
 //
 // It implements [starlark.Value], [starlark.HasAttrs], and [starlark.Comparable]. Fields are resolved first by
-// marshaling exported struct fields; methods are resolved second via [op.Method.Do] dispatch. Two receivers are
-// equal if their instances are [op.Resource] values with the same URI.
-// Marshaler is implemented by Go types that want to marshal themselves into a Starlark value.
-//
-// Check for this interface before walking struct fields via reflection or instantiating builtin [starlark.Value] types.
-type Marshaler interface {
-	MarshalStarlark() (starlark.Value, error)
-}
-
-// receiver wraps a registered Go instance for starlark use.
-//
-// It implements [starlark.Value], [starlark.HasAttrs], and [starlark.Comparable]. Fields are resolved first by
 // marshaling exported struct fields; methods are resolved second via [op.Method.Do] dispatch.
 type receiver struct {
 	receiverType op.ReceiverType
@@ -1083,7 +1071,7 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 
 // CompareSameType implements starlark.Comparable.
 //
-// Delegates to [op.Comparable] on the wrapped instance if available, otherwise falls back to Go's pointer identity
+// Delegates to [op.Comparer] on the wrapped instance if available, otherwise falls back to Go's pointer identity
 // (==). Starlark guarantees both values have the same Type() before calling this method.
 //
 // Parameters:
@@ -1100,7 +1088,7 @@ func (r *receiver) CompareSameType(cmp syntax.Token, y starlark.Value, depth int
 
 	var equal bool
 
-	if c, ok := r.instance.(op.Comparable); ok {
+	if c, ok := r.instance.(op.Comparer); ok {
 		equal = c.Equal(other.instance)
 	} else {
 		equal = r.instance == other.instance
