@@ -4,9 +4,13 @@
 package appnet
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+
+	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -16,9 +20,16 @@ import (
 // The SourceURL holds the original URL as provided (with transport scheme, original casing, etc.). The canonical URI
 // produced by [URI] is an opaque appnet: URI wrapping the normalized, transport-independent URL with targeted escaping
 // of # and ? characters.
+//
+// SourceURL is persisted in JSON/YAML alongside the URI so that cross-process round-trips preserve transport scheme
+// (http vs. https vs. ftp) — information lost by the transport-independent URI. Scalar forms (text, starlark) carry
+// only the SourceURL string; unmarshal reconstructs both the URI and SourceURL via [NewResource].
 type Resource struct {
 	op.ResourceBase
-	SourceURL *url.URL
+
+	// SourceURL is the canonicalized URL with its transport scheme preserved. Custom-marshaled as a string through
+	// the alias-trick pattern in MarshalJSON / MarshalYAML; `json:"-"` suppresses default *url.URL serialization.
+	SourceURL *url.URL `json:"-" yaml:"-"`
 }
 
 // NewResource constructs an appnet.Resource from a string URL.
@@ -50,8 +61,253 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 	return &r, nil
 }
 
-// String returns a compact JSON representation of the resource.
-func (r *Resource) String() string { return r.Format(r) }
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Equal reports whether r and other identify the same appnet resource.
+//
+// Strict equality: other must be a *appnet.Resource (not merely an [op.Resource] with the same URI). Once the type
+// check passes, URI comparison is delegated to [op.ResourceBase.Equal].
+//
+// Parameters:
+//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//
+// Returns:
+//   - bool: true if other is a *appnet.Resource with the same URI as r.
+func (r *Resource) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	if _, ok := other.(*Resource); !ok {
+		return false
+	}
+
+	return r.ResourceBase.Equal(other)
+}
+
+// MarshalJSON marshals the resource to its JSON wire form — identity (URI) plus SourceURL as a string.
+//
+// SourceURL is serialized via [url.URL.String] so JSON consumers round-trip the full URL including transport
+// scheme (which the canonical URI discards).
+//
+// Returns:
+//   - []byte: JSON-encoded object.
+//   - error:  any error from [json.Marshal]; none under normal conditions.
+func (r *Resource) MarshalJSON() ([]byte, error) {
+
+	var sourceURL string
+	if r.SourceURL != nil {
+		sourceURL = r.SourceURL.String()
+	}
+
+	type alias Resource
+	return json.Marshal(&struct {
+		URI       string `json:"uri"`
+		SourceURL string `json:"sourceURL,omitempty"`
+		*alias
+	}{
+		URI:       r.URI(),
+		SourceURL: sourceURL,
+		alias:     (*alias)(r),
+	})
+}
+
+// MarshalYAML marshals the resource to its YAML wire form — identity (URI) plus SourceURL as a string.
+//
+// Returns:
+//   - any:   the value for the YAML encoder to serialize.
+//   - error: nil under normal conditions.
+func (r *Resource) MarshalYAML() (any, error) {
+
+	var sourceURL string
+	if r.SourceURL != nil {
+		sourceURL = r.SourceURL.String()
+	}
+
+	type alias Resource
+	return &struct {
+		URI       string `yaml:"uri"`
+		SourceURL string `yaml:"sourceURL,omitempty"`
+		*alias
+	}{
+		URI:       r.URI(),
+		SourceURL: sourceURL,
+		alias:     (*alias)(r),
+	}, nil
+}
+
+// Resolve is a no-op for appnet resources.
+//
+// Identity is the URL; the Resource has no on-disk state to reconcile. Defined to satisfy the [op.Resource]
+// interface contract.
+//
+// Returns:
+//   - error: always nil.
+func (r *Resource) Resolve() error {
+	return nil
+}
+
+// String returns a debug-oriented single-line representation of the resource suitable for log lines and IDE
+// debug windows.
+//
+// Returns:
+//   - string: "appnet.Resource{uri=<URI>, sourceURL=<URL>}".
+func (r *Resource) String() string {
+
+	var sourceURL string
+	if r.SourceURL != nil {
+		sourceURL = r.SourceURL.String()
+	}
+
+	return fmt.Sprintf("appnet.Resource{uri=%s, sourceURL=%s}", r.URI(), sourceURL)
+}
+
+// UnmarshalJSON populates the receiver from its JSON wire form.
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// invoking this method. The URL is read from the sourceURL field (authoritative — preserves transport scheme)
+// and handed to [NewResource] to reconstruct both the URI and SourceURL.
+//
+// Parameters:
+//   - data: JSON-encoded wire form.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the JSON does not decode, sourceURL is empty, or
+//     resource construction fails.
+func (r *Resource) UnmarshalJSON(data []byte) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("appnet.Resource: UnmarshalJSON requires ExecutionContext on receiver")
+	}
+
+	type alias Resource
+	aux := &struct {
+		URI       string `json:"uri"`
+		SourceURL string `json:"sourceURL"`
+		*alias
+	}{alias: (*alias)(r)}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if aux.SourceURL == "" {
+		return errors.New("appnet.Resource: UnmarshalJSON requires sourceURL field")
+	}
+
+	built, err := NewResource(r.ExecutionContext(), aux.SourceURL)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalStarlark populates the receiver from a [starlark.String] containing a URL.
+//
+// Scalar form: the entire URL (with scheme) is passed through. Unmarshal reconstructs both the URI and
+// SourceURL via [NewResource].
+//
+// Parameters:
+//   - sv: a starlark value expected to be a [starlark.String].
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the value is not a [starlark.String], or resource
+//     construction fails.
+func (r *Resource) UnmarshalStarlark(sv starlark.Value) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("appnet.Resource: UnmarshalStarlark requires ExecutionContext on receiver")
+	}
+
+	s, ok := sv.(starlark.String)
+	if !ok {
+		return fmt.Errorf("appnet.Resource: expected starlark.String, got %s", sv.Type())
+	}
+
+	built, err := NewResource(r.ExecutionContext(), string(s))
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalText populates the receiver from raw UTF-8 bytes containing a URL.
+//
+// Scalar form: the entire URL (with scheme) is passed through. Unmarshal reconstructs both the URI and
+// SourceURL via [NewResource].
+//
+// Parameters:
+//   - text: UTF-8 bytes containing the URL.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing or resource construction fails.
+func (r *Resource) UnmarshalText(text []byte) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("appnet.Resource: UnmarshalText requires ExecutionContext on receiver")
+	}
+
+	built, err := NewResource(r.ExecutionContext(), string(text))
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalYAML populates the receiver from its YAML wire form.
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// invoking this method. The URL is read from the sourceURL field (authoritative — preserves transport scheme)
+// and handed to [NewResource] to reconstruct both the URI and SourceURL.
+//
+// Parameters:
+//   - unmarshal: callback supplied by the YAML decoder that projects the current node into the given target.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the YAML does not decode, sourceURL is empty, or
+//     resource construction fails.
+func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("appnet.Resource: UnmarshalYAML requires ExecutionContext on receiver")
+	}
+
+	type alias Resource
+	aux := &struct {
+		URI       string `yaml:"uri"`
+		SourceURL string `yaml:"sourceURL"`
+		*alias
+	}{alias: (*alias)(r)}
+
+	if err := unmarshal(aux); err != nil {
+		return err
+	}
+
+	if aux.SourceURL == "" {
+		return errors.New("appnet.Resource: UnmarshalYAML requires sourceURL field")
+	}
+
+	built, err := NewResource(r.ExecutionContext(), aux.SourceURL)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// endregion
+
+// endregion
 
 // escapeInnerURI percent-encodes # and ? so they don't interfere with
 // the outer URI's fragment and query parsing.
