@@ -44,6 +44,29 @@ type Resource struct {
 	Ref       string
 }
 
+// Equal reports whether r and other identify the same git resource.
+//
+// Strict equality: other must be a *git.Resource (not merely an [op.Resource] with the same URI). Once the type
+// check passes, URI comparison is delegated to [op.ResourceBase.Equal].
+//
+// Parameters:
+//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//
+// Returns:
+//   - bool: true if other is a *git.Resource with the same URI as r.
+func (r *Resource) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	if _, ok := other.(*Resource); !ok {
+		return false
+	}
+
+	return r.ResourceBase.Equal(other)
+}
+
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
 

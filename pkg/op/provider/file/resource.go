@@ -91,6 +91,30 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
 // region Behaviors
 
+// Equal reports whether r and other identify the same file resource.
+//
+// Strict equality: other must be a *file.Resource (not merely an [op.Resource] with the same URI). Once the type
+// check passes, URI comparison is delegated to [op.ResourceBase.Equal]. A cross-type URI collision (e.g., a
+// file URI embedded in an appnet.Resource) fails at the type check rather than matching spuriously.
+//
+// Parameters:
+//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//
+// Returns:
+//   - bool: true if other is a *file.Resource with the same URI as r.
+func (r *Resource) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	if _, ok := other.(*Resource); !ok {
+		return false
+	}
+
+	return r.ResourceBase.Equal(other)
+}
+
 // Exists returns true if the resource has been resolved and the file existed
 // at resolve time. An unresolved resource always reports Exists() == false.
 func (r *Resource) Exists() bool {
