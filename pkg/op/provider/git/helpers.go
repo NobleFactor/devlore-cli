@@ -6,6 +6,9 @@ package git
 import (
 	"fmt"
 	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -293,4 +296,188 @@ func isASCIISpace(c byte) bool {
 //   - bool: true when c is '/'.
 func isDirSep(c byte) bool {
 	return c == '/'
+}
+
+// isDirtyRepo reports whether the working tree at path has uncommitted changes.
+//
+// Shells out to `git -C <path> status --porcelain`; any non-empty output means dirty. Errors (git not
+// installed, path not a repo) are swallowed and reported as clean — callers are expected to have already
+// verified via [isGitRepo] that the path is a repository.
+//
+// Parameters:
+//   - path: absolute path to a git working tree.
+//
+// Returns:
+//   - bool: true when `git status --porcelain` emits any non-empty output.
+func isDirtyRepo(path string) bool {
+
+	cmd := exec.Command("git", "-C", path, "status", "--porcelain")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(string(out)) != ""
+}
+
+// isGitRepo reports whether path is a git repository root, and whether it is bare.
+//
+// A path is a working-tree repository when `<path>/.git` is a directory. A path is a bare repository when
+// `<path>/HEAD` and `<path>/config` both exist at the top level (the two files git itself uses to identify
+// a bare repository). Paths that are inside a working tree but not themselves the root are rejected.
+//
+// Parameters:
+//   - path: absolute path to probe.
+//
+// Returns:
+//   - repo: true when path is a git repository root.
+//   - bare: true when the repository is bare; meaningful only when repo is true.
+func isGitRepo(path string) (repo, bare bool) {
+
+	if info, err := os.Stat(filepath.Join(path, ".git")); err == nil && info.IsDir() {
+		return true, false
+	}
+
+	if _, err := os.Stat(filepath.Join(path, "HEAD")); err != nil {
+		return false, false
+	}
+	if _, err := os.Stat(filepath.Join(path, "config")); err != nil {
+		return false, false
+	}
+
+	return true, true
+}
+
+// parseRemotesOutput parses the output of `git config --get-regexp ^remote\.[^.]+\.(url|pushurl)$` into a
+// map keyed by remote name.
+//
+// Each input line is "remote.<name>.<attr> <value>". Unknown attrs, malformed lines, and empty names are
+// silently skipped.
+//
+// Parameters:
+//   - output: raw stdout from the `git config --get-regexp` invocation.
+//
+// Returns:
+//   - map[string]Remote: remotes keyed by name; nil when the output contains no parseable entries.
+func parseRemotesOutput(output string) map[string]Remote {
+
+	remotes := map[string]Remote{}
+
+	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+
+		if line == "" {
+			continue
+		}
+
+		space := strings.IndexByte(line, ' ')
+		if space < 0 {
+			continue
+		}
+
+		key, value := line[:space], line[space+1:]
+
+		if !strings.HasPrefix(key, "remote.") {
+			continue
+		}
+
+		rest := strings.TrimPrefix(key, "remote.")
+		dot := strings.LastIndexByte(rest, '.')
+		if dot < 0 {
+			continue
+		}
+
+		name, attr := rest[:dot], rest[dot+1:]
+		if name == "" {
+			continue
+		}
+
+		remote := remotes[name]
+
+		switch attr {
+		case "url":
+			remote.FetchURL = value
+		case "pushurl":
+			remote.PushURL = value
+		default:
+			continue
+		}
+
+		remotes[name] = remote
+	}
+
+	if len(remotes) == 0 {
+		return nil
+	}
+
+	return remotes
+}
+
+// readBranchName returns the short branch name HEAD points at, or empty string when HEAD is detached.
+//
+// Shells out to `git -C <path> symbolic-ref --short HEAD`. A non-zero exit (detached HEAD, no HEAD, or not
+// a repository) is treated as "no branch" and returns the empty string.
+//
+// Parameters:
+//   - path: absolute path to a git repository root.
+//
+// Returns:
+//   - string: the short branch name, or "" when HEAD is detached or unreadable.
+func readBranchName(path string) string {
+
+	cmd := exec.Command("git", "-C", path, "symbolic-ref", "--short", "HEAD")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(out))
+}
+
+// readHEADSha returns the commit SHA HEAD resolves to, or empty string when HEAD cannot be resolved.
+//
+// Shells out to `git -C <path> rev-parse HEAD`. Handles both attached (via symbolic ref) and detached HEAD
+// uniformly — the SHA is returned in either case. A non-zero exit is treated as "no resolvable HEAD" and
+// returns the empty string.
+//
+// Parameters:
+//   - path: absolute path to a git repository root.
+//
+// Returns:
+//   - string: the 40-char hex SHA HEAD resolves to, or "" on failure.
+func readHEADSha(path string) string {
+
+	cmd := exec.Command("git", "-C", path, "rev-parse", "HEAD")
+
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(out))
+}
+
+// readRemotes returns the Remotes map for the repository at path.
+//
+// Shells out to `git -C <path> config --get-regexp ^remote\.[^.]+\.(url|pushurl)$` and parses the output via
+// [parseRemotesOutput]. A non-zero exit (no remotes configured, git unavailable, not a repository) returns
+// nil.
+//
+// Parameters:
+//   - path: absolute path to a git repository root.
+//
+// Returns:
+//   - map[string]Remote: remotes keyed by name; nil when the repository has no remotes configured or the
+//     git invocation fails.
+func readRemotes(path string) map[string]Remote {
+
+	cmd := exec.Command("git", "-C", path, "config", "--get-regexp", `^remote\.[^.]+\.(url|pushurl)$`)
+
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	return parseRemotesOutput(string(out))
 }

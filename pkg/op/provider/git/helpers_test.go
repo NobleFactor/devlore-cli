@@ -264,6 +264,101 @@ func TestBuildCloneArgs(t *testing.T) {
 	}
 }
 
+// --- parseRemotesOutput ---
+
+func TestParseRemotesOutput(t *testing.T) {
+
+	tests := []struct {
+		name   string
+		output string
+		want   map[string]Remote
+	}{
+		{
+			name:   "empty",
+			output: "",
+			want:   nil,
+		},
+		{
+			name:   "single remote url only",
+			output: "remote.origin.url https://example.com/org/repo.git\n",
+			want: map[string]Remote{
+				"origin": {FetchURL: "https://example.com/org/repo.git"},
+			},
+		},
+		{
+			name: "single remote with pushurl",
+			output: "remote.origin.url https://example.com/org/repo.git\n" +
+				"remote.origin.pushurl git@example.com:org/repo.git\n",
+			want: map[string]Remote{
+				"origin": {
+					FetchURL: "https://example.com/org/repo.git",
+					PushURL:  "git@example.com:org/repo.git",
+				},
+			},
+		},
+		{
+			name: "multiple remotes",
+			output: "remote.origin.url https://example.com/org/repo.git\n" +
+				"remote.upstream.url https://example.com/forge/repo.git\n",
+			want: map[string]Remote{
+				"origin":   {FetchURL: "https://example.com/org/repo.git"},
+				"upstream": {FetchURL: "https://example.com/forge/repo.git"},
+			},
+		},
+		{
+			name: "unknown attr is skipped",
+			output: "remote.origin.url https://example.com/org/repo.git\n" +
+				"remote.origin.fetch +refs/heads/*:refs/remotes/origin/*\n",
+			want: map[string]Remote{
+				"origin": {FetchURL: "https://example.com/org/repo.git"},
+			},
+		},
+		{
+			name:   "malformed line (no space) is skipped",
+			output: "remote.origin.url\n",
+			want:   nil,
+		},
+		{
+			name:   "malformed line (not remote.) is skipped",
+			output: "core.bare false\n",
+			want:   nil,
+		},
+		{
+			name:   "malformed line (no attr dot) is skipped",
+			output: "remote.origin https://example.com/repo.git\n",
+			want:   nil,
+		},
+		{
+			name:   "empty remote name is skipped",
+			output: "remote..url https://example.com/repo.git\n",
+			want:   nil,
+		},
+		{
+			name:   "trailing newline tolerated",
+			output: "remote.origin.url https://example.com/repo.git\n\n",
+			want: map[string]Remote{
+				"origin": {FetchURL: "https://example.com/repo.git"},
+			},
+		},
+		{
+			name:   "url value containing spaces preserved",
+			output: "remote.origin.url  file:///path with space/repo.git\n",
+			want: map[string]Remote{
+				"origin": {FetchURL: " file:///path with space/repo.git"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseRemotesOutput(tt.output)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseRemotesOutput(%q) =\n  got: %v\n want: %v", tt.output, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- cleanControlChars ---
 
 func TestCleanControlChars(t *testing.T) {

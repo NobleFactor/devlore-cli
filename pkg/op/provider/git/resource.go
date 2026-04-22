@@ -179,24 +179,41 @@ func (r *Resource) MarshalYAML() (any, error) {
 
 // Resolve inspects the local filesystem and populates operational metadata on the receiver.
 //
-// Under the "Resolve resolves all metadata, no exceptions" rule the full responsibility is: detect bare vs
-// working-tree, read `.git/HEAD` into HEAD (with symbolic-ref resolution to a 40-char SHA) and Ref, parse
-// `.git/config` into Remotes, and run a `git status --porcelain` equivalent for Dirty. This body currently
-// only rebinds SourcePath to the scoped execution root — full metadata discovery is TODO and tracked as the
-// next git-scope gap in the phase-8 plan. Callers depending on Ref/HEAD/Remotes/Bare/Dirty being populated
-// should treat them as best-effort until the TODO closes.
+// Rebinds SourcePath to the scoped execution root, then populates every derived field from the on-disk
+// `.git/` contents: Bare (via [isGitRepo]), HEAD (via [readHEADSha]), Ref (via [readBranchName]; empty on
+// detached HEAD), Dirty (via [isDirtyRepo]; only for working trees), and Remotes (via [readRemotes]). All
+// derived fields are cleared to zero before population so that Resolve is the single source of truth per
+// the "Resolve resolves all metadata, no exceptions" rule.
+//
+// A path that does not exist, is not a directory, or is not a git repository is not an error: the receiver
+// returns with zero-valued metadata and nil error. Callers inspect [Resource.Bare] and the presence of HEAD
+// to distinguish "resolved to empty" from "never resolved."
 //
 // Returns:
-//   - error: any error from the (forthcoming) on-disk reads; nil when the path does not exist.
+//   - error: currently always nil; reserved for future error channels (e.g., surfacing `git` binary
+//     unavailability as an explicit condition instead of silently treating it as "no repo").
 func (r *Resource) Resolve() error {
 
 	root := r.ExecutionContext().Root
-
 	r.SourcePath = root.NewPath(r.SourcePath.Abs())
 
-	// TODO(phase-8 step 13.0(b)): detect bare vs working-tree (presence of .git subdir vs git-dir contents at
-	// top); read .git/HEAD and populate HEAD (resolved SHA) + Ref; parse .git/config and populate Remotes; run
-	// `git status --porcelain` equivalent and populate Dirty.
+	r.Ref, r.HEAD, r.Bare, r.Dirty, r.Remotes = "", "", false, false, nil
+
+	abs := r.SourcePath.Abs()
+
+	repo, bare := isGitRepo(abs)
+	if !repo {
+		return nil
+	}
+
+	r.Bare = bare
+	r.HEAD = readHEADSha(abs)
+	r.Ref = readBranchName(abs)
+	r.Remotes = readRemotes(abs)
+
+	if !bare {
+		r.Dirty = isDirtyRepo(abs)
+	}
 
 	return nil
 }

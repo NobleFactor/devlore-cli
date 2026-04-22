@@ -159,13 +159,17 @@ func (p *Provider) CompensateClone(state *Resource) error {
 
 // Checkout checks out a ref in the given repository directory.
 //
+// After `git checkout` succeeds, [Resource.Resolve] is called to re-read on-disk state — per the "Resolve
+// resolves all metadata, no exceptions" rule, Ref/HEAD/Dirty/Remotes come from `.git/`, not from direct
+// assignment in this method's body.
+//
 // Parameters:
 //   - repo: git resource identifying the local repository.
 //   - ref:  branch, tag, or commit to check out.
 //
 // Returns:
-//   - *Resource: the repository resource with Ref updated to the checked-out ref.
-//   - error:     any error from `git checkout`.
+//   - *Resource: the repository resource with metadata refreshed by Resolve.
+//   - error:     any error from `git checkout` or from the subsequent Resolve.
 func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "checkout", ref)
@@ -176,19 +180,24 @@ func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 		return nil, err
 	}
 
-	repo.Ref = ref
+	if err := repo.Resolve(); err != nil {
+		return repo, err
+	}
 
 	return repo, nil
 }
 
 // Pull pulls the latest changes in the given repository directory.
 //
+// After `git pull` succeeds, [Resource.Resolve] is called to re-read on-disk state — HEAD and Dirty may
+// have changed.
+//
 // Parameters:
 //   - repo: git resource identifying the local repository.
 //
 // Returns:
-//   - *Resource: the repository resource after the pull completes.
-//   - error:     any error from `git pull`.
+//   - *Resource: the repository resource with metadata refreshed by Resolve.
+//   - error:     any error from `git pull` or from the subsequent Resolve.
 func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "pull")
@@ -197,6 +206,10 @@ func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 
 	if err := cmd.Run(); err != nil {
 		return nil, err
+	}
+
+	if err := repo.Resolve(); err != nil {
+		return repo, err
 	}
 
 	return repo, nil

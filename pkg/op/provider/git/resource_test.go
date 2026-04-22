@@ -14,7 +14,3 @@ import (
 func TestResourceImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
-
-func TestTombstoneImplementsInterface(t *testing.T) {
-	var _ op.Tombstone = (*Tombstone)(nil)
-}
