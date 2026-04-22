@@ -351,15 +351,3 @@ func (r *Resource) refreshWith(info os.FileInfo, checksum string) error {
 // endregion
 
 // endregion
-
-// Tombstone holds file-specific compensation state.
-//
-// The embedded [op.TombstoneBase] carries the affected [Resource] whose identity is preserved — SourcePath always
-// reflects the file's true home.
-type Tombstone struct {
-	op.TombstoneBase
-
-	// RecoveryID records where the data was temporarily moved during the operation (backup, recovery site, or move
-	// destination). An empty RecoveryID means no prior data existed to recover.
-	RecoveryID string
-}

@@ -4,45 +4,118 @@
 package git
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
-	"path/filepath"
+
+	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// NewResource creates a git.Resource from a value.
+// Resource represents a cloned git repository.
 //
-// The value is a string clone path. The path is canonicalized to an absolute path and the URI is computed at
-// construction time as "git:<escaped-path>".
+// Identity is the local clone's filesystem location, stored as a file:// URI in [op.ResourceBase]. Every domain
+// field — Ref, HEAD, Remotes, Bare, Dirty — is populated by [Resource.Resolve] from the on-disk `.git/`
+// contents. Ref and HEAD are additionally persisted through JSON/YAML so a serialized Resource can carry its
+// version snapshot to contexts where Resolve cannot run (e.g., cross-host comparison, offline inspection);
+// Remotes, Bare, and Dirty are operational and not persisted — they're always rebuilt by Resolve.
+type Resource struct {
+	op.ResourceBase
+
+	// SourcePath is the local clone's canonical absolute path; identity derives from this via the file:// URI.
+	// Not persisted — reconstructed from the URI on deserialization.
+	SourcePath op.Path `json:"-" yaml:"-"`
+
+	// Ref is the branch, tag, or commit reference the clone is positioned at. Populated by [Resource.Resolve]
+	// from `.git/HEAD`; persisted for round-trip continuity when Resolve cannot be called.
+	Ref string `json:"ref,omitempty" yaml:"ref,omitempty"`
+
+	// HEAD is the resolved commit SHA (40-char hex) the clone is currently pointing to. Populated by
+	// [Resource.Resolve] from `.git/HEAD`; persisted for round-trip continuity — pins the clone to an exact
+	// version across serialization. Empty when unresolved.
+	HEAD string `json:"head,omitempty" yaml:"head,omitempty"`
+
+	// Remotes maps remote name (e.g., "origin") to its fetch/push URL pair. Populated by [Resource.Resolve]
+	// from `.git/config`; not persisted.
+	Remotes map[string]Remote `json:"-" yaml:"-"`
+
+	// Bare reports whether this is a bare repository (no working tree). Populated by [Resource.Resolve];
+	// not persisted.
+	Bare bool `json:"-" yaml:"-"`
+
+	// Dirty reports whether the working tree has uncommitted changes. Populated by [Resource.Resolve];
+	// not persisted.
+	Dirty bool `json:"-" yaml:"-"`
+}
+
+// NewResource constructs a git.Resource from a string path or a file URI.
+//
+// The input may be a bare filesystem path ("/opt/repo") or a file URI ("file:///opt/repo"). File URIs are
+// strictly validated per RFC 8089 — userinfo, non-localhost host, query, fragment, and opaque form are rejected.
+// Identity is the canonical file:// URI computed from the resolved absolute path; remotes, ref, HEAD, and other
+// metadata are populated post-construction by Clone, Resolve, or explicit setters.
 //
 // Parameters:
-//   - ctx: the execution context.
-//   - value: expected to be a string clone path.
+//   - ctx: execution context.
+//   - value: a string file path or file URI.
 //
 // Returns:
-//   - *Resource: the initialized resource.
-//   - error: if value is not a string.
+//   - *Resource: the initialized resource with URI and SourcePath set; all other fields zero.
+//   - error: if value is not a string, or the input violates RFC 8089 when in file URI form.
 func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
 	path, ok := value.(string)
 	if !ok {
-		return nil, fmt.Errorf("git.Resource: expected string path, got %T", value)
+		return nil, fmt.Errorf("git.Resource: expected string, got %T", value)
 	}
 
+	parsed, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("git.Resource: invalid input %q: %w", path, err)
+	}
+
+	if parsed.Scheme != "" && parsed.Scheme != "file" {
+		return nil, fmt.Errorf("git.Resource: expected file scheme, got %q in %q", parsed.Scheme, path)
+	}
+
+	if parsed.Scheme == "file" {
+
+		if parsed.User != nil {
+			return nil, fmt.Errorf("git.Resource: userinfo not permitted in %q", path)
+		}
+
+		if parsed.Host != "" && parsed.Host != "localhost" {
+			return nil, fmt.Errorf("git.Resource: unexpected host %q in %q", parsed.Host, path)
+		}
+
+		if parsed.RawQuery != "" {
+			return nil, fmt.Errorf("git.Resource: query not permitted in %q", path)
+		}
+
+		if parsed.Fragment != "" {
+			return nil, fmt.Errorf("git.Resource: fragment not permitted in %q", path)
+		}
+
+		if parsed.Opaque != "" {
+			return nil, fmt.Errorf("git.Resource: opaque form not permitted in %q; use file:///path", path)
+		}
+
+		path = parsed.Path
+	}
+
+	sourcePath := ctx.Root.NewPath(path)
+
 	return &Resource{
-		ResourceBase: op.NewResourceBase(ctx, gitURI("", path, "")),
-		ClonePath:    path,
+		ResourceBase: op.NewResourceBase(ctx, "file://"+sourcePath.Abs()),
+		SourcePath:   sourcePath,
 	}, nil
 }
 
-// Resource represents a cloned git repository.
-type Resource struct {
-	op.ResourceBase
-	URL       string
-	ClonePath string
-	Ref       string
-}
+// region EXPORTED METHODS
+
+// region Behaviors
 
 // Equal reports whether r and other identify the same git resource.
 //
@@ -67,64 +140,228 @@ func (r *Resource) Equal(other any) bool {
 	return r.ResourceBase.Equal(other)
 }
 
-// String returns a compact JSON representation of the resource.
-func (r *Resource) String() string { return r.Format(r) }
+// MarshalJSON marshals the resource to its JSON wire form — identity (URI) plus snapshot markers (Ref, HEAD).
+//
+// Remotes, Bare, and Dirty are intentionally omitted; they are operational state re-derived by
+// [Resource.Resolve] after the receiver has been rehydrated.
+//
+// Returns:
+//   - []byte: JSON-encoded object.
+//   - error: any error from [json.Marshal]; none under normal conditions.
+func (r *Resource) MarshalJSON() ([]byte, error) {
 
-// gitURI computes an opaque git: URI from a repository URL or clone path and optional ref.
-func gitURI(repoURL, clonePath, ref string) string {
-
-	var opaque string
-	if repoURL != "" {
-		opaque = escapeInnerURI(repoURL)
-	} else {
-		opaque = escapeInnerURI(clonePath)
-	}
-	s := "git:" + opaque
-	if ref != "" {
-		s += "#" + ref
-	}
-	return s
+	type alias Resource
+	return json.Marshal(&struct {
+		URI string `json:"uri"`
+		*alias
+	}{
+		URI:   r.URI(),
+		alias: (*alias)(r),
+	})
 }
 
-// escapeInnerURI percent-encodes # and ? in an inner URI so they don't
-// interfere with the outer URI's fragment and query parsing.
-func escapeInnerURI(s string) string {
-	// url.PathEscape is too aggressive (encodes /). We only need to
-	// escape the characters that would be consumed by url.Parse.
-	var b []byte
-	for i := range len(s) {
-		switch s[i] {
-		case '#':
-			b = append(b, '%', '2', '3')
-		case '?':
-			b = append(b, '%', '3', 'F')
-		default:
-			b = append(b, s[i])
-		}
-	}
-	return string(b)
+// MarshalYAML marshals the resource to its YAML wire form — identity (URI) plus snapshot markers (Ref, HEAD).
+//
+// Returns:
+//   - any: the value for the YAML encoder to serialize.
+//   - error: nil under normal conditions.
+func (r *Resource) MarshalYAML() (any, error) {
+
+	type alias Resource
+	return &struct {
+		URI string `yaml:"uri"`
+		*alias
+	}{
+		URI:   r.URI(),
+		alias: (*alias)(r),
+	}, nil
 }
 
-// unescapeInnerURI reverses the targeted escaping of escapeInnerURI.
-func unescapeInnerURI(s string) string {
-	u, err := url.PathUnescape(s)
-	if err != nil {
-		return s
-	}
-	return u
-}
-
-// Resolve canonicalizes the clone path to an absolute path at execution time.
+// Resolve inspects the local filesystem and populates operational metadata on the receiver.
+//
+// Under the "Resolve resolves all metadata, no exceptions" rule the full responsibility is: detect bare vs
+// working-tree, read `.git/HEAD` into HEAD (with symbolic-ref resolution to a 40-char SHA) and Ref, parse
+// `.git/config` into Remotes, and run a `git status --porcelain` equivalent for Dirty. This body currently
+// only rebinds SourcePath to the scoped execution root — full metadata discovery is TODO and tracked as the
+// next git-scope gap in the phase-8 plan. Callers depending on Ref/HEAD/Remotes/Bare/Dirty being populated
+// should treat them as best-effort until the TODO closes.
+//
+// Returns:
+//   - error: any error from the (forthcoming) on-disk reads; nil when the path does not exist.
 func (r *Resource) Resolve() error {
 
-	if abs, err := filepath.Abs(r.ClonePath); err == nil {
-		r.ClonePath = filepath.Clean(abs)
-	}
+	root := r.ExecutionContext().Root
+
+	r.SourcePath = root.NewPath(r.SourcePath.Abs())
+
+	// TODO(phase-8 step 13.0(b)): detect bare vs working-tree (presence of .git subdir vs git-dir contents at
+	// top); read .git/HEAD and populate HEAD (resolved SHA) + Ref; parse .git/config and populate Remotes; run
+	// `git status --porcelain` equivalent and populate Dirty.
+
 	return nil
 }
 
-// Tombstone holds git-specific compensation state.
-type Tombstone struct {
-	op.TombstoneBase
-	ClonedPath string
+// String returns a debug-oriented single-line representation of the resource suitable for log lines and IDE
+// debug windows.
+//
+// Returns:
+//   - string: "git.Resource{uri=<URI>, ref=<ref>, head=<head>, bare=<bool>, dirty=<bool>, remotes=<count>}".
+func (r *Resource) String() string {
+	return fmt.Sprintf("git.Resource{uri=%s, ref=%s, head=%s, bare=%t, dirty=%t, remotes=%d}",
+		r.URI(), r.Ref, r.HEAD, r.Bare, r.Dirty, len(r.Remotes))
+}
+
+// UnmarshalJSON populates the receiver from its JSON wire form.
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// invoking this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned
+// from the decoded snapshot. Operational state (Remotes, Bare, Dirty) stays at zero values until
+// [Resource.Resolve] reads the on-disk clone.
+//
+// Parameters:
+//   - data: JSON-encoded wire form.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the JSON does not decode, or resource construction
+//     fails.
+func (r *Resource) UnmarshalJSON(data []byte) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("git.Resource: UnmarshalJSON requires ExecutionContext on receiver")
+	}
+
+	type alias Resource
+	aux := &struct {
+		URI string `json:"uri"`
+		*alias
+	}{alias: (*alias)(r)}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	ref, head := r.Ref, r.HEAD
+
+	built, err := NewResource(r.ExecutionContext(), aux.URI)
+	if err != nil {
+		return err
+	}
+
+	built.Ref = ref
+	built.HEAD = head
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalStarlark populates the receiver from a [starlark.String] containing a local path or file URI.
+//
+// Scalar form: only identity (URI) round-trips. Ref, HEAD, and Remotes remain at zero values; richer
+// round-trip uses [Resource.UnmarshalJSON] or [Resource.UnmarshalYAML].
+//
+// Parameters:
+//   - sv: a starlark value expected to be a [starlark.String].
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the value is not a [starlark.String], or resource
+//     construction fails.
+func (r *Resource) UnmarshalStarlark(sv starlark.Value) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("git.Resource: UnmarshalStarlark requires ExecutionContext on receiver")
+	}
+
+	s, ok := sv.(starlark.String)
+	if !ok {
+		return fmt.Errorf("git.Resource: expected starlark.String, got %s", sv.Type())
+	}
+
+	built, err := NewResource(r.ExecutionContext(), string(s))
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalText populates the receiver from raw UTF-8 bytes containing a local path or file URI.
+//
+// Scalar form: only identity (URI) round-trips. Ref, HEAD, and Remotes remain at zero values; richer
+// round-trip uses [Resource.UnmarshalJSON] or [Resource.UnmarshalYAML].
+//
+// Parameters:
+//   - text: UTF-8 bytes containing the resource's URI or path.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing or resource construction fails.
+func (r *Resource) UnmarshalText(text []byte) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("git.Resource: UnmarshalText requires ExecutionContext on receiver")
+	}
+
+	built, err := NewResource(r.ExecutionContext(), string(text))
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalYAML populates the receiver from its YAML wire form.
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// invoking this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned
+// from the decoded snapshot. Operational state (Remotes, Bare, Dirty) stays at zero values until
+// [Resource.Resolve] reads the on-disk clone.
+//
+// Parameters:
+//   - unmarshal: callback supplied by the YAML decoder that projects the current node into the given target.
+//
+// Returns:
+//   - error: non-nil if the ExecutionContext is missing, the YAML does not decode, or resource construction
+//     fails.
+func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+
+	if r.ExecutionContext() == nil {
+		return errors.New("git.Resource: UnmarshalYAML requires ExecutionContext on receiver")
+	}
+
+	type alias Resource
+	aux := &struct {
+		URI string `yaml:"uri"`
+		*alias
+	}{alias: (*alias)(r)}
+
+	if err := unmarshal(aux); err != nil {
+		return err
+	}
+
+	ref, head := r.Ref, r.HEAD
+
+	built, err := NewResource(r.ExecutionContext(), aux.URI)
+	if err != nil {
+		return err
+	}
+
+	built.Ref = ref
+	built.HEAD = head
+
+	*r = *built
+	return nil
+}
+
+// endregion
+
+// endregion
+
+// Remote carries the fetch and push URLs for a named git remote.
+//
+// PushURL is empty when the push direction uses FetchURL (git's default) — the distinction matters for workflows
+// that split read and write endpoints (e.g., HTTPS fetch / SSH push, mirror fetch / authoritative push).
+type Remote struct {
+	FetchURL string
+	PushURL  string
 }

@@ -6,83 +6,175 @@ package git
 import (
 	"errors"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	netprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
-
-func TestCloneViaHook(t *testing.T) {
-	var gotURL, gotPath string
-
-	p := &Provider{
-		ProviderBase: op.NewProviderBase(&op.ExecutionContext{}),
-		cloneFn: func(url, path string) error {
-			gotURL = url
-			gotPath = path
-			return nil
-		},
+// newTestProvider returns a Provider whose ExecutionContext has Root anchored at "/" and whose cloneFn hook
+// is replaced with the supplied function. Tests use the hook to capture the argv that would have been passed
+// to `git clone` without executing the real binary.
+//
+// Parameters:
+//   - t:    the test harness.
+//   - hook: the test-only replacement for doClone's exec path; nil means fall through to the real binary
+//     (tests never do this).
+//
+// Returns:
+//   - *Provider: the initialized provider bound to a root-anchored execution context.
+func newTestProvider(t *testing.T, hook func(args []string) error) *Provider {
+	t.Helper()
+	return &Provider{
+		ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter("/")}),
+		cloneFn:      hook,
 	}
+}
 
-	url := mustNetResource(t, "https://example.com/repo.git")
-	
+// --- Clone ---
 
-	result, state, err := p.Clone(url, "/tmp/clone-dest")
+func TestClone_HookReceivesArgv(t *testing.T) {
+
+	var gotArgs []string
+	p := newTestProvider(t, func(args []string) error {
+		gotArgs = args
+		return nil
+	})
+
+	const repo = "https://example.com/repo.git"
+	const dir = "/tmp/clone-dest"
+
+	result, state, err := p.Clone(repo, dir, false, "", 0, "", false, false, "", false, false, nil)
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
 
-	if gotURL != "https://example.com/repo.git" {
-		t.Errorf("cloneFn url = %q, want %q", gotURL, "https://example.com/repo.git")
+	want := []string{"clone", repo, dir}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Errorf("cloneFn args =\n  got: %q\n want: %q", gotArgs, want)
 	}
-	if gotPath != "/tmp/clone-dest" {
-		t.Errorf("cloneFn path = %q, want %q", gotPath, "/tmp/clone-dest")
+	if result.SourcePath.Abs() != dir {
+		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), dir)
 	}
-	if result.ClonePath != "/tmp/clone-dest" {
-		t.Errorf("result.ClonePath = %q, want %q", result.ClonePath, "/tmp/clone-dest")
+
+	if state == nil {
+		t.Fatalf("state = nil, want a *Resource")
 	}
-	if result.URL != "https://example.com/repo.git" {
-		t.Errorf("result.URL = %q, want %q", result.URL, "https://example.com/repo.git")
-	}
-	if state.ClonedPath != "/tmp/clone-dest" {
-		t.Errorf("state.ClonedPath = %q, want %q", state.ClonedPath, "/tmp/clone-dest")
+	if state.SourcePath.Abs() != dir {
+		t.Errorf("state.SourcePath.Abs() = %q, want %q", state.SourcePath.Abs(), dir)
 	}
 }
 
-func TestCloneHookError(t *testing.T) {
+func TestClone_HookPropagatesError(t *testing.T) {
+
 	hookErr := errors.New("clone failed")
-	p := &Provider{
-		ProviderBase: op.NewProviderBase(&op.ExecutionContext{}),
-		cloneFn: func(_, _ string) error {
-			return hookErr
-		},
-	}
+	p := newTestProvider(t, func(_ []string) error {
+		return hookErr
+	})
 
-	url := mustNetResource(t, "https://example.com/repo.git")
-
-	result, state, err := p.Clone(url, "/tmp/dest")
+	result, state, err := p.Clone(
+		"https://example.com/repo.git", "/tmp/dest",
+		false, "", 0, "", false, false, "", false, false, nil,
+	)
 	if !errors.Is(err, hookErr) {
 		t.Fatalf("Clone error = %v, want %v", err, hookErr)
 	}
 	if result != nil {
 		t.Errorf("result = %v, want nil", result)
 	}
-	if state.ClonedPath != "" {
-		t.Errorf("state.ClonedPath = %q, want empty", state.ClonedPath)
+	if state != nil {
+		t.Errorf("state = %v, want nil", state)
 	}
 }
 
+func TestClone_DirectoryDerivedFromRepository(t *testing.T) {
+
+	var gotArgs []string
+	p := newTestProvider(t, func(args []string) error {
+		gotArgs = args
+		return nil
+	})
+
+	result, _, err := p.Clone(
+		"https://example.com/org/repo.git", "",
+		false, "", 0, "", false, false, "", false, false, nil,
+	)
+	if err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+
+	// guessDirName → "repo"; under Root="/", SourcePath.Abs() resolves to "/repo".
+	if len(gotArgs) != 3 {
+		t.Fatalf("args = %q, want 3 entries", gotArgs)
+	}
+	if gotArgs[len(gotArgs)-1] != "/repo" {
+		t.Errorf("directory arg = %q, want %q", gotArgs[len(gotArgs)-1], "/repo")
+	}
+	if result.SourcePath.Abs() != "/repo" {
+		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), "/repo")
+	}
+}
+
+func TestClone_OptionsReachHook(t *testing.T) {
+
+	var gotArgs []string
+	p := newTestProvider(t, func(args []string) error {
+		gotArgs = args
+		return nil
+	})
+
+	const repo = "https://example.com/repo.git"
+	const dir = "/tmp/shallow"
+
+	_, _, err := p.Clone(
+		repo, dir,
+		false,  // bare
+		"main", // branch
+		1,      // depth
+		"",     // filter
+		false,  // noCheckout
+		true,   // noTags
+		"",     // origin
+		false,  // recurseSubmodules
+		true,   // singleBranch
+		map[string]any{"template": "/etc/gt"},
+	)
+	if err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+
+	want := []string{
+		"clone",
+		"--branch", "main",
+		"--depth", "1",
+		"--no-tags",
+		"--single-branch",
+		"--template=/etc/gt",
+		repo, dir,
+	}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Errorf("cloneFn args =\n  got: %q\n want: %q", gotArgs, want)
+	}
+}
+
+// --- CompensateClone ---
+
 func TestCompensateClone(t *testing.T) {
+
 	tmp := t.TempDir()
 	dir := tmp + "/to-remove"
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{})}
-	if err := p.CompensateClone(Tombstone{ClonedPath: dir}); err != nil {
+	ctx := &op.ExecutionContext{Root: op.NewRootReaderWriter("/")}
+	r, err := NewResource(ctx, dir)
+	if err != nil {
+		t.Fatalf("NewResource(%q): %v", dir, err)
+	}
+
+	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	if err := p.CompensateClone(r); err != nil {
 		t.Fatalf("CompensateClone: %v", err)
 	}
 
@@ -91,28 +183,10 @@ func TestCompensateClone(t *testing.T) {
 	}
 }
 
-func TestCompensateCloneEmptyPath(t *testing.T) {
+func TestCompensateClone_NoResource(t *testing.T) {
+
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{})}
-	if err := p.CompensateClone(Tombstone{}); err != nil {
-		t.Fatalf("CompensateClone(empty) = %v, want nil", err)
+	if err := p.CompensateClone(nil); err != nil {
+		t.Fatalf("CompensateClone(nil) = %v, want nil", err)
 	}
-}
-
-func mustNetResource(t *testing.T, raw string) *netprov.Resource {
-	t.Helper()
-	r, err := netprov.NewResource(&op.ExecutionContext{}, raw)
-	if err != nil {
-		t.Fatalf("NewResource(%q): %v", raw, err)
-	}
-	return r
-}
-
-func mustFileResource(t *testing.T, path string) *file.Resource {
-	t.Helper()
-	ctx := &op.ExecutionContext{Root: op.NewRootReaderWriter("/")}
-	r, err := file.NewResource(ctx, path)
-	if err != nil {
-		t.Fatalf("NewResource(%q): %v", path, err)
-	}
-	return r
 }

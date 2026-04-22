@@ -178,7 +178,7 @@ graph declaratively — operations are scheduled, not executed immediately.
 | Method | Description |
 |--------|-------------|
 | `plan.archive.extract(archive, prefix)` | Extract an archive |
-| `plan.git.clone(url, path)` | Clone a repository |
+| `plan.git.clone(repository, directory, **kwargs)` | Clone a repository; optional kwargs map 1:1 to `git clone` flags (`branch`, `depth`, `recurse_submodules`, `single_branch`, `bare`, `filter`, `origin`, `no_tags`, `no_checkout`, plus arbitrary pass-through) |
 | `plan.git.checkout(repo, ref)` | Checkout a ref |
 | `plan.git.pull(repo)` | Pull latest changes |
 
