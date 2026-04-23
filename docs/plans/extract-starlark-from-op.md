@@ -30,6 +30,7 @@ relationships, and codegen. Remove redundancy and framework code from providers.
 | 12. Address defects on the flow provider | not-started | — |
 | 13. Catalog serialization, Rebind rehydration | not-started | — |
 | 14. Compensation undo-type alignment | not-started | — |
+| 15. file.Provider stream methods (ReadStream, WriteStream) | not-started | — |
 
 ## What Phase 9 Covers (Current PR)
 
@@ -1777,6 +1778,62 @@ shapes uniformly.
 - Precedes any downstream repo consuming the compensation surface
   (`devlore-registry`, lore packages) — they'll need to re-audit
   compensable method signatures once the shapes are stable.
+
+## Phase 15: file.Provider Stream Methods
+
+### Problem
+
+`file.Provider` exposes `ReadBytes` / `ReadText` for reading content out
+of a file.Resource and `WriteBytes` / `WriteText` for writing content
+into a path. Both flavors load the full content into a Go-side string
+or byte slice — fine for small files, wasteful or impossible for large
+ones.
+
+With `mem.Stream` landing as a memory-mapped Resource type for
+streaming access, `file.Provider` needs the third flavor to complete
+the trio: stream-based I/O.
+
+### Scope
+
+Two new methods on `file.Provider`:
+
+- **`ReadStream(resource *Resource) (*mem.Stream, error)`** — opens the
+  file and returns a `*mem.Stream` backed by a memory-mapped view of
+  its contents. Consumers read via the Stream's Reader / AsBytes /
+  AsText access methods without the provider pre-loading content.
+- **`WriteStream(destinationPath string, stream *mem.Stream, mode os.FileMode) (*Resource, <undo>, error)`** —
+  writes the Stream's content to destinationPath. Compensation shape
+  (Bucket A tombstone if overwriting vs. Bucket B creation handle if
+  new) follows the per-action classification resolved in Phase 14.
+
+No changes to the existing `ReadBytes`/`ReadText`/`WriteBytes`/`WriteText`
+methods — they remain for small-content convenience.
+
+### Blast area
+
+- `pkg/op/provider/file/provider.go` — two new methods + doc
+  comments; possibly a `CompensateWriteStream` if Phase 14's
+  classification places it in Bucket A.
+- `pkg/op/provider/file/gen/provider.gen.go` — regenerated announce
+  map.
+- `pkg/op/provider/file/provider_test.go` — stream-flavored tests
+  (round-trip: WriteStream → ReadStream yields same content).
+- Cross-package: `file` imports `mem` for `*mem.Stream`. Acyclic
+  (mem does not import file).
+
+### Exit criterion
+
+Large-file workflows that today force callers to buffer full content
+in memory have a stream-shaped alternative. The mem.Stream → file
+and file → mem.Stream flows are symmetric.
+
+### Dependencies
+
+- Follows the mem.Stream introduction (part of Phase 8 / step 13.0(b)
+  if that work returns there, or a later phase — depends on
+  sequencing).
+- Phase 14's Bucket-A/B classification determines WriteStream's
+  compensation shape.
 
 ## What Remains After Phase 9
 

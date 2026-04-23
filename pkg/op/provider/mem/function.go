@@ -5,12 +5,18 @@ package mem
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"path/filepath"
 	"reflect"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
+	"golang.org/x/exp/mmap"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 var errorType = reflect.TypeFor[error]()
@@ -25,44 +31,62 @@ func init() {
 	)
 }
 
-// Function is a mem.Resource that holds a starlark function extracted into a self-contained synthetic source file with
-// compiled bytecode.
+// Function is a [Resource] that holds a starlark function extracted into a self-contained synthetic source
+// file; the source text and its compiled bytecode are archived in the [op.RecoverySite] as a single packed
+// file (see [writeFunctionPack] for the layout).
 //
-// The URI is opaque: mem:function/<FuncType>/<Name>. FuncType is the named Go type the function satisfies (e.g.,
-// "file.Reducer", "Predicate"). Name is the function name or <action>.<param> for lambdas.
+// The URI is opaque: mem:function/<FuncType>/<Name>. FuncType is the named Go type the function satisfies
+// (e.g., "file.Reducer", "Predicate"). Name is the function name or <action>.<param> for lambdas.
 //
-// The Data field (inherited from Resource) holds the synthetic source text. The Compiled field holds serialized bytecode
-// from Program.Write. Both are []byte — serializable, transferable, persistable.
+// Compiled and CompilerVersion are in-memory caches populated by [NewFunction] and repopulated by
+// [Function.Init] when it reads bytecode out of the pack. They are NOT persisted through JSON/YAML —
+// the archived pack is the persistent source of truth, and fresh Init calls repopulate the caches.
 //
 // Lifecycle:
-//  1. NewFunction(ctx, uri, *starlark.Function) → extracts and compiles
-//  2. Init(thread) → loads bytecode, extracts live fn
-//  3. Fn() → returns live callable for adapter invocation
+//  1. [NewFunction](ctx, ResourceSpec{Data: *starlark.Function}) extracts metadata, synthesizes source,
+//     compiles it, packs source+compiled into one RecoverySite entry, populates in-memory caches.
+//  2. [Function.Init](thread) returns a live [starlark.Callable]. Fast path uses the in-memory Compiled
+//     cache when the compiler version matches; otherwise reads the pack, and on compiler-version match
+//     loads bytecode, on mismatch recompiles the source and refreshes the caches.
 type Function struct {
-	Resource // embeds mem.Resource (source text in Data)
+	Resource
 
-	Compiled []byte // bytecode — Program.Write output, recompiled on version mismatch
+	// Compiled is the starlark bytecode cached in-memory. Not persisted — the pack in RecoverySite carries
+	// the canonical bytes, and Init rehydrates this cache from the pack.
+	Compiled []byte `json:"-" yaml:"-"`
 
-	// Extraction metadata.
-	FuncName        string   // function name in synthetic file ("_callable" or original)
-	ParamNames      []string // parameter names
-	NumParams       int      // total params (for validation)
-	CompilerVersion uint32   // starlark.CompilerVersion at compile time
-	OriginalPos     string   // "recipe.star:42" (diagnostics only)
+	// CompilerVersion is [starlark.CompilerVersion] at the time Compiled was produced. Not persisted;
+	// paired with the in-memory cache.
+	CompilerVersion uint32 `json:"-" yaml:"-"`
+
+	// Extraction metadata — persisted.
+	FuncName    string   // function name in synthetic file (original name or "_lambda")
+	ParamNames  []string // parameter names
+	NumParams   int      // total params (for validation)
+	OriginalPos string   // "recipe.star:42" (diagnostics only)
 }
 
 // NewFunction constructs a Function by extracting and compiling a *starlark.Function.
 //
-// The value must be a [ResourceSpec] with ContentType "function", Qualifier encoding the func type and name
-// (e.g., "file.Reducer/count_python_files"), and Data holding a *starlark.Function.
+// The value must be a [ResourceSpec] with ContentType "function", Namespace encoding the Go func type, and
+// Data holding a *starlark.Function. NewFunction:
+//
+//  1. Extracts metadata (parameter names, position, synthetic function name).
+//  2. Synthesizes a self-contained source file via [synthesize].
+//  3. Compiles the source via [starlark.SourceProgramOptions].
+//  4. Serializes the compiled Program via [starlark.Program.Write].
+//  5. Packs source + compiled + compiler version via [writeFunctionPack].
+//  6. Streams the pack into [op.RecoverySite] via [op.RecoverySite.ArchiveStream]; stores the returned
+//     recovery ID on the embedded Resource.
+//  7. Caches the compiled bytes and compiler version on the Function for in-memory fast-path Init.
 //
 // Parameters:
-//   - ctx: execution context.
-//   - value: a [ResourceSpec] with Data holding a *starlark.Function.
+//   - ctx:   execution context; must have a non-nil RecoverySite and a valid Root.
+//   - value: a [ResourceSpec] whose Data holds a *starlark.Function.
 //
 // Returns:
-//   - *Function: the extracted and compiled function.
-//   - error: if extraction or compilation fails.
+//   - *Function: the fully-populated Function.
+//   - error:     if the spec is malformed, source synthesis / compilation fails, or archival fails.
 func NewFunction(ctx *op.ExecutionContext, value any) (*Function, error) {
 
 	spec, ok := value.(ResourceSpec)
@@ -85,9 +109,15 @@ func NewFunction(ctx *op.ExecutionContext, value any) (*Function, error) {
 		}
 	}
 
-	// Build the Function.
-
 	spec.ContentType = "function"
+
+	// Introspect parameters.
+
+	params := make([]string, starFn.NumParams())
+	for i := range starFn.NumParams() {
+		p, _ := starFn.Param(i)
+		params[i] = p
+	}
 
 	f := &Function{
 		Resource: Resource{
@@ -96,49 +126,67 @@ func NewFunction(ctx *op.ExecutionContext, value any) (*Function, error) {
 			Namespace:    spec.Namespace,
 			Name:         spec.Name,
 		},
-		FuncName: "_callable",
+		ParamNames: params,
+		NumParams:  starFn.NumParams(),
 	}
-
-	// Introspect parameters.
-
-	params := make([]string, starFn.NumParams())
-
-	for i := range starFn.NumParams() {
-		p, _ := starFn.Param(i)
-		params[i] = p
-	}
-
-	f.ParamNames = params
-	f.NumParams = starFn.NumParams()
-
-	// Record original position for diagnostics.
-
-	if pos := starFn.Position(); pos.IsValid() {
-		f.OriginalPos = pos.String()
-	}
-
-	// Set function name in synthetic file.
 
 	if starFn.Name() != "lambda" {
 		f.FuncName = starFn.Name()
 	}
 
+	if pos := starFn.Position(); pos.IsValid() {
+		f.OriginalPos = pos.String()
+	}
+
 	// Synthesize self-contained source.
 
 	source, err := synthesize(starFn, params)
-
 	if err != nil {
 		return nil, fmt.Errorf("mem.Function: extract %s: %w", spec.Name, err)
 	}
 
-	f.Data = source
-	f.ComputeHash()
-
 	// Compile to bytecode.
 
-	if err := f.compile(); err != nil {
-		return nil, err
+	prog, err := compileSource(source)
+	if err != nil {
+		return nil, fmt.Errorf("mem.Function: compile %s: %w", spec.Name, err)
 	}
+
+	compiled, err := programToBytes(prog)
+	if err != nil {
+		return nil, fmt.Errorf("mem.Function: serialize %s: %w", spec.Name, err)
+	}
+
+	// Pack source + compiled + compiler version.
+
+	var packBuf bytes.Buffer
+	if err := writeFunctionPack(&packBuf, source, compiled, starlark.CompilerVersion); err != nil {
+		return nil, fmt.Errorf("mem.Function: pack %s: %w", spec.Name, err)
+	}
+
+	// Derive SourcePath from URI (inherited from embedded Resource) and write the pack directly. The URI
+	// is reachability; no RecoverySite UUID indirection.
+	f.SourcePath, err = sourcePathFromURI(ctx.Root, f.URI())
+	if err != nil {
+		return nil, fmt.Errorf("mem.Function: source path: %w", err)
+	}
+
+	parentRel := filepath.Dir(f.SourcePath.Rel())
+	if err := ctx.Root.MkdirAll(ctx.Root.NewPath(parentRel), 0o700); err != nil {
+		return nil, fmt.Errorf("mem.Function: create parent dir: %w", err)
+	}
+
+	if err := ctx.Root.WriteFile(f.SourcePath, packBuf.Bytes(), 0o600); err != nil {
+		return nil, fmt.Errorf("mem.Function: write pack %s: %w", spec.Name, err)
+	}
+
+	// Hash records the canonical source text (not the pack).
+	h := sha256.Sum256(source)
+	f.Hash = hex.EncodeToString(h[:])
+
+	// In-memory caches — not persisted.
+	f.Compiled = compiled
+	f.CompilerVersion = starlark.CompilerVersion
 
 	return f, nil
 }
@@ -147,30 +195,26 @@ func NewFunction(ctx *op.ExecutionContext, value any) (*Function, error) {
 
 // region Behaviors
 
-// Init loads the compiled program (or recompiles from source on version mismatch) and returns the callable function.
+// Init loads the compiled program, executes its toplevel, and returns the named function as a callable.
 //
-// Each call returns a fresh callable with its own program globals — safe for concurrent use by gather iterations.
+// Fast path: if [Function.Compiled] is non-empty and [Function.CompilerVersion] matches the runtime's
+// [starlark.CompilerVersion], the program loads directly from the in-memory cache. This is the common case
+// within a process.
+//
+// Fallback path: opens the pack from RecoverySite via mmap, inspects the header, and either (a) loads
+// bytecode from the compiled section when the compiler version matches, or (b) reads the source section,
+// recompiles, and caches the new bytecode on the Function. Both sub-paths refresh the in-memory Compiled
+// cache so subsequent Init calls in the same process stay on the fast path.
 //
 // Parameters:
 //   - thread: the starlark thread for program initialization.
 //
 // Returns:
 //   - starlark.Callable: the live function.
-//   - error: non-nil if loading or initialization fails.
+//   - error:              non-nil if loading, compiling, or initialization fails.
 func (f *Function) Init(thread *starlark.Thread) (starlark.Callable, error) {
 
-	var prog *starlark.Program
-	var err error
-
-	if len(f.Compiled) > 0 && f.CompilerVersion == starlark.CompilerVersion {
-		prog, err = starlark.CompiledProgram(bytes.NewReader(f.Compiled))
-	} else {
-		_, prog, err = starlark.SourceProgramOptions(
-			&syntax.FileOptions{},
-			"<function>",
-			f.Data, func(string) bool { return false },
-		)
-	}
+	prog, err := f.loadProgram()
 	if err != nil {
 		return nil, fmt.Errorf("mem.Function init: %w", err)
 	}
@@ -184,10 +228,12 @@ func (f *Function) Init(thread *starlark.Thread) (starlark.Callable, error) {
 	if !ok {
 		return nil, fmt.Errorf("mem.Function init: function %q not found", f.FuncName)
 	}
+
 	callable, ok := fn.(starlark.Callable)
 	if !ok {
 		return nil, fmt.Errorf("mem.Function init: %q is %s, not callable", f.FuncName, fn.Type())
 	}
+
 	return callable, nil
 }
 
@@ -281,34 +327,117 @@ func (f *Function) Convert(target reflect.Type) (any, error) {
 
 // region Behaviors
 
-// compile compiles the synthetic source text and stores the bytecode.
+// loadProgram returns a compiled [starlark.Program] for this Function.
+//
+// Checks the in-memory Compiled cache first. On miss or version mismatch, opens the pack from RecoverySite
+// via mmap, reads the header, and either loads bytecode from the compiled section (version match) or
+// recompiles from the source section (version mismatch or no compiled payload). Refreshes the in-memory
+// cache on every fallback-path success so subsequent calls hit the fast path.
+func (f *Function) loadProgram() (*starlark.Program, error) {
+
+	// Fast path: cached in-memory bytecode matches current compiler version.
+	if len(f.Compiled) > 0 && f.CompilerVersion == starlark.CompilerVersion {
+		prog, err := starlark.CompiledProgram(bytes.NewReader(f.Compiled))
+		if err != nil {
+			return nil, fmt.Errorf("load cached bytecode: %w", err)
+		}
+		return prog, nil
+	}
+
+	// Fallback: open the pack from the URI-derived SourcePath.
+
+	abs := f.SourcePath.Abs()
+	if abs == "" {
+		return nil, fmt.Errorf("no SourcePath — Function was not archived")
+	}
+
+	m, err := mmap.Open(abs)
+	if err != nil {
+		return nil, fmt.Errorf("mmap %s: %w", abs, err)
+	}
+	defer func() { _ = m.Close() }()
+
+	h, err := readFunctionPackHeader(m)
+	if err != nil {
+		return nil, err
+	}
+
+	if h.CompiledSize > 0 && h.CompilerVersion == starlark.CompilerVersion {
+
+		compiledBytes := make([]byte, h.CompiledSize)
+		if _, err := m.ReadAt(compiledBytes, int64(h.CompiledOffset)); err != nil {
+			return nil, fmt.Errorf("read compiled section: %w", err)
+		}
+
+		prog, err := starlark.CompiledProgram(bytes.NewReader(compiledBytes))
+		if err != nil {
+			return nil, fmt.Errorf("decode compiled: %w", err)
+		}
+
+		f.Compiled = compiledBytes
+		f.CompilerVersion = h.CompilerVersion
+
+		return prog, nil
+	}
+
+	// Compiler-version mismatch or no compiled payload: recompile from source section.
+
+	source, err := io.ReadAll(sourceReader(m, h))
+	if err != nil {
+		return nil, fmt.Errorf("read source section: %w", err)
+	}
+
+	prog, err := compileSource(source)
+	if err != nil {
+		return nil, fmt.Errorf("recompile: %w", err)
+	}
+
+	// Cache the freshly-compiled bytes for subsequent in-process Init calls.
+	if compiled, cerr := programToBytes(prog); cerr == nil {
+		f.Compiled = compiled
+		f.CompilerVersion = starlark.CompilerVersion
+	}
+
+	return prog, nil
+}
+
+// endregion
+
+// endregion
+
+// compileSource parses and compiles the given starlark source text.
+//
+// Parameters:
+//   - source: the UTF-8 source text of a self-contained synthetic file.
 //
 // Returns:
-//   - error: non-nil if compilation fails.
-func (f *Function) compile() error {
-
-	if len(f.Data) == 0 {
-		return fmt.Errorf("mem.Function compile: no source text")
-	}
+//   - *starlark.Program: the compiled program, ready for Init.
+//   - error:              any parse or compile error.
+func compileSource(source []byte) (*starlark.Program, error) {
 
 	_, prog, err := starlark.SourceProgramOptions(
-		&syntax.FileOptions{}, "<function>", f.Data, func(string) bool { return false },
+		&syntax.FileOptions{}, "<function>", source, func(string) bool { return false },
 	)
+	return prog, err
+}
 
-	if err != nil {
-		return fmt.Errorf("mem.Function compile: %w", err)
-	}
+// programToBytes serializes a compiled program via [starlark.Program.Write].
+//
+// Parameters:
+//   - prog: the compiled program.
+//
+// Returns:
+//   - []byte: the serialized bytecode, suitable for [starlark.CompiledProgram].
+//   - error:  any error from Program.Write.
+func programToBytes(prog *starlark.Program) (_ []byte, err error) {
 
 	var buf bytes.Buffer
 
 	if err := prog.Write(&buf); err != nil {
-		return fmt.Errorf("mem.Function compile write: %w", err)
+		return nil, err
 	}
 
-	f.Compiled = buf.Bytes()
-	f.CompilerVersion = starlark.CompilerVersion
-
-	return nil
+	return buf.Bytes(), nil
 }
 
 // funcError builds the return slice for a failed starlark call.
@@ -449,7 +578,3 @@ func starlarkToGo(sv starlark.Value) (any, error) {
 		return nil, fmt.Errorf("starlarkToGo: unsupported starlark type %s", sv.Type())
 	}
 }
-
-// endregion
-
-// endregion

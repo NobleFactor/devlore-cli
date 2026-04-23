@@ -17,48 +17,57 @@ import (
 
 // Resource represents a network resource identified by a URL.
 //
-// The SourceURL holds the original URL as provided (with transport scheme, original casing, etc.). The canonical URI
-// produced by [URI] is an opaque appnet: URI wrapping the normalized, transport-independent URL with targeted escaping
-// of # and ? characters.
+// The URI IS the canonical full URL — scheme, host, path, and query. The scheme is preserved because it's
+// reachability-critical (http vs. https vs. ftp are distinct endpoints). Canonicalization normalizes host
+// casing, strips default ports, normalizes percent-encoding, strips trailing slashes, collapses repeated
+// slashes, and sorts query parameters — all semantics-preserving transforms over the given URL.
 //
-// SourceURL is persisted in JSON/YAML alongside the URI so that cross-process round-trips preserve transport scheme
-// (http vs. https vs. ftp) — information lost by the transport-independent URI. Scalar forms (text, starlark) carry
-// only the SourceURL string; unmarshal reconstructs both the URI and SourceURL via [NewResource].
+// Two URLs that differ only in the transport scheme (e.g., "http://x" vs. "https://x") produce distinct
+// resources — this is a deliberate consequence of "identity ensures reachability." Consumers that want
+// transport-independent addressing should factor that into their own logic; appnet.Resource does not.
+//
+// SourceURL is a non-persisted *url.URL view of the URI, populated at construction (and re-parsed on
+// unmarshal) for callers that want structured URL access. It always equals url.Parse(URI).
 type Resource struct {
 	op.ResourceBase
 
-	// SourceURL is the canonicalized URL with its transport scheme preserved. Custom-marshaled as a string through
-	// the alias-trick pattern in MarshalJSON / MarshalYAML; `json:"-"` suppresses default *url.URL serialization.
+	// SourceURL is a parsed view of the URI. Derived from URI at construction and on unmarshal; not
+	// persisted (the URI on ResourceBase is authoritative).
 	SourceURL *url.URL `json:"-" yaml:"-"`
 }
 
 // NewResource constructs an appnet.Resource from a string URL.
 //
+// The URL is canonicalized (lowercase host, strip default port, normalize percent-encoding, strip trailing
+// slash, collapse double slashes, sort query parameters) while preserving the transport scheme. The
+// canonicalized URL becomes the Resource's URI; SourceURL is populated by re-parsing it.
+//
 // Parameters:
-//   - value: expected to be a string URL
+//   - ctx:   execution context.
+//   - value: a string URL with a transport scheme (http, https, ftp, ssh, etc.).
 //
 // Returns:
-//   - Resource: initialized with the parsed URL
-//   - error: if v is not a string or the URL is invalid
+//   - *Resource: the constructed resource.
+//   - error:     if value is not a string, does not parse as a URL, or has no scheme.
 func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
-	sourceURL, ok := value.(string)
-
+	raw, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("appnet.Resource: expected string URL, got %T", value)
 	}
 
-	canonicalSourceURL, err := canonicalURL(sourceURL)
-
+	canonical, err := canonicalURL(raw)
 	if err != nil {
 		return nil, err
 	}
+	if canonical.Scheme == "" {
+		return nil, fmt.Errorf("appnet.Resource: URL missing transport scheme: %q", raw)
+	}
 
-	r := Resource{
-		ResourceBase: op.NewResourceBase(ctx, "appnet:"+escapeInnerURI(transportIndependentURI(canonicalSourceURL))),
-		SourceURL:    canonicalSourceURL}
-
-	return &r, nil
+	return &Resource{
+		ResourceBase: op.NewResourceBase(ctx, canonical.String()),
+		SourceURL:    canonical,
+	}, nil
 }
 
 // region EXPORTED METHODS
@@ -67,14 +76,8 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
 // Equal reports whether r and other identify the same appnet resource.
 //
-// Strict equality: other must be a *appnet.Resource (not merely an [op.Resource] with the same URI). Once the type
-// check passes, URI comparison is delegated to [op.ResourceBase.Equal].
-//
-// Parameters:
-//   - other: the value to compare against; may be any, including nil or a non-Resource.
-//
-// Returns:
-//   - bool: true if other is a *appnet.Resource with the same URI as r.
+// Strict equality: other must be a *appnet.Resource (not merely an [op.Resource] with the same URI). Once
+// the type check passes, URI comparison is delegated to [op.ResourceBase.Equal].
 func (r *Resource) Equal(other any) bool {
 
 	if other == nil {
@@ -88,117 +91,33 @@ func (r *Resource) Equal(other any) bool {
 	return r.ResourceBase.Equal(other)
 }
 
-// MarshalJSON marshals the resource to its JSON wire form — identity (URI) plus SourceURL as a string.
-//
-// SourceURL is serialized via [url.URL.String] so JSON consumers round-trip the full URL including transport
-// scheme (which the canonical URI discards).
-//
-// Returns:
-//   - []byte: JSON-encoded object.
-//   - error:  any error from [json.Marshal]; none under normal conditions.
-func (r *Resource) MarshalJSON() ([]byte, error) {
-
-	var sourceURL string
-	if r.SourceURL != nil {
-		sourceURL = r.SourceURL.String()
-	}
-
-	type alias Resource
-	return json.Marshal(&struct {
-		URI       string `json:"uri"`
-		SourceURL string `json:"sourceURL,omitempty"`
-		*alias
-	}{
-		URI:       r.URI(),
-		SourceURL: sourceURL,
-		alias:     (*alias)(r),
-	})
-}
-
-// MarshalYAML marshals the resource to its YAML wire form — identity (URI) plus SourceURL as a string.
-//
-// Returns:
-//   - any:   the value for the YAML encoder to serialize.
-//   - error: nil under normal conditions.
-func (r *Resource) MarshalYAML() (any, error) {
-
-	var sourceURL string
-	if r.SourceURL != nil {
-		sourceURL = r.SourceURL.String()
-	}
-
-	type alias Resource
-	return &struct {
-		URI       string `yaml:"uri"`
-		SourceURL string `yaml:"sourceURL,omitempty"`
-		*alias
-	}{
-		URI:       r.URI(),
-		SourceURL: sourceURL,
-		alias:     (*alias)(r),
-	}, nil
-}
-
-// Resolve is a no-op for appnet resources.
-//
-// Identity is the URL; the Resource has no on-disk state to reconcile. Defined to satisfy the [op.Resource]
-// interface contract.
-//
-// Returns:
-//   - error: always nil.
+// Resolve is a no-op for appnet resources — identity is the URL; the Resource has no on-disk state to
+// reconcile.
 func (r *Resource) Resolve() error {
 	return nil
 }
 
-// String returns a debug-oriented single-line representation of the resource suitable for log lines and IDE
-// debug windows.
-//
-// Returns:
-//   - string: "appnet.Resource{uri=<URI>, sourceURL=<URL>}".
+// String returns a debug-oriented single-line representation of the resource.
 func (r *Resource) String() string {
-
-	var sourceURL string
-	if r.SourceURL != nil {
-		sourceURL = r.SourceURL.String()
-	}
-
-	return fmt.Sprintf("appnet.Resource{uri=%s, sourceURL=%s}", r.URI(), sourceURL)
+	return fmt.Sprintf("appnet.Resource{uri=%s}", r.URI())
 }
 
-// UnmarshalJSON populates the receiver from its JSON wire form.
+// UnmarshalJSON populates the receiver from its JSON wire form (a bare URL string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
-// invoking this method. The URL is read from the sourceURL field (authoritative — preserves transport scheme)
-// and handed to [NewResource] to reconstruct both the URI and SourceURL.
-//
-// Parameters:
-//   - data: JSON-encoded wire form.
-//
-// Returns:
-//   - error: non-nil if the ExecutionContext is missing, the JSON does not decode, sourceURL is empty, or
-//     resource construction fails.
+// invoking this method. The URL alone is sufficient — identity IS reachability.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	if r.ExecutionContext() == nil {
 		return errors.New("appnet.Resource: UnmarshalJSON requires ExecutionContext on receiver")
 	}
 
-	type alias Resource
-	aux := &struct {
-		URI       string `json:"uri"`
-		SourceURL string `json:"sourceURL"`
-		*alias
-	}{alias: (*alias)(r)}
-
-	if err := json.Unmarshal(data, aux); err != nil {
+	var uri string
+	if err := json.Unmarshal(data, &uri); err != nil {
 		return err
 	}
 
-	if aux.SourceURL == "" {
-		return errors.New("appnet.Resource: UnmarshalJSON requires sourceURL field")
-	}
-
-	built, err := NewResource(r.ExecutionContext(), aux.SourceURL)
+	built, err := NewResource(r.ExecutionContext(), uri)
 	if err != nil {
 		return err
 	}
@@ -207,17 +126,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UnmarshalStarlark populates the receiver from a [starlark.String] containing a URL.
-//
-// Scalar form: the entire URL (with scheme) is passed through. Unmarshal reconstructs both the URI and
-// SourceURL via [NewResource].
-//
-// Parameters:
-//   - sv: a starlark value expected to be a [starlark.String].
-//
-// Returns:
-//   - error: non-nil if the ExecutionContext is missing, the value is not a [starlark.String], or resource
-//     construction fails.
+// UnmarshalStarlark populates the receiver from a [starlark.String] containing the URL.
 func (r *Resource) UnmarshalStarlark(sv starlark.Value) error {
 
 	if r.ExecutionContext() == nil {
@@ -238,16 +147,7 @@ func (r *Resource) UnmarshalStarlark(sv starlark.Value) error {
 	return nil
 }
 
-// UnmarshalText populates the receiver from raw UTF-8 bytes containing a URL.
-//
-// Scalar form: the entire URL (with scheme) is passed through. Unmarshal reconstructs both the URI and
-// SourceURL via [NewResource].
-//
-// Parameters:
-//   - text: UTF-8 bytes containing the URL.
-//
-// Returns:
-//   - error: non-nil if the ExecutionContext is missing or resource construction fails.
+// UnmarshalText populates the receiver from raw UTF-8 bytes containing the URL.
 func (r *Resource) UnmarshalText(text []byte) error {
 
 	if r.ExecutionContext() == nil {
@@ -263,40 +163,19 @@ func (r *Resource) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// UnmarshalYAML populates the receiver from its YAML wire form.
-//
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
-// invoking this method. The URL is read from the sourceURL field (authoritative — preserves transport scheme)
-// and handed to [NewResource] to reconstruct both the URI and SourceURL.
-//
-// Parameters:
-//   - unmarshal: callback supplied by the YAML decoder that projects the current node into the given target.
-//
-// Returns:
-//   - error: non-nil if the ExecutionContext is missing, the YAML does not decode, sourceURL is empty, or
-//     resource construction fails.
+// UnmarshalYAML populates the receiver from its YAML wire form (a bare URL scalar).
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.ExecutionContext() == nil {
 		return errors.New("appnet.Resource: UnmarshalYAML requires ExecutionContext on receiver")
 	}
 
-	type alias Resource
-	aux := &struct {
-		URI       string `yaml:"uri"`
-		SourceURL string `yaml:"sourceURL"`
-		*alias
-	}{alias: (*alias)(r)}
-
-	if err := unmarshal(aux); err != nil {
+	var uri string
+	if err := unmarshal(&uri); err != nil {
 		return err
 	}
 
-	if aux.SourceURL == "" {
-		return errors.New("appnet.Resource: UnmarshalYAML requires sourceURL field")
-	}
-
-	built, err := NewResource(r.ExecutionContext(), aux.SourceURL)
+	built, err := NewResource(r.ExecutionContext(), uri)
 	if err != nil {
 		return err
 	}
@@ -309,50 +188,23 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // endregion
 
-// escapeInnerURI percent-encodes # and ? so they don't interfere with
-// the outer URI's fragment and query parsing.
-func escapeInnerURI(s string) string {
-	var b []byte
-	for i := range len(s) {
-		switch s[i] {
-		case '#':
-			b = append(b, '%', '2', '3')
-		case '?':
-			b = append(b, '%', '3', 'F')
-		default:
-			b = append(b, s[i])
-		}
-	}
-	return string(b)
-}
-
-// transportIndependentURI produces host+path+query without the transport scheme.
-func transportIndependentURI(u *url.URL) string {
-	s := u.Host + u.EscapedPath()
-	if u.RawQuery != "" {
-		s += "?" + u.RawQuery
-	}
-	return s
-}
-
-// canonicalURL produces the canonical host+path+query string.
+// canonicalURL parses value, normalizes it in place, and returns the result.
 //
-// Normalization rules (RFC 3986):
-//   - Lowercase hostname
-//   - Strip default ports (80 for http, 443 for https, 21 for ftp)
-//   - Normalize percent-encoding: uppercase hex digits, decode unreserved chars
-//   - Strip trailing /
-//   - Collapse double // in path (except leading)
-//   - Sort query parameters by key
+// Normalization (RFC 3986 semantics-preserving):
+//   - Lowercase hostname.
+//   - Strip default port for the transport (80 for http, 443 for https, 21 for ftp).
+//   - Normalize percent-encoding: uppercase hex digits, decode unreserved characters.
+//   - Strip trailing /.
+//   - Collapse repeated // in path (preserving leading /).
+//   - Sort query parameters by key (url.Values.Encode sorts alphabetically).
+//
+// The transport scheme is preserved — it's reachability-critical and part of the resource's identity.
 func canonicalURL(value string) (*url.URL, error) {
 
 	sourceURL, err := url.Parse(value)
-
 	if err != nil {
 		return nil, fmt.Errorf("appnet.Resource: invalid URL %q: %w", value, err)
 	}
-
-	// Host: lowercase, strip default port
 
 	host := strings.ToLower(sourceURL.Hostname())
 	port := sourceURL.Port()
@@ -361,8 +213,6 @@ func canonicalURL(value string) (*url.URL, error) {
 		host += ":" + port
 	}
 
-	// Path: normalize encoding, collapse slashes, strip trailing /
-
 	p := normalizePercentEncoding(sourceURL.EscapedPath())
 	p = collapseSlashes(p)
 	p = strings.TrimRight(p, "/")
@@ -370,8 +220,6 @@ func canonicalURL(value string) (*url.URL, error) {
 	if p == "" {
 		p = "/"
 	}
-
-	// Query: sorted by key (url.Values.Encode sorts alphabetically)
 
 	q := sourceURL.Query().Encode()
 
@@ -385,6 +233,7 @@ func canonicalURL(value string) (*url.URL, error) {
 
 // isDefaultPort returns true if port matches the well-known default for scheme.
 func isDefaultPort(scheme, port string) bool {
+
 	defaults := map[string]string{
 		"http":  "80",
 		"https": "443",
@@ -395,10 +244,11 @@ func isDefaultPort(scheme, port string) bool {
 
 // collapseSlashes replaces runs of multiple / with a single / in the path, preserving the leading /.
 func collapseSlashes(p string) string {
+
 	if p == "" {
 		return p
 	}
-	// Preserve leading /
+
 	lead := ""
 	rest := p
 	if strings.HasPrefix(p, "/") {
@@ -408,15 +258,18 @@ func collapseSlashes(p string) string {
 	if rest == "" {
 		return lead
 	}
+
 	parts := strings.FieldsFunc(rest, func(r rune) bool { return r == '/' })
 	return lead + strings.Join(parts, "/")
 }
 
-// normalizePercentEncoding uppercases hex digits in percent-encoded sequences and decodes unreserved characters (RFC
-// 3986 §2.3: A-Z a-z 0-9 - . _ ~).
+// normalizePercentEncoding uppercases hex digits in percent-encoded sequences and decodes unreserved
+// characters (RFC 3986 §2.3: A-Z a-z 0-9 - . _ ~).
 func normalizePercentEncoding(s string) string {
+
 	var b strings.Builder
 	b.Grow(len(s))
+
 	for i := 0; i < len(s); i++ {
 		if s[i] == '%' && i+2 < len(s) {
 			hi := upperHex(s[i+1])
@@ -453,6 +306,7 @@ func upperHex(c byte) byte {
 
 // unhex converts a hex digit to its numeric value.
 func unhex(c byte) byte {
+
 	switch {
 	case c >= '0' && c <= '9':
 		return c - '0'

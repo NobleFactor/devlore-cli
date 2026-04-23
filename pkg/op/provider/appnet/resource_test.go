@@ -9,11 +9,16 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// --- Interface guards ---
+
 func TestResourceImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
 
+// --- Constructor ---
+
 func TestConstructorRoundTrip(t *testing.T) {
+
 	r, err := NewResource(&op.ExecutionContext{}, "https://example.com/file.tar.gz")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
@@ -21,41 +26,57 @@ func TestConstructorRoundTrip(t *testing.T) {
 	if r.SourceURL.String() != "https://example.com/file.tar.gz" {
 		t.Errorf("SourceURL = %q, want %q", r.SourceURL.String(), "https://example.com/file.tar.gz")
 	}
+	if r.URI() != "https://example.com/file.tar.gz" {
+		t.Errorf("URI() = %q, want %q", r.URI(), "https://example.com/file.tar.gz")
+	}
 }
 
 func TestConstructorInvalidURL(t *testing.T) {
-	_, err := NewResource(&op.ExecutionContext{}, "://bad")
-	if err == nil {
+
+	if _, err := NewResource(&op.ExecutionContext{}, "://bad"); err == nil {
 		t.Fatal("NewResource: expected error for invalid URL")
 	}
 }
 
 func TestConstructorWrongType(t *testing.T) {
-	_, err := NewResource(&op.ExecutionContext{}, 42)
-	if err == nil {
+
+	if _, err := NewResource(&op.ExecutionContext{}, 42); err == nil {
 		t.Fatal("NewResource: expected error for non-string")
 	}
 }
 
-func TestURITransportIndependent(t *testing.T) {
+func TestConstructorMissingScheme(t *testing.T) {
+
+	if _, err := NewResource(&op.ExecutionContext{}, "example.com/path"); err == nil {
+		t.Fatal("NewResource: expected error for schemeless URL")
+	}
+}
+
+// --- URI shape ---
+
+func TestURI_TransportDifferentiates(t *testing.T) {
+
 	http := mustParse(t, "http://example.com/path")
 	https := mustParse(t, "https://example.com/path")
-	if http.URI() != https.URI() {
-		t.Errorf("http URI %q != https URI %q — should be transport-independent", http.URI(), https.URI())
+
+	if http.URI() == https.URI() {
+		t.Errorf("http and https URIs should differ under URI-ensures-reachability: both %q", http.URI())
 	}
 }
 
-func TestURIOpaqueScheme(t *testing.T) {
+func TestURI_SchemeIsTransport(t *testing.T) {
+
 	r := mustParse(t, "https://example.com/path")
-	if r.Scheme() != "appnet" {
-		t.Errorf("Scheme() = %q, want %q", r.Scheme(), "appnet")
-	}
-	if r.Opaque() == "" {
-		t.Error("Opaque() is empty — expected opaque URI")
+
+	if r.Scheme() != "https" {
+		t.Errorf("Scheme() = %q, want %q", r.Scheme(), "https")
 	}
 }
 
-func TestURICanonicalization(t *testing.T) {
+// --- Canonicalization ---
+
+func TestURI_Canonicalization(t *testing.T) {
+
 	tests := []struct {
 		name string
 		raw  string
@@ -64,80 +85,81 @@ func TestURICanonicalization(t *testing.T) {
 		{
 			name: "lowercase host",
 			raw:  "https://Example.COM/path",
-			want: "appnet:example.com/path",
+			want: "https://example.com/path",
 		},
 		{
 			name: "strip default https port",
 			raw:  "https://example.com:443/path",
-			want: "appnet:example.com/path",
+			want: "https://example.com/path",
 		},
 		{
 			name: "strip default http port",
 			raw:  "http://example.com:80/path",
-			want: "appnet:example.com/path",
+			want: "http://example.com/path",
 		},
 		{
 			name: "keep non-default port",
 			raw:  "https://example.com:8443/path",
-			want: "appnet:example.com:8443/path",
+			want: "https://example.com:8443/path",
 		},
 		{
 			name: "strip trailing slash",
 			raw:  "https://example.com/path/",
-			want: "appnet:example.com/path",
+			want: "https://example.com/path",
 		},
 		{
 			name: "collapse double slashes",
 			raw:  "https://example.com/a//b///c",
-			want: "appnet:example.com/a/b/c",
+			want: "https://example.com/a/b/c",
 		},
 		{
-			name: "uppercase percent encoding",
+			name: "uppercase percent encoding decodes unreserved",
 			raw:  "https://example.com/p%61th",
-			want: "appnet:example.com/path",
+			want: "https://example.com/path",
 		},
 		{
 			name: "keep reserved chars encoded",
 			raw:  "https://example.com/path%20with%20spaces",
-			want: "appnet:example.com/path%20with%20spaces",
+			want: "https://example.com/path%20with%20spaces",
 		},
 		{
-			name: "uppercase hex digits",
+			name: "uppercase hex digits in remaining percent-encoding",
 			raw:  "https://example.com/%2f%2F",
-			want: "appnet:example.com/%2F%2F",
+			want: "https://example.com/%2F%2F",
 		},
 		{
-			name: "sort query parameters escaped",
+			name: "sort query parameters",
 			raw:  "https://example.com/path?z=1&a=2&m=3",
-			want: "appnet:example.com/path%3Fa=2&m=3&z=1",
+			want: "https://example.com/path?a=2&m=3&z=1",
 		},
 		{
 			name: "root path stays",
 			raw:  "https://example.com",
-			want: "appnet:example.com/",
+			want: "https://example.com/",
 		},
 		{
 			name: "all rules combined",
 			raw:  "HTTPS://Example.COM:443/A//B/%7e/?z=1&a=2",
-			want: "appnet:example.com/A/B/~%3Fa=2&z=1",
+			want: "https://example.com/A/B/~?a=2&z=1",
 		},
 		{
 			name: "ftp default port stripped",
 			raw:  "ftp://files.example.com:21/pub/file.txt",
-			want: "appnet:files.example.com/pub/file.txt",
+			want: "ftp://files.example.com/pub/file.txt",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := mustParse(t, tt.raw)
-			got := r.URI()
-			if got != tt.want {
+			if got := r.URI(); got != tt.want {
 				t.Errorf("URI() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
+
+// --- Helper ---
 
 func mustParse(t *testing.T, raw string) *Resource {
 	t.Helper()

@@ -4,6 +4,8 @@
 package op
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,3 +205,110 @@ func TestRestoreData_ReadsBytes(t *testing.T) {
 		t.Errorf("restored data = %q, want %q", got, original)
 	}
 }
+
+// --- ArchiveStream ---
+
+func TestArchiveStream_EmptyReader(t *testing.T) {
+	site, root := newTestRecoverySite(t)
+
+	recoveryID, err := site.ArchiveStream(bytes.NewReader(nil))
+	if err != nil {
+		t.Fatalf("ArchiveStream(empty) error = %v", err)
+	}
+	if recoveryID == "" {
+		t.Fatal("recoveryID is empty")
+	}
+
+	info, err := os.Stat(filepath.Join(root.Name(), recoveryID))
+	if err != nil {
+		t.Fatalf("stat recovery file: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Errorf("recovery file size = %d, want 0", info.Size())
+	}
+}
+
+func TestArchiveStream_SmallReader(t *testing.T) {
+	site, root := newTestRecoverySite(t)
+
+	content := []byte("streamed content")
+
+	recoveryID, err := site.ArchiveStream(bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("ArchiveStream error = %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(root.Name(), recoveryID))
+	if err != nil {
+		t.Fatalf("read recovery file: %v", err)
+	}
+	if string(got) != string(content) {
+		t.Errorf("recovery file content = %q, want %q", got, content)
+	}
+}
+
+func TestArchiveStream_LargeReader(t *testing.T) {
+	// Exercise streaming by writing a payload larger than any reasonable in-memory default buffer.
+	// 1 MiB is enough to verify io.Copy drains chunk-by-chunk.
+	site, root := newTestRecoverySite(t)
+
+	const size = 1 << 20
+	content := make([]byte, size)
+	for i := range content {
+		content[i] = byte(i)
+	}
+
+	recoveryID, err := site.ArchiveStream(bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("ArchiveStream error = %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(root.Name(), recoveryID))
+	if err != nil {
+		t.Fatalf("read recovery file: %v", err)
+	}
+	if len(got) != size {
+		t.Fatalf("recovery file size = %d, want %d", len(got), size)
+	}
+	for i, b := range got {
+		if b != byte(i) {
+			t.Fatalf("byte %d = %d, want %d", i, b, byte(i))
+		}
+	}
+}
+
+func TestArchiveStream_ReaderError(t *testing.T) {
+	site, _ := newTestRecoverySite(t)
+
+	_, err := site.ArchiveStream(&erroringReader{after: 5})
+	if err == nil {
+		t.Fatal("expected error from erroring reader")
+	}
+	if !strings.Contains(err.Error(), "stream to recovery") {
+		t.Errorf("error = %q, want message containing 'stream to recovery'", err)
+	}
+}
+
+// erroringReader yields `after` bytes of zeros and then returns a synthetic error — exercises the mid-stream
+// error path in ArchiveStream.
+type erroringReader struct {
+	after int
+	read  int
+}
+
+func (r *erroringReader) Read(p []byte) (int, error) {
+	if r.read >= r.after {
+		return 0, errSyntheticRead
+	}
+	n := len(p)
+	if r.read+n > r.after {
+		n = r.after - r.read
+	}
+	for i := range n {
+		p[i] = 0
+	}
+	r.read += n
+	return n, nil
+}
+
+var errSyntheticRead = errors.New("synthetic read error")

@@ -6,9 +6,13 @@ package op
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"os"
 
 	"github.com/google/uuid"
+
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 const recoveryDir = ".devlore/recovery"
@@ -78,6 +82,40 @@ func (s *RecoverySite) ArchiveFile(p Path) (string, error) {
 
 	if err := s.ctx.Root.Rename(p, s.ctx.Root.NewPath(recoveryID)); err != nil {
 		return "", err
+	}
+
+	return recoveryID, nil
+}
+
+// ArchiveStream copies a reader into the recovery directory chunk-by-chunk.
+//
+// Use when the content source is an [io.Reader] — e.g., an HTTP response body — and should not be buffered
+// fully in memory. The reader is drained via [io.Copy] into a freshly created file at
+// .devlore/recovery/<uuid>. Returns the opaque recovery ID for tombstone storage or later consumption via
+// memory-mapped access.
+//
+// Parameters:
+//   - r: source reader; drained until EOF.
+//
+// Returns:
+//   - string: opaque recovery ID for tombstone storage.
+//   - error:  any error from recovery-directory creation, file creation, or the copy.
+func (s *RecoverySite) ArchiveStream(r io.Reader) (_ string, err error) {
+
+	if err := s.ctx.Root.MkdirAll(s.ctx.Root.NewPath(recoveryDir), 0o700); err != nil {
+		return "", fmt.Errorf("create recovery directory: %w", err)
+	}
+
+	recoveryID := recoveryDir + "/" + uuid.New().String()
+
+	f, err := s.ctx.Root.OpenFile(s.ctx.Root.NewPath(recoveryID), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create recovery file: %w", err)
+	}
+	defer iox.Close(&err, f)
+
+	if _, err := io.Copy(f, r); err != nil {
+		return "", fmt.Errorf("stream to recovery: %w", err)
 	}
 
 	return recoveryID, nil
