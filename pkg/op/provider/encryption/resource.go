@@ -7,6 +7,6 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Tombstone holds encryption-specific compensation state.
 type Tombstone struct {
-	op.TombstoneBase
+	op.ReceiptBase
 	DestinationPath string
 }

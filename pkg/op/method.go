@@ -58,12 +58,13 @@ const (
 //   - undo (Compensate<Name>): compensation companion for compensable methods, takes the complement returned by
 //     the forward method and reverses its effect.
 type Method struct {
+	actionName      string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
 	do              *reflect.Method // forward method
+	firstParamIsCtx bool            // true when `do`'s first parameter (after receiver) is context.Context
 	kind            MethodKind      // classified from return signature
 	parameters      []Parameter     // named parameters (excluding receiver and any leading ctx)
 	plan            *reflect.Method // plan-time output spec companion; nil if the method has no plan companion
 	undo            *reflect.Method // compensation companion; nil unless compensable
-	firstParamIsCtx bool            // true when `do`'s first parameter (after receiver) is context.Context
 }
 
 // NewMethod creates a [Method] from a reflected Go method, its parameter names, and its optional plan and undo
@@ -261,12 +262,37 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 		params[i] = Parameter{Name: name, Type: methodType.In(i + paramOffset)}
 	}
 
-	return &Method{do: do, kind: kind, parameters: params, plan: plan, undo: undo, firstParamIsCtx: firstParamIsCtx}, nil
+	receiverType := do.Type.In(0)
+
+	if receiverType.Kind() == reflect.Ptr {
+		receiverType = receiverType.Elem()
+	}
+
+	actionName := receiverType.PkgPath() + "." + receiverType.Name() + "." + do.Name
+
+	return &Method{
+		actionName:      actionName,
+		do:              do,
+		firstParamIsCtx: firstParamIsCtx,
+		kind:            kind,
+		parameters:      params,
+		plan:            plan,
+		undo:            undo,
+	}, nil
 }
 
 // region EXPORTED METHODS
 
 // region State management
+
+// ActionName returns the canonical action name for this method.
+//
+// The name has the form <pkg-path>.<receiverName>.<methodName> and is computed once at [NewMethod]
+// construction. Callers should prefer this over ad-hoc composition from reflect metadata.
+//
+// Returns:
+//   - string: the canonical action name.
+func (m *Method) ActionName() string { return m.actionName }
 
 // Kind returns the method's classification.
 //
@@ -369,17 +395,26 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 
 	for _, p := range params {
 
-		sv, ok := slots[p.Name]
+		value, ok := slots[p.Name]
 
 		if !ok {
 			cleanName := strings.TrimSuffix(strings.TrimLeft(p.Name, "*"), "?")
-			sv = slots[cleanName]
+			value = slots[cleanName]
 		}
 
-		val, err := Convert(ctx, sv, p.Type)
+		var val any
+		var err error
 
-		if err != nil {
-			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
+		switch {
+		case value == nil:
+			val = reflect.Zero(p.Type).Interface()
+		case reflect.TypeOf(value).AssignableTo(p.Type):
+			val = value
+		default:
+			val, err = value.(Converter).Convert(p.Type)
+			if err != nil {
+				return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
+			}
 		}
 
 		goArgs = append(goArgs, val)
@@ -391,7 +426,18 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 		return nil, nil, err
 	}
 
-	return resultOrNil(result), complementOrNil(complement), nil
+	complementValue := complementOrNil(complement)
+
+	// Inflate any [Receipt] complement on the return path. Provider methods construct receipts uninflated via
+	// [NewReceiptBase] and return them; Invoke is the single site that knows the issuing reflect.Method, so it
+	// stamps the transactionID and action name here. A non-Receipt complement (or nil) is left as-is.
+	if receipt, ok := complementValue.(Receipt); ok {
+		if inflateErr := receipt.Commit(*m.do); inflateErr != nil {
+			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, inflateErr)
+		}
+	}
+
+	return resultOrNil(result), complementValue, nil
 }
 
 // Do calls the forward method on the receiver with the given arguments.

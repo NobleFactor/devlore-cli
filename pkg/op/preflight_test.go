@@ -5,6 +5,7 @@ package op
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -15,10 +16,11 @@ type testGraphResource struct {
 	ResourceBase
 }
 
-// newTestGraphResource constructs a Resource with the given URI. A nil [ExecutionContext] is acceptable here — none of
-// the preflight tests reach into the context through the resource.
-func newTestGraphResource(uri string) *testGraphResource {
-	return &testGraphResource{ResourceBase: NewResourceBase(nil, uri)}
+// newTestGraphResource constructs a Resource with the given specific payload. A nil [ExecutionContext] is
+// acceptable here — none of the preflight tests reach into the context through the resource.
+func newTestGraphResource(specific string) *testGraphResource {
+	base, _ := NewResourceBase(nil, specific, reflect.TypeFor[*testGraphResource]())
+	return &testGraphResource{ResourceBase: base}
 }
 
 func TestResolveResources_NilCatalog(t *testing.T) {

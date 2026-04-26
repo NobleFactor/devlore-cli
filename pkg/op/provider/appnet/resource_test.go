@@ -26,8 +26,8 @@ func TestConstructorRoundTrip(t *testing.T) {
 	if r.SourceURL.String() != "https://example.com/file.tar.gz" {
 		t.Errorf("SourceURL = %q, want %q", r.SourceURL.String(), "https://example.com/file.tar.gz")
 	}
-	if r.URI() != "https://example.com/file.tar.gz" {
-		t.Errorf("URI() = %q, want %q", r.URI(), "https://example.com/file.tar.gz")
+	if r.ReachabilityURI() != "https://example.com/file.tar.gz" {
+		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "https://example.com/file.tar.gz")
 	}
 }
 
@@ -61,15 +61,6 @@ func TestURI_TransportDifferentiates(t *testing.T) {
 
 	if http.URI() == https.URI() {
 		t.Errorf("http and https URIs should differ under URI-ensures-reachability: both %q", http.URI())
-	}
-}
-
-func TestURI_SchemeIsTransport(t *testing.T) {
-
-	r := mustParse(t, "https://example.com/path")
-
-	if r.Scheme() != "https" {
-		t.Errorf("Scheme() = %q, want %q", r.Scheme(), "https")
 	}
 }
 

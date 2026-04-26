@@ -54,7 +54,7 @@ type functionPackHeader struct {
 // writeFunctionPack writes the 48-byte header followed by source bytes then compiled bytes into w.
 //
 // Total bytes written = [functionPackHeaderSize] + len(source) + len(compiled). w is typically a buffer
-// that is subsequently streamed into [op.RecoverySite.ArchiveStream]; the pack is a single atomic write.
+// that is subsequently written to the Function's URI-derived SourcePath as a single atomic write.
 //
 // Parameters:
 //   - w:               destination writer.

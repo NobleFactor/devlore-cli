@@ -6,8 +6,8 @@ package op
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"reflect"
+	"strings"
 
 	"go.starlark.net/starlark"
 )
@@ -15,6 +15,11 @@ import (
 // stringType is the cached [reflect.Type] of the Go string type, consulted by [ResourceBase.CanConvert] and
 // [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
 var stringType = reflect.TypeOf("")
+
+// tagURIPrefix is the fixed prefix of every canonical [Resource] URI. The form is the RFC 4151 tag URI
+// "tag:<authority>,<date>:" where the authority and date are locked constants: the authority identifies the
+// devlore project and the date identifies the entitlement epoch (not the mint time).
+const tagURIPrefix = "tag:devlore.noblefactor.com,2026-01-01:"
 
 // Resource is the interface for all resource receiverTypes.
 //
@@ -34,27 +39,148 @@ type Resource interface {
 
 // ResourceBase holds the identity fields common to all resources.
 //
-// ReceiverType-specific resource receiverTypes must embed it by value. The uri field is set at construction via
-// [NewResourceBase]. The id and originID fields are stamped by the [ResourceCatalog] when the resource is cataloged;
-// they are not a concern of the resource itself.
+// ReceiverType-specific resource receiverTypes must embed it by value. The uri, specific, and typeID fields are
+// set at construction via [NewResourceBase]: uri is the minted canonical tag URI, specific is the scheme-specific
+// identity payload, typeID is the canonical Go type id of the concrete Resource type. The id and originID fields
+// are stamped by the [ResourceCatalog] when the resource is cataloged; they are not a concern of the resource
+// itself.
 type ResourceBase struct {
 	ProviderBase
 	uri      string
+	specific string
+	typeID   string
 	id       string
 	originID string
 }
 
-// NewResourceBase creates a ResourceBase with the given URI.
-func NewResourceBase(ctx *ExecutionContext, uri string) ResourceBase {
+// NewResourceBase constructs a ResourceBase whose identity is the canonical tag URI
+// tag:devlore.noblefactor.com,2026-01-01:<specific>#<typeID>, where <typeID> is goType's canonical Go type id
+// (PkgPath() + "." + Name()). Pointer types are normalized to their element.
+//
+// An empty <specific> is valid and produces the deferred ("known-at-execution") form — the shape constructed by
+// [Defer] when a Resource's identity is not known until the producing node has executed.
+//
+// Parameters:
+//   - ctx: the execution context; embedded via ProviderBase.
+//   - specific: the scheme-specific identity payload. Must not contain '#', which is reserved as the fragment
+//     delimiter.
+//   - goType: the concrete Go type whose identity is placed in the fragment.
+//
+// Returns:
+//   - ResourceBase: the constructed base with uri, specific, and typeID all populated.
+//   - error: non-nil when specific contains '#' or goType has empty PkgPath and Name.
+func NewResourceBase(ctx *ExecutionContext, specific string, goType reflect.Type) (ResourceBase, error) {
+
+	if strings.Contains(specific, "#") {
+		return ResourceBase{}, fmt.Errorf("op.NewResourceBase: specific %q contains '#', which is reserved as the fragment delimiter", specific)
+	}
+
+	typeID := typeIDOf(goType)
+	if typeID == "." {
+		return ResourceBase{}, fmt.Errorf("op.NewResourceBase: goType has empty PkgPath and Name")
+	}
+
 	return ResourceBase{
 		ProviderBase: NewProviderBase(ctx),
-		uri:          uri,
-	}
+		uri:          tagURIPrefix + specific + "#" + typeID,
+		specific:     specific,
+		typeID:       typeID,
+	}, nil
 }
 
-// URI returns the cached canonical URI of this resource.
+// ExtractTagSpecific parses a canonical tag URI and returns its scheme-specific payload and fragment.
+//
+// Returns an error when s lacks the tag URI prefix, is missing the '#' delimiter, or has an empty fragment. An
+// empty specific is valid and denotes the deferred ("known-at-execution") form.
+//
+// Parameters:
+//   - s: the URI to parse.
+//
+// Returns:
+//   - specific: the scheme-specific payload (may be empty).
+//   - typeID: the fragment — the canonical Go type id of the Resource type.
+//   - err: non-nil on any syntactic defect.
+func ExtractTagSpecific(s string) (specific, typeID string, err error) {
+
+	if !strings.HasPrefix(s, tagURIPrefix) {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q lacks prefix %q", s, tagURIPrefix)
+	}
+
+	rest := s[len(tagURIPrefix):]
+	i := strings.Index(rest, "#")
+
+	if i < 0 {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has no '#' fragment delimiter", s)
+	}
+
+	specific = rest[:i]
+	typeID = rest[i+1:]
+
+	if typeID == "" {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has empty fragment", s)
+	}
+
+	return specific, typeID, nil
+}
+
+// Defer constructs a placeholder instance of *R with a deferred tag URI — empty <specific>, typeID set to *R's
+// canonical Go type id.
+//
+// Use at plan time when a Resource's identity is not known until the producing node has executed. The returned
+// value is a freshly allocated *R whose embedded [ResourceBase] has been seeded by [NewResourceBase] against the
+// deferred identity.
+//
+// Type parameters:
+//   - R: the struct type of the Resource (e.g., yaml.Resource).
+//   - PR: the pointer type *R that satisfies [Resource]. The "*R; Resource" constraint is statically enforced at
+//     the call site; invalid combinations fail to compile.
+//
+// Call sites must spell both parameters:
+//
+//	r := op.Defer[yaml.Resource, *yaml.Resource](ctx)
+func Defer[R any, PR interface {
+	*R
+	Resource
+}](ctx *ExecutionContext) PR {
+
+	v := PR(new(R))
+
+	base, err := NewResourceBase(ctx, "", reflect.TypeFor[PR]())
+	if err != nil {
+		panic(fmt.Sprintf("op.Defer: %v", err))
+	}
+
+	*v.resourceBase() = base
+
+	return v
+}
+
+// typeIDOf returns the canonical Go type id for goType: PkgPath() + "." + Name(). Pointer types are normalized
+// to their element.
+func typeIDOf(goType reflect.Type) string {
+
+	if goType.Kind() == reflect.Ptr {
+		goType = goType.Elem()
+	}
+
+	return goType.PkgPath() + "." + goType.Name()
+}
+
+// URI returns the cached canonical tag URI of this resource.
 func (b *ResourceBase) URI() string {
 	return b.uri
+}
+
+// ReachabilityURI returns the scheme-specific identity payload — the <specific> portion of the canonical tag
+// URI. Empty for resources constructed via [Defer] or otherwise in the deferred ("known-at-execution") form.
+func (b *ResourceBase) ReachabilityURI() string {
+	return b.specific
+}
+
+// ResourceType returns the canonical Go type id of the concrete Resource type — the fragment portion of the
+// canonical tag URI.
+func (b *ResourceBase) ResourceType() string {
+	return b.typeID
 }
 
 // ID returns the catalog-stamped identity of this resource.
@@ -65,61 +191,6 @@ func (b *ResourceBase) ID() string {
 // OriginID returns the catalog-stamped origin node ID.
 func (b *ResourceBase) OriginID() string {
 	return b.originID
-}
-
-// Scheme returns the URI scheme by parsing the stored uri.
-//
-// Convenience helper--NOT an interface method.
-func (b *ResourceBase) Scheme() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Scheme
-}
-
-// Opaque returns the opaque data component of the URI (non-empty for opaque URIs like appnet:, mem:, pkg:, svc:).
-//
-// For hierarchical URIs (file://), returns empty. Convenience helper--NOT an interface method.
-func (b *ResourceBase) Opaque() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Opaque
-}
-
-// Host returns the URI host by parsing the stored uri.
-//
-// Non-empty for hierarchical URIs with an authority (e.g., file:///some/path). Empty for opaque URIs. Convenience
-// helper — NOT an interface method.
-func (b *ResourceBase) Host() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Host
-}
-
-// Path returns the URI path by parsing the stored uri.
-//
-// Non-empty for hierarchical URIs. Empty for opaque URIs. Convenience helper — NOT an interface method.
-func (b *ResourceBase) Path() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Path
-}
-
-// Fragment returns the URI fragment by parsing the stored uri.
-// Convenience helper — NOT an interface method.
-func (b *ResourceBase) Fragment() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Fragment
 }
 
 // Format marshals value as compact JSON.
@@ -302,35 +373,3 @@ type knownAtExecution struct {
 func IsKnownAtExecution(r Resource) bool {
 	return r == KnownAtExecution
 }
-
-// Tombstone is the interface for all compensation state receiverTypes.
-//
-// Every provider-specific tombstone (e.g., file.Tombstone) must embed [TombstoneBase] to satisfy it. The unexported
-// tombstoneBase method seals the interface to receiverTypes that embed [TombstoneBase].
-type Tombstone interface {
-	Resource() Resource
-	tombstoneBase()
-}
-
-// TombstoneBase holds the resource that was affected by a compensable do.
-//
-// ReceiverType-specific tombstone receiverTypes must embed it by value.
-//
-// The embedded Resource preserves its true identity — its fields are never modified by the recovery system.
-// ReceiverType-specific fields on the tombstone (e.g., file.Tombstone.RecoveryID) record where data was temporarily
-// moved during the operation — the recovery location, not the identity.
-type TombstoneBase struct {
-	resource Resource
-}
-
-// NewTombstoneBase creates a TombstoneBase anchored to the given resource.
-func NewTombstoneBase(resource Resource) TombstoneBase {
-	return TombstoneBase{resource: resource}
-}
-
-// Resource returns the resource affected by the compensable do.
-func (b TombstoneBase) Resource() Resource {
-	return b.resource
-}
-
-func (b TombstoneBase) tombstoneBase() {}

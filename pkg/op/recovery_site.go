@@ -48,7 +48,7 @@ func (s *RecoverySite) ArchiveData(data []byte) (string, error) {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
-	recoveryID := recoveryDir + "/" + uuid.New().String()
+	recoveryID := recoveryDir + "/" + uuid.Must(uuid.NewV7()).String()
 
 	if err := s.ctx.Root.WriteFile(s.ctx.Root.NewPath(recoveryID), data, 0o600); err != nil {
 		return "", err
@@ -78,7 +78,7 @@ func (s *RecoverySite) ArchiveFile(p Path) (string, error) {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
-	recoveryID := recoveryDir + "/" + uuid.New().String()
+	recoveryID := recoveryDir + "/" + uuid.Must(uuid.NewV7()).String()
 
 	if err := s.ctx.Root.Rename(p, s.ctx.Root.NewPath(recoveryID)); err != nil {
 		return "", err
@@ -106,7 +106,7 @@ func (s *RecoverySite) ArchiveStream(r io.Reader) (_ string, err error) {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
-	recoveryID := recoveryDir + "/" + uuid.New().String()
+	recoveryID := recoveryDir + "/" + uuid.Must(uuid.NewV7()).String()
 
 	f, err := s.ctx.Root.OpenFile(s.ctx.Root.NewPath(recoveryID), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {

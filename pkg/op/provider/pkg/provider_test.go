@@ -5,6 +5,7 @@ package pkg
 
 import (
 	"io"
+	"reflect"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -85,8 +86,9 @@ func newTestProvider(packageManager *mockPackageManager) *Provider {
 }
 
 func res(name string) *Resource {
+	base, _ := op.NewResourceBase(&op.ExecutionContext{}, "pkg:apt/"+name, reflect.TypeFor[*Resource]())
 	return &Resource{
-		ResourceBase: op.NewResourceBase(&op.ExecutionContext{}, "pkg:apt/"+name),
+		ResourceBase: base,
 		Name:         name,
 	}
 }

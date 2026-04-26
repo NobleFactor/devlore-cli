@@ -7,7 +7,7 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Tombstone holds archive-specific compensation state.
 type Tombstone struct {
-	op.TombstoneBase
+	op.ReceiptBase
 	Dest         string
 	CreatedFiles []string
 }

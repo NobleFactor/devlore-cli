@@ -62,8 +62,8 @@ func TestNewResource_MetadataOnly(t *testing.T) {
 	if r.Name != "myfn" {
 		t.Errorf("Name = %q, want %q", r.Name, "myfn")
 	}
-	if r.URI() != "mem:callable/file.Reducer/myfn" {
-		t.Errorf("URI() = %q, want %q", r.URI(), "mem:callable/file.Reducer/myfn")
+	if r.ReachabilityURI() != "mem:callable/file.Reducer/myfn" {
+		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "mem:callable/file.Reducer/myfn")
 	}
 	assertArchivedFileAbsent(t, r)
 	if r.Hash != "" {
@@ -77,8 +77,8 @@ func TestNewResource_NoNamespace(t *testing.T) {
 
 	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "config"})
 
-	if r.URI() != "mem:json/config" {
-		t.Errorf("URI() = %q, want %q", r.URI(), "mem:json/config")
+	if r.ReachabilityURI() != "mem:json/config" {
+		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "mem:json/config")
 	}
 }
 
@@ -88,8 +88,8 @@ func TestNewResource_ContentTypeOnly(t *testing.T) {
 
 	r := newRes(t, ctx, ResourceSpec{ContentType: "json"})
 
-	if r.URI() != "mem:json" {
-		t.Errorf("URI() = %q, want %q", r.URI(), "mem:json")
+	if r.ReachabilityURI() != "mem:json" {
+		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "mem:json")
 	}
 }
 
@@ -345,22 +345,6 @@ func TestResource_Convert_UnsupportedTarget(t *testing.T) {
 
 	if _, err := r.Convert(reflect.TypeFor[int]()); err == nil {
 		t.Fatal("Convert(int) should error — not a supported target")
-	}
-}
-
-// --- URI ---
-
-func TestResourceURI_OpaqueScheme(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	r := newRes(t, ctx, ResourceSpec{ContentType: "callable", Namespace: "file.Reducer", Name: "myfn"})
-
-	if r.Scheme() != "mem" {
-		t.Errorf("Scheme() = %q, want %q", r.Scheme(), "mem")
-	}
-	if r.Opaque() != "callable/file.Reducer/myfn" {
-		t.Errorf("Opaque() = %q, want %q", r.Opaque(), "callable/file.Reducer/myfn")
 	}
 }
 

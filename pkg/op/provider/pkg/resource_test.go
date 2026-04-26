@@ -64,23 +64,8 @@ func TestResourceURI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	want := "pkg:brew/jq"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
-	}
-}
-
-func TestResourceURI_ParsesAsOpaque(t *testing.T) {
-	ctx := resCtx("brew")
-	r, err := NewResource(ctx, "jq")
-	if err != nil {
-		t.Fatalf("NewResource: %v", err)
-	}
-	if r.Scheme() != "pkg" {
-		t.Errorf("Scheme() = %q, want pkg", r.Scheme())
-	}
-	if r.Opaque() != "brew/jq" {
-		t.Errorf("Opaque() = %q, want brew/jq", r.Opaque())
+	if got := r.ReachabilityURI(); got != "pkg:brew/jq" {
+		t.Errorf("ReachabilityURI() = %q, want %q", got, "pkg:brew/jq")
 	}
 }
 
@@ -91,5 +76,5 @@ func TestResourceImplementsInterface(t *testing.T) {
 }
 
 func TestTombstoneImplementsInterface(t *testing.T) {
-	var _ op.Tombstone = (*Tombstone)(nil)
+	var _ op.Receipt = (*Tombstone)(nil)
 }

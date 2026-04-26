@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"reflect"
 	"syscall"
 	"time"
 
@@ -81,8 +82,13 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
 	sourcePath := ctx.Root.NewPath(path)
 
+	base, err := op.NewResourceBase(ctx, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, err
+	}
+
 	return &Resource{
-		ResourceBase: op.NewResourceBase(ctx, "file://"+sourcePath.Abs()),
+		ResourceBase: base,
 		SourcePath:   sourcePath,
 	}, nil
 }

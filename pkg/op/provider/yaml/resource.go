@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -128,8 +129,13 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 	checksum := sha256.Sum256(data)
 	hash := hex.EncodeToString(checksum[:])
 
+	base, err := op.NewResourceBase(ctx, SchemeYAML+":"+hash[:12], reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, err
+	}
+
 	r := &Resource{
-		ResourceBase: op.NewResourceBase(ctx, SchemeYAML+":"+hash[:12]),
+		ResourceBase: base,
 		Data:         data,
 		Hash:         hash,
 	}

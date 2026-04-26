@@ -141,8 +141,13 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 		return nil, fmt.Errorf("mem.Resource: %w", err)
 	}
 
+	base, err := op.NewResourceBase(ctx, uri, reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: %w", err)
+	}
+
 	r := &Resource{
-		ResourceBase: op.NewResourceBase(ctx, uri),
+		ResourceBase: base,
 		ContentType:  spec.ContentType,
 		Namespace:    spec.Namespace,
 		Name:         spec.Name,
@@ -363,8 +368,13 @@ func newFromURI(ctx *op.ExecutionContext, uri string) (*Resource, error) {
 		return nil, err
 	}
 
+	base, err := op.NewResourceBase(ctx, uri, reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, err
+	}
+
 	r := &Resource{
-		ResourceBase: op.NewResourceBase(ctx, uri),
+		ResourceBase: base,
 		ContentType:  parts[0],
 		SourcePath:   sourcePath,
 	}

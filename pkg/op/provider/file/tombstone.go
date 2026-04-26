@@ -7,12 +7,12 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Tombstone holds file-specific compensation state.
 //
-// The embedded [op.TombstoneBase] carries the affected [Resource] whose identity is preserved. SourcePath always
-// reflects the file's true home.
+// The embedded [op.ReceiptBase] carries the affected [Resource] whose identity is preserved and the opaque
+// RecoveryID that locates the archived state. SourcePath always reflects the file's true home.
 type Tombstone struct {
-	op.TombstoneBase
+	op.ReceiptBase
+}
 
-	// RecoveryID records where the data was temporarily moved during the operation (backup, recovery site, or move
-	// destination). An empty RecoveryID means no prior data existed to recover.
-	RecoveryID string
+func (t *Tombstone) RecoveryID() string {
+	return t.TransactionID()
 }

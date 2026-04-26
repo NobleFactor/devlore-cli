@@ -76,81 +76,40 @@ func (p *Provider) Root() string {
 
 // Backup moves the file at "path" to a timestamped backup location.
 //
+// The backup destination is derived as path.SourcePath + backupSuffix + "." + timestamp, and the move itself
+// delegates to [Provider.Move] so that Backup and Move share a single recovery behavior — same rename
+// mechanics, same [Tombstone] shape, same compensation path.
+//
 // Parameters:
-//   - path: Absolute path to the file to back up
-//   - backupSuffix: Suffix appended before the timestamp (default: .devlore-backup)
+//   - path: Absolute path to the file to back up.
+//   - backupSuffix: Suffix appended before the timestamp (default: ".devlore-backup").
 //
 // Returns:
-//   - result: Resource at the backup location
-//   - undo: Tombstone for restoring the original
-//   - err: any error
-func (p *Provider) Backup(path *Resource, backupSuffix string) (result *Resource, undo Tombstone, err error) {
+//   - *Resource: Resource at the backup location.
+//   - Tombstone: for restoring the original file (consumed by [Provider.CompensateBackup]).
+//   - error: any error from the underlying Move.
+func (p *Provider) Backup(source *Resource, backupSuffix string) (*Resource, Tombstone, error) {
+
 	if backupSuffix == "" {
 		backupSuffix = ".devlore-backup"
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
-	backupPath := path.SourcePath.Abs() + backupSuffix + "." + timestamp
+	backupPath := source.SourcePath.Abs() + backupSuffix + "." + timestamp
 
-	if err := p.rename(path.SourcePath.Abs(), backupPath); err != nil {
-		return nil, Tombstone{}, err
-	}
-
-	if result, err = NewResource(p.ExecutionContext(), backupPath); err != nil {
-		return nil, Tombstone{}, err
-	}
-	if err = result.Resolve(); err != nil {
-		return nil, Tombstone{}, err
-	}
-
-	// Tombstone preserves the resource's true identity. RecoveryID records where the data was moved to.
-	undo = Tombstone{
-		TombstoneBase: op.NewTombstoneBase(path),
-		RecoveryID:    backupPath,
-	}
-
-	return result, undo, nil
+	return p.Move(source, backupPath)
 }
 
-// CompensateBackup undoes a Backup by moving the backup back to the original path.
-//
-// Backup uses a plain rename (not RecoverySite), so compensation renames back directly. The resource's checksum is
-// verified before restoring; a mismatch indicates external modification.
+// CompensateBackup undoes a Backup by delegating to [Provider.CompensateMove], reusing the Move-side
+// recovery semantics (checksum verification, directory recreation, reverse rename).
 //
 // Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.Backup]
+//   - receipt: [Tombstone] returned by [Provider.Backup].
 //
 // Returns:
-//   - error: any error from restoring the original file
-func (p *Provider) CompensateBackup(undo Tombstone) error {
-
-	if undo.Resource() == nil {
-		return nil
-	}
-
-	resource, ok := undo.Resource().(*Resource)
-
-	if !ok {
-		return fmt.Errorf("compensate backup: unexpected resource type %T", undo.Resource())
-	}
-
-	recoveryID := undo.RecoveryID
-
-	if resource.Checksum != "" {
-		actual := checksumFile(p.ExecutionContext().Root, recoveryID)
-		if actual == "" {
-			return fmt.Errorf("cannot read %s for verification", recoveryID)
-		}
-		if actual != resource.Checksum {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryID)
-		}
-	}
-
-	if err := p.mkdirAll(filepath.Dir(resource.SourcePath.Abs()), 0o755); err != nil {
-		return err
-	}
-
-	return p.rename(recoveryID, resource.SourcePath.Abs())
+//   - error: any error from restoring the original file.
+func (p *Provider) CompensateBackup(receipt Tombstone) error {
+	return p.CompensateMove(receipt)
 }
 
 // Copy copies source's contents to a new file at destinationPath with the given mode.
@@ -169,14 +128,14 @@ func (p *Provider) CompensateBackup(undo Tombstone) error {
 //   - result: the destination [file.Resource] with populated metadata.
 //   - undo: [file.Tombstone] for restoring the original state at destination.
 //   - err: any error from identity construction, backup, or the copy itself.
-func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (result *Resource, undo Tombstone, err error) {
+func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (product *Resource, receipt Tombstone, err error) {
 
-	result, err = NewResource(p.ExecutionContext(), destinationPath)
+	product, err = NewResource(p.ExecutionContext(), destinationPath)
 	if err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	result, undo, err = p.prepareWrite(result)
+	product, receipt, err = p.prepareWrite(product)
 	if err != nil {
 		return nil, Tombstone{}, err
 	}
@@ -187,25 +146,25 @@ func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMo
 
 	src, err := p.open(source.SourcePath.Abs())
 	if err != nil {
-		return result, undo, err
+		return product, receipt, err
 	}
 	defer iox.Close(&err, src)
 
-	dst, err := p.openFile(result.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	dst, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
-		return result, undo, err
+		return product, receipt, err
 	}
 	defer iox.Close(&err, dst)
 
 	if _, err := io.Copy(dst, src); err != nil {
-		return result, undo, err
+		return product, receipt, err
 	}
 
-	if err := result.Resolve(); err != nil {
-		return result, undo, err
+	if err := product.Resolve(); err != nil {
+		return product, receipt, err
 	}
 
-	return result, undo, nil
+	return product, receipt, nil
 }
 
 // CompensateCopy undoes a Copy by restoring the original file from recovery.
@@ -215,8 +174,8 @@ func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMo
 //
 // Returns:
 //   - error: any error from restoring the original file
-func (p *Provider) CompensateCopy(undo Tombstone) error {
-	return p.compensateWrite(undo)
+func (p *Provider) CompensateCopy(receipt Tombstone) error {
+	return p.compensateWrite(receipt)
 }
 
 // Link creates a symbolic link at targetPath pointing to source.
@@ -230,10 +189,10 @@ func (p *Provider) CompensateCopy(undo Tombstone) error {
 //   - targetPath: the path where the symbolic link will be created.
 //
 // Returns:
-//   - result: [file.Resource] for the created symbolic link.
-//   - undo: [file.Tombstone] for restoring the previous state of targetPath.
+//   - product: [file.Resource] for the created symbolic link.
+//   - receipt: [file.Tombstone] for restoring the previous state of targetPath.
 //   - err: any error from creating the symbolic link.
-func (p *Provider) Link(source *Resource, targetPath string) (result *Resource, undo Tombstone, err error) {
+func (p *Provider) Link(source *Resource, targetPath string) (product *Resource, undo Tombstone, err error) {
 
 	target, err := NewResource(p.ExecutionContext(), targetPath)
 	if err != nil {
@@ -249,20 +208,17 @@ func (p *Provider) Link(source *Resource, targetPath string) (result *Resource, 
 		}
 
 		// Something exists at the target — archive it before creating the symlink.
-		recoveryID, archiveErr := p.ExecutionContext().RecoverySite.ArchiveFile(target.SourcePath)
-
-		if archiveErr != nil {
+		if _, archiveErr := p.ExecutionContext().RecoverySite.ArchiveFile(target.SourcePath); archiveErr != nil {
 			return nil, Tombstone{}, archiveErr
 		}
 
 		undo = Tombstone{
-			TombstoneBase: op.NewTombstoneBase(target),
-			RecoveryID:    recoveryID,
+			ReceiptBase: op.NewReceiptBase(target),
 		}
 	} else {
 		// Nothing exists — tombstone records the target for removal on compensation.
 		undo = Tombstone{
-			TombstoneBase: op.NewTombstoneBase(target),
+			ReceiptBase: op.NewReceiptBase(target),
 		}
 	}
 
@@ -303,15 +259,15 @@ func (p *Provider) CompensateLink(undo Tombstone) error {
 //   - mode: directory permission bits (e.g., 0o755). Defaults to 0755 when 0.
 //
 // Returns:
-//   - result: the directory [file.Resource] with populated metadata.
-//   - undo: [file.Tombstone] whose RecoveryID marks the nearest pre-existing ancestor; empty when the target
+//   - product: the [file.Resource] created including populated metadata.
+//   - receipt: [file.Tombstone] whose RecoveryID marks the nearest pre-existing ancestor; empty when the target
 //     directory already existed.
 //   - err: any error from resource construction, directory creation, or metadata resolution.
 //
 // +devlore:defaults mode=0755
-func (p *Provider) Mkdir(path string, mode os.FileMode) (result *Resource, undo Tombstone, err error) {
+func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, receipt Tombstone, err error) {
 
-	result, err = NewResource(p.ExecutionContext(), path)
+	product, err = NewResource(p.ExecutionContext(), path)
 	if err != nil {
 		return nil, Tombstone{}, err
 	}
@@ -320,10 +276,10 @@ func (p *Provider) Mkdir(path string, mode os.FileMode) (result *Resource, undo 
 	//
 	// This enables us to completely undo the operation. The scoped root is always a valid stopping point its boundary.
 
-	leaf := result.SourcePath.Abs()
+	leaf := product.SourcePath.Abs()
 
 	if info, statErr := p.stat(leaf); statErr == nil && info.IsDir() {
-		return result, Tombstone{}, nil
+		return product, Tombstone{}, nil
 	}
 
 	rootName := p.ExecutionContext().Root.Name()
@@ -347,16 +303,15 @@ func (p *Provider) Mkdir(path string, mode os.FileMode) (result *Resource, undo 
 		return nil, Tombstone{}, err
 	}
 
-	if err := result.Resolve(); err != nil {
+	if err := product.Resolve(); err != nil {
 		return nil, Tombstone{}, err
 	}
 
-	undo = Tombstone{
-		TombstoneBase: op.NewTombstoneBase(result),
-		RecoveryID:    ancestor,
+	receipt = Tombstone{
+		ReceiptBase: op.NewReceiptBase(product),
 	}
 
-	return result, undo, nil
+	return product, receipt, nil
 }
 
 // CompensateMkdir undoes a Mkdir by walking up from the directory created, removing it, and stopping at RecoveryID.
@@ -382,7 +337,7 @@ func (p *Provider) CompensateMkdir(undo Tombstone) error {
 
 	current := resource.SourcePath.Abs()
 
-	for current != undo.RecoveryID {
+	for current != undo.TransactionID() {
 
 		if err := p.remove(current); err != nil {
 			if isDirNotEmpty(err) {
@@ -442,8 +397,7 @@ func (p *Provider) Move(source *Resource, destinationPath string) (result *Resou
 
 	// Tombstone preserves the source's true identity. RecoveryID records where the data was moved to.
 	undo = Tombstone{
-		TombstoneBase: op.NewTombstoneBase(source),
-		RecoveryID:    result.SourcePath.Abs(),
+		ReceiptBase: op.NewReceiptBase(source),
 	}
 
 	return result, undo, nil
@@ -471,7 +425,7 @@ func (p *Provider) CompensateMove(undo Tombstone) error {
 		return fmt.Errorf("compensate move: unexpected resource type %T", undo.Resource())
 	}
 
-	recoveryID := undo.RecoveryID
+	recoveryID := undo.TransactionID()
 
 	if resource.Checksum != "" {
 		actual := checksumFile(p.ExecutionContext().Root, recoveryID)
@@ -518,8 +472,7 @@ func (p *Provider) Remove(path *Resource, prune bool, boundary *Resource) (resul
 		return Tombstone{}, Tombstone{}, fmt.Errorf("directory %s is not empty", path.SourcePath.Abs())
 	}
 
-	recoveryID, err := p.ExecutionContext().RecoverySite.ArchiveFile(path.SourcePath)
-	if err != nil {
+	if _, err := p.ExecutionContext().RecoverySite.ArchiveFile(path.SourcePath); err != nil {
 		return Tombstone{}, Tombstone{}, err
 	}
 
@@ -530,8 +483,7 @@ func (p *Provider) Remove(path *Resource, prune bool, boundary *Resource) (resul
 	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundaryPath)
 
 	tombstone := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(path),
-		RecoveryID:    recoveryID,
+		ReceiptBase: op.NewReceiptBase(path),
 	}
 	return tombstone, tombstone, nil
 }
@@ -551,7 +503,7 @@ func (p *Provider) CompensateRemove(undo Tombstone) error {
 	if !ok {
 		return fmt.Errorf("compensate remove: unexpected resource type %T", undo.Resource())
 	}
-	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
+	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, undo.TransactionID())
 }
 
 // RemoveAll removes the file at "path" and any children it contains.
@@ -567,16 +519,14 @@ func (p *Provider) CompensateRemove(undo Tombstone) error {
 //   - result: Tombstone for restoring the deleted tree
 //   - err: any error
 func (p *Provider) RemoveAll(path *Resource, prune bool, boundary *Resource) (result, undo Tombstone, err error) {
-	recoveryID, err := p.ExecutionContext().RecoverySite.ArchiveFile(path.SourcePath)
-	if err != nil {
+	if _, err := p.ExecutionContext().RecoverySite.ArchiveFile(path.SourcePath); err != nil {
 		return Tombstone{}, Tombstone{}, err
 	}
 
 	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundary.SourcePath.Abs())
 
 	tombstone := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(path),
-		RecoveryID:    recoveryID,
+		ReceiptBase: op.NewReceiptBase(path),
 	}
 	return tombstone, tombstone, nil
 }
@@ -596,7 +546,7 @@ func (p *Provider) CompensateRemoveAll(undo Tombstone) error {
 	if !ok {
 		return fmt.Errorf("compensate remove_all: unexpected resource type %T", undo.Resource())
 	}
-	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
+	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, undo.TransactionID())
 }
 
 // Unlink removes the symlink at "path".
@@ -627,16 +577,14 @@ func (p *Provider) Unlink(path *Resource, prune bool, boundary *Resource) (resul
 		return Tombstone{}, Tombstone{}, fmt.Errorf("%s is not a symlink", path.SourcePath.Abs())
 	}
 
-	recoveryID, err := p.ExecutionContext().RecoverySite.ArchiveFile(path.SourcePath)
-	if err != nil {
+	if _, err := p.ExecutionContext().RecoverySite.ArchiveFile(path.SourcePath); err != nil {
 		return Tombstone{}, Tombstone{}, err
 	}
 
 	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundary.SourcePath.Abs())
 
 	tombstone := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(path),
-		RecoveryID:    recoveryID,
+		ReceiptBase: op.NewReceiptBase(path),
 	}
 	return tombstone, tombstone, nil
 }
@@ -656,7 +604,7 @@ func (p *Provider) CompensateUnlink(undo Tombstone) error {
 	if !ok {
 		return fmt.Errorf("compensate unlink: unexpected resource type %T", undo.Resource())
 	}
-	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
+	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, undo.TransactionID())
 }
 
 // WalkTree performs a depth-first traversal with an accumulator and a RecoveryStack for compensable operations.
@@ -854,7 +802,7 @@ func (p *Provider) CompensateWriteBytes(undo Tombstone) error {
 //   - err: any error that occurred while writing.
 //
 // +devlore:defaults mode=0o755
-func (p *Provider) WriteText(destinationPath string, content string, mode os.FileMode) (result *Resource, undo Tombstone, err error) {
+func (p *Provider) WriteText(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt Tombstone, err error) {
 
 	destination, err := NewResource(p.ExecutionContext(), destinationPath)
 	if err != nil {
@@ -1239,11 +1187,11 @@ func (p *Provider) compensateWrite(undo Tombstone) error {
 		return err
 	}
 
-	if undo.RecoveryID == "" {
+	if undo.TransactionID() == "" {
 		return nil
 	}
 
-	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
+	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, undo.TransactionID())
 }
 
 // lstat returns file info without following symlinks.
@@ -1328,7 +1276,7 @@ func (p *Provider) prepareWrite(resource *Resource) (result *Resource, undo Tomb
 		}
 
 		undo = Tombstone{
-			TombstoneBase: op.NewTombstoneBase(result),
+			ReceiptBase: op.NewReceiptBase(result),
 		}
 		return result, undo, nil
 	}

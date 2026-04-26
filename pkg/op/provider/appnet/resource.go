@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -64,8 +65,13 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 		return nil, fmt.Errorf("appnet.Resource: URL missing transport scheme: %q", raw)
 	}
 
+	base, err := op.NewResourceBase(ctx, canonical.String(), reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, err
+	}
+
 	return &Resource{
-		ResourceBase: op.NewResourceBase(ctx, canonical.String()),
+		ResourceBase: base,
 		SourceURL:    canonical,
 	}, nil
 }

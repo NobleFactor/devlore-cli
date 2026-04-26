@@ -466,7 +466,7 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 	// On mismatch, fall back to unmarshal-into-any + op.Convert so registry-based target instantiation (e.g., string →
 	// *file.Resource) takes over.
 
-	final, err := p.assignTarget(value, slot.Parameter.Type)
+	final, err := p.assignTarget(slot.Parameter, value)
 
 	if err != nil {
 		return fmt.Errorf("slot %q: %w", name, err)
@@ -572,33 +572,157 @@ func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) erro
 	return nil
 }
 
-// assignTarget unmarshals value into the target Go type with fallback to [op.Convert] when the target is unreachable.
+// assignTarget converts a starlark value into the Go type declared by parameter.Type.
 //
-// The direct path preserves typed fidelity for structural types (e.g., maps keyed by string, slices of typed elements)
-// that the unmarshalers project directly. The fallback path unmarshals into an interface target and lets op.Convert
-// handle target-type instantiation — notably registry-based construction of Resource types from primitive sources
-// (e.g., string → *file.Resource).
-func (p *NodeBuilder) assignTarget(value starlark.Value, target reflect.Type) (any, error) {
+// When the target type implements [Unmarshaler], a fresh zero instance is allocated and UnmarshalStarlark is
+// invoked on it. Otherwise, the starlark value is unpacked to its natural Go equivalent and aligned with the
+// target type using Go's conversion rules (reflect.Value.AssignableTo → reflect.Value.ConvertibleTo). Unpacking
+// a list/dict/tuple recurses into any-typed slots, so collections naturally unpack as []any or map[any]any; the
+// trailing alignment succeeds only when the target type accepts that shape per the Go spec. parameter.Name is
+// threaded into error messages so callers see which argument failed.
+func (p *NodeBuilder) assignTarget(parameter op.Parameter, value starlark.Value) (any, error) {
 
-	u, err := ToUnmarshaler(value)
+	target := parameter.Type
 
-	if err != nil {
-		return nil, err
+	if target.Implements(reflect.TypeFor[Unmarshaler]()) {
+
+		v := reflect.New(target.Elem()).Interface().(Unmarshaler)
+
+		if err := v.UnmarshalStarlark(value); err != nil {
+			return nil, fmt.Errorf("%s: %w", parameter.Name, err)
+		}
+
+		return v, nil
 	}
 
-	rv := reflect.New(target).Elem()
+	anyType := reflect.TypeFor[any]()
 
-	if err := u.Unmarshal(rv); err == nil {
+	var unpacked any
+
+	switch v := value.(type) {
+
+	case starlark.Bool:
+
+		unpacked = bool(v)
+
+	case starlark.Bytes:
+
+		unpacked = []byte(v)
+
+	case *starlark.Dict:
+
+		m := make(map[any]any, v.Len())
+
+		for _, item := range v.Items() {
+
+			key, err := p.assignTarget(op.Parameter{Name: parameter.Name + " key", Type: anyType}, item[0])
+			if err != nil {
+				return nil, err
+			}
+
+			val, err := p.assignTarget(op.Parameter{Name: fmt.Sprintf("%s[%v]", parameter.Name, key), Type: anyType}, item[1])
+			if err != nil {
+				return nil, err
+			}
+
+			m[key] = val
+		}
+
+		unpacked = m
+
+	case starlark.Float:
+
+		unpacked = float64(v)
+
+	case *starlark.Function:
+
+		unpacked = v
+
+	case starlark.Int:
+
+		i, ok := v.Int64()
+		if !ok {
+			return nil, fmt.Errorf("%s: int overflow: %s", parameter.Name, v)
+		}
+		unpacked = i
+
+	case *starlark.List:
+
+		n := v.Len()
+		result := make([]any, n)
+
+		for i := range n {
+
+			elem, err := p.assignTarget(op.Parameter{Name: fmt.Sprintf("%s[%d]", parameter.Name, i), Type: anyType}, v.Index(i))
+			if err != nil {
+				return nil, err
+			}
+
+			result[i] = elem
+		}
+
+		unpacked = result
+
+	case starlark.NoneType:
+
+		return nil, nil
+
+	case *starlark.Set:
+
+		result := make([]any, 0, v.Len())
+		iter := v.Iterate()
+		defer iter.Done()
+
+		var item starlark.Value
+		for i := 0; iter.Next(&item); i++ {
+
+			elem, err := p.assignTarget(op.Parameter{Name: fmt.Sprintf("%s[%d]", parameter.Name, i), Type: anyType}, item)
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, elem)
+		}
+
+		unpacked = result
+
+	case starlark.String:
+
+		unpacked = string(v)
+
+	case starlark.Tuple:
+
+		n := v.Len()
+		result := make([]any, n)
+
+		for i := range n {
+
+			elem, err := p.assignTarget(op.Parameter{Name: fmt.Sprintf("%s[%d]", parameter.Name, i), Type: anyType}, v.Index(i))
+			if err != nil {
+				return nil, err
+			}
+
+			result[i] = elem
+		}
+
+		unpacked = result
+
+	default:
+
+		return nil, fmt.Errorf("%s: cannot convert starlark %s to %s", parameter.Name, value.Type(), target)
+	}
+
+	rv := reflect.ValueOf(unpacked)
+
+	if rv.Type().AssignableTo(target) {
 		return rv.Interface(), nil
 	}
 
-	var raw any
-
-	if err := u.Unmarshal(reflect.ValueOf(&raw).Elem()); err != nil {
-		return nil, err
+	if rv.Type().ConvertibleTo(target) {
+		return rv.Convert(target).Interface(), nil
 	}
 
-	return op.Convert(p.ctx, raw, target)
+	return nil, fmt.Errorf("%s: cannot convert %s to %s", parameter.Name, rv.Type(), target)
 }
 
 // endregion

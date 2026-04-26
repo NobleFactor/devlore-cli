@@ -76,12 +76,11 @@ type Function struct {
 //  3. Compiles the source via [starlark.SourceProgramOptions].
 //  4. Serializes the compiled Program via [starlark.Program.Write].
 //  5. Packs source + compiled + compiler version via [writeFunctionPack].
-//  6. Streams the pack into [op.RecoverySite] via [op.RecoverySite.ArchiveStream]; stores the returned
-//     recovery ID on the embedded Resource.
+//  6. Writes the pack to the Function's URI-derived SourcePath via [op.Root.WriteFile].
 //  7. Caches the compiled bytes and compiler version on the Function for in-memory fast-path Init.
 //
 // Parameters:
-//   - ctx:   execution context; must have a non-nil RecoverySite and a valid Root.
+//   - ctx:   execution context; must have a valid Root.
 //   - value: a [ResourceSpec] whose Data holds a *starlark.Function.
 //
 // Returns:
@@ -119,9 +118,14 @@ func NewFunction(ctx *op.ExecutionContext, value any) (*Function, error) {
 		params[i] = p
 	}
 
+	base, err := op.NewResourceBase(ctx, spec.URI(), reflect.TypeFor[*Function]())
+	if err != nil {
+		return nil, fmt.Errorf("mem.Function: %w", err)
+	}
+
 	f := &Function{
 		Resource: Resource{
-			ResourceBase: op.NewResourceBase(ctx, spec.URI()),
+			ResourceBase: base,
 			ContentType:  spec.ContentType,
 			Namespace:    spec.Namespace,
 			Name:         spec.Name,

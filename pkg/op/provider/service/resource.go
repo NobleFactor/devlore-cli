@@ -5,6 +5,7 @@ package service
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -25,8 +26,13 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 		return nil, fmt.Errorf("service.Resource: expected string name, got %T", value)
 	}
 
+	base, err := op.NewResourceBase(ctx, "svc:"+name, reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, err
+	}
+
 	return &Resource{
-		ResourceBase: op.NewResourceBase(ctx, "svc:"+name),
+		ResourceBase: base,
 		Name:         name,
 	}, nil
 }
@@ -42,7 +48,7 @@ func (r *Resource) String() string { return r.Format(r) }
 
 // Tombstone holds service-specific compensation state.
 type Tombstone struct {
-	op.TombstoneBase
+	op.ReceiptBase
 	Name       string
 	WasRunning bool
 	WasEnabled bool
