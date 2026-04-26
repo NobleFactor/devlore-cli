@@ -193,6 +193,7 @@ type testCompensableAction struct {
 	undoFn func(Complement) error
 }
 
+func (a *testCompensableAction) FullName() string    { return "github.com/NobleFactor/devlore-cli/pkg/op.test.Compensable" }
 func (a *testCompensableAction) Name() string        { return "test.compensable" }
 func (a *testCompensableAction) Params() []Parameter { return nil }
 
@@ -233,6 +234,7 @@ func TestRecoveryStack_PushAction_CompensableAction(t *testing.T) {
 // plainAction is a non-compensable action for testing.
 type plainAction struct{}
 
+func (a *plainAction) FullName() string                                               { return "github.com/NobleFactor/devlore-cli/pkg/op.test.Plain" }
 func (a *plainAction) Name() string                                                   { return "test.plain" }
 func (a *plainAction) Params() []Parameter                                            { return nil }
 func (a *plainAction) Do(_ *ExecutionContext, _ map[string]any) (Result, Complement, error) { return nil, nil, nil }

@@ -15,6 +15,17 @@ type action struct {
 	name         string
 }
 
+// FullName returns the canonical action name in fully-qualified form.
+//
+// The name has the form <pkg-path>.<receiverName>.<methodName> and is sourced from
+// [Method.ActionName] — the same value [ReceiptBase.Action] stores once a receipt is committed by
+// [Method.Invoke]. Used at saga-stack push sites to stamp action identity onto receipts; distinct from [Name],
+// which returns the short starlark form (e.g., "file.join").
+//
+// Returns:
+//   - string: the canonical action name.
+func (a *action) FullName() string { return a.method.ActionName() }
+
 // Name returns the action name (e.g., "file.join").
 func (a *action) Name() string { return a.name }
 
@@ -58,6 +69,17 @@ type fallibleAction struct {
 	name         string
 }
 
+// FullName returns the canonical action name in fully-qualified form.
+//
+// The name has the form <pkg-path>.<receiverName>.<methodName> and is sourced from
+// [Method.ActionName] — the same value [ReceiptBase.Action] stores once a receipt is committed by
+// [Method.Invoke]. Used at saga-stack push sites to stamp action identity onto receipts; distinct from [Name],
+// which returns the short starlark form.
+//
+// Returns:
+//   - string: the canonical action name.
+func (a *fallibleAction) FullName() string { return a.method.ActionName() }
+
 // Name returns the action name.
 func (a *fallibleAction) Name() string { return a.name }
 
@@ -97,6 +119,17 @@ type compensableAction struct {
 	method       *Method
 	name         string
 }
+
+// FullName returns the canonical action name in fully-qualified form.
+//
+// The name has the form <pkg-path>.<receiverName>.<methodName> and is sourced from
+// [Method.ActionName] — the same value [ReceiptBase.Action] stores once a receipt is committed by
+// [Method.Invoke]. Used at saga-stack push sites to stamp action identity onto receipts; distinct from [Name],
+// which returns the short starlark form.
+//
+// Returns:
+//   - string: the canonical action name.
+func (a *compensableAction) FullName() string { return a.method.ActionName() }
 
 // Name returns the action name.
 func (a *compensableAction) Name() string { return a.name }

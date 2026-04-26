@@ -35,6 +35,7 @@ type Parameter struct {
 //
 // Do returns (result, nil, nil).
 type Action interface {
+	FullName() string
 	Name() string
 	Params() []Parameter
 	Do(ctx *ExecutionContext, slots map[string]any) (Result, Complement, error)
