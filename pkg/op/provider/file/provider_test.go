@@ -49,12 +49,12 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
 	}
 
-	// Nothing existed before — tombstone has resource but no recovery path.
+	// Nothing existed before — receipt has resource but no recovery path.
 	if state.Resource() == nil {
 		t.Fatal("state.Resource() is nil, want non-nil")
 	}
 	if state.TransactionID() != "" {
-		t.Errorf("state.RecoveryID() = %q, want empty (nothing to recover)", state.TransactionID())
+		t.Errorf("state.TransactionID() = %q, want empty (nothing to recover)", state.TransactionID())
 	}
 
 	got := resolveReadlink(t, linkPath)
@@ -89,7 +89,7 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 
 	// Old symlink was moved to recovery.
 	if state.TransactionID() == "" {
-		t.Error("state.RecoveryID() is empty, want non-empty (old symlink moved to recovery)")
+		t.Error("state.TransactionID() is empty, want non-empty (old symlink moved to recovery)")
 	}
 
 	got := resolveReadlink(t, linkPath)
@@ -117,8 +117,8 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 	if result.SourcePath.Abs() != linkPath {
 		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
 	}
-	if state != (Tombstone{}) {
-		t.Errorf("state = %+v, want zero Tombstone (no-op)", state)
+	if state != (Receipt{}) {
+		t.Errorf("state = %+v, want zero Receipt (no-op)", state)
 	}
 }
 
@@ -147,7 +147,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 func TestCompensateLink_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateLink(Tombstone{}); err != nil {
+	if err := p.CompensateLink(Receipt{}); err != nil {
 		t.Errorf("CompensateLink(zero) = %v, want nil", err)
 	}
 }
@@ -159,9 +159,9 @@ func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Tombstone with no recovery path — symlink didn't exist before.
+	// Receipt with no recovery path — symlink didn't exist before.
 	resource := &Resource{SourcePath: op.NewPath("", linkPath)}
-	state := Tombstone{
+	state := Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -180,7 +180,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	oldTarget := filepath.Join(tmp, "old-target")
 
 	// Simulate: old symlink was moved to recovery, new symlink created.
-	// RecoveryID is root-relative (as returned by RecoverySite.ArchiveFile).
+	// TransactionID is the recovery key (as returned by RecoverySite.ArchiveFile).
 	recoveryRel := "recovery-link"
 	if err := os.Symlink(oldTarget, filepath.Join(tmp, recoveryRel)); err != nil {
 		t.Fatal(err)
@@ -189,9 +189,9 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Resource preserves true identity (linkPath). RecoveryID = root-relative location.
+	// Resource preserves true identity (linkPath); TransactionID is the recovery key.
 	resource := &Resource{SourcePath: op.NewPath("", linkPath)}
-	state := Tombstone{
+	state := Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -295,7 +295,7 @@ func TestCopy_DefaultModeWhenZero(t *testing.T) {
 func TestCompensateCopy_ZeroState_NoPanic(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateCopy(Tombstone{}); err != nil {
+	if err := p.CompensateCopy(Receipt{}); err != nil {
 		t.Errorf("CompensateCopy(zero) = %v, want nil", err)
 	}
 }
@@ -307,9 +307,9 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Tombstone with no recovery path = file didn't exist before, just remove it.
+	// Receipt with no recovery path = file didn't exist before, just remove it.
 	resource := &Resource{SourcePath: op.NewPath("", path)}
-	state := Tombstone{
+	state := Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -327,7 +327,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	// Simulate: original was moved to recovery, then overwritten.
-	// RecoveryID is root-relative (as returned by RecoverySite.ArchiveFile).
+	// TransactionID is the recovery key (as returned by RecoverySite.ArchiveFile).
 	recoveryRel := "output.txt.recovery"
 	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("original content"), 0o644); err != nil {
 		t.Fatal(err)
@@ -337,7 +337,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	}
 
 	resource := &Resource{SourcePath: op.NewPath("", path)}
-	state := Tombstone{
+	state := Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -399,14 +399,14 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Errorf("backup content = %q, want %q", got, "backup me")
 	}
 
-	// Tombstone resource preserves true identity (original path).
-	// RecoveryID records where data was moved to (backup location).
+	// Receipt resource preserves true identity (original path).
+	// TransactionID is the recovery key for the moved data (backup location).
 	resourcePath := state.Resource().(*Resource).SourcePath.Abs()
 	if resourcePath != path {
-		t.Errorf("tombstone resource path = %q, want %q (true identity)", resourcePath, path)
+		t.Errorf("receipt resource path = %q, want %q (true identity)", resourcePath, path)
 	}
 	if state.TransactionID() != result.SourcePath.Abs() {
-		t.Errorf("tombstone recovery path = %q, want %q", state.TransactionID(), result.SourcePath.Abs())
+		t.Errorf("receipt recovery path = %q, want %q", state.TransactionID(), result.SourcePath.Abs())
 	}
 
 	// Checksum should match the original file content.
@@ -447,7 +447,7 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 	}
 
 	resource := &Resource{SourcePath: op.NewPath("", originalPath)}
-	state := Tombstone{
+	state := Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -482,7 +482,7 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
 
 	resource := &Resource{SourcePath: op.NewPath("", originalPath), Checksum: wrongChecksum}
-	state := Tombstone{
+	state := Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -537,11 +537,11 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
-	if result != (Tombstone{}) {
-		t.Errorf("result = %+v, want empty Tombstone", result)
+	if result != (Receipt{}) {
+		t.Errorf("result = %+v, want empty Receipt", result)
 	}
-	if state != (Tombstone{}) {
-		t.Errorf("state = %+v, want empty Tombstone (no-op)", state)
+	if state != (Receipt{}) {
+		t.Errorf("state = %+v, want empty Receipt (no-op)", state)
 	}
 }
 
@@ -580,7 +580,7 @@ func TestRemove_RemovesFile(t *testing.T) {
 		t.Fatal("result.Resource() is nil, want non-nil")
 	}
 	if result.TransactionID() == "" {
-		t.Error("result.RecoveryID() should not be empty")
+		t.Error("result.TransactionID() should not be empty")
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -597,11 +597,11 @@ func TestRemove_AlreadyGone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if result != (Tombstone{}) {
-		t.Errorf("result = %+v, want empty Tombstone", result)
+	if result != (Receipt{}) {
+		t.Errorf("result = %+v, want empty Receipt", result)
 	}
-	if state != (Tombstone{}) {
-		t.Errorf("state = %+v, want empty Tombstone (no-op)", state)
+	if state != (Receipt{}) {
+		t.Errorf("state = %+v, want empty Receipt (no-op)", state)
 	}
 }
 
@@ -694,14 +694,14 @@ func TestMove(t *testing.T) {
 		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), dst)
 	}
 
-	// Tombstone resource preserves true identity (source path).
-	// RecoveryID records where data was moved to (destination).
+	// Receipt resource preserves true identity (source path).
+	// TransactionID is the recovery key for the moved data (destination).
 	resourcePath := state.Resource().(*Resource).SourcePath.Abs()
 	if resourcePath != src {
-		t.Errorf("tombstone resource path = %q, want %q (true identity)", resourcePath, src)
+		t.Errorf("receipt resource path = %q, want %q (true identity)", resourcePath, src)
 	}
 	if state.TransactionID() != dst {
-		t.Errorf("tombstone recovery path = %q, want %q", state.TransactionID(), dst)
+		t.Errorf("receipt recovery path = %q, want %q", state.TransactionID(), dst)
 	}
 
 	// Checksum should match the original file content.
@@ -729,7 +729,7 @@ func TestMove(t *testing.T) {
 func TestCompensateMove_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateMove(Tombstone{}); err != nil {
+	if err := p.CompensateMove(Receipt{}); err != nil {
 		t.Errorf("CompensateMove(zero) = %v, want nil", err)
 	}
 }
@@ -746,7 +746,7 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
 
 	resource := &Resource{SourcePath: op.NewPath("", src), Checksum: wrongChecksum}
-	state := Tombstone{
+	state := Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -809,7 +809,7 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 func TestCompensateWriteText_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateWriteText(Tombstone{}); err != nil {
+	if err := p.CompensateWriteText(Receipt{}); err != nil {
 		t.Errorf("CompensateWriteText(zero) = %v, want nil", err)
 	}
 }
@@ -817,7 +817,7 @@ func TestCompensateWriteText_ZeroState(t *testing.T) {
 func TestCompensateWriteBytes_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateWriteBytes(Tombstone{}); err != nil {
+	if err := p.CompensateWriteBytes(Receipt{}); err != nil {
 		t.Errorf("CompensateWriteBytes(zero) = %v, want nil", err)
 	}
 }
@@ -1433,12 +1433,12 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
-	// Tombstone preserves true identity — SourcePath is the original home.
+	// Receipt preserves true identity — SourcePath is the original home.
 	if state.Resource().(*Resource).SourcePath.Abs() != path {
-		t.Errorf("tombstone resource path = %q, want %q (true identity)", state.Resource().(*Resource).SourcePath.Abs(), path)
+		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(*Resource).SourcePath.Abs(), path)
 	}
 
-	// Verify recovery site holds the data. RecoveryID is root-relative.
+	// Verify recovery site holds the data; TransactionID is the recovery key.
 	recoveryPath := state.TransactionID()
 	if _, err := os.Stat(filepath.Join(tmp, recoveryPath)); err != nil {
 		t.Fatalf("recovery site missing: %v", err)
@@ -1476,12 +1476,12 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
 
-	// Tombstone preserves true identity — SourcePath is the original home.
+	// Receipt preserves true identity — SourcePath is the original home.
 	if state.Resource().(*Resource).SourcePath.Abs() != dir {
-		t.Errorf("tombstone resource path = %q, want %q (true identity)", state.Resource().(*Resource).SourcePath.Abs(), dir)
+		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(*Resource).SourcePath.Abs(), dir)
 	}
 
-	// RecoveryID is root-relative.
+	// TransactionID is the recovery key.
 	recoveryPath := state.TransactionID()
 	if _, err := os.Stat(filepath.Join(tmp, recoveryPath)); err != nil {
 		t.Fatalf("recovery site missing: %v", err)

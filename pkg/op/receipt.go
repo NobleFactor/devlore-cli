@@ -6,7 +6,6 @@ package op
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 
 	"github.com/google/uuid"
 )
@@ -16,11 +15,11 @@ import (
 // Every compensable forward method returns a Receipt alongside its [Product]. The Receipt carries the affected
 // [Resource] (Resource()), the moment the call was issued (Timestamp()), and an opaque identifier for
 // correlating the forward call with its eventual reversal (TransactionID()). Provider-specific receipts
-// (e.g., file.Tombstone) must embed [ReceiptBase] to satisfy this interface. The unexported receiptBase method
+// (e.g., file.Receipt) must embed [ReceiptBase] to satisfy this interface. The unexported receiptBase method
 // seals the interface to receiverTypes that embed [ReceiptBase].
 type Receipt interface {
 	Action() string
-	Commit(action reflect.Method) error
+	Commit(actionName string) error
 	Resource() Resource
 	Timestamp() uuid.Time
 	TransactionID() string
@@ -113,32 +112,23 @@ func (b *ReceiptBase) TransactionID() string {
 
 // region Behaviors
 
-// Commit finalizes this receipt by minting its TransactionID and looking up the Action name for the supplied method.
+// Commit finalizes this receipt by minting its TransactionID and stamping the supplied action name.
 //
-// Idempotent: if the transactionID is already set, Commit is a no-op and returns nil. Commit fails if the
-// receipt's resource is nil or has no [ExecutionContext], or if [uuid.NewV7] fails.
-//
-// The Action name is looked up by the Receipt's Resource's registered ReceiverType.
+// Idempotent: if the transactionID is already set, Commit is a no-op and returns nil. Commit fails only if
+// [uuid.NewV7] fails; no resource or context lookup is required.
 //
 // Parameters:
-//   - action: the reflected method that issued this receipt; its receiver type and method name resolve to the
-//     registry's [Method] for the canonical action name.
+//   - actionName: the canonical action name in fully-qualified form
+//     (<pkg-path>.<receiverName>.<methodName>) — typically supplied by [RecoveryStack.Push] from the issuing
+//     [Action.FullName] or by [Method.Invoke] from the method's own [Method.ActionName].
 //
 // Returns:
-//   - error: non-nil when inflation pre-conditions fail or the UUID mint fails.
-func (b *ReceiptBase) Commit(action reflect.Method) error {
+//   - error: non-nil when [uuid.NewV7] fails.
+func (b *ReceiptBase) Commit(actionName string) error {
 
 	if b.transactionID != (uuid.UUID{}) {
 		return nil
 	}
-
-	if b.resource == nil || b.resource.ExecutionContext() == nil {
-		return fmt.Errorf("commit failed: missing resource context")
-	}
-
-	receiverType, _ := b.resource.ExecutionContext().Registry.TypeByReflection(action.Type.In(0))
-	method, _ := receiverType.MethodByName(action.Name)
-	actionName := method.ActionName()
 
 	tid, err := uuid.NewV7()
 	if err != nil {

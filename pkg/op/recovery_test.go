@@ -4,6 +4,7 @@
 package op
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -262,5 +263,84 @@ func TestRecoveryStack_PushAction_FiltersErrNotCompensable(t *testing.T) {
 	// Unwind should return nil — ErrNotCompensable is filtered.
 	if err := s.Unwind(); err != nil {
 		t.Errorf("Unwind() error = %v, want nil (ErrNotCompensable should be filtered)", err)
+	}
+}
+
+func TestRecoveryStack_PushNested_AppendsOneEntry(t *testing.T) {
+	parent := NewRecoveryStack()
+	child := NewRecoveryStack()
+
+	parent.PushNested(child)
+
+	if parent.Len() != 1 {
+		t.Errorf("parent.Len() = %d, want 1", parent.Len())
+	}
+}
+
+func TestRecoveryStack_PushNested_NilIsNoOp(t *testing.T) {
+	parent := NewRecoveryStack()
+
+	parent.PushNested(nil)
+
+	if parent.Len() != 0 {
+		t.Errorf("parent.Len() = %d, want 0 (nil sub should be no-op)", parent.Len())
+	}
+}
+
+func TestRecoveryStack_PushNested_UnwindRecurses(t *testing.T) {
+	parent := NewRecoveryStack()
+	child := NewRecoveryStack()
+
+	var childCompensated bool
+	child.Push(func(any) error { childCompensated = true; return nil }, nil, nil, nil)
+
+	parent.PushNested(child)
+
+	if err := parent.Unwind(); err != nil {
+		t.Fatalf("parent.Unwind() error = %v", err)
+	}
+
+	if !childCompensated {
+		t.Error("child compensate was not invoked by parent.Unwind()")
+	}
+}
+
+func TestRecoveryStack_MarshalJSON_Empty(t *testing.T) {
+	s := NewRecoveryStack()
+
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	want := `{"entries":[]}`
+	if string(data) != want {
+		t.Errorf("MarshalJSON = %q, want %q", string(data), want)
+	}
+}
+
+func TestRecoveryStack_MarshalJSON_NestedSub(t *testing.T) {
+	parent := NewRecoveryStack()
+	child := NewRecoveryStack()
+	parent.PushNested(child)
+
+	data, err := json.Marshal(parent)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	want := `{"entries":[{"sub":{"entries":[]}}]}`
+	if string(data) != want {
+		t.Errorf("MarshalJSON = %q, want %q", string(data), want)
+	}
+}
+
+func TestRecoveryStack_MarshalJSON_ClosureOnlyEntry_Errors(t *testing.T) {
+	s := NewRecoveryStack()
+
+	s.Push(func(any) error { return nil }, nil, nil, nil)
+
+	if _, err := json.Marshal(s); err == nil {
+		t.Fatal("MarshalJSON() error = nil, want error for closure-only entry")
 	}
 }

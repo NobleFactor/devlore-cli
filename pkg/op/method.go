@@ -432,7 +432,7 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 	// [NewReceiptBase] and return them; Invoke is the single site that knows the issuing reflect.Method, so it
 	// stamps the transactionID and action name here. A non-Receipt complement (or nil) is left as-is.
 	if receipt, ok := complementValue.(Receipt); ok {
-		if inflateErr := receipt.Commit(*m.do); inflateErr != nil {
+		if inflateErr := receipt.Commit(m.actionName); inflateErr != nil {
 			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, inflateErr)
 		}
 	}

@@ -235,6 +235,39 @@ func (r *ReceiverRegistry) TypeByReflectionOrDerive(t reflect.Type) ReceiverType
 
 // region Behaviors
 
+// ActionByFullName finds the action method whose canonical name matches.
+//
+// Performs a linear scan over every registered action provider's methods and matches against
+// [Method.ActionName] (the fully-qualified <pkg-path>.<receiverName>.<methodName> form stored on receipts after
+// [ReceiptBase.Commit]). Used by [RecoveryStack.Unwind] to locate the [Compensate] companion for each
+// receipt-bearing entry and by recovery-ledger reload to bind closures to receipts deserialized from disk.
+//
+// Parameters:
+//   - fullName: the canonical action name returned by [Method.ActionName].
+//
+// Returns:
+//   - ProviderReceiverType: the provider that owns the matched method.
+//   - *Method: the matched method.
+//   - bool: true if a match was found.
+func (r *ReceiverRegistry) ActionByFullName(fullName string) (ProviderReceiverType, *Method, bool) {
+
+	for _, rt := range r.byName {
+
+		prt, ok := rt.(ProviderReceiverType)
+		if !ok || prt.Roles()&RoleAction == 0 {
+			continue
+		}
+
+		for m := range prt.Methods() {
+			if m.ActionName() == fullName {
+				return prt, m, true
+			}
+		}
+	}
+
+	return nil, nil, false
+}
+
 // ActionByName returns the action provider registered under the given name.
 //
 // Parameters:
