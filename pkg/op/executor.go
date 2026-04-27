@@ -467,7 +467,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 		}
 
 		if catErr != nil {
-			stack.PushAction(ec, action, complement)
+			pushComplement(ec, stack, action, complement)
 			e.hooks.FireNodeComplete(ec, node.ID(), nil, catErr)
 			node.Status = StatusFailed
 			return &NodeResult{
@@ -484,11 +484,39 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 		results[node.ID()] = result
 	}
 
-	stack.PushAction(ec, action, complement)
+	pushComplement(ec, stack, action, complement)
 	node.Status = StatusCompleted
 
 	return &NodeResult{
 		NodeID: node.ID(),
 		Status: ResultCompleted,
+	}
+}
+
+// pushComplement dispatches a node's complement onto the parent recovery stack by shape.
+//
+// The classifier guarantees one of three shapes for [MethodCompensableFunction]: a [Receipt] (single-output
+// compensable), a [*RecoveryStack] (action returned a fully-built saga via the engine; e.g., WalkTree), or a
+// slice of receipts that [Method.Invoke] has already wrapped into a [*RecoveryStack]. Non-compensable actions
+// pass nil; older closure-bearing complements degrade to [RecoveryStack.PushAction] for transitional safety
+// until step 6 deletes that path.
+//
+// Parameters:
+//   - ec: the [ExecutionContext] needed by the legacy [RecoveryStack.PushAction] fallback.
+//   - parent: the parent recovery stack receiving the entry.
+//   - action: the [Action] whose complement is being pushed; used to obtain [Action.FullName] for receipt-
+//     bearing entries and to satisfy the legacy [RecoveryStack.PushAction] signature on the fallback.
+//   - complement: the complement value returned by [Method.Invoke].
+func pushComplement(ec *ExecutionContext, parent *RecoveryStack, action Action, complement any) {
+
+	switch v := complement.(type) {
+	case nil:
+		return
+	case Receipt:
+		_ = parent.PushReceipt(v, action.FullName())
+	case *RecoveryStack:
+		parent.PushNested(v)
+	default:
+		parent.PushAction(ec, action, complement)
 	}
 }

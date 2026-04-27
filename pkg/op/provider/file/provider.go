@@ -114,15 +114,15 @@ func (p *Provider) CompensateBackup(receipt Receipt) error {
 
 // Copy copies source's contents to a new file at destinationPath with the given mode.
 //
-// Identity for the destination is constructed by [file.NewResource]. If the destination already exists, it is
-// archived to the recovery site before writing. After the `write` succeeds, the destination resource's metadata is
-// populated via [Resource.Resolve], which is what the executor's post-dispatch [op.ResourceCatalog.Transition]
-// consumes to fill the pending entry in place.
+// Identity for the destination is constructed by [file.NewResource]. If the destination already exists, it is archived
+// to the recovery site before writing. After the `write` succeeds, the destination resource's metadata is populated via
+// [Resource.Resolve], which is what the executor's post-dispatch [op.ResourceCatalog.Transition] consumes to fill the
+// pending entry in place.
 //
 // Parameters:
 //   - source: [file.Resource] of the file to copy from.
 //   - destinationPath: the path to write to.
-//   - mode: the file mode for the new file. Zero defaults to 0o644.
+//   - mode: the file mode for the new file.
 //
 // Returns:
 //   - result: the destination [file.Resource] with populated metadata.
@@ -138,10 +138,6 @@ func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMo
 	product, receipt, err = p.prepareWrite(product)
 	if err != nil {
 		return nil, Receipt{}, err
-	}
-
-	if mode == 0 {
-		mode = 0o644
 	}
 
 	src, err := p.open(source.SourcePath.Abs())
@@ -192,48 +188,42 @@ func (p *Provider) CompensateCopy(receipt Receipt) error {
 //   - product: [file.Resource] for the created symbolic link.
 //   - receipt: [file.Receipt] for restoring the previous state of targetPath.
 //   - err: any error from creating the symbolic link.
-func (p *Provider) Link(source *Resource, targetPath string) (product *Resource, undo Receipt, err error) {
+func (p *Provider) Link(source *Resource, targetPath string) (product *Resource, receipt Receipt, err error) {
 
-	target, err := NewResource(p.ExecutionContext(), targetPath)
+	product, err = NewResource(p.ExecutionContext(), targetPath)
 	if err != nil {
 		return nil, Receipt{}, err
 	}
 
-	if info, err := p.lstat(target.SourcePath.Abs()); err == nil {
+	if info, err := p.lstat(product.SourcePath.Abs()); err == nil {
+
 		if info.Mode()&os.ModeSymlink != 0 {
-			existing, readErr := p.readLink(target.SourcePath.Abs())
+			existing, readErr := p.readLink(product.SourcePath.Abs())
 			if readErr == nil && existing == source.SourcePath.Abs() {
-				return target, Receipt{}, nil // Already correct — no change
+				return product, Receipt{}, nil // Already correct — no change
 			}
 		}
 
 		// Something exists at the target — archive it before creating the symlink.
-		if _, archiveErr := p.ExecutionContext().RecoverySite.ArchiveFile(target.SourcePath); archiveErr != nil {
+
+		if _, archiveErr := p.ExecutionContext().RecoverySite.ArchiveFile(product.SourcePath); archiveErr != nil {
 			return nil, Receipt{}, archiveErr
 		}
-
-		undo = Receipt{
-			ReceiptBase: op.NewReceiptBase(target),
-		}
-	} else {
-		// Nothing exists — receipt records the target for removal on compensation.
-		undo = Receipt{
-			ReceiptBase: op.NewReceiptBase(target),
-		}
 	}
 
-	if err := p.mkdirAll(filepath.Dir(target.SourcePath.Abs()), 0o750); err != nil {
+	if err := p.mkdirAll(filepath.Dir(product.SourcePath.Abs()), 0o750); err != nil {
 		return nil, Receipt{}, err
 	}
 
-	if err := p.symlink(source.SourcePath.Abs(), target.SourcePath.Abs()); err != nil {
+	if err := p.symlink(source.SourcePath.Abs(), product.SourcePath.Abs()); err != nil {
 		return nil, Receipt{}, err
 	}
 
-	if err = target.Resolve(); err != nil {
-		return nil, undo, err
+	if err = product.Resolve(); err != nil {
+		return nil, NewReceipt(product), err
 	}
-	return target, undo, nil
+
+	return product, NewReceipt(product), nil
 }
 
 // CompensateLink undoes a Link by removing the symlink and restoring whatever was there before.
@@ -262,8 +252,6 @@ func (p *Provider) CompensateLink(undo Receipt) error {
 //   - receipt: [file.Receipt] whose Resource marks the directory created; empty when the target directory
 //     already existed.
 //   - err: any error from resource construction, directory creation, or metadata resolution.
-//
-// +devlore:defaults mode=0755
 func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, receipt Receipt, err error) {
 
 	product, err = NewResource(p.ExecutionContext(), path)

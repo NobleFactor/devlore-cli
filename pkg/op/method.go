@@ -17,6 +17,15 @@ var contextType = reflect.TypeOf((*context.Context)(nil)).Elem()
 // errorType is cached for return-type classification.
 var errorType = reflect.TypeOf((*error)(nil)).Elem()
 
+// receiptType is cached for the [MethodCompensableFunction] complement-shape check.
+var receiptType = reflect.TypeOf((*Receipt)(nil)).Elem()
+
+// recoveryStackType is cached for the [MethodCompensableFunction] complement-shape check.
+//
+// Complement values typed as `*RecoveryStack` are recognized by [Method.Invoke] as engine-built sagas (e.g.,
+// the value WalkTree returns) and spliced into the parent stack via PushNested rather than PushReceipt.
+var recoveryStackType = reflect.TypeOf((*RecoveryStack)(nil))
+
 // errFromValue extracts an error from a reflect.Value, returning nil when the value holds a nil interface.
 func errFromValue(v reflect.Value) error {
 	if v.IsNil() {
@@ -156,6 +165,11 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 
 		if !methodType.Out(2).Implements(errorType) {
 			err = errorInvalidResultParameters(do)
+		} else if !isLegalCompensableComplement(methodType.Out(1)) {
+			err = fmt.Errorf("compensable method %s: complement type %s must be Receipt, []Receipt (or a slice "+
+				"whose element implements Receipt), or *RecoveryStack",
+				do.Name,
+				methodType.Out(1))
 		}
 	}
 
@@ -428,16 +442,69 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 
 	complementValue := complementOrNil(complement)
 
-	// Inflate any [Receipt] complement on the return path. Provider methods construct receipts uninflated via
-	// [NewReceiptBase] and return them; Invoke is the single site that knows the issuing reflect.Method, so it
-	// stamps the transactionID and action name here. A non-Receipt complement (or nil) is left as-is.
-	if receipt, ok := complementValue.(Receipt); ok {
-		if inflateErr := receipt.Commit(m.actionName); inflateErr != nil {
-			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, inflateErr)
+	// Reshape the complement on the return path. The classifier guarantees one of three shapes for
+	// MethodCompensableFunction: a Receipt, a slice of Receipt-implementing values, or *RecoveryStack. The
+	// executor's push site dispatches per shape; this method's job is to commit any receipts and (for the
+	// slice case) build the engine-side sub-stack that the executor will splice via PushNested.
+	switch v := complementValue.(type) {
+	case nil:
+		return resultOrNil(result), nil, nil
+	case Receipt:
+		if commitErr := v.Commit(m.actionName); commitErr != nil {
+			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, commitErr)
+		}
+		return resultOrNil(result), v, nil
+	case *RecoveryStack:
+		return resultOrNil(result), v, nil
+	default:
+		sub, buildErr := m.buildSubStackFromReceiptSlice(v)
+		if buildErr != nil {
+			return nil, nil, buildErr
+		}
+		if sub == nil {
+			return resultOrNil(result), v, nil
+		}
+		return resultOrNil(result), sub, nil
+	}
+}
+
+// buildSubStackFromReceiptSlice wraps a slice of [Receipt]-implementing values into a [RecoveryStack].
+//
+// Returns (nil, nil) when complement is not a slice of receipts — caller falls through to its own handling.
+// Each receipt is pushed via [RecoveryStack.PushReceipt] under m.actionName, which commits in place.
+//
+// Parameters:
+//   - complement: a candidate value the type-switch fell through to; expected to be a slice whose element
+//     implements [Receipt] (e.g., []*file.Receipt, []op.Receipt).
+//
+// Returns:
+//   - *RecoveryStack: a fresh sub-stack with one entry per receipt, in slice order; nil when complement is
+//     not a recognized receipt slice.
+//   - error: any error from [RecoveryStack.PushReceipt] (commit failure, missing resource context).
+func (m *Method) buildSubStackFromReceiptSlice(complement any) (*RecoveryStack, error) {
+
+	v := reflect.ValueOf(complement)
+	if v.Kind() != reflect.Slice {
+		return nil, nil
+	}
+
+	if !v.Type().Elem().Implements(receiptType) && !reflect.PointerTo(v.Type().Elem()).Implements(receiptType) {
+		return nil, nil
+	}
+
+	sub := NewRecoveryStack()
+	for i := 0; i < v.Len(); i++ {
+		elem := v.Index(i).Interface()
+		receipt, ok := elem.(Receipt)
+		if !ok {
+			return nil, fmt.Errorf("inflate %s receipt slice: element %d does not implement Receipt", m.actionName, i)
+		}
+		if pushErr := sub.PushReceipt(receipt, m.actionName); pushErr != nil {
+			return nil, fmt.Errorf("inflate %s receipt slice: push element %d: %w", m.actionName, i, pushErr)
 		}
 	}
 
-	return resultOrNil(result), complementValue, nil
+	return sub, nil
 }
 
 // Do calls the forward method on the receiver with the given arguments.
@@ -622,6 +689,34 @@ func (m *Method) Undo(receiver any, complement any) error {
 // endregion
 
 // region UNEXPORTED FUNCTIONS
+
+// isLegalCompensableComplement reports whether t is a legal complement type for [MethodCompensableFunction].
+//
+// Three shapes are accepted: a [Receipt]-implementing type (single-output compensable), a slice whose element
+// implements [Receipt] (multi-output compensable; engine wraps the slice into a sub-stack at [Method.Invoke]
+// time), and `*RecoveryStack` (action returns a fully-built saga that the engine splices via PushNested).
+//
+// Parameters:
+//   - t: the method's second return type ([reflect.Type] of `Out(1)`).
+//
+// Returns:
+//   - bool: true when t is one of the three legal complement shapes.
+func isLegalCompensableComplement(t reflect.Type) bool {
+
+	if t.Implements(receiptType) {
+		return true
+	}
+
+	if t.Kind() == reflect.Slice && t.Elem().Implements(receiptType) {
+		return true
+	}
+
+	if t == recoveryStackType {
+		return true
+	}
+
+	return false
+}
 
 // errorInvalidResultParameters returns an error describing an unsupported return signature.
 //
