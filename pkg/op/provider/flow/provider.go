@@ -173,8 +173,8 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 // Gather executes a subgraph body once per item, collecting terminal results across concurrent iterations.
 //
 // Gather is a compensable method. On total success it returns the per-iteration recovery stacks (in completion
-// order) as its complement; the executor's PushAction wraps them into a single entry on the parent stack so a
-// later parent-level failure unwinds every iteration's work in reverse completion order via CompensateGather.
+// order) as its complement; the executor's pushComplement nests them onto the parent stack so a later
+// parent-level failure unwinds every iteration's work in reverse completion order via CompensateGather.
 //
 // On any iteration failure gather cancels its scoped ctx to signal the other iterations to bail at their next
 // node, waits for all iterations to finish, unwinds the locally-held stacks, and returns (nil, nil, err) so no

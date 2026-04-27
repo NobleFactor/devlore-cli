@@ -37,10 +37,9 @@ var executableUnitType = reflect.TypeFor[op.ExecutableUnit]()
 // one [Invocation] per method call under the effective label (user-supplied via [Options.Label] or auto-labeled
 // via [InvocationRegistry.AutoLabel]).
 //
-// ctx is the ambient execution context (used by assignTarget for [op.Convert] and by shadowPendingOutput for
-// provider construction). catalog is the session-scoped resource catalog (used by fillSlot via
-// [op.ResourceCatalog.Link] for URI interning and by shadowPendingOutput for plan-time output shadowing). Both are
-// owned by plan.Provider and shared across every NodeBuilder it constructs.
+// ctx is the ambient execution context, used by assignTarget for [op.Convert] when arg-to-parameter conversion
+// requires it. catalog is the session-scoped resource catalog, used by fillSlot via [op.ResourceCatalog.Link]
+// for URI interning. Both are owned by plan.Provider and shared across every NodeBuilder it constructs.
 type NodeBuilder struct {
 	receiverType op.ProviderReceiverType
 	ctx          *op.ExecutionContext
@@ -275,15 +274,6 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		}
 	}
 
-	// Plan-time output shadowing. If this method has a Planned companion, call it with the filled slot values to
-	// compute the pending resource the node will produce, and shadow it in the catalog. If the companion returns
-	// KnownAtExecution, skip plan-time shadowing — the executor will shadow the real return value post-dispatch.
-	if method.HasPlanned() {
-		if err := p.shadowPendingOutput(node, method); err != nil {
-			return nil, fmt.Errorf("%s: %w", label, err)
-		}
-	}
-
 	// Apply the retry policy from options (if supplied) to the node before it joins the graph.
 	if opts != nil && opts.RetryPolicy != nil {
 		node.Retry = opts.RetryPolicy
@@ -481,11 +471,11 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 
 		linked := p.catalog.Link(resource)
 
-		if slot.Parameter.Type.Kind() == reflect.Ptr {
+		if slot.Parameter.Type.Kind() == reflect.Pointer {
 			final = linked
 		} else {
 			rv := reflect.ValueOf(linked)
-			if rv.Kind() == reflect.Ptr {
+			if rv.Kind() == reflect.Pointer {
 				final = rv.Elem().Interface()
 			} else {
 				final = linked
@@ -494,81 +484,6 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 	}
 
 	node.SetSlot(name, op.ImmediateValue{Value: final})
-	return nil
-}
-
-// shadowPendingOutput invokes the method's Planned companion on a freshly-constructed provider instance with the
-// node's filled slot values, and shadows the resulting pending resource in the catalog.
-//
-// The Planned companion is pure — it constructs the resource identity without I/O. The returned resource is
-// registered via [ResourceCatalog.Shadow] with the node's ID as its origin, creating a pending entry that
-// pre-flight skips and post-dispatch shadowing transitions to resolved.
-//
-// If the companion returns [op.KnownAtExecution], the method's output identity depends on runtime values and
-// cannot be shadowed at plan time. The function returns nil; the executor will shadow the real return value after
-// the forward method runs.
-//
-// Parameters:
-//   - node: the node whose output is being shadowed.
-//   - method: the method whose Planned companion computes the identity.
-//
-// Returns:
-//   - error: non-nil if provider construction, the Planned call, or catalog shadowing fails.
-func (p *NodeBuilder) shadowPendingOutput(node *op.Node, method *op.Method) error {
-
-	// Build positional args from node slots in parameter order. Unresolved slots pass through as nil; Method.Plan
-	// substitutes zero values and the Planned method must tolerate them (or return KnownAtExecution if it cannot
-	// compute without them).
-
-	params := method.Parameters()
-	args := make([]any, len(params))
-
-	for i, param := range params {
-		cleanName := strings.TrimSuffix(strings.TrimPrefix(param.Name, "*"), "?")
-		if slot := node.SlotByName(cleanName); slot != nil {
-			if iv, ok := slot.Value.(op.ImmediateValue); ok {
-				args[i] = iv.Value
-			}
-		}
-	}
-
-	// Construct a provider instance so the Planned method has its receiver context available. Planned is pure — the
-	// context is used only for identity construction (e.g., resolving paths under the confined root), not for I/O.
-
-	receiver, err := p.receiverType.Construct()(p.ctx)
-
-	if err != nil {
-		return fmt.Errorf("construct receiver: %w", err)
-	}
-
-	result, err := method.Plan(receiver, args)
-
-	if err != nil {
-		return fmt.Errorf("planned: %w", err)
-	}
-
-	if !result.IsValid() {
-		return nil
-	}
-
-	if kind := result.Kind(); (kind == reflect.Ptr || kind == reflect.Interface) && result.IsNil() {
-		return nil
-	}
-
-	pending, ok := result.Interface().(op.Resource)
-
-	if !ok {
-		return fmt.Errorf("planned companion for %s did not return op.Resource", method.Name())
-	}
-
-	if op.IsKnownAtExecution(pending) {
-		return nil
-	}
-
-	if _, err := p.catalog.Shadow(pending, node.ID()); err != nil {
-		return fmt.Errorf("shadow output: %w", err)
-	}
-
 	return nil
 }
 

@@ -17,6 +17,14 @@ import (
 
 const recoveryDir = ".devlore/recovery"
 
+// ErrRecoverySourceNotFound is returned by [RecoverySite.RestoreFile] when no archive exists for the supplied
+// recoveryID.
+//
+// Compensation paths use this sentinel to distinguish "the receipt was committed but no archive was made"
+// (a forward action that created new state without displacing existing state) from genuine restore failures.
+// In the former case the caller silently treats the missing archive as a no-op; in the latter it propagates.
+var ErrRecoverySourceNotFound = errors.New("recovery source not found")
+
 // RecoverySite manages archival and restoration of resources within the authority boundary.
 //
 // All operations use zero-copy renames for files and byte serialization for data. The recovery directory is
@@ -162,7 +170,7 @@ func (s *RecoverySite) RestoreFile(original Path, recoveryID string) error {
 	recPath := s.ctx.Root.NewPath(recoveryID)
 
 	if _, err := s.ctx.Root.Lstat(recPath); errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("recovery source not found: %s", recoveryID)
+		return fmt.Errorf("%w: %s", ErrRecoverySourceNotFound, recoveryID)
 	}
 
 	parentDir := recoveryParentDir(original.Rel())

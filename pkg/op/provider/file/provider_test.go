@@ -270,26 +270,6 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 	}
 }
 
-func TestCopy_DefaultModeWhenZero(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "output.txt")
-
-	p := testProvider(t, tmp)
-	blob := testFileResource(t, []byte("content"))
-	_, _, err := p.Copy(blob, path, 0)
-	if err != nil {
-		t.Fatalf("Copy() error = %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Errorf("file mode = %o, want %o (default)", info.Mode().Perm(), 0o644)
-	}
-}
-
 // --- CompensateCopy ---
 
 func TestCompensateCopy_ZeroState_NoPanic(t *testing.T) {
@@ -515,12 +495,12 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Unlink(&Resource{SourcePath: op.NewPath("", linkPath)}, false, &Resource{})
+	_, receipt, err := p.Unlink(&Resource{SourcePath: op.NewPath("", linkPath)}, false, &Resource{})
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
-	if result.Resource() == nil {
-		t.Fatal("result.Resource() is nil, want non-nil")
+	if receipt.Resource() == nil {
+		t.Fatal("receipt.Resource() is nil, want non-nil")
 	}
 
 	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
@@ -533,15 +513,15 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 	linkPath := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Unlink(&Resource{SourcePath: op.NewPath("", linkPath)}, false, &Resource{})
+	product, receipt, err := p.Unlink(&Resource{SourcePath: op.NewPath("", linkPath)}, false, &Resource{})
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
-	if result != (Receipt{}) {
-		t.Errorf("result = %+v, want empty Receipt", result)
+	if product != nil {
+		t.Errorf("product = %+v, want nil for already-gone", product)
 	}
-	if state != (Receipt{}) {
-		t.Errorf("state = %+v, want empty Receipt (no-op)", state)
+	if receipt != (Receipt{}) {
+		t.Errorf("receipt = %+v, want empty Receipt (no-op)", receipt)
 	}
 }
 
@@ -572,15 +552,15 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Remove(&Resource{SourcePath: op.NewPath("", path)}, false, &Resource{})
+	_, receipt, err := p.Remove(&Resource{SourcePath: op.NewPath("", path)}, false, &Resource{})
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if result.Resource() == nil {
-		t.Fatal("result.Resource() is nil, want non-nil")
+	if receipt.Resource() == nil {
+		t.Fatal("receipt.Resource() is nil, want non-nil")
 	}
-	if result.TransactionID() == "" {
-		t.Error("result.TransactionID() should not be empty")
+	if receipt.TransactionID() == "" {
+		t.Error("receipt.TransactionID() should not be empty")
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -593,15 +573,15 @@ func TestRemove_AlreadyGone(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Remove(&Resource{SourcePath: op.NewPath("", path)}, false, &Resource{})
+	product, receipt, err := p.Remove(&Resource{SourcePath: op.NewPath("", path)}, false, &Resource{})
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if result != (Receipt{}) {
-		t.Errorf("result = %+v, want empty Receipt", result)
+	if product != nil {
+		t.Errorf("product = %+v, want nil for already-gone", product)
 	}
-	if state != (Receipt{}) {
-		t.Errorf("state = %+v, want empty Receipt (no-op)", state)
+	if receipt != (Receipt{}) {
+		t.Errorf("receipt = %+v, want empty Receipt (no-op)", receipt)
 	}
 }
 
@@ -819,44 +799,6 @@ func TestCompensateWriteBytes_ZeroState(t *testing.T) {
 	p := testProvider(t, tmp)
 	if err := p.CompensateWriteBytes(Receipt{}); err != nil {
 		t.Errorf("CompensateWriteBytes(zero) = %v, want nil", err)
-	}
-}
-
-func TestWriteText_DefaultModeWhenZero(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "default-mode.txt")
-
-	p := testProvider(t, tmp)
-	_, _, err := p.WriteText(path, "content", 0)
-	if err != nil {
-		t.Fatalf("WriteText() error = %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Errorf("file mode = %o, want %o (default)", info.Mode().Perm(), 0o644)
-	}
-}
-
-func TestWriteBytes_DefaultModeWhenZero(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "default-mode.bin")
-
-	p := testProvider(t, tmp)
-	_, _, err := p.WriteBytes(path, "content", 0)
-	if err != nil {
-		t.Fatalf("WriteBytes() error = %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Errorf("file mode = %o, want %o (default)", info.Mode().Perm(), 0o644)
 	}
 }
 
@@ -1189,12 +1131,12 @@ func TestMkdir_CreatesDirectory(t *testing.T) {
 	path := filepath.Join(tmp, "newdir")
 
 	p := testProvider(t, tmp)
-	result, err := p.Mkdir(path, 0o755)
+	product, _, err := p.Mkdir(path, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if product.SourcePath.Abs() != path {
+		t.Errorf("product.SourcePath.Abs() = %q, want %q", product.SourcePath.Abs(), path)
 	}
 
 	info, err := os.Stat(path)
@@ -1211,7 +1153,7 @@ func TestMkdir_CreatesParents(t *testing.T) {
 	path := filepath.Join(tmp, "a", "b", "c")
 
 	p := testProvider(t, tmp)
-	_, err := p.Mkdir(path, 0o755)
+	_, _, err := p.Mkdir(path, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1233,7 +1175,7 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, err := p.Mkdir(path, 0o755)
+	_, _, err := p.Mkdir(path, 0o755)
 	if err != nil {
 		t.Fatalf("Mkdir() on existing directory error = %v", err)
 	}
@@ -1333,6 +1275,170 @@ func TestGlob_NoMatches(t *testing.T) {
 
 	if len(matches) != 0 {
 		t.Errorf("Glob() returned %d matches, want 0: %v", len(matches), matches)
+	}
+}
+
+// --- Find ---
+
+func TestFind_RelativePattern_ResolvesAgainstScopedRoot(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "a.go", "package a")
+	writeTestFile(t, tmp, "b.go", "package b")
+	writeTestFile(t, tmp, "c.txt", "text")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*.go", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	if len(matches) != 2 {
+		t.Fatalf("Find() returned %d matches, want 2: %v", len(matches), matches)
+	}
+}
+
+func TestFind_DoubleStarRecurses(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "src", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, tmp, "top.go", "package top")
+	writeTestFile(t, filepath.Join(tmp, "src"), "mid.go", "package mid")
+	writeTestFile(t, filepath.Join(tmp, "src", "pkg"), "deep.go", "package deep")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("**/*.go", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	if len(matches) != 3 {
+		t.Fatalf("Find() returned %d matches, want 3 (top.go, mid.go, deep.go): %v", len(matches), matches)
+	}
+}
+
+func TestFind_AbsolutePatternInsideScope_Works(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "x.go", "package x")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find(filepath.Join(tmp, "*.go"), false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("Find() returned %d matches, want 1: %v", len(matches), matches)
+	}
+}
+
+func TestFind_AbsolutePatternOutsideScope_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+
+	_, err := p.Find("/etc/**/*.conf", false)
+	if err == nil {
+		t.Fatal("Find() should error for absolute path outside scoped root")
+	}
+	if !strings.Contains(err.Error(), "lies outside scoped root") {
+		t.Errorf("error = %v, want substring \"lies outside scoped root\"", err)
+	}
+}
+
+func TestFind_DotDotPatternEscapingScope_Errors(t *testing.T) {
+	parent := t.TempDir()
+	scoped := filepath.Join(parent, "scoped")
+	if err := os.MkdirAll(scoped, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, parent, "outside.go", "package outside")
+
+	p := testProvider(t, scoped)
+	_, err := p.Find("../*.go", false)
+	if err == nil {
+		t.Fatal("Find() should error for relative pattern that escapes scope via ..")
+	}
+	if !strings.Contains(err.Error(), "lies outside scoped root") {
+		t.Errorf("error = %v, want substring \"lies outside scoped root\"", err)
+	}
+}
+
+func TestFind_NoMatches_ReturnsEmpty(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "a.go", "package a")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*.xyz", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("Find() returned %d matches, want 0: %v", len(matches), matches)
+	}
+}
+
+func TestFind_DirectoriesNeverMatch(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, tmp, "file", "content")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	for _, r := range matches {
+		if filepath.Base(r.SourcePath.Abs()) == "subdir" {
+			t.Errorf("Find() returned directory %q; should match files only", r.SourcePath.Abs())
+		}
+	}
+}
+
+func TestFind_HonorGitignore_FiltersIgnoredFiles(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, ".gitignore", "ignored.go\n")
+	writeTestFile(t, tmp, "kept.go", "package kept")
+	writeTestFile(t, tmp, "ignored.go", "package ignored")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*.go", true)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	for _, r := range matches {
+		if filepath.Base(r.SourcePath.Abs()) == "ignored.go" {
+			t.Errorf("Find() returned %q despite gitignore", r.SourcePath.Abs())
+		}
+	}
+
+	gotKept := false
+	for _, r := range matches {
+		if filepath.Base(r.SourcePath.Abs()) == "kept.go" {
+			gotKept = true
+		}
+	}
+	if !gotKept {
+		t.Errorf("Find() did not return kept.go; matches = %v", matches)
+	}
+}
+
+func TestFind_HonorGitignoreFalse_IncludesIgnoredFiles(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, ".gitignore", "ignored.go\n")
+	writeTestFile(t, tmp, "kept.go", "package kept")
+	writeTestFile(t, tmp, "ignored.go", "package ignored")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*.go", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	if len(matches) != 2 {
+		t.Errorf("Find(honorGitignore=false) returned %d matches, want 2 (both files): %v", len(matches), matches)
 	}
 }
 
@@ -1788,5 +1894,328 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// --- closestExistingDir ---
+
+func TestClosestExistingDir_PathExists_ReturnsPath(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+
+	ancestor, info, err := p.closestExistingDir(tmp)
+	if err != nil {
+		t.Fatalf("closestExistingDir() error = %v", err)
+	}
+	if ancestor.SourcePath.Abs() != tmp {
+		t.Errorf("ancestor = %q, want %q", ancestor.SourcePath.Abs(), tmp)
+	}
+	if info == nil || !info.IsDir() {
+		t.Error("info should report directory")
+	}
+}
+
+func TestClosestExistingDir_PathDoesNotExist_ReturnsNearestAncestor(t *testing.T) {
+	tmp := t.TempDir()
+	missing := filepath.Join(tmp, "a", "b", "c", "d")
+	p := testProvider(t, tmp)
+
+	ancestor, _, err := p.closestExistingDir(missing)
+	if err != nil {
+		t.Fatalf("closestExistingDir() error = %v", err)
+	}
+	if ancestor.SourcePath.Abs() != tmp {
+		t.Errorf("ancestor = %q, want %q (nearest existing)", ancestor.SourcePath.Abs(), tmp)
+	}
+}
+
+func TestClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "a", "b", "c", "d")
+	p := testProvider(t, tmp)
+
+	ancestor, info, err := p.closestExistingDir(target)
+	if err != nil {
+		t.Fatalf("closestExistingDir() error = %v", err)
+	}
+	want := filepath.Join(tmp, "a", "b")
+	if ancestor.SourcePath.Abs() != want {
+		t.Errorf("ancestor = %q, want %q", ancestor.SourcePath.Abs(), want)
+	}
+	if info == nil || !info.IsDir() {
+		t.Error("info should report directory")
+	}
+}
+
+func TestClosestExistingDir_PathOutsideRoot_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+
+	outside := "/not/under/root"
+	_, _, err := p.closestExistingDir(outside)
+	if err == nil {
+		t.Fatal("closestExistingDir() should error for path outside scoped root")
+	}
+	if !strings.Contains(err.Error(), "lies outside scoped root") {
+		t.Errorf("error = %v, want substring \"lies outside scoped root\"", err)
+	}
+}
+
+func TestClosestExistingDir_RegularFile_ReturnsFileInfo(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "hello.txt", "hi")
+	target := filepath.Join(tmp, "hello.txt")
+	p := testProvider(t, tmp)
+
+	ancestor, info, err := p.closestExistingDir(target)
+	if err != nil {
+		t.Fatalf("closestExistingDir() error = %v", err)
+	}
+	if ancestor.SourcePath.Abs() != target {
+		t.Errorf("ancestor = %q, want %q", ancestor.SourcePath.Abs(), target)
+	}
+	if info == nil || info.IsDir() {
+		t.Error("info should report regular file (not directory)")
+	}
+}
+
+// --- CompensateMkdir ---
+
+func TestCompensateMkdir_RoundTrip_RemovesCreatedChain(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "a", "b", "c")
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.Mkdir(target, 0o755)
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	if err := p.CompensateMkdir(receipt); err != nil {
+		t.Fatalf("CompensateMkdir() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmp, "a")); !os.IsNotExist(err) {
+		t.Errorf("created chain not removed; stat error = %v, want IsNotExist", err)
+	}
+	if _, err := os.Stat(tmp); err != nil {
+		t.Errorf("scoped root removed by compensation; stat error = %v", err)
+	}
+}
+
+func TestCompensateMkdir_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "a", "b", "c", "d")
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.Mkdir(target, 0o755)
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	if err := p.CompensateMkdir(receipt); err != nil {
+		t.Fatalf("CompensateMkdir() error = %v", err)
+	}
+
+	for _, dir := range []string{"a", filepath.Join("a", "b")} {
+		if _, err := os.Stat(filepath.Join(tmp, dir)); err != nil {
+			t.Errorf("pre-existing %q removed by compensation; stat error = %v", dir, err)
+		}
+	}
+	for _, dir := range []string{filepath.Join("a", "b", "c"), filepath.Join("a", "b", "c", "d")} {
+		if _, err := os.Stat(filepath.Join(tmp, dir)); !os.IsNotExist(err) {
+			t.Errorf("created %q not removed; stat error = %v, want IsNotExist", dir, err)
+		}
+	}
+}
+
+func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "existing")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.Mkdir(target, 0o755)
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	if receipt.Resource() != nil {
+		t.Errorf("idempotent Mkdir produced a resource-bearing receipt: %#v", receipt.Resource())
+	}
+
+	if err := p.CompensateMkdir(receipt); err != nil {
+		t.Errorf("CompensateMkdir() on idempotent receipt should be no-op; got error = %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("pre-existing directory removed by no-op compensation; stat error = %v", err)
+	}
+}
+
+func TestCompensateMkdir_NotADirectory_ReturnsError(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "regular", "content")
+	target := filepath.Join(tmp, "regular")
+	p := testProvider(t, tmp)
+
+	_, _, err := p.Mkdir(target, 0o755)
+	if err == nil {
+		t.Fatal("Mkdir() on a regular file should error")
+	}
+	if !strings.Contains(err.Error(), "is not a directory") {
+		t.Errorf("error = %v, want substring \"is not a directory\"", err)
+	}
+}
+
+func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "siblings"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "a", "b", "c")
+	p := testProvider(t, tmp)
+
+	_, _, err := p.Mkdir(target, 0o755)
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	wrongResource, err := NewResource(p.ExecutionContext(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongBoundary, err := NewResource(p.ExecutionContext(), filepath.Join(tmp, "siblings"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := NewReceiptWithBoundary(wrongResource, wrongBoundary)
+
+	if err := p.CompensateMkdir(tampered); err == nil || !strings.Contains(err.Error(), "is not under boundary") {
+		t.Errorf("expected tamper-guard error \"is not under boundary\", got %v", err)
+	}
+}
+
+func TestCompensateMkdir_EmptyReceipt_NoOp(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+
+	if err := p.CompensateMkdir(Receipt{}); err != nil {
+		t.Errorf("CompensateMkdir(Receipt{}) should be no-op; got error = %v", err)
+	}
+}
+
+// --- compensateWrite boundary walk ---
+
+func TestCompensateWriteText_RoundTrip_RemovesParentDirectories(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.WriteText(target, "hi", 0o644)
+	if err != nil {
+		t.Fatalf("WriteText() error = %v", err)
+	}
+
+	if err := p.CompensateWriteText(receipt); err != nil {
+		t.Fatalf("CompensateWriteText() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmp, "a")); !os.IsNotExist(err) {
+		t.Errorf("created parent chain not removed; stat error = %v, want IsNotExist", err)
+	}
+	if _, err := os.Stat(tmp); err != nil {
+		t.Errorf("scoped root removed by compensation; stat error = %v", err)
+	}
+}
+
+func TestCompensateWriteText_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.WriteText(target, "hi", 0o644)
+	if err != nil {
+		t.Fatalf("WriteText() error = %v", err)
+	}
+
+	if err := p.CompensateWriteText(receipt); err != nil {
+		t.Fatalf("CompensateWriteText() error = %v", err)
+	}
+
+	for _, dir := range []string{"a", filepath.Join("a", "b")} {
+		if _, err := os.Stat(filepath.Join(tmp, dir)); err != nil {
+			t.Errorf("pre-existing %q removed by compensation; stat error = %v", dir, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "a", "b", "c")); !os.IsNotExist(err) {
+		t.Errorf("created \"a/b/c\" not removed; stat error = %v, want IsNotExist", err)
+	}
+}
+
+func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
+	tmp := t.TempDir()
+	source := filepath.Join(tmp, "src.txt")
+	writeTestFile(t, tmp, "src.txt", "content")
+	target := filepath.Join(tmp, "a", "b", "link")
+
+	p := testProvider(t, tmp)
+	srcResource, err := NewResource(p.ExecutionContext(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, receipt, err := p.Link(srcResource, target)
+	if err != nil {
+		t.Fatalf("Link() error = %v", err)
+	}
+
+	if err := p.CompensateLink(receipt); err != nil {
+		t.Fatalf("CompensateLink() error = %v", err)
+	}
+
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Errorf("symlink not removed; lstat error = %v, want IsNotExist", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "a")); !os.IsNotExist(err) {
+		t.Errorf("created parent chain not removed; stat error = %v, want IsNotExist", err)
+	}
+}
+
+func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
+	tmp := t.TempDir()
+	source := filepath.Join(tmp, "src.txt")
+	writeTestFile(t, tmp, "src.txt", "content")
+	dest := filepath.Join(tmp, "a", "b", "moved.txt")
+
+	p := testProvider(t, tmp)
+	srcResource, err := NewResource(p.ExecutionContext(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srcResource.Resolve(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, receipt, err := p.Move(srcResource, dest)
+	if err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+
+	if err := p.CompensateMove(receipt); err != nil {
+		t.Fatalf("CompensateMove() error = %v", err)
+	}
+
+	if _, err := os.Stat(source); err != nil {
+		t.Errorf("source not restored; stat error = %v", err)
 	}
 }

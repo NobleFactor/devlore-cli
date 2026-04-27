@@ -579,10 +579,25 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 		return nil
 	}
 
-	// Custom unmarshaler: let the starlark value coerce itself into the target Go type.
+	// Custom unmarshaler: let the destination Go type absorb the starlark value via [Unmarshaler]. Match the pattern
+	// established in [NodeBuilder.assignTarget] — addressable destinations get their pointer; pointer-typed
+	// destinations get allocated fresh when nil so the [Unmarshaler] receiver has somewhere to write.
 
-	if u, ok := sv.(Unmarshaler); ok {
-		return u.Unmarshal(rv)
+	if rv.CanAddr() {
+		if u, ok := rv.Addr().Interface().(Unmarshaler); ok {
+			return u.UnmarshalStarlark(sv)
+		}
+	}
+
+	if rv.Kind() == reflect.Pointer {
+
+		if rv.IsNil() {
+			rv.Set(reflect.New(rv.Type().Elem()))
+		}
+
+		if u, ok := rv.Interface().(Unmarshaler); ok {
+			return u.UnmarshalStarlark(sv)
+		}
 	}
 
 	// Pass through Go pointer handles: if the starlark.Value is directly assignable to the target type, use it as-is.

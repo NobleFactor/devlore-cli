@@ -60,38 +60,6 @@ func (s *RecoveryStack) Do(
 	return nil
 }
 
-// PushAction pushes a recovery entry onto the stack when complement is non-nil.
-//
-// A nil complement signals that the do produced no undo state, so there is nothing to compensate and the call is a
-// no-op.
-func (s *RecoveryStack) PushAction(ctx *ExecutionContext, action Action, complement any) {
-
-	if complement == nil {
-		return
-	}
-
-	type undoer interface {
-		Undo(ctx *ExecutionContext, complement Complement) error
-	}
-
-	u, ok := action.(undoer)
-
-	if !ok {
-		return
-	}
-
-	s.Push(
-		func(state any) error {
-			err := u.Undo(ctx, state)
-			if errors.Is(err, ErrNotCompensable) {
-				return nil
-			}
-			return err
-		},
-		nil, complement, nil,
-	)
-}
-
 // Push manually adds a recovery entry to the stack.
 //
 // Deprecated: closure-only entries are scheduled for deletion in saga-shape step 6. New callers use
