@@ -88,7 +88,7 @@ func (p *Provider) Root() string {
 //   - *Resource: Resource at the backup location.
 //   - Receipt: for restoring the original file (consumed by [Provider.CompensateBackup]).
 //   - error: any error from the underlying Move.
-func (p *Provider) Backup(source *Resource, backupSuffix string) (*Resource, Receipt, error) {
+func (p *Provider) Backup(source *Resource, backupSuffix string) (*Resource, *Receipt, error) {
 
 	if backupSuffix == "" {
 		backupSuffix = ".devlore-backup"
@@ -108,7 +108,7 @@ func (p *Provider) Backup(source *Resource, backupSuffix string) (*Resource, Rec
 //
 // Returns:
 //   - error: any error from restoring the original file.
-func (p *Provider) CompensateBackup(receipt Receipt) error {
+func (p *Provider) CompensateBackup(receipt *Receipt) error {
 	return p.CompensateMove(receipt)
 }
 
@@ -128,16 +128,16 @@ func (p *Provider) CompensateBackup(receipt Receipt) error {
 //   - product: the destination file with populated metadata.
 //   - receipt: for restoring the original state at destination.
 //   - err: any error from identity construction, backup, or the copy itself.
-func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.ExecutionContext(), destinationPath)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	product, receipt, err = p.prepareWrite(product)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	src, err := p.open(source.SourcePath.Abs())
@@ -170,7 +170,7 @@ func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMo
 //
 // Returns:
 //   - error: any error from restoring the original file
-func (p *Provider) CompensateCopy(receipt Receipt) error {
+func (p *Provider) CompensateCopy(receipt *Receipt) error {
 	return p.compensateWrite(receipt)
 }
 
@@ -188,11 +188,11 @@ func (p *Provider) CompensateCopy(receipt Receipt) error {
 //   - product: [file.Resource] for the created symbolic link.
 //   - receipt: [file.Receipt] for restoring the previous state of targetPath.
 //   - err: any error from creating the symbolic link.
-func (p *Provider) Link(source *Resource, targetPath string) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) Link(source *Resource, targetPath string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.ExecutionContext(), targetPath)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	if info, err := p.lstat(product.SourcePath.Abs()); err == nil {
@@ -200,14 +200,14 @@ func (p *Provider) Link(source *Resource, targetPath string) (product *Resource,
 		if info.Mode()&os.ModeSymlink != 0 {
 			existing, readErr := p.readLink(product.SourcePath.Abs())
 			if readErr == nil && existing == source.SourcePath.Abs() {
-				return product, Receipt{}, nil // Already correct — no change
+				return product, nil, nil // Already correct — no change
 			}
 		}
 
 		// Something exists at the target — archive it before creating the symlink.
 
 		if _, archiveErr := p.ExecutionContext().RecoverySite.ArchiveFile(product.SourcePath); archiveErr != nil {
-			return nil, Receipt{}, archiveErr
+			return nil, nil, archiveErr
 		}
 	}
 
@@ -215,7 +215,7 @@ func (p *Provider) Link(source *Resource, targetPath string) (product *Resource,
 
 	boundary, _, err := p.closestExistingDir(parentPath)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	receipt = NewReceiptWithBoundary(product, boundary)
@@ -242,7 +242,7 @@ func (p *Provider) Link(source *Resource, targetPath string) (product *Resource,
 //
 // Returns:
 //   - error: any error from restoring the previous state
-func (p *Provider) CompensateLink(receipt Receipt) error {
+func (p *Provider) CompensateLink(receipt *Receipt) error {
 	return p.compensateWrite(receipt)
 }
 
@@ -260,25 +260,25 @@ func (p *Provider) CompensateLink(receipt Receipt) error {
 //   - product: the [file.Resource] created including populated metadata.
 //   - receipt: Marks the directory created; empty when the target directory already existed.
 //   - err: any error from resource construction, directory creation, or metadata resolution.
-func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.ExecutionContext(), path)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	leaf := product.SourcePath.Abs()
 
 	boundary, info, err := p.closestExistingDir(leaf)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	if boundary.SourcePath.Abs() == leaf {
 		if info.IsDir() {
-			return product, Receipt{}, nil // directory exists and there's nothing to compensate
+			return product, nil, nil // directory exists and there's nothing to compensate
 		}
-		return nil, Receipt{}, fmt.Errorf("%s exists, but is not a directory", path)
+		return nil, nil, fmt.Errorf("%s exists, but is not a directory", path)
 	}
 
 	receipt = NewReceiptWithBoundary(product, boundary)
@@ -322,9 +322,9 @@ func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, rece
 //   - error: a malformed-receipt error if the boundary is not an ancestor of the resource, an
 //     unexpected-resource-type error if the receipt's resource is not a [*file.Resource], or any
 //     non-tolerated removal error from the walk.
-func (p *Provider) CompensateMkdir(receipt Receipt) (err error) {
+func (p *Provider) CompensateMkdir(receipt *Receipt) (err error) {
 
-	if receipt.Resource() == nil {
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
@@ -386,22 +386,22 @@ func (p *Provider) CompensateMkdir(receipt Receipt) (err error) {
 //   - product: the destination [file.Resource] with populated metadata.
 //   - receipt: [file.Receipt] for moving the file back.
 //   - err: any error.
-func (p *Provider) Move(source *Resource, destinationPath string) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) Move(source *Resource, destinationPath string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.ExecutionContext(), destinationPath)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	if _, err = p.stat(source.SourcePath.Abs()); err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	parentPath := filepath.Dir(product.SourcePath.Abs())
 
 	boundary, _, err := p.closestExistingDir(parentPath)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	receipt = NewReceiptWithBoundary(product, boundary)
@@ -431,9 +431,9 @@ func (p *Provider) Move(source *Resource, destinationPath string) (product *Reso
 //
 // Returns:
 //   - error: any error from restoring the original file
-func (p *Provider) CompensateMove(receipt Receipt) error {
+func (p *Provider) CompensateMove(receipt *Receipt) error {
 
-	if receipt.Resource() == nil {
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
@@ -478,22 +478,22 @@ func (p *Provider) CompensateMove(receipt Receipt) error {
 // Returns:
 //   - result: Receipt for restoring the deleted file
 //   - err: any error
-func (p *Provider) Remove(resource *Resource, prune bool, boundary *Resource) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) Remove(resource *Resource, prune bool, boundary *Resource) (product *Resource, receipt *Receipt, err error) {
 
 	nonEmptyDirectory, err := p.isDirAndNotEmpty(resource.SourcePath.Abs())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, Receipt{}, nil
+			return nil, nil, nil
 		}
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	if nonEmptyDirectory {
-		return nil, Receipt{}, fmt.Errorf("directory %s is not empty", resource.SourcePath.Abs())
+		return nil, nil, fmt.Errorf("directory %s is not empty", resource.SourcePath.Abs())
 	}
 
 	if err := p.archiveAndPrune(resource, prune, boundary); err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	return nil, NewReceipt(resource), nil
@@ -506,9 +506,9 @@ func (p *Provider) Remove(resource *Resource, prune bool, boundary *Resource) (p
 //
 // Returns:
 //   - error: any error from restoring the removed file
-func (p *Provider) CompensateRemove(receipt Receipt) error {
+func (p *Provider) CompensateRemove(receipt *Receipt) error {
 
-	if receipt.Resource() == nil {
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
@@ -532,10 +532,10 @@ func (p *Provider) CompensateRemove(receipt Receipt) error {
 // Returns:
 //   - result: Receipt for restoring the deleted tree
 //   - err: any error
-func (p *Provider) RemoveAll(resource *Resource, prune bool, boundary *Resource) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) RemoveAll(resource *Resource, prune bool, boundary *Resource) (product *Resource, receipt *Receipt, err error) {
 
 	if err := p.archiveAndPrune(resource, prune, boundary); err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	return nil, NewReceipt(resource), nil
@@ -548,9 +548,9 @@ func (p *Provider) RemoveAll(resource *Resource, prune bool, boundary *Resource)
 //
 // Returns:
 //   - error: any error from restoring the removed files
-func (p *Provider) CompensateRemoveAll(receipt Receipt) error {
+func (p *Provider) CompensateRemoveAll(receipt *Receipt) error {
 
-	if receipt.Resource() == nil {
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
@@ -576,23 +576,23 @@ func (p *Provider) CompensateRemoveAll(receipt Receipt) error {
 // Returns:
 //   - result: Receipt for restoring the deleted symlink
 //   - err: any error
-func (p *Provider) Unlink(resource *Resource, prune bool, boundary *Resource) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) Unlink(resource *Resource, prune bool, boundary *Resource) (product *Resource, receipt *Receipt, err error) {
 
 	info, err := p.lstat(resource.SourcePath.Abs())
 	if os.IsNotExist(err) {
-		return nil, Receipt{}, nil // Already gone — no change
+		return nil, nil, nil // Already gone — no change
 	}
 
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
-		return nil, Receipt{}, fmt.Errorf("%s is not a symlink", resource.SourcePath.Abs())
+		return nil, nil, fmt.Errorf("%s is not a symlink", resource.SourcePath.Abs())
 	}
 
 	if err := p.archiveAndPrune(resource, prune, boundary); err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	return nil, NewReceipt(resource), nil
@@ -605,9 +605,9 @@ func (p *Provider) Unlink(resource *Resource, prune bool, boundary *Resource) (p
 //
 // Returns:
 //   - error: any error from restoring the symlink
-func (p *Provider) CompensateUnlink(receipt Receipt) error {
+func (p *Provider) CompensateUnlink(receipt *Receipt) error {
 
-	if receipt.Resource() == nil {
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
@@ -685,11 +685,24 @@ func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (pr
 			return skip
 		}
 
-		var resource *Resource
-
-		resource, err = NewResource(p.ExecutionContext(), entryAbs)
+		// WalkTree is an observation path: the entries we visit are existing filesystem state, not action outputs.
+		// Route through the catalog so two scans that hit the same path return the same canonical *Resource.
+		ctx := p.ExecutionContext()
+		candidate, err := NewResource(ctx, entryAbs)
 		if err != nil {
 			return err
+		}
+
+		got, err := ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+			return candidate, nil
+		})
+		if err != nil {
+			return err
+		}
+
+		resource, ok := got.(*Resource)
+		if !ok {
+			return fmt.Errorf("walk tree: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
 		}
 
 		if err = resource.Resolve(); err != nil {
@@ -738,11 +751,11 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 //   - result: the destination [file.Resource] with populated metadata.
 //   - receipt: [file.Receipt] for restoring the previous state.
 //   - err: any error that occurred while writing.
-func (p *Provider) WriteBytes(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) WriteBytes(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.ExecutionContext(), destinationPath)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	return p.write(product, []byte(content), mode)
@@ -755,7 +768,7 @@ func (p *Provider) WriteBytes(destinationPath string, content string, mode os.Fi
 //
 // Returns:
 //   - error: any error from restoring the original file
-func (p *Provider) CompensateWriteBytes(receipt Receipt) error {
+func (p *Provider) CompensateWriteBytes(receipt *Receipt) error {
 	return p.compensateWrite(receipt)
 }
 
@@ -777,11 +790,11 @@ func (p *Provider) CompensateWriteBytes(receipt Receipt) error {
 //   - err: any error that occurred while writing.
 //
 // +devlore:defaults mode=0o666
-func (p *Provider) WriteText(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) WriteText(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.ExecutionContext(), destinationPath)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	return p.write(product, []byte(content), mode)
@@ -794,7 +807,7 @@ func (p *Provider) WriteText(destinationPath string, content string, mode os.Fil
 //
 // Returns:
 //   - error: any error from restoring the original file
-func (p *Provider) CompensateWriteText(receipt Receipt) error {
+func (p *Provider) CompensateWriteText(receipt *Receipt) error {
 	return p.compensateWrite(receipt)
 }
 
@@ -1140,9 +1153,9 @@ func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, rel
 // Returns:
 //   - error: a malformed-receipt error if boundary is not an ancestor of the resource, an unexpected-resource-type
 //     error if the receipt's resource is not a [*file.Resource], or any non-tolerated removal or restoration error.
-func (p *Provider) compensateWrite(receipt Receipt) error {
+func (p *Provider) compensateWrite(receipt *Receipt) error {
 
-	if receipt.Resource() == nil {
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
@@ -1279,12 +1292,26 @@ func (p *Provider) closestExistingDir(path string) (ancestor *Resource, info os.
 		return nil, nil, fmt.Errorf("%s lies outside scoped root %s", path, root)
 	}
 
+	ctx := p.ExecutionContext()
 	current := path
 
 	for {
 		if info, err = p.stat(current); err == nil {
-			ancestor, err = NewResource(p.ExecutionContext(), current)
-			return
+			candidate, buildErr := NewResource(ctx, current)
+			if buildErr != nil {
+				return nil, nil, buildErr
+			}
+			got, getErr := ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+				return candidate, nil
+			})
+			if getErr != nil {
+				return nil, nil, getErr
+			}
+			a, ok := got.(*Resource)
+			if !ok {
+				return nil, nil, fmt.Errorf("closest existing dir: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+			}
+			return a, info, nil
 		}
 
 		if current == root {
@@ -1363,14 +1390,14 @@ func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, e
 //   - product: resolved destination resource
 //   - receipt: compensation state for undoing the write
 //   - error: any error from backup or directory creation
-func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt *Receipt, err error) {
 
 	if product, err = NewResource(p.ExecutionContext(), resource.SourcePath.Abs()); err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	if err = product.Resolve(); err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	if !product.Exists() {
@@ -1379,7 +1406,7 @@ func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt 
 
 		boundary, _, err := p.closestExistingDir(parentPath)
 		if err != nil {
-			return nil, Receipt{}, err
+			return nil, nil, err
 		}
 
 		receipt = NewReceiptWithBoundary(product, boundary)
@@ -1394,7 +1421,7 @@ func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt 
 	_, receipt, err = p.Remove(product, false, nil)
 
 	if err != nil {
-		return nil, Receipt{}, fmt.Errorf("failed to backup existing file: %w", err)
+		return nil, nil, fmt.Errorf("failed to backup existing file: %w", err)
 	}
 
 	return product, receipt, nil
@@ -1468,9 +1495,11 @@ func (p *Provider) rename(oldAbs, newAbs string) error {
 	return root.Rename(root.NewPath(oldAbs), root.NewPath(newAbs))
 }
 
-// resources constructs a [Resource] for each input path.
+// resources constructs a [Resource] for each input path, routing through [op.ResourceCatalog.GetOrCreate].
 //
-// Each entry is built via [NewResource] under the provider's [op.ExecutionContext].
+// This is an observation path — Find / Glob have already matched paths against existing filesystem state. Routing
+// through the catalog gives every match canonical identity: two scans that hit the same path return the same
+// *Resource. URIs not yet in the catalog become discovery entries (empty originID); existing entries are re-used.
 //
 // Parameters:
 //   - paths: filesystem paths in the order callers want preserved on the output.
@@ -1480,13 +1509,27 @@ func (p *Provider) rename(oldAbs, newAbs string) error {
 //   - error: first error encountered or nil
 func (p *Provider) resources(paths []string) (product []*Resource, err error) {
 
+	ctx := p.ExecutionContext()
 	resources := make([]*Resource, len(paths))
 
 	for i, path := range paths {
-		resources[i], err = NewResource(p.ExecutionContext(), path)
+		var candidate *Resource
+		candidate, err = NewResource(ctx, path)
 		if err != nil {
 			return nil, err
 		}
+		var got op.Resource
+		got, err = ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+			return candidate, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		concrete, ok := got.(*Resource)
+		if !ok {
+			return nil, fmt.Errorf("resources: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+		}
+		resources[i] = concrete
 	}
 
 	return resources, nil
@@ -1555,11 +1598,11 @@ func (p *Provider) walkDir(osRoot op.Root, absoluteRoot string, walkFn func(stri
 //   - product: resolved resource for the written file
 //   - receipt: compensation state for undoing the write
 //   - error: any error from writing
-func (p *Provider) write(resource *Resource, data []byte, mode os.FileMode) (product *Resource, receipt Receipt, err error) {
+func (p *Provider) write(resource *Resource, data []byte, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
 	product, receipt, err = p.prepareWrite(resource)
 	if err != nil {
-		return nil, Receipt{}, err
+		return nil, nil, err
 	}
 
 	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)

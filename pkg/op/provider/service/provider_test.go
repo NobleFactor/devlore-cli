@@ -151,7 +151,7 @@ func TestCompensateStart(t *testing.T) {
 		sm.running["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStart(Tombstone{Name: "nginx", WasRunning: false}); err != nil {
+		if err := p.CompensateStart(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasRunning: false}); err != nil {
 			t.Fatalf("CompensateStart() error = %v", err)
 		}
 		if sm.running["nginx"] {
@@ -164,7 +164,7 @@ func TestCompensateStart(t *testing.T) {
 		sm.running["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStart(Tombstone{Name: "nginx", WasRunning: true}); err != nil {
+		if err := p.CompensateStart(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasRunning: true}); err != nil {
 			t.Fatalf("CompensateStart() error = %v", err)
 		}
 		if !sm.running["nginx"] {
@@ -175,7 +175,7 @@ func TestCompensateStart(t *testing.T) {
 	t.Run("empty name is no-op", func(t *testing.T) {
 		sm := newMockServiceManager()
 		p := newTestProvider(sm)
-		if err := p.CompensateStart(Tombstone{}); err != nil {
+		if err := p.CompensateStart(&Receipt{}); err != nil {
 			t.Fatalf("CompensateStart(empty) error = %v", err)
 		}
 	})
@@ -207,7 +207,7 @@ func TestCompensateStop(t *testing.T) {
 		sm.running["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStop(Tombstone{Name: "nginx", WasRunning: true}); err != nil {
+		if err := p.CompensateStop(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasRunning: true}); err != nil {
 			t.Fatalf("CompensateStop() error = %v", err)
 		}
 		if !sm.running["nginx"] {
@@ -220,7 +220,7 @@ func TestCompensateStop(t *testing.T) {
 		sm.running["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStop(Tombstone{Name: "nginx", WasRunning: false}); err != nil {
+		if err := p.CompensateStop(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasRunning: false}); err != nil {
 			t.Fatalf("CompensateStop() error = %v", err)
 		}
 		if sm.running["nginx"] {
@@ -241,8 +241,12 @@ func TestRestart(t *testing.T) {
 	if result.Name != "nginx" {
 		t.Errorf("Restart() result.ReceiverName = %q, want %q", result.Name, "nginx")
 	}
-	if state.Name != "nginx" {
-		t.Errorf("Restart() state.ReceiverName = %q, want %q", state.Name, "nginx")
+	resource, ok := state.Resource().(*Resource)
+	if !ok {
+		t.Fatalf("Restart() state.Resource() = %T, want *Resource", state.Resource())
+	}
+	if resource.Name != "nginx" {
+		t.Errorf("Restart() resource.Name = %q, want %q", resource.Name, "nginx")
 	}
 	if !sm.running["nginx"] {
 		t.Error("service should be running after Restart()")
@@ -299,7 +303,7 @@ func TestCompensateEnable(t *testing.T) {
 		sm.enabled["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateEnable(Tombstone{Name: "nginx", WasEnabled: false}); err != nil {
+		if err := p.CompensateEnable(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasEnabled: false}); err != nil {
 			t.Fatalf("CompensateEnable() error = %v", err)
 		}
 		if sm.enabled["nginx"] {
@@ -312,7 +316,7 @@ func TestCompensateEnable(t *testing.T) {
 		sm.enabled["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateEnable(Tombstone{Name: "nginx", WasEnabled: true}); err != nil {
+		if err := p.CompensateEnable(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasEnabled: true}); err != nil {
 			t.Fatalf("CompensateEnable() error = %v", err)
 		}
 		if !sm.enabled["nginx"] {
@@ -347,7 +351,7 @@ func TestCompensateDisable(t *testing.T) {
 		sm.enabled["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateDisable(Tombstone{Name: "nginx", WasEnabled: true}); err != nil {
+		if err := p.CompensateDisable(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasEnabled: true}); err != nil {
 			t.Fatalf("CompensateDisable() error = %v", err)
 		}
 		if !sm.enabled["nginx"] {
@@ -360,7 +364,7 @@ func TestCompensateDisable(t *testing.T) {
 		sm.enabled["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateDisable(Tombstone{Name: "nginx", WasEnabled: false}); err != nil {
+		if err := p.CompensateDisable(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasEnabled: false}); err != nil {
 			t.Fatalf("CompensateDisable() error = %v", err)
 		}
 		if sm.enabled["nginx"] {

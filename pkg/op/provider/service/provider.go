@@ -30,41 +30,53 @@ func (p *Provider) serviceManager() (op.ServiceManager, error) {
 	return plat.ServiceManager, nil
 }
 
+// resourceName returns the service name carried by the receipt's affected [Resource], or empty when the receipt
+// has no resource attached. Compensation methods use this to bail early on zero receipts and to look up the service
+// in the platform's manager.
+func resourceName(receipt *Receipt) string {
+	r, ok := receipt.Resource().(*Resource)
+	if !ok || r == nil {
+		return ""
+	}
+	return r.Name
+}
+
 // --- Compensable Pairs ---
 
 // Disable disables a service from starting at boot.
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Disable(name *Resource) (*Resource, Tombstone, error) {
+func (p *Provider) Disable(name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	wasEnabled := sm.IsEnabled(name.Name)
 
 	r := sm.Disable(name.Name)
 	if !r.OK {
-		return nil, Tombstone{}, fmt.Errorf("disable %s failed: %s", name.Name, r.Stderr)
+		return nil, nil, fmt.Errorf("disable %s failed: %s", name.Name, r.Stderr)
 	}
 	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "disabled service %s\n", name.Name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name.Name, WasEnabled: wasEnabled}, nil
+	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasEnabled: wasEnabled}, nil
 }
 
 // CompensateDisable undoes a Disable by enabling the service if it was
 // enabled before.
-func (p *Provider) CompensateDisable(state Tombstone) error {
-	if state.Name == "" || !state.WasEnabled {
+func (p *Provider) CompensateDisable(receipt *Receipt) error {
+	name := resourceName(receipt)
+	if name == "" || !receipt.WasEnabled {
 		return nil
 	}
 	sm, err := p.serviceManager()
 	if err != nil {
 		return err
 	}
-	r := sm.Enable(state.Name)
+	r := sm.Enable(name)
 	if !r.OK {
-		return fmt.Errorf("compensate disable (enable %s) failed: %s", state.Name, r.Stderr)
+		return fmt.Errorf("compensate disable (enable %s) failed: %s", name, r.Stderr)
 	}
 	return nil
 }
@@ -73,35 +85,36 @@ func (p *Provider) CompensateDisable(state Tombstone) error {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Enable(name *Resource) (*Resource, Tombstone, error) {
+func (p *Provider) Enable(name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	wasEnabled := sm.IsEnabled(name.Name)
 
 	r := sm.Enable(name.Name)
 	if !r.OK {
-		return nil, Tombstone{}, fmt.Errorf("enable %s failed: %s", name.Name, r.Stderr)
+		return nil, nil, fmt.Errorf("enable %s failed: %s", name.Name, r.Stderr)
 	}
 	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "enabled service %s\n", name.Name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name.Name, WasEnabled: wasEnabled}, nil
+	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasEnabled: wasEnabled}, nil
 }
 
 // CompensateEnable undoes an Enable by disabling the service if it
 // wasn't enabled before.
-func (p *Provider) CompensateEnable(state Tombstone) error {
-	if state.Name == "" || state.WasEnabled {
+func (p *Provider) CompensateEnable(receipt *Receipt) error {
+	name := resourceName(receipt)
+	if name == "" || receipt.WasEnabled {
 		return nil
 	}
 	sm, err := p.serviceManager()
 	if err != nil {
 		return err
 	}
-	r := sm.Disable(state.Name)
+	r := sm.Disable(name)
 	if !r.OK {
-		return fmt.Errorf("compensate enable (disable %s) failed: %s", state.Name, r.Stderr)
+		return fmt.Errorf("compensate enable (disable %s) failed: %s", name, r.Stderr)
 	}
 	return nil
 }
@@ -111,26 +124,26 @@ func (p *Provider) CompensateEnable(state Tombstone) error {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Restart(name *Resource) (*Resource, Tombstone, error) {
+func (p *Provider) Restart(name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	r := sm.Stop(name.Name)
 	if !r.OK {
-		return nil, Tombstone{}, fmt.Errorf("stop before restart: %s", r.Stderr)
+		return nil, nil, fmt.Errorf("stop before restart: %s", r.Stderr)
 	}
 	r = sm.Start(name.Name)
 	if !r.OK {
-		return nil, Tombstone{}, fmt.Errorf("start after restart: %s", r.Stderr)
+		return nil, nil, fmt.Errorf("start after restart: %s", r.Stderr)
 	}
 	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "restarted service %s\n", name.Name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name.Name}, nil
+	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name)}, nil
 }
 
 // CompensateRestart is a no-op. A restarted service was already running.
-func (p *Provider) CompensateRestart(_ Tombstone) error {
+func (p *Provider) CompensateRestart(_ *Receipt) error {
 	return nil
 }
 
@@ -138,34 +151,35 @@ func (p *Provider) CompensateRestart(_ Tombstone) error {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Start(name *Resource) (*Resource, Tombstone, error) {
+func (p *Provider) Start(name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	wasRunning := sm.IsRunning(name.Name)
 
 	r := sm.Start(name.Name)
 	if !r.OK {
-		return nil, Tombstone{}, fmt.Errorf("start %s failed: %s", name.Name, r.Stderr)
+		return nil, nil, fmt.Errorf("start %s failed: %s", name.Name, r.Stderr)
 	}
 	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "started service %s\n", name.Name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name.Name, WasRunning: wasRunning}, nil
+	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasRunning: wasRunning}, nil
 }
 
 // CompensateStart undoes a Start by stopping the service if it wasn't running before.
-func (p *Provider) CompensateStart(state Tombstone) error {
-	if state.Name == "" || state.WasRunning {
+func (p *Provider) CompensateStart(receipt *Receipt) error {
+	name := resourceName(receipt)
+	if name == "" || receipt.WasRunning {
 		return nil
 	}
 	sm, err := p.serviceManager()
 	if err != nil {
 		return err
 	}
-	r := sm.Stop(state.Name)
+	r := sm.Stop(name)
 	if !r.OK {
-		return fmt.Errorf("compensate start (stop %s) failed: %s", state.Name, r.Stderr)
+		return fmt.Errorf("compensate start (stop %s) failed: %s", name, r.Stderr)
 	}
 	return nil
 }
@@ -174,35 +188,36 @@ func (p *Provider) CompensateStart(state Tombstone) error {
 //
 // Parameters:
 //   - name: service resource identifying the service
-func (p *Provider) Stop(name *Resource) (*Resource, Tombstone, error) {
+func (p *Provider) Stop(name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	wasRunning := sm.IsRunning(name.Name)
 
 	r := sm.Stop(name.Name)
 	if !r.OK {
-		return nil, Tombstone{}, fmt.Errorf("stop %s failed: %s", name.Name, r.Stderr)
+		return nil, nil, fmt.Errorf("stop %s failed: %s", name.Name, r.Stderr)
 	}
 	_, _ = fmt.Fprintf(p.ExecutionContext().Writer, "stopped service %s\n", name.Name) //nolint:errcheck // status output
-	return name, Tombstone{Name: name.Name, WasRunning: wasRunning}, nil
+	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasRunning: wasRunning}, nil
 }
 
 // CompensateStop undoes a Stop by starting the service if it was
 // running before.
-func (p *Provider) CompensateStop(state Tombstone) error {
-	if state.Name == "" || !state.WasRunning {
+func (p *Provider) CompensateStop(receipt *Receipt) error {
+	name := resourceName(receipt)
+	if name == "" || !receipt.WasRunning {
 		return nil
 	}
 	sm, err := p.serviceManager()
 	if err != nil {
 		return err
 	}
-	r := sm.Start(state.Name)
+	r := sm.Start(name)
 	if !r.OK {
-		return fmt.Errorf("compensate stop (start %s) failed: %s", state.Name, r.Stderr)
+		return fmt.Errorf("compensate stop (start %s) failed: %s", name, r.Stderr)
 	}
 	return nil
 }

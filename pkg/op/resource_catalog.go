@@ -94,6 +94,56 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 	return r, id
 }
 
+// GetOrCreate returns the canonical catalog entry for uri, invoking factory only on cache miss.
+//
+// GetOrCreate is the consumer-side read-or-discover hook: callers that want catalog identity for a URI
+// (an unmarshaler rehydrating a saved receipt, a scanner observing existing filesystem state, etc.)
+// supply a factory that constructs a fresh [Resource] of the appropriate concrete type, and GetOrCreate
+// either returns the existing entry or interns the factory's result via [ResourceCatalog.Link]. The
+// catalog stays type-neutral; the factory closure resolves the concrete-type-to-construct decision at
+// the call site, where the type is statically known.
+//
+// On cache hit the factory is not called — no allocation for the fresh candidate, no [NewResource]
+// validation cost. On cache miss the factory runs once; its returned Resource flows through [Link]
+// (which may further deduplicate if a competing call interned the same URI between the lookup and the
+// Link). A non-nil factory error short-circuits without touching the catalog.
+//
+// GetOrCreate is the wrong tool for forward-method outputs — those flow through the plan-time
+// [ResourceCatalog.Shadow] / post-dispatch [ResourceCatalog.Transition] path. Mixing the two write
+// paths corrupts originID tracking. Use GetOrCreate for read-or-discover; let the executor handle
+// production.
+//
+// Parameters:
+//   - uri: the URI to look up. Must not be empty.
+//   - factory: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil.
+//
+// Returns:
+//   - Resource: the canonical catalog entry for uri.
+//   - error: any factory error (returned untouched), or a missing-URI / nil-factory programming error.
+func (c *ResourceCatalog) GetOrCreate(uri string, factory func() (Resource, error)) (Resource, error) {
+
+	if uri == "" {
+		return nil, fmt.Errorf("GetOrCreate: uri must not be empty")
+	}
+
+	if factory == nil {
+		return nil, fmt.Errorf("GetOrCreate: factory must not be nil")
+	}
+
+	if id := c.Current(uri); id != "" {
+		if existing, ok := c.Lookup(id); ok {
+			return existing, nil
+		}
+	}
+
+	candidate, err := factory()
+	if err != nil {
+		return nil, err
+	}
+
+	return c.Link(candidate), nil
+}
+
 // Link interns the given resource and returns the canonical catalog entry, discarding the catalog ID.
 //
 // Link is a thin convenience over [ResourceCatalog.Resolve] for callers that only need the linked Resource —

@@ -146,43 +146,6 @@ func (r *Resource) Equal(other any) bool {
 	return r.ResourceBase.Equal(other)
 }
 
-// MarshalJSON marshals the resource to its JSON wire form — identity (URI) plus snapshot markers (Ref, HEAD).
-//
-// Remotes, Bare, and Dirty are intentionally omitted; they are operational state re-derived by
-// [Resource.Resolve] after the receiver has been rehydrated.
-//
-// Returns:
-//   - []byte: JSON-encoded object.
-//   - error: any error from [json.Marshal]; none under normal conditions.
-func (r *Resource) MarshalJSON() ([]byte, error) {
-
-	type alias Resource
-	return json.Marshal(&struct {
-		URI string `json:"uri"`
-		*alias
-	}{
-		URI:   r.URI(),
-		alias: (*alias)(r),
-	})
-}
-
-// MarshalYAML marshals the resource to its YAML wire form — identity (URI) plus snapshot markers (Ref, HEAD).
-//
-// Returns:
-//   - any: the value for the YAML encoder to serialize.
-//   - error: nil under normal conditions.
-func (r *Resource) MarshalYAML() (any, error) {
-
-	type alias Resource
-	return &struct {
-		URI string `yaml:"uri"`
-		*alias
-	}{
-		URI:   r.URI(),
-		alias: (*alias)(r),
-	}, nil
-}
-
 // Resolve inspects the local filesystem and populates operational metadata on the receiver.
 //
 // Rebinds SourcePath to the scoped execution root, then populates every derived field from the on-disk

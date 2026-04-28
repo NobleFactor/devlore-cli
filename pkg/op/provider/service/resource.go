@@ -46,10 +46,3 @@ type Resource struct {
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
 
-// Tombstone holds service-specific compensation state.
-type Tombstone struct {
-	op.ReceiptBase
-	Name       string
-	WasRunning bool
-	WasEnabled bool
-}

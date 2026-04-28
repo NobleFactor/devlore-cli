@@ -690,28 +690,28 @@ func (m *Method) Undo(receiver any, complement any) error {
 
 // region UNEXPORTED FUNCTIONS
 
-// isLegalCompensableComplement reports whether t is a legal complement type for [MethodCompensableFunction].
+// isLegalCompensableComplement reports whether reflectType is a legal complement type for [MethodCompensableFunction].
 //
 // Three shapes are accepted: a [Receipt]-implementing type (single-output compensable), a slice whose element
 // implements [Receipt] (multi-output compensable; engine wraps the slice into a sub-stack at [Method.Invoke]
 // time), and `*RecoveryStack` (action returns a fully-built saga that the engine splices via PushNested).
 //
 // Parameters:
-//   - t: the method's second return type ([reflect.Type] of `Out(1)`).
+//   - reflectType: the method's second return type ([reflect.Type] of `Out(1)`).
 //
 // Returns:
-//   - bool: true when t is one of the three legal complement shapes.
-func isLegalCompensableComplement(t reflect.Type) bool {
+//   - bool: true when reflectType is one of the three legal complement shapes.
+func isLegalCompensableComplement(reflectType reflect.Type) bool {
 
-	if t.Implements(receiptType) {
+	if reflectType.Implements(receiptType) {
 		return true
 	}
 
-	if t.Kind() == reflect.Slice && t.Elem().Implements(receiptType) {
+	if reflectType.Kind() == reflect.Slice && reflectType.Elem().Implements(receiptType) {
 		return true
 	}
 
-	if t == recoveryStackType {
+	if reflectType == recoveryStackType {
 		return true
 	}
 

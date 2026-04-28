@@ -58,10 +58,14 @@ func TestClone_HookReceivesArgv(t *testing.T) {
 	}
 
 	if state == nil {
-		t.Fatalf("state = nil, want a *Resource")
+		t.Fatalf("state = nil, want a *Receipt")
 	}
-	if state.SourcePath.Abs() != dir {
-		t.Errorf("state.SourcePath.Abs() = %q, want %q", state.SourcePath.Abs(), dir)
+	stateResource, ok := state.Resource().(*Resource)
+	if !ok {
+		t.Fatalf("state.Resource() = %T, want *Resource", state.Resource())
+	}
+	if stateResource.SourcePath.Abs() != dir {
+		t.Errorf("state resource path = %q, want %q", stateResource.SourcePath.Abs(), dir)
 	}
 }
 
@@ -174,7 +178,7 @@ func TestCompensateClone(t *testing.T) {
 	}
 
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
-	if err := p.CompensateClone(r); err != nil {
+	if err := p.CompensateClone(NewReceipt(r)); err != nil {
 		t.Fatalf("CompensateClone: %v", err)
 	}
 

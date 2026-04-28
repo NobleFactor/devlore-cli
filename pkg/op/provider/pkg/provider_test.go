@@ -172,13 +172,13 @@ func TestCompensateInstall(t *testing.T) {
 	packageManager.installed["git"] = true
 	p := newTestProvider(packageManager)
 
-	state := Tombstone{
+	state := Receipt{
 		Packages:         []string{"vim", "git"},
 		Manager:          "",
 		Cask:             false,
 		AlreadyInstalled: []string{"vim"},
 	}
-	err := p.CompensateInstall(state)
+	err := p.CompensateInstall(&state)
 	if err != nil {
 		t.Fatalf("CompensateInstall() error = %v", err)
 	}
@@ -196,7 +196,7 @@ func TestCompensateInstallEmptyState(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	err := p.CompensateInstall(Tombstone{})
+	err := p.CompensateInstall(nil)
 	if err != nil {
 		t.Fatalf("CompensateInstall(empty) error = %v", err)
 	}
@@ -272,12 +272,12 @@ func TestCompensateRemove(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	state := Tombstone{
+	state := Receipt{
 		Packages: []string{"vim", "git"},
 		Manager:  "",
 		Cask:     false,
 	}
-	err := p.CompensateRemove(state)
+	err := p.CompensateRemove(&state)
 	if err != nil {
 		t.Fatalf("CompensateRemove() error = %v", err)
 	}

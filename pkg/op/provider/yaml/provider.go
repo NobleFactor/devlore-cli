@@ -59,12 +59,30 @@ func (p *Provider) Parse(data string) (*Resource, error) {
 		return nil, fmt.Errorf("yaml parse: %w", err)
 	}
 
-	r, err := NewResource(p.ExecutionContext(), raw)
+	ctx := p.ExecutionContext()
+
+	candidate, err := NewResource(ctx, raw)
 
 	if err != nil {
 		return nil, err
 	}
 
-	r.parsed = parsed
+	candidate.parsed = parsed
+
+	// Parse is content-keyed — two calls with the same input produce the same URI. Route through the catalog so
+	// they share a single canonical *Resource (and thus a single parsed value) per ExecutionContext.
+	got, err := ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	r, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("yaml.Parse: catalog entry for %q is %T, want *yaml.Resource", candidate.URI(), got)
+	}
+
 	return r, nil
 }

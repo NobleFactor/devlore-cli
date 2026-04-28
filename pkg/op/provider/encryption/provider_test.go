@@ -58,7 +58,11 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateDecryptSopsFile(Tombstone{DestinationPath: path}); err != nil {
+	resource, err := file.NewResource(p.ExecutionContext(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.CompensateDecryptSopsFile(&Receipt{ReceiptBase: op.NewReceiptBase(resource)}); err != nil {
 		t.Fatalf("compensate: %v", err)
 	}
 
@@ -69,14 +73,19 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 
 func TestCompensateDecryptSopsFile_EmptyPath(t *testing.T) {
 	p := testProvider(t, t.TempDir())
-	if err := p.CompensateDecryptSopsFile(Tombstone{}); err != nil {
-		t.Fatalf("compensate with empty path should succeed: %v", err)
+	if err := p.CompensateDecryptSopsFile(&Receipt{}); err != nil {
+		t.Fatalf("compensate with empty receipt should succeed: %v", err)
 	}
 }
 
 func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
-	p := testProvider(t, t.TempDir())
-	err := p.CompensateDecryptSopsFile(Tombstone{DestinationPath: "/nonexistent/path"})
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+	resource, err := file.NewResource(p.ExecutionContext(), filepath.Join(tmp, "nonexistent"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = p.CompensateDecryptSopsFile(&Receipt{ReceiptBase: op.NewReceiptBase(resource)})
 	if err == nil {
 		t.Fatal("expected error removing nonexistent file")
 	}
@@ -213,8 +222,12 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 	if result.SourcePath.Abs() != destination {
 		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), destination)
 	}
-	if tombstone.DestinationPath != destination {
-		t.Errorf("tombstone path = %q, want %q", tombstone.DestinationPath, destination)
+	resource, ok := tombstone.Resource().(*file.Resource)
+	if !ok {
+		t.Fatalf("receipt resource = %T, want *file.Resource", tombstone.Resource())
+	}
+	if resource.SourcePath.Abs() != destination {
+		t.Errorf("receipt resource path = %q, want %q", resource.SourcePath.Abs(), destination)
 	}
 }
 

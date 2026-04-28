@@ -4,7 +4,6 @@
 package pkg
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -101,77 +100,3 @@ func (r *Resource) Resolve() error {
 	return nil
 }
 
-// Tombstone holds package-specific compensation state.
-type Tombstone struct {
-	op.ReceiptBase
-	Packages         []string
-	Manager          string
-	Cask             bool
-	AlreadyInstalled []string
-	PreviousVersions map[string]string
-}
-
-// region EXPORTED METHODS
-
-// region Behaviors
-
-// MarshalJSON encodes the tombstone as JSON: the base envelope (action, resource, transaction_id) extended
-// with the package-specific fields (packages, manager, cask, already_installed, previous_versions).
-//
-// Delegates to [Tombstone.MarshalYAML] for the wire-shape value, then runs [json.Marshal] over it. The base
-// inheritance via embedding does not propagate the override — Go method dispatch on an embedded receiver
-// reaches only [op.ReceiptBase.MarshalYAML], which would emit the bare envelope without these provider
-// fields. The override here intercepts the call so the encoder sees the full document.
-//
-// Returns:
-//   - []byte: JSON-encoded object carrying the base envelope plus the package-specific fields.
-//   - error: any error from [Tombstone.MarshalYAML] or from [json.Marshal] (including from the embedded
-//     Resource's own marshaler).
-func (t *Tombstone) MarshalJSON() ([]byte, error) {
-
-	v, err := t.MarshalYAML()
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(v)
-}
-
-// MarshalYAML returns the tombstone's full state as an anonymous struct value the YAML encoder serializes.
-//
-// The struct reproduces the base envelope's three fields ([op.ReceiptBase.Action], [op.ReceiptBase.Resource],
-// [op.ReceiptBase.TransactionID] — read through their public accessors) followed by the five
-// package-specific fields. Both `json:` and `yaml:` tags ride on every field so the same value flows through
-// either encoder via [Tombstone.MarshalJSON]'s delegation. Resource serializes via the concrete Resource
-// type's own [yaml.Marshaler]; PreviousVersions serializes as a YAML mapping with sorted keys (the encoder
-// default).
-//
-// Returns:
-//   - any: the populated anonymous struct for the YAML encoder to walk.
-//   - error: nil under normal conditions.
-func (t *Tombstone) MarshalYAML() (any, error) {
-
-	return struct {
-		Action           string            `json:"action"            yaml:"action"`
-		Resource         op.Resource       `json:"resource"          yaml:"resource"`
-		TransactionID    string            `json:"transaction_id"    yaml:"transaction_id"`
-		Packages         []string          `json:"packages"          yaml:"packages"`
-		Manager          string            `json:"manager"           yaml:"manager"`
-		Cask             bool              `json:"cask"              yaml:"cask"`
-		AlreadyInstalled []string          `json:"already_installed" yaml:"already_installed"`
-		PreviousVersions map[string]string `json:"previous_versions" yaml:"previous_versions"`
-	}{
-		Action:           t.Action(),
-		Resource:         t.Resource(),
-		TransactionID:    t.TransactionID(),
-		Packages:         t.Packages,
-		Manager:          t.Manager,
-		Cask:             t.Cask,
-		AlreadyInstalled: t.AlreadyInstalled,
-		PreviousVersions: t.PreviousVersions,
-	}, nil
-}
-
-// endregion
-
-// endregion

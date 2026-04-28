@@ -30,16 +30,16 @@ type Receipt interface {
 //
 // The transactionID both correlates the forward call with its reversal and encodes the moment the call was issued.
 //
-// ReceiverType-specific receipts (e.g., file.Tombstone) must embed it by value. The embedded Resource
-// preserves its true identity — its fields are never modified by the recovery system. The transactionID is
-// a UUIDv7: its first 48 bits are the Unix-millisecond timestamp, making it both unique and time-sortable,
-// and making [ReceiptBase.Timestamp] a pure bit-extract over the stored ID — no parsing, no heap allocation. The
-// transactionID is stored in its 16-byte binary form to avoid the ~60 bytes and per-access parse cost of the
-// string form; [ReceiptBase.TransactionID] formats on demand at serialization or display boundaries.
+// ReceiverType-specific receipts (e.g., file.Receipt) must embed it by value. The embedded Resource preserves its true
+// identity — its fields are never modified by the recovery system. The transactionID is a UUIDv7: its first 48 bits are
+// the Unix-millisecond timestamp, making it both unique and time-sortable, and making [ReceiptBase.Timestamp] a pure
+// bit-extract over the stored ID — no parsing, no heap allocation. The transactionID is stored in its 16-byte binary
+// form to avoid the ~60 bytes and per-access parse cost of the string form; [ReceiptBase.TransactionID] formats on
+// demand at serialization or display boundaries.
 //
-// For providers that also need an archive-storage key (e.g., file.Tombstone, which archives displaced bytes
-// to [RecoverySite]), the transactionID doubles as the recovery key. Per-domain aliases (e.g.,
-// file.Tombstone.RecoveryID) expose it under the domain-appropriate name.
+// For providers that also need an archive-storage key (e.g., file.Receipt, which archives displaced bytes to
+// [RecoverySite]), the transactionID doubles as the recovery key — [RecoverySite] interprets the receipt's
+// TransactionID directly; no per-domain alias is needed.
 type ReceiptBase struct {
 	action        string
 	resource      Resource
@@ -141,19 +141,17 @@ func (b *ReceiptBase) Commit(actionName string) error {
 	return nil
 }
 
-// MarshalJSON encodes the receipt's base state as JSON: action, resource, transaction_id.
+// MarshalJSON encodes the receipt's base envelope as JSON: action, resource_uri, transaction_id.
 //
-// Delegates to [ReceiptBase.MarshalYAML] for the wire-shape value, then runs [json.Marshal] over it. The
-// anonymous struct returned by MarshalYAML carries both `json:` and `yaml:` field tags, so the JSON encoder
-// reads its tags directly. Concrete Receipt types with no provider-specific fields inherit this method
-// unchanged via embedding; types that carry extra fields override both [ReceiptBase.MarshalJSON] and
-// [ReceiptBase.MarshalYAML] together because Go method dispatch on an embedded receiver does not see the
-// outer type's overrides.
+// Delegates to [ReceiptBase.MarshalYAML] for the encoded value, then runs [json.Marshal] over it. The anonymous
+// struct returned by MarshalYAML carries both `json:` and `yaml:` field tags so the JSON encoder reads its tags
+// directly. Concrete Receipt types with no provider-specific fields inherit this method unchanged via embedding;
+// types that carry extra fields override both [ReceiptBase.MarshalJSON] and [ReceiptBase.MarshalYAML] together
+// because Go method dispatch on an embedded receiver does not see the outer type's overrides.
 //
 // Returns:
-//   - []byte: JSON-encoded object with keys "action", "resource", "transaction_id".
-//   - error: any error from [ReceiptBase.MarshalYAML] or from [json.Marshal] (including from the embedded
-//     Resource's own marshaler).
+//   - []byte: JSON-encoded object with keys "action", "resource_uri", "transaction_id".
+//   - error: any error from [ReceiptBase.MarshalYAML] or from [json.Marshal].
 func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
 
 	v, err := b.MarshalYAML()
@@ -164,91 +162,107 @@ func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// MarshalYAML returns the receipt's base state as an anonymous struct value the YAML encoder serializes.
+// MarshalYAML returns the receipt's base envelope as an anonymous struct value the YAML encoder serializes.
 //
-// The returned struct is the single source of truth for the receipt's wire shape: its `json:` and `yaml:`
-// field tags drive both encoders, and [ReceiptBase.MarshalJSON] delegates here for the value before running
-// [json.Marshal]. Resource serializes via the concrete Resource type's own [yaml.Marshaler]; TransactionID
-// serializes as the canonical 36-char UUIDv7 string already produced by [ReceiptBase.TransactionID].
+// Per phase-8 13.0(d), Resource is projected to its [Resource.URI] string on the wire — not embedded as a full
+// Resource document — so the envelope stays flat and the Unmarshal side can rehydrate the concrete Resource via
+// each derivative's NewResource without nested-decoder context plumbing. TransactionID serializes as the canonical
+// 36-char UUIDv7 string already produced by [ReceiptBase.TransactionID]. The returned anonymous struct is the
+// single source of truth for the wire shape: its `json:` and `yaml:` tags drive both encoders, and
+// [ReceiptBase.MarshalJSON] delegates here for the value before running [json.Marshal].
 //
 // Returns:
 //   - any: the populated anonymous struct for the YAML encoder to walk.
 //   - error: nil under normal conditions.
 func (b *ReceiptBase) MarshalYAML() (any, error) {
-
-	return struct {
-		Action        string   `json:"action"         yaml:"action"`
-		Resource      Resource `json:"resource"       yaml:"resource"`
-		TransactionID string   `json:"transaction_id" yaml:"transaction_id"`
-	}{
-		Action:        b.action,
-		Resource:      b.resource,
-		TransactionID: b.transactionID.String(),
-	}, nil
+	return b.Snapshot(), nil
 }
 
-// Restore rebuilds this receipt's base state from a snapshot.
+// Restore rebuilds this receipt's base state from a snapshot of wire-primitive strings.
 //
-// [Snapshot] and Restore form the only encapsulation-respecting path to read or write the embedded fields from outside
-// [op]. A derivative
+// [Snapshot] and Restore form the only encapsulation-respecting path to read or write the embedded base
+// state from outside [op]. The shape is the wire shape — three strings, ready to embed in a marshaler's
+// anonymous struct or to read straight from a decoder's. Per the project serializer fast-path pattern,
+// the wire-primitive form lets downstream encoders skip reflect-based method dispatch entirely.
 //
-// - unmarshals into its own anonymous struct,
-// - resolves the resource URI through the [ResourceCatalog] (per the invariant that every URI is round-trippable),
-// - converts the transactionID string to a [uuid.UUID],
-// - packs the trio into a snapshot, and
-// - hands it to Restore.
+// The receiver MUST be pre-seeded with a [Resource] before Restore is called — typically by reconstructing
+// the receipt's base via [NewReceiptBase] with a freshly-built concrete Resource. Restore validates that
+// the pre-seeded resource's URI matches snapshot.ResourceURI (sanity check against malformed wire input),
+// then writes Action and TransactionID. The Resource itself is not mutated by Restore — its identity was
+// fixed at construction.
 //
-// Direct field mutation is impossible. This method is the derivative's only legitimate hook into the base. Restore is
-// one-shot: it errors if the receipt has already been committed or restored. Callers that need to re-bind a receipt
-// construct a fresh one.
+// Restore is one-shot: it errors if the receipt has already been committed or restored. Callers that need
+// to re-bind a receipt construct a fresh one.
 //
 // Parameters:
 //   - snapshot: the base-state snapshot, identical in shape to the value returned by [Snapshot]. Anonymous
-//     struct typing prevents callers from forging one outside the Snapshot/[Restore] boundary.
+//     struct typing prevents callers from forging one outside the Snapshot/Restore boundary.
 //
 // Returns:
-//   - error: non-nil when the receipt's transactionID is already set (Restore on a committed receipt).
+//   - error: non-nil when the receipt's transactionID is already set, the resource is missing, the
+//     resource URI does not match the snapshot, or the transaction_id string is malformed.
 func (b *ReceiptBase) Restore(snapshot struct {
-	Action        string
-	Resource      Resource
-	TransactionID uuid.UUID
+	Action        string `json:"action"         yaml:"action"`
+	ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
+	TransactionID string `json:"transaction_id" yaml:"transaction_id"`
 }) error {
 
 	if b.transactionID != (uuid.UUID{}) {
 		return fmt.Errorf("restore failed: transaction ID already set")
 	}
 
+	if b.resource == nil {
+		return fmt.Errorf("restore failed: resource must be pre-seeded before Restore")
+	}
+
+	if b.resource.URI() != snapshot.ResourceURI {
+		return fmt.Errorf("restore failed: pre-seeded resource URI %q does not match snapshot URI %q",
+			b.resource.URI(), snapshot.ResourceURI)
+	}
+
+	tid, err := uuid.Parse(snapshot.TransactionID)
+	if err != nil {
+		return fmt.Errorf("restore failed: parse transaction_id %q: %w", snapshot.TransactionID, err)
+	}
+
 	b.action = snapshot.Action
-	b.resource = snapshot.Resource
-	b.transactionID = snapshot.TransactionID
+	b.transactionID = tid
 
 	return nil
 }
 
-// Snapshot returns this receipt's base state as an anonymous struct.
+// Snapshot returns this receipt's base state as an anonymous struct of wire-primitive strings.
 //
-// Snapshot is the read side of the encapsulation boundary. It pairs with [Restore]. Derivative types use Snapshot to
-// lift the base state into their own marshaler: pull the trio out, convert Resource to its URI string and TransactionID
-// to its canonical UUID string, and emit alongside the derivative's provider-specific fields. The returned type is
-// intentionally anonymous — no caller can construct one directly; only Snapshot can produce it, and only Restore can
-// consume the matching shape.
+// Snapshot is the read side of the encapsulation boundary. Marshalers can return Snapshot's value directly
+// (or embed it alongside derivative-specific fields) — the encoder sees a struct of strings and hits its
+// fast path with no reflect-based method dispatch on the fields. Per the project serializer fast-path
+// pattern, the conversion work (UUID → canonical 36-char string, [Resource] → [Resource.URI]) runs once
+// here at the boundary instead of repeatedly inside the encoder's reflection machinery.
+//
+// The returned type is intentionally anonymous — no caller can construct one directly; only Snapshot can
+// produce it, and only Restore can consume the matching shape.
 //
 // Returns:
-//   - struct: a snapshot of the receipt's base state — Action, Resource (the live catalog entry), and
-//     TransactionID (the 16-byte UUIDv7).
+//   - struct: a snapshot of the receipt's base state — Action, ResourceURI (empty when no resource is
+//     attached), and TransactionID (canonical 36-char UUID string; the all-zeros UUID until Commit runs).
 func (b *ReceiptBase) Snapshot() struct {
-	Action        string
-	Resource      Resource
-	TransactionID uuid.UUID
+	Action        string `json:"action"         yaml:"action"`
+	ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
+	TransactionID string `json:"transaction_id" yaml:"transaction_id"`
 } {
+	var resourceURI string
+	if b.resource != nil {
+		resourceURI = b.resource.URI()
+	}
+
 	return struct {
-		Action        string
-		Resource      Resource
-		TransactionID uuid.UUID
+		Action        string `json:"action"         yaml:"action"`
+		ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
+		TransactionID string `json:"transaction_id" yaml:"transaction_id"`
 	}{
 		Action:        b.action,
-		Resource:      b.resource,
-		TransactionID: b.transactionID,
+		ResourceURI:   resourceURI,
+		TransactionID: b.transactionID.String(),
 	}
 }
 

@@ -3,7 +3,12 @@
 
 package file
 
-import "github.com/NobleFactor/devlore-cli/pkg/op"
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+)
 
 // Receipt holds the file-specific compensation state that the recovery system needs to undo a compensable forward call.
 //
@@ -23,33 +28,34 @@ type Receipt struct {
 // NewReceipt constructs a [Receipt] anchored to the affected [Resource] with no transactional boundary.
 //
 // The transactionID and action name remain zero-valued until [op.ReceiptBase.Commit] is invoked by
-// [op.RecoveryStack.PushReceipt]. Use this constructor wherever a forward action needs to return a Receipt rather than
-// building the struct literal inline, and the action did not need to record a creation boundary for compensation.
+// [op.RecoveryStack.PushReceipt]. Use this constructor wherever a forward action needs to return a Receipt rather
+// than building the struct literal inline, and the action did not need to record a creation boundary for
+// compensation.
 //
 // Parameters:
 //   - resource: the [Resource] affected by the compensable forward method call.
 //
 // Returns:
-//   - Receipt: the constructed receipt with only its resource populated.
-func NewReceipt(resource *Resource) Receipt {
-	return Receipt{ReceiptBase: op.NewReceiptBase(resource)}
+//   - *Receipt: the constructed receipt with only its resource populated.
+func NewReceipt(resource *Resource) *Receipt {
+	return &Receipt{ReceiptBase: op.NewReceiptBase(resource)}
 }
 
 // NewReceiptWithBoundary constructs a [Receipt] anchored to the affected [Resource] with a transactional boundary.
 //
-// Use this constructor when the forward action created or modified a subtree of filesystem state and compensation must
-// stop at a known edge to avoid removing pre-existing entries. [Provider.Mkdir] is the canonical caller: resource is
-// the directory created and boundary is the nearest pre-existing ancestor — compensation walks from resource up to but
-// excluding boundary, removing each empty directory along the way.
+// Use this constructor when the forward action created or modified a subtree of filesystem state and compensation
+// must stop at a known edge to avoid removing pre-existing entries. [Provider.Mkdir] is the canonical caller:
+// resource is the directory created and boundary is the nearest pre-existing ancestor — compensation walks from
+// resource up to but excluding boundary, removing each empty directory along the way.
 //
 // Parameters:
 //   - resource: the [Resource] affected by the compensable forward method call.
 //   - boundary: the [Resource] marking the existing-state edge; compensation stops at it (exclusive).
 //
 // Returns:
-//   - Receipt: the constructed receipt with both resource and boundary populated.
-func NewReceiptWithBoundary(resource, boundary *Resource) Receipt {
-	return Receipt{ReceiptBase: op.NewReceiptBase(resource), boundary: boundary}
+//   - *Receipt: the constructed receipt with both resource and boundary populated.
+func NewReceiptWithBoundary(resource, boundary *Resource) *Receipt {
+	return &Receipt{ReceiptBase: op.NewReceiptBase(resource), boundary: boundary}
 }
 
 // Boundary returns the transactional boundary [Resource] supplied at construction, or nil if none was set.
@@ -60,6 +66,176 @@ func NewReceiptWithBoundary(resource, boundary *Resource) Receipt {
 //
 // Returns:
 //   - *Resource: the boundary supplied to [NewReceiptWithBoundary], or nil for receipts built via [NewReceipt].
-func (r Receipt) Boundary() *Resource {
+func (r *Receipt) Boundary() *Resource {
 	return r.boundary
+}
+
+// MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
+// the optional boundary_uri.
+//
+// Delegates to [Receipt.MarshalYAML] for the wire-shape value, then runs [json.Marshal] over it.
+//
+// Returns:
+//   - []byte: JSON-encoded object carrying the base envelope plus boundary_uri.
+//   - error: any error from [Receipt.MarshalYAML] or [json.Marshal].
+func (r *Receipt) MarshalJSON() ([]byte, error) {
+
+	v, err := r.MarshalYAML()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(v)
+}
+
+// MarshalYAML returns the receipt's full state as an anonymous struct value the YAML encoder serializes.
+//
+// Embeds [op.ReceiptBase.Snapshot]'s wire-primitive triplet alongside the boundary URI. Both `json:` and
+// `yaml:` tags ride on every field so the same value flows through either encoder via [Receipt.MarshalJSON]'s
+// delegation. boundary_uri uses an `omitempty` tag so receipts built via [NewReceipt] (no boundary) emit a
+// clean envelope.
+//
+// Returns:
+//   - any: the populated anonymous struct for the YAML encoder to walk.
+//   - error: nil under normal conditions.
+func (r *Receipt) MarshalYAML() (any, error) {
+
+	base := r.Snapshot()
+
+	var boundaryURI string
+	if r.boundary != nil {
+		boundaryURI = r.boundary.URI()
+	}
+
+	return struct {
+		Action        string `json:"action"                 yaml:"action"`
+		ResourceURI   string `json:"resource_uri"           yaml:"resource_uri"`
+		TransactionID string `json:"transaction_id"         yaml:"transaction_id"`
+		BoundaryURI   string `json:"boundary_uri,omitempty" yaml:"boundary_uri,omitempty"`
+	}{
+		Action:        base.Action,
+		ResourceURI:   base.ResourceURI,
+		TransactionID: base.TransactionID,
+		BoundaryURI:   boundaryURI,
+	}, nil
+}
+
+// UnmarshalJSON decodes a JSON document produced by [Receipt.MarshalJSON] back into the receiver via
+// [op.ReceiptBase.Restore].
+//
+// The receiver MUST be pre-seeded with an [op.ExecutionContext]-bearing zero [Resource] so the unmarshaler can
+// rehydrate the encoded URIs via [NewResource].
+//
+// Parameters:
+//   - data: the JSON-encoded receipt bytes.
+//
+// Returns:
+//   - error: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
+func (r *Receipt) UnmarshalJSON(data []byte) error {
+
+	var aux struct {
+		Action        string `json:"action"`
+		ResourceURI   string `json:"resource_uri"`
+		TransactionID string `json:"transaction_id"`
+		BoundaryURI   string `json:"boundary_uri"`
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return fmt.Errorf("file.Receipt: unmarshal JSON: %w", err)
+	}
+
+	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI)
+}
+
+// UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
+// [op.ReceiptBase.Restore].
+//
+// The receiver MUST be pre-seeded with an [op.ExecutionContext]-bearing zero [Resource]; see
+// [Receipt.UnmarshalJSON] for the contract.
+//
+// Parameters:
+//   - unmarshal: the YAML library's decode-into callback.
+//
+// Returns:
+//   - error: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
+func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
+
+	var aux struct {
+		Action        string `yaml:"action"`
+		ResourceURI   string `yaml:"resource_uri"`
+		TransactionID string `yaml:"transaction_id"`
+		BoundaryURI   string `yaml:"boundary_uri"`
+	}
+
+	if err := unmarshal(&aux); err != nil {
+		return fmt.Errorf("file.Receipt: unmarshal YAML: %w", err)
+	}
+
+	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI)
+}
+
+// hydrate reconstructs the receiver's embedded [op.ReceiptBase] and boundary from the decoded envelope. The
+// resource and boundary are pulled from the [op.ResourceCatalog] on the pre-seeded [op.ExecutionContext] —
+// existing entries are re-used (Resource identity is interned by URI); URIs not yet in the catalog are
+// constructed via [NewResource] and registered through [op.ResourceCatalog.Link]. After resolution, the base
+// is re-seated via [op.NewReceiptBase] (so [op.ReceiptBase.Restore]'s URI-match check has a live resource to
+// compare against), the wire-primitive triplet is handed to Restore, and the boundary is set when present.
+//
+// Parameters:
+//   - action: the canonical action name from the decoded envelope.
+//   - resourceURI: the resource's URI string from the decoded envelope.
+//   - transactionID: the canonical UUIDv7 string from the decoded envelope.
+//   - boundaryURI: the boundary's URI string from the decoded envelope; empty when the receipt records no boundary.
+//
+// Returns:
+//   - error: a missing-context error, a missing-catalog error, a [NewResource] error, or an
+//     [op.ReceiptBase.Restore] failure.
+func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI string) error {
+
+	existing := r.Resource()
+	if existing == nil || existing.ExecutionContext() == nil {
+		return fmt.Errorf("file.Receipt: unmarshal requires ExecutionContext on receiver")
+	}
+
+	ctx := existing.ExecutionContext()
+	if ctx.Catalog == nil {
+		return fmt.Errorf("file.Receipt: unmarshal requires Catalog on ExecutionContext")
+	}
+
+	resource, err := ctx.Catalog.GetOrCreate(resourceURI, func() (op.Resource, error) {
+		return NewResource(ctx, resourceURI)
+	})
+	if err != nil {
+		return fmt.Errorf("file.Receipt: rehydrate resource %q: %w", resourceURI, err)
+	}
+
+	r.ReceiptBase = op.NewReceiptBase(resource)
+
+	if err := r.Restore(struct {
+		Action        string `json:"action"         yaml:"action"`
+		ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
+		TransactionID string `json:"transaction_id" yaml:"transaction_id"`
+	}{
+		Action:        action,
+		ResourceURI:   resourceURI,
+		TransactionID: transactionID,
+	}); err != nil {
+		return fmt.Errorf("file.Receipt: restore: %w", err)
+	}
+
+	if boundaryURI != "" {
+		boundary, err := ctx.Catalog.GetOrCreate(boundaryURI, func() (op.Resource, error) {
+			return NewResource(ctx, boundaryURI)
+		})
+		if err != nil {
+			return fmt.Errorf("file.Receipt: rehydrate boundary %q: %w", boundaryURI, err)
+		}
+		boundaryConcrete, ok := boundary.(*Resource)
+		if !ok {
+			return fmt.Errorf("file.Receipt: boundary catalog entry is %T, want *file.Resource", boundary)
+		}
+		r.boundary = boundaryConcrete
+	}
+
+	return nil
 }

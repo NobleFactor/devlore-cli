@@ -53,23 +53,23 @@ func packageNames(resources []*Resource) []string {
 //     already installed before the action
 //   - error: non-nil if no packages were specified, no package manager is available, or the underlying "install"
 //     command fails
-func (p *Provider) Install(packages []*Resource, manager string, cask bool) (result []*Resource, state Tombstone, err error) {
+func (p *Provider) Install(packages []*Resource, manager string, cask bool) (result []*Resource, state *Receipt, err error) {
 
 	if len(packages) == 0 {
-		return nil, Tombstone{}, fmt.Errorf("no packages specified")
+		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
 	plat, err := p.platform()
 
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	packageManager := resolvePlatformManagerForInstall(plat, manager)
 	names := packageNames(packages)
 
 	if packageManager == nil {
-		return nil, Tombstone{}, fmt.Errorf("no package manager available")
+		return nil, nil, fmt.Errorf("no package manager available")
 	}
 
 	// Query which packages are already installed before acting.
@@ -84,12 +84,12 @@ func (p *Provider) Install(packages []*Resource, manager string, cask bool) (res
 
 	if cask {
 		if err := runBrewCask("install", names...); err != nil {
-			return nil, Tombstone{}, err
+			return nil, nil, err
 		}
 	} else {
 		r := packageManager.Install(names...)
 		if !r.OK {
-			return nil, Tombstone{}, fmt.Errorf("%s install failed: %s", packageManager.Name(), r.Stderr)
+			return nil, nil, fmt.Errorf("%s install failed: %s", packageManager.Name(), r.Stderr)
 		}
 	}
 
@@ -101,7 +101,7 @@ func (p *Provider) Install(packages []*Resource, manager string, cask bool) (res
 		result[i].Type = resolvedType
 	}
 
-	return result, Tombstone{
+	return result, &Receipt{
 		Packages:         names,
 		Manager:          manager,
 		Cask:             cask,
@@ -110,9 +110,9 @@ func (p *Provider) Install(packages []*Resource, manager string, cask bool) (res
 }
 
 // CompensateInstall undoes an installation by removing packages that weren't already installed before the action.
-func (p *Provider) CompensateInstall(state Tombstone) error {
+func (p *Provider) CompensateInstall(state *Receipt) error {
 
-	if len(state.Packages) == 0 {
+	if state == nil || len(state.Packages) == 0 {
 		return nil
 	}
 
@@ -171,16 +171,16 @@ func (p *Provider) CompensateInstall(state Tombstone) error {
 //   - packages: package resources to remove
 //   - manager: PkgPath manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Remove(packages []*Resource, manager string, cask bool) (result []*Resource, state Tombstone, err error) {
+func (p *Provider) Remove(packages []*Resource, manager string, cask bool) (result []*Resource, state *Receipt, err error) {
 
 	if len(packages) == 0 {
-		return nil, Tombstone{}, fmt.Errorf("no packages specified")
+		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
 	plat, err := p.platform()
 
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	names := packageNames(packages)
@@ -188,16 +188,16 @@ func (p *Provider) Remove(packages []*Resource, manager string, cask bool) (resu
 	for _, packageName := range names {
 		if cask {
 			if err := runBrewCask("uninstall", packageName); err != nil {
-				return nil, Tombstone{}, err
+				return nil, nil, err
 			}
 		} else {
 			packageManager := resolvePlatformManagerForRemove(plat, manager, packageName)
 			if packageManager == nil {
-				return nil, Tombstone{}, fmt.Errorf("no package manager available")
+				return nil, nil, fmt.Errorf("no package manager available")
 			}
 			r := packageManager.Remove(packageName)
 			if !r.OK {
-				return nil, Tombstone{}, fmt.Errorf("%s remove %s failed: %s", packageManager.Name(), packageName, r.Stderr)
+				return nil, nil, fmt.Errorf("%s remove %s failed: %s", packageManager.Name(), packageName, r.Stderr)
 			}
 		}
 	}
@@ -219,7 +219,7 @@ func (p *Provider) Remove(packages []*Resource, manager string, cask bool) (resu
 		result[i].Type = resolvedType
 	}
 
-	return result, Tombstone{
+	return result, &Receipt{
 		Packages: names,
 		Manager:  manager,
 		Cask:     cask,
@@ -227,9 +227,9 @@ func (p *Provider) Remove(packages []*Resource, manager string, cask bool) (resu
 }
 
 // CompensateRemove undoes a Remove by reinstalling the removed packages.
-func (p *Provider) CompensateRemove(state Tombstone) error {
+func (p *Provider) CompensateRemove(state *Receipt) error {
 
-	if len(state.Packages) == 0 {
+	if state == nil || len(state.Packages) == 0 {
 		return nil
 	}
 
@@ -265,23 +265,23 @@ func (p *Provider) CompensateRemove(state Tombstone) error {
 //   - packages: package resources to upgrade
 //   - manager: PkgPath manager override (empty for auto-detect)
 //   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Upgrade(packages []*Resource, manager string, cask bool) (result []*Resource, state Tombstone, err error) {
+func (p *Provider) Upgrade(packages []*Resource, manager string, cask bool) (result []*Resource, state *Receipt, err error) {
 
 	if len(packages) == 0 {
-		return nil, Tombstone{}, fmt.Errorf("no packages specified")
+		return nil, nil, fmt.Errorf("no packages specified")
 	}
 
 	plat, err := p.platform()
 
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	names := packageNames(packages)
 	packageManager := resolvePlatformManagerForUpgrade(plat, manager, names)
 
 	if packageManager == nil {
-		return nil, Tombstone{}, fmt.Errorf("no package manager available")
+		return nil, nil, fmt.Errorf("no package manager available")
 	}
 
 	// Capture current versions before upgrading.
@@ -296,12 +296,12 @@ func (p *Provider) Upgrade(packages []*Resource, manager string, cask bool) (res
 
 	if cask {
 		if err := runBrewCask("upgrade", names...); err != nil {
-			return nil, Tombstone{}, err
+			return nil, nil, err
 		}
 	} else {
 		r := packageManager.Install(names...)
 		if !r.OK {
-			return nil, Tombstone{}, fmt.Errorf("%s upgrade failed: %s", packageManager.Name(), r.Stderr)
+			return nil, nil, fmt.Errorf("%s upgrade failed: %s", packageManager.Name(), r.Stderr)
 		}
 	}
 
@@ -313,7 +313,7 @@ func (p *Provider) Upgrade(packages []*Resource, manager string, cask bool) (res
 		result[i].Type = resolvedType
 	}
 
-	return result, Tombstone{
+	return result, &Receipt{
 		Packages:         names,
 		Manager:          manager,
 		Cask:             cask,
@@ -324,7 +324,7 @@ func (p *Provider) Upgrade(packages []*Resource, manager string, cask bool) (res
 // CompensateUpgrade is a diagnostic no-op. Previous versions are captured
 // in state for manual recovery, but automatic downgrade is not reliable
 // across package managers.
-func (p *Provider) CompensateUpgrade(_ Tombstone) error {
+func (p *Provider) CompensateUpgrade(_ *Receipt) error {
 	return nil
 }
 

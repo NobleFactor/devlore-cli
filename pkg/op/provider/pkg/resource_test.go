@@ -75,6 +75,6 @@ func TestResourceImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
 
-func TestTombstoneImplementsInterface(t *testing.T) {
-	var _ op.Receipt = (*Tombstone)(nil)
+func TestReceiptImplementsInterface(t *testing.T) {
+	var _ op.Receipt = (*Receipt)(nil)
 }

@@ -99,32 +99,40 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 //
 // Returns:
 //   - any: the chosen branch's value (or defaultValue when no case matches).
-//   - op.Complement: the recovery state of the executed branch, for [Provider.CompensateChoose].
+//   - *op.RecoveryStack: the recovery state of the executed branch, for [Provider.CompensateChoose]. Currently
+//     an empty stack — the chosen branch's actual compensation is collected by the executor's traversal of the
+//     materialized op.Choose node, not by this method body. Phase-8 / step 13's plan.choose redesign reshapes
+//     the runtime semantics; phase-8 / step 16 (plan.run + executor.op.Choose handling) wires the local-stack
+//     splice. The empty stack here keeps the saga-shape contract intact in the meantime.
 //   - error: non-nil if branch evaluation fails.
-func (p *Provider) Choose(defaultCase any, cases ...Case) (any, op.Complement, error) {
+func (p *Provider) Choose(defaultCase any, cases ...Case) (any, *op.RecoveryStack, error) {
 
 	for _, c := range cases {
 		if isTruthy(c.When) {
-			return c.Then, nil, nil
+			return c.Then, op.NewRecoveryStack(), nil
 		}
 	}
 
-	return defaultCase, nil, nil
+	return defaultCase, op.NewRecoveryStack(), nil
 }
 
 // CompensateChoose unwinds the recovery state captured by a successful [Provider.Choose] call.
 //
-// Stub at this step — the structural execution that produces a meaningful complement is wired by plan.run
-// (step 16). The stub returns nil so the compensable-pair contract is satisfied at codegen + plan time.
+// Today this is structurally a delegation to [op.RecoveryStack.Unwind] — the stack is empty until phase-8 /
+// step 16 lands the executor-side traversal that pushes the chosen branch's compensation entries into it. Once
+// that's wired, this body still does the same thing: unwinds whatever the executor populated.
 //
 // Parameters:
-//   - complement: the recovery state returned by the forward Choose call.
+//   - stack: the [op.RecoveryStack] returned by the forward Choose call.
 //
 // Returns:
 //   - error: non-nil if the unwind fails.
-func (p *Provider) CompensateChoose(complement op.Complement) error {
+func (p *Provider) CompensateChoose(stack *op.RecoveryStack) error {
 
-	return nil
+	if stack == nil {
+		return nil
+	}
+	return stack.Unwind()
 }
 
 // Complete is the default, healthy conclusion of a graph path.
@@ -191,9 +199,10 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 //
 // Returns:
 //   - []any: terminal result from each iteration, indexed by original item order; nil on failure.
-//   - op.Complement: []*op.RecoveryStack in completion order on success; nil on failure.
+//   - *op.RecoveryStack: a single stack containing the per-iteration sub-stacks in completion order via
+//     [op.RecoveryStack.PushNested]. On failure, returns nil.
 //   - error: non-nil if any iteration failed or the body is malformed.
-func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int) ([]any, op.Complement, error) {
+func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int) ([]any, *op.RecoveryStack, error) {
 
 	if len(items) == 0 {
 		return []any{}, nil, nil
@@ -287,38 +296,34 @@ func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int
 	}
 
 	results := make([]any, len(items))
-	stacks := make([]*op.RecoveryStack, len(completed))
 
-	for i, c := range completed {
+	gathered := op.NewRecoveryStack()
+	for _, c := range completed {
 		results[c.index] = c.result
-		stacks[i] = c.stack
+		gathered.PushNested(c.stack)
 	}
 
-	return results, stacks, nil
+	return results, gathered, nil
 }
 
 // CompensateGather unwinds the per-iteration recovery stacks accumulated by a successful Gather.
 //
-// Called by the executor when the parent stack unwinds and hits gather's compensable entry. Stacks are unwound in
-// reverse completion order — the iteration that finished last (and therefore produced the freshest side effects)
-// undoes first, mirroring standard LIFO compensation semantics.
+// Called by the executor when the parent stack unwinds and hits gather's compensable entry. The single returned
+// [op.RecoveryStack] holds one nested sub-stack per iteration in completion order; [op.RecoveryStack.Unwind] walks
+// the entries LIFO so the iteration that finished last (and therefore produced the freshest side effects) undoes
+// first, mirroring standard compensation semantics.
 //
 // Parameters:
-//   - stacks: the iteration stacks as returned by Gather, in completion order.
+//   - stack: the gather stack as returned by Gather (one nested sub-stack per iteration in completion order).
 //
 // Returns:
-//   - error: a joined error across any stack that failed to unwind; nil on total success.
-func (p *Provider) CompensateGather(stacks []*op.RecoveryStack) error {
+//   - error: a joined error across any sub-stack that failed to unwind; nil on total success.
+func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 
-	var errs []error
-
-	for i := len(stacks) - 1; i >= 0; i-- {
-		if err := stacks[i].Unwind(); err != nil {
-			errs = append(errs, err)
-		}
+	if stack == nil {
+		return nil
 	}
-
-	return errors.Join(errs...)
+	return stack.Unwind()
 }
 
 // Subgraph bundles a set of detached invocations into one executable unit.
@@ -338,13 +343,36 @@ func (p *Provider) CompensateGather(stacks []*op.RecoveryStack) error {
 //
 // Returns:
 //   - []any: the list of terminal values, in topological order.
-func (p *Provider) Subgraph(children ...op.ExecutableUnit) []any {
+//   - *op.RecoveryStack: the subgraph's local saga stack. Currently empty — phase-8 / step 16's plan.run
+//     materialization + executor.op.Subgraph traversal populates it with the children's compensation entries
+//     and splices it onto the parent on success.
+//   - error: non-nil if subgraph construction fails.
+func (p *Provider) Subgraph(children ...op.ExecutableUnit) ([]any, *op.RecoveryStack, error) {
 
 	results := make([]any, 0, len(children))
 	for range children {
 		results = append(results, nil)
 	}
-	return results
+	return results, op.NewRecoveryStack(), nil
+}
+
+// CompensateSubgraph unwinds the subgraph's local saga stack as a single transactional unit.
+//
+// The stack carries one entry per compensable child (a Receipt or a deeper nested sub-stack). Unwind walks
+// LIFO and dispatches per entry kind, recursing into nested sub-stacks. Until phase-8 / step 16 wires the
+// executor-side population, the stack is empty and Unwind is a no-op.
+//
+// Parameters:
+//   - stack: the [op.RecoveryStack] returned by the forward Subgraph call.
+//
+// Returns:
+//   - error: non-nil if any entry fails to unwind.
+func (p *Provider) CompensateSubgraph(stack *op.RecoveryStack) error {
+
+	if stack == nil {
+		return nil
+	}
+	return stack.Unwind()
 }
 
 // WaitUntil polls a predicate at the configured interval until it returns true or the timeout expires.

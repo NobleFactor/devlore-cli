@@ -19,16 +19,16 @@ import (
 // Resource represents a network resource identified by a URL.
 //
 // The URI IS the canonical full URL — scheme, host, path, and query. The scheme is preserved because it's
-// reachability-critical (http vs. https vs. ftp are distinct endpoints). Canonicalization normalizes host
-// casing, strips default ports, normalizes percent-encoding, strips trailing slashes, collapses repeated
-// slashes, and sorts query parameters — all semantics-preserving transforms over the given URL.
+// reachability-critical (http vs. https vs. ftp are distinct endpoints). Canonicalization normalizes host casing,
+// strips default ports, normalizes percent-encoding, strips trailing slashes, collapses repeated slashes, and sorts
+// query parameters — all semantics-preserving transforms over the given URL.
 //
-// Two URLs that differ only in the transport scheme (e.g., "http://x" vs. "https://x") produce distinct
-// resources — this is a deliberate consequence of "identity ensures reachability." Consumers that want
-// transport-independent addressing should factor that into their own logic; appnet.Resource does not.
+// Two URLs that differ only in the transport scheme (e.g., "http://x" vs. "https://x") produce distinct resources.
+// This is a deliberate consequence of "identity ensures reachability." Consumers that want transport-independent
+// addressing should factor that into their own logic; appnet.Resource does not.
 //
-// SourceURL is a non-persisted *url.URL view of the URI, populated at construction (and re-parsed on
-// unmarshal) for callers that want structured URL access. It always equals url.Parse(URI).
+// SourceURL is a non-persisted *url.URL view of the URI, populated at construction (and reparsed on unmarshal) for
+// callers that want structured URL access. It always equals url.Parse(URI).
 type Resource struct {
 	op.ResourceBase
 
@@ -39,9 +39,9 @@ type Resource struct {
 
 // NewResource constructs an appnet.Resource from a string URL.
 //
-// The URL is canonicalized (lowercase host, strip default port, normalize percent-encoding, strip trailing
-// slash, collapse double slashes, sort query parameters) while preserving the transport scheme. The
-// canonicalized URL becomes the Resource's URI; SourceURL is populated by re-parsing it.
+// The URL is canonicalized (lowercase host, strip default port, normalize percent-encoding, strip trailing slash,
+// collapse double slashes, sort query parameters) while preserving the transport scheme. The canonicalized URL becomes
+// the Resource's URI; SourceURL is populated by reparsing it.
 //
 // Parameters:
 //   - ctx:   execution context.
@@ -61,6 +61,7 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if canonical.Scheme == "" {
 		return nil, fmt.Errorf("appnet.Resource: URL missing transport scheme: %q", raw)
 	}
@@ -82,8 +83,8 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 
 // Equal reports whether r and other identify the same appnet resource.
 //
-// Strict equality: other must be a *appnet.Resource (not merely an [op.Resource] with the same URI). Once
-// the type check passes, URI comparison is delegated to [op.ResourceBase.Equal].
+// Strict equality: other must be a *appnet.Resource (not merely an [op.Resource] with the same URI). Once the type
+// check passes, URI comparison is delegated to [op.ResourceBase.Equal].
 func (r *Resource) Equal(other any) bool {
 
 	if other == nil {
@@ -97,8 +98,7 @@ func (r *Resource) Equal(other any) bool {
 	return r.ResourceBase.Equal(other)
 }
 
-// Resolve is a no-op for appnet resources — identity is the URL; the Resource has no on-disk state to
-// reconcile.
+// Resolve is a no-op for appnet resources — identity is the URL; the Resource has no on-disk state to reconcile.
 func (r *Resource) Resolve() error {
 	return nil
 }
@@ -110,8 +110,8 @@ func (r *Resource) String() string {
 
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare URL string).
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
-// invoking this method. The URL alone is sufficient — identity IS reachability.
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before invoking
+// this method. The URL alone is sufficient — identity IS reachability.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	if r.ExecutionContext() == nil {
@@ -269,8 +269,19 @@ func collapseSlashes(p string) string {
 	return lead + strings.Join(parts, "/")
 }
 
-// normalizePercentEncoding uppercases hex digits in percent-encoded sequences and decodes unreserved
-// characters (RFC 3986 §2.3: A-Z a-z 0-9 - . _ ~).
+// normalizePercentEncoding uppercases hex digits in percent-encoded sequences and decodes unreserved characters.
+//
+// Unreserved characters are the characters that are allowed in a URI without being percent-encoded. According to
+// RFC 3986 §2.3, the unreserved set consists of:
+//
+// - Uppercase and Lowercase Letters: A–Z and a–z
+// - Decimal Digits: 0–9
+// - Hyphen: -
+// - Period: .
+// - Underscore: _
+// - Tilde: ~
+//
+// See: https://datatracker.ietf.org/doc/html/rfc3986#section-2.3
 func normalizePercentEncoding(s string) string {
 
 	var b strings.Builder

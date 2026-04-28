@@ -25,7 +25,7 @@ func testRoot(t *testing.T, dir string) op.Root {
 func testProvider(t *testing.T, dir string) Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	ctx := &op.ExecutionContext{Root: root}
+	ctx := &op.ExecutionContext{Root: root, Catalog: op.NewResourceCatalog()}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
 	return Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
@@ -117,7 +117,7 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 	if result.SourcePath.Abs() != linkPath {
 		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
 	}
-	if state != (Receipt{}) {
+	if state != (nil) {
 		t.Errorf("state = %+v, want zero Receipt (no-op)", state)
 	}
 }
@@ -147,7 +147,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 func TestCompensateLink_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateLink(Receipt{}); err != nil {
+	if err := p.CompensateLink(nil); err != nil {
 		t.Errorf("CompensateLink(zero) = %v, want nil", err)
 	}
 }
@@ -161,7 +161,7 @@ func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 
 	// Receipt with no recovery path — symlink didn't exist before.
 	resource := &Resource{SourcePath: op.NewPath("", linkPath)}
-	state := Receipt{
+	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -191,7 +191,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 
 	// Resource preserves true identity (linkPath); TransactionID is the recovery key.
 	resource := &Resource{SourcePath: op.NewPath("", linkPath)}
-	state := Receipt{
+	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -275,7 +275,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 func TestCompensateCopy_ZeroState_NoPanic(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateCopy(Receipt{}); err != nil {
+	if err := p.CompensateCopy(nil); err != nil {
 		t.Errorf("CompensateCopy(zero) = %v, want nil", err)
 	}
 }
@@ -289,7 +289,7 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 
 	// Receipt with no recovery path = file didn't exist before, just remove it.
 	resource := &Resource{SourcePath: op.NewPath("", path)}
-	state := Receipt{
+	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -317,7 +317,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	}
 
 	resource := &Resource{SourcePath: op.NewPath("", path)}
-	state := Receipt{
+	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -427,7 +427,7 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 	}
 
 	resource := &Resource{SourcePath: op.NewPath("", originalPath)}
-	state := Receipt{
+	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -462,7 +462,7 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
 
 	resource := &Resource{SourcePath: op.NewPath("", originalPath), Checksum: wrongChecksum}
-	state := Receipt{
+	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -520,7 +520,7 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 	if product != nil {
 		t.Errorf("product = %+v, want nil for already-gone", product)
 	}
-	if receipt != (Receipt{}) {
+	if receipt != (nil) {
 		t.Errorf("receipt = %+v, want empty Receipt (no-op)", receipt)
 	}
 }
@@ -580,7 +580,7 @@ func TestRemove_AlreadyGone(t *testing.T) {
 	if product != nil {
 		t.Errorf("product = %+v, want nil for already-gone", product)
 	}
-	if receipt != (Receipt{}) {
+	if receipt != (nil) {
 		t.Errorf("receipt = %+v, want empty Receipt (no-op)", receipt)
 	}
 }
@@ -709,7 +709,7 @@ func TestMove(t *testing.T) {
 func TestCompensateMove_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateMove(Receipt{}); err != nil {
+	if err := p.CompensateMove(nil); err != nil {
 		t.Errorf("CompensateMove(zero) = %v, want nil", err)
 	}
 }
@@ -726,7 +726,7 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
 
 	resource := &Resource{SourcePath: op.NewPath("", src), Checksum: wrongChecksum}
-	state := Receipt{
+	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
 
@@ -789,7 +789,7 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 func TestCompensateWriteText_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateWriteText(Receipt{}); err != nil {
+	if err := p.CompensateWriteText(nil); err != nil {
 		t.Errorf("CompensateWriteText(zero) = %v, want nil", err)
 	}
 }
@@ -797,7 +797,7 @@ func TestCompensateWriteText_ZeroState(t *testing.T) {
 func TestCompensateWriteBytes_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateWriteBytes(Receipt{}); err != nil {
+	if err := p.CompensateWriteBytes(nil); err != nil {
 		t.Errorf("CompensateWriteBytes(zero) = %v, want nil", err)
 	}
 }
@@ -2047,8 +2047,8 @@ func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
-	if receipt.Resource() != nil {
-		t.Errorf("idempotent Mkdir produced a resource-bearing receipt: %#v", receipt.Resource())
+	if receipt != nil {
+		t.Errorf("idempotent Mkdir produced a non-nil receipt: %#v", receipt)
 	}
 
 	if err := p.CompensateMkdir(receipt); err != nil {
@@ -2106,8 +2106,8 @@ func TestCompensateMkdir_EmptyReceipt_NoOp(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
-	if err := p.CompensateMkdir(Receipt{}); err != nil {
-		t.Errorf("CompensateMkdir(Receipt{}) should be no-op; got error = %v", err)
+	if err := p.CompensateMkdir(nil); err != nil {
+		t.Errorf("CompensateMkdir(nil) should be no-op; got error = %v", err)
 	}
 }
 

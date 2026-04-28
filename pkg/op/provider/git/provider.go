@@ -93,7 +93,7 @@ func (p *Provider) Clone(
 	recurseSubmodules bool,
 	singleBranch bool,
 	kwargs map[string]any,
-) (*Resource, *Resource, error) {
+) (*Resource, *Receipt, error) {
 
 	if directory == "" {
 		guessed, err := guessDirName(repository)
@@ -131,28 +131,32 @@ func (p *Provider) Clone(
 		return destination, nil, err
 	}
 
-	return destination, destination, nil
+	return destination, NewReceipt(destination), nil
 }
 
 // CompensateClone removes the cloned directory.
 //
-// The path to remove is read from state's [Resource.SourcePath]. The compensation handle is the cloned [*Resource]
-// itself (per the Tombstone rule — git's Clone moves no object to a RecoverySite, so no tombstone type mediates), and
-// the Resource's identity already carries the clone location. A nil state is a no-op: a nil compensation handle means
-// [Provider.Clone] never produced a resource to reverse, so there is nothing to undo.
+// Clone is a Bucket-B action: the cloned tree is creation, not displacement, so there is nothing to restore from
+// [op.RecoverySite] — compensation just removes the directory. A nil receipt is a no-op (Clone never produced a
+// resource to reverse).
 //
 // Parameters:
-//   - state: the [*Resource] returned by [Provider.Clone] as its compensation handle; may be nil.
+//   - receipt: the [*Receipt] returned by [Provider.Clone]; may be nil.
 //
 // Returns:
-//   - error: any error from [os.RemoveAll] on state.SourcePath; nil when state is nil.
-func (p *Provider) CompensateClone(state *Resource) error {
+//   - error: any error from [os.RemoveAll] on the cloned directory; nil when receipt or its resource is nil.
+func (p *Provider) CompensateClone(receipt *Receipt) error {
 
-	if state == nil {
+	if receipt == nil {
 		return nil
 	}
 
-	return os.RemoveAll(state.SourcePath.Abs())
+	resource, ok := receipt.Resource().(*Resource)
+	if !ok || resource == nil {
+		return nil
+	}
+
+	return os.RemoveAll(resource.SourcePath.Abs())
 }
 
 // Fallible actions

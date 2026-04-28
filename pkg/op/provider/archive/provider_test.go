@@ -15,6 +15,15 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
+// testProvider creates a Provider rooted at the given directory with a Catalog and RecoverySite.
+func testProvider(t *testing.T, dir string) *Provider {
+	t.Helper()
+	root := op.NewRootReaderWriter(dir)
+	ctx := &op.ExecutionContext{Root: root, Catalog: op.NewResourceCatalog()}
+	ctx.RecoverySite = op.NewRecoverySite(ctx)
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+
 // createTarGz builds a tar.gz archive at archivePath containing the given entries.
 // Each entry is a relative path; directories end with "/".
 func createTarGz(t *testing.T, archivePath string, entries map[string]string) {
@@ -81,16 +90,29 @@ func TestExtractTarGz(t *testing.T) {
 	createTarGz(t, archivePath, entries)
 
 	prefix := filepath.Join(tmp, "out")
-	p := &Provider{}
-	dest, state, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", archivePath)}, prefix)
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	products, receipts, err := p.Extract(source, prefix)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if dest.SourcePath.Abs() != prefix {
-		t.Errorf("dest = %q, want %q", dest.SourcePath.Abs(), prefix)
+
+	if len(products) != len(entries) {
+		t.Errorf("products has %d entries, want %d", len(products), len(entries))
+	}
+	if len(receipts) != len(entries) {
+		t.Errorf("receipts has %d entries, want %d", len(receipts), len(entries))
 	}
 
-	// Verify files exist.
+	// Verify files exist with expected content.
 	for name, wantContent := range entries {
 		path := filepath.Join(prefix, name)
 		got, err := os.ReadFile(path)
@@ -101,11 +123,6 @@ func TestExtractTarGz(t *testing.T) {
 		if string(got) != wantContent {
 			t.Errorf("content of %q = %q, want %q", name, got, wantContent)
 		}
-	}
-
-	// Verify state contains created files.
-	if len(state.CreatedFiles) != len(entries) {
-		t.Errorf("CreatedFiles has %d entries, want %d", len(state.CreatedFiles), len(entries))
 	}
 }
 
@@ -119,13 +136,26 @@ func TestExtractZip(t *testing.T) {
 	createZip(t, archivePath, entries)
 
 	prefix := filepath.Join(tmp, "out")
-	p := &Provider{}
-	dest, state, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", archivePath)}, prefix)
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	products, receipts, err := p.Extract(source, prefix)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if dest.SourcePath.Abs() != prefix {
-		t.Errorf("dest = %q, want %q", dest.SourcePath.Abs(), prefix)
+
+	if len(products) != len(entries) {
+		t.Errorf("products has %d entries, want %d", len(products), len(entries))
+	}
+	if len(receipts) != len(entries) {
+		t.Errorf("receipts has %d entries, want %d", len(receipts), len(entries))
 	}
 
 	for name, wantContent := range entries {
@@ -139,49 +169,60 @@ func TestExtractZip(t *testing.T) {
 			t.Errorf("content of %q = %q, want %q", name, got, wantContent)
 		}
 	}
-
-	if len(state.CreatedFiles) != len(entries) {
-		t.Errorf("CreatedFiles has %d entries, want %d", len(state.CreatedFiles), len(entries))
-	}
 }
 
 func TestExtractUnsupportedFormat(t *testing.T) {
-	p := &Provider{}
-	_, _, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", "foo.rar")}, t.TempDir())
-	if err == nil {
-		t.Fatal("expected error for unsupported format")
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.unknown")
+	if err := os.WriteFile(archivePath, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	want := "unsupported archive format"
-	if got := err.Error(); got != "unsupported archive format: foo.rar" {
-		t.Errorf("error = %q, want to contain %q", got, want)
+
+	prefix := filepath.Join(tmp, "out")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := p.Extract(source, prefix); err == nil {
+		t.Error("expected error for unsupported archive format")
 	}
 }
 
 func TestZipSlipProtectionTarGz(t *testing.T) {
 	tmp := t.TempDir()
-	archivePath := filepath.Join(tmp, "malicious.tar.gz")
-
-	// Create tar.gz with a path-traversal entry.
+	archivePath := filepath.Join(tmp, "evil.tar.gz")
 	entries := map[string]string{
-		"../escape.txt": "escaped",
-		"safe.txt":      "safe",
+		"../escape.txt": "escaped content",
+		"safe.txt":      "safe content",
 	}
 	createTarGz(t, archivePath, entries)
 
 	prefix := filepath.Join(tmp, "out")
-	p := &Provider{}
-	_, _, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", archivePath)}, prefix)
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.NewResource(p.ExecutionContext(), archivePath)
 	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := p.Extract(source, prefix); err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	// The traversal file must NOT exist outside prefix.
 	escapedPath := filepath.Join(tmp, "escape.txt")
 	if _, err := os.Stat(escapedPath); err == nil {
 		t.Error("zip slip: file escaped prefix directory")
 	}
 
-	// The safe file should exist.
 	safePath := filepath.Join(prefix, "safe.txt")
 	if _, err := os.Stat(safePath); err != nil {
 		t.Errorf("safe.txt not found: %v", err)
@@ -190,18 +231,25 @@ func TestZipSlipProtectionTarGz(t *testing.T) {
 
 func TestZipSlipProtectionZip(t *testing.T) {
 	tmp := t.TempDir()
-	archivePath := filepath.Join(tmp, "malicious.zip")
-
+	archivePath := filepath.Join(tmp, "evil.zip")
 	entries := map[string]string{
-		"../escape.txt": "escaped",
-		"safe.txt":      "safe",
+		"../escape.txt": "escaped content",
+		"safe.txt":      "safe content",
 	}
 	createZip(t, archivePath, entries)
 
 	prefix := filepath.Join(tmp, "out")
-	p := &Provider{}
-	_, _, err := p.Extract(&file.Resource{SourcePath: op.NewPath("", archivePath)}, prefix)
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.NewResource(p.ExecutionContext(), archivePath)
 	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := p.Extract(source, prefix); err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 
@@ -216,71 +264,88 @@ func TestZipSlipProtectionZip(t *testing.T) {
 	}
 }
 
-func TestCompensateExtractRemovesFiles(t *testing.T) {
+func TestExtractProducesFileReceiptsWithBoundary(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, "sub")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	archivePath := filepath.Join(tmp, "test.tar.gz")
+	entries := map[string]string{
+		"x.txt":     "x",
+		"sub/y.txt": "y",
+	}
+	createTarGz(t, archivePath, entries)
+
+	prefix := filepath.Join(tmp, "out")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
 	}
 
-	file1 := filepath.Join(dir, "a.txt")
-	file2 := filepath.Join(dir, "b.txt")
-	if err := os.WriteFile(file1, []byte("a"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if err := os.WriteFile(file2, []byte("b"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
+	p := testProvider(t, tmp)
+	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	state := Tombstone{
-		Dest:         tmp,
-		CreatedFiles: []string{file1, file2},
+	_, receipts, err := p.Extract(source, prefix)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
 	}
 
-	p := &Provider{}
-	if err := p.CompensateExtract(state); err != nil {
-		t.Fatalf("CompensateExtract: %v", err)
-	}
-
-	if _, err := os.Stat(file1); !os.IsNotExist(err) {
-		t.Errorf("file1 still exists after compensation")
-	}
-	if _, err := os.Stat(file2); !os.IsNotExist(err) {
-		t.Errorf("file2 still exists after compensation")
+	for i, r := range receipts {
+		fr, ok := r.(*file.Receipt)
+		if !ok {
+			t.Errorf("receipts[%d] is %T, want *file.Receipt", i, r)
+			continue
+		}
+		if fr.Boundary() == nil {
+			t.Errorf("receipts[%d].Boundary() is nil; expected the destination directory", i)
+		}
 	}
 }
 
-func TestCompensateExtractEmptyState(t *testing.T) {
-	p := &Provider{}
-	if err := p.CompensateExtract(Tombstone{}); err != nil {
-		t.Fatalf("CompensateExtract(empty) = %v, want nil", err)
-	}
-}
+func TestExtract_CompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 
-func TestCompensateExtractCleansEmptyDirs(t *testing.T) {
 	tmp := t.TempDir()
-	deepDir := filepath.Join(tmp, "a", "b", "c")
-	if err := os.MkdirAll(deepDir, 0o750); err != nil {
-		t.Fatalf("mkdir: %v", err)
+	archivePath := filepath.Join(tmp, "test.tar.gz")
+	entries := map[string]string{
+		"hello.txt":     "hello",
+		"sub/world.txt": "world",
+	}
+	createTarGz(t, archivePath, entries)
+
+	prefix := filepath.Join(tmp, "out")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
 	}
 
-	f := filepath.Join(deepDir, "only.txt")
-	if err := os.WriteFile(f, []byte("data"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
+	p := testProvider(t, tmp)
+	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	state := Tombstone{
-		Dest:         tmp,
-		CreatedFiles: []string{f},
+	products, receipts, err := p.Extract(source, prefix)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
 	}
 
-	p := &Provider{}
-	if err := p.CompensateExtract(state); err != nil {
-		t.Fatalf("CompensateExtract: %v", err)
+	for _, product := range products {
+		if _, statErr := os.Stat(product.SourcePath.Abs()); statErr != nil {
+			t.Errorf("expected extracted file %q to exist after Extract: %v", product.SourcePath.Abs(), statErr)
+		}
 	}
 
-	// After removing the only file, the empty dir chain should be cleaned.
-	if _, err := os.Stat(deepDir); !os.IsNotExist(err) {
-		t.Errorf("empty directory %q still exists after compensation", deepDir)
+	for i, r := range receipts {
+		fr, ok := r.(*file.Receipt)
+		if !ok {
+			t.Fatalf("receipts[%d] is %T, want *file.Receipt", i, r)
+		}
+		if compensateErr := p.CompensateExtract(fr); compensateErr != nil {
+			t.Errorf("CompensateExtract receipts[%d]: %v", i, compensateErr)
+		}
+	}
+
+	for _, product := range products {
+		if _, statErr := os.Stat(product.SourcePath.Abs()); !os.IsNotExist(statErr) {
+			t.Errorf("extracted file %q should be removed after compensation; stat error = %v", product.SourcePath.Abs(), statErr)
+		}
 	}
 }

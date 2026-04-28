@@ -32,14 +32,14 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 //
 // Returns:
 //   - *file.Resource: the destination resource with populated metadata.
-//   - Tombstone: compensation state for removing the decrypted file.
+//   - Receipt: compensation state for removing the decrypted file.
 //   - error: any error from reading, decrypting, or writing.
-func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string) (*file.Resource, Tombstone, error) {
+func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string) (*file.Resource, *Receipt, error) {
 
 	result, err := file.NewResource(p.ExecutionContext(), destinationPath)
 
 	if err != nil {
-		return nil, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	root := p.ExecutionContext().Root
@@ -47,39 +47,44 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string
 	// 1. Read the source file into memory
 	data, err := root.ReadFile(root.NewPath(source.SourcePath.Abs()))
 	if err != nil {
-		return nil, Tombstone{}, fmt.Errorf("failed to read source: %w", err)
+		return nil, nil, fmt.Errorf("failed to read source: %w", err)
 	}
 
 	// 2. Decrypt via SopsClient
 	sopsClient := p.ExecutionContext().Sops
 	if sopsClient == nil {
-		return nil, Tombstone{}, fmt.Errorf("sops client not configured")
+		return nil, nil, fmt.Errorf("sops client not configured")
 	}
 
 	cleartext, err := sopsClient.Decrypt(data, source.SourcePath.Abs())
 	if err != nil {
-		return nil, Tombstone{}, fmt.Errorf("sops decryption failed: %w", err)
+		return nil, nil, fmt.Errorf("sops decryption failed: %w", err)
 	}
 
 	// 3. Write cleartext to the destination path
 	if err := root.WriteFile(root.NewPath(result.SourcePath.Abs()), cleartext, 0o600); err != nil {
-		return nil, Tombstone{}, fmt.Errorf("failed to write destination: %w", err)
+		return nil, nil, fmt.Errorf("failed to write destination: %w", err)
 	}
 
 	if err := result.Resolve(); err != nil {
-		return nil, Tombstone{}, fmt.Errorf("failed to resolve destination: %w", err)
+		return nil, nil, fmt.Errorf("failed to resolve destination: %w", err)
 	}
 
-	return result, Tombstone{DestinationPath: result.SourcePath.Abs()}, nil
+	return result, &Receipt{ReceiptBase: op.NewReceiptBase(result)}, nil
 }
 
 // CompensateDecryptSopsFile removes the decrypted file created by DecryptSopsFile.
-func (p *Provider) CompensateDecryptSopsFile(state Tombstone) error {
+func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 
-	if state.DestinationPath == "" {
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
+	resource, ok := receipt.Resource().(*file.Resource)
+	if !ok {
+		return fmt.Errorf("compensate decrypt sops file: unexpected resource type %T", receipt.Resource())
+	}
+
 	root := p.ExecutionContext().Root
-	return root.Remove(root.NewPath(state.DestinationPath))
+	return root.Remove(root.NewPath(resource.SourcePath.Abs()))
 }
