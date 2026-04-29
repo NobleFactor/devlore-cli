@@ -1395,7 +1395,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 
 	// Create destination directory
 	destDir := filepath.Dir(destPath)
-	if _, err := fp.Mkdir(destDir, 0o755); err != nil {
+	if _, _, err := fp.Mkdir(destDir, 0o755); err != nil {
 		return 0, fmt.Errorf("creating directory %s: %w", destDir, err)
 	}
 

@@ -13,17 +13,21 @@ import (
 // Receipt acknowledges a compensable forward method call and carries the minimum state a reversal needs.
 //
 // Every compensable forward method returns a Receipt alongside its [Product]. The Receipt carries the affected
-// [Resource] (Resource()), the moment the call was issued (Timestamp()), and an opaque identifier for
-// correlating the forward call with its eventual reversal (TransactionID()). Provider-specific receipts
-// (e.g., file.Receipt) must embed [ReceiptBase] to satisfy this interface. The unexported receiptBase method
-// seals the interface to receiverTypes that embed [ReceiptBase].
+// [Resource] (Resource()), the moment the call was issued (Timestamp()), and an opaque identifier for correlating
+// the forward call with its eventual reversal (TransactionID()). Provider-specific receipts (e.g., file.Receipt)
+// must embed [ReceiptBase] to satisfy this interface. The unexported receiptBase method seals the interface to
+// receiverTypes that embed [ReceiptBase].
 type Receipt interface {
+	receiptBase()
+
+	// State management
 	Action() string
-	Commit(actionName string) error
 	Resource() Resource
 	Timestamp() uuid.Time
 	TransactionID() string
-	receiptBase()
+
+	// Behaviors
+	Commit(actionName string) error
 }
 
 // ReceiptBase holds the resource affected by a compensable forward method call.
