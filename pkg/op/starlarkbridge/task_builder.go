@@ -647,7 +647,10 @@ func (p *NodeBuilder) assignTarget(parameter op.Parameter, value starlark.Value)
 		return sv.Convert(target).Interface(), nil
 	}
 
-	return nil, fmt.Errorf("%s: %s value is neither assignable nor convertible to %s", parameter.Name, sv.Type(), target)
+	// Final fallback: route to op.Convert's universal cascade. Picks up SourceConverter, TargetConverter,
+	// registered Resource construction (string → *file.Resource via the registry), and the slice/map element
+	// recursion. assignTarget's job is starlark unpacking; type-matching beyond Go's spec lives in op.Convert.
+	return op.Convert(p.ctx, unpacked, target)
 }
 
 // endregion
