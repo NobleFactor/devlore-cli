@@ -30,12 +30,12 @@ func TestExtractOptionsKwarg_Absent(t *testing.T) {
 	}
 }
 
-// TestExtractOptionsKwarg_ReceiverUnwrap verifies that a *receiver wrapping *Options is unwrapped.
-func TestExtractOptionsKwarg_ReceiverUnwrap(t *testing.T) {
+// TestExtractOptionsKwarg_WrapperUnwrap verifies that a *wrapper around *Options is unwrapped.
+func TestExtractOptionsKwarg_WrapperUnwrap(t *testing.T) {
 
 	options := &Options{Label: "my-label"}
 
-	r := &receiver{instance: options}
+	r := &wrapper{instance: options}
 
 	kwargs := []starlark.Tuple{
 		{starlark.String("foo"), starlark.String("x")},
@@ -99,15 +99,15 @@ func TestExtractOptionsKwarg_WrongType(t *testing.T) {
 	}
 }
 
-// TestExtractOptionsKwarg_WrongReceiverInstance verifies a *receiver wrapping a non-*Options Go value errors.
-func TestExtractOptionsKwarg_WrongReceiverInstance(t *testing.T) {
+// TestExtractOptionsKwarg_WrongWrapperInstance verifies a *wrapper around a non-*Options Go value errors.
+func TestExtractOptionsKwarg_WrongWrapperInstance(t *testing.T) {
 
 	type notOptions struct{ X int }
 
-	r := &receiver{instance: &notOptions{X: 42}}
+	v := &wrapper{instance: &notOptions{X: 42}}
 
 	kwargs := []starlark.Tuple{
-		{starlark.String("options"), r},
+		{starlark.String("options"), v},
 	}
 
 	_, _, err := extractOptionsKwarg(kwargs)

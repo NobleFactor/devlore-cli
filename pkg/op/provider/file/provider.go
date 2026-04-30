@@ -1499,7 +1499,7 @@ func (p *Provider) rename(oldAbs, newAbs string) error {
 //
 // This is an observation path — Find / Glob have already matched paths against existing filesystem state. Routing
 // through the catalog gives every match canonical identity: two scans that hit the same path return the same
-// *Resource. URIs not yet in the catalog become discovery entries (empty originID); existing entries are re-used.
+// *Resource. URIs not yet in the catalog become discovery entries (empty producerID); existing entries are re-used.
 //
 // Parameters:
 //   - paths: filesystem paths in the order callers want preserved on the output.

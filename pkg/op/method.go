@@ -12,19 +12,19 @@ import (
 
 // contextType is cached for detecting provider methods whose first parameter (after the receiver) is a context.Context
 // handle, which [Method.Invoke] autofills with the ambient cancellation context.
-var contextType = reflect.TypeOf((*context.Context)(nil)).Elem()
+var contextType = reflect.TypeFor[context.Context]()
 
 // errorType is cached for return-type classification.
-var errorType = reflect.TypeOf((*error)(nil)).Elem()
+var errorType = reflect.TypeFor[error]()
 
 // receiptType is cached for the [MethodCompensableFunction] complement-shape check.
-var receiptType = reflect.TypeOf((*Receipt)(nil)).Elem()
+var receiptType = reflect.TypeFor[Receipt]()
 
 // recoveryStackType is cached for the [MethodCompensableFunction] complement-shape check.
 //
 // Complement values typed as `*RecoveryStack` are recognized by [Method.Invoke] as engine-built sagas (e.g.,
 // the value WalkTree returns) and spliced into the parent stack via PushNested rather than PushReceipt.
-var recoveryStackType = reflect.TypeOf((*RecoveryStack)(nil))
+var recoveryStackType = reflect.TypeFor[*RecoveryStack]()
 
 // errFromValue extracts an error from a reflect.Value, returning nil when the value holds a nil interface.
 func errFromValue(v reflect.Value) error {
@@ -134,16 +134,16 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 	var kind MethodKind
 	var err error
 
-	switch {
+	switch numOut {
 	default:
 		err = errorInvalidResultParameters(do)
 
-	case numOut == 0:
+	case 0:
 
 		kind = MethodAction
 		err = nil
 
-	case numOut == 1:
+	case 1:
 
 		if methodType.Out(0).Implements(errorType) {
 			kind = MethodFallibleAction
@@ -151,7 +151,7 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 			kind = MethodFunction
 		}
 
-	case numOut == 2:
+	case 2:
 
 		kind = MethodFallibleFunction
 
@@ -159,7 +159,7 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 			err = errorInvalidResultParameters(do)
 		}
 
-	case numOut == 3:
+	case 3:
 
 		kind = MethodCompensableFunction
 
@@ -278,7 +278,7 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 
 	receiverType := do.Type.In(0)
 
-	if receiverType.Kind() == reflect.Ptr {
+	if receiverType.Kind() == reflect.Pointer {
 		receiverType = receiverType.Elem()
 	}
 
@@ -367,7 +367,7 @@ func (m *Method) ResultType() reflect.Type {
 	}
 	first := t.Out(0)
 	// If the only result is error, there's no real result.
-	if t.NumOut() == 1 && first.Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+	if t.NumOut() == 1 && first.Implements(reflect.TypeFor[error]()) {
 		return nil
 	}
 	return first
@@ -381,7 +381,7 @@ func (m *Method) ResultType() reflect.Type {
 // receiver.
 //
 // Invoke is the single dispatch entry point for already-resolved slot values — the plan path
-// ([starlarkbridge.NodeBuilder.FillSlot]) and the execute path ([starlarkbridge.receiver.dispatch]) both project starlark values down to Go
+// ([starlarkbridge.NodeBuilder.FillSlot]) and the execute path ([starlarkbridge.wrapper.dispatch]) both project starlark values down to Go
 // values first; Invoke then projects those Go values into the method signature using the same [Convert] cascade both
 // paths share. Results are unpacked from [reflect.Value] into the Action-layer shape (Result, Complement, error).
 //
@@ -416,19 +416,9 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 			value = slots[cleanName]
 		}
 
-		var val any
-		var err error
-
-		switch {
-		case value == nil:
-			val = reflect.Zero(p.Type).Interface()
-		case reflect.TypeOf(value).AssignableTo(p.Type):
-			val = value
-		default:
-			val, err = value.(Converter).Convert(p.Type)
-			if err != nil {
-				return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
-			}
+		val, err := Convert(ctx, value, p.Type)
+		if err != nil {
+			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
 		}
 
 		goArgs = append(goArgs, val)
@@ -483,18 +473,20 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 //   - error: any error from [RecoveryStack.PushReceipt] (commit failure, missing resource context).
 func (m *Method) buildSubStackFromReceiptSlice(complement any) (*RecoveryStack, error) {
 
-	v := reflect.ValueOf(complement)
-	if v.Kind() != reflect.Slice {
+	value := reflect.ValueOf(complement)
+
+	if value.Kind() != reflect.Slice {
 		return nil, nil
 	}
 
-	if !v.Type().Elem().Implements(receiptType) && !reflect.PointerTo(v.Type().Elem()).Implements(receiptType) {
+	if !value.Type().Elem().Implements(receiptType) && !reflect.PointerTo(value.Type().Elem()).Implements(receiptType) {
 		return nil, nil
 	}
 
 	sub := NewRecoveryStack()
-	for i := 0; i < v.Len(); i++ {
-		elem := v.Index(i).Interface()
+
+	for i := 0; i < value.Len(); i++ {
+		elem := value.Index(i).Interface()
 		receipt, ok := elem.(Receipt)
 		if !ok {
 			return nil, fmt.Errorf("inflate %s receipt slice: element %d does not implement Receipt", m.actionName, i)
@@ -565,7 +557,7 @@ func (m *Method) String() string {
 
 	receiverType := m.ReceiverType()
 
-	if receiverType.Kind() == reflect.Ptr {
+	if receiverType.Kind() == reflect.Pointer {
 		receiverType = receiverType.Elem()
 	}
 
@@ -750,7 +742,7 @@ func methodSignature(m *reflect.Method) string {
 
 	receiver := mt.In(0)
 
-	if receiver.Kind() == reflect.Ptr {
+	if receiver.Kind() == reflect.Pointer {
 		receiver = receiver.Elem()
 	}
 

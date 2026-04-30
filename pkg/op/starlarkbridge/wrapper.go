@@ -15,16 +15,17 @@ import (
 )
 
 var (
-	_ starlark.Value      = (*receiver)(nil) // Interface Guard: ensures *receiver implements starlark.Value.
-	_ starlark.HasAttrs   = (*receiver)(nil) // Interface Guard: ensures *receiver implements starlark.HasAttrs.
-	_ starlark.Comparable = (*receiver)(nil) // Interface Guard: ensures *receiver implements starlark.Comparable,
+	_ starlark.Value      = (*wrapper)(nil) // Interface Guard: ensures *wrapper implements starlark.Value.
+	_ starlark.HasAttrs   = (*wrapper)(nil) // Interface Guard: ensures *wrapper implements starlark.HasAttrs.
+	_ starlark.Comparable = (*wrapper)(nil) // Interface Guard: ensures *wrapper implements starlark.Comparable.
+	_ Projector           = (*wrapper)(nil) // Interface Guard: ensures *wrapper implements Projector.
 )
 
-// receiver wraps a registered Go instance for starlark use.
+// wrapper wraps a registered Go instance for starlark use.
 //
 // It implements [starlark.Value], [starlark.HasAttrs], and [starlark.Comparable]. Fields are resolved first by
 // marshaling exported struct fields; methods are resolved second via [op.Method.Do] dispatch.
-type receiver struct {
+type wrapper struct {
 	receiverType op.ReceiverType
 	instance     any                   // An instance of ReceiverType
 	methods      map[string]*op.Method // snake_name → *Method
@@ -32,29 +33,40 @@ type receiver struct {
 	attrNames    []string              // sorted (fields + methods)
 }
 
-// newReceiver constructs a [receiver] by looking up the instance's type in the registry.
+// NewWrapper wraps a Go value as a starlark surface bound to its receiver type.
+//
+// The returned value implements [starlark.Value], [starlark.HasAttrs], [starlark.Comparable], and [Unwrapper].
+// Callers needing to extract the wrapped Go value type-assert against [Unwrapper]; starlark machinery uses the
+// HasAttrs surface directly. Generated module-level smoke tests (module.gen_test.go) call this to exercise
+// AttrNames / Attr / Type without standing up a full [Runtime]; production code reaches the same wrapper via
+// [Runtime.NewModule].
+//
+// The receiver type is derived from the value's reflected type via [op.NewReceiverType] (constructing a fresh
+// descriptor when no provider has registered the type). Internal callers that already have a receiver type
+// (Runtime construction, nested struct projection) bypass this factory and call newWrapper directly.
 //
 // Parameters:
-//   - instance: a pointer to a registered Go type.
+//   - value: the Go value to wrap.
 //
 // Returns:
-//   - *receiver: the initialized Starlark receiver.
-func (rt *Runtime) newReceiver(instance any) *receiver {
+//   - starlark.HasAttrs: the bound starlark surface, ready for AttrNames / Attr / Type.
+//   - error: non-nil if the receiver type cannot be derived from value's type.
+func NewWrapper(value any) (starlark.HasAttrs, error) {
 
-	receiverType := rt.registry.TypeByReflectionOrDerive(reflect.TypeOf(instance))
+	receiverType, err := op.NewReceiverType(reflect.TypeOf(value), nil)
+	if err != nil {
+		return nil, fmt.Errorf("derive receiver type: %w", err)
+	}
 
-	return buildReceiver(receiverType, instance)
+	return newWrapper(receiverType, value), nil
 }
 
-// buildReceiver constructs a [receiver] from a known [op.ReceiverType] and instance.
+// newWrapper constructs the unexported [wrapper] from a [op.ReceiverType] and Go instance.
 //
-// Parameters:
-//   - receiverType: the receiver type descriptor.
-//   - instance: a pointer to a Go instance of receiverType.
-//
-// Returns:
-//   - *receiver: the initialized Starlark receiver.
-func buildReceiver(receiverType op.ReceiverType, instance any) *receiver {
+// Internal callers ([NewWrapper], [Runtime.buildOne], and [wrapper.marshalReflect] for nested struct projection)
+// route through here. Method and field discovery happens once at construction; the returned [wrapper] holds the
+// pre-sorted attr name list used by [wrapper.AttrNames].
+func newWrapper(receiverType op.ReceiverType, instance any) *wrapper {
 
 	// Discover methods.
 
@@ -99,12 +111,14 @@ func buildReceiver(receiverType op.ReceiverType, instance any) *receiver {
 	// Build sorted attr list from fields + methods.
 
 	attrNames := make([]string, 0, len(seen))
+
 	for name := range seen {
 		attrNames = append(attrNames, name)
 	}
+
 	sort.Strings(attrNames)
 
-	return &receiver{
+	return &wrapper{
 		receiverType: receiverType,
 		instance:     instance,
 		methods:      methods,
@@ -118,32 +132,33 @@ func buildReceiver(receiverType op.ReceiverType, instance any) *receiver {
 // region State management
 
 // String implements starlark.Value.
-func (r *receiver) String() string {
+func (w *wrapper) String() string {
 
-	if stringer, ok := r.instance.(fmt.Stringer); ok {
+	if stringer, ok := w.instance.(fmt.Stringer); ok {
 		return stringer.String()
 	}
-	return r.receiverType.Name()
+	return w.receiverType.Name()
 }
 
 // Type implements starlark.Value.
-func (r *receiver) Type() string { return r.receiverType.Name() }
+func (w *wrapper) Type() string { return w.receiverType.Name() }
 
 // Freeze implements starlark.Value.
-func (r *receiver) Freeze() {}
+func (w *wrapper) Freeze() {}
 
 // Truth implements starlark.Value.
-func (r *receiver) Truth() starlark.Bool { return true }
+func (w *wrapper) Truth() starlark.Bool { return true }
 
 // Hash implements starlark.Value.
-func (r *receiver) Hash() (uint32, error) {
+func (w *wrapper) Hash() (uint32, error) {
 
-	if res, ok := r.instance.(op.Resource); ok {
+	if res, ok := w.instance.(op.Resource); ok {
 		if uri := res.URI(); uri != "" {
 			return hashString(uri), nil
 		}
 	}
-	return 0, fmt.Errorf("unhashable type: %s", r.receiverType.Name())
+
+	return 0, fmt.Errorf("unhashable type: %s", w.receiverType.Name())
 }
 
 // endregion
@@ -161,63 +176,53 @@ func (r *receiver) Hash() (uint32, error) {
 // Returns:
 //   - starlark.Value: the marshaled field value, a method builtin, or a resolved attribute.
 //   - error: non-nil if the attribute does not exist.
-func (r *receiver) Attr(name string) (starlark.Value, error) {
+func (w *wrapper) Attr(name string) (starlark.Value, error) {
 
-	if idx, ok := r.fields[name]; ok {
-		elem := reflect.ValueOf(r.instance)
+	if idx, ok := w.fields[name]; ok {
+
+		elem := reflect.ValueOf(w.instance)
+
 		for elem.Kind() == reflect.Pointer {
 			elem = elem.Elem()
 		}
 
-		return r.marshalReflect(elem.Field(idx))
+		return w.marshalReflect(elem.Field(idx))
 	}
 
-	if _, ok := r.methods[name]; ok {
-		actionName := r.receiverType.Name() + "." + name
-		return starlark.NewBuiltin(actionName, r.dispatch), nil
+	if _, ok := w.methods[name]; ok {
+		actionName := w.receiverType.Name() + "." + name
+		return starlark.NewBuiltin(actionName, w.dispatch), nil
 	}
 
-	if resolver, ok := r.instance.(op.AttributeResolver); ok {
+	if resolver, ok := w.instance.(op.AttributeResolver); ok {
 		if resolved := resolver.ResolveAttr(name); resolved != nil {
-			return r.marshalReflect(reflect.ValueOf(resolved))
+			return w.marshalReflect(reflect.ValueOf(resolved))
 		}
 	}
 
-	return nil, NoSuchAttrError(r.receiverType.Name(), name)
+	return nil, NoSuchAttrError(w.receiverType.Name(), name)
 }
 
 // AttrNames implements starlark.HasAttrs.
 //
 // Returns:
 //   - []string: sorted list of available method names.
-func (r *receiver) AttrNames() []string { return r.attrNames }
+func (w *wrapper) AttrNames() []string { return w.attrNames }
 
-// Unmarshal projects this receiver's wrapped Go instance into the target reflect.Value.
+// Project extracts a Go value of the target type from this wrapper.
 //
-// Delegates to [op.Converter] on the wrapped instance if available. Falls back to direct
-// extraction when the instance's type is assignable to the target.
-func (r *receiver) Unmarshal(target reflect.Value) error {
-
-	if c, ok := r.instance.(op.Converter); ok {
-		val, err := c.Convert(target.Type())
-		if err != nil {
-			return err
-		}
-		target.Set(reflect.ValueOf(val))
-		return nil
-	}
-
-	elem := reflect.ValueOf(r.instance)
-	for elem.Kind() == reflect.Pointer {
-		elem = elem.Elem()
-	}
-
-	if elem.Type().AssignableTo(target.Type()) {
-		target.Set(elem)
-		return nil
-	}
-
-	return fmt.Errorf("starlarkbridge.receiver(%s): cannot coerce to %s", r.Type(), target.Type())
+// Project is the bridge's default starlark→Go extraction point — used when a provider method parameter needs the
+// wrapped Go instance and the parameter's type does not opt out via [Unmarshaler]. Delegates to [op.Convert] for the
+// source/target opt-in cascade so the conversion semantics stay consistent with method dispatch in [op.Method.Invoke].
+//
+// Parameters:
+//   - target: the [reflect.Type] of the Go value to extract.
+//
+// Returns:
+//   - any: the extracted Go value, ready to assign to a target of type target.
+//   - error: non-nil if no path through the cascade succeeds.
+func (w *wrapper) Project(target reflect.Type) (any, error) {
+	return op.Convert(w.executionContext(), w.instance, target)
 }
 
 // endregion
@@ -232,9 +237,9 @@ func (r *receiver) Unmarshal(target reflect.Value) error {
 //
 // Returns:
 //   - *op.ExecutionContext: the context, or nil if the instance is not an [op.Provider].
-func (r *receiver) executionContext() *op.ExecutionContext {
+func (w *wrapper) executionContext() *op.ExecutionContext {
 
-	if p, ok := r.instance.(op.Provider); ok {
+	if p, ok := w.instance.(op.Provider); ok {
 		return p.ExecutionContext()
 	}
 
@@ -247,15 +252,15 @@ func (r *receiver) executionContext() *op.ExecutionContext {
 
 // Fallible actions
 
-// marshal converts a Go value to a [starlark.Value].
+// marshal converts a Go wrapper to a [starlark.Value].
 //
 // Parameters:
-//   - v: the Go value to convert. Nil returns [starlark.None].
+//   - v: the Go wrapper to convert. Nil returns [starlark.None].
 //
 // Returns:
-//   - starlark.Value: the converted Starlark value.
+//   - starlark.Value: the converted Starlark wrapper.
 //   - error: non-nil if v contains an unsupported type.
-func (r *receiver) marshal(v any) (starlark.Value, error) {
+func (w *wrapper) marshal(v any) (starlark.Value, error) {
 
 	if v == nil {
 		return starlark.None, nil
@@ -265,7 +270,7 @@ func (r *receiver) marshal(v any) (starlark.Value, error) {
 		return sv, nil
 	}
 
-	return r.marshalReflect(reflect.ValueOf(v))
+	return w.marshalReflect(reflect.ValueOf(v))
 }
 
 // marshalMap converts a [reflect.Value] map to a [starlark.Dict].
@@ -275,8 +280,8 @@ func (r *receiver) marshal(v any) (starlark.Value, error) {
 //
 // Returns:
 //   - starlark.Value: the converted Starlark dict.
-//   - error: non-nil if any key or value cannot be marshaled.
-func (r *receiver) marshalMap(rv reflect.Value) (starlark.Value, error) {
+//   - error: non-nil if any key or wrapper cannot be marshaled.
+func (w *wrapper) marshalMap(rv reflect.Value) (starlark.Value, error) {
 
 	if rv.IsNil() {
 		return starlark.NewDict(0), nil
@@ -287,20 +292,20 @@ func (r *receiver) marshalMap(rv reflect.Value) (starlark.Value, error) {
 
 	for iter.Next() {
 
-		key, err := r.marshalReflect(iter.Key())
+		key, err := w.marshalReflect(iter.Key())
 
 		if err != nil {
-			return nil, fmt.Errorf("marshal: map key: %w", err)
+			return nil, fmt.Errorf("map key: %w", err)
 		}
 
-		val, err := r.marshalReflect(iter.Value())
+		val, err := w.marshalReflect(iter.Value())
 
 		if err != nil {
-			return nil, fmt.Errorf("marshal: map value for %v: %w", iter.Key().Interface(), err)
+			return nil, fmt.Errorf("map value for %v: %w", iter.Key().Interface(), err)
 		}
 
 		if err := dict.SetKey(key, val); err != nil {
-			return nil, fmt.Errorf("marshal: dict set: %w", err)
+			return nil, fmt.Errorf("dict set: %w", err)
 		}
 	}
 
@@ -313,9 +318,9 @@ func (r *receiver) marshalMap(rv reflect.Value) (starlark.Value, error) {
 //   - rv: the [reflect.Value] to convert.
 //
 // Returns:
-//   - starlark.Value: the converted Starlark value.
+//   - starlark.Value: the converted Starlark wrapper.
 //   - error: non-nil if rv contains an unsupported type.
-func (r *receiver) marshalReflect(rv reflect.Value) (starlark.Value, error) {
+func (w *wrapper) marshalReflect(rv reflect.Value) (starlark.Value, error) {
 
 	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
 		if rv.IsNil() {
@@ -355,10 +360,10 @@ func (r *receiver) marshalReflect(rv reflect.Value) (starlark.Value, error) {
 			return starlark.Bytes(rv.Bytes()), nil
 		}
 
-		return r.marshalSlice(rv)
+		return w.marshalSlice(rv)
 
 	case reflect.Map:
-		return r.marshalMap(rv)
+		return w.marshalMap(rv)
 
 	case reflect.Struct:
 
@@ -390,7 +395,7 @@ func (r *receiver) marshalReflect(rv reflect.Value) (starlark.Value, error) {
 			}
 		}
 
-		// Wrap as receiver. Ensure we have a pointer for method dispatch.
+		// Wrap as value. Ensure we have a pointer for method dispatch.
 
 		var ptr reflect.Value
 
@@ -401,23 +406,23 @@ func (r *receiver) marshalReflect(rv reflect.Value) (starlark.Value, error) {
 			ptr.Elem().Set(rv)
 		}
 
-		ctx := r.executionContext()
+		ctx := w.executionContext()
 
 		if ctx != nil && ctx.Registry != nil {
 			receiverType := ctx.Registry.TypeByReflectionOrDerive(ptr.Type())
-			return buildReceiver(receiverType, ptr.Interface()), nil
+			return newWrapper(receiverType, ptr.Interface()), nil
 		}
 
 		receiverType, err := op.NewReceiverType(ptr.Type(), nil)
 
 		if err != nil {
-			return nil, fmt.Errorf("marshal: %w", err)
+			return nil, err
 		}
 
-		return buildReceiver(receiverType, ptr.Interface()), nil
+		return newWrapper(receiverType, ptr.Interface()), nil
 
 	default:
-		return nil, fmt.Errorf("marshal: unsupported type %s", rv.Type())
+		return nil, fmt.Errorf("cannot represent %s as a starlark value", rv.Type())
 	}
 }
 
@@ -429,7 +434,7 @@ func (r *receiver) marshalReflect(rv reflect.Value) (starlark.Value, error) {
 // Returns:
 //   - starlark.Value: the converted Starlark list.
 //   - error: non-nil if any element cannot be marshaled.
-func (r *receiver) marshalSlice(rv reflect.Value) (starlark.Value, error) {
+func (w *wrapper) marshalSlice(rv reflect.Value) (starlark.Value, error) {
 
 	if rv.IsNil() {
 		return starlark.NewList(nil), nil
@@ -439,10 +444,10 @@ func (r *receiver) marshalSlice(rv reflect.Value) (starlark.Value, error) {
 
 	for i := range rv.Len() {
 
-		val, err := r.marshalReflect(rv.Index(i))
+		val, err := w.marshalReflect(rv.Index(i))
 
 		if err != nil {
-			return nil, fmt.Errorf("marshal: slice index %d: %w", i, err)
+			return nil, fmt.Errorf("slice index %d: %w", i, err)
 		}
 
 		elems[i] = val
@@ -451,15 +456,15 @@ func (r *receiver) marshalSlice(rv reflect.Value) (starlark.Value, error) {
 	return starlark.NewList(elems), nil
 }
 
-// unmarshalValue recursively converts a Starlark value into a [reflect.Value] target.
+// unmarshalValue recursively converts a Starlark wrapper into a [reflect.Value] target.
 //
 // Parameters:
-//   - sv: the Starlark value to convert.
+//   - sv: the Starlark wrapper to convert.
 //   - rv: the [reflect.Value] to populate (must be settable).
 //
 // Returns:
 //   - error: non-nil if the conversion fails.
-func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
+func (w *wrapper) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 
 	// Nil starlark value: set to zero.
 
@@ -488,7 +493,7 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			i, ok := v.Int64()
 
 			if !ok {
-				return fmt.Errorf("unmarshal: int value out of range")
+				return fmt.Errorf("int value out of range")
 			}
 
 			val = int(i)
@@ -507,7 +512,7 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			result := make([]any, v.Len())
 
 			for i := range v.Len() {
-				if err := r.unmarshalValue(v.Index(i), reflect.ValueOf(&result[i]).Elem()); err != nil {
+				if err := w.unmarshalValue(v.Index(i), reflect.ValueOf(&result[i]).Elem()); err != nil {
 					return fmt.Errorf("list index %d: %w", i, err)
 				}
 			}
@@ -522,11 +527,11 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 
 				var key, value any
 
-				if err := r.unmarshalValue(item[0], reflect.ValueOf(&key).Elem()); err != nil {
+				if err := w.unmarshalValue(item[0], reflect.ValueOf(&key).Elem()); err != nil {
 					return fmt.Errorf("dict key: %w", err)
 				}
 
-				if err := r.unmarshalValue(item[1], reflect.ValueOf(&value).Elem()); err != nil {
+				if err := w.unmarshalValue(item[1], reflect.ValueOf(&value).Elem()); err != nil {
 					return fmt.Errorf("dict key %v: %w", key, err)
 				}
 
@@ -550,7 +555,7 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 
 				var value any
 
-				if err := r.unmarshalValue(attr, reflect.ValueOf(&value).Elem()); err != nil {
+				if err := w.unmarshalValue(attr, reflect.ValueOf(&value).Elem()); err != nil {
 					return fmt.Errorf("attr %q: %w", name, err)
 				}
 
@@ -564,7 +569,7 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			if reflect.TypeOf(sv).Kind() == reflect.Pointer {
 				val = sv
 			} else {
-				return fmt.Errorf("unmarshal: unsupported starlark type %s", sv.Type())
+				return fmt.Errorf("unsupported starlark type: %s", sv.Type())
 			}
 		}
 
@@ -581,7 +586,7 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 
 	// Custom unmarshaler: let the destination Go type absorb the starlark value via [Unmarshaler]. Match the pattern
 	// established in [NodeBuilder.assignTarget] — addressable destinations get their pointer; pointer-typed
-	// destinations get allocated fresh when nil so the [Unmarshaler] receiver has somewhere to write.
+	// destinations get allocated fresh when nil so the [Unmarshaler] value has somewhere to write.
 
 	if rv.CanAddr() {
 		if u, ok := rv.Addr().Interface().(Unmarshaler); ok {
@@ -625,7 +630,7 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 		s, ok := starlark.AsString(sv)
 
 		if !ok {
-			return fmt.Errorf("unmarshal: expected string, got %s", sv.Type())
+			return fmt.Errorf("expected string, got %s", sv.Type())
 		}
 
 		rv.SetString(s)
@@ -636,7 +641,7 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 		b, ok := sv.(starlark.Bool)
 
 		if !ok {
-			return fmt.Errorf("unmarshal: expected bool, got %s", sv.Type())
+			return fmt.Errorf("expected bool, got %s", sv.Type())
 		}
 
 		rv.SetBool(bool(b))
@@ -647,13 +652,13 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 		si, ok := sv.(starlark.Int)
 
 		if !ok {
-			return fmt.Errorf("unmarshal: expected int, got %s", sv.Type())
+			return fmt.Errorf("expected int, got %s", sv.Type())
 		}
 
 		i, ok := si.Int64()
 
 		if !ok {
-			return fmt.Errorf("unmarshal: int value out of range")
+			return fmt.Errorf("int value out of range")
 		}
 
 		rv.SetInt(i)
@@ -664,13 +669,13 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 		si, ok := sv.(starlark.Int)
 
 		if !ok {
-			return fmt.Errorf("unmarshal: expected int, got %s", sv.Type())
+			return fmt.Errorf("expected int, got %s", sv.Type())
 		}
 
 		u, ok := si.Uint64()
 
 		if !ok {
-			return fmt.Errorf("unmarshal: uint value out of range")
+			return fmt.Errorf("uint value out of range")
 		}
 
 		rv.SetUint(u)
@@ -686,12 +691,12 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			i, ok := v.Int64()
 
 			if !ok {
-				return fmt.Errorf("unmarshal: int value out of range for float")
+				return fmt.Errorf("int too large to convert to float")
 			}
 
 			rv.SetFloat(float64(i))
 		default:
-			return fmt.Errorf("unmarshal: expected float or int, got %s", sv.Type())
+			return fmt.Errorf("expected float or int, got %s", sv.Type())
 		}
 
 		return nil
@@ -703,7 +708,7 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 			b, ok := sv.(starlark.Bytes)
 
 			if !ok {
-				return fmt.Errorf("unmarshal: expected bytes, got %s", sv.Type())
+				return fmt.Errorf("expected bytes, got %s", sv.Type())
 			}
 
 			rv.SetBytes([]byte(b))
@@ -713,26 +718,26 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 		list, ok := sv.(*starlark.List)
 
 		if !ok {
-			return fmt.Errorf("unmarshal: expected list, got %s", sv.Type())
+			return fmt.Errorf("expected list, got %s", sv.Type())
 		}
 
-		return r.unmarshalSlice(list, rv)
+		return w.unmarshalSlice(list, rv)
 
 	case reflect.Map:
 
 		dict, ok := sv.(*starlark.Dict)
 
 		if !ok {
-			return fmt.Errorf("unmarshal: expected dict, got %s", sv.Type())
+			return fmt.Errorf("expected dict, got %s", sv.Type())
 		}
 
-		return r.unmarshalMap(dict, rv)
+		return w.unmarshalMap(dict, rv)
 
 	case reflect.Struct:
-		return r.unmarshalStruct(sv, rv)
+		return w.unmarshalStruct(sv, rv)
 
 	default:
-		return fmt.Errorf("unmarshal: unsupported target type %s", rv.Type())
+		return fmt.Errorf("cannot unmarshal into %s", rv.Type())
 	}
 }
 
@@ -743,8 +748,8 @@ func (r *receiver) unmarshalValue(sv starlark.Value, rv reflect.Value) error {
 //   - rv: the [reflect.Value] of kind Map to populate.
 //
 // Returns:
-//   - error: non-nil if any key or value cannot be unmarshaled.
-func (r *receiver) unmarshalMap(dict *starlark.Dict, rv reflect.Value) error {
+//   - error: non-nil if any key or wrapper cannot be unmarshaled.
+func (w *wrapper) unmarshalMap(dict *starlark.Dict, rv reflect.Value) error {
 
 	m := reflect.MakeMapWithSize(rv.Type(), dict.Len())
 	keyType := rv.Type().Key()
@@ -754,13 +759,13 @@ func (r *receiver) unmarshalMap(dict *starlark.Dict, rv reflect.Value) error {
 
 		key := reflect.New(keyType).Elem()
 
-		if err := r.unmarshalValue(item[0], key); err != nil {
+		if err := w.unmarshalValue(item[0], key); err != nil {
 			return fmt.Errorf("dict key: %w", err)
 		}
 
 		val := reflect.New(valType).Elem()
 
-		if err := r.unmarshalValue(item[1], val); err != nil {
+		if err := w.unmarshalValue(item[1], val); err != nil {
 			return fmt.Errorf("dict value: %w", err)
 		}
 
@@ -779,14 +784,14 @@ func (r *receiver) unmarshalMap(dict *starlark.Dict, rv reflect.Value) error {
 //
 // Returns:
 //   - error: non-nil if any element cannot be unmarshaled.
-func (r *receiver) unmarshalSlice(list *starlark.List, rv reflect.Value) error {
+func (w *wrapper) unmarshalSlice(list *starlark.List, rv reflect.Value) error {
 
 	n := list.Len()
 	slice := reflect.MakeSlice(rv.Type(), n, n)
 
 	for i := range n {
 
-		if err := r.unmarshalValue(list.Index(i), slice.Index(i)); err != nil {
+		if err := w.unmarshalValue(list.Index(i), slice.Index(i)); err != nil {
 			return fmt.Errorf("list index %d: %w", i, err)
 		}
 	}
@@ -799,41 +804,41 @@ func (r *receiver) unmarshalSlice(list *starlark.List, rv reflect.Value) error {
 // reflection. Fields are matched by Starlark name.
 //
 // Parameters:
-//   - sv: the Starlark value.
+//   - sv: the Starlark wrapper.
 //   - rv: the [reflect.Value] of kind Struct to populate.
 //
 // Returns:
 //   - error: non-nil if sv is an unsupported type, or if any field fails.
-func (r *receiver) unmarshalStruct(sv starlark.Value, rv reflect.Value) error {
+func (w *wrapper) unmarshalStruct(sv starlark.Value, rv reflect.Value) error {
 
 	info := getTypeInfo(rv.Type())
 
 	switch v := sv.(type) {
 
 	case *starlark.Dict:
-		return r.unmarshalDict(v, rv, info)
+		return w.unmarshalDict(v, rv, info)
 
 	case starlark.String, starlark.Int, starlark.Float, starlark.Bool, *starlark.List, starlark.Bytes:
-		return fmt.Errorf("unmarshal: expected struct or dict for %s, got %s", rv.Type().Name(), sv.Type())
+		return fmt.Errorf("expected struct or dict for %s, got %s", rv.Type().Name(), sv.Type())
 
 	case starlark.HasAttrs:
-		return r.unmarshalHasAttrs(v, rv, info)
+		return w.unmarshalHasAttrs(v, rv, info)
 
 	default:
-		return fmt.Errorf("unmarshal: expected struct or dict, got %s", sv.Type())
+		return fmt.Errorf("expected struct or dict, got %s", sv.Type())
 	}
 }
 
-// unmarshalHasAttrs populates a Go struct from a [starlark.HasAttrs] value.
+// unmarshalHasAttrs populates a Go struct from a [starlark.HasAttrs] wrapper.
 //
 // Parameters:
-//   - v: the Starlark value with named attributes.
+//   - v: the Starlark wrapper with named attributes.
 //   - rv: the [reflect.Value] of kind Struct to populate.
 //   - info: the type metadata for the target struct.
 //
 // Returns:
 //   - error: non-nil if any field fails to unmarshal.
-func (r *receiver) unmarshalHasAttrs(v starlark.HasAttrs, rv reflect.Value, info *typeInfo) error {
+func (w *wrapper) unmarshalHasAttrs(v starlark.HasAttrs, rv reflect.Value, info *typeInfo) error {
 
 	for i := range info.fields {
 
@@ -844,7 +849,7 @@ func (r *receiver) unmarshalHasAttrs(v starlark.HasAttrs, rv reflect.Value, info
 			continue
 		}
 
-		if err := r.unmarshalValue(attr, rv.Field(fi.index)); err != nil {
+		if err := w.unmarshalValue(attr, rv.Field(fi.index)); err != nil {
 			return fmt.Errorf("field %s: %w", fi.starName, err)
 		}
 	}
@@ -861,7 +866,7 @@ func (r *receiver) unmarshalHasAttrs(v starlark.HasAttrs, rv reflect.Value, info
 //
 // Returns:
 //   - error: non-nil if any field fails to unmarshal.
-func (r *receiver) unmarshalDict(dict *starlark.Dict, rv reflect.Value, info *typeInfo) error {
+func (w *wrapper) unmarshalDict(dict *starlark.Dict, rv reflect.Value, info *typeInfo) error {
 
 	for i := range info.fields {
 
@@ -876,7 +881,7 @@ func (r *receiver) unmarshalDict(dict *starlark.Dict, rv reflect.Value, info *ty
 			continue
 		}
 
-		if err := r.unmarshalValue(val, rv.Field(fi.index)); err != nil {
+		if err := w.unmarshalValue(val, rv.Field(fi.index)); err != nil {
 			return fmt.Errorf("field %s: %w", fi.starName, err)
 		}
 	}
@@ -893,13 +898,14 @@ func (r *receiver) unmarshalDict(dict *starlark.Dict, rv reflect.Value, info *ty
 //   - kwargs: keyword starlark arguments.
 //
 // Returns:
-//   - starlark.Value: the marshaled return value.
+//   - starlark.Value: the marshaled return wrapper.
 //   - error: non-nil if the dispatch fails.
-func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (w *wrapper) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 
 	actionName := builtin.Name()
+
 	name := actionName[strings.LastIndex(actionName, ".")+1:]
-	method := r.methods[name]
+	method := w.methods[name]
 	params := method.Parameters()
 
 	// Classify parameters.
@@ -965,7 +971,7 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 
 		if kwargsName == "" && len(extraKwargs) > 0 {
 			key, _ := starlark.AsString(extraKwargs[0][0])
-			return nil, fmt.Errorf("%s: got unexpected keyword argument %q", actionName, key)
+			return nil, fmt.Errorf("%s() got an unexpected keyword argument %q", actionName, key)
 		}
 
 		if len(args) > numNamed {
@@ -1002,9 +1008,9 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 		}
 
 		var val any
-		if err := r.unmarshalValue(sv, reflect.ValueOf(&val).Elem()); err != nil {
+		if err := w.unmarshalValue(sv, reflect.ValueOf(&val).Elem()); err != nil {
 			name := strings.TrimSuffix(namedParams[i], "?")
-			return nil, fmt.Errorf("%s: param %s: %w", actionName, name, err)
+			return nil, fmt.Errorf("%s(): %s: %w", actionName, name, err)
 		}
 		slots[namedParams[i]] = val
 	}
@@ -1014,7 +1020,7 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 	if variadicName != "" {
 
 		if len(positionalVariadic) > 0 && kwVariadic != nil {
-			return nil, fmt.Errorf("%s: got both positional and keyword args for variadic param %q", actionName, variadicName)
+			return nil, fmt.Errorf("%s() got multiple values for argument %q", actionName, variadicName)
 		}
 
 		var variadicList *starlark.List
@@ -1030,7 +1036,7 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 			list, ok := kwVariadic.(*starlark.List)
 
 			if !ok {
-				return nil, fmt.Errorf("%s: keyword %s must be a list, got %s", actionName, variadicName, kwVariadic.Type())
+				return nil, fmt.Errorf("%s(): keyword %s must be a list, got %s", actionName, variadicName, kwVariadic.Type())
 			}
 
 			variadicList = list
@@ -1038,8 +1044,8 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 
 		if variadicList != nil && variadicList.Len() > 0 {
 			var val any
-			if err := r.unmarshalValue(variadicList, reflect.ValueOf(&val).Elem()); err != nil {
-				return nil, fmt.Errorf("%s: param %s: %w", actionName, variadicName, err)
+			if err := w.unmarshalValue(variadicList, reflect.ValueOf(&val).Elem()); err != nil {
+				return nil, fmt.Errorf("%s(): %s: %w", actionName, variadicName, err)
 			}
 			slots[params[variadicIdx].Name] = val
 		}
@@ -1054,8 +1060,8 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 		for _, kv := range extraKwargs {
 			key, _ := starlark.AsString(kv[0])
 			var val any
-			if err := r.unmarshalValue(kv[1], reflect.ValueOf(&val).Elem()); err != nil {
-				return nil, fmt.Errorf("%s: kwarg %s: %w", actionName, key, err)
+			if err := w.unmarshalValue(kv[1], reflect.ValueOf(&val).Elem()); err != nil {
+				return nil, fmt.Errorf("%s(): keyword %s: %w", actionName, key, err)
 			}
 			kwargsMap[key] = val
 		}
@@ -1068,7 +1074,7 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 	// type — string → *Resource via registry construction, []any → []string
 	// via slice-lift, etc. No special cases live here.
 
-	result, _, err := method.Invoke(r.executionContext(), r.instance, slots)
+	result, _, err := method.Invoke(w.executionContext(), w.instance, slots)
 	if err != nil {
 		return nil, err
 	}
@@ -1081,7 +1087,7 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 		return starlark.None, nil
 	}
 
-	return r.marshal(result)
+	return w.marshal(result)
 }
 
 // CompareSameType implements starlark.Comparable.
@@ -1091,22 +1097,21 @@ func (r *receiver) dispatch(thread *starlark.Thread, builtin *starlark.Builtin, 
 //
 // Parameters:
 //   - cmp: the comparison operator (EQL, NEQ, LT, LE, GT, GE).
-//   - y: the other value (must be *receiver).
+//   - y: the other value (must be *value).
 //   - depth: recursion depth (unused).
 //
 // Returns:
 //   - bool: true if the comparison holds.
 //   - error: non-nil if ordering is requested (only equality is supported).
-func (r *receiver) CompareSameType(cmp syntax.Token, y starlark.Value, depth int) (bool, error) {
+func (w *wrapper) CompareSameType(cmp syntax.Token, x starlark.Value, _ int) (bool, error) {
 
-	other := y.(*receiver)
-
+	other := x.(*wrapper)
 	var equal bool
 
-	if c, ok := r.instance.(op.Comparer); ok {
+	if c, ok := w.instance.(op.Comparer); ok {
 		equal = c.Equal(other.instance)
 	} else {
-		equal = r.instance == other.instance
+		equal = w.instance == other.instance
 	}
 
 	switch cmp {
@@ -1115,7 +1120,7 @@ func (r *receiver) CompareSameType(cmp syntax.Token, y starlark.Value, depth int
 	case syntax.NEQ:
 		return !equal, nil
 	default:
-		return false, fmt.Errorf("%s: ordered comparison not supported", r.Type())
+		return false, fmt.Errorf("%s not supported between %q values", cmp, w.Type())
 	}
 }
 
@@ -1193,11 +1198,11 @@ func hashString(s string) uint32 {
 // NoSuchAttrError returns an error for an unknown attribute.
 //
 // Parameters:
-//   - receiver: the receiver name.
+//   - typeName: the type name of the value being accessed.
 //   - attr: the attribute name.
 //
 // Returns:
 //   - error: the formatted error.
-func NoSuchAttrError(receiver, attr string) error {
-	return fmt.Errorf("%s has no .%s attribute", receiver, attr)
+func NoSuchAttrError(typeName, attr string) error {
+	return fmt.Errorf("%q object has no attribute %q", typeName, attr)
 }

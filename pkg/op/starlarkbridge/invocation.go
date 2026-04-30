@@ -50,10 +50,10 @@ func (i *Invocation) Freeze() {}
 //
 // Returns:
 //   - uint32: unused, always 0.
-//   - error: always non-nil ("unhashable: Invocation").
+//   - error: always non-nil ("unhashable type: Invocation").
 func (i *Invocation) Hash() (uint32, error) {
 
-	return 0, fmt.Errorf("unhashable: Invocation")
+	return 0, fmt.Errorf("unhashable type: Invocation")
 }
 
 // String implements starlark.Value.
@@ -105,48 +105,45 @@ func (i *Invocation) Attr(name string) (starlark.Value, error) {
 	return i.Result.Attr(name)
 }
 
-// Unmarshal projects this invocation onto a Go target.
+// Project returns the Invocation rendered for the given target type.
 //
 // Accepted targets:
-//   - *Invocation: stores this pointer directly.
-//   - *Promise: stores the wrapped Result.
-//   - [op.PromiseValue]: stores the slot-ref shape (NodeRef + Slot) for direct slot assignment.
-//   - interface{}: stores this pointer directly.
+//   - *Invocation: returns this pointer directly.
+//   - *Promise: returns the wrapped Result.
+//   - [op.PromiseValue]: returns the slot-ref shape (NodeRef + Slot) for direct slot assignment.
+//   - interface{}: returns this pointer directly.
 //
 // Every other target errors — invocations are not directly resolvable to Go scalar types at plan time.
 //
 // Parameters:
-//   - target: the [reflect.Value] target to populate.
+//   - target: the [reflect.Type] of the Go value to extract.
 //
 // Returns:
+//   - any: the projected Go value.
 //   - error: non-nil if the target type is unsupported.
-func (i *Invocation) Unmarshal(target reflect.Value) error {
+func (i *Invocation) Project(target reflect.Type) (any, error) {
 
 	invType := reflect.TypeFor[*Invocation]()
 	promiseType := reflect.TypeFor[*Promise]()
 	promiseValueType := reflect.TypeFor[op.PromiseValue]()
 
 	if target.Kind() == reflect.Interface {
-		target.Set(reflect.ValueOf(i))
-		return nil
+		return i, nil
 	}
 
-	if target.Type() == invType {
-		target.Set(reflect.ValueOf(i))
-		return nil
+	if target == invType {
+		return i, nil
 	}
 
-	if target.Type() == promiseType {
-		target.Set(reflect.ValueOf(i.Result))
-		return nil
+	if target == promiseType {
+		return i.Result, nil
 	}
 
-	if target.Type() == promiseValueType {
-		target.Set(reflect.ValueOf(op.PromiseValue{NodeRef: i.Result.node.ID(), Slot: i.Result.slot}))
-		return nil
+	if target == promiseValueType {
+		return op.PromiseValue{NodeRef: i.Result.node.ID(), Slot: i.Result.slot}, nil
 	}
 
-	return fmt.Errorf("unmarshal: cannot assign Invocation to %s (invocations resolve at execute time)", target.Type())
+	return nil, fmt.Errorf("cannot project Invocation to %s (invocations resolve at execute time)", target)
 }
 
 // Actions

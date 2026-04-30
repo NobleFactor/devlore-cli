@@ -107,61 +107,60 @@ func TestInvocation_AttrNames_DelegatesToPromise(t *testing.T) {
 	}
 }
 
-// --- Unmarshal ---
+// --- Project ---
 //
 // FillSlot is covered indirectly — it delegates to Promise.FillSlot, which relies on Node.SetSlot (requires a
 // method-bound consumer node, established by full dispatch in integration). The delegation itself is a one-line
 // pass-through not worth a unit-level harness.
 
-func TestInvocation_Unmarshal_ToInvocationPointer(t *testing.T) {
+func TestInvocation_Project_ToInvocationPointer(t *testing.T) {
 
 	inv := makeInvocation(t, "test#1")
 
-	var target *Invocation
-
-	if err := inv.Unmarshal(reflect.ValueOf(&target).Elem()); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
+	got, err := inv.Project(reflect.TypeFor[*Invocation]())
+	if err != nil {
+		t.Fatalf("Project: %v", err)
 	}
-	if target != inv {
-		t.Errorf("target = %p, want %p", target, inv)
+	if got != inv {
+		t.Errorf("got = %p, want %p", got, inv)
 	}
 }
 
-func TestInvocation_Unmarshal_ToPromisePointer(t *testing.T) {
+func TestInvocation_Project_ToPromisePointer(t *testing.T) {
 
 	inv := makeInvocation(t, "test#1")
 
-	var target *Promise
-
-	if err := inv.Unmarshal(reflect.ValueOf(&target).Elem()); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
+	got, err := inv.Project(reflect.TypeFor[*Promise]())
+	if err != nil {
+		t.Fatalf("Project: %v", err)
 	}
-	if target != inv.Result {
-		t.Errorf("target = %p, want %p", target, inv.Result)
+	if got != inv.Result {
+		t.Errorf("got = %p, want %p", got, inv.Result)
 	}
 }
 
-func TestInvocation_Unmarshal_ToPromiseValue(t *testing.T) {
+func TestInvocation_Project_ToPromiseValue(t *testing.T) {
 
 	inv := makeInvocation(t, "test#1")
 
-	var target op.PromiseValue
-
-	if err := inv.Unmarshal(reflect.ValueOf(&target).Elem()); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
+	got, err := inv.Project(reflect.TypeFor[op.PromiseValue]())
+	if err != nil {
+		t.Fatalf("Project: %v", err)
 	}
-	if target.NodeRef != "test-node-1" {
-		t.Errorf("target.NodeRef = %q, want %q", target.NodeRef, "test-node-1")
+	pv, ok := got.(op.PromiseValue)
+	if !ok {
+		t.Fatalf("got = %T, want op.PromiseValue", got)
+	}
+	if pv.NodeRef != "test-node-1" {
+		t.Errorf("pv.NodeRef = %q, want %q", pv.NodeRef, "test-node-1")
 	}
 }
 
-func TestInvocation_Unmarshal_UnsupportedTarget(t *testing.T) {
+func TestInvocation_Project_UnsupportedTarget(t *testing.T) {
 
 	inv := makeInvocation(t, "test#1")
 
-	var target string
-
-	if err := inv.Unmarshal(reflect.ValueOf(&target).Elem()); err == nil {
-		t.Error("Unmarshal(string target) error = nil, want error")
+	if _, err := inv.Project(reflect.TypeFor[string]()); err == nil {
+		t.Error("Project(string target) error = nil, want error")
 	}
 }

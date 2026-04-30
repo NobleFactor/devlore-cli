@@ -17,11 +17,11 @@ func init() {
 		op.RoleAction|op.RoleRoot,
 		func(ctx *op.ExecutionContext) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Choose":    {"default_value", "*cases"},
+			"Choose":    {"default_case", "*cases"},
 			"Complete":  {"output"},
 			"Degraded":  {"format", "*args", "**kwargs"},
 			"Elevate":   {},
-			"Fatal":     {"format", "*args", "**kwargs"},
+			"Failed":    {"format", "*args", "**kwargs"},
 			"Gather":    {"items", "do", "limit"},
 			"Subgraph":  {"*children"},
 			"WaitUntil": {"target", "predicate", "timeout", "interval"},

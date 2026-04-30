@@ -20,6 +20,7 @@ func TestActionNames(t *testing.T) {
 		"file.backup",
 		"file.copy",
 		"file.link",
+		"file.mkdir",
 		"file.move",
 		"file.remove",
 		"file.remove_all",
@@ -28,11 +29,10 @@ func TestActionNames(t *testing.T) {
 		"file.write_bytes",
 		"file.write_text",
 		"file.exists",
-		"file.glob",
 		"file.find",
+		"file.glob",
 		"file.is_dir",
 		"file.is_file",
-		"file.mkdir",
 		"file.read_bytes",
 		"file.read_text",
 		"file.join",
@@ -55,6 +55,7 @@ func TestRegister(t *testing.T) {
 		"file.backup",
 		"file.copy",
 		"file.link",
+		"file.mkdir",
 		"file.move",
 		"file.remove",
 		"file.remove_all",
@@ -63,11 +64,10 @@ func TestRegister(t *testing.T) {
 		"file.write_bytes",
 		"file.write_text",
 		"file.exists",
-		"file.glob",
 		"file.find",
+		"file.glob",
 		"file.is_dir",
 		"file.is_file",
-		"file.mkdir",
 		"file.read_bytes",
 		"file.read_text",
 		"file.join",
@@ -168,6 +168,29 @@ func TestLinkAction_DryRun(t *testing.T) {
 	output := ctx.Writer.(*bytes.Buffer).String()
 	if !strings.Contains(output, "[dry-run] file.link") {
 		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.link")
+	}
+}
+
+func TestMkdirAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "file.mkdir")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.mkdir") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.mkdir")
 	}
 }
 
@@ -355,29 +378,6 @@ func TestExistsAction_DryRun(t *testing.T) {
 	}
 }
 
-func TestGlobAction_DryRun(t *testing.T) {
-
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.glob")
-	ctx := dryRunCtx(t)
-
-	result, undo, err := action.Do(ctx, map[string]any{})
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.glob") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.glob")
-	}
-}
-
 func TestFindAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
@@ -398,6 +398,29 @@ func TestFindAction_DryRun(t *testing.T) {
 	output := ctx.Writer.(*bytes.Buffer).String()
 	if !strings.Contains(output, "[dry-run] file.find") {
 		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.find")
+	}
+}
+
+func TestGlobAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "file.glob")
+	ctx := dryRunCtx(t)
+
+	result, undo, err := action.Do(ctx, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	output := ctx.Writer.(*bytes.Buffer).String()
+	if !strings.Contains(output, "[dry-run] file.glob") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.glob")
 	}
 }
 
@@ -444,29 +467,6 @@ func TestIsFileAction_DryRun(t *testing.T) {
 	output := ctx.Writer.(*bytes.Buffer).String()
 	if !strings.Contains(output, "[dry-run] file.is_file") {
 		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.is_file")
-	}
-}
-
-func TestMkdirAction_DryRun(t *testing.T) {
-
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.mkdir")
-	ctx := dryRunCtx(t)
-
-	result, undo, err := action.Do(ctx, map[string]any{})
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] file.mkdir") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] file.mkdir")
 	}
 }
 
@@ -603,6 +603,12 @@ func TestLinkAction_CompensableInterface(t *testing.T) {
 	_ = getCompensable(t, reg, "file.link")
 }
 
+func TestMkdirAction_CompensableInterface(t *testing.T) {
+
+	reg := makeRegistry(t)
+	_ = getCompensable(t, reg, "file.mkdir")
+}
+
 func TestMoveAction_CompensableInterface(t *testing.T) {
 
 	reg := makeRegistry(t)
@@ -654,6 +660,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 		"file.backup",
 		"file.copy",
 		"file.link",
+		"file.mkdir",
 		"file.move",
 		"file.remove",
 		"file.remove_all",

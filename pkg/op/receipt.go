@@ -52,9 +52,9 @@ type ReceiptBase struct {
 
 // NewReceiptBase creates an uninflated ReceiptBase anchored to the given resource.
 //
-// The transactionID and action remain zero-valued until [ReceiptBase.Inflate] is called. This split lets a
-// provider method bind the affected resource at construction and defer the per-call reflection + UUID work
-// until inflation, when the issuing method is known.
+// The transactionID and action remain zero-valued until [ReceiptBase.Inflate] is called. This split lets a provider
+// method bind the affected resource at construction and defer the per-call reflection + UUID work until inflation,
+// when the issuing method is known.
 //
 // Parameters:
 //   - resource: the resource affected by the compensable forward method call.

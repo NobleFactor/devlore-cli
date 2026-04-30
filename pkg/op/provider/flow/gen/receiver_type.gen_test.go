@@ -112,7 +112,7 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Complete",
 		"Degraded",
 		"Elevate",
-		"Fatal",
+		"Failed",
 		"Gather",
 		"Subgraph",
 		"WaitUntil",

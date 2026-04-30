@@ -18,6 +18,8 @@ func init() {
 		func(ctx *op.ExecutionContext, value any) (any, error) {
 			return provider.NewResource(ctx, value)
 		},
-		nil,
+		map[string][]string{
+			"Equal": {"other"},
+		},
 	)
 }

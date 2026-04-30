@@ -115,7 +115,7 @@ What exists today, grounded in code:
 | Component | Status | Code |
 | --- | --- | --- |
 | `op.Resource` interface | Implemented | `pkg/op/resource.go` — sealed interface with `URI()` + `resourceBase()` |
-| `op.ResourceBase` | Implemented | `pkg/op/resource.go` — private `uri`, `id`, `originID`; implements `starvalue.Marshaler` |
+| `op.ResourceBase` | Implemented | `pkg/op/resource.go` — private `uri`, `id`, `producerID`; implements `starvalue.Marshaler` |
 | `op.Tombstone` interface | Implemented | `pkg/op/resource.go` — sealed interface with `Resource()` + `tombstoneBase()` |
 | `op.TombstoneBase` | Implemented | `pkg/op/resource.go` — holds `Resource`, value receivers (no post-construction mutation) |
 | `op.Provider` interface | Implemented | `pkg/op/provider.go` — sealed with `providerBase() *ProviderBase` |
@@ -129,14 +129,14 @@ What exists today, grounded in code:
 | `starvalue` package | Implemented | `pkg/op/starvalue/starvalue.go` — `Marshaler`/`Unmarshaler` interfaces |
 | Marshal implementation | Implemented | `pkg/op/starvalue_marshal.go` — `marshalReflect` checks `Marshaler` before reflection walk |
 | `extractResource` | Implemented | `pkg/op/resource_catalog.go` — handles direct `Resource`, flat `map[string]any`, and nested `resource_base` forms |
-| `FillSlot` implicit edges | Implemented | `pkg/op/output.go` — calls `extractResource`, creates edges from `originID` |
+| `FillSlot` implicit edges | Implemented | `pkg/op/output.go` — calls `extractResource`, creates edges from `producerID` |
 | `Graph.Catalog` | Implemented | `pkg/op/graph.go` — `*ResourceCatalog`, initialized by `NewGraph()`, excluded from JSON/YAML |
 | URI helpers | Implemented | `pkg/op/resource.go` — `SchemeFile`/`SchemeGit`/`SchemePackage`/`SchemeService`/`SchemeMem`, `ResourceURI()` |
 | Same-partition recovery | Implemented | `pkg/op/provider/file/recovery.go` + `recovery_unix.go` — `os.Rename` to UUID-keyed path |
 | `RecoveryStack` (pkg/op) | Implemented | `pkg/op/recovery.go` — Do/Push/Unwind/Discard with reconcile hooks |
 | Test harness | Implemented | `internal/e2e/testrunner/` — Runner, TestContext (`t` namespace), Tracer; 4 baseline `.star` scripts pass |
 | `devlore-test` binary | Implemented | `cmd/devlore-test/main.go` |
-| Planned bridge catalog calls | Implemented | `resolveResourceParam` calls `catalog.Resolve` for inputs; `shadowOutputParam` shadows the last Resource param (destination convention) for all compensable methods |
+| Planned bridge catalog calls | Superseded | Original implementation: `resolveResourceParam` calls `catalog.Resolve` for inputs; `shadowOutputParam` shadows the last Resource param at plan time. **Current model** (see "Ledger Structure" §) shadows only at run time post-dispatch; plan time only catalogs inputs via `GetOrCreate`. |
 | Executor pre-flight | Implemented | `preflight.go:ResolveResources` — iterates discovery URIs, stat checks file:// resources |
 | Action layer catalog.Shadow | Implemented | `action_reflect.go:shadowResult` — shadows results after dispatch |
 | Conflict detection | Implemented | `resource_catalog.go:Shadow()` returns error when two different origins target same URI |
@@ -224,8 +224,9 @@ aspirational design — not yet implemented.
 
 **Decision**: Coercion from raw values (strings) to typed Resources is an
 executor concern, not a provider concern. Providers always receive their own
-typed `Resource` — possibly unresolved (path exists but not yet stat'd) or
-pending (destination that doesn't exist yet), but always typed.
+typed `Resource` — Pending until pre-flight observes it on the target machine
+(transitioning to Resolved on success, Unresolved on failure), but always
+typed. See "Ledger Structure" § for the catalog state machine.
 
 #### What Is: Current Coercion Chain
 
@@ -299,16 +300,17 @@ reflectedAction.Do(ctx, slots{"source_file": "src.txt", ...})
    can be coerced to the target type. Passing an `int` to a Resource slot
    now fails at plan time.
 
-#### What Will Be: Planner Coerces, Executor Resolves
+#### What Will Be: Planner Constructs, Executor Resolves
 
 Two distinct operations, cleanly separated:
 
-- **Coercion** (plan time): Type-tagging. `string → file.Resource{URI,
-  state=unresolved}`. Pure — no I/O, no `os.Stat`. The planner knows
-  *what type* a slot value should be.
-- **Resolution** (execution time): Metadata population. `file.Resource
-  {unresolved} → file.Resource{resolved, inode, size, checksum}`. I/O
-  against the *target machine*. The executor knows *what exists*.
+- **Construction** (plan time): Type-tagging. `string → file.Resource{URI}`,
+  cataloged via `catalog.GetOrCreate`. Pure — no I/O, no `os.Stat`. The
+  planner knows *what type* a slot value should be and what URI identifies
+  it.
+- **Resolution** (execution time): Metadata population. Pre-flight stats
+  the target machine; post-dispatch `Shadow` appends output entries with
+  metadata already populated. The executor knows *what exists*.
 
 This separation is forced by a hard constraint: **a graph can be planned
 once and executed on many machines**. A graph can target the local host or
@@ -316,86 +318,93 @@ any number of remote machines. `os.Stat` at plan time gives the planning
 machine's metadata, not the target's. `/etc/nginx/nginx.conf` has different
 inode, size, and checksum on every machine. The planner must be pure.
 
-**Registration time** — the registry evolves from a constructor registry
-to a **coercion table** that maps `(source_type, target_type)` pairs:
+The catalog state model that supports this separation is documented in
+"Ledger Structure" §: every entry is **Pending** at end of plan;
+pre-flight transitions inputs to **Resolved** (stat succeeded) or
+**Unresolved** (stat failed); post-dispatch `Shadow` appends output
+entries born **Resolved**.
+
+**Registration time** — the registry maps target Resource types to
+constructor closures:
 
 ```
-// Current: target_type → constructor (pure, no I/O per Decision #10)
-constructorRegistry: reflect.Type(file.Resource) → func(any) (any, error)
-
-// Target: (source_type, target_type) → coercion_func (pure, no I/O)
-coercionTable:
-    (string, file.Resource)        → file.ResourceFromPath(s)  // URI only, no stat
-    (string, service.Resource)     → service.ResourceFromName(s)
-    (string, pkg.Resource)         → pkg.ResourceFromName(s)
-    (mem.Resource, file.Resource)  → file.ResourceFromMem(m)
+resourceConstructors: reflect.Type(file.Resource) → func(ctx, value any) (Resource, error)
+                      reflect.Type(service.Resource) → ...
+                      reflect.Type(pkg.Resource) → ...
 ```
 
-**Plan time** — `buildPlannedBridge` coerces slot values to typed
-Resources using the coercion table. This requires `buildPlannedBridge` to
-know param types — either via `reflect.Method` (passed from `WrapPlanned`)
-or via enriched `MethodParams`. The result is typed but metadata-empty:
+**Plan time** — `NodeBuilder.fillSlot` constructs typed Resources from
+string slot values via the registered constructor and interns them in the
+catalog. The result is typed and cataloged but metadata-empty:
 
 ```
 plan.file.copy(source_file="src.txt", destination_filename="dst.txt")
-    → buildPlannedBridge knows: param 0 expects file.Resource
-    → coercionTable.Coerce("src.txt", file.Resource)
-        → file.Resource{URI: "file:///src.txt", state: unresolved}  // no os.Stat
-    → namespace.Resolve("file:///src.txt") → resource-1 (cataloged, unresolved)
-    → node.SetSlotImmediate("source_file", file.Resource{...})
+    → fillSlot knows: param 0 expects *file.Resource
+    → factory := registry.resourceConstructor(*file.Resource)
+    → catalog.GetOrCreate("file:///src.txt", factory)
+        → first sighting: factory constructs *file.Resource{URI}, interns as Pending
+        → returns canonical entry
+    → node.SetSlotImmediate("source_file", *file.Resource{...})
 ```
 
-The graph now contains typed Resources in its slots. The ledger contains
+The graph now contains typed Resources in its slots. The catalog contains
 URIs and relationships. No metadata. Portable across machines.
 
-**Executor pre-flight** (NEW, per execution target) — resolves all
-unresolved resources against the target machine before any node runs:
+**Executor pre-flight** (per execution target) — observes every Pending
+discovery entry against the target machine before any node runs:
 
 ```
-for each entry in resourceManager.Ledger():
-    if entry.State == unresolved:
-        metadata := resolve(entry)  // os.Stat on target machine
-        if err:
-            fail-fast: "source file not found: /etc/foo"
-        entry.State = resolved
-        entry.Metadata = metadata
-    // pending entries (outputs) skip — they don't exist yet
+for each uri in catalog.DiscoveryURIs():     // entries with empty producerID
+    entry := catalog.Lookup(catalog.Current(uri))
+    if err := entry.Resolve(); err == nil {
+        // metadata populated in place; entry transitions Pending → Resolved
+    } else {
+        // entry stays Pending → executor classifies it as Unresolved and halts (or
+        // continues, per executor policy; consuming nodes will fail at dispatch).
+    }
 ```
 
-This is a flat iteration over the ledger — O(unique source URIs), not a
-graph traversal. The namespace deduplicates by URI: if 5 nodes reference
-the same source path, `namespace.Resolve()` returns the same resource ID,
-and pre-flight stat's it once.
+This is a flat iteration over the discovery URIs — O(unique source URIs),
+not a graph traversal. The namespace deduplicates by URI: if 5 nodes
+reference the same source path, the catalog has one entry and pre-flight
+stat's it once.
 
-**Execution time** — `reflectedAction.Do()` receives typed, resolved
-Resources. `coerceSlotValue` Level 2 (assignable) matches immediately.
-Level 5 (constructor) never fires. Pending Resources (outputs) are
-populated by node results and flow downstream via promise resolution.
+**Execution time** — `Method.Invoke` receives typed, Resolved Resources
+from slot values. `op.Convert`'s assignability path matches immediately
+for Resource-typed parameters. Output Resources are returned by the
+provider method and shadowed post-dispatch via `catalog.Shadow(result,
+node.ID())`, born Resolved.
 
 **Example flow:**
 
 ```
 PLAN (pure, no I/O):
     plan.file.copy("source.txt", "dest.txt")
-        → slot: source_file = file.Resource{URI: "file:///src.txt", state: unresolved}
+        → slot: source_file = *file.Resource{URI: "file:///src.txt"}
         → slot: destination_filename = "dst.txt"  (string, not a Resource)
-        → ledger: [resource-1: file:///src.txt, unresolved]
+        → catalog: resource-1: URI=file:///src.txt, state=Pending, producerID=""
 
 EXECUTE on machine A:
     pre-flight:
-        → resolve resource-1 against machine A
+        → resource-1.Resolve()
         → os.Stat("/src.txt") → inode=42, size=1024, checksum=abc...
-        → resource-1.State = resolved, resource-1.Metadata = {...}
+        → resource-1: state=Resolved, metadata={inode:42, ...}
 
-    reflectedAction.Do():
-        → slot source_file: file.Resource{resolved} → Level 2: assignable ✓
-        → Provider.Copy receives (file.Resource, string, os.FileMode)
+    Method.Invoke:
+        → slot source_file: *file.Resource{Resolved} → assignable ✓
+        → Provider.Copy receives (*file.Resource, string, os.FileMode)
+
+    post-dispatch:
+        → result is *file.Resource for /tmp/dst.txt with populated metadata
+        → catalog.Shadow(result, copy-node-id)
+        → catalog: resource-2: URI=file:///dst.txt, state=Resolved,
+                   producerID="copy-node-id", metadata={inode:87, ...}
 
 EXECUTE on machine B (same graph, different target):
     pre-flight:
-        → resolve resource-1 against machine B
+        → resource-1.Resolve()
         → os.Stat("/src.txt") → inode=99, size=1024, checksum=def...
-        → resource-1.State = resolved, resource-1.Metadata = {...}  // different inode, checksum
+        → resource-1: state=Resolved, metadata={inode:99, ...}  // different inode, checksum
 ```
 
 #### Ledger Structure
@@ -405,34 +414,65 @@ The ledger is an append-only collection keyed by resource ID. The
 path share a single ledger entry. Multiple entries per URI exist only from
 shadowing (a write creates a new version).
 
-**Three resource states:**
-- **Unresolved**: Source input — the external entity should exist but
-  hasn't been stat'd. URI and type are set, metadata is empty. Created by
-  `namespace.Resolve()` when the planner encounters a source path.
-  Resolved by the executor's pre-flight pass against the target machine.
-- **Pending**: Output — the external entity does not yet exist. URI and
-  type are set, metadata is empty. Created by `namespace.Shadow()` when
-  the planner encounters a destination. Resolved by the node's execution
-  result — the provider populates metadata after creating the entity.
-- **Resolved**: Metadata populated. For files: inode, device, size, mode,
-  modtime, checksum. For services: status. For packages: version.
+**Three resource states.** A catalog entry's state is a function of (a)
+whether observation has been attempted and (b) whether metadata has been
+populated. Producer-vs-discovery (input vs output) is encoded in
+`producerID` (empty for inputs, set for outputs), not in the state name.
+
+- **Pending**: initial state. Every catalog entry is created here. URI
+  and producerID are set; metadata is empty. No observation attempt has
+  been made.
+- **Resolved**: metadata populated. Reached by (a) pre-flight stat
+  succeeding on the target machine for a discovery entry, or (b)
+  post-dispatch `Shadow` appending an output entry with metadata already
+  populated by the producer.
+- **Unresolved**: pre-flight tried to stat the entry's URI and the
+  observation failed (file does not exist on the target machine, network
+  unreachable, etc.). Distinct from Pending: the catalog has tried.
+
+State machine:
 
 ```
-Ledger (plan-time skeleton — portable):
-  resource-1: URI=file:///src.txt,  state=unresolved, origin=""
-  resource-2: URI=file:///dst.txt,  state=pending,    origin=copy-node
+  Pending ──pre-flight stat fails──▶ Unresolved
+     │
+     └─────pre-flight stat succeeds──▶ Resolved
 
-Namespace:
-  file:///src.txt → resource-1
-  file:///dst.txt → resource-2
-
-After pre-flight on target machine (execution-scoped):
-  resource-1: URI=file:///src.txt,  state=resolved, metadata={inode:42, ...}
-  resource-2: URI=file:///dst.txt,  state=pending   (still pending — not yet created)
-
-After copy-node executes:
-  resource-2: URI=file:///dst.txt,  state=resolved, metadata={inode:87, ...}
+At run time, post-dispatch Shadow appends new entries born Resolved —
+they do not transition through Pending.
 ```
+
+**Snapshot points.**
+
+- **End of plan**: every entry is Pending. The catalog contains only
+  inputs (discoveries with empty producerID); outputs are not registered
+  until run time.
+- **End of pre-flight**: every plan-time entry is now Resolved or
+  Unresolved. No entry remains Pending.
+- **End of execution**: every entry is Resolved or Unresolved. New
+  entries appended during execution by post-dispatch `Shadow` (outputs)
+  or by run-time `GetOrCreate` (provider-internal interning) are born
+  Resolved.
+
+**Example trace.**
+
+```
+End of plan (catalog populated only with inputs):
+  resource-1: URI=file:///src.txt, state=Pending, producerID=""
+
+End of pre-flight on machine A:
+  resource-1: URI=file:///src.txt, state=Resolved, producerID="",
+              metadata={inode:42, size:1024, ...}
+
+End of execution on machine A (after copy-node ran):
+  resource-1: URI=file:///src.txt, state=Resolved, producerID="",
+              metadata={inode:42, size:1024, ...}
+  resource-2: URI=file:///dst.txt, state=Resolved, producerID="copy-node",
+              metadata={inode:87, ...}     ← appended post-dispatch, born Resolved
+```
+
+If pre-flight on machine B could not find /src.txt, resource-1 would be
+Unresolved at end of pre-flight, and the executor would halt before
+running copy-node.
 
 #### Codegen Tool Changes
 
@@ -610,14 +650,14 @@ problem and the "providers receive raw strings" problem.
 for resource identity and lineage. Node annotations (`resource.input`,
 `resource.output`) are eliminated.
 
-The ledger already records URI, origin node ID, and version lineage through
-`EnsureCataloged` (called by `NamespaceMap.Resolve` and `Shadow`).
+The ledger already records URI, producer node ID, and version lineage
+through `EnsureCataloged` (called by `NamespaceMap.Resolve` and `Shadow`).
 Annotations would duplicate information the ledger already holds and cannot
 represent resources produced at runtime — globs returning N files, dynamic
 template expansions, gather iterations producing unknown resource sets.
 
 The executor's pre-flight pass (Phase 4) queries the ledger directly:
-resources with non-empty `OriginNodeID` whose URI matches a previously
+resources with non-empty `producerID` whose URI matches a previously
 discovered resource need tombstones. No annotation scanning required.
 
 **Impact**: Phase 2c (Resource Annotations on Nodes) is removed from the

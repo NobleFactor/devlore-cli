@@ -41,7 +41,7 @@ const memArchiveDir = ".devlore/mem"
 // same file — named content deduplication by construction.
 //
 // Content bytes are never held in the Go heap after archival. Consumers read through [Resource.Reader]
-// (a mmap-backed [io.ReadCloser]) or via the op.Converter projections to []byte or string.
+// (a mmap-backed [io.ReadCloser]) or via the op.SourceConverter projections to []byte or string.
 //
 // The content hash is metadata (change detection), not part of the URI. Two resources with the same URI
 // but different hashes trigger a catalog shadow.
@@ -113,7 +113,7 @@ func (s ResourceSpec) URI() string {
 //  6. [encoding.BinaryMarshaler]          — MarshalBinary → written.
 //  7. [encoding.TextMarshaler]            — MarshalText → written.
 //
-// Types that don't round-trip losslessly (fmt.Stringer, op.Converter) are rejected to prevent silent data
+// Types that don't round-trip losslessly (fmt.Stringer, op.SourceConverter) are rejected to prevent silent data
 // loss.
 //
 // Parameters:
@@ -174,7 +174,7 @@ func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
 // Supports []byte and string — both read the archived content through a memory-mapped view. Overrides
 // [op.ResourceBase.CanConvert]'s URI-as-string baseline because mem.Resource's string projection means
 // content-as-text, not URI.
-func (r *Resource) CanConvert(target reflect.Type) bool {
+func (r *Resource) CanConvertTo(target reflect.Type) bool {
 	return target == byteSliceType || target == stringType
 }
 
@@ -182,7 +182,7 @@ func (r *Resource) CanConvert(target reflect.Type) bool {
 //
 // For []byte: returns the archived content as a byte slice. For string: same, wrapped as a Go string. In
 // both cases the mmap is opened fresh, drained, and closed within this call.
-func (r *Resource) Convert(target reflect.Type) (any, error) {
+func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
 
 	if target != byteSliceType && target != stringType {
 		return nil, fmt.Errorf("mem.Resource: cannot convert to %s", target)

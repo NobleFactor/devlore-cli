@@ -148,8 +148,9 @@ func (p *NodeBuilder) AttrNames() []string { return p.attrNames }
 
 // region UNEXPORTED METHODS
 
-// dispatch dispatches a starlark builtin invocation to create a detached graph node for deferred execution,
-// registers the resulting invocation in the session registry, and returns the invocation to the starlark caller.
+// dispatch invokes a Starlark builtin to create a detached graph node for deferred execution.
+//
+// It registers the invocation in the session registry and returns it to the Starlark caller.
 //
 // Parameters:
 //   - thread: the starlark thread.
@@ -258,7 +259,7 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		}
 	}
 
-	// Fill **kwargs as a single map slot matching the method's **kwargs parameter. The executing path (receiver.go)
+	// Fill **kwargs as a single map slot matching the method's **kwargs parameter. The executing path (wrapper.go)
 	// consumes this as one map[string]any argument; packing extras into a starlark.Dict here lets the dict unmarshaler
 	// project into the parameter's map target.
 
@@ -266,7 +267,7 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		dict := starlark.NewDict(len(extraKwargs))
 		for _, kv := range extraKwargs {
 			if err := dict.SetKey(kv[0], kv[1]); err != nil {
-				return nil, fmt.Errorf("%s: kwargs: %w", label, err)
+				return nil, fmt.Errorf("%s(): kwargs: %w", label, err)
 			}
 		}
 		if err := p.fillSlot(node, kwargsSlot, dict); err != nil {
@@ -279,13 +280,15 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		node.Retry = opts.RetryPolicy
 	}
 
-	// Register an Invocation under the effective label. User-supplied Options.Label wins; otherwise the registry
-	// auto-labels as "<label>#<N>" where <label> is the builtin's label form (bare for root receivers, dotted
-	// otherwise — matching D7's label examples). Label collisions fail plan-time.
+	// Register an Invocation under the effective label.
+	//
+	// User-supplied Options.Label wins; otherwise the registry auto-labels as "<label>#<N>" where <label> is the
+	// builtin's label form (bare for root providers, dotted otherwise — matching D7's label examples). Label collisions
+	// fail plan-time.
 	//
 	// The node is NOT added to any graph here — Nodes are detached until plan.run materializes the graph from the
 	// reachable invocation set (phase-8 D5). Producer→consumer edges live implicitly in each consumer node's slot
-	// (PromiseValue's NodeRef + Resource originIDs in ImmediateValue); plan.run extracts them at materialization.
+	// (PromiseValue's NodeRef + Resource producerIDs in ImmediateValue); plan.run extracts them at materialization.
 	promise := NewPromise(node, "")
 
 	invLabel := label
@@ -303,16 +306,15 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 	return inv, nil
 }
 
-// extractOptionsKwarg scans kwargs for the reserved "options" key and, if found, removes it and unwraps the value
-// to a *Options.
+// extractOptionsKwarg scans kwargs for the "options" keyword and, if found, unwraps the value to an [Options] pointer.
 //
 // The reserved name is guarded at method registration ([newReceiverType] rejects any provider method that declares
-// options as a parameter name), so this function cannot collide with a method-level kwarg. The unwrapped value
-// flows into the dispatch site's invocation-registration and retry-application steps.
+// options as a parameter name), so this function cannot collide with a method-level kwarg. The unwrapped value flows
+// into the dispatch site's invocation-registration and retry-application steps.
 //
 // Accepted value shapes for the kwarg:
 //
-//   - A *receiver wrapping a *Options (produced by plan.options(...)). Returns the *Options.
+//   - A *wrapper around a *Options (produced by plan.options(...)). Returns the *Options.
 //   - starlark.None. Returns nil *Options; treated as "no options."
 //   - Anything else. Returns a descriptive error.
 //
@@ -336,23 +338,28 @@ func extractOptionsKwarg(kwargs []starlark.Tuple) (*Options, []starlark.Tuple, e
 
 		switch v := kv[1].(type) {
 
-		case *receiver:
+		case *wrapper:
+
 			o, ok := v.instance.(*Options)
 			if !ok {
-				return nil, nil, fmt.Errorf("options: expected *Options (from plan.options(...)), got %T", v.instance)
+				return nil, nil, fmt.Errorf("options: expected plan.options(...) result, got starlark wrapper around %T", v.instance)
 			}
+
 			opts = o
 
 		case starlark.NoneType:
+
 			// explicit None — treated as no options
 
 		default:
+
 			return nil, nil, fmt.Errorf("options: expected value from plan.options(...), got %s", kv[1].Type())
 		}
 
 		filtered := make([]starlark.Tuple, 0, len(kwargs)-1)
 		filtered = append(filtered, kwargs[:i]...)
 		filtered = append(filtered, kwargs[i+1:]...)
+
 		return opts, filtered, nil
 	}
 
@@ -373,11 +380,11 @@ func extractOptionsKwarg(kwargs []starlark.Tuple) (*Options, []starlark.Tuple, e
 // Parameters:
 //   - node: the node whose slot is being filled.
 //   - slot: the slot (Parameter pre-populated; Value will be filled).
-//   - value: the starlark value driving the fill.
+//   - sv: the starlark value driving the fill.
 //
 // Returns:
 //   - error: non-nil if the value cannot be assigned to the slot's target type.
-func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Value) error {
+func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, sv starlark.Value) error {
 
 	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(slot.Parameter.Name, "**"), "*"), "?")
 
@@ -392,7 +399,7 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 	// resolved value. Everything else stays on the PromiseValue path so the consumer's slot encodes the
 	// producer→consumer edge for plan.run to materialize.
 
-	if inv, ok := value.(*Invocation); ok {
+	if inv, ok := sv.(*Invocation); ok {
 		if executableUnitType.AssignableTo(slot.Parameter.Type) {
 			node.SetSlot(name, op.ImmediateValue{Value: inv.Target})
 		} else {
@@ -405,7 +412,7 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 	// chosen by the same target-type rule as the scalar path above; the slot's element type drives the choice when
 	// the target is a slice. "<name>.len" holds the count. plan.run flattens these at materialization.
 
-	if list, ok := value.(*starlark.List); ok {
+	if list, ok := sv.(*starlark.List); ok {
 		if n := list.Len(); n > 0 {
 			invocations := make([]*Invocation, n)
 			allInvocations := true
@@ -418,8 +425,7 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 				invocations[i] = inv
 			}
 			if allInvocations {
-				wantsUnit := slot.Parameter.Type.Kind() == reflect.Slice &&
-					executableUnitType.AssignableTo(slot.Parameter.Type.Elem())
+				wantsUnit := slot.Parameter.Type.Kind() == reflect.Slice && executableUnitType.AssignableTo(slot.Parameter.Type.Elem())
 				for i, inv := range invocations {
 					subSlot := fmt.Sprintf("%s[%d]", name, i)
 					if wantsUnit {
@@ -436,17 +442,20 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 
 	// NoneType: skip optional parameter.
 
-	if _, ok := value.(starlark.NoneType); ok {
+	if _, ok := sv.(starlark.NoneType); ok {
 		return nil
 	}
 
-	// *receiver: extract Go value directly.
-	//
-	// Preserves identity and origin through the planning layer without a marshal→unmarshal round-trip. If the
-	// extracted value carries an originID (resource produced by a prior node), the edge is implicit in the
-	// Resource stored in this node's slot; plan.run extracts it at materialization (phase-8 D5).
-	if r, ok := value.(*receiver); ok {
-		goVal := r.instance
+	// Projector: extract the Go value the slot's parameter type wants, via the implementer's own projection
+	// logic (op.Convert cascade for wrapper, target-type switch for Promise/Invocation). Preserves identity and
+	// producer through the planning layer without a starlark round-trip. If the extracted value carries a
+	// producerID (resource produced by a prior node), the edge is implicit in the Resource stored in this node's
+	// slot; plan.run extracts it at materialization (phase-8 D5).
+	if proj, ok := sv.(Projector); ok {
+		goVal, err := proj.Project(slot.Parameter.Type)
+		if err != nil {
+			return fmt.Errorf("slot %q: %w", name, err)
+		}
 		node.SetSlot(name, op.ImmediateValue{Value: goVal})
 		return nil
 	}
@@ -456,7 +465,7 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 	// On mismatch, fall back to unmarshal-into-any + op.Convert so registry-based target instantiation (e.g., string →
 	// *file.Resource) takes over.
 
-	final, err := p.assignTarget(slot.Parameter, value)
+	final, err := p.assignTarget(slot.Parameter, sv)
 
 	if err != nil {
 		return fmt.Errorf("slot %q: %w", name, err)
@@ -465,7 +474,7 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 	// Resource-typed values intern against the session catalog so the consumer slot ends up holding the canonical
 	// entry. Pointer slot targets store the linked Resource directly; value slot targets store the dereferenced
 	// inner value so all holders observe the same instance. The producer→consumer edge is implicit in the linked
-	// Resource's originID (extractable via op.ExtractResource at plan.run materialization, phase-8 D5).
+	// Resource's producerID (extractable via op.ExtractResource at plan.run materialization, phase-8 D5).
 
 	if resource, ok := final.(op.Resource); ok {
 
@@ -489,12 +498,12 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, value starlark.Valu
 
 // assignTarget converts a starlark value into the Go type declared by parameter.Type.
 //
-// When the target type implements [Unmarshaler], a fresh zero instance is allocated and UnmarshalStarlark is
-// invoked on it. Otherwise, the starlark value is unpacked to its natural Go equivalent and aligned with the
-// target type using Go's conversion rules (reflect.Value.AssignableTo → reflect.Value.ConvertibleTo). Unpacking
-// a list/dict/tuple recurses into any-typed slots, so collections naturally unpack as []any or map[any]any; the
-// trailing alignment succeeds only when the target type accepts that shape per the Go spec. parameter.Name is
-// threaded into error messages so callers see which argument failed.
+// When the target type implements [Unmarshaler], a fresh zero instance is allocated and UnmarshalStarlark is invoked on
+// it. Otherwise, the starlark value is unpacked to its natural Go equivalent and aligned with the target type using
+// Go's conversion rules (reflect.Value.AssignableTo → reflect.Value.ConvertibleTo). Unpacking a list/dict/tuple
+// recurses into any-typed slots, so collections naturally unpack as []any or map[any]any; the trailing alignment
+// succeeds only when the target type accepts that shape per the Go spec. parameter.Name is threaded into error messages
+// so callers see which argument failed.
 func (p *NodeBuilder) assignTarget(parameter op.Parameter, value starlark.Value) (any, error) {
 
 	target := parameter.Type
@@ -511,7 +520,6 @@ func (p *NodeBuilder) assignTarget(parameter op.Parameter, value starlark.Value)
 	}
 
 	anyType := reflect.TypeFor[any]()
-
 	var unpacked any
 
 	switch v := value.(type) {
@@ -557,7 +565,7 @@ func (p *NodeBuilder) assignTarget(parameter op.Parameter, value starlark.Value)
 
 		i, ok := v.Int64()
 		if !ok {
-			return nil, fmt.Errorf("%s: int overflow: %s", parameter.Name, v)
+			return nil, fmt.Errorf("%s: int too large to convert: %s", parameter.Name, v)
 		}
 		unpacked = i
 
@@ -612,7 +620,9 @@ func (p *NodeBuilder) assignTarget(parameter op.Parameter, value starlark.Value)
 
 		for i := range n {
 
-			elem, err := p.assignTarget(op.Parameter{Name: fmt.Sprintf("%s[%d]", parameter.Name, i), Type: anyType}, v.Index(i))
+			param := op.Parameter{Name: fmt.Sprintf("%s[%d]", parameter.Name, i), Type: anyType}
+
+			elem, err := p.assignTarget(param, v.Index(i))
 			if err != nil {
 				return nil, err
 			}
@@ -624,20 +634,20 @@ func (p *NodeBuilder) assignTarget(parameter op.Parameter, value starlark.Value)
 
 	default:
 
-		return nil, fmt.Errorf("%s: cannot convert starlark %s to %s", parameter.Name, value.Type(), target)
+		return nil, fmt.Errorf("%s: %s value is not convertible to %s", parameter.Name, value.Type(), target)
 	}
 
-	rv := reflect.ValueOf(unpacked)
+	sv := reflect.ValueOf(unpacked)
 
-	if rv.Type().AssignableTo(target) {
-		return rv.Interface(), nil
+	if sv.Type().AssignableTo(target) {
+		return sv.Interface(), nil
 	}
 
-	if rv.Type().ConvertibleTo(target) {
-		return rv.Convert(target).Interface(), nil
+	if sv.Type().ConvertibleTo(target) {
+		return sv.Convert(target).Interface(), nil
 	}
 
-	return nil, fmt.Errorf("%s: cannot convert %s to %s", parameter.Name, rv.Type(), target)
+	return nil, fmt.Errorf("%s: %s value is neither assignable nor convertible to %s", parameter.Name, sv.Type(), target)
 }
 
 // endregion

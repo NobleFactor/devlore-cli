@@ -39,8 +39,8 @@ func TestCatalog_Resolve_NewURIDiscoveryEntry(t *testing.T) {
 	if id == "" {
 		t.Fatalf("Resolve on new URI: want non-empty id")
 	}
-	if r.OriginID() != "" {
-		t.Fatalf("Resolve on new URI: want empty originID (discovery), got %q", r.OriginID())
+	if r.ProducerID() != "" {
+		t.Fatalf("Resolve on new URI: want empty producerID (discovery), got %q", r.ProducerID())
 	}
 	if r.ID() != id {
 		t.Fatalf("Resolve on new URI: want ID %q stamped on base, got %q", id, r.ID())
@@ -82,8 +82,8 @@ func TestCatalog_Resolve_ReturnsShadowedVersionAfterShadow(t *testing.T) {
 	if canonical != Resource(shadowed) {
 		t.Fatalf("Resolve after Shadow: want shadowed entry, got different")
 	}
-	if got := canonical.resourceBase().originID; got != "node-A" {
-		t.Fatalf("Resolve after Shadow: want originID node-A, got %q", got)
+	if got := canonical.resourceBase().producerID; got != "node-A" {
+		t.Fatalf("Resolve after Shadow: want producerID node-A, got %q", got)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestCatalog_Resolve_ReturnsShadowedVersionAfterShadow(t *testing.T) {
 
 // region Shadow
 
-func TestCatalog_Shadow_StampsOriginAndID(t *testing.T) {
+func TestCatalog_Shadow_StampsProducerAndID(t *testing.T) {
 
 	c := NewResourceCatalog()
 	r := newFake("file:///etc/foo", 0, "")
@@ -106,22 +106,22 @@ func TestCatalog_Shadow_StampsOriginAndID(t *testing.T) {
 	if r.ID() != id {
 		t.Fatalf("Shadow: want ID %q stamped, got %q", id, r.ID())
 	}
-	if r.OriginID() != "node-A" {
-		t.Fatalf("Shadow: want originID node-A, got %q", r.OriginID())
+	if r.ProducerID() != "node-A" {
+		t.Fatalf("Shadow: want producerID node-A, got %q", r.ProducerID())
 	}
 }
 
-func TestCatalog_Shadow_RejectsEmptyOrigin(t *testing.T) {
+func TestCatalog_Shadow_RejectsEmptyProducer(t *testing.T) {
 
 	c := NewResourceCatalog()
 	r := newFake("file:///etc/foo", 0, "")
 
 	if _, err := c.Shadow(r, ""); err == nil {
-		t.Fatalf("Shadow with empty origin: want error, got nil")
+		t.Fatalf("Shadow with empty producer: want error, got nil")
 	}
 }
 
-func TestCatalog_Shadow_ConflictOnDifferentOrigin(t *testing.T) {
+func TestCatalog_Shadow_ConflictOnDifferentProducer(t *testing.T) {
 
 	c := NewResourceCatalog()
 	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
@@ -130,21 +130,21 @@ func TestCatalog_Shadow_ConflictOnDifferentOrigin(t *testing.T) {
 
 	_, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-B")
 	if err == nil {
-		t.Fatalf("second Shadow with different origin: want error, got nil")
+		t.Fatalf("second Shadow with different producer: want error, got nil")
 	}
 	if !strings.Contains(err.Error(), "conflict") {
 		t.Fatalf("second Shadow: want error mentioning conflict, got %q", err.Error())
 	}
 }
 
-func TestCatalog_Shadow_SameOriginAllowed(t *testing.T) {
+func TestCatalog_Shadow_SameProducerAllowed(t *testing.T) {
 
 	c := NewResourceCatalog()
 	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
 		t.Fatalf("first Shadow: %v", err)
 	}
 	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
-		t.Fatalf("second Shadow with same origin: %v", err)
+		t.Fatalf("second Shadow with same producer: %v", err)
 	}
 }
 
@@ -189,17 +189,17 @@ func TestCatalog_Transition_CopiesMetadataInPlace(t *testing.T) {
 		t.Fatalf("Transition must copy metadata in place: got Size=%d Checksum=%q",
 			pending.Size, pending.Checksum)
 	}
-	// Catalog identity must be preserved: the ledger id and the claimed origin stay put so downstream
+	// Catalog identity must be preserved: the ledger id and the claimed producer stay put so downstream
 	// Lookups and lineage are intact.
 	if pending.ID() != pendingID {
 		t.Fatalf("Transition must preserve id: want %q, got %q", pendingID, pending.ID())
 	}
-	if pending.OriginID() != "node-A" {
-		t.Fatalf("Transition must preserve originID: want node-A, got %q", pending.OriginID())
+	if pending.ProducerID() != "node-A" {
+		t.Fatalf("Transition must preserve producerID: want node-A, got %q", pending.ProducerID())
 	}
 }
 
-func TestCatalog_Transition_RejectsOriginMismatch(t *testing.T) {
+func TestCatalog_Transition_RejectsProducerMismatch(t *testing.T) {
 
 	c := NewResourceCatalog()
 	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
@@ -208,10 +208,10 @@ func TestCatalog_Transition_RejectsOriginMismatch(t *testing.T) {
 
 	err := c.Transition(newFake("file:///etc/foo", 1, "x"), "node-B")
 	if err == nil {
-		t.Fatalf("Transition with wrong origin: want error, got nil")
+		t.Fatalf("Transition with wrong producer: want error, got nil")
 	}
-	if !strings.Contains(err.Error(), "origin mismatch") {
-		t.Fatalf("Transition error: want 'origin mismatch', got %q", err.Error())
+	if !strings.Contains(err.Error(), "producer mismatch") {
+		t.Fatalf("Transition error: want 'producer mismatch', got %q", err.Error())
 	}
 }
 
@@ -300,7 +300,7 @@ func TestCatalog_DiscoveryURIs(t *testing.T) {
 
 // region ExtractResource
 
-func TestExtractResource_PointerResourceWithOrigin(t *testing.T) {
+func TestExtractResource_PointerResourceWithProducer(t *testing.T) {
 
 	c := NewResourceCatalog()
 	r := newFake("file:///etc/foo", 0, "")
@@ -331,21 +331,21 @@ func TestExtractResource_NilAndNonResource(t *testing.T) {
 	}
 }
 
-func TestExtractResource_MapWithOriginID(t *testing.T) {
+func TestExtractResource_MapWithProducerID(t *testing.T) {
 
-	m := map[string]any{"origin_id": "node-X"}
-	origin, ok := ExtractResource(m)
-	if !ok || origin != "node-X" {
-		t.Fatalf("ExtractResource(map): ok=%v origin=%q, want true/node-X", ok, origin)
+	m := map[string]any{"producer_id": "node-X"}
+	producer, ok := ExtractResource(m)
+	if !ok || producer != "node-X" {
+		t.Fatalf("ExtractResource(map): ok=%v producer=%q, want true/node-X", ok, producer)
 	}
 }
 
 func TestExtractResource_MapWithNestedResourceBase(t *testing.T) {
 
-	m := map[string]any{"resource_base": map[string]any{"origin_id": "node-Y"}}
-	origin, ok := ExtractResource(m)
-	if !ok || origin != "node-Y" {
-		t.Fatalf("ExtractResource(nested): ok=%v origin=%q, want true/node-Y", ok, origin)
+	m := map[string]any{"resource_base": map[string]any{"producer_id": "node-Y"}}
+	producer, ok := ExtractResource(m)
+	if !ok || producer != "node-Y" {
+		t.Fatalf("ExtractResource(nested): ok=%v producer=%q, want true/node-Y", ok, producer)
 	}
 }
 

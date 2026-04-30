@@ -284,13 +284,13 @@ func TestResource_CanConvert_BytesAndString(t *testing.T) {
 
 	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "cfg", Data: []byte("x")})
 
-	if !r.CanConvert(reflect.TypeFor[[]byte]()) {
+	if !r.CanConvertTo(reflect.TypeFor[[]byte]()) {
 		t.Error("CanConvert([]byte) = false, want true")
 	}
-	if !r.CanConvert(reflect.TypeFor[string]()) {
+	if !r.CanConvertTo(reflect.TypeFor[string]()) {
 		t.Error("CanConvert(string) = false, want true")
 	}
-	if r.CanConvert(reflect.TypeFor[int]()) {
+	if r.CanConvertTo(reflect.TypeFor[int]()) {
 		t.Error("CanConvert(int) = true, want false")
 	}
 }
@@ -302,7 +302,7 @@ func TestResource_Convert_ToBytes(t *testing.T) {
 
 	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "cfg", Data: content})
 
-	got, err := r.Convert(reflect.TypeFor[[]byte]())
+	got, err := r.ConvertTo(reflect.TypeFor[[]byte]())
 	if err != nil {
 		t.Fatalf("Convert([]byte): %v", err)
 	}
@@ -323,7 +323,7 @@ func TestResource_Convert_ToString(t *testing.T) {
 
 	r := newRes(t, ctx, ResourceSpec{ContentType: "template", Name: "t", Data: content})
 
-	got, err := r.Convert(reflect.TypeFor[string]())
+	got, err := r.ConvertTo(reflect.TypeFor[string]())
 	if err != nil {
 		t.Fatalf("Convert(string): %v", err)
 	}
@@ -343,7 +343,7 @@ func TestResource_Convert_UnsupportedTarget(t *testing.T) {
 
 	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "cfg", Data: []byte("x")})
 
-	if _, err := r.Convert(reflect.TypeFor[int]()); err == nil {
+	if _, err := r.ConvertTo(reflect.TypeFor[int]()); err == nil {
 		t.Fatal("Convert(int) should error — not a supported target")
 	}
 }

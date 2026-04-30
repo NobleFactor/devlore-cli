@@ -20,12 +20,12 @@ import (
 // holders of the pointer see the updated fields. The ledger's append-only property refers to the sequence of
 // distinct resources, not to the mutability of their metadata.
 //
-// Three observable states, derived from an entry's origin and metadata:
+// Three observable states, derived from an entry's producer and metadata:
 //
-//   - Unresolved: originID == "", metadata empty. A discovery entry created when the planner first sees a URI
+//   - Unresolved: producerID == "", metadata empty. A discovery entry created when the planner first sees a URI
 //     via [ResourceCatalog.Resolve]. The executor's preflight pass stats the target and populates metadata
 //     in place.
-//   - Pending: originID != "", metadata empty. A shadow entry created when a node's Planned companion
+//   - Pending: producerID != "", metadata empty. A shadow entry created when a node's Planned companion
 //     constructs the identity of a resource the node will produce. [ResourceCatalog.Transition] populates its
 //     metadata in place after the forward method runs.
 //   - Resolved: metadata populated. Reached by preflight (from Unresolved) or by [ResourceCatalog.Transition]
@@ -68,7 +68,7 @@ func NewResourceCatalog() *ResourceCatalog {
 // Resource type itself — the concrete type flows in from the caller.
 //
 // Resolve is the link-time lookup operation: planner dispatches use it to convert typed-but-unresolved inputs
-// into the catalog's canonical entries, picking up any `originID` that a producer has already stamped and so
+// into the catalog's canonical entries, picking up any `producerID` that a producer has already stamped and so
 // creating implicit edges via URI matching.
 //
 // Parameters:
@@ -110,7 +110,7 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 //
 // GetOrCreate is the wrong tool for forward-method outputs — those flow through the plan-time
 // [ResourceCatalog.Shadow] / post-dispatch [ResourceCatalog.Transition] path. Mixing the two write
-// paths corrupts originID tracking. Use GetOrCreate for read-or-discover; let the executor handle
+// paths corrupts producerID tracking. Use GetOrCreate for read-or-discover; let the executor handle
 // production.
 //
 // Parameters:
@@ -149,8 +149,8 @@ func (c *ResourceCatalog) GetOrCreate(uri string, factory func() (Resource, erro
 // Link is a thin convenience over [ResourceCatalog.Resolve] for callers that only need the linked Resource —
 // notably the slot-fill path in [starlarkbridge.NodeBuilder] and the rehydration path in plan.load (step 16).
 // Behavior matches Resolve exactly: first sighting of a URI catalogs the input as a discovery entry; subsequent
-// sightings discard the input in favor of the canonical entry, which may already carry an originID stamped by
-// a producer node's Planned companion. The originID stays on the returned Resource for downstream consumers to
+// sightings discard the input in favor of the canonical entry, which may already carry a producerID stamped by
+// a producer node's Planned companion. The producerID stays on the returned Resource for downstream consumers to
 // observe (extracted via [ExtractResource] at plan.run materialization to derive producer→consumer edges).
 //
 // Parameters:
@@ -164,49 +164,49 @@ func (c *ResourceCatalog) Link(resource Resource) Resource {
 	return linked
 }
 
-// Shadow catalogs a new resource version under the given origin and updates the namespace to point to it.
+// Shadow catalogs a new resource version under the given producer and updates the namespace to point to it.
 //
 // Shadow is the plan-time output registration operation: a node's Planned companion constructs the identity
 // of the resource the node will produce, and the planner hands that identity to Shadow so subsequent
 // [ResourceCatalog.Resolve] calls for the same URI return the shadowed version — wiring downstream readers
-// to the producer via the stamped `originID`.
+// to the producer via the stamped `producerID`.
 //
-// Write-write conflict detection: if the URI is already shadowed by a different non-empty origin, Shadow
+// Write-write conflict detection: if the URI is already shadowed by a different non-empty producer, Shadow
 // returns an error. Two nodes targeting the same output URI collide immediately with a clear error. Discovery
-// entries (empty origin) are silently superseded. Re-shadowing with the same origin is permitted so the
+// entries (empty producer) are silently superseded. Re-shadowing with the same producer is permitted so the
 // executor's post-dispatch [ResourceCatalog.Transition] does not have to fight the conflict check.
 //
 // Parameters:
 //   - r: the resource whose identity should be shadowed. URI must be set.
-//   - originID: the node ID claiming ownership of the URI. Must not be empty.
+//   - producerID: the node ID claiming ownership of the URI. Must not be empty.
 //
 // Returns:
 //   - string: the catalog ID assigned to the newly-shadowed entry.
-//   - error: non-nil if another origin already shadows the same URI.
-func (c *ResourceCatalog) Shadow(r Resource, originID string) (string, error) {
+//   - error: non-nil if another producer already shadows the same URI.
+func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if originID == "" {
-		return "", fmt.Errorf("shadow: originID must not be empty")
+	if producerID == "" {
+		return "", fmt.Errorf("shadow: producerID must not be empty")
 	}
 
 	uri := r.URI()
 
 	if existingID, ok := c.ns[uri]; ok {
 		if idx, ok := c.byID[existingID]; ok {
-			existingOrigin := c.entries[idx].resourceBase().originID
-			if existingOrigin != "" && existingOrigin != originID {
+			existingProducer := c.entries[idx].resourceBase().producerID
+			if existingProducer != "" && existingProducer != producerID {
 				return "", fmt.Errorf(
 					"resource conflict: URI %q is targeted by both %q and %q",
-					uri, existingOrigin, originID,
+					uri, existingProducer, producerID,
 				)
 			}
 		}
 	}
 
-	return c.catalogLocked(r, originID), nil
+	return c.catalogLocked(r, producerID), nil
 }
 
 // Transition fills the metadata of a pending entry with the metadata from the resolved resource returned by a
@@ -214,8 +214,8 @@ func (c *ResourceCatalog) Shadow(r Resource, originID string) (string, error) {
 //
 // Called by the executor's post-dispatch pass after the forward method returns. The pending entry — created
 // at plan time by [ResourceCatalog.Shadow] via the Planned companion — is located by resolved's URI. The
-// origin must match: only the node that shadowed the URI may transition it. The catalog's identity fields
-// (`id`, `originID`) on the pending entry are preserved; every other field is overwritten by a struct copy
+// producer must match: only the node that shadowed the URI may transition it. The catalog's identity fields
+// (`id`, `producerID`) on the pending entry are preserved; every other field is overwritten by a struct copy
 // from resolved via reflection.
 //
 // The mutation is in place: the interface value in the ledger and every outstanding pointer held by slots,
@@ -224,18 +224,18 @@ func (c *ResourceCatalog) Shadow(r Resource, originID string) (string, error) {
 // Parameters:
 //   - resolved: the fully-populated resource returned by the forward method. Its URI must match an existing
 //     pending entry, and its concrete type must match the pending entry's concrete type.
-//   - originID: the node ID that claimed the URI at plan time. Must equal the pending entry's `originID`.
+//   - producerID: the node ID that claimed the URI at plan time. Must equal the pending entry's `producerID`.
 //
 // Returns:
-//   - error: non-nil if the URI is unknown, the entry has been removed, the origin does not match, or the
+//   - error: non-nil if the URI is unknown, the entry has been removed, the producer does not match, or the
 //     concrete types differ.
-func (c *ResourceCatalog) Transition(resolved Resource, originID string) error {
+func (c *ResourceCatalog) Transition(resolved Resource, producerID string) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if originID == "" {
-		return fmt.Errorf("transition: originID must not be empty")
+	if producerID == "" {
+		return fmt.Errorf("transition: producerID must not be empty")
 	}
 
 	uri := resolved.URI()
@@ -253,14 +253,14 @@ func (c *ResourceCatalog) Transition(resolved Resource, originID string) error {
 	existing := c.entries[idx]
 	existingBase := existing.resourceBase()
 
-	if existingBase.originID == "" {
+	if existingBase.producerID == "" {
 		return fmt.Errorf("transition: entry %q for URI %q is a discovery, not a pending shadow", id, uri)
 	}
 
-	if existingBase.originID != originID {
+	if existingBase.producerID != producerID {
 		return fmt.Errorf(
-			"transition: origin mismatch for URI %q: entry owned by %q, transition requested by %q",
-			uri, existingBase.originID, originID,
+			"transition: producer mismatch for URI %q: entry owned by %q, transition requested by %q",
+			uri, existingBase.producerID, producerID,
 		)
 	}
 
@@ -283,8 +283,8 @@ func (c *ResourceCatalog) Transition(resolved Resource, originID string) error {
 	existingVal.Elem().Set(resolvedVal.Elem())
 
 	// Restore the catalog identity. The resolved resource from the forward method may not have the catalog's
-	// id/originID stamped (if it came from a fresh construction path); preserving them ensures that Lookup by
-	// id continues to work and that shadowing lineage is not erased.
+	// id/producerID stamped (if it came from a fresh construction path); preserving them ensures that Lookup
+	// by id continues to work and that shadowing lineage is not erased.
 	*existingBase = preservedBase
 
 	return nil
@@ -338,7 +338,7 @@ func (c *ResourceCatalog) Len() int {
 	return len(c.entries)
 }
 
-// DiscoveryURIs returns the URIs of catalog entries that were cataloged as discoveries (originID == "") and
+// DiscoveryURIs returns the URIs of catalog entries that were cataloged as discoveries (producerID == "") and
 // are still authoritative for their URI.
 //
 // A URI whose current entry has been shadowed by a producer is excluded — that URI is an output, not an
@@ -358,7 +358,7 @@ func (c *ResourceCatalog) DiscoveryURIs() []string {
 		if !ok {
 			continue
 		}
-		if c.entries[idx].resourceBase().originID == "" {
+		if c.entries[idx].resourceBase().producerID == "" {
 			uris = append(uris, uri)
 		}
 	}
@@ -369,30 +369,27 @@ func (c *ResourceCatalog) DiscoveryURIs() []string {
 
 // endregion
 
-// resourceInterfaceType is cached for [ExtractResource]'s pointer-reachability check.
-var resourceInterfaceType = reflect.TypeOf((*Resource)(nil)).Elem()
-
-// ExtractResource reports whether v carries resource identity and, if so, returns its origin node ID.
+// ExtractResource reports whether v carries resource identity and, if so, returns its producer node ID.
 //
 // Used by the planner's promise-filling path to create implicit edges: when a slot value is a resource whose
-// URI was produced by another node (non-empty originID), the planner adds an edge from the producer to the
+// URI was produced by another node (non-empty producerID), the planner adds an edge from the producer to the
 // consumer even though the developer never wired it explicitly.
 //
 // Three forms are accepted:
 //
 //   - Values that implement [Resource] directly (pointer receivers, the common case).
 //   - Struct values whose pointer type implements [Resource] — provider methods that return resources by
-//     value rather than pointer. A temporary addressable copy is created to read the origin.
-//   - map[string]any decoded from an unmarshaled starlark struct, with an "origin_id" key (optionally nested
+//     value rather than pointer. A temporary addressable copy is created to read the producerID.
+//   - map[string]any decoded from an unmarshaled starlark struct, with a "producer_id" key (optionally nested
 //     under "resource_base").
 //
 // Parameters:
 //   - v: any value.
 //
 // Returns:
-//   - string: the originID extracted from v, or "" if v carries no resource identity.
-//   - bool: true if originID is non-empty.
-func ExtractResource(v any) (originID string, ok bool) {
+//   - string: the producerID extracted from v, or "" if v carries no resource identity.
+//   - bool: true if producerID is non-empty.
+func ExtractResource(v any) (producerID string, ok bool) {
 
 	if v == nil {
 		return "", false
@@ -400,8 +397,8 @@ func ExtractResource(v any) (originID string, ok bool) {
 
 	// Interface match — pointer receivers.
 	if r, isResource := v.(Resource); isResource {
-		origin := r.resourceBase().originID
-		return origin, origin != ""
+		producer := r.resourceBase().producerID
+		return producer, producer != ""
 	}
 
 	// Struct value whose pointer type satisfies Resource.
@@ -410,18 +407,18 @@ func ExtractResource(v any) (originID string, ok bool) {
 		ptr := reflect.New(rv.Type())
 		ptr.Elem().Set(rv)
 		r := ptr.Interface().(Resource)
-		origin := r.resourceBase().originID
-		return origin, origin != ""
+		producer := r.resourceBase().producerID
+		return producer, producer != ""
 	}
 
 	// map[string]any decoded from a starlark struct.
 	if m, isMap := v.(map[string]any); isMap {
-		if origin, _ := m["origin_id"].(string); origin != "" {
-			return origin, true
+		if producer, _ := m["producer_id"].(string); producer != "" {
+			return producer, true
 		}
 		if nested, nestedOK := m["resource_base"].(map[string]any); nestedOK {
-			if origin, _ := nested["origin_id"].(string); origin != "" {
-				return origin, true
+			if producer, _ := nested["producer_id"].(string); producer != "" {
+				return producer, true
 			}
 		}
 	}
@@ -431,23 +428,23 @@ func ExtractResource(v any) (originID string, ok bool) {
 
 // region HELPER FUNCTIONS
 
-// catalogLocked appends r to the ledger, stamps its catalog id and originID on the embedded ResourceBase,
+// catalogLocked appends r to the ledger, stamps its catalog id and producerID on the embedded ResourceBase,
 // and updates the URI namespace to point to the new entry. Caller must hold c.mu.
 //
 // Parameters:
 //   - r: the resource to catalog.
-//   - originID: the origin to stamp on r's ResourceBase. Empty for discoveries, set for shadows.
+//   - producerID: the producer to stamp on r's ResourceBase. Empty for discoveries, set for shadows.
 //
 // Returns:
 //   - string: the catalog ID assigned to the new entry.
-func (c *ResourceCatalog) catalogLocked(r Resource, originID string) string {
+func (c *ResourceCatalog) catalogLocked(r Resource, producerID string) string {
 
 	c.nextID++
 	id := fmt.Sprintf("res-%d", c.nextID)
 
 	base := r.resourceBase()
 	base.id = id
-	base.originID = originID
+	base.producerID = producerID
 
 	c.byID[id] = len(c.entries)
 	c.entries = append(c.entries, r)

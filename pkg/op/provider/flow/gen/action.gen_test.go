@@ -20,7 +20,7 @@ func TestActionNames(t *testing.T) {
 		"flow.complete",
 		"flow.degraded",
 		"flow.elevate",
-		"flow.fatal",
+		"flow.failed",
 		"flow.gather",
 		"flow.subgraph",
 		"flow.wait_until",
@@ -41,7 +41,7 @@ func TestRegister(t *testing.T) {
 		"flow.complete",
 		"flow.degraded",
 		"flow.elevate",
-		"flow.fatal",
+		"flow.failed",
 		"flow.gather",
 		"flow.subgraph",
 		"flow.wait_until",
@@ -143,10 +143,10 @@ func TestElevateAction_DryRun(t *testing.T) {
 	}
 }
 
-func TestFatalAction_DryRun(t *testing.T) {
+func TestFailedAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.fatal")
+	action := getAction(t, reg, "flow.failed")
 	ctx := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
@@ -161,8 +161,8 @@ func TestFatalAction_DryRun(t *testing.T) {
 	}
 
 	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] flow.fatal") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] flow.fatal")
+	if !strings.Contains(output, "[dry-run] flow.failed") {
+		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] flow.failed")
 	}
 }
 
@@ -247,6 +247,12 @@ func TestGatherAction_CompensableInterface(t *testing.T) {
 	_ = getCompensable(t, reg, "flow.gather")
 }
 
+func TestSubgraphAction_CompensableInterface(t *testing.T) {
+
+	reg := makeRegistry(t)
+	_ = getCompensable(t, reg, "flow.subgraph")
+}
+
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
@@ -255,6 +261,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	names := []string{
 		"flow.choose",
 		"flow.gather",
+		"flow.subgraph",
 	}
 
 	for _, name := range names {

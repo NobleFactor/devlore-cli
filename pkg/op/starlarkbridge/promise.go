@@ -130,7 +130,7 @@ func (p *Promise) Attr(name string) (starlark.Value, error) {
 		case starlark.Value:
 			return v, nil
 		default:
-			return nil, fmt.Errorf("slot %q: unsupported Go type %T", name, slotVal)
+			return nil, fmt.Errorf("slot %q: cannot represent %T as a starlark value", name, slotVal)
 		}
 	}
 }
@@ -162,28 +162,24 @@ func (p *Promise) FillSlot(consumer *op.Node, slot string) {
 	consumer.SetSlot(slot, op.PromiseValue{NodeRef: p.node.ID(), Slot: p.slot})
 }
 
-// Unmarshal projects this promise onto a Go target. For a *Promise target
-// the pointer is stored directly; for a PromiseValue target the slot-ref
-// shape is stored; for any other target it errors — promises are not
-// directly resolvable to Go scalar types at plan time.
-func (p *Promise) Unmarshal(target reflect.Value) error {
+// Project returns the Promise rendered for the given target type. For a *Promise or interface{} target the
+// Promise itself is returned; for an op.PromiseValue target the slot-ref shape is returned; for any other
+// target it errors — promises are not directly resolvable to Go scalar types at plan time.
+func (p *Promise) Project(target reflect.Type) (any, error) {
 
-	promiseType := reflect.TypeOf((*Promise)(nil))
-	promiseValueType := reflect.TypeOf(op.PromiseValue{})
+	promiseType := reflect.TypeFor[*Promise]()
+	promiseValueType := reflect.TypeFor[op.PromiseValue]()
 
 	if target.Kind() == reflect.Interface {
-		target.Set(reflect.ValueOf(p))
-		return nil
+		return p, nil
 	}
-	if target.Type() == promiseType {
-		target.Set(reflect.ValueOf(p))
-		return nil
+	if target == promiseType {
+		return p, nil
 	}
-	if target.Type() == promiseValueType {
-		target.Set(reflect.ValueOf(op.PromiseValue{NodeRef: p.node.ID(), Slot: p.slot}))
-		return nil
+	if target == promiseValueType {
+		return op.PromiseValue{NodeRef: p.node.ID(), Slot: p.slot}, nil
 	}
-	return fmt.Errorf("unmarshal: cannot assign Promise to %s (promises resolve at execute time)", target.Type())
+	return nil, fmt.Errorf("cannot project Promise to %s (promises resolve at execute time)", target)
 }
 
 // Freeze implements starlark.Value.
@@ -194,7 +190,7 @@ func (p *Promise) Freeze() {}
 // Returns:
 //   - uint32: unused, always 0.
 //   - error: always non-nil (Promise is unhashable).
-func (p *Promise) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: Promise") }
+func (p *Promise) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: Promise") }
 
 // String implements starlark.Value.
 //
@@ -249,7 +245,7 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 
 	if maxAttempts < 0 {
-		return nil, fmt.Errorf("retry: max_attempts must be non-negative, got %d", maxAttempts)
+		return nil, fmt.Errorf("retry(): max_attempts must be non-negative, got %d", maxAttempts)
 	}
 
 	policy := &op.RetryPolicy{
@@ -265,7 +261,7 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 		case "exponential":
 			policy.Backoff = op.BackoffExponential
 		default:
-			return nil, fmt.Errorf("retry: unknown backoff %q (use none, linear, exponential)", backoff)
+			return nil, fmt.Errorf("retry(): unknown backoff %q (use none, linear, or exponential)", backoff)
 		}
 	}
 

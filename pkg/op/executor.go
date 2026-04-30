@@ -465,7 +465,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 
 		var catErr error
 		if pendingID := catalog.Current(resource.URI()); pendingID != "" {
-			if pending, ok := catalog.Lookup(pendingID); ok && pending.resourceBase().originID == node.ID() {
+			if pending, ok := catalog.Lookup(pendingID); ok && pending.resourceBase().producerID == node.ID() {
 				catErr = catalog.Transition(resource, node.ID())
 			} else {
 				_, catErr = catalog.Shadow(resource, node.ID())

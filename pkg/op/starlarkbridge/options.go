@@ -12,7 +12,7 @@ import (
 // Zero values mean "use the default": an empty Label triggers auto-labeling via [InvocationRegistry.AutoLabel]; a nil
 // RetryPolicy means no retry. Options is constructed by the plan provider's Options method (exposed to starlark as
 // plan.options(...)) and passed into a plan-mode dispatch via the reserved `options` kwarg. It is a pure Go data
-// struct — flow through starlark is handled by the generic receiver marshaling path.
+// struct — flow through starlark is handled by the generic [starlark.Value]  marshaling path.
 type Options struct {
 	Label       string
 	RetryPolicy *op.RetryPolicy

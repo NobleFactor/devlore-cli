@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-
-	"go.starlark.net/starlark"
 )
 
 // stringType is the cached [reflect.Type] of the Go string type, consulted by [ResourceBase.CanConvert] and
@@ -39,21 +37,21 @@ type Resource interface {
 
 // ResourceBase holds the identity fields common to all resources.
 //
-// ReceiverType-specific resource receiverTypes must embed it by value. The uri, specific, and typeID fields are
-// set at construction via [NewResourceBase]: uri is the minted canonical tag URI, specific is the scheme-specific
-// identity payload, typeID is the canonical Go type id of the concrete Resource type. The id and originID fields
-// are stamped by the [ResourceCatalog] when the resource is cataloged; they are not a concern of the resource
-// itself.
+// ReceiverType-specific resource receiverTypes must embed it by value. The uri, specific, and typeID fields are set at
+// construction via [NewResourceBase]: uri is the minted canonical tag URI, specific is the scheme-specific identity
+// payload, typeID is the canonical Go type id of the concrete Resource type. The id and producerID fields are stamped
+// by the [ResourceCatalog] when the resource is cataloged; they are not a concern of the resource itself.
 type ResourceBase struct {
 	ProviderBase
-	uri      string
-	specific string
-	typeID   string
-	id       string
-	originID string
+	id         string
+	uri        string
+	specific   string
+	producerID string
+	typeID     string
 }
 
-// NewResourceBase constructs a ResourceBase whose identity is the canonical tag URI
+// NewResourceBase constructs a ResourceBase whose identity is the canonical tag URI.
+//
 // tag:devlore.noblefactor.com,2026-01-01:<specific>#<typeID>, where <typeID> is goType's canonical Go type id
 // (PkgPath() + "." + Name()). Pointer types are normalized to their element.
 //
@@ -97,7 +95,7 @@ func NewResourceBase(ctx *ExecutionContext, specific string, goType reflect.Type
 //   - s: the URI to parse.
 //
 // Returns:
-//   - specific: the scheme-specific payload (may be empty).
+//   - specific: the scheme-specific payload (this may be empty and indicates that it's unknown at the moment).
 //   - typeID: the fragment — the canonical Go type id of the Resource type.
 //   - err: non-nil on any syntactic defect.
 func ExtractTagSpecific(s string) (specific, typeID string, err error) {
@@ -188,9 +186,9 @@ func (b *ResourceBase) ID() string {
 	return b.id
 }
 
-// OriginID returns the catalog-stamped origin node ID.
-func (b *ResourceBase) OriginID() string {
-	return b.originID
+// ProducerID returns the catalog-stamped producer node ID.
+func (b *ResourceBase) ProducerID() string {
+	return b.producerID
 }
 
 // Format marshals value as compact JSON.
@@ -205,7 +203,7 @@ func (b *ResourceBase) Format(value any) string {
 	return string(data)
 }
 
-// CanConvert reports whether this resource can project itself into the given target Go type.
+// CanConvertTo reports whether this resource can project itself into the given target Go type.
 //
 // The baseline projection is URI → string: any ResourceBase knows how to produce its URI as a Go string. Concrete
 // Resource types extend this by overriding [ResourceBase.CanConvert] to accept additional targets (e.g., a
@@ -216,11 +214,11 @@ func (b *ResourceBase) Format(value any) string {
 //
 // Returns:
 //   - bool: true if target is the Go string type; false otherwise.
-func (b *ResourceBase) CanConvert(target reflect.Type) bool {
+func (b *ResourceBase) CanConvertTo(target reflect.Type) bool {
 	return target == stringType
 }
 
-// Convert projects this resource into the given target Go type.
+// ConvertTo projects this resource into the given target Go type.
 //
 // The baseline projection is URI → string, matching [ResourceBase.CanConvert]. Concrete Resource types that
 // recognize additional targets override [ResourceBase.Convert] and delegate to this method for the string case.
@@ -231,7 +229,7 @@ func (b *ResourceBase) CanConvert(target reflect.Type) bool {
 // Returns:
 //   - any: the resource's URI (as a Go string) when target is string.
 //   - error: non-nil if target is not a conversion this base recognizes.
-func (b *ResourceBase) Convert(target reflect.Type) (any, error) {
+func (b *ResourceBase) ConvertTo(target reflect.Type) (any, error) {
 
 	if target == stringType {
 		return b.uri, nil
@@ -287,18 +285,6 @@ func (b *ResourceBase) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.uri)
 }
 
-// MarshalStarlark projects the resource as a starlark value — the URI as a [starlark.String].
-//
-// Callers on the starlark side receive a string whose text is the canonical URI. Round-trip through
-// [UnmarshalStarlark] (implemented per concrete Resource type) reconstructs an equivalent resource.
-//
-// Returns:
-//   - starlark.Value: a [starlark.String] containing the resource's URI.
-//   - error: nil under normal conditions; included to satisfy the [starlarkbridge.Marshaler] interface.
-func (b *ResourceBase) MarshalStarlark() (starlark.Value, error) {
-	return starlark.String(b.uri), nil
-}
-
 // MarshalText marshals the resource to its text wire form, which is the URI as raw UTF-8 bytes.
 //
 // The text form is consumed by stdlib encoders ([encoding/json] for map keys, [encoding/xml] for attributes), YAML
@@ -332,7 +318,7 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 // the confined root via ExecutionContext().Root.
 func (b *ResourceBase) Resolve() error { return nil }
 
-// resourceBase returns a pointer to the embedded ResourceBase, allowing the catalog to stamp id and originID.
+// resourceBase returns a pointer to the embedded ResourceBase, allowing the catalog to stamp id and producerID.
 //
 // This method seals the Resource interface.
 func (b *ResourceBase) resourceBase() *ResourceBase {
