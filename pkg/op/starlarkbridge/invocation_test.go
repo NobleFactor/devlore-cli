@@ -21,9 +21,9 @@ func makeInvocation(t *testing.T, label string) *Invocation {
 	node.Receiver = "file.write_text"
 
 	return &Invocation{
-		Label:  label,
-		Target: node,
-		Result: NewPromise(node, ""),
+		Label:   label,
+		Target:  node,
+		Promise: NewPromise(node, ""),
 	}
 }
 
@@ -134,8 +134,8 @@ func TestInvocation_Project_ToPromisePointer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
-	if got != inv.Result {
-		t.Errorf("got = %p, want %p", got, inv.Result)
+	if got != inv.Promise {
+		t.Errorf("got = %p, want %p", got, inv.Promise)
 	}
 }
 

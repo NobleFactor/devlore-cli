@@ -18,20 +18,20 @@ var (
 
 // Invocation is the handle dispatch constructs for every plan.* call and the starlark value every plan.* call
 // returns to the author. It carries both representations a binding site may need: Target is the op-level unit
-// the invocation will dispatch (an [op.Node] or [op.Subgraph]); Result is the Promise to the invocation's
+// the invocation will dispatch (an [op.Node] or [op.Subgraph]); Promise is the Promise to the invocation's
 // value-side output.
 //
 // Per phase-8 D2, the binding layer picks which field to use based on the target parameter's type at the
-// binding site — slots typed [op.ExecutableUnit] consume Target; value-typed slots consume Result and the
+// binding site — slots typed [op.ExecutableUnit] consume Target; value-typed slots consume Promise and the
 // resulting slot PromiseValue carries the producer's NodeRef for plan.run to materialize into an edge.
 //
 // Attribute access on an Invocation delegates to the wrapped Promise so the starlark surface matches what
 // callers saw before dispatch switched its return type from *Promise to *Invocation — same node slots,
 // node_id, slot, retry, and per-slot value lookups.
 type Invocation struct {
-	Label  string            // registry label under which this invocation is registered (user-supplied or auto-generated)
-	Target op.ExecutableUnit // op-level unit that will dispatch when executed
-	Result *Promise          // Promise for the invocation's value-side output
+	Label   string            // label under which this invocation is registered (user-supplied or auto-generated)
+	Target  op.ExecutableUnit // workflow-level unit that will dispatch when executed
+	Promise *Promise          // promise for the invocation's value-side output
 }
 
 // region EXPORTED METHODS
@@ -45,8 +45,8 @@ func (i *Invocation) Freeze() {}
 
 // Hash implements starlark.Value.
 //
-// Invocations are unhashable because the wrapped Promise references a Node whose slots may accumulate
-// bindings as the script evaluates. Callers that need a map-keyable identity should use [Invocation.Label].
+// Invocations are unhashable because the wrapped Promise references a Node whose slots may accumulate bindings as the
+// script evaluates. Callers that need a map-keyable identity should use [Invocation.Label].
 //
 // Returns:
 //   - uint32: unused, always 0.
@@ -61,7 +61,6 @@ func (i *Invocation) Hash() (uint32, error) {
 // Returns:
 //   - string: a diagnostic representation identifying the invocation by its registered label.
 func (i *Invocation) String() string {
-
 	return fmt.Sprintf("Invocation(%s)", i.Label)
 }
 
@@ -102,14 +101,14 @@ func (i *Invocation) Type() string {
 //   - error: non-nil if the attribute does not exist on the Promise.
 func (i *Invocation) Attr(name string) (starlark.Value, error) {
 
-	return i.Result.Attr(name)
+	return i.Promise.Attr(name)
 }
 
 // Project returns the Invocation rendered for the given target type.
 //
 // Accepted targets:
 //   - *Invocation: returns this pointer directly.
-//   - *Promise: returns the wrapped Result.
+//   - *Promise: returns the wrapped Promise.
 //   - [op.PromiseValue]: returns the slot-ref shape (NodeRef + Slot) for direct slot assignment.
 //   - interface{}: returns this pointer directly.
 //
@@ -136,11 +135,11 @@ func (i *Invocation) Project(target reflect.Type) (any, error) {
 	}
 
 	if target == promiseType {
-		return i.Result, nil
+		return i.Promise, nil
 	}
 
 	if target == promiseValueType {
-		return op.PromiseValue{NodeRef: i.Result.node.ID(), Slot: i.Result.slot}, nil
+		return op.PromiseValue{NodeRef: i.Promise.node.ID(), Slot: i.Promise.slot}, nil
 	}
 
 	return nil, fmt.Errorf("cannot project Invocation to %s (invocations resolve at execute time)", target)
@@ -154,7 +153,7 @@ func (i *Invocation) Project(target reflect.Type) (any, error) {
 //   - []string: the attribute names exposed by the wrapped Promise (node slot parameters + node_id / slot / retry).
 func (i *Invocation) AttrNames() []string {
 
-	return i.Result.AttrNames()
+	return i.Promise.AttrNames()
 }
 
 // FillSlot fills a slot on the consumer node with a [op.PromiseValue] referencing this invocation's producer
@@ -169,7 +168,7 @@ func (i *Invocation) AttrNames() []string {
 //   - slot: the slot name to fill on the consumer.
 func (i *Invocation) FillSlot(consumer *op.Node, slot string) {
 
-	i.Result.FillSlot(consumer, slot)
+	i.Promise.FillSlot(consumer, slot)
 }
 
 // endregion

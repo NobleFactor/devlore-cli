@@ -27,7 +27,7 @@ func TestFlowActionsRegistered(t *testing.T) {
 		"flow.wait_until",
 		"flow.complete",
 		"flow.degraded",
-		"flow.fatal",
+		"flow.failed",
 	}
 	for _, name := range want {
 		if _, err := ctx.ActionByName(name); err != nil {

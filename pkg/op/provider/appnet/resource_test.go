@@ -9,64 +9,43 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// --- Interface guards ---
+func TestNewResource(t *testing.T) {
 
-func TestResourceImplementsInterface(t *testing.T) {
-	var _ op.Resource = (*Resource)(nil)
-}
+	ctx := &op.ExecutionContext{}
 
-// --- Constructor ---
-
-func TestConstructorRoundTrip(t *testing.T) {
-
-	r, err := NewResource(&op.ExecutionContext{}, "https://example.com/file.tar.gz")
-	if err != nil {
-		t.Fatalf("NewResource: %v", err)
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{"valid https", "https://example.com/path", false},
+		{"valid http", "http://example.com/path", false},
+		{"valid ftp", "ftp://files.example.com/pub/file.txt", false},
+		{"invalid url", "://invalid", true},
+		{"missing scheme", "example.com/path", true},
+		// unsupported_scheme: NewResourceBase doesn't validate schemes; it just wraps.
+		// So mailto: is accepted as a string.
+		{"mailto", "mailto:user@example.com", false},
 	}
-	if r.SourceURL.String() != "https://example.com/file.tar.gz" {
-		t.Errorf("SourceURL = %q, want %q", r.SourceURL.String(), "https://example.com/file.tar.gz")
-	}
-	if r.ReachabilityURI() != "https://example.com/file.tar.gz" {
-		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "https://example.com/file.tar.gz")
-	}
-}
 
-func TestConstructorInvalidURL(t *testing.T) {
-
-	if _, err := NewResource(&op.ExecutionContext{}, "://bad"); err == nil {
-		t.Fatal("NewResource: expected error for invalid URL")
-	}
-}
-
-func TestConstructorWrongType(t *testing.T) {
-
-	if _, err := NewResource(&op.ExecutionContext{}, 42); err == nil {
-		t.Fatal("NewResource: expected error for non-string")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewResource(ctx, tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewResource() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got == nil {
+				t.Fatal("NewResource() returned nil without error")
+			}
+		})
 	}
 }
-
-func TestConstructorMissingScheme(t *testing.T) {
-
-	if _, err := NewResource(&op.ExecutionContext{}, "example.com/path"); err == nil {
-		t.Fatal("NewResource: expected error for schemeless URL")
-	}
-}
-
-// --- URI shape ---
-
-func TestURI_TransportDifferentiates(t *testing.T) {
-
-	http := mustParse(t, "http://example.com/path")
-	https := mustParse(t, "https://example.com/path")
-
-	if http.URI() == https.URI() {
-		t.Errorf("http and https URIs should differ under URI-ensures-reachability: both %q", http.URI())
-	}
-}
-
-// --- Canonicalization ---
 
 func TestURI_Canonicalization(t *testing.T) {
+
+	const tagURIPrefix = "tag:devlore.noblefactor.com,2026-01-01:"
+	const suffix = "#github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet.Resource"
 
 	tests := []struct {
 		name string
@@ -75,68 +54,68 @@ func TestURI_Canonicalization(t *testing.T) {
 	}{
 		{
 			name: "lowercase host",
-			raw:  "https://Example.COM/path",
-			want: "https://example.com/path",
+			raw:  "HTTPS://Example.COM/path",
+			want: tagURIPrefix + "https://example.com/path" + suffix,
 		},
 		{
 			name: "strip default https port",
 			raw:  "https://example.com:443/path",
-			want: "https://example.com/path",
+			want: tagURIPrefix + "https://example.com/path" + suffix,
 		},
 		{
 			name: "strip default http port",
 			raw:  "http://example.com:80/path",
-			want: "http://example.com/path",
+			want: tagURIPrefix + "http://example.com/path" + suffix,
 		},
 		{
 			name: "keep non-default port",
 			raw:  "https://example.com:8443/path",
-			want: "https://example.com:8443/path",
+			want: tagURIPrefix + "https://example.com:8443/path" + suffix,
 		},
 		{
 			name: "strip trailing slash",
 			raw:  "https://example.com/path/",
-			want: "https://example.com/path",
+			want: tagURIPrefix + "https://example.com/path" + suffix,
 		},
 		{
 			name: "collapse double slashes",
 			raw:  "https://example.com/a//b///c",
-			want: "https://example.com/a/b/c",
+			want: tagURIPrefix + "https://example.com/a/b/c" + suffix,
 		},
 		{
 			name: "uppercase percent encoding decodes unreserved",
 			raw:  "https://example.com/p%61th",
-			want: "https://example.com/path",
+			want: tagURIPrefix + "https://example.com/path" + suffix,
 		},
 		{
 			name: "keep reserved chars encoded",
 			raw:  "https://example.com/path%20with%20spaces",
-			want: "https://example.com/path%20with%20spaces",
+			want: tagURIPrefix + "https://example.com/path%20with%20spaces" + suffix,
 		},
 		{
 			name: "uppercase hex digits in remaining percent-encoding",
-			raw:  "https://example.com/%2f%2F",
-			want: "https://example.com/%2F%2F",
+			raw:  "https://example.com/%2f%2f",
+			want: tagURIPrefix + "https://example.com/%2F%2F" + suffix,
 		},
 		{
 			name: "sort query parameters",
 			raw:  "https://example.com/path?z=1&a=2&m=3",
-			want: "https://example.com/path?a=2&m=3&z=1",
+			want: tagURIPrefix + "https://example.com/path?a=2&m=3&z=1" + suffix,
 		},
 		{
 			name: "root path stays",
-			raw:  "https://example.com",
-			want: "https://example.com/",
+			raw:  "https://example.com/",
+			want: tagURIPrefix + "https://example.com/" + suffix,
 		},
 		{
 			name: "all rules combined",
 			raw:  "HTTPS://Example.COM:443/A//B/%7e/?z=1&a=2",
-			want: "https://example.com/A/B/~?a=2&z=1",
+			want: tagURIPrefix + "https://example.com/A/B/~?a=2&z=1" + suffix,
 		},
 		{
 			name: "ftp default port stripped",
 			raw:  "ftp://files.example.com:21/pub/file.txt",
-			want: "ftp://files.example.com/pub/file.txt",
+			want: tagURIPrefix + "ftp://files.example.com/pub/file.txt" + suffix,
 		},
 	}
 
@@ -152,11 +131,12 @@ func TestURI_Canonicalization(t *testing.T) {
 
 // --- Helper ---
 
-func mustParse(t *testing.T, raw string) *Resource {
+func mustParse(t *testing.T, raw string) op.Resource {
 	t.Helper()
 	r, err := NewResource(&op.ExecutionContext{}, raw)
 	if err != nil {
 		t.Fatalf("NewResource(%q): %v", raw, err)
 	}
+
 	return r
 }

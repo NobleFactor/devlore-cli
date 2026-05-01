@@ -54,8 +54,14 @@ func Convert(ctx *ExecutionContext, value any, target reflect.Type) (any, error)
 		elem = elem.Elem()
 	}
 
-	if elem.Type().AssignableTo(target) {
-		return elem.Interface(), nil
+	if elem.IsValid() {
+		if elem.Type().AssignableTo(target) {
+			return elem.Interface(), nil
+		}
+
+		if elem.Type().ConvertibleTo(target) {
+			return elem.Convert(target).Interface(), nil
+		}
 	}
 
 	if reflect.TypeOf(value).AssignableTo(target) {

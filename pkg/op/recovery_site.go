@@ -56,13 +56,14 @@ func (s *RecoverySite) ArchiveData(data []byte) (string, error) {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
-	recoveryID := recoveryDir + "/" + uuid.Must(uuid.NewV7()).String()
+	id := uuid.Must(uuid.NewV7()).String()
+	recoveryPath := recoveryDir + "/" + id
 
-	if err := s.ctx.Root.WriteFile(s.ctx.Root.NewPath(recoveryID), data, 0o600); err != nil {
+	if err := s.ctx.Root.WriteFile(s.ctx.Root.NewPath(recoveryPath), data, 0o600); err != nil {
 		return "", err
 	}
 
-	return recoveryID, nil
+	return id, nil
 }
 
 // ArchiveFile moves a file to recovery via zero-copy rename.
@@ -86,13 +87,14 @@ func (s *RecoverySite) ArchiveFile(p Path) (string, error) {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
-	recoveryID := recoveryDir + "/" + uuid.Must(uuid.NewV7()).String()
+	id := uuid.Must(uuid.NewV7()).String()
+	recoveryPath := recoveryDir + "/" + id
 
-	if err := s.ctx.Root.Rename(p, s.ctx.Root.NewPath(recoveryID)); err != nil {
+	if err := s.ctx.Root.Rename(p, s.ctx.Root.NewPath(recoveryPath)); err != nil {
 		return "", err
 	}
 
-	return recoveryID, nil
+	return id, nil
 }
 
 // ArchiveStream copies a reader into the recovery directory chunk-by-chunk.
@@ -114,9 +116,10 @@ func (s *RecoverySite) ArchiveStream(r io.Reader) (_ string, err error) {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
-	recoveryID := recoveryDir + "/" + uuid.Must(uuid.NewV7()).String()
+	id := uuid.Must(uuid.NewV7()).String()
+	recoveryPath := recoveryDir + "/" + id
 
-	f, err := s.ctx.Root.OpenFile(s.ctx.Root.NewPath(recoveryID), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := s.ctx.Root.OpenFile(s.ctx.Root.NewPath(recoveryPath), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("create recovery file: %w", err)
 	}
@@ -126,7 +129,7 @@ func (s *RecoverySite) ArchiveStream(r io.Reader) (_ string, err error) {
 		return "", fmt.Errorf("stream to recovery: %w", err)
 	}
 
-	return recoveryID, nil
+	return id, nil
 }
 
 // RestoreData reads bytes back from a file in the recovery directory.
@@ -139,7 +142,8 @@ func (s *RecoverySite) ArchiveStream(r io.Reader) (_ string, err error) {
 //   - error: any read error
 func (s *RecoverySite) RestoreData(recoveryID string) ([]byte, error) {
 
-	data, err := s.ctx.Root.ReadFile(s.ctx.Root.NewPath(recoveryID))
+	recoveryPath := recoveryDir + "/" + recoveryID
+	data, err := s.ctx.Root.ReadFile(s.ctx.Root.NewPath(recoveryPath))
 	if err != nil {
 		return nil, fmt.Errorf("read recovery data: %w", err)
 	}
@@ -167,7 +171,8 @@ func (s *RecoverySite) RestoreFile(original Path, recoveryID string) error {
 		return fmt.Errorf("invalid recovery state: missing path metadata")
 	}
 
-	recPath := s.ctx.Root.NewPath(recoveryID)
+	recoveryPath := recoveryDir + "/" + recoveryID
+	recPath := s.ctx.Root.NewPath(recoveryPath)
 
 	if _, err := s.ctx.Root.Lstat(recPath); errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%w: %s", ErrRecoverySourceNotFound, recoveryID)

@@ -27,7 +27,6 @@ type InvocationRegistry struct {
 // Returns:
 //   - *InvocationRegistry: the empty registry.
 func NewInvocationRegistry() *InvocationRegistry {
-
 	return &InvocationRegistry{
 		byLabel: make(map[string]*Invocation),
 		counts:  make(map[string]int),
@@ -38,8 +37,8 @@ func NewInvocationRegistry() *InvocationRegistry {
 
 // All returns every registered invocation in creation order.
 //
-// The returned slice is a shallow copy safe for the caller to iterate without holding the registry lock. It is used
-// by the plan-end orphan walk (D4) and the plan-time type-check pass (D8).
+// The returned slice is a shallow copy safe for the caller to iterate without holding the registry lock. It is used by
+// the plan-end orphan walk (D4) and the plan-time type-check pass (D8).
 //
 // Returns:
 //   - []*Invocation: the registered invocations in creation order.
@@ -90,18 +89,18 @@ func (r *InvocationRegistry) ByLabel(label string) *Invocation {
 	return r.byLabel[label]
 }
 
-// Register appends inv to the ordered list and inserts it into byLabel under the given label.
+// Register appends invocation to the ordered list and inserts it into byLabel under the given label.
 //
 // Duplicate labels return an error without modifying either structure. Callers are expected to either supply a
 // user-provided label (from [Options.Label]) or an auto-generated one from [InvocationRegistry.AutoLabel].
 //
 // Parameters:
 //   - label: the unique label for this invocation.
-//   - inv: the invocation to register.
+//   - invocation: the invocation to register.
 //
 // Returns:
 //   - error: non-nil if label is already registered.
-func (r *InvocationRegistry) Register(label string, inv *Invocation) error {
+func (r *InvocationRegistry) Register(label string, invocation *Invocation) error {
 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -110,8 +109,8 @@ func (r *InvocationRegistry) Register(label string, inv *Invocation) error {
 		return fmt.Errorf("duplicate invocation label %q", label)
 	}
 
-	r.ordered = append(r.ordered, inv)
-	r.byLabel[label] = inv
+	r.ordered = append(r.ordered, invocation)
+	r.byLabel[label] = invocation
 
 	return nil
 }

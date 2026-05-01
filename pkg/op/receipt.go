@@ -21,12 +21,38 @@ type Receipt interface {
 	receiptBase()
 
 	// State management
+
+	// Action returns the canonical action name of the method that issued this receipt.
+	//
+	// The value has the form <pkg-path>.<receiverName>.<methodName> and is cached at [Commit].
 	Action() string
+
+	// IsCommitted reports whether this receipt has been finalized with a TransactionID.
+	//
+	// A committed receipt is ready for archival and reversal. Receipts returned from forward methods are
+	// uncommitted; they are committed by the orchestration engine (via [RecoveryStack.Push]) once the
+	// forward call succeeds.
+	IsCommitted() bool
+
+	// Resource returns the resource affected by the compensable forward method call.
 	Resource() Resource
+
+	// Timestamp returns the moment the call was issued as a [uuid.Time].
+	//
+	// The timestamp is encoded within the [TransactionID] and becomes available once the receipt
+	// is committed.
 	Timestamp() uuid.Time
+
+	// TransactionID returns the unique identifier for correlating the forward call with its reversal.
+	//
+	// The identifier is a UUIDv7 minted at [Commit].
 	TransactionID() string
 
 	// Behaviors
+
+	// Commit finalizes this receipt by minting its TransactionID and stamping the supplied action name.
+	//
+	// Idempotent: if the receipt is already committed, Commit is a no-op.
 	Commit(actionName string) error
 }
 
@@ -80,6 +106,14 @@ func (b *ReceiptBase) Action() string {
 	return b.action
 }
 
+// IsCommitted reports whether this receipt has been finalized with a TransactionID.
+//
+// Returns:
+//   - bool: true if the transactionID is not the nil UUID.
+func (b *ReceiptBase) IsCommitted() bool {
+	return b.transactionID != uuid.Nil
+}
+
 // Resource returns the resource affected by the compensable forward method call.
 //
 // Returns:
@@ -130,6 +164,10 @@ func (b *ReceiptBase) TransactionID() string {
 //   - error: non-nil when [uuid.NewV7] fails.
 func (b *ReceiptBase) Commit(actionName string) error {
 
+	if b.action == "" {
+		b.action = actionName
+	}
+
 	if b.transactionID != (uuid.UUID{}) {
 		return nil
 	}
@@ -141,6 +179,34 @@ func (b *ReceiptBase) Commit(actionName string) error {
 
 	b.transactionID = tid
 	b.action = actionName
+
+	return nil
+}
+
+// InflateWithID populates the receipt with a pre-minted TransactionID and action name.
+//
+// Use when the forward action generates its own recovery key (e.g., file.Provider's recovery ID) and needs to record
+// it as the TransactionID.
+//
+// Parameters:
+//   - actionName: the canonical action name.
+//   - transactionID: a canonical 36-char UUIDv7 string.
+//
+// Returns:
+//   - error: non-nil if the transactionID is already set or the string is malformed.
+func (b *ReceiptBase) InflateWithID(actionName, transactionID string) error {
+
+	if b.transactionID != (uuid.UUID{}) {
+		return fmt.Errorf("inflate failed: transaction ID already set")
+	}
+
+	tid, err := uuid.Parse(transactionID)
+	if err != nil {
+		return fmt.Errorf("inflate failed: parse transaction_id %q: %w", transactionID, err)
+	}
+
+	b.action = actionName
+	b.transactionID = tid
 
 	return nil
 }

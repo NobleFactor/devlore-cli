@@ -235,12 +235,25 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	fmt.Println("\nDeploying packages...")
 
-	// Create action registry and executor
+	// Create action registry and executor.
+	// op.NewReceiverRegistry() returns a registry populated with all announced providers.
 	actionReg := op.NewReceiverRegistry()
-	executor, err := op.NewGraphExecutor("lore", op.Options{})
+
+	wd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("creating executor: %w", err)
+		return fmt.Errorf("get working directory: %w", err)
 	}
+
+	root, err := op.NewConfinedRoot(wd)
+	if err != nil {
+		return fmt.Errorf("open root %s: %w", wd, err)
+	}
+
+	spec := op.NewRuntimeEnvironmentSpec("lore", actionReg).
+		WithRoot(root).
+		WithDryRun(cfg.DryRun)
+
+	executor := op.NewGraphExecutor(spec)
 
 	var lastErr error
 	for _, rp := range resolved {

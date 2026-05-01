@@ -15,8 +15,8 @@ import (
 func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[provider.Resource](),
-		func(ctx *op.ExecutionContext, value any) (any, error) {
-			return provider.NewResource(ctx, value)
+		func(ctx *op.ExecutionContext, identity any) (op.Resource, error) {
+			return provider.NewResource(ctx, identity)
 		},
 		nil,
 	)

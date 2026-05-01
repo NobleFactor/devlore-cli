@@ -111,7 +111,7 @@ func NewRuntime(cfg *op.RuntimeEnvironmentSpec) *Runtime {
 
 		for m := range module.Methods() {
 
-			snake := camelToSnake(m.Name())
+			snake := op.CamelToSnake(m.Name())
 
 			if existing, collides := predeclared[snake]; collides {
 				panic(fmt.Sprintf("top-level global %q declared on both %s (root immediate) and existing predeclared (%T)",
@@ -334,7 +334,7 @@ func (rt *Runtime) buildOne(prt op.ProviderReceiverType) starlark.Value {
 		return nil
 	}
 
-	return newWrapper(prt, instance)
+	return newGoReceiver(prt, instance)
 }
 
 // resolveProvider creates a Starlark module dict for a single provider.

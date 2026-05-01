@@ -34,23 +34,20 @@ const (
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-	// Writer is the output destination. Defaults to os.Stderr.
-	Writer io.Writer
-	// ProgramName is the prefix for messages. Defaults to "devlore".
-	ProgramName string
-	// Silent suppresses all output when true.
-	Silent bool
-	// Color enables ANSI color codes. Defaults to true.
-	Color bool
+	writer      io.Writer
+	programName string
+	silent      bool
+	color       bool
 }
 
+// NewProvider constructs a *Provider for the registered ProviderConstructor.
 func NewProvider(ctx *op.ExecutionContext) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
-		Writer:       ctx.Writer,
-		ProgramName:  ctx.ProgramName,
-		Color:        true,
-		Silent:       false,
+		writer:       ctx.Writer,
+		programName:  ctx.ProgramName,
+		color:        true,
+		silent:       false,
 	}
 }
 
@@ -66,10 +63,10 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 //   - msg: the error message to display.
 func (p *Provider) Error(msg string) {
 
-	if p.Silent {
+	if p.silent {
 		return
 	}
-	_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg)
+	_, err := fmt.Fprintf(p.getWriter(), "[%s] [%s] %s\n", p.getProgramName(), p.colorize(colorRed, symbolError), msg)
 	if err != nil {
 		return
 	}
@@ -81,10 +78,10 @@ func (p *Provider) Error(msg string) {
 //   - msg: the informational message to display.
 func (p *Provider) Note(msg string) {
 
-	if p.Silent {
+	if p.silent {
 		return
 	}
-	_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGray, symbolNote), msg)
+	_, err := fmt.Fprintf(p.getWriter(), "[%s] [%s] %s\n", p.getProgramName(), p.colorize(colorGray, symbolNote), msg)
 	if err != nil {
 		return
 	}
@@ -96,10 +93,10 @@ func (p *Provider) Note(msg string) {
 //   - msg: the success message to display.
 func (p *Provider) Success(msg string) {
 
-	if p.Silent {
+	if p.silent {
 		return
 	}
-	_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorGreen, symbolSuccess), msg)
+	_, err := fmt.Fprintf(p.getWriter(), "[%s] [%s] %s\n", p.getProgramName(), p.colorize(colorGreen, symbolSuccess), msg)
 	if err != nil {
 		return
 	}
@@ -111,33 +108,26 @@ func (p *Provider) Success(msg string) {
 //   - msg: the warning message to display.
 func (p *Provider) Warn(msg string) {
 
-	if p.Silent {
+	if p.silent {
 		return
 	}
-	_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorYellow, symbolWarn), msg)
+	_, err := fmt.Fprintf(p.getWriter(), "[%s] [%s] %s\n", p.getProgramName(), p.colorize(colorYellow, symbolWarn), msg)
 	if err != nil {
 		return
 	}
 }
 
-// Fallible actions
-
-// Fail prints an error message and returns an error.
+// Fail reports a fatal error and aborts execution.
 //
 // Parameters:
-//   - msg: the error message to display and return.
+//   - msg: the fatal error message.
 //
 // Returns:
-//   - error: an error wrapping msg.
+//   - error: always returns a non-nil error wrapping the message.
 func (p *Provider) Fail(msg string) error {
 
-	if !p.Silent {
-		_, err := fmt.Fprintf(p.writer(), "[%s] [%s] %s\n", p.programName(), p.colorize(colorRed, symbolError), msg)
-		if err != nil {
-			return err
-		}
-	}
-	return fmt.Errorf("%s", msg)
+	p.Error(msg)
+	return fmt.Errorf("fatal: %s", msg)
 }
 
 // endregion
@@ -146,7 +136,7 @@ func (p *Provider) Fail(msg string) error {
 
 // region UNEXPORTED METHODS
 
-// region Behaviors
+// region State management
 
 // colorize wraps text in ANSI color codes when Color is enabled.
 //
@@ -158,32 +148,32 @@ func (p *Provider) Fail(msg string) error {
 //   - string: the colorized text, or plain text if Color is disabled.
 func (p *Provider) colorize(color, text string) string {
 
-	if p.Color {
+	if p.color {
 		return color + text + colorReset
 	}
 	return text
 }
 
-// programName returns the configured program name, defaulting to "devlore".
+// getProgramName returns the configured program name, defaulting to "devlore".
 //
 // Returns:
 //   - string: the program name prefix for messages.
-func (p *Provider) programName() string {
+func (p *Provider) getProgramName() string {
 
-	if p.ProgramName != "" {
-		return p.ProgramName
+	if p.programName != "" {
+		return p.programName
 	}
 	return "devlore"
 }
 
-// writer returns the configured writer, defaulting to os.Stderr.
+// getWriter returns the configured writer, defaulting to os.Stderr.
 //
 // Returns:
 //   - io.Writer: the output destination.
-func (p *Provider) writer() io.Writer {
+func (p *Provider) getWriter() io.Writer {
 
-	if p.Writer != nil {
-		return p.Writer
+	if p.writer != nil {
+		return p.writer
 	}
 	return os.Stderr
 }

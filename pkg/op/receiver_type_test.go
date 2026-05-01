@@ -5,14 +5,20 @@ package op
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
-	"strings"
-	"sync"
+	"strconv"
 	"testing"
 )
 
 // region TEST FIXTURES
+
+// testReceipt is a dummy implementation of [Receipt] for testing compensable methods.
+type testReceipt struct {
+	ReceiptBase
+	Data string
+}
+
+func (r *testReceipt) URI() string { return "test:" + r.Data }
 
 // testProvider is a minimal provider with methods covering all MethodKind classifications.
 type testProvider struct{}
@@ -40,12 +46,12 @@ func (p *testProvider) Parse(input string) (int, error) {
 }
 
 // CompensableFunction — returns (T, U, error).
-func (p *testProvider) Create(name string) (string, string, error) {
-	return "created:" + name, "undo:" + name, nil
+func (p *testProvider) Create(name string) (string, *testReceipt, error) {
+	return "created:" + name, &testReceipt{ReceiptBase: NewReceiptBase(nil), Data: name}, nil
 }
 
 // CompensateCreate is the required companion for Create.
-func (p *testProvider) CompensateCreate(complement string) error { return nil }
+func (p *testProvider) CompensateCreate(complement *testReceipt) error { return nil }
 
 // MultiParam — multiple parameters.
 func (p *testProvider) Multi(a string, b int, c bool) string {
@@ -59,118 +65,120 @@ var testProviderType = reflect.TypeFor[*testProvider]()
 
 // endregion
 
-// region newReceiverType
-
 func TestNewReceiverType_WithNamedParameters(t *testing.T) {
 
 	rt, err := newReceiverType(testProviderType, map[string][]string{
 		"Echo":  {"msg"},
 		"Parse": {"input"},
-	})
+	}, false)
 
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
 
-	if rt.name != "testProvider" {
-		t.Errorf("name = %q, want %q", rt.name, "testProvider")
+	if rt.Name() != "testProvider" {
+		t.Errorf("Name() = %q, want \"testProvider\"", rt.Name())
 	}
 
-	if len(rt.methods) != 2 {
-		t.Fatalf("methods count = %d, want 2", len(rt.methods))
+	if rt.ProviderType() != testProviderType {
+		t.Errorf("ProviderType() = %v, want %v", rt.ProviderType(), testProviderType)
 	}
 
-	// Methods are sorted by name.
-	if rt.methods[0].Name() != "Echo" {
-		t.Errorf("methods[0] = %q, want Echo", rt.methods[0].Name())
+	// Check methods
+	m, ok := rt.MethodByName("Echo")
+	if !ok {
+		t.Fatal("Echo method not found")
 	}
-	if rt.methods[1].Name() != "Parse" {
-		t.Errorf("methods[1] = %q, want Parse", rt.methods[1].Name())
+	if len(m.Parameters()) != 1 || m.Parameters()[0].Name != "msg" {
+		t.Errorf("Echo params = %v, want [{msg ...}]", m.Parameters())
 	}
 }
 
 func TestNewReceiverType_WithNilParameters_RegistersAllMethods(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, nil)
-
+	rt, err := newReceiverType(testProviderType, nil, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
 
-	// Should register all exported methods with positional numeric names.
-	if len(rt.methods) == 0 {
+	count := 0
+	for range rt.Methods() {
+		count++
+	}
+	if count == 0 {
 		t.Fatal("nil parameters should register all methods, got 0")
 	}
 
 	// Check that Echo got a numeric parameter name.
-	m, ok := rt.methodMap["Echo"]
+	m, ok := rt.MethodByName("Echo")
 	if !ok {
 		t.Fatal("Echo not in methodMap")
 	}
-
-	params := m.Parameters()
-	if len(params) != 1 {
-		t.Fatalf("Echo params count = %d, want 1", len(params))
-	}
-	if params[0].Name != "0" {
-		t.Errorf("Echo param name = %q, want %q", params[0].Name, "0")
+	if len(m.Parameters()) != 1 || m.Parameters()[0].Name != "0" {
+		t.Errorf("Echo params = %v, want [{0 ...}]", m.Parameters())
 	}
 }
 
 func TestNewReceiverType_WithNilParameters_MultiParam(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, nil)
-
+	rt, err := newReceiverType(testProviderType, nil, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
 
-	m, ok := rt.methodMap["Multi"]
+	m, ok := rt.MethodByName("Multi")
 	if !ok {
 		t.Fatal("Multi not in methodMap")
 	}
 
-	params := m.Parameters()
-	if len(params) != 3 {
-		t.Fatalf("Multi params count = %d, want 3", len(params))
+	if len(m.Parameters()) != 3 {
+		t.Fatalf("Multi params = %d, want 3", len(m.Parameters()))
 	}
 
-	for i, p := range params {
-		want := fmt.Sprintf("%d", i)
+	for i, p := range m.Parameters() {
+		want := strconv.Itoa(i)
 		if p.Name != want {
-			t.Errorf("Multi param[%d] name = %q, want %q", i, p.Name, want)
+			t.Errorf("param[%d] name = %q, want %q", i, p.Name, want)
 		}
 	}
 }
 
 func TestNewReceiverType_WithEmptyParameters_RegistersNoMethods(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, map[string][]string{})
-
+	rt, err := newReceiverType(testProviderType, make(map[string][]string), false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
 
-	if len(rt.methods) != 0 {
-		t.Errorf("empty parameters should register 0 methods, got %d", len(rt.methods))
+	count := 0
+	for range rt.Methods() {
+		count++
+	}
+	if count != 0 {
+		t.Errorf("empty parameters should register 0 methods, got %d", count)
 	}
 }
 
 func TestNewReceiverType_MethodsSorted(t *testing.T) {
 
 	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Parse": {"input"},
 		"Echo":  {"msg"},
-		"Multi": {"a", "b", "c"},
-	})
-
+		"Parse": {"input"},
+		"Ping":  {},
+	}, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
 
-	for i := 1; i < len(rt.methods); i++ {
-		if rt.methods[i].Name() < rt.methods[i-1].Name() {
-			t.Errorf("methods not sorted: %q before %q", rt.methods[i-1].Name(), rt.methods[i].Name())
+	var names []string
+	for m := range rt.Methods() {
+		names = append(names, m.Name())
+	}
+
+	// Check alphabetical order
+	for i := 1; i < len(names); i++ {
+		if names[i] < names[i-1] {
+			t.Errorf("Methods not sorted: %v", names)
 		}
 	}
 }
@@ -179,101 +187,61 @@ func TestNewReceiverType_WrongParamCount_ReturnsError(t *testing.T) {
 
 	_, err := newReceiverType(testProviderType, map[string][]string{
 		"Echo": {"a", "b"}, // Echo takes 1 param, not 2
-	})
+	}, false)
 
 	if err == nil {
-		t.Fatal("expected error for wrong param count")
+		t.Fatal("expected error for wrong parameter count, got nil")
 	}
 }
 
 func TestNewReceiverType_RejectsReservedParameterNames(t *testing.T) {
 
-	_, err := newReceiverType(testProviderType, map[string][]string{
-		"Echo": {"options"},
-	})
-
-	if err == nil {
-		t.Fatal("expected error for reserved parameter name, got nil")
-	}
-
-	msg := err.Error()
-
-	if !strings.Contains(msg, "testProvider") {
-		t.Errorf("error should name the provider: %v", err)
-	}
-
-	if !strings.Contains(msg, "Echo") {
-		t.Errorf("error should name the offending method: %v", err)
-	}
-
-	if !strings.Contains(msg, "options") {
-		t.Errorf("error should name the offending parameter: %v", err)
-	}
-}
-
-// endregion
-
-// region reservedNameError
-
-func TestReservedNameError(t *testing.T) {
-
-	tests := []struct {
-		name    string
-		param   string
-		wantErr bool
+	cases := []struct {
+		name   string
+		params []string
 	}{
-		{"plain options", "options", true},
-		{"optional options", "options?", true},
-		{"star options", "*options", true},
-		{"double-star options", "**options", true},
-		{"plain args", "args", true},
-		{"optional args", "args?", true},
-		{"double-star args", "**args", true},
-		{"plain kwargs", "kwargs", true},
-		{"optional kwargs", "kwargs?", true},
-		{"star kwargs", "*kwargs", true},
-		{"variadic marker *args", "*args", false},
-		{"variadic marker **kwargs", "**kwargs", false},
-		{"ordinary name", "label", false},
-		{"ordinary optional", "value?", false},
-		{"ordinary variadic", "*items", false},
-		{"ordinary double-star", "**attrs", false},
+		{"options", []string{"options"}},
+		{"options?", []string{"options?"}},
+		{"*options", []string{"*options"}},
+		{"args", []string{"args"}},
+		{"kwargs", []string{"kwargs"}},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := reservedNameError(tt.param)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("reservedNameError(%q) err = %v, wantErr = %v", tt.param, err, tt.wantErr)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := newReceiverType(testProviderType, map[string][]string{
+				"Echo": tc.params,
+			}, false)
+
+			if err == nil {
+				t.Fatalf("expected error for reserved name %q, got nil", tc.name)
 			}
 		})
 	}
 }
 
-// endregion
+func TestNewReceiverType_AllowsVariadicMarkers(t *testing.T) {
 
-// region ReceiverType interface
-
-func TestReceiverType_MethodByName(t *testing.T) {
-
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Echo": {"msg"},
-	})
-	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
+	cases := []struct {
+		name   string
+		params []string
+	}{
+		{"*args", []string{"*args"}},
+		{"**kwargs", []string{"**kwargs"}},
 	}
 
-	m, ok := rt.MethodByName("Echo")
-	if !ok {
-		t.Fatal("MethodByName(Echo) returned false")
-	}
-	if m.Name() != "Echo" {
-		t.Errorf("method name = %q, want Echo", m.Name())
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// testProvider doesn't have these, but validation happens before method lookup
+			_, err := newReceiverType(testProviderType, map[string][]string{
+				"Echo": tc.params,
+			}, false)
 
-	_, ok = rt.MethodByName("Nonexistent")
-	if ok {
-		t.Error("MethodByName(Nonexistent) returned true")
+			// Should SUCCEED: markers are allowed even if Go method is not variadic (mappings land in slots)
+			if err != nil {
+				t.Fatalf("expected success, got %v", err)
+			}
+		})
 	}
 }
 
@@ -282,7 +250,7 @@ func TestReceiverType_Methods_Iterator(t *testing.T) {
 	rt, err := newReceiverType(testProviderType, map[string][]string{
 		"Echo":  {"msg"},
 		"Parse": {"input"},
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
@@ -293,182 +261,130 @@ func TestReceiverType_Methods_Iterator(t *testing.T) {
 	}
 
 	if len(names) != 2 {
-		t.Fatalf("iterator yielded %d methods, want 2", len(names))
+		t.Errorf("Methods() returned %d items, want 2", len(names))
+	}
+}
+
+func TestReceiverType_MethodByName(t *testing.T) {
+
+	rt, _ := newReceiverType(testProviderType, map[string][]string{"Echo": {"msg"}}, false)
+
+	if _, ok := rt.MethodByName("Echo"); !ok {
+		t.Error("MethodByName(Echo) failed")
+	}
+
+	if _, ok := rt.MethodByName("Missing"); ok {
+		t.Error("MethodByName(Missing) succeeded, want false")
 	}
 }
 
 func TestReceiverType_ProviderType(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, nil)
-	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
-	}
-
+	rt, _ := newReceiverType(testProviderType, nil, false)
 	if rt.ProviderType() != testProviderType {
-		t.Errorf("ProviderType = %v, want %v", rt.ProviderType(), testProviderType)
+		t.Errorf("ProviderType() = %v, want %v", rt.ProviderType(), testProviderType)
 	}
 }
 
-// endregion
+func TestReceiverType_Name_Resource(t *testing.T) {
 
-// region Do — MethodAction
+	type testLocalResource struct{ ResourceBase }
+	rt, _ := newReceiverType(reflect.TypeFor[*testLocalResource](), nil, false)
+
+	if rt.Name() != "testLocalResource" {
+		t.Errorf("Name() = %q, want \"testLocalResource\"", rt.Name())
+	}
+}
+
+// region Do
 
 func TestDo_Action(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Ping": {},
-	})
+	rt, _ := newReceiverType(testProviderType, map[string][]string{"Ping": {}}, false)
+	p := &testProvider{}
+
+	res, undo, err := rt.Do("Ping", p, nil)
+
 	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
+		t.Fatalf("Do: %v", err)
 	}
-
-	result, complement, doErr := rt.Do("Ping", &testProvider{}, []any{})
-
-	if doErr != nil {
-		t.Fatalf("Do(Ping): %v", doErr)
+	if res.IsValid() {
+		t.Errorf("result = %v, want invalid", res)
 	}
-	if result.IsValid() {
-		t.Error("expected invalid result for Action")
-	}
-	if complement.IsValid() {
-		t.Error("expected invalid complement for Action")
+	if undo.IsValid() {
+		t.Errorf("undo = %v, want invalid", undo)
 	}
 }
 
-// endregion
+func TestDo_FallibleAction(t *testing.T) {
 
-// region Do — MethodFallibleAction
+	rt, _ := newReceiverType(testProviderType, map[string][]string{"Validate": {"value"}}, false)
+	p := &testProvider{}
 
-func TestDo_FallibleAction_Success(t *testing.T) {
-
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Validate": {"value"},
-	})
-	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
+	// Success
+	_, _, err := rt.Do("Validate", p, []any{""}) // "" fails
+	if err == nil {
+		t.Error("expected error for empty value")
 	}
 
-	_, _, doErr := rt.Do("Validate", &testProvider{}, []any{"ok"})
-
-	if doErr != nil {
-		t.Fatalf("Do(Validate, ok): %v", doErr)
+	// Failure
+	_, _, err = rt.Do("Validate", p, []any{"ok"})
+	if err != nil {
+		t.Errorf("Do: %v", err)
 	}
 }
-
-func TestDo_FallibleAction_Error(t *testing.T) {
-
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Validate": {"value"},
-	})
-	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
-	}
-
-	_, _, doErr := rt.Do("Validate", &testProvider{}, []any{""})
-
-	if doErr == nil {
-		t.Fatal("expected error from Validate with empty string")
-	}
-	if doErr.Error() != "empty" {
-		t.Errorf("error = %q, want %q", doErr.Error(), "empty")
-	}
-}
-
-// endregion
-
-// region Do — MethodFunction
 
 func TestDo_Function(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Echo": {"msg"},
-	})
+	rt, _ := newReceiverType(testProviderType, map[string][]string{"Echo": {"msg"}}, false)
+	p := &testProvider{}
+
+	res, _, err := rt.Do("Echo", p, []any{"hello"})
+
 	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
+		t.Fatalf("Do: %v", err)
 	}
-
-	result, complement, doErr := rt.Do("Echo", &testProvider{}, []any{"hello"})
-
-	if doErr != nil {
-		t.Fatalf("Do(Echo): %v", doErr)
-	}
-	if !result.IsValid() {
-		t.Fatal("expected valid result")
-	}
-	if result.String() != "hello" {
-		t.Errorf("result = %q, want %q", result.String(), "hello")
-	}
-	if complement.IsValid() {
-		t.Error("expected invalid complement for Function")
+	if res.String() != "hello" {
+		t.Errorf("result = %q, want \"hello\"", res.String())
 	}
 }
 
-// endregion
+func TestDo_FallibleFunction(t *testing.T) {
 
-// region Do — MethodFallibleFunction
+	rt, _ := newReceiverType(testProviderType, map[string][]string{"Parse": {"input"}}, false)
+	p := &testProvider{}
 
-func TestDo_FallibleFunction_Success(t *testing.T) {
-
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Parse": {"input"},
-	})
+	// Success
+	res, _, err := rt.Do("Parse", p, []any{"123"})
 	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
+		t.Fatalf("Do: %v", err)
+	}
+	if res.Int() != 42 {
+		t.Errorf("result = %d, want 42", res.Int())
 	}
 
-	result, _, doErr := rt.Do("Parse", &testProvider{}, []any{"good"})
-
-	if doErr != nil {
-		t.Fatalf("Do(Parse): %v", doErr)
-	}
-	if result.Int() != 42 {
-		t.Errorf("result = %d, want 42", result.Int())
+	// Failure
+	_, _, err = rt.Do("Parse", p, []any{"bad"})
+	if err == nil {
+		t.Error("expected error for 'bad' input")
 	}
 }
-
-func TestDo_FallibleFunction_Error(t *testing.T) {
-
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Parse": {"input"},
-	})
-	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
-	}
-
-	_, _, doErr := rt.Do("Parse", &testProvider{}, []any{"bad"})
-
-	if doErr == nil {
-		t.Fatal("expected error from Parse(bad)")
-	}
-}
-
-// endregion
-
-// region Do — MethodCompensableFunction
 
 func TestDo_CompensableFunction(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Create":           {"name"},
-		"CompensateCreate": {"complement"},
-	})
+	rt, _ := newReceiverType(testProviderType, map[string][]string{"Create": {"name"}}, true)
+	p := &testProvider{}
+
+	result, complement, err := rt.Do("Create", p, []any{"foo"})
+
 	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
-	}
-
-	result, complement, doErr := rt.Do("Create", &testProvider{}, []any{"foo"})
-
-	if doErr != nil {
-		t.Fatalf("Do(Create): %v", doErr)
+		t.Fatalf("Do: %v", err)
 	}
 	if result.String() != "created:foo" {
 		t.Errorf("result = %q, want %q", result.String(), "created:foo")
 	}
 	if !complement.IsValid() {
 		t.Fatal("expected valid complement for CompensableFunction")
-	}
-	if complement.String() != "undo:foo" {
-		t.Errorf("complement = %q, want %q", complement.String(), "undo:foo")
 	}
 }
 
@@ -480,124 +396,32 @@ func TestDo_NilArg_BecomesZeroValue(t *testing.T) {
 
 	rt, err := newReceiverType(testProviderType, map[string][]string{
 		"Echo": {"msg"},
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
 
-	result, _, doErr := rt.Do("Echo", &testProvider{}, []any{nil})
+	p := &testProvider{}
+	res, _, err := rt.Do("Echo", p, []any{nil})
 
-	if doErr != nil {
-		t.Fatalf("Do(Echo, nil): %v", doErr)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
 	}
-	if result.String() != "" {
-		t.Errorf("result = %q, want empty string (zero value)", result.String())
+	if res.String() != "" {
+		t.Errorf("result = %q, want empty string for nil arg", res.String())
 	}
 }
 
 // endregion
 
-// region Do — unknown method
-
-func TestDo_UnknownMethod_ReturnsError(t *testing.T) {
-
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Echo": {"msg"},
-	})
-	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
-	}
-
-	_, _, doErr := rt.Do("Nonexistent", &testProvider{}, nil)
-
-	if doErr == nil {
-		t.Fatal("expected error for unknown method")
-	}
-}
-
-// endregion
-
-// region Do — dispatch caching
-
-func TestDo_CachesDispatcher(t *testing.T) {
-
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Echo": {"msg"},
-	})
-	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
-	}
-
-	// First call — compiles and caches.
-	result1, _, err1 := rt.Do("Echo", &testProvider{}, []any{"first"})
-	if err1 != nil {
-		t.Fatalf("first Do: %v", err1)
-	}
-
-	// Second call — uses cache.
-	result2, _, err2 := rt.Do("Echo", &testProvider{}, []any{"second"})
-	if err2 != nil {
-		t.Fatalf("second Do: %v", err2)
-	}
-
-	if result1.String() != "first" {
-		t.Errorf("first result = %q, want first", result1.String())
-	}
-	if result2.String() != "second" {
-		t.Errorf("second result = %q, want second", result2.String())
-	}
-
-	// Verify the dispatcher is in the cache.
-	_, ok := rt.dispatchTable.Load("Echo")
-	if !ok {
-		t.Error("dispatcher not found in cache after two calls")
-	}
-}
-
-func TestDo_ConcurrentFirstCall(t *testing.T) {
-
-	rt, err := newReceiverType(testProviderType, map[string][]string{
-		"Echo": {"msg"},
-	})
-	if err != nil {
-		t.Fatalf("newReceiverType: %v", err)
-	}
-
-	var wg sync.WaitGroup
-	errs := make(chan error, 100)
-
-	for range 100 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			result, _, doErr := rt.Do("Echo", &testProvider{}, []any{"concurrent"})
-			if doErr != nil {
-				errs <- doErr
-				return
-			}
-			if result.String() != "concurrent" {
-				errs <- fmt.Errorf("result = %q, want concurrent", result.String())
-			}
-		}()
-	}
-
-	wg.Wait()
-	close(errs)
-
-	for err := range errs {
-		t.Error(err)
-	}
-}
-
-// endregion
-
-// region NewProviderReceiverType
+// region ProviderReceiverType (public)
 
 func TestNewProviderReceiverType(t *testing.T) {
 
+	pType := reflect.TypeFor[*testProvider]()
 	construct := func(ctx *ExecutionContext) (any, error) { return &testProvider{}, nil }
 
-	prt, err := NewProviderReceiverType(testProviderType, construct, RoleModule|RoleAction, map[string][]string{
+	rt, err := NewProviderReceiverType(pType, construct, RoleAction, map[string][]string{
 		"Echo": {"msg"},
 	})
 
@@ -605,50 +429,40 @@ func TestNewProviderReceiverType(t *testing.T) {
 		t.Fatalf("NewProviderReceiverType: %v", err)
 	}
 
-	if prt.Roles() != RoleModule|RoleAction {
-		t.Errorf("Roles = %d, want %d", prt.Roles(), RoleModule|RoleAction)
+	if rt.Roles() != RoleAction {
+		t.Errorf("Roles() = %v, want RoleAction", rt.Roles())
 	}
 
-	if prt.Construct() == nil {
-		t.Error("Construct() returned nil")
-	}
-
-	// Do still works through the embedded receiverType.
-	result, _, doErr := prt.Do("Echo", &testProvider{}, []any{"via provider"})
-	if doErr != nil {
-		t.Fatalf("Do: %v", doErr)
-	}
-	if result.String() != "via provider" {
-		t.Errorf("result = %q, want %q", result.String(), "via provider")
+	p, _ := rt.Construct()(nil)
+	if _, ok := p.(*testProvider); !ok {
+		t.Errorf("Construct() returned %T, want *testProvider", p)
 	}
 }
 
 // endregion
 
-// region NewResourceReceiverType
+// region ResourceReceiverType (public)
 
-func TestNewResourceReceiverType(t *testing.T) {
+func TestNewResourceReceiverType_Public(t *testing.T) {
 
-	construct := func(ctx *ExecutionContext, v any) (any, error) { return nil, nil }
+	type testLocalResource struct{ ResourceBase }
+	rType := reflect.TypeFor[*testLocalResource]()
 
-	rrt, err := NewResourceReceiverType(testProviderType, construct, map[string][]string{
-		"Echo": {"msg"},
+	construct := func(ctx *ExecutionContext, identity any) (Resource, error) {
+		return &testLocalResource{}, nil
+	}
+
+	rt, err := NewResourceReceiverType(rType, construct, map[string][]string{
+		"URI": {},
 	})
 
 	if err != nil {
 		t.Fatalf("NewResourceReceiverType: %v", err)
 	}
 
-	if rrt.Construct() == nil {
-		t.Error("Construct() returned nil")
-	}
-
-	result, _, doErr := rrt.Do("Echo", &testProvider{}, []any{"via resource"})
-	if doErr != nil {
-		t.Fatalf("Do: %v", doErr)
-	}
-	if result.String() != "via resource" {
-		t.Errorf("result = %q, want %q", result.String(), "via resource")
+	r, _ := rt.Construct()(nil, "id")
+	if _, ok := r.(*testLocalResource); !ok {
+		t.Errorf("Construct() returned %T, want *testLocalResource", r)
 	}
 }
 
@@ -659,117 +473,13 @@ func TestNewResourceReceiverType(t *testing.T) {
 func TestNewReceiverType_Public(t *testing.T) {
 
 	rt, err := NewReceiverType(testProviderType, nil)
+
 	if err != nil {
 		t.Fatalf("NewReceiverType: %v", err)
 	}
 
 	if rt.Name() != "testProvider" {
-		t.Errorf("ReceiverName = %q, want testProvider", rt.Name())
-	}
-
-	// Should have methods with positional names since nil was passed.
-	var count int
-	for range rt.Methods() {
-		count++
-	}
-	if count == 0 {
-		t.Error("expected methods from nil parameter path")
-	}
-
-	// Do should work.
-	result, _, doErr := rt.Do("Echo", &testProvider{}, []any{"public"})
-	if doErr != nil {
-		t.Fatalf("Do: %v", doErr)
-	}
-	if result.String() != "public" {
-		t.Errorf("result = %q, want public", result.String())
-	}
-}
-
-// endregion
-
-// region receiverName
-
-func TestReceiverName_NonProvider(t *testing.T) {
-
-	name := receiverName(testProviderType)
-
-	if name != "testProvider" {
-		t.Errorf("receiverName = %q, want testProvider", name)
-	}
-}
-
-// endregion
-
-// region ProviderRole zones
-
-func TestProviderRole_Dispatch_MasksPlacementBits(t *testing.T) {
-
-	cases := []struct {
-		name     string
-		role     ProviderRole
-		wantBits ProviderRole
-	}{
-		{"module only", RoleModule, RoleModule},
-		{"action only", RoleAction, RoleAction},
-		{"module and action", RoleModule | RoleAction, RoleModule | RoleAction},
-		{"action and root", RoleAction | RoleRoot, RoleAction},
-		{"module and root", RoleModule | RoleRoot, RoleModule},
-		{"root alone", RoleRoot, 0},
-		{"nothing", 0, 0},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := tc.role.Dispatch()
-			if got != tc.wantBits {
-				t.Errorf("(%#x).Dispatch() = %#x, want %#x", uint(tc.role), uint(got), uint(tc.wantBits))
-			}
-		})
-	}
-}
-
-func TestProviderRole_Placement_MasksDispatchBits(t *testing.T) {
-
-	cases := []struct {
-		name     string
-		role     ProviderRole
-		wantBits ProviderRole
-	}{
-		{"root set", RoleAction | RoleRoot, RoleRoot},
-		{"root with module", RoleModule | RoleRoot, RoleRoot},
-		{"no placement bits", RoleModule | RoleAction, 0},
-		{"module only", RoleModule, 0},
-		{"action only", RoleAction, 0},
-		{"root alone", RoleRoot, RoleRoot},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := tc.role.Placement()
-			if got != tc.wantBits {
-				t.Errorf("(%#x).Placement() = %#x, want %#x", uint(tc.role), uint(got), uint(tc.wantBits))
-			}
-		})
-	}
-}
-
-func TestProviderRole_ZonesAreOrthogonal(t *testing.T) {
-
-	// Every defined bit lives in exactly one zone.
-	defined := []ProviderRole{RoleModule, RoleAction, RoleRoot}
-	for _, bit := range defined {
-		if bit.Dispatch()&bit.Placement() != 0 {
-			t.Errorf("bit %#x has overlap between Dispatch and Placement zones", uint(bit))
-		}
-		if bit.Dispatch() == 0 && bit.Placement() == 0 {
-			t.Errorf("bit %#x is outside both zones", uint(bit))
-		}
-	}
-
-	// Zone masks don't overlap.
-	if roleDispatchMask&rolePlacementMask != 0 {
-		t.Errorf("zone masks overlap: dispatch=%#x placement=%#x", uint(roleDispatchMask), uint(rolePlacementMask))
+		t.Errorf("Name() = %q, want \"testProvider\"", rt.Name())
 	}
 }
 

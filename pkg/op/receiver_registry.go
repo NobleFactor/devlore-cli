@@ -80,7 +80,7 @@ func AnnounceResource(
 //   - methodParameters: starlark parameter names per Go method.
 func AnnounceType(goType reflect.Type, methodParameters map[string][]string) {
 
-	base, err := newReceiverType(goType, methodParameters)
+	base, err := newReceiverType(goType, methodParameters, false)
 	if err != nil {
 		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
 	}
@@ -227,7 +227,9 @@ func (r *ReceiverRegistry) TypeByReflectionOrDerive(t reflect.Type) ReceiverType
 		rt, _ = NewReceiverType(t, nil)
 	}
 
-	r.register(rt)
+	if rt != nil {
+		r.register(rt)
+	}
 	return rt
 }
 
@@ -439,6 +441,10 @@ func insertSortedResource(slice []ResourceReceiverType, rt ResourceReceiverType)
 // Parameters:
 //   - rt: the receiver type to register.
 func (r *ReceiverRegistry) register(rt ReceiverType) {
+
+	if rt == nil {
+		return
+	}
 
 	r.byName[rt.Name()] = rt
 	r.byType[rt.ProviderType()] = rt

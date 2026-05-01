@@ -4,20 +4,38 @@
 package op
 
 import (
+	"fmt"
 	"io"
 	"os"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
+	"go.starlark.net/starlark"
+)
+
+// ConflictResolution specifies how to handle conflicts during execution.
+type ConflictResolution int
+
+const (
+	// ResolutionStop aborts execution on first conflict.
+	ResolutionStop ConflictResolution = iota
+	// ResolutionBackup moves conflicting files to timestamped backups.
+	ResolutionBackup
+	// ResolutionOverwrite removes conflicting files without backup.
+	ResolutionOverwrite
+	// ResolutionSkip skips conflicting files and continues.
+	ResolutionSkip
 )
 
 // RuntimeEnvironmentSpec holds configuration for constructing Starlark bindings.
 // Use [NewRuntimeEnvironmentSpec] to create, then chain With* methods:
 //
 //	registry := op.NewReceiverRegistry()
-//	cfg := op.NewBindingConfig("lore", registry).
+//	cfg := op.NewRuntimeEnvironmentSpec("lore", registry).
 //	    WithModules(registry.ModuleByName("file"), registry.ModuleByName("json")).
-//	    WithRoot(op.NewRootReaderWriter(wd)).
-//	    WithColor()
+//	    WithRoot(op.NewConfinedRoot(wd)).
+//	    WithBackupSuffix(".bak").
+//	    WithConflictResolution(op.ResolutionBackup)
 type RuntimeEnvironmentSpec struct {
 
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
@@ -50,6 +68,14 @@ type RuntimeEnvironmentSpec struct {
 	//
 	// Defaults to os.Stderr.
 	Writer io.Writer
+
+	// BackupSuffix is appended to backup filenames during conflict resolution.
+	// Defaults to ".<ProgramName>-backup" when empty.
+	BackupSuffix string
+
+	// ConflictResolution chooses how to handle preflight conflicts.
+	// Zero value is ResolutionStop.
+	ConflictResolution ConflictResolution
 }
 
 // NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name and registry.
@@ -152,6 +178,79 @@ func (c *RuntimeEnvironmentSpec) WithSops(client *sops.Client) *RuntimeEnvironme
 func (c *RuntimeEnvironmentSpec) WithWriter(w io.Writer) *RuntimeEnvironmentSpec {
 	c.Writer = w
 	return c
+}
+
+// WithBackupSuffix sets the backup filename suffix.
+//
+// Parameters:
+//   - suffix: the suffix (e.g. ".bak").
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnvironmentSpec {
+	c.BackupSuffix = suffix
+	return c
+}
+
+// WithConflictResolution sets the conflict resolution strategy.
+//
+// Parameters:
+//   - res: the resolution strategy.
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithConflictResolution(res ConflictResolution) *RuntimeEnvironmentSpec {
+	c.ConflictResolution = res
+	return c
+}
+
+// NewExecutionContext constructs a fully-populated [ExecutionContext] from this spec.
+//
+// It performs defaulting (Writer → os.Stderr, BackupSuffix → ".<ProgramName>-backup"), constructs the
+// [starlark.Thread], initializes the [Platform], and wires the [RecoverySite] if a Root is present.
+//
+// Returns:
+//   - *ExecutionContext: the constructed context.
+func (c *RuntimeEnvironmentSpec) NewExecutionContext() *ExecutionContext {
+
+	assert.NotNil("spec.Registry", c.Registry)
+
+	writer := c.Writer
+	if writer == nil {
+		writer = os.Stderr
+	}
+
+	backupSuffix := c.BackupSuffix
+	if backupSuffix == "" {
+		backupSuffix = "." + c.ProgramName + "-backup"
+	}
+
+	ctx := &ExecutionContext{
+		ProgramName:        c.ProgramName,
+		Data:               c.Data,
+		DryRun:             c.DryRun,
+		Platform:           NewPlatform(),
+		Registry:           c.Registry,
+		Results:            make(map[string]any),
+		Root:               c.Root,
+		Sops:               c.Sops,
+		Writer:             writer,
+		BackupSuffix:       backupSuffix,
+		ConflictResolution: c.ConflictResolution,
+	}
+
+	ctx.Thread = starlark.Thread{
+		Name: c.ProgramName,
+		Print: func(_ *starlark.Thread, msg string) {
+			_, _ = fmt.Fprintln(writer, msg)
+		},
+	}
+
+	if c.Root != nil {
+		ctx.RecoverySite = NewRecoverySite(ctx)
+	}
+
+	return ctx
 }
 
 // endregion

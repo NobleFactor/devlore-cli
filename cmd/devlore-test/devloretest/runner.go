@@ -144,26 +144,23 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }() //nolint:errcheck // best-effort cleanup
 
-	// 2. Create ReceiverRegistry and Graph
+	// 2. Create ReceiverRegistry and Spec
 	reg := op.NewReceiverRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer iox.Close(&err, root)
 
-	graph := op.NewGraph(&op.ExecutionContext{
-		ProgramName: "devlore-test",
-		Registry:    reg,
-		Root:        root,
-	})
+	spec := op.NewRuntimeEnvironmentSpec("devlore-test", reg).
+		WithModules(reg.Modules()...).
+		WithRoot(root).
+		WithWriter(r.writer).
+		WithDryRun(r.dryRun)
+
+	graph := op.NewGraph(spec.NewExecutionContext())
 	r.graph = graph
 
 	// 3. Create Runtime with graph in Data so the plan provider can find it
-	bs := starlarkbridge.NewRuntime(
-		op.NewRuntimeEnvironmentSpec("devlore-test", reg).
-			WithModules(reg.Modules()...).
-			WithRoot(root).
-			WithWriter(r.writer).
-			WithData(map[string]any{"graph": graph}),
-	)
+	spec.WithData(map[string]any{"graph": graph})
+	bs := starlarkbridge.NewRuntime(spec)
 
 	// 4. Build Starlark globals
 	globals := bs.Predeclared()
@@ -215,13 +212,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	wrapUngroupedNodes(graph)
 
 	// 12. Execute graph
-	executor, execInitErr := op.NewGraphExecutor("devlore-test", op.Options{
-		Root:   tmpDir,
-		DryRun: r.dryRun,
-	})
-	if execInitErr != nil {
-		return nil, fmt.Errorf("creating executor: %w", execInitErr)
-	}
+	executor := op.NewGraphExecutor(spec)
 
 	if tracer.Enabled() {
 		tracer.Record("executing graph: %d nodes", len(graph.Nodes()))

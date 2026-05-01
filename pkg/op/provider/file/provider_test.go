@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -53,8 +54,8 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 	if state.Resource() == nil {
 		t.Fatal("state.Resource() is nil, want non-nil")
 	}
-	if state.TransactionID() != "" {
-		t.Errorf("state.TransactionID() = %q, want empty (nothing to recover)", state.TransactionID())
+	if state.IsCommitted() {
+		t.Errorf("state.IsCommitted() = true, want false (nothing to recover)")
 	}
 
 	got := resolveReadlink(t, linkPath)
@@ -88,8 +89,8 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 	}
 
 	// Old symlink was moved to recovery.
-	if state.TransactionID() == "" {
-		t.Error("state.TransactionID() is empty, want non-empty (old symlink moved to recovery)")
+	if !state.IsCommitted() {
+		t.Error("state.IsCommitted() is false, want true (old symlink moved to recovery)")
 	}
 
 	got := resolveReadlink(t, linkPath)
@@ -180,8 +181,11 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	oldTarget := filepath.Join(tmp, "old-target")
 
 	// Simulate: old symlink was moved to recovery, new symlink created.
-	// TransactionID is the recovery key (as returned by RecoverySite.ArchiveFile).
-	recoveryRel := "recovery-link"
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(oldTarget, filepath.Join(tmp, recoveryRel)); err != nil {
 		t.Fatal(err)
 	}
@@ -194,6 +198,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
+	_ = state.InflateWithID("file.link", recoveryID)
 
 	p := testProvider(t, tmp)
 	if err := p.CompensateLink(state); err != nil {
@@ -212,7 +217,6 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 		t.Error("recovery file still exists after compensation")
 	}
 }
-
 // --- Copy ---
 
 func TestCopy_WritesNewFile(t *testing.T) {
@@ -307,8 +311,11 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	// Simulate: original was moved to recovery, then overwritten.
-	// TransactionID is the recovery key (as returned by RecoverySite.ArchiveFile).
-	recoveryRel := "output.txt.recovery"
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("original content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -320,6 +327,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
+	_ = state.InflateWithID("file.copy", recoveryID)
 
 	p := testProvider(t, tmp)
 	if err := p.CompensateCopy(state); err != nil {
@@ -338,7 +346,6 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 		t.Error("recovery file still exists after compensation")
 	}
 }
-
 // --- Backup ---
 
 func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
@@ -379,14 +386,14 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Errorf("backup content = %q, want %q", got, "backup me")
 	}
 
-	// Receipt resource preserves true identity (original path).
+	// Receipt resource preserves destination path.
 	// TransactionID is the recovery key for the moved data (backup location).
 	resourcePath := state.Resource().(*Resource).SourcePath.Abs()
-	if resourcePath != path {
-		t.Errorf("receipt resource path = %q, want %q (true identity)", resourcePath, path)
+	if resourcePath != result.SourcePath.Abs() {
+		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, result.SourcePath.Abs())
 	}
-	if state.TransactionID() != result.SourcePath.Abs() {
-		t.Errorf("receipt recovery path = %q, want %q", state.TransactionID(), result.SourcePath.Abs())
+	if !state.IsCommitted() {
+		t.Error("state.IsCommitted() is false, want true")
 	}
 
 	// Checksum should match the original file content.
@@ -421,8 +428,12 @@ func TestBackup_DefaultSuffix(t *testing.T) {
 func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 	tmp := t.TempDir()
 	originalPath := filepath.Join(tmp, "myfile.txt")
-	backupPath := filepath.Join(tmp, "myfile.txt.bak.20250101-120000")
-	if err := os.WriteFile(backupPath, []byte("restore me"), 0o644); err != nil {
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("restore me"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -430,6 +441,7 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
+	_ = state.InflateWithID("file.backup", recoveryID)
 
 	p := testProvider(t, tmp)
 	if err := p.CompensateBackup(state); err != nil {
@@ -444,16 +456,20 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 		t.Errorf("restored content = %q, want %q", got, "restore me")
 	}
 
-	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
-		t.Error("backup file still exists after compensation")
+	if _, err := os.Stat(filepath.Join(tmp, recoveryRel)); !os.IsNotExist(err) {
+		t.Error("recovery file still exists after compensation")
 	}
 }
 
 func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	tmp := t.TempDir()
 	originalPath := filepath.Join(tmp, "myfile.txt")
-	backupPath := filepath.Join(tmp, "myfile.txt.bak.20250101-120000")
-	if err := os.WriteFile(backupPath, []byte("tampered content"), 0o644); err != nil {
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("tampered content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -465,6 +481,7 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
+	_ = state.InflateWithID("file.backup", recoveryID)
 
 	p := testProvider(t, tmp)
 	err := p.CompensateBackup(state)
@@ -475,12 +492,11 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 		t.Errorf("error = %q, want message containing 'checksum mismatch'", err)
 	}
 
-	// Backup file should NOT have been moved.
-	if _, err := os.Stat(backupPath); err != nil {
-		t.Error("backup file should still exist when compensation is skipped")
+	// Recovery file should NOT have been moved.
+	if _, err := os.Stat(filepath.Join(tmp, recoveryRel)); err != nil {
+		t.Error("recovery file should still exist when compensation is skipped")
 	}
 }
-
 // --- Unlink ---
 
 func TestUnlink_RemovesSymlink(t *testing.T) {
@@ -559,8 +575,8 @@ func TestRemove_RemovesFile(t *testing.T) {
 	if receipt.Resource() == nil {
 		t.Fatal("receipt.Resource() is nil, want non-nil")
 	}
-	if receipt.TransactionID() == "" {
-		t.Error("receipt.TransactionID() should not be empty")
+	if !receipt.IsCommitted() {
+		t.Error("receipt.IsCommitted() should be true")
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -674,14 +690,14 @@ func TestMove(t *testing.T) {
 		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), dst)
 	}
 
-	// Receipt resource preserves true identity (source path).
+	// Receipt resource preserves destination path.
 	// TransactionID is the recovery key for the moved data (destination).
 	resourcePath := state.Resource().(*Resource).SourcePath.Abs()
-	if resourcePath != src {
-		t.Errorf("receipt resource path = %q, want %q (true identity)", resourcePath, src)
+	if resourcePath != dst {
+		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, dst)
 	}
-	if state.TransactionID() != dst {
-		t.Errorf("receipt recovery path = %q, want %q", state.TransactionID(), dst)
+	if !state.IsCommitted() {
+		t.Error("state.IsCommitted() is false, want true")
 	}
 
 	// Checksum should match the original file content.
@@ -717,8 +733,12 @@ func TestCompensateMove_ZeroState(t *testing.T) {
 func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
-	dst := filepath.Join(tmp, "dest.txt")
-	if err := os.WriteFile(dst, []byte("tampered"), 0o644); err != nil {
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -729,6 +749,7 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
+	_ = state.InflateWithID("file.move", recoveryID)
 
 	p := testProvider(t, tmp)
 	err := p.CompensateMove(state)
@@ -740,11 +761,10 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	}
 
 	// File should NOT have been moved back.
-	if _, err := os.Stat(dst); err != nil {
-		t.Error("dest file should still exist when compensation is skipped")
+	if _, err := os.Stat(filepath.Join(tmp, recoveryRel)); err != nil {
+		t.Error("recovery file should still exist when compensation is skipped")
 	}
 }
-
 func TestCompensateMove_RoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
@@ -1545,11 +1565,10 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 	}
 
 	// Verify recovery site holds the data; TransactionID is the recovery key.
-	recoveryPath := state.TransactionID()
+	recoveryPath := ".devlore/recovery/" + state.TransactionID()
 	if _, err := os.Stat(filepath.Join(tmp, recoveryPath)); err != nil {
 		t.Fatalf("recovery site missing: %v", err)
 	}
-
 	if err := p.CompensateRemove(state); err != nil {
 		t.Fatalf("CompensateRemove() error = %v", err)
 	}
@@ -1588,11 +1607,10 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 	}
 
 	// TransactionID is the recovery key.
-	recoveryPath := state.TransactionID()
+	recoveryPath := ".devlore/recovery/" + state.TransactionID()
 	if _, err := os.Stat(filepath.Join(tmp, recoveryPath)); err != nil {
 		t.Fatalf("recovery site missing: %v", err)
 	}
-
 	if err := p.CompensateRemoveAll(state); err != nil {
 		t.Fatalf("CompensateRemoveAll() error = %v", err)
 	}

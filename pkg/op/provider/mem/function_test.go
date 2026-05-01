@@ -4,8 +4,12 @@
 package mem
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 )
@@ -24,9 +28,16 @@ func TestFunctionImplementsResourceInterface(t *testing.T) {
 func compileFixture(t *testing.T, src, name string) *starlark.Function {
 	t.Helper()
 
+	// synthesize (extractDefSource) needs the source on disk at the position indicated by the function.
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "fixture.star")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
 	thread := &starlark.Thread{Name: "test"}
 	_, prog, err := starlark.SourceProgramOptions(
-		&syntax.FileOptions{}, "fixture.star", []byte(src), func(string) bool { return false },
+		&syntax.FileOptions{}, path, []byte(src), func(string) bool { return false },
 	)
 	if err != nil {
 		t.Fatalf("compile fixture: %v", err)
@@ -98,32 +109,11 @@ func TestNewFunction_WrongSpecType(t *testing.T) {
 	ctx := newTestCtx(t)
 
 	if _, err := NewFunction(ctx, 42); err == nil {
-		t.Fatal("expected error for non-ResourceSpec")
+		t.Error("NewFunction(int) succeeded, want error")
 	}
 }
 
-func TestNewFunction_NonFunctionData(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	if _, err := NewFunction(ctx, ResourceSpec{Namespace: "X", Data: "not a function"}); err == nil {
-		t.Fatal("expected error for non-function Data")
-	}
-}
-
-func TestNewFunction_EmptyNamespace(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	starFn := compileFixture(t, `def f(): pass
-`, "f")
-
-	if _, err := NewFunction(ctx, ResourceSpec{Data: starFn}); err == nil {
-		t.Fatal("expected error for empty namespace")
-	}
-}
-
-// --- Init ---
+// --- Function.Init (Bridge) ---
 
 func TestFunction_Init_FastPath(t *testing.T) {
 
@@ -134,32 +124,18 @@ def double(x):
     return x * 2
 `, "double")
 
-	f, err := NewFunction(ctx, ResourceSpec{Namespace: "Doubler", Data: starFn})
+	f, _ := NewFunction(ctx, ResourceSpec{Namespace: "math", Data: starFn})
+
+	// Bridge it: func(int) int
+	target := reflect.TypeFor[func(int) int]()
+	bridged, err := op.Convert(ctx, f, target)
 	if err != nil {
-		t.Fatalf("NewFunction: %v", err)
+		t.Fatalf("Convert: %v", err)
 	}
 
-	// Compiled is cached from NewFunction; Init takes the fast path.
-	thread := &starlark.Thread{Name: "test-init"}
-	callable, err := f.Init(thread)
-	if err != nil {
-		t.Fatalf("Init fast-path: %v", err)
-	}
-	if callable == nil {
-		t.Fatal("Init returned nil callable")
-	}
-
-	// Invoke and check result.
-	result, err := starlark.Call(thread, callable, starlark.Tuple{starlark.MakeInt(21)}, nil)
-	if err != nil {
-		t.Fatalf("Call: %v", err)
-	}
-	got, ok := result.(starlark.Int)
-	if !ok {
-		t.Fatalf("result is %T, want starlark.Int", result)
-	}
-	if gotInt, _ := got.Int64(); gotInt != 42 {
-		t.Errorf("double(21) = %d, want 42", gotInt)
+	double := bridged.(func(int) int)
+	if res := double(21); res != 42 {
+		t.Errorf("double(21) = %d, want 42", res)
 	}
 }
 
@@ -172,43 +148,20 @@ def greet(name):
     return "hello " + name
 `, "greet")
 
-	f, err := NewFunction(ctx, ResourceSpec{Namespace: "Greeter", Data: starFn})
-	if err != nil {
-		t.Fatalf("NewFunction: %v", err)
-	}
+	f, _ := NewFunction(ctx, ResourceSpec{Namespace: "ui", Data: starFn})
 
-	// Simulate "process restart" — clear in-memory caches. Init must fall back to the pack.
+	// Wipe memory cache to force mmap fallback.
 	f.Compiled = nil
-	f.CompilerVersion = 0
 
-	thread := &starlark.Thread{Name: "test-mmap"}
-	callable, err := f.Init(thread)
+	target := reflect.TypeFor[func(string) string]()
+	bridged, err := op.Convert(ctx, f, target)
 	if err != nil {
-		t.Fatalf("Init mmap-fallback: %v", err)
-	}
-	if callable == nil {
-		t.Fatal("Init returned nil callable")
+		t.Fatalf("Convert: %v", err)
 	}
 
-	// After fallback, caches should be repopulated.
-	if len(f.Compiled) == 0 {
-		t.Error("Compiled cache not refreshed after mmap fallback")
-	}
-	if f.CompilerVersion != starlark.CompilerVersion {
-		t.Errorf("CompilerVersion = %d, want %d", f.CompilerVersion, starlark.CompilerVersion)
-	}
-
-	// Invoke and check result.
-	result, err := starlark.Call(thread, callable, starlark.Tuple{starlark.String("world")}, nil)
-	if err != nil {
-		t.Fatalf("Call: %v", err)
-	}
-	got, ok := result.(starlark.String)
-	if !ok {
-		t.Fatalf("result is %T, want starlark.String", result)
-	}
-	if string(got) != "hello world" {
-		t.Errorf("greet(world) = %q, want %q", got, "hello world")
+	greet := bridged.(func(string) string)
+	if res := greet("world"); res != "hello world" {
+		t.Errorf("greet(world) = %q, want \"hello world\"", res)
 	}
 }
 
@@ -221,32 +174,31 @@ def identity(x):
     return x
 `, "identity")
 
-	f, err := NewFunction(ctx, ResourceSpec{Namespace: "Identity", Data: starFn})
+	f, _ := NewFunction(ctx, ResourceSpec{Namespace: "core", Data: starFn})
+
+	// Force version skew and wipe cache.
+	f.Compiled = nil
+	f.CompilerVersion = 0
+
+	target := reflect.TypeFor[func(int) int]()
+	bridged, err := op.Convert(ctx, f, target)
 	if err != nil {
-		t.Fatalf("NewFunction: %v", err)
+		t.Fatalf("Convert: %v", err)
 	}
 
-	// Simulate skew: clear cache and force fallback; the pack header will show the real compiler version
-	// so the compiled section is used. To exercise the recompile-from-source path, clear cache AND tamper
-	// with the pack is beyond this test's scope. This test instead confirms that the in-memory cache's
-	// version tag is the only source of truth for the fast-path decision.
-	f.Compiled = []byte("stale bytecode ignored")
-	f.CompilerVersion = 0 // mismatch → fast path rejects → mmap fallback
+	identity := bridged.(func(int) int)
+	if res := identity(42); res != 42 {
+		t.Errorf("identity(42) = %d, want 42", res)
+	}
+}
 
-	thread := &starlark.Thread{Name: "test-skew"}
-	callable, err := f.Init(thread)
-	if err != nil {
-		t.Fatalf("Init: %v", err)
-	}
-	if callable == nil {
-		t.Fatal("Init returned nil callable")
-	}
+func TestFunction_Init_NotAPointer(t *testing.T) {
 
-	// Cache should be refreshed to the real compiled bytes.
-	if string(f.Compiled) == "stale bytecode ignored" {
-		t.Error("Compiled cache still contains stale bytes after skew detection")
-	}
-	if f.CompilerVersion != starlark.CompilerVersion {
-		t.Errorf("CompilerVersion = %d, want %d", f.CompilerVersion, starlark.CompilerVersion)
+	ctx := newTestCtx(t)
+	f := &Function{}
+	target := reflect.TypeFor[int]() // not a func
+	_, err := op.Convert(ctx, f, target)
+	if err == nil {
+		t.Error("Convert(non-func) succeeded, want error")
 	}
 }

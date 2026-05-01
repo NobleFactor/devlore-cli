@@ -502,15 +502,18 @@ func (s *Session) processPlanResponse(input string) error {
 // executeStep runs the execution graph.
 func (s *Session) executeStep() *console.Step {
 
-	// Execute the graph
-	executor, err := op.NewGraphExecutor("writ", op.Options{
-		Root: s.opts.SourceRoot,
-	})
+	root, err := op.NewConfinedRoot(s.opts.SourceRoot)
 	if err != nil {
-		s.err = fmt.Errorf("create executor: %w", err)
+		s.err = fmt.Errorf("open root: %w", err)
 		s.state = StateError
 		return s.Next()
 	}
+
+	spec := op.NewRuntimeEnvironmentSpec("writ", op.NewReceiverRegistry()).
+		WithRoot(root)
+
+	// Execute the graph
+	executor := op.NewGraphExecutor(spec)
 
 	_, err = executor.Run(s.graph)
 	if err != nil {

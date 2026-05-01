@@ -170,15 +170,27 @@ func ResolveResources(catalog *ResourceCatalog) error {
 
 	var missing []string
 	for _, rawURI := range uris {
-		u, err := url.Parse(rawURI)
+
+		effectiveURI := rawURI
+		if strings.HasPrefix(effectiveURI, tagURIPrefix) {
+			effectiveURI = strings.TrimPrefix(effectiveURI, tagURIPrefix)
+		}
+
+		u, err := url.Parse(effectiveURI)
 		if err != nil {
 			continue
 		}
 		if u.Scheme != "file" {
 			continue
 		}
-		if _, err := os.Stat(u.Path); errors.Is(err, os.ErrNotExist) {
-			missing = append(missing, u.Path)
+
+		path := u.Path
+		if u.Host != "" {
+			path = u.Host + u.Path
+		}
+
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			missing = append(missing, path)
 		}
 	}
 

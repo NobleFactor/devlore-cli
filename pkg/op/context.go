@@ -64,16 +64,17 @@ type ExecutionContext struct {
 	// Writer receives user-facing output messages.
 	Writer io.Writer
 
+	// BackupSuffix is appended to backup filenames during conflict resolution.
+	BackupSuffix string
+
+	// ConflictResolution chooses how to handle preflight conflicts.
+	ConflictResolution ConflictResolution
+
 	// mu guards the providers map for concurrent access.
 	mu sync.Mutex
 
 	// providers caches lazily-constructed provider instances by name.
 	providers map[string]any
-}
-
-// NewExecutionContext returns an ExecutionContext with the given root and auto-detected platform.
-func NewExecutionContext(root Root) ExecutionContext {
-	return ExecutionContext{Root: root, Platform: NewPlatform()}
 }
 
 // region EXPORTED METHODS

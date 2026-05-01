@@ -13,8 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -232,37 +230,6 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 	}
 
 	built, err := NewResource(r.ExecutionContext(), uri)
-	if err != nil {
-		return err
-	}
-
-	*r = *built
-	return nil
-}
-
-// UnmarshalStarlark populates the receiver from a [starlark.String] containing a file path or file URI.
-//
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
-// invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
-//
-// Parameters:
-//   - sv: a starlark value expected to be a [starlark.String].
-//
-// Returns:
-//   - error: non-nil if the ExecutionContext is missing, the value is not a [starlark.String], or resource
-//     construction fails.
-func (r *Resource) UnmarshalStarlark(sv starlark.Value) error {
-
-	if r.ExecutionContext() == nil {
-		return errors.New("file.Resource: UnmarshalStarlark requires ExecutionContext on receiver")
-	}
-
-	s, ok := sv.(starlark.String)
-	if !ok {
-		return fmt.Errorf("file.Resource: expected starlark.String, got %s", sv.Type())
-	}
-
-	built, err := NewResource(r.ExecutionContext(), string(s))
 	if err != nil {
 		return err
 	}

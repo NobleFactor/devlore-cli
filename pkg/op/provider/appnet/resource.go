@@ -11,8 +11,6 @@ import (
 	"reflect"
 	"strings"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -124,27 +122,6 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 	}
 
 	built, err := NewResource(r.ExecutionContext(), uri)
-	if err != nil {
-		return err
-	}
-
-	*r = *built
-	return nil
-}
-
-// UnmarshalStarlark populates the receiver from a [starlark.String] containing the URL.
-func (r *Resource) UnmarshalStarlark(sv starlark.Value) error {
-
-	if r.ExecutionContext() == nil {
-		return errors.New("appnet.Resource: UnmarshalStarlark requires ExecutionContext on receiver")
-	}
-
-	s, ok := sv.(starlark.String)
-	if !ok {
-		return fmt.Errorf("appnet.Resource: expected starlark.String, got %s", sv.Type())
-	}
-
-	built, err := NewResource(r.ExecutionContext(), string(s))
 	if err != nil {
 		return err
 	}

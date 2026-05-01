@@ -78,9 +78,14 @@ func NewResourceBase(ctx *ExecutionContext, specific string, goType reflect.Type
 		return ResourceBase{}, fmt.Errorf("op.NewResourceBase: goType has empty PkgPath and Name")
 	}
 
+	uri := specific
+	if !strings.HasPrefix(uri, tagURIPrefix) {
+		uri = tagURIPrefix + specific
+	}
+
 	return ResourceBase{
 		ProviderBase: NewProviderBase(ctx),
-		uri:          tagURIPrefix + specific + "#" + typeID,
+		uri:          uri + "#" + typeID,
 		specific:     specific,
 		typeID:       typeID,
 	}, nil

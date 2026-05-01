@@ -11,7 +11,7 @@ import (
 
 func TestNote(t *testing.T) {
 	var buf bytes.Buffer
-	p := Provider{Writer: &buf}
+	p := Provider{writer: &buf}
 	p.Note("hello")
 
 	got := buf.String()
@@ -28,7 +28,7 @@ func TestNote(t *testing.T) {
 
 func TestWarn(t *testing.T) {
 	var buf bytes.Buffer
-	p := Provider{Writer: &buf, Color: true}
+	p := Provider{writer: &buf, color: true}
 	p.Warn("alert")
 
 	got := buf.String()
@@ -48,7 +48,7 @@ func TestWarn(t *testing.T) {
 
 func TestError(t *testing.T) {
 	var buf bytes.Buffer
-	p := Provider{Writer: &buf, Color: true}
+	p := Provider{writer: &buf, color: true}
 	p.Error("oops")
 
 	got := buf.String()
@@ -68,7 +68,7 @@ func TestError(t *testing.T) {
 
 func TestSuccess(t *testing.T) {
 	var buf bytes.Buffer
-	p := Provider{Writer: &buf, Color: true}
+	p := Provider{writer: &buf, color: true}
 	p.Success("done")
 
 	got := buf.String()
@@ -88,14 +88,14 @@ func TestSuccess(t *testing.T) {
 
 func TestFail(t *testing.T) {
 	var buf bytes.Buffer
-	p := Provider{Writer: &buf, Color: true}
+	p := Provider{writer: &buf, color: true}
 
 	err := p.Fail("broken")
 	if err == nil {
 		t.Fatal("Fail() returned nil error, want non-nil")
 	}
-	if err.Error() != "broken" {
-		t.Errorf("error text = %q, want %q", err.Error(), "broken")
+	if err.Error() != "fatal: broken" {
+		t.Errorf("error text = %q, want %q", err.Error(), "fatal: broken")
 	}
 
 	got := buf.String()
@@ -124,7 +124,7 @@ func TestSilent(t *testing.T) {
 	for _, m := range methods {
 		t.Run(m.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			p := Provider{Writer: &buf, Silent: true}
+			p := Provider{writer: &buf, silent: true}
 			m.call(&p)
 
 			if buf.Len() != 0 {
@@ -135,7 +135,7 @@ func TestSilent(t *testing.T) {
 
 	t.Run("Fail", func(t *testing.T) {
 		var buf bytes.Buffer
-		p := Provider{Writer: &buf, Silent: true}
+		p := Provider{writer: &buf, silent: true}
 		err := p.Fail("hidden")
 
 		if buf.Len() != 0 {
@@ -144,8 +144,8 @@ func TestSilent(t *testing.T) {
 		if err == nil {
 			t.Fatal("Silent Fail returned nil error, want non-nil")
 		}
-		if err.Error() != "hidden" {
-			t.Errorf("error text = %q, want %q", err.Error(), "hidden")
+		if err.Error() != "fatal: hidden" {
+			t.Errorf("error text = %q, want %q", err.Error(), "fatal: hidden")
 		}
 	})
 }
@@ -165,7 +165,7 @@ func TestColorDisabled(t *testing.T) {
 	for _, m := range methods {
 		t.Run(m.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			p := Provider{Writer: &buf, Color: false}
+			p := Provider{writer: &buf, color: false}
 			m.call(&p)
 
 			got := buf.String()
@@ -181,7 +181,7 @@ func TestColorDisabled(t *testing.T) {
 
 func TestCustomProgramName(t *testing.T) {
 	var buf bytes.Buffer
-	p := Provider{Writer: &buf, ProgramName: "myapp"}
+	p := Provider{writer: &buf, programName: "myapp"}
 	p.Note("msg")
 
 	got := buf.String()

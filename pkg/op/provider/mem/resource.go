@@ -16,7 +16,6 @@ import (
 	"reflect"
 	"strings"
 
-	"go.starlark.net/starlark"
 	"golang.org/x/exp/mmap"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
@@ -281,30 +280,6 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UnmarshalStarlark populates the receiver from a [starlark.String] containing the URI.
-//
-// Same contract as [Resource.UnmarshalJSON]: ExecutionContext must be pre-seeded; URI carries the full
-// reachability.
-func (r *Resource) UnmarshalStarlark(sv starlark.Value) error {
-
-	if r.ExecutionContext() == nil {
-		return errors.New("mem.Resource: UnmarshalStarlark requires ExecutionContext on receiver")
-	}
-
-	s, ok := sv.(starlark.String)
-	if !ok {
-		return fmt.Errorf("mem.Resource: expected starlark.String, got %s", sv.Type())
-	}
-
-	built, err := newFromURI(r.ExecutionContext(), string(s))
-	if err != nil {
-		return err
-	}
-
-	*r = *built
-	return nil
-}
-
 // UnmarshalText populates the receiver from raw UTF-8 bytes containing the URI.
 func (r *Resource) UnmarshalText(text []byte) error {
 
@@ -353,7 +328,16 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 // UnmarshalYAML.
 func newFromURI(ctx *op.ExecutionContext, uri string) (*Resource, error) {
 
-	rest, ok := strings.CutPrefix(uri, "mem:")
+	specific := uri
+	if strings.HasPrefix(uri, "tag:") {
+		var err error
+		specific, _, err = op.ExtractTagSpecific(uri)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	rest, ok := strings.CutPrefix(specific, "mem:")
 	if !ok {
 		return nil, fmt.Errorf("mem.Resource: invalid URI %q (missing mem: prefix)", uri)
 	}
@@ -395,7 +379,16 @@ func newFromURI(ctx *op.ExecutionContext, uri string) (*Resource, error) {
 // under <Root>/.devlore/mem/.
 func sourcePathFromURI(root op.Root, uri string) (op.Path, error) {
 
-	rest, ok := strings.CutPrefix(uri, "mem:")
+	specific := uri
+	if strings.HasPrefix(uri, "tag:") {
+		var err error
+		specific, _, err = op.ExtractTagSpecific(uri)
+		if err != nil {
+			return op.Path{}, err
+		}
+	}
+
+	rest, ok := strings.CutPrefix(specific, "mem:")
 	if !ok || rest == "" {
 		return op.Path{}, fmt.Errorf("invalid URI %q", uri)
 	}

@@ -24,8 +24,8 @@ var errorType = reflect.TypeFor[error]()
 func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[Function](),
-		func(ctx *op.ExecutionContext, value any) (any, error) {
-			return NewFunction(ctx, value)
+		func(ctx *op.ExecutionContext, identity any) (op.Resource, error) {
+			return NewFunction(ctx, identity)
 		},
 		nil,
 	)
@@ -81,16 +81,16 @@ type Function struct {
 //
 // Parameters:
 //   - ctx:   execution context; must have a valid Root.
-//   - value: a [ResourceSpec] whose Data holds a *starlark.Function.
+//   - identity: a [ResourceSpec] whose Data holds a *starlark.Function.
 //
 // Returns:
 //   - *Function: the fully-populated Function.
 //   - error:     if the spec is malformed, source synthesis / compilation fails, or archival fails.
-func NewFunction(ctx *op.ExecutionContext, value any) (*Function, error) {
+func NewFunction(ctx *op.ExecutionContext, identity any) (*Function, error) {
 
-	spec, ok := value.(ResourceSpec)
+	spec, ok := identity.(ResourceSpec)
 	if !ok {
-		return nil, fmt.Errorf("mem.Function: expected ResourceSpec, got %T", value)
+		return nil, fmt.Errorf("mem.Function: expected ResourceSpec, got %T", identity)
 	}
 
 	starFn, ok := spec.Data.(*starlark.Function)

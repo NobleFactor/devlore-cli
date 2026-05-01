@@ -103,9 +103,9 @@ type ProviderConstructor func(ctx *ExecutionContext) (any, error)
 //   - value: type-specific input (e.g., a string path for file, a [mem.ResourceSpec] for mem).
 //
 // Returns:
-//   - any: the constructed resource.
-//   - error: non-nil if construction fails.
-type ResourceConstructor func(ctx *ExecutionContext, value any) (any, error)
+//   - Resource: the constructed resource.
+//   - error:    non-nil if construction fails.
+type ResourceConstructor func(ctx *ExecutionContext, value any) (Resource, error)
 
 // receiverType holds the fields common to all receiver descriptors.
 //
@@ -132,7 +132,7 @@ type dispatcher func(receiver any, args []any) (reflect.Value, reflect.Value, er
 //   - error: non-nil if the type cannot be introspected.
 func NewReceiverType(providerType reflect.Type, methodParameters map[string][]string) (ReceiverType, error) {
 
-	base, err := newReceiverType(providerType, methodParameters)
+	base, err := newReceiverType(providerType, methodParameters, false)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func NewProviderReceiverType(
 	methodParameters map[string][]string,
 ) (ProviderReceiverType, error) {
 
-	base, err := newReceiverType(providerType, methodParameters)
+	base, err := newReceiverType(providerType, methodParameters, true)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func NewResourceReceiverType(
 	methodParameters map[string][]string,
 ) (ResourceReceiverType, error) {
 
-	base, err := newReceiverType(resourceType, methodParameters)
+	base, err := newReceiverType(resourceType, methodParameters, false)
 	if err != nil {
 		return nil, err
 	}
@@ -318,11 +318,12 @@ func (rt *resourceReceiverType) Construct() ResourceConstructor { return rt.cons
 // Parameters:
 //   - providerType: the reflect.Type of the provider or resource.
 //   - methodParameters: starlark parameter names per Go method.
+//   - isProvider: true if this receiver is an op.Provider (enables companion lookup).
 //
 // Returns:
-//   - *receiverType: the populated base.
+//   - receiverType: the populated base.
 //   - error: non-nil if method classification fails.
-func newReceiverType(providerType reflect.Type, methodParameters map[string][]string) (receiverType, error) {
+func newReceiverType(providerType reflect.Type, methodParameters map[string][]string, isProvider bool) (receiverType, error) {
 
 	name := receiverName(providerType)
 
@@ -353,7 +354,7 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]st
 
 			if parameters, ok := methodParameters[reflectedMethod.Name]; ok {
 
-				method, err := methodFromReflectedMethod(methodType, reflectedMethod, parameters)
+				method, err := methodFromReflectedMethod(methodType, reflectedMethod, parameters, isProvider)
 
 				if err != nil {
 					return receiverType{}, err
@@ -375,7 +376,7 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]st
 				parameters[i] = strconv.Itoa(i)
 			}
 
-			method, err := methodFromReflectedMethod(providerType, reflectedMethod, parameters)
+			method, err := methodFromReflectedMethod(providerType, reflectedMethod, parameters, isProvider)
 
 			if err != nil {
 				return receiverType{}, err
@@ -525,40 +526,49 @@ func compileDispatcher(m *Method) dispatcher {
 //     required on the receiver type. Its absence is a fatal error.
 //
 // Parameters:
-//   - providerType: the reflect.Type of the receiver (pointer type) for companion lookup.
+//   - receiverType: the reflect.Type of the receiver (pointer type) for companion lookup.
 //   - method: the reflected Go method.
 //   - parameters: parameter names matching the method's non-receiver parameters.
+//   - isProvider: true if this receiver is an op.Provider (enables companion lookup).
 //
 // Returns:
 //   - *Method: the classified method.
 //   - error: non-nil if the return signature is invalid or a required companion is missing.
-func methodFromReflectedMethod(providerType reflect.Type, method reflect.Method, parameters []string) (*Method, error) {
+func methodFromReflectedMethod(receiverType reflect.Type, method reflect.Method, parameters []string, isProvider bool) (*Method, error) {
 
 	mt := method.Type
 	numOut := mt.NumOut()
 	lastIsError := numOut > 0 && mt.Out(numOut-1).Implements(errorType)
 
 	var plannedMethod *reflect.Method
-
-	if planned, ok := providerType.MethodByName(method.Name + "Planned"); ok {
-		plannedMethod = &planned
-	}
-
 	var undoMethod *reflect.Method
 
-	if numOut == 3 && lastIsError {
-		compensateName := "Compensate" + method.Name
-		compensateMethod, ok := providerType.MethodByName(compensateName)
-		if !ok {
-			return nil, fmt.Errorf("compensable method %s requires a %s companion on %s",
-				method.Name,
-				compensateName,
-				providerType.Elem().Name())
+	if isProvider {
+
+		// Ensure we are searching the pointer type so pointer-receiver methods are visible.
+		searchType := receiverType
+		if searchType.Kind() != reflect.Ptr {
+			searchType = reflect.PointerTo(searchType)
 		}
-		undoMethod = &compensateMethod
+
+		if planned, ok := searchType.MethodByName(method.Name + "Planned"); ok {
+			plannedMethod = &planned
+		}
+
+		if numOut == 3 && lastIsError {
+			compensateName := "Compensate" + method.Name
+			compensateMethod, ok := searchType.MethodByName(compensateName)
+			if !ok {
+				return nil, fmt.Errorf("provider %s: compensable method %s requires a '%s' companion to support recovery",
+					receiverName(receiverType),
+					method.Name,
+					compensateName)
+			}
+			undoMethod = &compensateMethod
+		}
 	}
 
-	return NewMethod(&method, parameters, plannedMethod, undoMethod)
+	return NewMethod(&method, parameters, plannedMethod, undoMethod, isProvider)
 }
 
 // deriveMethodParams discovers exported methods on a Go type and generates positional parameter names.
@@ -605,13 +615,18 @@ func receiverName(providerType reflect.Type) string {
 		providerType = providerType.Elem()
 	}
 
-	switch providerType.Name() {
+	pkgPath := providerType.PkgPath()
+	pkgName := pkgPath[strings.LastIndex(pkgPath, "/")+1:]
+
+	typeName := providerType.Name()
+
+	switch typeName {
 	case "Provider":
-		return providerType.PkgPath()[strings.LastIndex(providerType.PkgPath(), "/")+1:]
+		return pkgName
 	case "Resource":
-		return providerType.PkgPath()[strings.LastIndex(providerType.PkgPath(), "/")+1:] + ".Resource"
+		return pkgName + ".Resource"
 	default:
-		return providerType.Name()
+		return typeName
 	}
 }
 

@@ -36,8 +36,8 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-	Catalog      *op.ResourceCatalog                    // session-scoped resource catalog; shared by every NodeBuilder
-	Invocations  *starlarkbridge.InvocationRegistry     // session-scoped ledger; every NodeBuilder registers here
+	catalog      *op.ResourceCatalog                    // session-scoped resource catalog; shared by every NodeBuilder
+	invocations  *starlarkbridge.InvocationRegistry     // session-scoped ledger; every NodeBuilder registers here
 	mutex        sync.Mutex                             // guards adapters
 	adapters     map[string]*starlarkbridge.NodeBuilder // Tier 3: cached plan adapters by sub-namespace provider name
 	peerBuiltins map[string]starlark.Value              // Tier 2: root-planned peer method builtins, write-once
@@ -47,7 +47,7 @@ type Provider struct {
 // NewProvider creates a plan Provider bound to the given context.
 //
 // Per phase-8 D5, no [op.Graph] is constructed here — nodes produced during script evaluation live on detached
-// [starlarkbridge.Invocation] handles registered in [Provider.Invocations]. The graph is materialized by plan.run
+// [starlarkbridge.Invocation] handles registered in [Provider.invocations]. The graph is materialized by plan.run
 // (step 16) from the reachable invocation set.
 //
 // At construction, the Provider instantiates the session catalog and invocation registry, then discovers every
@@ -58,8 +58,8 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 
 	p := &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
-		Catalog:      op.NewResourceCatalog(),
-		Invocations:  starlarkbridge.NewInvocationRegistry(),
+		catalog:      op.NewResourceCatalog(),
+		invocations:  starlarkbridge.NewInvocationRegistry(),
 		adapters:     make(map[string]*starlarkbridge.NodeBuilder),
 		peerBuiltins: make(map[string]starlark.Value),
 		rootNames:    make(map[string]struct{}),
@@ -143,7 +143,7 @@ func (p *Provider) ResolveAttr(name string) any {
 		return nil
 	}
 
-	adapter := starlarkbridge.NewNodeBuilder(prt, p.ExecutionContext(), p.Catalog, p.Invocations)
+	adapter := starlarkbridge.NewNodeBuilder(prt, p.ExecutionContext(), p.catalog, p.invocations)
 	p.adapters[name] = adapter
 
 	return adapter
@@ -198,7 +198,7 @@ func (p *Provider) buildPeerBuiltins() {
 			continue
 		}
 
-		builder := starlarkbridge.NewNodeBuilder(peer, p.ExecutionContext(), p.Catalog, p.Invocations)
+		builder := starlarkbridge.NewNodeBuilder(peer, p.ExecutionContext(), p.catalog, p.invocations)
 
 		for _, name := range builder.AttrNames() {
 

@@ -668,15 +668,18 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	}
 	graph.Root.Edges = edges
 
-	eng, engErr := op.NewGraphExecutor("writ", op.Options{
-		Root:       targetRoot,
-		SopsClient: sopsClient,
-		Data:       engineData,
-	})
-	if engErr != nil {
-		cli.Error("%s: %v", relTarget, engErr)
+	root, err := op.NewConfinedRoot(targetRoot)
+	if err != nil {
+		cli.Error("%s: open root: %v", relTarget, err)
 		return upgradeResultError
 	}
+
+	spec := op.NewRuntimeEnvironmentSpec("writ", reg).
+		WithRoot(root).
+		WithSops(sopsClient).
+		WithData(engineData)
+
+	eng := op.NewGraphExecutor(spec)
 
 	if _, runErr := eng.Run(graph); runErr != nil {
 		cli.Error("%s: %v", relTarget, runErr)

@@ -59,14 +59,14 @@ type NodeBuilder struct {
 //     so labels are session-unique and orphan detection can walk the full set.
 //
 // Returns:
-//   - *NodeBuilder: the starlark-ready wrapper.
+//   - *NodeBuilder: the starlark-ready goReceiver.
 func NewNodeBuilder(rt op.ProviderReceiverType, ctx *op.ExecutionContext, catalog *op.ResourceCatalog, registry *InvocationRegistry) *NodeBuilder {
 
 	methods := make(map[string]*op.Method)
 	names := make([]string, 0)
 
 	for method := range rt.Methods() {
-		snake := camelToSnake(method.Name())
+		snake := op.CamelToSnake(method.Name())
 		methods[snake] = method
 		names = append(names, snake)
 	}
@@ -237,14 +237,15 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		return nil, err
 	}
 
-	// Create node.
+	// Create node and bind the method so SetSlot can validate slot names against the parameter list.
 
 	node := op.NewNode(op.GenerateNodeID(actionName))
+	node.Bind(method)
 	node.Receiver = actionName
 
-	// Fill slots from starlark values via the unified FillSlot pipeline. Resource-typed targets are handled by
-	// FillSlot's generic assign path (Unmarshaler + op.Convert) with link-time catalog resolution applied to any
-	// op.Resource result.
+	// Fill slots from starlark values via the unified fillSlot pipeline. Resource-typed targets are handled by
+	// fillSlot's generic path (starlarkToGoTyped → toGo + op.Convert) with link-time catalog resolution applied
+	// to any op.Resource result.
 
 	for i, slot := range slots {
 
@@ -298,7 +299,7 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		invLabel = p.registry.AutoLabel(label)
 	}
 
-	inv := &Invocation{Label: invLabel, Target: node, Result: promise}
+	inv := &Invocation{Label: invLabel, Target: node, Promise: promise}
 	if err := p.registry.Register(invLabel, inv); err != nil {
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
@@ -314,7 +315,7 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 //
 // Accepted value shapes for the kwarg:
 //
-//   - A *wrapper around a *Options (produced by plan.options(...)). Returns the *Options.
+//   - A *goReceiver around a *Options (produced by plan.options(...)). Returns the *Options.
 //   - starlark.None. Returns nil *Options; treated as "no options."
 //   - Anything else. Returns a descriptive error.
 //
@@ -338,11 +339,11 @@ func extractOptionsKwarg(kwargs []starlark.Tuple) (*Options, []starlark.Tuple, e
 
 		switch v := kv[1].(type) {
 
-		case *wrapper:
+		case *goReceiver:
 
 			o, ok := v.instance.(*Options)
 			if !ok {
-				return nil, nil, fmt.Errorf("options: expected plan.options(...) result, got starlark wrapper around %T", v.instance)
+				return nil, nil, fmt.Errorf("options: expected plan.options(...) result, got starlark receiver around %T", v.instance)
 			}
 
 			opts = o
@@ -368,10 +369,12 @@ func extractOptionsKwarg(kwargs []starlark.Tuple) (*Options, []starlark.Tuple, e
 
 // fillSlot populates a slot on a node from a starlark value.
 //
-// Graph-edge dispatch (Promise, list-of-Promises) comes first: these mutate graph structure. Other values flow through
-// the Unmarshaler pipeline with a fall-back to [op.Convert] for target types Unmarshal cannot assign to directly
-// (notably registered resource types constructed from primitives). After assignment, a Resource result is link-resolved
-// against the graph catalog and, if the linked entry carries a producer origin, an implicit edge is added from the
+// Graph-edge dispatch (Invocation, list-of-Invocations) comes first: these mutate graph structure. NoneType skips
+// the optional slot. Projector lets the starlark value choose its own Go projection. The generic path routes
+// through [starlarkToGoTyped] — the same toGo + [op.Convert] pipeline immediate-mode dispatch reaches via
+// [op.Method.Invoke] — covering registered Resource construction from primitives, slice/map element recursion,
+// and the source/target converter opt-ins. After assignment, a Resource result is link-resolved against the
+// session catalog and, if the linked entry carries a producer origin, an implicit edge is added from the
 // producer to this node.
 //
 // The caller supplies slot.Parameter pre-populated. fillSlot fills the slot's value and installs it on the node via
@@ -447,7 +450,7 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, sv starlark.Value) 
 	}
 
 	// Projector: extract the Go value the slot's parameter type wants, via the implementer's own projection
-	// logic (op.Convert cascade for wrapper, target-type switch for Promise/Invocation). Preserves identity and
+	// logic (op.Convert cascade for goReceiver, target-type switch for Promise/Invocation). Preserves identity and
 	// producer through the planning layer without a starlark round-trip. If the extracted value carries a
 	// producerID (resource produced by a prior node), the edge is implicit in the Resource stored in this node's
 	// slot; plan.run extracts it at materialization (phase-8 D5).
@@ -460,12 +463,12 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, sv starlark.Value) 
 		return nil
 	}
 
-	// Generic path: unmarshal into target type.
-	//
-	// On mismatch, fall back to unmarshal-into-any + op.Convert so registry-based target instantiation (e.g., string →
-	// *file.Resource) takes over.
+	// Generic path: route to the bridge's single starlark→typed-Go entry point. starlarkToGoTyped runs the
+	// toGo unpacker (target=any) then the op.Convert cascade — covering assignability, ConvertibleTo,
+	// source/target converter opt-ins, registered Resource construction (string → *file.Resource), and
+	// slice/map element recursion. Identical to the path immediate-mode dispatch takes via Method.Invoke.
 
-	final, err := p.assignTarget(slot.Parameter, sv)
+	final, err := starlarkToGoTyped(p.ctx, sv, slot.Parameter.Type)
 
 	if err != nil {
 		return fmt.Errorf("slot %q: %w", name, err)
@@ -494,163 +497,6 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, sv starlark.Value) 
 
 	node.SetSlot(name, op.ImmediateValue{Value: final})
 	return nil
-}
-
-// assignTarget converts a starlark value into the Go type declared by parameter.Type.
-//
-// When the target type implements [Unmarshaler], a fresh zero instance is allocated and UnmarshalStarlark is invoked on
-// it. Otherwise, the starlark value is unpacked to its natural Go equivalent and aligned with the target type using
-// Go's conversion rules (reflect.Value.AssignableTo → reflect.Value.ConvertibleTo). Unpacking a list/dict/tuple
-// recurses into any-typed slots, so collections naturally unpack as []any or map[any]any; the trailing alignment
-// succeeds only when the target type accepts that shape per the Go spec. parameter.Name is threaded into error messages
-// so callers see which argument failed.
-func (p *NodeBuilder) assignTarget(parameter op.Parameter, value starlark.Value) (any, error) {
-
-	target := parameter.Type
-
-	if target.Implements(reflect.TypeFor[Unmarshaler]()) {
-
-		v := reflect.New(target.Elem()).Interface().(Unmarshaler)
-
-		if err := v.UnmarshalStarlark(value); err != nil {
-			return nil, fmt.Errorf("%s: %w", parameter.Name, err)
-		}
-
-		return v, nil
-	}
-
-	anyType := reflect.TypeFor[any]()
-	var unpacked any
-
-	switch v := value.(type) {
-
-	case starlark.Bool:
-
-		unpacked = bool(v)
-
-	case starlark.Bytes:
-
-		unpacked = []byte(v)
-
-	case *starlark.Dict:
-
-		m := make(map[any]any, v.Len())
-
-		for _, item := range v.Items() {
-
-			key, err := p.assignTarget(op.Parameter{Name: parameter.Name + " key", Type: anyType}, item[0])
-			if err != nil {
-				return nil, err
-			}
-
-			val, err := p.assignTarget(op.Parameter{Name: fmt.Sprintf("%s[%v]", parameter.Name, key), Type: anyType}, item[1])
-			if err != nil {
-				return nil, err
-			}
-
-			m[key] = val
-		}
-
-		unpacked = m
-
-	case starlark.Float:
-
-		unpacked = float64(v)
-
-	case *starlark.Function:
-
-		unpacked = v
-
-	case starlark.Int:
-
-		i, ok := v.Int64()
-		if !ok {
-			return nil, fmt.Errorf("%s: int too large to convert: %s", parameter.Name, v)
-		}
-		unpacked = i
-
-	case *starlark.List:
-
-		n := v.Len()
-		result := make([]any, n)
-
-		for i := range n {
-
-			elem, err := p.assignTarget(op.Parameter{Name: fmt.Sprintf("%s[%d]", parameter.Name, i), Type: anyType}, v.Index(i))
-			if err != nil {
-				return nil, err
-			}
-
-			result[i] = elem
-		}
-
-		unpacked = result
-
-	case starlark.NoneType:
-
-		return nil, nil
-
-	case *starlark.Set:
-
-		result := make([]any, 0, v.Len())
-		iter := v.Iterate()
-		defer iter.Done()
-
-		var item starlark.Value
-		for i := 0; iter.Next(&item); i++ {
-
-			elem, err := p.assignTarget(op.Parameter{Name: fmt.Sprintf("%s[%d]", parameter.Name, i), Type: anyType}, item)
-			if err != nil {
-				return nil, err
-			}
-
-			result = append(result, elem)
-		}
-
-		unpacked = result
-
-	case starlark.String:
-
-		unpacked = string(v)
-
-	case starlark.Tuple:
-
-		n := v.Len()
-		result := make([]any, n)
-
-		for i := range n {
-
-			param := op.Parameter{Name: fmt.Sprintf("%s[%d]", parameter.Name, i), Type: anyType}
-
-			elem, err := p.assignTarget(param, v.Index(i))
-			if err != nil {
-				return nil, err
-			}
-
-			result[i] = elem
-		}
-
-		unpacked = result
-
-	default:
-
-		return nil, fmt.Errorf("%s: %s value is not convertible to %s", parameter.Name, value.Type(), target)
-	}
-
-	sv := reflect.ValueOf(unpacked)
-
-	if sv.Type().AssignableTo(target) {
-		return sv.Interface(), nil
-	}
-
-	if sv.Type().ConvertibleTo(target) {
-		return sv.Convert(target).Interface(), nil
-	}
-
-	// Final fallback: route to op.Convert's universal cascade. Picks up SourceConverter, TargetConverter,
-	// registered Resource construction (string → *file.Resource via the registry), and the slice/map element
-	// recursion. assignTarget's job is starlark unpacking; type-matching beyond Go's spec lives in op.Convert.
-	return op.Convert(p.ctx, unpacked, target)
 }
 
 // endregion

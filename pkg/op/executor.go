@@ -7,140 +7,44 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path"
 	"time"
 
-	"go.starlark.net/starlark"
-
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
-	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 var (
 	ErrNilGraph = errors.New("expected non-nil Graph")
 )
 
-// ConflictResolution specifies how to handle conflicts during execution.
-type ConflictResolution int
-
-const (
-	// ResolutionStop aborts execution on first conflict.
-	ResolutionStop ConflictResolution = iota
-	// ResolutionBackup moves conflicting files to timestamped backups.
-	ResolutionBackup
-	// ResolutionOverwrite removes conflicting files without backup.
-	ResolutionOverwrite
-	// ResolutionSkip skips conflicting files and continues.
-	ResolutionSkip
-)
-
-// Options configures GraphExecutor behavior.
-type Options struct {
-
-	// Root is the authority boundary for provider operations. When set, a recovery.Site is created and placed on the
-	// execution ExecutionContext.
-	Root string
-
-	// BackupSuffix is appended to back up filenames (default: ".<program-name>-backup").
-	BackupSuffix string
-
-	// ConflictResolution specifies how to handle conflicts detected during preflight.
-	ConflictResolution ConflictResolution
-
-	// Data holds tool-provided context (template vars, etc.).
-	Data map[string]any
-
-	// DryRun prevents changes from being applied.
-	DryRun bool
-
-	// SopsClient provides SOPS operations. Nil when SOPS is not configured.
-	SopsClient *sops.Client
-
-	// Writer receives user-facing output.
-	Writer io.Writer
-}
-
 // GraphExecutor executes action graphs.
 type GraphExecutor struct {
-	hooks   *HookRegistry
-	options Options
+	hooks *HookRegistry
+	spec  *RuntimeEnvironmentSpec
 }
 
-// NewGraphExecutor creates an executor with the given options.
+// NewGraphExecutor creates an executor with the given environment spec.
 //
 // Parameters:
-//   - opts: the executor configuration.
+//   - spec: the execution environment configuration.
 //
 // Returns:
 //   - *GraphExecutor: the configured executor.
-func NewGraphExecutor(programName string, options Options) (executor *GraphExecutor, err error) {
+func NewGraphExecutor(spec *RuntimeEnvironmentSpec) *GraphExecutor {
 
-	if programName == "" {
-		programName = path.Base(os.Args[0])
-	}
-
-	if options.BackupSuffix == "" {
-		options.BackupSuffix = "." + programName + "-backup"
-	}
-
-	if options.Writer == nil {
-		options.Writer = os.Stdout
-	}
+	assert.NotNil("spec", spec)
 
 	return &GraphExecutor{
-		options: options,
-	}, nil
+		spec: spec,
+	}
 }
 
-// newContext creates an execution ExecutionContext from the executor's options.
-//
-// Root is mandatory — an Root is opened for OS-enforced confinement and a RecoverySite is created. The caller must
-// defer Root.Close().
-//
-// Parameters:
-//   - ctx: the parent context for cancellation.
+// newContext creates an execution ExecutionContext from the executor's spec.
 //
 // Returns:
 //   - *ExecutionContext: the execution context.
-//   - error: non-nil if Root is empty or the confined root cannot be opened.
-func (e *GraphExecutor) newContext() (*ExecutionContext, error) {
-
-	if e.options.Root == "" {
-		return nil, fmt.Errorf("executor: Root is required")
-	}
-
-	root, err := NewConfinedRoot(e.options.Root)
-	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", e.options.Root, err)
-	}
-
-	ctx := NewExecutionContext(root)
-
-	ctx.Registry = NewReceiverRegistry()
-	ctx.Data = e.options.Data
-	ctx.DryRun = e.options.DryRun
-	ctx.RecoverySite = NewRecoverySite(&ctx)
-	ctx.Sops = e.options.SopsClient
-	ctx.Thread = *e.newThread()
-	ctx.Writer = e.options.Writer
-
-	return &ctx, nil
-}
-
-// newThread creates a Starlark thread for callable initialization during
-// execution. Print output goes to the executor's writer.
-//
-// Returns:
-//   - *starlark.Thread: the configured thread.
-func (e *GraphExecutor) newThread() *starlark.Thread {
-	return &starlark.Thread{
-		Name: "executor",
-		Print: func(_ *starlark.Thread, msg string) {
-			_, _ = fmt.Fprintln(e.options.Writer, msg)
-		},
-	}
+func (e *GraphExecutor) newContext() *ExecutionContext {
+	return e.spec.NewExecutionContext()
 }
 
 // SetHooks sets the lifecycle hook registry for this executor.
@@ -168,12 +72,9 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 		return nil, fmt.Errorf("graph already executed (state: %s)", graph.State)
 	}
 
-	ctx, err := e.newContext()
+	ctx := e.newContext()
 
-	if err != nil {
-		return nil, err
-	}
-
+	var err error
 	defer iox.Close(&err, ctx.Root)
 	graph.Rebind(ctx)
 

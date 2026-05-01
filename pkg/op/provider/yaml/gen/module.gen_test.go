@@ -15,9 +15,9 @@ import (
 
 func TestModule_AttrNames(t *testing.T) {
 
-	r, err := starlarkbridge.NewWrapper(provider.NewProvider(newCtx(t)))
+	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
-		t.Fatalf("NewWrapper: %v", err)
+		t.Fatalf("NewGoReceiver: %v", err)
 	}
 	names := r.AttrNames()
 	if len(names) == 0 {
@@ -32,9 +32,9 @@ func TestModule_AttrNames(t *testing.T) {
 
 func TestModule_Attr(t *testing.T) {
 
-	r, err := starlarkbridge.NewWrapper(provider.NewProvider(newCtx(t)))
+	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
-		t.Fatalf("NewWrapper: %v", err)
+		t.Fatalf("NewGoReceiver: %v", err)
 	}
 	for _, name := range r.AttrNames() {
 		attr, err := r.Attr(name)
@@ -50,9 +50,9 @@ func TestModule_Attr(t *testing.T) {
 
 func TestModule_Attr_Unknown(t *testing.T) {
 
-	r, err := starlarkbridge.NewWrapper(provider.NewProvider(newCtx(t)))
+	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
-		t.Fatalf("NewWrapper: %v", err)
+		t.Fatalf("NewGoReceiver: %v", err)
 	}
 	_, err = r.Attr("nonexistent_method")
 	if err == nil {
@@ -62,9 +62,9 @@ func TestModule_Attr_Unknown(t *testing.T) {
 
 func TestModule_Type(t *testing.T) {
 
-	r, err := starlarkbridge.NewWrapper(provider.NewProvider(newCtx(t)))
+	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
-		t.Fatalf("NewWrapper: %v", err)
+		t.Fatalf("NewGoReceiver: %v", err)
 	}
 	if got := r.Type(); got != "yaml" {
 		t.Errorf("Type() = %q, want %q", got, "yaml")

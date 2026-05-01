@@ -34,17 +34,17 @@ func errFromValue(v reflect.Value) error {
 	return v.Interface().(error)
 }
 
-// MethodKind classifies a provider method by its return signature.
+// MethodKind identifies the signature and capabilities of a method.
 type MethodKind int
 
 const (
-	// MethodAction produces no result and is guaranteed not to fail. Return: ()
+	// MethodAction produces no result and cannot fail. Return: ().
 	MethodAction MethodKind = iota
 
-	// MethodFallibleAction produces no result but may fail. Return: (error)
+	// MethodFallibleAction produces no result but may fail. Return: (error).
 	MethodFallibleAction
 
-	// MethodFunction produces a result and is guaranteed not to fail. Return: (T).
+	// MethodFunction produces a result and cannot fail. Return: (T).
 	MethodFunction
 
 	// MethodFallibleFunction produces a result but may fail. Return: (T, error).
@@ -92,20 +92,20 @@ type Method struct {
 //   - plan companion provided for a method that produces no result
 //   - plan companion parameter list differs from do
 //   - plan companion return signature is not (T, error) where T matches `do`'s first result
-//   - compensable method has no Compensate companion
-//   - Compensate companion provided for non-compensable method
-//   - Compensate companion signature is not func(receiver, complement) error
+//   - compensable method has no Compensate companion (if enforceCompanions is true)
+//   - Compensate companion signature is invalid
 //
 // Parameters:
 //   - do: the reflected Go method to wrap.
 //   - parameters: parameter names matching the method's non-receiver parameters.
 //   - plan: the Plan<Name> companion method, or nil if the method has no plan companion.
 //   - undo: the Compensate companion method, or nil for non-compensable methods.
+//   - enforceCompanions: true if this method belongs to a provider; enables companion requirements.
 //
 // Returns:
 //   - *Method: the classified method.
 //   - error: non-nil if validation fails.
-func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, undo *reflect.Method) (*Method, error) {
+func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, undo *reflect.Method, enforceCompanions bool) (*Method, error) {
 
 	methodType := do.Type
 
@@ -125,6 +125,19 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 			do.Name,
 			len(parameters),
 			strings.Join(parameters, ", "))
+	}
+
+	// Validate variadic markers.
+	for i, name := range parameters {
+		if strings.HasPrefix(name, "**") {
+			if i != len(parameters)-1 {
+				return nil, fmt.Errorf("keyword catch-all %q must be the last parameter of method %s", name, do.Name)
+			}
+		} else if strings.HasPrefix(name, "*") {
+			if i != len(parameters)-1 && !(i == len(parameters)-2 && strings.HasPrefix(parameters[i+1], "**")) {
+				return nil, fmt.Errorf("variadic parameter %q must be the last or second-to-last (before **kwargs) parameter of method %s", name, do.Name)
+			}
+		}
 	}
 
 	// Classify by return signature
@@ -166,10 +179,14 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 		if !methodType.Out(2).Implements(errorType) {
 			err = errorInvalidResultParameters(do)
 		} else if !isLegalCompensableComplement(methodType.Out(1)) {
-			err = fmt.Errorf("compensable method %s: complement type %s must be Receipt, []Receipt (or a slice "+
-				"whose element implements Receipt), or *RecoveryStack",
-				do.Name,
-				methodType.Out(1))
+			// Complement must be a Receipt, []Receipt, or *RecoveryStack if it's to join a saga.
+			// We only enforce this for providers where we expect compensation.
+			if enforceCompanions {
+				err = fmt.Errorf("compensable method %s: complement type %s must be Receipt, []Receipt (or a slice "+
+					"whose element implements Receipt), or *RecoveryStack",
+					do.Name,
+					methodType.Out(1))
+			}
 		}
 	}
 
@@ -232,8 +249,9 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 
 	// Cross-validate undo
 
-	if kind == MethodCompensableFunction && undo == nil {
-		return nil, fmt.Errorf("compensable method %s requires a Compensate%s companion", do.Name, do.Name)
+	if enforceCompanions && kind == MethodCompensableFunction && undo == nil {
+		return nil, fmt.Errorf("method %s appears to be compensable (returns 3 values) but no 'Compensate%s' companion was found",
+			do.Name, do.Name)
 	}
 
 	if undo != nil {
@@ -248,14 +266,14 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 		undoType := undo.Type
 
 		if undoType.NumIn() != 2 {
-			return nil, fmt.Errorf("compensation companion %s for method %s must accept exactly 1 parameter, got %d",
+			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected 1 parameter (the complement), got %d",
 				undo.Name,
 				do.Name,
 				undoType.NumIn()-1)
 		}
 
 		if undoType.NumOut() != 1 || !undoType.Out(0).Implements(errorType) {
-			return nil, fmt.Errorf("compensation companion %s for method %s must return exactly one parameter (error), got %d returns",
+			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: must return exactly one parameter (error), got %d",
 				undo.Name,
 				do.Name,
 				undoType.NumOut())
@@ -300,33 +318,12 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 // region State management
 
 // ActionName returns the canonical action name for this method.
-//
-// The name has the form <pkg-path>.<receiverName>.<methodName> and is computed once at [NewMethod]
-// construction. Callers should prefer this over ad-hoc composition from reflect metadata.
-//
-// Returns:
-//   - string: the canonical action name.
 func (m *Method) ActionName() string { return m.actionName }
 
-// Kind returns the method's classification.
-//
-// Returns:
-//   - MethodKind: the kind (action, fallible action, function, fallible function, or compensable function).
+// Kind returns the classification of this method's signature.
 func (m *Method) Kind() MethodKind { return m.kind }
 
-// HasPlan reports whether this method has a Plan<Name> companion.
-//
-// A non-nil plan companion means the method produces a resource whose identity can be computed at plan time
-// from the method's input slot values. The planner calls [Method.Plan] to populate the catalog's pending entries.
-//
-// Returns:
-//   - bool: true if the method has a Plan<Name> companion.
-func (m *Method) HasPlan() bool { return m.plan != nil }
-
-// Name returns the Go method name (CamelCase).
-//
-// Returns:
-//   - string: the method name (e.g., "WriteText").
+// Name returns the short name of the method.
 func (m *Method) Name() string { return m.do.Name }
 
 // ParameterByName returns the Parameter with the given name, if any.
@@ -340,64 +337,49 @@ func (m *Method) ParameterByName(name string) (Parameter, bool) {
 	return Parameter{}, false
 }
 
-// Parameters returns the method's named parameters (excluding the receiver).
-//
-// Returns:
-//   - []Parameter: the parameters with names and receiverTypes.
+// Parameters returns the named parameters of the method, excluding the receiver and any leading context.Context.
 func (m *Method) Parameters() []Parameter { return m.parameters }
 
 // ReceiverType returns the reflect.Type of the method's receiver.
-//
-// Returns:
-//   - reflect.Type: the receiver type (pointer type if the method uses a pointer receiver).
 func (m *Method) ReceiverType() reflect.Type { return m.do.Type.In(0) }
 
-// ResultType returns the reflect.Type of the method's first non-error result, or nil if the method has no results
-// other than error.
-//
-// Used by the planner to determine whether a method produces a resource: if ResultType is a registered resource type,
-// the method's last resource parameter is treated as the output destination and shadowed in the catalog.
-//
-// Returns:
-//   - reflect.Type: the first non-error result type, or nil.
+// ResultType returns the reflect.Type of the method's first non-error result, or nil.
 func (m *Method) ResultType() reflect.Type {
 	t := m.do.Type
 	if t.NumOut() == 0 {
 		return nil
 	}
 	first := t.Out(0)
-	// If the only result is error, there's no real result.
-	if t.NumOut() == 1 && first.Implements(reflect.TypeFor[error]()) {
+	if t.NumOut() == 1 && first.Implements(errorType) {
 		return nil
 	}
 	return first
 }
 
+// Undo calls the compensation companion on the receiver with the given complement.
+func (m *Method) Undo(receiver any, complement any) error {
+
+	if m.undo == nil {
+		return fmt.Errorf("method %s has no compensation companion", m.do.Name)
+	}
+
+	goArgs := make([]reflect.Value, 2)
+	goArgs[0] = reflect.ValueOf(receiver)
+	goArgs[1] = reflect.ValueOf(complement)
+
+	results := m.undo.Func.Call(goArgs)
+
+	return errFromValue(results[0])
+}
+
+// HasUndo reports whether this method has a compensation companion.
+func (m *Method) HasUndo() bool { return m.undo != nil }
+
 // endregion
 
 // region Behaviors
 
-// Invoke coerces slot values into Go arguments via [Convert] and dispatches to the wrapped method on the given
-// receiver.
-//
-// Invoke is the single dispatch entry point for already-resolved slot values — the plan path
-// ([starlarkbridge.NodeBuilder.FillSlot]) and the execute path ([starlarkbridge.wrapper.dispatch]) both project starlark values down to Go
-// values first; Invoke then projects those Go values into the method signature using the same [Convert] cascade both
-// paths share. Results are unpacked from [reflect.Value] into the Action-layer shape (Result, Complement, error).
-//
-// When the underlying Go method declares a leading context.Context, Invoke autofills it from ctx.Context; provider
-// methods that do not declare it are unaffected and their user-declared parameters remain the full Go argument list.
-//
-// Parameters:
-//   - ctx: the execution context carrying registry, catalog, and the ambient cancellation context.
-//   - receiver: the provider or resource instance to dispatch on.
-//   - slots: named slot values from the graph node; keys may be the parameter's raw name (e.g., "boundary?") or its
-//     clean form ("boundary"). Both are accepted for compatibility with imperative graph builders.
-//
-// Returns:
-//   - Result: the method's return value, or nil for void methods.
-//   - Complement: the undo state for compensable methods, or nil.
-//   - error: non-nil on coercion failure or a fallible method's error.
+// Invoke coerces slot values into Go arguments via [Convert] and dispatches to the wrapped method.
 func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]any) (Result, Complement, error) {
 
 	params := m.Parameters()
@@ -432,10 +414,6 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 
 	complementValue := complementOrNil(complement)
 
-	// Reshape the complement on the return path. The classifier guarantees one of three shapes for
-	// MethodCompensableFunction: a Receipt, a slice of Receipt-implementing values, or *RecoveryStack. The
-	// executor's push site dispatches per shape; this method's job is to commit any receipts and (for the
-	// slice case) build the engine-side sub-stack that the executor will splice via PushNested.
 	switch v := complementValue.(type) {
 	case nil:
 		return resultOrNil(result), nil, nil
@@ -459,78 +437,65 @@ func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]an
 }
 
 // buildSubStackFromReceiptSlice wraps a slice of [Receipt]-implementing values into a [RecoveryStack].
-//
-// Returns (nil, nil) when complement is not a slice of receipts — caller falls through to its own handling.
-// Each receipt is pushed via [RecoveryStack.PushReceipt] under m.actionName, which commits in place.
-//
-// Parameters:
-//   - complement: a candidate value the type-switch fell through to; expected to be a slice whose element
-//     implements [Receipt] (e.g., []*file.Receipt, []op.Receipt).
-//
-// Returns:
-//   - *RecoveryStack: a fresh sub-stack with one entry per receipt, in slice order; nil when complement is
-//     not a recognized receipt slice.
-//   - error: any error from [RecoveryStack.PushReceipt] (commit failure, missing resource context).
-func (m *Method) buildSubStackFromReceiptSlice(complement any) (*RecoveryStack, error) {
+func (m *Method) buildSubStackFromReceiptSlice(v any) (*RecoveryStack, error) {
 
-	value := reflect.ValueOf(complement)
-
-	if value.Kind() != reflect.Slice {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice {
 		return nil, nil
 	}
 
-	if !value.Type().Elem().Implements(receiptType) && !reflect.PointerTo(value.Type().Elem()).Implements(receiptType) {
-		return nil, nil
-	}
-
-	sub := NewRecoveryStack()
-
-	for i := 0; i < value.Len(); i++ {
-		elem := value.Index(i).Interface()
-		receipt, ok := elem.(Receipt)
+	stack := NewRecoveryStack()
+	for i := 0; i < rv.Len(); i++ {
+		item := rv.Index(i).Interface()
+		receipt, ok := item.(Receipt)
 		if !ok {
-			return nil, fmt.Errorf("inflate %s receipt slice: element %d does not implement Receipt", m.actionName, i)
+			return nil, nil
 		}
-		if pushErr := sub.PushReceipt(receipt, m.actionName); pushErr != nil {
-			return nil, fmt.Errorf("inflate %s receipt slice: push element %d: %w", m.actionName, i, pushErr)
+		if err := receipt.Commit(m.actionName); err != nil {
+			return nil, fmt.Errorf("slice item %d: %w", i, err)
 		}
+		_ = stack.PushReceipt(receipt, m.actionName)
 	}
 
-	return sub, nil
+	return stack, nil
 }
 
-// Do calls the forward method on the receiver with the given arguments.
-//
-// The result and complement are returned as [reflect.Value]. Callers are responsible for marshaling arguments to the
-// correct receiverTypes before calling Do. A zero [reflect.Value] indicates no value (void result or absent complement).
-//
-// Parameters:
-//   - receiver: the provider or resource instance to call the method on.
-//   - args: the method arguments (excluding the receiver), one per parameter.
-//
-// Returns:
-//   - reflect.Value: the result value, or zero Value for void methods.
-//   - reflect.Value: the complement value, or zero Value for non-compensable methods.
-//   - error: the error return, or nil on success.
+// Do dispatches a method call directly with Go arguments, returning reflected values.
 func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, error) {
 
-	goArgs := make([]reflect.Value, len(args)+1)
-	goArgs[0] = reflect.ValueOf(receiver)
+	v := reflect.ValueOf(receiver)
+
+	if v.Kind() != reflect.Pointer {
+		ptr := reflect.New(v.Type())
+		ptr.Elem().Set(v)
+		v = ptr
+	}
+
+	numIn := m.do.Type.NumIn()
+	if len(args)+1 != numIn {
+		return reflect.Value{}, reflect.Value{}, fmt.Errorf("method %s: expected %d arguments (including receiver), got %d",
+			m.do.Name,
+			numIn,
+			len(args)+1)
+	}
+
+	reflectArgs := make([]reflect.Value, len(args)+1)
+	reflectArgs[0] = v
 
 	for i, arg := range args {
 		if arg == nil {
-			goArgs[i+1] = reflect.Zero(m.do.Type.In(i + 1))
+			reflectArgs[i+1] = reflect.Zero(m.do.Type.In(i + 1))
 		} else {
-			goArgs[i+1] = reflect.ValueOf(arg)
+			reflectArgs[i+1] = reflect.ValueOf(arg)
 		}
 	}
 
 	var results []reflect.Value
 
 	if m.do.Type.IsVariadic() {
-		results = m.do.Func.CallSlice(goArgs)
+		results = m.do.Func.CallSlice(reflectArgs)
 	} else {
-		results = m.do.Func.Call(goArgs)
+		results = m.do.Func.Call(reflectArgs)
 	}
 
 	switch m.kind {
@@ -550,9 +515,6 @@ func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, err
 }
 
 // String returns the full Go method signature in human-readable form.
-//
-// Returns:
-//   - string: e.g., "func (Provider) WriteText(destination string, content string) (Resource, map[string]any, error)".
 func (m *Method) String() string {
 
 	receiverType := m.ReceiverType()
@@ -599,149 +561,46 @@ func (m *Method) String() string {
 	return b.String()
 }
 
-// Plan calls the Plan<Name> companion on the receiver with the given arguments.
-//
-// The Plan companion must be pure — no I/O, no target-machine state, no mutation. The planner calls it at plan
-// time to compute the identity of the resource the forward method will produce. The returned [reflect.Value] holds
-// the resource (typed as the method's first return value). Callers that need a strongly-typed [Resource] assert the
-// value's Interface() to op.Resource.
-//
-// A zero-value slot is passed as the parameter type's zero value (the Plan method must tolerate missing inputs,
-// or return [KnownAtExecution] when it cannot compute an identity without them).
-//
-// Parameters:
-//   - receiver: the provider instance to call the Plan method on.
-//   - args: positional arguments matching the method's non-receiver parameters (nil entries become zero values).
-//
-// Returns:
-//   - reflect.Value: the resource value returned by the Plan method.
-//   - error: the Plan method's error return, or a lookup error if the method has no Plan companion.
-func (m *Method) Plan(receiver any, args []any) (reflect.Value, error) {
-
-	if m.plan == nil {
-		return reflect.Value{}, fmt.Errorf("method %s has no plan companion", m.do.Name)
-	}
-
-	goArgs := make([]reflect.Value, len(args)+1)
-	goArgs[0] = reflect.ValueOf(receiver)
-
-	for i, arg := range args {
-
-		paramType := m.plan.Type.In(i + 1)
-
-		if arg == nil {
-			goArgs[i+1] = reflect.Zero(paramType)
-			continue
-		}
-
-		argVal := reflect.ValueOf(arg)
-
-		switch {
-		case argVal.Type().AssignableTo(paramType):
-			goArgs[i+1] = argVal
-		case argVal.Type().ConvertibleTo(paramType):
-			goArgs[i+1] = argVal.Convert(paramType)
-		default:
-			return reflect.Value{}, fmt.Errorf(
-				"method %s plan: arg %d: cannot convert %T to %s",
-				m.do.Name, i, arg, paramType,
-			)
-		}
-	}
-
-	results := m.plan.Func.Call(goArgs)
-	return results[0], errFromValue(results[1])
-}
-
-// Undo calls the compensation companion on the receiver with the given complement.
-//
-// Parameters:
-//   - receiver: the provider instance to call the compensation method on.
-//   - complement: the undo state produced by the forward method's second return value.
-//
-// Returns:
-//   - error: the compensation result.
-func (m *Method) Undo(receiver any, complement any) error {
-
-	if m.undo == nil {
-		return fmt.Errorf("method %s has no compensation companion", m.do.Name)
-	}
-
-	goArgs := make([]reflect.Value, 2)
-	goArgs[0] = reflect.ValueOf(receiver)
-	goArgs[1] = reflect.ValueOf(complement)
-
-	results := m.undo.Func.Call(goArgs)
-
-	return errFromValue(results[0])
-}
-
 // endregion
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
-// isLegalCompensableComplement reports whether reflectType is a legal complement type for [MethodCompensableFunction].
-//
-// Three shapes are accepted: a [Receipt]-implementing type (single-output compensable), a slice whose element
-// implements [Receipt] (multi-output compensable; engine wraps the slice into a sub-stack at [Method.Invoke]
-// time), and `*RecoveryStack` (action returns a fully-built saga that the engine splices via PushNested).
-//
-// Parameters:
-//   - reflectType: the method's second return type ([reflect.Type] of `Out(1)`).
-//
-// Returns:
-//   - bool: true when reflectType is one of the three legal complement shapes.
-func isLegalCompensableComplement(reflectType reflect.Type) bool {
-
-	if reflectType.Implements(receiptType) {
-		return true
-	}
-
-	if reflectType.Kind() == reflect.Slice && reflectType.Elem().Implements(receiptType) {
-		return true
-	}
-
-	if reflectType == recoveryStackType {
-		return true
-	}
-
-	return false
-}
-
-// errorInvalidResultParameters returns an error describing an unsupported return signature.
-//
-// Parameters:
-//   - do: the reflected method with the invalid signature.
-//
-// Returns:
-//   - error: the formatted error with the full method signature.
+// errorInvalidResultParameters returns a standard error for an unsupported return signature.
 func errorInvalidResultParameters(do *reflect.Method) error {
-
 	return fmt.Errorf("expected void, pure, fallible, or compensable result parameters for method %s, not: %s",
 		do.Name,
 		methodSignature(do))
 }
 
+// isLegalCompensableComplement returns true if t is a valid return type for a complement.
+func isLegalCompensableComplement(t reflect.Type) bool {
+
+	receiptType := reflect.TypeFor[Receipt]()
+
+	if t.Implements(receiptType) {
+		return true
+	}
+
+	if t == reflect.TypeFor[*RecoveryStack]() {
+		return true
+	}
+
+	if t.Kind() == reflect.Slice {
+		return t.Elem().Implements(receiptType)
+	}
+
+	return false
+}
+
 // methodSignature renders a reflect.Method as a human-readable Go function signature.
-//
-// Unlike [Method.String], this operates on a raw [reflect.Method] and does not include parameter names.
-//
-// Parameters:
-//   - m: the reflected method to render.
-//
-// Returns:
-//   - string: the rendered signature.
 func methodSignature(m *reflect.Method) string {
 
 	mt := m.Type
 	var b strings.Builder
 
-	// Receiver
-
 	receiver := mt.In(0)
-
 	if receiver.Kind() == reflect.Pointer {
 		receiver = receiver.Elem()
 	}
@@ -751,23 +610,16 @@ func methodSignature(m *reflect.Method) string {
 	b.WriteString(") ")
 	b.WriteString(m.Name)
 
-	// Parameters (skip receiver at In(0))
-
 	b.WriteString("(")
-
 	params := make([]string, mt.NumIn()-1)
 	for i := range params {
 		params[i] = mt.In(i + 1).String()
 	}
 	b.WriteString(strings.Join(params, ", "))
-
 	b.WriteString(")")
-
-	// Result parameters
 
 	if mt.NumOut() > 0 {
 		b.WriteString(" ")
-
 		if mt.NumOut() > 1 {
 			b.WriteString("(")
 		}

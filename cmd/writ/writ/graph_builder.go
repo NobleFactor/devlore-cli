@@ -213,17 +213,19 @@ func ConfigureEngine(cfg *Config, targetRoot string) (*op.GraphExecutor, error) 
 	// Set up SOPS client
 	sopsClient, _ := sops.NewClient(cfg.SourceRoot) //nolint:errcheck // nil when no .sops.yaml found
 
-	// Create engine
-	engine, err := op.NewGraphExecutor("writ", op.Options{
-		Root:       targetRoot,
-		SopsClient: sopsClient,
-		Data:       engineData,
-	})
+	root, err := op.NewConfinedRoot(targetRoot)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open root %s: %w", targetRoot, err)
 	}
 
-	return engine, nil
+	spec := op.NewRuntimeEnvironmentSpec("writ", op.NewReceiverRegistry()).
+		WithRoot(root).
+		WithSops(sopsClient).
+		WithData(engineData).
+		WithDryRun(cfg.DryRun)
+
+	// Create engine
+	return op.NewGraphExecutor(spec), nil
 }
 
 // graphBuiltinTemplateData returns the built-in template variables for graph building.

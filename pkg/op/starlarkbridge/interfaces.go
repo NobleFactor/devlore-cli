@@ -5,8 +5,6 @@ package starlarkbridge
 
 import (
 	"reflect"
-
-	"go.starlark.net/starlark"
 )
 
 // Projector is implemented by starlark.Values that know how to project themselves into a Go target type.
@@ -20,31 +18,4 @@ import (
 // path, regardless of mechanism. The interface is the contract; concrete types choose how to satisfy it.
 type Projector interface {
 	Project(target reflect.Type) (any, error)
-}
-
-// Marshaler is implemented by Go types that take ownership of their own Go→starlark marshaling.
-//
-// The bridge's default Go→starlark path runs through [NewWrapper], which uses reflection over the wrapped Go
-// instance's exported fields and registered methods. A Go type that needs richer or cheaper marshaling —
-// collapsing internal state into a single starlark.Value, surfacing a derived representation, avoiding reflection
-// on a hot path — implements [Marshaler] and the wrapper defers to it instead of running the default path.
-//
-// Implementing [Marshaler] is a contract: the returned [starlark.Value] is what the bridge exposes for this type,
-// and no fallback to the wrapper's default behavior occurs.
-type Marshaler interface {
-	MarshalStarlark() (starlark.Value, error)
-}
-
-// Unmarshaler is implemented by Go types that take ownership of their own starlark→Go unmarshaling.
-//
-// The bridge's default starlark→Go path runs through [Unwrapper.Unwrap], which projects the wrapped Go value
-// into a target type via [op.Convert]'s [op.SourceConverter] / [op.TargetConverter] cascade. A Go type that
-// needs custom shape recognition — accepting multiple starlark shapes, validating invariants at the bridge
-// boundary, or absorbing values that don't fit the conversion cascade — implements [Unmarshaler] and the
-// wrapper defers to it.
-//
-// Implementing [Unmarshaler] is a contract: any error returned propagates as the bridge's unmarshaling error; no
-// fallback to the wrapper's default behavior occurs.
-type Unmarshaler interface {
-	UnmarshalStarlark(starlark.Value) error
 }
