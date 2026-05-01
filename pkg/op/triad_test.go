@@ -7,8 +7,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -136,9 +137,10 @@ func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 				t.Error("original still exists after archive")
 			}
 
-			// Recovery ID is opaque but under .devlore/recovery/.
-			if !strings.HasPrefix(recoveryID, ".devlore/recovery/") {
-				t.Errorf("recoveryID = %q, want .devlore/recovery/ prefix", recoveryID)
+			// Recovery ID is an opaque UUID v7 — production callers receive a bare UUID; the on-disk
+			// .devlore/recovery/<uuid> path is an internal RecoverySite implementation detail.
+			if _, err := uuid.Parse(recoveryID); err != nil {
+				t.Errorf("recoveryID = %q, want parseable UUID: %v", recoveryID, err)
 			}
 
 			// Restore via RecoverySite.
@@ -178,8 +180,8 @@ func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 				t.Fatalf("ArchiveData: %v", err)
 			}
 
-			if !strings.HasPrefix(recoveryID, ".devlore/recovery/") {
-				t.Errorf("recoveryID = %q, want .devlore/recovery/ prefix", recoveryID)
+			if _, err := uuid.Parse(recoveryID); err != nil {
+				t.Errorf("recoveryID = %q, want parseable UUID: %v", recoveryID, err)
 			}
 
 			got, err := env.Site.RestoreData(recoveryID)
@@ -415,8 +417,8 @@ func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ArchiveFile(%s): %v", name, err)
 		}
-		if !strings.HasPrefix(id, ".devlore/recovery/") {
-			t.Errorf("[%d] recoveryID = %q, want .devlore/recovery/ prefix", i, id)
+		if _, err := uuid.Parse(id); err != nil {
+			t.Errorf("[%d] recoveryID = %q, want parseable UUID: %v", i, id, err)
 		}
 	}
 

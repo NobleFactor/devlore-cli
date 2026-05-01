@@ -90,6 +90,36 @@ func (r *Receipt) Source() *Resource {
 	return r.source
 }
 
+// SetSource sets the original location [Resource] for move-like operations.
+func (r *Receipt) SetSource(source *Resource) {
+	r.source = source
+}
+
+// RecoveryID returns the recovery ID for the file overwritten at the destination, or an empty string if none.
+//
+// Returns:
+//   - string: the recovery ID.
+func (r *Receipt) RecoveryID() string {
+	if r.recoveryID != uuid.Nil {
+		return r.recoveryID.String()
+	}
+	return ""
+}
+
+// SetRecoveryID sets the recovery ID for the file overwritten at the destination.
+func (r *Receipt) SetRecoveryID(id string) error {
+	if id == "" {
+		r.recoveryID = uuid.Nil
+		return nil
+	}
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	r.recoveryID = parsed
+	return nil
+}
+
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
 // the optional boundary_uri and source_uri.
 //

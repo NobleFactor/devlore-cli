@@ -103,7 +103,7 @@ func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMo
 	}
 
 	if receipt != nil && recoveryID != "" {
-		_ = receipt.InflateWithID("", recoveryID)
+		_ = receipt.SetRecoveryID(recoveryID)
 	}
 
 	src, err := p.open(source.SourcePath.Abs())
@@ -159,7 +159,7 @@ func (p *Provider) Link(source *Resource, targetPath string) (product *Resource,
 		}
 
 		receipt = NewReceipt(product)
-		_ = receipt.InflateWithID("", recoveryID)
+		_ = receipt.SetRecoveryID(recoveryID)
 
 	} else {
 
@@ -280,7 +280,7 @@ func (p *Provider) CompensateMkdir(receipt *Receipt) (err error) {
 	return nil
 }
 
-// Move moves a file from source to destinationPath using the recovery site.
+// Move moves a file from source to destinationPath.
 func (p *Provider) Move(source *Resource, destinationPath string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.ExecutionContext(), destinationPath)
@@ -288,71 +288,84 @@ func (p *Provider) Move(source *Resource, destinationPath string) (product *Reso
 		return nil, nil, err
 	}
 
-	// Archive source to recovery site.
-	recoveryID, err := p.ExecutionContext().RecoverySite.ArchiveFile(source.SourcePath)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	// Prepare destination (handle overwrite and parent creation).
-	destRecoveryID, product, receipt, err := p.prepareWrite(product)
+	recoveryID, product, receipt, err := p.prepareWrite(product)
 	if err != nil {
-		// Attempt to restore source on preparation failure.
-		_ = p.ExecutionContext().RecoverySite.RestoreFile(source.SourcePath, recoveryID)
 		return nil, nil, err
 	}
 
-	// Note: destination recovery ID (if any) is currently shadowed; standard Move only supports restoring source.
-	_ = destRecoveryID
+	// Set source in receipt so we know where to move it back.
+	if receipt == nil {
+		receipt = NewReceipt(product)
+	}
+	receipt.SetSource(source)
 
-	if err = p.ExecutionContext().RecoverySite.RestoreFile(product.SourcePath, recoveryID); err != nil {
-		return nil, receipt, err
+	if recoveryID != "" {
+		_ = receipt.SetRecoveryID(recoveryID)
+	}
+
+	if err = p.rename(source.SourcePath.Abs(), product.SourcePath.Abs()); err != nil {
+		// Attempt to restore destination on failure if we archived it.
+		if recoveryID != "" {
+			_ = p.ExecutionContext().RecoverySite.RestoreFile(product.SourcePath, recoveryID)
+		}
+		return nil, nil, err
 	}
 
 	if err = product.Resolve(); err != nil {
 		return nil, receipt, err
 	}
 
-	// Set TransactionID to recoveryID of source so CompensateMove can restore it.
-	if receipt == nil {
-		receipt = NewReceipt(product)
-	}
-	_ = receipt.InflateWithID("", recoveryID)
-
 	return product, receipt, nil
 }
 
-// CompensateMove undoes a Move by restoring the file from recovery back to source.
+// CompensateMove undoes a Move by moving the file from destination back to source and restoring the old destination.
 func (p *Provider) CompensateMove(receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*Resource)
+	product, ok := receipt.Resource().(*Resource)
 	if !ok {
 		return fmt.Errorf("compensate move: unexpected resource type %T", receipt.Resource())
 	}
 
-	recoveryID := receipt.TransactionID()
+	source := receipt.Source()
+	if source == nil {
+		return fmt.Errorf("compensate move: receipt missing source resource")
+	}
 
-	// Verify checksum of the recovery source before restoring.
-	if resource.Checksum != "" {
-		// RecoverySite uses ".devlore/recovery/<uuid>"
-		recoveryPath := ".devlore/recovery/" + recoveryID
-		actual := checksumFile(p.ExecutionContext().Root, recoveryPath)
+	// Move back from destination to source.
+	if err := p.rename(product.SourcePath.Abs(), source.SourcePath.Abs()); err != nil {
+		return fmt.Errorf("compensate move: move back failed: %w", err)
+	}
 
-		if actual == "" {
-			return fmt.Errorf("cannot read %s for verification", recoveryID)
+	// Restore old destination if it was archived.
+	recoveryID := receipt.RecoveryID()
+	if recoveryID != "" {
+
+		// Verify checksum of the recovery source before restoring.
+		if product.Checksum != "" {
+			// RecoverySite uses ".devlore/recovery/<uuid>"
+			recoveryPath := ".devlore/recovery/" + recoveryID
+			actual := checksumFile(p.ExecutionContext().Root, recoveryPath)
+
+			if actual == "" {
+				return fmt.Errorf("cannot read %s for verification", recoveryID)
+			}
+
+			if actual != product.Checksum {
+				return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryID)
+			}
 		}
 
-		if actual != resource.Checksum {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryID)
+		if err := p.ExecutionContext().RecoverySite.RestoreFile(product.SourcePath, recoveryID); err != nil {
+			return fmt.Errorf("compensate move: restore old destination failed: %w", err)
 		}
 	}
 
-	// Move's SourcePath in Resource records the ORIGINAL location.
-	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, recoveryID)
+	return nil
 }
 
 // Remove deletes the file at "path".
@@ -376,7 +389,7 @@ func (p *Provider) Remove(resource *Resource, prune bool, boundary *Resource) (p
 	}
 
 	receipt = NewReceipt(resource)
-	_ = receipt.InflateWithID("", recoveryID)
+	_ = receipt.SetRecoveryID(recoveryID)
 
 	return nil, receipt, nil
 }
@@ -395,7 +408,7 @@ func (p *Provider) RemoveAll(resource *Resource, prune bool, boundary *Resource)
 	}
 
 	receipt = NewReceipt(resource)
-	_ = receipt.InflateWithID("", recoveryID)
+	_ = receipt.SetRecoveryID(recoveryID)
 
 	return nil, receipt, nil
 }
@@ -427,7 +440,7 @@ func (p *Provider) Unlink(resource *Resource, prune bool, boundary *Resource) (p
 	}
 
 	receipt = NewReceipt(resource)
-	_ = receipt.InflateWithID("", recoveryID)
+	_ = receipt.SetRecoveryID(recoveryID)
 
 	return nil, receipt, nil
 }
@@ -449,7 +462,7 @@ func (p *Provider) CompensateUnlink(receipt *Receipt) error {
 		return err
 	}
 
-	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, receipt.TransactionID())
+	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, receipt.RecoveryID())
 }
 
 // WalkTree performs a depth-first traversal.
@@ -812,9 +825,12 @@ func (p *Provider) compensateWrite(receipt *Receipt) error {
 		return err
 	}
 
-	if err := p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, receipt.TransactionID()); err != nil {
-		if !errors.Is(err, op.ErrRecoverySourceNotFound) {
-			return err
+	recoveryID := receipt.RecoveryID()
+	if recoveryID != "" {
+		if err := p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, recoveryID); err != nil {
+			if !errors.Is(err, op.ErrRecoverySourceNotFound) {
+				return err
+			}
 		}
 	}
 
@@ -991,7 +1007,7 @@ func (p *Provider) prepareWrite(resource *Resource) (recoveryID string, product 
 		return "", nil, nil, fmt.Errorf("failed to backup existing file: %w", err)
 	}
 
-	return receipt.TransactionID(), product, receipt, nil
+	return receipt.RecoveryID(), product, receipt, nil
 }
 
 // read reads the contents of a file [Resource]
@@ -1099,7 +1115,7 @@ func (p *Provider) write(resource *Resource, data []byte, mode os.FileMode) (pro
 	}
 
 	if receipt != nil && recoveryID != "" {
-		_ = receipt.InflateWithID("", recoveryID)
+		_ = receipt.SetRecoveryID(recoveryID)
 	}
 
 	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)

@@ -198,7 +198,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
-	_ = state.InflateWithID("file.link", recoveryID)
+	_ = state.SetRecoveryID(recoveryID)
 
 	p := testProvider(t, tmp)
 	if err := p.CompensateLink(state); err != nil {
@@ -327,7 +327,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
-	_ = state.InflateWithID("file.copy", recoveryID)
+	_ = state.SetRecoveryID(recoveryID)
 
 	p := testProvider(t, tmp)
 	if err := p.CompensateCopy(state); err != nil {
@@ -441,7 +441,7 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
-	_ = state.InflateWithID("file.backup", recoveryID)
+	_ = state.SetRecoveryID(recoveryID)
 
 	p := testProvider(t, tmp)
 	if err := p.CompensateBackup(state); err != nil {
@@ -481,7 +481,7 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
-	_ = state.InflateWithID("file.backup", recoveryID)
+	_ = state.SetRecoveryID(recoveryID)
 
 	p := testProvider(t, tmp)
 	err := p.CompensateBackup(state)
@@ -749,7 +749,7 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(resource),
 	}
-	_ = state.InflateWithID("file.move", recoveryID)
+	_ = state.SetRecoveryID(recoveryID)
 
 	p := testProvider(t, tmp)
 	err := p.CompensateMove(state)

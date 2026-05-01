@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // newTestRecoverySite creates a RecoverySite backed by a RootReaderWriter at a temp directory.
@@ -40,13 +42,13 @@ func TestArchiveFile_MovesFile(t *testing.T) {
 		t.Error("original file still exists after archive")
 	}
 
-	// Recovery ID should be root-relative under .devlore/recovery/.
-	if !strings.HasPrefix(recoveryID, ".devlore/recovery/") {
-		t.Errorf("recovery ID %q does not start with .devlore/recovery/", recoveryID)
+	// Recovery ID is an opaque UUID v7; the on-disk archive lives at <root>/.devlore/recovery/<uuid>.
+	if _, err := uuid.Parse(recoveryID); err != nil {
+		t.Errorf("recoveryID = %q, want parseable UUID: %v", recoveryID, err)
 	}
 
 	// Recovery file should exist with same content.
-	absRecovery := filepath.Join(tmp, recoveryID)
+	absRecovery := filepath.Join(tmp, ".devlore", "recovery", recoveryID)
 	data, err := os.ReadFile(absRecovery)
 	if err != nil {
 		t.Fatalf("ReadFile(recovery) error = %v", err)
@@ -69,9 +71,10 @@ func TestArchiveFile_CreatesRecoveryDir(t *testing.T) {
 		t.Fatalf("ArchiveFile() error = %v", err)
 	}
 
-	// Recovery ID should be under .devlore/recovery/.
-	if !strings.HasPrefix(recoveryID, ".devlore/recovery/") {
-		t.Errorf("recovery ID %q not under .devlore/recovery/", recoveryID)
+	// Recovery ID is an opaque UUID v7; presence under .devlore/recovery/ is verified by RestoreFile and
+	// content-read tests elsewhere in this file.
+	if _, err := uuid.Parse(recoveryID); err != nil {
+		t.Errorf("recoveryID = %q, want parseable UUID: %v", recoveryID, err)
 	}
 }
 
@@ -104,7 +107,7 @@ func TestRestoreFile_MovesBack(t *testing.T) {
 	}
 
 	// Recovery file should be gone.
-	absRecovery := filepath.Join(tmp, recoveryID)
+	absRecovery := filepath.Join(tmp, ".devlore", "recovery", recoveryID)
 	if _, err := os.Lstat(absRecovery); !os.IsNotExist(err) {
 		t.Error("recovery file still exists after restore")
 	}
@@ -178,7 +181,7 @@ func TestArchiveData_WritesBytes(t *testing.T) {
 		t.Fatalf("ArchiveData() error = %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(tmp, recoveryID))
+	got, err := os.ReadFile(filepath.Join(tmp, ".devlore", "recovery", recoveryID))
 	if err != nil {
 		t.Fatalf("ReadFile(recovery) error = %v", err)
 	}
@@ -219,7 +222,7 @@ func TestArchiveStream_EmptyReader(t *testing.T) {
 		t.Fatal("recoveryID is empty")
 	}
 
-	info, err := os.Stat(filepath.Join(root.Name(), recoveryID))
+	info, err := os.Stat(filepath.Join(root.Name(), ".devlore", "recovery", recoveryID))
 	if err != nil {
 		t.Fatalf("stat recovery file: %v", err)
 	}
@@ -238,7 +241,7 @@ func TestArchiveStream_SmallReader(t *testing.T) {
 		t.Fatalf("ArchiveStream error = %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(root.Name(), recoveryID))
+	got, err := os.ReadFile(filepath.Join(root.Name(), ".devlore", "recovery", recoveryID))
 	if err != nil {
 		t.Fatalf("read recovery file: %v", err)
 	}
@@ -263,7 +266,7 @@ func TestArchiveStream_LargeReader(t *testing.T) {
 		t.Fatalf("ArchiveStream error = %v", err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(root.Name(), recoveryID))
+	got, err := os.ReadFile(filepath.Join(root.Name(), ".devlore", "recovery", recoveryID))
 	if err != nil {
 		t.Fatalf("read recovery file: %v", err)
 	}
