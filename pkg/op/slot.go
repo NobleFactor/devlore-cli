@@ -3,10 +3,10 @@
 
 package op
 
-// region RuntimeEnvironment
+// region Properties
 
-// RuntimeEnvironment provides ambient runtime context for EnvironmentValue resolution.
-type RuntimeEnvironment interface {
+// Properties provides ambient runtime context for EnvironmentValue resolution.
+type Properties interface {
 	Property(key string) (any, bool)
 }
 

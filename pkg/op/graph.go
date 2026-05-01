@@ -567,7 +567,7 @@ func (n *Node) SetSlot(name string, value SlotValue) {
 // region Behaviors
 
 // ResolvedSlots returns all slot values as a flat map, resolving promises and environment bindings.
-func (n *Node) ResolvedSlots(env RuntimeEnvironment, results map[string]any) map[string]any {
+func (n *Node) ResolvedSlots(props Properties, results map[string]any) map[string]any {
 
 	return n.ResolveSlots(env, results, nil)
 }
