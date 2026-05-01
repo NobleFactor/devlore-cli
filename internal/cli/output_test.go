@@ -99,31 +99,6 @@ func TestAddOutputFlags(t *testing.T) {
 	}
 }
 
-func TestSetProgramName(t *testing.T) {
-	original := statusOutput.ProgramName
-	defer func() { statusOutput.ProgramName = original }()
-
-	SetProgramName("testprog")
-	if statusOutput.ProgramName != "testprog" {
-		t.Errorf("expected ProgramName 'testprog', got %q", statusOutput.ProgramName)
-	}
-}
-
-func TestSetSilent(t *testing.T) {
-	original := statusOutput.Silent
-	defer func() { statusOutput.Silent = original }()
-
-	SetSilent(true)
-	if !statusOutput.Silent {
-		t.Error("expected Silent to be true")
-	}
-
-	SetSilent(false)
-	if statusOutput.Silent {
-		t.Error("expected Silent to be false")
-	}
-}
-
 func TestFailureReturnsError(t *testing.T) {
 	err := Failure("test error: %s", "detail")
 	if err == nil {

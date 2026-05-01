@@ -462,7 +462,12 @@ func (p *Provider) CompensateUnlink(receipt *Receipt) error {
 		return err
 	}
 
-	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, receipt.RecoveryID())
+	recoveryID := receipt.RecoveryID()
+	if recoveryID == "" {
+		return nil
+	}
+
+	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, recoveryID)
 }
 
 // WalkTree performs a depth-first traversal.
