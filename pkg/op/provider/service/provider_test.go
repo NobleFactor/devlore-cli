@@ -77,7 +77,7 @@ func (m *mockServiceManager) NeedsSudo() bool { return false }
 // newTestProvider creates a Provider wired to the given mock.
 func newTestProvider(sm *mockServiceManager) *Provider {
 	return &Provider{
-		ProviderBase: op.NewProviderBase(&op.ExecutionContext{
+		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
 			Writer: io.Discard,
 			Platform: &op.Platform{
 				ServiceManager: sm,
@@ -88,7 +88,7 @@ func newTestProvider(sm *mockServiceManager) *Provider {
 
 func res(t *testing.T, name string) *Resource {
 	t.Helper()
-	r, err := NewResource(&op.ExecutionContext{}, name)
+	r, err := NewResource(&op.RuntimeEnvironment{}, name)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -33,7 +33,7 @@ type ValueBase struct {
 //
 // Returns:
 //   - ValueBase: the initialized base.
-func NewValueBase(ctx *ExecutionContext, v reflect.Value) *ValueBase {
+func NewValueBase(ctx *RuntimeEnvironment, v reflect.Value) *ValueBase {
 	return &ValueBase{
 		ProviderBase: NewProviderBase(ctx),
 		inner:        v,

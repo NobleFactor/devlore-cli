@@ -19,7 +19,7 @@ import (
 func testProvider(t *testing.T, dir string) *Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	ctx := &op.ExecutionContext{Root: root, Catalog: op.NewResourceCatalog()}
+	ctx := &op.RuntimeEnvironment{Root: root, Catalog: op.NewResourceCatalog()}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
@@ -95,7 +95,7 @@ func TestExtractTarGz(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	source, err := file.NewResource(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestExtractZip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	source, err := file.NewResource(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestExtractUnsupportedFormat(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	source, err := file.NewResource(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestZipSlipProtectionTarGz(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	source, err := file.NewResource(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestZipSlipProtectionZip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	source, err := file.NewResource(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestExtractProducesFileReceiptsWithBoundary(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	source, err := file.NewResource(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestExtract_CompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.NewResource(p.ExecutionContext(), archivePath)
+	source, err := file.NewResource(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}

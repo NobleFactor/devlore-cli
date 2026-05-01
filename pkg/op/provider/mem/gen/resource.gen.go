@@ -15,7 +15,7 @@ import (
 func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[provider.Resource](),
-		func(ctx *op.ExecutionContext, identity any) (op.Resource, error) {
+		func(ctx *op.RuntimeEnvironment, identity any) (op.Resource, error) {
 			return provider.NewResource(ctx, identity)
 		},
 		map[string][]string{

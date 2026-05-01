@@ -79,14 +79,14 @@ type Graph struct {
 	Version string
 
 	// ctx is the execution context for this graph. Replaced by Rebind at the planning-to-execution handoff.
-	ctx *ExecutionContext
+	ctx *RuntimeEnvironment
 }
 
 // NewGraph creates a Graph with the given execution context.
 //
 // Parameters:
 //   - ctx: the execution context providing registry, root, platform, and other session state.
-func NewGraph(ctx *ExecutionContext) *Graph {
+func NewGraph(ctx *RuntimeEnvironment) *Graph {
 
 	return &Graph{
 		Root:      NewSubgraph("root"),
@@ -144,8 +144,8 @@ func collectNodes(children []SubgraphChild, out *[]*Node) {
 	}
 }
 
-// ExecutionContext returns a point to the graph's execution context.
-func (g *Graph) ExecutionContext() *ExecutionContext { return g.ctx }
+// RuntimeEnvironment returns a point to the graph's execution context.
+func (g *Graph) RuntimeEnvironment() *RuntimeEnvironment { return g.ctx }
 
 // Filename returns the standard filename for this graph.
 //
@@ -202,12 +202,12 @@ func findSubgraph(children []SubgraphChild, id string) *Subgraph {
 // Rebind replaces the graph's execution context and clears the action cache.
 //
 // This is the handoff point between planning and execution. During planning, the graph holds the StarlarkRuntime's
-// context (read-only root, no recovery site). At execution time, the executor creates a new ExecutionContext with a
+// context (read-only root, no recovery site). At execution time, the executor creates a new RuntimeEnvironment with a
 // confined root, recovery site, and execution-specific settings, then calls Rebind to switch the graph over.
 //
 // Parameters:
 //   - ctx: the new execution context.
-func (g *Graph) Rebind(ctx *ExecutionContext) {
+func (g *Graph) Rebind(ctx *RuntimeEnvironment) {
 	g.ctx = ctx
 	for _, n := range g.Nodes() {
 		n.graph = g
@@ -530,11 +530,11 @@ func (n *Node) Action() (Action, error) {
 	return n.graph.ctx.ActionByName(n.Receiver)
 }
 
-// ExecutionContext returns the execution context from this node's parent graph.
+// RuntimeEnvironment returns the execution context from this node's parent graph.
 //
 // Returns:
-//   - *ExecutionContext: the graph's execution context.
-func (n *Node) ExecutionContext() *ExecutionContext { return n.graph.ctx }
+//   - *RuntimeEnvironment: the graph's execution context.
+func (n *Node) RuntimeEnvironment() *RuntimeEnvironment { return n.graph.ctx }
 
 // Bind associates this node with its resolved Method. Must be called before
 // SetSlot. Populates the node's parameter surface from the method.
@@ -569,7 +569,7 @@ func (n *Node) SetSlot(name string, value SlotValue) {
 // ResolvedSlots returns all slot values as a flat map, resolving promises and environment bindings.
 func (n *Node) ResolvedSlots(props Properties, results map[string]any) map[string]any {
 
-	return n.ResolveSlots(env, results, nil)
+	return n.ResolveSlots(props, results, nil)
 }
 
 // ResolveSlots returns all slot values with caller-supplied overrides applied.
@@ -577,7 +577,7 @@ func (n *Node) ResolvedSlots(props Properties, results map[string]any) map[strin
 // that entry's Resolve is used; otherwise the baked-in Slot.Value is resolved.
 // Overrides whose keys do not match any slot parameter are silently ignored —
 // the caller-facing parameter surface is the authority.
-func (n *Node) ResolveSlots(env RuntimeEnvironment, results map[string]any, overrides map[string]SlotValue) map[string]any {
+func (n *Node) ResolveSlots(props Properties, results map[string]any, overrides map[string]SlotValue) map[string]any {
 
 	out := make(map[string]any, len(n.Slots))
 	for _, slot := range n.Slots {

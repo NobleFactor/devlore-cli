@@ -20,7 +20,7 @@ type pipelineProvider struct {
 }
 
 // NewPipelineProvider constructs a *pipelineProvider for the registered ProviderConstructor.
-func NewPipelineProvider(ctx *op.ExecutionContext) *pipelineProvider {
+func NewPipelineProvider(ctx *op.RuntimeEnvironment) *pipelineProvider {
 	return &pipelineProvider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -71,7 +71,7 @@ func init() {
 	op.AnnounceProvider(
 		reflect.TypeFor[pipelineProvider](),
 		op.RoleModule|op.RoleAction,
-		func(ctx *op.ExecutionContext) (any, error) { return NewPipelineProvider(ctx), nil },
+		func(ctx *op.RuntimeEnvironment) (any, error) { return NewPipelineProvider(ctx), nil },
 		map[string][]string{
 			"Echo":         {"s"},
 			"EchoResource": {"r"},
@@ -85,11 +85,11 @@ func init() {
 
 // makePlanNodeBuilder returns a NodeBuilder for the registered pipelineProvider, ready to drive plan-mode
 // dispatch.
-func makePlanNodeBuilder(t *testing.T) (*NodeBuilder, *op.ExecutionContext) {
+func makePlanNodeBuilder(t *testing.T) (*NodeBuilder, *op.RuntimeEnvironment) {
 	t.Helper()
 
 	reg := op.NewReceiverRegistry()
-	ctx := &op.ExecutionContext{
+	ctx := &op.RuntimeEnvironment{
 		Registry: reg,
 		Catalog:  op.NewResourceCatalog(),
 	}

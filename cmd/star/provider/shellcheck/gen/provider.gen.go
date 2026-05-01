@@ -15,7 +15,7 @@ import (
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
-		func(ctx *op.ExecutionContext) (any, error) { return provider.NewProvider(ctx), nil },
+		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
 			"Lint":       {"path", "severity?"},
 			"Format":     {"path", "indent?", "fix?"},

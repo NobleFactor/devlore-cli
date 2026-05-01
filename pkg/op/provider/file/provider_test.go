@@ -26,7 +26,7 @@ func testRoot(t *testing.T, dir string) op.Root {
 func testProvider(t *testing.T, dir string) Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	ctx := &op.ExecutionContext{Root: root, Catalog: op.NewResourceCatalog()}
+	ctx := &op.RuntimeEnvironment{Root: root, Catalog: op.NewResourceCatalog()}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
 	return Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
@@ -356,7 +356,7 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	res, err := NewResource(p.ExecutionContext(), path)
+	res, err := NewResource(p.RuntimeEnvironment(), path)
 	if err != nil {
 		t.Fatalf("NewResource error = %v", err)
 	}
@@ -677,7 +677,7 @@ func TestMove(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	srcRes, resErr := NewResource(p.ExecutionContext(), src)
+	srcRes, resErr := NewResource(p.RuntimeEnvironment(), src)
 	if resErr != nil {
 		t.Fatalf("NewResource error = %v", resErr)
 	}
@@ -783,7 +783,7 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	srcRes, resErr := NewResource(p.ExecutionContext(), src)
+	srcRes, resErr := NewResource(p.RuntimeEnvironment(), src)
 	if resErr != nil {
 		t.Fatalf("NewResource error = %v", resErr)
 	}
@@ -1814,7 +1814,7 @@ func testFileResource(t *testing.T, content []byte) *Resource {
 	}
 	_ = f.Close()
 	root := testRoot(t, dir)
-	ctx := &op.ExecutionContext{Root: root}
+	ctx := &op.RuntimeEnvironment{Root: root}
 	fileResource, err := NewResource(ctx, f.Name())
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
@@ -2114,11 +2114,11 @@ func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
 
-	wrongResource, err := NewResource(p.ExecutionContext(), target)
+	wrongResource, err := NewResource(p.RuntimeEnvironment(), target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongBoundary, err := NewResource(p.ExecutionContext(), filepath.Join(tmp, "siblings"))
+	wrongBoundary, err := NewResource(p.RuntimeEnvironment(), filepath.Join(tmp, "siblings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2196,7 +2196,7 @@ func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "link")
 
 	p := testProvider(t, tmp)
-	srcResource, err := NewResource(p.ExecutionContext(), source)
+	srcResource, err := NewResource(p.RuntimeEnvironment(), source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2225,7 +2225,7 @@ func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
 	dest := filepath.Join(tmp, "a", "b", "moved.txt")
 
 	p := testProvider(t, tmp)
-	srcResource, err := NewResource(p.ExecutionContext(), source)
+	srcResource, err := NewResource(p.RuntimeEnvironment(), source)
 	if err != nil {
 		t.Fatal(err)
 	}

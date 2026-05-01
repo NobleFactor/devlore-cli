@@ -25,7 +25,7 @@ type pipelineResource struct {
 // Resolve implements [op.Resource]; tests don't observe state.
 func (r *pipelineResource) Resolve() error { return nil }
 
-func newPipelineResource(ctx *op.ExecutionContext, identity any) (op.Resource, error) {
+func newPipelineResource(ctx *op.RuntimeEnvironment, identity any) (op.Resource, error) {
 	s, ok := identity.(string)
 	if !ok {
 		return nil, fmt.Errorf("pipelineResource: expected string, got %T", identity)
@@ -47,10 +47,10 @@ func init() {
 	)
 }
 
-// makePipelineContext returns an ExecutionContext whose Registry has pipelineResource announced.
-func makePipelineContext(t *testing.T) *op.ExecutionContext {
+// makePipelineContext returns an RuntimeEnvironment whose Registry has pipelineResource announced.
+func makePipelineContext(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
-	return &op.ExecutionContext{Registry: op.NewReceiverRegistry()}
+	return &op.RuntimeEnvironment{Registry: op.NewReceiverRegistry()}
 }
 
 // endregion

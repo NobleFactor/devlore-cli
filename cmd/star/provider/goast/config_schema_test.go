@@ -150,7 +150,7 @@ lint:
 	}
 
 	// Create provider with config in context — same wiring as the runtime.
-	ctx := &op.ExecutionContext{
+	ctx := &op.RuntimeEnvironment{
 		Data: map[string]any{"config": cfg},
 	}
 	p := NewProvider(ctx)

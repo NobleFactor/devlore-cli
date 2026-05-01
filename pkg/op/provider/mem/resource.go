@@ -35,7 +35,7 @@ const memArchiveDir = ".devlore/mem"
 // derived deterministically from its URI.
 //
 // The URI is opaque: mem:<content-type>/<namespace>/<name>. It IS the resource's reachability — given the
-// URI and the [op.Root] of an [op.ExecutionContext], the on-disk SourcePath is computed as
+// URI and the [op.Root] of an [op.RuntimeEnvironment], the on-disk SourcePath is computed as
 // <Root>/.devlore/mem/<content-type>/<namespace>/<name>. Two resources with the same URI resolve to the
 // same file — named content deduplication by construction.
 //
@@ -122,7 +122,7 @@ func (s ResourceSpec) URI() string {
 // Returns:
 //   - *Resource: the constructed resource with URI, SourcePath, and (when content was archived) Hash set.
 //   - error:     malformed spec, unsupported Data type, or filesystem write error.
-func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	spec, ok := value.(ResourceSpec)
 	if !ok {
@@ -256,14 +256,14 @@ func (r *Resource) String() string {
 
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare URI string).
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method. The URI alone is sufficient to reconstruct the Resource: ContentType, Namespace,
 // Name are extracted from the URI path, and SourcePath is computed deterministically from the URI and the
 // context's Root.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("mem.Resource: UnmarshalJSON requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("mem.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
 	}
 
 	var uri string
@@ -271,7 +271,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := newFromURI(r.ExecutionContext(), uri)
+	built, err := newFromURI(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -283,11 +283,11 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 // UnmarshalText populates the receiver from raw UTF-8 bytes containing the URI.
 func (r *Resource) UnmarshalText(text []byte) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("mem.Resource: UnmarshalText requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("mem.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := newFromURI(r.ExecutionContext(), string(text))
+	built, err := newFromURI(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -299,8 +299,8 @@ func (r *Resource) UnmarshalText(text []byte) error {
 // UnmarshalYAML populates the receiver from its YAML wire form (a bare URI scalar).
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("mem.Resource: UnmarshalYAML requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("mem.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
 	}
 
 	var uri string
@@ -308,7 +308,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := newFromURI(r.ExecutionContext(), uri)
+	built, err := newFromURI(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -326,7 +326,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 // newFromURI reconstructs a metadata-only mem.Resource from a URI string. No content is archived — callers
 // who need content must archive separately. Used by UnmarshalJSON / UnmarshalText / UnmarshalStarlark /
 // UnmarshalYAML.
-func newFromURI(ctx *op.ExecutionContext, uri string) (*Resource, error) {
+func newFromURI(ctx *op.RuntimeEnvironment, uri string) (*Resource, error) {
 
 	specific := uri
 	if strings.HasPrefix(uri, "tag:") {

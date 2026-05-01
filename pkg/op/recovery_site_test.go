@@ -19,7 +19,7 @@ func newTestRecoverySite(t *testing.T) (*RecoverySite, Root) {
 	t.Helper()
 	tmp := t.TempDir()
 	root := NewRootReaderWriter(tmp)
-	ctx := &ExecutionContext{Root: root}
+	ctx := &RuntimeEnvironment{Root: root}
 	return NewRecoverySite(ctx), root
 }
 

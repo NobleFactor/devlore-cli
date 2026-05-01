@@ -3,14 +3,14 @@
 
 package op
 
-// Provider allows a provider to access its scoped execution [ExecutionContext].
+// Provider allows a provider to access its scoped execution [RuntimeEnvironment].
 //
-// Actions that need access to the execution environment implement this interface to receive the [ExecutionContext] during graph
-// execution. The [ExecutionContext] includes execution parameters, platform abstractions, and runtime state.
+// Actions that need access to the execution environment implement this interface to receive the [RuntimeEnvironment] during graph
+// execution. The [RuntimeEnvironment] includes execution parameters, platform abstractions, and runtime state.
 //
 // Types should satisfy this interface by embedding [ProviderBase].
 type Provider interface {
-	ExecutionContext() *ExecutionContext
+	RuntimeEnvironment() *RuntimeEnvironment
 	providerBase() *ProviderBase
 }
 
@@ -19,19 +19,19 @@ type Provider interface {
 // It must be embedded in all domain-specific providers to ensure they adhere to the execution graph's strictly enforced
 // lifetime.
 //
-// All providers constructed from the same ExecutionContext share a pointer to it. Per-invocation state changes (DryRun,
+// All providers constructed from the same RuntimeEnvironment share a pointer to it. Per-invocation state changes (DryRun,
 // Data) propagate to all providers without reconstruction.
 type ProviderBase struct {
-	ctx *ExecutionContext
+	ctx *RuntimeEnvironment
 }
 
-// NewProviderBase returns a new ProviderBase provider instance with the given [ExecutionContext].
-func NewProviderBase(ctx *ExecutionContext) ProviderBase {
+// NewProviderBase returns a new ProviderBase provider instance with the given [RuntimeEnvironment].
+func NewProviderBase(ctx *RuntimeEnvironment) ProviderBase {
 	return ProviderBase{ctx: ctx}
 }
 
-// ExecutionContext returns the shared context associated with this provider's lifetime.
-func (p *ProviderBase) ExecutionContext() *ExecutionContext {
+// RuntimeEnvironment returns the shared context associated with this provider's lifetime.
+func (p *ProviderBase) RuntimeEnvironment() *RuntimeEnvironment {
 	return p.ctx
 }
 

@@ -9,11 +9,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// testProvider builds a flow.Provider with a minimal ExecutionContext suitable for the saga-shape
+// testProvider builds a flow.Provider with a minimal RuntimeEnvironment suitable for the saga-shape
 // signature tests that don't dispatch into child ExecutableUnits.
 func testProvider(t *testing.T) *Provider {
 	t.Helper()
-	ctx := &op.ExecutionContext{}
+	ctx := &op.RuntimeEnvironment{}
 	return &Provider{ProviderBase: op.NewProviderBase(ctx), Graph: op.NewGraph(ctx)}
 }
 

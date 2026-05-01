@@ -115,7 +115,7 @@ func normalizeForSchema(v any) (any, error) {
 // Returns:
 //   - *Resource: the initialized resource.
 //   - error: if value is not a supported type.
-func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	var data []byte
 

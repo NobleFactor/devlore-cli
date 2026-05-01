@@ -10,7 +10,7 @@ import (
 
 // Provider exposes host platform metadata to Starlark scripts and graph actions.
 //
-// All accessors delegate to the [op.Platform] on the provider's [op.ExecutionContext]. When the context
+// All accessors delegate to the [op.Platform] on the provider's [op.RuntimeEnvironment]. When the context
 // has no platform (nil), accessors return zero values.
 //
 // +devlore:access=both
@@ -18,14 +18,14 @@ type Provider struct {
 	op.ProviderBase
 }
 
-// NewProvider returns a new platform [Provider] with the given [op.ExecutionContext].
+// NewProvider returns a new platform [Provider] with the given [op.RuntimeEnvironment].
 //
 // Parameters:
 //   - ctx: the execution context (must carry a non-nil Platform for accessors to return data).
 //
 // Returns:
 //   - *Provider: the configured provider.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -36,7 +36,7 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 // Returns:
 //   - string: the architecture identifier, or "" if platform is nil.
 func (p *Provider) Arch() string {
-	if plat := p.ExecutionContext().Platform; plat != nil {
+	if plat := p.RuntimeEnvironment().Platform; plat != nil {
 		return plat.Arch
 	}
 	return ""
@@ -47,7 +47,7 @@ func (p *Provider) Arch() string {
 // Returns:
 //   - string: the distribution name, or "" if unavailable or platform is nil.
 func (p *Provider) Distro() string {
-	if plat := p.ExecutionContext().Platform; plat != nil {
+	if plat := p.RuntimeEnvironment().Platform; plat != nil {
 		return plat.Distro
 	}
 	return ""
@@ -58,7 +58,7 @@ func (p *Provider) Distro() string {
 // Returns:
 //   - string: the hostname, or "" if unavailable or platform is nil.
 func (p *Provider) Hostname() string {
-	if plat := p.ExecutionContext().Platform; plat != nil {
+	if plat := p.RuntimeEnvironment().Platform; plat != nil {
 		return plat.Hostname
 	}
 	return ""
@@ -69,7 +69,7 @@ func (p *Provider) Hostname() string {
 // Returns:
 //   - string: the OS identifier, or "" if platform is nil.
 func (p *Provider) OS() string {
-	if plat := p.ExecutionContext().Platform; plat != nil {
+	if plat := p.RuntimeEnvironment().Platform; plat != nil {
 		return plat.OS
 	}
 	return ""
@@ -80,7 +80,7 @@ func (p *Provider) OS() string {
 // Returns:
 //   - string: the version, or "" if unavailable or platform is nil.
 func (p *Provider) Version() string {
-	if plat := p.ExecutionContext().Platform; plat != nil {
+	if plat := p.RuntimeEnvironment().Platform; plat != nil {
 		return plat.Version
 	}
 	return ""

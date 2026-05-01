@@ -10,19 +10,19 @@ import (
 )
 
 // Provider provides platform-independent package management.
-// Platform-specific behavior is delegated to p.ExecutionContext().Platform.
+// Platform-specific behavior is delegated to p.RuntimeEnvironment().Platform.
 //
 // +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) platform() (*op.Platform, error) {
-	plat := p.ExecutionContext().Platform
+	plat := p.RuntimeEnvironment().Platform
 	if plat == nil {
 		return nil, fmt.Errorf("no platform available")
 	}

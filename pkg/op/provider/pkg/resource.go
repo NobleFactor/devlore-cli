@@ -24,7 +24,7 @@ import (
 // Returns:
 //   - *Resource: the initialized resource with a valid purl URI.
 //   - error: if value is not a string or the manager prefix is unknown.
-func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	raw, ok := value.(string)
 
@@ -84,7 +84,7 @@ func (r *Resource) String() string { return r.Format(r) }
 //   - error: always nil.
 func (r *Resource) Resolve() error {
 
-	ctx := r.ExecutionContext()
+	ctx := r.RuntimeEnvironment()
 
 	if ctx == nil || ctx.Platform == nil {
 		return nil

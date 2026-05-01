@@ -12,7 +12,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// newTestProvider returns a Provider whose ExecutionContext has Root anchored at "/" and whose cloneFn hook
+// newTestProvider returns a Provider whose RuntimeEnvironment has Root anchored at "/" and whose cloneFn hook
 // is replaced with the supplied function. Tests use the hook to capture the argv that would have been passed
 // to `git clone` without executing the real binary.
 //
@@ -26,7 +26,7 @@ import (
 func newTestProvider(t *testing.T, hook func(args []string) error) *Provider {
 	t.Helper()
 	return &Provider{
-		ProviderBase: op.NewProviderBase(&op.ExecutionContext{Root: op.NewRootReaderWriter("/")}),
+		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}),
 		cloneFn:      hook,
 	}
 }
@@ -171,7 +171,7 @@ func TestCompensateClone(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	ctx := &op.ExecutionContext{Root: op.NewRootReaderWriter("/")}
+	ctx := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
 	r, err := NewResource(ctx, dir)
 	if err != nil {
 		t.Fatalf("NewResource(%q): %v", dir, err)
@@ -189,7 +189,7 @@ func TestCompensateClone(t *testing.T) {
 
 func TestCompensateClone_NoResource(t *testing.T) {
 
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.ExecutionContext{})}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{})}
 	if err := p.CompensateClone(nil); err != nil {
 		t.Fatalf("CompensateClone(nil) = %v, want nil", err)
 	}

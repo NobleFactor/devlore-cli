@@ -19,7 +19,7 @@ import (
 //
 // It constructs providers as Starlark globals from the selected modules and provides the @devlore// module loader.
 type Runtime struct {
-	ctx         *op.ExecutionContext
+	ctx         *op.RuntimeEnvironment
 	cache       map[string]*loaderEntry
 	modules     []op.ProviderReceiverType
 	predeclared starlark.StringDict
@@ -28,7 +28,7 @@ type Runtime struct {
 
 // NewRuntime creates a fully initialized runtime from the given configuration.
 //
-// The ExecutionContext is built internally from the config. Providers are constructed and cached as the predeclared
+// The RuntimeEnvironment is built internally from the config. Providers are constructed and cached as the predeclared
 // starlark globals. The config itself is not retained.
 //
 // Parameters:
@@ -38,7 +38,7 @@ type Runtime struct {
 //   - *Runtime: the initialized runtime.
 func NewRuntime(cfg *op.RuntimeEnvironmentSpec) *Runtime {
 
-	ctx := op.ExecutionContext{
+	ctx := op.RuntimeEnvironment{
 		Context:     context.Background(),
 		ProgramName: cfg.ProgramName,
 		Registry:    cfg.Registry,
@@ -202,13 +202,13 @@ func (rt *Runtime) NewModule(name string) (starlark.Value, bool) {
 // Invoke executes a starlark script with per-invocation settings.
 //
 // Script loading is confined to root via [os.OpenRoot] — relative load calls cannot escape. The `@devlore//` module
-// loader resolves provider names from the registry. DryRun and Data are set on the shared [op.ExecutionContext] for the
+// loader resolves provider names from the registry. DryRun and Data are set on the shared [op.RuntimeEnvironment] for the
 // duration of the invocation.
 //
 // Parameters:
 //   - script: path to the script file, relative to root.
 //   - root: filesystem root for script loading (confined via [os.OpenRoot]).
-//   - data: per-invocation context data (replaces ExecutionContext.Data for this invocation).
+//   - data: per-invocation context data (replaces RuntimeEnvironment.Data for this invocation).
 //   - dryRun: per-invocation dry-run flag.
 //
 // Returns:
@@ -235,7 +235,7 @@ func (rt *Runtime) Invoke(script string, root string, data map[string]any, dryRu
 		return nil, fmt.Errorf("cannot read script %q: %w", script, err)
 	}
 
-	// Set per-invocation state on the shared ExecutionContext.
+	// Set per-invocation state on the shared RuntimeEnvironment.
 
 	rt.ctx.Data = data
 	rt.ctx.DryRun = dryRun
@@ -315,7 +315,7 @@ type loaderEntry struct {
 
 // region Behaviors
 
-// buildOne constructs a [starlark.Value] from a provider receiver type via the ExecutionContext provider cache.
+// buildOne constructs a [starlark.Value] from a provider receiver type via the RuntimeEnvironment provider cache.
 //
 // Parameters:
 //   - prt: the provider receiver type.

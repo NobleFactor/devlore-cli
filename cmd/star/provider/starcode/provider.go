@@ -27,7 +27,7 @@ type Provider struct {
 	Root string
 }
 
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	if ctx.Root != nil {
 		p.Root = ctx.Root.Name()
@@ -202,7 +202,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, honorGitignore, inc
 		return initial, nil
 	})
 
-	fp := file.NewProvider(p.ExecutionContext())
+	fp := file.NewProvider(p.RuntimeEnvironment())
 	_, _, err := fp.WalkTree(&file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, honorGitignore)
 
 	if err != nil {

@@ -48,7 +48,7 @@ type Resource struct {
 // Returns:
 //   - *Resource: the constructed resource.
 //   - error:     if value is not a string, does not parse as a URL, or has no scheme.
-func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	raw, ok := value.(string)
 	if !ok {
@@ -108,12 +108,12 @@ func (r *Resource) String() string {
 
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare URL string).
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before invoking
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
 // this method. The URL alone is sufficient — identity IS reachability.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("appnet.Resource: UnmarshalJSON requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("appnet.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
 	}
 
 	var uri string
@@ -121,7 +121,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := NewResource(r.ExecutionContext(), uri)
+	built, err := NewResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -133,11 +133,11 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 // UnmarshalText populates the receiver from raw UTF-8 bytes containing the URL.
 func (r *Resource) UnmarshalText(text []byte) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("appnet.Resource: UnmarshalText requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("appnet.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := NewResource(r.ExecutionContext(), string(text))
+	built, err := NewResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -149,8 +149,8 @@ func (r *Resource) UnmarshalText(text []byte) error {
 // UnmarshalYAML populates the receiver from its YAML wire form (a bare URL scalar).
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("appnet.Resource: UnmarshalYAML requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("appnet.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
 	}
 
 	var uri string
@@ -158,7 +158,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := NewResource(r.ExecutionContext(), uri)
+	built, err := NewResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

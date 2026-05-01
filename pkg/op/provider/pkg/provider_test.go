@@ -75,7 +75,7 @@ func newMockPackageManager() *mockPackageManager {
 
 func newTestProvider(packageManager *mockPackageManager) *Provider {
 	return &Provider{
-		ProviderBase: op.NewProviderBase(&op.ExecutionContext{
+		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
 			Writer: io.Discard,
 			Platform: &op.Platform{
 				PackageManager:  packageManager,
@@ -86,7 +86,7 @@ func newTestProvider(packageManager *mockPackageManager) *Provider {
 }
 
 func res(name string) *Resource {
-	base, err := op.NewResourceBase(&op.ExecutionContext{}, "pkg:apt/"+name, reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(&op.RuntimeEnvironment{}, "pkg:apt/"+name, reflect.TypeFor[*Resource]())
 	if err != nil {
 		panic(err)
 	}

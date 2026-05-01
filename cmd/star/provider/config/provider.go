@@ -20,12 +20,12 @@ type Provider struct {
 }
 
 // NewProvider creates a config provider bound to the given context.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) loadConfig() (*cfg.Config, error) {
-	if c, ok := p.ExecutionContext().Data["config"].(*cfg.Config); ok && c != nil {
+	if c, ok := p.RuntimeEnvironment().Data["config"].(*cfg.Config); ok && c != nil {
 		return c, nil
 	}
 	return cfg.Load()

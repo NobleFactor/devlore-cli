@@ -223,7 +223,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		DryRun:         cfg.DryRun,
 	}
 
-	graph := op.NewGraph(&op.ExecutionContext{
+	graph := op.NewGraph(&op.RuntimeEnvironment{
 		ProgramName: "lore",
 		Registry:    reg,
 	})
@@ -495,7 +495,7 @@ func prepareScriptEnv(
 // addNativePMNodes adds nodes for a native package manager action.
 // Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that
 // work on all platforms. The actual package manager is determined at execution
-// time via op.ExecutionContext.Platform.
+// time via op.RuntimeEnvironment.Platform.
 //
 // Parameters:
 //   - graph: the execution graph to populate.

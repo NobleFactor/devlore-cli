@@ -42,7 +42,7 @@ func (s *Slot) Immediate() any {
 // prevented — the set is closed at three.
 type SlotValue interface {
 	isSlotValue()
-	Resolve(env RuntimeEnvironment, results map[string]any) any
+	Resolve(props Properties, results map[string]any) any
 }
 
 // endregion
@@ -56,7 +56,7 @@ type ImmediateValue struct {
 
 func (ImmediateValue) isSlotValue() {}
 
-func (iv ImmediateValue) Resolve(_ RuntimeEnvironment, _ map[string]any) any {
+func (iv ImmediateValue) Resolve(_ Properties, _ map[string]any) any {
 	return iv.Value
 }
 
@@ -73,7 +73,7 @@ type PromiseValue struct {
 
 func (PromiseValue) isSlotValue() {}
 
-func (pv PromiseValue) Resolve(_ RuntimeEnvironment, results map[string]any) any {
+func (pv PromiseValue) Resolve(_ Properties, results map[string]any) any {
 	if results == nil {
 		return nil
 	}
@@ -84,7 +84,7 @@ func (pv PromiseValue) Resolve(_ RuntimeEnvironment, results map[string]any) any
 
 // region EnvironmentValue
 
-// EnvironmentValue binds a slot to a RuntimeEnvironment property,
+// EnvironmentValue binds a slot to a Properties property,
 // resolved at execution time. Authored at plan time via a starlark
 // surface such as plan.env("target_root").
 type EnvironmentValue struct {
@@ -93,11 +93,13 @@ type EnvironmentValue struct {
 
 func (EnvironmentValue) isSlotValue() {}
 
-func (ev EnvironmentValue) Resolve(env RuntimeEnvironment, _ map[string]any) any {
-	if env == nil {
+func (ev EnvironmentValue) Resolve(props Properties, _ map[string]any) any {
+	if props == nil {
 		return nil
 	}
-	v, _ := env.Property(ev.Key)
+	v, _ := props.Property(ev.Key)
+	return v
+}
 	return v
 }
 

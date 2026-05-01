@@ -26,7 +26,7 @@ var (
 // Parameters:
 //   - providerType: the provider's reflect.Type.
 //   - roles: the provider's declared roles.
-//   - construct: creates a provider instance from ExecutionContext.
+//   - construct: creates a provider instance from RuntimeEnvironment.
 //   - methodParameters: starlark parameter names per Go method.
 func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct ProviderConstructor, methodParameters map[string][]string) {
 

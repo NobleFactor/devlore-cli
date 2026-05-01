@@ -46,7 +46,7 @@ type Provider struct {
 }
 
 // NewProvider creates a file provider bound to the given context.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -59,10 +59,10 @@ type Reducer func(initial any, resource *Resource, relativePath string, stack *o
 
 // Root returns the root path of the file system scope, or empty if no root is set.
 func (p *Provider) Root() string {
-	if p.ExecutionContext().Root == nil {
+	if p.RuntimeEnvironment().Root == nil {
 		return ""
 	}
-	return p.ExecutionContext().Root.Name()
+	return p.RuntimeEnvironment().Root.Name()
 }
 
 // endregion
@@ -92,7 +92,7 @@ func (p *Provider) CompensateBackup(receipt *Receipt) error {
 // Copy copies source's contents to a new file at destinationPath with the given mode.
 func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.ExecutionContext(), destinationPath)
+	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -137,7 +137,7 @@ func (p *Provider) CompensateCopy(receipt *Receipt) error {
 // Link creates a symbolic link at targetPath pointing to source.
 func (p *Provider) Link(source *Resource, targetPath string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.ExecutionContext(), targetPath)
+	product, err = NewResource(p.RuntimeEnvironment(), targetPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -153,7 +153,7 @@ func (p *Provider) Link(source *Resource, targetPath string) (product *Resource,
 
 		// Something exists at the target — archive it before creating the symlink.
 
-		recoveryID, archiveErr := p.ExecutionContext().RecoverySite.ArchiveFile(product.SourcePath)
+		recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.SourcePath)
 		if archiveErr != nil {
 			return nil, nil, archiveErr
 		}
@@ -197,7 +197,7 @@ func (p *Provider) CompensateLink(receipt *Receipt) error {
 // Mkdir creates a directory (and any missing parents) with the given mode.
 func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.ExecutionContext(), path)
+	product, err = NewResource(p.RuntimeEnvironment(), path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -283,7 +283,7 @@ func (p *Provider) CompensateMkdir(receipt *Receipt) (err error) {
 // Move moves a file from source to destinationPath.
 func (p *Provider) Move(source *Resource, destinationPath string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.ExecutionContext(), destinationPath)
+	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -307,7 +307,7 @@ func (p *Provider) Move(source *Resource, destinationPath string) (product *Reso
 	if err = p.rename(source.SourcePath.Abs(), product.SourcePath.Abs()); err != nil {
 		// Attempt to restore destination on failure if we archived it.
 		if recoveryID != "" {
-			_ = p.ExecutionContext().RecoverySite.RestoreFile(product.SourcePath, recoveryID)
+			_ = p.RuntimeEnvironment().RecoverySite.RestoreFile(product.SourcePath, recoveryID)
 		}
 		return nil, nil, err
 	}
@@ -349,7 +349,7 @@ func (p *Provider) CompensateMove(receipt *Receipt) error {
 		if product.Checksum != "" {
 			// RecoverySite uses ".devlore/recovery/<uuid>"
 			recoveryPath := ".devlore/recovery/" + recoveryID
-			actual := checksumFile(p.ExecutionContext().Root, recoveryPath)
+			actual := checksumFile(p.RuntimeEnvironment().Root, recoveryPath)
 
 			if actual == "" {
 				return fmt.Errorf("cannot read %s for verification", recoveryID)
@@ -360,7 +360,7 @@ func (p *Provider) CompensateMove(receipt *Receipt) error {
 			}
 		}
 
-		if err := p.ExecutionContext().RecoverySite.RestoreFile(product.SourcePath, recoveryID); err != nil {
+		if err := p.RuntimeEnvironment().RecoverySite.RestoreFile(product.SourcePath, recoveryID); err != nil {
 			return fmt.Errorf("compensate move: restore old destination failed: %w", err)
 		}
 	}
@@ -467,7 +467,7 @@ func (p *Provider) CompensateUnlink(receipt *Receipt) error {
 		return nil
 	}
 
-	return p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, recoveryID)
+	return p.RuntimeEnvironment().RecoverySite.RestoreFile(resource.SourcePath, recoveryID)
 }
 
 // WalkTree performs a depth-first traversal.
@@ -489,7 +489,7 @@ func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (pr
 		return nil, nil, err
 	}
 
-	osRoot := p.ExecutionContext().Root
+	osRoot := p.RuntimeEnvironment().Root
 
 	walkFn := func(entryAbs string, d fs.DirEntry, walkDirErr error) error {
 
@@ -513,7 +513,7 @@ func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (pr
 			return skip
 		}
 
-		ctx := p.ExecutionContext()
+		ctx := p.RuntimeEnvironment()
 		candidate, err := NewResource(ctx, entryAbs)
 		if err != nil {
 			return err
@@ -557,7 +557,7 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 // WriteBytes writes inline byte content to a file.
 func (p *Provider) WriteBytes(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.ExecutionContext(), destinationPath)
+	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -573,7 +573,7 @@ func (p *Provider) CompensateWriteBytes(receipt *Receipt) error {
 // WriteText writes inline content to a file.
 func (p *Provider) WriteText(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.ExecutionContext(), destinationPath)
+	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -637,7 +637,7 @@ func (p *Provider) Find(pattern string, honorGitignore bool) (product []*Resourc
 
 	matches := make([]string, 0, 8192)
 
-	err = p.walkDir(p.ExecutionContext().Root, absoluteRoot, func(absolutePath string, dirEntry fs.DirEntry, err error) error {
+	err = p.walkDir(p.RuntimeEnvironment().Root, absoluteRoot, func(absolutePath string, dirEntry fs.DirEntry, err error) error {
 
 		if err != nil {
 			return err
@@ -832,7 +832,7 @@ func (p *Provider) compensateWrite(receipt *Receipt) error {
 
 	recoveryID := receipt.RecoveryID()
 	if recoveryID != "" {
-		if err := p.ExecutionContext().RecoverySite.RestoreFile(resource.SourcePath, recoveryID); err != nil {
+		if err := p.RuntimeEnvironment().RecoverySite.RestoreFile(resource.SourcePath, recoveryID); err != nil {
 			if !errors.Is(err, op.ErrRecoverySourceNotFound) {
 				return err
 			}
@@ -906,7 +906,7 @@ func (p *Provider) isDirAndNotEmpty(abs string) (_ bool, err error) {
 
 // lstat returns file info without following symlinks.
 func (p *Provider) lstat(abs string) (os.FileInfo, error) {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Lstat(root.NewPath(abs))
 }
 
@@ -920,7 +920,7 @@ func (p *Provider) closestExistingDir(path string) (ancestor *Resource, info os.
 		return nil, nil, fmt.Errorf("%s lies outside scoped root %s", path, root)
 	}
 
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 	current := path
 
 	for {
@@ -952,7 +952,7 @@ func (p *Provider) closestExistingDir(path string) (ancestor *Resource, info os.
 
 // mkdirAll creates a directory and all parents.
 func (p *Provider) mkdirAll(abs string, perm os.FileMode) error {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	return root.MkdirAll(root.NewPath(abs), perm)
 }
 
@@ -966,20 +966,20 @@ func (p *Provider) newTrackerIfEnabled(rootPath string, honorGitignore bool) (*g
 
 // open opens a file for reading.
 func (p *Provider) open(abs string) (*os.File, error) {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Open(root.NewPath(abs))
 }
 
 // openFile opens a file with the given flags and permissions.
 func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, error) {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	return root.OpenFile(root.NewPath(abs), flag, perm)
 }
 
 // prepareWrite handles pre-write backup.
 func (p *Provider) prepareWrite(resource *Resource) (recoveryID string, product *Resource, receipt *Receipt, err error) {
 
-	if product, err = NewResource(p.ExecutionContext(), resource.SourcePath.Abs()); err != nil {
+	if product, err = NewResource(p.RuntimeEnvironment(), resource.SourcePath.Abs()); err != nil {
 		return "", nil, nil, err
 	}
 
@@ -1018,7 +1018,7 @@ func (p *Provider) prepareWrite(resource *Resource) (recoveryID string, product 
 // read reads the contents of a file [Resource]
 func (p *Provider) read(resource *Resource) (*bytes.Buffer, error) {
 
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	data, err := root.ReadFile(root.NewPath(resource.SourcePath.Abs()))
 
 	if err != nil {
@@ -1030,7 +1030,7 @@ func (p *Provider) read(resource *Resource) (*bytes.Buffer, error) {
 
 // readLink reads the destination of a symlink.
 func (p *Provider) readLink(abs string) (string, error) {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	target, err := root.Readlink(root.NewPath(abs))
 	if err != nil {
 		return "", err
@@ -1045,20 +1045,20 @@ func (p *Provider) readLink(abs string) (string, error) {
 
 // remove removes a file or empty directory.
 func (p *Provider) remove(abs string) error {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Remove(root.NewPath(abs))
 }
 
 // rename moves a file from oldAbs to newAbs.
 func (p *Provider) rename(oldAbs, newAbs string) error {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Rename(root.NewPath(oldAbs), root.NewPath(newAbs))
 }
 
 // resources constructs a [Resource] for each input path.
 func (p *Provider) resources(paths []string) (product []*Resource, err error) {
 
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 	resources := make([]*Resource, len(paths))
 
 	for i, path := range paths {
@@ -1086,13 +1086,13 @@ func (p *Provider) resources(paths []string) (product []*Resource, err error) {
 
 // stat returns file info following symlinks.
 func (p *Provider) stat(abs string) (os.FileInfo, error) {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Stat(root.NewPath(abs))
 }
 
 // symlink creates a symbolic link.
 func (p *Provider) symlink(targetAbs, linkAbs string) error {
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	relTarget, err := filepath.Rel(filepath.Dir(linkAbs), targetAbs)
 	if err != nil {
 		return err
@@ -1190,7 +1190,7 @@ func (p *Provider) pruneEmptyParents(resource *Resource, prune bool, boundary *R
 // archiveAndPrune archives resource to the recovery site.
 func (p *Provider) archiveAndPrune(resource *Resource, prune bool, boundary *Resource) (recoveryID string, err error) {
 
-	recoveryID, err = p.ExecutionContext().RecoverySite.ArchiveFile(resource.SourcePath)
+	recoveryID, err = p.RuntimeEnvironment().RecoverySite.ArchiveFile(resource.SourcePath)
 	if err != nil {
 		return "", err
 	}

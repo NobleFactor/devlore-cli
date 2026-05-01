@@ -9,13 +9,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func resCtx(managerName string) *op.ExecutionContext {
+func resCtx(managerName string) *op.RuntimeEnvironment {
 	mgr := &mockPackageManager{
 		name:      managerName,
 		installed: make(map[string]bool),
 		versions:  make(map[string]string),
 	}
-	return &op.ExecutionContext{
+	return &op.RuntimeEnvironment{
 		Platform: &op.Platform{
 			PackageManager:  mgr,
 			PackageManagers: map[string]op.PackageManager{managerName: mgr},

@@ -54,7 +54,7 @@ type Provider struct {
 // RoleAction+RoleRoot peer via the registry to build Tier 2 builtins for their methods. Any name collision across
 // Tier 1 (Provider's own methods), Tier 2 (peer methods), or Tier 3 (sub-namespace provider names) is a
 // program-init panic.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 	p := &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
@@ -137,13 +137,13 @@ func (p *Provider) ResolveAttr(name string) any {
 		return adapter
 	}
 
-	prt, ok := p.ExecutionContext().Registry.PlannerByName(name)
+	prt, ok := p.RuntimeEnvironment().Registry.PlannerByName(name)
 
 	if !ok {
 		return nil
 	}
 
-	adapter := starlarkbridge.NewNodeBuilder(prt, p.ExecutionContext(), p.catalog, p.invocations)
+	adapter := starlarkbridge.NewNodeBuilder(prt, p.RuntimeEnvironment(), p.catalog, p.invocations)
 	p.adapters[name] = adapter
 
 	return adapter
@@ -165,7 +165,7 @@ func (p *Provider) ResolveAttr(name string) any {
 // are program-init errors by design (invariant I4).
 func (p *Provider) buildPeerBuiltins() {
 
-	registry := p.ExecutionContext().Registry
+	registry := p.RuntimeEnvironment().Registry
 
 	// Tier 1: this Provider's own method names from its registered ProviderReceiverType.
 	selfNames := make(map[string]struct{})
@@ -198,7 +198,7 @@ func (p *Provider) buildPeerBuiltins() {
 			continue
 		}
 
-		builder := starlarkbridge.NewNodeBuilder(peer, p.ExecutionContext(), p.catalog, p.invocations)
+		builder := starlarkbridge.NewNodeBuilder(peer, p.RuntimeEnvironment(), p.catalog, p.invocations)
 
 		for _, name := range builder.AttrNames() {
 

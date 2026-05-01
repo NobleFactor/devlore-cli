@@ -28,15 +28,15 @@ var ErrRecoverySourceNotFound = errors.New("recovery source not found")
 // RecoverySite manages archival and restoration of resources within the authority boundary.
 //
 // All operations use zero-copy renames for files and byte serialization for data. The recovery directory is
-// .devlore/recovery/ within the op.Root authority boundary. All I/O goes through ExecutionContext.Root.
+// .devlore/recovery/ within the op.Root authority boundary. All I/O goes through RuntimeEnvironment.Root.
 type RecoverySite struct {
-	ctx *ExecutionContext
+	ctx *RuntimeEnvironment
 }
 
-// NewRecoverySite creates a RecoverySite with the given ExecutionContext.
+// NewRecoverySite creates a RecoverySite with the given RuntimeEnvironment.
 //
-// The ExecutionContext must have a non-nil Root.
-func NewRecoverySite(ctx *ExecutionContext) *RecoverySite {
+// The RuntimeEnvironment must have a non-nil Root.
+func NewRecoverySite(ctx *RuntimeEnvironment) *RecoverySite {
 	return &RecoverySite{ctx: ctx}
 }
 

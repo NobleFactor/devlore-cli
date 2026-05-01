@@ -27,7 +27,7 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -58,7 +58,7 @@ func (p *Provider) CompensateExtract(receipt *file.Receipt) error {
 	if receipt == nil {
 		return nil
 	}
-	fp := file.NewProvider(p.ExecutionContext())
+	fp := file.NewProvider(p.RuntimeEnvironment())
 	return fp.CompensateWriteText(receipt)
 }
 
@@ -90,7 +90,7 @@ func (p *Provider) CompensateExtract(receipt *file.Receipt) error {
 //   - error: any error from format detection, extraction, archive-on-displace, or catalog/receipt construction.
 func (p *Provider) Extract(source *file.Resource, prefixPath string) ([]*file.Resource, []op.Receipt, error) {
 
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 
 	destination, err := file.NewResource(ctx, prefixPath)
 	if err != nil {
@@ -179,7 +179,7 @@ func (p *Provider) Extract(source *file.Resource, prefixPath string) ([]*file.Re
 // Returns:
 //   - []extractedEntry: one record per file written, in extraction order.
 //   - error: any read, write, or archive failure.
-func extractTarGz(ctx *op.ExecutionContext, source, prefix string) (entries []extractedEntry, err error) {
+func extractTarGz(ctx *op.RuntimeEnvironment, source, prefix string) (entries []extractedEntry, err error) {
 
 	f, err := os.Open(source)
 	if err != nil {
@@ -239,7 +239,7 @@ func extractTarGz(ctx *op.ExecutionContext, source, prefix string) (entries []ex
 // Returns:
 //   - []extractedEntry: one record per file written, in extraction order.
 //   - error: any read, write, or archive failure.
-func extractZip(ctx *op.ExecutionContext, source, prefix string) (entries []extractedEntry, err error) {
+func extractZip(ctx *op.RuntimeEnvironment, source, prefix string) (entries []extractedEntry, err error) {
 
 	r, err := zip.OpenReader(source)
 	if err != nil {
@@ -299,7 +299,7 @@ func extractZip(ctx *op.ExecutionContext, source, prefix string) (entries []extr
 // Returns:
 //   - extractedEntry: the path written and the recovery ID (empty when the target was new).
 //   - error: any stat, archive, mkdir, or write error.
-func writeExtractedFile(ctx *op.ExecutionContext, target string, content io.Reader, mode os.FileMode) (extractedEntry, error) {
+func writeExtractedFile(ctx *op.RuntimeEnvironment, target string, content io.Reader, mode os.FileMode) (extractedEntry, error) {
 
 	var priorArchiveID string
 

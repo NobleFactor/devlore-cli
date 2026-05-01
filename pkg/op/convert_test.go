@@ -21,7 +21,7 @@ type convertResource struct {
 func (r *convertResource) URI() string { return "test:" + r.Path }
 
 // newConvertResource matches the ResourceConstructor signature.
-func newConvertResource(ctx *ExecutionContext, identity any) (Resource, error) {
+func newConvertResource(ctx *RuntimeEnvironment, identity any) (Resource, error) {
 
 	s, ok := identity.(string)
 	if !ok {
@@ -168,7 +168,7 @@ func TestConvert_TargetConverter(t *testing.T) {
 func TestConvert_ResourceConstructor(t *testing.T) {
 
 	reg := NewReceiverRegistry()
-	ctx := &ExecutionContext{Registry: reg}
+	ctx := &RuntimeEnvironment{Registry: reg}
 
 	val := "/etc/passwd"
 	target := reflect.TypeFor[*convertResource]()

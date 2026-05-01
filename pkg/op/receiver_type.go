@@ -94,7 +94,7 @@ type ResourceReceiverType interface {
 }
 
 // ProviderConstructor creates a provider instance bound to the given execution context.
-type ProviderConstructor func(ctx *ExecutionContext) (any, error)
+type ProviderConstructor func(ctx *RuntimeEnvironment) (any, error)
 
 // ResourceConstructor coerces a value into a typed resource.
 //
@@ -105,7 +105,7 @@ type ProviderConstructor func(ctx *ExecutionContext) (any, error)
 // Returns:
 //   - Resource: the constructed resource.
 //   - error:    non-nil if construction fails.
-type ResourceConstructor func(ctx *ExecutionContext, value any) (Resource, error)
+type ResourceConstructor func(ctx *RuntimeEnvironment, value any) (Resource, error)
 
 // receiverType holds the fields common to all receiver descriptors.
 //
@@ -220,7 +220,7 @@ type providerReceiverType struct {
 //
 // Parameters:
 //   - providerType: the provider's reflect.Type.
-//   - construct: creates a provider instance from ExecutionContext.
+//   - construct: creates a provider instance from RuntimeEnvironment.
 //   - roles: the provider's declared roles (RoleModule, RoleAction, or both).
 //   - methodParameters: starlark parameter names per Go method.
 //

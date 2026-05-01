@@ -44,7 +44,7 @@ func TestLoadIntegration(t *testing.T) {
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
-	ctx := op.ExecutionContext{contextBase: op.contextBase{Root: op.NewRootReader(testdataDir)}}
+	ctx := op.RuntimeEnvironment{contextBase: op.contextBase{Root: op.NewRootReader(testdataDir)}}
 	rt.RegisterActions(reg, ctx)
 	globals := rt.BuildGlobals(graph, "test-project", reg)
 

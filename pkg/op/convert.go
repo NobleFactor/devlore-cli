@@ -26,18 +26,18 @@ var resourceInterfaceType = reflect.TypeFor[Resource]()
 //  5. Source-side opt-in — value implements [SourceConverter] and advertises target type.
 //  6. Target-side opt-in — fresh target probe implements [TargetConverter] and advertises source type.
 //  7. Registered Resource construction — target implements [Resource] and a constructor is registered in
-//     [ExecutionContext.Registry]; the constructor is run with (ctx, value).
+//     [RuntimeEnvironment.Registry]; the constructor is run with (ctx, value).
 //  8. Error — no path through the cascade succeeds.
 //
 // Parameters:
-//   - ctx: the ambient [ExecutionContext]. Used by step 7 to look up registered Resource constructors.
+//   - ctx: the ambient [RuntimeEnvironment]. Used by step 7 to look up registered Resource constructors.
 //   - value: the source value to project. nil yields the zero value of target.
 //   - target: the [reflect.Type] of the desired result.
 //
 // Returns:
 //   - any: the projected value, ready to assign to a target of type target.
 //   - error: non-nil if no path through the cascade succeeds.
-func Convert(ctx *ExecutionContext, value any, target reflect.Type) (any, error) {
+func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, error) {
 
 	// Step 0: nil → zero of target.
 

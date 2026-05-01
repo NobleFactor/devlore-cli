@@ -18,7 +18,7 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -36,13 +36,13 @@ func NewProvider(ctx *op.ExecutionContext) *Provider {
 //   - error: any error from reading, decrypting, or writing.
 func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string) (*file.Resource, *Receipt, error) {
 
-	result, err := file.NewResource(p.ExecutionContext(), destinationPath)
+	result, err := file.NewResource(p.RuntimeEnvironment(), destinationPath)
 
 	if err != nil {
 		return nil, nil, err
 	}
 
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 
 	// 1. Read the source file into memory
 	data, err := root.ReadFile(root.NewPath(source.SourcePath.Abs()))
@@ -51,7 +51,7 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string
 	}
 
 	// 2. Decrypt via SopsClient
-	sopsClient := p.ExecutionContext().Sops
+	sopsClient := p.RuntimeEnvironment().Sops
 	if sopsClient == nil {
 		return nil, nil, fmt.Errorf("sops client not configured")
 	}
@@ -85,6 +85,6 @@ func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 		return fmt.Errorf("compensate decrypt sops file: unexpected resource type %T", receipt.Resource())
 	}
 
-	root := p.ExecutionContext().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Remove(root.NewPath(resource.SourcePath.Abs()))
 }

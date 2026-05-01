@@ -7,10 +7,10 @@ package op
 // Hooks are fire-and-forget — a hook panic is recovered and logged but does not
 // fail the node or subgraph. Hooks run synchronously and must not block.
 type LifecycleHook interface {
-	OnNodeStart(ctx *ExecutionContext, nodeID string, slots map[string]any)
-	OnNodeComplete(ctx *ExecutionContext, nodeID string, result Result, err error)
-	OnSubgraphStart(ctx *ExecutionContext, subgraphID string)
-	OnSubgraphComplete(ctx *ExecutionContext, subgraphID string, err error)
+	OnNodeStart(ctx *RuntimeEnvironment, nodeID string, slots map[string]any)
+	OnNodeComplete(ctx *RuntimeEnvironment, nodeID string, result Result, err error)
+	OnSubgraphStart(ctx *RuntimeEnvironment, subgraphID string)
+	OnSubgraphComplete(ctx *RuntimeEnvironment, subgraphID string, err error)
 }
 
 // HookRegistry holds registered lifecycle hooks and provides fire methods.
@@ -30,7 +30,7 @@ func (r *HookRegistry) Register(hook LifecycleHook) {
 }
 
 // FireNodeStart notifies all hooks that a node is about to execute.
-func (r *HookRegistry) FireNodeStart(ctx *ExecutionContext, nodeID string, slots map[string]any) {
+func (r *HookRegistry) FireNodeStart(ctx *RuntimeEnvironment, nodeID string, slots map[string]any) {
 	if r == nil {
 		return
 	}
@@ -43,7 +43,7 @@ func (r *HookRegistry) FireNodeStart(ctx *ExecutionContext, nodeID string, slots
 }
 
 // FireNodeComplete notifies all hooks that a node has finished.
-func (r *HookRegistry) FireNodeComplete(ctx *ExecutionContext, nodeID string, result Result, err error) {
+func (r *HookRegistry) FireNodeComplete(ctx *RuntimeEnvironment, nodeID string, result Result, err error) {
 	if r == nil {
 		return
 	}
@@ -56,7 +56,7 @@ func (r *HookRegistry) FireNodeComplete(ctx *ExecutionContext, nodeID string, re
 }
 
 // FireSubgraphStart notifies all hooks that a subgraph is about to execute.
-func (r *HookRegistry) FireSubgraphStart(ctx *ExecutionContext, subgraphID string) {
+func (r *HookRegistry) FireSubgraphStart(ctx *RuntimeEnvironment, subgraphID string) {
 	if r == nil {
 		return
 	}
@@ -69,7 +69,7 @@ func (r *HookRegistry) FireSubgraphStart(ctx *ExecutionContext, subgraphID strin
 }
 
 // FireSubgraphComplete notifies all hooks that a subgraph has finished.
-func (r *HookRegistry) FireSubgraphComplete(ctx *ExecutionContext, subgraphID string, err error) {
+func (r *HookRegistry) FireSubgraphComplete(ctx *RuntimeEnvironment, subgraphID string, err error) {
 	if r == nil {
 		return
 	}

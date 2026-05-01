@@ -122,7 +122,7 @@ type SourceFile struct {
 	funcDecls []*FuncDecl
 	typeIndex map[string]*GenDeclNode
 	funcIndex map[string]*FuncDecl
-	ctx       *op.ExecutionContext
+	ctx       *op.RuntimeEnvironment
 }
 
 // GenDeclNode represents a general declaration (type, var, const, import).

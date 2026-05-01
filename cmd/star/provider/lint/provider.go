@@ -29,7 +29,7 @@ type Provider struct {
 }
 
 // NewProvider creates a lint provider bound to the given context.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 

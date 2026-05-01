@@ -34,7 +34,7 @@ func (p *rtTestActionProvider) MethodParamsFor(_ string) []string { return nil }
 func (p *rtTestActionProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestActionProvider)(nil)).Elem()
 }
-func (p *rtTestActionProvider) Register(_ op.ExecutionContext, reg *op.ReceiverRegistry) {
+func (p *rtTestActionProvider) Register(_ op.RuntimeEnvironment, reg *op.ReceiverRegistry) {
 	reg.register(&testAction{name: p.actionName})
 }
 
@@ -48,7 +48,7 @@ func (p *rtTestAllActsProvider) MethodParamsFor(_ string) []string { return nil 
 func (p *rtTestAllActsProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestAllActsProvider)(nil)).Elem()
 }
-func (p *rtTestAllActsProvider) Register(_ op.ExecutionContext, reg *op.ReceiverRegistry) {
+func (p *rtTestAllActsProvider) Register(_ op.RuntimeEnvironment, reg *op.ReceiverRegistry) {
 	reg.register(&testAction{name: "_test_all_acts.do"})
 }
 
@@ -62,8 +62,8 @@ func (p *rtTestPlannedProvider) MethodParamsFor(_ string) []string { return nil 
 func (p *rtTestPlannedProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestPlannedProvider)(nil)).Elem()
 }
-func (p *rtTestPlannedProvider) Register(_ op.ExecutionContext, _ *op.ReceiverRegistry) {}
-func (p *rtTestPlannedProvider) NewPlanning(_ op.GraphExecutionContext) starlark.Value {
+func (p *rtTestPlannedProvider) Register(_ op.RuntimeEnvironment, _ *op.ReceiverRegistry) {}
+func (p *rtTestPlannedProvider) NewPlanning(_ op.GraphRuntimeEnvironment) starlark.Value {
 	return starlark.String("test-plan-value")
 }
 
@@ -77,8 +77,8 @@ func (p *rtTestImmediateProvider) MethodParamsFor(_ string) []string { return ni
 func (p *rtTestImmediateProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestImmediateProvider)(nil)).Elem()
 }
-func (p *rtTestImmediateProvider) Register(_ op.ExecutionContext, _ *op.ReceiverRegistry) {}
-func (p *rtTestImmediateProvider) NewExecuting(_ op.ExecutionContext) starlark.Value {
+func (p *rtTestImmediateProvider) Register(_ op.RuntimeEnvironment, _ *op.ReceiverRegistry) {}
+func (p *rtTestImmediateProvider) NewExecuting(_ op.RuntimeEnvironment) starlark.Value {
 	return starlark.String("test-imm-value")
 }
 
@@ -95,8 +95,8 @@ func (p *rtTestCountingImmProvider) MethodParamsFor(_ string) []string { return 
 func (p *rtTestCountingImmProvider) ProviderType() reflect.Type {
 	return reflect.TypeOf((*rtTestCountingImmProvider)(nil)).Elem()
 }
-func (p *rtTestCountingImmProvider) Register(_ op.ExecutionContext, _ *op.ReceiverRegistry) {}
-func (p *rtTestCountingImmProvider) NewExecuting(_ op.ExecutionContext) starlark.Value {
+func (p *rtTestCountingImmProvider) Register(_ op.RuntimeEnvironment, _ *op.ReceiverRegistry) {}
+func (p *rtTestCountingImmProvider) NewExecuting(_ op.RuntimeEnvironment) starlark.Value {
 	*p.callCount++
 	return starlark.String("cached-value")
 }
@@ -114,7 +114,7 @@ func TestRuntimeRegisterActions(t *testing.T) {
 	)
 
 	reg := op.NewActionRegistry()
-	rt.RegisterActions(reg, op.ExecutionContext{})
+	rt.RegisterActions(reg, op.RuntimeEnvironment{})
 
 	if _, ok := reg.Get("_test_actions.do"); !ok {
 		t.Error("expected _test_actions.do action to be registered")
@@ -131,7 +131,7 @@ func TestRuntimeRegisterActionsAlwaysRegistersAll(t *testing.T) {
 	)
 
 	reg := op.NewActionRegistry()
-	rt.RegisterActions(reg, op.ExecutionContext{})
+	rt.RegisterActions(reg, op.RuntimeEnvironment{})
 
 	if _, ok := reg.Get("_test_all_acts.do"); !ok {
 		t.Error("expected _test_all_acts.do to be registered even without With()")
@@ -324,6 +324,6 @@ type testAction struct{ name string }
 
 func (a *testAction) Name() string           { return a.name }
 func (a *testAction) Params() []op.Parameter { return nil }
-func (a *testAction) Do(_ *op.ExecutionContext, _ map[string]any) (result op.Result, complement op.Complement, err error) {
+func (a *testAction) Do(_ *op.RuntimeEnvironment, _ map[string]any) (result op.Result, complement op.Complement, err error) {
 	return nil, nil, nil
 }

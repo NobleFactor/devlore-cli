@@ -11,7 +11,7 @@ import (
 
 func TestNewResource(t *testing.T) {
 
-	ctx := &op.ExecutionContext{}
+	ctx := &op.RuntimeEnvironment{}
 
 	tests := []struct {
 		name    string
@@ -133,7 +133,7 @@ func TestURI_Canonicalization(t *testing.T) {
 
 func mustParse(t *testing.T, raw string) op.Resource {
 	t.Helper()
-	r, err := NewResource(&op.ExecutionContext{}, raw)
+	r, err := NewResource(&op.RuntimeEnvironment{}, raw)
 	if err != nil {
 		t.Fatalf("NewResource(%q): %v", raw, err)
 	}

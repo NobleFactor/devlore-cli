@@ -49,7 +49,7 @@ type Case struct {
 // NewProvider creates a flow Provider bound to the given context.
 //
 // The graph is extracted from ctx.Data["graph"].
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	var graph *op.Graph
 	if g, ok := ctx.Data["graph"].(*op.Graph); ok {
 		graph = g
@@ -209,7 +209,7 @@ func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int
 	}
 
 	if limit <= 0 {
-		limit = p.ExecutionContext().Platform.DefaultConcurrency
+		limit = p.RuntimeEnvironment().Platform.DefaultConcurrency
 	}
 
 	body, err := p.Graph.ResolveExecutable(do)
@@ -404,7 +404,7 @@ func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), time
 		return target, nil
 	}
 
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()

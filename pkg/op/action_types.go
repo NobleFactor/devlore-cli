@@ -43,7 +43,7 @@ func (a *action) Params() []Parameter { return a.method.Parameters() }
 //   - Result: the method's return value, or nil.
 //   - Complement: always nil.
 //   - error: always nil.
-func (a *action) Do(ctx *ExecutionContext, slots map[string]any) (Result, Complement, error) {
+func (a *action) Do(ctx *RuntimeEnvironment, slots map[string]any) (Result, Complement, error) {
 
 	provider, err := ctx.cachedProvider(a.receiverType)
 	if err != nil {
@@ -97,7 +97,7 @@ func (a *fallibleAction) Params() []Parameter { return a.method.Parameters() }
 //   - Result: the method's return value, or nil.
 //   - Complement: always nil.
 //   - error: non-nil if the method fails.
-func (a *fallibleAction) Do(ctx *ExecutionContext, slots map[string]any) (Result, Complement, error) {
+func (a *fallibleAction) Do(ctx *RuntimeEnvironment, slots map[string]any) (Result, Complement, error) {
 
 	provider, err := ctx.cachedProvider(a.receiverType)
 	if err != nil {
@@ -148,7 +148,7 @@ func (a *compensableAction) Params() []Parameter { return a.method.Parameters() 
 //   - Result: the method's return value, or nil.
 //   - Complement: the undo state for compensation.
 //   - error: non-nil if the method fails.
-func (a *compensableAction) Do(ctx *ExecutionContext, slots map[string]any) (Result, Complement, error) {
+func (a *compensableAction) Do(ctx *RuntimeEnvironment, slots map[string]any) (Result, Complement, error) {
 
 	provider, err := ctx.cachedProvider(a.receiverType)
 	if err != nil {
@@ -171,7 +171,7 @@ func (a *compensableAction) Do(ctx *ExecutionContext, slots map[string]any) (Res
 //
 // Returns:
 //   - error: non-nil if compensation fails.
-func (a *compensableAction) Undo(ctx *ExecutionContext, complement Complement) error {
+func (a *compensableAction) Undo(ctx *RuntimeEnvironment, complement Complement) error {
 
 	if complement == nil {
 		return nil
@@ -227,7 +227,7 @@ func complementOrNil(v reflect.Value) Complement {
 }
 
 // dryRunLog writes dry-run output to the context writer.
-func dryRunLog(name string, method *Method, ctx *ExecutionContext, slots map[string]any) {
+func dryRunLog(name string, method *Method, ctx *RuntimeEnvironment, slots map[string]any) {
 
 	if ctx.Writer == nil {
 		return

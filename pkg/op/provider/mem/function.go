@@ -24,7 +24,7 @@ var errorType = reflect.TypeFor[error]()
 func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[Function](),
-		func(ctx *op.ExecutionContext, identity any) (op.Resource, error) {
+		func(ctx *op.RuntimeEnvironment, identity any) (op.Resource, error) {
 			return NewFunction(ctx, identity)
 		},
 		nil,
@@ -86,7 +86,7 @@ type Function struct {
 // Returns:
 //   - *Function: the fully-populated Function.
 //   - error:     if the spec is malformed, source synthesis / compilation fails, or archival fails.
-func NewFunction(ctx *op.ExecutionContext, identity any) (*Function, error) {
+func NewFunction(ctx *op.RuntimeEnvironment, identity any) (*Function, error) {
 
 	spec, ok := identity.(ResourceSpec)
 	if !ok {
@@ -272,7 +272,7 @@ func (f *Function) ConvertTo(target reflect.Type) (any, error) {
 
 	// Initialize the callable.
 
-	ctx := f.ExecutionContext()
+	ctx := f.RuntimeEnvironment()
 	thread := &ctx.Thread
 
 	callable, err := f.Init(thread)

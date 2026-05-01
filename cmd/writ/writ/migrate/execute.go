@@ -68,7 +68,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	}
 
 	// Perform renames
-	fp := file.NewProvider(&op.ExecutionContext{ProgramName: "writ", Root: op.NewRootReaderWriter(analysis.SourceRoot), Registry: op.NewReceiverRegistry()})
+	fp := file.NewProvider(&op.RuntimeEnvironment{ProgramName: "writ", Root: op.NewRootReaderWriter(analysis.SourceRoot), Registry: op.NewReceiverRegistry()})
 	for _, node := range renameNodes {
 		source, ok := node.SlotByName("source").Immediate().(string)
 		if !ok || source == "" {

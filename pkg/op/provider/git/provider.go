@@ -30,7 +30,7 @@ type Provider struct {
 //
 // Returns:
 //   - *Provider: the initialized provider.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -103,7 +103,7 @@ func (p *Provider) Clone(
 		directory = guessed
 	}
 
-	destination, err := NewResource(p.ExecutionContext(), directory)
+	destination, err := NewResource(p.RuntimeEnvironment(), directory)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -177,8 +177,8 @@ func (p *Provider) CompensateClone(receipt *Receipt) error {
 func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "checkout", ref)
-	cmd.Stdout = p.ExecutionContext().Writer
-	cmd.Stderr = p.ExecutionContext().Writer
+	cmd.Stdout = p.RuntimeEnvironment().Writer
+	cmd.Stderr = p.RuntimeEnvironment().Writer
 
 	if err := cmd.Run(); err != nil {
 		return nil, err
@@ -205,8 +205,8 @@ func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "pull")
-	cmd.Stdout = p.ExecutionContext().Writer
-	cmd.Stderr = p.ExecutionContext().Writer
+	cmd.Stdout = p.RuntimeEnvironment().Writer
+	cmd.Stderr = p.RuntimeEnvironment().Writer
 
 	if err := cmd.Run(); err != nil {
 		return nil, err
@@ -243,8 +243,8 @@ func (p *Provider) doClone(args []string) error {
 	}
 
 	cmd := exec.Command("git", args...)
-	cmd.Stdout = p.ExecutionContext().Writer
-	cmd.Stderr = p.ExecutionContext().Writer
+	cmd.Stdout = p.RuntimeEnvironment().Writer
+	cmd.Stderr = p.RuntimeEnvironment().Writer
 
 	return cmd.Run()
 }

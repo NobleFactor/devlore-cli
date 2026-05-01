@@ -15,7 +15,7 @@ import (
 
 func TestProviderNodeBuilder_AttrNames(t *testing.T) {
 
-	ctx := &op.ExecutionContext{}
+	ctx := &op.RuntimeEnvironment{}
 	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
 	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
@@ -32,7 +32,7 @@ func TestProviderNodeBuilder_AttrNames(t *testing.T) {
 
 func TestProviderNodeBuilder_Attr(t *testing.T) {
 
-	ctx := &op.ExecutionContext{}
+	ctx := &op.RuntimeEnvironment{}
 	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
 	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
@@ -50,7 +50,7 @@ func TestProviderNodeBuilder_Attr(t *testing.T) {
 
 func TestProviderNodeBuilder_Attr_Unknown(t *testing.T) {
 
-	ctx := &op.ExecutionContext{}
+	ctx := &op.RuntimeEnvironment{}
 	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
 	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
@@ -62,7 +62,7 @@ func TestProviderNodeBuilder_Attr_Unknown(t *testing.T) {
 
 func TestProviderNodeBuilder_Type(t *testing.T) {
 
-	ctx := &op.ExecutionContext{}
+	ctx := &op.RuntimeEnvironment{}
 	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
 	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)
@@ -73,7 +73,7 @@ func TestProviderNodeBuilder_Type(t *testing.T) {
 
 func TestProviderNodeBuilder_String(t *testing.T) {
 
-	ctx := &op.ExecutionContext{}
+	ctx := &op.RuntimeEnvironment{}
 	catalog := op.NewResourceCatalog()
 	registry := starlarkbridge.NewInvocationRegistry()
 	p := starlarkbridge.NewNodeBuilder(providerReceiverType(t), ctx, catalog, registry)

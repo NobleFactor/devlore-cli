@@ -19,7 +19,7 @@ import (
 
 var _ op.Provider = (*Provider)(nil)
 
-// ExecutionContext Data keys.
+// RuntimeEnvironment Data keys.
 const (
 	// DataKeyDryRun is the context Data key for dry-run mode.
 	DataKeyDryRun = "dry_run"
@@ -36,17 +36,17 @@ type Provider struct {
 }
 
 // NewProvider creates a setup provider bound to the given context.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) isDryRun() bool {
-	v, _ := p.ExecutionContext().Data[DataKeyDryRun].(bool)
+	v, _ := p.RuntimeEnvironment().Data[DataKeyDryRun].(bool)
 	return v
 }
 
 func (p *Provider) config() *cfg.Config {
-	v, _ := p.ExecutionContext().Data[DataKeyConfig].(*cfg.Config)
+	v, _ := p.RuntimeEnvironment().Data[DataKeyConfig].(*cfg.Config)
 	return v
 }
 

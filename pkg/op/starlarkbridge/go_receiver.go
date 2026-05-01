@@ -185,11 +185,11 @@ func (w *goReceiver) Project(target reflect.Type) (any, error) {
 
 // region State management
 
-// executionContext returns the [op.ExecutionContext] from the wrapped instance.
-func (w *goReceiver) executionContext() *op.ExecutionContext {
+// executionContext returns the [op.RuntimeEnvironment] from the wrapped instance.
+func (w *goReceiver) executionContext() *op.RuntimeEnvironment {
 
 	if p, ok := w.instance.(op.Provider); ok {
-		return p.ExecutionContext()
+		return p.RuntimeEnvironment()
 	}
 
 	return nil
@@ -651,7 +651,7 @@ func toNaturalGo(sv starlark.Value) (any, error) {
 }
 
 // starlarkToGoTyped converts a [starlark.Value] into a value of the target type.
-func starlarkToGoTyped(ctx *op.ExecutionContext, sv starlark.Value, target reflect.Type) (any, error) {
+func starlarkToGoTyped(ctx *op.RuntimeEnvironment, sv starlark.Value, target reflect.Type) (any, error) {
 
 	if _, ok := sv.(starlark.NoneType); ok {
 		return nil, nil

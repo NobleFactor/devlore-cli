@@ -36,7 +36,7 @@ type Provider struct {
 
 // NewProvider creates a new Provider. Validates that all six comment styles have handlers in the merged config. Missing
 // styles are repaired from defaults with a warning.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	return p
 }
@@ -702,7 +702,7 @@ func (p *Provider) LoadSourceFile(path string) (*SourceFile, error) {
 		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}
 	sf.filename = path
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 	ctx.Data["schema_registry"] = p.schemaRegistry()
 	ctx.Data["spacing_rules"] = p.spacingRules()
 	ctx.Data["line_width"] = p.configLineWidth()
@@ -720,7 +720,7 @@ func (p *Provider) schemaRegistry() *doctaxonomy.SchemaRegistry {
 
 // configSchemas attempts to build a SchemaRegistry from the config stored in the provider's context data.
 func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
-	cfgVal, ok := p.ExecutionContext().Data["config"]
+	cfgVal, ok := p.RuntimeEnvironment().Data["config"]
 	if !ok || cfgVal == nil {
 		return nil
 	}
@@ -740,7 +740,7 @@ func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
 
 // spacingRules reads SpacingRules from config, falling back to defaults.
 func (p *Provider) spacingRules() SpacingRules {
-	cfgVal, ok := p.ExecutionContext().Data["config"]
+	cfgVal, ok := p.RuntimeEnvironment().Data["config"]
 	if !ok || cfgVal == nil {
 		return DefaultSpacingRules()
 	}
@@ -795,7 +795,7 @@ func spacingRulesFromConfig(val interface{}) SpacingRules {
 
 // configLineWidth reads the line width from config, defaulting to 120.
 func (p *Provider) configLineWidth() int {
-	cfgVal, ok := p.ExecutionContext().Data["config"]
+	cfgVal, ok := p.RuntimeEnvironment().Data["config"]
 	if !ok || cfgVal == nil {
 		return 120
 	}

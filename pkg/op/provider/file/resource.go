@@ -37,7 +37,7 @@ type Resource struct {
 // Returns:
 //   - Resource: initialized with the given path.
 //   - error: if value is not a string.
-func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	path, ok := value.(string)
 	if !ok {
@@ -132,7 +132,7 @@ func (r *Resource) Exists() bool {
 //   - error: any stat or read error.
 func (r *Resource) Refresh() error {
 
-	root := r.ExecutionContext().Root
+	root := r.RuntimeEnvironment().Root
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return err
@@ -151,7 +151,7 @@ func (r *Resource) Refresh() error {
 //   - error: any stat error.
 func (r *Resource) RefreshWith(checksum string) error {
 
-	root := r.ExecutionContext().Root
+	root := r.RuntimeEnvironment().Root
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
 		return err
@@ -168,7 +168,7 @@ func (r *Resource) RefreshWith(checksum string) error {
 //   - error: any stat error (not-exist is not an error).
 func (r *Resource) Resolve() error {
 
-	root := r.ExecutionContext().Root
+	root := r.RuntimeEnvironment().Root
 
 	r.SourcePath = root.NewPath(r.SourcePath.Abs())
 
@@ -209,19 +209,19 @@ func (r *Resource) String() string {
 
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
 //
 // Parameters:
 //   - data: JSON-encoded string containing the resource's URI or path.
 //
 // Returns:
-//   - error: non-nil if the ExecutionContext is missing, the JSON does not decode as a string, or resource
+//   - error: non-nil if the RuntimeEnvironment is missing, the JSON does not decode as a string, or resource
 //     construction fails.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("file.Resource: UnmarshalJSON requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("file.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
 	}
 
 	var uri string
@@ -229,7 +229,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := NewResource(r.ExecutionContext(), uri)
+	built, err := NewResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -240,21 +240,21 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 
 // UnmarshalText populates the receiver from raw UTF-8 bytes containing a file path or file URI.
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
 //
 // Parameters:
 //   - text: UTF-8 bytes containing the resource's URI or path.
 //
 // Returns:
-//   - error: non-nil if the ExecutionContext is missing or resource construction fails.
+//   - error: non-nil if the RuntimeEnvironment is missing or resource construction fails.
 func (r *Resource) UnmarshalText(text []byte) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("file.Resource: UnmarshalText requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("file.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := NewResource(r.ExecutionContext(), string(text))
+	built, err := NewResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -265,19 +265,19 @@ func (r *Resource) UnmarshalText(text []byte) error {
 
 // UnmarshalYAML populates the receiver from a YAML scalar (a file path or file URI).
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
 //
 // Parameters:
 //   - unmarshal: callback supplied by the YAML decoder that projects the current node into the given target.
 //
 // Returns:
-//   - error: non-nil if the ExecutionContext is missing, the YAML node does not decode as a string, or resource
+//   - error: non-nil if the RuntimeEnvironment is missing, the YAML node does not decode as a string, or resource
 //     construction fails.
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("file.Resource: UnmarshalYAML requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("file.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
 	}
 
 	var uri string
@@ -285,7 +285,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := NewResource(r.ExecutionContext(), uri)
+	built, err := NewResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

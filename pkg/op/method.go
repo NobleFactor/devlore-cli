@@ -380,7 +380,7 @@ func (m *Method) HasUndo() bool { return m.undo != nil }
 // region Behaviors
 
 // Invoke coerces slot values into Go arguments via [Convert] and dispatches to the wrapped method.
-func (m *Method) Invoke(ctx *ExecutionContext, receiver any, slots map[string]any) (Result, Complement, error) {
+func (m *Method) Invoke(ctx *RuntimeEnvironment, receiver any, slots map[string]any) (Result, Complement, error) {
 
 	params := m.Parameters()
 	goArgs := make([]any, 0, len(params)+1)

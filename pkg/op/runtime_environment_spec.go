@@ -204,14 +204,14 @@ func (c *RuntimeEnvironmentSpec) WithConflictResolution(res ConflictResolution) 
 	return c
 }
 
-// NewExecutionContext constructs a fully-populated [ExecutionContext] from this spec.
+// NewRuntimeEnvironment constructs a fully-populated [RuntimeEnvironment] from this spec.
 //
 // It performs defaulting (Writer → os.Stderr, BackupSuffix → ".<ProgramName>-backup"), constructs the
 // [starlark.Thread], initializes the [Platform], and wires the [RecoverySite] if a Root is present.
 //
 // Returns:
-//   - *ExecutionContext: the constructed context.
-func (c *RuntimeEnvironmentSpec) NewExecutionContext() *ExecutionContext {
+//   - *RuntimeEnvironment: the constructed context.
+func (c *RuntimeEnvironmentSpec) NewRuntimeEnvironment() *RuntimeEnvironment {
 
 	assert.NotNil("spec.Registry", c.Registry)
 
@@ -225,7 +225,7 @@ func (c *RuntimeEnvironmentSpec) NewExecutionContext() *ExecutionContext {
 		backupSuffix = "." + c.ProgramName + "-backup"
 	}
 
-	ctx := &ExecutionContext{
+	ctx := &RuntimeEnvironment{
 		ProgramName:        c.ProgramName,
 		Data:               c.Data,
 		DryRun:             c.DryRun,

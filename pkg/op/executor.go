@@ -39,12 +39,12 @@ func NewGraphExecutor(spec *RuntimeEnvironmentSpec) *GraphExecutor {
 	}
 }
 
-// newContext creates an execution ExecutionContext from the executor's spec.
+// newContext creates an execution RuntimeEnvironment from the executor's spec.
 //
 // Returns:
-//   - *ExecutionContext: the execution context.
-func (e *GraphExecutor) newContext() *ExecutionContext {
-	return e.spec.NewExecutionContext()
+//   - *RuntimeEnvironment: the execution context.
+func (e *GraphExecutor) newContext() *RuntimeEnvironment {
+	return e.spec.NewRuntimeEnvironment()
 }
 
 // SetHooks sets the lifecycle hook registry for this executor.
@@ -212,7 +212,7 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 		maxAttempts += sg.Retry.MaxAttempts
 	}
 
-	ec := graph.ExecutionContext()
+	ec := graph.RuntimeEnvironment()
 
 	var lastErr error
 
@@ -304,7 +304,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 		}
 	}
 
-	ec := node.ExecutionContext()
+	ec := node.RuntimeEnvironment()
 
 	action, err := node.Action()
 

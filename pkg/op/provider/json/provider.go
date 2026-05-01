@@ -18,7 +18,7 @@ type Provider struct {
 }
 
 // NewProvider creates a JSON provider bound to the given context.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -62,7 +62,7 @@ func (p *Provider) Parse(data string) (*Resource, error) {
 		return nil, fmt.Errorf("json parse: %w", err)
 	}
 
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 	candidate, err := NewResource(ctx, raw)
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func (p *Provider) Parse(data string) (*Resource, error) {
 	candidate.parsed = parsed
 
 	// Parse is content-keyed — two calls with the same input produce the same URI. Route through the catalog so
-	// they share a single canonical *Resource (and thus a single parsed value) per ExecutionContext.
+	// they share a single canonical *Resource (and thus a single parsed value) per RuntimeEnvironment.
 	got, err := ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})

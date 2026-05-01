@@ -17,11 +17,11 @@ import (
 //
 // The receiver is bound to the registered ProviderReceiverType (mirroring Runtime.buildOne), so the announced
 // parameter names — including *items / **opts variadic markers — survive into goReceiver.dispatch's classifier.
-func makeImmediateReceiver(t *testing.T) (starlark.HasAttrs, *op.ExecutionContext) {
+func makeImmediateReceiver(t *testing.T) (starlark.HasAttrs, *op.RuntimeEnvironment) {
 	t.Helper()
 
 	reg := op.NewReceiverRegistry()
-	ctx := &op.ExecutionContext{
+	ctx := &op.RuntimeEnvironment{
 		Registry: reg,
 		Catalog:  op.NewResourceCatalog(),
 	}

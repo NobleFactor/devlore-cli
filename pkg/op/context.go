@@ -14,8 +14,8 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// ExecutionContext provides the execution environment for providers, resources, and graphs.
-type ExecutionContext struct {
+// RuntimeEnvironment provides the execution environment for providers, resources, and graphs.
+type RuntimeEnvironment struct {
 	context.Context // https://pkg.go.dev/context
 
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
@@ -54,7 +54,7 @@ type ExecutionContext struct {
 	Root Root
 
 	// Sops provides SOPS operations (decryption, signing, verification). Nil when SOPS is not configured (no
-	// .sops.yaml found). Receivers access this via p.ExecutionContext().SopsClient.
+	// .sops.yaml found). Receivers access this via p.RuntimeEnvironment().SopsClient.
 	Sops *sops.Client
 
 	// Thread is a Starlark execution thread for callable initialization. Created by the executor at execution time.
@@ -92,7 +92,7 @@ type ExecutionContext struct {
 // Returns:
 //   - Action: the resolved action wrapping the provider instance and method.
 //   - error: non-nil if the provider is not a registered action, the method doesn't exist, or construction fails.
-func (ctx *ExecutionContext) ActionByName(name string) (Action, error) {
+func (ctx *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 
 	dot := strings.LastIndex(name, ".")
 	if dot < 0 {
@@ -134,7 +134,7 @@ func (ctx *ExecutionContext) ActionByName(name string) (Action, error) {
 // Returns:
 //   - any: the provider instance.
 //   - error: non-nil if the name is not a registered module or construction fails.
-func (ctx *ExecutionContext) ModuleByName(name string) (any, error) {
+func (ctx *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 
 	prt, ok := ctx.Registry.ModuleByName(name)
 	if !ok {
@@ -145,7 +145,7 @@ func (ctx *ExecutionContext) ModuleByName(name string) (any, error) {
 }
 
 // Property returns a value from the tool-provided context data.
-func (ctx *ExecutionContext) Property(key string) (any, bool) {
+func (ctx *RuntimeEnvironment) Property(key string) (any, bool) {
 
 	if ctx.Data == nil {
 		return nil, false
@@ -173,7 +173,7 @@ func (ctx *ExecutionContext) Property(key string) (any, bool) {
 // Returns:
 //   - any: the provider instance.
 //   - error: non-nil if construction fails.
-func (ctx *ExecutionContext) cachedProvider(prt ProviderReceiverType) (any, error) {
+func (ctx *RuntimeEnvironment) cachedProvider(prt ProviderReceiverType) (any, error) {
 
 	name := prt.Name()
 

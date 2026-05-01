@@ -25,18 +25,18 @@ func TestResourceImplementsInterface(t *testing.T) {
 
 // --- Test helpers ---
 
-// newTestCtx returns an ExecutionContext with a Root anchored at a fresh temp dir and a populated
+// newTestCtx returns an RuntimeEnvironment with a Root anchored at a fresh temp dir and a populated
 // RecoverySite — the shape Resource construction requires when Data is []byte.
-func newTestCtx(t *testing.T) *op.ExecutionContext {
+func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
 	root := op.NewRootReaderWriter(t.TempDir())
-	ctx := &op.ExecutionContext{Root: root}
+	ctx := &op.RuntimeEnvironment{Root: root}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
 	return ctx
 }
 
-// newRes is a convenience for tests that don't care about the ExecutionContext beyond RecoverySite wiring.
-func newRes(t *testing.T, ctx *op.ExecutionContext, spec ResourceSpec) *Resource {
+// newRes is a convenience for tests that don't care about the RuntimeEnvironment beyond RecoverySite wiring.
+func newRes(t *testing.T, ctx *op.RuntimeEnvironment, spec ResourceSpec) *Resource {
 	t.Helper()
 	r, err := NewResource(ctx, spec)
 	if err != nil {

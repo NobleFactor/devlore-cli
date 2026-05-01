@@ -67,7 +67,7 @@ type ResourceBase struct {
 // Returns:
 //   - ResourceBase: the constructed base with uri, specific, and typeID all populated.
 //   - error: non-nil when specific contains '#' or goType has empty PkgPath and Name.
-func NewResourceBase(ctx *ExecutionContext, specific string, goType reflect.Type) (ResourceBase, error) {
+func NewResourceBase(ctx *RuntimeEnvironment, specific string, goType reflect.Type) (ResourceBase, error) {
 
 	if strings.Contains(specific, "#") {
 		return ResourceBase{}, fmt.Errorf("op.NewResourceBase: specific %q contains '#', which is reserved as the fragment delimiter", specific)
@@ -144,7 +144,7 @@ func ExtractTagSpecific(s string) (specific, typeID string, err error) {
 func Defer[R any, PR interface {
 	*R
 	Resource
-}](ctx *ExecutionContext) PR {
+}](ctx *RuntimeEnvironment) PR {
 
 	v := PR(new(R))
 
@@ -320,7 +320,7 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 //
 // The default implementation is a no-op — providers that need resolution (file, git) override it. Callers that need
 // metadata call Resolve then check the result. An unresolved resource reports Exists() == false. Implementations access
-// the confined root via ExecutionContext().Root.
+// the confined root via RuntimeEnvironment().Root.
 func (b *ResourceBase) Resolve() error { return nil }
 
 // resourceBase returns a pointer to the embedded ResourceBase, allowing the catalog to stamp id and producerID.

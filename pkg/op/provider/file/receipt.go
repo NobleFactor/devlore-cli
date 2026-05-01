@@ -186,7 +186,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 // UnmarshalJSON decodes a JSON document produced by [Receipt.MarshalJSON] back into the receiver via
 // [op.ReceiptBase.Restore].
 //
-// The receiver MUST be pre-seeded with an [op.ExecutionContext]-bearing zero [Resource] so the unmarshaler can
+// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource] so the unmarshaler can
 // rehydrate the encoded URIs via [NewResource].
 //
 // Parameters:
@@ -215,7 +215,7 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 // UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
 // [op.ReceiptBase.Restore].
 //
-// The receiver MUST be pre-seeded with an [op.ExecutionContext]-bearing zero [Resource]; see
+// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource]; see
 // [Receipt.UnmarshalJSON] for the contract.
 //
 // Parameters:
@@ -242,7 +242,7 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 // hydrate reconstructs the receiver's embedded [op.ReceiptBase], boundary and source from the decoded envelope. The
-// resources are pulled from the [op.ResourceCatalog] on the pre-seeded [op.ExecutionContext] — existing entries are
+// resources are pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] — existing entries are
 // re-used (Resource identity is interned by URI); URIs not yet in the catalog are constructed via [NewResource] and
 // registered through [op.ResourceCatalog.Link]. After resolution, the base is re-seated via [op.NewReceiptBase] (so
 // [op.ReceiptBase.Restore]'s URI-match check has a live resource to compare against), the wire-primitive triplet is
@@ -261,13 +261,13 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourceURI string, recoveryID string) error {
 
 	existing := r.Resource()
-	if existing == nil || existing.ExecutionContext() == nil {
-		return fmt.Errorf("file.Receipt: unmarshal requires ExecutionContext on receiver")
+	if existing == nil || existing.RuntimeEnvironment() == nil {
+		return fmt.Errorf("file.Receipt: unmarshal requires RuntimeEnvironment on receiver")
 	}
 
-	ctx := existing.ExecutionContext()
+	ctx := existing.RuntimeEnvironment()
 	if ctx.Catalog == nil {
-		return fmt.Errorf("file.Receipt: unmarshal requires Catalog on ExecutionContext")
+		return fmt.Errorf("file.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
 	resource, err := ctx.Catalog.GetOrCreate(resourceURI, func() (op.Resource, error) {

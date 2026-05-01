@@ -64,7 +64,7 @@ func (m *mockServiceManager) Disable(_ string) op.PlatformResult {
 
 func TestPkgInstallDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &pkg.Install{}
 	slots := map[string]any{
 		"packages": []string{"vim", "tmux"},
@@ -83,7 +83,7 @@ func TestPkgInstallDryRun(t *testing.T) {
 
 func TestPkgUpgradeDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &pkg.Upgrade{}
 	slots := map[string]any{
 		"packages": []string{"vim"},
@@ -102,7 +102,7 @@ func TestPkgUpgradeDryRun(t *testing.T) {
 
 func TestPkgRemoveDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &pkg.Remove{}
 	slots := map[string]any{
 		"packages": []string{"unused-pkg"},
@@ -121,7 +121,7 @@ func TestPkgRemoveDryRun(t *testing.T) {
 
 func TestPkgUpdateDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &pkg.Update{}
 	slots := map[string]any{
 		"manager": "brew",
@@ -140,7 +140,7 @@ func TestPkgUpdateDryRun(t *testing.T) {
 
 func TestShellDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &shell.Exec{Impl: &shell.Provider{}}
 	slots := map[string]any{
 		"command": "echo hello",
@@ -168,7 +168,7 @@ func TestShellEmptyCommand(t *testing.T) {
 
 func TestPowerShellDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &shell.PowerShell{Impl: &shell.Provider{}}
 	slots := map[string]any{
 		"command": "Get-Process",
@@ -187,7 +187,7 @@ func TestPowerShellDryRun(t *testing.T) {
 
 func TestServiceStartDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &service.Start{}
 	slots := map[string]any{"name": "nginx"}
 
@@ -205,7 +205,7 @@ func TestServiceStartDryRun(t *testing.T) {
 
 func TestServiceStopDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &service.Stop{}
 	slots := map[string]any{"name": "nginx"}
 
@@ -220,7 +220,7 @@ func TestServiceStopDryRun(t *testing.T) {
 
 func TestServiceRestartDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &service.Restart{}
 	slots := map[string]any{"name": "nginx"}
 
@@ -235,7 +235,7 @@ func TestServiceRestartDryRun(t *testing.T) {
 
 func TestServiceEnableDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &service.Enable{}
 	slots := map[string]any{"name": "nginx"}
 
@@ -250,7 +250,7 @@ func TestServiceEnableDryRun(t *testing.T) {
 
 func TestServiceDisableDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &service.Disable{}
 	slots := map[string]any{"name": "nginx"}
 
@@ -281,7 +281,7 @@ func TestServiceEmptyName(t *testing.T) {
 
 func TestGitCloneDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &git.Clone{Impl: &git.Provider{}}
 	slots := map[string]any{
 		"url":  "https://github.com/example/repo.git",
@@ -310,7 +310,7 @@ func TestGitCloneEmptyURL(t *testing.T) {
 
 func TestGitCheckoutDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &git.Checkout{Impl: &git.Provider{}}
 	slots := map[string]any{
 		"repo": "/tmp/repo",
@@ -328,7 +328,7 @@ func TestGitCheckoutDryRun(t *testing.T) {
 
 func TestGitPullDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &git.Pull{Impl: &git.Provider{}}
 	slots := map[string]any{
 		"repo": "/tmp/repo",
@@ -351,7 +351,7 @@ func TestAppnetDownload(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background()}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background()}}
 	action := &appnet.Download{Impl: &appnet.Provider{}}
 	slots := map[string]any{
 		"url": ts.URL,
@@ -377,7 +377,7 @@ func TestAppnetDownloadReturnsContent(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background()}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background()}}
 	action := &appnet.Download{Impl: &appnet.Provider{}}
 	slots := map[string]any{
 		"url": ts.URL,
@@ -399,7 +399,7 @@ func TestAppnetDownloadReturnsContent(t *testing.T) {
 
 func TestAppnetDownloadDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &appnet.Download{Impl: &appnet.Provider{}}
 	slots := map[string]any{
 		"url": "https://example.com/test.tar.gz",
@@ -490,7 +490,7 @@ func TestArchiveExtractTarGz(t *testing.T) {
 		"sub/nested.txt": "nested content",
 	})
 
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background()}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background()}}
 	action := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": archivePath,
@@ -535,7 +535,7 @@ func TestArchiveExtractZip(t *testing.T) {
 		"sub/nested.txt": "zip nested",
 	})
 
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background()}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background()}}
 	action := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": archivePath,
@@ -566,7 +566,7 @@ func TestArchiveExtractZip(t *testing.T) {
 
 func TestArchiveExtractDryRun(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := &op.ExecutionContext{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
+	ctx := &op.RuntimeEnvironment{contextBase: op.contextBase{Context: context.Background(), DryRun: true, Writer: &buf}}
 	action := &archive.Extract{Impl: &archive.Provider{}}
 	slots := map[string]any{
 		"source": "/tmp/test.tar.gz",

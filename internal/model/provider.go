@@ -11,11 +11,11 @@ Callers interact only through this interface—they don't need to know whether
 the underlying provider is Anthropic, OpenAI, Ollama, etc.
 
 	type Provider interface {
-	    Chat(ctx context.ExecutionContext, req ChatRequest) (*ChatResponse, error)
+	    Chat(ctx context.RuntimeEnvironment, req ChatRequest) (*ChatResponse, error)
 	    ReceiverName() string       // Provider name (also keystore account)
 	    Model() string      // Model identifier
 	    Endpoint() string   // API endpoint (empty = default)
-	    Available(ctx context.ExecutionContext) bool
+	    Available(ctx context.RuntimeEnvironment) bool
 	}
 
 The interface exposes queryable attributes (provider, model, endpoint) but

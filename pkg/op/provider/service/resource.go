@@ -19,7 +19,7 @@ import (
 // Returns:
 //   - *Resource: the initialized resource.
 //   - error: if value is not a string.
-func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	name, ok := value.(string)
 	if !ok {

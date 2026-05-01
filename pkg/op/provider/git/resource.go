@@ -63,7 +63,7 @@ type Resource struct {
 // Returns:
 //   - *Resource: the initialized resource with URI and SourcePath set; all other fields zero.
 //   - error: if value is not a string, or the input violates RFC 8089 when in file URI form.
-func NewResource(ctx *op.ExecutionContext, value any) (*Resource, error) {
+func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	path, ok := value.(string)
 	if !ok {
@@ -161,7 +161,7 @@ func (r *Resource) Equal(other any) bool {
 //     unavailability as an explicit condition instead of silently treating it as "no repo").
 func (r *Resource) Resolve() error {
 
-	root := r.ExecutionContext().Root
+	root := r.RuntimeEnvironment().Root
 	r.SourcePath = root.NewPath(r.SourcePath.Abs())
 
 	r.Ref, r.HEAD, r.Bare, r.Dirty, r.Remotes = "", "", false, false, nil
@@ -197,7 +197,7 @@ func (r *Resource) String() string {
 
 // UnmarshalJSON populates the receiver from its JSON wire form.
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned
 // from the decoded snapshot. Operational state (Remotes, Bare, Dirty) stays at zero values until
 // [Resource.Resolve] reads the on-disk clone.
@@ -206,12 +206,12 @@ func (r *Resource) String() string {
 //   - data: JSON-encoded wire form.
 //
 // Returns:
-//   - error: non-nil if the ExecutionContext is missing, the JSON does not decode, or resource construction
+//   - error: non-nil if the RuntimeEnvironment is missing, the JSON does not decode, or resource construction
 //     fails.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("git.Resource: UnmarshalJSON requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("git.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
 	}
 
 	type alias Resource
@@ -226,7 +226,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	ref, head := r.Ref, r.HEAD
 
-	built, err := NewResource(r.ExecutionContext(), aux.URI)
+	built, err := NewResource(r.RuntimeEnvironment(), aux.URI)
 	if err != nil {
 		return err
 	}
@@ -247,14 +247,14 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 //   - text: UTF-8 bytes containing the resource's URI or path.
 //
 // Returns:
-//   - error: non-nil if the ExecutionContext is missing or resource construction fails.
+//   - error: non-nil if the RuntimeEnvironment is missing or resource construction fails.
 func (r *Resource) UnmarshalText(text []byte) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("git.Resource: UnmarshalText requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("git.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := NewResource(r.ExecutionContext(), string(text))
+	built, err := NewResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -265,7 +265,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 
 // UnmarshalYAML populates the receiver from its YAML wire form.
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.ExecutionContext] before
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned
 // from the decoded snapshot. Operational state (Remotes, Bare, Dirty) stays at zero values until
 // [Resource.Resolve] reads the on-disk clone.
@@ -274,12 +274,12 @@ func (r *Resource) UnmarshalText(text []byte) error {
 //   - unmarshal: callback supplied by the YAML decoder that projects the current node into the given target.
 //
 // Returns:
-//   - error: non-nil if the ExecutionContext is missing, the YAML does not decode, or resource construction
+//   - error: non-nil if the RuntimeEnvironment is missing, the YAML does not decode, or resource construction
 //     fails.
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
-	if r.ExecutionContext() == nil {
-		return errors.New("git.Resource: UnmarshalYAML requires ExecutionContext on receiver")
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("git.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
 	}
 
 	type alias Resource
@@ -294,7 +294,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	ref, head := r.Ref, r.HEAD
 
-	built, err := NewResource(r.ExecutionContext(), aux.URI)
+	built, err := NewResource(r.RuntimeEnvironment(), aux.URI)
 	if err != nil {
 		return err
 	}

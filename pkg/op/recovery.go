@@ -81,17 +81,17 @@ func (s *RecoveryStack) Push(
 // PushReceipt commits a receipt under the supplied action name and appends it as a receipt-bearing entry.
 //
 // The receipt's [Receipt.Commit] is invoked first to stamp the transactionID and action name (idempotent
-// when already committed). The receipt's resource provides the [ExecutionContext] used at unwind time to
+// when already committed). The receipt's resource provides the [RuntimeEnvironment] used at unwind time to
 // resolve the [Compensate] companion via [ReceiverRegistry.ActionByFullName] — no context is captured here.
 //
 // Parameters:
 //   - receipt: the [Receipt] returned by the forward action; must be non-nil and carry a [Resource] with an
-//     [ExecutionContext] reachable via [Receipt.Resource].
+//     [RuntimeEnvironment] reachable via [Receipt.Resource].
 //   - actionName: the canonical action name (<pkg-path>.<receiverName>.<methodName>) — typically the value
 //     returned by [Action.FullName] at the executor's push site or [Method.ActionName] at [Method.Invoke].
 //
 // Returns:
-//   - error: non-nil if the receipt is nil, lacks a resource, lacks an [ExecutionContext], or [Receipt.Commit]
+//   - error: non-nil if the receipt is nil, lacks a resource, lacks an [RuntimeEnvironment], or [Receipt.Commit]
 //     fails.
 func (s *RecoveryStack) PushReceipt(receipt Receipt, actionName string) error {
 
@@ -99,7 +99,7 @@ func (s *RecoveryStack) PushReceipt(receipt Receipt, actionName string) error {
 		return errors.New("PushReceipt: receipt is nil")
 	}
 
-	if receipt.Resource() == nil || receipt.Resource().ExecutionContext() == nil {
+	if receipt.Resource() == nil || receipt.Resource().RuntimeEnvironment() == nil {
 		return errors.New("PushReceipt: receipt has no resource or no execution context")
 	}
 
@@ -256,7 +256,7 @@ var errClosureEntryNotPersistable = errors.New("RecoveryStack: closure-only entr
 // invokeCompensateForReceipt resolves a receipt's [Compensate] companion via the registry and invokes it.
 //
 // Used by [RecoveryStack.PushReceipt]'s pre-bound compensate closure at [RecoveryStack.Unwind] time. The
-// receipt's resource carries the [ExecutionContext] from which the [ReceiverRegistry] is reached;
+// receipt's resource carries the [RuntimeEnvironment] from which the [ReceiverRegistry] is reached;
 // [ReceiverRegistry.ActionByFullName] looks up the action by its committed action name; [Method.Undo] dispatches
 // to the [Compensate] companion with the receipt as the complement.
 //
@@ -270,11 +270,11 @@ var errClosureEntryNotPersistable = errors.New("RecoveryStack: closure-only entr
 func invokeCompensateForReceipt(receipt Receipt) error {
 
 	resource := receipt.Resource()
-	if resource == nil || resource.ExecutionContext() == nil {
+	if resource == nil || resource.RuntimeEnvironment() == nil {
 		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no resource context", receipt.Action())
 	}
 
-	ctx := resource.ExecutionContext()
+	ctx := resource.RuntimeEnvironment()
 
 	prt, method, ok := ctx.Registry.ActionByFullName(receipt.Action())
 	if !ok {

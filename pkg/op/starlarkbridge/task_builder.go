@@ -42,7 +42,7 @@ var executableUnitType = reflect.TypeFor[op.ExecutableUnit]()
 // for URI interning. Both are owned by plan.Provider and shared across every NodeBuilder it constructs.
 type NodeBuilder struct {
 	receiverType op.ProviderReceiverType
-	ctx          *op.ExecutionContext
+	ctx          *op.RuntimeEnvironment
 	catalog      *op.ResourceCatalog
 	registry     *InvocationRegistry
 	methods      map[string]*op.Method // snake_name → *Method
@@ -60,7 +60,7 @@ type NodeBuilder struct {
 //
 // Returns:
 //   - *NodeBuilder: the starlark-ready goReceiver.
-func NewNodeBuilder(rt op.ProviderReceiverType, ctx *op.ExecutionContext, catalog *op.ResourceCatalog, registry *InvocationRegistry) *NodeBuilder {
+func NewNodeBuilder(rt op.ProviderReceiverType, ctx *op.RuntimeEnvironment, catalog *op.ResourceCatalog, registry *InvocationRegistry) *NodeBuilder {
 
 	methods := make(map[string]*op.Method)
 	names := make([]string, 0)
@@ -173,7 +173,7 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 	params := method.Parameters()
 
 	// actionName is the always-dotted "<provider>.<method>" form written onto the node for execute-time lookup via
-	// op.ExecutionContext.ActionByName. Display-side concerns (error messages, auto-labels) use the builtin's label,
+	// op.RuntimeEnvironment.ActionByName. Display-side concerns (error messages, auto-labels) use the builtin's label,
 	// which reflects the receiver's placement (bare for root, dotted for non-root).
 	actionName := p.receiverType.Name() + "." + name
 

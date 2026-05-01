@@ -15,7 +15,7 @@ import (
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleAction,
-		func(ctx *op.ExecutionContext) (any, error) { return provider.NewProvider(ctx), nil },
+		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
 			"Clone":    {"repository", "directory?", "bare?", "branch?", "depth?", "filter?", "no_checkout?", "no_tags?", "origin?", "recurse_submodules?", "single_branch?", "**kwargs"},
 			"Checkout": {"repo", "ref"},

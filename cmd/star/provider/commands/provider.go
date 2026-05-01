@@ -28,17 +28,17 @@ type Provider struct {
 }
 
 // NewProvider creates a commands provider bound to the given context.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) tree() CommandTree {
-	t, _ := p.ExecutionContext().Data[DataKeyCommandTree].(CommandTree)
+	t, _ := p.RuntimeEnvironment().Data[DataKeyCommandTree].(CommandTree)
 	return t
 }
 
 func (p *Provider) currentCommand() string {
-	s, _ := p.ExecutionContext().Data[DataKeyCurrentCommand].(string)
+	s, _ := p.RuntimeEnvironment().Data[DataKeyCurrentCommand].(string)
 	return s
 }
 

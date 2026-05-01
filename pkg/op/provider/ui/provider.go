@@ -41,7 +41,7 @@ type Provider struct {
 }
 
 // NewProvider constructs a *Provider for the registered ProviderConstructor.
-func NewProvider(ctx *op.ExecutionContext) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
 		writer:       ctx.Writer,

@@ -155,7 +155,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		WithWriter(r.writer).
 		WithDryRun(r.dryRun)
 
-	graph := op.NewGraph(spec.NewExecutionContext())
+	graph := op.NewGraph(spec.NewRuntimeEnvironment())
 	r.graph = graph
 
 	// 3. Create Runtime with graph in Data so the plan provider can find it

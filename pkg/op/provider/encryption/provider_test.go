@@ -24,7 +24,7 @@ import (
 func testProvider(t *testing.T, dir string) *Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	ctx := &op.ExecutionContext{Root: root}
+	ctx := &op.RuntimeEnvironment{Root: root}
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -44,7 +44,7 @@ func testProviderWithSops(t *testing.T, dir string) *Provider {
 	}
 
 	root := op.NewRootReaderWriter(dir)
-	ctx := &op.ExecutionContext{Root: root, Sops: client}
+	ctx := &op.RuntimeEnvironment{Root: root, Sops: client}
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -58,7 +58,7 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	resource, err := file.NewResource(p.ExecutionContext(), path)
+	resource, err := file.NewResource(p.RuntimeEnvironment(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCompensateDecryptSopsFile_EmptyPath(t *testing.T) {
 func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	resource, err := file.NewResource(p.ExecutionContext(), filepath.Join(tmp, "nonexistent"))
+	resource, err := file.NewResource(p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProviderWithSops(t, tmp)
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 	source, _ := file.NewResource(ctx, "/nonexistent/encrypted.yaml")
 	destination := filepath.Join(tmp, "out.yaml")
 
@@ -115,7 +115,7 @@ func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 	source, _ := file.NewResource(ctx, srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatal(err)
@@ -194,7 +194,7 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 	t.Setenv("SOPS_AGE_KEY", ageKey)
 
 	p := testProviderWithSops(t, tmp)
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 	source, _ := file.NewResource(ctx, srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatalf("resolving source: %v", err)
@@ -244,7 +244,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 	t.Setenv("SOPS_AGE_KEY", ageKey)
 
 	p := testProviderWithSops(t, tmp)
-	ctx := p.ExecutionContext()
+	ctx := p.RuntimeEnvironment()
 	source, _ := file.NewResource(ctx, srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatal(err)
