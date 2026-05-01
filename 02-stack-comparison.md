@@ -11,66 +11,65 @@
  → (*starlark.Builtin).CallInternal                 │  → (*starlark.Builtin).CallInternal
      value.go:851 (go.starlark.net)                 │      value.go:851 (go.starlark.net)
                                                     │
- → (*wrapper).dispatch                              │  → (*NodeBuilder).dispatch
-     wrapper.go:974                                 │      task_builder.go:164
+ → (*goReceiver).dispatch                           │  → (*NodeBuilder).dispatch
+     go_receiver.go:669                             │      task_builder.go:164
                                                     │
    ├─ starlark.UnpackArgs(actionName, args, …)      │    ├─ extractOptionsKwarg(kwargs)        (:183)
-   │    wrapper.go:1063                             │    ├─ classify slots/values/pairs        (:200-208)
+   │    go_receiver.go:751                          │    ├─ classify slots/values/pairs        (:200-208)
    │                                                │    ├─ filter known vs extra kwargs       (:216-234)
    │  per named param:                              │    ├─ starlark.UnpackArgs(label, …)      (:236)
    │                                                │    ├─ op.NewNode(GenerateNodeID(name))   (:242)
  → toGoInto(sv, &val)                               │    ├─ node.Bind(method)                  (:243)
-     wrapper.go:1082  →  wrapper.go:467             │
+     go_receiver.go:765 → go_receiver.go:354        │
        (interface branch unpacks to natural Go)     │    per slot, sv = values[i]:
                                                     │
    │  per *variadic:                                │  → (*NodeBuilder).fillSlot
-   │                                                │      task_builder.go:388
+   │                                                │      task_builder.go:390
  → toGoInto(variadicList, &val)                     │
-     wrapper.go:1118 →  wrapper.go:467              │      ├─ if *Invocation:                  (:403)
-                                                    │      │     SetSlot or inv.FillSlot       (:405,407)
+     go_receiver.go:795 → go_receiver.go:354        │      ├─ if *Invocation:                  (:405)
+                                                    │      │     SetSlot or inv.FillSlot       (:407,409)
    │  per **kwargs entry:                           │      │     return
-   │                                                │      ├─ if *starlark.List of Invs:       (:416)
- → toGoInto(kv[1], &val)                            │      │     fan-in sub-slots [i] + .len   (:430-438)
-     wrapper.go:1134 →  wrapper.go:467              │      │     return
-                                                    │      ├─ if NoneType: return              (:446)
+   │                                                │      ├─ if *starlark.List of Invs:       (:418)
+ → toGoInto(kv[1], &val)                            │      │     fan-in sub-slots [i] + .len   (:430-440)
+     go_receiver.go:809 → go_receiver.go:354        │      │     return
+                                                    │      ├─ if NoneType: return              (:448)
    │  build slots map[string]any                    │      ├─ if Projector:
-                                                    │      │     proj.Project(target)          (:456)
- → (*Method).Invoke(ctx, instance, slots)           │      │     SetSlot; return               (:460)
-     method.go:401                                  │      │
+                                                    │      │     proj.Project(target)          (:458)
+ → (*Method).Invoke(ctx, instance, slots)           │      │     SetSlot; return               (:462)
+     method.go:383                                  │      │
                                                     │      └─ generic path:
    per param:                                       │
                                                     │      → starlarkToGoTyped(ctx, sv, target)
- → op.Convert(ctx, slotValue, p.Type)               │          task_builder.go:469
-     method.go:419  →  convert.go:40                │             →  wrapper.go:949
+ → op.Convert(ctx, slotValue, p.Type)               │          task_builder.go:471
+     method.go:401  →  convert.go:40                │             →  go_receiver.go:654
                                                     │
-       Step 1.  AssignableTo                        │           ├─ NoneType → nil              (:951)
-       Step 1b. ConvertibleTo (non-container)       │           │
-       Step 2.  slice element recursion             │         → toGo(sv, anyType)
-       Step 3.  map element recursion               │             wrapper.go:955 → wrapper.go:916
-       Step 4.  SourceConverter.ConvertTo           │               →  toGoInto(sv, fresh rv)
-       Step 5.  TargetConverter.ConvertFrom         │                  wrapper.go:467
-       Step 6.  registered Resource constructor     │
-       Step 7.  error                               │         → op.Convert(ctx, intermediate, target)
-                                                    │             wrapper.go:961 → convert.go:40
- → m.Do(receiver, goArgs)                           │
-     method.go:427                                  │               Step 1.  AssignableTo
-       (reflect-call into Go method)                │               Step 1b. ConvertibleTo
+       Step 1.  AssignableTo / ConvertibleTo        │           ├─ NoneType → nil              (:656)
+       Step 2.  slice element recursion             │           │
+       Step 3.  map element recursion               │         → toGo(sv, anyType)
+       Step 4.  SourceConverter.ConvertTo           │             go_receiver.go:660 → :573
+       Step 5.  TargetConverter.ConvertFrom         │               →  toGoInto(sv, fresh rv)
+       Step 6.  registered Resource constructor     │                  go_receiver.go:354
+       Step 7.  error                               │
+                                                    │         → op.Convert(ctx, intermediate, target)
+ → m.Do(receiver, goArgs)                           │             go_receiver.go:666 → convert.go:40
+     method.go (post-Invoke reflect-call)           │
+       (reflect-call into Go method)                │               Step 1.  AssignableTo / ConvertibleTo
                                                     │               Step 2.  slice element recursion
    Go method runs, returns result                   │               Step 3.  map element recursion
                                                     │               Step 4.  SourceConverter
  ← Result/Complement                                │               Step 5.  TargetConverter
                                                     │               Step 6.  registered Resource ctor
- → (*wrapper).toStarlark(result)                    │               Step 7.  error
-     wrapper.go:1161                                │
-       └ project Go → starlark for caller           │      ├─ if Resource: catalog.Link(resource) (:480-493)
-                                                    │      └─ node.SetSlot(name, ImmediateValue) (:496)
+ → (*goReceiver).toStarlark(result)                 │               Step 7.  error
+     go_receiver.go:827 → go_receiver.go:203        │
+       └ project Go → starlark for caller           │      ├─ if Resource: catalog.Link(resource) (:482-495)
+                                                    │      └─ node.SetSlot(name, ImmediateValue) (:498)
  ← starlark.Value                                   │
                                                     │    after slot loop:
  returned to starlark.Call                          │    ├─ if kwargsSlot: build Dict, fillSlot (:267-274)
                                                     │    │     ── kwargs Dict re-enters fillSlot
                                                     │    │        which re-enters starlarkToGoTyped
                                                     │    │        which re-enters toGo + op.Convert
-                                                    │    ├─ apply opts.RetryPolicy             (:280)
+                                                    │    ├─ apply opts.RetryPolicy             (:280-281)
                                                     │    ├─ NewPromise(node, "")               (:293)
                                                     │    ├─ AutoLabel(label)                   (:299)
                                                     │    └─ Invocation{Target: node, …}        (:later)
@@ -84,6 +83,8 @@
 ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 ```
 
-**The accountability part:** the asymmetry I caused chaos around earlier — plan-mode going through `assignTarget` with its own duplicated switch + `AssignableTo`/`ConvertibleTo` shortcuts — is gone. `assignTarget` is deleted. Plan-mode's slot-fill enters `starlarkToGoTyped` at task_builder.go:469, which composes `toGo(sv, anyType)` (wrapper.go:955) + `op.Convert(ctx, intermediate, target)` (wrapper.go:961). Immediate-mode's per-param `toGoInto(sv, &val)` at wrapper.go:1082/1118/1134 followed by `Method.Invoke`'s `op.Convert(ctx, slotValue, p.Type)` at method.go:419 lands in the same convert.go:40 cascade. Same destination, same 7 steps.
+**Convergence:** plan-mode's slot-fill enters `starlarkToGoTyped` at task_builder.go:471, which composes `toGo(sv, anyType)` (go_receiver.go:660) + `op.Convert(ctx, intermediate, target)` (go_receiver.go:666). Immediate-mode's per-param `toGoInto(sv, &val)` at go_receiver.go:765/795/809 followed by `Method.Invoke`'s `op.Convert(ctx, slotValue, p.Type)` at method.go:401 lands in the same convert.go:40 cascade. Same destination, same 7 steps.
 
-**Diagram nit corrected:** the plan-mode list-of-Invocations short-circuit was labelled `[]*Invocation`. The actual check is on `*starlark.List` whose elements are all `*Invocation` (task_builder.go:416-442). Same outcome (fan-in sub-slots), but the type discriminator is the starlark list, not a Go slice.
+**`op.Convert` step 1** absorbs both `AssignableTo` and `ConvertibleTo` (the previously-separate step 1b folded in during 982529d). Non-container-kinds widen via `reflect.Value.Convert` when the underlying types are convertible; `IsValid()` guard prevents reflection panics on nil interface values.
+
+**Type discriminator nit:** plan-mode's list-of-Invocations short-circuit checks `*starlark.List` whose elements are all `*Invocation` (task_builder.go:418-440). The starlark list is the discriminator, not a Go `[]*Invocation` slice.

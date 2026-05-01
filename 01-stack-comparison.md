@@ -3,7 +3,7 @@
 ```
 ╔════════════════════════════════════════════════╦════════════════════════════════════════════════════╗
 ║ IMMEDIATE-MODE                                 ║ PLAN-MODE                                          ║
-║ (wrapper.dispatch — wrapper.go:974)            ║ (NodeBuilder.dispatch — task_builder.go:164)       ║
+║ (goReceiver.dispatch — go_receiver.go:669)     ║ (NodeBuilder.dispatch — task_builder.go:164)       ║
 ╠════════════════════════════════════════════════╬════════════════════════════════════════════════════╣
 ║ 1. starlark.Call(builtin)                      ║ 1. starlark.Call(builtin)                          ║
 ║                                                ║                                                    ║
@@ -14,7 +14,7 @@
 ║    populates  vals []starlark.Value            ║    populates  values []starlark.Value              ║
 ║                                                ║                                                    ║
 ║ 4. for each named param:                       ║ 4. node := op.NewNode(GenerateNodeID(actionName))  ║
-║      toGoInto(sv, &val)         ── wrapper.go  ║    node.Bind(method)                               ║
+║      toGoInto(sv, &val)      ── go_receiver.go ║    node.Bind(method)                               ║
 ║    for *variadic:                              ║                                                    ║
 ║      build list, toGoInto(list, &val)          ║ 5. for each slot, sv := values[i]:                 ║
 ║    for **kwargs:                               ║      fillSlot(node, slot, sv)    ── task_builder   ║
@@ -22,31 +22,31 @@
 ║                                                ║       │ short-circuits:                            ║
 ║    ── all slots become natural Go (any-typed)  ║       │   *Invocation       → SetSlot/FillSlot     ║
 ║                                                ║       │   *starlark.List of *Invocation             ║
-║       │                       → fan-in sub-slots   ║
-║ 5. slots := map[string]any{ … }                ║       │   NoneType          → skip                 ║
-║                                                ║       │   Projector         → Project(target)      ║
-║ 6. method.Invoke(ctx, instance, slots)         ║       └─ generic path:                             ║
-║         │                  ── pkg/op/method.go ║                                                    ║
-║         │ for each param:                      ║ 6. starlarkToGoTyped(ctx, sv, param.Type)          ║
-║         │   op.Convert(ctx, slotV, param.Type) ║         │                       ── wrapper.go      ║
-║         │       │              ── op/convert.go║         │ NoneType → nil                           ║
-║         │       │ 1.  AssignableTo             ║         │ toGo(sv, anyType)  ── natural Go         ║
-║         │       │ 1b. ConvertibleTo            ║         │   (toGoInto into a fresh reflect.Value)  ║
-║         │       │ 2.  slice element recursion  ║         │                                          ║
-║         │       │ 3.  map element recursion    ║         └ op.Convert(ctx, intermediate, target)    ║
-║         │       │ 4.  SourceConverter opt-in   ║                 │           ── op/convert.go       ║
-║         │       │ 5.  TargetConverter opt-in   ║                 │ 1.  AssignableTo                 ║
-║         │       │ 6.  registered Resource ctor ║                 │ 1b. ConvertibleTo                ║
-║         │       └ 7.  error                    ║                 │ 2.  slice element recursion      ║
-║         │                                      ║                 │ 3.  map element recursion        ║
-║         └ reflect-call Go method               ║                 │ 4.  SourceConverter opt-in       ║
-║                                                ║                 │ 5.  TargetConverter opt-in       ║
-║ 7. result, complement, err := …                ║                 │ 6.  registered Resource ctor     ║
-║                                                ║                 └ 7.  error                        ║
-║ 8. w.toStarlark(result)                        ║                                                    ║
-║    └ project Go → starlark for caller          ║ 7. if Resource: catalog.Link → linked              ║
-║                                                ║    node.SetSlot(name, ImmediateValue{Value:final}) ║
-║ 9. return starlark.Value to starlark eval      ║                                                    ║
+║ 5. slots := map[string]any{ … }                ║       │                       → fan-in sub-slots   ║
+║                                                ║       │   NoneType          → skip                 ║
+║ 6. method.Invoke(ctx, instance, slots)         ║       │   Projector         → Project(target)      ║
+║         │                  ── pkg/op/method.go ║       └─ generic path:                             ║
+║         │ for each param:                      ║                                                    ║
+║         │   op.Convert(ctx, slotV, param.Type) ║ 6. starlarkToGoTyped(ctx, sv, param.Type)          ║
+║         │       │              ── op/convert.go║         │                ── go_receiver.go         ║
+║         │       │ 1. AssignableTo /            ║         │ NoneType → nil                           ║
+║         │       │    ConvertibleTo             ║         │ toGo(sv, anyType)  ── natural Go         ║
+║         │       │ 2. slice element recursion   ║         │   (toGoInto into a fresh reflect.Value)  ║
+║         │       │ 3. map element recursion     ║         │                                          ║
+║         │       │ 4. SourceConverter opt-in    ║         └ op.Convert(ctx, intermediate, target)    ║
+║         │       │ 5. TargetConverter opt-in    ║                 │           ── op/convert.go       ║
+║         │       │ 6. registered Resource ctor  ║                 │ 1. AssignableTo /                ║
+║         │       └ 7. error                     ║                 │    ConvertibleTo                 ║
+║         │                                      ║                 │ 2. slice element recursion       ║
+║         └ reflect-call Go method               ║                 │ 3. map element recursion         ║
+║                                                ║                 │ 4. SourceConverter opt-in        ║
+║ 7. result, complement, err := …                ║                 │ 5. TargetConverter opt-in        ║
+║                                                ║                 │ 6. registered Resource ctor      ║
+║ 8. w.toStarlark(result)                        ║                 └ 7. error                         ║
+║    └ project Go → starlark for caller          ║                                                    ║
+║                                                ║ 7. if Resource: catalog.Link → linked              ║
+║ 9. return starlark.Value to starlark eval      ║    node.SetSlot(name, ImmediateValue{Value:final}) ║
+║                                                ║                                                    ║
 ║                                                ║ 8. for **kwargs slot:                              ║
 ║                                                ║    build starlark.Dict, fillSlot(node, kwSlot, d)  ║
 ║                                                ║                                                    ║
@@ -59,5 +59,7 @@
 ```
 
 **Convergence point:** both paths terminate in `op.Convert(ctx, naturalGoValue, targetType)`. The starlark-unpack stage is `toGoInto` in both (immediate-mode calls it directly; plan-mode reaches it via `starlarkToGoTyped` → `toGo` → `toGoInto`). The type-matching cascade (steps 1–7 of `op.Convert`) is one shared function, no duplication.
+
+**Step 1 of `op.Convert`** absorbs both `AssignableTo` and `ConvertibleTo` — primitive numeric widening (int → int64, int → float64) lands here without forcing callers to widen first.
 
 **Asymmetry that remains, by design:** plan-mode runs the `op.Convert` step at slot-fill time so the catalog can intern Resources before the Node is sealed; immediate-mode runs it at dispatch time inside `Method.Invoke`. Same cascade, different timing.
