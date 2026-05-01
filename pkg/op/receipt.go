@@ -183,34 +183,6 @@ func (b *ReceiptBase) Commit(actionName string) error {
 	return nil
 }
 
-// InflateWithID populates the receipt with a pre-minted TransactionID and action name.
-//
-// Use when the forward action generates its own recovery key (e.g., file.Provider's recovery ID) and needs to record
-// it as the TransactionID.
-//
-// Parameters:
-//   - actionName: the canonical action name.
-//   - transactionID: a canonical 36-char UUIDv7 string.
-//
-// Returns:
-//   - error: non-nil if the transactionID is already set or the string is malformed.
-func (b *ReceiptBase) InflateWithID(actionName, transactionID string) error {
-
-	if b.transactionID != (uuid.UUID{}) {
-		return fmt.Errorf("inflate failed: transaction ID already set")
-	}
-
-	tid, err := uuid.Parse(transactionID)
-	if err != nil {
-		return fmt.Errorf("inflate failed: parse transaction_id %q: %w", transactionID, err)
-	}
-
-	b.action = actionName
-	b.transactionID = tid
-
-	return nil
-}
-
 // MarshalJSON encodes the receipt's base envelope as JSON: action, resource_uri, transaction_id.
 //
 // Delegates to [ReceiptBase.MarshalYAML] for the encoded value, then runs [json.Marshal] over it. The anonymous
