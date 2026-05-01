@@ -86,7 +86,10 @@ func newTestProvider(packageManager *mockPackageManager) *Provider {
 }
 
 func res(name string) *Resource {
-	base, _ := op.NewResourceBase(&op.ExecutionContext{}, "pkg:apt/"+name, reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(&op.ExecutionContext{}, "pkg:apt/"+name, reflect.TypeFor[*Resource]())
+	if err != nil {
+		panic(err)
+	}
 	return &Resource{
 		ResourceBase: base,
 		Name:         name,

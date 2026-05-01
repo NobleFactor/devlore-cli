@@ -19,7 +19,10 @@ type testGraphResource struct {
 // newTestGraphResource constructs a Resource with the given specific payload. A nil [ExecutionContext] is
 // acceptable here — none of the preflight tests reach into the context through the resource.
 func newTestGraphResource(specific string) *testGraphResource {
-	base, _ := NewResourceBase(nil, specific, reflect.TypeFor[*testGraphResource]())
+	base, err := NewResourceBase(nil, specific, reflect.TypeFor[*testGraphResource]())
+	if err != nil {
+		panic(err)
+	}
 	return &testGraphResource{ResourceBase: base}
 }
 

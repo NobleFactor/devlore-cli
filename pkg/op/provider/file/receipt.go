@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/google/uuid"
 )
 
 // Receipt holds the file-specific compensation state that the recovery system needs to undo a compensable forward call.
@@ -24,8 +25,16 @@ import (
 // The optional source [Resource] records the original location for move-like operations.
 type Receipt struct {
 	op.ReceiptBase
+
+	// boundary marks the edge for parent directory pruning.
 	boundary *Resource
-	source   *Resource
+
+	// source records the original location for Move/Backup.
+	source *Resource
+
+	// recoveryID is the UUID returned by RecoverySite.ArchiveFile for the file overwritten at the destination.
+	// Optional.
+	recoveryID uuid.UUID
 }
 
 // NewReceipt constructs a [Receipt] anchored to the affected [Resource] with no transactional boundary.
@@ -81,11 +90,6 @@ func (r *Receipt) Source() *Resource {
 	return r.source
 }
 
-// SetSource sets the original location [Resource] for move-like operations.
-func (r *Receipt) SetSource(source *Resource) {
-	r.source = source
-}
-
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
 // the optional boundary_uri and source_uri.
 //
@@ -127,18 +131,25 @@ func (r *Receipt) MarshalYAML() (any, error) {
 		sourceURI = r.source.URI()
 	}
 
+	var recoveryID string
+	if r.recoveryID != uuid.Nil {
+		recoveryID = r.recoveryID.String()
+	}
+
 	return struct {
 		Action        string `json:"action"                 yaml:"action"`
 		ResourceURI   string `json:"resource_uri"           yaml:"resource_uri"`
 		TransactionID string `json:"transaction_id"         yaml:"transaction_id"`
 		BoundaryURI   string `json:"boundary_uri,omitempty" yaml:"boundary_uri,omitempty"`
 		SourceURI     string `json:"source_uri,omitempty"   yaml:"source_uri,omitempty"`
+		RecoveryID    string `json:"recovery_id,omitempty"  yaml:"recovery_id,omitempty"`
 	}{
 		Action:        base.Action,
 		ResourceURI:   base.ResourceURI,
 		TransactionID: base.TransactionID,
 		BoundaryURI:   boundaryURI,
 		SourceURI:     sourceURI,
+		RecoveryID:    recoveryID,
 	}, nil
 }
 
@@ -161,13 +172,14 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 		TransactionID string `json:"transaction_id"`
 		BoundaryURI   string `json:"boundary_uri"`
 		SourceURI     string `json:"source_uri"`
+		RecoveryID    string `json:"recovery_id"`
 	}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return fmt.Errorf("file.Receipt: unmarshal JSON: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI)
+	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI, aux.RecoveryID)
 }
 
 // UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
@@ -189,13 +201,14 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 		TransactionID string `yaml:"transaction_id"`
 		BoundaryURI   string `yaml:"boundary_uri"`
 		SourceURI     string `yaml:"source_uri"`
+		RecoveryID    string `yaml:"recovery_id"`
 	}
 
 	if err := unmarshal(&aux); err != nil {
 		return fmt.Errorf("file.Receipt: unmarshal YAML: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI)
+	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI, aux.RecoveryID)
 }
 
 // hydrate reconstructs the receiver's embedded [op.ReceiptBase], boundary and source from the decoded envelope. The
@@ -215,7 +228,7 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // Returns:
 //   - error: a missing-context error, a missing-catalog error, a [NewResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourceURI string) error {
+func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourceURI string, recoveryID string) error {
 
 	existing := r.Resource()
 	if existing == nil || existing.ExecutionContext() == nil {
@@ -249,31 +262,44 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 	}
 
 	if boundaryURI != "" {
+
 		boundary, err := ctx.Catalog.GetOrCreate(boundaryURI, func() (op.Resource, error) {
 			return NewResource(ctx, boundaryURI)
 		})
 		if err != nil {
 			return fmt.Errorf("file.Receipt: rehydrate boundary %q: %w", boundaryURI, err)
 		}
+
 		boundaryConcrete, ok := boundary.(*Resource)
 		if !ok {
 			return fmt.Errorf("file.Receipt: boundary catalog entry for %q is %T, want *file.Resource", boundaryURI, boundary)
 		}
+
 		r.boundary = boundaryConcrete
 	}
 
 	if sourceURI != "" {
+
 		source, err := ctx.Catalog.GetOrCreate(sourceURI, func() (op.Resource, error) {
 			return NewResource(ctx, sourceURI)
 		})
 		if err != nil {
 			return fmt.Errorf("file.Receipt: rehydrate source %q: %w", sourceURI, err)
 		}
+
 		sourceConcrete, ok := source.(*Resource)
 		if !ok {
 			return fmt.Errorf("file.Receipt: source catalog entry for %q is %T, want *file.Resource", sourceURI, source)
 		}
+
 		r.source = sourceConcrete
+	}
+
+	if recoveryID != "" {
+		r.recoveryID, err = uuid.Parse(recoveryID)
+		if err != nil {
+			return fmt.Errorf("file.Receipt: parse recoveryID %q: %w", recoveryID, err)
+		}
 	}
 
 	return nil
