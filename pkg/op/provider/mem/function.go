@@ -241,7 +241,15 @@ func (f *Function) Init(thread *starlark.Thread) (starlark.Callable, error) {
 	return callable, nil
 }
 
-// Convert implements [op.SourceConverter].
+// CanConvertTo implements [op.SourceConverter].
+func (f *Function) CanConvertTo(target reflect.Type) bool {
+	if target.Kind() == reflect.Func {
+		return true
+	}
+	return f.Resource.CanConvertTo(target)
+}
+
+// ConvertTo implements [op.SourceConverter].
 //
 // Converts to any Go func type by building a bridge that marshals arguments, calls the underlying starlark function,
 // and unmarshals the result. The starlark function's parameter count must match the Go func's input count. Varargs and
@@ -256,6 +264,9 @@ func (f *Function) Init(thread *starlark.Thread) (starlark.Callable, error) {
 func (f *Function) ConvertTo(target reflect.Type) (any, error) {
 
 	if target.Kind() != reflect.Func {
+		if f.Resource.CanConvertTo(target) {
+			return f.Resource.ConvertTo(target)
+		}
 		return nil, fmt.Errorf("mem.Function: cannot convert to %s (not a func type)", target)
 	}
 

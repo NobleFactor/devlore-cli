@@ -745,6 +745,9 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(dst, []byte("moved data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	h := sha256.Sum256([]byte("original"))
 	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])

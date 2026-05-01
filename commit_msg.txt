@@ -1,0 +1,54 @@
+checkpoint(phase-8): 13.0(c) — Transformation + Creation model for file.Receipt
+                              + RecoveryID decouples recovery from saga identity
+                              + Move/Backup compensation uses rename instead of RecoverySite for origin
+                              + mem.Resource and sourcePathFromURI parse RFC 4151 Tag URIs
+                              + NewResourceBase error return caught in tests
+                              + starlarkbridge/wrapper.go renamed to go_receiver.go
+
+file.Provider routed through Transformation + Creation model:
+
+  pkg/op/provider/file/receipt.go:
+    Receipt struct expanded to capture three distinct identities:
+      - Resource() (Product/Destination)
+      - Source() (Origin)
+      - Boundary() (Creation Anchor)
+    Added RecoveryID to track the tombstone of any overwritten file, completely
+    decoupling it from the op.ReceiptBase.TransactionID (which remains the
+    saga-level correlation key).
+    MarshalYAML, UnmarshalJSON, UnmarshalYAML, and hydrate updated to support
+    the source_uri and recovery_id fields. Rehydration pulls all three resources
+    from the context Catalog to preserve identity interning.
+
+  pkg/op/provider/file/provider.go:
+    Move and Backup no longer archive the source file to RecoverySite. They
+    rely on a simple os.Rename. If an overwrite occurs at the destination,
+    prepareWrite archives the destination file and returns the RecoveryID,
+    which is saved on the receipt.
+    CompensateMove and CompensateBackup rename the file back to origin and
+    optionally restore the destination from RecoverySite if a RecoveryID
+    is present. Checksum verification added for the restored recovery file.
+    Removed InflateWithID calls; RecoveryID is explicitly set via SetRecoveryID.
+
+Tag-URI parsing for mem provider:
+
+  pkg/op/provider/mem/resource.go:
+    newFromURI and sourcePathFromURI updated to use op.ExtractTagSpecific to
+    strip the "tag:...:" prefix before searching for the "mem:" payload. This
+    aligns the mem provider with the RFC 4151 Tag URI migration.
+
+NewResourceBase error handling:
+
+  pkg/op/convert_test.go, pkg/op/preflight_test.go, pkg/op/provider/pkg/provider_test.go:
+    Test helpers updated to check and panic on the multi-value (base, err)
+    return from NewResourceBase instead of swallowing the error with _.
+
+Bridge terminology:
+
+  pkg/op/starlarkbridge/wrapper.go renamed to go_receiver.go to align with
+  the new terminology (starlarkbridge.NewGoReceiver).
+
+mem.Function conversion:
+
+  pkg/op/provider/mem/function.go:
+    Added CanConvertTo and fixed ConvertTo to correctly handle non-func targets
+    by falling back to the embedded Resource's ConvertTo implementation.
