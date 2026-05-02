@@ -4,12 +4,16 @@
 package op
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
+	"github.com/NobleFactor/devlore-cli/pkg/result"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"go.starlark.net/starlark"
 )
 
@@ -76,6 +80,24 @@ type RuntimeEnvironmentSpec struct {
 	// ConflictResolution chooses how to handle preflight conflicts.
 	// Zero value is ResolutionStop.
 	ConflictResolution ConflictResolution
+
+	// Status is the user-facing side-channel UI. Carries categorized status messages and starlark
+	// `print()` output. Same instance flows from the client's bootstrap into the runtime
+	// environment. When zero, [RuntimeEnvironmentSpec.Build] defaults to [status.NoOp].
+	Status status.UI
+
+	// Result is the primary output sink. Carries structured data destined for the user or
+	// downstream tooling (JSON / YAML / CSV / template). Same instance flows from the client's
+	// bootstrap into the runtime environment. When zero, [RuntimeEnvironmentSpec.Build] defaults to
+	// [result.UnconfiguredSink] which errors loudly on every Emit.
+	Result result.Sink
+
+	// Platform is the interface-typed platform capability — host classification (OS, arch, distro,
+	// version) plus the package and service managers available to providers. Construct via
+	// [platform.Linux] / [platform.Darwin] / [platform.Windows] for explicit fixtures or via
+	// [platform.Detect] for host detection. Replaces the legacy `*op.Platform` struct on the
+	// runtime environment as callers migrate.
+	Platform platform.Platform
 }
 
 // NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name and registry.
@@ -92,6 +114,8 @@ func NewRuntimeEnvironmentSpec(programName string, registry *ReceiverRegistry) *
 		ProgramName: programName,
 		Registry:    registry,
 		Writer:      os.Stderr,
+		Status:      status.NoOp{},
+		Result:      result.UnconfiguredSink{},
 	}
 }
 
@@ -204,6 +228,43 @@ func (c *RuntimeEnvironmentSpec) WithConflictResolution(res ConflictResolution) 
 	return c
 }
 
+// WithStatus sets the side-channel UI for the constructed runtime environment.
+//
+// Parameters:
+//   - ui: the [status.UI] instance — typically the same one held by the cli facade via [cli.SetUI].
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithStatus(ui status.UI) *RuntimeEnvironmentSpec {
+	c.Status = ui
+	return c
+}
+
+// WithResult sets the primary output sink for the constructed runtime environment.
+//
+// Parameters:
+//   - sink: the [result.Sink] instance — typically constructed via [result.NewPipeline].
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithResult(sink result.Sink) *RuntimeEnvironmentSpec {
+	c.Result = sink
+	return c
+}
+
+// WithPlatform sets the interface-typed platform capability for the constructed runtime environment.
+//
+// Parameters:
+//   - p: the [platform.Platform] instance — construct via [platform.Linux] / [platform.Darwin] /
+//     [platform.Windows] for explicit fixtures or via [platform.Detect] for host detection.
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithPlatform(p platform.Platform) *RuntimeEnvironmentSpec {
+	c.Platform = p
+	return c
+}
+
 // NewRuntimeEnvironment constructs a fully-populated [RuntimeEnvironment] from this spec.
 //
 // It performs defaulting (Writer → os.Stderr, BackupSuffix → ".<ProgramName>-backup"), constructs the
@@ -211,7 +272,7 @@ func (c *RuntimeEnvironmentSpec) WithConflictResolution(res ConflictResolution) 
 //
 // Returns:
 //   - *RuntimeEnvironment: the constructed context.
-func (c *RuntimeEnvironmentSpec) NewRuntimeEnvironment() *RuntimeEnvironment {
+func (c *RuntimeEnvironmentSpec) Build(ctx context.Context) *RuntimeEnvironment {
 
 	assert.NotNil("spec.Registry", c.Registry)
 
@@ -225,21 +286,35 @@ func (c *RuntimeEnvironmentSpec) NewRuntimeEnvironment() *RuntimeEnvironment {
 		backupSuffix = "." + c.ProgramName + "-backup"
 	}
 
-	ctx := &RuntimeEnvironment{
+	statusUI := c.Status
+	if statusUI == nil {
+		statusUI = status.NoOp{}
+	}
+
+	resultSink := c.Result
+	if resultSink == nil {
+		resultSink = result.UnconfiguredSink{}
+	}
+
+	env := &RuntimeEnvironment{
+		Context:            ctx,
 		ProgramName:        c.ProgramName,
 		Data:               c.Data,
 		DryRun:             c.DryRun,
 		Platform:           NewPlatform(),
+		Plat:               c.Platform,
 		Registry:           c.Registry,
 		Results:            make(map[string]any),
 		Root:               c.Root,
 		Sops:               c.Sops,
+		Status:             statusUI,
+		Result:             resultSink,
 		Writer:             writer,
 		BackupSuffix:       backupSuffix,
 		ConflictResolution: c.ConflictResolution,
 	}
 
-	ctx.Thread = starlark.Thread{
+	env.Thread = starlark.Thread{
 		Name: c.ProgramName,
 		Print: func(_ *starlark.Thread, msg string) {
 			_, _ = fmt.Fprintln(writer, msg)
@@ -247,10 +322,10 @@ func (c *RuntimeEnvironmentSpec) NewRuntimeEnvironment() *RuntimeEnvironment {
 	}
 
 	if c.Root != nil {
-		ctx.RecoverySite = NewRecoverySite(ctx)
+		env.RecoverySite = NewRecoverySite(env)
 	}
 
-	return ctx
+	return env
 }
 
 // endregion

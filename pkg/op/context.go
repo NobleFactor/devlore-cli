@@ -11,12 +11,15 @@ import (
 	"sync"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
+	"github.com/NobleFactor/devlore-cli/pkg/result"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"go.starlark.net/starlark"
 )
 
 // RuntimeEnvironment provides the execution environment for providers, resources, and graphs.
 type RuntimeEnvironment struct {
-	context.Context // https://pkg.go.dev/context
+	Context context.Context // https://pkg.go.dev/context
 
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
 	ProgramName string
@@ -69,6 +72,26 @@ type RuntimeEnvironment struct {
 
 	// ConflictResolution chooses how to handle preflight conflicts.
 	ConflictResolution ConflictResolution
+
+	// Status is the user-facing side-channel UI carried from the [RuntimeEnvironmentSpec]. Same
+	// instance that flows to `cli.UI()` and through every status emission point. Populated by
+	// [RuntimeEnvironmentSpec.Build] (defaults to [status.NoOp] when the spec field is zero).
+	Status status.UI
+
+	// Result is the primary output sink carried from the [RuntimeEnvironmentSpec]. Populated by
+	// [RuntimeEnvironmentSpec.Build] (defaults to [result.UnconfiguredSink] when the spec field is
+	// zero — every Emit errors loudly).
+	Result result.Sink
+
+	// Plat is the interface-typed platform capability — host classification plus the package and
+	// service managers available to providers. Populated by [RuntimeEnvironmentSpec.Build] from
+	// the spec's [RuntimeEnvironmentSpec.Platform] field.
+	//
+	// Coexists with the legacy `*op.Platform` field below during the migration period (the
+	// 13.0(i) Step 1.4 additive-then-cleanup pattern). Callers migrating off the legacy field
+	// switch to env.Plat. After all callers are migrated, the legacy `Platform` field is deleted
+	// and `Plat` is renamed back to `Platform`.
+	Plat platform.Platform
 
 	// mu guards the providers map for concurrent access.
 	mu sync.Mutex
