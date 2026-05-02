@@ -5,11 +5,13 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
@@ -34,7 +36,6 @@ type RootConfig struct {
 // Returns:
 //   - *cobra.Command: configured root command with shared flags and metadata commands
 func NewRootCmd(cfg RootConfig) *cobra.Command {
-	SetProgramName(cfg.Name)
 
 	rootCmd := &cobra.Command{
 		Use:               cfg.Name,
@@ -45,6 +46,13 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 			HiddenDefaultCmd: true,
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+
+			// Construct the package-global status.UI from parsed flags. The same instance flows
+			// into RuntimeEnvironmentSpec.Status so --silent applies uniformly to cli.Note,
+			// env.Status.Note (provider emissions), and starlark print() output.
+			silent, _ := cmd.Flags().GetBool("silent")
+			SetUI(status.NewConsole(os.Stderr, cfg.Name, true, silent))
+
 			return initRootConfig(cmd, cfg.Name)
 		},
 	}

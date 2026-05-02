@@ -6,11 +6,13 @@ package devloretest
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
@@ -23,7 +25,6 @@ var (
 
 // NewRootCmd creates the root devlore-test command with all subcommands.
 func NewRootCmd() *cobra.Command {
-	cli.SetProgramName("devlore-test")
 
 	rootCmd := &cobra.Command{
 		Use:   "devlore-test",
@@ -45,6 +46,13 @@ Use --output to route streams to files or /dev/null:
 			HiddenDefaultCmd: true,
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+
+			// Construct the package-global status.UI from parsed flags. The same instance flows
+			// into RuntimeEnvironmentSpec.Status so --silent applies uniformly across all
+			// emission points.
+			silent, _ := cmd.Flags().GetBool("silent")
+			cli.SetUI(status.NewConsole(os.Stderr, "devlore-test", true, silent))
+
 			return initConfig(cmd)
 		},
 	}
