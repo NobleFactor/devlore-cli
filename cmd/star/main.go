@@ -14,6 +14,8 @@ import (
 
 	cli2 "github.com/NobleFactor/devlore-cli/cmd/star/cli"
 	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
+	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 
@@ -161,6 +163,13 @@ Generate shell completions with:
 	rootCmd.PersistentFlags().BoolVar(&silent, "silent", false, "Suppress all status messages")
 
 	cobra.OnInitialize(func() {
+
+		// Construct the canonical status.UI from the parsed --silent flag and install it on the
+		// shared cli package-global. The same instance backs cmd/star/cli's Note/Warn/etc.
+		// forwarding wrappers (output.go) and lore/writ/devlore-test via cli.NewRootCmd.
+		// runtime.UIProvider.SetSilent applies the silent gate independently to the starlark
+		// ui.note() path; both paths emit consistently to stderr.
+		cli.SetUI(status.NewConsole(os.Stderr, "star", true, silent))
 		runtime.UIProvider.SetSilent(silent)
 	})
 
@@ -261,8 +270,8 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 	})
 	rootCmd.AddCommand(docsCmd)
 
-	// Wire CLI status output to runtime's UI provider
-	cli2.SetUIProvider(runtime.UIProvider)
+	// CLI status output is wired in cobra.OnInitialize above via cli.SetUI(status.NewConsole(...)).
+	// cmd/star/cli's local Note/Warn/Error/Success/Failure functions forward to that shared UI.
 
 	// Self commands (install, upgrade, etc.)
 	rootCmd.AddCommand(cli2.NewSelfCmd(rootCmd, cli2.SelfInstallInfo{

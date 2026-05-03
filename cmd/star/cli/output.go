@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
+	sharedcli "github.com/NobleFactor/devlore-cli/internal/cli"
 )
 
 // =============================================================================
@@ -351,41 +351,38 @@ func formatFieldValue(v interface{}) string {
 }
 
 // =============================================================================
-// Status Output — delegates to ui.Provider
+// Status Output — forwards to internal/cli's package-global status.UI
 // =============================================================================
+//
+// cmd/star's status output flows through the same sharedcli.UI() instance that
+// every other client (cmd/lore, cmd/writ, cmd/devlore-test) uses. Bootstrap
+// (cmd/star/main.go cobra.OnInitialize) calls sharedcli.SetUI to install a
+// status.Console with --silent and program-name baked in. These thin
+// wrappers preserve the cmd/star call sites' existing signatures
+// (Note/Warn/Error/Success/Failure) while routing through the shared facade.
 
-var uiProvider = &ui.Provider{
-	Writer:      os.Stderr,
-	ProgramName: "star",
-	Color:       true,
+// Note prints an informational message via the shared cli facade.
+func Note(format string, args ...any) {
+	sharedcli.Note(format, args...)
 }
 
-// SetUIProvider sets the backing ui.Provider for all status output functions.
-func SetUIProvider(p *ui.Provider) {
-	uiProvider = p
+// Warn prints a warning message via the shared cli facade.
+func Warn(format string, args ...any) {
+	sharedcli.Warn(format, args...)
 }
 
-// Note prints an informational message to stderr.
-func Note(format string, args ...interface{}) {
-	uiProvider.Note(fmt.Sprintf(format, args...))
+// Error prints an error message via the shared cli facade.
+func Error(format string, args ...any) {
+	sharedcli.Error(format, args...)
 }
 
-// Warn prints a warning message to stderr.
-func Warn(format string, args ...interface{}) {
-	uiProvider.Warn(fmt.Sprintf(format, args...))
+// Success prints a success message via the shared cli facade.
+func Success(format string, args ...any) {
+	sharedcli.Success(format, args...)
 }
 
-// Error prints an error message to stderr.
-func Error(format string, args ...interface{}) {
-	uiProvider.Error(fmt.Sprintf(format, args...))
-}
-
-// Success prints a success message to stderr.
-func Success(format string, args ...interface{}) {
-	uiProvider.Success(fmt.Sprintf(format, args...))
-}
-
-// Failure prints an error message to stderr and returns an error.
-func Failure(format string, args ...interface{}) error {
-	return uiProvider.Fail(fmt.Sprintf(format, args...))
+// Failure prints an error message via the shared cli facade and returns the
+// wrapped error.
+func Failure(format string, args ...any) error {
+	return sharedcli.Failure(format, args...)
 }
