@@ -185,12 +185,9 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 
-	cleanName := func(raw string) string {
-		return strings.TrimSuffix(strings.TrimPrefix(raw, "*"), "?")
-	}
-
-	// Single-pass classification: produce the slot sequence plus the scratch values slice and UnpackArgs pair list in
-	// lockstep. Slots carry full Parameter identity (Name + Type); nothing else does.
+	// Single-pass classification: produce the slot sequence plus the scratch values slice and UnpackArgs pair list
+	// in lockstep. Parameters arrive cooked (Name clean, Variadic / Kwargs flags set); no decoration trimming
+	// needed at this layer.
 
 	slots := make([]*op.Slot, 0, len(params))
 	values := make([]starlark.Value, 0, len(params))
@@ -198,17 +195,17 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 	var kwargsSlot *op.Slot
 
 	for _, param := range params {
-		if strings.HasPrefix(param.Name, "**") {
+		if param.Kwargs {
 			kwargsSlot = &op.Slot{Parameter: param}
 			continue
 		}
 		slots = append(slots, &op.Slot{Parameter: param})
 		values = append(values, nil)
-		pairs = append(pairs, strings.TrimPrefix(param.Name, "*"), &values[len(values)-1])
+		pairs = append(pairs, param.Name, &values[len(values)-1])
 	}
 
-	// Split kwargs: known → UnpackArgs, unknown → **kwargs dict slots. The predicate scans the slot sequence — fine at
-	// method-signature sizes, and avoids carrying a parallel lookup map.
+	// Split kwargs: known → UnpackArgs, unknown → **kwargs dict slots. The predicate scans the slot sequence —
+	// fine at method-signature sizes, and avoids carrying a parallel lookup map.
 
 	var filteredKwargs []starlark.Tuple
 	var extraKwargs []starlark.Tuple
@@ -218,7 +215,7 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 			key, _ := starlark.AsString(kv[0])
 			known := false
 			for _, slot := range slots {
-				if cleanName(slot.Parameter.Name) == key {
+				if slot.Parameter.Name == key {
 					known = true
 					break
 				}
@@ -256,7 +253,7 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		}
 
 		if err := p.fillSlot(node, slot, sv); err != nil {
-			return nil, fmt.Errorf("%s: %w", cleanName(slot.Parameter.Name), err)
+			return nil, fmt.Errorf("%s: %w", slot.Parameter.Name, err)
 		}
 	}
 
@@ -389,7 +386,7 @@ func extractOptionsKwarg(kwargs []starlark.Tuple) (*Options, []starlark.Tuple, e
 //   - error: non-nil if the value cannot be assigned to the slot's target type.
 func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, sv starlark.Value) error {
 
-	name := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(slot.Parameter.Name, "**"), "*"), "?")
+	name := slot.Parameter.Name
 
 	// Invocation: the value returned by every plan.* call. The slot's target type determines whether the consumer
 	// wants the unit reference itself (Target) or a value-side promise (Result), per phase-8 D2:

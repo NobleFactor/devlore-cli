@@ -97,7 +97,8 @@ type Method struct {
 //
 // Parameters:
 //   - do: the reflected Go method to wrap.
-//   - parameters: parameter names matching the method's non-receiver parameters.
+//   - parameters: parsed Parameter values matching the method's non-receiver parameters. Wire-form parsing
+//     happens upstream in parseParameters at the announce boundary; NewMethod consumes typed Parameters only.
 //   - plan: the Plan<Name> companion method, or nil if the method has no plan companion.
 //   - undo: the Compensate companion method, or nil for non-compensable methods.
 //   - enforceCompanions: true if this method belongs to a provider; enables companion requirements.
@@ -105,7 +106,7 @@ type Method struct {
 // Returns:
 //   - *Method: the classified method.
 //   - error: non-nil if validation fails.
-func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, undo *reflect.Method, enforceCompanions bool) (*Method, error) {
+func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method, undo *reflect.Method, enforceCompanions bool) (*Method, error) {
 
 	methodType := do.Type
 
@@ -120,23 +121,26 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 	}
 
 	if len(parameters) != expectedParams {
+		names := make([]string, len(parameters))
+		for i, p := range parameters {
+			names[i] = p.Name
+		}
 		return nil, fmt.Errorf("expected %d parameter names for method %s, not %d: %s",
 			expectedParams,
 			do.Name,
 			len(parameters),
-			strings.Join(parameters, ", "))
+			strings.Join(names, ", "))
 	}
 
-	// Validate variadic markers.
-	for i, name := range parameters {
-		if strings.HasPrefix(name, "**") {
-			if i != len(parameters)-1 {
-				return nil, fmt.Errorf("keyword catch-all %q must be the last parameter of method %s", name, do.Name)
-			}
-		} else if strings.HasPrefix(name, "*") {
-			if i != len(parameters)-1 && !(i == len(parameters)-2 && strings.HasPrefix(parameters[i+1], "**")) {
-				return nil, fmt.Errorf("variadic parameter %q must be the last or second-to-last (before **kwargs) parameter of method %s", name, do.Name)
-			}
+	// Validate variadic / kwargs position. Each flag implies the parameter sits in the last (or last-before-
+	// kwargs) slot. The wire grammar already enforces that variadic / kwargs cannot also carry ?/=; here we only
+	// validate cross-parameter position.
+	for i, p := range parameters {
+		if p.Kwargs && i != len(parameters)-1 {
+			return nil, fmt.Errorf("keyword catch-all %q must be the last parameter of method %s", p.Name, do.Name)
+		}
+		if p.Variadic && i != len(parameters)-1 && !(i == len(parameters)-2 && parameters[i+1].Kwargs) {
+			return nil, fmt.Errorf("variadic parameter %q must be the last or second-to-last (before **kwargs) parameter of method %s", p.Name, do.Name)
 		}
 	}
 
@@ -280,19 +284,11 @@ func NewMethod(do *reflect.Method, parameters []string, plan *reflect.Method, un
 		}
 	}
 
-	// Build parameters. If the Go method declares a leading context.Context, it
-	// sits at In(1) and user parameters start at In(2); otherwise user
-	// parameters start at In(1).
-	paramOffset := 1
-	if firstParamIsCtx {
-		paramOffset = 2
-	}
-
+	// The input parameters carry Name, Type, Optional, Variadic, Kwargs, and Default already; Type was set
+	// upstream by parseParameters or by newReceiverType's auto-positional path. Defensive copy so the Method's
+	// internal slice is independent of the caller's input.
 	params := make([]Parameter, len(parameters))
-
-	for i, name := range parameters {
-		params[i] = Parameter{Name: name, Type: methodType.In(i + paramOffset)}
-	}
+	copy(params, parameters)
 
 	receiverType := do.Type.In(0)
 
@@ -391,12 +387,7 @@ func (m *Method) Invoke(ctx *RuntimeEnvironment, receiver any, slots map[string]
 
 	for _, p := range params {
 
-		value, ok := slots[p.Name]
-
-		if !ok {
-			cleanName := strings.TrimSuffix(strings.TrimLeft(p.Name, "*"), "?")
-			value = slots[cleanName]
-		}
+		value := slots[p.Name]
 
 		val, err := Convert(ctx, value, p.Type)
 		if err != nil {

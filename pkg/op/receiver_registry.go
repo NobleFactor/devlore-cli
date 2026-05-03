@@ -34,7 +34,12 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 		panic(fmt.Sprintf("AnnounceProvider(%s): roles must set at least one dispatch-zone bit (RoleModule or RoleAction); got %#x", providerType, uint(roles)))
 	}
 
-	rt, err := NewProviderReceiverType(providerType, construct, roles, methodParameters)
+	parsed, err := parseParameters(providerType, methodParameters)
+	if err != nil {
+		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
+	}
+
+	rt, err := NewProviderReceiverType(providerType, construct, roles, parsed)
 	if err != nil {
 		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
 	}
@@ -59,7 +64,12 @@ func AnnounceResource(
 	methodParameters map[string][]string,
 ) {
 
-	rt, err := NewResourceReceiverType(resourceType, construct, methodParameters)
+	parsed, err := parseParameters(resourceType, methodParameters)
+	if err != nil {
+		panic(fmt.Sprintf("AnnounceResource(%s): %v", resourceType, err))
+	}
+
+	rt, err := NewResourceReceiverType(resourceType, construct, parsed)
 	if err != nil {
 		panic(fmt.Sprintf("AnnounceResource(%s): %v", resourceType, err))
 	}
@@ -80,7 +90,12 @@ func AnnounceResource(
 //   - methodParameters: starlark parameter names per Go method.
 func AnnounceType(goType reflect.Type, methodParameters map[string][]string) {
 
-	base, err := newReceiverType(goType, methodParameters, false)
+	parsed, err := parseParameters(goType, methodParameters)
+	if err != nil {
+		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
+	}
+
+	base, err := newReceiverType(goType, parsed, false)
 	if err != nil {
 		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
 	}

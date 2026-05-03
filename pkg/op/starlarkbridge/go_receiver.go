@@ -681,11 +681,11 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 
 	for i, p := range params {
 		switch {
-		case strings.HasPrefix(p.Name, "**"):
-			kwargsName = strings.TrimPrefix(p.Name, "**")
+		case p.Kwargs:
+			kwargsName = p.Name
 			kwargsIdx = i
-		case strings.HasPrefix(p.Name, "*"):
-			variadicName = strings.TrimPrefix(p.Name, "*")
+		case p.Variadic:
+			variadicName = p.Name
 			variadicIdx = i
 		default:
 			namedParams = append(namedParams, p.Name)
@@ -707,7 +707,7 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 		knownKwargs := make(map[string]bool, numNamed+1)
 
 		for _, n := range namedParams {
-			knownKwargs[strings.TrimSuffix(n, "?")] = true
+			knownKwargs[n] = true
 		}
 
 		if variadicName != "" {
@@ -763,8 +763,7 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 		var val any
 
 		if err := toGoInto(sv, reflect.ValueOf(&val).Elem()); err != nil {
-			name := strings.TrimSuffix(namedParams[i], "?")
-			return nil, fmt.Errorf("%s(): %s: %w", actionName, name, err)
+			return nil, fmt.Errorf("%s(): %s: %w", actionName, namedParams[i], err)
 		}
 
 		slots[namedParams[i]] = val

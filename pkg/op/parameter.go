@@ -37,9 +37,17 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 
 	out := make(map[string][]Parameter, len(methodParameters))
 
+	// Promote value types to pointer types so pointer-receiver methods are visible to MethodByName. Mirrors the
+	// promotion in newReceiverType — provider methods are conventionally declared on the pointer receiver, but
+	// callers commonly pass the value-type reflect.Type to AnnounceProvider.
+	methodType := providerType
+	if methodType.Kind() != reflect.Pointer {
+		methodType = reflect.PointerTo(methodType)
+	}
+
 	for methodName, tokens := range methodParameters {
 
-		m, ok := providerType.MethodByName(methodName)
+		m, ok := methodType.MethodByName(methodName)
 		if !ok {
 			return nil, fmt.Errorf("method %s: not found on type %s", methodName, providerType)
 		}

@@ -125,12 +125,13 @@ type dispatcher func(receiver any, args []any) (reflect.Value, reflect.Value, er
 //
 // Parameters:
 //   - providerType: the Go type (pointer or struct).
-//   - methodParameters: starlark parameter names per Go method, or nil for positional names.
+//   - methodParameters: parsed Parameter values per Go method, or nil for positional names. The wire-form
+//     parameter tokens are cracked into Parameter values upstream by parseParameters at the announce boundary.
 //
 // Returns:
 //   - ReceiverType: the receiver type descriptor.
 //   - error: non-nil if the type cannot be introspected.
-func NewReceiverType(providerType reflect.Type, methodParameters map[string][]string) (ReceiverType, error) {
+func NewReceiverType(providerType reflect.Type, methodParameters map[string][]Parameter) (ReceiverType, error) {
 
 	base, err := newReceiverType(providerType, methodParameters, false)
 	if err != nil {
@@ -222,7 +223,8 @@ type providerReceiverType struct {
 //   - providerType: the provider's reflect.Type.
 //   - construct: creates a provider instance from RuntimeEnvironment.
 //   - roles: the provider's declared roles (RoleModule, RoleAction, or both).
-//   - methodParameters: starlark parameter names per Go method.
+//   - methodParameters: parsed Parameter values per Go method. The wire-form parameter tokens are cracked into
+//     Parameter values upstream by parseParameters at the announce boundary.
 //
 // Returns:
 //   - ProviderReceiverType: the descriptor.
@@ -231,7 +233,7 @@ func NewProviderReceiverType(
 	providerType reflect.Type,
 	construct ProviderConstructor,
 	roles ProviderRole,
-	methodParameters map[string][]string,
+	methodParameters map[string][]Parameter,
 ) (ProviderReceiverType, error) {
 
 	base, err := newReceiverType(providerType, methodParameters, true)
@@ -285,7 +287,7 @@ type resourceReceiverType struct {
 func NewResourceReceiverType(
 	resourceType reflect.Type,
 	construct ResourceConstructor,
-	methodParameters map[string][]string,
+	methodParameters map[string][]Parameter,
 ) (ResourceReceiverType, error) {
 
 	base, err := newReceiverType(resourceType, methodParameters, false)
@@ -317,23 +319,23 @@ func (rt *resourceReceiverType) Construct() ResourceConstructor { return rt.cons
 //
 // Parameters:
 //   - providerType: the reflect.Type of the provider or resource.
-//   - methodParameters: starlark parameter names per Go method.
+//   - methodParameters: parsed Parameter values per Go method, or nil for positional auto-naming. The wire
+//     grammar is cracked upstream by parseParameters; newReceiverType consumes typed Parameter values only.
 //   - isProvider: true if this receiver is an op.Provider (enables companion lookup).
 //
 // Returns:
 //   - receiverType: the populated base.
 //   - error: non-nil if method classification fails.
-func newReceiverType(providerType reflect.Type, methodParameters map[string][]string, isProvider bool) (receiverType, error) {
+func newReceiverType(providerType reflect.Type, methodParameters map[string][]Parameter, isProvider bool) (receiverType, error) {
 
 	name := receiverName(providerType)
 
-	// Reject reserved parameter names before building the method set. The
-	// planner uses "options", "args", and "kwargs" for cross-cutting concerns
-	// and for the variadic markers; provider methods cannot claim any of them
-	// as plain parameter names.
+	// Reject reserved parameter names before building the method set. The planner uses "options", "args", and
+	// "kwargs" for cross-cutting concerns and for the variadic markers; provider methods cannot claim any of
+	// them as plain parameter names.
 	for methodName, params := range methodParameters {
-		for _, param := range params {
-			if err := reservedNameError(param); err != nil {
+		for _, p := range params {
+			if err := reservedParameterError(p); err != nil {
 				return receiverType{}, fmt.Errorf("provider %s method %s: %w", name, methodName, err)
 			}
 		}
@@ -370,10 +372,10 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]st
 		for reflectedMethod := range methodType.Methods() {
 
 			numParams := reflectedMethod.Type.NumIn() - 1 // exclude receiver
-			parameters := make([]string, numParams)
+			parameters := make([]Parameter, numParams)
 
 			for i := range numParams {
-				parameters[i] = strconv.Itoa(i)
+				parameters[i] = Parameter{Name: strconv.Itoa(i), Type: reflectedMethod.Type.In(i + 1)}
 			}
 
 			method, err := methodFromReflectedMethod(providerType, reflectedMethod, parameters, isProvider)
@@ -398,33 +400,35 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]st
 
 // region HELPER FUNCTIONS
 
-// reservedNameError returns an error if param declares a parameter name reserved by the planner.
+// reservedParameterError returns an error if p declares a parameter name reserved by the planner.
 //
-// The name "options" is always reserved — providers cannot declare it in any form. The names "args" and "kwargs" are
-// reserved as plain parameter names; the variadic markers `*args` and `**kwargs` remain valid as catch-all positional
-// and catch-all keyword parameters respectively. Prefix (`*`, `**`) and suffix (`?`) decorators on a reserved name
-// (e.g., `options?`, `*options`) do not bypass the rule — the cleaned name is what matters.
+// The name "options" is always reserved — providers cannot declare it in any form. The names "args" and
+// "kwargs" are reserved as plain parameter names; the variadic marker (`*args`) and the kwargs marker
+// (`**kwargs`) remain valid as catch-all positional and catch-all keyword parameters respectively. Variadic and
+// kwargs flags exempt the corresponding name; everything else (Optional, plain, Optional+Default) is rejected
+// when the name matches a reserved identifier.
 //
 // Parameters:
-//   - param: the raw parameter declaration as supplied in methodParameters.
+//   - p: the parsed Parameter to check.
 //
 // Returns:
-//   - error: non-nil with a descriptive message when param names a reserved identifier; nil otherwise.
-func reservedNameError(param string) error {
+//   - error: non-nil with a descriptive message when p names a reserved identifier; nil otherwise.
+func reservedParameterError(p Parameter) error {
 
-	if param == "*args" || param == "**kwargs" {
+	if p.Variadic && p.Name == "args" {
+		return nil
+	}
+	if p.Kwargs && p.Name == "kwargs" {
 		return nil
 	}
 
-	cleaned := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(param, "**"), "*"), "?")
-
-	switch cleaned {
+	switch p.Name {
 	case "options":
-		return fmt.Errorf("declares reserved parameter %q (name reserved for the planner's options kwarg)", param)
+		return fmt.Errorf("declares reserved parameter %q (name reserved for the planner's options kwarg)", p.Name)
 	case "args":
-		return fmt.Errorf("declares reserved parameter %q (name reserved; variadic positionals must be spelled %q)", param, "*args")
+		return fmt.Errorf("declares reserved parameter %q (name reserved; variadic positionals must be spelled %q)", p.Name, "*args")
 	case "kwargs":
-		return fmt.Errorf("declares reserved parameter %q (name reserved; keyword catch-alls must be spelled %q)", param, "**kwargs")
+		return fmt.Errorf("declares reserved parameter %q (name reserved; keyword catch-alls must be spelled %q)", p.Name, "**kwargs")
 	}
 
 	return nil
@@ -528,13 +532,13 @@ func compileDispatcher(m *Method) dispatcher {
 // Parameters:
 //   - receiverType: the reflect.Type of the receiver (pointer type) for companion lookup.
 //   - method: the reflected Go method.
-//   - parameters: parameter names matching the method's non-receiver parameters.
+//   - parameters: parsed Parameter values matching the method's non-receiver parameters.
 //   - isProvider: true if this receiver is an op.Provider (enables companion lookup).
 //
 // Returns:
 //   - *Method: the classified method.
 //   - error: non-nil if the return signature is invalid or a required companion is missing.
-func methodFromReflectedMethod(receiverType reflect.Type, method reflect.Method, parameters []string, isProvider bool) (*Method, error) {
+func methodFromReflectedMethod(receiverType reflect.Type, method reflect.Method, parameters []Parameter, isProvider bool) (*Method, error) {
 
 	mt := method.Type
 	numOut := mt.NumOut()
@@ -579,15 +583,16 @@ func methodFromReflectedMethod(receiverType reflect.Type, method reflect.Method,
 //   - goType: the Go type to introspect (pointer or struct).
 //
 // Returns:
-//   - map[string][]string: method name → parameter names (arg0, arg1, ...).
-func deriveMethodParams(goType reflect.Type) map[string][]string {
+//   - map[string][]Parameter: method name → Parameter values keyed by positional name (arg0, arg1, ...).
+//     Each Parameter carries the Go method's reflect.Type for the corresponding positional slot.
+func deriveMethodParams(goType reflect.Type) map[string][]Parameter {
 
 	ptrType := goType
 	if ptrType.Kind() != reflect.Pointer {
 		ptrType = reflect.PointerTo(ptrType)
 	}
 
-	params := make(map[string][]string)
+	params := make(map[string][]Parameter)
 
 	for i := range ptrType.NumMethod() {
 		m := ptrType.Method(i)
@@ -598,12 +603,12 @@ func deriveMethodParams(goType reflect.Type) map[string][]string {
 		mt := m.Type
 		numIn := mt.NumIn() - 1 // exclude receiver
 
-		names := make([]string, numIn)
+		ps := make([]Parameter, numIn)
 		for j := range numIn {
-			names[j] = fmt.Sprintf("arg%d", j)
+			ps[j] = Parameter{Name: fmt.Sprintf("arg%d", j), Type: mt.In(j + 1)}
 		}
 
-		params[m.Name] = names
+		params[m.Name] = ps
 	}
 
 	return params
