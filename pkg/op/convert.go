@@ -45,7 +45,16 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 		return reflect.Zero(target).Interface(), nil
 	}
 
-	// Step 1: identity / assignability. Dereference pointers so a *T value reaches a T target through the
+	// Step 1: identity. Pointer-equal reflect.Type means the same underlying `*rtype`, so `==` is a single pointer
+	// comparison and subsumes the assignability identity case without paying for reflect.ValueOf, the deref walk,
+	// or the Interface() round-trip. Hot path for slot-fill from Parameter.Default (already at p.Type) and for any
+	// caller-supplied value whose dynamic type already matches target exactly.
+
+	if reflect.TypeOf(value) == target {
+		return value, nil
+	}
+
+	// Step 2: assignability with pointer-deref. Dereference pointers so a *T value reaches a T target through the
 	// underlying assignability rule.
 
 	elem := reflect.ValueOf(value)
@@ -68,9 +77,9 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 		return value, nil
 	}
 
-	// Step 2: slice element conversion. Heterogeneous-shaped sources ([]any from starlark lists) cannot
-	// satisfy AssignableTo against typed Go slices ([]string, []*file.Resource). Recursively project each
-	// element through the same cascade so element-level conversions compose.
+	// Step 3: slice element conversion. Heterogeneous-shaped sources ([]any from starlark lists) cannot satisfy
+	// AssignableTo against typed Go slices ([]string, []*file.Resource). Recursively project each element through the
+	// same cascade so element-level conversions compose.
 
 	if elem.Kind() == reflect.Slice && target.Kind() == reflect.Slice {
 
@@ -88,9 +97,9 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 		return out.Interface(), nil
 	}
 
-	// Step 3: map element conversion. Same shape as slice — heterogeneous-shaped sources (map[any]any,
-	// map[string]any from starlark dicts) cannot satisfy AssignableTo against typed Go maps. Recursively
-	// project keys and values so map-element conversions compose.
+	// Step 4: map element conversion. Same shape as slice — heterogeneous-shaped sources (map[any]any, map[string]any
+	// from starlark dictionaries) cannot satisfy AssignableTo against typed Go maps. Recursively project keys and
+	// values so map-element conversions compose.
 
 	if elem.Kind() == reflect.Map && target.Kind() == reflect.Map {
 
@@ -115,13 +124,13 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 		return out.Interface(), nil
 	}
 
-	// Step 4: source-side opt-in.
+	// Step 5: source-side opt-in.
 
 	if c, ok := value.(SourceConverter); ok && c.CanConvertTo(target) {
 		return c.ConvertTo(target)
 	}
 
-	// Step 5: target-side opt-in. Probe must be a *target or target-as-already-pointer, since converter methods
+	// Step 6: target-side opt-in. Probe must be a *target or target-as-already-pointer, since converter methods
 	// conventionally sit on the pointer receiver.
 
 	var probe any
@@ -135,15 +144,15 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 		return t.ConvertFrom(value)
 	}
 
-	// Step 6: registered Resource construction. When the target is a registered Resource type, the registry
-	// holds a constructor that knows how to build a fresh Resource from a string (or other shape) — typically
-	// minting the canonical tag URI from a path or scheme-prefixed string. The constructor's source-shape
-	// permissiveness lives inside it; Convert just routes the call.
+	// Step 7: registered Resource construction. When the target is a registered Resource type, the registry holds a
+	// constructor that knows how to build a fresh Resource from a string (or other shape) — typically minting the
+	// canonical tag URI from a path or scheme-prefixed string. The constructor's source-shape permissiveness lives
+	// inside it; Convert just routes the call.
 
 	if target.Implements(resourceInterfaceType) && ctx != nil && ctx.Registry != nil {
 
-		// Resources are typically announced under the value type (file.Resource) but the parameter type is the
-		// pointer (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
+		// Resources are typically announced under the value type (file.Resource) but the parameter type is the pointer
+		// (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
 		rt, ok := ctx.Registry.TypeByReflection(target)
 		if !ok && target.Kind() == reflect.Pointer {
 			rt, ok = ctx.Registry.TypeByReflection(target.Elem())
@@ -152,7 +161,7 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 			rt, ok = ctx.Registry.TypeByReflection(reflect.PointerTo(target))
 		}
 		if !ok {
-			return nil, fmt.Errorf("Resource type %s not registered — must be announced via op.AnnounceResource", target)
+			return nil, fmt.Errorf("resource type %s not registered — must be announced via op.AnnounceResource", target)
 		}
 
 		rrt, ok := rt.(ResourceReceiverType)
@@ -168,7 +177,7 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 		return v, nil
 	}
 
-	// Step 7: not convertible.
+	// Step 8: not convertible.
 
 	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
 }
