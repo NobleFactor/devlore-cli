@@ -156,8 +156,13 @@ Generate shell completions with:
 	runtime := starruntime.NewApplication()
 
 	// Global flags
+	var silent bool
 	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
-	rootCmd.PersistentFlags().BoolVar(&runtime.UIProvider.Silent, "silent", false, "Suppress all status messages")
+	rootCmd.PersistentFlags().BoolVar(&silent, "silent", false, "Suppress all status messages")
+
+	cobra.OnInitialize(func() {
+		runtime.UIProvider.SetSilent(silent)
+	})
 
 	// Version command
 	rootCmd.AddCommand(&cobra.Command{
