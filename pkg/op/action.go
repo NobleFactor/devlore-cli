@@ -25,10 +25,37 @@ type Result = any
 // parameter.
 type Complement = any
 
-// Parameter describes a single parameter accepted by an do's Do method.
+// Parameter describes a single parameter accepted by an Action's Do method.
+//
+// Parameter is the runtime-typed form of a wire parameter token produced by codegen. The wire token (e.g.,
+// "destination_path", "mode?", "mode?=0o666", "*parts", "**kwargs") is cracked at the announce boundary by
+// parseParameterToken, which populates every field below. Downstream consumers — Method.Invoke, slot-fill in the
+// starlark bridge, error reporting — read these fields directly and never re-parse the token.
+//
+// Field invariants:
+//   - Name is the bare parameter name with no decoration (no leading "*"/"**", no trailing "?", no "=value"
+//     suffix). It is the canonical key for slots[Name] lookups and for kwarg matching.
+//   - Type is the Go reflect.Type the dispatch site projects values into via op.Convert.
+//   - Optional is true for tokens carrying the "?" marker. The slot may be left empty by the caller; if Default
+//     is non-nil, slot-fill substitutes it.
+//   - Variadic is true for tokens with a leading single "*". The Go method declares the parameter as a slice; the
+//     dispatch site collects positional overflow into it.
+//   - Kwargs is true for tokens with a leading "**". The Go method declares the parameter as map[string]any; the
+//     dispatch site collects unknown keyword arguments into it.
+//   - Default holds a Go-native value assignable to Type (or nil iff the parameter has no default). The dynamic
+//     type inside the any box always matches Type exactly — parseDefaultExpression widens the parsed primitive
+//     to Type's named form (e.g., os.FileMode(0o666), not uint32(0o666)). Default is never a starlark.Value and
+//     never a raw string at the runtime layer.
+//
+// Variadic and Kwargs are mutually exclusive with Optional and Default — the wire grammar rejects "*parts?" and
+// "**kwargs?=foo" at parse time.
 type Parameter struct {
-	Name string
-	Type reflect.Type
+	Name     string
+	Type     reflect.Type
+	Optional bool
+	Variadic bool
+	Kwargs   bool
+	Default  any
 }
 
 // Action is a pure, infallible value transformer. No side effects, cannot fail.
