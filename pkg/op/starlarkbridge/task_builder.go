@@ -201,7 +201,13 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		}
 		slots = append(slots, &op.Slot{Parameter: param})
 		values = append(values, nil)
-		pairs = append(pairs, param.Name, &values[len(values)-1])
+		// starlark.UnpackArgs uses a trailing "?" on the pair name to mark a kwarg optional. p.Name is clean post-
+		// parseParameterToken; reconstruct the suffix here so UnpackArgs sees the optional convention.
+		unpackName := param.Name
+		if param.Optional {
+			unpackName += "?"
+		}
+		pairs = append(pairs, unpackName, &values[len(values)-1])
 	}
 
 	// Split kwargs: known → UnpackArgs, unknown → **kwargs dict slots. The predicate scans the slot sequence —

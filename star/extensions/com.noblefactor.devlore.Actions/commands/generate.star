@@ -181,12 +181,24 @@ def struct_root(path):
             return value == "true"
     return False
 
-def parse_defaults(doc):
+def parse_defaults(doc, method_name):
     """Parse +devlore:defaults from a method doc comment.
 
     Returns a dict of param_name → default_value_string, or empty dict.
     Example: '+devlore:defaults gitignore=true,includeBzl=true'
     → {"gitignore": "true", "includeBzl": "true"}
+
+    Syntactic validation (each violation aborts codegen via fail):
+      - every pair must contain '='
+      - the parameter name (left side) must be non-empty
+      - no parameter name may appear more than once
+
+    An empty value (e.g., 'name=') is permitted — it marks the parameter as
+    optional with no concrete default, equivalent to writing 'name?' in the
+    wire token. compute_param_names_list collapses this case.
+
+    Semantic validation (cross-checked against the method's parameter list)
+    happens in build_method_descriptors after the params dict is built.
     """
     result = {}
     for line in doc.split("\n"):
@@ -196,9 +208,16 @@ def parse_defaults(doc):
             pairs = line[idx + len("+devlore:defaults "):].strip()
             for pair in pairs.split(","):
                 pair = pair.strip()
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    result[k.strip()] = v.strip()
+                if "=" not in pair:
+                    fail("method %s: +devlore:defaults pair %r missing '='" % (method_name, pair))
+                k, v = pair.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if k == "":
+                    fail("method %s: +devlore:defaults pair %r has empty parameter name" % (method_name, pair))
+                if k in result:
+                    fail("method %s: +devlore:defaults specifies %r more than once" % (method_name, k))
+                result[k] = v
     return result
 
 def parse_struct_param(doc):
@@ -371,10 +390,13 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
                     "default": "",
                 })
             else:
-                is_optional = p.name in method_defaults
                 default_val = method_defaults.get(p.name, "")
                 is_variadic = p.variadic or (p.name == "args" and p.type.startswith("[]"))
-                is_kwargs = p.type == "map[string]any" and p.name == "kwargs"
+                is_kwargs = p.name == "kwargs" and p.type.startswith("map[string]")
+                # Variadic and **kwargs params are inherently optional — the caller may always omit positional
+                # overflow or extra keyword args. Mirroring the runtime invariant in pkg/op/parameter.go where
+                # parseParameterToken sets Parameter.Optional for these forms unconditionally.
+                is_optional = is_variadic or is_kwargs or (p.name in method_defaults)
                 params.append({
                     "name": p.name,
                     "type": p.type,
@@ -384,6 +406,21 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
                     "optional": is_optional,
                     "default": default_val,
                 })
+
+        # Semantic validation of +devlore:defaults against this method's parameter list. Every name in
+        # method_defaults must correspond to a real param on this method, and that param must not be variadic or
+        # **kwargs (Q7 grammar — defaults bind only to named scalar params). The runtime parser
+        # (pkg/op/parameter.go:parseParameterToken) repeats these checks as the contract gate, but failing here
+        # surfaces the error at make build time with a precise file/method context.
+        params_by_name = {p["name"]: p for p in params}
+        for default_name in method_defaults:
+            target = params_by_name.get(default_name)
+            if target == None:
+                fail("method %s: +devlore:defaults names %r but the method has no such parameter" % (m.name, default_name))
+            if target.get("variadic"):
+                fail("method %s: +devlore:defaults cannot apply to variadic parameter %r" % (m.name, default_name))
+            if target.get("kwargs"):
+                fail("method %s: +devlore:defaults cannot apply to **kwargs parameter %r" % (m.name, default_name))
 
         # Auto-detect property methods: no params and primitive return type.
         # These become read-only attributes (direct value, not callable).
@@ -881,7 +918,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     defaults_map = {}
     struct_param_map = {}
     for desc in provider_descriptors:
-        method_defaults = parse_defaults(desc["doc"])
+        method_defaults = parse_defaults(desc["doc"], desc["name"])
         if method_defaults:
             defaults_map[desc["name"]] = method_defaults
         method_struct_params = parse_struct_param(desc["doc"])
@@ -907,7 +944,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         dep_defaults = {}
         dep_struct_params = {}
         for m in filtered:
-            md = parse_defaults(m.doc)
+            md = parse_defaults(m.doc, m.name)
             if md:
                 dep_defaults[m.name] = md
             ms = parse_struct_param(m.doc)
@@ -1120,9 +1157,22 @@ def compute_provider_type_prefix(desc):
 def compute_param_names_list(method):
     """Pre-compute the quoted, comma-separated parameter name list for a method.
 
-    Replicates templateFuncParamNamesList from codegen.goast.
-    Optional params get '?' suffix. Variadic params get '*' prefix.
-    Kwargs params get '**' prefix.
+    Token grammar emitted to the runtime:
+      ("**" | "*")? name ("?" ("=" defaultExpr)?)?
+
+    Branch order: kwargs > variadic > default > optional. A param with both
+    "default" and "optional" set takes the default branch — "?=value"
+    already encodes optional via the "?". The runtime parses these tokens
+    in pkg/op/parameter.go:parseParameterToken.
+
+    A "default" value is emitted inline only when the param's Go type is
+    one of the runtime-supported defaultable kinds (bool, int*, uint*,
+    float*, string, or a named type whose underlying is one of these).
+    Composite types (slice, map, pointer, interface, channel, function)
+    fall through to the "?" branch — the runtime's parseDefaultExpression
+    cannot parse a literal text against them, and historically these
+    directives carry markers like "nil" / "[]" that mean "use Go zero
+    value" rather than a real default.
     """
     parts = []
     for p in method.get("params", []):
@@ -1131,10 +1181,40 @@ def compute_param_names_list(method):
             name = "**" + name
         elif p.get("variadic"):
             name = "*" + name
-        elif p.get("optional") or p.get("default", ""):
+        elif p.get("default", "") and is_simple_defaultable_type(p.get("type", "")):
+            # Go-string-escape the default expression: backslash first (so subsequent escapes don't double-back),
+            # then double-quote. Preserves literal quotes from directives like `severity="warning"` when the
+            # token is embedded in a Go source string literal.
+            escaped = p["default"].replace("\\", "\\\\").replace("\"", "\\\"")
+            name += "?=" + escaped
+        elif p.get("default", "") or p.get("optional"):
             name += "?"
         parts.append('"' + name + '"')
     return ", ".join(parts)
+
+def is_simple_defaultable_type(go_type):
+    """Return True if go_type is structurally suitable for parseDefaultExpression.
+
+    The runtime helper at pkg/op/parameter.go:parseDefaultExpression dispatches
+    by reflect.Kind across bool / int* / uint* / float* / string. Composite
+    Go types (slice, map, pointer, interface, channel, function, builtin
+    "any") are not defaultable from a literal text token; codegen drops them
+    to the optional-only "?" form rather than emitting "?=value" the runtime
+    cannot parse.
+    """
+    if go_type.startswith("[]"):
+        return False
+    if go_type.startswith("map["):
+        return False
+    if go_type.startswith("*"):
+        return False
+    if go_type.startswith("chan"):
+        return False
+    if go_type.startswith("func"):
+        return False
+    if go_type == "interface{}" or go_type == "any":
+        return False
+    return True
 
 def compute_provider_init(desc):
     """Pre-compute the ImmediateFactory body code.

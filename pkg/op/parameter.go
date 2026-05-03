@@ -138,7 +138,10 @@ func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) 
 			return Parameter{}, fmt.Errorf("kwargs token %q cannot carry '?' or '=value'", raw)
 		}
 
-		return Parameter{Name: name, Type: paramType, Kwargs: true}, nil
+		// Kwargs are inherently optional — the caller may always omit extra kwargs. Optional is set so consumers
+		// that ask "may caller omit this slot?" get a single-source-of-truth answer without special-casing the
+		// Variadic / Kwargs flags.
+		return Parameter{Name: name, Type: paramType, Optional: true, Kwargs: true}, nil
 	}
 
 	if strings.HasPrefix(raw, "*") {
@@ -153,7 +156,10 @@ func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) 
 			return Parameter{}, fmt.Errorf("variadic token %q cannot carry '?' or '=value'", raw)
 		}
 
-		return Parameter{Name: name, Type: paramType, Variadic: true}, nil
+		// Variadic params are inherently optional — the caller may always omit positional overflow. Optional is
+		// set so consumers that ask "may caller omit this slot?" get a single-source-of-truth answer without
+		// special-casing the Variadic / Kwargs flags.
+		return Parameter{Name: name, Type: paramType, Optional: true, Variadic: true}, nil
 	}
 
 	// Step 2: named token. Split on the optional marker; everything before is the name, everything after is the

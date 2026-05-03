@@ -490,11 +490,7 @@ func toGoMap(dict *starlark.Dict, rv reflect.Value) error {
 // toGoSlice converts a [starlark.Iterable] into a typed Go slice via reflection.
 func toGoSlice(sv starlark.Iterable, rv reflect.Value) error {
 
-	n := starlark.Len(sv)
-
-	if n < 0 {
-		n = 0
-	}
+	n := max(starlark.Len(sv), 0)
 
 	sliceType := rv.Type()
 	elemType := sliceType.Elem()
@@ -604,10 +600,7 @@ func toNaturalGo(sv starlark.Value) (any, error) {
 
 	case *starlark.List, starlark.Tuple, *starlark.Set:
 
-		n := starlark.Len(v)
-		if n < 0 {
-			n = 0
-		}
+		n := max(starlark.Len(v), 0)
 
 		res := make([]any, 0, n) // Optimized: Allocates capacity but stays empty for append.
 		iter := v.(starlark.Iterable).Iterate()
@@ -674,6 +667,7 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 	params := method.Parameters()
 
 	var namedParams []string
+	var namedOptional []bool
 	var variadicName string
 	var variadicIdx int
 	var kwargsName string
@@ -689,6 +683,7 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 			variadicIdx = i
 		default:
 			namedParams = append(namedParams, p.Name)
+			namedOptional = append(namedOptional, p.Optional)
 		}
 	}
 
@@ -745,7 +740,13 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 	pairs := make([]any, 0, numNamed*2)
 
 	for i, n := range namedParams {
-		pairs = append(pairs, n, &vals[i])
+		// starlark.UnpackArgs uses a trailing "?" on the pair name to mark a kwarg optional. namedParams holds
+		// clean names; reconstruct the "?" suffix so UnpackArgs sees the optional convention.
+		unpackName := n
+		if namedOptional[i] {
+			unpackName += "?"
+		}
+		pairs = append(pairs, unpackName, &vals[i])
 	}
 
 	if err := starlark.UnpackArgs(actionName, unpackArgs, unpackKwargs, pairs...); err != nil {

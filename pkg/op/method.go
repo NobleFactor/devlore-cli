@@ -568,13 +568,11 @@ func errorInvalidResultParameters(do *reflect.Method) error {
 // isLegalCompensableComplement returns true if t is a valid return type for a complement.
 func isLegalCompensableComplement(t reflect.Type) bool {
 
-	receiptType := reflect.TypeFor[Receipt]()
-
 	if t.Implements(receiptType) {
 		return true
 	}
 
-	if t == reflect.TypeFor[*RecoveryStack]() {
+	if t == recoveryStackType {
 		return true
 	}
 
