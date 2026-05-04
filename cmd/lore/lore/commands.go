@@ -18,7 +18,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/internal/output"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -744,7 +743,7 @@ func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,goc
 }
 
 func newInspectCmd() *cobra.Command {
-	var opts output.Options
+	var opts cli.SinkOptions
 
 	cmd := &cobra.Command{
 		Use:   "inspect <package>",

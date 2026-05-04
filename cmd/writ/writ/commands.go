@@ -28,7 +28,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/internal/output"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
@@ -1467,7 +1466,7 @@ func copyFile(src, dst string) error {
 }
 
 func newInspectCmd() *cobra.Command {
-	var opts output.Options
+	var opts cli.SinkOptions
 
 	cmd := &cobra.Command{
 		Use:   "inspect <project|file>",

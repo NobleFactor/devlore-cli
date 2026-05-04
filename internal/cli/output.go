@@ -6,10 +6,11 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
-	"github.com/NobleFactor/devlore-cli/internal/output"
+	"github.com/NobleFactor/devlore-cli/pkg/result"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
@@ -81,18 +82,65 @@ func ExitCode(err error) int {
 // Output Flags
 // =============================================================================
 
-// AddOutputFlags adds --filter and --format flags to a command.
-// The flags populate an output.Options struct for use with output.Render.
+// SinkOptions captures the populated values from [AddOutputFlags]. The struct is the input to
+// [BuildSink], which composes a [result.Sink] from the flag values.
+//
+// Field semantics:
+//
+//   - Format selects the formatter: "json", "yaml", "csv", or "template". Default "json".
+//   - Template carries the template body when Format == "template"; ignored otherwise.
+//   - Filters is the repeatable --filter slice; each entry is a `field=value` predicate ANDed with
+//     the others.
+//   - JQ is the optional --jq expression. When non-empty, runs after the field-filter stage.
+type SinkOptions struct {
+	Format   string
+	Template string
+	Filters  []string
+	JQ       string
+}
+
+// AddOutputFlags binds --format, --template, --filter, and --jq to opts. Call once during command
+// setup, then call [BuildSink] from the cobra RunE to compose the [result.Sink].
 //
 // Usage:
 //
-//	var opts output.Options
+//	var opts cli.SinkOptions
 //	cli.AddOutputFlags(cmd, &opts)
-func AddOutputFlags(cmd *cobra.Command, opts *output.Options) {
-	cmd.Flags().StringVar(&opts.Format, "format", output.DefaultFormat,
-		`Output format: json, table, yaml, or a Go template (e.g. '{{.ReceiverName}}\t{{.Version}}')`)
-	cmd.Flags().StringArrayVar(&opts.Filter, "filter", nil,
+//	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+//	    sink, err := cli.BuildSink(opts, cmd.OutOrStdout())
+//	    if err != nil { return err }
+//	    return sink.Emit(payload)
+//	}
+func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
+
+	cmd.Flags().StringVar(&opts.Format, "format", "json",
+		`Output format: json, yaml, csv, or template`)
+	cmd.Flags().StringVar(&opts.Template, "template", "",
+		`Template body, used when --format=template (e.g. '{{.Name}}\t{{.Version}}')`)
+	cmd.Flags().StringArrayVar(&opts.Filters, "filter", nil,
 		`Filter expression: field=value (repeatable, AND logic)`)
+	cmd.Flags().StringVar(&opts.JQ, "jq", "",
+		`jq expression applied after --filter; see github.com/itchyny/gojq`)
+}
+
+// BuildSink composes a [result.Sink] from the populated [SinkOptions] writing to w. Filters compose
+// in --filter-then--jq order; the formatter is selected by [result.FormatterByName].
+//
+// Returns an error when the formatter name is unknown, the template body fails to parse, the field
+// expressions fail to parse, or the jq expression fails to compile.
+func BuildSink(opts SinkOptions, w io.Writer) (result.Sink, error) {
+
+	formatter, err := result.FormatterByName(opts.Format, opts.Template)
+	if err != nil {
+		return nil, err
+	}
+
+	filter, err := result.FilterByExprs(opts.Filters, opts.JQ)
+	if err != nil {
+		return nil, err
+	}
+
+	return result.NewPipeline(filter, formatter, w), nil
 }
 
 // =============================================================================

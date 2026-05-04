@@ -8,9 +8,8 @@ import (
 	"io"
 )
 
-// JSONFormatter renders the value as indented JSON. The default encoding settings match the existing
-// internal/output package's `json` format: two-space indentation, no HTML escaping concerns (the
-// stream is for tooling consumption, not browser embedding).
+// JSONFormatter renders the value as indented JSON. Two-space indentation; no HTML escaping
+// concerns (the stream is for tooling consumption, not browser embedding).
 type JSONFormatter struct{}
 
 // Compile-time interface guard.

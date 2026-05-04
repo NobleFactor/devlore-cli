@@ -9,9 +9,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// YAMLFormatter renders the value as indented YAML. The default encoding settings match the existing
-// internal/output package's `yaml` format: two-space indentation, latest stable yaml.v3 from
-// go-yaml.
+// YAMLFormatter renders the value as indented YAML. Two-space indentation; latest stable yaml.v3
+// from go-yaml.
 type YAMLFormatter struct{}
 
 // Compile-time interface guard.
