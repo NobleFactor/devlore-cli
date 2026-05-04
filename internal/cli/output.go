@@ -173,7 +173,7 @@ func Failure(format string, args ...any) error {
 
 // Success prints a success message via the installed [status.UI].
 func Success(format string, args ...any) {
-	statusUI.Success(fmt.Sprintf(format, args...))
+	statusUI.Succeed(fmt.Sprintf(format, args...))
 }
 
 // Print emits raw text via the installed [status.UI]. Used for unprefixed

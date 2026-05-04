@@ -32,25 +32,27 @@ package status
 // time. Mid-run state changes (e.g., toggling silent) require constructing a new instance.
 type UI interface {
 
+	// Error emits a non-fatal error status message.
+	//
+	// Distinct from [Fail], which is for fatal errors that need to propagate upward as a Go error.
+	Error(msg string)
+
+	// Fail emits a fatal error status message and returns a Go error wrapping the message. The caller typically returns
+	// the error to abort the operation.
+	Fail(msg string) error
+
 	// Note emits an informational status message.
 	Note(msg string)
 
+	// Print emits raw text without categorized-message decoration.
+	//
+	// Used by starlark `Thread.Print` for `print()` o	utput from scripts; the result reads as the script wrote it (no
+	// [program] [symbol] prefix).
+	Print(msg string)
+
+	// Succeed emits a positive-outcome status message.
+	Succeed(msg string)
+
 	// Warn emits a warning status message.
 	Warn(msg string)
-
-	// Error emits a non-fatal error status message. Distinct from [Fail], which is for fatal errors
-	// that need to propagate upward as a Go error.
-	Error(msg string)
-
-	// Success emits a positive-outcome status message.
-	Success(msg string)
-
-	// Fail emits a fatal error status message and returns a Go error wrapping the message. The
-	// caller typically returns the error to abort the operation.
-	Fail(msg string) error
-
-	// Print emits raw text without categorized-message decoration. Used by starlark `Thread.Print`
-	// for `print()` output from scripts; the result reads as the script wrote it (no [program]
-	// [symbol] prefix).
-	Print(msg string)
 }

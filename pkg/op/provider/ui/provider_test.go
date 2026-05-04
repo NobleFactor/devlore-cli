@@ -27,7 +27,7 @@ type captureUI struct {
 func (c *captureUI) Note(msg string)    { c.notes = append(c.notes, msg) }
 func (c *captureUI) Warn(msg string)    { c.warns = append(c.warns, msg) }
 func (c *captureUI) Error(msg string)   { c.errors = append(c.errors, msg) }
-func (c *captureUI) Success(msg string) { c.successes = append(c.successes, msg) }
+func (c *captureUI) Succeed(msg string) { c.successes = append(c.successes, msg) }
 func (c *captureUI) Fail(msg string) error {
 	c.fails = append(c.fails, msg)
 	return errors.New(msg)
@@ -76,7 +76,7 @@ func TestProviderErrorForwards(t *testing.T) {
 func TestProviderSuccessForwards(t *testing.T) {
 	p, capture := newProviderWithCapture(t)
 
-	p.Success("done")
+	p.Succeed("done")
 
 	if len(capture.successes) != 1 || capture.successes[0] != "done" {
 		t.Errorf("Success forward: got %v, want [done]", capture.successes)

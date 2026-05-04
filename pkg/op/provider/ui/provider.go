@@ -75,9 +75,9 @@ func (p *Provider) Error(msg string) {
 //
 // Parameters:
 //   - msg: the success message to display.
-func (p *Provider) Success(msg string) {
+func (p *Provider) Succeed(msg string) {
 	if !p.silent {
-		p.RuntimeEnvironment().Status.Success(msg)
+		p.RuntimeEnvironment().Status.Succeed(msg)
 	}
 }
 

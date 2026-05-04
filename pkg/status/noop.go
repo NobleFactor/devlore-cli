@@ -28,14 +28,14 @@ func (NoOp) Warn(_ string) {}
 // Error discards msg.
 func (NoOp) Error(_ string) {}
 
-// Success discards msg.
-func (NoOp) Success(_ string) {}
-
 // Fail discards the emission but still returns a non-nil error wrapping msg.
 func (NoOp) Fail(msg string) error { return errors.New(msg) }
 
-// Print discards msg.
+// Print discards the msg.
 func (NoOp) Print(_ string) {}
+
+// Succeed discards msg.
+func (NoOp) Succeed(_ string) {}
 
 // endregion
 

@@ -76,7 +76,7 @@ func TestConsoleSuccessRenders(t *testing.T) {
 	var buf bytes.Buffer
 	c := NewConsole(&buf, "lore", true, false)
 
-	c.Success("done")
+	c.Succeed("done")
 
 	got := buf.String()
 	if !strings.Contains(got, symbolSuccess) {
@@ -148,7 +148,7 @@ func TestConsoleColorDisabled(t *testing.T) {
 		{"Note", func(c *Console) { c.Note("plain") }},
 		{"Warn", func(c *Console) { c.Warn("plain") }},
 		{"Error", func(c *Console) { c.Error("plain") }},
-		{"Success", func(c *Console) { c.Success("plain") }},
+		{"Success", func(c *Console) { c.Succeed("plain") }},
 		{"Fail", func(c *Console) { _ = c.Fail("plain") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -178,7 +178,7 @@ func TestConsoleSilentSuppressesAllMethods(t *testing.T) {
 		{"Note", func(c *Console) { c.Note("hidden") }},
 		{"Warn", func(c *Console) { c.Warn("hidden") }},
 		{"Error", func(c *Console) { c.Error("hidden") }},
-		{"Success", func(c *Console) { c.Success("hidden") }},
+		{"Success", func(c *Console) { c.Succeed("hidden") }},
 		{"Print", func(c *Console) { c.Print("hidden") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -226,7 +226,7 @@ func TestNoOpAllMethodsSilent(t *testing.T) {
 	noop.Note("ignored")
 	noop.Warn("ignored")
 	noop.Error("ignored")
-	noop.Success("ignored")
+	noop.Succeed("ignored")
 	noop.Print("ignored")
 
 	err := noop.Fail("propagates")
