@@ -38,8 +38,16 @@ BUILD_TAGS ?=
 
 ### STAR
 
-# Code generator (star binary, built from cmd/star).
-STAR ?= build/star
+# Code generator (star binary). Resolves to the Last-Known-Good snapshot at
+# build/star.lkg when present, falling back to the in-tree build/star.
+#
+# The LKG binary is the escape hatch when in-tree changes (templates,
+# generate.star, runtime types, provider signatures) break star compilation
+# or cause it to panic on startup. Without an LKG, codegen rules cannot run
+# and gen files cannot be regenerated, forcing hand-patching. Promote a new
+# LKG via `make star-lkg` ONLY after a known-green build.
+STAR_LKG ?= build/star.lkg
+STAR ?= $(if $(wildcard $(STAR_LKG)),$(STAR_LKG),build/star)
 
 ## VARIABLES (static)
 
@@ -49,7 +57,7 @@ SP := cmd/star/provider
 
 ## TARGETS
 
-.PHONY: all build clean test test-race vet lint shell-lint complexity check dev docs dist dist-all star generate inventory help
+.PHONY: all build clean test test-race vet lint shell-lint complexity check dev docs dist dist-all star star-lkg generate inventory help
 
 ##@ Help
 
@@ -64,6 +72,9 @@ all: build
 
 star: inventory ## Build the star code generator
 	go build $(LDFLAGS) -o build/star ./cmd/star
+
+star-lkg: star ## Snapshot build/star as last-known-good (run after a green build)
+	cp build/star $(STAR_LKG)
 
 build: generate ## Build all binaries (lore, star, writ, devlore-test)
 	go build $(LDFLAGS) -o build/lore ./cmd/lore
@@ -173,35 +184,35 @@ $(P)/json/gen/receiver_type.gen_test.go \
 $(P)/json/gen/action.gen_test.go \
 $(P)/json/gen/node_builder.gen_test.go \
 $(P)/json/gen/module.gen_test.go \
-$(P)/json/gen/provider.gen.go &: $(P)/json/provider.go | star
+$(P)/json/gen/provider.gen.go &: $(P)/json/provider.go
 	$(STAR) devlore actions generate --source=$(P)/json --gen=true --write=true --output=$(P)/json
 
 $(P)/platform/gen/receiver_type.gen_test.go \
 $(P)/platform/gen/action.gen_test.go \
 $(P)/platform/gen/node_builder.gen_test.go \
 $(P)/platform/gen/module.gen_test.go \
-$(P)/platform/gen/provider.gen.go &: $(P)/platform/provider.go | star
+$(P)/platform/gen/provider.gen.go &: $(P)/platform/provider.go
 	$(STAR) devlore actions generate --source=$(P)/platform --gen=true --write=true --output=$(P)/platform
 
 $(P)/regexp/gen/receiver_type.gen_test.go \
 $(P)/regexp/gen/action.gen_test.go \
 $(P)/regexp/gen/node_builder.gen_test.go \
 $(P)/regexp/gen/module.gen_test.go \
-$(P)/regexp/gen/provider.gen.go &: $(P)/regexp/provider.go $(P)/regexp/resource.go | star
+$(P)/regexp/gen/provider.gen.go &: $(P)/regexp/provider.go
 	$(STAR) devlore actions generate --source=$(P)/regexp --gen=true --write=true --output=$(P)/regexp
 
 $(P)/template/gen/receiver_type.gen_test.go \
 $(P)/template/gen/action.gen_test.go \
 $(P)/template/gen/node_builder.gen_test.go \
 $(P)/template/gen/module.gen_test.go \
-$(P)/template/gen/provider.gen.go &: $(P)/template/provider.go $(P)/template/resource.go | star
+$(P)/template/gen/provider.gen.go &: $(P)/template/provider.go
 	$(STAR) devlore actions generate --source=$(P)/template --gen=true --write=true --output=$(P)/template
 
 $(P)/yaml/gen/receiver_type.gen_test.go \
 $(P)/yaml/gen/action.gen_test.go \
 $(P)/yaml/gen/node_builder.gen_test.go \
 $(P)/yaml/gen/module.gen_test.go \
-$(P)/yaml/gen/provider.gen.go &: $(P)/yaml/provider.go $(P)/yaml/resource.go | star
+$(P)/yaml/gen/provider.gen.go &: $(P)/yaml/provider.go $(P)/yaml/resource.go
 	$(STAR) devlore actions generate --source=$(P)/yaml --gen=true --write=true --output=$(P)/yaml
 
 # --- access=planned providers ---
@@ -210,133 +221,133 @@ $(P)/appnet/gen/receiver_type.gen_test.go \
 $(P)/appnet/gen/action.gen_test.go \
 $(P)/appnet/gen/node_builder.gen_test.go \
 $(P)/appnet/gen/provider.gen.go \
-$(P)/appnet/gen/resource.gen.go &: $(P)/appnet/provider.go $(P)/appnet/resource.go | star
+$(P)/appnet/gen/resource.gen.go &: $(P)/appnet/provider.go $(P)/appnet/resource.go
 	$(STAR) devlore actions generate --source=$(P)/appnet --gen=true --write=true --output=$(P)/appnet
 
 $(P)/archive/gen/receiver_type.gen_test.go \
 $(P)/archive/gen/action.gen_test.go \
 $(P)/archive/gen/node_builder.gen_test.go \
-$(P)/archive/gen/provider.gen.go &: $(P)/archive/provider.go $(P)/archive/resource.go | star
+$(P)/archive/gen/provider.gen.go &: $(P)/archive/provider.go
 	$(STAR) devlore actions generate --source=$(P)/archive --gen=true --write=true --output=$(P)/archive
 
 $(P)/encryption/gen/receiver_type.gen_test.go \
 $(P)/encryption/gen/action.gen_test.go \
 $(P)/encryption/gen/node_builder.gen_test.go \
-$(P)/encryption/gen/provider.gen.go &: $(P)/encryption/provider.go $(P)/encryption/resource.go | star
+$(P)/encryption/gen/provider.gen.go &: $(P)/encryption/provider.go
 	$(STAR) devlore actions generate --source=$(P)/encryption --gen=true --write=true --output=$(P)/encryption
 
 $(P)/file/gen/receiver_type.gen_test.go \
 $(P)/file/gen/action.gen_test.go \
 $(P)/file/gen/node_builder.gen_test.go \
 $(P)/file/gen/module.gen_test.go \
-$(P)/file/gen/provider.gen.go &: $(P)/file/provider.go $(P)/file/resource.go | star
+$(P)/file/gen/provider.gen.go &: $(P)/file/provider.go $(P)/file/resource.go
 	$(STAR) devlore actions generate --source=$(P)/file --gen=true --write=true --output=$(P)/file
 
 $(P)/git/gen/receiver_type.gen_test.go \
 $(P)/git/gen/action.gen_test.go \
 $(P)/git/gen/node_builder.gen_test.go \
 $(P)/git/gen/provider.gen.go \
-$(P)/git/gen/resource.gen.go &: $(P)/git/provider.go $(P)/git/resource.go | star
+$(P)/git/gen/resource.gen.go &: $(P)/git/provider.go $(P)/git/resource.go
 	$(STAR) devlore actions generate --source=$(P)/git --gen=true --write=true --output=$(P)/git
 
 $(P)/pkg/gen/receiver_type.gen_test.go \
 $(P)/pkg/gen/action.gen_test.go \
 $(P)/pkg/gen/node_builder.gen_test.go \
 $(P)/pkg/gen/provider.gen.go \
-$(P)/pkg/gen/resource.gen.go &: $(P)/pkg/provider.go $(P)/pkg/resource.go | star
+$(P)/pkg/gen/resource.gen.go &: $(P)/pkg/provider.go $(P)/pkg/resource.go
 	$(STAR) devlore actions generate --source=$(P)/pkg --gen=true --write=true --output=$(P)/pkg
 
 $(P)/service/gen/receiver_type.gen_test.go \
 $(P)/service/gen/action.gen_test.go \
 $(P)/service/gen/node_builder.gen_test.go \
 $(P)/service/gen/provider.gen.go \
-$(P)/service/gen/resource.gen.go &: $(P)/service/provider.go $(P)/service/resource.go | star
+$(P)/service/gen/resource.gen.go &: $(P)/service/provider.go $(P)/service/resource.go
 	$(STAR) devlore actions generate --source=$(P)/service --gen=true --write=true --output=$(P)/service
 
 $(P)/shell/gen/receiver_type.gen_test.go \
 $(P)/shell/gen/action.gen_test.go \
 $(P)/shell/gen/node_builder.gen_test.go \
-$(P)/shell/gen/provider.gen.go &: $(P)/shell/provider.go $(P)/shell/resource.go | star
+$(P)/shell/gen/provider.gen.go &: $(P)/shell/provider.go
 	$(STAR) devlore actions generate --source=$(P)/shell --gen=true --write=true --output=$(P)/shell
 
 $(P)/flow/gen/receiver_type.gen_test.go \
 $(P)/flow/gen/action.gen_test.go \
 $(P)/flow/gen/node_builder.gen_test.go \
-$(P)/flow/gen/provider.gen.go &: $(P)/flow/provider.go $(P)/flow/resource.go | star
+$(P)/flow/gen/provider.gen.go &: $(P)/flow/provider.go
 	$(STAR) devlore actions generate --source=$(P)/flow --gen=true --write=true --output=$(P)/flow
 
 # --- access=immediate providers ---
 
 $(P)/plan/gen/receiver_type.gen_test.go \
 $(P)/plan/gen/module.gen_test.go \
-$(P)/plan/gen/provider.gen.go &: $(P)/plan/provider.go $(P)/plan/resource.go | star
+$(P)/plan/gen/provider.gen.go &: $(P)/plan/provider.go
 	$(STAR) devlore actions generate --source=$(P)/plan --gen=true --write=true --output=$(P)/plan
 
 # --- star-specific providers (cmd/star/provider, access=immediate) ---
 
 $(SP)/staranalysis/gen/receiver_type.gen_test.go \
 $(SP)/staranalysis/gen/module.gen_test.go \
-$(SP)/staranalysis/gen/provider.gen.go &: $(SP)/staranalysis/provider.go $(SP)/staranalysis/resource.go | star
+$(SP)/staranalysis/gen/provider.gen.go &: $(SP)/staranalysis/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/staranalysis --gen=true --write=true --output=$(SP)/staranalysis
 
 $(SP)/starcode/gen/receiver_type.gen_test.go \
 $(SP)/starcode/gen/module.gen_test.go \
-$(SP)/starcode/gen/provider.gen.go &: $(SP)/starcode/provider.go $(SP)/starcode/resource.go | star
+$(SP)/starcode/gen/provider.gen.go &: $(SP)/starcode/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/starcode --gen=true --write=true --output=$(SP)/starcode
 
 $(SP)/starcomplexity/gen/receiver_type.gen_test.go \
 $(SP)/starcomplexity/gen/module.gen_test.go \
-$(SP)/starcomplexity/gen/provider.gen.go &: $(SP)/starcomplexity/provider.go $(SP)/starcomplexity/resource.go | star
+$(SP)/starcomplexity/gen/provider.gen.go &: $(SP)/starcomplexity/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/starcomplexity --gen=true --write=true --output=$(SP)/starcomplexity
 
 $(SP)/starindex/gen/receiver_type.gen_test.go \
 $(SP)/starindex/gen/module.gen_test.go \
-$(SP)/starindex/gen/provider.gen.go &: $(SP)/starindex/provider.go $(SP)/starindex/resource.go | star
+$(SP)/starindex/gen/provider.gen.go &: $(SP)/starindex/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/starindex --gen=true --write=true --output=$(SP)/starindex
 
 $(SP)/starstats/gen/receiver_type.gen_test.go \
 $(SP)/starstats/gen/module.gen_test.go \
-$(SP)/starstats/gen/provider.gen.go &: $(SP)/starstats/provider.go $(SP)/starstats/resource.go | star
+$(SP)/starstats/gen/provider.gen.go &: $(SP)/starstats/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/starstats --gen=true --write=true --output=$(SP)/starstats
 
 $(SP)/commands/gen/receiver_type.gen_test.go \
 $(SP)/commands/gen/module.gen_test.go \
-$(SP)/commands/gen/provider.gen.go &: $(SP)/commands/provider.go $(SP)/commands/resource.go | star
+$(SP)/commands/gen/provider.gen.go &: $(SP)/commands/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/commands --gen=true --write=true --output=$(SP)/commands
 
 $(SP)/config/gen/receiver_type.gen_test.go \
 $(SP)/config/gen/module.gen_test.go \
-$(SP)/config/gen/provider.gen.go &: $(SP)/config/provider.go $(SP)/config/resource.go | star
+$(SP)/config/gen/provider.gen.go &: $(SP)/config/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/config --gen=true --write=true --output=$(SP)/config
 
 $(SP)/goast/gen/receiver_type.gen_test.go \
 $(SP)/goast/gen/module.gen_test.go \
-$(SP)/goast/gen/provider.gen.go &: $(SP)/goast/provider.go $(SP)/goast/resource.go | star
+$(SP)/goast/gen/provider.gen.go &: $(SP)/goast/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/goast --gen=true --write=true --output=$(SP)/goast
 
 $(SP)/lint/gen/receiver_type.gen_test.go \
 $(SP)/lint/gen/module.gen_test.go \
-$(SP)/lint/gen/provider.gen.go &: $(SP)/lint/provider.go $(SP)/lint/resource.go | star
+$(SP)/lint/gen/provider.gen.go &: $(SP)/lint/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/lint --gen=true --write=true --output=$(SP)/lint
 
 $(SP)/setup/gen/receiver_type.gen_test.go \
 $(SP)/setup/gen/module.gen_test.go \
-$(SP)/setup/gen/provider.gen.go &: $(SP)/setup/provider.go $(SP)/setup/resource.go | star
+$(SP)/setup/gen/provider.gen.go &: $(SP)/setup/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/setup --gen=true --write=true --output=$(SP)/setup
 
 $(SP)/shellcheck/gen/receiver_type.gen_test.go \
 $(SP)/shellcheck/gen/module.gen_test.go \
-$(SP)/shellcheck/gen/provider.gen.go &: $(SP)/shellcheck/provider.go $(SP)/shellcheck/resource.go | star
+$(SP)/shellcheck/gen/provider.gen.go &: $(SP)/shellcheck/provider.go
 	$(STAR) devlore actions generate --source=$(SP)/shellcheck --gen=true --write=true --output=$(SP)/shellcheck
 
 $(P)/ui/gen/receiver_type.gen_test.go \
 $(P)/ui/gen/module.gen_test.go \
-$(P)/ui/gen/provider.gen.go &: $(P)/ui/provider.go $(P)/ui/resource.go | star
+$(P)/ui/gen/provider.gen.go &: $(P)/ui/provider.go
 	$(STAR) devlore actions generate --source=$(P)/ui --gen=true --write=true --output=$(P)/ui
 
 # --- resource-only packages ---
 
-$(P)/mem/gen/resource.gen.go: $(P)/mem/resource.go | star
+$(P)/mem/gen/resource.gen.go: $(P)/mem/resource.go
 	$(STAR) devlore actions generate --source=$(P)/mem --gen=true --write=true --output=$(P)/mem
 
 NEW_OP_INVENTORY := \
