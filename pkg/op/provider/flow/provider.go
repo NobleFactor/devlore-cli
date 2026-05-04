@@ -414,8 +414,8 @@ func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), time
 
 	for {
 		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		case <-ctx.Context.Done():
+			return nil, ctx.Context.Err()
 		case <-deadline.C:
 			return nil, fmt.Errorf("wait_until: timeout after %s", timeout)
 		case <-ticker.C:

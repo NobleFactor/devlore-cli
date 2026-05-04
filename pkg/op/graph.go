@@ -568,7 +568,6 @@ func (n *Node) SetSlot(name string, value SlotValue) {
 
 // ResolvedSlots returns all slot values as a flat map, resolving promises and environment bindings.
 func (n *Node) ResolvedSlots(props Properties, results map[string]any) map[string]any {
-
 	return n.ResolveSlots(props, results, nil)
 }
 
@@ -583,10 +582,10 @@ func (n *Node) ResolveSlots(props Properties, results map[string]any, overrides 
 	for _, slot := range n.Slots {
 		name := slot.Parameter.Name
 		if ov, ok := overrides[name]; ok {
-			out[name] = ov.Resolve(env, results)
+			out[name] = ov.Resolve(props, results)
 			continue
 		}
-		out[name] = slot.Value.Resolve(env, results)
+		out[name] = slot.Value.Resolve(props, results)
 	}
 	return out
 }

@@ -100,7 +100,5 @@ func (ev EnvironmentValue) Resolve(props Properties, _ map[string]any) any {
 	v, _ := props.Property(ev.Key)
 	return v
 }
-	return v
-}
 
 // endregion
