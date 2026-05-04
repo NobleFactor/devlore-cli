@@ -256,12 +256,21 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 
 		if sv == nil {
 			// Truly absent kwarg — fill from the parameter's directive default if one exists. Default values
-			// arrive at slot-fill time at the parameter's Go type exactly (parseDefaultExpression widens via
-			// reflect.Value.Convert), so bypass fillSlot's starlark conversion and write op.ImmediateValue
-			// directly. Explicit starlark.None has its own None-skip path through fillSlot below — defaults
-			// never override caller intent.
+			// from literal directive forms arrive already typed (parseDefaultExpression widens via
+			// reflect.Value.Convert at announce time); deferred-default forms (op.DeferredDefault) resolve
+			// here against the live runtime environment and the already-filled sibling slots. Explicit
+			// starlark.None has its own None-skip path through fillSlot below — defaults never silently
+			// override caller intent.
 			if slot.Parameter.Default != nil {
-				node.SetSlot(slot.Parameter.Name, op.ImmediateValue{Value: slot.Parameter.Default})
+				value := slot.Parameter.Default
+				if d, ok := value.(op.DeferredDefault); ok {
+					resolved, err := d.Resolve(p.ctx, gatherImmediateSiblings(node), slot.Parameter.Type)
+					if err != nil {
+						return nil, fmt.Errorf("%s: default: %w", slot.Parameter.Name, err)
+					}
+					value = resolved
+				}
+				node.SetSlot(slot.Parameter.Name, op.ImmediateValue{Value: value})
 			}
 			continue
 		}
@@ -380,13 +389,12 @@ func extractOptionsKwarg(kwargs []starlark.Tuple) (*Options, []starlark.Tuple, e
 
 // fillSlot populates a slot on a node from a starlark value.
 //
-// Graph-edge dispatch (Invocation, list-of-Invocations) comes first: these mutate graph structure. NoneType skips
-// the optional slot. Projector lets the starlark value choose its own Go projection. The generic path routes
-// through [starlarkToGoTyped] — the same toGo + [op.Convert] pipeline immediate-mode dispatch reaches via
-// [op.Method.Invoke] — covering registered Resource construction from primitives, slice/map element recursion,
-// and the source/target converter opt-ins. After assignment, a Resource result is link-resolved against the
-// session catalog and, if the linked entry carries a producer origin, an implicit edge is added from the
-// producer to this node.
+// Graph-edge dispatch (Invocation, list-of-Invocations) comes first: these mutate graph structure. NoneType skips the
+// optional slot. Projector lets the starlark value choose its own Go projection. The generic path routes through
+// [starlarkToGoTyped] — the same toGo + [op.Convert] pipeline immediate-mode dispatch reaches via [op.Method.Invoke] —
+// covering registered Resource construction from primitives, slice/map element recursion, and the source/target
+// converter opt-ins. After assignment, a Resource result is link-resolved against the session catalog and, if the
+// linked entry carries a producer origin, an implicit edge is added from the producer to this node.
 //
 // The caller supplies slot.Parameter pre-populated. fillSlot fills the slot's value and installs it on the node via
 // [op.Node.SetSlot].
@@ -460,11 +468,12 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, sv starlark.Value) 
 		return nil
 	}
 
-	// Projector: extract the Go value the slot's parameter type wants, via the implementer's own projection
-	// logic (op.Convert cascade for goReceiver, target-type switch for Promise/Invocation). Preserves identity and
-	// producer through the planning layer without a starlark round-trip. If the extracted value carries a
-	// producerID (resource produced by a prior node), the edge is implicit in the Resource stored in this node's
-	// slot; plan.run extracts it at materialization (phase-8 D5).
+	// Projector: extract the Go value the slot's parameter type wants, via the implementer's own projection logic.
+	//
+	// This is the op.Convert cascade for the goReceiver, target-type switch for Promise/Invocation. It preserves
+	// identity and producer through the planning layer without a starlark round-trip. If the extracted value carries a
+	// producerID (resource produced by a prior node), the edge is implicit in the Resource stored in this node's slot;
+	// plan.run extracts it at materialization (phase-8 D5).
 	if proj, ok := sv.(Projector); ok {
 		goVal, err := proj.Project(slot.Parameter.Type)
 		if err != nil {
@@ -508,6 +517,30 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, sv starlark.Value) 
 
 	node.SetSlot(name, op.ImmediateValue{Value: final})
 	return nil
+}
+
+// gatherImmediateSiblings collects the already-filled slot values on node into a parameter-name keyed map suitable for
+// handing to [op.DeferredDefault.Resolve].
+//
+// Only slots holding [op.ImmediateValue] are included — the deferred-default evaluator can only
+// consume known-at-slot-fill-time values, so promise-bound slots (resolved at execution) and
+// environment-bound slots are skipped. The evaluator surfaces a "sibling slot X is unfilled" error if
+// the directive references a sibling that isn't in the returned map.
+//
+// Parameters:
+//   - node: the node whose slots have been partially filled by the dispatch loop.
+//
+// Returns:
+//   - map[string]any: snapshot of immediately-resolved slot values, keyed by parameter name.
+func gatherImmediateSiblings(node *op.Node) map[string]any {
+
+	out := make(map[string]any, len(node.Slots))
+	for _, slot := range node.Slots {
+		if v := slot.Immediate(); v != nil {
+			out[slot.Parameter.Name] = v
+		}
+	}
+	return out
 }
 
 // endregion

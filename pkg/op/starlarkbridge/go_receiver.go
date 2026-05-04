@@ -669,6 +669,7 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 	var namedParams []string
 	var namedOptional []bool
 	var namedDefaults []any
+	var namedTypes []reflect.Type
 	var variadicName string
 	var variadicIdx int
 	var kwargsName string
@@ -686,6 +687,7 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 			namedParams = append(namedParams, p.Name)
 			namedOptional = append(namedOptional, p.Optional)
 			namedDefaults = append(namedDefaults, p.Default)
+			namedTypes = append(namedTypes, p.Type)
 		}
 	}
 
@@ -760,11 +762,20 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 	for i, sv := range vals {
 
 		if sv == nil {
-			// Truly absent kwarg — fill from the parameter's directive default if one exists. Defaults arrive
-			// at the parameter's Go type exactly (parseDefaultExpression widens via reflect.Value.Convert), so
-			// the value can be inserted into the slots map directly with no further conversion.
+			// Truly absent kwarg — fill from the parameter's directive default if one exists. Literal-form
+			// defaults arrive already typed (parseDefaultExpression widens via reflect.Value.Convert at
+			// announce time); deferred-default forms (op.DeferredDefault) resolve here against the live
+			// runtime environment and the already-filled sibling slots in the slots map.
 			if namedDefaults[i] != nil {
-				slots[namedParams[i]] = namedDefaults[i]
+				value := namedDefaults[i]
+				if d, ok := value.(op.DeferredDefault); ok {
+					resolved, err := d.Resolve(w.executionContext(), slots, namedTypes[i])
+					if err != nil {
+						return nil, fmt.Errorf("%s(): %s: default: %w", actionName, namedParams[i], err)
+					}
+					value = resolved
+				}
+				slots[namedParams[i]] = value
 			}
 			continue
 		}

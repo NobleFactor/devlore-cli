@@ -249,6 +249,15 @@ func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) 
 //     target's kind is not one of the supported defaultable kinds (bool, int*, uint*, float*, string).
 func parseDefaultExpression(expr string, target reflect.Type) (any, error) {
 
+	// Deferred-default discriminator: directive values wrapped in `{{ ... }}` braces are runtime-resolved
+	// expressions parsed at announce time but evaluated at slot-fill against the live runtime
+	// environment. Detection is purely textual; parseDeferred handles parser dispatch and validator-stub
+	// wiring. The target type is unused here — type widening happens at slot-fill via [Convert] inside
+	// [treeDefault.Resolve], so deferred defaults can produce any type the funcmap supports.
+	if strings.HasPrefix(expr, "{{") && strings.HasSuffix(expr, "}}") {
+		return parseDeferred(expr)
+	}
+
 	switch target.Kind() {
 
 	case reflect.Bool:
