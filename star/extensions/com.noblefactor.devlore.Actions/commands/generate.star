@@ -1365,11 +1365,12 @@ def emit_file(command, template_name, descriptor, filename, label, method_count,
 
     if write_files and output_dir:
         out_path = output_dir + "/" + filename
-        # Ensure gen/ subdirectory exists
+        # Ensure gen/ subdirectory exists. Explicit modes pending 13.0(f) step 12 (umask deferred-default);
+        # without them the slot defaults to FileMode(0) and the written files become inaccessible.
         out_dir = file.parent(out_path)
         if not file.exists(out_dir):
-            file.mkdir(out_dir)
-        file.write_text(out_path, code)
+            file.mkdir(out_dir, mode = 0o755)
+        file.write_text(out_path, code, mode = 0o644)
         ui.succeed("Wrote " + out_path)
     else:
         ui.note("--- " + filename + " ---")
