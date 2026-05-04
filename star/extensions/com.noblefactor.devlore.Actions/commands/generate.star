@@ -1079,7 +1079,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
                  "Resource", 1, output_dir, write_files)
         generated_count += 1
 
-    ui.success("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
+    ui.succeed("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
 
 def collect_cross_pkg_imports(provider_import, converters, method_desc_lists):
     """Collect cross-package imports from converter fields, method result_exprs, and struct_params.
@@ -1370,7 +1370,7 @@ def emit_file(command, template_name, descriptor, filename, label, method_count,
         if not file.exists(out_dir):
             file.mkdir(out_dir)
         file.write_text(out_path, code)
-        ui.success("Wrote " + out_path)
+        ui.succeed("Wrote " + out_path)
     else:
         ui.note("--- " + filename + " ---")
         ui.note(code)
@@ -1428,7 +1428,7 @@ def run(command, ctx):
         }
         emit_file(command, "resource", resource_desc, "gen/resource.gen.go",
                  "Resource", 1, output_dir, write_files)
-        ui.success("Done. Generated resource descriptor for %s" % provider)
+        ui.succeed("Done. Generated resource descriptor for %s" % provider)
         return
 
     ui.note("Found " + str(len(filtered)) + " methods for " + struct_name)

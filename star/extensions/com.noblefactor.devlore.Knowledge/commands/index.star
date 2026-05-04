@@ -108,7 +108,7 @@ def run(command, ctx):
             print("---")
         else:
             file.write_text(index_path, index_content)
-            ui.success("Wrote: " + index_path + " (" + str(asset_count) + " assets)")
+            ui.succeed("Wrote: " + index_path + " (" + str(asset_count) + " assets)")
 
         domains_processed = domains_processed + 1
         total_assets = total_assets + asset_count

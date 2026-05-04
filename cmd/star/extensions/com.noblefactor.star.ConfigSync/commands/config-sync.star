@@ -14,8 +14,8 @@ def run(command, ctx):
         return
 
     if result.golangci_lint:
-        ui.success("Generated " + result.golangci_lint)
+        ui.succeed("Generated " + result.golangci_lint)
     if result.markdown_lint:
-        ui.success("Generated " + result.markdown_lint)
+        ui.succeed("Generated " + result.markdown_lint)
 
-    ui.success("Synced " + str(result.files_generated) + " config file(s)")
+    ui.succeed("Synced " + str(result.files_generated) + " config file(s)")

@@ -46,7 +46,7 @@ def run(command, ctx):
     # Discover files (respects .gitignore)
     shell_files = collect_files(paths)
     if not shell_files:
-        ui.success("No shell files found")
+        ui.succeed("No shell files found")
         return
 
     ui.note("Found " + str(len(shell_files)) + " shell file(s)")
@@ -77,7 +77,7 @@ def run(command, ctx):
 
     # Summary
     if result.passed:
-        ui.success("Shell lint passed (" + str(result.files_checked) + " files)")
+        ui.succeed("Shell lint passed (" + str(result.files_checked) + " files)")
     else:
         msg = "Shell lint failed:"
         if result.error_count > 0 or result.warning_count > 0:

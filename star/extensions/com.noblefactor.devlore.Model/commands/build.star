@@ -159,7 +159,7 @@ def _build_domain(target, domain, model):
     output_path = file.join(target, "Modelfile." + domain)
 
     file.write_text(output_path, content)
-    ui.success("Generated: " + output_path)
+    ui.succeed("Generated: " + output_path)
 
     # Show stats
     lines = content.count("\n")

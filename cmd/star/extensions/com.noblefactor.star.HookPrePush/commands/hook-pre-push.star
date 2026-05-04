@@ -27,7 +27,7 @@ def run(command, ctx):
 
     # Summary
     if len(failures) == 0:
-        ui.success("All pre-push checks passed")
+        ui.succeed("All pre-push checks passed")
     else:
         ui.fail("Pre-push checks failed: " + ", ".join(failures))
 

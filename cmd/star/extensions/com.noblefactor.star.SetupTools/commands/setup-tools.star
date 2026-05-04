@@ -14,7 +14,7 @@ def run(command, ctx):
 
     for tool in result.tools:
         if tool.installed:
-            ui.success(tool.name + ": " + tool.path)
+            ui.succeed(tool.name + ": " + tool.path)
         else:
             ui.error(tool.name + ": not installed")
             ui.note("  " + tool.description)
@@ -24,7 +24,7 @@ def run(command, ctx):
 
     # Summary
     if result.all_installed:
-        ui.success("All tools installed")
+        ui.succeed("All tools installed")
     else:
         print("")
         ui.note("Install missing tools:")

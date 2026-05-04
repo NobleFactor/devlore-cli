@@ -27,7 +27,7 @@ def run(command, ctx):
 
     files = collect_files(paths)
     if not files:
-        ui.success("No Go files found")
+        ui.succeed("No Go files found")
         return
 
     ui.note("Found " + str(len(files)) + " Go file(s)")
@@ -38,7 +38,7 @@ def run(command, ctx):
             ast = goast.load_source_file(f)
             ast.cleanup()
             ast.save()
-        ui.success("Fixed " + str(len(files)) + " file(s)")
+        ui.succeed("Fixed " + str(len(files)) + " file(s)")
     else:
         total_violations = 0
         for f in files:
@@ -50,4 +50,4 @@ def run(command, ctx):
         if total_violations > 0:
             ui.fail("Found " + str(total_violations) + " violation(s) in " + str(len(files)) + " file(s)")
         else:
-            ui.success("All " + str(len(files)) + " file(s) compliant")
+            ui.succeed("All " + str(len(files)) + " file(s) compliant")

@@ -109,4 +109,4 @@ def run(command, ctx):
     if total_errors > 0:
         fail(str(total_errors) + " of " + str(total_files) + " files failed validation")
     else:
-        ui.success("Validated " + str(total_files) + " files across " + str(len(validated_types)) + " types")
+        ui.succeed("Validated " + str(total_files) + " files across " + str(len(validated_types)) + " types")

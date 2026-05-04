@@ -673,7 +673,7 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
             ui.error("  " + v["name"] + " (" + v["file"] + ":" + str(v["line"]) + "): " + v["error"])
         fail("Fix contract violations before building knowledge")
 
-    ui.success("  No contract violations")
+    ui.succeed("  No contract violations")
 
     # Write YAML reference
     if fmt in ("yaml", "all"):
@@ -692,9 +692,9 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
 
         if changes_detected:
             file.write_text(reference_path, new_content)
-            ui.success("  Wrote " + reference_path)
+            ui.succeed("  Wrote " + reference_path)
         else:
-            ui.success("  No changes to reference.yaml")
+            ui.succeed("  No changes to reference.yaml")
 
     # Write markdown reference
     if fmt in ("md", "all"):
@@ -713,9 +713,9 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
 
         if md_changed:
             file.write_text(md_path, md_content)
-            ui.success("  Wrote " + md_path)
+            ui.succeed("  Wrote " + md_path)
         else:
-            ui.success("  No changes to reference.md")
+            ui.succeed("  No changes to reference.md")
 
 
 def _count_bindings(api):
@@ -996,7 +996,7 @@ def build_migration_knowledge(source, target):
             ui.error("  " + v["type"] + ": " + v["message"])
         fail("Fix contract violations before building knowledge")
 
-    ui.success("  No contract violations")
+    ui.succeed("  No contract violations")
 
     # Step 5: Generate/update systems reference file
     systems_ref = generate_systems_reference(source_systems, encryption_systems, repo_layers, platforms)
@@ -1015,9 +1015,9 @@ def build_migration_knowledge(source, target):
 
     if changes_detected:
         file.write_text(systems_ref_path, yaml.encode(systems_ref))
-        ui.success("  Wrote " + systems_ref_path)
+        ui.succeed("  Wrote " + systems_ref_path)
     else:
-        ui.success("  No changes to systems-reference.yaml")
+        ui.succeed("  No changes to systems-reference.yaml")
 
     # Step 6: Validate all signature files exist for source systems
     validate_signature_coverage(source_systems, signatures_path)
@@ -1146,9 +1146,9 @@ def generate_execution_schema(source, knowledge_path, execution):
 
     if changes_detected:
         file.write_text(engine_schema_path, new_content)
-        ui.success("  Wrote " + engine_schema_path)
+        ui.succeed("  Wrote " + engine_schema_path)
     else:
-        ui.success("  No changes to engine-graph.json")
+        ui.succeed("  No changes to engine-graph.json")
 
 
 def _field_to_json_schema(field):
@@ -1391,10 +1391,10 @@ def build_ops_knowledge(source, target):
 
         if changes_detected:
             file.write_text(mapping_path, mapping_yaml)
-            ui.success("  Wrote " + mapping_path)
+            ui.succeed("  Wrote " + mapping_path)
         else:
-            ui.success("  No changes to " + mapping_file)
+            ui.succeed("  No changes to " + mapping_file)
 
         generated += 1
 
-    ui.success("  Generated mappings for " + str(generated) + " service(s)")
+    ui.succeed("  Generated mappings for " + str(generated) + " service(s)")

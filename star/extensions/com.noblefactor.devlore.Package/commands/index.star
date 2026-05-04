@@ -161,7 +161,7 @@ def run(command, ctx):
     index = build_index(packages)
     index_path = file.join(packages_dir, "index.yaml")
     file.write_text(index_path, yaml.encode(index))
-    ui.success("Wrote: " + index_path)
+    ui.succeed("Wrote: " + index_path)
 
     # Build and write cross-reference
     xref = build_package_resolution(packages)
@@ -174,7 +174,7 @@ def run(command, ctx):
 
     if total_mappings > 0:
         file.write_text(xref_path, yaml.encode(xref))
-        ui.success("Wrote: " + xref_path)
+        ui.succeed("Wrote: " + xref_path)
         ui.note(str(len(xref)) + " managers, " + str(total_mappings) + " mappings")
     else:
         ui.note("No cross-reference mappings found")

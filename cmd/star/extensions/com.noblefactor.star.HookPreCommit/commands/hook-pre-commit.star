@@ -27,7 +27,7 @@ def run(command, ctx):
 
     # Summary
     if len(failures) == 0:
-        ui.success("All pre-commit checks passed")
+        ui.succeed("All pre-commit checks passed")
     else:
         ui.fail("Pre-commit checks failed: " + ", ".join(failures))
 
