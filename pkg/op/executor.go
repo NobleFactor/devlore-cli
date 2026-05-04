@@ -19,8 +19,8 @@ var (
 
 // GraphExecutor executes action graphs.
 type GraphExecutor struct {
-	hooks *HookRegistry
-	spec  *RuntimeEnvironmentSpec
+	hooks       *HookRegistry
+	environment *RuntimeEnvironment
 }
 
 // NewGraphExecutor creates an executor with the given environment spec.
@@ -31,20 +31,8 @@ type GraphExecutor struct {
 // Returns:
 //   - *GraphExecutor: the configured executor.
 func NewGraphExecutor(spec *RuntimeEnvironmentSpec) *GraphExecutor {
-
 	assert.NotNil("spec", spec)
-
-	return &GraphExecutor{
-		spec: spec,
-	}
-}
-
-// newContext creates an execution RuntimeEnvironment from the executor's spec.
-//
-// Returns:
-//   - *RuntimeEnvironment: the execution context.
-func (e *GraphExecutor) newContext() *RuntimeEnvironment {
-	return e.spec.NewRuntimeEnvironment()
+	return &GraphExecutor{environment: spec.Build(context.Background())}
 }
 
 // SetHooks sets the lifecycle hook registry for this executor.
@@ -72,11 +60,9 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 		return nil, fmt.Errorf("graph already executed (state: %s)", graph.State)
 	}
 
-	ctx := e.newContext()
-
 	var err error
-	defer iox.Close(&err, ctx.Root)
-	graph.Rebind(ctx)
+	defer iox.Close(&err, e.environment.Root)
+	graph.Rebind(e.environment)
 
 	// Pre-flight resolution pass. Iterate the catalog's discovery entries and
 	// fail fast if any source resource does not exist on the target machine.
@@ -88,17 +74,17 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 	//
 	// Skipped in dry-run mode: dry-run validates graph structure without
 	// asserting target-machine state.
-	if !ctx.DryRun {
+	if !e.environment.DryRun {
 		if err = ResolveResources(graph.Catalog); err != nil {
 			graph.State = StateFailed
 			return nil, err
 		}
 	}
 
-	ctx.Results = make(map[string]any)
+	e.environment.Results = make(map[string]any)
 	stack := NewRecoveryStack()
 
-	result, err := graph.dispatch(ctx.Context, e, stack, graph.Root, ctx.Results, nil)
+	result, err := graph.dispatch(e.environment.Context, e, stack, graph.Root, e.environment.Results, nil)
 
 	summary := graph.Summary()
 
@@ -223,8 +209,8 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 			delay := sg.Retry.ComputeDelay(attempt - 1)
 			if delay > 0 {
 				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
+				case <-ec.Context.Done():
+					return nil, ec.Context.Err()
 				case <-time.After(delay):
 				}
 			}

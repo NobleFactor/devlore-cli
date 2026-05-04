@@ -38,24 +38,10 @@ type Runtime struct {
 //   - *Runtime: the initialized runtime.
 func NewRuntime(cfg *op.RuntimeEnvironmentSpec) *Runtime {
 
-	ctx := op.RuntimeEnvironment{
-		Context:     context.Background(),
-		ProgramName: cfg.ProgramName,
-		Registry:    cfg.Registry,
-		Writer:      cfg.Writer,
-		Root:        cfg.Root,
-		Data:        cfg.Data,
-		DryRun:      cfg.DryRun,
-		Platform:    op.NewPlatform(),
-		Sops:        cfg.Sops,
-	}
-
-	if ctx.Root != nil {
-		ctx.RecoverySite = op.NewRecoverySite(&ctx)
-	}
+	ctx := cfg.Build(context.Background())
 
 	runtime := &Runtime{
-		ctx:      &ctx,
+		ctx:      ctx,
 		cache:    make(map[string]*loaderEntry),
 		modules:  cfg.Modules,
 		registry: cfg.Registry,
@@ -158,6 +144,14 @@ func (rt *Runtime) Modules() []op.ProviderReceiverType {
 func (rt *Runtime) Registry() *op.ReceiverRegistry {
 
 	return rt.registry
+}
+
+// ExecutionContext returns the runtime environment context.
+//
+// Returns:
+//   - *op.RuntimeEnvironment: the environment.
+func (rt *Runtime) ExecutionContext() *op.RuntimeEnvironment {
+	return rt.ctx
 }
 
 // Predeclared returns the cached predeclared starlark globals dict built from the selected modules.

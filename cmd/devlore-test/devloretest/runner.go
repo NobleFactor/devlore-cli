@@ -137,7 +137,9 @@ func NewRunner(script string, opts ...Option) *Runner {
 //   - *Result: the test outcome with pass/fail status and failures.
 //   - error: non-nil if script loading or graph execution fails unexpectedly.
 func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
+
 	// 1. Create temp directory
+
 	tmpDir, err := os.MkdirTemp("", "devlore-test-*")
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
@@ -145,6 +147,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	defer func() { _ = os.RemoveAll(tmpDir) }() //nolint:errcheck // best-effort cleanup
 
 	// 2. Create ReceiverRegistry and Spec
+
 	reg := op.NewReceiverRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer iox.Close(&err, root)
@@ -155,34 +158,42 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		WithWriter(r.writer).
 		WithDryRun(r.dryRun)
 
-	graph := op.NewGraph(spec.NewRuntimeEnvironment())
+	runtimeEnvironment := spec.Build(ctx)
+	graph := op.NewGraph(runtimeEnvironment)
 	r.graph = graph
 
 	// 3. Create Runtime with graph in Data so the plan provider can find it
+
 	spec.WithData(map[string]any{"graph": graph})
 	bs := starlarkbridge.NewRuntime(spec)
 
 	// 4. Build Starlark globals
 	globals := bs.Predeclared()
 
-	// 7. Create TestContext rooted at .devlore/tmp/ under tmpDir
+	// 5. Create TestContext rooted at .devlore/tmp/ under tmpDir
+
 	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
+
 	if err := os.MkdirAll(testTmpDir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating test tmp dir: %w", err)
 	}
+
 	tc := NewTestContext(testTmpDir, root)
 	globals["t"] = tc.StarlarkValue()
 
-	// 8. Set up tracer
+	// 6. Set up tracer
+
 	tracer := NewTracer(r.trace)
 
-	// 9. Configure thread
+	// 7. Configure thread
+
 	thread := &starlark.Thread{
 		Name:  "devlore-test",
 		Print: tracer.PrintHandler(),
 	}
 
-	// 10. Read and execute .star script
+	// 8. Read and execute .star script
+
 	scriptData, err := os.ReadFile(r.script)
 	if err != nil {
 		return nil, fmt.Errorf("reading script %s: %w", r.script, err)
@@ -208,10 +219,12 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		return nil, fmt.Errorf("executing script: %w", err)
 	}
 
-	// 11. Wrap unphased nodes in a main phase for saga-pattern compensation.
+	// 9. Wrap nodes in a main phase for saga-pattern compensation.
+
 	wrapUngroupedNodes(graph)
 
-	// 12. Execute graph
+	// 10. Execute graph
+
 	executor := op.NewGraphExecutor(spec)
 
 	if tracer.Enabled() {
@@ -228,7 +241,8 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		}
 	}
 
-	// 14. Check expectations
+	// 11. Check expectations
+
 	return r.buildResult(graph, tc, tracer, execErr), nil
 }
 

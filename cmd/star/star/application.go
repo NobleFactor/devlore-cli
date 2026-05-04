@@ -54,11 +54,7 @@ func NewApplication() *Application {
 	star := starlarkbridge.NewRuntime(cfg)
 
 	// UIProvider is exposed for --silent flag wiring in main.
-	uip := &ui.Provider{
-		Writer:      os.Stderr,
-		ProgramName: "star",
-		Color:       true,
-	}
+	uip := ui.NewProvider(star.ExecutionContext())
 
 	rt := &Application{
 		registry:   NewExtensionRegistry(),
