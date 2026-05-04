@@ -255,6 +255,14 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		sv := values[i]
 
 		if sv == nil {
+			// Truly absent kwarg — fill from the parameter's directive default if one exists. Default values
+			// arrive at slot-fill time at the parameter's Go type exactly (parseDefaultExpression widens via
+			// reflect.Value.Convert), so bypass fillSlot's starlark conversion and write op.ImmediateValue
+			// directly. Explicit starlark.None has its own None-skip path through fillSlot below — defaults
+			// never override caller intent.
+			if slot.Parameter.Default != nil {
+				node.SetSlot(slot.Parameter.Name, op.ImmediateValue{Value: slot.Parameter.Default})
+			}
 			continue
 		}
 

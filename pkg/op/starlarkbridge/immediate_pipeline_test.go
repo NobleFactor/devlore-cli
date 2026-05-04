@@ -270,4 +270,24 @@ func TestImmediatePipeline_UnexpectedKwarg(t *testing.T) {
 	}
 }
 
+// TestImmediatePipeline_DirectiveDefault verifies 13.0(f) step 11 in immediate-mode: a call that omits a
+// defaulted kwarg flows the directive's default through to the underlying Go method. The provider announces
+// EchoMode with "mode?=0o755"; calling without mode must invoke EchoMode with os.FileMode(0o755), which the
+// method returns as a uint32 for assertion.
+func TestImmediatePipeline_DirectiveDefault(t *testing.T) {
+
+	w, _ := makeImmediateReceiver(t)
+
+	got := callBuiltin(t, w, "echo_mode")
+
+	n, ok := got.(starlark.Int)
+	if !ok {
+		t.Fatalf("got %T, want starlark.Int", got)
+	}
+	v, _ := n.Uint64()
+	if v != 0o755 {
+		t.Errorf("default mode = %o, want 0o755", v)
+	}
+}
+
 // endregion

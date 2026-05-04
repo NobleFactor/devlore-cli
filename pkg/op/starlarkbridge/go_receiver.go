@@ -668,6 +668,7 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 
 	var namedParams []string
 	var namedOptional []bool
+	var namedDefaults []any
 	var variadicName string
 	var variadicIdx int
 	var kwargsName string
@@ -684,6 +685,7 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 		default:
 			namedParams = append(namedParams, p.Name)
 			namedOptional = append(namedOptional, p.Optional)
+			namedDefaults = append(namedDefaults, p.Default)
 		}
 	}
 
@@ -758,6 +760,12 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 	for i, sv := range vals {
 
 		if sv == nil {
+			// Truly absent kwarg — fill from the parameter's directive default if one exists. Defaults arrive
+			// at the parameter's Go type exactly (parseDefaultExpression widens via reflect.Value.Convert), so
+			// the value can be inserted into the slots map directly with no further conversion.
+			if namedDefaults[i] != nil {
+				slots[namedParams[i]] = namedDefaults[i]
+			}
 			continue
 		}
 

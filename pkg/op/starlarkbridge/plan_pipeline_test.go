@@ -4,6 +4,7 @@
 package starlarkbridge
 
 import (
+	"os"
 	"reflect"
 	"testing"
 
@@ -65,6 +66,11 @@ func (p *pipelineProvider) EchoOptional(label string) (string, error) {
 	return label, nil
 }
 
+// EchoMode accepts an [os.FileMode] parameter and returns it as the natural uint32. Drives the
+// directive-default integration tests (announced as "mode?=0o755") — when the kwarg is omitted, slot-fill
+// must reach the announced default and the method receives os.FileMode(0o755) at the parameter's exact type.
+func (p *pipelineProvider) EchoMode(mode os.FileMode) (uint32, error) { return uint32(mode), nil }
+
 // init registers pipelineProvider at test-binary load time. Lives alongside pipelineResource registration in
 // starlark_to_go_typed_test.go's init.
 func init() {
@@ -79,6 +85,7 @@ func init() {
 			"EchoVariadic": {"*items"},
 			"EchoKwargs":   {"**opts"},
 			"EchoOptional": {"label?"},
+			"EchoMode":     {"mode?=0o755"},
 		},
 	)
 }
@@ -324,6 +331,45 @@ func TestPlanPipeline_TwoCallsSameURI_SameCanonical(t *testing.T) {
 	// Catalog should have exactly one entry for the URI.
 	if id := ctx.Catalog.Current(r1.URI()); id == "" {
 		t.Errorf("catalog has no entry for URI")
+	}
+}
+
+// TestPlanPipeline_DirectiveDefault verifies 13.0(f) step 11: a plan-mode call that omits a defaulted
+// kwarg lands the directive's default value on the slot at the parameter's Go type exactly. The provider
+// announces EchoMode with "mode?=0o755"; calling without mode must populate the slot with
+// os.FileMode(0o755) via op.ImmediateValue, bypassing the starlark-conversion fillSlot path.
+func TestPlanPipeline_DirectiveDefault(t *testing.T) {
+
+	nb, _ := makePlanNodeBuilder(t)
+
+	attr, err := nb.Attr("echo_mode")
+	if err != nil {
+		t.Fatalf("Attr(echo_mode): %v", err)
+	}
+	builtin := attr.(*starlark.Builtin)
+
+	thread := &starlark.Thread{}
+	result, err := starlark.Call(thread, builtin, nil, nil)
+	if err != nil {
+		t.Fatalf("starlark.Call: %v", err)
+	}
+
+	inv, ok := result.(*Invocation)
+	if !ok {
+		t.Fatalf("got %T, want *Invocation", result)
+	}
+
+	slot := inv.Target.(*op.Node).SlotByName("mode")
+	if slot == nil {
+		t.Fatalf("slot \"mode\" missing on target node")
+	}
+
+	got, ok := slot.Immediate().(os.FileMode)
+	if !ok {
+		t.Fatalf("slot value: got %T, want os.FileMode", slot.Immediate())
+	}
+	if got != os.FileMode(0o755) {
+		t.Errorf("default mode = %o, want 0o755", got)
 	}
 }
 
