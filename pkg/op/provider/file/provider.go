@@ -92,6 +92,10 @@ func (p *Provider) CompensateBackup(receipt *Receipt) error {
 // Copy copies source's contents to a new file at destinationPath with the given mode.
 func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
+	if mode == 0 { // HACK: pending 13.0(f) step 12 (umask deferred-default); delete when directive lands.
+		mode = 0o644
+	}
+
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
@@ -196,6 +200,10 @@ func (p *Provider) CompensateLink(receipt *Receipt) error {
 
 // Mkdir creates a directory (and any missing parents) with the given mode.
 func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
+
+	if mode == 0 { // HACK: pending 13.0(f) step 12 (umask deferred-default); delete when directive lands.
+		mode = 0o755
+	}
 
 	product, err = NewResource(p.RuntimeEnvironment(), path)
 	if err != nil {
@@ -557,6 +565,10 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 // WriteBytes writes inline byte content to a file.
 func (p *Provider) WriteBytes(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
 
+	if mode == 0 { // HACK: pending 13.0(f) step 12 (umask deferred-default); delete when directive lands.
+		mode = 0o644
+	}
+
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
@@ -572,6 +584,10 @@ func (p *Provider) CompensateWriteBytes(receipt *Receipt) error {
 
 // WriteText writes inline content to a file.
 func (p *Provider) WriteText(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
+
+	if mode == 0 { // HACK: pending 13.0(f) step 12 (umask deferred-default); delete when directive lands.
+		mode = 0o644
+	}
 
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
