@@ -34,10 +34,10 @@ func providerReceiverType(t *testing.T) op.ProviderReceiverType {
 }
 
 // newCtx creates a test context with a buffer writer.
-func newCtx(t *testing.T) *op.RuntimeEnvironment {
+func newCtx(t *testing.T) *op.ExecutionContext {
 
 	t.Helper()
-	return &op.RuntimeEnvironment{
+	return &op.ExecutionContext{
 		Context:  context.Background(),
 		Writer:   &bytes.Buffer{},
 		Registry: op.NewReceiverRegistry(),
@@ -45,10 +45,10 @@ func newCtx(t *testing.T) *op.RuntimeEnvironment {
 }
 
 // dryRunCtx creates a test context with DryRun enabled.
-func dryRunCtx(t *testing.T) *op.RuntimeEnvironment {
+func dryRunCtx(t *testing.T) *op.ExecutionContext {
 
 	t.Helper()
-	return &op.RuntimeEnvironment{
+	return &op.ExecutionContext{
 		Context:  context.Background(),
 		DryRun:   true,
 		Writer:   &bytes.Buffer{},
@@ -63,11 +63,11 @@ func makeRegistry(t *testing.T) *op.ReceiverRegistry {
 	return op.NewReceiverRegistry()
 }
 
-// getAction retrieves a named action from the registry via RuntimeEnvironment.
+// getAction retrieves a named action from the registry via ExecutionContext.
 func getAction(t *testing.T, reg *op.ReceiverRegistry, name string) op.Action {
 
 	t.Helper()
-	ctx := &op.RuntimeEnvironment{Registry: reg}
+	ctx := &op.ExecutionContext{Registry: reg}
 	a, err := ctx.ActionByName(name)
 	if err != nil {
 		t.Fatalf("action %q not registered: %v", name, err)
@@ -108,11 +108,13 @@ func TestReceiverType_Methods(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	expected := []string{
-		"Error",
+		"SetSilent",
 		"Note",
-		"Success",
 		"Warn",
+		"Error",
+		"Succeed",
 		"Fail",
+		"Print",
 	}
 
 	var got []string
