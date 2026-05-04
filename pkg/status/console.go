@@ -58,10 +58,10 @@ var _ UI = (*Console)(nil)
 //   - *Console: the constructed value, ready to install on a runtime environment spec.
 func NewConsole(writer io.Writer, programName string, color, silent bool) *Console {
 	return &Console{
+		writer:      writer,
 		programName: programName,
 		color:       color,
 		silent:      silent,
-		writer:      writer,
 	}
 }
 
