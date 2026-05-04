@@ -16,8 +16,8 @@ func init() {
 	op.AnnounceType(reflect.TypeFor[provider.Sources](), map[string][]string{
 		"Paths":   {},
 		"Count":   {},
-		"Index":   {"with_docstrings?", "with_globals?"},
-		"Stats":   {"with_bytes?", "with_loc?"},
+		"Index":   {"with_docstrings?=true", "with_globals?=true"},
+		"Stats":   {"with_bytes?=true", "with_loc?=true"},
 		"Analyze": {"cfg?"},
 	})
 }

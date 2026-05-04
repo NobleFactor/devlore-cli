@@ -17,9 +17,9 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Go":          {"paths?", "config?", "skip_mod_tidy?"},
-			"Shell":       {"files?", "severity?", "indent?"},
-			"Markdown":    {"files?", "fix?"},
+			"Go":          {"paths?", "config?=\"\"", "skip_mod_tidy?=false"},
+			"Shell":       {"files?", "severity?=\"warning\"", "indent?=0"},
+			"Markdown":    {"files?", "fix?=false"},
 			"EnsureTools": {},
 		})
 }

@@ -17,8 +17,8 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Lint":       {"path", "severity?"},
-			"Format":     {"path", "indent?", "fix?"},
+			"Lint":       {"path", "severity?=\"warning\""},
+			"Format":     {"path", "indent?=0", "fix?=false"},
 			"Parse":      {"path"},
 			"Complexity": {"path"},
 		})

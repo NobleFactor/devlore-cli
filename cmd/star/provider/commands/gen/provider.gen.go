@@ -20,7 +20,7 @@ func init() {
 			"Current":  {},
 			"Parent":   {},
 			"Siblings": {},
-			"Children": {"parent?"},
+			"Children": {"parent?=\"\""},
 			"Query":    {"pattern"},
 			"Get":      {"name"},
 			"Run":      {"name", "flags"},

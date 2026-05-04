@@ -17,6 +17,6 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Capture": {"pattern", "gitignore?", "include_bzl?"},
+			"Capture": {"pattern", "gitignore?=true", "include_bzl?=true"},
 		})
 }
