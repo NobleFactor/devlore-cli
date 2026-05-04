@@ -10,10 +10,151 @@ import (
 	"sync"
 )
 
-var (
-	announcedReceiverTypes = make(map[string]ReceiverType)
-	mutex                  = sync.Mutex{}
-)
+// announcements is the package-level registry of all init-time announcements: receiver types (providers,
+// resources, types) and deferred-default functions.
+//
+// One singleton instance, [announced], is the canonical declaration registry. All Announce* and Register*
+// entry points wrap announcements method calls; all snapshot consumers ([NewReceiverRegistry],
+// [RuntimeEnvironmentSpec.Build], parseDeferred) read through methods. Direct access to the maps from outside
+// the type is forbidden — methods are the only path so the mutex contract is local and auditable.
+//
+// The shared mutex serializes both write sets (receiver type + DefaultFunc) and all snapshot reads against
+// each other. Init-time registration is single-threaded in practice, but the mutex is cheap insurance against
+// test fixtures and any future runtime-registration paths.
+type announcements struct {
+	mu            sync.Mutex
+	receiverTypes map[string]ReceiverType
+	defaultFuncs  map[string]DefaultFunc
+}
+
+// announced is the package singleton. Construction at package init only — no other instance is ever produced
+// and the type is unexported precisely to enforce that.
+var announced = &announcements{
+	receiverTypes: make(map[string]ReceiverType),
+	defaultFuncs:  make(map[string]DefaultFunc),
+}
+
+// parseFuncStub is the no-op closure shared across all [announcements.validatorStub] entries.
+// [text/template/parse.Parse] only inspects map values for `reflect.Kind == Func`, never invokes them, so
+// identity sharing is safe.
+var parseFuncStub = func() {}
+
+// region UNEXPORTED METHODS — announcements
+
+// region State management
+
+// registerReceiverType inserts rt into the receiver-type map under rt.Name().
+//
+// Parameters:
+//   - rt: the receiver type to register; rt.Name() is the registry key.
+//
+// Returns:
+//   - error: non-nil iff a receiver type is already registered under the same name.
+func (a *announcements) registerReceiverType(rt ReceiverType) error {
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	name := rt.Name()
+	if _, exists := a.receiverTypes[name]; exists {
+		return fmt.Errorf("%q already announced", name)
+	}
+	a.receiverTypes[name] = rt
+	return nil
+}
+
+// registerDefaultFunc inserts fn into the default-function map under the given name.
+//
+// Parameters:
+//   - name: the identifier as it appears in directive expressions (`{{ name args }}`).
+//   - fn:   the function to invoke at slot-fill time. Must be non-nil.
+//
+// Returns:
+//   - error: non-nil if name is empty, fn is nil, or name is already registered.
+func (a *announcements) registerDefaultFunc(name string, fn DefaultFunc) error {
+
+	if name == "" {
+		return fmt.Errorf("empty name")
+	}
+	if fn == nil {
+		return fmt.Errorf("%q: nil function", name)
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if _, exists := a.defaultFuncs[name]; exists {
+		return fmt.Errorf("%q already registered", name)
+	}
+	a.defaultFuncs[name] = fn
+	return nil
+}
+
+// endregion
+
+// region Behaviors
+
+// snapshotReceiverTypes returns a freshly-allocated slice of all announced receiver types, suitable for
+// [ReceiverRegistry.init] to iterate and classify.
+//
+// Returns:
+//   - []ReceiverType: snapshot in arbitrary order; caller sorts or classifies as needed.
+func (a *announcements) snapshotReceiverTypes() []ReceiverType {
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	out := make([]ReceiverType, 0, len(a.receiverTypes))
+	for _, rt := range a.receiverTypes {
+		out = append(out, rt)
+	}
+	return out
+}
+
+// defaultFunc returns the DefaultFunc registered under name.
+//
+// Slot-fill reads through this accessor on every `{{ funcname args }}` command in a deferred default.
+// The funcmap is a process-singleton — defaults belong to the provider/resource definition (declared
+// at the directive site by the package author), not to any per-runtime state, so the lookup is
+// against the package-level [announced] registry directly. Validator stubs built at parse time
+// already gate unknown names from reaching slot-fill; the bool return is defensive against
+// runtime-registration races, not the primary check.
+//
+// Parameters:
+//   - name: the identifier as it appears in directive expressions (`{{ name args }}`).
+//
+// Returns:
+//   - DefaultFunc: the registered function, or nil if name is not registered.
+//   - bool:        true iff name was found.
+func (a *announcements) defaultFunc(name string) (DefaultFunc, bool) {
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	fn, ok := a.defaultFuncs[name]
+	return fn, ok
+}
+
+// validatorStub returns a fresh map[string]any whose keys mirror the default-function registry and whose
+// values are func-kind no-ops accepted by [text/template/parse.Parse] for identifier-resolution checks.
+//
+// Returns:
+//   - map[string]any: parser-friendly stub map keyed by registered identifier.
+func (a *announcements) validatorStub() map[string]any {
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	out := make(map[string]any, len(a.defaultFuncs))
+	for name := range a.defaultFuncs {
+		out[name] = parseFuncStub
+	}
+	return out
+}
+
+// endregion
+
+// endregion
 
 // AnnounceProvider registers a provider with its roles.
 //
@@ -44,9 +185,9 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
 	}
 
-	mutex.Lock()
-	defer mutex.Unlock()
-	announcedReceiverTypes[rt.Name()] = rt
+	if err := announced.registerReceiverType(rt); err != nil {
+		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
+	}
 }
 
 // AnnounceResource registers a resource type.
@@ -74,9 +215,9 @@ func AnnounceResource(
 		panic(fmt.Sprintf("AnnounceResource(%s): %v", resourceType, err))
 	}
 
-	mutex.Lock()
-	defer mutex.Unlock()
-	announcedReceiverTypes[rt.Name()] = rt
+	if err := announced.registerReceiverType(rt); err != nil {
+		panic(fmt.Sprintf("AnnounceResource(%s): %v", resourceType, err))
+	}
 }
 
 // AnnounceType registers a bare receiver type for an arbitrary Go struct.
@@ -100,9 +241,9 @@ func AnnounceType(goType reflect.Type, methodParameters map[string][]string) {
 		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
 	}
 
-	mutex.Lock()
-	defer mutex.Unlock()
-	announcedReceiverTypes[base.Name()] = &base
+	if err := announced.registerReceiverType(&base); err != nil {
+		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
+	}
 }
 
 // ReceiverRegistry stores receiver types in four sorted lists plus cross-cutting lookup maps.
@@ -389,16 +530,7 @@ func (r *ReceiverRegistry) ResourceByName(name string) (ResourceReceiverType, bo
 // init populates the registry from all announced receivers.
 func (r *ReceiverRegistry) init() {
 
-	mutex.Lock()
-
-	types := make([]ReceiverType, 0, len(announcedReceiverTypes))
-	for _, rt := range announcedReceiverTypes {
-		types = append(types, rt)
-	}
-
-	mutex.Unlock()
-
-	for _, rt := range types {
+	for _, rt := range announced.snapshotReceiverTypes() {
 		r.register(rt)
 	}
 }
