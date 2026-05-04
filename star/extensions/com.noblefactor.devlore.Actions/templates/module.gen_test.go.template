@@ -8,6 +8,8 @@ package {{.package}}_test
 import (
 	"testing"
 
+	"go.starlark.net/starlark"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
@@ -60,10 +62,12 @@ func TestModule_Attr(t *testing.T) {
 
 func TestModule_Attr_Unknown(t *testing.T) {
 
+	var r starlark.HasAttrs
+	var err error
 {{- if eq .access "immediate"}}
-	r := starlarkbridge.NewProvider(providerReceiverType(t), {{.provider_type_prefix}}NewProvider(newCtx(t)))
+	r = starlarkbridge.NewProvider(providerReceiverType(t), {{.provider_type_prefix}}NewProvider(newCtx(t)))
 {{- else}}
-	r, err := starlarkbridge.NewGoReceiver({{.provider_type_prefix}}NewProvider(newCtx(t)))
+	r, err = starlarkbridge.NewGoReceiver({{.provider_type_prefix}}NewProvider(newCtx(t)))
 	if err != nil {
 		t.Fatalf("NewGoReceiver: %v", err)
 	}
