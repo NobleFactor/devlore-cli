@@ -4,17 +4,10 @@
 package op
 
 import (
-	"context"
-	"fmt"
-	"io"
-	"os"
-
-	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 	"github.com/NobleFactor/devlore-cli/pkg/result"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
-	"go.starlark.net/starlark"
 )
 
 // ConflictResolution specifies how to handle conflicts during execution.
@@ -51,14 +44,33 @@ type RuntimeEnvironmentSpec struct {
 	// Registry is the receiver type registry.
 	Registry *ReceiverRegistry
 
-	// Color enables ANSI color codes in output.
-	Color bool
+	// BackupSuffix is appended to backup filenames during conflict resolution.
+	//
+	// Defaults to ".<ProgramName>-backup" when empty.
+	BackupSuffix string
+
+	// ConflictResolution chooses how to handle preflight conflicts.
+	// Zero value is ResolutionStop.
+	ConflictResolution ConflictResolution
 
 	// Data holds tool-provided context: template variables, identities, segment maps, etc.
 	Data map[string]any
 
 	// DryRun prevents filesystem modifications when true.
 	DryRun bool
+
+	// Platform classifies the host (OS, arch, distro, version) and gives access to the managers available to providers.
+	//
+	// Construct via [platform.Linux] / [platform.Darwin] / [platform.Windows] for explicit fixtures or via
+	// [platform.Detect] for host detection.
+	Platform platform.Platform
+
+	// Result is the primary output sink.
+	//
+	// Carries structured data destined for the user or downstream tooling (JSON / YAML / CSV / template). Same instance
+	// flows from the client's bootstrap into the runtime environment. When zero, [RuntimeEnvironmentSpec.Build]
+	// defaults to [result.UnconfiguredSink] which errors loudly on every Emit.
+	Result result.Sink
 
 	// Root provides scoped filesystem operations for providers.
 	Root Root
@@ -68,36 +80,11 @@ type RuntimeEnvironmentSpec struct {
 	// No Nil when SOPS is not configured.
 	Sops *sops.Client
 
-	// Writer is the output destination for immediate receivers (e.g., ui.note).
+	// Status is the user-facing side-channel UI. Carries categorized status messages and starlark `print()` output.
 	//
-	// Defaults to os.Stderr.
-	Writer io.Writer
-
-	// BackupSuffix is appended to backup filenames during conflict resolution.
-	// Defaults to ".<ProgramName>-backup" when empty.
-	BackupSuffix string
-
-	// ConflictResolution chooses how to handle preflight conflicts.
-	// Zero value is ResolutionStop.
-	ConflictResolution ConflictResolution
-
-	// Status is the user-facing side-channel UI. Carries categorized status messages and starlark
-	// `print()` output. Same instance flows from the client's bootstrap into the runtime
-	// environment. When zero, [RuntimeEnvironmentSpec.Build] defaults to [status.NoOp].
-	Status status.UI
-
-	// Result is the primary output sink. Carries structured data destined for the user or
-	// downstream tooling (JSON / YAML / CSV / template). Same instance flows from the client's
-	// bootstrap into the runtime environment. When zero, [RuntimeEnvironmentSpec.Build] defaults to
-	// [result.UnconfiguredSink] which errors loudly on every Emit.
-	Result result.Sink
-
-	// Platform is the interface-typed platform capability — host classification (OS, arch, distro,
-	// version) plus the package and service managers available to providers. Construct via
-	// [platform.Linux] / [platform.Darwin] / [platform.Windows] for explicit fixtures or via
-	// [platform.Detect] for host detection. Replaces the legacy `*op.Platform` struct on the
-	// runtime environment as callers migrate.
-	Platform platform.Platform
+	// Same instance flows from the client's bootstrap into the runtime environment. When zero,
+	// [RuntimeEnvironmentSpec.Build] defaults to [status.Discard].
+	Status status.Sink
 }
 
 // NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name and registry.
@@ -109,12 +96,10 @@ type RuntimeEnvironmentSpec struct {
 // Returns:
 //   - *RuntimeEnvironmentSpec: the initialized config.
 func NewRuntimeEnvironmentSpec(programName string, registry *ReceiverRegistry) *RuntimeEnvironmentSpec {
-
 	return &RuntimeEnvironmentSpec{
 		ProgramName: programName,
 		Registry:    registry,
-		Writer:      os.Stderr,
-		Status:      status.NoOp{},
+		Status:      status.Discard{},
 		Result:      result.UnconfiguredSink{},
 	}
 }
@@ -123,24 +108,27 @@ func NewRuntimeEnvironmentSpec(programName string, registry *ReceiverRegistry) *
 
 // region State management
 
-// WithModules sets the modules to expose as Starlark globals.
+// WithBackupSuffix sets the backup filename suffix.
 //
 // Parameters:
-//   - modules: the selected provider receiver types.
+//   - suffix: the suffix (e.g. ".bak").
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithModules(modules ...ProviderReceiverType) *RuntimeEnvironmentSpec {
-	c.Modules = modules
+func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnvironmentSpec {
+	c.BackupSuffix = suffix
 	return c
 }
 
-// WithColor enables ANSI color codes in output.
+// WithConflictResolution sets the conflict resolution strategy.
+//
+// Parameters:
+//   - res: the resolution strategy.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithColor() *RuntimeEnvironmentSpec {
-	c.Color = true
+func (c *RuntimeEnvironmentSpec) WithConflictResolution(res ConflictResolution) *RuntimeEnvironmentSpec {
+	c.ConflictResolution = res
 	return c
 }
 
@@ -168,6 +156,43 @@ func (c *RuntimeEnvironmentSpec) WithDryRun(value bool) *RuntimeEnvironmentSpec 
 	return c
 }
 
+// WithModules sets the modules to expose as Starlark globals.
+//
+// Parameters:
+//   - modules: the selected provider receiver types.
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithModules(modules ...ProviderReceiverType) *RuntimeEnvironmentSpec {
+	c.Modules = modules
+	return c
+}
+
+// WithPlatform sets the interface-typed platform capability for the constructed runtime environment.
+//
+// Parameters:
+//   - p: the [platform.Platform] instance — construct via [platform.Linux] / [platform.Darwin] /
+//     [platform.Windows] for explicit fixtures or via [platform.Detect] for host detection.
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithPlatform(p platform.Platform) *RuntimeEnvironmentSpec {
+	c.Platform = p
+	return c
+}
+
+// WithResult sets the primary output sink for the constructed runtime environment.
+//
+// Parameters:
+//   - sink: the [result.Sink] instance — typically constructed via [result.NewPipeline].
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithResult(sink result.Sink) *RuntimeEnvironmentSpec {
+	c.Result = sink
+	return c
+}
+
 // WithRoot sets the scoped filesystem root for provider I/O.
 //
 // Parameters:
@@ -192,140 +217,16 @@ func (c *RuntimeEnvironmentSpec) WithSops(client *sops.Client) *RuntimeEnvironme
 	return c
 }
 
-// WithWriter sets the output destination for immediate receivers.
-//
-// Parameters:
-//   - w: the output writer.
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithWriter(w io.Writer) *RuntimeEnvironmentSpec {
-	c.Writer = w
-	return c
-}
-
-// WithBackupSuffix sets the backup filename suffix.
-//
-// Parameters:
-//   - suffix: the suffix (e.g. ".bak").
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnvironmentSpec {
-	c.BackupSuffix = suffix
-	return c
-}
-
-// WithConflictResolution sets the conflict resolution strategy.
-//
-// Parameters:
-//   - res: the resolution strategy.
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithConflictResolution(res ConflictResolution) *RuntimeEnvironmentSpec {
-	c.ConflictResolution = res
-	return c
-}
-
 // WithStatus sets the side-channel UI for the constructed runtime environment.
 //
 // Parameters:
-//   - ui: the [status.UI] instance — typically the same one held by the cli facade via [cli.SetUI].
+//   - ui: the [status.Sink] instance — typically the same one held by the cli facade via [cli.SetUI].
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithStatus(ui status.UI) *RuntimeEnvironmentSpec {
+func (c *RuntimeEnvironmentSpec) WithStatus(ui status.Sink) *RuntimeEnvironmentSpec {
 	c.Status = ui
 	return c
-}
-
-// WithResult sets the primary output sink for the constructed runtime environment.
-//
-// Parameters:
-//   - sink: the [result.Sink] instance — typically constructed via [result.NewPipeline].
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithResult(sink result.Sink) *RuntimeEnvironmentSpec {
-	c.Result = sink
-	return c
-}
-
-// WithPlatform sets the interface-typed platform capability for the constructed runtime environment.
-//
-// Parameters:
-//   - p: the [platform.Platform] instance — construct via [platform.Linux] / [platform.Darwin] /
-//     [platform.Windows] for explicit fixtures or via [platform.Detect] for host detection.
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithPlatform(p platform.Platform) *RuntimeEnvironmentSpec {
-	c.Platform = p
-	return c
-}
-
-// NewRuntimeEnvironment constructs a fully-populated [RuntimeEnvironment] from this spec.
-//
-// It performs defaulting (Writer → os.Stderr, BackupSuffix → ".<ProgramName>-backup"), constructs the
-// [starlark.Thread], initializes the [Platform], and wires the [RecoverySite] if a Root is present.
-//
-// Returns:
-//   - *RuntimeEnvironment: the constructed context.
-func (c *RuntimeEnvironmentSpec) Build(ctx context.Context) *RuntimeEnvironment {
-
-	assert.NotNil("spec.Registry", c.Registry)
-
-	writer := c.Writer
-	if writer == nil {
-		writer = os.Stderr
-	}
-
-	backupSuffix := c.BackupSuffix
-	if backupSuffix == "" {
-		backupSuffix = "." + c.ProgramName + "-backup"
-	}
-
-	statusUI := c.Status
-	if statusUI == nil {
-		statusUI = status.NoOp{}
-	}
-
-	resultSink := c.Result
-	if resultSink == nil {
-		resultSink = result.UnconfiguredSink{}
-	}
-
-	env := &RuntimeEnvironment{
-		Context:            ctx,
-		ProgramName:        c.ProgramName,
-		Data:               c.Data,
-		DryRun:             c.DryRun,
-		Platform:           NewPlatform(),
-		Plat:               c.Platform,
-		Registry:           c.Registry,
-		Results:            make(map[string]any),
-		Root:               c.Root,
-		Sops:               c.Sops,
-		Status:             statusUI,
-		Result:             resultSink,
-		Writer:             writer,
-		BackupSuffix:       backupSuffix,
-		ConflictResolution: c.ConflictResolution,
-	}
-
-	env.Thread = starlark.Thread{
-		Name: c.ProgramName,
-		Print: func(_ *starlark.Thread, msg string) {
-			_, _ = fmt.Fprintln(writer, msg)
-		},
-	}
-
-	if c.Root != nil {
-		env.RecoverySite = NewRecoverySite(env)
-	}
-
-	return env
 }
 
 // endregion

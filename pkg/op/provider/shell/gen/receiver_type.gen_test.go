@@ -109,7 +109,6 @@ func TestReceiverType_Methods(t *testing.T) {
 	rt := providerReceiverType(t)
 	expected := []string{
 		"Exec",
-		"PowerShell",
 	}
 
 	var got []string

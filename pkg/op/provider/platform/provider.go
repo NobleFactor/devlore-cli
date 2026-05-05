@@ -36,8 +36,8 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 // Returns:
 //   - string: the architecture identifier, or "" if platform is nil.
 func (p *Provider) Arch() string {
-	if plat := p.RuntimeEnvironment().Platform; plat != nil {
-		return plat.Arch
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.Arch()
 	}
 	return ""
 }
@@ -47,8 +47,8 @@ func (p *Provider) Arch() string {
 // Returns:
 //   - string: the distribution name, or "" if unavailable or platform is nil.
 func (p *Provider) Distro() string {
-	if plat := p.RuntimeEnvironment().Platform; plat != nil {
-		return plat.Distro
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.Distro()
 	}
 	return ""
 }
@@ -58,8 +58,8 @@ func (p *Provider) Distro() string {
 // Returns:
 //   - string: the hostname, or "" if unavailable or platform is nil.
 func (p *Provider) Hostname() string {
-	if plat := p.RuntimeEnvironment().Platform; plat != nil {
-		return plat.Hostname
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.Hostname()
 	}
 	return ""
 }
@@ -69,8 +69,8 @@ func (p *Provider) Hostname() string {
 // Returns:
 //   - string: the OS identifier, or "" if platform is nil.
 func (p *Provider) OS() string {
-	if plat := p.RuntimeEnvironment().Platform; plat != nil {
-		return plat.OS
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.OS()
 	}
 	return ""
 }
@@ -80,8 +80,8 @@ func (p *Provider) OS() string {
 // Returns:
 //   - string: the version, or "" if unavailable or platform is nil.
 func (p *Provider) Version() string {
-	if plat := p.RuntimeEnvironment().Platform; plat != nil {
-		return plat.Version
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.Version()
 	}
 	return ""
 }

@@ -1378,8 +1378,8 @@ def emit_file(command, template_name, descriptor, filename, label, method_count,
         # without them the slot defaults to FileMode(0) and the written files become inaccessible.
         out_dir = file.parent(out_path)
         if not file.exists(out_dir):
-            file.mkdir(out_dir, mode = 0o755)
-        file.write_text(out_path, code, mode = 0o644)
+            file.mkdir(out_dir, chmod = 0o755)
+        file.write_text(out_path, code, chmod = 0o644)
         ui.succeed("Wrote " + out_path)
     else:
         ui.note("--- " + filename + " ---")

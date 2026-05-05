@@ -8,13 +8,14 @@ package platform_test
 import (
 	"testing"
 
+	"go.starlark.net/starlark"
+
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
 func TestModule_AttrNames(t *testing.T) {
-
 	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
 		t.Fatalf("NewGoReceiver: %v", err)
@@ -31,7 +32,6 @@ func TestModule_AttrNames(t *testing.T) {
 }
 
 func TestModule_Attr(t *testing.T) {
-
 	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
 		t.Fatalf("NewGoReceiver: %v", err)
@@ -50,7 +50,9 @@ func TestModule_Attr(t *testing.T) {
 
 func TestModule_Attr_Unknown(t *testing.T) {
 
-	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
+	var r starlark.HasAttrs
+	var err error
+	r, err = starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
 		t.Fatalf("NewGoReceiver: %v", err)
 	}
@@ -61,7 +63,6 @@ func TestModule_Attr_Unknown(t *testing.T) {
 }
 
 func TestModule_Type(t *testing.T) {
-
 	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
 		t.Fatalf("NewGoReceiver: %v", err)

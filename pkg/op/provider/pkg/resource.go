@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // NewResource creates a pkg.Resource from a value.
@@ -34,16 +35,16 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	// Parse optional manager prefix (e.g., "brew:jq", "port:wget").
 
-	var mgr op.PackageManager
+	var mgr platform.PackageManager
 
 	if prefix, after, ok := strings.Cut(raw, ":"); ok {
-		mgr = ctx.Platform.GetPackageManager(prefix)
+		mgr = ctx.Platform.PackageManagerByName(prefix)
 		if mgr == nil {
 			return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", prefix)
 		}
 		raw = after
 	} else {
-		mgr = ctx.Platform.PackageManager
+		mgr = ctx.Platform.DefaultPackageManager()
 	}
 
 	purl := mgr.ParsePURL(raw)
@@ -90,7 +91,7 @@ func (r *Resource) Resolve() error {
 		return nil
 	}
 
-	mgr := ctx.Platform.GetPackageManager(r.Type)
+	mgr := ctx.Platform.PackageManagerByName(r.Type)
 
 	if mgr == nil {
 		return nil

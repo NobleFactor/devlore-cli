@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 func resCtx(managerName string) *op.RuntimeEnvironment {
@@ -16,9 +17,9 @@ func resCtx(managerName string) *op.RuntimeEnvironment {
 		versions:  make(map[string]string),
 	}
 	return &op.RuntimeEnvironment{
-		Platform: &op.Platform{
-			PackageManager:  mgr,
-			PackageManagers: map[string]op.PackageManager{managerName: mgr},
+		Platform: &mockPlatform{
+			defaultPM: mgr,
+			available: map[string]platform.PackageManager{managerName: mgr},
 		},
 	}
 }

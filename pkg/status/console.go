@@ -26,14 +26,12 @@ const (
 	symbolSuccess = "✔"
 )
 
-// Console is the TTY-aware [UI] implementation.
+// Console is the TTY-aware [Sink] implementation.
 //
 // Categorized methods emit "[<programName>] [<colored symbol>] <msg>\n" to the configured writer; [Console.Print] emits
-// the raw message followed by a newline, with no decoration.
-//
-// All fields are unexported and set at construction by [NewConsole]; the value is immutable from the caller's
-// perspective. Mid-run silent toggling, color toggling, etc. require constructing a new Console and replacing the
-// runtime environment's Status reference.
+// the raw message followed by a newline, with no decoration. All fields are unexported and set at construction by
+// [NewConsole]; the value is immutable from the caller's perspective. Mid-run silent toggling, color toggling, etc.
+// require constructing a new Console and replacing the runtime environment's Status reference.
 type Console struct {
 	writer      io.Writer
 	programName string
@@ -42,7 +40,7 @@ type Console struct {
 }
 
 // Compile-time interface guard.
-var _ UI = (*Console)(nil)
+var _ Sink = (*Console)(nil)
 
 // NewConsole constructs an immutable [Console] writing to the specified `writer`.
 //

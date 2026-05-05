@@ -147,7 +147,7 @@ func BuildSink(opts SinkOptions, w io.Writer) (result.Sink, error) {
 // Status UI — package-global, set once at bootstrap
 // =============================================================================
 //
-// The package-global statusUI is the canonical [status.UI] for cli.Note /
+// The package-global statusUI is the canonical [status.Sink] for cli.Note /
 // cli.Warn / cli.Error / cli.Failure / cli.Success / cli.Print facades. The
 // same instance flows into RuntimeEnvironmentSpec.Status, so --silent and the
 // program-name prefix apply uniformly across the cli facades, the runtime
@@ -157,23 +157,23 @@ func BuildSink(opts SinkOptions, w io.Writer) (result.Sink, error) {
 // status.Console with that value, and calls SetUI(ui). Tests can install a
 // capture impl via SetUI and assert on the captured emissions via UI().
 //
-// Default before SetUI is status.NoOp{} so any cli.Note call before bootstrap
+// Default before SetUI is status.Discard{} so any cli.Note call before bootstrap
 // is silent rather than panicking.
-var statusUI status.UI = status.NoOp{}
+var statusUI status.Sink = status.Discard{}
 
-// SetUI installs the package-global [status.UI] used by the cli facade
+// SetUI installs the package-global [status.Sink] used by the cli facade
 // functions ([Note], [Warn], [Error], [Failure], [Success], [Print]) and by
 // the [AddSilentFlag] cobra binding. Called once during bootstrap (typically
 // from a cobra PersistentPreRun).
 //
 // Subsequent calls replace the installed UI. Tests use this to install a
 // capture implementation and read it back via [UI].
-func SetUI(ui status.UI) {
+func SetUI(ui status.Sink) {
 	statusUI = ui
 }
 
-// UI returns the currently installed [status.UI]. Returns the default
-// [status.NoOp] when [SetUI] has not been called.
+// UI returns the currently installed [status.Sink]. Returns the default
+// [status.Discard] when [SetUI] has not been called.
 //
 // Tests typically capture installed instances via type assertion:
 //
@@ -181,15 +181,15 @@ func SetUI(ui status.UI) {
 //	defer cli.SetUI(status.NoOp{})
 //	// ... exercise code under test ...
 //	got := cli.UI().(*captureUI).Lines
-func UI() status.UI {
+func UI() status.Sink {
 	return statusUI
 }
 
 // AddSilentFlag adds the --silent flag to a root command. The flag value is
-// read by bootstrap (cobra PersistentPreRun) which constructs the status.UI
+// read by bootstrap (cobra PersistentPreRun) which constructs the status.Sink
 // with the parsed silent value baked in via [status.NewConsole].
 //
-// Note that --silent is now a property of the [status.UI] instance itself,
+// Note that --silent is now a property of the [status.Sink] instance itself,
 // applied at construction time. There is no facade-level silent gate; the UI
 // honors silent or it doesn't.
 func AddSilentFlag(cmd *cobra.Command) {
@@ -197,34 +197,34 @@ func AddSilentFlag(cmd *cobra.Command) {
 		`Suppress all status messages (stderr)`)
 }
 
-// Note prints an informational message via the installed [status.UI].
+// Note prints an informational message via the installed [status.Sink].
 func Note(format string, args ...any) {
 	statusUI.Note(fmt.Sprintf(format, args...))
 }
 
-// Warn prints a warning message via the installed [status.UI].
+// Warn prints a warning message via the installed [status.Sink].
 func Warn(format string, args ...any) {
 	statusUI.Warn(fmt.Sprintf(format, args...))
 }
 
-// Error prints an error message via the installed [status.UI]. Unlike
+// Error prints an error message via the installed [status.Sink]. Unlike
 // [Failure], this does not return an error — use for non-fatal errors.
 func Error(format string, args ...any) {
 	statusUI.Error(fmt.Sprintf(format, args...))
 }
 
-// Failure prints an error message via the installed [status.UI] and returns
+// Failure prints an error message via the installed [status.Sink] and returns
 // the wrapped error. Use when the operation cannot continue.
 func Failure(format string, args ...any) error {
 	return statusUI.Fail(fmt.Sprintf(format, args...))
 }
 
-// Success prints a success message via the installed [status.UI].
+// Success prints a success message via the installed [status.Sink].
 func Success(format string, args ...any) {
 	statusUI.Succeed(fmt.Sprintf(format, args...))
 }
 
-// Print emits raw text via the installed [status.UI]. Used for unprefixed
+// Print emits raw text via the installed [status.Sink]. Used for unprefixed
 // emission (e.g., starlark print() output captured at the cli level).
 func Print(format string, args ...any) {
 	statusUI.Print(fmt.Sprintf(format, args...))

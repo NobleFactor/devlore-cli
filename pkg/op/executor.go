@@ -32,7 +32,7 @@ type GraphExecutor struct {
 //   - *GraphExecutor: the configured executor.
 func NewGraphExecutor(spec *RuntimeEnvironmentSpec) *GraphExecutor {
 	assert.NotNil("spec", spec)
-	return &GraphExecutor{environment: spec.Build(context.Background())}
+	return &GraphExecutor{environment: NewRuntimeEnvironment(context.Background(), spec)}
 }
 
 // SetHooks sets the lifecycle hook registry for this executor.

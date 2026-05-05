@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // Provider provides platform-independent package management.
@@ -21,7 +22,7 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-func (p *Provider) platform() (*op.Platform, error) {
+func (p *Provider) platform() (platform.Platform, error) {
 	plat := p.RuntimeEnvironment().Platform
 	if plat == nil {
 		return nil, fmt.Errorf("no platform available")
@@ -207,8 +208,8 @@ func (p *Provider) Remove(packages []*Resource, manager string, cask bool) (resu
 	if resolvedType == "" {
 		if cask {
 			resolvedType = "brew"
-		} else if plat.PackageManager != nil {
-			resolvedType = plat.PackageManager.Name()
+		} else if pm := plat.DefaultPackageManager(); pm != nil {
+			resolvedType = pm.Name()
 		}
 	}
 
@@ -371,11 +372,12 @@ func (p *Provider) Installed(name *Resource) (bool, error) {
 		return false, err
 	}
 
-	if plat.PackageManager == nil {
+	pm := plat.DefaultPackageManager()
+	if pm == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
 
-	return plat.PackageManager.Installed(name.Name), nil
+	return pm.Installed(name.Name), nil
 }
 
 // NotInstalled returns true if the named package is not installed.
@@ -390,11 +392,12 @@ func (p *Provider) NotInstalled(name *Resource) (bool, error) {
 		return false, err
 	}
 
-	if plat.PackageManager == nil {
+	pm := plat.DefaultPackageManager()
+	if pm == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
 
-	return !plat.PackageManager.Installed(name.Name), nil
+	return !pm.Installed(name.Name), nil
 }
 
 // VersionGTE returns true if the installed version of name is >= version.
@@ -410,11 +413,12 @@ func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 		return false, err
 	}
 
-	if plat.PackageManager == nil {
+	pm := plat.DefaultPackageManager()
+	if pm == nil {
 		return false, fmt.Errorf("no package manager available")
 	}
 
-	current := plat.PackageManager.Version(name.Name)
+	current := pm.Version(name.Name)
 
 	if current == "" {
 		return false, nil

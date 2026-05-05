@@ -4,8 +4,8 @@
 // Package status owns the side channel for human-facing user interface output — the stderr-equivalent
 // stream of categorized status messages and starlark `print()` output.
 //
-// The package's contract is the [UI] interface, with two ship-default implementations: [Console]
-// (TTY-aware, formatted with program-name and color) and [NoOp] (silent, satisfies the contract for
+// The package's contract is the [Sink] interface, with two ship-default implementations: [Console]
+// (TTY-aware, formatted with program-name and color) and [Discard] (silent, satisfies the contract for
 // tests and bootstrap-before-PreRun).
 //
 // Construction is immutable: callers pass `programName`, `color`, and `silent` to [NewConsole] once;
@@ -15,10 +15,10 @@
 // facades, `env.Status.Note` calls inside providers, starlark `Thread.Print`, and the executor.
 //
 // `--silent` is therefore a property of the instance, applied uniformly to every emission across
-// every entry point. There is no facade-level silent gate; the UI honors silent or it doesn't.
+// every entry point. There is no facade-level silent gate; the Sink honors silent or it doesn't.
 package status
 
-// UI is the side-channel user-facing output contract.
+// Sink is the side-channel user-facing output contract.
 //
 // The five categorized methods (Note, Warn, Error, Success, Fail) emit status messages with
 // implementation-defined formatting — typically prefixed with the program name and a colored symbol
@@ -30,7 +30,7 @@ package status
 //
 // Implementations are immutable from the caller's perspective; configuration is fixed at construction
 // time. Mid-run state changes (e.g., toggling silent) require constructing a new instance.
-type UI interface {
+type Sink interface {
 
 	// Error emits a non-fatal error status message.
 	//
@@ -46,7 +46,7 @@ type UI interface {
 
 	// Print emits raw text without categorized-message decoration.
 	//
-	// Used by starlark `Thread.Print` for `print()` o	utput from scripts; the result reads as the script wrote it (no
+	// Used by starlark `Thread.Print` for `print()` output from scripts; the result reads as the script wrote it (no
 	// [program] [symbol] prefix).
 	Print(msg string)
 

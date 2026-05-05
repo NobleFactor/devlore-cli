@@ -148,17 +148,16 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	// 2. Create ReceiverRegistry and Spec
 
-	reg := op.NewReceiverRegistry()
+	receiverRegistry := op.NewReceiverRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer iox.Close(&err, root)
 
-	spec := op.NewRuntimeEnvironmentSpec("devlore-test", reg).
-		WithModules(reg.Modules()...).
+	spec := op.NewRuntimeEnvironmentSpec("devlore-test", receiverRegistry).
+		WithModules(receiverRegistry.Modules()...).
 		WithRoot(root).
-		WithWriter(r.writer).
 		WithDryRun(r.dryRun)
 
-	runtimeEnvironment := spec.Build(ctx)
+	runtimeEnvironment := op.NewRuntimeEnvironment(ctx, spec)
 	graph := op.NewGraph(runtimeEnvironment)
 	r.graph = graph
 

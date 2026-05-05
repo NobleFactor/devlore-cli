@@ -9,54 +9,54 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // resolvePlatformManagerForInstall returns the package manager for install actions.
-func resolvePlatformManagerForInstall(platform *op.Platform, managerOverride string) op.PackageManager { //nolint:ireturn // returns concrete behind interface
+func resolvePlatformManagerForInstall(plat platform.Platform, managerOverride string) platform.PackageManager { //nolint:ireturn // returns concrete behind interface
 	if managerOverride != "" {
-		packageManager := platform.GetPackageManager(managerOverride)
+		packageManager := plat.PackageManagerByName(managerOverride)
 		if packageManager != nil {
 			return packageManager
 		}
 	}
-	return platform.PackageManager
+	return plat.DefaultPackageManager()
 }
 
 // resolvePlatformManagerForUpgrade returns the package manager for upgrade actions.
-func resolvePlatformManagerForUpgrade(platform *op.Platform, managerOverride string, packages []string) op.PackageManager { //nolint:ireturn // returns concrete behind interface
+func resolvePlatformManagerForUpgrade(plat platform.Platform, managerOverride string, packages []string) platform.PackageManager { //nolint:ireturn // returns concrete behind interface
 	if managerOverride != "" {
-		packageManager := platform.GetPackageManager(managerOverride)
+		packageManager := plat.PackageManagerByName(managerOverride)
 		if packageManager != nil {
 			return packageManager
 		}
 	}
 
 	if len(packages) > 0 {
-		packageManager := platform.InstalledBy(packages[0])
+		packageManager := plat.InstalledBy(packages[0])
 		if packageManager != nil {
 			return packageManager
 		}
 	}
 
-	return platform.PackageManager
+	return plat.DefaultPackageManager()
 }
 
 // resolvePlatformManagerForRemove returns the package manager for remove actions.
-func resolvePlatformManagerForRemove(platform *op.Platform, managerOverride, name string) op.PackageManager { //nolint:ireturn // returns concrete behind interface
+func resolvePlatformManagerForRemove(plat platform.Platform, managerOverride, name string) platform.PackageManager { //nolint:ireturn // returns concrete behind interface
 	if managerOverride != "" {
-		packageManager := platform.GetPackageManager(managerOverride)
+		packageManager := plat.PackageManagerByName(managerOverride)
 		if packageManager != nil {
 			return packageManager
 		}
 	}
 
-	packageManager := platform.InstalledBy(name)
+	packageManager := plat.InstalledBy(name)
 	if packageManager != nil {
 		return packageManager
 	}
 
-	return platform.PackageManager
+	return plat.DefaultPackageManager()
 }
 
 // runBrewCask executes a brew cask command (install, upgrade, or uninstall).

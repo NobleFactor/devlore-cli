@@ -17,7 +17,6 @@ func init() {
 		op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Exec":       {"command"},
-			"PowerShell": {"command"},
+			"Exec": {"command"},
 		})
 }

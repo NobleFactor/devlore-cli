@@ -8,9 +8,10 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
-// mockServiceManager implements op.ServiceManager for testing.
+// mockServiceManager implements [platform.ServiceManager] for testing.
 type mockServiceManager struct {
 	exists      map[string]bool
 	running     map[string]bool
@@ -40,48 +41,67 @@ func (m *mockServiceManager) Status(name string) string {
 	return "stopped"
 }
 
-func (m *mockServiceManager) Start(name string) op.PlatformResult {
+func (m *mockServiceManager) Start(name string) platform.PlatformResult {
 	if m.startFail {
-		return op.PlatformResult{OK: false, Stderr: "permission denied", Code: 1}
+		return platform.PlatformResult{OK: false, Stderr: "permission denied", Code: 1}
 	}
 	m.running[name] = true
-	return op.PlatformResult{OK: true}
+	return platform.PlatformResult{OK: true}
 }
 
-func (m *mockServiceManager) Stop(name string) op.PlatformResult {
+func (m *mockServiceManager) Stop(name string) platform.PlatformResult {
 	if m.stopFail {
-		return op.PlatformResult{OK: false, Stderr: "stop failed", Code: 1}
+		return platform.PlatformResult{OK: false, Stderr: "stop failed", Code: 1}
 	}
 	m.running[name] = false
-	return op.PlatformResult{OK: true}
+	return platform.PlatformResult{OK: true}
 }
 
-func (m *mockServiceManager) Enable(name string) op.PlatformResult {
+func (m *mockServiceManager) Enable(name string) platform.PlatformResult {
 	if m.enableFail {
-		return op.PlatformResult{OK: false, Stderr: "enable failed", Code: 1}
+		return platform.PlatformResult{OK: false, Stderr: "enable failed", Code: 1}
 	}
 	m.enabled[name] = true
-	return op.PlatformResult{OK: true}
+	return platform.PlatformResult{OK: true}
 }
 
-func (m *mockServiceManager) Disable(name string) op.PlatformResult {
+func (m *mockServiceManager) Disable(name string) platform.PlatformResult {
 	if m.disableFail {
-		return op.PlatformResult{OK: false, Stderr: "disable failed", Code: 1}
+		return platform.PlatformResult{OK: false, Stderr: "disable failed", Code: 1}
 	}
 	m.enabled[name] = false
-	return op.PlatformResult{OK: true}
+	return platform.PlatformResult{OK: true}
 }
 
 func (m *mockServiceManager) NeedsSudo() bool { return false }
+
+// mockPlatform is a minimal [platform.Platform] used by the service-provider tests. Only
+// [ServiceManager] is wired; the rest return zero values.
+type mockPlatform struct {
+	sm platform.ServiceManager
+}
+
+func (m *mockPlatform) OS() string                                                { return "" }
+func (m *mockPlatform) Arch() string                                              { return "" }
+func (m *mockPlatform) Distro() string                                            { return "" }
+func (m *mockPlatform) Version() string                                           { return "" }
+func (m *mockPlatform) Hostname() string                                          { return "" }
+func (m *mockPlatform) DefaultConcurrency() int                                   { return 1 }
+func (m *mockPlatform) DefaultPackageManager() platform.PackageManager            { return nil }
+func (m *mockPlatform) AvailablePackageManagers() map[string]platform.PackageManager {
+	return nil
+}
+func (m *mockPlatform) PackageManagerByName(string) platform.PackageManager { return nil }
+func (m *mockPlatform) InstalledBy(string) platform.PackageManager          { return nil }
+func (m *mockPlatform) AllInstalledBy(string) []platform.PackageManager     { return nil }
+func (m *mockPlatform) ServiceManager() platform.ServiceManager             { return m.sm }
 
 // newTestProvider creates a Provider wired to the given mock.
 func newTestProvider(sm *mockServiceManager) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
-			Writer: io.Discard,
-			Platform: &op.Platform{
-				ServiceManager: sm,
-			},
+			Writer:   io.Discard,
+			Platform: &mockPlatform{sm: sm},
 		}),
 	}
 }

@@ -209,7 +209,7 @@ func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int
 	}
 
 	if limit <= 0 {
-		limit = p.RuntimeEnvironment().Platform.DefaultConcurrency
+		limit = p.RuntimeEnvironment().Platform.DefaultConcurrency()
 	}
 
 	body, err := p.Graph.ResolveExecutable(do)

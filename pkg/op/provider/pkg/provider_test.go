@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // --- Mocks ---
@@ -27,41 +28,83 @@ func (m *mockPackageManager) Installed(n string) bool { return m.installed[n] }
 func (m *mockPackageManager) Version(n string) string { return m.versions[n] }
 func (m *mockPackageManager) Available(_ string) bool { return true }
 
-func (m *mockPackageManager) Search(_ string, _ int) []op.SearchResult { return nil }
+func (m *mockPackageManager) Search(_ string, _ int) []platform.SearchResult { return nil }
 
-func (m *mockPackageManager) Install(packages ...string) op.PlatformResult {
+func (m *mockPackageManager) Install(packages ...string) platform.PlatformResult {
 	if m.installErr != "" {
-		return op.PlatformResult{OK: false, Stderr: m.installErr, Code: 1}
+		return platform.PlatformResult{OK: false, Stderr: m.installErr, Code: 1}
 	}
 	for _, packageName := range packages {
 		m.installed[packageName] = true
 	}
-	return op.PlatformResult{OK: true}
+	return platform.PlatformResult{OK: true}
 }
 
-func (m *mockPackageManager) Remove(name string) op.PlatformResult {
+func (m *mockPackageManager) Remove(name string) platform.PlatformResult {
 	if m.removeErr != "" {
-		return op.PlatformResult{OK: false, Stderr: m.removeErr, Code: 1}
+		return platform.PlatformResult{OK: false, Stderr: m.removeErr, Code: 1}
 	}
 	delete(m.installed, name)
-	return op.PlatformResult{OK: true}
+	return platform.PlatformResult{OK: true}
 }
 
-func (m *mockPackageManager) Update() op.PlatformResult {
+func (m *mockPackageManager) Update() platform.PlatformResult {
 	if m.updateErr != "" {
-		return op.PlatformResult{OK: false, Stderr: m.updateErr, Code: 1}
+		return platform.PlatformResult{OK: false, Stderr: m.updateErr, Code: 1}
 	}
-	return op.PlatformResult{OK: true}
+	return platform.PlatformResult{OK: true}
 }
 
-func (m *mockPackageManager) AddRepo(_, _, _ string) op.PlatformResult {
-	return op.PlatformResult{OK: true}
+func (m *mockPackageManager) AddRepo(_, _, _ string) platform.PlatformResult {
+	return platform.PlatformResult{OK: true}
 }
 
 func (m *mockPackageManager) NeedsSudo() bool { return false }
-func (m *mockPackageManager) ParsePURL(id string) op.PURL {
-	return op.PURL{Type: m.name, Name: id}
+func (m *mockPackageManager) ParsePURL(id string) platform.PURL {
+	return platform.PURL{Type: m.name, Name: id}
 }
+
+// mockPlatform is a minimal [platform.Platform] used by the package-provider tests. Only the
+// methods the provider exercises are wired; the rest return zero values.
+type mockPlatform struct {
+	defaultPM platform.PackageManager
+	available map[string]platform.PackageManager
+}
+
+func (m *mockPlatform) OS() string                                                { return "" }
+func (m *mockPlatform) Arch() string                                              { return "" }
+func (m *mockPlatform) Distro() string                                            { return "" }
+func (m *mockPlatform) Version() string                                           { return "" }
+func (m *mockPlatform) Hostname() string                                          { return "" }
+func (m *mockPlatform) DefaultConcurrency() int                                   { return 1 }
+func (m *mockPlatform) DefaultPackageManager() platform.PackageManager            { return m.defaultPM }
+func (m *mockPlatform) AvailablePackageManagers() map[string]platform.PackageManager {
+	return m.available
+}
+func (m *mockPlatform) PackageManagerByName(name string) platform.PackageManager {
+	return m.available[name]
+}
+func (m *mockPlatform) InstalledBy(name string) platform.PackageManager {
+	if m.defaultPM != nil && m.defaultPM.Installed(name) {
+		return m.defaultPM
+	}
+	for _, pm := range m.available {
+		if pm.Installed(name) {
+			return pm
+		}
+	}
+	return nil
+}
+func (m *mockPlatform) AllInstalledBy(name string) []platform.PackageManager {
+	var out []platform.PackageManager
+	for _, pm := range m.available {
+		if pm.Installed(name) {
+			out = append(out, pm)
+		}
+	}
+	return out
+}
+func (m *mockPlatform) ServiceManager() platform.ServiceManager { return nil }
 
 // --- Helpers ---
 
@@ -77,9 +120,9 @@ func newTestProvider(packageManager *mockPackageManager) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
 			Writer: io.Discard,
-			Platform: &op.Platform{
-				PackageManager:  packageManager,
-				PackageManagers: map[string]op.PackageManager{packageManager.Name(): packageManager},
+			Platform: &mockPlatform{
+				defaultPM: packageManager,
+				available: map[string]platform.PackageManager{packageManager.Name(): packageManager},
 			},
 		}),
 	}

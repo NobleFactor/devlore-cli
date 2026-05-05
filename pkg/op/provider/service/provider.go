@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // Provider provides platform-agnostic service management.
@@ -22,12 +23,16 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-func (p *Provider) serviceManager() (op.ServiceManager, error) {
+func (p *Provider) serviceManager() (platform.ServiceManager, error) {
 	plat := p.RuntimeEnvironment().Platform
-	if plat == nil || plat.ServiceManager == nil {
+	if plat == nil {
 		return nil, fmt.Errorf("no service manager available")
 	}
-	return plat.ServiceManager, nil
+	sm := plat.ServiceManager()
+	if sm == nil {
+		return nil, fmt.Errorf("no service manager available")
+	}
+	return sm, nil
 }
 
 // resourceName returns the service name carried by the receipt's affected [Resource], or empty when the receipt
@@ -59,7 +64,7 @@ func (p *Provider) Disable(name *Resource) (*Resource, *Receipt, error) {
 	if !r.OK {
 		return nil, nil, fmt.Errorf("disable %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.RuntimeEnvironment().Writer, "disabled service %s\n", name.Name) //nolint:errcheck // status output
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("disabled service %s", name.Name))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasEnabled: wasEnabled}, nil
 }
 
@@ -97,7 +102,7 @@ func (p *Provider) Enable(name *Resource) (*Resource, *Receipt, error) {
 	if !r.OK {
 		return nil, nil, fmt.Errorf("enable %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.RuntimeEnvironment().Writer, "enabled service %s\n", name.Name) //nolint:errcheck // status output
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("enabled service %s", name.Name))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasEnabled: wasEnabled}, nil
 }
 
@@ -138,7 +143,7 @@ func (p *Provider) Restart(name *Resource) (*Resource, *Receipt, error) {
 	if !r.OK {
 		return nil, nil, fmt.Errorf("start after restart: %s", r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.RuntimeEnvironment().Writer, "restarted service %s\n", name.Name) //nolint:errcheck // status output
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("restarted service %s", name.Name))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name)}, nil
 }
 
@@ -163,7 +168,7 @@ func (p *Provider) Start(name *Resource) (*Resource, *Receipt, error) {
 	if !r.OK {
 		return nil, nil, fmt.Errorf("start %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.RuntimeEnvironment().Writer, "started service %s\n", name.Name) //nolint:errcheck // status output
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("started service %s", name.Name))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasRunning: wasRunning}, nil
 }
 
@@ -200,7 +205,7 @@ func (p *Provider) Stop(name *Resource) (*Resource, *Receipt, error) {
 	if !r.OK {
 		return nil, nil, fmt.Errorf("stop %s failed: %s", name.Name, r.Stderr)
 	}
-	_, _ = fmt.Fprintf(p.RuntimeEnvironment().Writer, "stopped service %s\n", name.Name) //nolint:errcheck // status output
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("stopped service %s", name.Name))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasRunning: wasRunning}, nil
 }
 

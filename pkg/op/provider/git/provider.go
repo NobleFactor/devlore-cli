@@ -42,15 +42,14 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 // Clone clones a repository into a newly-created directory.
 //
-// Identity for the cloned repository is constructed by [NewResource] from directory; operational metadata
-// (Remotes, Bare, Dirty, HEAD) is populated by [Resource.Resolve] after the clone completes. When directory
-// is empty, the directory name is derived from repository via [guessDirName] — the same algorithm git itself
-// uses for `git clone <repository>` with no explicit directory.
+// Identity for the cloned repository is constructed by [NewResource] from directory; operational metadata (Remotes,
+// Bare, Dirty, HEAD) is populated by [Resource.Resolve] after the clone completes. When directory is empty, the
+// directory name is derived from repository via [guessDirName] — the same algorithm git itself uses for `git clone
+// <repository>` with no explicit directory.
 //
-// The nine named options correspond one-to-one with `git clone` flags under the kwarg-to-flag rule (strip
-// leading `--`, convert `-` to `_`, always expect a value — `--no-tags` becomes `no_tags=<bool>`). Any
-// additional options a caller needs pass through kwargs and are translated using the same rule in reverse;
-// see [buildCloneArgs].
+// The nine named options correspond one-to-one with `git clone` flags under the kwarg-to-flag rule (strip leading `--`,
+// convert `-` to `_`, always expect a value — `--no-tags` becomes `no_tags=<bool>`). Any additional options a caller
+// needs pass through kwargs and are translated using the same rule in reverse; see [buildCloneArgs].
 //
 // Parameters:
 //   - repository:        remote git URL (HTTPS, SSH, git protocol, or local path) to clone from.
@@ -177,10 +176,8 @@ func (p *Provider) CompensateClone(receipt *Receipt) error {
 func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "checkout", ref)
-	cmd.Stdout = p.RuntimeEnvironment().Writer
-	cmd.Stderr = p.RuntimeEnvironment().Writer
 
-	if err := cmd.Run(); err != nil {
+	if err := p.RuntimeEnvironment().Run(cmd); err != nil {
 		return nil, err
 	}
 
@@ -205,10 +202,8 @@ func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "pull")
-	cmd.Stdout = p.RuntimeEnvironment().Writer
-	cmd.Stderr = p.RuntimeEnvironment().Writer
 
-	if err := cmd.Run(); err != nil {
+	if err := p.RuntimeEnvironment().Run(cmd); err != nil {
 		return nil, err
 	}
 
@@ -243,10 +238,7 @@ func (p *Provider) doClone(args []string) error {
 	}
 
 	cmd := exec.Command("git", args...)
-	cmd.Stdout = p.RuntimeEnvironment().Writer
-	cmd.Stderr = p.RuntimeEnvironment().Writer
-
-	return cmd.Run()
+	return p.RuntimeEnvironment().Run(cmd)
 }
 
 // endregion

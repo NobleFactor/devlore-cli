@@ -19,7 +19,7 @@ import (
 //
 // It constructs providers as Starlark globals from the selected modules and provides the @devlore// module loader.
 type Runtime struct {
-	ctx         *op.RuntimeEnvironment
+	environment *op.RuntimeEnvironment
 	cache       map[string]*loaderEntry
 	modules     []op.ProviderReceiverType
 	predeclared starlark.StringDict
@@ -32,19 +32,19 @@ type Runtime struct {
 // starlark globals. The config itself is not retained.
 //
 // Parameters:
-//   - cfg: configuration specifying the registry, module selection, root, and runtime options.
+//   - spec: configuration specifying the registry, module selection, root, and runtime options.
 //
 // Returns:
 //   - *Runtime: the initialized runtime.
-func NewRuntime(cfg *op.RuntimeEnvironmentSpec) *Runtime {
+func NewRuntime(spec *op.RuntimeEnvironmentSpec) *Runtime {
 
-	ctx := cfg.Build(context.Background())
+	runtimeEnvironment := op.NewRuntimeEnvironment(context.Background(), spec)
 
 	runtime := &Runtime{
-		ctx:      ctx,
-		cache:    make(map[string]*loaderEntry),
-		modules:  cfg.Modules,
-		registry: cfg.Registry,
+		environment: runtimeEnvironment,
+		cache:       make(map[string]*loaderEntry),
+		modules:     spec.Modules,
+		registry:    spec.Registry,
 	}
 
 	// Build predeclared globals from the selected modules. Registration branches on the access × root combination
@@ -63,7 +63,7 @@ func NewRuntime(cfg *op.RuntimeEnvironmentSpec) *Runtime {
 
 	predeclared := starlark.StringDict{}
 
-	for _, module := range cfg.Modules {
+	for _, module := range spec.Modules {
 
 		dispatch := module.Roles().Dispatch()
 		isRoot := module.Roles().Placement()&op.RoleRoot != 0
@@ -151,7 +151,7 @@ func (rt *Runtime) Registry() *op.ReceiverRegistry {
 // Returns:
 //   - *op.RuntimeEnvironment: the environment.
 func (rt *Runtime) ExecutionContext() *op.RuntimeEnvironment {
-	return rt.ctx
+	return rt.environment
 }
 
 // Predeclared returns the cached predeclared starlark globals dict built from the selected modules.
@@ -231,8 +231,8 @@ func (rt *Runtime) Invoke(script string, root string, data map[string]any, dryRu
 
 	// Set per-invocation state on the shared RuntimeEnvironment.
 
-	rt.ctx.Data = data
-	rt.ctx.DryRun = dryRun
+	rt.environment.Data = data
+	rt.environment.DryRun = dryRun
 
 	// Dialect options.
 
@@ -318,7 +318,7 @@ type loaderEntry struct {
 //   - starlark.Value: the constructed [starlark.Value], or nil on failure.
 func (rt *Runtime) buildOne(prt op.ProviderReceiverType) starlark.Value {
 
-	raw, err := rt.ctx.ModuleByName(prt.Name())
+	raw, err := rt.environment.ModuleByName(prt.Name())
 	if err != nil {
 		return nil
 	}

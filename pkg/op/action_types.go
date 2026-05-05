@@ -6,6 +6,7 @@ package op
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // action wraps a Method for graph execution. Infallible — no error, no undo.
@@ -226,15 +227,16 @@ func complementOrNil(v reflect.Value) Complement {
 	return v.Interface()
 }
 
-// dryRunLog writes dry-run output to the context writer.
+// dryRunLog writes dry-run output to the context status UI.
 func dryRunLog(name string, method *Method, ctx *RuntimeEnvironment, slots map[string]any) {
 
-	if ctx.Writer == nil {
+	if ctx.Status == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] %s", name)
+	var b strings.Builder
+	fmt.Fprintf(&b, "[dry-run] %s", name)
 	for _, p := range method.Parameters() {
-		_, _ = fmt.Fprintf(ctx.Writer, " %v", slots[p.Name])
+		fmt.Fprintf(&b, " %v", slots[p.Name])
 	}
-	_, _ = fmt.Fprintln(ctx.Writer)
+	ctx.Status.Note(b.String())
 }

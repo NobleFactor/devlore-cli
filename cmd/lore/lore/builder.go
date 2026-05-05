@@ -458,15 +458,12 @@ func prepareScriptEnv(
 	*PackageContext,
 	error, //nolint:unparam // error return reserved for future use
 ) {
-	rt := starlarkbridge.NewRuntime(
-		op.NewRuntimeEnvironmentSpec("lore", reg).
-			WithModules(reg.Modules()...).
-			WithData(map[string]any{"graph": graph}).
-			WithWriter(os.Stdout).
-			WithColor(),
-	)
 
-	globals := rt.Predeclared()
+	runtime := starlarkbridge.NewRuntime(op.NewRuntimeEnvironmentSpec("lore", reg).
+		WithModules(reg.Modules()...).
+		WithData(map[string]any{"graph": graph}))
+
+	globals := runtime.Predeclared()
 
 	lifecycle := pkg.Lifecycle()
 	features := lifecycle.EnabledFeatures(cfg.Features)

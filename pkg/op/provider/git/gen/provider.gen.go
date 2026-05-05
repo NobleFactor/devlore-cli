@@ -17,7 +17,7 @@ func init() {
 		op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Clone":    {"repository", "directory?", "bare?", "branch?", "depth?", "filter?", "no_checkout?", "no_tags?", "origin?", "recurse_submodules?", "single_branch?", "**kwargs"},
+			"Clone":    {"repository", "directory?=\"\"", "bare?=false", "branch?=\"\"", "depth?=0", "filter?=\"\"", "no_checkout?=false", "no_tags?=false", "origin?=\"\"", "recurse_submodules?=false", "single_branch?=false", "**kwargs"},
 			"Checkout": {"repo", "ref"},
 			"Pull":     {"repo"},
 		})

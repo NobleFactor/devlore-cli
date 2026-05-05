@@ -221,7 +221,7 @@ func TestNoOpAllMethodsSilent(t *testing.T) {
 
 	// NoOp methods take no buffer; the test verifies the methods don't panic and Fail returns
 	// a non-nil error. There's no observable side effect to check.
-	noop := NoOp{}
+	noop := Discard{}
 
 	noop.Note("ignored")
 	noop.Warn("ignored")
