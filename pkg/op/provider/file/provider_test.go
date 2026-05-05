@@ -9,7 +9,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/google/uuid"
@@ -225,7 +227,7 @@ func TestCopy_WritesNewFile(t *testing.T) {
 	fileResource := testFileResource(t, []byte("hello world"))
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Copy(fileResource, path, 0o600)
+	result, _, err := p.Copy(fileResource, path, 0o600, "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -260,7 +262,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
-	_, _, err := p.Copy(blob, path, 0o644)
+	_, _, err := p.Copy(blob, path, 0o644, "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -611,7 +613,7 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.WriteText(path, "hello world", 0o644)
+	result, state, err := p.WriteText(path, "hello world", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -637,7 +639,7 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.bin")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.WriteBytes(path, "binary data", 0o600)
+	result, state, err := p.WriteBytes(path, "binary data", 0o600, "")
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -836,7 +838,7 @@ func TestWriteText_CreatesParentDirectories(t *testing.T) {
 	path := filepath.Join(tmp, "nested", "deep", "file.txt")
 
 	p := testProvider(t, tmp)
-	result, _, err := p.WriteText(path, "nested content", 0o644)
+	result, _, err := p.WriteText(path, "nested content", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -858,7 +860,7 @@ func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.txt")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteText(path, "to be undone", 0o644)
+	_, state, err := p.WriteText(path, "to be undone", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -883,7 +885,7 @@ func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.bin")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteBytes(path, "to be undone", 0o600)
+	_, state, err := p.WriteBytes(path, "to be undone", 0o600, "")
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -1160,7 +1162,7 @@ func TestMkdir_CreatesDirectory(t *testing.T) {
 	path := filepath.Join(tmp, "newdir")
 
 	p := testProvider(t, tmp)
-	product, _, err := p.Mkdir(path, 0o755)
+	product, _, err := p.Mkdir(path, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1182,7 +1184,7 @@ func TestMkdir_CreatesParents(t *testing.T) {
 	path := filepath.Join(tmp, "a", "b", "c")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Mkdir(path, 0o755)
+	_, _, err := p.Mkdir(path, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1204,7 +1206,7 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Mkdir(path, 0o755)
+	_, _, err := p.Mkdir(path, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() on existing directory error = %v", err)
 	}
@@ -1679,7 +1681,7 @@ func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteText(path, "replaced content", 0o644)
+	_, state, err := p.WriteText(path, "replaced content", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -1755,7 +1757,7 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("new content"))
-	_, state, err := p.Copy(blob, path, 0o644)
+	_, state, err := p.Copy(blob, path, 0o644, "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -1779,7 +1781,7 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
-	_, state, err := p.Copy(blob, path, 0o644)
+	_, state, err := p.Copy(blob, path, 0o644, "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -2016,7 +2018,7 @@ func TestCompensateMkdir_RoundTrip_RemovesCreatedChain(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c")
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.Mkdir(target, 0o755)
+	_, receipt, err := p.Mkdir(target, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -2041,7 +2043,7 @@ func TestCompensateMkdir_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c", "d")
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.Mkdir(target, 0o755)
+	_, receipt, err := p.Mkdir(target, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -2070,7 +2072,7 @@ func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
 	}
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.Mkdir(target, 0o755)
+	_, receipt, err := p.Mkdir(target, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -2092,7 +2094,7 @@ func TestCompensateMkdir_NotADirectory_ReturnsError(t *testing.T) {
 	target := filepath.Join(tmp, "regular")
 	p := testProvider(t, tmp)
 
-	_, _, err := p.Mkdir(target, 0o755)
+	_, _, err := p.Mkdir(target, 0o755, "")
 	if err == nil {
 		t.Fatal("Mkdir() on a regular file should error")
 	}
@@ -2109,7 +2111,7 @@ func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c")
 	p := testProvider(t, tmp)
 
-	_, _, err := p.Mkdir(target, 0o755)
+	_, _, err := p.Mkdir(target, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -2145,7 +2147,7 @@ func TestCompensateWriteText_RoundTrip_RemovesParentDirectories(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.WriteText(target, "hi", 0o644)
+	_, receipt, err := p.WriteText(target, "hi", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -2170,7 +2172,7 @@ func TestCompensateWriteText_StopsAtBoundary_PreservesPreExisting(t *testing.T) 
 	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.WriteText(target, "hi", 0o644)
+	_, receipt, err := p.WriteText(target, "hi", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -2244,5 +2246,49 @@ func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
 
 	if _, err := os.Stat(source); err != nil {
 		t.Errorf("source not restored; stat error = %v", err)
+	}
+}
+
+// --- Chown ---
+
+// TestWriteText_AppliesChownWhenSpecified verifies that the chown parameter, when non-empty, drives
+// applyChown through to os.Chown. Uses the current uid:gid as the target spec — the only spec that
+// doesn't require CAP_CHOWN — so the test runs without privilege.
+func TestWriteText_AppliesChownWhenSpecified(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "owned.txt")
+
+	p := testProvider(t, tmp)
+
+	spec := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+	_, _, err := p.WriteText(path, "owned content", 0o644, spec)
+	if err != nil {
+		t.Fatalf("WriteText with chown=%q: %v", spec, err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	stat := info.Sys().(*syscall.Stat_t)
+	if int(stat.Uid) != os.Getuid() {
+		t.Errorf("uid = %d, want %d", stat.Uid, os.Getuid())
+	}
+	if int(stat.Gid) != os.Getgid() {
+		t.Errorf("gid = %d, want %d", stat.Gid, os.Getgid())
+	}
+}
+
+// TestWriteText_RejectsMalformedChown verifies that a malformed chown spec surfaces an error from the
+// provider method rather than silently no-op'ing.
+func TestWriteText_RejectsMalformedChown(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "rejected.txt")
+
+	p := testProvider(t, tmp)
+
+	_, _, err := p.WriteText(path, "rejected", 0o644, ":")
+	if err == nil {
+		t.Fatal("WriteText with bare colon: want error, got nil")
 	}
 }

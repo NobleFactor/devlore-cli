@@ -6,6 +6,7 @@ package starlarkbridge
 import (
 	"os"
 	"reflect"
+	"syscall"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -71,6 +72,19 @@ func (p *pipelineProvider) EchoOptional(label string) (string, error) {
 // must reach the announced default and the method receives os.FileMode(0o755) at the parameter's exact type.
 func (p *pipelineProvider) EchoMode(mode os.FileMode) (uint32, error) { return uint32(mode), nil }
 
+// EchoModeUmasked accepts an [os.FileMode] parameter announced with the deferred-default expression
+// `mode?={{ umask 0o755 }}`. Drives the deferred-default integration test — when the kwarg is
+// omitted, slot-fill must invoke the umask DefaultFunc and the method receives the masked result.
+func (p *pipelineProvider) EchoModeUmasked(mode os.FileMode) (uint32, error) { return uint32(mode), nil }
+
+// EchoStringFromEnv accepts a key string and a value string parameter announced with the deferred-
+// default expression `value?={{ env .key }}`. Drives the sibling-slot reference integration test —
+// when value is omitted, slot-fill must look up the key slot's value, read the matching env var via
+// the env DefaultFunc, and land the result on the value slot.
+func (p *pipelineProvider) EchoStringFromEnv(key string, value string) (string, error) {
+	return value, nil
+}
+
 // init registers pipelineProvider at test-binary load time. Lives alongside pipelineResource registration in
 // starlark_to_go_typed_test.go's init.
 func init() {
@@ -79,13 +93,15 @@ func init() {
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return NewPipelineProvider(ctx), nil },
 		map[string][]string{
-			"Echo":         {"s"},
-			"EchoResource": {"r"},
-			"EchoStrings":  {"items"},
-			"EchoVariadic": {"*items"},
-			"EchoKwargs":   {"**opts"},
-			"EchoOptional": {"label?"},
-			"EchoMode":     {"mode?=0o755"},
+			"Echo":               {"s"},
+			"EchoResource":       {"r"},
+			"EchoStrings":        {"items"},
+			"EchoVariadic":       {"*items"},
+			"EchoKwargs":         {"**opts"},
+			"EchoOptional":       {"label?"},
+			"EchoMode":           {"mode?=0o755"},
+			"EchoModeUmasked":    {"mode?={{ umask 0o755 }}"},
+			"EchoStringFromEnv":  {"key", "value?={{ env .key }}"},
 		},
 	)
 }
@@ -370,6 +386,86 @@ func TestPlanPipeline_DirectiveDefault(t *testing.T) {
 	}
 	if got != os.FileMode(0o755) {
 		t.Errorf("default mode = %o, want 0o755", got)
+	}
+}
+
+// TestPlanPipeline_DeferredDefault_Umask verifies 13.0(f) step 12 end-to-end in plan-mode: a
+// `{{ umask BASE }}` directive parses at announce time, evaluates at slot-fill against the live
+// process umask, and lands on the slot as the umask-masked result. The provider announces
+// EchoModeUmasked with `mode?={{ umask 0o755 }}`; calling without mode must populate the slot
+// with `os.FileMode(0o755 &^ umask)`.
+func TestPlanPipeline_DeferredDefault_Umask(t *testing.T) {
+
+	mask := syscall.Umask(0)
+	syscall.Umask(mask)
+
+	nb, _ := makePlanNodeBuilder(t)
+
+	attr, err := nb.Attr("echo_mode_umasked")
+	if err != nil {
+		t.Fatalf("Attr(echo_mode_umasked): %v", err)
+	}
+	builtin := attr.(*starlark.Builtin)
+
+	thread := &starlark.Thread{}
+	result, err := starlark.Call(thread, builtin, nil, nil)
+	if err != nil {
+		t.Fatalf("starlark.Call: %v", err)
+	}
+
+	inv := result.(*Invocation)
+	slot := inv.Target.(*op.Node).SlotByName("mode")
+	if slot == nil {
+		t.Fatalf("slot \"mode\" missing on target node")
+	}
+
+	got, ok := slot.Immediate().(os.FileMode)
+	if !ok {
+		t.Fatalf("slot value: got %T, want os.FileMode", slot.Immediate())
+	}
+	want := os.FileMode(0o755) &^ os.FileMode(mask)
+	if got != want {
+		t.Errorf("default mode = %o, want %o (umask %o)", got, want, mask)
+	}
+}
+
+// TestPlanPipeline_DeferredDefault_SiblingRef verifies sibling-slot reference resolution. The
+// provider announces EchoStringFromEnv with `value?={{ env .key }}`; calling with only the key
+// kwarg, the evaluator must read the key slot's value, pass it to the env DefaultFunc, and land
+// the env-var value on the value slot.
+func TestPlanPipeline_DeferredDefault_SiblingRef(t *testing.T) {
+
+	t.Setenv("DEVLORE_TEST_DEFAULT_SIBLING_REF", "value-from-env")
+
+	nb, _ := makePlanNodeBuilder(t)
+
+	attr, err := nb.Attr("echo_string_from_env")
+	if err != nil {
+		t.Fatalf("Attr(echo_string_from_env): %v", err)
+	}
+	builtin := attr.(*starlark.Builtin)
+
+	thread := &starlark.Thread{}
+	kwargs := []starlark.Tuple{
+		{starlark.String("key"), starlark.String("DEVLORE_TEST_DEFAULT_SIBLING_REF")},
+	}
+	result, err := starlark.Call(thread, builtin, nil, kwargs)
+	if err != nil {
+		t.Fatalf("starlark.Call: %v", err)
+	}
+
+	inv := result.(*Invocation)
+	slot := inv.Target.(*op.Node).SlotByName("value")
+	if slot == nil {
+		t.Fatalf("slot \"value\" missing on target node")
+	}
+
+	got, ok := slot.Immediate().(string)
+	if !ok {
+		t.Fatalf("slot value: got %T, want string", slot.Immediate())
+	}
+	if got != "value-from-env" {
+		t.Errorf("default value = %q, want %q", got, "value-from-env")
 	}
 }
 

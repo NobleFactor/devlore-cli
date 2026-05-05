@@ -4,6 +4,7 @@
 package starlarkbridge
 
 import (
+	"syscall"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -287,6 +288,31 @@ func TestImmediatePipeline_DirectiveDefault(t *testing.T) {
 	v, _ := n.Uint64()
 	if v != 0o755 {
 		t.Errorf("default mode = %o, want 0o755", v)
+	}
+}
+
+// TestImmediatePipeline_DeferredDefault_Umask verifies 13.0(f) step 12 end-to-end in immediate-mode:
+// a `{{ umask BASE }}` directive parses at announce time, evaluates at slot-fill against the live
+// process umask, and the underlying Go method receives the masked result. Provider announces
+// EchoModeUmasked with `mode?={{ umask 0o755 }}`; calling without mode must invoke EchoModeUmasked
+// with `os.FileMode(0o755 &^ umask)`, returned as a uint32 starlark int.
+func TestImmediatePipeline_DeferredDefault_Umask(t *testing.T) {
+
+	mask := syscall.Umask(0)
+	syscall.Umask(mask)
+
+	w, _ := makeImmediateReceiver(t)
+
+	got := callBuiltin(t, w, "echo_mode_umasked")
+
+	n, ok := got.(starlark.Int)
+	if !ok {
+		t.Fatalf("got %T, want starlark.Int", got)
+	}
+	v, _ := n.Uint64()
+	want := uint64(0o755 &^ uint64(mask))
+	if v != want {
+		t.Errorf("default mode = %o, want %o (umask %o)", v, want, mask)
 	}
 }
 

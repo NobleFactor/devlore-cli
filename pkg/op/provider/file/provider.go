@@ -89,10 +89,13 @@ func (p *Provider) CompensateBackup(receipt *Receipt) error {
 	return p.CompensateMove(receipt)
 }
 
-// Copy copies source's contents to a new file at destinationPath with the given mode.
+// Copy copies source's contents to a new file at destinationPath with the given mode and ownership.
 //
-// +devlore:defaults mode=0o755
-func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
+// chown is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty
+// for "no change"). When non-empty it is parsed and applied via os.Chown after the file is created.
+//
+// +devlore:defaults chmod={{ umask 0o755 }}, chown=""
+func (p *Provider) Copy(source *Resource, destinationPath string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
@@ -114,13 +117,17 @@ func (p *Provider) Copy(source *Resource, destinationPath string, mode os.FileMo
 	}
 	defer iox.Close(&err, src)
 
-	dst, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	dst, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, chmod)
 	if err != nil {
 		return product, receipt, err
 	}
 	defer iox.Close(&err, dst)
 
 	if _, err := io.Copy(dst, src); err != nil {
+		return product, receipt, err
+	}
+
+	if err := applyChown(product.SourcePath.Abs(), chown); err != nil {
 		return product, receipt, err
 	}
 
@@ -196,10 +203,15 @@ func (p *Provider) CompensateLink(receipt *Receipt) error {
 	return p.compensateWrite(receipt)
 }
 
-// Mkdir creates a directory (and any missing parents) with the given mode.
+// Mkdir creates a directory (and any missing parents) with the given mode and ownership.
 //
-// +devlore:defaults mode=0o777
-func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
+// chown is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty
+// for "no change"). When non-empty it is applied via os.Chown to the leaf directory only — intermediate
+// parents created by the call are NOT chown'd, since their semantic role is "existed before this call"
+// rather than "created by this call."
+//
+// +devlore:defaults chmod={{ umask 0o777 }}, chown=""
+func (p *Provider) Mkdir(path string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), path)
 	if err != nil {
@@ -222,7 +234,11 @@ func (p *Provider) Mkdir(path string, mode os.FileMode) (product *Resource, rece
 
 	receipt = NewReceiptWithBoundary(product, boundary)
 
-	if err = p.mkdirAll(leaf, mode); err != nil {
+	if err = p.mkdirAll(leaf, chmod); err != nil {
+		return nil, receipt, err
+	}
+
+	if err = applyChown(leaf, chown); err != nil {
 		return nil, receipt, err
 	}
 
@@ -560,15 +576,18 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 
 // WriteBytes writes inline byte content to a file.
 //
-// +devlore:defaults mode=0o666
-func (p *Provider) WriteBytes(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
+// chown is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty
+// for "no change"). When non-empty it is applied via os.Chown after the file is written.
+//
+// +devlore:defaults chmod={{ umask 0o666 }}, chown=""
+func (p *Provider) WriteBytes(destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return p.write(product, []byte(content), mode)
+	return p.write(product, []byte(content), chmod, chown)
 }
 
 // CompensateWriteBytes undoes a WriteBytes by restoring the original file.
@@ -578,15 +597,18 @@ func (p *Provider) CompensateWriteBytes(receipt *Receipt) error {
 
 // WriteText writes inline content to a file.
 //
-// +devlore:defaults mode=0o666
-func (p *Provider) WriteText(destinationPath string, content string, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
+// chown is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty
+// for "no change"). When non-empty it is applied via os.Chown after the file is written.
+//
+// +devlore:defaults chmod={{ umask 0o666 }}, chown=""
+func (p *Provider) WriteText(destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return p.write(product, []byte(content), mode)
+	return p.write(product, []byte(content), chmod, chown)
 }
 
 // CompensateWriteText undoes a WriteText by restoring the original file.
@@ -1119,8 +1141,12 @@ func (p *Provider) walkDir(osRoot op.Root, absoluteRoot string, walkFn func(stri
 	return filepath.WalkDir(absoluteRoot, walkFn)
 }
 
-// write writes data to the specified path.
-func (p *Provider) write(resource *Resource, data []byte, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
+// write writes data to the specified path with the given mode and ownership.
+//
+// chown follows the same Dockerfile-style format as the public Write* methods; empty means no
+// ownership change. The chown is applied after the file is fully written and synced — placing it
+// before the close would risk applying ownership to a file the kernel may yet reject.
+func (p *Provider) write(resource *Resource, data []byte, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	recoveryID, product, receipt, err := p.prepareWrite(resource)
 	if err != nil {
@@ -1131,7 +1157,7 @@ func (p *Provider) write(resource *Resource, data []byte, mode os.FileMode) (pro
 		_ = receipt.SetRecoveryID(recoveryID)
 	}
 
-	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, chmod)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -1146,6 +1172,10 @@ func (p *Provider) write(resource *Resource, data []byte, mode os.FileMode) (pro
 	}
 
 	if err = f.Sync(); err != nil {
+		return product, receipt, err
+	}
+
+	if err = applyChown(product.SourcePath.Abs(), chown); err != nil {
 		return product, receipt, err
 	}
 

@@ -1177,17 +1177,26 @@ def compute_param_names_list(method):
     parts = []
     for p in method.get("params", []):
         name = to_snake(p["name"])
+        default = p.get("default", "")
         if p.get("kwargs"):
             name = "**" + name
         elif p.get("variadic"):
             name = "*" + name
-        elif p.get("default", "") and is_simple_defaultable_type(p.get("type", "")):
+        elif default.startswith("{{") and default.endswith("}}"):
+            # Deferred-default expression — evaluated at slot-fill via op.DeferredDefault. Bypass the
+            # is_simple_defaultable_type filter (the runtime evaluator handles any target type via
+            # op.Convert at slot-fill, not parseDefaultExpression's reflect.Kind dispatch). Emit the
+            # literal {{ ... }} text verbatim, Go-string-escaped for embedding in the announce-map's
+            # Go source string literal.
+            escaped = default.replace("\\", "\\\\").replace("\"", "\\\"")
+            name += "?=" + escaped
+        elif default and is_simple_defaultable_type(p.get("type", "")):
             # Go-string-escape the default expression: backslash first (so subsequent escapes don't double-back),
             # then double-quote. Preserves literal quotes from directives like `severity="warning"` when the
             # token is embedded in a Go source string literal.
-            escaped = p["default"].replace("\\", "\\\\").replace("\"", "\\\"")
+            escaped = default.replace("\\", "\\\\").replace("\"", "\\\"")
             name += "?=" + escaped
-        elif p.get("default", "") or p.get("optional"):
+        elif default or p.get("optional"):
             name += "?"
         parts.append('"' + name + '"')
     return ", ".join(parts)
