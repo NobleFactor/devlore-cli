@@ -37,7 +37,7 @@ type RuntimeEnvironment struct {
 
 	// Platform provides platform abstractions (package manager, service manager) to do providers. Nil when running
 	// in environments where host access is not needed (e.g., pure data transforms).
-	Platform *Platform
+	Platform platform.Platform
 
 	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
 	// Instantiated by the executor from Root.
@@ -64,10 +64,10 @@ type RuntimeEnvironment struct {
 	// Actions that need to invoke mem.Function resources call Init(ctx.Thread) before Fn().
 	Thread starlark.Thread
 
-	// Writer receives user-facing output messages.
+	// Writer receives user-facing output messages.I am
 	Writer io.Writer
 
-	// BackupSuffix is appended to backup filenames during conflict resolution.
+	// BackupSuffix is appended to back-up filenames during conflict resolution.
 	BackupSuffix string
 
 	// ConflictResolution chooses how to handle preflight conflicts.
@@ -82,16 +82,6 @@ type RuntimeEnvironment struct {
 	// [RuntimeEnvironmentSpec.Build] (defaults to [result.UnconfiguredSink] when the spec field is
 	// zero — every Emit errors loudly).
 	Result result.Sink
-
-	// Plat is the interface-typed platform capability — host classification plus the package and
-	// service managers available to providers. Populated by [RuntimeEnvironmentSpec.Build] from
-	// the spec's [RuntimeEnvironmentSpec.Platform] field.
-	//
-	// Coexists with the legacy `*op.Platform` field below during the migration period (the
-	// 13.0(i) Step 1.4 additive-then-cleanup pattern). Callers migrating off the legacy field
-	// switch to env.Plat. After all callers are migrated, the legacy `Platform` field is deleted
-	// and `Plat` is renamed back to `Platform`.
-	Plat platform.Platform
 
 	// mu guards the providers map for concurrent access.
 	mu sync.Mutex
