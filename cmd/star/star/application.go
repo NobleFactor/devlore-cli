@@ -17,7 +17,6 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 )
@@ -34,10 +33,6 @@ type Application struct {
 	config   *config.Config // Unified config for builtin and extension config
 	star     *starlarkbridge.Runtime
 	data     map[string]any // Shared context data (dry_run, config, etc.)
-
-	// UIProvider is the canonical UI output provider.
-	// Wire --silent to UIProvider.Silent in main.
-	UIProvider *ui.Provider
 }
 
 // NewApplication creates a new star Application with a fully initialized Starlark runtime.
@@ -53,15 +48,11 @@ func NewApplication() *Application {
 		WithColor()
 	star := starlarkbridge.NewRuntime(cfg)
 
-	// UIProvider is exposed for --silent flag wiring in main.
-	uip := ui.NewProvider(star.ExecutionContext())
-
 	rt := &Application{
-		registry:   NewExtensionRegistry(),
-		commands:   make(map[string]*Command),
-		star:       star,
-		data:       data,
-		UIProvider: uip,
+		registry: NewExtensionRegistry(),
+		commands: make(map[string]*Command),
+		star:     star,
+		data:     data,
 	}
 
 	// Wire command tree into context data (shared map — providers read it lazily).

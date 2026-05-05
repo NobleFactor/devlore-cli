@@ -166,11 +166,10 @@ Generate shell completions with:
 
 		// Construct the canonical status.UI from the parsed --silent flag and install it on the
 		// shared cli package-global. The same instance backs cmd/star/cli's Note/Warn/etc.
-		// forwarding wrappers (output.go) and lore/writ/devlore-test via cli.NewRootCmd.
-		// runtime.UIProvider.SetSilent applies the silent gate independently to the starlark
-		// ui.note() path; both paths emit consistently to stderr.
+		// forwarding wrappers (output.go) and lore/writ/devlore-test via cli.NewRootCmd, and the
+		// starlark ui.note() / ui.print() paths through pkg/op/provider/ui.Provider's passthrough
+		// to env.Status. One instance, one silent gate, every emission consistent on stderr.
 		cli.SetUI(status.NewConsole(os.Stderr, "star", true, silent))
-		runtime.UIProvider.SetSilent(silent)
 	})
 
 	// Version command

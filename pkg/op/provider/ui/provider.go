@@ -3,7 +3,7 @@
 
 // Package ui exposes the runtime environment's [status.UI] capability to starlark.
 //
-// The provider is a thin adapter — it carries no state of its own. Method bodies forward to
+// The provider is a thin passthrough — it carries no state of its own. Method bodies forward to
 // `p.RuntimeEnvironment().Status.<Method>(msg)`. Configuration (writer, program name, color, silent)
 // lives on the [status.UI] instance the client installed at bootstrap; the same instance flows from
 // the cli facade into the runtime environment, ensuring `--silent`, color settings, and program-name
@@ -19,7 +19,6 @@ import (
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-	silent bool
 }
 
 // NewProvider constructs a *Provider for the registered ProviderConstructor.
@@ -32,11 +31,6 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	}
 }
 
-// SetSilent suppresses all terminal output from this provider.
-func (p *Provider) SetSilent(silent bool) {
-	p.silent = silent
-}
-
 // region EXPORTED METHODS
 
 // region Behaviors
@@ -46,9 +40,7 @@ func (p *Provider) SetSilent(silent bool) {
 // Parameters:
 //   - msg: the informational message to display.
 func (p *Provider) Note(msg string) {
-	if !p.silent {
-		p.RuntimeEnvironment().Status.Note(msg)
-	}
+	p.RuntimeEnvironment().Status.Note(msg)
 }
 
 // Warn alerts the user to a potential issue.
@@ -56,9 +48,7 @@ func (p *Provider) Note(msg string) {
 // Parameters:
 //   - msg: the warning message to display.
 func (p *Provider) Warn(msg string) {
-	if !p.silent {
-		p.RuntimeEnvironment().Status.Warn(msg)
-	}
+	p.RuntimeEnvironment().Status.Warn(msg)
 }
 
 // Error reports a non-fatal problem to the user.
@@ -66,19 +56,15 @@ func (p *Provider) Warn(msg string) {
 // Parameters:
 //   - msg: the error message to display.
 func (p *Provider) Error(msg string) {
-	if !p.silent {
-		p.RuntimeEnvironment().Status.Error(msg)
-	}
+	p.RuntimeEnvironment().Status.Error(msg)
 }
 
-// Success confirms completion to the user.
+// Succeed confirms completion to the user.
 //
 // Parameters:
 //   - msg: the success message to display.
 func (p *Provider) Succeed(msg string) {
-	if !p.silent {
-		p.RuntimeEnvironment().Status.Succeed(msg)
-	}
+	p.RuntimeEnvironment().Status.Succeed(msg)
 }
 
 // Fail reports a fatal error and aborts execution.

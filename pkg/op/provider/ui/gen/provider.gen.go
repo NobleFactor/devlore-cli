@@ -17,12 +17,11 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"SetSilent": {"silent"},
-			"Note":      {"msg"},
-			"Warn":      {"msg"},
-			"Error":     {"msg"},
-			"Succeed":   {"msg"},
-			"Fail":      {"msg"},
-			"Print":     {"msg"},
+			"Note":    {"msg"},
+			"Warn":    {"msg"},
+			"Error":   {"msg"},
+			"Succeed": {"msg"},
+			"Fail":    {"msg"},
+			"Print":   {"msg"},
 		})
 }
