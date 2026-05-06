@@ -4,11 +4,11 @@
 # passed as the fn parameter.
 
 dir = t.tmp("walk_closure")
-file.mkdir(path=dir, mode=0o755)
-file.write_text(destination_path=t.tmp("walk_closure/hello.py"), content="print", mode=0o644)
-file.write_text(destination_path=t.tmp("walk_closure/readme.md"), content="docs", mode=0o644)
-file.write_text(destination_path=t.tmp("walk_closure/main.py"), content="main", mode=0o644)
-file.write_text(destination_path=t.tmp("walk_closure/notes.txt"), content="notes", mode=0o644)
+file.mkdir(path=dir, chmod=0o755)
+file.write_text(destination_path=t.tmp("walk_closure/hello.py"), content="print", chmod=0o644)
+file.write_text(destination_path=t.tmp("walk_closure/readme.md"), content="docs", chmod=0o644)
+file.write_text(destination_path=t.tmp("walk_closure/main.py"), content="main", chmod=0o644)
+file.write_text(destination_path=t.tmp("walk_closure/notes.txt"), content="notes", chmod=0o644)
 
 # Closure variable: filter by extension.
 ext = ".py"

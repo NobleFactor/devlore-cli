@@ -15,6 +15,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/powershell/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell/gen"

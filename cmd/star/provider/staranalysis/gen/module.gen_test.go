@@ -8,13 +8,14 @@ package staranalysis_test
 import (
 	"testing"
 
+	"go.starlark.net/starlark"
+
 	provider "github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis"
 	_ "github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
 func TestModule_AttrNames(t *testing.T) {
-
 	r := starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
 	names := r.AttrNames()
 	if len(names) == 0 {
@@ -28,7 +29,6 @@ func TestModule_AttrNames(t *testing.T) {
 }
 
 func TestModule_Attr(t *testing.T) {
-
 	r := starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
 	for _, name := range r.AttrNames() {
 		attr, err := r.Attr(name)
@@ -44,15 +44,16 @@ func TestModule_Attr(t *testing.T) {
 
 func TestModule_Attr_Unknown(t *testing.T) {
 
-	r := starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
-	_, err := r.Attr("nonexistent_method")
+	var r starlark.HasAttrs
+	var err error
+	r = starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
+	_, err = r.Attr("nonexistent_method")
 	if err == nil {
 		t.Error("Attr(nonexistent_method) error = nil, want error")
 	}
 }
 
 func TestModule_Type(t *testing.T) {
-
 	r := starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
 	if got := r.Type(); got != "staranalysis" {
 		t.Errorf("Type() = %q, want %q", got, "staranalysis")

@@ -6,7 +6,6 @@
 package regexp_test
 
 import (
-	"bytes"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 	"strings"
 	"testing"
@@ -55,7 +54,7 @@ func TestFindAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.find")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -68,9 +67,9 @@ func TestFindAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] regexp.find") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] regexp.find")
+	wantSubstring := "[dry-run] regexp.find"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -78,7 +77,7 @@ func TestFindAllAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.find_all")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -91,9 +90,9 @@ func TestFindAllAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] regexp.find_all") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] regexp.find_all")
+	wantSubstring := "[dry-run] regexp.find_all"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -101,7 +100,7 @@ func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.find_all_submatch")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -114,9 +113,9 @@ func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] regexp.find_all_submatch") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] regexp.find_all_submatch")
+	wantSubstring := "[dry-run] regexp.find_all_submatch"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -124,7 +123,7 @@ func TestFindSubmatchAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.find_submatch")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -137,9 +136,9 @@ func TestFindSubmatchAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] regexp.find_submatch") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] regexp.find_submatch")
+	wantSubstring := "[dry-run] regexp.find_submatch"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -147,7 +146,7 @@ func TestMatchAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.match")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -160,9 +159,9 @@ func TestMatchAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] regexp.match") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] regexp.match")
+	wantSubstring := "[dry-run] regexp.match"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -170,7 +169,7 @@ func TestReplaceAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.replace")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -183,9 +182,9 @@ func TestReplaceAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] regexp.replace") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] regexp.replace")
+	wantSubstring := "[dry-run] regexp.replace"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -193,7 +192,7 @@ func TestReplaceLiteralAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.replace_literal")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -206,9 +205,9 @@ func TestReplaceLiteralAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] regexp.replace_literal") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] regexp.replace_literal")
+	wantSubstring := "[dry-run] regexp.replace_literal"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -216,7 +215,7 @@ func TestSplitAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.split")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -229,9 +228,9 @@ func TestSplitAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] regexp.split") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] regexp.split")
+	wantSubstring := "[dry-run] regexp.split"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 

@@ -18,6 +18,13 @@ type Provider struct {
 	op.ProviderBase
 }
 
+// NewProvider constructs a package-management Provider bound to the given runtime environment.
+//
+// Parameters:
+//   - ctx: the runtime environment that supplies the platform abstraction and status sink.
+//
+// Returns:
+//   - *Provider: the initialized provider.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }

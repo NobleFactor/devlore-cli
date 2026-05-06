@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-
-	"github.com/NobleFactor/devlore-cli/pkg/result"
 )
 
 func TestExitCodes(t *testing.T) {
@@ -110,24 +108,24 @@ func TestAddOutputFlagsFormatDefaultsToJSON(t *testing.T) {
 	}
 }
 
-func TestBuildSinkProducesPipelineForKnownFormat(t *testing.T) {
+func TestBuildPipelineProducesPipelineForKnownFormat(t *testing.T) {
 
 	var buf bytes.Buffer
-	sink, err := BuildSink(SinkOptions{Format: "json"}, &buf)
+	pipeline, err := BuildPipeline(SinkOptions{Format: "json"}, &buf)
 	if err != nil {
-		t.Fatalf("BuildSink: %v", err)
+		t.Fatalf("BuildPipeline: %v", err)
 	}
-	if _, ok := sink.(*result.Pipeline); !ok {
-		t.Errorf("BuildSink returned %T, want *result.Pipeline", sink)
+	if pipeline == nil {
+		t.Errorf("BuildPipeline returned nil, want *result.Pipeline")
 	}
 }
 
-func TestBuildSinkEmitsJSONForJSONFormat(t *testing.T) {
+func TestBuildPipelineEmitsJSONForJSONFormat(t *testing.T) {
 
 	var buf bytes.Buffer
-	sink, err := BuildSink(SinkOptions{Format: "json"}, &buf)
+	sink, err := BuildPipeline(SinkOptions{Format: "json"}, &buf)
 	if err != nil {
-		t.Fatalf("BuildSink: %v", err)
+		t.Fatalf("BuildPipeline: %v", err)
 	}
 
 	if err := sink.Emit(map[string]any{"k": "v"}); err != nil {
@@ -140,10 +138,10 @@ func TestBuildSinkEmitsJSONForJSONFormat(t *testing.T) {
 	}
 }
 
-func TestBuildSinkAppliesFieldFilterBeforeJQ(t *testing.T) {
+func TestBuildPipelineAppliesFieldFilterBeforeJQ(t *testing.T) {
 
 	var buf bytes.Buffer
-	sink, err := BuildSink(
+	sink, err := BuildPipeline(
 		SinkOptions{
 			Format:  "json",
 			Filters: []string{"kind=file"},
@@ -152,7 +150,7 @@ func TestBuildSinkAppliesFieldFilterBeforeJQ(t *testing.T) {
 		&buf,
 	)
 	if err != nil {
-		t.Fatalf("BuildSink: %v", err)
+		t.Fatalf("BuildPipeline: %v", err)
 	}
 
 	in := []map[string]any{
@@ -175,10 +173,10 @@ func TestBuildSinkAppliesFieldFilterBeforeJQ(t *testing.T) {
 	}
 }
 
-func TestBuildSinkReportsUnknownFormat(t *testing.T) {
+func TestBuildPipelineReportsUnknownFormat(t *testing.T) {
 
 	var buf bytes.Buffer
-	_, err := BuildSink(SinkOptions{Format: "xml"}, &buf)
+	_, err := BuildPipeline(SinkOptions{Format: "xml"}, &buf)
 	if err == nil {
 		t.Fatal("expected error for unknown format; got nil")
 	}
@@ -187,24 +185,24 @@ func TestBuildSinkReportsUnknownFormat(t *testing.T) {
 	}
 }
 
-func TestBuildSinkRequiresTemplateBodyForTemplateFormat(t *testing.T) {
+func TestBuildPipelineRequiresTemplateBodyForTemplateFormat(t *testing.T) {
 
 	var buf bytes.Buffer
-	_, err := BuildSink(SinkOptions{Format: "template"}, &buf)
+	_, err := BuildPipeline(SinkOptions{Format: "template"}, &buf)
 	if err == nil {
 		t.Fatal("expected error for template format with empty body; got nil")
 	}
 }
 
-func TestBuildSinkUsesProvidedTemplateBody(t *testing.T) {
+func TestBuildPipelineUsesProvidedTemplateBody(t *testing.T) {
 
 	var buf bytes.Buffer
-	sink, err := BuildSink(
+	sink, err := BuildPipeline(
 		SinkOptions{Format: "template", Template: "hi {{.Name}}"},
 		&buf,
 	)
 	if err != nil {
-		t.Fatalf("BuildSink: %v", err)
+		t.Fatalf("BuildPipeline: %v", err)
 	}
 
 	if err := sink.Emit(struct{ Name string }{Name: "world"}); err != nil {
@@ -216,19 +214,19 @@ func TestBuildSinkUsesProvidedTemplateBody(t *testing.T) {
 	}
 }
 
-func TestBuildSinkReportsFilterParseError(t *testing.T) {
+func TestBuildPipelineReportsFilterParseError(t *testing.T) {
 
 	var buf bytes.Buffer
-	_, err := BuildSink(SinkOptions{Format: "json", Filters: []string{"nope"}}, &buf)
+	_, err := BuildPipeline(SinkOptions{Format: "json", Filters: []string{"nope"}}, &buf)
 	if err == nil {
 		t.Fatal("expected field-parse error; got nil")
 	}
 }
 
-func TestBuildSinkReportsJQParseError(t *testing.T) {
+func TestBuildPipelineReportsJQParseError(t *testing.T) {
 
 	var buf bytes.Buffer
-	_, err := BuildSink(SinkOptions{Format: "json", JQ: "((("}, &buf)
+	_, err := BuildPipeline(SinkOptions{Format: "json", JQ: "((("}, &buf)
 	if err == nil {
 		t.Fatal("expected jq-parse error; got nil")
 	}

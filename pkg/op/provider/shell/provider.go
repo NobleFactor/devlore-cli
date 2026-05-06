@@ -36,6 +36,13 @@ type Result struct {
 	Stdout   string `json:"stdout"   yaml:"stdout"   csv:"stdout"`  // captured stdout bytes as a string
 }
 
+// NewProvider constructs a POSIX shell Provider bound to the given runtime environment.
+//
+// Parameters:
+//   - ctx: the runtime environment that supplies the subprocess context, status sink, and result sink.
+//
+// Returns:
+//   - *Provider: the initialized provider.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
@@ -52,7 +59,7 @@ func (p *Provider) Exec(command string) (*Result, error) {
 	if command == "" {
 		return nil, fmt.Errorf("no command specified")
 	}
-	cmd := exec.Command("sh", "-c", command) //nolint:gosec // G204: command built from provider inputs
+	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "sh", "-c", command) //nolint:gosec // G204: command built from provider inputs
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -22,29 +22,29 @@ import (
 
 // Runner executes os/exec commands with stdout and stderr routed through the configured status and result channels.
 type Runner struct {
-	context context.Context // when canceled, the subprocess receives a kill
-	dryRun  bool            // when true, narrate the command but skip execution
-	result  result.Sink     // typed-payload sink consumed by Emit
-	status  status.Sink     // narration sink for stdout and stderr line streams and pre-execution narration
+	context context.Context  // when canceled, the subprocess receives a kill
+	dryRun  bool             // when true, narrate the command but skip execution
+	result  *result.Pipeline // typed-payload pipeline consumed by Emit
+	status  *status.Narrator // narrator for stdout and stderr line streams and pre-execution narration
 }
 
 // NewRunner constructs a Runner bound to the given runtime values.
 //
 // Parameters:
-//   - context: cancellation signal for the subprocess; when Done, the subprocess is killed.
-//   - dryRun:  when true, narrate the command but skip execution.
-//   - result:  typed-payload sink consumed by Emit.
-//   - status:  narration sink for stdout and stderr line streams and pre-execution narration.
+//   - ctx:        cancellation signal for the subprocess; when Done, the subprocess is killed.
+//   - dryRun:     when true, narrate the command but skip execution.
+//   - pipeline:   typed-payload pipeline consumed by Emit.
+//   - narrator:   narrator for stdout and stderr line streams and pre-execution narration.
 //
 // Returns:
 //   - *Runner: the initialized runner.
-func NewRunner(context context.Context, dryRun bool, result result.Sink, status status.Sink) *Runner {
+func NewRunner(ctx context.Context, dryRun bool, pipeline *result.Pipeline, narrator *status.Narrator) *Runner {
 
 	return &Runner{
-		context: context,
+		context: ctx,
 		dryRun:  dryRun,
-		result:  result,
-		status:  status,
+		result:  pipeline,
+		status:  narrator,
 	}
 }
 
@@ -170,7 +170,7 @@ func (r *Runner) bindCancel(cmd *exec.Cmd) {
 	}
 	go func() {
 		<-r.context.Done()
-		_ = cmd.Cancel()
+		_ = cmd.Cancel() //nolint:errcheck // best-effort cancellation; the subprocess may already have exited
 	}()
 }
 

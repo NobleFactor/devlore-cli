@@ -6,7 +6,6 @@
 package pkg_test
 
 import (
-	"bytes"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
 	"strings"
 	"testing"
@@ -53,7 +52,7 @@ func TestInstallAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.install")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -66,9 +65,9 @@ func TestInstallAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] pkg.install") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] pkg.install")
+	wantSubstring := "[dry-run] pkg.install"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -76,7 +75,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.remove")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -89,9 +88,9 @@ func TestRemoveAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] pkg.remove") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] pkg.remove")
+	wantSubstring := "[dry-run] pkg.remove"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -99,7 +98,7 @@ func TestUpgradeAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.upgrade")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -112,9 +111,9 @@ func TestUpgradeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] pkg.upgrade") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] pkg.upgrade")
+	wantSubstring := "[dry-run] pkg.upgrade"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -122,7 +121,7 @@ func TestUpdateAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.update")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -135,9 +134,9 @@ func TestUpdateAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] pkg.update") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] pkg.update")
+	wantSubstring := "[dry-run] pkg.update"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -145,7 +144,7 @@ func TestInstalledAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.installed")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -158,9 +157,9 @@ func TestInstalledAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] pkg.installed") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] pkg.installed")
+	wantSubstring := "[dry-run] pkg.installed"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -168,7 +167,7 @@ func TestNotInstalledAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.not_installed")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -181,9 +180,9 @@ func TestNotInstalledAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] pkg.not_installed") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] pkg.not_installed")
+	wantSubstring := "[dry-run] pkg.not_installed"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -191,7 +190,7 @@ func TestVersionGTEAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.version_gte")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -204,9 +203,9 @@ func TestVersionGTEAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] pkg.version_gte") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] pkg.version_gte")
+	wantSubstring := "[dry-run] pkg.version_gte"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 

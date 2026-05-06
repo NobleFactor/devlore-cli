@@ -6,12 +6,12 @@ package devloretest
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
@@ -49,9 +49,16 @@ Use --output to route streams to files or /dev/null:
 
 			// Construct the package-global status.UI from parsed flags. The same instance flows
 			// into RuntimeEnvironmentSpec.Status so --silent applies uniformly across all
-			// emission points.
+			// emission points. The choice between Console and Discard is at the construction
+			// site — Console always emits; Discard always drops.
 			silent, _ := cmd.Flags().GetBool("silent")
-			cli.SetUI(status.NewConsole(os.Stderr, "devlore-test", true, silent))
+			var s sink.Sink
+			if silent {
+				s = sink.Discard()
+			} else {
+				s = sink.Stderr()
+			}
+			cli.SetUI(status.NewNarrator("devlore-test", s))
 
 			return initConfig(cmd)
 		},

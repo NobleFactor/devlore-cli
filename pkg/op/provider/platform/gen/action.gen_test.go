@@ -6,7 +6,6 @@
 package platform_test
 
 import (
-	"bytes"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
 	"strings"
 	"testing"
@@ -49,7 +48,7 @@ func TestArchAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "platform.arch")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -62,9 +61,9 @@ func TestArchAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] platform.arch") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] platform.arch")
+	wantSubstring := "[dry-run] platform.arch"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -72,7 +71,7 @@ func TestDistroAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "platform.distro")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -85,9 +84,9 @@ func TestDistroAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] platform.distro") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] platform.distro")
+	wantSubstring := "[dry-run] platform.distro"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -95,7 +94,7 @@ func TestHostnameAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "platform.hostname")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -108,9 +107,9 @@ func TestHostnameAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] platform.hostname") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] platform.hostname")
+	wantSubstring := "[dry-run] platform.hostname"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -118,7 +117,7 @@ func TestOSAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "platform.os")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -131,9 +130,9 @@ func TestOSAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] platform.os") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] platform.os")
+	wantSubstring := "[dry-run] platform.os"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -141,7 +140,7 @@ func TestVersionAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "platform.version")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -154,9 +153,9 @@ func TestVersionAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] platform.version") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] platform.version")
+	wantSubstring := "[dry-run] platform.version"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 

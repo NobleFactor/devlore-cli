@@ -13,7 +13,7 @@ exists_output = plan.file.exists(resource=phantom)
 # Then-branch would create canary — but it should not fire.
 plan.choose(
     when=exists_output,
-    then=lambda: plan.file.write_text(destination_path=canary, content="should not exist", mode=0o644),
+    then=lambda: plan.file.write_text(destination_path=canary, content="should not exist", chmod=0o644),
 )
 
 t.expect_no_file(phantom)

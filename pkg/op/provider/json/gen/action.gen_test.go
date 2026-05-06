@@ -6,7 +6,6 @@
 package json_test
 
 import (
-	"bytes"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
 	"strings"
 	"testing"
@@ -47,7 +46,7 @@ func TestEncodeAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "json.encode")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -60,9 +59,9 @@ func TestEncodeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] json.encode") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] json.encode")
+	wantSubstring := "[dry-run] json.encode"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -70,7 +69,7 @@ func TestEncodeIndentAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "json.encode_indent")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -83,9 +82,9 @@ func TestEncodeIndentAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] json.encode_indent") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] json.encode_indent")
+	wantSubstring := "[dry-run] json.encode_indent"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -93,7 +92,7 @@ func TestDecodeAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "json.decode")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -106,9 +105,9 @@ func TestDecodeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] json.decode") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] json.decode")
+	wantSubstring := "[dry-run] json.decode"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -116,7 +115,7 @@ func TestParseAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "json.parse")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -129,9 +128,9 @@ func TestParseAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] json.parse") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] json.parse")
+	wantSubstring := "[dry-run] json.parse"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 

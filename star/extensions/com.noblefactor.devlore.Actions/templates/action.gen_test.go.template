@@ -6,7 +6,6 @@
 package {{.package}}_test
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 
@@ -49,7 +48,7 @@ func Test{{.name}}Action_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "{{$.provider}}.{{.snake_name}}")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -62,9 +61,9 @@ func Test{{.name}}Action_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] {{$.provider}}.{{.snake_name}}") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] {{$.provider}}.{{.snake_name}}")
+	wantSubstring := "[dry-run] {{$.provider}}.{{.snake_name}}"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 {{end}}

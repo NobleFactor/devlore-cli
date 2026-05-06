@@ -15,6 +15,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
 // providerReceiverType returns the ProviderReceiverType for the provider under test.
@@ -33,27 +35,34 @@ func providerReceiverType(t *testing.T) op.ProviderReceiverType {
 	return prt
 }
 
-// newCtx creates a test context with a buffer writer.
+// newCtx creates a test context with a discarding status narrator. Use when the test does not
+// assert on what was narrated; for narration-asserting tests, use [dryRunCtx] which returns the
+// captured-bytes buffer alongside the context.
 func newCtx(t *testing.T) *op.RuntimeEnvironment {
 
 	t.Helper()
 	return &op.RuntimeEnvironment{
 		Context:  context.Background(),
-		Writer:   &bytes.Buffer{},
 		Registry: op.NewReceiverRegistry(),
+		Status:   status.NewNarrator("test", sink.Discard()),
 	}
 }
 
-// dryRunCtx creates a test context with DryRun enabled.
-func dryRunCtx(t *testing.T) *op.RuntimeEnvironment {
+// dryRunCtx creates a test context with DryRun enabled and a buffer-backed status narrator.
+//
+// The Status field is a *status.Narrator wrapping a captured-bytes [sink.Sink] so dry-run
+// narration emitted by the action layer (which calls ctx.Status.Note) is observable for assertions
+// against the returned buffer.
+func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 
 	t.Helper()
+	s, buf := sink.Capture()
 	return &op.RuntimeEnvironment{
 		Context:  context.Background(),
 		DryRun:   true,
-		Writer:   &bytes.Buffer{},
 		Registry: op.NewReceiverRegistry(),
-	}
+		Status:   status.NewNarrator("test", s),
+	}, buf
 }
 
 // makeRegistry creates a receiver registry with all providers registered.

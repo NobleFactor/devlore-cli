@@ -2,7 +2,7 @@
 # write_text is compensable; after fatal halts, the file should be removed.
 
 dest = t.tmp("to-be-undone.txt")
-plan.file.write_text(destination_path=dest, content="temporary", mode=0o644)
+plan.file.write_text(destination_path=dest, content="temporary", chmod=0o644)
 plan.fatal("abort after write")
 
 t.expect_error("fatal: abort after write")

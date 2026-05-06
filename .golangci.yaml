@@ -59,6 +59,12 @@ linters:
     gocognit:
       min-complexity: 20
 
+    # NobleFactor Go style requires a blank line after every function signature
+    # before the body. multi-func: true makes the whitespace linter enforce that
+    # rule rather than flag the blank line as unnecessary.
+    whitespace:
+      multi-func: true
+
     gocritic:
       enabled-tags:
         - diagnostic

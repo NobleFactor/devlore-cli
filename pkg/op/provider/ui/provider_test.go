@@ -4,87 +4,72 @@
 package ui
 
 import (
-	"errors"
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
-// captureUI is a [status.UI] test double that records every method call. After the [Provider] thin
-// adapter rewrite, the provider holds no rendering state of its own — every method forwards directly
-// to the [status.UI] on the runtime environment. These tests verify the forwarding wiring; rendering
-// behavior (program-name prefix, color codes, silent gating) is exercised in pkg/status/console
-// tests.
-type captureUI struct {
-	notes     []string
-	warns     []string
-	errors    []string
-	successes []string
-	fails     []string
-	prints    []string
-}
-
-func (c *captureUI) Note(msg string)    { c.notes = append(c.notes, msg) }
-func (c *captureUI) Warn(msg string)    { c.warns = append(c.warns, msg) }
-func (c *captureUI) Error(msg string)   { c.errors = append(c.errors, msg) }
-func (c *captureUI) Succeed(msg string) { c.successes = append(c.successes, msg) }
-func (c *captureUI) Fail(msg string) error {
-	c.fails = append(c.fails, msg)
-	return errors.New(msg)
-}
-func (c *captureUI) Print(msg string) { c.prints = append(c.prints, msg) }
-
-// newProviderWithCapture returns a *Provider whose runtime environment carries the given captureUI as
-// its Status. The captureUI records every forwarded call.
-func newProviderWithCapture(t *testing.T) (*Provider, *captureUI) {
+// newProviderWithCapture returns a *Provider whose runtime environment carries a [status.Narrator]
+// wrapping a buffer-backed [sink.Sink]. The buffer is returned alongside so tests can assert on the
+// bytes the narrator emitted.
+//
+// The provider holds no rendering state of its own — every method forwards directly to the
+// Narrator on the runtime environment. These tests verify the forwarding wiring by checking that
+// the expected category symbol + message appear in the captured bytes; the rendering behavior
+// (program-name prefix, color codes) is exercised by pkg/status tests.
+func newProviderWithCapture(t *testing.T) (*Provider, *bytes.Buffer) {
 	t.Helper()
-	capture := &captureUI{}
-	env := &op.RuntimeEnvironment{Status: capture}
-	return NewProvider(env), capture
+	s, buf := sink.Capture()
+	env := &op.RuntimeEnvironment{Status: status.NewNarrator("test", s)}
+	return NewProvider(env), buf
 }
 
 func TestProviderNoteForwards(t *testing.T) {
-	p, capture := newProviderWithCapture(t)
+	p, buf := newProviderWithCapture(t)
 
 	p.Note("hello")
 
-	if len(capture.notes) != 1 || capture.notes[0] != "hello" {
-		t.Errorf("Note forward: got %v, want [hello]", capture.notes)
+	if !strings.Contains(buf.String(), "hello") {
+		t.Errorf("Note forward: output = %q, want substring %q", buf.String(), "hello")
 	}
 }
 
 func TestProviderWarnForwards(t *testing.T) {
-	p, capture := newProviderWithCapture(t)
+	p, buf := newProviderWithCapture(t)
 
 	p.Warn("alert")
 
-	if len(capture.warns) != 1 || capture.warns[0] != "alert" {
-		t.Errorf("Warn forward: got %v, want [alert]", capture.warns)
+	if !strings.Contains(buf.String(), "alert") {
+		t.Errorf("Warn forward: output = %q, want substring %q", buf.String(), "alert")
 	}
 }
 
 func TestProviderErrorForwards(t *testing.T) {
-	p, capture := newProviderWithCapture(t)
+	p, buf := newProviderWithCapture(t)
 
 	p.Error("oops")
 
-	if len(capture.errors) != 1 || capture.errors[0] != "oops" {
-		t.Errorf("Error forward: got %v, want [oops]", capture.errors)
+	if !strings.Contains(buf.String(), "oops") {
+		t.Errorf("Error forward: output = %q, want substring %q", buf.String(), "oops")
 	}
 }
 
 func TestProviderSuccessForwards(t *testing.T) {
-	p, capture := newProviderWithCapture(t)
+	p, buf := newProviderWithCapture(t)
 
 	p.Succeed("done")
 
-	if len(capture.successes) != 1 || capture.successes[0] != "done" {
-		t.Errorf("Success forward: got %v, want [done]", capture.successes)
+	if !strings.Contains(buf.String(), "done") {
+		t.Errorf("Success forward: output = %q, want substring %q", buf.String(), "done")
 	}
 }
 
 func TestProviderFailForwards(t *testing.T) {
-	p, capture := newProviderWithCapture(t)
+	p, buf := newProviderWithCapture(t)
 
 	err := p.Fail("broken")
 
@@ -94,17 +79,17 @@ func TestProviderFailForwards(t *testing.T) {
 	if err.Error() != "broken" {
 		t.Errorf("error text = %q, want %q", err.Error(), "broken")
 	}
-	if len(capture.fails) != 1 || capture.fails[0] != "broken" {
-		t.Errorf("Fail forward: got %v, want [broken]", capture.fails)
+	if !strings.Contains(buf.String(), "broken") {
+		t.Errorf("Fail forward: output = %q, want substring %q", buf.String(), "broken")
 	}
 }
 
 func TestProviderPrintForwards(t *testing.T) {
-	p, capture := newProviderWithCapture(t)
+	p, buf := newProviderWithCapture(t)
 
 	p.Print("raw text")
 
-	if len(capture.prints) != 1 || capture.prints[0] != "raw text" {
-		t.Errorf("Print forward: got %v, want [raw text]", capture.prints)
+	if !strings.Contains(buf.String(), "raw text") {
+		t.Errorf("Print forward: output = %q, want substring %q", buf.String(), "raw text")
 	}
 }

@@ -4,7 +4,6 @@
 package pkg
 
 import (
-	"io"
 	"reflect"
 	"testing"
 
@@ -119,7 +118,6 @@ func newMockPackageManager() *mockPackageManager {
 func newTestProvider(packageManager *mockPackageManager) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
-			Writer: io.Discard,
 			Platform: &mockPlatform{
 				defaultPM: packageManager,
 				available: map[string]platform.PackageManager{packageManager.Name(): packageManager},

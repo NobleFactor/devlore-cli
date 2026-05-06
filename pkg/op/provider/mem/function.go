@@ -21,16 +21,6 @@ import (
 
 var errorType = reflect.TypeFor[error]()
 
-func init() {
-	op.AnnounceResource(
-		reflect.TypeFor[Function](),
-		func(ctx *op.RuntimeEnvironment, identity any) (op.Resource, error) {
-			return NewFunction(ctx, identity)
-		},
-		nil,
-	)
-}
-
 // Function is a [Resource] that holds a starlark function extracted into a self-contained synthetic source
 // file; the source text and its compiled bytecode are archived in the [op.RecoverySite] as a single packed
 // file (see [writeFunctionPack] for the layout).

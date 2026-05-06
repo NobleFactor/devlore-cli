@@ -6,7 +6,6 @@
 package shell_test
 
 import (
-	"bytes"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell/gen"
 	"strings"
 	"testing"
@@ -41,7 +40,7 @@ func TestExecAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "shell.exec")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -54,9 +53,9 @@ func TestExecAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] shell.exec") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] shell.exec")
+	wantSubstring := "[dry-run] shell.exec"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 

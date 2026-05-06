@@ -40,6 +40,13 @@ type Result struct {
 	Stdout   string `json:"stdout"   yaml:"stdout"   csv:"stdout"`  // stream 1 (Output) by default
 }
 
+// NewProvider constructs a PowerShell Provider bound to the given runtime environment.
+//
+// Parameters:
+//   - ctx: the runtime environment that supplies the subprocess context, status sink, and result sink.
+//
+// Returns:
+//   - *Provider: the initialized provider.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
@@ -48,11 +55,11 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 //
 // The command is invoked as:
 //
-//	pwsh -NoLogo -NoProfile -Command <command>
+//		pwsh -NoLogo -NoProfile -Command <command>
 //
-//   - `-NoLogo`     suppresses the startup banner.
-//   - `-NoProfile`  prevents sourcing `$PROFILE`, so user-specific profile output never contaminates the captured
-//     streams.
+//	  - `-NoLogo`     suppresses the startup banner.
+//	  - `-NoProfile`  prevents sourcing `$PROFILE`, so user-specific profile output never contaminates the captured
+//	    streams.
 //
 // Parameters:
 //   - command: PowerShell command string passed to `pwsh -Command`.
@@ -64,7 +71,7 @@ func (p *Provider) Exec(command string) (*Result, error) {
 	if command == "" {
 		return nil, fmt.Errorf("no command specified")
 	}
-	cmd := exec.Command("pwsh", "-NoLogo", "-NoProfile", "-Command", command) //nolint:gosec // G204: command built from provider inputs
+	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "pwsh", "-NoLogo", "-NoProfile", "-Command", command) //nolint:gosec // G204: command built from provider inputs
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

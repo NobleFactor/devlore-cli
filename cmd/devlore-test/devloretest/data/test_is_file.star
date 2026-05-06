@@ -8,12 +8,12 @@
 src = t.tmp("is_file_src.txt")
 dst = t.tmp("is_file_dst.txt")
 
-written = plan.file.write_text(destination_path=src, content="file check", mode=0o644)
+written = plan.file.write_text(destination_path=src, content="file check", chmod=0o644)
 
 file_check = plan.file.is_file(resource=src)
 plan.choose(
     when=file_check,
-    then=lambda: plan.file.copy(source=written, destination_path=dst, mode=0o644),
+    then=lambda: plan.file.copy(source=written, destination_path=dst, chmod=0o644),
 )
 
 t.expect_file(dst, content="file check")

@@ -10,8 +10,8 @@ b = t.tmp("gather_b.txt")
 c = t.tmp("gather_c.txt")
 
 # Two independent writes.
-out_a = plan.file.write_text(destination_path=a, content="alpha", mode=0o644)
-out_b = plan.file.write_text(destination_path=b, content="bravo", mode=0o644)
+out_a = plan.file.write_text(destination_path=a, content="alpha", chmod=0o644)
+out_b = plan.file.write_text(destination_path=b, content="bravo", chmod=0o644)
 
 # Gather creates a fan-in: shell.exec depends on both writes completing.
 # The shell command concatenates both files into a third.

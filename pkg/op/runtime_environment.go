@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 	"github.com/NobleFactor/devlore-cli/pkg/process"
 	"github.com/NobleFactor/devlore-cli/pkg/result"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"go.starlark.net/starlark"
 )
@@ -64,11 +65,11 @@ type RuntimeEnvironment struct {
 	// Providers, graphs, and the starlark runtime use it to look up receiver types by name.
 	Registry *ReceiverRegistry
 
-	// Result is the primary output sink carried from the [RuntimeEnvironmentSpec].
+	// Result is the primary output pipeline carried from the [RuntimeEnvironmentSpec].
 	//
-	// Populated by [RuntimeEnvironmentSpec.Build]. Defaults to [result.UnconfiguredSink] when the spec field is zero.
-	// Every Emit errors loudly.
-	Result result.Sink
+	// Populated by [RuntimeEnvironmentSpec.Build]. Defaults to a [result.Pipeline] writing JSON to
+	// [sink.Stdout] when the spec field is nil.
+	Result *result.Pipeline
 
 	// Results holds the accumulated node results from the current execution.
 	//
@@ -87,11 +88,12 @@ type RuntimeEnvironment struct {
 	// p.RuntimeEnvironment().SopsClient.
 	Sops *sops.Client
 
-	// Status is the user-facing side-channel UI carried from the [RuntimeEnvironmentSpec].
+	// Status is the user-facing side-channel narrator carried from the [RuntimeEnvironmentSpec].
 	//
 	// Same instance that flows to `cli.UI()` and through every status emission point. Populated by
-	// [RuntimeEnvironmentSpec.Build] (defaults to [status.Discard] when the spec field is zero).
-	Status status.Sink
+	// [RuntimeEnvironmentSpec.Build] (defaults to a [status.Narrator] writing through [sink.Stderr]
+	// when the spec field is nil; pass a Narrator wrapping [sink.Discard] to suppress).
+	Status *status.Narrator
 
 	// Thread is a Starlark execution thread for callable initialization.
 	//
@@ -110,8 +112,9 @@ type RuntimeEnvironment struct {
 
 // NewRuntimeEnvironment constructs a fully-populated [RuntimeEnvironment] from this spec.
 //
-// It performs defaulting (BackupSuffix → ".<ProgramName>-backup", Status → [status.Discard],
-// Result → [result.UnconfiguredSink]) and wires the [RecoverySite] if a Root is present.
+// It performs defaulting (BackupSuffix → ".<ProgramName>-backup", Status → [status.Narrator]
+// over [sink.Stderr], Result → [result.Pipeline] writing JSON to [sink.Stdout]) and wires the
+// [RecoverySite] if a Root is present.
 //
 // Returns:
 //   - *RuntimeEnvironment: the constructed context.
@@ -126,16 +129,17 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 
 	statusUI := spec.Status
 	if statusUI == nil {
-		statusUI = status.Discard{}
+		statusUI = status.NewNarrator(spec.ProgramName, sink.Stderr())
 	}
 
 	resultSink := spec.Result
 	if resultSink == nil {
-		resultSink = result.UnconfiguredSink{}
+		resultSink = result.NewPipeline(nil, result.JSONFormatter{}, sink.Stdout())
 	}
 
 	env := &RuntimeEnvironment{
 		ProgramName:        spec.ProgramName,
+		Catalog:            NewResourceCatalog(),
 		Context:            ctx,
 		Data:               spec.Data,
 		DryRun:             spec.DryRun,

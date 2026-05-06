@@ -8,12 +8,12 @@
 dir  = t.tmp("is_dir_test")
 file = t.tmp("is_dir_test/proof.txt")
 
-plan.file.mkdir(path=dir, mode=0o755)
+plan.file.mkdir(path=dir, chmod=0o755)
 
 dir_check = plan.file.is_dir(resource=dir)
 plan.choose(
     when=dir_check,
-    then=lambda: plan.file.write_text(destination_path=file, content="dir exists", mode=0o644),
+    then=lambda: plan.file.write_text(destination_path=file, content="dir exists", chmod=0o644),
 )
 
 t.expect_file(file, content="dir exists")

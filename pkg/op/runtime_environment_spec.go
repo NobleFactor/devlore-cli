@@ -7,6 +7,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 	"github.com/NobleFactor/devlore-cli/pkg/result"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
@@ -68,9 +69,9 @@ type RuntimeEnvironmentSpec struct {
 	// Result is the primary output sink.
 	//
 	// Carries structured data destined for the user or downstream tooling (JSON / YAML / CSV / template). Same instance
-	// flows from the client's bootstrap into the runtime environment. When zero, [RuntimeEnvironmentSpec.Build]
-	// defaults to [result.UnconfiguredSink] which errors loudly on every Emit.
-	Result result.Sink
+	// flows from the client's bootstrap into the runtime environment. When nil, [RuntimeEnvironmentSpec.Build]
+	// defaults to a [result.Pipeline] writing JSON to [sink.Stdout].
+	Result *result.Pipeline
 
 	// Root provides scoped filesystem operations for providers.
 	Root Root
@@ -80,11 +81,12 @@ type RuntimeEnvironmentSpec struct {
 	// No Nil when SOPS is not configured.
 	Sops *sops.Client
 
-	// Status is the user-facing side-channel UI. Carries categorized status messages and starlark `print()` output.
+	// Status is the user-facing side-channel narrator. Carries categorized status messages and starlark `print()` output.
 	//
-	// Same instance flows from the client's bootstrap into the runtime environment. When zero,
-	// [RuntimeEnvironmentSpec.Build] defaults to [status.Discard].
-	Status status.Sink
+	// Same instance flows from the client's bootstrap into the runtime environment. When nil,
+	// [RuntimeEnvironmentSpec.Build] defaults to a [status.Narrator] writing through [sink.Stderr]; pass a Narrator
+	// wrapping [sink.Discard] to suppress.
+	Status *status.Narrator
 }
 
 // NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name and registry.
@@ -99,8 +101,8 @@ func NewRuntimeEnvironmentSpec(programName string, registry *ReceiverRegistry) *
 	return &RuntimeEnvironmentSpec{
 		ProgramName: programName,
 		Registry:    registry,
-		Status:      status.Discard{},
-		Result:      result.UnconfiguredSink{},
+		Status:      status.NewNarrator(programName, sink.Discard()),
+		Result:      result.NewPipeline(nil, result.JSONFormatter{}, sink.Discard()),
 	}
 }
 
@@ -184,12 +186,12 @@ func (c *RuntimeEnvironmentSpec) WithPlatform(p platform.Platform) *RuntimeEnvir
 // WithResult sets the primary output sink for the constructed runtime environment.
 //
 // Parameters:
-//   - sink: the [result.Sink] instance — typically constructed via [result.NewPipeline].
+//   - pipeline: the [result.Pipeline] instance — typically constructed via [result.NewPipeline].
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithResult(sink result.Sink) *RuntimeEnvironmentSpec {
-	c.Result = sink
+func (c *RuntimeEnvironmentSpec) WithResult(pipeline *result.Pipeline) *RuntimeEnvironmentSpec {
+	c.Result = pipeline
 	return c
 }
 
@@ -217,15 +219,15 @@ func (c *RuntimeEnvironmentSpec) WithSops(client *sops.Client) *RuntimeEnvironme
 	return c
 }
 
-// WithStatus sets the side-channel UI for the constructed runtime environment.
+// WithStatus sets the side-channel narrator for the constructed runtime environment.
 //
 // Parameters:
-//   - ui: the [status.Sink] instance — typically the same one held by the cli facade via [cli.SetUI].
+//   - narrator: the [status.Narrator] instance — typically the same one held by the cli facade via [cli.SetUI].
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithStatus(ui status.Sink) *RuntimeEnvironmentSpec {
-	c.Status = ui
+func (c *RuntimeEnvironmentSpec) WithStatus(narrator *status.Narrator) *RuntimeEnvironmentSpec {
+	c.Status = narrator
 	return c
 }
 

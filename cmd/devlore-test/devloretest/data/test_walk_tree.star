@@ -2,13 +2,13 @@
 
 # Set up temp directory with files.
 dir = t.tmp("walk_root")
-file.mkdir(path=dir, mode=0o755)
-file.write_text(destination_path=t.tmp("walk_root/a.txt"), content="a", mode=0o644)
-file.write_text(destination_path=t.tmp("walk_root/b.txt"), content="b", mode=0o644)
+file.mkdir(path=dir, chmod=0o755)
+file.write_text(destination_path=t.tmp("walk_root/a.txt"), content="a", chmod=0o644)
+file.write_text(destination_path=t.tmp("walk_root/b.txt"), content="b", chmod=0o644)
 
 sub = t.tmp("walk_root/sub")
-file.mkdir(path=sub, mode=0o755)
-file.write_text(destination_path=t.tmp("walk_root/sub/c.txt"), content="c", mode=0o644)
+file.mkdir(path=sub, chmod=0o755)
+file.write_text(destination_path=t.tmp("walk_root/sub/c.txt"), content="c", chmod=0o644)
 
 # Walk and collect relative paths.
 def collector(initial, resource, path, stack):

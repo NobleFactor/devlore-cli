@@ -15,6 +15,7 @@ import (
 	cli2 "github.com/NobleFactor/devlore-cli/cmd/star/cli"
 	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
@@ -169,7 +170,7 @@ Generate shell completions with:
 		// forwarding wrappers (output.go) and lore/writ/devlore-test via cli.NewRootCmd, and the
 		// starlark ui.note() / ui.print() paths through pkg/op/provider/ui.Provider's passthrough
 		// to env.Status. One instance, one silent gate, every emission consistent on stderr.
-		cli.SetUI(status.NewConsole(os.Stderr, "star", true, silent))
+		cli.SetUI(status.NewNarrator("star", sink.Stderr()))
 	})
 
 	// Version command

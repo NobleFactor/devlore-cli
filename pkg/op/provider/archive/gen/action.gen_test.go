@@ -6,7 +6,6 @@
 package archive_test
 
 import (
-	"bytes"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive/gen"
 	"strings"
 	"testing"
@@ -41,7 +40,7 @@ func TestExtractAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "archive.extract")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -54,9 +53,9 @@ func TestExtractAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] archive.extract") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] archive.extract")
+	wantSubstring := "[dry-run] archive.extract"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 

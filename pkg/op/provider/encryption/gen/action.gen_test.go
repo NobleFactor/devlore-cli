@@ -6,7 +6,6 @@
 package encryption_test
 
 import (
-	"bytes"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
 	"strings"
 	"testing"
@@ -41,7 +40,7 @@ func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "encryption.decrypt_sops_file")
-	ctx := dryRunCtx(t)
+	ctx, buf := dryRunCtx(t)
 
 	result, undo, err := action.Do(ctx, map[string]any{})
 	if err != nil {
@@ -54,9 +53,9 @@ func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	output := ctx.Writer.(*bytes.Buffer).String()
-	if !strings.Contains(output, "[dry-run] encryption.decrypt_sops_file") {
-		t.Errorf("dry-run output = %q, want to contain %q", output, "[dry-run] encryption.decrypt_sops_file")
+	wantSubstring := "[dry-run] encryption.decrypt_sops_file"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 

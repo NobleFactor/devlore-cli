@@ -5,12 +5,12 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
@@ -49,9 +49,17 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 
 			// Construct the package-global status.UI from parsed flags. The same instance flows
 			// into RuntimeEnvironmentSpec.Status so --silent applies uniformly to cli.Note,
-			// env.Status.Note (provider emissions), and starlark print() output.
+			// env.Status.Note (provider emissions), and starlark print() output. The choice
+			// between Console and Discard is at the construction site — Console always emits;
+			// Discard always drops.
 			silent, _ := cmd.Flags().GetBool("silent")
-			SetUI(status.NewConsole(os.Stderr, cfg.Name, true, silent))
+			var s sink.Sink
+			if silent {
+				s = sink.Discard()
+			} else {
+				s = sink.Stderr()
+			}
+			SetUI(status.NewNarrator(cfg.Name, s))
 
 			return initRootConfig(cmd, cfg.Name)
 		},

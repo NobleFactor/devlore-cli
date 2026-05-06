@@ -4,11 +4,12 @@
 package service
 
 import (
-	"io"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
 // mockServiceManager implements [platform.ServiceManager] for testing.
@@ -100,8 +101,8 @@ func (m *mockPlatform) ServiceManager() platform.ServiceManager             { re
 func newTestProvider(sm *mockServiceManager) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
-			Writer:   io.Discard,
 			Platform: &mockPlatform{sm: sm},
+			Status:   status.NewNarrator("test", sink.Discard()),
 		}),
 	}
 }

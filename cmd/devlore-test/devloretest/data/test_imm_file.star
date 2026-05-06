@@ -14,7 +14,7 @@ t.expect_equal(file.parent(path="/some/dir/file.txt"), "/some/dir")
 
 # Write — returns a Resource (verify callable, not None)
 dest = t.tmp("imm_write.txt")
-written = file.write_text(destination_path=dest, content="immediate write", mode=0o644)
+written = file.write_text(destination_path=dest, content="immediate write", chmod=0o644)
 t.expect_equal(type(written), "struct")
 
 # ReadText — returns the file content as a string
@@ -29,12 +29,12 @@ t.expect_equal(file.exists(resource=t.tmp("no_such_file")), False)
 
 # Mkdir and is_dir
 dir = t.tmp("imm_dir")
-file.mkdir(path=dir, mode=0o755)
+file.mkdir(path=dir, chmod=0o755)
 t.expect_equal(file.is_dir(resource=dir), True)
 
 # Copy — returns a Resource
 dst = t.tmp("imm_copy.txt")
-copied = file.copy(source=dest, destination_path=dst, mode=0o644)
+copied = file.copy(source=dest, destination_path=dst, chmod=0o644)
 t.expect_equal(type(copied), "struct")
 
 # Move — returns a Resource
@@ -48,8 +48,8 @@ file.remove(path=moved, prune=False, boundary="")
 t.expect_equal(file.exists(resource=moved), False)
 
 # Glob — returns a list
-file.write_text(destination_path=t.tmp("imm_dir/a.txt"), content="a", mode=0o644)
-file.write_text(destination_path=t.tmp("imm_dir/b.txt"), content="b", mode=0o644)
+file.write_text(destination_path=t.tmp("imm_dir/a.txt"), content="a", chmod=0o644)
+file.write_text(destination_path=t.tmp("imm_dir/b.txt"), content="b", chmod=0o644)
 matches = file.glob(pattern=t.tmp("imm_dir/*.txt"), honor_gitignore=False)
 t.expect_equal(len(matches), 2)
 

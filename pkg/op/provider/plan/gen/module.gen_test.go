@@ -8,17 +8,15 @@ package plan_test
 import (
 	"testing"
 
+	"go.starlark.net/starlark"
+
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
 func TestModule_AttrNames(t *testing.T) {
-
-	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
-	if err != nil {
-		t.Fatalf("NewGoReceiver: %v", err)
-	}
+	r := starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
 	names := r.AttrNames()
 	if len(names) == 0 {
 		t.Fatal("AttrNames() returned empty list")
@@ -31,11 +29,7 @@ func TestModule_AttrNames(t *testing.T) {
 }
 
 func TestModule_Attr(t *testing.T) {
-
-	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
-	if err != nil {
-		t.Fatalf("NewGoReceiver: %v", err)
-	}
+	r := starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
 	for _, name := range r.AttrNames() {
 		attr, err := r.Attr(name)
 		if err != nil {
@@ -50,10 +44,9 @@ func TestModule_Attr(t *testing.T) {
 
 func TestModule_Attr_Unknown(t *testing.T) {
 
-	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
-	if err != nil {
-		t.Fatalf("NewGoReceiver: %v", err)
-	}
+	var r starlark.HasAttrs
+	var err error
+	r = starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
 	_, err = r.Attr("nonexistent_method")
 	if err == nil {
 		t.Error("Attr(nonexistent_method) error = nil, want error")
@@ -61,11 +54,7 @@ func TestModule_Attr_Unknown(t *testing.T) {
 }
 
 func TestModule_Type(t *testing.T) {
-
-	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
-	if err != nil {
-		t.Fatalf("NewGoReceiver: %v", err)
-	}
+	r := starlarkbridge.NewProvider(providerReceiverType(t), provider.NewProvider(newCtx(t)))
 	if got := r.Type(); got != "plan" {
 		t.Errorf("Type() = %q, want %q", got, "plan")
 	}
