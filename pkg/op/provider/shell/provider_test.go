@@ -4,6 +4,7 @@
 package shell
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -12,7 +13,9 @@ import (
 
 func newTestProvider() *Provider {
 	return &Provider{
-		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{}),
+		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
+			Context: context.Background(),
+		}),
 	}
 }
 

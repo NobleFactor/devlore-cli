@@ -10,7 +10,6 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan/gen"

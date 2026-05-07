@@ -710,12 +710,30 @@ func (p *Provider) LoadSourceFile(path string) (*SourceFile, error) {
 	return sf, nil
 }
 
-// schemaRegistry builds a SchemaRegistry from config if available, falling back to the embedded defaults.
+// schemaRegistry returns the schema registry the provider operates on: defaults overlaid with any
+// project-config-supplied schemas.
+//
+// Project config can supply zero, some, or all schema types under `lint.go_style.comment_schemas`.
+// The resolution rule is "merge by (NodeType, Format) key, config wins":
+//
+//   - Schemas not present in config keep their default form.
+//   - Schemas present in both default and config are replaced by the config form (full replacement
+//     of the schema entry — config-side schemas are not deep-merged into default-side schemas;
+//     authors who want partial overrides must spell out the full entry).
+//   - Schemas present only in config are added.
+//
+// Returns the embedded defaults unchanged when no `lint.go_style.comment_schemas` config block is
+// present at all.
 func (p *Provider) schemaRegistry() *doctaxonomy.SchemaRegistry {
-	if cfg := p.configSchemas(); cfg != nil {
-		return cfg
+	reg := doctaxonomy.DefaultRegistry()
+	overlay := p.configSchemas()
+	if overlay == nil {
+		return reg
 	}
-	return doctaxonomy.DefaultRegistry()
+	for _, schema := range overlay.All() {
+		reg.Register(schema)
+	}
+	return reg
 }
 
 // configSchemas attempts to build a SchemaRegistry from the config stored in the provider's context data.

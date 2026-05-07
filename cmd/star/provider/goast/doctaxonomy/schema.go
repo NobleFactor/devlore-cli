@@ -145,3 +145,18 @@ func (r *SchemaRegistry) Lookup(nodeType, format string) *CommentSchema {
 	defer r.mu.RUnlock()
 	return r.schemas[nodeType+":"+format]
 }
+
+// All returns a snapshot of every schema in the registry, in unspecified order.
+//
+// Used by the goast provider's overlay path to iterate config-supplied schemas and re-register them
+// onto the defaults registry, so a project config that provides only some schema types preserves the
+// defaults for the schemas it didn't override.
+func (r *SchemaRegistry) All() []CommentSchema {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]CommentSchema, 0, len(r.schemas))
+	for _, s := range r.schemas {
+		out = append(out, *s)
+	}
+	return out
+}
