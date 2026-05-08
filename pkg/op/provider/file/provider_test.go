@@ -398,13 +398,6 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Errorf("state.RecoveryID() = %q, want empty", state.RecoveryID())
 	}
 
-	// Checksum should match the original file content.
-	h := sha256.Sum256([]byte("backup me"))
-	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
-	resourceChecksum := state.Resource().(*Resource).Checksum
-	if resourceChecksum != wantChecksum {
-		t.Errorf("resource checksum = %q, want %q", resourceChecksum, wantChecksum)
-	}
 }
 
 func TestBackup_DefaultSuffix(t *testing.T) {
@@ -476,25 +469,26 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Checksum computed from different content than what's on disk.
+	// Recovery digest computed from different content than what's on disk under recoveryRel.
 	h := sha256.Sum256([]byte("original content"))
-	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
+	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	product := &Resource{SourcePath: op.NewPath("", backupPath), Checksum: wrongChecksum}
+	product := &Resource{SourcePath: op.NewPath("", backupPath)}
 	source := &Resource{SourcePath: op.NewPath("", originalPath)}
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(product),
 	}
 	state.SetSource(source)
 	_ = state.SetRecoveryID(recoveryID)
+	state.SetRecoveryDigest(wrongDigest)
 
 	p := testProvider(t, tmp)
 	err := p.CompensateBackup(state)
 	if err == nil {
-		t.Fatal("CompensateBackup() should return error on checksum mismatch")
+		t.Fatal("CompensateBackup() should return error on digest mismatch")
 	}
-	if !strings.Contains(err.Error(), "checksum mismatch") {
-		t.Errorf("error = %q, want message containing 'checksum mismatch'", err)
+	if !strings.Contains(err.Error(), "digest mismatch") {
+		t.Errorf("error = %q, want message containing 'digest mismatch'", err)
 	}
 
 	// Recovery file should NOT have been moved.
@@ -705,14 +699,6 @@ func TestMove(t *testing.T) {
 		t.Errorf("state.RecoveryID() = %q, want empty", state.RecoveryID())
 	}
 
-	// Checksum should match the original file content.
-	h := sha256.Sum256([]byte("move me"))
-	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
-	resourceChecksum := state.Resource().(*Resource).Checksum
-	if resourceChecksum != wantChecksum {
-		t.Errorf("resource checksum = %q, want %q", resourceChecksum, wantChecksum)
-	}
-
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
 		t.Error("source still exists after move")
 	}
@@ -752,23 +738,24 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	}
 
 	h := sha256.Sum256([]byte("original"))
-	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
+	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	product := &Resource{SourcePath: op.NewPath("", dst), Checksum: wrongChecksum}
+	product := &Resource{SourcePath: op.NewPath("", dst)}
 	source := &Resource{SourcePath: op.NewPath("", src)}
 	state := &Receipt{
 		ReceiptBase: op.NewReceiptBase(product),
 	}
 	state.SetSource(source)
 	_ = state.SetRecoveryID(recoveryID)
+	state.SetRecoveryDigest(wrongDigest)
 
 	p := testProvider(t, tmp)
 	err := p.CompensateMove(state)
 	if err == nil {
-		t.Fatal("CompensateMove() should return error on checksum mismatch")
+		t.Fatal("CompensateMove() should return error on digest mismatch")
 	}
-	if !strings.Contains(err.Error(), "checksum mismatch") {
-		t.Errorf("error = %q, want message containing 'checksum mismatch'", err)
+	if !strings.Contains(err.Error(), "digest mismatch") {
+		t.Errorf("error = %q, want message containing 'digest mismatch'", err)
 	}
 
 	// File should NOT have been moved back.
@@ -812,6 +799,74 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 	}
 	if string(got) != "round trip" {
 		t.Errorf("restored content = %q, want %q", got, "round trip")
+	}
+}
+
+// TestCompensateMove_RoundTrip_WithPreExistingDestination exercises the verification path through the recovery
+// archive. Move overwrites a pre-existing destination; CompensateMove must move src back to its original path
+// and restore the archived destination bytes after verifying the recovery archive's digest matches what was
+// captured at archive time.
+func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
+
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "source.txt")
+	dst := filepath.Join(tmp, "dest.txt")
+
+	if err := os.WriteFile(src, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+
+	srcRes, err := NewResource(p.RuntimeEnvironment(), src)
+	if err != nil {
+		t.Fatalf("NewResource(src) error = %v", err)
+	}
+	if err := srcRes.Resolve(); err != nil {
+		t.Fatalf("Resolve(src) error = %v", err)
+	}
+
+	_, state, err := p.Move(srcRes, dst)
+	if err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+
+	// Sanity: the receipt should carry both the recovery archive ID and the digest of the bytes that were
+	// archived (the pre-move "world" content).
+	if state.RecoveryID() == "" {
+		t.Fatal("receipt.RecoveryID() is empty; expected an archive of the pre-existing destination")
+	}
+	expected := state.RecoveryDigest()
+	if expected.Algorithm != "sha256" {
+		t.Errorf("receipt.RecoveryDigest().Algorithm = %q, want %q", expected.Algorithm, "sha256")
+	}
+	want := sha256.Sum256([]byte("world"))
+	if !expected.Equal(op.Digest{Algorithm: "sha256", Bytes: want[:]}) {
+		t.Errorf("receipt.RecoveryDigest() = %s, want sha256 of \"world\"", expected.String())
+	}
+
+	// CompensateMove should pass verification (archive bytes still match the captured digest) and restore.
+	if err := p.CompensateMove(state); err != nil {
+		t.Fatalf("CompensateMove() error = %v", err)
+	}
+
+	gotSrc, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("ReadFile(src) error = %v", err)
+	}
+	if string(gotSrc) != "hello" {
+		t.Errorf("src content after compensate = %q, want %q", gotSrc, "hello")
+	}
+
+	gotDst, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("ReadFile(dst) error = %v", err)
+	}
+	if string(gotDst) != "world" {
+		t.Errorf("dst content after compensate = %q, want %q (restored from recovery)", gotDst, "world")
 	}
 }
 
