@@ -51,19 +51,16 @@ func TestNewResource_MetadataOnly(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "callable", Namespace: "file.Reducer", Name: "myfn"})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "file.Reducer", Name: "myfn"})
 
-	if r.ContentType != "callable" {
-		t.Errorf("ContentType = %q, want %q", r.ContentType, "callable")
-	}
 	if r.Namespace != "file.Reducer" {
 		t.Errorf("Namespace = %q, want %q", r.Namespace, "file.Reducer")
 	}
 	if r.Name != "myfn" {
 		t.Errorf("Name = %q, want %q", r.Name, "myfn")
 	}
-	if r.ReachabilityURI() != "mem:callable/file.Reducer/myfn" {
-		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "mem:callable/file.Reducer/myfn")
+	if r.ReachabilityURI() != "file.Reducer/myfn" {
+		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "file.Reducer/myfn")
 	}
 	assertArchivedFileAbsent(t, r)
 	if r.Hash != "" {
@@ -71,25 +68,25 @@ func TestNewResource_MetadataOnly(t *testing.T) {
 	}
 }
 
-func TestNewResource_NoNamespace(t *testing.T) {
+func TestNewResource_NameOnly(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "config"})
+	r := newRes(t, ctx, ResourceSpec{Name: "config"})
 
-	if r.ReachabilityURI() != "mem:json/config" {
-		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "mem:json/config")
+	if r.ReachabilityURI() != "config" {
+		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "config")
 	}
 }
 
-func TestNewResource_ContentTypeOnly(t *testing.T) {
+func TestNewResource_NamespaceOnly(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "json"})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "file.Reducer"})
 
-	if r.ReachabilityURI() != "mem:json" {
-		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "mem:json")
+	if r.ReachabilityURI() != "file.Reducer" {
+		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "file.Reducer")
 	}
 }
 
@@ -98,7 +95,7 @@ func TestNewResource_WithBytes(t *testing.T) {
 	ctx := newTestCtx(t)
 	data := []byte("hello world")
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "template", Name: "greeting", Data: data})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "templates", Name: "greeting", Data: data})
 
 	assertArchivedFileExists(t, r)
 
@@ -117,7 +114,7 @@ func TestNewResource_WithString(t *testing.T) {
 	ctx := newTestCtx(t)
 	data := "hello world"
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "template", Name: "s", Data: data})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "templates", Name: "s", Data: data})
 
 	assertArchivedFileExists(t, r)
 
@@ -142,9 +139,9 @@ func TestNewResource_WithReader_Streams(t *testing.T) {
 	}
 
 	r := newRes(t, ctx, ResourceSpec{
-		ContentType: "blob",
-		Name:        "big",
-		Data:        bytes.NewReader(payload),
+		Namespace: "blobs",
+		Name:      "big",
+		Data:      bytes.NewReader(payload),
 	})
 
 	assertArchivedFileExists(t, r)
@@ -165,7 +162,7 @@ func TestNewResource_WithBytesMethod(t *testing.T) {
 	// draining the buffer. To exercise the Bytes() branch we need a type that has Bytes() but NOT io.Reader.
 	holder := &bytesOnly{content: []byte("from Bytes() method")}
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "blob", Name: "b", Data: holder})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "blobs", Name: "b", Data: holder})
 
 	assertArchivedFileExists(t, r)
 
@@ -178,7 +175,7 @@ func TestNewResource_WithBinaryMarshaler(t *testing.T) {
 
 	marshaler := &binaryOnly{content: []byte("binary marshaled form")}
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "blob", Name: "bm", Data: marshaler})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "blobs", Name: "bm", Data: marshaler})
 
 	assertArchivedFileExists(t, r)
 
@@ -191,7 +188,7 @@ func TestNewResource_WithTextMarshaler(t *testing.T) {
 
 	marshaler := &textOnly{text: []byte("text marshaled form")}
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "blob", Name: "tm", Data: marshaler})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "blobs", Name: "tm", Data: marshaler})
 
 	assertArchivedFileExists(t, r)
 
@@ -204,7 +201,7 @@ func TestNewResource_StreamingErrorPropagates(t *testing.T) {
 
 	reader := &erroringReader{after: 5, err: errSyntheticRead}
 
-	if _, err := NewResource(ctx, ResourceSpec{ContentType: "blob", Name: "err", Data: reader}); err == nil {
+	if _, err := NewResource(ctx, ResourceSpec{Namespace: "blobs", Name: "err", Data: reader}); err == nil {
 		t.Fatal("expected error when io.Reader returns mid-stream error")
 	}
 }
@@ -214,7 +211,7 @@ func TestNewResource_UnsupportedDataType(t *testing.T) {
 	ctx := newTestCtx(t)
 
 	// An int doesn't satisfy any of the accepted interfaces.
-	_, err := NewResource(ctx, ResourceSpec{ContentType: "blob", Name: "unsupported", Data: 42})
+	_, err := NewResource(ctx, ResourceSpec{Namespace: "blobs", Name: "unsupported", Data: 42})
 	if err == nil {
 		t.Fatal("expected error for unsupported Data type")
 	}
@@ -223,12 +220,12 @@ func TestNewResource_UnsupportedDataType(t *testing.T) {
 	}
 }
 
-func TestNewResource_EmptyContentType(t *testing.T) {
+func TestNewResource_EmptySpec(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
 	if _, err := NewResource(ctx, ResourceSpec{}); err == nil {
-		t.Fatal("expected error for empty content type")
+		t.Fatal("expected error for empty spec (no Namespace, no Name)")
 	}
 }
 
@@ -248,7 +245,7 @@ func TestResource_Reader_ReturnsArchivedContent(t *testing.T) {
 	ctx := newTestCtx(t)
 	content := []byte("streamed through mmap")
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "data", Data: content})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "streamed", Data: content})
 
 	rc, err := r.Reader()
 	if err != nil {
@@ -269,7 +266,7 @@ func TestResource_Reader_NoContentErrors(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "data"})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "metadata-only"})
 
 	if _, err := r.Reader(); err == nil {
 		t.Fatal("Reader on metadata-only Resource should error")
@@ -282,7 +279,7 @@ func TestResource_CanConvert_BytesAndString(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "cfg", Data: []byte("x")})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "cfg", Data: []byte("x")})
 
 	if !r.CanConvertTo(reflect.TypeFor[[]byte]()) {
 		t.Error("CanConvert([]byte) = false, want true")
@@ -300,7 +297,7 @@ func TestResource_Convert_ToBytes(t *testing.T) {
 	ctx := newTestCtx(t)
 	content := []byte(`{"key":"value"}`)
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "cfg", Data: content})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "cfg", Data: content})
 
 	got, err := r.ConvertTo(reflect.TypeFor[[]byte]())
 	if err != nil {
@@ -321,7 +318,7 @@ func TestResource_Convert_ToString(t *testing.T) {
 	ctx := newTestCtx(t)
 	content := []byte("text content\nline two")
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "template", Name: "t", Data: content})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "templates", Name: "t", Data: content})
 
 	got, err := r.ConvertTo(reflect.TypeFor[string]())
 	if err != nil {
@@ -341,7 +338,7 @@ func TestResource_Convert_UnsupportedTarget(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	r := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "cfg", Data: []byte("x")})
+	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "cfg", Data: []byte("x")})
 
 	if _, err := r.ConvertTo(reflect.TypeFor[int]()); err == nil {
 		t.Fatal("Convert(int) should error — not a supported target")
@@ -354,8 +351,8 @@ func TestNewResource_Hash_Deterministic(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	r1 := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "a", Data: []byte("same")})
-	r2 := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "b", Data: []byte("same")})
+	r1 := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "a", Data: []byte("same")})
+	r2 := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "b", Data: []byte("same")})
 
 	if r1.Hash != r2.Hash {
 		t.Errorf("same data different hash: %q vs %q", r1.Hash, r2.Hash)
@@ -366,8 +363,8 @@ func TestNewResource_Hash_DifferentData(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	r1 := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "a", Data: []byte("one")})
-	r2 := newRes(t, ctx, ResourceSpec{ContentType: "json", Name: "a", Data: []byte("two")})
+	r1 := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "a", Data: []byte("one")})
+	r2 := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "a", Data: []byte("two")})
 
 	if r1.Hash == r2.Hash {
 		t.Error("different data produced same hash")
@@ -379,8 +376,8 @@ func TestNewResource_Hash_DifferentData(t *testing.T) {
 // assertArchivedFileExists asserts the archive file at r.SourcePath exists on disk.
 func assertArchivedFileExists(t *testing.T, r *Resource) {
 	t.Helper()
-	if _, err := os.Stat(r.SourcePath.Abs()); err != nil {
-		t.Fatalf("archive file missing at %q: %v", r.SourcePath.Abs(), err)
+	if _, err := os.Stat(r.SourcePath().Abs()); err != nil {
+		t.Fatalf("archive file missing at %q: %v", r.SourcePath().Abs(), err)
 	}
 }
 
@@ -388,10 +385,10 @@ func assertArchivedFileExists(t *testing.T, r *Resource) {
 // metadata-only Resource constructions.
 func assertArchivedFileAbsent(t *testing.T, r *Resource) {
 	t.Helper()
-	if _, err := os.Stat(r.SourcePath.Abs()); err == nil {
-		t.Errorf("archive file at %q exists but should not (metadata-only Resource)", r.SourcePath.Abs())
+	if _, err := os.Stat(r.SourcePath().Abs()); err == nil {
+		t.Errorf("archive file at %q exists but should not (metadata-only Resource)", r.SourcePath().Abs())
 	} else if !os.IsNotExist(err) {
-		t.Fatalf("unexpected stat error on %q: %v", r.SourcePath.Abs(), err)
+		t.Fatalf("unexpected stat error on %q: %v", r.SourcePath().Abs(), err)
 	}
 }
 

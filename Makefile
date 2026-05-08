@@ -353,8 +353,10 @@ $(P)/ui/gen/provider.gen.go &: $(P)/ui/provider.go
 
 # --- resource-only packages ---
 
-$(P)/mem/gen/resource.gen.go \
-$(P)/mem/gen/function.gen.go &: $(P)/mem/resource.go $(P)/mem/function.go
+$(P)/function/gen/resource.gen.go: $(P)/function/resource.go
+	$(STAR) devlore actions generate --source=$(P)/function --gen=true --write=true --output=$(P)/function
+
+$(P)/mem/gen/resource.gen.go: $(P)/mem/resource.go
 	$(STAR) devlore actions generate --source=$(P)/mem --gen=true --write=true --output=$(P)/mem
 
 NEW_OP_INVENTORY := \
@@ -363,10 +365,10 @@ NEW_OP_INVENTORY := \
 	$(P)/encryption/gen/provider.gen.go \
 	$(P)/file/gen/provider.gen.go \
 	$(P)/flow/gen/provider.gen.go \
+	$(P)/function/gen/resource.gen.go \
 	$(P)/git/gen/provider.gen.go \
 	$(P)/json/gen/provider.gen.go \
 	$(P)/mem/gen/resource.gen.go \
-	$(P)/mem/gen/function.gen.go \
 	$(P)/plan/gen/provider.gen.go \
 	$(P)/platform/gen/provider.gen.go \
 	$(P)/pkg/gen/provider.gen.go \
