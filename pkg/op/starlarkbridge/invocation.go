@@ -29,9 +29,9 @@ var (
 // callers saw before dispatch switched its return type from *Promise to *Invocation — same node slots,
 // node_id, slot, retry, and per-slot value lookups.
 type Invocation struct {
-	Label   string            // label under which this invocation is registered (user-supplied or auto-generated)
 	Target  op.ExecutableUnit // workflow-level unit that will dispatch when executed
 	Promise *Promise          // promise for the invocation's value-side output
+	Label   string            // registered name (user-supplied or auto-generated)
 }
 
 // region EXPORTED METHODS
