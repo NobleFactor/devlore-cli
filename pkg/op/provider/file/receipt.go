@@ -23,6 +23,10 @@ import (
 // upward removal walk. Methods that do not need a transactional anchor leave boundary nil.
 //
 // The optional source [Resource] records the original location for move-like operations.
+//
+// The optional recoveryDigest records the digest of the archived bytes at archive time. Compensation re-hashes the
+// recovery archive and compares against this stored value to detect tampering of the recovery store between the
+// forward action and compensation. Empty when no archive was made (recoveryID is also empty in that case).
 type Receipt struct {
 	op.ReceiptBase
 
@@ -35,6 +39,11 @@ type Receipt struct {
 	// recoveryID is the UUID returned by RecoverySite.ArchiveFile for the file overwritten at the destination.
 	// Optional.
 	recoveryID uuid.UUID
+
+	// recoveryDigest is the digest of the bytes archived under recoveryID, captured at archive time. Used by
+	// compensation to verify the recovery archive has not been tampered with before restoration. Optional —
+	// zero value indicates no digest was captured (typically because nothing was archived).
+	recoveryDigest op.Digest
 }
 
 // NewReceipt constructs a [Receipt] anchored to the affected [Resource] with no transactional boundary.
@@ -120,6 +129,29 @@ func (r *Receipt) SetRecoveryID(id string) error {
 	return nil
 }
 
+// RecoveryDigest returns the digest of the bytes archived under [Receipt.RecoveryID] at archive time. The zero
+// [op.Digest] value indicates no digest was captured (typically when nothing was archived).
+//
+// Compensation methods read this value to verify the recovery archive's integrity before restoration: re-hash the
+// archive's current bytes, compare against the stored digest, error on mismatch (the archive was tampered with
+// between the forward action and compensation).
+//
+// Returns:
+//   - op.Digest: the captured digest, or the zero value when none was set.
+func (r *Receipt) RecoveryDigest() op.Digest {
+	return r.recoveryDigest
+}
+
+// SetRecoveryDigest stores the digest of the archived bytes. Forward methods that archive content via
+// [op.RecoverySite.ArchiveFile] capture the bytes' digest at archive time and stash it here so compensation can
+// later verify the archive has not been tampered with.
+//
+// Parameters:
+//   - d: the [op.Digest] to store; pass the zero value to clear.
+func (r *Receipt) SetRecoveryDigest(d op.Digest) {
+	r.recoveryDigest = d
+}
+
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
 // the optional boundary_uri and source_uri.
 //
@@ -166,20 +198,27 @@ func (r *Receipt) MarshalYAML() (any, error) {
 		recoveryID = r.recoveryID.String()
 	}
 
+	var recoveryDigest string
+	if r.recoveryDigest.Algorithm != "" {
+		recoveryDigest = r.recoveryDigest.String()
+	}
+
 	return struct {
-		Action        string `json:"action"                 yaml:"action"`
-		ResourceURI   string `json:"resource_uri"           yaml:"resource_uri"`
-		TransactionID string `json:"transaction_id"         yaml:"transaction_id"`
-		BoundaryURI   string `json:"boundary_uri,omitempty" yaml:"boundary_uri,omitempty"`
-		SourceURI     string `json:"source_uri,omitempty"   yaml:"source_uri,omitempty"`
-		RecoveryID    string `json:"recovery_id,omitempty"  yaml:"recovery_id,omitempty"`
+		Action          string `json:"action"                     yaml:"action"`
+		ResourceURI     string `json:"resource_uri"               yaml:"resource_uri"`
+		TransactionID   string `json:"transaction_id"             yaml:"transaction_id"`
+		BoundaryURI     string `json:"boundary_uri,omitempty"     yaml:"boundary_uri,omitempty"`
+		SourceURI       string `json:"source_uri,omitempty"       yaml:"source_uri,omitempty"`
+		RecoveryID      string `json:"recovery_id,omitempty"      yaml:"recovery_id,omitempty"`
+		RecoveryDigest  string `json:"recovery_digest,omitempty"  yaml:"recovery_digest,omitempty"`
 	}{
-		Action:        base.Action,
-		ResourceURI:   base.ResourceURI,
-		TransactionID: base.TransactionID,
-		BoundaryURI:   boundaryURI,
-		SourceURI:     sourceURI,
-		RecoveryID:    recoveryID,
+		Action:         base.Action,
+		ResourceURI:    base.ResourceURI,
+		TransactionID:  base.TransactionID,
+		BoundaryURI:    boundaryURI,
+		SourceURI:      sourceURI,
+		RecoveryID:     recoveryID,
+		RecoveryDigest: recoveryDigest,
 	}, nil
 }
 
@@ -197,19 +236,20 @@ func (r *Receipt) MarshalYAML() (any, error) {
 func (r *Receipt) UnmarshalJSON(data []byte) error {
 
 	var aux struct {
-		Action        string `json:"action"`
-		ResourceURI   string `json:"resource_uri"`
-		TransactionID string `json:"transaction_id"`
-		BoundaryURI   string `json:"boundary_uri"`
-		SourceURI     string `json:"source_uri"`
-		RecoveryID    string `json:"recovery_id"`
+		Action         string `json:"action"`
+		ResourceURI    string `json:"resource_uri"`
+		TransactionID  string `json:"transaction_id"`
+		BoundaryURI    string `json:"boundary_uri"`
+		SourceURI      string `json:"source_uri"`
+		RecoveryID     string `json:"recovery_id"`
+		RecoveryDigest string `json:"recovery_digest"`
 	}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return fmt.Errorf("file.Receipt: unmarshal JSON: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI, aux.RecoveryID)
+	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI, aux.RecoveryID, aux.RecoveryDigest)
 }
 
 // UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
@@ -226,19 +266,20 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var aux struct {
-		Action        string `yaml:"action"`
-		ResourceURI   string `yaml:"resource_uri"`
-		TransactionID string `yaml:"transaction_id"`
-		BoundaryURI   string `yaml:"boundary_uri"`
-		SourceURI     string `yaml:"source_uri"`
-		RecoveryID    string `yaml:"recovery_id"`
+		Action         string `yaml:"action"`
+		ResourceURI    string `yaml:"resource_uri"`
+		TransactionID  string `yaml:"transaction_id"`
+		BoundaryURI    string `yaml:"boundary_uri"`
+		SourceURI      string `yaml:"source_uri"`
+		RecoveryID     string `yaml:"recovery_id"`
+		RecoveryDigest string `yaml:"recovery_digest"`
 	}
 
 	if err := unmarshal(&aux); err != nil {
 		return fmt.Errorf("file.Receipt: unmarshal YAML: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI, aux.RecoveryID)
+	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI, aux.RecoveryID, aux.RecoveryDigest)
 }
 
 // hydrate reconstructs the receiver's embedded [op.ReceiptBase], boundary and source from the decoded envelope. The
@@ -246,7 +287,7 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // re-used (Resource identity is interned by URI); URIs not yet in the catalog are constructed via [NewResource] and
 // registered through [op.ResourceCatalog.Link]. After resolution, the base is re-seated via [op.NewReceiptBase] (so
 // [op.ReceiptBase.Restore]'s URI-match check has a live resource to compare against), the wire-primitive triplet is
-// handed to Restore, and the boundary and source are set when present.
+// handed to Restore, and the boundary, source, recoveryID, and recoveryDigest are set when present.
 //
 // Parameters:
 //   - action: the canonical action name from the decoded envelope.
@@ -254,11 +295,13 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 //   - transactionID: the canonical UUIDv7 string from the decoded envelope.
 //   - boundaryURI: the boundary's URI string from the decoded envelope; empty when the receipt records no boundary.
 //   - sourceURI: the source's URI string from the decoded envelope; empty when the receipt records no source.
+//   - recoveryID: the recovery archive UUID from the decoded envelope; empty when no archive was made.
+//   - recoveryDigest: the canonical "<algo>:<hex>" form of the archived bytes' digest; empty when none was captured.
 //
 // Returns:
 //   - error: a missing-context error, a missing-catalog error, a [NewResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourceURI string, recoveryID string) error {
+func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourceURI string, recoveryID string, recoveryDigest string) error {
 
 	existing := r.Resource()
 	if existing == nil || existing.RuntimeEnvironment() == nil {
@@ -330,6 +373,14 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 		if err != nil {
 			return fmt.Errorf("file.Receipt: parse recoveryID %q: %w", recoveryID, err)
 		}
+	}
+
+	if recoveryDigest != "" {
+		digest, err := op.ParseDigest(recoveryDigest)
+		if err != nil {
+			return fmt.Errorf("file.Receipt: parse recoveryDigest %q: %w", recoveryDigest, err)
+		}
+		r.recoveryDigest = digest
 	}
 
 	return nil

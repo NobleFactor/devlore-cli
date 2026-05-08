@@ -162,6 +162,8 @@ func (p *Provider) Link(source *Resource, targetPath string) (product *Resource,
 
 		// Something exists at the target — archive it before creating the symlink.
 
+		preDigest := preArchiveDigest(p.RuntimeEnvironment().Root, product.SourcePath.Abs())
+
 		recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.SourcePath)
 		if archiveErr != nil {
 			return nil, nil, archiveErr
@@ -169,6 +171,7 @@ func (p *Provider) Link(source *Resource, targetPath string) (product *Resource,
 
 		receipt = NewReceipt(product)
 		_ = receipt.SetRecoveryID(recoveryID)
+		receipt.SetRecoveryDigest(preDigest)
 
 	} else {
 
@@ -365,18 +368,25 @@ func (p *Provider) CompensateMove(receipt *Receipt) error {
 	recoveryID := receipt.RecoveryID()
 	if recoveryID != "" {
 
-		// Verify checksum of the recovery source before restoring.
-		if product.Checksum != "" {
-			// RecoverySite uses ".devlore/recovery/<uuid>"
-			recoveryPath := ".devlore/recovery/" + recoveryID
-			actual := checksumFile(p.RuntimeEnvironment().Root, recoveryPath)
+		// Verify the recovery archive has not been tampered with by comparing its current bytes' digest
+		// against the digest captured at archive time (stored on the receipt).
+		expected := receipt.RecoveryDigest()
+		if expected.Algorithm != "" {
 
-			if actual == "" {
+			recoveryPath := ".devlore/recovery/" + recoveryID
+			actualStr := checksumFile(p.RuntimeEnvironment().Root, recoveryPath)
+
+			if actualStr == "" {
 				return fmt.Errorf("cannot read %s for verification", recoveryID)
 			}
 
-			if actual != product.Checksum {
-				return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryID)
+			actual, err := op.ParseDigest(actualStr)
+			if err != nil {
+				return fmt.Errorf("compensate move: parse recovery checksum: %w", err)
+			}
+
+			if !actual.Equal(expected) {
+				return fmt.Errorf("%s has been modified (digest mismatch)", recoveryID)
 			}
 		}
 
@@ -403,13 +413,14 @@ func (p *Provider) Remove(resource *Resource, prune bool, boundary *Resource) (p
 		return nil, nil, fmt.Errorf("directory %s is not empty", resource.SourcePath.Abs())
 	}
 
-	recoveryID, err := p.archiveAndPrune(resource, prune, boundary)
+	recoveryID, digest, err := p.archiveAndPrune(resource, prune, boundary)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	receipt = NewReceipt(resource)
 	_ = receipt.SetRecoveryID(recoveryID)
+	receipt.SetRecoveryDigest(digest)
 
 	return nil, receipt, nil
 }
@@ -422,13 +433,14 @@ func (p *Provider) CompensateRemove(receipt *Receipt) error {
 // RemoveAll removes the file at "path" and any children it contains.
 func (p *Provider) RemoveAll(resource *Resource, prune bool, boundary *Resource) (product *Resource, receipt *Receipt, err error) {
 
-	recoveryID, err := p.archiveAndPrune(resource, prune, boundary)
+	recoveryID, digest, err := p.archiveAndPrune(resource, prune, boundary)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	receipt = NewReceipt(resource)
 	_ = receipt.SetRecoveryID(recoveryID)
+	receipt.SetRecoveryDigest(digest)
 
 	return nil, receipt, nil
 }
@@ -454,13 +466,14 @@ func (p *Provider) Unlink(resource *Resource, prune bool, boundary *Resource) (p
 		return nil, nil, fmt.Errorf("%s is not a symlink", resource.SourcePath.Abs())
 	}
 
-	recoveryID, err := p.archiveAndPrune(resource, prune, boundary)
+	recoveryID, digest, err := p.archiveAndPrune(resource, prune, boundary)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	receipt = NewReceipt(resource)
 	_ = receipt.SetRecoveryID(recoveryID)
+	receipt.SetRecoveryDigest(digest)
 
 	return nil, receipt, nil
 }
@@ -1163,11 +1176,7 @@ func (p *Provider) write(resource *Resource, data []byte, chmod os.FileMode, cho
 	}
 	defer iox.Close(&err, f)
 
-	hasher := sha256.New()
-	mw := io.MultiWriter(f, hasher)
-
-	_, err = mw.Write(data)
-	if err != nil {
+	if _, err = f.Write(data); err != nil {
 		return product, receipt, err
 	}
 
@@ -1179,8 +1188,7 @@ func (p *Provider) write(resource *Resource, data []byte, chmod os.FileMode, cho
 		return product, receipt, err
 	}
 
-	err = product.RefreshWith(hex.EncodeToString(hasher.Sum(nil)))
-	if err != nil {
+	if err = product.Refresh(); err != nil {
 		return product, receipt, err
 	}
 
@@ -1225,16 +1233,39 @@ func (p *Provider) pruneEmptyParents(resource *Resource, prune bool, boundary *R
 	}
 }
 
-// archiveAndPrune archives resource to the recovery site.
-func (p *Provider) archiveAndPrune(resource *Resource, prune bool, boundary *Resource) (recoveryID string, err error) {
+// archiveAndPrune archives resource to the recovery site, capturing the archived bytes' digest before the file is
+// moved away. The returned digest is what compensation will compare against to detect tampering of the recovery
+// archive between the forward action and compensation. Empty digest is returned (and not an error) when the file
+// could not be hashed — typically because it was a symlink or otherwise unreadable; the archive proceeds regardless.
+func (p *Provider) archiveAndPrune(resource *Resource, prune bool, boundary *Resource) (recoveryID string, digest op.Digest, err error) {
+
+	digest = preArchiveDigest(p.RuntimeEnvironment().Root, resource.SourcePath.Abs())
 
 	recoveryID, err = p.RuntimeEnvironment().RecoverySite.ArchiveFile(resource.SourcePath)
 	if err != nil {
-		return "", err
+		return "", op.Digest{}, err
 	}
 
 	p.pruneEmptyParents(resource, prune, boundary)
-	return recoveryID, nil
+	return recoveryID, digest, nil
+}
+
+// preArchiveDigest computes the digest of the bytes at path before archival. Returns the zero op.Digest (not an
+// error) when the file cannot be hashed — symlinks, unreadable files, etc. — so callers can record the digest when
+// available without blocking the archive when not.
+func preArchiveDigest(root op.Root, path string) op.Digest {
+
+	checksum := checksumFile(root, path)
+	if checksum == "" {
+		return op.Digest{}
+	}
+
+	digest, err := op.ParseDigest(checksum)
+	if err != nil {
+		return op.Digest{}
+	}
+
+	return digest
 }
 
 // endregion

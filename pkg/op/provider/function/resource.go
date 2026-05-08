@@ -254,22 +254,22 @@ func (f *Resource) Init(thread *starlark.Thread) (starlark.Callable, error) {
 
 	prog, err := f.loadProgram()
 	if err != nil {
-		return nil, fmt.Errorf("mem.Function init: %w", err)
+		return nil, fmt.Errorf("function.Resource init: %w", err)
 	}
 
 	globals, err := prog.Init(thread, nil)
 	if err != nil {
-		return nil, fmt.Errorf("mem.Function init: %w", err)
+		return nil, fmt.Errorf("function.Resource init: %w", err)
 	}
 
 	fn, ok := globals[f.FuncName]
 	if !ok {
-		return nil, fmt.Errorf("mem.Function init: function %q not found", f.FuncName)
+		return nil, fmt.Errorf("function.Resource init: function %q not found", f.FuncName)
 	}
 
 	callable, ok := fn.(starlark.Callable)
 	if !ok {
-		return nil, fmt.Errorf("mem.Function init: %q is %s, not callable", f.FuncName, fn.Type())
+		return nil, fmt.Errorf("function.Resource init: %q is %s, not callable", f.FuncName, fn.Type())
 	}
 
 	return callable, nil
@@ -301,7 +301,7 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 		if f.Resource.CanConvertTo(target) {
 			return f.Resource.ConvertTo(target)
 		}
-		return nil, fmt.Errorf("mem.Function: cannot convert to %s (not a func type)", target)
+		return nil, fmt.Errorf("function.Resource: cannot convert to %s (not a func type)", target)
 	}
 
 	// Initialize the callable.
@@ -311,23 +311,23 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 
 	callable, err := f.Init(thread)
 	if err != nil {
-		return nil, fmt.Errorf("mem.Function: init: %w", err)
+		return nil, fmt.Errorf("function.Resource: init: %w", err)
 	}
 
 	// Validate signature.
 
 	starFn, ok := callable.(*starlark.Function)
 	if !ok {
-		return nil, fmt.Errorf("mem.Function: callable is %T, expected *starlark.Function", callable)
+		return nil, fmt.Errorf("function.Resource: callable is %T, expected *starlark.Function", callable)
 	}
 
 	if starFn.NumParams() != target.NumIn() {
-		return nil, fmt.Errorf("mem.Function: param count mismatch: starlark %d, Go %d",
+		return nil, fmt.Errorf("function.Resource: param count mismatch: starlark %d, Go %d",
 			starFn.NumParams(), target.NumIn())
 	}
 
 	if starFn.HasVarargs() || starFn.HasKwargs() {
-		return nil, fmt.Errorf("mem.Function: starlark function uses *args/**kwargs, cannot bridge to fixed Go signature")
+		return nil, fmt.Errorf("function.Resource: starlark function uses *args/**kwargs, cannot bridge to fixed Go signature")
 	}
 
 	hasError := target.NumOut() > 0 && target.Out(target.NumOut()-1).Implements(errorType)
@@ -338,7 +338,7 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 	}
 
 	if numValues > 1 {
-		return nil, fmt.Errorf("mem.Function: Go func returns %d non-error values, max 1", numValues)
+		return nil, fmt.Errorf("function.Resource: Go func returns %d non-error values, max 1", numValues)
 	}
 
 	// Build bridge function.

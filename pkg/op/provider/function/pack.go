@@ -10,7 +10,7 @@ import (
 	"io"
 )
 
-// Pack format for mem.Function recovery entries.
+// Pack format for function.Resource recovery entries.
 //
 // A Function archives a single recovery file containing both the synthesized source text and the compiled
 // starlark bytecode. The format is a fixed 48-byte little-endian header followed by the two payloads. Fixed
@@ -36,7 +36,7 @@ const (
 	functionPackHeaderSize    int    = 48
 )
 
-// functionPackHeader is the on-disk header for a packed mem.Function recovery entry.
+// functionPackHeader is the on-disk header for a packed function.Resource recovery entry.
 //
 // Field ordering matches the on-disk layout; [binary.Read] / [binary.Write] use the struct's declared order
 // when the type has no variable-length fields. All multi-byte fields serialize little-endian.
@@ -80,16 +80,16 @@ func writeFunctionPack(w io.Writer, source, compiled []byte, compilerVersion uin
 	}
 
 	if err := binary.Write(w, binary.LittleEndian, header); err != nil {
-		return fmt.Errorf("mem.Function pack: write header: %w", err)
+		return fmt.Errorf("function.Resource pack: write header: %w", err)
 	}
 
 	if _, err := w.Write(source); err != nil {
-		return fmt.Errorf("mem.Function pack: write source: %w", err)
+		return fmt.Errorf("function.Resource pack: write source: %w", err)
 	}
 
 	if len(compiled) > 0 {
 		if _, err := w.Write(compiled); err != nil {
-			return fmt.Errorf("mem.Function pack: write compiled: %w", err)
+			return fmt.Errorf("function.Resource pack: write compiled: %w", err)
 		}
 	}
 
@@ -108,19 +108,19 @@ func readFunctionPackHeader(ra io.ReaderAt) (functionPackHeader, error) {
 
 	buf := make([]byte, functionPackHeaderSize)
 	if _, err := ra.ReadAt(buf, 0); err != nil {
-		return functionPackHeader{}, fmt.Errorf("mem.Function pack: read header: %w", err)
+		return functionPackHeader{}, fmt.Errorf("function.Resource pack: read header: %w", err)
 	}
 
 	var h functionPackHeader
 	if err := binary.Read(bytes.NewReader(buf), binary.LittleEndian, &h); err != nil {
-		return h, fmt.Errorf("mem.Function pack: decode header: %w", err)
+		return h, fmt.Errorf("function.Resource pack: decode header: %w", err)
 	}
 
 	if h.Magic != functionPackMagic {
-		return h, fmt.Errorf("mem.Function pack: bad magic %#08x", h.Magic)
+		return h, fmt.Errorf("function.Resource pack: bad magic %#08x", h.Magic)
 	}
 	if h.FormatVersion != functionPackFormatVersion {
-		return h, fmt.Errorf("mem.Function pack: unsupported format version %d", h.FormatVersion)
+		return h, fmt.Errorf("function.Resource pack: unsupported format version %d", h.FormatVersion)
 	}
 
 	return h, nil

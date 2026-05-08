@@ -25,7 +25,6 @@ type Resource struct {
 	Size       int64
 	Mode       os.FileMode
 	ModTime    time.Time
-	Checksum   string
 }
 
 // NewResource constructs a file.Resource from a string path.
@@ -125,11 +124,11 @@ func (r *Resource) Exists() bool {
 	return !r.ModTime.IsZero()
 }
 
-// Refresh re-populates the resource's metadata by performing a fresh stat and re-calculating the checksum. Call after
-// any successful physical mutation.
+// Refresh re-populates the resource's stat-derived metadata by performing a fresh stat. Call after any successful
+// physical mutation.
 //
 // Returns:
-//   - error: any stat or read error.
+//   - error: any stat error.
 func (r *Resource) Refresh() error {
 
 	root := r.RuntimeEnvironment().Root
@@ -138,26 +137,7 @@ func (r *Resource) Refresh() error {
 		return err
 	}
 
-	return r.refreshWith(info, checksumFile(root, r.SourcePath.Abs()))
-}
-
-// RefreshWith updates metadata after a write operation using a known checksum. A stat is still performed to capture
-// kernel-assigned identity (Inode, Device).
-//
-// Parameters:
-//   - checksum: pre-computed checksum string.
-//
-// Returns:
-//   - error: any stat error.
-func (r *Resource) RefreshWith(checksum string) error {
-
-	root := r.RuntimeEnvironment().Root
-	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
-	if err != nil {
-		return err
-	}
-
-	return r.refreshWith(info, checksum)
+	return r.refreshWith(info)
 }
 
 // Resolve rebinds the source path to the execution root and populates metadata via stat. The path is canonical from
@@ -191,8 +171,6 @@ func (r *Resource) Resolve() error {
 	r.Size = info.Size()
 	r.Mode = info.Mode()
 	r.ModTime = info.ModTime()
-
-	r.Checksum = checksumFile(root, r.SourcePath.Abs())
 
 	return nil
 }
@@ -302,8 +280,8 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // region Behaviors
 
-// refreshWith updates the Resource's metadata with the provided information.
-func (r *Resource) refreshWith(info os.FileInfo, checksum string) error {
+// refreshWith updates the Resource's stat-derived metadata.
+func (r *Resource) refreshWith(info os.FileInfo) error {
 	var inode, device uint64
 
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
@@ -316,7 +294,6 @@ func (r *Resource) refreshWith(info os.FileInfo, checksum string) error {
 	r.Size = info.Size()
 	r.Mode = info.Mode()
 	r.ModTime = info.ModTime()
-	r.Checksum = checksum
 
 	return nil
 }
