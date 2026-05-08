@@ -69,7 +69,7 @@ type Action interface {
 	FullName() string
 	Name() string
 	Params() []Parameter
-	Do(ctx *RuntimeEnvironment, slots map[string]any) (Result, Complement, error)
+	Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error)
 }
 
 // FallibleAction has side effects and can fail.
@@ -84,5 +84,5 @@ type FallibleAction interface {
 // Do returns (result, complement, error).
 type CompensableAction interface {
 	Action
-	Undo(ctx *RuntimeEnvironment, complement Complement) error
+	Undo(activationRecord *ActivationRecord, complement Complement) error
 }

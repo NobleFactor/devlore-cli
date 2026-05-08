@@ -6,9 +6,11 @@
 package regexp_test
 
 import (
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 )
 
 func TestActionNames(t *testing.T) {
@@ -55,8 +57,9 @@ func TestFindAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.find")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -78,8 +81,9 @@ func TestFindAllAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.find_all")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -101,8 +105,9 @@ func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.find_all_submatch")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -124,8 +129,9 @@ func TestFindSubmatchAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.find_submatch")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -147,8 +153,9 @@ func TestMatchAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.match")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -170,8 +177,9 @@ func TestReplaceAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.replace")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -193,8 +201,9 @@ func TestReplaceLiteralAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.replace_literal")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -216,8 +225,9 @@ func TestSplitAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "regexp.split")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -238,13 +248,14 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
 	names := []string{}
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			ca := getCompensable(t, reg, name)
-			if err := ca.Undo(ctx, nil); err != nil {
+			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}
 		})

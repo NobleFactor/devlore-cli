@@ -6,9 +6,11 @@
 package yaml_test
 
 import (
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 )
 
 func TestActionNames(t *testing.T) {
@@ -45,8 +47,9 @@ func TestEncodeAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "yaml.encode")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -68,8 +71,9 @@ func TestDecodeAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "yaml.decode")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -91,8 +95,9 @@ func TestParseAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "yaml.parse")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -113,13 +118,14 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
 	names := []string{}
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			ca := getCompensable(t, reg, name)
-			if err := ca.Undo(ctx, nil); err != nil {
+			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}
 		})

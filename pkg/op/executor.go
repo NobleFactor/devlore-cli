@@ -306,7 +306,8 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 	ec.Results = results
 	e.hooks.FireNodeStart(ec, node.ID(), slots)
 
-	result, complement, err := action.Do(ec, slots)
+	activationRecord := &ActivationRecord{Runtime: ec, NodeID: node.ID()}
+	result, complement, err := action.Do(activationRecord, slots)
 	if err != nil {
 
 		// The action got far enough to mint a complement before failing — push it onto the recovery stack so the

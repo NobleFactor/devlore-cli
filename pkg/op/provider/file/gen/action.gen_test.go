@@ -6,9 +6,11 @@
 package file_test
 
 import (
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
 func TestActionNames(t *testing.T) {
@@ -83,8 +85,9 @@ func TestRootAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.root")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -106,8 +109,9 @@ func TestBackupAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.backup")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -129,8 +133,9 @@ func TestCopyAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.copy")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -152,8 +157,9 @@ func TestLinkAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.link")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -175,8 +181,9 @@ func TestMkdirAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.mkdir")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -198,8 +205,9 @@ func TestMoveAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.move")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -221,8 +229,9 @@ func TestRemoveAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.remove")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -244,8 +253,9 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.remove_all")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -267,8 +277,9 @@ func TestUnlinkAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.unlink")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -290,8 +301,9 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.walk_tree")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -313,8 +325,9 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.write_bytes")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -336,8 +349,9 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.write_text")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -359,8 +373,9 @@ func TestExistsAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.exists")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -382,8 +397,9 @@ func TestFindAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.find")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -405,8 +421,9 @@ func TestGlobAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.glob")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -428,8 +445,9 @@ func TestIsDirAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.is_dir")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -451,8 +469,9 @@ func TestIsFileAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.is_file")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -474,8 +493,9 @@ func TestReadBytesAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.read_bytes")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -497,8 +517,9 @@ func TestReadTextAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.read_text")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -520,8 +541,9 @@ func TestJoinAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.join")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -543,8 +565,9 @@ func TestNameAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.name")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -566,8 +589,9 @@ func TestParentAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.parent")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -654,6 +678,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
 	names := []string{
 		"file.backup",
@@ -672,7 +697,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			ca := getCompensable(t, reg, name)
-			if err := ca.Undo(ctx, nil); err != nil {
+			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}
 		})

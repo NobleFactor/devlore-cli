@@ -6,9 +6,11 @@
 package flow_test
 
 import (
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
 )
 
 func TestActionNames(t *testing.T) {
@@ -55,8 +57,9 @@ func TestChooseAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.choose")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -78,8 +81,9 @@ func TestCompleteAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.complete")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -101,8 +105,9 @@ func TestDegradedAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.degraded")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -124,8 +129,9 @@ func TestElevateAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.elevate")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -147,8 +153,9 @@ func TestFailedAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.failed")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -170,8 +177,9 @@ func TestGatherAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.gather")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -193,8 +201,9 @@ func TestSubgraphAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.subgraph")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -216,8 +225,9 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.wait_until")
 	ctx, buf := dryRunCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
-	result, undo, err := action.Do(ctx, map[string]any{})
+	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -256,6 +266,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
+	activationRecord := &op.ActivationRecord{Runtime: ctx}
 
 	names := []string{
 		"flow.choose",
@@ -266,7 +277,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			ca := getCompensable(t, reg, name)
-			if err := ca.Undo(ctx, nil); err != nil {
+			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}
 		})

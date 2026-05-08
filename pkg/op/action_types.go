@@ -37,26 +37,28 @@ func (a *action) Params() []Parameter { return a.method.Parameters() }
 // coercion or dispatch errors become panics.
 //
 // Parameters:
-//   - ctx: the execution context.
+//   - activationRecord: the per-dispatch record carrying the runtime environment and producing-node identity.
 //   - slots: named slot values from the graph node.
 //
 // Returns:
 //   - Result: the method's return value, or nil.
 //   - Complement: always nil.
 //   - error: always nil.
-func (a *action) Do(ctx *RuntimeEnvironment, slots map[string]any) (Result, Complement, error) {
+func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
 
-	provider, err := ctx.cachedProvider(a.receiverType)
+	runtimeEnvironment := activationRecord.Runtime
+
+	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
 	if err != nil {
 		panic(fmt.Sprintf("%s: %v", a.name, err))
 	}
 
-	if ctx.DryRun {
-		dryRunLog(a.name, a.method, ctx, slots)
+	if runtimeEnvironment.DryRun {
+		dryRunLog(a.name, a.method, runtimeEnvironment, slots)
 		return nil, nil, nil
 	}
 
-	result, _, err := a.method.Invoke(ctx, provider, slots)
+	result, _, err := a.method.Invoke(runtimeEnvironment, provider, slots)
 	if err != nil {
 		panic(fmt.Sprintf("%s: unexpected error from infallible method: %v", a.name, err))
 	}
@@ -91,26 +93,28 @@ func (a *fallibleAction) Params() []Parameter { return a.method.Parameters() }
 // coercion or dispatch errors are returned to the caller.
 //
 // Parameters:
-//   - ctx: the execution context.
+//   - activationRecord: the per-dispatch record carrying the runtime environment and producing-node identity.
 //   - slots: named slot values from the graph node.
 //
 // Returns:
 //   - Result: the method's return value, or nil.
 //   - Complement: always nil.
 //   - error: non-nil if the method fails.
-func (a *fallibleAction) Do(ctx *RuntimeEnvironment, slots map[string]any) (Result, Complement, error) {
+func (a *fallibleAction) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
 
-	provider, err := ctx.cachedProvider(a.receiverType)
+	runtimeEnvironment := activationRecord.Runtime
+
+	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if ctx.DryRun {
-		dryRunLog(a.name, a.method, ctx, slots)
+	if runtimeEnvironment.DryRun {
+		dryRunLog(a.name, a.method, runtimeEnvironment, slots)
 		return nil, nil, nil
 	}
 
-	result, _, err := a.method.Invoke(ctx, provider, slots)
+	result, _, err := a.method.Invoke(runtimeEnvironment, provider, slots)
 	return result, nil, err
 }
 
@@ -142,43 +146,48 @@ func (a *compensableAction) Params() []Parameter { return a.method.Parameters() 
 // returns the complement value alongside the result for later undo.
 //
 // Parameters:
-//   - ctx: the execution context.
+//   - activationRecord: the per-dispatch record carrying the runtime environment and producing-node identity.
 //   - slots: named slot values from the graph node.
 //
 // Returns:
 //   - Result: the method's return value, or nil.
 //   - Complement: the undo state for compensation.
 //   - error: non-nil if the method fails.
-func (a *compensableAction) Do(ctx *RuntimeEnvironment, slots map[string]any) (Result, Complement, error) {
+func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
 
-	provider, err := ctx.cachedProvider(a.receiverType)
+	runtimeEnvironment := activationRecord.Runtime
+
+	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if ctx.DryRun {
-		dryRunLog(a.name, a.method, ctx, slots)
+	if runtimeEnvironment.DryRun {
+		dryRunLog(a.name, a.method, runtimeEnvironment, slots)
 		return nil, nil, nil
 	}
 
-	return a.method.Invoke(ctx, provider, slots)
+	return a.method.Invoke(runtimeEnvironment, provider, slots)
 }
 
 // Undo constructs a provider and calls the method's compensation companion.
 //
 // Parameters:
-//   - ctx: the execution context.
+//   - activationRecord: the per-dispatch record. Carries the runtime environment for provider construction;
+//     `NodeID` is typically empty during compensation since the original producing node has already executed.
 //   - complement: the undo state from Do.
 //
 // Returns:
 //   - error: non-nil if compensation fails.
-func (a *compensableAction) Undo(ctx *RuntimeEnvironment, complement Complement) error {
+func (a *compensableAction) Undo(activationRecord *ActivationRecord, complement Complement) error {
 
 	if complement == nil {
 		return nil
 	}
 
-	provider, err := ctx.cachedProvider(a.receiverType)
+	runtimeEnvironment := activationRecord.Runtime
+
+	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
 	if err != nil {
 		return fmt.Errorf("%s: undo: %w", a.name, err)
 	}

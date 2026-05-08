@@ -17,7 +17,7 @@ type pushComplementTestAction struct {
 func (a *pushComplementTestAction) FullName() string                                            { return a.fullName }
 func (a *pushComplementTestAction) Name() string                                                { return a.fullName }
 func (a *pushComplementTestAction) Params() []Parameter                                         { return nil }
-func (a *pushComplementTestAction) Do(_ *RuntimeEnvironment, _ map[string]any) (Result, Complement, error) { return nil, nil, nil }
+func (a *pushComplementTestAction) Do(_ *ActivationRecord, _ map[string]any) (Result, Complement, error) { return nil, nil, nil }
 
 // pushComplementTestResource is a minimal Resource that satisfies the PushReceipt nil-resource and
 // nil-context guards without dragging in the full ResourceBase machinery.
