@@ -134,3 +134,57 @@ func TestResourceBase_SatisfiesInterface(t *testing.T) {
 		t.Errorf("Resource.URI() = %q, want to contain %q", r.URI(), "file:///bar")
 	}
 }
+
+func TestResourceBase_Etag_DefaultIsURI(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///baz", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	etag, err := r.Etag()
+	if err != nil {
+		t.Fatalf("Etag: %v", err)
+	}
+
+	if etag != r.URI() {
+		t.Errorf("Etag() = %q, want URI() = %q", etag, r.URI())
+	}
+}
+
+func TestResourceBase_Digest_DefaultIsErrUnimplemented(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///qux", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	d, err := r.Digest()
+	if err == nil {
+		t.Fatal("Digest() returned nil error, want ErrUnimplemented")
+	}
+	if err != ErrUnimplemented {
+		t.Errorf("Digest() error = %v, want ErrUnimplemented", err)
+	}
+	if d.Algorithm != "" || len(d.Bytes) != 0 {
+		t.Errorf("Digest() value = %+v, want zero Digest", d)
+	}
+}
+
+func TestResourceBase_Addressing_DefaultIsUnknown(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///quux", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	if got := r.Addressing(); got != AddressingUnknown {
+		t.Errorf("Addressing() = %v, want AddressingUnknown", got)
+	}
+}

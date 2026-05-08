@@ -5,6 +5,7 @@ package op
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -13,6 +14,11 @@ import (
 // stringType is the cached [reflect.Type] of the Go string type, consulted by [ResourceBase.CanConvert] and
 // [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
 var stringType = reflect.TypeOf("")
+
+// ErrUnimplemented is returned by [ResourceBase.Digest] as a default. Concrete Resource types that need a
+// working Digest (every type save sentinels) must override [Resource.Digest] — content hashing is type-specific
+// (full file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
+var ErrUnimplemented = errors.New("op: unimplemented")
 
 // tagURIPrefix is the fixed prefix of every canonical [Resource] URI. The form is the RFC 4151 tag URI
 // "tag:<authority>,<date>:" where the authority and date are locked constants: the authority identifies the
@@ -31,6 +37,9 @@ const tagURIPrefix = "tag:devlore.noblefactor.com,2026-01-01:"
 type Resource interface {
 	Provider
 	URI() string
+	Digest() (Digest, error)
+	Etag() (string, error)
+	Addressing() AddressingMode
 	Resolve() error
 	resourceBase() *ResourceBase
 }
@@ -316,6 +325,41 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 	return b.uri, nil
 }
 
+// Digest returns [ErrUnimplemented]. Concrete Resource types must override — content hashing is type-specific
+// (full file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
+//
+// Returns:
+//   - Digest: the zero value.
+//   - error: always [ErrUnimplemented].
+func (b *ResourceBase) Digest() (Digest, error) {
+	return Digest{}, ErrUnimplemented
+}
+
+// Etag returns the URI as the cheap change-detection token. Suggestive of change but not authoritative; the
+// catalog computes [Resource.Digest] only when Etag mismatches stored.
+//
+// This default is correct for [AddressingContent] Resources by definition — same URI implies same content,
+// so the URI itself doubles as the etag at zero I/O cost. [AddressingLocation] subtypes override with a
+// stat-derived stamp (size + mtime + inode for files; HTTP ETag header for appnet).
+//
+// Returns:
+//   - string: the URI.
+//   - error: nil.
+func (b *ResourceBase) Etag() (string, error) {
+	return b.uri, nil
+}
+
+// Addressing returns [AddressingUnknown] as a sentinel default. Every concrete Resource type must override
+// to return one of [AddressingLocation] or [AddressingContent]. The boot-discipline test in
+// pkg/op/addressing_test.go (added in 13.0(k) sub-step k.12) walks every announced Resource type and asserts
+// none returns AddressingUnknown.
+//
+// Returns:
+//   - AddressingMode: [AddressingUnknown].
+func (b *ResourceBase) Addressing() AddressingMode {
+	return AddressingUnknown
+}
+
 // Resolve populates provider-specific metadata via I/O (e.g., os.Stat for files).
 //
 // The default implementation is a no-op — providers that need resolution (file, git) override it. Callers that need
@@ -328,39 +372,4 @@ func (b *ResourceBase) Resolve() error { return nil }
 // This method seals the Resource interface.
 func (b *ResourceBase) resourceBase() *ResourceBase {
 	return b
-}
-
-// KnownAtExecution is the sentinel an output spec returns when the output identity cannot be determined at plan
-// time but will be available once the producing node has executed.
-//
-// The name is temporal, not uncertain: the value is a legitimate resource identity that exists once the producing
-// node has run, just not before. Phrasing and semantics borrowed from Terraform's `(known after apply)`.
-//
-// When the planner sees KnownAtExecution from an output spec, it skips plan-time shadowing for that output. The
-// executor shadows the real return value after the forward method returns. Implicit edges via URI matching don't
-// work for these outputs at plan time, but explicit promise passing still does.
-//
-// Typical use:
-//
-//	func (p *Provider) InstallPlanned(name string, _ string, _ bool) (*Resource, error) {
-//	    return op.KnownAtExecution, nil
-//	}
-//
-// See [docs/architecture/4-resource-management.md] §6.8 "Output Specs", "Monadic outputs (unknown at plan time)".
-var KnownAtExecution Resource = &knownAtExecution{
-	ResourceBase: ResourceBase{uri: "op:known-at-execution"},
-}
-
-// knownAtExecution is the unexported type backing the KnownAtExecution sentinel. Callers compare against the
-// exported KnownAtExecution variable; the type is not meant to be instantiated directly.
-type knownAtExecution struct {
-	ResourceBase
-}
-
-// IsKnownAtExecution reports whether the given resource is the KnownAtExecution sentinel.
-//
-// Returns:
-//   - bool: true if r is the sentinel, false otherwise (including when r is nil).
-func IsKnownAtExecution(r Resource) bool {
-	return r == KnownAtExecution
 }
