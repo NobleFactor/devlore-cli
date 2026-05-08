@@ -22,15 +22,15 @@ const SchemeJSON = "json"
 // Resource represents a parsed JSON document held in memory.
 //
 // Unlike mem.Resource which holds opaque bytes with a content-type label, json.Resource holds a parsed Go value
-// (map[string]any, []any, etc.) that can be validated against a JSON Schema or re-encoded without Starlark↔Go
-// roundtrips.
+// (map[string]any, []any, etc.) that can be validated against a JSON Schema or re-encoded without Starlark↔Go round
+// trips.
 //
-// The URI is opaque: json:<hash-prefix>. The hash prefix is the first 12 characters of the SHA-256 of the raw bytes.
+// The URI is opaque: `json:<hash-prefix>`. The hash prefix is the first 12 characters of the SHA-256 of the raw bytes.
 type Resource struct {
 	op.ResourceBase
 	Data   []byte `json:"data,omitempty"` // raw JSON bytes
 	Hash   string `json:"hash,omitempty"` // SHA-256 of Data — metadata, NOT part of URI
-	parsed any    // decoded Go value — validates/encodes without roundtrip
+	parsed any    // decoded Go value — validates/encodes without round trip
 }
 
 // String returns a compact JSON representation of the resource.

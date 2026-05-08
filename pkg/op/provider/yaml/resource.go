@@ -23,7 +23,7 @@ const SchemeYAML = "yaml"
 // Resource represents a parsed YAML document held in memory.
 //
 // Like json.Resource, yaml.Resource holds a parsed Go value that can be validated against a JSON Schema or re-encoded
-// without Starlark↔Go roundtrips. JSON Schema validation works because YAML is a superset of JSON — the decoded Go
+// without Starlark↔Go round trips. JSON Schema validation works because YAML is a superset of JSON — the decoded Go
 // representation (map[string]any, []any, etc.) is the same structure that JSON Schema operates on.
 //
 // The URI is opaque: yaml:<hash-prefix>. The hash prefix is the first 12 characters of the SHA-256 of the raw bytes.
@@ -31,7 +31,7 @@ type Resource struct {
 	op.ResourceBase
 	Data   []byte `json:"data,omitempty"` // raw YAML bytes
 	Hash   string `json:"hash,omitempty"` // SHA-256 of Data — metadata, NOT part of URI
-	parsed any    // decoded Go value — validates/encodes without roundtrip
+	parsed any    // decoded Go value — validates/encodes without round trip
 }
 
 // String returns a compact JSON representation of the resource.

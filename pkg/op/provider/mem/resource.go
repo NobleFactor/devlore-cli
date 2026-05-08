@@ -27,17 +27,14 @@ var (
 	stringType    = reflect.TypeFor[string]()
 )
 
-// memArchiveDir is the scoped subdirectory under [op.Root] where mem.Resource content is archived. Every
-// resource's SourcePath lives at <Root>/<memArchiveDir>/<uri-suffix>.
-const memArchiveDir = ".devlore/mem"
-
 // Resource represents a named in-memory-origin data resource whose content is archived on disk at a location
 // derived deterministically from its URI.
 //
-// The URI is opaque: mem:<content-type>/<namespace>/<name>. It IS the resource's reachability — given the
-// URI and the [op.Root] of an [op.RuntimeEnvironment], the on-disk SourcePath is computed as
-// <Root>/.devlore/mem/<content-type>/<namespace>/<name>. Two resources with the same URI resolve to the
-// same file — named content deduplication by construction.
+// The canonical URI is a tag URI of the form
+// tag:devlore.noblefactor.com,2026-01-01:<ns>/<name>#github.com/.../mem.Resource. The <ns>/<name> portion
+// (the <specific>) is the resource's reachability — given <specific> and the [op.Root] of an
+// [op.RuntimeEnvironment], the on-disk SourcePath is computed as <Root>/.devlore/mem/resource/<ns>/<name>.
+// Two resources with the same URI resolve to the same file — named content deduplication by construction.
 //
 // Content bytes are never held in the Go heap after archival. Consumers read through [Resource.Reader]
 // (a mmap-backed [io.ReadCloser]) or via the op.SourceConverter projections to []byte or string.
@@ -47,54 +44,17 @@ const memArchiveDir = ".devlore/mem"
 type Resource struct {
 	op.ResourceBase
 
-	// ContentType classifies the content (e.g., "callable", "json", "template", "function") and is the
-	// first URI path component. Derivable from URI.
-	ContentType string
-
-	// Namespace groups related resources (e.g., "file.Reducer"); second URI path component. May be empty.
-	// Derivable from URI.
+	// Namespace groups related resources (e.g., "file.Reducer"); first segment of the URI <specific>.
+	// May be empty. Derivable from URI.
 	Namespace string
 
-	// Name is the specific identifier (e.g., "count_python_files", "config"); third URI path component.
-	// May be empty when the URI is content-type-only. Derivable from URI.
+	// Name is the specific identifier (e.g., "count_python_files", "config"); second segment of the URI
+	// <specific>. May be empty when <specific> is name-only. Derivable from URI.
 	Name string
-
-	// SourcePath is the archive location; derived deterministically from URI during construction and
-	// re-derived on unmarshal. Not persisted.
-	SourcePath op.Path `json:"-" yaml:"-"`
 
 	// Hash is the SHA-256 of the archived content, populated at archive time. Metadata, not persisted —
 	// callers that need the hash post-round-trip recompute via [Resource.Reader] + sha256.
 	Hash string `json:"-" yaml:"-"`
-}
-
-// ResourceSpec carries identity and payload for constructing a mem.Resource.
-//
-// ContentType classifies the content (e.g., "callable", "json", "template", "function").
-// Namespace is the receiver type or grouping (e.g., "file.Reducer", "Predicate") — empty for non-function resources.
-// Name is the specific identifier (e.g., "count_python_files", "config").
-// Data is an optional payload — see [NewResource] for accepted shapes.
-type ResourceSpec struct {
-	ContentType string
-	Namespace   string
-	Name        string
-	Data        any
-}
-
-// URI returns the canonical mem: URI for this spec.
-//
-// Returns:
-//   - string: the opaque URI (e.g., "mem:function/file.Reducer/count_python_files").
-func (s ResourceSpec) URI() string {
-
-	uri := "mem:" + s.ContentType
-	if s.Namespace != "" {
-		uri += "/" + s.Namespace
-	}
-	if s.Name != "" {
-		uri += "/" + s.Name
-	}
-	return uri
 }
 
 // NewResource constructs a mem.Resource from a [ResourceSpec].
@@ -124,37 +84,39 @@ func (s ResourceSpec) URI() string {
 //   - error:     malformed spec, unsupported Data type, or filesystem write error.
 func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
-	spec, ok := value.(ResourceSpec)
-	if !ok {
-		return nil, fmt.Errorf("mem.Resource: expected ResourceSpec, got %T", value)
+	switch v := value.(type) {
+
+	case ResourceSpec:
+		return newFromSpec(ctx, v)
+
+	case string:
+		return newFromURI(ctx, v)
+
+	default:
+		return nil, fmt.Errorf("mem.Resource: expected ResourceSpec or URI string, got %T", value)
+	}
+}
+
+// newFromSpec constructs a fully-populated mem.Resource from a [ResourceSpec], archiving spec.Data when present.
+func newFromSpec(ctx *op.RuntimeEnvironment, spec ResourceSpec) (*Resource, error) {
+
+	if spec.Namespace == "" && spec.Name == "" {
+		return nil, fmt.Errorf("mem.Resource: spec must have non-empty Namespace or Name")
 	}
 
-	if spec.ContentType == "" {
-		return nil, fmt.Errorf("mem.Resource: empty content type")
-	}
-
-	uri := spec.URI()
-
-	sourcePath, err := sourcePathFromURI(ctx.Root, uri)
-	if err != nil {
-		return nil, fmt.Errorf("mem.Resource: %w", err)
-	}
-
-	base, err := op.NewResourceBase(ctx, uri, reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(ctx, spec.Specific(), reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, fmt.Errorf("mem.Resource: %w", err)
 	}
 
 	r := &Resource{
 		ResourceBase: base,
-		ContentType:  spec.ContentType,
 		Namespace:    spec.Namespace,
 		Name:         spec.Name,
-		SourcePath:   sourcePath,
 	}
 
 	if spec.Data != nil {
-		hash, err := writeSpecData(ctx.Root, sourcePath, spec.Data)
+		hash, err := writeSpecData(ctx.Root, r.SourcePath(), spec.Data)
 		if err != nil {
 			return nil, fmt.Errorf("mem.Resource: %w", err)
 		}
@@ -226,7 +188,7 @@ func (r *Resource) Equal(other any) bool {
 // The caller must Close the reader — Close munmaps the underlying file. Each call opens a new mmap.
 func (r *Resource) Reader() (io.ReadCloser, error) {
 
-	abs := r.SourcePath.Abs()
+	abs := r.SourcePath().Abs()
 	if abs == "" {
 		return nil, errors.New("mem.Resource: no SourcePath")
 	}
@@ -242,6 +204,26 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 	}, nil
 }
 
+// SourcePath returns the on-disk archive path for this Resource under the runtime environment's [op.Root].
+//
+// The path follows 13.0(c)'s per-type formula: <Root>/.devlore/<last-pkg-segment>/<lowercase(TypeName)>/<specific>,
+// where <last-pkg-segment> and <TypeName> are derived from the URI fragment (the canonical Go type id) and
+// <specific> is the reachability identity. For mem.Resource that resolves to .devlore/mem/resource/<ns>/<name>;
+// embedders inherit this method automatically and their distinct typeID drives a distinct subdirectory
+// (e.g., function.Resource → .devlore/function/resource/<ns>/<name>).
+//
+// Returns the zero op.Path when the Resource has no [op.RuntimeEnvironment] (e.g., constructed without a context).
+func (r *Resource) SourcePath() op.Path {
+
+	env := r.RuntimeEnvironment()
+	if env == nil || env.Root == nil {
+		return op.Path{}
+	}
+
+	pkg, typeName := splitTypeID(r.ResourceType())
+	return env.Root.NewPath(filepath.Join(".devlore", pkg, strings.ToLower(typeName), r.ReachabilityURI()))
+}
+
 // String returns a debug-oriented single-line representation of the Resource.
 func (r *Resource) String() string {
 
@@ -251,14 +233,14 @@ func (r *Resource) String() string {
 	}
 
 	return fmt.Sprintf("mem.Resource{uri=%s, sourcePath=%s, hash=%s}",
-		r.URI(), r.SourcePath.Abs(), hashPrefix)
+		r.URI(), r.SourcePath().Abs(), hashPrefix)
 }
 
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare URI string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
-// invoking this method. The URI alone is sufficient to reconstruct the Resource: ContentType, Namespace,
-// Name are extracted from the URI path, and SourcePath is computed deterministically from the URI and the
+// invoking this method. The URI alone is sufficient to reconstruct the Resource: Namespace and Name are
+// extracted from the URI <specific>, and SourcePath is computed deterministically from the URI and the
 // context's Root.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
@@ -271,7 +253,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := newFromURI(r.RuntimeEnvironment(), uri)
+	built, err := NewResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -287,7 +269,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("mem.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := newFromURI(r.RuntimeEnvironment(), string(text))
+	built, err := NewResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -308,7 +290,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := newFromURI(r.RuntimeEnvironment(), uri)
+	built, err := NewResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -323,77 +305,58 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // region UNEXPORTED HELPERS
 
-// newFromURI reconstructs a metadata-only mem.Resource from a URI string. No content is archived — callers
-// who need content must archive separately. Used by UnmarshalJSON / UnmarshalText / UnmarshalStarlark /
+// newFromURI reconstructs a metadata-only mem.Resource from a canonical tag URI string. No content is
+// archived — callers who need content must archive separately. Used by UnmarshalJSON / UnmarshalText /
 // UnmarshalYAML.
 func newFromURI(ctx *op.RuntimeEnvironment, uri string) (*Resource, error) {
 
-	specific := uri
-	if strings.HasPrefix(uri, "tag:") {
-		var err error
-		specific, _, err = op.ExtractTagSpecific(uri)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	rest, ok := strings.CutPrefix(specific, "mem:")
-	if !ok {
-		return nil, fmt.Errorf("mem.Resource: invalid URI %q (missing mem: prefix)", uri)
-	}
-
-	parts := strings.SplitN(rest, "/", 3)
-	if parts[0] == "" {
-		return nil, fmt.Errorf("mem.Resource: invalid URI %q (missing content type)", uri)
-	}
-
-	sourcePath, err := sourcePathFromURI(ctx.Root, uri)
+	specific, _, err := op.ExtractTagSpecific(uri)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("mem.Resource: %w", err)
 	}
 
-	base, err := op.NewResourceBase(ctx, uri, reflect.TypeFor[*Resource]())
+	if specific == "" {
+		return nil, fmt.Errorf("mem.Resource: cannot reconstruct from deferred URI %q", uri)
+	}
+
+	base, err := op.NewResourceBase(ctx, specific, reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, err
 	}
 
 	r := &Resource{
 		ResourceBase: base,
-		ContentType:  parts[0],
-		SourcePath:   sourcePath,
 	}
 
-	if len(parts) >= 2 {
-		r.Namespace = parts[1]
-	}
-	if len(parts) >= 3 {
-		r.Name = parts[2]
+	// Specific shape is "<ns>/<name>" or "<single>". A single segment populates Name (the leaf).
+	if ns, name, ok := strings.Cut(specific, "/"); ok {
+		r.Namespace = ns
+		r.Name = name
+	} else {
+		r.Name = specific
 	}
 
 	return r, nil
 }
 
-// sourcePathFromURI derives the on-disk source path for a mem URI under the given Root.
-//
-// The URI is expected to start with "mem:"; the remainder is treated as a slash-separated relative path
-// under <Root>/.devlore/mem/.
-func sourcePathFromURI(root op.Root, uri string) (op.Path, error) {
+// splitTypeID splits a canonical Go type id of the form "<pkgPath>.<TypeName>" into (<last-pkg-segment>, <TypeName>).
+// Example: "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem.Resource" → ("mem", "Resource").
+func splitTypeID(typeID string) (pkg, typeName string) {
 
-	specific := uri
-	if strings.HasPrefix(uri, "tag:") {
-		var err error
-		specific, _, err = op.ExtractTagSpecific(uri)
-		if err != nil {
-			return op.Path{}, err
-		}
+	dot := strings.LastIndex(typeID, ".")
+	if dot < 0 {
+		return "", typeID
 	}
 
-	rest, ok := strings.CutPrefix(specific, "mem:")
-	if !ok || rest == "" {
-		return op.Path{}, fmt.Errorf("invalid URI %q", uri)
-	}
+	typeName = typeID[dot+1:]
+	left := typeID[:dot]
 
-	return root.NewPath(filepath.Join(memArchiveDir, rest)), nil
+	if slash := strings.LastIndex(left, "/"); slash >= 0 {
+		pkg = left[slash+1:]
+	} else {
+		pkg = left
+	}
+	return pkg, typeName
 }
 
 // writeSpecData archives spec.Data to sourcePath under root. Returns the SHA-256 hex of the written
