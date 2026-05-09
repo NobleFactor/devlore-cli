@@ -102,13 +102,13 @@ func (p *Provider) Copy(activationRecord *op.ActivationRecord, source *Resource,
 		return nil, nil, err
 	}
 
-	recoveryID, product, receipt, err := p.prepareWrite(product)
+	product, receipt, err = p.prepareWrite(product)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if receipt != nil && recoveryID != "" {
-		_ = receipt.SetRecoveryID(recoveryID)
+	if receipt != nil && receipt.RecoveryID() != "" {
+		_ = receipt.SetRecoveryID(receipt.RecoveryID())
 	}
 
 	src, err := p.open(source.SourcePath.Abs())
@@ -312,7 +312,7 @@ func (p *Provider) Move(activationRecord *op.ActivationRecord, source *Resource,
 	}
 
 	// Prepare destination (handle overwrite and parent creation).
-	recoveryID, product, receipt, err := p.prepareWrite(product)
+	product, receipt, err = p.prepareWrite(product)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -321,16 +321,13 @@ func (p *Provider) Move(activationRecord *op.ActivationRecord, source *Resource,
 	if receipt == nil {
 		receipt = NewReceipt(product)
 	}
-	receipt.SetSource(source)
 
-	if recoveryID != "" {
-		_ = receipt.SetRecoveryID(recoveryID)
-	}
+	receipt.SetSource(source)
 
 	if err = p.rename(source.SourcePath.Abs(), product.SourcePath.Abs()); err != nil {
 		// Attempt to restore destination on failure if we archived it.
-		if recoveryID != "" {
-			_ = p.RuntimeEnvironment().RecoverySite.RestoreFile(product.SourcePath, recoveryID)
+		if receipt.RecoveryID() != "" {
+			_ = p.RuntimeEnvironment().RecoverySite.RestoreFile(product.SourcePath, receipt.RecoveryID())
 		}
 		return nil, nil, err
 	}
@@ -870,19 +867,10 @@ func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, rel
 	return nil
 }
 
-// compensateWrite reverts a write or link operation.
 // catalogProduct interns a freshly-produced Resource into the catalog with the producer stamp from the
-// activation, returning the canonical catalog entry alongside the provided receipt.
-//
-// When activationRecord is nil the producer was called outside dispatch (e.g., from a test or from Go-level
-// code that bypasses the framework); cataloging is skipped and the input product is returned unchanged.
-// When activationRecord is non-nil the catalog's [op.ResourceCatalog.GetOrCreate] is invoked, which asserts
-// non-empty NodeID and stamps producerID accordingly.
+// activation, returning the canonical catalog entry alongside the provided receipt. The activation must be
+// non-nil with a non-empty NodeID — [op.ResourceCatalog.GetOrCreate]'s strict contract enforces this.
 func (p *Provider) catalogProduct(activationRecord *op.ActivationRecord, product *Resource, receipt *Receipt) (*Resource, *Receipt, error) {
-
-	if activationRecord == nil {
-		return product, receipt, nil
-	}
 
 	got, err := p.RuntimeEnvironment().Catalog.GetOrCreate(activationRecord, product.URI(), func() (op.Resource, error) {
 		return product, nil
@@ -1062,14 +1050,14 @@ func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, e
 }
 
 // prepareWrite handles pre-write backup.
-func (p *Provider) prepareWrite(resource *Resource) (recoveryID string, product *Resource, receipt *Receipt, err error) {
+func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt *Receipt, err error) {
 
 	if product, err = NewResource(p.RuntimeEnvironment(), resource.SourcePath.Abs()); err != nil {
-		return "", nil, nil, err
+		return nil, nil, err
 	}
 
 	if err = product.Resolve(); err != nil {
-		return "", nil, nil, err
+		return nil, nil, err
 	}
 
 	if !product.Exists() {
@@ -1078,26 +1066,25 @@ func (p *Provider) prepareWrite(resource *Resource) (recoveryID string, product 
 
 		boundary, _, err := p.closestExistingDir(parentPath)
 		if err != nil {
-			return "", nil, nil, err
+			return nil, nil, err
 		}
 
 		receipt = NewReceiptWithBoundary(product, boundary)
 
 		if err = p.mkdirAll(parentPath, 0o750); err != nil {
-			return "", nil, receipt, err
+			return nil, receipt, err
 		}
 
-		return "", product, receipt, nil
+		return product, receipt, nil
 	}
 
-	receiptResource, receipt, err := p.Remove(product, false, nil)
-	_ = receiptResource
+	_, receipt, err = p.Remove(product, false, nil)
 
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to backup existing file: %w", err)
+		return nil, nil, fmt.Errorf("failed to backup existing file: %w", err)
 	}
 
-	return receipt.RecoveryID(), product, receipt, nil
+	return product, receipt, nil
 }
 
 // read reads the contents of a file [Resource]
@@ -1115,8 +1102,10 @@ func (p *Provider) read(resource *Resource) (*bytes.Buffer, error) {
 
 // readLink reads the destination of a symlink.
 func (p *Provider) readLink(abs string) (string, error) {
+
 	root := p.RuntimeEnvironment().Root
 	target, err := root.Readlink(root.NewPath(abs))
+
 	if err != nil {
 		return "", err
 	}
@@ -1177,11 +1166,14 @@ func (p *Provider) stat(abs string) (os.FileInfo, error) {
 
 // symlink creates a symbolic link.
 func (p *Provider) symlink(targetAbs, linkAbs string) error {
+
 	root := p.RuntimeEnvironment().Root
 	relTarget, err := filepath.Rel(filepath.Dir(linkAbs), targetAbs)
+
 	if err != nil {
 		return err
 	}
+
 	return root.Symlink(relTarget, root.NewPath(linkAbs))
 }
 
@@ -1198,18 +1190,14 @@ func (p *Provider) walkDir(osRoot op.Root, absoluteRoot string, walkFn func(stri
 
 // write writes data to the specified path with the given mode and ownership.
 //
-// chown follows the same Dockerfile-style format as the public Write* methods; empty means no
-// ownership change. The chown is applied after the file is fully written and synced — placing it
-// before the close would risk applying ownership to a file the kernel may yet reject.
+// chown follows the same Dockerfile-style format as the public Write* methods; empty means no ownership change. The
+// chown is applied after the file is fully written and synced — placing it before the close would risk applying
+// ownership to a file the kernel may yet reject.
 func (p *Provider) write(resource *Resource, data []byte, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	recoveryID, product, receipt, err := p.prepareWrite(resource)
+	product, receipt, err = p.prepareWrite(resource)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	if receipt != nil && recoveryID != "" {
-		_ = receipt.SetRecoveryID(recoveryID)
 	}
 
 	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, chmod)
@@ -1275,10 +1263,11 @@ func (p *Provider) pruneEmptyParents(resource *Resource, prune bool, boundary *R
 	}
 }
 
-// archiveAndPrune archives resource to the recovery site, capturing the archived bytes' digest before the file is
-// moved away. The returned digest is what compensation will compare against to detect tampering of the recovery
-// archive between the forward action and compensation. Empty digest is returned (and not an error) when the file
-// could not be hashed — typically because it was a symlink or otherwise unreadable; the archive proceeds regardless.
+// archiveAndPrune moves resource to the recovery site, capturing the archived bytes' digest beforehand.
+//
+// The returned digest is what compensation will compare against to detect tampering of the recovery archive between the
+// forward action and compensation. Empty digest is returned (and not an error) when the file could not be hashed —
+// typically because it was a symlink or otherwise unreadable; the archive proceeds regardless.
 func (p *Provider) archiveAndPrune(resource *Resource, prune bool, boundary *Resource) (recoveryID string, digest op.Digest, err error) {
 
 	digest = preArchiveDigest(p.RuntimeEnvironment().Root, resource.SourcePath.Abs())
@@ -1292,9 +1281,10 @@ func (p *Provider) archiveAndPrune(resource *Resource, prune bool, boundary *Res
 	return recoveryID, digest, nil
 }
 
-// preArchiveDigest computes the digest of the bytes at path before archival. Returns the zero op.Digest (not an
-// error) when the file cannot be hashed — symlinks, unreadable files, etc. — so callers can record the digest when
-// available without blocking the archive when not.
+// preArchiveDigest computes the digest of the bytes at path before archival.
+//
+// Returns the zero op.Digest (not an error) when the file cannot be hashed — symlinks, unreadable files, etc. Callers
+// can record the digest when available without blocking the archive when not.
 func preArchiveDigest(root op.Root, path string) op.Digest {
 
 	checksum := checksumFile(root, path)

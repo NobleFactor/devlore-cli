@@ -14,9 +14,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats"
+	ignore "github.com/NobleFactor/devlore-cli/pkg/gitignore/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	ignore "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 )
 
 // Provider performs Starlark source capture.

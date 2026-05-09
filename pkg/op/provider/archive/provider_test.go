@@ -24,6 +24,14 @@ func testProvider(t *testing.T, dir string) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
+// testActivation returns an [op.ActivationRecord] that satisfies the strict producer contract: non-nil with a
+// non-empty NodeID derived from the test name. Test producer calls pass this in lieu of the real per-dispatch
+// activation that the framework would build.
+func testActivation(t *testing.T) *op.ActivationRecord {
+	t.Helper()
+	return &op.ActivationRecord{NodeID: "test:" + t.Name()}
+}
+
 // createTarGz builds a tar.gz archive at archivePath containing the given entries.
 // Each entry is a relative path; directories end with "/".
 func createTarGz(t *testing.T, archivePath string, entries map[string]string) {
@@ -100,7 +108,7 @@ func TestExtractTarGz(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	products, receipts, err := p.Extract(source, prefix)
+	products, receipts, err := p.Extract(testActivation(t), source, prefix)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -146,7 +154,7 @@ func TestExtractZip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	products, receipts, err := p.Extract(source, prefix)
+	products, receipts, err := p.Extract(testActivation(t), source, prefix)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -189,7 +197,7 @@ func TestExtractUnsupportedFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := p.Extract(source, prefix); err == nil {
+	if _, _, err := p.Extract(testActivation(t), source, prefix); err == nil {
 		t.Error("expected error for unsupported archive format")
 	}
 }
@@ -214,7 +222,7 @@ func TestZipSlipProtectionTarGz(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := p.Extract(source, prefix); err != nil {
+	if _, _, err := p.Extract(testActivation(t), source, prefix); err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 
@@ -249,7 +257,7 @@ func TestZipSlipProtectionZip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := p.Extract(source, prefix); err != nil {
+	if _, _, err := p.Extract(testActivation(t), source, prefix); err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 
@@ -284,7 +292,7 @@ func TestExtractProducesFileReceiptsWithBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, receipts, err := p.Extract(source, prefix)
+	_, receipts, err := p.Extract(testActivation(t), source, prefix)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -322,7 +330,7 @@ func TestExtract_CompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	products, receipts, err := p.Extract(source, prefix)
+	products, receipts, err := p.Extract(testActivation(t), source, prefix)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}

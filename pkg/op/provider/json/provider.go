@@ -53,7 +53,7 @@ func (p *Provider) Decode(data string) (any, error) {
 //
 // Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource whose
 // internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go round-trips.
-func (p *Provider) Parse(data string) (*Resource, error) {
+func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
 
 	raw := []byte(data)
 
@@ -62,16 +62,17 @@ func (p *Provider) Parse(data string) (*Resource, error) {
 		return nil, fmt.Errorf("json parse: %w", err)
 	}
 
-	ctx := p.RuntimeEnvironment()
-	candidate, err := NewResource(ctx, raw)
+	runtimeEnvironment := p.RuntimeEnvironment()
+	candidate, err := NewResource(runtimeEnvironment, raw)
 	if err != nil {
 		return nil, err
 	}
 	candidate.parsed = parsed
 
 	// Parse is content-keyed — two calls with the same input produce the same URI. Route through the catalog so
-	// they share a single canonical *Resource (and thus a single parsed value) per RuntimeEnvironment.
-	got, err := ctx.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	// they share a single canonical *Resource (and thus a single parsed value) per RuntimeEnvironment. The first
+	// caller's NodeID stamps producerID; subsequent same-URI callers get the existing entry unchanged.
+	got, err := runtimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {

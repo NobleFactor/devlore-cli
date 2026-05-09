@@ -88,11 +88,11 @@ func (p *Provider) CompensateExtract(receipt *file.Receipt) error {
 //   - []op.Receipt: one [file.Receipt] per extracted file, in extraction order. Compensation runs them in
 //     reverse via [file.Provider.compensateWrite] (see [Method.Invoke]'s sub-stack wrapping).
 //   - error: any error from format detection, extraction, archive-on-displace, or catalog/receipt construction.
-func (p *Provider) Extract(source *file.Resource, prefixPath string) ([]*file.Resource, []op.Receipt, error) {
+func (p *Provider) Extract(activationRecord *op.ActivationRecord, source *file.Resource, prefixPath string) ([]*file.Resource, []op.Receipt, error) {
 
-	ctx := p.RuntimeEnvironment()
+	runtimeEnvironment := p.RuntimeEnvironment()
 
-	destination, err := file.NewResource(ctx, prefixPath)
+	destination, err := file.NewResource(runtimeEnvironment, prefixPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -114,9 +114,9 @@ func (p *Provider) Extract(source *file.Resource, prefixPath string) ([]*file.Re
 	lower := strings.ToLower(source.SourcePath.Abs())
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		entries, err = extractTarGz(ctx, source.SourcePath.Abs(), destination.SourcePath.Abs())
+		entries, err = extractTarGz(runtimeEnvironment, source.SourcePath.Abs(), destination.SourcePath.Abs())
 	case strings.HasSuffix(lower, ".zip"):
-		entries, err = extractZip(ctx, source.SourcePath.Abs(), destination.SourcePath.Abs())
+		entries, err = extractZip(runtimeEnvironment, source.SourcePath.Abs(), destination.SourcePath.Abs())
 	default:
 		return nil, nil, fmt.Errorf("unsupported archive format: %s", source.SourcePath.Abs())
 	}
@@ -130,12 +130,12 @@ func (p *Provider) Extract(source *file.Resource, prefixPath string) ([]*file.Re
 
 	for _, entry := range entries {
 
-		candidate, err := file.NewResource(ctx, entry.Path)
+		candidate, err := file.NewResource(runtimeEnvironment, entry.Path)
 		if err != nil {
 			return products, receipts, fmt.Errorf("archive: rehydrate %q: %w", entry.Path, err)
 		}
 
-		got, err := ctx.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		got, err := runtimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
 			return candidate, nil
 		})
 		if err != nil {

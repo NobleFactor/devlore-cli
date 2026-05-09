@@ -11,10 +11,11 @@ import (
 	"strings"
 )
 
-// applyChown changes the owner and/or group of path according to the Dockerfile-style ownership
-// string spec. An empty spec is a no-op — the function returns nil without invoking any system call,
-// which is the contract that lets the four file-provider write methods always call applyChown
-// unconditionally and rely on the empty-string short-circuit.
+// applyChown changes the owner and/or group of path according to the Dockerfile-style ownership string spec.
+//
+// An empty spec is a no-op — the function returns nil without invoking any system call, which is the contract that lets
+// the four file-provider write methods always call applyChown unconditionally and rely on the empty-string
+// short-circuit.
 //
 // Accepted spec shapes:
 //   - ""             — no change (short-circuit; no syscall)
@@ -25,8 +26,8 @@ import (
 //   - "uid:gid"      — numeric form of "user:group"
 //   - ":gid"         — numeric form of ":group"
 //
-// User and group sides accept either a name (resolved via os/user) or a decimal integer (passed to
-// os.Chown directly). Mixed forms are allowed: `"alice:1000"` resolves alice's uid and uses gid 1000.
+// User and group sides accept either a name (resolved via os/user) or a decimal integer (passed to os.Chown directly).
+// Mixed forms are allowed: `"alice:1000"` resolves alice's uid and uses gid 1000.
 //
 // Parameters:
 //   - path: the filesystem path to chown.
@@ -52,9 +53,10 @@ func applyChown(path string, spec string) error {
 	return nil
 }
 
-// parseChown splits a Dockerfile-style ownership string into uid and gid integers suitable for
-// os.Chown. Each side resolves either a name via os/user or a numeric form via strconv. Empty sides
-// produce -1 — the os.Chown sentinel for "leave this side unchanged."
+// parseChown splits a Dockerfile-style ownership string into uid and gid integers suitable for os.Chown.
+//
+// Each side resolves either a name via os/user or a numeric form via strconv. Empty sides produce -1 — the os.Chown
+// sentinel for "leave this side unchanged."
 //
 // Parameters:
 //   - spec: the ownership string; must be non-empty (callers short-circuit on empty before calling).
@@ -92,8 +94,9 @@ func parseChown(spec string) (int, int, error) {
 	return uid, gid, nil
 }
 
-// resolveUser converts the user side of a chown spec into a uid. Numeric input passes through; a name
-// is looked up via os/user.Lookup.
+// resolveUser converts the user side of a chown spec into a uid. Numeric input passes through.
+//
+// A name is looked up via os/user.Lookup.
 //
 // Parameters:
 //   - s: the user side; non-empty.
@@ -116,11 +119,13 @@ func resolveUser(s string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("user %q has non-numeric uid %q: %w", s, u.Uid, err)
 	}
+
 	return uid, nil
 }
 
-// resolveGroup converts the group side of a chown spec into a gid. Numeric input passes through; a
-// name is looked up via os/user.LookupGroup.
+// resolveGroup converts the group side of a chown spec into a gid. Numeric input passes through.
+//
+// A name is looked up via os/user.LookupGroup.
 //
 // Parameters:
 //   - s: the group side; non-empty.
@@ -143,5 +148,6 @@ func resolveGroup(s string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("group %q has non-numeric gid %q: %w", s, g.Gid, err)
 	}
+
 	return gid, nil
 }

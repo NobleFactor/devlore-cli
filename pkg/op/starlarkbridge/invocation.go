@@ -31,7 +31,7 @@ var (
 type Invocation struct {
 	Target  op.ExecutableUnit // workflow-level unit that will dispatch when executed
 	Promise *Promise          // promise for the invocation's value-side output
-	Label   string            // registered name (user-supplied or auto-generated)
+	Label   string            // registered (user-supplied or auto-generated)
 }
 
 // region EXPORTED METHODS
