@@ -135,7 +135,7 @@ func (p *Provider) Extract(source *file.Resource, prefixPath string) ([]*file.Re
 			return products, receipts, fmt.Errorf("archive: rehydrate %q: %w", entry.Path, err)
 		}
 
-		got, err := ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+		got, err := ctx.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 			return candidate, nil
 		})
 		if err != nil {

@@ -834,7 +834,9 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 		slots[params[kwargsIdx].Name] = kwargsMap
 	}
 
-	result, _, err := method.Invoke(w.executionContext(), w.instance, slots)
+	runtimeEnvironment := w.executionContext()
+	activationRecord := &op.ActivationRecord{Runtime: runtimeEnvironment, Context: runtimeEnvironment.Context}
+	result, _, err := method.Invoke(activationRecord, w.instance, slots)
 	if err != nil {
 		return nil, err
 	}

@@ -192,7 +192,8 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 // iterations, while a cancel on the derived gatherCtx stays scoped to this gather's iterations only.
 //
 // Parameters:
-//   - ctx: the ambient cancellation context; a scoped child is derived for this gather's iterations.
+//   - activationRecord: the per-dispatch record; cancellation flows through `activationRecord.Context` and a
+//     scoped child is derived for this gather's iterations.
 //   - items: the list of items to iterate over.
 //   - do: subgraph or node ID of the body to execute per item.
 //   - limit: max concurrent iterations; defaults to the platform concurrency when non-positive.
@@ -202,7 +203,7 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 //   - *op.RecoveryStack: a single stack containing the per-iteration sub-stacks in completion order via
 //     [op.RecoveryStack.PushNested]. On failure, returns nil.
 //   - error: non-nil if any iteration failed or the body is malformed.
-func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int) ([]any, *op.RecoveryStack, error) {
+func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do string, limit int) ([]any, *op.RecoveryStack, error) {
 
 	if len(items) == 0 {
 		return []any{}, nil, nil
@@ -226,7 +227,7 @@ func (p *Provider) Gather(ctx context.Context, items []any, do string, limit int
 
 	inputName := params[0].Name
 
-	gatherCtx, gatherCancel := context.WithCancel(ctx)
+	gatherCtx, gatherCancel := context.WithCancel(activationRecord.Context)
 	defer gatherCancel()
 
 	type completion struct {

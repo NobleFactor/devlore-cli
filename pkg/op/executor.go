@@ -306,7 +306,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 	ec.Results = results
 	e.hooks.FireNodeStart(ec, node.ID(), slots)
 
-	activationRecord := &ActivationRecord{Runtime: ec, NodeID: node.ID()}
+	activationRecord := &ActivationRecord{Runtime: ec, NodeID: node.ID(), Context: ec.Context}
 	result, complement, err := action.Do(activationRecord, slots)
 	if err != nil {
 

@@ -170,7 +170,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string, packages []
 
 	var resource op.Resource
 	if resourceURI != "" {
-		got, err := ctx.Catalog.GetOrCreate(resourceURI, func() (op.Resource, error) {
+		got, err := ctx.Catalog.Discover(resourceURI, func() (op.Resource, error) {
 			return NewResource(ctx, resourceURI)
 		})
 		if err != nil {

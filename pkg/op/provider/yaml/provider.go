@@ -71,7 +71,7 @@ func (p *Provider) Parse(data string) (*Resource, error) {
 
 	// Parse is content-keyed — two calls with the same input produce the same URI. Route through the catalog so
 	// they share a single canonical *Resource (and thus a single parsed value) per RuntimeEnvironment.
-	got, err := ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+	got, err := ctx.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 

@@ -371,11 +371,18 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 
 		for reflectedMethod := range methodType.Methods() {
 
-			numParams := reflectedMethod.Type.NumIn() - 1 // exclude receiver
+			// Skip the receiver (index 0) and any framework-injected first parameter (*ActivationRecord at index 1)
+			// when synthesizing auto-positional names. Mirrors the detection rule in [Method.NewMethod]
+			// (firstParamIsActivation).
+			startIdx := 1
+			if reflectedMethod.Type.NumIn() >= 2 && reflectedMethod.Type.In(1) == activationRecordType {
+				startIdx = 2
+			}
+			numParams := reflectedMethod.Type.NumIn() - startIdx
 			parameters := make([]Parameter, numParams)
 
 			for i := range numParams {
-				parameters[i] = Parameter{Name: strconv.Itoa(i), Type: reflectedMethod.Type.In(i + 1)}
+				parameters[i] = Parameter{Name: strconv.Itoa(i), Type: reflectedMethod.Type.In(startIdx + i)}
 			}
 
 			method, err := methodFromReflectedMethod(providerType, reflectedMethod, parameters, isProvider)

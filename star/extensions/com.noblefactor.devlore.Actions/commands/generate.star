@@ -254,14 +254,17 @@ def is_custom_return(returns):
     return ""
 
 def filter_ctx_param(params):
-    """Strip a leading context.Context parameter from the params list.
+    """Strip a leading framework-injected parameter from the params list.
 
-    When a provider method's first Go parameter is context.Context, [op.Method.Invoke] auto-fills it with the ambient
-    cancellation context and the remaining parameters align with the caller-supplied parameter names. The announce map
-    and starlark-facing surface must not list ctx — it is implicit. This helper mirrors the detection rule in
-    [op.NewMethod] (firstParamIsCtx).
+    When a provider method's first Go parameter is one of the framework-injected types,
+    [op.Method.Invoke] auto-fills it and the remaining parameters align with the caller-supplied parameter
+    names. The announce map and starlark-facing surface must not list the injected parameter — it is implicit.
+
+    Recognized framework-injected first parameters (mirror [op.NewMethod]'s detection):
+      - *op.ActivationRecord — the per-dispatch record carrying Runtime, NodeID, Context (firstParamIsActivation).
+      - context.Context      — the per-session cancellation context (legacy; predates ActivationRecord).
     """
-    if len(params) > 0 and params[0].type == "context.Context":
+    if len(params) > 0 and params[0].type in ("*op.ActivationRecord", "context.Context"):
         return params[1:]
     return params
 

@@ -313,7 +313,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 		return fmt.Errorf("file.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
-	resource, err := ctx.Catalog.GetOrCreate(resourceURI, func() (op.Resource, error) {
+	resource, err := ctx.Catalog.Discover(resourceURI, func() (op.Resource, error) {
 		return NewResource(ctx, resourceURI)
 	})
 	if err != nil {
@@ -336,7 +336,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	if boundaryURI != "" {
 
-		boundary, err := ctx.Catalog.GetOrCreate(boundaryURI, func() (op.Resource, error) {
+		boundary, err := ctx.Catalog.Discover(boundaryURI, func() (op.Resource, error) {
 			return NewResource(ctx, boundaryURI)
 		})
 		if err != nil {
@@ -353,7 +353,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	if sourceURI != "" {
 
-		source, err := ctx.Catalog.GetOrCreate(sourceURI, func() (op.Resource, error) {
+		source, err := ctx.Catalog.Discover(sourceURI, func() (op.Resource, error) {
 			return NewResource(ctx, sourceURI)
 		})
 		if err != nil {

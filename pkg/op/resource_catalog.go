@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // ResourceCatalog is the graph-level compositor that owns the append-only ledger of [Resource] entries and the
@@ -114,21 +116,63 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 // production.
 //
 // Parameters:
-//   - uri: the URI to look up. Must not be empty.
-//   - factory: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil.
+//   - activation: the per-dispatch [ActivationRecord] for the producing node. Must be non-nil with a non-empty
+//     `NodeID` — GetOrCreate is the production-side hook and asserts these invariants. Discovery callsites
+//     (receipt rehydration, scanner-style URI lookups) must use [ResourceCatalog.Discover] instead.
+//   - uri: the URI to look up. Must not be empty (asserted).
+//   - factory: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil (asserted).
 //
 // Returns:
 //   - Resource: the canonical catalog entry for uri.
-//   - error: any factory error (returned untouched), or a missing-URI / nil-factory programming error.
-func (c *ResourceCatalog) GetOrCreate(uri string, factory func() (Resource, error)) (Resource, error) {
+//   - error: any factory error (returned untouched), or a [Shadow] error if a competing producer already claimed
+//     the same URI.
+//
+// Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors at
+// the call site, not runtime conditions.
+func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, factory func() (Resource, error)) (Resource, error) {
 
-	if uri == "" {
-		return nil, fmt.Errorf("GetOrCreate: uri must not be empty")
+	assert.NotNil("activation", activation)
+	assert.True("activation.NodeID not empty", activation.NodeID != "")
+	assert.True("uri not empty", uri != "")
+	assert.NotNil("factory", factory)
+
+	if id := c.Current(uri); id != "" {
+		if existing, ok := c.Lookup(id); ok {
+			return existing, nil
+		}
 	}
 
-	if factory == nil {
-		return nil, fmt.Errorf("GetOrCreate: factory must not be nil")
+	candidate, err := factory()
+	if err != nil {
+		return nil, err
 	}
+
+	if _, err := c.Shadow(candidate, activation.NodeID); err != nil {
+		return nil, err
+	}
+	return candidate, nil
+}
+
+// Discover returns the canonical catalog entry for uri, invoking factory only on cache miss, without producer
+// stamping. The discovery counterpart to [GetOrCreate].
+//
+// Use Discover from non-production callsites: receipt rehydration during unmarshal, scanner-style URI lookups
+// during preflight, and any other path where there is no producing node. The returned entry has no `producerID`
+// stamped (or carries whatever stamp a previous GetOrCreate already applied).
+//
+// Parameters:
+//   - uri: the URI to look up. Must not be empty (asserted).
+//   - factory: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil (asserted).
+//
+// Returns:
+//   - Resource: the canonical catalog entry for uri.
+//   - error: any factory error (returned untouched).
+//
+// Panics with an [*assert.AssertionError] when any precondition is violated.
+func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error)) (Resource, error) {
+
+	assert.True("uri not empty", uri != "")
+	assert.NotNil("factory", factory)
 
 	if id := c.Current(uri); id != "" {
 		if existing, ok := c.Lookup(id); ok {

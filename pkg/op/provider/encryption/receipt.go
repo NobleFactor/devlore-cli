@@ -103,7 +103,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 		return fmt.Errorf("encryption.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
-	resource, err := ctx.Catalog.GetOrCreate(resourceURI, func() (op.Resource, error) {
+	resource, err := ctx.Catalog.Discover(resourceURI, func() (op.Resource, error) {
 		return file.NewResource(ctx, resourceURI)
 	})
 	if err != nil {

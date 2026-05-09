@@ -18,9 +18,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/gitignore/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 )
 
 var _ op.Provider = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.Provider.
@@ -46,8 +46,8 @@ type Provider struct {
 }
 
 // NewProvider creates a file provider bound to the given context.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // Reducer is a function called for each file or directory in a [#Provider.WalkTree] operation.
@@ -72,7 +72,7 @@ func (p *Provider) Root() string {
 // Compensable actions
 
 // Backup moves the file at "path" to a timestamped backup location.
-func (p *Provider) Backup(source *Resource, backupSuffix string) (*Resource, *Receipt, error) {
+func (p *Provider) Backup(activationRecord *op.ActivationRecord, source *Resource, backupSuffix string) (*Resource, *Receipt, error) {
 
 	if backupSuffix == "" {
 		backupSuffix = ".devlore-backup"
@@ -81,7 +81,7 @@ func (p *Provider) Backup(source *Resource, backupSuffix string) (*Resource, *Re
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := source.SourcePath.Abs() + backupSuffix + "." + timestamp
 
-	return p.Move(source, backupPath)
+	return p.Move(activationRecord, source, backupPath)
 }
 
 // CompensateBackup undoes a Backup by delegating to [Provider.CompensateMove].
@@ -95,7 +95,7 @@ func (p *Provider) CompensateBackup(receipt *Receipt) error {
 // for "no change"). When non-empty it is parsed and applied via os.Chown after the file is created.
 //
 // +devlore:defaults chmod={{ umask 0o755 }}, chown=""
-func (p *Provider) Copy(source *Resource, destinationPath string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
+func (p *Provider) Copy(activationRecord *op.ActivationRecord, source *Resource, destinationPath string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
@@ -135,7 +135,7 @@ func (p *Provider) Copy(source *Resource, destinationPath string, chmod os.FileM
 		return product, receipt, err
 	}
 
-	return product, receipt, nil
+	return p.catalogProduct(activationRecord, product, receipt)
 }
 
 // CompensateCopy undoes a Copy by restoring the original file from recovery.
@@ -144,7 +144,7 @@ func (p *Provider) CompensateCopy(receipt *Receipt) error {
 }
 
 // Link creates a symbolic link at targetPath pointing to source.
-func (p *Provider) Link(source *Resource, targetPath string) (product *Resource, receipt *Receipt, err error) {
+func (p *Provider) Link(activationRecord *op.ActivationRecord, source *Resource, targetPath string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), targetPath)
 	if err != nil {
@@ -198,7 +198,7 @@ func (p *Provider) Link(source *Resource, targetPath string) (product *Resource,
 		return nil, receipt, err
 	}
 
-	return product, receipt, nil
+	return p.catalogProduct(activationRecord, product, receipt)
 }
 
 // CompensateLink undoes a Link by removing the symlink and restoring whatever was there before.
@@ -214,7 +214,7 @@ func (p *Provider) CompensateLink(receipt *Receipt) error {
 // rather than "created by this call."
 //
 // +devlore:defaults chmod={{ umask 0o777 }}, chown=""
-func (p *Provider) Mkdir(path string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
+func (p *Provider) Mkdir(activationRecord *op.ActivationRecord, path string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), path)
 	if err != nil {
@@ -249,7 +249,7 @@ func (p *Provider) Mkdir(path string, chmod os.FileMode, chown string) (product 
 		return nil, receipt, err
 	}
 
-	return product, receipt, nil
+	return p.catalogProduct(activationRecord, product, receipt)
 }
 
 // CompensateMkdir undoes a [Provider.Mkdir] by walking up from the receipt's resource and removing each entry
@@ -304,7 +304,7 @@ func (p *Provider) CompensateMkdir(receipt *Receipt) (err error) {
 }
 
 // Move moves a file from source to destinationPath.
-func (p *Provider) Move(source *Resource, destinationPath string) (product *Resource, receipt *Receipt, err error) {
+func (p *Provider) Move(activationRecord *op.ActivationRecord, source *Resource, destinationPath string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
@@ -339,7 +339,7 @@ func (p *Provider) Move(source *Resource, destinationPath string) (product *Reso
 		return nil, receipt, err
 	}
 
-	return product, receipt, nil
+	return p.catalogProduct(activationRecord, product, receipt)
 }
 
 // CompensateMove undoes a Move by moving the file from destination back to source and restoring the old destination.
@@ -504,6 +504,10 @@ func (p *Provider) CompensateUnlink(receipt *Receipt) error {
 }
 
 // WalkTree performs a depth-first traversal.
+//
+// WalkTree is a discovery operation — the walker observes existing filesystem entries; it does not produce
+// them. The Resources it interns into the catalog are discovered, not authored, so they carry no `producerID`
+// stamp from this method.
 func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (product any, stack *op.RecoveryStack, err error) {
 
 	stack = op.NewRecoveryStack()
@@ -546,13 +550,13 @@ func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (pr
 			return skip
 		}
 
-		ctx := p.RuntimeEnvironment()
-		candidate, err := NewResource(ctx, entryAbs)
+		runtimeEnvironment := p.RuntimeEnvironment()
+		candidate, err := NewResource(runtimeEnvironment, entryAbs)
 		if err != nil {
 			return err
 		}
 
-		got, err := ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+		got, err := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 			return candidate, nil
 		})
 		if err != nil {
@@ -593,14 +597,19 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 // for "no change"). When non-empty it is applied via os.Chown after the file is written.
 //
 // +devlore:defaults chmod={{ umask 0o666 }}, chown=""
-func (p *Provider) WriteBytes(destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
+func (p *Provider) WriteBytes(activationRecord *op.ActivationRecord, destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return p.write(product, []byte(content), chmod, chown)
+	product, receipt, err = p.write(product, []byte(content), chmod, chown)
+	if err != nil {
+		return product, receipt, err
+	}
+
+	return p.catalogProduct(activationRecord, product, receipt)
 }
 
 // CompensateWriteBytes undoes a WriteBytes by restoring the original file.
@@ -614,14 +623,19 @@ func (p *Provider) CompensateWriteBytes(receipt *Receipt) error {
 // for "no change"). When non-empty it is applied via os.Chown after the file is written.
 //
 // +devlore:defaults chmod={{ umask 0o666 }}, chown=""
-func (p *Provider) WriteText(destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
+func (p *Provider) WriteText(activationRecord *op.ActivationRecord, destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
 	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return p.write(product, []byte(content), chmod, chown)
+	product, receipt, err = p.write(product, []byte(content), chmod, chown)
+	if err != nil {
+		return product, receipt, err
+	}
+
+	return p.catalogProduct(activationRecord, product, receipt)
 }
 
 // CompensateWriteText undoes a WriteText by restoring the original file.
@@ -857,6 +871,34 @@ func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, rel
 }
 
 // compensateWrite reverts a write or link operation.
+// catalogProduct interns a freshly-produced Resource into the catalog with the producer stamp from the
+// activation, returning the canonical catalog entry alongside the provided receipt.
+//
+// When activationRecord is nil the producer was called outside dispatch (e.g., from a test or from Go-level
+// code that bypasses the framework); cataloging is skipped and the input product is returned unchanged.
+// When activationRecord is non-nil the catalog's [op.ResourceCatalog.GetOrCreate] is invoked, which asserts
+// non-empty NodeID and stamps producerID accordingly.
+func (p *Provider) catalogProduct(activationRecord *op.ActivationRecord, product *Resource, receipt *Receipt) (*Resource, *Receipt, error) {
+
+	if activationRecord == nil {
+		return product, receipt, nil
+	}
+
+	got, err := p.RuntimeEnvironment().Catalog.GetOrCreate(activationRecord, product.URI(), func() (op.Resource, error) {
+		return product, nil
+	})
+	if err != nil {
+		return product, receipt, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, nil, fmt.Errorf("catalog product: catalog entry for %q is %T, want *file.Resource", product.URI(), got)
+	}
+
+	return canonical, receipt, nil
+}
+
 func (p *Provider) compensateWrite(receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
@@ -963,16 +1005,16 @@ func (p *Provider) closestExistingDir(path string) (ancestor *Resource, info os.
 		return nil, nil, fmt.Errorf("%s lies outside scoped root %s", path, root)
 	}
 
-	ctx := p.RuntimeEnvironment()
+	runtimeEnvironment := p.RuntimeEnvironment()
 	current := path
 
 	for {
 		if info, err = p.stat(current); err == nil {
-			candidate, buildErr := NewResource(ctx, current)
+			candidate, buildErr := NewResource(runtimeEnvironment, current)
 			if buildErr != nil {
 				return nil, nil, buildErr
 			}
-			got, getErr := ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+			got, getErr := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 				return candidate, nil
 			})
 			if getErr != nil {
@@ -1101,17 +1143,17 @@ func (p *Provider) rename(oldAbs, newAbs string) error {
 // resources constructs a [Resource] for each input path.
 func (p *Provider) resources(paths []string) (product []*Resource, err error) {
 
-	ctx := p.RuntimeEnvironment()
+	runtimeEnvironment := p.RuntimeEnvironment()
 	resources := make([]*Resource, len(paths))
 
 	for i, path := range paths {
 		var candidate *Resource
-		candidate, err = NewResource(ctx, path)
+		candidate, err = NewResource(runtimeEnvironment, path)
 		if err != nil {
 			return nil, err
 		}
 		var got op.Resource
-		got, err = ctx.Catalog.GetOrCreate(candidate.URI(), func() (op.Resource, error) {
+		got, err = runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 			return candidate, nil
 		})
 		if err != nil {

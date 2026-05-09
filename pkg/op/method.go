@@ -4,15 +4,18 @@
 package op
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"strings"
 )
 
-// contextType is cached for detecting provider methods whose first parameter (after the receiver) is a context.Context
-// handle, which [Method.Invoke] autofills with the ambient cancellation context.
-var contextType = reflect.TypeFor[context.Context]()
+// activationRecordType is cached for detecting provider methods whose first parameter (after the receiver)
+// is an [*ActivationRecord], which [Method.Invoke] autofills with the per-dispatch record carrying the
+// runtime environment, producing-node identity, and per-call cancellation context.
+//
+// `context.Context` as a first parameter is NOT supported. Methods that need cancellation access it via
+// `activationRecord.Context`.
+var activationRecordType = reflect.TypeFor[*ActivationRecord]()
 
 // errorType is cached for return-type classification.
 var errorType = reflect.TypeFor[error]()
@@ -67,13 +70,14 @@ const (
 //   - undo (Compensate<Name>): compensation companion for compensable methods, takes the complement returned by
 //     the forward method and reverses its effect.
 type Method struct {
-	actionName      string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
-	do              *reflect.Method // forward method
-	firstParamIsCtx bool            // true when `do`'s first parameter (after receiver) is context.Context
-	kind            MethodKind      // classified from return signature
-	parameters      []Parameter     // named parameters (excluding receiver and any leading ctx)
-	plan            *reflect.Method // plan-time output spec companion; nil if the method has no plan companion
-	undo            *reflect.Method // compensation companion; nil unless compensable
+	actionName                 string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
+	do                         *reflect.Method // forward method
+	firstParamIsActivation     bool            // true when `do`'s first parameter (after receiver) is *ActivationRecord
+	kind                       MethodKind      // classified from return signature
+	parameters                 []Parameter     // named parameters (excluding receiver and any leading activation)
+	plan                       *reflect.Method // plan-time output spec companion; nil if the method has no plan companion
+	undo                       *reflect.Method // compensation companion; nil unless compensable
+	undoFirstParamIsActivation bool            // true when `undo`'s first parameter (after receiver) is *ActivationRecord
 }
 
 // NewMethod creates a [Method] from a reflected Go method, its parameter names, and its optional plan and undo
@@ -110,13 +114,14 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 
 	methodType := do.Type
 
-	// Detect whether the first Go parameter (after the receiver at index 0) is a context.Context. If so, Method.Invoke
-	// autofills it with the ambient cancellation ctx and the remaining Go parameters align with the caller supplied
-	// parameter names. The `announce` map lists user-declared parameters only — ctx is implicit.
-	firstParamIsCtx := methodType.NumIn() >= 2 && methodType.In(1) == contextType
+	// Detect whether the first Go parameter (after the receiver at index 0) is an [*ActivationRecord]. If so,
+	// [Method.Invoke] autofills it with the per-dispatch record and the remaining Go parameters align with the
+	// caller-supplied parameter names. The `announce` map lists user-declared parameters only — the activation
+	// is implicit.
+	firstParamIsActivation := methodType.NumIn() >= 2 && methodType.In(1) == activationRecordType
 
 	expectedParams := methodType.NumIn() - 1
-	if firstParamIsCtx {
+	if firstParamIsActivation {
 		expectedParams--
 	}
 
@@ -258,6 +263,7 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 			do.Name, do.Name)
 	}
 
+	undoFirstParamIsActivation := false
 	if undo != nil {
 
 		if kind != MethodCompensableFunction {
@@ -269,8 +275,23 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 
 		undoType := undo.Type
 
-		if undoType.NumIn() != 2 {
-			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected 1 parameter (the complement), got %d",
+		// Compensation companion accepts one of two shapes:
+		//   (a) (receiver, complement)                    — NumIn == 2; no activation
+		//   (b) (receiver, *ActivationRecord, complement) — NumIn == 3; activation is the first user-visible param
+		// Method.Undo dispatches based on which shape was registered.
+		switch undoType.NumIn() {
+		case 2:
+			// no activation
+		case 3:
+			if undoType.In(1) != activationRecordType {
+				return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: first parameter must be *ActivationRecord when 2 parameters are present, got %s",
+					undo.Name,
+					do.Name,
+					undoType.In(1))
+			}
+			undoFirstParamIsActivation = true
+		default:
+			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected 1 parameter (complement) or 2 parameters (*ActivationRecord, complement), got %d",
 				undo.Name,
 				do.Name,
 				undoType.NumIn()-1)
@@ -299,13 +320,14 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 	actionName := receiverType.PkgPath() + "." + receiverType.Name() + "." + do.Name
 
 	return &Method{
-		actionName:      actionName,
-		do:              do,
-		firstParamIsCtx: firstParamIsCtx,
-		kind:            kind,
-		parameters:      params,
-		plan:            plan,
-		undo:            undo,
+		actionName:                 actionName,
+		do:                         do,
+		firstParamIsActivation:     firstParamIsActivation,
+		kind:                       kind,
+		parameters:                 params,
+		plan:                       plan,
+		undo:                       undo,
+		undoFirstParamIsActivation: undoFirstParamIsActivation,
 	}, nil
 }
 
@@ -352,16 +374,30 @@ func (m *Method) ResultType() reflect.Type {
 	return first
 }
 
-// Undo calls the compensation companion on the receiver with the given complement.
-func (m *Method) Undo(receiver any, complement any) error {
+// Undo calls the compensation companion on the receiver with the given activation and complement.
+//
+// The companion's signature shape (with or without a leading *ActivationRecord parameter) is detected at
+// registration time and stored on [Method.undoFirstParamIsActivation]; Undo passes activation only when
+// the companion expects it.
+func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any) error {
 
 	if m.undo == nil {
 		return fmt.Errorf("method %s has no compensation companion", m.do.Name)
 	}
 
-	goArgs := make([]reflect.Value, 2)
-	goArgs[0] = reflect.ValueOf(receiver)
-	goArgs[1] = reflect.ValueOf(complement)
+	var goArgs []reflect.Value
+	if m.undoFirstParamIsActivation {
+		goArgs = []reflect.Value{
+			reflect.ValueOf(receiver),
+			reflect.ValueOf(activation),
+			reflect.ValueOf(complement),
+		}
+	} else {
+		goArgs = []reflect.Value{
+			reflect.ValueOf(receiver),
+			reflect.ValueOf(complement),
+		}
+	}
 
 	results := m.undo.Func.Call(goArgs)
 
@@ -376,20 +412,20 @@ func (m *Method) HasUndo() bool { return m.undo != nil }
 // region Behaviors
 
 // Invoke coerces slot values into Go arguments via [Convert] and dispatches to the wrapped method.
-func (m *Method) Invoke(ctx *RuntimeEnvironment, receiver any, slots map[string]any) (Result, Complement, error) {
+func (m *Method) Invoke(activation *ActivationRecord, receiver any, slots map[string]any) (Result, Complement, error) {
 
 	params := m.Parameters()
 	goArgs := make([]any, 0, len(params)+1)
 
-	if m.firstParamIsCtx {
-		goArgs = append(goArgs, ctx.Context)
+	if m.firstParamIsActivation {
+		goArgs = append(goArgs, activation)
 	}
 
 	for _, p := range params {
 
 		value := slots[p.Name]
 
-		val, err := Convert(ctx, value, p.Type)
+		val, err := Convert(activation.Runtime, value, p.Type)
 		if err != nil {
 			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
 		}

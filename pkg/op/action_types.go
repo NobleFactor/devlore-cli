@@ -58,7 +58,7 @@ func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (R
 		return nil, nil, nil
 	}
 
-	result, _, err := a.method.Invoke(runtimeEnvironment, provider, slots)
+	result, _, err := a.method.Invoke(activationRecord, provider, slots)
 	if err != nil {
 		panic(fmt.Sprintf("%s: unexpected error from infallible method: %v", a.name, err))
 	}
@@ -114,7 +114,7 @@ func (a *fallibleAction) Do(activationRecord *ActivationRecord, slots map[string
 		return nil, nil, nil
 	}
 
-	result, _, err := a.method.Invoke(runtimeEnvironment, provider, slots)
+	result, _, err := a.method.Invoke(activationRecord, provider, slots)
 	return result, nil, err
 }
 
@@ -167,7 +167,7 @@ func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[str
 		return nil, nil, nil
 	}
 
-	return a.method.Invoke(runtimeEnvironment, provider, slots)
+	return a.method.Invoke(activationRecord, provider, slots)
 }
 
 // Undo constructs a provider and calls the method's compensation companion.
@@ -192,7 +192,7 @@ func (a *compensableAction) Undo(activationRecord *ActivationRecord, complement 
 		return fmt.Errorf("%s: undo: %w", a.name, err)
 	}
 
-	return a.method.Undo(provider, complement)
+	return a.method.Undo(activationRecord, provider, complement)
 }
 
 // newAction creates the appropriate concrete action type based on the method's kind.

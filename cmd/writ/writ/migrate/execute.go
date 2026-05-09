@@ -78,7 +78,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 		if !ok || target == "" {
 			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID())
 		}
-		if _, _, err := fp.Move(&file.Resource{SourcePath: op.NewPath("", source)}, target); err != nil {
+		if _, _, err := fp.Move(nil, &file.Resource{SourcePath: op.NewPath("", source)}, target); err != nil {
 			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
 			return fmt.Errorf("rename %s -> %s: %w", source, target, err)
 		}

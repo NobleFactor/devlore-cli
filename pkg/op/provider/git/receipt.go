@@ -117,7 +117,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 		return fmt.Errorf("git.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
-	resource, err := ctx.Catalog.GetOrCreate(resourceURI, func() (op.Resource, error) {
+	resource, err := ctx.Catalog.Discover(resourceURI, func() (op.Resource, error) {
 		return NewResource(ctx, resourceURI)
 	})
 	if err != nil {

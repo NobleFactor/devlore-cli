@@ -53,7 +53,7 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 		}
 
 		ctxOffset := 0
-		if m.Type.NumIn() >= 2 && m.Type.In(1) == contextType {
+		if m.Type.NumIn() >= 2 && m.Type.In(1) == activationRecordType {
 			ctxOffset = 1
 		}
 
