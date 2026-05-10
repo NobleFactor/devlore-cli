@@ -6,8 +6,6 @@ package file
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/gitignore/gitignore"
@@ -869,7 +866,7 @@ func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, rel
 
 // catalogProduct interns a freshly-produced Resource into the catalog with the producer stamp from the
 // activation, returning the canonical catalog entry alongside the provided receipt. The activation must be
-// non-nil with a non-empty NodeID — [op.ResourceCatalog.GetOrCreate]'s strict contract enforces this.
+// non-nil with a non-empty SiteID — [op.ResourceCatalog.GetOrCreate]'s strict contract enforces this.
 func (p *Provider) catalogProduct(activationRecord *op.ActivationRecord, product *Resource, receipt *Receipt) (*Resource, *Receipt, error) {
 
 	got, err := p.RuntimeEnvironment().Catalog.GetOrCreate(activationRecord, product.URI(), func() (op.Resource, error) {
@@ -1303,88 +1300,3 @@ func preArchiveDigest(root op.Root, path string) op.Digest {
 // endregion
 
 // endregion
-
-// region Helpers
-
-// checksumBytes computes "sha256:<hex>" for content bytes.
-func checksumBytes(data []byte) string {
-	h := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(h[:])
-}
-
-// checksumFile reads a path and returns its "sha256:<hex>" checksum.
-func checksumFile(root op.Root, path string) string {
-
-	data, err := root.ReadFile(root.NewPath(path))
-	if err != nil {
-		return ""
-	}
-
-	return checksumBytes(data)
-}
-
-// isDirNotEmpty reports whether err is the "directory not empty" error.
-func isDirNotEmpty(err error) bool {
-	return errors.Is(err, syscall.ENOTEMPTY)
-}
-
-// matchDoubleStar matches a path against a pattern containing ** wildcards.
-func matchDoubleStar(pattern, path string) bool {
-
-	parts := strings.Split(pattern, "**")
-	if len(parts) == 1 {
-		return pathMatch(pattern, path)
-	}
-
-	if len(parts) == 2 {
-		return matchDoubleStarSingle(parts[0], parts[1], path)
-	}
-
-	tail := strings.TrimLeft(parts[len(parts)-1], string(filepath.Separator))
-	return pathMatch(tail, filepath.Base(path))
-}
-
-// matchDoubleStarSingle handles patterns with exactly one `**` wildcard.
-func matchDoubleStarSingle(rawPrefix, rawSuffix, path string) bool {
-
-	prefix := strings.TrimRight(rawPrefix, string(filepath.Separator))
-	suffix := strings.TrimLeft(rawSuffix, string(filepath.Separator))
-
-	if prefix != "" {
-		if !strings.HasPrefix(path, prefix+string(filepath.Separator)) && path != prefix {
-			return false
-		}
-		path = strings.TrimPrefix(path, prefix+string(filepath.Separator))
-	}
-
-	segments := strings.Split(path, string(filepath.Separator))
-
-	for i := range segments {
-		tail := strings.Join(segments[i:], string(filepath.Separator))
-		if pathMatch(suffix, tail) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// pathMatch wraps [filepath.Match].
-func pathMatch(pattern, name string) bool {
-	ok, err := filepath.Match(pattern, name)
-	return err == nil && ok
-}
-
-// splitFindPattern splits a pattern into a root directory and a match pattern.
-func splitFindPattern(pattern string) (root, match string) {
-
-	idx := strings.Index(pattern, "**")
-	if idx < 0 {
-		return filepath.Dir(pattern), filepath.Base(pattern)
-	}
-
-	root = strings.TrimRight(pattern[:idx], string(filepath.Separator))
-	match = pattern[idx:]
-
-	return root, match
-}

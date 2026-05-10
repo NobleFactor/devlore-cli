@@ -71,7 +71,7 @@ func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*R
 
 	// Parse is content-keyed — two calls with the same input produce the same URI. Route through the catalog so
 	// they share a single canonical *Resource (and thus a single parsed value) per RuntimeEnvironment. The first
-	// caller's NodeID stamps producerID; subsequent same-URI callers get the existing entry unchanged.
+	// caller's SiteID stamps producerID; subsequent same-URI callers get the existing entry unchanged.
 	got, err := runtimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})

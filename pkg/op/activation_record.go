@@ -10,7 +10,7 @@ import "context"
 //
 // The framework constructs one [ActivationRecord] per dispatch and passes it to the provider method as
 // the first parameter. Provider methods access shared session state via [ActivationRecord.Runtime],
-// per-call state directly off the record (`NodeID`, `Context`, future per-call fields), and stdlib
+// per-call state directly off the record (`SiteID`, `Context`, future per-call fields), and stdlib
 // `context.Context` for cancellation-aware operations via [ActivationRecord.Context].
 //
 // Each goroutine-driven dispatch holds its own [ActivationRecord]; pointer fields on `Runtime` (Catalog,
@@ -25,10 +25,23 @@ type ActivationRecord struct {
 	// session; never mutated mid-execution.
 	Runtime *RuntimeEnvironment
 
-	// NodeID is the identity of the producing node for this dispatch. Stamped on Resources interned during
-	// the dispatch so downstream consumers can derive producer→consumer edges via [ExtractResource]. Empty
-	// outside dispatch (planning, rehydration, discovery).
-	NodeID string
+	// SiteID identifies the dispatch site this activation came from — generalized "where in the system did
+	// this dispatch originate?" The granularity is dispatcher-dependent:
+	//
+	//   - Graph dispatch: per-call-site (1:1 with a node, 1:1 with a source-level call expression).
+	//     Example: "file.write_text-7f3a2b" minted by [GenerateNodeID].
+	//   - Starlark immediate-mode bridge: per-action (one identifier per dispatched method, regardless of
+	//     how many lines invoke it). Example: "starlark:file.write_text".
+	//   - Test fixtures: per-test (one identifier per test function). Example: "test:TestWriteText".
+	//   - CLI-side runners (writ, devlore-test): per-command (one identifier per command invocation).
+	//     Example: "writ:adopt".
+	//
+	// Distinct from [op.RecoverySite], which is the on-disk archive directory for compensation —
+	// "site" here means "site of dispatch origin". The [ResourceCatalog] reads this as the producer
+	// stamp on Resources interned during the dispatch (`producerID = activation.SiteID`) so downstream
+	// consumers can derive producer→consumer edges via [ExtractResource]. Empty outside dispatch
+	// (planning, rehydration, discovery) — the strict GetOrCreate path asserts non-empty.
+	SiteID string
 
 	// Context is the cancellation-aware context for this dispatch, derived from `Runtime.Context`. Provider
 	// methods pass this to stdlib functions that take `context.Context` (e.g., `exec.CommandContext`,

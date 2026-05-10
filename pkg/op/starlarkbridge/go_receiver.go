@@ -835,11 +835,11 @@ func (w *goReceiver) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, arg
 	}
 
 	runtimeEnvironment := w.executionContext()
-	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph node to derive a NodeID from.
+	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph node to derive a SiteID from.
 	// Synthesize a stable, non-empty label per actionName so producer methods that strictly require
-	// activation.NodeID (e.g., [op.ResourceCatalog.GetOrCreate]) accept the call. Real graph dispatch goes
-	// through the executor, which builds the activation with the real node's ID.
-	activationRecord := &op.ActivationRecord{Runtime: runtimeEnvironment, NodeID: "starlark:" + actionName, Context: runtimeEnvironment.Context}
+	// activation.SiteID (e.g., [op.ResourceCatalog.GetOrCreate]) accept the call. Real graph dispatch goes
+	// through the executor, which builds the activation with the actual node's ID as SiteID.
+	activationRecord := &op.ActivationRecord{Runtime: runtimeEnvironment, SiteID: "starlark:" + actionName, Context: runtimeEnvironment.Context}
 	result, _, err := method.Invoke(activationRecord, w.instance, slots)
 	if err != nil {
 		return nil, err

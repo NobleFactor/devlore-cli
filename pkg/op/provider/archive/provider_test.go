@@ -25,11 +25,11 @@ func testProvider(t *testing.T, dir string) *Provider {
 }
 
 // testActivation returns an [op.ActivationRecord] that satisfies the strict producer contract: non-nil with a
-// non-empty NodeID derived from the test name. Test producer calls pass this in lieu of the real per-dispatch
+// non-empty SiteID derived from the test name. Test producer calls pass this in lieu of the real per-dispatch
 // activation that the framework would build.
 func testActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{NodeID: "test:" + t.Name()}
+	return &op.ActivationRecord{SiteID: "test:" + t.Name()}
 }
 
 // createTarGz builds a tar.gz archive at archivePath containing the given entries.

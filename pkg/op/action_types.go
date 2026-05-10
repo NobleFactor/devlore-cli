@@ -174,7 +174,7 @@ func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[str
 //
 // Parameters:
 //   - activationRecord: the per-dispatch record. Carries the runtime environment for provider construction;
-//     `NodeID` is typically empty during compensation since the original producing node has already executed.
+//     `SiteID` is typically empty during compensation since the original producing dispatch has already executed.
 //   - complement: the undo state from Do.
 //
 // Returns:

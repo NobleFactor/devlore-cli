@@ -116,8 +116,8 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 // production.
 //
 // Parameters:
-//   - activation: the per-dispatch [ActivationRecord] for the producing node. Must be non-nil with a non-empty
-//     `NodeID` — GetOrCreate is the production-side hook and asserts these invariants. Discovery callsites
+//   - activation: the per-dispatch [ActivationRecord] for the producing dispatch. Must be non-nil with a non-empty
+//     `SiteID` — GetOrCreate is the production-side hook and asserts these invariants. Discovery callsites
 //     (receipt rehydration, scanner-style URI lookups) must use [ResourceCatalog.Discover] instead.
 //   - uri: the URI to look up. Must not be empty (asserted).
 //   - factory: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil (asserted).
@@ -132,7 +132,7 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, factory func() (Resource, error)) (Resource, error) {
 
 	assert.NotNil("activation", activation)
-	assert.True("activation.NodeID not empty", activation.NodeID != "")
+	assert.True("activation.SiteID not empty", activation.SiteID != "")
 	assert.True("uri not empty", uri != "")
 	assert.NotNil("factory", factory)
 
@@ -147,7 +147,7 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 		return nil, err
 	}
 
-	if _, err := c.Shadow(candidate, activation.NodeID); err != nil {
+	if _, err := c.Shadow(candidate, activation.SiteID); err != nil {
 		return nil, err
 	}
 	return candidate, nil
