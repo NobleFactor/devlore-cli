@@ -4,11 +4,14 @@
 package git
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"os/exec"
 	"reflect"
+	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -47,6 +50,15 @@ type Resource struct {
 	// Dirty reports whether the working tree has uncommitted changes. Populated by [Resource.Resolve];
 	// not persisted.
 	Dirty bool `json:"-" yaml:"-"`
+}
+
+// Remote carries the fetch and push URLs for a named git remote.
+//
+// PushURL is empty when the push direction uses FetchURL (git's default) — the distinction matters for workflows
+// that split read and write endpoints (e.g., HTTPS fetch / SSH push, mirror fetch / authoritative push).
+type Remote struct {
+	FetchURL string
+	PushURL  string
 }
 
 // NewResource constructs a git.Resource from a string path or a file URI.
@@ -119,7 +131,54 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 // region EXPORTED METHODS
 
-// region Behaviors
+// region State management
+
+// Addressing reports that git.Resource is location-keyed: identity is the local clone's filesystem location, and
+// the bytes under that location (commit SHAs, working-tree contents) are mutable. The catalog uses
+// [op.AddressingLocation] semantics — content drift triggers shadow chains, not new URIs.
+func (r *Resource) Addressing() op.AddressingMode {
+	return op.AddressingLocation
+}
+
+// Digest returns the honest content hash for the local clone:
+//
+//   - Clean repository (bare or working-tree): sha256 of HEAD's hex string.
+//   - Dirty working tree: sha256 of HEAD + "\n" + tree SHA over the index + working tree.
+//
+// The HEAD SHA-1 itself already content-addresses git's commit graph; wrapping it in a sha256 layer keeps the
+// algorithm consistent with the rest of the system (the catalog stores `op.Digest` values uniformly and round-
+// trips them through [op.ParseDigest], which only accepts the sha256 allowlist). For dirty working trees, the
+// tree SHA (derived from stash-create followed by rev-parse to the tree, not the commit SHA which would carry
+// timestamps) captures the index + working-tree state deterministically — same state same digest.
+//
+// Always fresh — recomputes at call time. Errors when the path is not a git repository or HEAD cannot be read.
+func (r *Resource) Digest() (op.Digest, error) {
+
+	abs := r.SourcePath.Abs()
+
+	repo, bare := isGitRepo(abs)
+	if !repo {
+		return op.Digest{}, fmt.Errorf("git.Resource: digest: %s is not a git repository", abs)
+	}
+
+	head := readHEADSha(abs)
+	if head == "" {
+		return op.Digest{}, fmt.Errorf("git.Resource: digest: cannot read HEAD at %s", abs)
+	}
+
+	h := sha256.New()
+	h.Write([]byte(head))
+
+	if !bare {
+		stashID := readStashCreateID(abs)
+		if stashID != "" {
+			h.Write([]byte("\n"))
+			h.Write([]byte(stashID))
+		}
+	}
+
+	return op.Digest{Algorithm: "sha256", Bytes: h.Sum(nil)}, nil
+}
 
 // Equal reports whether r and other identify the same git resource.
 //
@@ -143,6 +202,72 @@ func (r *Resource) Equal(other any) bool {
 
 	return r.ResourceBase.Equal(other)
 }
+
+// Etag returns a cheap stat-derived change-detection token for the local clone:
+//
+//   - Bare repository: the 7-character HEAD short-id (e.g., "a1b2c3d").
+//   - Working tree, clean: the 7-character HEAD short-id.
+//   - Working tree, dirty: HEAD short-id + "-" + 7-character prefix of the tree SHA covering the current
+//     index + working tree.
+//
+// The dirty fingerprint is derived from `git stash create` followed by `git rev-parse <stash>^{tree}`. The
+// stash commit's own SHA cannot be used directly: commit objects include author/committer timestamps, so
+// two calls on the same unchanged tree state would produce different commit SHAs (catalog would falsely
+// detect drift on every Resolve). The tree SHA is content-addressed and timestamp-free — same tree state
+// same SHA, different tree state different SHA. This lets the catalog detect drift within the dirty state
+// without false-positive drift on identical state.
+//
+// Always fresh — re-reads HEAD and (when dirty) re-runs the stash-create + rev-parse pair at call time.
+// Errors when the path is not a git repository or HEAD cannot be read.
+func (r *Resource) Etag() (string, error) {
+
+	abs := r.SourcePath.Abs()
+
+	repo, bare := isGitRepo(abs)
+	if !repo {
+		return "", fmt.Errorf("git.Resource: etag: %s is not a git repository", abs)
+	}
+
+	head := readHEADSha(abs)
+	if head == "" {
+		return "", fmt.Errorf("git.Resource: etag: cannot read HEAD at %s", abs)
+	}
+
+	short := head
+	if len(short) > 7 {
+		short = short[:7]
+	}
+
+	if bare {
+		return short, nil
+	}
+
+	stashID := readStashCreateID(abs)
+	if stashID == "" {
+		return short, nil
+	}
+
+	suffix := stashID
+	if len(suffix) > 7 {
+		suffix = suffix[:7]
+	}
+
+	return short + "-" + suffix, nil
+}
+
+// String returns a debug-oriented single-line representation of the resource suitable for log lines and IDE
+// debug windows.
+//
+// Returns:
+//   - string: "git.Resource{uri=<URI>, ref=<ref>, head=<head>, bare=<bool>, dirty=<bool>, remotes=<count>}".
+func (r *Resource) String() string {
+	return fmt.Sprintf("git.Resource{uri=%s, ref=%s, head=%s, bare=%t, dirty=%t, remotes=%d}",
+		r.URI(), r.Ref, r.HEAD, r.Bare, r.Dirty, len(r.Remotes))
+}
+
+// endregion
+
+// region Behaviors
 
 // Resolve inspects the local filesystem and populates operational metadata on the receiver.
 //
@@ -183,16 +308,6 @@ func (r *Resource) Resolve() error {
 	}
 
 	return nil
-}
-
-// String returns a debug-oriented single-line representation of the resource suitable for log lines and IDE
-// debug windows.
-//
-// Returns:
-//   - string: "git.Resource{uri=<URI>, ref=<ref>, head=<head>, bare=<bool>, dirty=<bool>, remotes=<count>}".
-func (r *Resource) String() string {
-	return fmt.Sprintf("git.Resource{uri=%s, ref=%s, head=%s, bare=%t, dirty=%t, remotes=%d}",
-		r.URI(), r.Ref, r.HEAD, r.Bare, r.Dirty, len(r.Remotes))
 }
 
 // UnmarshalJSON populates the receiver from its JSON wire form.
@@ -310,11 +425,45 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // endregion
 
-// Remote carries the fetch and push URLs for a named git remote.
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// readStashCreateID returns a deterministic tree SHA over the index + working-tree state at path, or "" when
+// clean / not a working tree / the command fails.
 //
-// PushURL is empty when the push direction uses FetchURL (git's default) — the distinction matters for workflows
-// that split read and write endpoints (e.g., HTTPS fetch / SSH push, mirror fetch / authoritative push).
-type Remote struct {
-	FetchURL string
-	PushURL  string
+// Two-step: `git stash create` constructs a stash commit object covering both the index and working tree
+// without actually stashing; `git rev-parse <stash>^{tree}` then projects to the tree SHA. The intermediate
+// stash commit's own SHA cannot be used directly — commit objects include author/committer timestamps, so
+// two calls on the same unchanged tree state would produce different commit SHAs (catalog would falsely
+// detect drift on every Resolve). Tree SHAs are content-addressed and timestamp-free: same tree state same
+// SHA, different tree state different SHA, regardless of when the call runs.
+//
+// Untracked files are not included by stash-create's default scope; callers that need untracked-file
+// fingerprinting must add it separately.
+func readStashCreateID(path string) string {
+
+	stash := runGitOutput(path, "stash", "create")
+	if stash == "" {
+		return ""
+	}
+
+	return runGitOutput(path, "rev-parse", stash+"^{tree}")
 }
+
+// runGitOutput runs `git -C path <args...>` and returns the trimmed stdout, or "" on any error.
+func runGitOutput(path string, args ...string) string {
+
+	cmd := exec.Command("git", append([]string{"-C", path}, args...)...)
+
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(out))
+}
+
+// endregion
+
+// endregion
