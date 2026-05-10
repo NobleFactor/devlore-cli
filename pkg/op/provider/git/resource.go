@@ -18,64 +18,150 @@ import (
 
 // Resource represents a cloned git repository.
 //
-// Identity is the local clone's filesystem location, stored as a file:// URI in [op.ResourceBase]. Every domain
-// field — Ref, HEAD, Remotes, Bare, Dirty — is populated by [Resource.Resolve] from the on-disk `.git/`
-// contents. Ref and HEAD are additionally persisted through JSON/YAML so a serialized Resource can carry its
-// version snapshot to contexts where Resolve cannot run (e.g., cross-host comparison, offline inspection);
-// Remotes, Bare, and Dirty are operational and not persisted — they're always rebuilt by Resolve.
+// Identity is the local clone's filesystem location, stored as a file:// URI in [op.ResourceBase]. Every domain field —
+// Ref, HEAD, Remotes, Bare, Dirty — is populated by [Resource.Resolve] from the on-disk `.git/` contents. Ref and HEAD
+// are additionally persisted through JSON/YAML so a serialized Resource can carry its version snapshot to contexts
+// where Resolve cannot run (e.g., cross-host comparison, offline inspection); Remotes, Bare, and Dirty are operational
+// and not persisted — they're always rebuilt by Resolve.
 type Resource struct {
 	op.ResourceBase
 
-	// SourcePath is the local clone's canonical absolute path; identity derives from this via the file:// URI.
-	// Not persisted — reconstructed from the URI on deserialization.
+	// SourcePath is the local clone's canonical absolute path; identity derives from this via the file:// URI. Not
+	// persisted — reconstructed from the URI on deserialization.
 	SourcePath op.Path `json:"-" yaml:"-"`
 
-	// Ref is the branch, tag, or commit reference the clone is positioned at. Populated by [Resource.Resolve]
-	// from `.git/HEAD`; persisted for round-trip continuity when Resolve cannot be called.
+	// Ref is the branch, tag, or commit reference the clone is positioned at. Populated by [Resource.Resolve] from
+	// `.git/HEAD`; persisted for round-trip continuity when Resolve cannot be called.
 	Ref string `json:"ref,omitempty" yaml:"ref,omitempty"`
 
-	// HEAD is the resolved commit SHA (40-char hex) the clone is currently pointing to. Populated by
-	// [Resource.Resolve] from `.git/HEAD`; persisted for round-trip continuity — pins the clone to an exact
-	// version across serialization. Empty when unresolved.
+	// HEAD is the resolved commit SHA (40-char hex) the clone is currently pointing to. Populated by [Resource.Resolve]
+	// from `.git/HEAD`; persisted for round-trip continuity — pins the clone to an exact version across serialization.
+	// Empty when unresolved.
 	HEAD string `json:"head,omitempty" yaml:"head,omitempty"`
 
-	// Remotes maps remote name (e.g., "origin") to its fetch/push URL pair. Populated by [Resource.Resolve]
-	// from `.git/config`; not persisted.
+	// Remotes maps remote name (e.g., "origin") to its fetch/push URL pair. Populated by [Resource.Resolve] from
+	// `.git/config`; not persisted.
 	Remotes map[string]Remote `json:"-" yaml:"-"`
 
-	// Bare reports whether this is a bare repository (no working tree). Populated by [Resource.Resolve];
-	// not persisted.
+	// Bare reports whether this is a bare repository (no working tree). Populated by [Resource.Resolve]; not persisted.
 	Bare bool `json:"-" yaml:"-"`
 
-	// Dirty reports whether the working tree has uncommitted changes. Populated by [Resource.Resolve];
-	// not persisted.
+	// Dirty reports whether the working tree has uncommitted changes. Populated by [Resource.Resolve]; not persisted.
 	Dirty bool `json:"-" yaml:"-"`
 }
 
 // Remote carries the fetch and push URLs for a named git remote.
 //
-// PushURL is empty when the push direction uses FetchURL (git's default) — the distinction matters for workflows
-// that split read and write endpoints (e.g., HTTPS fetch / SSH push, mirror fetch / authoritative push).
+// PushURL is empty when the push direction uses FetchURL (git's default) — the distinction matters for workflows that
+// split read and write endpoints (e.g., HTTPS fetch / SSH push, mirror fetch / authoritative push).
 type Remote struct {
 	FetchURL string
 	PushURL  string
 }
 
-// NewResource constructs a git.Resource from a string path or a file URI.
+// NewResource constructs a git.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
+//
+// Use NewResource from a producer dispatch context — typically a provider method that has received an
+// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
+// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
+// claiming production (rehydration, reference handles, scanner-style discovery).
 //
 // The input may be a bare filesystem path ("/opt/repo") or a file URI ("file:///opt/repo"). File URIs are
-// strictly validated per RFC 8089 — userinfo, non-localhost host, query, fragment, and opaque form are rejected.
-// Identity is the canonical file:// URI computed from the resolved absolute path; remotes, ref, HEAD, and other
-// metadata are populated post-construction by Clone, Resolve, or explicit setters.
+// strictly validated per RFC 8089 — userinfo, non-localhost host, query, fragment, and opaque form are
+// rejected. Identity is the canonical file:// URI computed from the resolved absolute path; remotes, ref,
+// HEAD, and other metadata are populated post-construction by Clone, Resolve, or explicit setters.
+//
+// Nil-Catalog tolerance mirrors [DiscoverResource]: when `activationRecord.Runtime.Catalog` is nil
+// (test fixtures, library callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
-//   - ctx: execution context.
+//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment and its
+//     `SiteID` becomes the catalog entry's producerID. Must be non-nil.
 //   - value: a string file path or file URI.
 //
 // Returns:
-//   - *Resource: the initialized resource with URI and SourcePath set; all other fields zero.
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - error: if value is not a string, or the input violates RFC 8089 when in file URI form, or
+//     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
+func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("git.NewResource: catalog entry for %q is %T, want *git.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// DiscoverResource constructs a git.Resource and registers it with [op.ResourceCatalog.Discover] without claiming
+// production.
+//
+// Use DiscoverResource from non-production callsites: receipt rehydration (UnmarshalJSON/Text/YAML), reference handles
+// in CLI tools, and scanner-style discovery walks. The returned catalog entry has no producer stamp (or carries
+// whatever stamp a previous [NewResource] call already applied). Use [NewResource] instead when the caller is a
+// producer claiming this Resource as its output.
+//
+// activationRecord is required for signature consistency with [NewResource], but only `activationRecord.Runtime` is
+// used — `SiteID` is not stamped. Discovery callers commonly synthesize an [op.ActivationRecord] with empty SiteID and
+// only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+//
+// Nil-Catalog tolerance mirrors the receipt-rehydration paths: when `activationRecord.Runtime.Catalog` is nil, the
+// candidate is returned unlinked.
+//
+// Parameters:
+//   - activationRecord: provides the runtime environment via `activationRecord.Runtime`. SiteID is unused.
+//     Must be non-nil.
+//   - value: a string file path or file URI.
+//
+// Returns:
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - error: if value is not a string, or the input violates RFC 8089 when in file URI form.
-func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
+func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("git.DiscoverResource: catalog entry for %q is %T, want *git.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// buildCandidate validates value and constructs a *Resource without touching the catalog.
+//
+// Shared by [NewResource] and [DiscoverResource].
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	path, ok := value.(string)
 	if !ok {
@@ -116,9 +202,9 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 		path = parsed.Path
 	}
 
-	sourcePath := ctx.Root.NewPath(path)
+	sourcePath := runtimeEnvironment.Root.NewPath(path)
 
-	base, err := op.NewResourceBase(ctx, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, err
 	}
@@ -133,9 +219,13 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 // region State management
 
-// Addressing reports that git.Resource is location-keyed: identity is the local clone's filesystem location, and
-// the bytes under that location (commit SHAs, working-tree contents) are mutable. The catalog uses
-// [op.AddressingLocation] semantics — content drift triggers shadow chains, not new URIs.
+// Addressing reports that git.Resource is location-keyed.
+//
+// The identity is the local clone's filesystem location, and the bytes under that location (commit SHAs, working-tree
+// contents) are mutable.
+//
+// The catalog uses [op.AddressingLocation]
+// semantics — content drift triggers shadow chains, not new URIs.
 func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
@@ -145,11 +235,11 @@ func (r *Resource) Addressing() op.AddressingMode {
 //   - Clean repository (bare or working-tree): sha256 of HEAD's hex string.
 //   - Dirty working tree: sha256 of HEAD + "\n" + tree SHA over the index + working tree.
 //
-// The HEAD SHA-1 itself already content-addresses git's commit graph; wrapping it in a sha256 layer keeps the
-// algorithm consistent with the rest of the system (the catalog stores `op.Digest` values uniformly and round-
-// trips them through [op.ParseDigest], which only accepts the sha256 allowlist). For dirty working trees, the
-// tree SHA (derived from stash-create followed by rev-parse to the tree, not the commit SHA which would carry
-// timestamps) captures the index + working-tree state deterministically — same state same digest.
+// The HEAD SHA-1 itself already content-addresses git's commit graph; wrapping it in a sha256 layer keeps the algorithm
+// consistent with the rest of the system (the catalog stores `op.Digest` values uniformly and round trips them through
+// [op.ParseDigest], which only accepts the sha256 allowlist). For dirty working trees, the tree SHA (derived from
+// stash-create followed by rev-parse to the tree, not the commit SHA which would carry timestamps) captures the index +
+// working-tree state deterministically — same state same digest.
 //
 // Always fresh — recomputes at call time. Errors when the path is not a git repository or HEAD cannot be read.
 func (r *Resource) Digest() (op.Digest, error) {
@@ -182,8 +272,8 @@ func (r *Resource) Digest() (op.Digest, error) {
 
 // Equal reports whether r and other identify the same git resource.
 //
-// Strict equality: other must be a *git.Resource (not merely an [op.Resource] with the same URI). Once the type
-// check passes, URI comparison is delegated to [op.ResourceBase.Equal].
+// Strict equality: other must be a *git.Resource (not merely an [op.Resource] with the same URI). Once the type check
+// passes, URI comparison is delegated to [op.ResourceBase.Equal].
 //
 // Parameters:
 //   - other: the value to compare against; may be any, including nil or a non-Resource.
@@ -207,18 +297,17 @@ func (r *Resource) Equal(other any) bool {
 //
 //   - Bare repository: the 7-character HEAD short-id (e.g., "a1b2c3d").
 //   - Working tree, clean: the 7-character HEAD short-id.
-//   - Working tree, dirty: HEAD short-id + "-" + 7-character prefix of the tree SHA covering the current
-//     index + working tree.
+//   - Working tree, dirty: HEAD short-id + "-" + 7-character prefix of the tree SHA covering the current index +
+//     working tree.
 //
-// The dirty fingerprint is derived from `git stash create` followed by `git rev-parse <stash>^{tree}`. The
-// stash commit's own SHA cannot be used directly: commit objects include author/committer timestamps, so
-// two calls on the same unchanged tree state would produce different commit SHAs (catalog would falsely
-// detect drift on every Resolve). The tree SHA is content-addressed and timestamp-free — same tree state
-// same SHA, different tree state different SHA. This lets the catalog detect drift within the dirty state
-// without false-positive drift on identical state.
+// The dirty fingerprint is derived from `git stash create` followed by `git rev-parse <stash>^{tree}`. The stash
+// commit's own SHA cannot be used directly: commit objects include author/committer timestamps, so two calls on the
+// same unchanged tree state would produce different commit SHAs (catalog would falsely detect drift on every Resolve).
+// The tree SHA is content-addressed and timestamp-free — same tree state same SHA, different tree state different SHA.
+// This lets the catalog detect drift within the dirty state without false-positive drift on identical state.
 //
-// Always fresh — re-reads HEAD and (when dirty) re-runs the stash-create + rev-parse pair at call time.
-// Errors when the path is not a git repository or HEAD cannot be read.
+// Always fresh — re-reads HEAD and (when dirty) re-runs the stash-create + rev-parse pair at call time. Errors when the
+// path is not a git repository or HEAD cannot be read.
 func (r *Resource) Etag() (string, error) {
 
 	abs := r.SourcePath.Abs()
@@ -255,8 +344,7 @@ func (r *Resource) Etag() (string, error) {
 	return short + "-" + suffix, nil
 }
 
-// String returns a debug-oriented single-line representation of the resource suitable for log lines and IDE
-// debug windows.
+// String returns a debug-oriented single-line representation of the resource suitable for log lines and debug windows.
 //
 // Returns:
 //   - string: "git.Resource{uri=<URI>, ref=<ref>, head=<head>, bare=<bool>, dirty=<bool>, remotes=<count>}".
@@ -271,19 +359,19 @@ func (r *Resource) String() string {
 
 // Resolve inspects the local filesystem and populates operational metadata on the receiver.
 //
-// Rebinds SourcePath to the scoped execution root, then populates every derived field from the on-disk
-// `.git/` contents: Bare (via [isGitRepo]), HEAD (via [readHEADSha]), Ref (via [readBranchName]; empty on
-// detached HEAD), Dirty (via [isDirtyRepo]; only for working trees), and Remotes (via [readRemotes]). All
-// derived fields are cleared to zero before population so that Resolve is the single source of truth per
-// the "Resolve resolves all metadata, no exceptions" rule.
+// Rebinds SourcePath to the scoped execution root, then populates every derived field from the on-disk `.git/`
+// contents: Bare (via [isGitRepo]), HEAD (via [readHEADSha]), Ref (via [readBranchName]; empty on detached HEAD), Dirty
+// (via [isDirtyRepo]; only for working trees), and Remotes (via [readRemotes]). All derived fields are cleared to zero
+// before population so that Resolve is the single source of truth per the "Resolve resolves all metadata, no
+// exceptions" rule.
 //
-// A path that does not exist, is not a directory, or is not a git repository is not an error: the receiver
-// returns with zero-valued metadata and nil error. Callers inspect [Resource.Bare] and the presence of HEAD
-// to distinguish "resolved to empty" from "never resolved."
+// A path that does not exist, is not a directory, or is not a git repository is not an error: the receiver returns with
+// zero-valued metadata and nil error. Callers inspect [Resource.Bare] and the presence of HEAD to distinguish "resolved
+// to empty" from "never resolved."
 //
 // Returns:
-//   - error: currently always nil; reserved for future error channels (e.g., surfacing `git` binary
-//     unavailability as an explicit condition instead of silently treating it as "no repo").
+//   - error: currently always nil; reserved for future error channels (e.g., surfacing `git` binary unavailability as
+//     an explicit condition instead of silently treating it as "no repo").
 func (r *Resource) Resolve() error {
 
 	root := r.RuntimeEnvironment().Root
@@ -312,17 +400,16 @@ func (r *Resource) Resolve() error {
 
 // UnmarshalJSON populates the receiver from its JSON wire form.
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
-// invoking this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned
-// from the decoded snapshot. Operational state (Remotes, Bare, Dirty) stays at zero values until
-// [Resource.Resolve] reads the on-disk clone.
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
+// this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned from the decoded
+// snapshot. Operational state (Remotes, Bare, Dirty) stays at zero values until [Resource.Resolve] reads the on-disk
+// clone.
 //
 // Parameters:
 //   - data: JSON-encoded wire form.
 //
 // Returns:
-//   - error: non-nil if the RuntimeEnvironment is missing, the JSON does not decode, or resource construction
-//     fails.
+//   - error: non-nil if the RuntimeEnvironment is missing, the JSON does not decode, or resource construction fails.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -341,7 +428,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	ref, head := r.Ref, r.HEAD
 
-	built, err := NewResource(r.RuntimeEnvironment(), aux.URI)
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, aux.URI)
 	if err != nil {
 		return err
 	}
@@ -355,8 +442,8 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 
 // UnmarshalText populates the receiver from raw UTF-8 bytes containing a local path or file URI.
 //
-// Scalar form: only identity (URI) round-trips. Ref, HEAD, and Remotes remain at zero values; richer
-// round-trip uses [Resource.UnmarshalJSON] or [Resource.UnmarshalYAML].
+// Scalar form: only identity (URI) round-trips. Ref, HEAD, and Remotes remain at zero values; richer round trip uses
+// [Resource.UnmarshalJSON] or [Resource.UnmarshalYAML].
 //
 // Parameters:
 //   - text: UTF-8 bytes containing the resource's URI or path.
@@ -369,7 +456,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("git.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), string(text))
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
 	if err != nil {
 		return err
 	}
@@ -380,17 +467,16 @@ func (r *Resource) UnmarshalText(text []byte) error {
 
 // UnmarshalYAML populates the receiver from its YAML wire form.
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
-// invoking this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned
-// from the decoded snapshot. Operational state (Remotes, Bare, Dirty) stays at zero values until
-// [Resource.Resolve] reads the on-disk clone.
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
+// this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned from the decoded
+// snapshot. Operational state (Remotes, Bare, Dirty) stays at zero values until [Resource.Resolve] reads the on-disk
+// clone.
 //
 // Parameters:
 //   - unmarshal: callback supplied by the YAML decoder that projects the current node into the given target.
 //
 // Returns:
-//   - error: non-nil if the RuntimeEnvironment is missing, the YAML does not decode, or resource construction
-//     fails.
+//   - error: non-nil if the RuntimeEnvironment is missing, the YAML does not decode, or resource construction fails.
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -409,7 +495,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	ref, head := r.Ref, r.HEAD
 
-	built, err := NewResource(r.RuntimeEnvironment(), aux.URI)
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, aux.URI)
 	if err != nil {
 		return err
 	}
@@ -429,15 +515,15 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // region Behaviors
 
-// readStashCreateID returns a deterministic tree SHA over the index + working-tree state at path, or "" when
-// clean / not a working tree / the command fails.
+// readStashCreateID returns a deterministic tree SHA over the index + working-tree state at path, or "" when clean /
+// not a working tree / the command fails.
 //
-// Two-step: `git stash create` constructs a stash commit object covering both the index and working tree
-// without actually stashing; `git rev-parse <stash>^{tree}` then projects to the tree SHA. The intermediate
-// stash commit's own SHA cannot be used directly — commit objects include author/committer timestamps, so
-// two calls on the same unchanged tree state would produce different commit SHAs (catalog would falsely
-// detect drift on every Resolve). Tree SHAs are content-addressed and timestamp-free: same tree state same
-// SHA, different tree state different SHA, regardless of when the call runs.
+// Two-step: `git stash create` constructs a stash commit object covering both the index and working tree without
+// actually stashing; `git rev-parse <stash>^{tree}` then projects to the tree SHA. The intermediate stash commit's own
+// SHA cannot be used directly — commit objects include author/committer timestamps, so two calls on the same unchanged
+// tree state would produce different commit SHAs (catalog would falsely detect drift on every Resolve). Tree SHAs are
+// content-addressed and timestamp-free: same tree state same SHA, different tree state different SHA, regardless of
+// when the call runs.
 //
 // Untracked files are not included by stash-create's default scope; callers that need untracked-file
 // fingerprinting must add it separately.
