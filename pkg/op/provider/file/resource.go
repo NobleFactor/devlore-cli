@@ -95,6 +95,39 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 	}, nil
 }
 
+// DiscoverResource constructs a file.Resource and registers it with [op.ResourceCatalog.Discover] without
+// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
+// supplies a string and the slot expects a *file.Resource), and by callers that hold a reference handle
+// without claiming to have produced the underlying file.
+//
+// activationRecord is required for signature symmetry with the production-claim path; only
+// activationRecord.Runtime is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers
+// commonly synthesize an [op.ActivationRecord] with empty SiteID and only Runtime set:
+// `&op.ActivationRecord{Runtime: ctx}`.
+//
+// Nil-Catalog tolerance mirrors the receipt-rehydration paths: when activationRecord.Runtime.Catalog is nil,
+// the candidate is returned unlinked.
+func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+	candidate, err := NewResource(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("file.DiscoverResource: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+	}
+	return canonical, nil
+}
+
 // region EXPORTED METHODS
 
 // region State management

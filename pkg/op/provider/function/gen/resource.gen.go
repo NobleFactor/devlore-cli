@@ -16,7 +16,7 @@ func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[provider.Resource](),
 		func(ctx *op.RuntimeEnvironment, identity any) (op.Resource, error) {
-			return provider.NewResource(ctx, identity)
+			return provider.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, identity)
 		},
 		map[string][]string{
 			"Init":         {"thread"},

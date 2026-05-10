@@ -97,6 +97,31 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 	}
 }
 
+// DiscoverResource constructs a mem.Resource and registers it with [op.ResourceCatalog.Discover] without
+// claiming production. Used by the framework's resource registry adapter for slot coercion. activationRecord
+// is required for signature symmetry with the production-claim path; only activationRecord.Runtime is consumed.
+// SiteID is unused (Discover doesn't stamp). Nil-Catalog tolerance returns the unlinked candidate.
+func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+	candidate, err := NewResource(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("mem.DiscoverResource: catalog entry for %q is %T, want *mem.Resource", candidate.URI(), got)
+	}
+	return canonical, nil
+}
+
 // newFromSpec constructs a fully-populated mem.Resource from a [ResourceSpec], archiving spec.Data when present.
 func newFromSpec(ctx *op.RuntimeEnvironment, spec ResourceSpec) (*Resource, error) {
 
