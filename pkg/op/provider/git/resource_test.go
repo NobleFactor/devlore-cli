@@ -68,13 +68,14 @@ func commitFile(t *testing.T, dir, name, content string) {
 	runGit(t, dir, "commit", "-m", "add "+name)
 }
 
-// newRes constructs a *Resource for path against an unconfined runtime environment.
+// newRes constructs a *Resource for path against an unconfined runtime environment. Uses DiscoverResource
+// because tests are not claiming production — the file/path being constructed pre-exists or is a fixture.
 func newRes(t *testing.T, path string) *Resource {
 	t.Helper()
 	ctx := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
-	r, err := NewResource(ctx, path)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, path)
 	if err != nil {
-		t.Fatalf("NewResource(%q): %v", path, err)
+		t.Fatalf("DiscoverResource(%q): %v", path, err)
 	}
 	return r
 }

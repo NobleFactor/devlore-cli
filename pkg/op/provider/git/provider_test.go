@@ -12,6 +12,18 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// testActivation returns an [op.ActivationRecord] that satisfies the strict producer contract: non-nil with a
+// non-empty SiteID derived from the test name. Test calls to producer constructors (NewResource for production,
+// or producer methods like Clone) pass this in lieu of the real per-dispatch activation that the framework
+// would build.
+func testActivation(t *testing.T) *op.ActivationRecord {
+	t.Helper()
+	return &op.ActivationRecord{
+		Runtime: &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")},
+		SiteID:  "test:" + t.Name(),
+	}
+}
+
 // newTestProvider returns a Provider whose RuntimeEnvironment has Root anchored at "/" and whose cloneFn hook
 // is replaced with the supplied function. Tests use the hook to capture the argv that would have been passed
 // to `git clone` without executing the real binary.
@@ -44,7 +56,7 @@ func TestClone_HookReceivesArgv(t *testing.T) {
 	const repo = "https://example.com/repo.git"
 	const dir = "/tmp/clone-dest"
 
-	result, state, err := p.Clone(repo, dir, false, "", 0, "", false, false, "", false, false, nil)
+	result, state, err := p.Clone(testActivation(t), repo, dir, false, "", 0, "", false, false, "", false, false, nil)
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
@@ -77,6 +89,7 @@ func TestClone_HookPropagatesError(t *testing.T) {
 	})
 
 	result, state, err := p.Clone(
+		testActivation(t),
 		"https://example.com/repo.git", "/tmp/dest",
 		false, "", 0, "", false, false, "", false, false, nil,
 	)
@@ -100,6 +113,7 @@ func TestClone_DirectoryDerivedFromRepository(t *testing.T) {
 	})
 
 	result, _, err := p.Clone(
+		testActivation(t),
 		"https://example.com/org/repo.git", "",
 		false, "", 0, "", false, false, "", false, false, nil,
 	)
@@ -131,6 +145,7 @@ func TestClone_OptionsReachHook(t *testing.T) {
 	const dir = "/tmp/shallow"
 
 	_, _, err := p.Clone(
+		testActivation(t),
 		repo, dir,
 		false,  // bare
 		"main", // branch
@@ -172,9 +187,9 @@ func TestCompensateClone(t *testing.T) {
 	}
 
 	ctx := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
-	r, err := NewResource(ctx, dir)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, dir)
 	if err != nil {
-		t.Fatalf("NewResource(%q): %v", dir, err)
+		t.Fatalf("DiscoverResource(%q): %v", dir, err)
 	}
 
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}

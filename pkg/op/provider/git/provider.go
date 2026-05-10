@@ -80,6 +80,7 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 //
 // +devlore:defaults directory="",bare=false,branch="",depth=0,filter="",noCheckout=false,noTags=false,origin="",recurseSubmodules=false,singleBranch=false
 func (p *Provider) Clone(
+	activationRecord *op.ActivationRecord,
 	repository string,
 	directory string,
 	bare bool,
@@ -102,7 +103,7 @@ func (p *Provider) Clone(
 		directory = guessed
 	}
 
-	destination, err := NewResource(p.RuntimeEnvironment(), directory)
+	destination, err := NewResource(activationRecord, directory)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -153,12 +153,13 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 	return candidate, nil
 }
 
-// Discover returns the canonical catalog entry for uri, invoking factory only on cache miss, without producer
-// stamping. The discovery counterpart to [GetOrCreate].
+// Discover returns the canonical catalog entry for uri, invoking factory only on cache miss, without producer stamping.
 //
-// Use Discover from non-production callsites: receipt rehydration during unmarshal, scanner-style URI lookups
-// during preflight, and any other path where there is no producing node. The returned entry has no `producerID`
-// stamped (or carries whatever stamp a previous GetOrCreate already applied).
+// The discovery counterpart to [GetOrCreate].
+//
+// Use Discover from non-production callsites: receipt rehydration during unmarshal, scanner-style URI lookups during
+// preflight, and any other path where there is no producing node. The returned entry has no `producerID` stamped (or
+// carries whatever stamp a previous GetOrCreate already applied).
 //
 // Parameters:
 //   - uri: the URI to look up. Must not be empty (asserted).

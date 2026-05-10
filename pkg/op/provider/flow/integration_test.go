@@ -17,8 +17,9 @@ func TestMain(m *testing.M) {
 }
 
 func TestFlowActionsRegistered(t *testing.T) {
-	reg := op.NewReceiverRegistry()
-	ctx := &op.RuntimeEnvironment{Registry: reg}
+
+	receiverRegistry := op.NewReceiverRegistry()
+	runtimeEnvironment := &op.RuntimeEnvironment{Registry: receiverRegistry}
 
 	want := []string{
 		"flow.choose",
@@ -29,8 +30,9 @@ func TestFlowActionsRegistered(t *testing.T) {
 		"flow.degraded",
 		"flow.failed",
 	}
+
 	for _, name := range want {
-		if _, err := ctx.ActionByName(name); err != nil {
+		if _, err := runtimeEnvironment.ActionByName(name); err != nil {
 			t.Errorf("action %q: %v", name, err)
 		}
 	}
