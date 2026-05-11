@@ -311,12 +311,11 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 	if err != nil {
 
 		// The action got far enough to mint a complement before failing — push it onto the recovery stack so the
-		// framework owns unwinding the partial side effect. Mirrors the post-dispatch catalog-failure path below: a
-		// non-nil complement alongside an error means "I made changes, please compensate." Actions that have nothing to
-		// undo return either a typed-nil complement (the switch in pushComplement returns early) or a zero-value
-		// Receipt{} (which carries no Resource, so RecoveryStack.PushReceipt bails harmlessly and no entry is
-		// appended).
-		pushComplement(stack, action, complement)
+		// framework owns unwinding the partial side effect. A non-nil complement alongside an error means "I made
+		// changes, please compensate." Actions that have nothing to undo return either a typed-nil complement
+		// (PushComplement returns early) or a zero-value Receipt{} (which carries no Resource, so pushReceipt
+		// bails harmlessly and no entry is appended).
+		stack.PushComplement(action.FullName(), complement)
 
 		e.hooks.FireNodeComplete(ec, node.ID(), nil, err)
 		node.Status = StatusFailed
@@ -334,30 +333,9 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 		results[node.ID()] = result
 	}
 
-	pushComplement(stack, action, complement)
+	stack.PushComplement(action.FullName(), complement)
 	node.Status = StatusCompleted
 
 	return &NodeResult{NodeID: node.ID(), Status: ResultCompleted}
 }
 
-// pushComplement dispatches a node's complement onto the parent recovery stack by shape.
-//
-// The classifier in [Method.NewMethod] guarantees one of three shapes for any compensable action: nil (the action ran
-// but produced no undo state), a [Receipt] (single-output compensable), or a [*RecoveryStack] (multi-output compensable
-// whose receipts [Method.Invoke] has already wrapped into a substack). Any other shape is unreachable by construction.
-//
-// Parameters:
-//   - parent: the parent recovery stack receiving the entry.
-//   - action: the [Action] whose complement is being pushed; supplies [Action.FullName] for receipt-bearing entries.
-//   - complement: the complement value returned by [Method.Invoke].
-func pushComplement(parent *RecoveryStack, action Action, complement any) {
-
-	switch v := complement.(type) {
-	case nil:
-		return
-	case Receipt:
-		_ = parent.PushReceipt(v, action.FullName())
-	case *RecoveryStack:
-		parent.PushNested(v)
-	}
-}

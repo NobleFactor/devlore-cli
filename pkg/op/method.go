@@ -26,7 +26,8 @@ var receiptType = reflect.TypeFor[Receipt]()
 // recoveryStackType is cached for the [MethodCompensableFunction] complement-shape check.
 //
 // Complement values typed as `*RecoveryStack` are recognized by [Method.Invoke] as engine-built sagas (e.g.,
-// the value WalkTree returns) and spliced into the parent stack via PushNested rather than PushReceipt.
+// the value WalkTree returns) and spliced into the parent stack via [RecoveryStack.PushNested] rather than
+// being treated as a single [Receipt].
 var recoveryStackType = reflect.TypeFor[*RecoveryStack]()
 
 // errFromValue extracts an error from a reflect.Value, returning nil when the value holds a nil interface.
@@ -481,7 +482,7 @@ func (m *Method) buildSubStackFromReceiptSlice(v any) (*RecoveryStack, error) {
 		if err := receipt.Commit(m.actionName); err != nil {
 			return nil, fmt.Errorf("slice item %d: %w", i, err)
 		}
-		_ = stack.PushReceipt(receipt, m.actionName)
+		_ = stack.pushReceipt(receipt, m.actionName)
 	}
 
 	return stack, nil

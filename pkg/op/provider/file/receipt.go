@@ -48,10 +48,10 @@ type Receipt struct {
 
 // NewReceipt constructs a [Receipt] anchored to the affected [Resource] with no transactional boundary.
 //
-// The transactionID and action name remain zero-valued until [op.ReceiptBase.Commit] is invoked by
-// [op.RecoveryStack.PushReceipt]. Use this constructor wherever a forward action needs to return a Receipt rather
-// than building the struct literal inline, and the action did not need to record a creation boundary for
-// compensation.
+// The transactionID and action name remain zero-valued until [op.ReceiptBase.Commit] is invoked when the
+// receipt lands on a [op.RecoveryStack] via [op.RecoveryStack.PushComplement]. Use this constructor wherever a
+// forward action needs to return a Receipt rather than building the struct literal inline, and the action did
+// not need to record a creation boundary for compensation.
 //
 // Parameters:
 //   - resource: the [Resource] affected by the compensable forward method call.

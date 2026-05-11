@@ -9,51 +9,14 @@ import (
 	"testing"
 )
 
-func TestRecoveryStack_Do_PushesOnSuccess(t *testing.T) {
-	s := NewRecoveryStack()
-
-	err := s.Do(
-		func() (any, any, error) { return "undo-state", nil, nil },
-		func(state any) error { return nil },
-		nil,
-	)
-
-	if err != nil {
-		t.Fatalf("Do() error = %v, want nil", err)
-	}
-	if s.Len() != 1 {
-		t.Errorf("Len() = %d, want 1", s.Len())
-	}
-}
-
-func TestRecoveryStack_Do_ReturnsErrorWithoutPushing(t *testing.T) {
-	s := NewRecoveryStack()
-	invokeErr := errors.New("invoke failed")
-
-	err := s.Do(
-		func() (any, any, error) { return nil, nil, invokeErr },
-		func(state any) error { return nil },
-		nil,
-	)
-
-	if !errors.Is(err, invokeErr) {
-		t.Fatalf("Do() error = %v, want %v", err, invokeErr)
-	}
-	if s.Len() != 0 {
-		t.Errorf("Len() = %d, want 0 (nothing pushed on failure)", s.Len())
-	}
-}
-
 func TestRecoveryStack_Unwind_LIFO(t *testing.T) {
 	s := NewRecoveryStack()
 	var order []int
 
 	for i := range 3 {
-		i := i
-		s.Push(
-			func(any) error { order = append(order, i); return nil },
-			nil, i, nil,
-		)
+		child := NewRecoveryStack()
+		child.PushNested(tagStack(i, func(v int) { order = append(order, v) }))
+		s.PushNested(child)
 	}
 
 	if err := s.Unwind(); err != nil {
@@ -75,44 +38,16 @@ func TestRecoveryStack_Unwind_LIFO(t *testing.T) {
 	}
 }
 
-func TestRecoveryStack_Unwind_SkipsDrifted(t *testing.T) {
-	s := NewRecoveryStack()
-	compensated := false
-
-	s.Push(
-		func(any) error { compensated = true; return nil },
-		func(any) (bool, error) { return false, nil }, // drifted
-		"undo", "reconcile",
-	)
-
-	err := s.Unwind()
-	if !errors.Is(err, errDrifted) {
-		t.Fatalf("Unwind() error = %v, want errDrifted", err)
-	}
-	if compensated {
-		t.Error("compensate was called despite drift detection")
-	}
-}
-
 func TestRecoveryStack_Unwind_BestEffort(t *testing.T) {
 	s := NewRecoveryStack()
 	var compensated []int
 
 	// Entry 0: succeeds
-	s.Push(
-		func(any) error { compensated = append(compensated, 0); return nil },
-		nil, nil, nil,
-	)
+	s.PushNested(tagStack(0, func(v int) { compensated = append(compensated, v) }))
 	// Entry 1: fails
-	s.Push(
-		func(any) error { return errors.New("compensate-1 failed") },
-		nil, nil, nil,
-	)
+	s.PushNested(failStack(errors.New("compensate-1 failed")))
 	// Entry 2: succeeds
-	s.Push(
-		func(any) error { compensated = append(compensated, 2); return nil },
-		nil, nil, nil,
-	)
+	s.PushNested(tagStack(2, func(v int) { compensated = append(compensated, v) }))
 
 	err := s.Unwind()
 	if err == nil {
@@ -128,32 +63,11 @@ func TestRecoveryStack_Unwind_BestEffort(t *testing.T) {
 	}
 }
 
-func TestRecoveryStack_Unwind_NilReconcile(t *testing.T) {
-	s := NewRecoveryStack()
-	compensated := false
-
-	s.Push(
-		func(any) error { compensated = true; return nil },
-		nil, // nil reconcile = always safe
-		"undo", nil,
-	)
-
-	if err := s.Unwind(); err != nil {
-		t.Fatalf("Unwind() error = %v", err)
-	}
-	if !compensated {
-		t.Error("compensate was not called with nil reconcile")
-	}
-}
-
 func TestRecoveryStack_Discard(t *testing.T) {
 	s := NewRecoveryStack()
 	compensated := false
 
-	s.Push(
-		func(any) error { compensated = true; return nil },
-		nil, nil, nil,
-	)
+	s.PushNested(tagStack(0, func(int) { compensated = true }))
 
 	if s.Len() != 1 {
 		t.Fatalf("Len() = %d, want 1", s.Len())
@@ -176,13 +90,13 @@ func TestRecoveryStack_Len(t *testing.T) {
 		t.Errorf("Len() = %d, want 0 for empty stack", s.Len())
 	}
 
-	s.Push(func(any) error { return nil }, nil, nil, nil)
+	s.PushNested(NewRecoveryStack())
 
 	if s.Len() != 1 {
 		t.Errorf("Len() = %d, want 1", s.Len())
 	}
 
-	s.Push(func(any) error { return nil }, nil, nil, nil)
+	s.PushNested(NewRecoveryStack())
 
 	if s.Len() != 2 {
 		t.Errorf("Len() = %d, want 2", s.Len())
@@ -212,12 +126,9 @@ func TestRecoveryStack_PushNested_NilIsNoOp(t *testing.T) {
 
 func TestRecoveryStack_PushNested_UnwindRecurses(t *testing.T) {
 	parent := NewRecoveryStack()
-	child := NewRecoveryStack()
+	childCompensated := false
 
-	var childCompensated bool
-	child.Push(func(any) error { childCompensated = true; return nil }, nil, nil, nil)
-
-	parent.PushNested(child)
+	parent.PushNested(tagStack(0, func(int) { childCompensated = true }))
 
 	if err := parent.Unwind(); err != nil {
 		t.Fatalf("parent.Unwind() error = %v", err)
@@ -258,12 +169,24 @@ func TestRecoveryStack_MarshalJSON_NestedSub(t *testing.T) {
 	}
 }
 
-func TestRecoveryStack_MarshalJSON_ClosureOnlyEntry_Errors(t *testing.T) {
-	s := NewRecoveryStack()
+// tagStack builds a one-entry nested stack whose compensate closure calls record with tag.
+func tagStack(tag int, record func(int)) *RecoveryStack {
+	inner := NewRecoveryStack()
+	leaf := NewRecoveryStack()
+	leaf.entries = append(leaf.entries, recoveryEntry{
+		compensate: func(any) error { record(tag); return nil },
+	})
+	inner.PushNested(leaf)
+	return inner
+}
 
-	s.Push(func(any) error { return nil }, nil, nil, nil)
-
-	if _, err := json.Marshal(s); err == nil {
-		t.Fatal("MarshalJSON() error = nil, want error for closure-only entry")
-	}
+// failStack builds a one-entry nested stack whose compensate closure returns err.
+func failStack(err error) *RecoveryStack {
+	inner := NewRecoveryStack()
+	leaf := NewRecoveryStack()
+	leaf.entries = append(leaf.entries, recoveryEntry{
+		compensate: func(any) error { return err },
+	})
+	inner.PushNested(leaf)
+	return inner
 }
