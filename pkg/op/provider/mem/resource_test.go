@@ -35,10 +35,19 @@ func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 	return ctx
 }
 
+// testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. Sufficient for
+// production-claim test calls (non-nil + non-empty SiteID).
+func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
+	t.Helper()
+	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+}
+
 // newRes is a convenience for tests that don't care about the RuntimeEnvironment beyond RecoverySite wiring.
+// Uses NewResource to exercise the production-claim path (mem.NewResource is one of the few constructors
+// where the framework's true producers actually exist — content archival via spec.Data).
 func newRes(t *testing.T, ctx *op.RuntimeEnvironment, spec ResourceSpec) *Resource {
 	t.Helper()
-	r, err := NewResource(ctx, spec)
+	r, err := NewResource(testActivation(t, ctx), spec)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -201,7 +210,7 @@ func TestNewResource_StreamingErrorPropagates(t *testing.T) {
 
 	reader := &erroringReader{after: 5, err: errSyntheticRead}
 
-	if _, err := NewResource(ctx, ResourceSpec{Namespace: "blobs", Name: "err", Data: reader}); err == nil {
+	if _, err := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "blobs", Name: "err", Data: reader}); err == nil {
 		t.Fatal("expected error when io.Reader returns mid-stream error")
 	}
 }
@@ -211,7 +220,7 @@ func TestNewResource_UnsupportedDataType(t *testing.T) {
 	ctx := newTestCtx(t)
 
 	// An int doesn't satisfy any of the accepted interfaces.
-	_, err := NewResource(ctx, ResourceSpec{Namespace: "blobs", Name: "unsupported", Data: 42})
+	_, err := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "blobs", Name: "unsupported", Data: 42})
 	if err == nil {
 		t.Fatal("expected error for unsupported Data type")
 	}
@@ -224,7 +233,7 @@ func TestNewResource_EmptySpec(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	if _, err := NewResource(ctx, ResourceSpec{}); err == nil {
+	if _, err := NewResource(testActivation(t, ctx), ResourceSpec{}); err == nil {
 		t.Fatal("expected error for empty spec (no Namespace, no Name)")
 	}
 }
@@ -233,7 +242,7 @@ func TestNewResource_WrongType(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	if _, err := NewResource(ctx, 42); err == nil {
+	if _, err := NewResource(testActivation(t, ctx), 42); err == nil {
 		t.Fatal("expected error for non-ResourceSpec")
 	}
 }

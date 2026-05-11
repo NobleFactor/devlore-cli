@@ -57,11 +57,16 @@ type Resource struct {
 	Hash string `json:"-" yaml:"-"`
 }
 
-// NewResource constructs a mem.Resource from a [ResourceSpec].
+// NewResource constructs a mem.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
 //
-// The URI is computed from the spec; the on-disk SourcePath is derived from the URI (the URI carries the
-// reachability). If spec.Data is non-nil, its content is written to SourcePath via one of the accepted
-// full-fidelity shapes (first-match-wins dispatch):
+// Use NewResource from a producer dispatch context — typically a provider method that has received an
+// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
+// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
+// claiming production (rehydration, reference handles, the framework's slot-coercion adapter).
+//
+// The URI is computed from the value; the on-disk SourcePath is derived from the URI (the URI carries the
+// reachability). When value is a [ResourceSpec] with non-nil Data, the content is written to SourcePath via
+// one of the accepted full-fidelity shapes (first-match-wins dispatch):
 //
 //  1. nil                                 — metadata-only; SourcePath is set but the file is not created.
 //  2. [io.Reader]                         — streamed to SourcePath via [io.Copy]; hash computed in-flight
@@ -72,54 +77,106 @@ type Resource struct {
 //  6. [encoding.BinaryMarshaler]          — MarshalBinary → written.
 //  7. [encoding.TextMarshaler]            — MarshalText → written.
 //
-// Types that don't round-trip losslessly (fmt.Stringer, op.SourceConverter) are rejected to prevent silent data
-// loss.
+// Types that don't round-trip losslessly (fmt.Stringer, op.SourceConverter) are rejected to prevent silent
+// data loss. The Data write happens during construction (inside [buildCandidate]) regardless of whether the
+// catalog later returns a cache hit — same behavior as today's pattern in the m.3 cohort (file/json/yaml/
+// archive). Two callers with the same URI both perform the write; the first wins the catalog entry; the
+// second's writes overwrite the same on-disk path with what is presumably equivalent content (same URI →
+// same identity by mem's reachability model).
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - ctx:   execution context; must have a non-nil Root when spec.Data is non-nil.
-//   - value: a [ResourceSpec].
+//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment (must
+//     have a non-nil Root when value is a ResourceSpec with non-nil Data) and its `SiteID` becomes the
+//     catalog entry's producerID. Must be non-nil.
+//   - value: a [ResourceSpec] (creates from spec, archiving Data) or a string URI (rehydrates metadata-only).
 //
 // Returns:
-//   - *Resource: the constructed resource with URI, SourcePath, and (when content was archived) Hash set.
-//   - error:     malformed spec, unsupported Data type, or filesystem write error.
-func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - error: malformed spec, unsupported Data type, filesystem write error, or unsupported value type.
+func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	switch v := value.(type) {
-
-	case ResourceSpec:
-		return newFromSpec(ctx, v)
-
-	case string:
-		return newFromURI(ctx, v)
-
-	default:
-		return nil, fmt.Errorf("mem.Resource: expected ResourceSpec or URI string, got %T", value)
-	}
-}
-
-// DiscoverResource constructs a mem.Resource and registers it with [op.ResourceCatalog.Discover] without
-// claiming production. Used by the framework's resource registry adapter for slot coercion. activationRecord
-// is required for signature symmetry with the production-claim path; only activationRecord.Runtime is consumed.
-// SiteID is unused (Discover doesn't stamp). Nil-Catalog tolerance returns the unlinked candidate.
-func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
-	candidate, err := NewResource(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
 	if err != nil {
 		return nil, err
 	}
+
 	if activationRecord.Runtime.Catalog == nil {
 		return candidate, nil
 	}
+
+	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("mem.NewResource: catalog entry for %q is %T, want *mem.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// DiscoverResource constructs a mem.Resource and registers it with [op.ResourceCatalog.Discover] without
+// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
+// supplies a string URI and the slot expects a *mem.Resource), and by callers holding a reference handle
+// without claiming production (UnmarshalJSON/Text/YAML rehydration is the canonical example).
+//
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime
+// is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+//
+// Same value-shape semantics as [NewResource]: ResourceSpec creates from spec (with potential Data
+// archival); string rehydrates metadata-only.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
 	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	canonical, ok := got.(*Resource)
 	if !ok {
 		return nil, fmt.Errorf("mem.DiscoverResource: catalog entry for %q is %T, want *mem.Resource", candidate.URI(), got)
 	}
+
 	return canonical, nil
+}
+
+// buildCandidate dispatches on value's type to the appropriate construction path and returns a *Resource
+// without touching the catalog. Shared by [NewResource] and [DiscoverResource]. ResourceSpec values dispatch
+// to [newFromSpec] (which archives spec.Data when non-nil); string values dispatch to [newFromURI] (metadata-
+// only rehydration).
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+
+	switch v := value.(type) {
+
+	case ResourceSpec:
+		return newFromSpec(runtimeEnvironment, v)
+
+	case string:
+		return newFromURI(runtimeEnvironment, v)
+
+	default:
+		return nil, fmt.Errorf("mem.Resource: expected ResourceSpec or URI string, got %T", value)
+	}
 }
 
 // newFromSpec constructs a fully-populated mem.Resource from a [ResourceSpec], archiving spec.Data when present.
@@ -278,7 +335,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), uri)
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
 	if err != nil {
 		return err
 	}
@@ -294,7 +351,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("mem.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), string(text))
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
 	if err != nil {
 		return err
 	}
@@ -315,7 +372,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), uri)
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
 	if err != nil {
 		return err
 	}
