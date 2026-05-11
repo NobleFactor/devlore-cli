@@ -33,15 +33,34 @@ func testProvider(t *testing.T, dir string) Provider {
 	return Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-// testActivation returns an [op.ActivationRecord] that satisfies the strict producer contract: non-nil with a
-// non-empty SiteID derived from the test name. Test producer calls pass this in lieu of the real per-dispatch
-// activation that the framework would build.
 // testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. After the m.4 reshape
 // of file.NewResource (which uses activationRecord.Runtime to build the candidate), the activation must
 // carry a usable Runtime so producer methods can construct Resources rooted at the test's directory.
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
 	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+}
+
+// --- m.5 producer-stamp contract ---
+
+// TestProducerStamp_Mkdir verifies the m.5(iii) contract: a forward producer-method call results in a
+// catalog entry whose producerID matches the dispatch's activation SiteID. Mkdir is the canary; the same
+// pattern (NewResource(activation, ...) → Catalog.GetOrCreate stamps activation.SiteID) holds for Copy,
+// Link, Move, WriteBytes, and WriteText.
+func TestProducerStamp_Mkdir(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+	activation := testActivation(t, p.RuntimeEnvironment())
+
+	target := filepath.Join(tmp, "produced")
+	product, _, err := p.Mkdir(activation, target, 0o755, "")
+	if err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	if got := product.ProducerID(); got != activation.SiteID {
+		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	}
 }
 
 // --- Link ---

@@ -4,6 +4,9 @@
 package pkg
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -149,6 +152,160 @@ type Resource struct {
 
 // String returns a compact JSON representation of the resource.
 func (r *Resource) String() string { return r.Format(r) }
+
+// Addressing reports that pkg.Resource is location-keyed: identity is the package URI (the purl). The installed
+// state (version, presence) under that purl is mutable, and the catalog uses [op.AddressingLocation] semantics —
+// content drift triggers shadow chains, not new URIs.
+func (r *Resource) Addressing() op.AddressingMode {
+	return op.AddressingLocation
+}
+
+// Etag returns the currently-installed version of the package as a cheap change-detection token. Empty string
+// when the package is not installed (a valid state, distinguishable from errors by the nil error return). The
+// catalog uses Etag as the cheap signal; mismatch triggers a full [Resource.Digest] comparison.
+//
+// Always fresh — queries the platform's package manager at call time. Does not consult [Resource.Version], which
+// is a [Resolve]-populated snapshot rather than current state. Errors when the runtime environment has no
+// Platform, or no package manager is registered for the Resource's Type.
+//
+// Returns:
+//   - string: the installed version string, or "" when uninstalled.
+//   - error: when Platform is missing or the manager for [Resource.Type] is unavailable.
+func (r *Resource) Etag() (string, error) {
+
+	ctx := r.RuntimeEnvironment()
+	if ctx == nil || ctx.Platform == nil {
+		return "", fmt.Errorf("pkg.Resource: etag: no Platform in runtime")
+	}
+
+	mgr := ctx.Platform.PackageManagerByName(r.Type)
+	if mgr == nil {
+		return "", fmt.Errorf("pkg.Resource: etag: no manager for type %q", r.Type)
+	}
+
+	return mgr.Version(r.Name), nil
+}
+
+// Digest returns the honest content hash for the package: sha256 of (installed version + "\n" + canonical purl
+// URI). The canonical purl encodes the package identity (type + name); the installed version encodes the
+// mutable state. Hashing the pair gives a stable, content-addressable token that changes when either the
+// identity (which would normally mean a different URI / different Resource) or the installed state changes.
+//
+// Uninstalled packages produce a deterministic digest of (empty version + URI), distinct from any installed
+// digest for the same package, and distinct across different packages (since URIs differ).
+//
+// Always fresh — re-queries the version at call time via [Resource.Etag]. Errors when Etag would error.
+//
+// Returns:
+//   - op.Digest: sha256 algorithm with 32 raw bytes.
+//   - error: any error from [Resource.Etag] (no Platform, no manager for Type).
+func (r *Resource) Digest() (op.Digest, error) {
+
+	version, err := r.Etag()
+	if err != nil {
+		return op.Digest{}, err
+	}
+
+	h := sha256.New()
+	h.Write([]byte(version))
+	h.Write([]byte("\n"))
+	h.Write([]byte(r.URI()))
+
+	return op.Digest{Algorithm: "sha256", Bytes: h.Sum(nil)}, nil
+}
+
+// Equal reports whether r and other identify the same pkg resource.
+//
+// Strict equality: other must be a *pkg.Resource (not merely an [op.Resource] with the same URI). Once the
+// type check passes, URI comparison is delegated to [op.ResourceBase.Equal]. A cross-type URI collision is
+// treated as a caller-side construction error, not a case Equal needs to disambiguate.
+//
+// Parameters:
+//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//
+// Returns:
+//   - bool: true if other is a *pkg.Resource with the same URI as r.
+func (r *Resource) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	if _, ok := other.(*Resource); !ok {
+		return false
+	}
+
+	return r.ResourceBase.Equal(other)
+}
+
+// UnmarshalJSON populates the receiver from its JSON wire form (a bare purl string).
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
+// invoking this method; the runtime environment provides the platform needed to parse the purl. Rehydration
+// flows through [DiscoverResource] (non-production claim).
+//
+// Parameters:
+//   - data: JSON-encoded purl string.
+//
+// Returns:
+//   - error: non-nil if the RuntimeEnvironment is missing, the JSON does not decode as a string, or resource
+//     construction fails.
+func (r *Resource) UnmarshalJSON(data []byte) error {
+
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("pkg.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
+	}
+
+	var uri string
+	if err := json.Unmarshal(data, &uri); err != nil {
+		return err
+	}
+
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalText populates the receiver from raw UTF-8 bytes containing the purl string.
+func (r *Resource) UnmarshalText(text []byte) error {
+
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("pkg.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
+	}
+
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalYAML populates the receiver from its YAML wire form (a bare purl scalar).
+func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("pkg.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
+	}
+
+	var uri string
+	if err := unmarshal(&uri); err != nil {
+		return err
+	}
+
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
 
 // Resolve populates Version from the installed package version via the platform's package manager.
 //

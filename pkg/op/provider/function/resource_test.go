@@ -80,6 +80,29 @@ func compileFixture(t *testing.T, src, name string) *starlark.Function {
 
 // --- NewFunction ---
 
+// TestProducerStamp_NewResource verifies the m.5(iii) contract: a producer-style NewResource call results
+// in a catalog entry whose producerID matches the dispatch's activation SiteID. function.Resources are
+// produced directly via NewResource(activation, ResourceSpec{Data: *starlark.Function}).
+func TestProducerStamp_NewResource(t *testing.T) {
+	ctx := newTestCtx(t)
+	ctx.Catalog = op.NewResourceCatalog()
+	activation := testActivation(t, ctx)
+
+	starFn := compileFixture(t, `
+def stamp(x):
+    return x
+`, "stamp")
+
+	r, err := NewResource(activation, ResourceSpec{Namespace: "Stamper", Data: starFn})
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	if got := r.ProducerID(); got != activation.SiteID {
+		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	}
+}
+
 func TestNewFunction_ArchivesPackToRecoverySite(t *testing.T) {
 
 	ctx := newTestCtx(t)

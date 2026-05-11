@@ -176,6 +176,39 @@ func TestClone_OptionsReachHook(t *testing.T) {
 	}
 }
 
+// --- m.5 producer-stamp contract ---
+
+// TestProducerStamp_Clone verifies the m.5(iii) contract: a forward producer-method call results in a catalog entry
+// whose producerID matches the dispatch's activation SiteID. Clone is git's sole true producer (Checkout and Pull
+// mutate in place without changing the URI); the canary stamps the contract that the m.4-git reshape established —
+// NewResource(activation, directory) → Catalog.GetOrCreate stamps activation.SiteID.
+func TestProducerStamp_Clone(t *testing.T) {
+
+	p := newTestProvider(t, func(_ []string) error { return nil })
+
+	activation := &op.ActivationRecord{
+		Runtime: &op.RuntimeEnvironment{
+			Root:    op.NewRootReaderWriter("/"),
+			Catalog: op.NewResourceCatalog(),
+		},
+		SiteID: "test:" + t.Name(),
+	}
+
+	const dir = "/tmp/clone-dest"
+	result, _, err := p.Clone(
+		activation,
+		"https://example.com/repo.git", dir,
+		false, "", 0, "", false, false, "", false, false, nil,
+	)
+	if err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+
+	if got := result.ProducerID(); got != activation.SiteID {
+		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	}
+}
+
 // --- CompensateClone ---
 
 func TestCompensateClone(t *testing.T) {

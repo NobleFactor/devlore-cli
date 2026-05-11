@@ -137,6 +137,38 @@ func TestExtractTarGz(t *testing.T) {
 	}
 }
 
+// TestProducerStamp_Extract verifies the m.5(iii) contract for archive: Extract is a true producer (creates
+// new file URIs at the destination), and each produced *file.Resource is stamped with the activation's
+// SiteID via the file.NewResource(activation, ...) call inside Extract's loop.
+func TestProducerStamp_Extract(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "stamp.tar.gz")
+	createTarGz(t, archivePath, map[string]string{"a.txt": "alpha"})
+
+	prefix := filepath.Join(tmp, "out")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	activation := testActivation(t, p.RuntimeEnvironment())
+	products, _, err := p.Extract(activation, source, prefix)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	for _, product := range products {
+		if got := product.ProducerID(); got != activation.SiteID {
+			t.Errorf("producerID for %q = %q, want %q", product.URI(), got, activation.SiteID)
+		}
+	}
+}
+
 func TestExtractZip(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.zip")

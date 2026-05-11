@@ -54,6 +54,26 @@ func newRes(t *testing.T, ctx *op.RuntimeEnvironment, spec ResourceSpec) *Resour
 	return r
 }
 
+// --- m.5 producer-stamp contract ---
+
+// TestProducerStamp_NewResource verifies the m.5(iii) contract: a producer-style NewResource call results
+// in a catalog entry whose producerID matches the dispatch's activation SiteID. mem.Resources are produced
+// directly via NewResource(activation, ResourceSpec{...}) — there's no separate Provider with forward methods.
+func TestProducerStamp_NewResource(t *testing.T) {
+	ctx := newTestCtx(t)
+	ctx.Catalog = op.NewResourceCatalog()
+	activation := testActivation(t, ctx)
+
+	r, err := NewResource(activation, ResourceSpec{Namespace: "stamp", Name: "test"})
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	if got := r.ProducerID(); got != activation.SiteID {
+		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	}
+}
+
 // --- NewResource ---
 
 func TestNewResource_MetadataOnly(t *testing.T) {

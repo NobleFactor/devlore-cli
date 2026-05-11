@@ -22,19 +22,17 @@ import (
 // holders of the pointer see the updated fields. The ledger's append-only property refers to the sequence of
 // distinct resources, not to the mutability of their metadata.
 //
-// Three observable states, derived from an entry's producer and metadata:
+// Two observable states, derived from an entry's producer:
 //
-//   - Unresolved: producerID == "", metadata empty. A discovery entry created when the planner first sees a URI
-//     via [ResourceCatalog.Resolve]. The executor's preflight pass stats the target and populates metadata
-//     in place.
-//   - Pending: producerID != "", metadata empty. A shadow entry created when a node's Planned companion
-//     constructs the identity of a resource the node will produce. [ResourceCatalog.Transition] populates its
-//     metadata in place after the forward method runs.
-//   - Resolved: metadata populated. Reached by preflight (from Unresolved) or by [ResourceCatalog.Transition]
-//     (from Pending).
+//   - Discovery: producerID == "". The entry was registered without a production claim — by
+//     [ResourceCatalog.Discover], by a discovery-style provider call, or by reference handles in CLI tools.
+//     The catalog tracks the URI but no dispatch claims to have created it.
+//   - Production: producerID != "". The entry was created by [ResourceCatalog.GetOrCreate] from a producer
+//     dispatch context. The producerID is the dispatch's SiteID (typically the graph node ID) and is the
+//     answer to "who created this URI?" for downstream producer→consumer edge derivation.
 //
-// The catalog does not expose a [State] enum. States are a property of the underlying resource; the catalog
-// only tracks identity and lineage.
+// The catalog does not expose a [State] enum. States are a property of an entry's producerID being empty
+// or set; the catalog only tracks identity and lineage.
 type ResourceCatalog struct {
 	mu      sync.Mutex
 	entries []Resource        // append-only ledger
@@ -110,10 +108,10 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 // (which may further deduplicate if a competing call interned the same URI between the lookup and the
 // Link). A non-nil factory error short-circuits without touching the catalog.
 //
-// GetOrCreate is the wrong tool for forward-method outputs — those flow through the plan-time
-// [ResourceCatalog.Shadow] / post-dispatch [ResourceCatalog.Transition] path. Mixing the two write
-// paths corrupts producerID tracking. Use GetOrCreate for read-or-discover; let the executor handle
-// production.
+// GetOrCreate is the production-claim hook. Forward-method outputs flow through it via each provider's
+// `NewResource(activation, ...)` constructor. The producerID stamp on the entry is `activation.SiteID`,
+// which the executor sets to the dispatching graph node's ID (or to a synthesized label for non-graph
+// dispatch contexts like the starlark immediate-mode bridge or test fixtures).
 //
 // Parameters:
 //   - activation: the per-dispatch [ActivationRecord] for the producing dispatch. Must be non-nil with a non-empty
@@ -218,8 +216,8 @@ func (c *ResourceCatalog) Link(resource Resource) Resource {
 //
 // Write-write conflict detection: if the URI is already shadowed by a different non-empty producer, Shadow
 // returns an error. Two nodes targeting the same output URI collide immediately with a clear error. Discovery
-// entries (empty producer) are silently superseded. Re-shadowing with the same producer is permitted so the
-// executor's post-dispatch [ResourceCatalog.Transition] does not have to fight the conflict check.
+// entries (empty producer) are silently superseded. Re-shadowing with the same producer is permitted (idempotent
+// re-claims, e.g., a producer method called twice for the same target).
 //
 // Parameters:
 //   - r: the resource whose identity should be shadowed. URI must be set.
@@ -252,87 +250,6 @@ func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) 
 	}
 
 	return c.catalogLocked(r, producerID), nil
-}
-
-// Transition fills the metadata of a pending entry with the metadata from the resolved resource returned by a
-// forward method, in place.
-//
-// Called by the executor's post-dispatch pass after the forward method returns. The pending entry — created
-// at plan time by [ResourceCatalog.Shadow] via the Planned companion — is located by resolved's URI. The
-// producer must match: only the node that shadowed the URI may transition it. The catalog's identity fields
-// (`id`, `producerID`) on the pending entry are preserved; every other field is overwritten by a struct copy
-// from resolved via reflection.
-//
-// The mutation is in place: the interface value in the ledger and every outstanding pointer held by slots,
-// promises, and the planner all observe the resolved metadata immediately. No new ledger entry is appended.
-//
-// Parameters:
-//   - resolved: the fully-populated resource returned by the forward method. Its URI must match an existing
-//     pending entry, and its concrete type must match the pending entry's concrete type.
-//   - producerID: the node ID that claimed the URI at plan time. Must equal the pending entry's `producerID`.
-//
-// Returns:
-//   - error: non-nil if the URI is unknown, the entry has been removed, the producer does not match, or the
-//     concrete types differ.
-func (c *ResourceCatalog) Transition(resolved Resource, producerID string) error {
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if producerID == "" {
-		return fmt.Errorf("transition: producerID must not be empty")
-	}
-
-	uri := resolved.URI()
-
-	id, ok := c.ns[uri]
-	if !ok {
-		return fmt.Errorf("transition: no catalog entry for URI %q", uri)
-	}
-
-	idx, ok := c.byID[id]
-	if !ok {
-		return fmt.Errorf("transition: catalog id %q not in ledger", id)
-	}
-
-	existing := c.entries[idx]
-	existingBase := existing.resourceBase()
-
-	if existingBase.producerID == "" {
-		return fmt.Errorf("transition: entry %q for URI %q is a discovery, not a pending shadow", id, uri)
-	}
-
-	if existingBase.producerID != producerID {
-		return fmt.Errorf(
-			"transition: producer mismatch for URI %q: entry owned by %q, transition requested by %q",
-			uri, existingBase.producerID, producerID,
-		)
-	}
-
-	existingVal := reflect.ValueOf(existing)
-	resolvedVal := reflect.ValueOf(resolved)
-
-	if existingVal.Kind() != reflect.Ptr || resolvedVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("transition: resources must be pointers, got existing=%T resolved=%T", existing, resolved)
-	}
-
-	if existingVal.Type() != resolvedVal.Type() {
-		return fmt.Errorf("transition: type mismatch for URI %q: existing=%T resolved=%T", uri, existing, resolved)
-	}
-
-	// Preserve the catalog identity before the struct copy.
-	preservedBase := *existingBase
-
-	// In-place struct copy: mutates the concrete value behind the existing interface pointer. All outstanding
-	// holders of the pointer (slots, promises, planner references) see the populated metadata immediately.
-	existingVal.Elem().Set(resolvedVal.Elem())
-
-	// Restore the catalog identity. The resolved resource from the forward method may not have the catalog's
-	// id/producerID stamped (if it came from a fresh construction path); preserving them ensures that Lookup
-	// by id continues to work and that shadowing lineage is not erased.
-	*existingBase = preservedBase
-
-	return nil
 }
 
 // Lookup returns the resource with the given catalog ID, or false if no entry exists for that ID.

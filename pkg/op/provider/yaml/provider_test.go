@@ -6,7 +6,27 @@ package yaml
 import (
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
+
+// TestProducerStamp_Parse verifies the m.5(iii) contract: a forward producer-method call results in a
+// catalog entry whose producerID matches the dispatch's activation SiteID. Parse delegates to NewResource;
+// the catalog stamp comes from activation.SiteID via Catalog.GetOrCreate.
+func TestProducerStamp_Parse(t *testing.T) {
+	ctx := &op.RuntimeEnvironment{Catalog: op.NewResourceCatalog()}
+	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	activation := &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+
+	r, err := p.Parse(activation, "hello: world\n")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	if got := r.ProducerID(); got != activation.SiteID {
+		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	}
+}
 
 func TestEncode(t *testing.T) {
 	p := &Provider{}
