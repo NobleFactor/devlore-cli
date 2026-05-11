@@ -68,15 +68,14 @@ type ResourceBase struct {
 // [Defer] when a Resource's identity is not known until the producing node has executed.
 //
 // Parameters:
-//   - ctx: the execution context; embedded via ProviderBase.
-//   - specific: the scheme-specific identity payload. Must not contain '#', which is reserved as the fragment
-//     delimiter.
+//   - runtimeEnvironment: the execution context; embedded via ProviderBase.
+//   - specific: the scheme-specific identity payload. Must not contain '#', reserved as the fragment delimiter.
 //   - goType: the concrete Go type whose identity is placed in the fragment.
 //
 // Returns:
 //   - ResourceBase: the constructed base with uri, specific, and typeID all populated.
 //   - error: non-nil when specific contains '#' or goType has empty PkgPath and Name.
-func NewResourceBase(ctx *RuntimeEnvironment, specific string, goType reflect.Type) (ResourceBase, error) {
+func NewResourceBase(runtimeEnvironment *RuntimeEnvironment, specific string, goType reflect.Type) (ResourceBase, error) {
 
 	if strings.Contains(specific, "#") {
 		return ResourceBase{}, fmt.Errorf("op.NewResourceBase: specific %q contains '#', which is reserved as the fragment delimiter", specific)
@@ -93,7 +92,7 @@ func NewResourceBase(ctx *RuntimeEnvironment, specific string, goType reflect.Ty
 	}
 
 	return ResourceBase{
-		ProviderBase: NewProviderBase(ctx),
+		ProviderBase: NewProviderBase(runtimeEnvironment),
 		uri:          uri + "#" + typeID,
 		specific:     specific,
 		typeID:       typeID,
@@ -102,8 +101,8 @@ func NewResourceBase(ctx *RuntimeEnvironment, specific string, goType reflect.Ty
 
 // ExtractTagSpecific parses a canonical tag URI and returns its scheme-specific payload and fragment.
 //
-// Returns an error when s lacks the tag URI prefix, is missing the '#' delimiter, or has an empty fragment. An
-// empty specific is valid and denotes the deferred ("known-at-execution") form.
+// Returns an error when s lacks the tag URI prefix, is missing the '#' delimiter, or has an empty fragment. An empty
+// specific is valid and denotes the deferred ("known-at-execution") form.
 //
 // Parameters:
 //   - s: the URI to parse.
@@ -138,9 +137,9 @@ func ExtractTagSpecific(s string) (specific, typeID string, err error) {
 // Defer constructs a placeholder instance of *R with a deferred tag URI — empty <specific>, typeID set to *R's
 // canonical Go type id.
 //
-// Use at plan time when a Resource's identity is not known until the producing node has executed. The returned
-// value is a freshly allocated *R whose embedded [ResourceBase] has been seeded by [NewResourceBase] against the
-// deferred identity.
+// Use at plan time when a Resource's identity is not known until the producing node has executed. The returned value is
+// a freshly allocated *R whose embedded [ResourceBase] has been seeded by [NewResourceBase] against the deferred
+// identity.
 //
 // Type parameters:
 //   - R: the struct type of the Resource (e.g., yaml.Resource).
@@ -153,11 +152,11 @@ func ExtractTagSpecific(s string) (specific, typeID string, err error) {
 func Defer[R any, PR interface {
 	*R
 	Resource
-}](ctx *RuntimeEnvironment) PR {
+}](runtimeEnvironment *RuntimeEnvironment) PR {
 
 	v := PR(new(R))
 
-	base, err := NewResourceBase(ctx, "", reflect.TypeFor[PR]())
+	base, err := NewResourceBase(runtimeEnvironment, "", reflect.TypeFor[PR]())
 	if err != nil {
 		panic(fmt.Sprintf("op.Defer: %v", err))
 	}
@@ -167,8 +166,8 @@ func Defer[R any, PR interface {
 	return v
 }
 
-// typeIDOf returns the canonical Go type id for goType: PkgPath() + "." + Name(). Pointer types are normalized
-// to their element.
+// typeIDOf returns the canonical Go type id for goType: PkgPath() + "." + Name(). Pointer types are normalized to their
+// element.
 func typeIDOf(goType reflect.Type) string {
 
 	if goType.Kind() == reflect.Ptr {
@@ -183,14 +182,15 @@ func (b *ResourceBase) URI() string {
 	return b.uri
 }
 
-// ReachabilityURI returns the scheme-specific identity payload — the <specific> portion of the canonical tag
-// URI. Empty for resources constructed via [Defer] or otherwise in the deferred ("known-at-execution") form.
+// ReachabilityURI returns the scheme-specific identity payload — the <specific> portion of the canonical tag URI.
+//
+// Empty for resources constructed via [Defer] or otherwise in the deferred ("known-at-execution") form.
 func (b *ResourceBase) ReachabilityURI() string {
 	return b.specific
 }
 
-// ResourceType returns the canonical Go type id of the concrete Resource type — the fragment portion of the
-// canonical tag URI.
+// ResourceType returns the canonical Go type id of the concrete Resource type — the fragment portion of the canonical
+// tag URI.
 func (b *ResourceBase) ResourceType() string {
 	return b.typeID
 }
@@ -234,8 +234,8 @@ func (b *ResourceBase) CanConvertTo(target reflect.Type) bool {
 
 // ConvertTo projects this resource into the given target Go type.
 //
-// The baseline projection is URI → string, matching [ResourceBase.CanConvert]. Concrete Resource types that
-// recognize additional targets override [ResourceBase.Convert] and delegate to this method for the string case.
+// The baseline projection is URI → string, matching [ResourceBase.CanConvert]. Concrete Resource types that recognize
+// additional targets override [ResourceBase.Convert] and delegate to this method for the string case.
 //
 // Parameters:
 //   - target: the destination Go type the caller wants to project the resource into.
@@ -254,10 +254,9 @@ func (b *ResourceBase) ConvertTo(target reflect.Type) (any, error) {
 
 // Equal reports whether b and other identify the same resource.
 //
-// Equality is URI-based and loose with respect to the concrete Go type: any two values implementing [Resource]
-// whose URIs match are equal. A URI collision across concrete types (e.g., a file URI embedded in an
-// appnet.Resource) is treated as a caller-side construction error, not a case Equal needs to disambiguate — the
-// URI is the sole identity.
+// Equality is URI-based and loose with respect to the concrete Go type: any two values implementing [Resource] whose
+// URIs match are equal. A URI collision across concrete types (e.g., a file URI embedded in an appnet.Resource) is
+// treated as a caller-side construction error, not a case Equal needs to disambiguate — the URI is the sole identity.
 //
 // Contract (mirroring the [java.lang.Object.equals] properties):
 //   - Reflexive: b.Equal(b) returns true.
@@ -302,8 +301,8 @@ func (b *ResourceBase) MarshalJSON() ([]byte, error) {
 // MarshalText marshals the resource to its text wire form, which is the URI as raw UTF-8 bytes.
 //
 // The text form is consumed by stdlib encoders ([encoding/json] for map keys, [encoding/xml] for attributes), YAML
-// scalar emission via [yaml.v3], CLI flag ingestion via [flag.TextVar], and most env/config parsers. Round-trip
-// through [UnmarshalText] (implemented per concrete Resource type) reconstructs an equivalent resource.
+// scalar emission via [yaml.v3], CLI flag ingestion via [flag.TextVar], and most env/config parsers. Round-trip through
+// [UnmarshalText] (implemented per concrete Resource type) reconstructs an equivalent resource.
 //
 // Returns:
 //   - []byte: the URI as UTF-8 bytes.
@@ -315,8 +314,8 @@ func (b *ResourceBase) MarshalText() ([]byte, error) {
 // MarshalYAML marshals the resource for YAML encoding as a bare string scalar — the URI.
 //
 // Returning a plain string (rather than a struct) yields a clean YAML scalar in serialized form, avoiding the
-// nested-object shape that reflection-based YAML marshaling would produce. Concrete Resource types that need to
-// persist additional fields override [ResourceBase.MarshalYAML] with their own representation.
+// nested-object shape that reflection-based YAML marshaling would produce. Concrete Resource types that need to persist
+// additional fields override [ResourceBase.MarshalYAML] with their own representation.
 //
 // Returns:
 //   - any: the URI string.
@@ -325,8 +324,8 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 	return b.uri, nil
 }
 
-// Digest returns [ErrUnimplemented]. Concrete Resource types must override — content hashing is type-specific
-// (full file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
+// Digest returns [ErrUnimplemented]. Concrete Resource types must override — content hashing is type-specific (full
+// file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
 //
 // Returns:
 //   - Digest: the zero value.
@@ -335,12 +334,13 @@ func (b *ResourceBase) Digest() (Digest, error) {
 	return Digest{}, ErrUnimplemented
 }
 
-// Etag returns the URI as the cheap change-detection token. Suggestive of change but not authoritative; the
-// catalog computes [Resource.Digest] only when Etag mismatches stored.
+// Etag returns the URI as the cheap change-detection token.
 //
-// This default is correct for [AddressingContent] Resources by definition — same URI implies same content,
-// so the URI itself doubles as the etag at zero I/O cost. [AddressingLocation] subtypes override with a
-// stat-derived stamp (size + mtime + inode for files; HTTP ETag header for appnet).
+// Suggestive of change but not authoritative; the catalog computes [Resource.Digest] only when Etag mismatches stored.
+//
+// This default is correct for [AddressingContent] Resources by definition — same URI implies same content, so the URI
+// itself doubles as the etag at zero I/O cost. [AddressingLocation] subtypes override with a stat-derived stamp (size +
+// mtime + inode for files; HTTP ETag header for appnet).
 //
 // Returns:
 //   - string: the URI.
@@ -349,10 +349,9 @@ func (b *ResourceBase) Etag() (string, error) {
 	return b.uri, nil
 }
 
-// Addressing returns [AddressingUnknown] as a sentinel default. Every concrete Resource type must override
-// to return one of [AddressingLocation] or [AddressingContent]. The boot-discipline test in
-// pkg/op/addressing_test.go (added in 13.0(k) sub-step k.12) walks every announced Resource type and asserts
-// none returns AddressingUnknown.
+// Addressing returns [AddressingUnknown] as a sentinel default. Every concrete Resource type must override to return
+// one of [AddressingLocation] or [AddressingContent]. The boot-discipline test in pkg/op/addressing_test.go (added in
+// 13.0(k) sub-step k.12) walks every announced Resource type and asserts none returns AddressingUnknown.
 //
 // Returns:
 //   - AddressingMode: [AddressingUnknown].

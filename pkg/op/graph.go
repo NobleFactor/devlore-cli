@@ -86,14 +86,14 @@ type Graph struct {
 //
 // Parameters:
 //   - ctx: the execution context providing registry, root, platform, and other session state.
-func NewGraph(ctx *RuntimeEnvironment) *Graph {
+func NewGraph(runtimeEnvironment *RuntimeEnvironment) *Graph {
 
 	return &Graph{
 		Root:      NewSubgraph("root"),
 		Version:   GraphFormatVersion,
 		Timestamp: time.Now(),
 		State:     StatePending,
-		ctx:       ctx,
+		ctx:       runtimeEnvironment,
 	}
 }
 
@@ -207,8 +207,8 @@ func findSubgraph(children []SubgraphChild, id string) *Subgraph {
 //
 // Parameters:
 //   - ctx: the new execution context.
-func (g *Graph) Rebind(ctx *RuntimeEnvironment) {
-	g.ctx = ctx
+func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
+	g.ctx = runtimeEnvironment
 	for _, n := range g.Nodes() {
 		n.graph = g
 	}
@@ -237,11 +237,11 @@ func (g *Graph) Rebind(ctx *RuntimeEnvironment) {
 func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (any, error) {
 
 	if exec == nil {
-		return nil, fmt.Errorf("Execute: exec is nil")
+		return nil, fmt.Errorf("execute: exec is nil")
 	}
 
 	if g.ctx == nil {
-		return nil, fmt.Errorf("Execute: graph has no execution context; call Rebind first")
+		return nil, fmt.Errorf("execute: graph has no execution context; call Rebind first")
 	}
 
 	if g.ctx.Results == nil {
@@ -697,7 +697,6 @@ type Provenance struct {
 	TargetRoot string `json:"target_root,omitempty" yaml:"target_root,omitempty"`
 }
 
-
 // ActionExecutionSummary provides execution statistics for a set of actions.
 type ActionExecutionSummary interface {
 	json.Marshaler
@@ -806,10 +805,10 @@ func (s *graphExecutionSummary) ByAction() map[string]ActionExecutionSummary {
 
 // graphSummaryPayload is the serialization shape for [graphExecutionSummary].
 type graphSummaryPayload struct {
-	Completed int                          `json:"completed" yaml:"completed"`
-	Failed    int                          `json:"failed,omitempty" yaml:"failed,omitempty"`
-	Skipped   int                          `json:"skipped,omitempty" yaml:"skipped,omitempty"`
-	Total     int                          `json:"total" yaml:"total"`
+	Completed int                             `json:"completed" yaml:"completed"`
+	Failed    int                             `json:"failed,omitempty" yaml:"failed,omitempty"`
+	Skipped   int                             `json:"skipped,omitempty" yaml:"skipped,omitempty"`
+	Total     int                             `json:"total" yaml:"total"`
 	ByAction  map[string]actionSummaryPayload `json:"by_action,omitempty" yaml:"by_action,omitempty"`
 }
 
@@ -871,7 +870,6 @@ const (
 )
 
 // region HELPER FUNCTIONS
-
 
 // topologicalSortChildren orders children (nodes and subgraphs) respecting edge constraints (Kahn's algorithm).
 // Nodes and subgraphs are peers — both are vertices referenced by ChildID().

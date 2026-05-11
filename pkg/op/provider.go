@@ -26,8 +26,8 @@ type ProviderBase struct {
 }
 
 // NewProviderBase returns a new ProviderBase provider instance with the given [RuntimeEnvironment].
-func NewProviderBase(ctx *RuntimeEnvironment) ProviderBase {
-	return ProviderBase{ctx: ctx}
+func NewProviderBase(runtimeEnvironment *RuntimeEnvironment) ProviderBase {
+	return ProviderBase{ctx: runtimeEnvironment}
 }
 
 // RuntimeEnvironment returns the shared context associated with this provider's lifetime.

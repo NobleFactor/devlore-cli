@@ -21,14 +21,14 @@ type convertResource struct {
 func (r *convertResource) URI() string { return "test:" + r.Path }
 
 // newConvertResource matches the ResourceConstructor signature.
-func newConvertResource(ctx *RuntimeEnvironment, identity any) (Resource, error) {
+func newConvertResource(runtimeEnvironment *RuntimeEnvironment, identity any) (Resource, error) {
 
 	s, ok := identity.(string)
 	if !ok {
 		return nil, fmt.Errorf("expected string, got %T", identity)
 	}
 
-	base, err := NewResourceBase(ctx, "test:"+s, reflect.TypeFor[*convertResource]())
+	base, err := NewResourceBase(runtimeEnvironment, "test:"+s, reflect.TypeFor[*convertResource]())
 	if err != nil {
 		return nil, err
 	}

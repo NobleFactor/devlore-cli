@@ -30,53 +30,53 @@ func (r *HookRegistry) Register(hook LifecycleHook) {
 }
 
 // FireNodeStart notifies all hooks that a node is about to execute.
-func (r *HookRegistry) FireNodeStart(ctx *RuntimeEnvironment, nodeID string, slots map[string]any) {
+func (r *HookRegistry) FireNodeStart(runtimeEnvironment *RuntimeEnvironment, nodeID string, slots map[string]any) {
 	if r == nil {
 		return
 	}
 	for _, h := range r.hooks {
 		func() {
 			defer func() { _ = recover() }() //nolint:errcheck // intentional panic recovery
-			h.OnNodeStart(ctx, nodeID, slots)
+			h.OnNodeStart(runtimeEnvironment, nodeID, slots)
 		}()
 	}
 }
 
 // FireNodeComplete notifies all hooks that a node has finished.
-func (r *HookRegistry) FireNodeComplete(ctx *RuntimeEnvironment, nodeID string, result Result, err error) {
+func (r *HookRegistry) FireNodeComplete(runtimeEnvironment *RuntimeEnvironment, nodeID string, result Result, err error) {
 	if r == nil {
 		return
 	}
 	for _, h := range r.hooks {
 		func() {
 			defer func() { recover() }() //nolint:errcheck // intentional panic recovery
-			h.OnNodeComplete(ctx, nodeID, result, err)
+			h.OnNodeComplete(runtimeEnvironment, nodeID, result, err)
 		}()
 	}
 }
 
 // FireSubgraphStart notifies all hooks that a subgraph is about to execute.
-func (r *HookRegistry) FireSubgraphStart(ctx *RuntimeEnvironment, subgraphID string) {
+func (r *HookRegistry) FireSubgraphStart(runtimeEnvironment *RuntimeEnvironment, subgraphID string) {
 	if r == nil {
 		return
 	}
 	for _, h := range r.hooks {
 		func() {
 			defer func() { recover() }() //nolint:errcheck // intentional panic recovery
-			h.OnSubgraphStart(ctx, subgraphID)
+			h.OnSubgraphStart(runtimeEnvironment, subgraphID)
 		}()
 	}
 }
 
 // FireSubgraphComplete notifies all hooks that a subgraph has finished.
-func (r *HookRegistry) FireSubgraphComplete(ctx *RuntimeEnvironment, subgraphID string, err error) {
+func (r *HookRegistry) FireSubgraphComplete(runtimeEnvironment *RuntimeEnvironment, subgraphID string, err error) {
 	if r == nil {
 		return
 	}
 	for _, h := range r.hooks {
 		func() {
 			defer func() { recover() }() //nolint:errcheck // intentional panic recovery
-			h.OnSubgraphComplete(ctx, subgraphID, err)
+			h.OnSubgraphComplete(runtimeEnvironment, subgraphID, err)
 		}()
 	}
 }

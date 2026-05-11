@@ -36,8 +36,8 @@ type RecoverySite struct {
 // NewRecoverySite creates a RecoverySite with the given RuntimeEnvironment.
 //
 // The RuntimeEnvironment must have a non-nil Root.
-func NewRecoverySite(ctx *RuntimeEnvironment) *RecoverySite {
-	return &RecoverySite{ctx: ctx}
+func NewRecoverySite(runtimeEnvironment *RuntimeEnvironment) *RecoverySite {
+	return &RecoverySite{ctx: runtimeEnvironment}
 }
 
 // --- Published methods ---

@@ -54,7 +54,7 @@ func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (R
 	}
 
 	if runtimeEnvironment.DryRun {
-		dryRunLog(a.name, a.method, runtimeEnvironment, slots)
+		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
 		return nil, nil, nil
 	}
 
@@ -110,7 +110,7 @@ func (a *fallibleAction) Do(activationRecord *ActivationRecord, slots map[string
 	}
 
 	if runtimeEnvironment.DryRun {
-		dryRunLog(a.name, a.method, runtimeEnvironment, slots)
+		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
 		return nil, nil, nil
 	}
 
@@ -163,7 +163,7 @@ func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[str
 	}
 
 	if runtimeEnvironment.DryRun {
-		dryRunLog(a.name, a.method, runtimeEnvironment, slots)
+		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
 		return nil, nil, nil
 	}
 
@@ -237,15 +237,18 @@ func complementOrNil(v reflect.Value) Complement {
 }
 
 // dryRunLog writes dry-run output to the context status UI.
-func dryRunLog(name string, method *Method, ctx *RuntimeEnvironment, slots map[string]any) {
+func dryRunLog(runtimeEnvironment *RuntimeEnvironment, method *Method, name string, slots map[string]any) {
 
-	if ctx.Status == nil {
+	if runtimeEnvironment.Status == nil {
 		return
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "[dry-run] %s", name)
+
+	var builder strings.Builder
+	_, _ = fmt.Fprintf(&builder, "[dry-run] %s", name)
+
 	for _, p := range method.Parameters() {
-		fmt.Fprintf(&b, " %v", slots[p.Name])
+		_, _ = fmt.Fprintf(&builder, " %v", slots[p.Name])
 	}
-	ctx.Status.Note(b.String())
+
+	runtimeEnvironment.Status.Note(builder.String())
 }

@@ -440,7 +440,7 @@ func TestDo_NilArg_BecomesZeroValue(t *testing.T) {
 func TestNewProviderReceiverType(t *testing.T) {
 
 	pType := reflect.TypeFor[*testProvider]()
-	construct := func(ctx *RuntimeEnvironment) (any, error) { return &testProvider{}, nil }
+	construct := func(runtimeEnvironment *RuntimeEnvironment) (any, error) { return &testProvider{}, nil }
 
 	rt, err := NewProviderReceiverType(pType, construct, RoleAction, mustParseParameters(t, pType, map[string][]string{
 		"Echo": {"msg"},
@@ -469,7 +469,7 @@ func TestNewResourceReceiverType_Public(t *testing.T) {
 	type testLocalResource struct{ ResourceBase }
 	rType := reflect.TypeFor[*testLocalResource]()
 
-	construct := func(ctx *RuntimeEnvironment, identity any) (Resource, error) {
+	construct := func(runtimeEnvironment *RuntimeEnvironment, identity any) (Resource, error) {
 		return &testLocalResource{}, nil
 	}
 

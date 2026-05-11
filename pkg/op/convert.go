@@ -13,9 +13,9 @@ var resourceInterfaceType = reflect.TypeFor[Resource]()
 
 // Convert projects a Go value into the target type via the type-matching cascade.
 //
-// Convert is the single source of truth for Go↔Go projection in the framework. Every starlark-bridge entry
-// point (wrapper extraction, plan-mode slot fill, immediate-mode dispatch) and method-dispatch site
-// ([Method.Invoke]) routes through here so type-matching semantics stay in one place.
+// Convert is the single source of truth for Go↔Go projection in the framework. Every starlark-bridge entry point
+// (wrapper extraction, plan-mode slot fill, immediate-mode dispatch) and method-dispatch site ([Method.Invoke]) routes
+// through here so type-matching semantics stay in one place.
 //
 // The cascade:
 //
@@ -30,14 +30,14 @@ var resourceInterfaceType = reflect.TypeFor[Resource]()
 //  8. Error — no path through the cascade succeeds.
 //
 // Parameters:
-//   - ctx: the ambient [RuntimeEnvironment]. Used by step 7 to look up registered Resource constructors.
+//   - runtimeEnvironment: the ambient [RuntimeEnvironment]. Used by step 7 to look up registered Resource constructors.
 //   - value: the source value to project. nil yields the zero value of target.
 //   - target: the [reflect.Type] of the desired result.
 //
 // Returns:
 //   - any: the projected value, ready to assign to a target of type target.
 //   - error: non-nil if no path through the cascade succeeds.
-func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, error) {
+func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.Type) (any, error) {
 
 	// Step 0: nil → zero of target.
 
@@ -87,7 +87,7 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 		out := reflect.MakeSlice(target, n, n)
 
 		for i := range n {
-			converted, err := Convert(ctx, elem.Index(i).Interface(), target.Elem())
+			converted, err := Convert(runtimeEnvironment, elem.Index(i).Interface(), target.Elem())
 			if err != nil {
 				return nil, fmt.Errorf("slice index %d: %w", i, err)
 			}
@@ -108,12 +108,12 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 		iter := elem.MapRange()
 		for iter.Next() {
 
-			convertedKey, err := Convert(ctx, iter.Key().Interface(), target.Key())
+			convertedKey, err := Convert(runtimeEnvironment, iter.Key().Interface(), target.Key())
 			if err != nil {
 				return nil, fmt.Errorf("map key %v: %w", iter.Key().Interface(), err)
 			}
 
-			convertedValue, err := Convert(ctx, iter.Value().Interface(), target.Elem())
+			convertedValue, err := Convert(runtimeEnvironment, iter.Value().Interface(), target.Elem())
 			if err != nil {
 				return nil, fmt.Errorf("map value for %v: %w", iter.Key().Interface(), err)
 			}
@@ -149,16 +149,16 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 	// canonical tag URI from a path or scheme-prefixed string. The constructor's source-shape permissiveness lives
 	// inside it; Convert just routes the call.
 
-	if target.Implements(resourceInterfaceType) && ctx != nil && ctx.Registry != nil {
+	if target.Implements(resourceInterfaceType) && runtimeEnvironment != nil && runtimeEnvironment.Registry != nil {
 
 		// Resources are typically announced under the value type (file.Resource) but the parameter type is the pointer
 		// (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
-		rt, ok := ctx.Registry.TypeByReflection(target)
+		rt, ok := runtimeEnvironment.Registry.TypeByReflection(target)
 		if !ok && target.Kind() == reflect.Pointer {
-			rt, ok = ctx.Registry.TypeByReflection(target.Elem())
+			rt, ok = runtimeEnvironment.Registry.TypeByReflection(target.Elem())
 		}
 		if !ok && target.Kind() != reflect.Pointer {
-			rt, ok = ctx.Registry.TypeByReflection(reflect.PointerTo(target))
+			rt, ok = runtimeEnvironment.Registry.TypeByReflection(reflect.PointerTo(target))
 		}
 		if !ok {
 			return nil, fmt.Errorf("resource type %s not registered — must be announced via op.AnnounceResource", target)
@@ -169,7 +169,7 @@ func Convert(ctx *RuntimeEnvironment, value any, target reflect.Type) (any, erro
 			return nil, fmt.Errorf("type %s registered as %T, not as ResourceReceiverType", target, rt)
 		}
 
-		v, err := rrt.Construct()(ctx, value)
+		v, err := rrt.Construct()(runtimeEnvironment, value)
 		if err != nil {
 			return nil, fmt.Errorf("construct %s from %T: %w", target, value, err)
 		}
