@@ -30,11 +30,14 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 // Parameters:
 //   - url: network resource identifying the URL to fetch
 func (p *Provider) Download(url *Resource) (_ []byte, err error) {
+
 	rawURL := url.SourceURL.String()
+
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
@@ -49,5 +52,6 @@ func (p *Provider) Download(url *Resource) (_ []byte, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("download %s: read body: %w", rawURL, err)
 	}
+
 	return data, nil
 }
