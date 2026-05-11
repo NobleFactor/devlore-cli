@@ -154,9 +154,8 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string, wasRunning,
 		return fmt.Errorf("service.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
-	resource, err := ctx.Catalog.Discover(resourceURI, func() (op.Resource, error) {
-		return NewResource(ctx, strings.TrimPrefix(resourceURI, "svc:"))
-	})
+	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
+	resource, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, strings.TrimPrefix(resourceURI, "svc:"))
 	if err != nil {
 		return fmt.Errorf("service.Receipt: rehydrate resource %q: %w", resourceURI, err)
 	}

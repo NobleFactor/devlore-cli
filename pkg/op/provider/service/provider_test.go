@@ -107,9 +107,11 @@ func newTestProvider(sm *mockServiceManager) *Provider {
 	}
 }
 
+// res constructs a *Resource for a service name. Uses DiscoverResource because the test isn't claiming
+// production — service.Resource is a reference handle to an existing host service.
 func res(t *testing.T, name string) *Resource {
 	t.Helper()
-	r, err := NewResource(&op.RuntimeEnvironment{}, name)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: &op.RuntimeEnvironment{}}, name)
 	if err != nil {
 		t.Fatal(err)
 	}
