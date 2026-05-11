@@ -24,11 +24,21 @@ func resCtx(managerName string) *op.RuntimeEnvironment {
 	}
 }
 
+// testActivation returns an [op.ActivationRecord] suitable for production-claim test calls. SiteID is
+// derived from the test name; Runtime is the resCtx-built environment (carries Platform; Catalog is nil
+// so the unlinked candidate is returned).
+func testActivation(t *testing.T, managerName string) *op.ActivationRecord {
+	t.Helper()
+	return &op.ActivationRecord{
+		Runtime: resCtx(managerName),
+		SiteID:  "test:" + t.Name(),
+	}
+}
+
 // --- NewResource ---
 
 func TestNewResource(t *testing.T) {
-	ctx := resCtx("apt")
-	r, err := NewResource(ctx, "jq")
+	r, err := NewResource(testActivation(t, "apt"), "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -44,8 +54,7 @@ func TestNewResource(t *testing.T) {
 }
 
 func TestNewResource_WithPrefix(t *testing.T) {
-	ctx := resCtx("brew")
-	r, err := NewResource(ctx, "brew:jq")
+	r, err := NewResource(testActivation(t, "brew"), "brew:jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -60,8 +69,7 @@ func TestNewResource_WithPrefix(t *testing.T) {
 // --- URI ---
 
 func TestResourceURI(t *testing.T) {
-	ctx := resCtx("brew")
-	r, err := NewResource(ctx, "jq")
+	r, err := NewResource(testActivation(t, "brew"), "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}

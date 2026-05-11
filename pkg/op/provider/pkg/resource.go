@@ -12,20 +12,97 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
-// NewResource creates a pkg.Resource from a value.
+// NewResource constructs a pkg.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
+//
+// Use NewResource from a producer dispatch context — typically a provider method that has received an
+// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
+// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
+// claiming production (rehydration, reference handles, the framework's slot-coercion adapter).
+//
+// Today no pkg provider method actually claims production — Install / Remove / Upgrade all take an existing
+// `[]*Resource` and return the same pointers with their `Type` field updated to reflect which platform
+// manager handled them. URIs (purls) are unchanged. NewResource exists for symmetry with the m.4
+// two-constructor pattern and as a stable surface for any future pkg producer that creates a new purl.
 //
 // The value is a string package name with an optional manager prefix (e.g., "jq", "brew:jq", "port:wget",
-// "Microsoft.VisualStudioCode@1.89"). When no prefix is present, the platform's default package manager is used.
-// The manager's ParsePURL method formulates the purl identity from the package name.
+// "Microsoft.VisualStudioCode@1.89"). When no prefix is present, the platform's default package manager is
+// used. The manager's ParsePURL method formulates the purl identity from the package name.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - ctx: the execution context (must have Platform set).
-//   - value: expected to be a string package name.
+//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment (must
+//     have Platform set) and its `SiteID` becomes the catalog entry's producerID. Must be non-nil.
+//   - value: a string package name with an optional manager prefix.
 //
 // Returns:
-//   - *Resource: the initialized resource with a valid purl URI.
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - error: if value is not a string or the manager prefix is unknown.
-func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
+func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("pkg.NewResource: catalog entry for %q is %T, want *pkg.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// DiscoverResource constructs a pkg.Resource and registers it with [op.ResourceCatalog.Discover] without
+// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
+// supplies a string package name and the slot expects a *pkg.Resource), and by callers holding a reference
+// handle without claiming production (receipt rehydration is the canonical example).
+//
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime
+// is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("pkg.DiscoverResource: catalog entry for %q is %T, want *pkg.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// buildCandidate validates value, parses any manager prefix, and constructs a *Resource without touching
+// the catalog. Shared by [NewResource] and [DiscoverResource].
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	raw, ok := value.(string)
 
@@ -38,18 +115,18 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 	var mgr platform.PackageManager
 
 	if prefix, after, ok := strings.Cut(raw, ":"); ok {
-		mgr = ctx.Platform.PackageManagerByName(prefix)
+		mgr = runtimeEnvironment.Platform.PackageManagerByName(prefix)
 		if mgr == nil {
 			return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", prefix)
 		}
 		raw = after
 	} else {
-		mgr = ctx.Platform.DefaultPackageManager()
+		mgr = runtimeEnvironment.Platform.DefaultPackageManager()
 	}
 
 	purl := mgr.ParsePURL(raw)
 
-	base, err := op.NewResourceBase(ctx, purl.String(), reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, purl.String(), reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, err
 	}
@@ -60,31 +137,6 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 		Type:         purl.Type,
 		Version:      purl.Version,
 	}, nil
-}
-
-// DiscoverResource constructs a pkg.Resource and registers it with [op.ResourceCatalog.Discover] without
-// claiming production. Used by the framework's resource registry adapter for slot coercion. activationRecord
-// is required for signature symmetry with the production-claim path; only activationRecord.Runtime is consumed.
-// SiteID is unused (Discover doesn't stamp). Nil-Catalog tolerance returns the unlinked candidate.
-func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
-	candidate, err := NewResource(activationRecord.Runtime, value)
-	if err != nil {
-		return nil, err
-	}
-	if activationRecord.Runtime.Catalog == nil {
-		return candidate, nil
-	}
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
-		return candidate, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	canonical, ok := got.(*Resource)
-	if !ok {
-		return nil, fmt.Errorf("pkg.DiscoverResource: catalog entry for %q is %T, want *pkg.Resource", candidate.URI(), got)
-	}
-	return canonical, nil
 }
 
 // Resource represents a system package.
