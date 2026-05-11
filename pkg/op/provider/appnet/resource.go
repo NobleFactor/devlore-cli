@@ -36,20 +36,100 @@ type Resource struct {
 	SourceURL *url.URL `json:"-" yaml:"-"`
 }
 
-// NewResource constructs an appnet.Resource from a string URL.
+// NewResource constructs an appnet.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
 //
-// The URL is canonicalized (lowercase host, strip default port, normalize percent-encoding, strip trailing slash,
-// collapse double slashes, sort query parameters) while preserving the transport scheme. The canonicalized URL becomes
-// the Resource's URI; SourceURL is populated by reparsing it.
+// Use NewResource from a producer dispatch context — typically a provider method that has received an
+// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
+// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
+// claiming production (rehydration, reference handles, scanner-style discovery, the framework's slot-
+// coercion adapter).
+//
+// Today no appnet provider method actually claims production — Download returns []byte, not *Resource;
+// future fetchers (e.g., 13.0(k.10)'s Download → *stream.Resource) would produce a stream.Resource, not
+// an appnet.Resource. NewResource exists for symmetry with the m.4 two-constructor pattern and as a
+// stable surface for any future appnet producer.
+//
+// The URL is canonicalized (lowercase host, strip default port, normalize percent-encoding, strip trailing
+// slash, collapse double slashes, sort query parameters) while preserving the transport scheme. The
+// canonicalized URL becomes the Resource's URI; SourceURL is populated by reparsing it.
+//
+// Nil-Catalog tolerance mirrors [DiscoverResource]: when `activationRecord.Runtime.Catalog` is nil
+// (test fixtures, library callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
-//   - ctx:   execution context.
-//   - value: a string URL with a transport scheme (http, https, ftp, ssh, etc.).
+//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment and its
+//     `SiteID` becomes the catalog entry's producerID. Must be non-nil.
+//   - value: a string URL with a transport scheme.
 //
 // Returns:
-//   - *Resource: the constructed resource.
-//   - error:     if value is not a string, does not parse as a URL, or has no scheme.
-func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - error: if value is not a string, does not parse as a URL, or has no scheme.
+func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("appnet.NewResource: catalog entry for %q is %T, want *appnet.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// DiscoverResource constructs an appnet.Resource and registers it with [op.ResourceCatalog.Discover] without
+// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
+// supplies a string and the slot expects a *appnet.Resource), and by callers that hold a reference handle
+// without claiming to have produced the underlying URL endpoint (UnmarshalJSON/Text/YAML rehydration is
+// the canonical example).
+//
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime
+// is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+//
+// Nil-Catalog tolerance mirrors the receipt-rehydration paths.
+func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("appnet.DiscoverResource: catalog entry for %q is %T, want *appnet.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// buildCandidate validates value, canonicalizes the URL, and constructs a *Resource without touching the
+// catalog. Shared by [NewResource] and [DiscoverResource].
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	raw, ok := value.(string)
 	if !ok {
@@ -65,7 +145,7 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 		return nil, fmt.Errorf("appnet.Resource: URL missing transport scheme: %q", raw)
 	}
 
-	base, err := op.NewResourceBase(ctx, canonical.String(), reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, canonical.String(), reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, err
 	}
@@ -74,31 +154,6 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 		ResourceBase: base,
 		SourceURL:    canonical,
 	}, nil
-}
-
-// DiscoverResource constructs an appnet.Resource and registers it with [op.ResourceCatalog.Discover] without
-// claiming production. Used by the framework's resource registry adapter for slot coercion. activationRecord
-// is required for signature symmetry with the production-claim path; only activationRecord.Runtime is consumed.
-// SiteID is unused (Discover doesn't stamp). Nil-Catalog tolerance returns the unlinked candidate.
-func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
-	candidate, err := NewResource(activationRecord.Runtime, value)
-	if err != nil {
-		return nil, err
-	}
-	if activationRecord.Runtime.Catalog == nil {
-		return candidate, nil
-	}
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
-		return candidate, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	canonical, ok := got.(*Resource)
-	if !ok {
-		return nil, fmt.Errorf("appnet.DiscoverResource: catalog entry for %q is %T, want *appnet.Resource", candidate.URI(), got)
-	}
-	return canonical, nil
 }
 
 // region EXPORTED METHODS
@@ -185,7 +240,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), uri)
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
 	if err != nil {
 		return err
 	}
@@ -201,7 +256,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("appnet.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), string(text))
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
 	if err != nil {
 		return err
 	}
@@ -222,7 +277,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), uri)
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
 	if err != nil {
 		return err
 	}

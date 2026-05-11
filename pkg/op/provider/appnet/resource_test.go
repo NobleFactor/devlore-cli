@@ -12,22 +12,34 @@ import (
 
 // --- Test helpers ---
 
-// newRes constructs a *Resource for a URL string against a bare runtime environment.
+// testActivation returns a non-nil [op.ActivationRecord] suitable for production-claim test calls. SiteID is
+// derived from the test name; Runtime is empty (nil-Catalog tolerance returns the unlinked candidate).
+func testActivation(t *testing.T) *op.ActivationRecord {
+	t.Helper()
+	return &op.ActivationRecord{
+		Runtime: &op.RuntimeEnvironment{},
+		SiteID:  "test:" + t.Name(),
+	}
+}
+
+// newRes constructs a *Resource for a URL string. Uses DiscoverResource because the test isn't claiming
+// production — it's setting up a fixture handle.
 func newRes(t *testing.T, url string) *Resource {
 	t.Helper()
-	r, err := NewResource(&op.RuntimeEnvironment{}, url)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: &op.RuntimeEnvironment{}}, url)
 	if err != nil {
-		t.Fatalf("NewResource(%q): %v", url, err)
+		t.Fatalf("DiscoverResource(%q): %v", url, err)
 	}
 	return r
 }
 
-// mustParse constructs an op.Resource for raw or fails the test.
+// mustParse constructs an op.Resource for raw or fails the test. Uses DiscoverResource for the same reason
+// as [newRes].
 func mustParse(t *testing.T, raw string) op.Resource {
 	t.Helper()
-	r, err := NewResource(&op.RuntimeEnvironment{}, raw)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: &op.RuntimeEnvironment{}}, raw)
 	if err != nil {
-		t.Fatalf("NewResource(%q): %v", raw, err)
+		t.Fatalf("DiscoverResource(%q): %v", raw, err)
 	}
 	return r
 }
@@ -35,8 +47,6 @@ func mustParse(t *testing.T, raw string) op.Resource {
 // --- NewResource ---
 
 func TestNewResource(t *testing.T) {
-
-	ctx := &op.RuntimeEnvironment{}
 
 	tests := []struct {
 		name    string
@@ -55,7 +65,7 @@ func TestNewResource(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewResource(ctx, tt.raw)
+			got, err := NewResource(testActivation(t), tt.raw)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewResource() error = %v, wantErr %v", err, tt.wantErr)
 				return
