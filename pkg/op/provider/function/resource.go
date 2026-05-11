@@ -59,10 +59,14 @@ type Resource struct {
 	OriginalPos string   // "recipe.star:42" (diagnostics only)
 }
 
-// NewResource constructs a function.Resource by extracting and compiling a *starlark.Function.
+// NewResource constructs a function.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
 //
-// The value must be a [ResourceSpec] with Namespace encoding the Go func type and Data holding a *starlark.Function.
-// NewResource:
+// Use NewResource from a producer dispatch context — typically a provider method that has received an
+// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
+// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
+// claiming production (rehydration, reference handles, the framework's slot-coercion adapter).
+//
+// When identity is a [ResourceSpec] with non-nil Data (a *starlark.Function), NewResource:
 //
 //  1. Extracts metadata (parameter names, position, synthetic function name).
 //  2. Synthesizes a self-contained source file via [synthesize].
@@ -72,51 +76,107 @@ type Resource struct {
 //  6. Writes the pack to the Resource's URI-derived SourcePath via [op.Root.WriteFile].
 //  7. Caches the compiled bytes and compiler version on the Resource for in-memory fast-path Init.
 //
+// When identity is a string URI, NewResource rehydrates a metadata-only Resource (no archival).
+//
+// Side-effect ordering matches mem: the steps above run during construction (inside [buildCandidate]),
+// BEFORE the catalog's cache check. Same as today's m.3-cohort pattern — cache hit returns the existing
+// entry; the archival happened anyway and overwrote the same on-disk path with what is presumed equivalent
+// content (same URI → same source by function's reachability model).
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+//
 // Parameters:
-//   - ctx:   execution context; must have a valid Root.
-//   - identity: a [ResourceSpec] whose Data holds a *starlark.Function.
+//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment (must
+//     have a non-nil Root) and its `SiteID` becomes the catalog entry's producerID. Must be non-nil.
+//   - identity: a [ResourceSpec] whose Data holds a *starlark.Function, or a string URI for metadata-only
+//     rehydration.
 //
 // Returns:
-//   - *Resource: the fully-populated Resource.
-//   - error:     if the spec is malformed, source synthesis / compilation fails, or archival fails.
-func NewResource(ctx *op.RuntimeEnvironment, identity any) (*Resource, error) {
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - error: malformed spec, unsupported identity type, source synthesis / compilation failure, or
+//     filesystem write error.
+func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
 
-	switch v := identity.(type) {
-
-	case ResourceSpec:
-		return newFromSpec(ctx, v)
-
-	case string:
-		return newFromURI(ctx, v)
-
-	default:
-		return nil, fmt.Errorf("function.Resource: expected ResourceSpec or URI string, got %T", identity)
-	}
-}
-
-// DiscoverResource constructs a function.Resource and registers it with [op.ResourceCatalog.Discover] without
-// claiming production. Used by the framework's resource registry adapter for slot coercion. activationRecord
-// is required for signature symmetry with the production-claim path; only activationRecord.Runtime is consumed.
-// SiteID is unused (Discover doesn't stamp). Nil-Catalog tolerance returns the unlinked candidate.
-func DiscoverResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
-	candidate, err := NewResource(activationRecord.Runtime, identity)
+	candidate, err := buildCandidate(activationRecord.Runtime, identity)
 	if err != nil {
 		return nil, err
 	}
+
 	if activationRecord.Runtime.Catalog == nil {
 		return candidate, nil
 	}
+
+	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("function.NewResource: catalog entry for %q is %T, want *function.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// DiscoverResource constructs a function.Resource and registers it with [op.ResourceCatalog.Discover] without
+// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
+// supplies a string URI and the slot expects a *function.Resource), and by callers holding a reference handle
+// without claiming production.
+//
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime
+// is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+//
+// Same identity-shape semantics as [NewResource]: ResourceSpec creates from spec (with archival side
+// effects); string rehydrates metadata-only.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+func DiscoverResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, identity)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
 	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	canonical, ok := got.(*Resource)
 	if !ok {
 		return nil, fmt.Errorf("function.DiscoverResource: catalog entry for %q is %T, want *function.Resource", candidate.URI(), got)
 	}
+
 	return canonical, nil
+}
+
+// buildCandidate dispatches on identity's type to the appropriate construction path and returns a *Resource
+// without touching the catalog. Shared by [NewResource] and [DiscoverResource]. ResourceSpec values dispatch
+// to [newFromSpec] (which extracts, compiles, packs, and archives the *starlark.Function); string values
+// dispatch to [newFromURI] (metadata-only rehydration from a tag URI).
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, identity any) (*Resource, error) {
+
+	switch v := identity.(type) {
+
+	case ResourceSpec:
+		return newFromSpec(runtimeEnvironment, v)
+
+	case string:
+		return newFromURI(runtimeEnvironment, v)
+
+	default:
+		return nil, fmt.Errorf("function.Resource: expected ResourceSpec or URI string, got %T", identity)
+	}
 }
 
 // newFromSpec extracts metadata, synthesizes source, compiles to bytecode, and packs everything for archival.

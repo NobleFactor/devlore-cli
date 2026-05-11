@@ -33,6 +33,13 @@ func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 	return ctx
 }
 
+// testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. Sufficient for
+// production-claim test calls (non-nil + non-empty SiteID).
+func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
+	t.Helper()
+	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+}
+
 // compileFixture parses and executes `src` and returns the named starlark function from its globals.
 // Used to produce a *starlark.Function fixture for exercising NewResource end-to-end.
 func compileFixture(t *testing.T, src, name string) *starlark.Function {
@@ -82,7 +89,7 @@ def inc(x):
     return x + 1
 `, "inc")
 
-	f, err := NewResource(ctx, ResourceSpec{
+	f, err := NewResource(testActivation(t, ctx), ResourceSpec{
 		Namespace: "Incrementer",
 		Data:      starFn,
 	})
@@ -118,7 +125,7 @@ func TestNewFunction_WrongSpecType(t *testing.T) {
 
 	ctx := newTestCtx(t)
 
-	if _, err := NewResource(ctx, 42); err == nil {
+	if _, err := NewResource(testActivation(t, ctx), 42); err == nil {
 		t.Error("NewFunction(int) succeeded, want error")
 	}
 }
@@ -134,7 +141,7 @@ def double(x):
     return x * 2
 `, "double")
 
-	f, _ := NewResource(ctx, ResourceSpec{Namespace: "math", Data: starFn})
+	f, _ := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "math", Data: starFn})
 
 	// Bridge it: func(int) int
 	target := reflect.TypeFor[func(int) int]()
@@ -158,7 +165,7 @@ def greet(name):
     return "hello " + name
 `, "greet")
 
-	f, _ := NewResource(ctx, ResourceSpec{Namespace: "ui", Data: starFn})
+	f, _ := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "ui", Data: starFn})
 
 	// Wipe memory cache to force mmap fallback.
 	f.Compiled = nil
@@ -184,7 +191,7 @@ def identity(x):
     return x
 `, "identity")
 
-	f, _ := NewResource(ctx, ResourceSpec{Namespace: "core", Data: starFn})
+	f, _ := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "core", Data: starFn})
 
 	// Force version skew and wipe cache.
 	f.Compiled = nil
