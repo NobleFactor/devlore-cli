@@ -6,6 +6,7 @@ package json
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -84,31 +85,106 @@ func (r *Resource) Validate(schemaJSON string) (ValidationResult, error) {
 	return ValidationResult{Valid: true}, nil
 }
 
-// NewResource creates a json.Resource from a value.
+// NewResource constructs a json.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
+//
+// json.Resource is content-keyed — the URI is `json:<sha256-prefix>` derived from the raw bytes — so two
+// callers with the same input produce the same URI and share a single canonical entry. The first caller's
+// SiteID stamps producerID; subsequent same-content callers get the existing entry unchanged.
+//
+// Use NewResource from a producer dispatch context (typically [Provider.Parse]). The returned Resource is
+// the canonical catalog entry. Use [DiscoverResource] instead when the caller is not claiming production
+// (rehydration, the framework's slot-coercion adapter).
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - ctx: the execution context.
-//   - value: expected to be []byte (raw JSON data) or a pre-parsed Go value.
+//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment and its
+//     `SiteID` becomes the catalog entry's producerID. Must be non-nil.
+//   - value: raw JSON bytes ([]byte). Parsed during construction; an invalid JSON document errors here.
 //
 // Returns:
-//   - *Resource: the initialized resource.
-//   - error: if value is not a supported type.
-func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - error: if value is not []byte, the JSON does not parse, or [op.ResourceCatalog.GetOrCreate]'s strict
+//     assertions fail.
+func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	var data []byte
-	var parsed any
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
 
-	switch v := value.(type) {
-	case []byte:
-		data = v
-	default:
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("json.NewResource: catalog entry for %q is %T, want *json.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// DiscoverResource constructs a json.Resource and registers it with [op.ResourceCatalog.Discover] without
+// claiming production. Used by the framework's resource registry adapter for slot coercion. activationRecord
+// is required for signature symmetry with [NewResource], but only activationRecord.Runtime is consumed.
+// SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an [op.ActivationRecord]
+// with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("json.DiscoverResource: catalog entry for %q is %T, want *json.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// buildCandidate validates value as []byte, parses the JSON, computes the SHA-256, and constructs a
+// *Resource without touching the catalog. Shared by [NewResource] and [DiscoverResource]. The parse
+// happens during construction — every json.Resource carries a valid parsed Go value (`r.parsed`); an
+// invalid JSON document errors here rather than producing a half-initialized Resource.
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+
+	data, ok := value.([]byte)
+	if !ok {
 		return nil, fmt.Errorf("json.Resource: expected []byte, got %T", value)
+	}
+
+	var parsed any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, fmt.Errorf("json parse: %w", err)
 	}
 
 	h := sha256.Sum256(data)
 	hash := hex.EncodeToString(h[:])
 
-	base, err := op.NewResourceBase(ctx, SchemeJSON+":"+hash[:12], reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, SchemeJSON+":"+hash[:12], reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, err
 	}
@@ -119,31 +195,6 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 		Hash:         hash,
 		parsed:       parsed,
 	}, nil
-}
-
-// DiscoverResource constructs a json.Resource and registers it with [op.ResourceCatalog.Discover] without
-// claiming production. Used by the framework's resource registry adapter for slot coercion. activationRecord
-// is required for signature symmetry with the production-claim path; only activationRecord.Runtime is consumed.
-// SiteID is unused (Discover doesn't stamp). Nil-Catalog tolerance returns the unlinked candidate.
-func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
-	candidate, err := NewResource(activationRecord.Runtime, value)
-	if err != nil {
-		return nil, err
-	}
-	if activationRecord.Runtime.Catalog == nil {
-		return candidate, nil
-	}
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
-		return candidate, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	canonical, ok := got.(*Resource)
-	if !ok {
-		return nil, fmt.Errorf("json.DiscoverResource: catalog entry for %q is %T, want *json.Resource", candidate.URI(), got)
-	}
-	return canonical, nil
 }
 
 // ValidationResult holds the outcome of a JSON Schema validation.
