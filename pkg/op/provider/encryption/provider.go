@@ -36,7 +36,11 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 //   - error: any error from reading, decrypting, or writing.
 func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string) (*file.Resource, *Receipt, error) {
 
-	result, err := file.NewResource(p.RuntimeEnvironment(), destinationPath)
+	// encryption.DecryptSopsFile hasn't yet been migrated to take *op.ActivationRecord (future m.x). It uses
+	// file.DiscoverResource so the destination is cataloged without a producer stamp. When encryption gains
+	// its activation parameter, this should switch to file.NewResource(activationRecord, destinationPath) to
+	// claim production.
+	result, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, destinationPath)
 
 	if err != nil {
 		return nil, nil, err

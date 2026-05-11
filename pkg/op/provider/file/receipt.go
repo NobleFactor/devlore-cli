@@ -313,9 +313,8 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 		return fmt.Errorf("file.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
-	resource, err := ctx.Catalog.Discover(resourceURI, func() (op.Resource, error) {
-		return NewResource(ctx, resourceURI)
-	})
+	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
+	resource, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, resourceURI)
 	if err != nil {
 		return fmt.Errorf("file.Receipt: rehydrate resource %q: %w", resourceURI, err)
 	}
@@ -336,16 +335,9 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	if boundaryURI != "" {
 
-		boundary, err := ctx.Catalog.Discover(boundaryURI, func() (op.Resource, error) {
-			return NewResource(ctx, boundaryURI)
-		})
+		boundaryConcrete, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, boundaryURI)
 		if err != nil {
 			return fmt.Errorf("file.Receipt: rehydrate boundary %q: %w", boundaryURI, err)
-		}
-
-		boundaryConcrete, ok := boundary.(*Resource)
-		if !ok {
-			return fmt.Errorf("file.Receipt: boundary catalog entry for %q is %T, want *file.Resource", boundaryURI, boundary)
 		}
 
 		r.boundary = boundaryConcrete
@@ -353,16 +345,9 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	if sourceURI != "" {
 
-		source, err := ctx.Catalog.Discover(sourceURI, func() (op.Resource, error) {
-			return NewResource(ctx, sourceURI)
-		})
+		sourceConcrete, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, sourceURI)
 		if err != nil {
 			return fmt.Errorf("file.Receipt: rehydrate source %q: %w", sourceURI, err)
-		}
-
-		sourceConcrete, ok := source.(*Resource)
-		if !ok {
-			return fmt.Errorf("file.Receipt: source catalog entry for %q is %T, want *file.Resource", sourceURI, source)
 		}
 
 		r.source = sourceConcrete

@@ -32,16 +32,96 @@ type Resource struct {
 	ModTime    time.Time
 }
 
-// NewResource constructs a file.Resource from a string path.
+// NewResource constructs a file.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
+//
+// Use NewResource from a producer dispatch context — typically a provider method that has received an
+// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
+// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
+// claiming production (rehydration, reference handles, scanner-style discovery, the framework's slot-
+// coercion adapter).
+//
+// File internals that need a *Resource without interning (prepareWrite for the backup, helper construction
+// in `closestExistingDir` and `resources`, etc.) call the private [buildCandidate] directly.
+//
+// Nil-Catalog tolerance mirrors [DiscoverResource]: when `activationRecord.Runtime.Catalog` is nil
+// (test fixtures, library callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
-//   - ctx: execution context.
-//   - value: a string file path.
+//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment and its
+//     `SiteID` becomes the catalog entry's producerID. Must be non-nil.
+//   - value: a string file path or file URI.
 //
 // Returns:
-//   - Resource: initialized with the given path.
-//   - error: if value is not a string.
-func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - error: if value is not a string, or the input violates RFC 8089 when in file URI form, or
+//     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
+func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("file.NewResource: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// DiscoverResource constructs a file.Resource and registers it with [op.ResourceCatalog.Discover] without
+// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
+// supplies a string and the slot expects a *file.Resource), and by callers that hold a reference handle
+// without claiming to have produced the underlying file (UnmarshalJSON/Text/YAML rehydration, WalkTree's
+// per-entry construction, scanner-style preflight passes).
+//
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime
+// is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if activationRecord.Runtime.Catalog == nil {
+		return candidate, nil
+	}
+
+	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("file.DiscoverResource: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// buildCandidate validates value, parses any file URI per RFC 8089, and constructs a *Resource without
+// touching the catalog. Shared by [NewResource], [DiscoverResource], and internal helpers that need a
+// *Resource without interning (e.g., prepareWrite when backing up an existing target before overwrite).
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	path, ok := value.(string)
 	if !ok {
@@ -82,9 +162,9 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 		path = parsed.Path
 	}
 
-	sourcePath := ctx.Root.NewPath(path)
+	sourcePath := runtimeEnvironment.Root.NewPath(path)
 
-	base, err := op.NewResourceBase(ctx, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, err
 	}
@@ -93,39 +173,6 @@ func NewResource(ctx *op.RuntimeEnvironment, value any) (*Resource, error) {
 		ResourceBase: base,
 		SourcePath:   sourcePath,
 	}, nil
-}
-
-// DiscoverResource constructs a file.Resource and registers it with [op.ResourceCatalog.Discover] without
-// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
-// supplies a string and the slot expects a *file.Resource), and by callers that hold a reference handle
-// without claiming to have produced the underlying file.
-//
-// activationRecord is required for signature symmetry with the production-claim path; only
-// activationRecord.Runtime is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers
-// commonly synthesize an [op.ActivationRecord] with empty SiteID and only Runtime set:
-// `&op.ActivationRecord{Runtime: ctx}`.
-//
-// Nil-Catalog tolerance mirrors the receipt-rehydration paths: when activationRecord.Runtime.Catalog is nil,
-// the candidate is returned unlinked.
-func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
-	candidate, err := NewResource(activationRecord.Runtime, value)
-	if err != nil {
-		return nil, err
-	}
-	if activationRecord.Runtime.Catalog == nil {
-		return candidate, nil
-	}
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
-		return candidate, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	canonical, ok := got.(*Resource)
-	if !ok {
-		return nil, fmt.Errorf("file.DiscoverResource: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
-	}
-	return canonical, nil
 }
 
 // region EXPORTED METHODS
@@ -322,7 +369,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), uri)
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
 	if err != nil {
 		return err
 	}
@@ -347,7 +394,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("file.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), string(text))
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
 	if err != nil {
 		return err
 	}
@@ -378,7 +425,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := NewResource(r.RuntimeEnvironment(), uri)
+	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
 	if err != nil {
 		return err
 	}

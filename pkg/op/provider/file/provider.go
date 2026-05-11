@@ -94,7 +94,7 @@ func (p *Provider) CompensateBackup(receipt *Receipt) error {
 // +devlore:defaults chmod={{ umask 0o755 }}, chown=""
 func (p *Provider) Copy(activationRecord *op.ActivationRecord, source *Resource, destinationPath string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
+	product, err = NewResource(activationRecord, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -132,7 +132,7 @@ func (p *Provider) Copy(activationRecord *op.ActivationRecord, source *Resource,
 		return product, receipt, err
 	}
 
-	return p.catalogProduct(activationRecord, product, receipt)
+	return product, receipt, nil
 }
 
 // CompensateCopy undoes a Copy by restoring the original file from recovery.
@@ -143,7 +143,7 @@ func (p *Provider) CompensateCopy(receipt *Receipt) error {
 // Link creates a symbolic link at targetPath pointing to source.
 func (p *Provider) Link(activationRecord *op.ActivationRecord, source *Resource, targetPath string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), targetPath)
+	product, err = NewResource(activationRecord, targetPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -195,7 +195,7 @@ func (p *Provider) Link(activationRecord *op.ActivationRecord, source *Resource,
 		return nil, receipt, err
 	}
 
-	return p.catalogProduct(activationRecord, product, receipt)
+	return product, receipt, nil
 }
 
 // CompensateLink undoes a Link by removing the symlink and restoring whatever was there before.
@@ -213,7 +213,7 @@ func (p *Provider) CompensateLink(receipt *Receipt) error {
 // +devlore:defaults chmod={{ umask 0o777 }}, chown=""
 func (p *Provider) Mkdir(activationRecord *op.ActivationRecord, path string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), path)
+	product, err = NewResource(activationRecord, path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -246,7 +246,7 @@ func (p *Provider) Mkdir(activationRecord *op.ActivationRecord, path string, chm
 		return nil, receipt, err
 	}
 
-	return p.catalogProduct(activationRecord, product, receipt)
+	return product, receipt, nil
 }
 
 // CompensateMkdir undoes a [Provider.Mkdir] by walking up from the receipt's resource and removing each entry
@@ -303,7 +303,7 @@ func (p *Provider) CompensateMkdir(receipt *Receipt) (err error) {
 // Move moves a file from source to destinationPath.
 func (p *Provider) Move(activationRecord *op.ActivationRecord, source *Resource, destinationPath string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
+	product, err = NewResource(activationRecord, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -333,7 +333,7 @@ func (p *Provider) Move(activationRecord *op.ActivationRecord, source *Resource,
 		return nil, receipt, err
 	}
 
-	return p.catalogProduct(activationRecord, product, receipt)
+	return product, receipt, nil
 }
 
 // CompensateMove undoes a Move by moving the file from destination back to source and restoring the old destination.
@@ -545,21 +545,11 @@ func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (pr
 		}
 
 		runtimeEnvironment := p.RuntimeEnvironment()
-		candidate, err := NewResource(runtimeEnvironment, entryAbs)
+		// WalkTree is discovery — found files pre-existed; no production claim. DiscoverResource handles
+		// construction + Catalog.Discover internally.
+		resource, err := DiscoverResource(&op.ActivationRecord{Runtime: runtimeEnvironment}, entryAbs)
 		if err != nil {
 			return err
-		}
-
-		got, err := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
-			return candidate, nil
-		})
-		if err != nil {
-			return err
-		}
-
-		resource, ok := got.(*Resource)
-		if !ok {
-			return fmt.Errorf("walk tree: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
 		}
 
 		if err = resource.Resolve(); err != nil {
@@ -593,7 +583,7 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 // +devlore:defaults chmod={{ umask 0o666 }}, chown=""
 func (p *Provider) WriteBytes(activationRecord *op.ActivationRecord, destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
+	product, err = NewResource(activationRecord, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -603,7 +593,7 @@ func (p *Provider) WriteBytes(activationRecord *op.ActivationRecord, destination
 		return product, receipt, err
 	}
 
-	return p.catalogProduct(activationRecord, product, receipt)
+	return product, receipt, nil
 }
 
 // CompensateWriteBytes undoes a WriteBytes by restoring the original file.
@@ -619,7 +609,7 @@ func (p *Provider) CompensateWriteBytes(receipt *Receipt) error {
 // +devlore:defaults chmod={{ umask 0o666 }}, chown=""
 func (p *Provider) WriteText(activationRecord *op.ActivationRecord, destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), destinationPath)
+	product, err = NewResource(activationRecord, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -629,7 +619,7 @@ func (p *Provider) WriteText(activationRecord *op.ActivationRecord, destinationP
 		return product, receipt, err
 	}
 
-	return p.catalogProduct(activationRecord, product, receipt)
+	return product, receipt, nil
 }
 
 // CompensateWriteText undoes a WriteText by restoring the original file.
@@ -864,26 +854,6 @@ func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, rel
 	return nil
 }
 
-// catalogProduct interns a freshly-produced Resource into the catalog with the producer stamp from the
-// activation, returning the canonical catalog entry alongside the provided receipt. The activation must be
-// non-nil with a non-empty SiteID — [op.ResourceCatalog.GetOrCreate]'s strict contract enforces this.
-func (p *Provider) catalogProduct(activationRecord *op.ActivationRecord, product *Resource, receipt *Receipt) (*Resource, *Receipt, error) {
-
-	got, err := p.RuntimeEnvironment().Catalog.GetOrCreate(activationRecord, product.URI(), func() (op.Resource, error) {
-		return product, nil
-	})
-	if err != nil {
-		return product, receipt, err
-	}
-
-	canonical, ok := got.(*Resource)
-	if !ok {
-		return nil, nil, fmt.Errorf("catalog product: catalog entry for %q is %T, want *file.Resource", product.URI(), got)
-	}
-
-	return canonical, receipt, nil
-}
-
 func (p *Provider) compensateWrite(receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
@@ -995,19 +965,11 @@ func (p *Provider) closestExistingDir(path string) (ancestor *Resource, info os.
 
 	for {
 		if info, err = p.stat(current); err == nil {
-			candidate, buildErr := NewResource(runtimeEnvironment, current)
-			if buildErr != nil {
-				return nil, nil, buildErr
-			}
-			got, getErr := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
-				return candidate, nil
-			})
-			if getErr != nil {
-				return nil, nil, getErr
-			}
-			a, ok := got.(*Resource)
-			if !ok {
-				return nil, nil, fmt.Errorf("closest existing dir: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+			// closestExistingDir is discovery — walking up the parent chain to find an existing directory.
+			// DiscoverResource handles construction + Catalog.Discover internally.
+			a, derr := DiscoverResource(&op.ActivationRecord{Runtime: runtimeEnvironment}, current)
+			if derr != nil {
+				return nil, nil, derr
 			}
 			return a, info, nil
 		}
@@ -1046,10 +1008,12 @@ func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, e
 	return root.OpenFile(root.NewPath(abs), flag, perm)
 }
 
-// prepareWrite handles pre-write backup.
+// prepareWrite handles pre-write backup. Uses [buildCandidate] (not NewResource or DiscoverResource) because
+// the producer caller has already interned the same URI; this helper just needs a fresh handle for resolving
+// stat metadata.
 func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt *Receipt, err error) {
 
-	if product, err = NewResource(p.RuntimeEnvironment(), resource.SourcePath.Abs()); err != nil {
+	if product, err = buildCandidate(p.RuntimeEnvironment(), resource.SourcePath.Abs()); err != nil {
 		return nil, nil, err
 	}
 
@@ -1133,21 +1097,11 @@ func (p *Provider) resources(paths []string) (product []*Resource, err error) {
 	resources := make([]*Resource, len(paths))
 
 	for i, path := range paths {
-		var candidate *Resource
-		candidate, err = NewResource(runtimeEnvironment, path)
-		if err != nil {
-			return nil, err
-		}
-		var got op.Resource
-		got, err = runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
-			return candidate, nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		concrete, ok := got.(*Resource)
-		if !ok {
-			return nil, fmt.Errorf("resources: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+		// resources is discovery — build catalog handles for caller-supplied paths without claiming
+		// production. DiscoverResource handles construction + Catalog.Discover internally.
+		concrete, derr := DiscoverResource(&op.ActivationRecord{Runtime: runtimeEnvironment}, path)
+		if derr != nil {
+			return nil, derr
 		}
 		resources[i] = concrete
 	}

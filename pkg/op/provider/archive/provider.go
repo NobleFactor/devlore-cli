@@ -92,7 +92,9 @@ func (p *Provider) Extract(activationRecord *op.ActivationRecord, source *file.R
 
 	runtimeEnvironment := p.RuntimeEnvironment()
 
-	destination, err := file.NewResource(runtimeEnvironment, prefixPath)
+	// destination is discovery — the prefix directory must already exist (we error below if not), so
+	// archive isn't producing it. DiscoverResource registers without claiming production.
+	destination, err := file.DiscoverResource(activationRecord, prefixPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -130,21 +132,11 @@ func (p *Provider) Extract(activationRecord *op.ActivationRecord, source *file.R
 
 	for _, entry := range entries {
 
-		candidate, err := file.NewResource(runtimeEnvironment, entry.Path)
+		// archive is producing each extracted file. file.NewResource(activation, ...) interns + stamps
+		// in one call — replaces the earlier NewResource + Catalog.GetOrCreate pattern.
+		product, err := file.NewResource(activationRecord, entry.Path)
 		if err != nil {
-			return products, receipts, fmt.Errorf("archive: rehydrate %q: %w", entry.Path, err)
-		}
-
-		got, err := runtimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
-			return candidate, nil
-		})
-		if err != nil {
-			return products, receipts, fmt.Errorf("archive: catalog %q: %w", candidate.URI(), err)
-		}
-
-		product, ok := got.(*file.Resource)
-		if !ok {
-			return products, receipts, fmt.Errorf("archive: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+			return products, receipts, fmt.Errorf("archive: catalog %q: %w", entry.Path, err)
 		}
 
 		if err := product.Resolve(); err != nil {

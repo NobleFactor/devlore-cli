@@ -31,7 +31,7 @@ func TestResource_Addressing_IsLocation(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), filepath.Join(tmp, "anything.txt"))
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, filepath.Join(tmp, "anything.txt"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestResource_Digest_MatchesContent(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), path)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, path)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestResource_Digest_StableAcrossCalls(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), path)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, path)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -119,11 +119,11 @@ func TestResource_Digest_DiffersAcrossContent(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	rA, err := NewResource(p.RuntimeEnvironment(), pathA)
+	rA, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, pathA)
 	if err != nil {
 		t.Fatalf("NewResource(A): %v", err)
 	}
-	rB, err := NewResource(p.RuntimeEnvironment(), pathB)
+	rB, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, pathB)
 	if err != nil {
 		t.Fatalf("NewResource(B): %v", err)
 	}
@@ -153,7 +153,7 @@ func TestResource_Digest_DirectoryReturnsErrUnimplemented(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), dirPath)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, dirPath)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestResource_Digest_FileMissing(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), filepath.Join(tmp, "missing.txt"))
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, filepath.Join(tmp, "missing.txt"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestResource_Etag_StableAcrossCalls(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), path)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, path)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestResource_Etag_ChangesOnTouch(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), path)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, path)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestResource_Etag_FileMissing(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), filepath.Join(tmp, "missing.txt"))
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, filepath.Join(tmp, "missing.txt"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestResource_Etag_FreshNotCached(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	r, err := NewResource(p.RuntimeEnvironment(), path)
+	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, path)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
