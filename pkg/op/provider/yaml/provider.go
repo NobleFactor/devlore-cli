@@ -49,41 +49,9 @@ func (p *Provider) Decode(data string) (any, error) {
 //
 // Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource whose
 // internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go round-trips.
+// Parse is content-keyed — two calls with the same input produce the same URI and share a single canonical
+// catalog entry. The first caller's SiteID stamps producerID; subsequent same-content callers get the
+// existing entry unchanged. [NewResource] handles the parse, hash, and catalog interning in one step.
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
-
-	raw := []byte(data)
-
-	var parsed any
-
-	if err := yaml.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("yaml parse: %w", err)
-	}
-
-	runtimeEnvironment := p.RuntimeEnvironment()
-
-	candidate, err := NewResource(runtimeEnvironment, raw)
-
-	if err != nil {
-		return nil, err
-	}
-
-	candidate.parsed = parsed
-
-	// Parse is content-keyed — two calls with the same input produce the same URI. Route through the catalog so
-	// they share a single canonical *Resource (and thus a single parsed value) per RuntimeEnvironment. The first
-	// caller's SiteID stamps producerID; subsequent same-URI callers get the existing entry unchanged.
-	got, err := runtimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
-		return candidate, nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	r, ok := got.(*Resource)
-	if !ok {
-		return nil, fmt.Errorf("yaml.Parse: catalog entry for %q is %T, want *yaml.Resource", candidate.URI(), got)
-	}
-
-	return r, nil
+	return NewResource(activationRecord, []byte(data))
 }
