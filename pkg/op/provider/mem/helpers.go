@@ -6,7 +6,6 @@ package mem
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -21,13 +20,13 @@ import (
 
 // buildCandidate returns an unlinked *Resource for value.
 //
-// [ResourceSpec] values are dispatched to [newFromSpec]. String URI values are dispatched to [newFromURI]. [io.Reader]
-// values are dispatched to [newFromReader] for content-addressed archival. Resource catalog interaction is the caller's
-// concern, not this function's. See [NewResource] and [DiscoverResource].
+// []byte values are dispatched to [newFromBytes]. [io.Reader] values are dispatched to [newFromReader]. String URI
+// values are dispatched to [newFromURI]. Resource catalog interaction is the caller's concern, not this function's.
+// See [NewResource] and [DiscoverResource].
 //
 // Parameters:
 //   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
-//   - value: a [ResourceSpec], a canonical tag URI string, or an [io.Reader]; any other type is an error.
+//   - value: []byte, an [io.Reader], or a canonical tag URI string; any other type is an error.
 //
 // Returns:
 //   - *Resource: unlinked candidate.
@@ -36,18 +35,57 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 
 	switch v := value.(type) {
 
-	case ResourceSpec:
-		return newFromSpec(runtimeEnvironment, v)
-
-	case string:
-		return newFromURI(runtimeEnvironment, v)
+	case []byte:
+		return newFromBytes(runtimeEnvironment, v)
 
 	case io.Reader:
 		return newFromReader(runtimeEnvironment, v)
 
+	case string:
+		return newFromURI(runtimeEnvironment, v)
+
 	default:
-		return nil, fmt.Errorf("mem.Resource: expected ResourceSpec, URI string, or io.Reader, got %T", value)
+		return nil, fmt.Errorf("mem.Resource: expected []byte, io.Reader, or URI string, got %T", value)
 	}
+}
+
+// newFromBytes archives data to the canonical CAS path and returns the resulting *Resource.
+//
+// Hashes data in memory with SHA-256, derives the CAS URI specific (`sha256:<hex>`), builds the canonical SourcePath
+// from that identity, and writes data directly to it. No staging step is needed because the size is known up front
+// — the canonical path is computed before the write.
+//
+// Parameters:
+//   - runtimeEnvironment: supplies [op.Root] for the canonical path. Must have a non-nil Root.
+//   - data: payload bytes; may be empty.
+//
+// Returns:
+//   - *Resource: candidate with Hash populated and content archived at the canonical CAS path.
+//   - error: identity construction failure, parent directory creation failure, or write failure.
+func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Resource, error) {
+
+	sum := sha256.Sum256(data)
+	hexDigest := hex.EncodeToString(sum[:])
+
+	base, err := op.NewResourceBase(runtimeEnvironment, "sha256:"+hexDigest, reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: %w", err)
+	}
+
+	r := &Resource{ResourceBase: base, Hash: hexDigest}
+
+	root := runtimeEnvironment.Root
+	canonical := r.SourcePath()
+
+	if err := root.MkdirAll(root.NewPath(filepath.Dir(canonical.Rel())), 0o700); err != nil {
+		return nil, fmt.Errorf("mem.Resource: create canonical dir: %w", err)
+	}
+
+	if err := root.WriteFile(canonical, data, 0o600); err != nil {
+		return nil, fmt.Errorf("mem.Resource: write content: %w", err)
+	}
+
+	return r, nil
 }
 
 // newFromReader archives a stream to the canonical CAS path and returns the resulting *Resource.
@@ -61,7 +99,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 // content; the bytes are identical by hash equality. Windows behavior differs and is not handled here.
 //
 // Parameters:
-//   - runtimeEnvironment: supplies [op.Root] for the staging and canonical paths.
+//   - runtimeEnvironment: supplies [op.Root] for the staging and canonical paths. Must have a non-nil Root.
 //   - reader: source of payload bytes; drained completely.
 //
 // Returns:
@@ -113,58 +151,21 @@ func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) 
 	return r, nil
 }
 
-// newFromSpec builds an unlinked *Resource from spec and archives spec.Data to disk when non-nil.
-//
-// At least one of spec.Namespace and spec.Name must be non-empty; an empty spec is rejected.
-//
-// Parameters:
-//   - runtimeEnvironment: supplies [op.Root] for archival and threads into the produced [op.ResourceBase].
-//   - spec: identity (Namespace, Name) plus optional payload (Data).
-//
-// Returns:
-//   - *Resource: candidate with ResourceBase, Namespace, and Name populated; Hash populated when Data was archived.
-//   - error: empty spec, [op.ResourceBase] construction failure, or [writeSpecData] failure.
-func newFromSpec(runtimeEnvironment *op.RuntimeEnvironment, spec ResourceSpec) (*Resource, error) {
-
-	if spec.Namespace == "" && spec.Name == "" {
-		return nil, fmt.Errorf("mem.Resource: spec must have non-empty Namespace or Name")
-	}
-
-	base, err := op.NewResourceBase(runtimeEnvironment, spec.Specific(), reflect.TypeFor[*Resource]())
-	if err != nil {
-		return nil, fmt.Errorf("mem.Resource: %w", err)
-	}
-
-	r := &Resource{
-		ResourceBase: base,
-		Namespace:    spec.Namespace,
-		Name:         spec.Name,
-	}
-
-	if spec.Data != nil {
-		hash, err := writeSpecData(runtimeEnvironment.Root, r.SourcePath(), spec.Data)
-		if err != nil {
-			return nil, fmt.Errorf("mem.Resource: %w", err)
-		}
-		r.Hash = hash
-	}
-
-	return r, nil
-}
-
 // newFromURI rehydrates a metadata-only *Resource from a canonical tag URI.
 //
-// The URI's <specific> portion is parsed as "<ns>/<name>" (slash-split) or as a bare "<name>" (no slash) and populates
-// the corresponding fields. No content is archived; Hash is empty and [Resource.Reader] will fail until the content is
-// archived by another path.
+// The URI's <specific> portion must be `<algo>:<hex>` (currently only `sha256:` is supported). The digest is stamped on
+// the returned Resource's Hash field. No content is archived; [Resource.Reader] will succeed only if the canonical CAS
+// path already exists on disk from a prior construction.
 //
 // Parameters:
 //   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
-//   - uri: canonical tag URI; the <specific> portion must be non-empty (deferred URIs are rejected).
+//   - uri: canonical tag URI; <specific> must be `<algo>:<hex>` with `algo == "sha256"` (deferred or malformed URIs
+//     are rejected).
 //
 // Returns:
-//   - *Resource: metadata-only Resource.
-//   - error: malformed URI, deferred (empty <specific>) URI, or [op.ResourceBase] construction failure.
+//   - *Resource: metadata-only Resource with Hash populated.
+//   - error: malformed URI, deferred (empty <specific>) URI, missing colon, unsupported algorithm, malformed hex, or
+//     [op.ResourceBase] construction failure.
 func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resource, error) {
 
 	specific, _, err := op.ExtractTagSpecific(uri)
@@ -176,23 +177,26 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 		return nil, fmt.Errorf("mem.Resource: cannot reconstruct from deferred URI %q", uri)
 	}
 
+	algo, hexPart, ok := strings.Cut(specific, ":")
+	if !ok {
+		return nil, fmt.Errorf("mem.Resource: URI specific %q is not in <algo>:<hex> form", specific)
+	}
+	if algo != "sha256" {
+		return nil, fmt.Errorf("mem.Resource: unsupported digest algorithm %q (want sha256)", algo)
+	}
+	if _, err := hex.DecodeString(hexPart); err != nil {
+		return nil, fmt.Errorf("mem.Resource: invalid digest hex %q: %w", hexPart, err)
+	}
+
 	base, err := op.NewResourceBase(runtimeEnvironment, specific, reflect.TypeFor[*Resource]())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("mem.Resource: %w", err)
 	}
 
-	r := &Resource{
+	return &Resource{
 		ResourceBase: base,
-	}
-
-	if ns, name, ok := strings.Cut(specific, "/"); ok {
-		r.Namespace = ns
-		r.Name = name
-	} else {
-		r.Name = specific
-	}
-
-	return r, nil
+		Hash:         hexPart,
+	}, nil
 }
 
 // splitTypeID splits a canonical Go type id "<pkgPath>.<TypeName>" into its terminal package segment and type name.
@@ -273,125 +277,6 @@ func streamToStaging(root op.Root, staging op.Path, reader io.Reader) (_ string,
 	h := sha256.New()
 	if _, err := io.Copy(f, io.TeeReader(reader, h)); err != nil {
 		return "", fmt.Errorf("mem.Resource: stage stream: %w", err)
-	}
-
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// writeBytes writes data to sourcePath under root and returns the SHA-256 hex of the bytes.
-//
-// The parent directory is not created — callers (notably [writeSpecData]) ensure it exists.
-//
-// Parameters:
-//   - root: filesystem root under which the file is written.
-//   - sourcePath: destination path.
-//   - data: payload bytes.
-//
-// Returns:
-//   - string: SHA-256 of data, lowercase hex.
-//   - error: any failure from [op.Root.WriteFile].
-func writeBytes(root op.Root, sourcePath op.Path, data []byte) (string, error) {
-
-	if err := root.WriteFile(sourcePath, data, 0o600); err != nil {
-		return "", fmt.Errorf("write file: %w", err)
-	}
-
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:]), nil
-}
-
-// writeSpecData archives data to sourcePath, dispatching on data's runtime type.
-//
-// The parent directory is created before writing. Dispatch is first-match-wins:
-//
-//	| Data shape                  | Path                                                       |
-//	|-----------------------------|------------------------------------------------------------|
-//	| [io.Reader]                 | [writeStream] — drained and hashed in-flight               |
-//	| []byte                      | [writeBytes]                                               |
-//	| string                      | []byte(s) → [writeBytes]                                   |
-//	| interface{ Bytes() []byte } | v.Bytes() → [writeBytes]                                   |
-//	| [encoding.BinaryMarshaler]  | MarshalBinary → [writeBytes]                               |
-//	| [encoding.TextMarshaler]    | MarshalText → [writeBytes]                                 |
-//
-// Types that do not round-trip losslessly ([fmt.Stringer], [op.SourceConverter]) are rejected to prevent
-// silent data loss. A nil data value is not handled here — callers short-circuit before calling.
-//
-// Parameters:
-//   - root: filesystem root under which the parent directory is created and the file is written.
-//   - sourcePath: destination path.
-//   - data: payload value matching one of the dispatch rows above.
-//
-// Returns:
-//   - string: SHA-256 of the written content, lowercase hex.
-//   - error: parent-directory creation failure, unsupported data type, marshaler error, or write failure.
-func writeSpecData(root op.Root, sourcePath op.Path, data any) (string, error) {
-
-	parentRel := filepath.Dir(sourcePath.Rel())
-	parentPath := root.NewPath(parentRel)
-	if err := root.MkdirAll(parentPath, 0o700); err != nil {
-		return "", fmt.Errorf("create parent dir: %w", err)
-	}
-
-	switch v := data.(type) {
-
-	case io.Reader:
-		return writeStream(root, sourcePath, v)
-
-	case []byte:
-		return writeBytes(root, sourcePath, v)
-
-	case string:
-		return writeBytes(root, sourcePath, []byte(v))
-
-	case interface{ Bytes() []byte }:
-		return writeBytes(root, sourcePath, v.Bytes())
-
-	case encoding.BinaryMarshaler:
-		b, err := v.MarshalBinary()
-		if err != nil {
-			return "", fmt.Errorf("MarshalBinary: %w", err)
-		}
-		return writeBytes(root, sourcePath, b)
-
-	case encoding.TextMarshaler:
-		b, err := v.MarshalText()
-		if err != nil {
-			return "", fmt.Errorf("MarshalText: %w", err)
-		}
-		return writeBytes(root, sourcePath, b)
-
-	default:
-		return "", fmt.Errorf("unsupported Data type %T; want nil, io.Reader, []byte, string, "+
-			"Bytes() []byte, encoding.BinaryMarshaler, or encoding.TextMarshaler", v)
-	}
-}
-
-// writeStream drains reader into sourcePath, hashing in-flight with [io.TeeReader].
-//
-// Truncates any existing file at sourcePath. The file is closed via a deferred call; a close error replaces a nil err
-// on return.
-//
-// Parameters:
-//   - root: filesystem root under which the file is opened.
-//   - sourcePath: destination path.
-//   - reader: source of payload bytes; drained completely.
-//
-// Returns:
-//   - string: SHA-256 of the streamed content, lowercase hex.
-//   - error: open failure, copy failure, or close failure.
-func writeStream(root op.Root, sourcePath op.Path, reader io.Reader) (_ string, err error) {
-
-	f, err := root.OpenFile(sourcePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("open file: %w", err)
-	}
-	defer iox.Close(&err, f)
-
-	h := sha256.New()
-	teed := io.TeeReader(reader, h)
-
-	if _, err := io.Copy(f, teed); err != nil {
-		return "", fmt.Errorf("copy: %w", err)
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
