@@ -514,6 +514,45 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 	}
 }
 
+// --- Addressing / Digest ---
+
+func TestAddressing_ReturnsContent(t *testing.T) {
+	ctx := newTestCtx(t)
+	r, err := NewResource(testActivation(t, ctx), []byte("addressing"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+	if got := r.Addressing(); got != op.AddressingContent {
+		t.Errorf("Addressing() = %v, want %v", got, op.AddressingContent)
+	}
+}
+
+func TestDigest_MatchesHash(t *testing.T) {
+	ctx := newTestCtx(t)
+	payload := []byte("digest test")
+
+	r, err := NewResource(testActivation(t, ctx), payload)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	d, err := r.Digest()
+	if err != nil {
+		t.Fatalf("Digest: %v", err)
+	}
+	if d.Algorithm != "sha256" {
+		t.Errorf("Algorithm = %q, want \"sha256\"", d.Algorithm)
+	}
+
+	wantBytes, err := hex.DecodeString(r.Hash)
+	if err != nil {
+		t.Fatalf("decode Hash: %v", err)
+	}
+	if !bytes.Equal(d.Bytes, wantBytes) {
+		t.Errorf("Bytes = %x, want %x", d.Bytes, wantBytes)
+	}
+}
+
 // --- Reader error path ---
 
 func TestReader_RejectsMissingSourcePath(t *testing.T) {

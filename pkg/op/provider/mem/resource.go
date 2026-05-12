@@ -151,6 +151,17 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 
 // region Behaviors
 
+// Addressing reports that mem.Resource is content-addressed.
+//
+// Overrides [op.ResourceBase.Addressing]'s [op.AddressingUnknown] default. The boot-discipline check in
+// pkg/op/addressing_test.go relies on every announced Resource type returning a non-Unknown mode here.
+//
+// Returns:
+//   - op.AddressingMode: [op.AddressingContent] — identity is the SHA-256 of the archived bytes.
+func (r *Resource) Addressing() op.AddressingMode {
+	return op.AddressingContent
+}
+
 // CanConvertTo reports whether this Resource can project to the given target Go type.
 //
 // Supports []byte and string — both read the archived content through a memory-mapped view. Overrides
@@ -198,6 +209,20 @@ func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
 		return string(data), nil
 	}
 	return data, nil
+}
+
+// Digest returns the content digest of the archived bytes.
+//
+// The SHA-256 was computed during construction (or parsed from the URI on rehydration) and stamped on
+// [Resource.Hash]. This method reassembles the canonical `sha256:<hex>` form via [op.ParseDigest], yielding the
+// strict [op.Digest] shape with Algorithm = "sha256" and Bytes = the raw 32-byte digest. Overrides
+// [op.ResourceBase.Digest]'s [op.ErrUnimplemented] default.
+//
+// Returns:
+//   - op.Digest: {Algorithm: "sha256", Bytes: decoded Hash}.
+//   - error: non-nil if Hash is malformed; should not occur post-construction or post-rehydration.
+func (r *Resource) Digest() (op.Digest, error) {
+	return op.ParseDigest("sha256:" + r.Hash)
 }
 
 // Equal reports whether r and other identify the same mem.Resource.
