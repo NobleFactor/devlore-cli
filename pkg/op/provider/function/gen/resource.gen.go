@@ -19,9 +19,9 @@ func init() {
 			return provider.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, identity)
 		},
 		map[string][]string{
-			"Init":         {"thread"},
 			"CanConvertTo": {"target"},
 			"ConvertTo":    {"target"},
+			"Init":         {"thread"},
 		},
 	)
 }

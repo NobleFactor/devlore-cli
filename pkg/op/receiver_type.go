@@ -100,7 +100,7 @@ type ProviderConstructor func(ctx *RuntimeEnvironment) (any, error)
 //
 // Parameters:
 //   - ctx: the execution context.
-//   - value: type-specific input (e.g., a string path for file, a [mem.ResourceSpec] for mem).
+//   - value: type-specific input (e.g., a string path for file, or []byte / [io.Reader] / URI string for mem).
 //
 // Returns:
 //   - Resource: the constructed resource.

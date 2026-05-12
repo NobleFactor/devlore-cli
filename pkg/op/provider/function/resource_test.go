@@ -30,6 +30,7 @@ func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 	root := op.NewRootReaderWriter(t.TempDir())
 	ctx := &op.RuntimeEnvironment{Root: root}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
+	ctx.Catalog = op.NewResourceCatalog()
 	return ctx
 }
 
@@ -82,10 +83,9 @@ func compileFixture(t *testing.T, src, name string) *starlark.Function {
 
 // TestProducerStamp_NewResource verifies the m.5(iii) contract: a producer-style NewResource call results
 // in a catalog entry whose producerID matches the dispatch's activation SiteID. function.Resources are
-// produced directly via NewResource(activation, ResourceSpec{Data: *starlark.Function}).
+// produced directly via NewResource(activation, *starlark.Function).
 func TestProducerStamp_NewResource(t *testing.T) {
 	ctx := newTestCtx(t)
-	ctx.Catalog = op.NewResourceCatalog()
 	activation := testActivation(t, ctx)
 
 	starFn := compileFixture(t, `
@@ -93,7 +93,7 @@ def stamp(x):
     return x
 `, "stamp")
 
-	r, err := NewResource(activation, ResourceSpec{Namespace: "Stamper", Data: starFn})
+	r, err := NewResource(activation, starFn)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -112,10 +112,7 @@ def inc(x):
     return x + 1
 `, "inc")
 
-	f, err := NewResource(testActivation(t, ctx), ResourceSpec{
-		Namespace: "Incrementer",
-		Data:      starFn,
-	})
+	f, err := NewResource(testActivation(t, ctx), starFn)
 	if err != nil {
 		t.Fatalf("NewFunction: %v", err)
 	}
@@ -164,7 +161,7 @@ def double(x):
     return x * 2
 `, "double")
 
-	f, _ := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "math", Data: starFn})
+	f, _ := NewResource(testActivation(t, ctx), starFn)
 
 	// Bridge it: func(int) int
 	target := reflect.TypeFor[func(int) int]()
@@ -188,7 +185,7 @@ def greet(name):
     return "hello " + name
 `, "greet")
 
-	f, _ := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "ui", Data: starFn})
+	f, _ := NewResource(testActivation(t, ctx), starFn)
 
 	// Wipe memory cache to force mmap fallback.
 	f.Compiled = nil
@@ -214,7 +211,7 @@ def identity(x):
     return x
 `, "identity")
 
-	f, _ := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "core", Data: starFn})
+	f, _ := NewResource(testActivation(t, ctx), starFn)
 
 	// Force version skew and wipe cache.
 	f.Compiled = nil

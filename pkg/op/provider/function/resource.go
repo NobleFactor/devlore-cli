@@ -28,73 +28,82 @@ var errorType = reflect.TypeFor[error]()
 // The source text and its compiled bytecode are archived in the [op.RecoverySite] as a single packed file (see
 // [writeFunctionPack] for the layout).
 //
-// The URI is opaque: mem:function/<FuncType>/<Name>. FuncType is the named Go type the function satisfies (e.g.,
-// "file.Reducer", "Predicate"). Name is the function name or <action>.<param> for lambdas.
+// Identity is content-addressed: the URI's <specific> is `sha256:<hex>` over the synthesized source bytes. The
+// on-disk path follows mem's sharded CAS formula via the embedded [mem.Resource], so the pack lives at
+// <Root>/.devlore/function/resource/sha256/<hex[0:2]>/<hex>.
 //
-// Compiled and CompilerVersion are in-memory caches populated by [NewResource] and repopulated by [Function.Init] when
-// it reads bytecode out of the pack. They are NOT persisted through JSON/YAML — the archived pack is the persistent
-// source of truth, and fresh Init calls repopulate the caches.
+// Compiled and CompilerVersion are in-memory caches populated by [NewResource] and repopulated by [Resource.Init]
+// when it reads bytecode out of the pack. They are NOT persisted through JSON/YAML — the archived pack is the
+// persistent source of truth, and fresh Init calls repopulate the caches.
 //
 // Lifecycle:
-//  1. [NewResource](ctx, ResourceSpec{Data: *starlark.Function}) extracts metadata, synthesizes source, compiles it,
-//     packs source+compiled into one RecoverySite entry, populates in-memory caches.
-//  2. [Function.Init](thread) returns a live [starlark.Callable]. Fast path uses the in-memory Compiled cache when the
-//     compiler version matches; otherwise reads the pack, and on compiler-version match loads bytecode, on mismatch
-//     recompiles the source and refreshes the caches.
+//  1. [NewResource](activation, *starlark.Function) extracts metadata, synthesizes source, computes the source
+//     digest as identity, compiles, packs source+compiled into one RecoverySite entry, populates in-memory caches.
+//  2. [Resource.Init](thread) returns a live [starlark.Callable]. Fast path uses the in-memory Compiled cache when
+//     the compiler version matches; otherwise reads the pack, and on compiler-version match loads bytecode, on
+//     mismatch recompiles the source and refreshes the caches.
 type Resource struct {
 	mem.Resource
 
-	// Compiled is the starlark bytecode cached in-memory. Not persisted — the pack in RecoverySite carries
-	// the canonical bytes, and Init rehydrates this cache from the pack.
+	// Compiled is the starlark bytecode cached in-memory. Not persisted — the pack in RecoverySite carries the
+	// canonical bytes, and Init rehydrates this cache from the pack.
 	Compiled []byte `json:"-" yaml:"-"`
 
-	// CompilerVersion is [starlark.CompilerVersion] at the time Compiled was produced. Not persisted;
-	// paired with the in-memory cache.
+	// CompilerVersion is [starlark.CompilerVersion] at the time Compiled was produced. Not persisted; paired with
+	// the in-memory cache.
 	CompilerVersion uint32 `json:"-" yaml:"-"`
 
-	// Extraction metadata — persisted.
-	FuncName    string   // function name in synthetic file (original name or "_lambda")
-	ParamNames  []string // parameter names
-	NumParams   int      // total params (for validation)
-	OriginalPos string   // "recipe.star:42" (diagnostics only)
+	// FuncName is the function name in the synthetic file (the original name, or "_lambda" for anonymous defs).
+	// Persisted in the in-memory marshaled shape but not load-bearing for identity.
+	FuncName string
+
+	// ParamNames is the ordered list of parameter names extracted from the original function.
+	ParamNames []string
+
+	// NumParams is the total parameter count (for validation against bridge target signatures).
+	NumParams int
+
+	// OriginalPos is the source position the function was extracted from (diagnostics only, e.g.,
+	// "recipe.star:42").
+	OriginalPos string
 }
 
-// NewResource constructs a function.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
+// NewResource constructs a *Resource and claims production via [op.ResourceCatalog.GetOrCreate].
 //
 // Use NewResource from a producer dispatch context — typically a provider method that has received an
-// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
-// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
-// claiming production (rehydration, reference handles, the framework's slot-coercion adapter).
+// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped with
+// `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not claiming production
+// (rehydration, reference handles, the framework's slot-coercion adapter).
 //
-// When identity is a [ResourceSpec] with non-nil Data (a *starlark.Function), NewResource:
+// Identity is the SHA-256 of the synthesized source bytes. When identity is a *starlark.Function, NewResource:
 //
-//  1. Extracts metadata (parameter names, position, synthetic function name).
+//  1. Introspects parameters and metadata.
 //  2. Synthesizes a self-contained source file via [synthesize].
-//  3. Compiles the source via [starlark.SourceProgramOptions].
-//  4. Serializes the compiled Program via [starlark.Program.Write].
-//  5. Packs source + compiled + compiler version via [writeFunctionPack].
-//  6. Writes the pack to the Resource's URI-derived SourcePath via [op.Root.WriteFile].
-//  7. Caches the compiled bytes and compiler version on the Resource for in-memory fast-path Init.
+//  3. Hashes the synthesized source bytes to obtain the canonical identity.
+//  4. Compiles the source via [starlark.SourceProgramOptions].
+//  5. Serializes the compiled Program via [starlark.Program.Write].
+//  6. Packs source + compiled + compiler version via [writeFunctionPack].
+//  7. Writes the pack to the Resource's URI-derived SourcePath (sharded CAS path).
+//  8. Caches the compiled bytes and compiler version on the Resource for in-memory fast-path Init.
 //
-// When identity is a string URI, NewResource rehydrates a metadata-only Resource (no archival).
+// When identity is a string URI, NewResource rehydrates a metadata-only Resource (no archival; the URI alone
+// carries the source digest).
 //
-// Side-effect ordering matches mem: the steps above run during construction (inside [buildCandidate]),
-// BEFORE the catalog's cache check. Same as today's m.3-cohort pattern — cache hit returns the existing
-// entry; the archival happened anyway and overwrote the same on-disk path with what is presumed equivalent
-// content (same URI → same source by function's reachability model).
+// Two callers with byte-identical synthesized source produce the same URI; the first to reach the catalog wins.
+// The second caller's write overwrites the canonical path with byte-identical content.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment (must
-//     have a non-nil Root) and its `SiteID` becomes the catalog entry's producerID. Must be non-nil.
-//   - identity: a [ResourceSpec] whose Data holds a *starlark.Function, or a string URI for metadata-only
-//     rehydration.
+//   - activationRecord: per-dispatch activation; its Runtime supplies the runtime environment (Root must be
+//     non-nil when identity is a *starlark.Function) and its SiteID becomes the catalog entry's producerID. Must
+//     be non-nil.
+//   - identity: a *starlark.Function (archival) or a canonical tag URI string (metadata-only rehydration).
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
-//   - error: malformed spec, unsupported identity type, source synthesis / compilation failure, or
-//     filesystem write error.
+//   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - error: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
+//     or identity construction failure.
 func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.Runtime, identity)
@@ -121,19 +130,30 @@ func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource
 	return canonical, nil
 }
 
-// DiscoverResource constructs a function.Resource and registers it with [op.ResourceCatalog.Discover] without
-// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
-// supplies a string URI and the slot expects a *function.Resource), and by callers holding a reference handle
-// without claiming production.
+// DiscoverResource constructs a *Resource and registers it with [op.ResourceCatalog.Discover] without claiming
+// production.
 //
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime
-// is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an
-// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+// Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string URI and the
+// slot expects a *function.Resource) and by callers holding a reference handle without claiming production.
 //
-// Same identity-shape semantics as [NewResource]: ResourceSpec creates from spec (with archival side
-// effects); string rehydrates metadata-only.
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime is
+// consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: runtimeEnvironment}`.
+//
+// Same identity-shape dispatch as [NewResource]: *starlark.Function archives content; string rehydrates
+// metadata-only.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+//
+// Parameters:
+//   - activationRecord: per-dispatch activation; only its Runtime is consumed. Must be non-nil with a non-nil
+//     Runtime.
+//   - identity: a *starlark.Function or a canonical tag URI string; same dispatch as [NewResource].
+//
+// Returns:
+//   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - error: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
+//     or identity construction failure.
 func DiscoverResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.Runtime, identity)
@@ -160,51 +180,73 @@ func DiscoverResource(activationRecord *op.ActivationRecord, identity any) (*Res
 	return canonical, nil
 }
 
-// buildCandidate dispatches on identity's type to the appropriate construction path and returns a *Resource
-// without touching the catalog. Shared by [NewResource] and [DiscoverResource]. ResourceSpec values dispatch
-// to [newFromSpec] (which extracts, compiles, packs, and archives the *starlark.Function); string values
-// dispatch to [newFromURI] (metadata-only rehydration from a tag URI).
+// buildCandidate returns an unlinked *Resource for identity.
+//
+// *starlark.Function values are dispatched to [newFromFunction] (extracts, compiles, packs, and archives the
+// function). String URI values are dispatched to [newFromURI] (metadata-only rehydration). Resource catalog
+// interaction is the caller's concern, not this function's. See [NewResource] and [DiscoverResource].
+//
+// Parameters:
+//   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
+//   - identity: a *starlark.Function or a canonical tag URI string; any other type is an error.
+//
+// Returns:
+//   - *Resource: unlinked candidate.
+//   - error: unsupported identity type, or an error from the downstream constructor.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, identity any) (*Resource, error) {
 
 	switch v := identity.(type) {
 
-	case ResourceSpec:
-		return newFromSpec(runtimeEnvironment, v)
+	case *starlark.Function:
+		return newFromFunction(runtimeEnvironment, v)
 
 	case string:
 		return newFromURI(runtimeEnvironment, v)
 
 	default:
-		return nil, fmt.Errorf("function.Resource: expected ResourceSpec or URI string, got %T", identity)
+		return nil, fmt.Errorf("function.Resource: expected *starlark.Function or URI string, got %T", identity)
 	}
 }
 
-// newFromSpec extracts metadata, synthesizes source, compiles to bytecode, and packs everything for archival.
-func newFromSpec(ctx *op.RuntimeEnvironment, spec ResourceSpec) (*Resource, error) {
+// newFromFunction extracts metadata, synthesizes source, hashes it as identity, compiles to bytecode, and packs
+// everything to the canonical CAS path.
+//
+// Parameters:
+//   - runtimeEnvironment: supplies [op.Root] for the canonical CAS path. Must have a non-nil Root.
+//   - fn: starlark function to extract.
+//
+// Returns:
+//   - *Resource: candidate with embedded [mem.Resource] keyed on the source digest, in-memory caches populated,
+//     and the pack archived on disk.
+//   - error: extraction, synthesis, compilation, serialization, identity construction, parent-directory creation,
+//     or write failure.
+func newFromFunction(runtimeEnvironment *op.RuntimeEnvironment, fn *starlark.Function) (*Resource, error) {
 
-	if spec.Data == nil {
-		return nil, fmt.Errorf("function.Resource: spec.Data is nil")
-	}
-
-	if spec.Namespace == "" {
-		return nil, fmt.Errorf("function.Resource: empty namespace (func type)")
-	}
-	if spec.Name == "" {
-		spec.Name = spec.Data.Name()
-		if spec.Name == "lambda" {
-			spec.Name = "_lambda"
-		}
+	if fn == nil {
+		return nil, fmt.Errorf("function.Resource: nil *starlark.Function")
 	}
 
 	// Introspect parameters.
 
-	params := make([]string, spec.Data.NumParams())
-	for i := range spec.Data.NumParams() {
-		p, _ := spec.Data.Param(i)
+	params := make([]string, fn.NumParams())
+	for i := range fn.NumParams() {
+		p, _ := fn.Param(i)
 		params[i] = p
 	}
 
-	base, err := op.NewResourceBase(ctx, spec.Specific(), reflect.TypeFor[*Resource]())
+	// Synthesize self-contained source.
+
+	source, err := synthesize(fn, params)
+	if err != nil {
+		return nil, fmt.Errorf("function.Resource: extract %s: %w", fn.Name(), err)
+	}
+
+	// Compute identity from source bytes.
+
+	sum := sha256.Sum256(source)
+	hexDigest := hex.EncodeToString(sum[:])
+
+	base, err := op.NewResourceBase(runtimeEnvironment, "sha256:"+hexDigest, reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, fmt.Errorf("function.Resource: %w", err)
 	}
@@ -212,75 +254,77 @@ func newFromSpec(ctx *op.RuntimeEnvironment, spec ResourceSpec) (*Resource, erro
 	f := &Resource{
 		Resource: mem.Resource{
 			ResourceBase: base,
-			Namespace:    spec.Namespace,
-			Name:         spec.Name,
+			Hash:         hexDigest,
 		},
 		ParamNames: params,
-		NumParams:  spec.Data.NumParams(),
+		NumParams:  fn.NumParams(),
 	}
 
-	if spec.Data.Name() != "lambda" {
-		f.FuncName = spec.Data.Name()
+	if fn.Name() != "lambda" {
+		f.FuncName = fn.Name()
+	} else {
+		f.FuncName = "_lambda"
 	}
 
-	if pos := spec.Data.Position(); pos.IsValid() {
+	if pos := fn.Position(); pos.IsValid() {
 		f.OriginalPos = pos.String()
-	}
-
-	// Synthesize self-contained source.
-
-	source, err := synthesize(spec.Data, params)
-	if err != nil {
-		return nil, fmt.Errorf("function.Resource: extract %s: %w", spec.Name, err)
 	}
 
 	// Compile to bytecode.
 
 	prog, err := compileSource(source)
 	if err != nil {
-		return nil, fmt.Errorf("function.Resource: compile %s: %w", spec.Name, err)
+		return nil, fmt.Errorf("function.Resource: compile %s: %w", f.FuncName, err)
 	}
 
 	compiled, err := programToBytes(prog)
 	if err != nil {
-		return nil, fmt.Errorf("function.Resource: serialize %s: %w", spec.Name, err)
+		return nil, fmt.Errorf("function.Resource: serialize %s: %w", f.FuncName, err)
 	}
 
 	// Pack source + compiled + compiler version.
 
 	var packBuf bytes.Buffer
 	if err := writeFunctionPack(&packBuf, source, compiled, starlark.CompilerVersion); err != nil {
-		return nil, fmt.Errorf("function.Resource: pack %s: %w", spec.Name, err)
+		return nil, fmt.Errorf("function.Resource: pack %s: %w", f.FuncName, err)
 	}
 
-	// SourcePath is a method on the embedded mem.Resource (per 13.0(c)'s per-type formula). For
-	// function.Resource it resolves to <Root>/.devlore/function/resource/<ns>/<name>.
+	// Write pack to the canonical CAS path (inherited sharded SourcePath via embedded mem.Resource).
+
 	sp := f.SourcePath()
 
 	parentRel := filepath.Dir(sp.Rel())
-	if err := ctx.Root.MkdirAll(ctx.Root.NewPath(parentRel), 0o700); err != nil {
-		return nil, fmt.Errorf("function.Resource: create parent dir: %w", err)
+	if err := runtimeEnvironment.Root.MkdirAll(runtimeEnvironment.Root.NewPath(parentRel), 0o700); err != nil {
+		return nil, fmt.Errorf("function.Resource: create canonical dir: %w", err)
 	}
 
-	if err := ctx.Root.WriteFile(sp, packBuf.Bytes(), 0o600); err != nil {
-		return nil, fmt.Errorf("function.Resource: write pack %s: %w", spec.Name, err)
+	if err := runtimeEnvironment.Root.WriteFile(sp, packBuf.Bytes(), 0o600); err != nil {
+		return nil, fmt.Errorf("function.Resource: write pack %s: %w", f.FuncName, err)
 	}
-
-	// Hash records the canonical source text (not the pack).
-	h := sha256.Sum256(source)
-	f.Hash = hex.EncodeToString(h[:])
 
 	// In-memory caches — not persisted.
+
 	f.Compiled = compiled
 	f.CompilerVersion = starlark.CompilerVersion
 
 	return f, nil
 }
 
-// newFromURI reconstructs a metadata-only function.Resource from a canonical tag URI string. No content is
-// archived — the on-disk pack is the source of truth, rehydrated lazily by [Resource.Init] / [loadProgram] via
-// the URI-derived SourcePath.
-func newFromURI(ctx *op.RuntimeEnvironment, uri string) (*Resource, error) {
+// newFromURI rehydrates a metadata-only *Resource from a canonical tag URI.
+//
+// The URI's <specific> portion must be `<algo>:<hex>` (currently only `sha256:` is supported). The digest is
+// stamped on the embedded mem.Resource's Hash field. No content is archived — the on-disk pack is the source of
+// truth, rehydrated lazily by [Resource.Init] / [loadProgram] via the URI-derived SourcePath.
+//
+// Parameters:
+//   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
+//   - uri: canonical tag URI; <specific> must be `<algo>:<hex>` with `algo == "sha256"`.
+//
+// Returns:
+//   - *Resource: metadata-only Resource with embedded mem.Resource Hash populated.
+//   - error: malformed URI, deferred (empty <specific>) URI, missing colon, unsupported algorithm, malformed hex,
+//     or [op.ResourceBase] construction failure.
+func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resource, error) {
 
 	specific, _, err := op.ExtractTagSpecific(uri)
 	if err != nil {
@@ -291,76 +335,41 @@ func newFromURI(ctx *op.RuntimeEnvironment, uri string) (*Resource, error) {
 		return nil, fmt.Errorf("function.Resource: cannot reconstruct from deferred URI %q", uri)
 	}
 
-	base, err := op.NewResourceBase(ctx, specific, reflect.TypeFor[*Resource]())
+	algo, hexPart, ok := strings.Cut(specific, ":")
+	if !ok {
+		return nil, fmt.Errorf("function.Resource: URI specific %q is not in <algo>:<hex> form", specific)
+	}
+	if algo != "sha256" {
+		return nil, fmt.Errorf("function.Resource: unsupported digest algorithm %q (want sha256)", algo)
+	}
+	if _, err := hex.DecodeString(hexPart); err != nil {
+		return nil, fmt.Errorf("function.Resource: invalid digest hex %q: %w", hexPart, err)
+	}
+
+	base, err := op.NewResourceBase(runtimeEnvironment, specific, reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, fmt.Errorf("function.Resource: %w", err)
 	}
 
-	f := &Resource{
+	return &Resource{
 		Resource: mem.Resource{
 			ResourceBase: base,
+			Hash:         hexPart,
 		},
-	}
-
-	// function.Resource specific is "<ns>/<name>"; namespace is required for archival, so a missing slash
-	// indicates a malformed URI.
-	if ns, name, ok := strings.Cut(specific, "/"); ok {
-		f.Namespace = ns
-		f.Name = name
-	} else {
-		return nil, fmt.Errorf("function.Resource: invalid URI %q (missing <ns>/<name> separator)", uri)
-	}
-
-	return f, nil
+	}, nil
 }
 
 // region EXPORTED METHODS
 
 // region Behaviors
 
-// Init loads the compiled program, executes its toplevel, and returns the named function as a callable.
-//
-// Fast path: if [Function.Compiled] is non-empty and [Function.CompilerVersion] matches the runtime's
-// [starlark.CompilerVersion], the program loads directly from the in-memory cache. This is the common case
-// within a process.
-//
-// Fallback path: opens the pack from RecoverySite via mmap, inspects the header, and either (a) loads
-// bytecode from the compiled section when the compiler version matches, or (b) reads the source section,
-// recompiles, and caches the new bytecode on the Function. Both sub-paths refresh the in-memory Compiled
-// cache so subsequent Init calls in the same process stay on the fast path.
+// CanConvertTo implements [op.SourceConverter].
 //
 // Parameters:
-//   - thread: the starlark thread for program initialization.
+//   - target: destination Go type.
 //
 // Returns:
-//   - starlark.Callable: the live function.
-//   - error:              non-nil if loading, compiling, or initialization fails.
-func (f *Resource) Init(thread *starlark.Thread) (starlark.Callable, error) {
-
-	prog, err := f.loadProgram()
-	if err != nil {
-		return nil, fmt.Errorf("function.Resource init: %w", err)
-	}
-
-	globals, err := prog.Init(thread, nil)
-	if err != nil {
-		return nil, fmt.Errorf("function.Resource init: %w", err)
-	}
-
-	fn, ok := globals[f.FuncName]
-	if !ok {
-		return nil, fmt.Errorf("function.Resource init: function %q not found", f.FuncName)
-	}
-
-	callable, ok := fn.(starlark.Callable)
-	if !ok {
-		return nil, fmt.Errorf("function.Resource init: %q is %s, not callable", f.FuncName, fn.Type())
-	}
-
-	return callable, nil
-}
-
-// CanConvertTo implements [op.SourceConverter].
+//   - bool: true when target is a Go func type, or when the embedded mem.Resource can convert to target.
 func (f *Resource) CanConvertTo(target reflect.Type) bool {
 	if target.Kind() == reflect.Func {
 		return true
@@ -371,15 +380,16 @@ func (f *Resource) CanConvertTo(target reflect.Type) bool {
 // ConvertTo implements [op.SourceConverter].
 //
 // Converts to any Go func type by building a bridge that marshals arguments, calls the underlying starlark function,
-// and unmarshals the result. The starlark function's parameter count must match the Go func's input count. Varargs and
-// kwargs are rejected. The Go func may return (), (T), (error), or (T, error).
+// and unmarshals the result. The starlark function's parameter count must match the Go func's input count. Varargs
+// and kwargs are rejected. The Go func may return (), (T), (error), or (T, error). For non-func targets, delegates
+// to the embedded mem.Resource's ConvertTo (which projects content to []byte or string).
 //
 // Parameters:
-//   - target: the Go func type to convert to.
+//   - target: the Go type to convert to.
 //
 // Returns:
-//   - any: a Go function of the target type.
-//   - error: non-nil if the target is not a func type or the signature doesn't match.
+//   - any: a Go function of the target type, or the projected content for []byte / string targets.
+//   - error: non-nil if the target is not supported, the signature doesn't match, or the underlying call fails.
 func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 
 	if target.Kind() != reflect.Func {
@@ -454,6 +464,48 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 	return bridge.Interface(), nil
 }
 
+// Init loads the compiled program, executes its toplevel, and returns the named function as a callable.
+//
+// Fast path: if [Resource.Compiled] is non-empty and [Resource.CompilerVersion] matches the runtime's
+// [starlark.CompilerVersion], the program loads directly from the in-memory cache. This is the common case within
+// a process.
+//
+// Fallback path: opens the pack from RecoverySite via mmap, inspects the header, and either (a) loads bytecode from
+// the compiled section when the compiler version matches, or (b) reads the source section, recompiles, and caches
+// the new bytecode on the Resource. Both sub-paths refresh the in-memory Compiled cache so subsequent Init calls in
+// the same process stay on the fast path.
+//
+// Parameters:
+//   - thread: the starlark thread for program initialization.
+//
+// Returns:
+//   - starlark.Callable: the live function.
+//   - error: non-nil if loading, compiling, or initialization fails.
+func (f *Resource) Init(thread *starlark.Thread) (starlark.Callable, error) {
+
+	prog, err := f.loadProgram()
+	if err != nil {
+		return nil, fmt.Errorf("function.Resource init: %w", err)
+	}
+
+	globals, err := prog.Init(thread, nil)
+	if err != nil {
+		return nil, fmt.Errorf("function.Resource init: %w", err)
+	}
+
+	fn, ok := globals[f.FuncName]
+	if !ok {
+		return nil, fmt.Errorf("function.Resource init: function %q not found", f.FuncName)
+	}
+
+	callable, ok := fn.(starlark.Callable)
+	if !ok {
+		return nil, fmt.Errorf("function.Resource init: %q is %s, not callable", f.FuncName, fn.Type())
+	}
+
+	return callable, nil
+}
+
 // endregion
 
 // endregion
@@ -462,12 +514,16 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 
 // region Behaviors
 
-// loadProgram returns a compiled [starlark.Program] for this Function.
+// loadProgram returns a compiled [starlark.Program] for this Resource.
 //
-// Checks the in-memory Compiled cache first. On miss or version mismatch, opens the pack from RecoverySite
-// via mmap, reads the header, and either loads bytecode from the compiled section (version match) or
-// recompiles from the source section (version mismatch or no compiled payload). Refreshes the in-memory
-// cache on every fallback-path success so subsequent calls hit the fast path.
+// Checks the in-memory Compiled cache first. On miss or version mismatch, opens the pack from RecoverySite via
+// mmap, reads the header, and either loads bytecode from the compiled section (version match) or recompiles from
+// the source section (version mismatch or no compiled payload). Refreshes the in-memory cache on every
+// fallback-path success so subsequent calls hit the fast path.
+//
+// Returns:
+//   - *starlark.Program: the compiled program.
+//   - error: cache load, mmap, header parse, read, or compile failure.
 func (f *Resource) loadProgram() (*starlark.Program, error) {
 
 	// Fast path: cached in-memory bytecode matches current compiler version.
@@ -483,7 +539,7 @@ func (f *Resource) loadProgram() (*starlark.Program, error) {
 
 	abs := f.SourcePath().Abs()
 	if abs == "" {
-		return nil, fmt.Errorf("no SourcePath — Function was not archived")
+		return nil, fmt.Errorf("no SourcePath — Resource was not archived")
 	}
 
 	m, err := mmap.Open(abs)
@@ -547,7 +603,7 @@ func (f *Resource) loadProgram() (*starlark.Program, error) {
 //
 // Returns:
 //   - *starlark.Program: the compiled program, ready for Init.
-//   - error:              any parse or compile error.
+//   - error: any parse or compile error.
 func compileSource(source []byte) (*starlark.Program, error) {
 
 	_, prog, err := starlark.SourceProgramOptions(
@@ -563,7 +619,7 @@ func compileSource(source []byte) (*starlark.Program, error) {
 //
 // Returns:
 //   - []byte: the serialized bytecode, suitable for [starlark.CompiledProgram].
-//   - error:  any error from Program.Write.
+//   - error: any error from Program.Write.
 func programToBytes(prog *starlark.Program) (_ []byte, err error) {
 
 	var buf bytes.Buffer
@@ -577,8 +633,18 @@ func programToBytes(prog *starlark.Program) (_ []byte, err error) {
 
 // funcError builds the return slice for a failed starlark call.
 //
-// If the Go func has an error return, the error occupies the last position and value slots are zeroed. If the Go func
-// has no error return, funcError panics — the caller chose a signature that cannot report errors.
+// If the Go func has an error return, the error occupies the last position and value slots are zeroed. If the Go
+// func has no error return, funcError panics — the caller chose a signature that cannot report errors.
+//
+// Parameters:
+//   - target: the Go func type the bridge implements.
+//   - numValues: number of non-error return values.
+//   - hasError: true when the last return slot is `error`.
+//   - err: the error to surface.
+//
+// Returns:
+//   - []reflect.Value: zero values for non-error slots, and the error in the error slot. Panics when hasError is
+//     false.
 func funcError(target reflect.Type, numValues int, hasError bool, err error) []reflect.Value {
 
 	if !hasError {
@@ -597,6 +663,15 @@ func funcError(target reflect.Type, numValues int, hasError bool, err error) []r
 }
 
 // funcReturn builds the return slice for a successful starlark call.
+//
+// Parameters:
+//   - target: the Go func type the bridge implements.
+//   - numValues: number of non-error return values.
+//   - hasError: true when the last return slot is `error`.
+//   - result: the starlark result value.
+//
+// Returns:
+//   - []reflect.Value: the result converted to the Go return type, with nil error in the error slot when present.
 func funcReturn(target reflect.Type, numValues int, hasError bool, result starlark.Value) []reflect.Value {
 
 	out := make([]reflect.Value, target.NumOut())

@@ -7,9 +7,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
-	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -25,256 +26,67 @@ func TestResourceImplementsInterface(t *testing.T) {
 
 // --- Test helpers ---
 
-// newTestCtx returns an RuntimeEnvironment with a Root anchored at a fresh temp dir and a populated
-// RecoverySite — the shape Resource construction requires when Data is []byte.
+// newTestCtx returns a RuntimeEnvironment with a Root anchored at a fresh temp dir and a populated
+// RecoverySite — the shape Resource construction requires when value is []byte or io.Reader.
 func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
 	root := op.NewRootReaderWriter(t.TempDir())
 	ctx := &op.RuntimeEnvironment{Root: root}
 	ctx.RecoverySite = op.NewRecoverySite(ctx)
+	ctx.Catalog = op.NewResourceCatalog()
 	return ctx
 }
 
-// testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. Sufficient for
-// production-claim test calls (non-nil + non-empty SiteID).
+// testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. Sufficient for production-claim
+// calls (non-nil + non-empty SiteID).
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
 	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
 }
 
-// newRes is a convenience for tests that don't care about the RuntimeEnvironment beyond RecoverySite wiring.
-// Uses NewResource to exercise the production-claim path (mem.NewResource is one of the few constructors
-// where the framework's true producers actually exist — content archival via spec.Data).
-func newRes(t *testing.T, ctx *op.RuntimeEnvironment, spec ResourceSpec) *Resource {
-	t.Helper()
-	r, err := NewResource(testActivation(t, ctx), spec)
+// sha256Hex returns the lowercase hex SHA-256 of data; used to assert digest equality.
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// --- NewResource: []byte ---
+
+func TestNewResource_BytesHashesContent(t *testing.T) {
+	ctx := newTestCtx(t)
+	payload := []byte("hello")
+
+	r, err := NewResource(testActivation(t, ctx), payload)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	return r
+	if r.Hash != sha256Hex(payload) {
+		t.Errorf("Hash = %q, want %q", r.Hash, sha256Hex(payload))
+	}
 }
 
-// --- m.5 producer-stamp contract ---
-
-// TestProducerStamp_NewResource verifies the m.5(iii) contract: a producer-style NewResource call results
-// in a catalog entry whose producerID matches the dispatch's activation SiteID. mem.Resources are produced
-// directly via NewResource(activation, ResourceSpec{...}) — there's no separate Provider with forward methods.
-func TestProducerStamp_NewResource(t *testing.T) {
+func TestNewResource_BytesURIEncodesDigest(t *testing.T) {
 	ctx := newTestCtx(t)
-	ctx.Catalog = op.NewResourceCatalog()
-	activation := testActivation(t, ctx)
+	payload := []byte("uri test")
 
-	r, err := NewResource(activation, ResourceSpec{Namespace: "stamp", Name: "test"})
+	r, err := NewResource(testActivation(t, ctx), payload)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-
-	if got := r.ProducerID(); got != activation.SiteID {
-		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	want := "sha256:" + sha256Hex(payload)
+	if got := r.ReachabilityURI(); got != want {
+		t.Errorf("ReachabilityURI = %q, want %q", got, want)
 	}
 }
 
-// --- NewResource ---
-
-func TestNewResource_MetadataOnly(t *testing.T) {
-
+func TestNewResource_BytesContentReadback(t *testing.T) {
 	ctx := newTestCtx(t)
+	payload := []byte("readback")
 
-	r := newRes(t, ctx, ResourceSpec{Namespace: "file.Reducer", Name: "myfn"})
-
-	if r.Namespace != "file.Reducer" {
-		t.Errorf("Namespace = %q, want %q", r.Namespace, "file.Reducer")
+	r, err := NewResource(testActivation(t, ctx), payload)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
 	}
-	if r.Name != "myfn" {
-		t.Errorf("Name = %q, want %q", r.Name, "myfn")
-	}
-	if r.ReachabilityURI() != "file.Reducer/myfn" {
-		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "file.Reducer/myfn")
-	}
-	assertArchivedFileAbsent(t, r)
-	if r.Hash != "" {
-		t.Errorf("Hash = %q, want empty (no Data archived)", r.Hash)
-	}
-}
-
-func TestNewResource_NameOnly(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	r := newRes(t, ctx, ResourceSpec{Name: "config"})
-
-	if r.ReachabilityURI() != "config" {
-		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "config")
-	}
-}
-
-func TestNewResource_NamespaceOnly(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	r := newRes(t, ctx, ResourceSpec{Namespace: "file.Reducer"})
-
-	if r.ReachabilityURI() != "file.Reducer" {
-		t.Errorf("ReachabilityURI() = %q, want %q", r.ReachabilityURI(), "file.Reducer")
-	}
-}
-
-func TestNewResource_WithBytes(t *testing.T) {
-
-	ctx := newTestCtx(t)
-	data := []byte("hello world")
-
-	r := newRes(t, ctx, ResourceSpec{Namespace: "templates", Name: "greeting", Data: data})
-
-	assertArchivedFileExists(t, r)
-
-	h := sha256.Sum256(data)
-	want := hex.EncodeToString(h[:])
-	if r.Hash != want {
-		t.Errorf("Hash = %q, want %q", r.Hash, want)
-	}
-
-	// Content round-trips.
-	assertArchivedContent(t, r, data)
-}
-
-func TestNewResource_WithString(t *testing.T) {
-
-	ctx := newTestCtx(t)
-	data := "hello world"
-
-	r := newRes(t, ctx, ResourceSpec{Namespace: "templates", Name: "s", Data: data})
-
-	assertArchivedFileExists(t, r)
-
-	h := sha256.Sum256([]byte(data))
-	if want := hex.EncodeToString(h[:]); r.Hash != want {
-		t.Errorf("Hash = %q, want %q", r.Hash, want)
-	}
-
-	assertArchivedContent(t, r, []byte(data))
-}
-
-func TestNewResource_WithReader_Streams(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	// A 512 KiB payload — large enough that any in-memory buffering would show up in profiles; io.TeeReader
-	// should stream this to RecoverySite without materializing it in Go heap memory.
-	const size = 512 * 1024
-	payload := make([]byte, size)
-	for i := range payload {
-		payload[i] = byte(i)
-	}
-
-	r := newRes(t, ctx, ResourceSpec{
-		Namespace: "blobs",
-		Name:      "big",
-		Data:      bytes.NewReader(payload),
-	})
-
-	assertArchivedFileExists(t, r)
-
-	h := sha256.Sum256(payload)
-	if want := hex.EncodeToString(h[:]); r.Hash != want {
-		t.Errorf("Hash = %q, want %q", r.Hash, want)
-	}
-
-	assertArchivedContent(t, r, payload)
-}
-
-func TestNewResource_WithBytesMethod(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	// *bytes.Buffer satisfies both io.Reader and the Bytes() method — io.Reader wins per dispatch order,
-	// draining the buffer. To exercise the Bytes() branch we need a type that has Bytes() but NOT io.Reader.
-	holder := &bytesOnly{content: []byte("from Bytes() method")}
-
-	r := newRes(t, ctx, ResourceSpec{Namespace: "blobs", Name: "b", Data: holder})
-
-	assertArchivedFileExists(t, r)
-
-	assertArchivedContent(t, r, holder.content)
-}
-
-func TestNewResource_WithBinaryMarshaler(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	marshaler := &binaryOnly{content: []byte("binary marshaled form")}
-
-	r := newRes(t, ctx, ResourceSpec{Namespace: "blobs", Name: "bm", Data: marshaler})
-
-	assertArchivedFileExists(t, r)
-
-	assertArchivedContent(t, r, marshaler.content)
-}
-
-func TestNewResource_WithTextMarshaler(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	marshaler := &textOnly{text: []byte("text marshaled form")}
-
-	r := newRes(t, ctx, ResourceSpec{Namespace: "blobs", Name: "tm", Data: marshaler})
-
-	assertArchivedFileExists(t, r)
-
-	assertArchivedContent(t, r, marshaler.text)
-}
-
-func TestNewResource_StreamingErrorPropagates(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	reader := &erroringReader{after: 5, err: errSyntheticRead}
-
-	if _, err := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "blobs", Name: "err", Data: reader}); err == nil {
-		t.Fatal("expected error when io.Reader returns mid-stream error")
-	}
-}
-
-func TestNewResource_UnsupportedDataType(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	// An int doesn't satisfy any of the accepted interfaces.
-	_, err := NewResource(testActivation(t, ctx), ResourceSpec{Namespace: "blobs", Name: "unsupported", Data: 42})
-	if err == nil {
-		t.Fatal("expected error for unsupported Data type")
-	}
-	if !strings.Contains(err.Error(), "unsupported Data type") {
-		t.Errorf("error = %q, want message containing 'unsupported Data type'", err)
-	}
-}
-
-func TestNewResource_EmptySpec(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	if _, err := NewResource(testActivation(t, ctx), ResourceSpec{}); err == nil {
-		t.Fatal("expected error for empty spec (no Namespace, no Name)")
-	}
-}
-
-func TestNewResource_WrongType(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	if _, err := NewResource(testActivation(t, ctx), 42); err == nil {
-		t.Fatal("expected error for non-ResourceSpec")
-	}
-}
-
-// --- Reader ---
-
-func TestResource_Reader_ReturnsArchivedContent(t *testing.T) {
-
-	ctx := newTestCtx(t)
-	content := []byte("streamed through mmap")
-
-	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "streamed", Data: content})
 
 	rc, err := r.Reader()
 	if err != nil {
@@ -286,201 +98,427 @@ func TestResource_Reader_ReturnsArchivedContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAll: %v", err)
 	}
-	if string(got) != string(content) {
-		t.Errorf("Reader content = %q, want %q", got, content)
+	if !bytes.Equal(got, payload) {
+		t.Errorf("readback %q, want %q", got, payload)
 	}
 }
 
-func TestResource_Reader_NoContentErrors(t *testing.T) {
-
+func TestNewResource_BytesEmpty(t *testing.T) {
 	ctx := newTestCtx(t)
 
-	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "metadata-only"})
-
-	if _, err := r.Reader(); err == nil {
-		t.Fatal("Reader on metadata-only Resource should error")
+	r, err := NewResource(testActivation(t, ctx), []byte{})
+	if err != nil {
+		t.Fatalf("NewResource(empty bytes): %v", err)
+	}
+	if r.Hash != sha256Hex([]byte{}) {
+		t.Errorf("Hash for empty content = %q, want %q", r.Hash, sha256Hex([]byte{}))
 	}
 }
 
-// --- Convert / CanConvert ---
+// --- NewResource: io.Reader ---
 
-func TestResource_CanConvert_BytesAndString(t *testing.T) {
-
+func TestNewResource_ReaderMatchesBytesURI(t *testing.T) {
 	ctx := newTestCtx(t)
+	payload := []byte("identity")
 
-	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "cfg", Data: []byte("x")})
+	fromBytes, err := NewResource(testActivation(t, ctx), payload)
+	if err != nil {
+		t.Fatalf("bytes: %v", err)
+	}
 
-	if !r.CanConvertTo(reflect.TypeFor[[]byte]()) {
-		t.Error("CanConvert([]byte) = false, want true")
+	fromReader, err := NewResource(testActivation(t, ctx), bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("reader: %v", err)
 	}
-	if !r.CanConvertTo(reflect.TypeFor[string]()) {
-		t.Error("CanConvert(string) = false, want true")
-	}
-	if r.CanConvertTo(reflect.TypeFor[int]()) {
-		t.Error("CanConvert(int) = true, want false")
+
+	if fromBytes.URI() != fromReader.URI() {
+		t.Errorf("URI mismatch: bytes=%q reader=%q", fromBytes.URI(), fromReader.URI())
 	}
 }
 
-func TestResource_Convert_ToBytes(t *testing.T) {
-
+func TestNewResource_ReaderContentReadback(t *testing.T) {
 	ctx := newTestCtx(t)
-	content := []byte(`{"key":"value"}`)
+	payload := []byte("streamed content")
 
-	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "cfg", Data: content})
+	r, err := NewResource(testActivation(t, ctx), bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	rc, err := r.Reader()
+	if err != nil {
+		t.Fatalf("Reader: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("readback %q, want %q", got, payload)
+	}
+}
+
+// --- NewResource: dispatch errors ---
+
+func TestNewResource_RejectsUnsupportedType(t *testing.T) {
+	ctx := newTestCtx(t)
+	_, err := NewResource(testActivation(t, ctx), 42)
+	if err == nil {
+		t.Fatal("expected error for int input")
+	}
+}
+
+func TestNewResource_RejectsNil(t *testing.T) {
+	ctx := newTestCtx(t)
+	_, err := NewResource(testActivation(t, ctx), nil)
+	if err == nil {
+		t.Fatal("expected error for nil input")
+	}
+}
+
+// --- NewResource: producer stamp ---
+
+func TestNewResource_StampsProducerID(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
+
+	r, err := NewResource(activation, []byte("stamp"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+	if got, want := r.ProducerID(), activation.SiteID; got != want {
+		t.Errorf("ProducerID = %q, want %q", got, want)
+	}
+}
+
+func TestNewResource_NilCatalogReturnsUnlinkedCandidate(t *testing.T) {
+	root := op.NewRootReaderWriter(t.TempDir())
+	ctx := &op.RuntimeEnvironment{Root: root}
+	activation := &op.ActivationRecord{Runtime: ctx, SiteID: "test"}
+
+	r, err := NewResource(activation, []byte("no-catalog"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+	if r == nil {
+		t.Fatal("expected non-nil candidate")
+	}
+}
+
+// --- CAS dedup ---
+
+func TestNewResource_SameBytesSameURI(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
+
+	r1, err := NewResource(activation, []byte("dedup"))
+	if err != nil {
+		t.Fatalf("r1: %v", err)
+	}
+	r2, err := NewResource(activation, []byte("dedup"))
+	if err != nil {
+		t.Fatalf("r2: %v", err)
+	}
+	if r1.URI() != r2.URI() {
+		t.Errorf("URI mismatch: %q vs %q", r1.URI(), r2.URI())
+	}
+}
+
+func TestNewResource_DifferentBytesDifferentURI(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
+
+	r1, err := NewResource(activation, []byte("a"))
+	if err != nil {
+		t.Fatalf("r1: %v", err)
+	}
+	r2, err := NewResource(activation, []byte("b"))
+	if err != nil {
+		t.Fatalf("r2: %v", err)
+	}
+	if r1.URI() == r2.URI() {
+		t.Errorf("URIs unexpectedly equal: %q", r1.URI())
+	}
+}
+
+// --- SourcePath sharding ---
+
+func TestSourcePath_ShardedLayout(t *testing.T) {
+	ctx := newTestCtx(t)
+
+	r, err := NewResource(testActivation(t, ctx), []byte("shard test"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	want := filepath.Join(".devlore", "mem", "resource", "sha256", r.Hash[0:2], r.Hash)
+	if got := r.SourcePath().Rel(); got != want {
+		t.Errorf("SourcePath = %q, want %q", got, want)
+	}
+}
+
+// --- DiscoverResource ---
+
+func TestDiscoverResource_RoundTripsURI(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
+
+	original, err := NewResource(activation, []byte("roundtrip"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	discovered, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	if err != nil {
+		t.Fatalf("DiscoverResource: %v", err)
+	}
+	if discovered.URI() != original.URI() {
+		t.Errorf("URI = %q, want %q", discovered.URI(), original.URI())
+	}
+	if discovered.Hash != original.Hash {
+		t.Errorf("Hash = %q, want %q", discovered.Hash, original.Hash)
+	}
+}
+
+func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
+	ctx := newTestCtx(t)
+
+	cases := []string{
+		"not a uri",
+		"tag:devlore.noblefactor.com,2026-01-01:#github.com/NobleFactor/devlore-cli/pkg/op/provider/mem.Resource",
+		"tag:devlore.noblefactor.com,2026-01-01:md5:abc#github.com/NobleFactor/devlore-cli/pkg/op/provider/mem.Resource",
+		"tag:devlore.noblefactor.com,2026-01-01:sha256:not-hex#github.com/NobleFactor/devlore-cli/pkg/op/provider/mem.Resource",
+	}
+
+	for _, uri := range cases {
+		if _, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, uri); err == nil {
+			t.Errorf("expected error for malformed URI %q", uri)
+		}
+	}
+}
+
+// --- ConvertTo ---
+
+func TestConvertTo_Bytes(t *testing.T) {
+	ctx := newTestCtx(t)
+	payload := []byte("convert bytes")
+
+	r, err := NewResource(testActivation(t, ctx), payload)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
 
 	got, err := r.ConvertTo(reflect.TypeFor[[]byte]())
 	if err != nil {
-		t.Fatalf("Convert([]byte): %v", err)
+		t.Fatalf("ConvertTo []byte: %v", err)
 	}
-
 	gotBytes, ok := got.([]byte)
 	if !ok {
-		t.Fatalf("Convert([]byte) returned %T, want []byte", got)
+		t.Fatalf("ConvertTo returned %T, want []byte", got)
 	}
-	if string(gotBytes) != string(content) {
-		t.Errorf("Convert([]byte) = %q, want %q", gotBytes, content)
+	if !bytes.Equal(gotBytes, payload) {
+		t.Errorf("got %q, want %q", gotBytes, payload)
 	}
 }
 
-func TestResource_Convert_ToString(t *testing.T) {
-
+func TestConvertTo_String(t *testing.T) {
 	ctx := newTestCtx(t)
-	content := []byte("text content\nline two")
 
-	r := newRes(t, ctx, ResourceSpec{Namespace: "templates", Name: "t", Data: content})
+	r, err := NewResource(testActivation(t, ctx), []byte("convert string"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
 
 	got, err := r.ConvertTo(reflect.TypeFor[string]())
 	if err != nil {
-		t.Fatalf("Convert(string): %v", err)
+		t.Fatalf("ConvertTo string: %v", err)
 	}
-
-	gotString, ok := got.(string)
-	if !ok {
-		t.Fatalf("Convert(string) returned %T, want string", got)
-	}
-	if gotString != string(content) {
-		t.Errorf("Convert(string) = %q, want %q", gotString, content)
+	if got.(string) != "convert string" {
+		t.Errorf("got %q", got)
 	}
 }
 
-func TestResource_Convert_UnsupportedTarget(t *testing.T) {
-
+func TestConvertTo_UnsupportedTarget(t *testing.T) {
 	ctx := newTestCtx(t)
 
-	r := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "cfg", Data: []byte("x")})
-
-	if _, err := r.ConvertTo(reflect.TypeFor[int]()); err == nil {
-		t.Fatal("Convert(int) should error — not a supported target")
-	}
-}
-
-// --- Hash determinism ---
-
-func TestNewResource_Hash_Deterministic(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	r1 := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "a", Data: []byte("same")})
-	r2 := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "b", Data: []byte("same")})
-
-	if r1.Hash != r2.Hash {
-		t.Errorf("same data different hash: %q vs %q", r1.Hash, r2.Hash)
-	}
-}
-
-func TestNewResource_Hash_DifferentData(t *testing.T) {
-
-	ctx := newTestCtx(t)
-
-	r1 := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "a", Data: []byte("one")})
-	r2 := newRes(t, ctx, ResourceSpec{Namespace: "data", Name: "a", Data: []byte("two")})
-
-	if r1.Hash == r2.Hash {
-		t.Error("different data produced same hash")
-	}
-}
-
-// --- Assertion + fixture helpers ---
-
-// assertArchivedFileExists asserts the archive file at r.SourcePath exists on disk.
-func assertArchivedFileExists(t *testing.T, r *Resource) {
-	t.Helper()
-	if _, err := os.Stat(r.SourcePath().Abs()); err != nil {
-		t.Fatalf("archive file missing at %q: %v", r.SourcePath().Abs(), err)
-	}
-}
-
-// assertArchivedFileAbsent asserts the archive file at r.SourcePath does NOT exist — used for
-// metadata-only Resource constructions.
-func assertArchivedFileAbsent(t *testing.T, r *Resource) {
-	t.Helper()
-	if _, err := os.Stat(r.SourcePath().Abs()); err == nil {
-		t.Errorf("archive file at %q exists but should not (metadata-only Resource)", r.SourcePath().Abs())
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("unexpected stat error on %q: %v", r.SourcePath().Abs(), err)
-	}
-}
-
-// assertArchivedContent reads r's archived content and compares to want.
-func assertArchivedContent(t *testing.T, r *Resource, want []byte) {
-	t.Helper()
-
-	rc, err := r.Reader()
+	r, err := NewResource(testActivation(t, ctx), []byte("x"))
 	if err != nil {
-		t.Fatalf("Reader: %v", err)
+		t.Fatalf("NewResource: %v", err)
 	}
-	defer func() { _ = rc.Close() }()
 
-	got, err := io.ReadAll(rc)
+	_, err = r.ConvertTo(reflect.TypeFor[int]())
+	if err == nil {
+		t.Fatal("expected error for unsupported target")
+	}
+}
+
+// --- CanConvertTo ---
+
+func TestCanConvertTo(t *testing.T) {
+	ctx := newTestCtx(t)
+	r, err := NewResource(testActivation(t, ctx), []byte("x"))
 	if err != nil {
-		t.Fatalf("ReadAll: %v", err)
+		t.Fatalf("NewResource: %v", err)
 	}
-	if !bytes.Equal(got, want) {
-		t.Errorf("archived content = %q, want %q", got, want)
+
+	cases := []struct {
+		target reflect.Type
+		want   bool
+	}{
+		{reflect.TypeFor[[]byte](), true},
+		{reflect.TypeFor[string](), true},
+		{reflect.TypeFor[int](), false},
+	}
+
+	for _, c := range cases {
+		if got := r.CanConvertTo(c.target); got != c.want {
+			t.Errorf("CanConvertTo(%s) = %v, want %v", c.target, got, c.want)
+		}
 	}
 }
 
-// bytesOnly exposes Bytes() without implementing io.Reader — isolates the Bytes() dispatch branch.
-type bytesOnly struct {
-	content []byte
-}
+// --- Equal ---
 
-func (b *bytesOnly) Bytes() []byte { return b.content }
+func TestEqual_SameBytes(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
 
-// binaryOnly implements encoding.BinaryMarshaler and nothing earlier in the switch.
-type binaryOnly struct {
-	content []byte
-}
-
-func (b *binaryOnly) MarshalBinary() ([]byte, error) { return b.content, nil }
-
-// textOnly implements encoding.TextMarshaler and nothing earlier in the switch.
-type textOnly struct {
-	text []byte
-}
-
-func (t *textOnly) MarshalText() ([]byte, error) { return t.text, nil }
-
-// erroringReader yields `after` zero bytes and then returns a synthetic error.
-type erroringReader struct {
-	after int
-	read  int
-	err   error
-}
-
-func (r *erroringReader) Read(p []byte) (int, error) {
-	if r.read >= r.after {
-		return 0, r.err
+	r1, err := NewResource(activation, []byte("eq"))
+	if err != nil {
+		t.Fatalf("r1: %v", err)
 	}
-	n := len(p)
-	if r.read+n > r.after {
-		n = r.after - r.read
+	r2, err := NewResource(activation, []byte("eq"))
+	if err != nil {
+		t.Fatalf("r2: %v", err)
 	}
-	for i := range n {
-		p[i] = 0
+	if !r1.Equal(r2) {
+		t.Error("expected r1.Equal(r2) for byte-identical inputs")
 	}
-	r.read += n
-	return n, nil
 }
 
-var errSyntheticRead = errors.New("synthetic read error")
+func TestEqual_DifferentBytes(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
+
+	r1, _ := NewResource(activation, []byte("a"))
+	r2, _ := NewResource(activation, []byte("b"))
+	if r1.Equal(r2) {
+		t.Error("expected Equal to be false for distinct content")
+	}
+}
+
+func TestEqual_RejectsNonResource(t *testing.T) {
+	ctx := newTestCtx(t)
+	r, _ := NewResource(testActivation(t, ctx), []byte("x"))
+
+	if r.Equal("not a resource") {
+		t.Error("expected Equal to reject non-*Resource")
+	}
+	if r.Equal(nil) {
+		t.Error("expected Equal to reject nil")
+	}
+}
+
+// --- Marshalers (URI round-trip) ---
+
+func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
+
+	original, err := NewResource(activation, []byte("marshal-json"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	data, err := json.Marshal(original.URI())
+	if err != nil {
+		t.Fatalf("Marshal URI: %v", err)
+	}
+
+	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	if err != nil {
+		t.Fatalf("DiscoverResource seed: %v", err)
+	}
+
+	if err := seeded.UnmarshalJSON(data); err != nil {
+		t.Fatalf("UnmarshalJSON: %v", err)
+	}
+	if seeded.URI() != original.URI() {
+		t.Errorf("URI after unmarshal = %q, want %q", seeded.URI(), original.URI())
+	}
+	if seeded.Hash != original.Hash {
+		t.Errorf("Hash after unmarshal = %q, want %q", seeded.Hash, original.Hash)
+	}
+}
+
+func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
+	r := &Resource{}
+	if err := r.UnmarshalJSON([]byte(`"tag:..:sha256:abc#"`)); err == nil || !strings.Contains(err.Error(), "RuntimeEnvironment") {
+		t.Errorf("expected RuntimeEnvironment error, got %v", err)
+	}
+}
+
+func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
+
+	original, err := NewResource(activation, []byte("marshal-text"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	if err != nil {
+		t.Fatalf("DiscoverResource seed: %v", err)
+	}
+
+	if err := seeded.UnmarshalText([]byte(original.URI())); err != nil {
+		t.Fatalf("UnmarshalText: %v", err)
+	}
+	if seeded.URI() != original.URI() {
+		t.Errorf("URI after unmarshal = %q, want %q", seeded.URI(), original.URI())
+	}
+}
+
+func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
+	ctx := newTestCtx(t)
+	activation := testActivation(t, ctx)
+
+	original, err := NewResource(activation, []byte("marshal-yaml"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	if err != nil {
+		t.Fatalf("DiscoverResource seed: %v", err)
+	}
+
+	target := original.URI()
+	decode := func(v any) error {
+		ptr, ok := v.(*string)
+		if !ok {
+			return errors.New("unsupported target")
+		}
+		*ptr = target
+		return nil
+	}
+
+	if err := seeded.UnmarshalYAML(decode); err != nil {
+		t.Fatalf("UnmarshalYAML: %v", err)
+	}
+	if seeded.URI() != original.URI() {
+		t.Errorf("URI after unmarshal = %q, want %q", seeded.URI(), original.URI())
+	}
+}
+
+// --- Reader error path ---
+
+func TestReader_RejectsMissingSourcePath(t *testing.T) {
+	r := &Resource{}
+	if _, err := r.Reader(); err == nil {
+		t.Fatal("expected error for missing SourcePath")
+	}
+}
