@@ -150,14 +150,25 @@ Each field serves a specific purpose:
 
 **Three resource states:**
 
-- **Unresolved** — Source input. URI and type set, metadata empty. Created
-  at plan time by `catalog.Resolve()`. Resolved by the executor's
-  pre-flight pass (os.Stat against target machine).
-- **Pending** — Output. URI and type set, metadata empty. Created at plan
-  time by `catalog.Shadow()`. Resolved by node execution results — the
-  provider populates metadata after creating the entity.
-- **Resolved** — Metadata populated (inode, device, size, mode, modtime,
-  checksum). Either resolved by pre-flight or by node execution.
+- **Pending** — Entry exists in the namespace (URI claimed) but has not yet
+  been observed (discovery) or produced (creation). Plan-time entries are
+  born here; runtime constructors insert as Pending then transition to
+  Active before returning. Metadata may be empty.
+- **Active** — Entry has been observed-as-existing (discovery) or freshly
+  created (production). Metadata is populated. Consumers can trust the
+  Resource.
+- **Gone** — Internal, reactive. Set by the catalog when an attempt to
+  access the underlying resource via `r.Resolve()` fails. Not driven by
+  explicit "delete" calls. Observed during DiscoverResource, reconciliation,
+  or any other operation that touches the underlying state.
+
+The catalog owns state transitions. Resource providers' `Resolve()` returns
+success or failure; the catalog wraps the call and applies the transition
+(`Active` on success, `Gone` on failure). The state field on
+`op.ResourceBase` is set by catalog code only — providers never write to it
+directly. This puts the burden of lifecycle management in one place.
+
+See §6.2 for the full operation-by-operation rules.
 
 **Discovery**: `NewResource` (`resource.go:47`) performs `os.Stat` and
 populates all metadata fields. In the target architecture, `NewResource` is
@@ -543,51 +554,92 @@ have no way to discover a new entry of the right concrete type.
 | --- | --- | --- |
 | URIs and relationships | Planner (ResourceCatalog) | Plan time |
 | Implicit edges via shadowing | Planner | Plan time |
-| Resource state (unresolved/pending/resolved) | ResourceCatalog | Both |
-| Metadata (inode, size, checksum) | Executor pre-flight | Execution time, per target |
-| Pending → resolved transitions | Node execution results | Execution time |
+| Resource state (Pending/Active/Gone) | ResourceCatalog | Both — catalog owns transitions |
+| Metadata (inode, size, checksum) | Executor pre-flight + node execution | Execution time, per target |
+| State transitions on success/failure | ResourceCatalog (wraps r.Resolve) | Execution time |
 
 ### 6.2 Catalog Operations
 
-The `ResourceCatalog` provides three core operations:
+The catalog mediates two provider-side operations: **DiscoverResource**
+(observation, no production claim) and **NewResource** (production —
+producer creates the underlying resource and registers it). Both go
+through the catalog's internal `Discover` / `GetOrCreate` methods, which
+in turn read or update the namespace and append entries to the ledger.
 
-- **Resolve(r)** *(plan time)* — Takes a typed resource with its URI set.
-  If the URI has never been seen, `r` is cataloged as a discovery entry
-  (empty `originID`, metadata empty) and returned as-is along with its
-  freshly-assigned catalog ID. If the URI was previously cataloged —
-  either as a discovery or shadowed by a producer — the canonical entry
-  is returned and `r` is discarded. Callers should always use the
-  returned `Resource` so downstream consumers observe the authoritative
-  version.
+The catalog owns state transitions. Provider `Resolve()` returns
+success or failure; the catalog applies the resulting state change to
+the entry. The eight rules below define the full behavior matrix.
 
-- **Shadow(r, originID)** *(plan time)* — Catalogs a new resource version
-  under `originID`, stamps the catalog `id` and `originID` on its
-  `ResourceBase`, and updates the namespace to point to it. Any
-  subsequent `Resolve` for this URI returns the shadowed version. Empty
-  `originID` is rejected. Write-write conflict detection: if the URI is
-  already shadowed by a *different* non-empty origin, `Shadow` returns
-  an error — two nodes targeting the same output URI collide
-  immediately with a clear message. Re-shadowing with the same origin
-  is permitted.
+#### State machine
 
-- **Transition(resolved, originID)** *(execution time)* — Fills the
-  metadata of a pending entry in place with the metadata from the
-  resolved resource returned by the forward method. Finds the pending
-  entry by `resolved.URI()`, verifies the existing entry's origin
-  matches, then performs a reflection-based struct copy of
-  resource-specific fields from `resolved` onto the cataloged entry,
-  preserving the catalog identity fields (`id`, `originID`) on
-  `ResourceBase`. The mutation is in place: every outstanding pointer
-  to the pending resource — slots, promises, planner references —
-  observes the populated metadata immediately. No new ledger entry is
-  appended. This is the plumbing behind the §3.1 **pending → resolved**
-  state transition and the §6.5 post-flight metadata update pass.
+```
+            ┌────────────┐
+            │  Pending   │  ◀── initial state on insert
+            └────────────┘
+              │        │
+   Resolve OK │        │ Resolve fails
+              ▼        ▼
+       ┌──────────┐ ┌────────┐
+       │  Active  │ │  Gone  │
+       └──────────┘ └────────┘
+              │        ▲
+              └────────┘
+       (any later Resolve failure
+        on an Active entry → Gone)
+```
 
-  `Transition` is the execution-phase mirror of `Shadow`: `Shadow`
-  creates a pending entry at plan time; `Transition` fills it at
-  execution time. The forward method is free to return a fresh,
-  fully-populated resource (typical case) — the catalog rebinds its
-  contents onto the existing pending entry without disturbing lineage.
+`Gone` is reactive — set whenever an operation that touches the
+underlying state via `r.Resolve()` fails. `Active` is reached on either
+a successful observation (discovery path) or fresh creation (production
+path). No path transitions out of `Gone` automatically; reviving a
+Gone URI requires a subsequent `NewResource` call (Rule 7).
+
+#### Catalog behavior matrix
+
+| Op | Cache state | `r.Resolve()` | Content-addressable | Location-based |
+|---|---|---|---|---|
+| `DiscoverResource` | miss | success | append `Pending` → `Active`; no `producerID` | same |
+| `DiscoverResource` | miss | failure | append `Pending` → `Gone`; return error | same |
+| `DiscoverResource` | hit, `Pending` | success | in-place `Pending` → `Active`; discard input | same |
+| `DiscoverResource` | hit, `Pending` | failure | in-place `Pending` → `Gone`; return error | same |
+| `DiscoverResource` | hit, `Active` | (not called) | return existing | same |
+| `DiscoverResource` | hit, `Gone` | (not called) | return error | same |
+| `DiscoverResource` | (any) | (any) | **never shadows** | **never shadows** |
+| `NewResource` | miss | (not called) | append `Pending` → `Active`; stamp `producerID` | same |
+| `NewResource` | hit, `Pending`/`Active` | (not called) | return existing (singleton); no shadow, no state change, `producerID` preserved | **shadow** with new entry born `Pending` → `Active`, stamp `producerID`; old entry stays in ledger |
+| `NewResource` | hit, `Gone` | (not called) | return existing, transition `Gone` → `Active` (producer just re-created the content) | **shadow** with new entry born `Pending` → `Active` (revives the URI); old Gone entry stays in ledger as history |
+
+**Where addressing matters:** only the `NewResource` cache-hit rows.
+Everything else is identical for the two types — `DiscoverResource`'s
+behavior is shape-agnostic because it never shadows; `NewResource`
+cache miss is identical because both append once.
+
+**Where state matters:** `DiscoverResource` branches on cache state to
+decide whether to call `r.Resolve()` and how to apply the result.
+`NewResource` collapses `Pending`/`Active` to "return existing" (CAS)
+or "shadow" (location) and treats `Gone` as a revive trigger.
+
+**Catalog owns transitions:** the state field on `op.ResourceBase` is
+mutated by catalog code only. Resource providers' `r.Resolve()`
+returns nil or an error; the catalog interprets the result and applies
+the state change. Lifecycle management is centralized rather than
+fragmented across every provider implementation.
+
+#### Why this shape
+
+The asymmetry between Rules 6 and 7 — return existing vs shadow —
+matches the asymmetry already established by `Resolve`'s addressing-
+aware cascade (§6.1). Content-addressable URIs encode their identity
+in the URI itself, so re-producing the same URI is provably the same
+resource. Location-based URIs do not encode content, so a new
+production at the same URI is genuinely a new version that downstream
+consumers need to see.
+
+The Gone state is recorded rather than suppressed because it carries
+useful information: "we expected this URI to exist and it doesn't"
+becomes input to compensation, recovery, and reconciliation paths. A
+caller seeing a Gone entry knows the catalog has already verified the
+miss; no redundant probe is needed.
 
 ### 6.3 Shadowing Walkthrough
 
