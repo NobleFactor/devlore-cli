@@ -18,6 +18,8 @@ func init() {
 		func(ctx *op.RuntimeEnvironment, identity any) (op.Resource, error) {
 			return provider.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, identity)
 		},
-		nil,
+		map[string][]string{
+			"Equal": {"other"},
+		},
 	)
 }

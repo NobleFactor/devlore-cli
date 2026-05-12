@@ -36,7 +36,7 @@ var _ fmt.Stringer = (*Resource)(nil)
 
 // Resource represents a parsed JSON document held in memory, identified by the SHA-256 of its canonical form.
 //
-// Unlike mem.Resource which holds opaque bytes, json.Resource carries a parsed Go value (map[string]any, []any,
+// Unlike [mem.Resource] which holds opaque bytes, json.Resource carries a parsed Go value (map[string]any, []any,
 // scalars) that can be validated against a JSON Schema or re-encoded without Starlark↔Go round trips.
 //
 // Identity is content-addressed via canonicalization: the input bytes are parsed with [encoding/json] and
@@ -46,14 +46,14 @@ var _ fmt.Stringer = (*Resource)(nil)
 //
 // Canonicalization caveats:
 //   - Not RFC 8785 (JCS) compliant. Within-Go determinism only; cross-language portability not in scope.
-//   - Numbers larger than 2^53 lose precision via float64 round-trip — two distinct large integers can collide.
+//   - Numbers larger than 2^53 lose precision via `float64` round trip — two distinct large integers can collide.
 //   - Object key sort is UTF-8 byte order (Go's [encoding/json] default), not the UTF-16 order JCS specifies.
 //     Agrees with JCS for ASCII keys; diverges for the supplementary plane.
 type Resource struct {
 	op.ResourceBase
 
-	// Data is the canonical JSON bytes (sorted-key, whitespace-free re-marshal of the parsed input). Identity-
-	// bearing — SHA-256(Data) is encoded in the URI <specific> as `json:<Hash>`.
+	// Data is the canonical JSON bytes (sorted-key, whitespace-free re-marshal of the parsed input). Identity
+	// bearing — `SHA-256(Data)` is encoded in the URI <specific> as `json:<Hash>`.
 	Data []byte `json:"data,omitempty"`
 
 	// Hash is the lowercase hex SHA-256 of Data, identity-bearing. Also encoded in the URI <specific>.
@@ -375,7 +375,9 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
-// Resolve is a no-op for json resources — identity is the canonical content; nothing to probe at resolve time.
+// Resolve is a no-op for JSON resources.
+//
+// Identity is the canonical content; nothing to probe at resolve time.
 //
 // Returns:
 //   - error: nil under normal conditions.
@@ -443,7 +445,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 // Same prerequisites and semantics as [Resource.UnmarshalJSON].
 //
 // Parameters:
-//   - unmarshal: yaml decode hook supplied by the YAML library; called with a *string target.
+//   - unmarshal: YAML decode hook supplied by the YAML library; called with a *string target.
 //
 // Returns:
 //   - error: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.

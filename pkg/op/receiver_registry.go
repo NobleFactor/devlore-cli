@@ -111,6 +111,18 @@ func (a *announcements) snapshotReceiverTypes() []ReceiverType {
 	return out
 }
 
+// SnapshotReceiverTypes returns a freshly-allocated slice of every announced receiver type.
+//
+// Intended for boot-discipline tests, code-generation tools, and introspection callers that need to enumerate
+// the package-level registry from outside pkg/op. Iteration order is unspecified — callers that need a stable
+// order must sort the result themselves.
+//
+// Returns:
+//   - []ReceiverType: snapshot of every receiver type currently in the registry.
+func SnapshotReceiverTypes() []ReceiverType {
+	return announced.snapshotReceiverTypes()
+}
+
 // defaultFunc returns the DefaultFunc registered under name.
 //
 // Slot-fill reads through this accessor on every `{{ funcname args }}` command in a deferred default.
