@@ -44,11 +44,11 @@ var _ fmt.Stringer = (*Resource)(nil)
 // The SHA-256 of those canonical bytes drives the URI-specific (`json:<hex>`) and the Hash field. Two
 // semantically equal inputs — `{"a":1,"b":2}` and `{"b":2,"a":1}` — produce identical URIs by construction.
 //
-// Canonicalization caveats:
+// Canonicalization Warnings:
 //   - Not RFC 8785 (JCS) compliant. Within-Go determinism only; cross-language portability not in scope.
 //   - Numbers larger than 2^53 lose precision via `float64` round trip — two distinct large integers can collide.
-//   - Object key sort is UTF-8 byte order (Go's [encoding/json] default), not the UTF-16 order JCS specifies.
-//     Agrees with JCS for ASCII keys; diverges for the supplementary plane.
+//   - Object key sort is UTF-8 byte order (Go's [encoding/json] default), not the UTF-16 order JCS specifies. Agrees
+//     with JCS for ASCII keys; diverges for the supplementary plane.
 type Resource struct {
 	op.ResourceBase
 
@@ -66,9 +66,9 @@ type Resource struct {
 
 // NewResource constructs a json.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
 //
-// json.Resource is content-keyed — the URI is `json:<sha256-hex>` derived from the canonical form of the input, so two
-// callers with semantically equal inputs produce the same URI and share a single catalog entry. The first caller's
-// SiteID stamps producerID; subsequent same-content callers get the existing entry unchanged.
+// The [json.Resource] is content-keyed — the URI is `json:<sha256-hex>` derived from the canonical form of the input,
+// so two callers with semantically equal inputs produce the same URI and share a single catalog entry. The first
+// caller's SiteID stamps producerID; later calls for the same content get the existing entry unchanged.
 //
 // Use NewResource from a producer dispatch context. Use [DiscoverResource] instead when the caller is not claiming
 // production (rehydration, the framework's slot-coercion adapter).
@@ -76,10 +76,10 @@ type Resource struct {
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; its Runtime supplies the runtime environment, and its SiteID
-//     becomes the catalog entry's producerID. Must be non-nil.
-//   - value: raw JSON bytes ([]byte), an [io.Reader] streaming JSON, or a canonical tag URI string. Bytes and
-//     streams are parsed + canonicalized during construction; an invalid JSON document errors here.
+//   - activationRecord: per-dispatch activation; its Runtime supplies the runtime environment, and its SiteID becomes
+//     the catalog entry's producerID. Must be non-nil.
+//   - value: raw JSON bytes ([]byte), an [io.Reader] streaming JSON, or a canonical tag URI string. Bytes and streams
+//     are parsed and canonicalized during construction. An Invalid JSON document errors here.
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
@@ -116,7 +116,7 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // expects a *json.Resource) and by callers holding a reference handle without claiming production. UnmarshalJSON /
 // UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
 //
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime is
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord. Runtime is
 // consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an [op.ActivationRecord]
 // with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: runtimeEnvironment}`.
 //
@@ -217,11 +217,11 @@ func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Reso
 	}, nil
 }
 
-// newFromReader drains a stream and forwards to [newFromBytes] for parse + canonicalization.
+// newFromReader drains a stream and forwards to [newFromBytes] for parse and canonicalization.
 //
 // Canonicalization requires the full document in memory (sorted keys, stable re-marshal), so there is no
-// stream-while-hashing fast path the way mem.Resource has — the reader must be fully drained before the parser
-// runs. The drain cost is unavoidable for any content-addressed JSON form.
+// stream-while-hashing fast path the way mem.Resource has — the reader must be fully drained before the parser runs.
+// The drain cost is unavoidable for any content-addressed JSON form.
 //
 // Parameters:
 //   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
