@@ -275,3 +275,127 @@ func TestExtractResource_MapWithNestedResourceBase(t *testing.T) {
 }
 
 // endregion
+
+// region Resolve freshness cascade (k.10)
+
+// addressableResource is a test fixture for the addressing-aware Resolve cascade. It overrides Addressing,
+// Etag, and Digest with caller-supplied values, and counts how many times Etag and Digest are called so the
+// fast-path assertions can verify "not called."
+type addressableResource struct {
+	ResourceBase
+	addressingMode AddressingMode
+	etagValue      string
+	digestHex      string
+	etagCalls      int
+	digestCalls    int
+}
+
+func (r *addressableResource) Addressing() AddressingMode { return r.addressingMode }
+
+func (r *addressableResource) Etag() (string, error) {
+	r.etagCalls++
+	return r.etagValue, nil
+}
+
+func (r *addressableResource) Digest() (Digest, error) {
+	r.digestCalls++
+	if r.digestHex == "" {
+		return Digest{}, nil
+	}
+	return ParseDigest("sha256:" + r.digestHex)
+}
+
+const (
+	testDigestA = "0000000000000000000000000000000000000000000000000000000000000001"
+	testDigestB = "0000000000000000000000000000000000000000000000000000000000000002"
+)
+
+func newAddressable(uri string, mode AddressingMode, etag, digestHex string) *addressableResource {
+	return &addressableResource{
+		ResourceBase:   ResourceBase{uri: uri},
+		addressingMode: mode,
+		etagValue:      etag,
+		digestHex:      digestHex,
+	}
+}
+
+func TestCatalog_Resolve_ContentAddressing_SkipsEtagAndDigest(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newAddressable("tag:..:sha256:abc#mem", AddressingContent, "any", testDigestA)
+	c.Resolve(first) // populate
+
+	probe := newAddressable("tag:..:sha256:abc#mem", AddressingContent, "different", testDigestB)
+	got, _ := c.Resolve(probe)
+
+	if got != Resource(first) {
+		t.Errorf("Resolve: returned %p, want canonical %p", got, first)
+	}
+	if probe.etagCalls != 0 {
+		t.Errorf("Etag called %d times, want 0 on content-addressed fast path", probe.etagCalls)
+	}
+	if probe.digestCalls != 0 {
+		t.Errorf("Digest called %d times, want 0 on content-addressed fast path", probe.digestCalls)
+	}
+}
+
+func TestCatalog_Resolve_LocationAddressing_EtagMatch_SkipsDigest(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newAddressable("file:///etc/foo", AddressingLocation, "etag-1", testDigestA)
+	c.Resolve(first)
+
+	probe := newAddressable("file:///etc/foo", AddressingLocation, "etag-1", testDigestB)
+	got, _ := c.Resolve(probe)
+
+	if got != Resource(first) {
+		t.Errorf("Resolve: returned %p, want canonical %p", got, first)
+	}
+	if probe.etagCalls == 0 {
+		t.Errorf("Etag never called; expected exactly 1 call on cache hit")
+	}
+	if probe.digestCalls != 0 {
+		t.Errorf("Digest called %d times, want 0 when Etag matches", probe.digestCalls)
+	}
+}
+
+func TestCatalog_Resolve_LocationAddressing_EtagMismatch_TriggersDigest(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newAddressable("file:///etc/foo", AddressingLocation, "etag-1", testDigestA)
+	c.Resolve(first)
+
+	probe := newAddressable("file:///etc/foo", AddressingLocation, "etag-2", testDigestA)
+	got, _ := c.Resolve(probe)
+
+	if got != Resource(first) {
+		t.Errorf("Resolve: returned %p, want canonical %p", got, first)
+	}
+	if probe.etagCalls == 0 {
+		t.Errorf("Etag never called; expected exactly 1 call")
+	}
+	if probe.digestCalls == 0 {
+		t.Errorf("Digest never called; expected the cascade to compute Digest on Etag mismatch")
+	}
+}
+
+func TestCatalog_Resolve_LocationAddressing_GenuineDrift_PreservesCanonical(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newAddressable("file:///etc/foo", AddressingLocation, "etag-1", testDigestA)
+	c.Resolve(first)
+
+	// Probe disagrees on both Etag and Digest — genuine content drift.
+	probe := newAddressable("file:///etc/foo", AddressingLocation, "etag-2", testDigestB)
+	got, _ := c.Resolve(probe)
+
+	// Per spec: Resolve preserves cached identity. The drift will surface in a future reconciliation pass.
+	if got != Resource(first) {
+		t.Errorf("Resolve: returned %p, want canonical %p (Resolve preserves cached identity on drift)", got, first)
+	}
+	if probe.digestCalls == 0 {
+		t.Errorf("Digest never called; expected the cascade to verify before declaring drift")
+	}
+}
+
+// endregion

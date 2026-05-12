@@ -71,6 +71,15 @@ func NewResourceCatalog() *ResourceCatalog {
 // into the catalog's canonical entries, picking up any `producerID` that a producer has already stamped and so
 // creating implicit edges via URI matching.
 //
+// Freshness cascade on cache hit (per [ResourceBase.Etag]'s contract): the catalog branches on
+// `r.Addressing()`. For [AddressingContent], the URI carries the digest, so URI lookup is the complete identity
+// check — no Etag or Digest call is needed. For [AddressingLocation], the canonical entry's freshness is
+// verified via the Etag-mismatch-then-Digest cascade: compare the input's Etag to the canonical's Etag; on
+// match, fast-pass; on mismatch, compute Digest on both sides; on Digest match, the mismatch is metadata
+// drift only and the canonical is returned unchanged; on Digest mismatch, the canonical is still returned
+// (Resolve preserves the cached identity), but the drift will be visible to a future reconciliation pass.
+// Etag and Digest calls happen outside the catalog mutex so they cannot block other namespace operations.
+//
 // Parameters:
 //   - r: a typed resource with its URI set.
 //
@@ -79,6 +88,32 @@ func NewResourceCatalog() *ResourceCatalog {
 //   - string: the canonical entry's catalog ID.
 func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 
+	canonical, id, hit := c.lookupOrCatalog(r)
+	if !hit {
+		return canonical, id
+	}
+
+	if r.Addressing() == AddressingContent {
+		return canonical, id
+	}
+
+	verifyLocationFreshness(canonical, r)
+	return canonical, id
+}
+
+// lookupOrCatalog performs the namespace lookup under the catalog mutex. On hit returns the canonical entry;
+// on miss interns r as a discovery entry and returns it. Caller must run any freshness cascade outside the
+// returned value, since Etag/Digest calls may do I/O.
+//
+// Parameters:
+//   - r: a typed resource with its URI set.
+//
+// Returns:
+//   - Resource: the canonical entry on hit, or r itself on miss (now cataloged).
+//   - string: the canonical catalog ID.
+//   - bool: true if r.URI() was already cataloged; false if r was just interned.
+func (c *ResourceCatalog) lookupOrCatalog(r Resource) (Resource, string, bool) {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -86,12 +121,52 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 
 	if id, ok := c.ns[uri]; ok {
 		if idx, ok := c.byID[id]; ok {
-			return c.entries[idx], id
+			return c.entries[idx], id, true
 		}
 	}
 
 	id := c.catalogLocked(r, "")
-	return r, id
+	return r, id, false
+}
+
+// verifyLocationFreshness runs the Etag-mismatch-then-Digest cascade for [AddressingLocation] entries on
+// cache hit.
+//
+// The cascade is informational under Resolve's contract: any mismatch is recorded by the function's side
+// effects (none today — the drift signal is left to a future reconciliation pass) but does not change the
+// caller-visible return. Etag and Digest calls run here, outside the catalog mutex.
+//
+// Parameters:
+//   - canonical: the catalog's stored Resource for the URI.
+//   - observed: the input Resource the caller passed to Resolve.
+func verifyLocationFreshness(canonical, observed Resource) {
+
+	observedEtag, err := observed.Etag()
+	if err != nil {
+		return
+	}
+	canonicalEtag, err := canonical.Etag()
+	if err != nil {
+		return
+	}
+	if observedEtag == canonicalEtag {
+		return
+	}
+
+	observedDigest, err := observed.Digest()
+	if err != nil {
+		return
+	}
+	canonicalDigest, err := canonical.Digest()
+	if err != nil {
+		return
+	}
+	if observedDigest.String() == canonicalDigest.String() {
+		return
+	}
+
+	// Genuine content drift. Resolve preserves cached identity; the drift will surface in a future
+	// reconciliation pass (k.15). No side effect here today.
 }
 
 // GetOrCreate returns the canonical catalog entry for uri, invoking factory only on cache miss.
