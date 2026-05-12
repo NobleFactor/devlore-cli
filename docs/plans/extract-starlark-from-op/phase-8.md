@@ -4,7 +4,7 @@ parent: "docs/plans/extract-starlark-from-op.md"
 issue: 275
 status: in-progress
 created: 2026-04-17
-updated: 2026-05-11
+updated: 2026-05-12
 ---
 
 ## Implementation status
@@ -34,7 +34,7 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 13.0(h) | Post-13.0(b) cleanup | complete | `wrapper`→`goReceiver` rename; `file.Receipt.recoveryID` field; stack-comparison docs refreshed; bare-UUID test sweep (9 sites); `ui.Provider` test pull. |
 | 13.0(i) | Capability migration: `pkg/status` + `pkg/result` + `pkg/platform` | complete | `RuntimeEnvironment.Writer` removed; narrative output via `status.Narrator`; typed payloads via `result.Pipeline`; `pkg/process` bridges `os/exec`; `pkg/sink` byte-level abstraction; powershell split to own provider; codegen emits one gen file per Resource type. |
 | 13.0(j) | Polymorphic `NewResource` for `mem` + `function` | complete | Both constructors accept `ResourceSpec` or `string` URI. `mem.SourcePath` field deleted; `SourcePath()` method derives path from typeID + `ReachabilityURI()`. `function.Resource` inherits via embedding. Unmarshalers rewritten to call `NewResource(env, uri)` directly. |
-| 13.0(k) | Two-model resource design (location-based vs. CAS-based) + Digest/Etag/Addressing | in-progress | Supersedes 13.0(c). Location-based URI: `tag:..:<reach>#<go-type-id>` (file/git/appnet/pkg/service). CAS-based URI: `tag:..:<algo>:<hex>#<go-type-id>` (mem/json/yaml/function). New interfaces: `Digest()`, `Etag()`, `Addressing()` on `op.Resource`; defaults on `op.ResourceBase`; `AddressingMode` enum. **Done:** framework + file/git/appnet/pkg overrides (k.1–k.5 plus pkg, which landed ahead of plan). **In-flight (mem):** `newFromReader` added — drains an `io.Reader` through `io.TeeReader`+SHA-256 to a `.devlore/mem/resource/.staging/<random>` file then renames onto the canonical CAS path; `io.Reader` case wired into `buildCandidate` dispatch. Doc comments across `mem/{resource,resource_spec,helpers}.go` brought into line with the style guide; unexported free functions moved from `resource.go` to `helpers.go` per Section 10. **Remaining for mem:** collapse `ResourceSpec` wrapper to a `[]byte` dispatch case (Namespace/Name dropped, Data required); rewrite `SourcePath` to shard CAS paths (`<algo>/<hex[0:2]>/<hex>`) so canonical filenames don't carry colons; override `Addressing()`/`Digest()`/`Etag()` on `Resource`; migrate `newFromSpec`/`newFromURI` to the CAS identity. **Pending (k.6–k.15) for other types:** service overrides (Digest/Etag/Addressing/Equal/Resolve + resource-side JSON/Text/YAML marshalers); json/yaml `Addressing=Content` overrides + canonical-ordering verification (sorted keys, normalized whitespace) before hashing — without canonicalization the digests are non-deterministic; function URI rewrite + decide whether primary `Digest()` is source-digest or bytecode-digest (function is content-addressable over synthetic source, with bytecode independently addressable); catalog Resolve rewrite; lifecycle integration; reconciliation pass. Closes 13.0(a–j) on landing. |
+| 13.0(k) | Two-model resource design (location-based vs. CAS-based) + Digest/Etag/Addressing | in-progress | Supersedes 13.0(c). Location-based URI: `tag:..:<reach>#<go-type-id>` (file/git/appnet/pkg/service). CAS-based URI: `tag:..:<algo>:<hex>#<go-type-id>` (mem/json/yaml/function). New interfaces: `Digest()`, `Etag()`, `Addressing()` on `op.Resource`; defaults on `op.ResourceBase`; `AddressingMode` enum. **Done:** framework + file/git/appnet/pkg overrides (k.1–k.5 plus pkg, ahead of plan); mem (`ResourceSpec` collapsed to `[]byte`/`io.Reader`/`string` dispatch, `SourcePath` sharded as `<algo>/<hex[0:2]>/<hex>`, full Addressing/Digest overrides — Etag inherits `ResourceBase`'s URI default which is correct for `AddressingContent`); function (CAS over synthesized-source digest via the embedded `mem.Resource`; identity migration + URI rewrite landed alongside the mem work; Addressing/Digest inherited via embed); service (full override surface — Digest hashes URI, Addressing=Location, Equal/Resolve/Etag + resource-side JSON/Text/YAML marshalers; `buildCandidate` now accepts bare names *or* canonical tag URIs so marshalers round-trip). **Pending (k.8–k.15):** json/yaml `Addressing=Content` overrides + canonical-ordering verification (sorted keys, normalized whitespace) before hashing — without canonicalization the digests are non-deterministic and would enshrine a CAS-identity bug; catalog Resolve rewrite; lifecycle integration; reconciliation pass; k.12 boot-discipline test (one-shot, viable once json/yaml land). Closes 13.0(a–j) on landing. |
 | 13.0(l) | Remove `op.KnownAtExecution` sentinel | complete | Deleted `var KnownAtExecution`, `type knownAtExecution`, `func IsKnownAtExecution`. Sole call site in executor post-dispatch block removed alongside 13.0(m) m.1. |
 | 13.0(m) | Move catalog lifecycle from executor to providers + catalog | complete | Providers self-intern via `Catalog.GetOrCreate` at create time (two-constructor pattern: `NewResource` for production, `DiscoverResource` for discovery). Executor post-dispatch block (`executor.go:333-379`) deleted. m.1–m.5 landed across file/git/appnet/json/yaml/mem/function/pkg/service. |
 | 13.0(n) | Create writ graph executor | not-started | 8 callsites in `cmd/writ` invoke providers directly with `nil` activation: `migrate_cmd.go:292/302/310/320`, `commands.go:1400/1410/1422`, `migrate/execute.go:81`. All are `file.Provider` method calls (`Mkdir`/`Link`/`Move`). Blocks strict activation enforcement. When complete, writ commands run through a graph executor; the nil-activation defensive paths in the file provider can drop. |
@@ -62,19 +62,23 @@ initial plan.choose redesign source rode into the phase-8 WIP checkpoint (`f1ed1
 review; the previously-drafted 13b.1/13b.2/13c/13d recast (PlanM prefix + subgraph-kind executor +
 conditional-edge topology) is abandoned. Current work splits into two tracks: **(a)** Step 13.0 — Resource
 foundation cleanup. `<M>Planned` companion deletion is complete across the repo (zero matches). The
-12-required-interfaces rollout is complete on `op.ResourceBase` (shared defaults) plus four of nine
-Resource-bearing providers (file/git/appnet/pkg with full Digest/Etag/Addressing/Equal/Resolve overrides).
-Five Resource types still inherit `ResourceBase` defaults pending k.6–k.11: service (location-based,
-needs the five method overrides + resource-side marshalers); mem/function/json/yaml (all content-addressable —
-mem and function need URI-form rewrites from reachability-style to `tag:..:<algo>:<hex>#<go-type-id>`;
-json/yaml need canonical-ordering verification before hashing; function needs source-vs-bytecode digest
-decision). 13.0(m) catalog lifecycle landed across all nine Resource types (two-constructor pattern,
-producer-stamp verification, executor post-dispatch block deleted). 13.0(n) writ graph executor is the only
-remaining not-started item in 13.0 — 8 nil-activation callsites in `cmd/writ` block strict activation
-enforcement. **(b)** Successor designs for plan.choose (step 13), plan.gather (step 14), and plan.wait_until
-(step 15) are open — no fresh direction has been locked; will be designed after step 13.0 lands. Steps 16–21
-unchanged. Step 22 (file.Resource taxonomic factoring into base + Regular + Directory + Link) is the
-phase-8 exit item. Open design items O1–O3 remain.
+12-required-interfaces rollout is complete on `op.ResourceBase` (shared defaults) plus seven of nine
+Resource-bearing providers: file/git/appnet/pkg with full Digest/Etag/Addressing/Equal/Resolve overrides
+(landed ahead of plan); mem with `ResourceSpec` collapsed to `[]byte`/`io.Reader`/`string` dispatch, sharded
+CAS SourcePath, and Addressing/Digest overrides; function with CAS-over-synthesized-source identity (URI
+specific is `sha256:<source-digest>`) inheriting Addressing/Digest from the embedded mem.Resource; service
+with the full override surface plus URI-aware `buildCandidate` dispatch so marshaler round-trip works.
+Two Resource types still inherit `ResourceBase` defaults pending k.8–k.9: json and yaml, both
+content-addressable but blocked on canonical-ordering verification — without sorted keys and normalized
+whitespace before hashing the digests are non-deterministic and CAS identity breaks. 13.0(m) catalog
+lifecycle landed across all nine Resource types (two-constructor pattern, producer-stamp verification,
+executor post-dispatch block deleted). 13.0(n) writ graph executor is the only remaining not-started item in
+13.0 — 8 nil-activation callsites in `cmd/writ` block strict activation enforcement. **(b)** Successor
+designs for plan.choose (step 13), plan.gather (step 14), and plan.wait_until (step 15) are open — no fresh
+direction has been locked; will be designed after step 13.0 lands. Steps 16–21 unchanged. Step 22
+(file.Resource taxonomic factoring into base + Regular + Directory + Link) is the phase-8 exit item. Open
+design items O1–O3 remain — O3 (`pkg/op` → `pkg/workflow` rename) is surveyed at ~5K LOC of mechanical
+churn; decision deferred until 13.0(k) closes.
 
 # Phase 8: Plan-time scope and grouping combinators
 
