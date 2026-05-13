@@ -409,6 +409,16 @@ EXECUTE on machine B (same graph, different target):
 
 #### Ledger Structure
 
+> **State model below is superseded.** The `Pending` / `Resolved` /
+> `Unresolved` three-state model captured here was the original design.
+> It was replaced by the **Pending / Active / Gone** model during
+> 13.0(k) k.13 lifecycle integration. See
+> `docs/architecture/4-resource-management.md` §3.1 (state definitions)
+> and §6.2 (catalog behavior matrix) for the current authoritative
+> spec. The ledger structure described below (append-only by resource
+> ID, URI namespace, shadowing semantics) remains accurate; only the
+> per-entry state names and transitions have changed.
+
 The ledger is an append-only collection keyed by resource ID. The
 `NamespaceMap` deduplicates by URI — multiple nodes referencing the same
 path share a single ledger entry. Multiple entries per URI exist only from

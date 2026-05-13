@@ -607,17 +607,25 @@ Gone URI requires a subsequent `NewResource` call (Rule 7).
 | `DiscoverResource` | (any) | (any) | **never shadows** | **never shadows** |
 | `NewResource` | miss | (not called) | append `Pending` → `Active`; stamp `producerID` | same |
 | `NewResource` | hit, `Pending`/`Active` | (not called) | return existing (singleton); no shadow, no state change, `producerID` preserved | **shadow** with new entry born `Pending` → `Active`, stamp `producerID`; old entry stays in ledger |
-| `NewResource` | hit, `Gone` | (not called) | return existing, transition `Gone` → `Active` (producer just re-created the content) | **shadow** with new entry born `Pending` → `Active` (revives the URI); old Gone entry stays in ledger as history |
+| `NewResource` | hit, `Gone` | (not called) | **shadow** with new entry born `Pending` → `Active` (revives the URI); old Gone entry stays in ledger as history | same — **shadow** with new entry; Gone is terminal for the existing entry regardless of addressing |
 
-**Where addressing matters:** only the `NewResource` cache-hit rows.
-Everything else is identical for the two types — `DiscoverResource`'s
-behavior is shape-agnostic because it never shadows; `NewResource`
-cache miss is identical because both append once.
+**Where addressing matters:** only `NewResource` cache hits on
+`Pending` / `Active`. `DiscoverResource` is shape-agnostic across
+addressing types because it never shadows. `NewResource` on cache
+miss is also identical because both addressing types append once.
+`NewResource` on `Gone` hit is the same for both — shadow with a new
+entry — because `Gone` is terminal regardless of addressing.
 
 **Where state matters:** `DiscoverResource` branches on cache state to
 decide whether to call `r.Resolve()` and how to apply the result.
-`NewResource` collapses `Pending`/`Active` to "return existing" (CAS)
-or "shadow" (location) and treats `Gone` as a revive trigger.
+`NewResource` reads state to decide: on `Pending`/`Active`, CAS returns
+existing while location shadows; on `Gone`, both shadow (revive via
+new entry).
+
+**Gone is terminal.** No catalog operation transitions an entry out of
+`Gone`. Reviving a Gone URI requires a subsequent `NewResource` call,
+which appends a fresh entry via shadow rather than mutating the
+existing Gone entry. The Gone entry stays in the ledger as history.
 
 **Catalog owns transitions:** the state field on `op.ResourceBase` is
 mutated by catalog code only. Resource providers' `r.Resolve()`

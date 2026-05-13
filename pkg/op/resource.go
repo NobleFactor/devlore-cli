@@ -36,11 +36,15 @@ const tagURIPrefix = "tag:devlore.noblefactor.com,2026-01-01:"
 // not change after construction. [Resolve] enriches metadata (stat, version) but does not alter identity.
 type Resource interface {
 	Provider
+
 	URI() string
+	Addressing() AddressingMode
 	Digest() (Digest, error)
 	Etag() (string, error)
-	Addressing() AddressingMode
+	State() State
+
 	Resolve() error
+
 	resourceBase() *ResourceBase
 }
 
@@ -53,10 +57,11 @@ type Resource interface {
 type ResourceBase struct {
 	ProviderBase
 	id         string
-	uri        string
-	specific   string
 	producerID string
+	specific   string
+	state      State
 	typeID     string
+	uri        string
 }
 
 // NewResourceBase constructs a ResourceBase whose identity is the canonical tag URI.
@@ -82,11 +87,13 @@ func NewResourceBase(runtimeEnvironment *RuntimeEnvironment, specific string, go
 	}
 
 	typeID := typeIDOf(goType)
+
 	if typeID == "." {
 		return ResourceBase{}, fmt.Errorf("op.NewResourceBase: goType has empty PkgPath and Name")
 	}
 
 	uri := specific
+
 	if !strings.HasPrefix(uri, tagURIPrefix) {
 		uri = tagURIPrefix + specific
 	}
@@ -162,7 +169,6 @@ func Defer[R any, PR interface {
 	}
 
 	*v.resourceBase() = base
-
 	return v
 }
 
@@ -205,6 +211,18 @@ func (b *ResourceBase) ProducerID() string {
 	return b.producerID
 }
 
+// State returns the lifecycle state of this entry.
+//
+// Read-only accessor. The state is mutated only by catalog code (via the unexported markActive / markGone
+// helpers in pkg/op/resource_catalog.go); concrete Resource types and provider code cannot write to it.
+//
+// Returns:
+//   - State: the current lifecycle state — Pending (zero value, newly cataloged), Active (observed or
+//     produced), or Gone (Resolve failed; terminal).
+func (b *ResourceBase) State() State {
+	return b.state
+}
+
 // Format marshals value as compact JSON.
 //
 // Concrete resource receiverTypes call this from their String() method: func (r Resource) String() string { return
@@ -241,8 +259,8 @@ func (b *ResourceBase) CanConvertTo(target reflect.Type) bool {
 //   - target: the destination Go type the caller wants to project the resource into.
 //
 // Returns:
-//   - any: the resource's URI (as a Go string) when target is string.
-//   - error: non-nil if target is not a conversion this base recognizes.
+//   - any: the resource's URI (as a Go string) when `target` is string.
+//   - error: non-nil if `target` is not a conversion this base recognizes.
 func (b *ResourceBase) ConvertTo(target reflect.Type) (any, error) {
 
 	if target == stringType {
@@ -286,7 +304,7 @@ func (b *ResourceBase) Equal(other any) bool {
 
 // MarshalJSON marshals the resource to its JSON wire form, which is the URI as a JSON-encoded string.
 //
-// The URI is the resource's identity and the only field required for round-trip through JSON: catalog rehydration
+// The URI is the resource's identity and the only field required for a round trip through JSON: catalog rehydration
 // reconstructs the resource via [NewResource] from the stored URI. Concrete Resource types that need to persist
 // additional fields (cached metadata, domain-specific state) override [ResourceBase.MarshalJSON] with their own
 // serialization.
@@ -301,7 +319,7 @@ func (b *ResourceBase) MarshalJSON() ([]byte, error) {
 // MarshalText marshals the resource to its text wire form, which is the URI as raw UTF-8 bytes.
 //
 // The text form is consumed by stdlib encoders ([encoding/json] for map keys, [encoding/xml] for attributes), YAML
-// scalar emission via [yaml.v3], CLI flag ingestion via [flag.TextVar], and most env/config parsers. Round-trip through
+// scalar emission via [yaml.v3], CLI flag ingestion via [flag.TextVar], and most env/config parsers. Round trip through
 // [UnmarshalText] (implemented per concrete Resource type) reconstructs an equivalent resource.
 //
 // Returns:
@@ -324,8 +342,10 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 	return b.uri, nil
 }
 
-// Digest returns [ErrUnimplemented]. Concrete Resource types must override — content hashing is type-specific (full
-// file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
+// Digest returns [ErrUnimplemented].
+//
+// Concrete Resource types must override — content hashing is type-specific (full file sha256, HEAD commit
+// composition, last-observed body hash, projected from the URI for CAS, etc.).
 //
 // Returns:
 //   - Digest: the zero value.
@@ -334,7 +354,7 @@ func (b *ResourceBase) Digest() (Digest, error) {
 	return Digest{}, ErrUnimplemented
 }
 
-// Etag returns the URI as the cheap change-detection token.
+// Etag returns the URI as the inexpensive change-detection token.
 //
 // Suggestive of change but not authoritative; the catalog computes [Resource.Digest] only when Etag mismatches stored.
 //
@@ -349,9 +369,11 @@ func (b *ResourceBase) Etag() (string, error) {
 	return b.uri, nil
 }
 
-// Addressing returns [AddressingUnknown] as a sentinel default. Every concrete Resource type must override to return
-// one of [AddressingLocation] or [AddressingContent]. The boot-discipline test in pkg/op/addressing_test.go (added in
-// 13.0(k) sub-step k.12) walks every announced Resource type and asserts none returns AddressingUnknown.
+// Addressing returns [AddressingUnknown] as a sentinel default.
+//
+// Every concrete Resource type must override to return one of [AddressingLocation] or [AddressingContent]. The
+// boot-discipline test in pkg/op/addressing_test.go (added in 13.0(k) sub-step k.12) walks every announced Resource
+// type and asserts none returns AddressingUnknown.
 //
 // Returns:
 //   - AddressingMode: [AddressingUnknown].

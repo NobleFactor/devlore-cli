@@ -270,10 +270,11 @@ func TestResource_Etag_FileMissing(t *testing.T) {
 	}
 }
 
-// TestResource_Etag_FreshNotCached confirms Etag reads stat at call time and does not depend on
-// previously-resolved cached fields. Constructs a Resource without calling Resolve() — Size/ModTime/Inode
-// remain zero — and verifies Etag still returns a meaningful value (i.e., it actually stats).
-func TestResource_Etag_FreshNotCached(t *testing.T) {
+// TestResource_Etag confirms Etag returns a meaningful (non-empty) value for a real file. Under k.13,
+// DiscoverResource calls r.Resolve() before returning, so the resource's metadata is already populated by
+// the time Etag is called — this test no longer probes "Etag's freshness when the cache is empty"
+// (unreachable through DiscoverResource), but it does verify Etag's basic contract for an existing file.
+func TestResource_Etag(t *testing.T) {
 
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "fresh.txt")
@@ -291,12 +292,7 @@ func TestResource_Etag_FreshNotCached(t *testing.T) {
 
 	r, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, path)
 	if err != nil {
-		t.Fatalf("NewResource: %v", err)
-	}
-
-	// Confirm Resolve was not called — cached snapshot is empty.
-	if !r.ModTime.IsZero() {
-		t.Fatal("test setup error: r.ModTime was unexpectedly populated")
+		t.Fatalf("DiscoverResource: %v", err)
 	}
 
 	etag, err := r.Etag()

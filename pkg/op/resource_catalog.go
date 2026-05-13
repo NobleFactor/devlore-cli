@@ -169,39 +169,40 @@ func verifyLocationFreshness(canonical, observed Resource) {
 	// reconciliation pass (k.15). No side effect here today.
 }
 
-// GetOrCreate returns the canonical catalog entry for uri, invoking factory only on cache miss.
-//
-// GetOrCreate is the consumer-side read-or-discover hook: callers that want catalog identity for a URI
-// (an unmarshaler rehydrating a saved receipt, a scanner observing existing filesystem state, etc.)
-// supply a factory that constructs a fresh [Resource] of the appropriate concrete type, and GetOrCreate
-// either returns the existing entry or interns the factory's result via [ResourceCatalog.Link]. The
-// catalog stays type-neutral; the factory closure resolves the concrete-type-to-construct decision at
-// the call site, where the type is statically known.
-//
-// On cache hit the factory is not called — no allocation for the fresh candidate, no [NewResource]
-// validation cost. On cache miss the factory runs once; its returned Resource flows through [Link]
-// (which may further deduplicate if a competing call interned the same URI between the lookup and the
-// Link). A non-nil factory error short-circuits without touching the catalog.
+// GetOrCreate returns the canonical catalog entry for uri after recording the producer's claim.
 //
 // GetOrCreate is the production-claim hook. Forward-method outputs flow through it via each provider's
-// `NewResource(activation, ...)` constructor. The producerID stamp on the entry is `activation.SiteID`,
-// which the executor sets to the dispatching graph node's ID (or to a synthesized label for non-graph
-// dispatch contexts like the starlark immediate-mode bridge or test fixtures).
+// `NewResource(activation, ...)` constructor. The catalog stays type-neutral; the factory closure resolves
+// the concrete-type-to-construct decision at the call site, where the type is statically known. The
+// producerID stamp on the resulting entry is `activation.SiteID` — the executor sets that to the dispatching
+// graph node's ID (or to a synthesized label for non-graph dispatch contexts like the starlark immediate-
+// mode bridge or test fixtures).
+//
+// Cache-hit behavior branches on the existing entry's [Addressing] × [State] per
+// docs/architecture/4-resource-management.md §6.2's behavior matrix. The factory is invoked on cache miss,
+// on location-based hits (any state), and on Gone hits (either addressing — Gone is terminal, so revival
+// appends a new ledger entry via [Shadow]). Content-addressable hits on Pending or Active return the
+// existing entry without invoking the factory (singleton). The new or revived entry transitions to Active
+// via [markActive] before returning.
+//
+// A non-nil factory error short-circuits without touching the catalog. A different producer claiming the
+// same URI surfaces as a Shadow conflict (write-write detection).
 //
 // Parameters:
-//   - activation: the per-dispatch [ActivationRecord] for the producing dispatch. Must be non-nil with a non-empty
-//     `SiteID` — GetOrCreate is the production-side hook and asserts these invariants. Discovery callsites
-//     (receipt rehydration, scanner-style URI lookups) must use [ResourceCatalog.Discover] instead.
+//   - activation: per-dispatch [ActivationRecord] for the producing dispatch. Must be non-nil with a
+//     non-empty SiteID — GetOrCreate is the production-side hook and asserts these invariants. Discovery
+//     callsites (receipt rehydration, scanner-style URI lookups) must use [ResourceCatalog.Discover] instead.
 //   - uri: the URI to look up. Must not be empty (asserted).
-//   - factory: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil (asserted).
+//   - factory: closure invoked on cache miss (or location/Gone shadow path) to construct a fresh [Resource].
+//     Must be non-nil (asserted).
 //
 // Returns:
-//   - Resource: the canonical catalog entry for uri.
-//   - error: any factory error (returned untouched), or a [Shadow] error if a competing producer already claimed
-//     the same URI.
+//   - Resource: the canonical catalog entry for uri, in state Active.
+//   - error: any factory error (returned untouched), or a [Shadow] conflict if a different producer already
+//     claimed the same URI.
 //
-// Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors at
-// the call site, not runtime conditions.
+// Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors
+// at the call site, not runtime conditions.
 func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, factory func() (Resource, error)) (Resource, error) {
 
 	assert.NotNil("activation", activation)
@@ -209,12 +210,18 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 	assert.True("uri not empty", uri != "")
 	assert.NotNil("factory", factory)
 
+	// Cache hit: content-addressable singletons return existing for non-Gone states (Rule 6).
+	// Location-based — and Gone on either addressing — fall through to shadow (Rules 7 and "Gone is terminal,
+	// revive via shadow"). See docs/architecture/4-resource-management.md §6.2.
 	if id := c.Current(uri); id != "" {
 		if existing, ok := c.Lookup(id); ok {
-			return existing, nil
+			if existing.Addressing() == AddressingContent && existing.State() != Gone {
+				return existing, nil
+			}
 		}
 	}
 
+	// Cache miss, or cache hit on location-based any-state, or cache hit on Gone (either addressing).
 	candidate, err := factory()
 	if err != nil {
 		return nil, err
@@ -223,43 +230,77 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 	if _, err := c.Shadow(candidate, activation.SiteID); err != nil {
 		return nil, err
 	}
+	c.markActive(candidate)
 	return candidate, nil
 }
 
-// Discover returns the canonical catalog entry for uri, invoking factory only on cache miss, without producer stamping.
+// Discover returns the canonical catalog entry for uri after verifying that the resource exists.
 //
-// The discovery counterpart to [GetOrCreate].
+// Discover is the consumption-side counterpart to [GetOrCreate]. Use it from non-production callsites:
+// receipt rehydration during unmarshal, scanner-style URI lookups during preflight, and any other path
+// where there is no producing node. The returned entry has no producerID stamped (or carries whatever
+// stamp a previous GetOrCreate already applied) — discovery records existence, not authorship.
 //
-// Use Discover from non-production callsites: receipt rehydration during unmarshal, scanner-style URI lookups during
-// preflight, and any other path where there is no producing node. The returned entry has no `producerID` stamped (or
-// carries whatever stamp a previous GetOrCreate already applied).
+// Cache-hit behavior branches on the existing entry's [State] per the [DiscoverResource] rules in
+// docs/architecture/4-resource-management.md §6.2: Active returns the existing entry as a cheap hit;
+// Gone returns an error without re-attempting Resolve (Gone is terminal); Pending invokes
+// Resolve in place — success transitions to Active, failure transitions to Gone and surfaces the error.
+//
+// Cache-miss behavior constructs a fresh candidate via factory, calls Resolve to verify existence, links
+// the candidate into the catalog regardless of Resolve outcome (so the Gone entry is recorded as
+// history), then transitions the linked entry to Active on success or Gone on failure.
 //
 // Parameters:
 //   - uri: the URI to look up. Must not be empty (asserted).
 //   - factory: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil (asserted).
 //
 // Returns:
-//   - Resource: the canonical catalog entry for uri.
-//   - error: any factory error (returned untouched).
+//   - Resource: the canonical catalog entry for uri, in state Active. Nil if Resolve failed (Gone) or the
+//     entry is already known-Gone.
+//   - error: any factory error (returned untouched), any Resolve error (after the catalog has been
+//     updated to mark the entry Gone), or a known-gone error if the URI's existing entry is Gone.
 //
-// Panics with an [*assert.AssertionError] when any precondition is violated.
+// Panics with an [*assert.AssertionError] when any precondition is violated — these are programming
+// errors at the call site, not runtime conditions.
 func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error)) (Resource, error) {
 
 	assert.True("uri not empty", uri != "")
 	assert.NotNil("factory", factory)
 
+	// Cache hit: branch on state per the DiscoverResource rules (Rule 3 + Rule 4).
 	if id := c.Current(uri); id != "" {
 		if existing, ok := c.Lookup(id); ok {
-			return existing, nil
+			switch existing.State() {
+			case Active:
+				return existing, nil
+			case Gone:
+				return nil, fmt.Errorf("discover %q: resource is known-gone", uri)
+			case Pending:
+				if err := existing.Resolve(); err != nil {
+					c.markGone(existing)
+					return nil, err
+				}
+				c.markActive(existing)
+				return existing, nil
+			}
 		}
 	}
 
+	// Cache miss: construct + Resolve to verify existence.
 	candidate, err := factory()
 	if err != nil {
 		return nil, err
 	}
 
-	return c.Link(candidate), nil
+	if err := candidate.Resolve(); err != nil {
+		linked := c.Link(candidate)
+		c.markGone(linked)
+		return nil, err
+	}
+
+	linked := c.Link(candidate)
+	c.markActive(linked)
+	return linked, nil
 }
 
 // Link interns the given resource and returns the canonical catalog entry, discarding the catalog ID.
@@ -464,6 +505,30 @@ func ExtractResource(v any) (producerID string, ok bool) {
 }
 
 // region HELPER FUNCTIONS
+
+// markActive transitions r's state to Active.
+//
+// Package-private — only catalog operations call this; provider code has no setter for the state field. Safe
+// to call without holding the catalog mutex: state is a single int field, and concurrent operations on the
+// same Resource are not part of the catalog's contract.
+//
+// Parameters:
+//   - r: the Resource whose state to transition.
+func (c *ResourceCatalog) markActive(r Resource) {
+	r.resourceBase().state = Active
+}
+
+// markGone transitions r's state to Gone.
+//
+// Package-private; same locking notes as [markActive]. Gone is terminal — no catalog operation transitions
+// out of it; reviving a Gone URI requires a NewResource call, which appends a fresh entry via Shadow rather
+// than mutating the existing one.
+//
+// Parameters:
+//   - r: the Resource whose state to transition.
+func (c *ResourceCatalog) markGone(r Resource) {
+	r.resourceBase().state = Gone
+}
 
 // catalogLocked appends r to the ledger, stamps its catalog id and producerID on the embedded ResourceBase,
 // and updates the URI namespace to point to the new entry. Caller must hold c.mu.
