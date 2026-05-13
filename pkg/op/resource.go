@@ -11,11 +11,11 @@ import (
 	"strings"
 )
 
-// stringType is the cached [reflect.Type] of the Go string type, consulted by [ResourceBase.CanConvert] and
+// stringType is the cached [reflect.Type] of the Go string type, consulted by [op.ResourceBase.CanConvert] and
 // [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
 var stringType = reflect.TypeOf("")
 
-// ErrUnimplemented is returned by [ResourceBase.Digest] as a default. Concrete Resource types that need a
+// ErrUnimplemented is returned by [op.ResourceBase.Digest] as a default. Concrete Resource types that need a
 // working Digest (every type save sentinels) must override [Resource.Digest] — content hashing is type-specific
 // (full file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
 var ErrUnimplemented = errors.New("op: unimplemented")
@@ -106,86 +106,18 @@ func NewResourceBase(runtimeEnvironment *RuntimeEnvironment, specific string, go
 	}, nil
 }
 
-// ExtractTagSpecific parses a canonical tag URI and returns its scheme-specific payload and fragment.
-//
-// Returns an error when s lacks the tag URI prefix, is missing the '#' delimiter, or has an empty fragment. An empty
-// specific is valid and denotes the deferred ("known-at-execution") form.
-//
-// Parameters:
-//   - s: the URI to parse.
-//
-// Returns:
-//   - specific: the scheme-specific payload (this may be empty and indicates that it's unknown at the moment).
-//   - typeID: the fragment — the canonical Go type id of the Resource type.
-//   - err: non-nil on any syntactic defect.
-func ExtractTagSpecific(s string) (specific, typeID string, err error) {
+// region EXPORTED METHODS
 
-	if !strings.HasPrefix(s, tagURIPrefix) {
-		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q lacks prefix %q", s, tagURIPrefix)
-	}
+// region State management
 
-	rest := s[len(tagURIPrefix):]
-	i := strings.Index(rest, "#")
-
-	if i < 0 {
-		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has no '#' fragment delimiter", s)
-	}
-
-	specific = rest[:i]
-	typeID = rest[i+1:]
-
-	if typeID == "" {
-		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has empty fragment", s)
-	}
-
-	return specific, typeID, nil
+// ID returns the catalog-stamped identity of this resource.
+func (b *ResourceBase) ID() string {
+	return b.id
 }
 
-// Defer constructs a placeholder instance of *R with a deferred tag URI — empty <specific>, typeID set to *R's
-// canonical Go type id.
-//
-// Use at plan time when a Resource's identity is not known until the producing node has executed. The returned value is
-// a freshly allocated *R whose embedded [ResourceBase] has been seeded by [NewResourceBase] against the deferred
-// identity.
-//
-// Type parameters:
-//   - R: the struct type of the Resource (e.g., yaml.Resource).
-//   - PR: the pointer type *R that satisfies [Resource]. The "*R; Resource" constraint is statically enforced at
-//     the call site; invalid combinations fail to compile.
-//
-// Call sites must spell both parameters:
-//
-//	r := op.Defer[yaml.Resource, *yaml.Resource](ctx)
-func Defer[R any, PR interface {
-	*R
-	Resource
-}](runtimeEnvironment *RuntimeEnvironment) PR {
-
-	v := PR(new(R))
-
-	base, err := NewResourceBase(runtimeEnvironment, "", reflect.TypeFor[PR]())
-	if err != nil {
-		panic(fmt.Sprintf("op.Defer: %v", err))
-	}
-
-	*v.resourceBase() = base
-	return v
-}
-
-// typeIDOf returns the canonical Go type id for goType: PkgPath() + "." + Name(). Pointer types are normalized to their
-// element.
-func typeIDOf(goType reflect.Type) string {
-
-	if goType.Kind() == reflect.Ptr {
-		goType = goType.Elem()
-	}
-
-	return goType.PkgPath() + "." + goType.Name()
-}
-
-// URI returns the cached canonical tag URI of this resource.
-func (b *ResourceBase) URI() string {
-	return b.uri
+// ProducerID returns the catalog-stamped producer node ID.
+func (b *ResourceBase) ProducerID() string {
+	return b.producerID
 }
 
 // ReachabilityURI returns the scheme-specific identity payload — the <specific> portion of the canonical tag URI.
@@ -201,54 +133,28 @@ func (b *ResourceBase) ResourceType() string {
 	return b.typeID
 }
 
-// ID returns the catalog-stamped identity of this resource.
-func (b *ResourceBase) ID() string {
-	return b.id
-}
-
-// ProducerID returns the catalog-stamped producer node ID.
-func (b *ResourceBase) ProducerID() string {
-	return b.producerID
-}
-
 // State returns the lifecycle state of this entry.
 //
 // Read-only accessor. The state is mutated only by catalog code (via the unexported markActive / markGone
 // helpers in pkg/op/resource_catalog.go); concrete Resource types and provider code cannot write to it.
 //
 // Returns:
-//   - State: the current lifecycle state — Pending (zero value, newly cataloged), Active (observed or
-//     produced), or Gone (Resolve failed; terminal).
+//   - State: the current lifecycle state — Pending (zero value, newly cataloged), Active (observed or produced), or
+//     Gone (Resolve failed; terminal).
 func (b *ResourceBase) State() State {
 	return b.state
 }
 
-// Format marshals value as compact JSON.
-//
-// Concrete resource receiverTypes call this from their String() method: func (r Resource) String() string { return
-// r.Format(r) }
-func (b *ResourceBase) Format(value any) string {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%v", value)
-	}
-	return string(data)
+// URI returns the cached canonical tag URI of this resource.
+func (b *ResourceBase) URI() string {
+	return b.uri
 }
 
-// CanConvertTo reports whether this resource can project itself into the given target Go type.
-//
-// The baseline projection is URI → string: any ResourceBase knows how to produce its URI as a Go string. Concrete
-// Resource types extend this by overriding [ResourceBase.CanConvert] to accept additional targets (e.g., a
-// file.Resource that projects to an op.Path) and delegating to this method for the string case.
-//
-// Parameters:
-//   - target: the destination Go type the caller wants to project the resource into.
-//
-// Returns:
-//   - bool: true if target is the Go string type; false otherwise.
-func (b *ResourceBase) CanConvertTo(target reflect.Type) bool {
-	return target == stringType
-}
+// endregion
+
+// region Behaviors
+
+// Fallible actions
 
 // ConvertTo projects this resource into the given target Go type.
 //
@@ -270,36 +176,30 @@ func (b *ResourceBase) ConvertTo(target reflect.Type) (any, error) {
 	return nil, fmt.Errorf("resource: cannot convert %s to %s", b.uri, target)
 }
 
-// Equal reports whether b and other identify the same resource.
+// Digest returns [ErrUnimplemented].
 //
-// Equality is URI-based and loose with respect to the concrete Go type: any two values implementing [Resource] whose
-// URIs match are equal. A URI collision across concrete types (e.g., a file URI embedded in an appnet.Resource) is
-// treated as a caller-side construction error, not a case Equal needs to disambiguate — the URI is the sole identity.
-//
-// Contract (mirroring the [java.lang.Object.equals] properties):
-//   - Reflexive: b.Equal(b) returns true.
-//   - Symmetric: b.Equal(x) returns true iff x.Equal(b) returns true.
-//   - Transitive: if b.Equal(x) and x.Equal(y), then b.Equal(y).
-//   - Consistent: repeated calls return the same result while URIs are stable.
-//   - Nil-safe: b.Equal(nil) returns false.
-//
-// Parameters:
-//   - other: the value to compare against; may be any, including nil or a non-Resource.
+// Concrete Resource types must override — content hashing is type-specific (full file sha256, HEAD commit
+// composition, last-observed body hash, projected from the URI for CAS, etc.).
 //
 // Returns:
-//   - bool: true if other is a [Resource] with the same URI as b.
-func (b *ResourceBase) Equal(other any) bool {
+//   - Digest: the zero value.
+//   - error: always [ErrUnimplemented].
+func (b *ResourceBase) Digest() (Digest, error) {
+	return Digest{}, ErrUnimplemented
+}
 
-	if other == nil {
-		return false
-	}
-
-	o, ok := other.(Resource)
-	if !ok {
-		return false
-	}
-
-	return b.uri == o.URI()
+// Etag returns the URI as the inexpensive change-detection token.
+//
+// Suggestive of change but not authoritative; the catalog computes [Resource.Digest] only when Etag mismatches what's
+// stored. This default is correct for resources with [AddressingContent] by definition. The same URI implies the
+// contents are immutable, so the URI itself doubles as the etag at no I/O cost. [AddressingLocation] subtypes override
+// with their own stamp (size + mtime + inode for files; HTTP ETag header for appnet; etc.).
+//
+// Returns:
+//   - string: the URI.
+//   - error: nil.
+func (b *ResourceBase) Etag() (string, error) {
+	return b.uri, nil
 }
 
 // MarshalJSON marshals the resource to its JSON wire form, which is the URI as a JSON-encoded string.
@@ -342,32 +242,14 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 	return b.uri, nil
 }
 
-// Digest returns [ErrUnimplemented].
+// Resolve populates provider-specific metadata via I/O (e.g., os.Stat for files).
 //
-// Concrete Resource types must override — content hashing is type-specific (full file sha256, HEAD commit
-// composition, last-observed body hash, projected from the URI for CAS, etc.).
-//
-// Returns:
-//   - Digest: the zero value.
-//   - error: always [ErrUnimplemented].
-func (b *ResourceBase) Digest() (Digest, error) {
-	return Digest{}, ErrUnimplemented
-}
+// The default implementation is a no-op — providers that need resolution (file, git) override it. Callers that need
+// metadata call Resolve then check the result. An unresolved resource reports Exists() == false. Implementations access
+// the confined root via RuntimeEnvironment().Root.
+func (b *ResourceBase) Resolve() error { return nil }
 
-// Etag returns the URI as the inexpensive change-detection token.
-//
-// Suggestive of change but not authoritative; the catalog computes [Resource.Digest] only when Etag mismatches stored.
-//
-// This default is correct for [AddressingContent] Resources by definition — same URI implies same content, so the URI
-// itself doubles as the etag at zero I/O cost. [AddressingLocation] subtypes override with a stat-derived stamp (size +
-// mtime + inode for files; HTTP ETag header for appnet).
-//
-// Returns:
-//   - string: the URI.
-//   - error: nil.
-func (b *ResourceBase) Etag() (string, error) {
-	return b.uri, nil
-}
+// Actions
 
 // Addressing returns [AddressingUnknown] as a sentinel default.
 //
@@ -381,12 +263,72 @@ func (b *ResourceBase) Addressing() AddressingMode {
 	return AddressingUnknown
 }
 
-// Resolve populates provider-specific metadata via I/O (e.g., os.Stat for files).
+// CanConvertTo reports whether this resource can project itself into the given target Go type.
 //
-// The default implementation is a no-op — providers that need resolution (file, git) override it. Callers that need
-// metadata call Resolve then check the result. An unresolved resource reports Exists() == false. Implementations access
-// the confined root via RuntimeEnvironment().Root.
-func (b *ResourceBase) Resolve() error { return nil }
+// The baseline projection is URI → string: any ResourceBase knows how to produce its URI as a Go string. Concrete
+// Resource types extend this by overriding [ResourceBase.CanConvert] to accept additional targets (e.g., a
+// [file.Resource] that projects to an op.Path) and delegating to this method for the string case.
+//
+// Parameters:
+//   - target: the destination Go type the caller wants to project the resource into.
+//
+// Returns:
+//   - bool: true if the `target` is the Go string type; false otherwise.
+func (b *ResourceBase) CanConvertTo(target reflect.Type) bool {
+	return target == stringType
+}
+
+// Equal reports whether b and other identify the same resource.
+//
+// Equality is URI-based and loose with respect to the concrete Go type: any two values implementing [Resource] whose
+// URIs match are equal. A URI collision across concrete types (e.g., a file URI embedded in an appnet.Resource) is
+// treated as a caller-side construction error, not a case Equal needs to disambiguate — the URI is the sole identity.
+//
+// Contract (mirroring the [java.lang.Object.equals] properties):
+//   - Reflexive: b.Equal(b) returns true.
+//   - Symmetric: b.Equal(x) returns true iff x.Equal(b) returns true.
+//   - Transitive: if b.Equal(x) and x.Equal(y), then b.Equal(y).
+//   - Consistent: repeated calls return the same result while URIs are stable.
+//   - Nil-safe: b.Equal(nil) returns false.
+//
+// Parameters:
+//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//
+// Returns:
+//   - bool: true if other is a [Resource] with the same URI as b.
+func (b *ResourceBase) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	o, ok := other.(Resource)
+	if !ok {
+		return false
+	}
+
+	return b.uri == o.URI()
+}
+
+// Format marshals value as compact JSON.
+//
+// Concrete resource receiverTypes call this from their String() method: func (r Resource) String() string { return
+// r.Format(r) }
+func (b *ResourceBase) Format(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("%v", value)
+	}
+	return string(data)
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
 
 // resourceBase returns a pointer to the embedded ResourceBase, allowing the catalog to stamp id and producerID.
 //
@@ -394,3 +336,88 @@ func (b *ResourceBase) Resolve() error { return nil }
 func (b *ResourceBase) resourceBase() *ResourceBase {
 	return b
 }
+
+// endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// Defer constructs a placeholder instance of *R with a deferred tag URI — empty <specific>, typeID set to *R's
+// canonical Go type id.
+//
+// Use at plan time when a Resource's identity is not known until the producing node has executed. The returned value is
+// a freshly allocated *R whose embedded [ResourceBase] has been seeded by [NewResourceBase] against the deferred
+// identity.
+//
+// Type parameters:
+//   - R: the struct type of the Resource (e.g., yaml.Resource).
+//   - PR: the pointer type *R that satisfies [Resource]. The "*R; Resource" constraint is statically enforced at
+//     the call site; invalid combinations fail to compile.
+//
+// Call sites must spell both parameters:
+//
+//	r := op.Defer[yaml.Resource, *yaml.Resource](ctx)
+func Defer[R any, PR interface {
+	*R
+	Resource
+}](runtimeEnvironment *RuntimeEnvironment) PR {
+
+	v := PR(new(R))
+
+	base, err := NewResourceBase(runtimeEnvironment, "", reflect.TypeFor[PR]())
+	if err != nil {
+		panic(fmt.Sprintf("op.Defer: %v", err))
+	}
+
+	*v.resourceBase() = base
+	return v
+}
+
+// ExtractTagSpecific parses a canonical tag URI and returns its scheme-specific payload and fragment.
+//
+// Returns an error when s lacks the tag URI prefix, is missing the '#' delimiter, or has an empty fragment. An empty
+// specific is valid and denotes the deferred ("known-at-execution") form.
+//
+// Parameters:
+//   - s: the URI to parse.
+//
+// Returns:
+//   - specific: the scheme-specific payload (this may be empty and indicates that it's unknown at the moment).
+//   - typeID: the fragment — the canonical Go type id of the Resource type.
+//   - err: non-nil on any syntactic defect.
+func ExtractTagSpecific(s string) (specific, typeID string, err error) {
+
+	if !strings.HasPrefix(s, tagURIPrefix) {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q lacks prefix %q", s, tagURIPrefix)
+	}
+
+	rest := s[len(tagURIPrefix):]
+	i := strings.Index(rest, "#")
+
+	if i < 0 {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has no '#' fragment delimiter", s)
+	}
+
+	specific = rest[:i]
+	typeID = rest[i+1:]
+
+	if typeID == "" {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has empty fragment", s)
+	}
+
+	return specific, typeID, nil
+}
+
+// typeIDOf returns the canonical Go type id for goType: PkgPath() + "." + Name(). Pointer types are normalized to their
+// element.
+func typeIDOf(goType reflect.Type) string {
+
+	if goType.Kind() == reflect.Ptr {
+		goType = goType.Elem()
+	}
+
+	return goType.PkgPath() + "." + goType.Name()
+}
+
+// endregion
