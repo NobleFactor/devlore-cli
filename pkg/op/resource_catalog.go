@@ -6,6 +6,7 @@ package op
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"sync"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -416,31 +417,49 @@ func (c *ResourceCatalog) Len() int {
 	return len(c.entries)
 }
 
-// DiscoveryURIs returns the URIs of catalog entries that were cataloged as discoveries (producerID == "") and
-// are still authoritative for their URI.
+// ResolvePending drives every Pending catalog entry to Active or Gone by calling r.Resolve() on each.
 //
-// A URI whose current entry has been shadowed by a producer is excluded — that URI is an output, not an
-// input. Used by the executor's preflight pass to stat each discovered URI against the target machine before
-// any node runs.
+// Catalog-owned per Model A — providers and external callers cannot perform this transition; the lifecycle
+// helpers [markActive] and [markGone] are package-private. Active and Gone entries are not touched: Active
+// is already resolved; Gone is terminal.
+//
+// Iteration order is canonical-URI ascending so failure output is deterministic across calls. The catalog
+// mutex is released for the duration of each r.Resolve() call (matching the I/O-outside-lock discipline of
+// [lookupOrCatalog] and [verifyLocationFreshness]) so concurrent reads of unrelated entries are not blocked
+// by a slow Resolve.
+//
+// The executor's preflight pass invokes this on a graph's catalog before dispatch; a non-empty result
+// signals one or more inputs went Gone, and the executor aborts the run.
 //
 // Returns:
-//   - []string: the discovery URIs. Order is not guaranteed.
-func (c *ResourceCatalog) DiscoveryURIs() []string {
+//   - []error: one entry per Pending resource whose r.Resolve() failed; each error wraps the URI for
+//     diagnosis. Empty slice (nil) on full success.
+func (c *ResourceCatalog) ResolvePending() []error {
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	var uris []string
-	for uri, id := range c.ns {
-		idx, ok := c.byID[id]
-		if !ok {
-			continue
-		}
-		if c.entries[idx].resourceBase().producerID == "" {
-			uris = append(uris, uri)
+	pending := make([]Resource, 0)
+	for _, entry := range c.entries {
+		if entry.State() == Pending {
+			pending = append(pending, entry)
 		}
 	}
-	return uris
+	c.mu.Unlock()
+
+	sort.Slice(pending, func(i, j int) bool {
+		return pending[i].URI() < pending[j].URI()
+	})
+
+	var failures []error
+	for _, r := range pending {
+		if err := r.Resolve(); err != nil {
+			c.markGone(r)
+			failures = append(failures, fmt.Errorf("resolve %q: %w", r.URI(), err))
+			continue
+		}
+		c.markActive(r)
+	}
+
+	return failures
 }
 
 // endregion

@@ -4,12 +4,8 @@
 package op
 
 import (
-	"errors"
 	"fmt"
-	"net/url"
 	"os"
-	"sort"
-	"strings"
 )
 
 // ConflictType describes the kind of conflict at a target path.
@@ -146,57 +142,3 @@ func detectConflict(node *Node) Conflict {
 	}
 }
 
-// ResolveResources verifies that all discovered resources in the catalog
-// exist on the target machine. Discovery entries are created by
-// catalog.Resolve during planning — they represent URIs referenced as
-// Resource-typed parameters (inputs that should already exist).
-//
-// The planned bridge shadows destination parameters for compensable
-// methods with 2+ Resource params (shadowOutputParam), which removes
-// those URIs from DiscoveryURIs. Single-Resource-param methods (e.g.,
-// WriteText) may still have destinations in DiscoveryURIs — callers
-// should be aware of this limitation.
-//
-// Only file:// scheme URIs are checked (os.Stat). Other schemes (git,
-// pkg, svc) are skipped — their resolution requires provider-specific
-// logic that runs during execution.
-func ResolveResources(catalog *ResourceCatalog) error {
-	if catalog == nil {
-		return nil
-	}
-
-	uris := catalog.DiscoveryURIs()
-	sort.Strings(uris) // deterministic error messages
-
-	var missing []string
-	for _, rawURI := range uris {
-
-		effectiveURI := rawURI
-		if strings.HasPrefix(effectiveURI, tagURIPrefix) {
-			effectiveURI = strings.TrimPrefix(effectiveURI, tagURIPrefix)
-		}
-
-		u, err := url.Parse(effectiveURI)
-		if err != nil {
-			continue
-		}
-		if u.Scheme != "file" {
-			continue
-		}
-
-		path := u.Path
-		if u.Host != "" {
-			path = u.Host + u.Path
-		}
-
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			missing = append(missing, path)
-		}
-	}
-
-	if len(missing) > 0 {
-		return fmt.Errorf("pre-flight: %d missing source(s): %s",
-			len(missing), strings.Join(missing, ", "))
-	}
-	return nil
-}

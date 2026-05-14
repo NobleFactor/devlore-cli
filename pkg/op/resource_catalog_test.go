@@ -184,7 +184,7 @@ func TestCatalog_Shadow_SupersedesDiscovery(t *testing.T) {
 
 // endregion
 
-// region Lookup / Current / Len / DiscoveryURIs
+// region Lookup / Current / Len
 
 func TestCatalog_LookupAndCurrent(t *testing.T) {
 
@@ -223,29 +223,6 @@ func TestCatalog_Len(t *testing.T) {
 
 	if c.Len() != 2 {
 		t.Fatalf("after 2 Resolves: want len 2, got %d", c.Len())
-	}
-}
-
-func TestCatalog_DiscoveryURIs(t *testing.T) {
-
-	c := NewResourceCatalog()
-	c.Resolve(newFake("file:///discovered", 0, ""))
-
-	if _, err := c.Shadow(newFake("file:///produced", 0, ""), "node-A"); err != nil {
-		t.Fatalf("Shadow: %v", err)
-	}
-
-	if _, err := c.Shadow(newFake("file:///discovered-then-shadowed", 0, ""), "node-B"); err != nil {
-		t.Fatalf("Shadow: %v", err)
-	}
-
-	// This one starts as a discovery and then gets shadowed: the shadow supersedes.
-
-	c.Resolve(newFake("file:///discovered-then-shadowed", 0, ""))
-	uris := c.DiscoveryURIs()
-
-	if len(uris) != 1 || uris[0] != "file:///discovered" {
-		t.Fatalf("DiscoveryURIs: want [file:///discovered], got %v", uris)
 	}
 }
 
@@ -731,6 +708,172 @@ func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 
 	if first.State() != Gone {
 		t.Errorf("old entry state = %v, want Gone (terminal)", first.State())
+	}
+}
+
+// --- ResolvePending ---
+
+func TestCatalog_ResolvePending_EmptyCatalog_ReturnsNil(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	if errs := c.ResolvePending(); len(errs) != 0 {
+		t.Errorf("ResolvePending on empty catalog: got %d errors, want 0", len(errs))
+	}
+}
+
+func TestCatalog_ResolvePending_AllActive_NoOp(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///a", AddressingLocation, nil)
+	c.Resolve(r)
+	c.markActive(r)
+	r.resolveCalls = 0
+
+	errs := c.ResolvePending()
+
+	if len(errs) != 0 {
+		t.Errorf("got %d errors, want 0", len(errs))
+	}
+
+	if r.resolveCalls != 0 {
+		t.Errorf("resolveCalls = %d, want 0 (Active entries untouched)", r.resolveCalls)
+	}
+}
+
+func TestCatalog_ResolvePending_AllGone_NotRetried(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///gone", AddressingLocation, nil)
+	c.Resolve(r)
+	c.markGone(r)
+	r.resolveCalls = 0
+
+	errs := c.ResolvePending()
+
+	if len(errs) != 0 {
+		t.Errorf("got %d errors, want 0 (Gone is terminal, not retried)", len(errs))
+	}
+
+	if r.resolveCalls != 0 {
+		t.Errorf("resolveCalls = %d, want 0", r.resolveCalls)
+	}
+
+	if r.State() != Gone {
+		t.Errorf("State() = %v, want Gone", r.State())
+	}
+}
+
+func TestCatalog_ResolvePending_PendingSucceeds_TransitionsActive(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///pending", AddressingLocation, nil)
+	c.Resolve(r) // intern as discovery; state stays Pending
+
+	errs := c.ResolvePending()
+
+	if len(errs) != 0 {
+		t.Errorf("got errors: %v, want empty", errs)
+	}
+
+	if r.State() != Active {
+		t.Errorf("State() = %v, want Active", r.State())
+	}
+
+	if r.resolveCalls != 1 {
+		t.Errorf("resolveCalls = %d, want 1", r.resolveCalls)
+	}
+}
+
+func TestCatalog_ResolvePending_PendingFails_TransitionsGoneWithWrappedError(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///missing", AddressingLocation, errors.New("not found"))
+	c.Resolve(r)
+
+	errs := c.ResolvePending()
+
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1", len(errs))
+	}
+
+	if !strings.Contains(errs[0].Error(), "file:///missing") {
+		t.Errorf("error %q does not mention URI", errs[0].Error())
+	}
+
+	if !strings.Contains(errs[0].Error(), "not found") {
+		t.Errorf("error %q does not wrap underlying", errs[0].Error())
+	}
+
+	if r.State() != Gone {
+		t.Errorf("State() = %v, want Gone", r.State())
+	}
+}
+
+func TestCatalog_ResolvePending_Mixed_TouchesOnlyPending(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	active := newLifecycle("file:///a-active", AddressingLocation, nil)
+	c.Resolve(active)
+	c.markActive(active)
+	active.resolveCalls = 0
+
+	pending := newLifecycle("file:///b-pending", AddressingLocation, nil)
+	c.Resolve(pending)
+
+	failing := newLifecycle("file:///c-failing", AddressingLocation, errors.New("eperm"))
+	c.Resolve(failing)
+
+	errs := c.ResolvePending()
+
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1 (only failing)", len(errs))
+	}
+
+	if !strings.Contains(errs[0].Error(), "file:///c-failing") {
+		t.Errorf("expected error to reference c-failing, got %q", errs[0].Error())
+	}
+
+	if active.State() != Active {
+		t.Errorf("Active entry transitioned: state = %v", active.State())
+	}
+
+	if active.resolveCalls != 0 {
+		t.Errorf("Active entry was Resolved: calls = %d", active.resolveCalls)
+	}
+
+	if pending.State() != Active {
+		t.Errorf("Pending success entry state = %v, want Active", pending.State())
+	}
+
+	if failing.State() != Gone {
+		t.Errorf("Pending failing entry state = %v, want Gone", failing.State())
+	}
+}
+
+func TestCatalog_ResolvePending_DeterministicURIOrder(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	rZ := newLifecycle("file:///z-second-alphabetically", AddressingLocation, errors.New("z-err"))
+	rA := newLifecycle("file:///a-first-alphabetically", AddressingLocation, errors.New("a-err"))
+
+	c.Resolve(rZ)
+	c.Resolve(rA)
+
+	errs := c.ResolvePending()
+
+	if len(errs) != 2 {
+		t.Fatalf("got %d errors, want 2", len(errs))
+	}
+
+	if !strings.Contains(errs[0].Error(), "/a-first") {
+		t.Errorf("first error not a-first: %q", errs[0].Error())
+	}
+
+	if !strings.Contains(errs[1].Error(), "/z-second") {
+		t.Errorf("second error not z-second: %q", errs[1].Error())
 	}
 }
 

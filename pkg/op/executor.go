@@ -64,20 +64,22 @@ func (e *GraphExecutor) Run(graph *Graph) (any, error) {
 	defer iox.Close(&err, e.environment.Root)
 	graph.Rebind(e.environment)
 
-	// Pre-flight resolution pass. Iterate the catalog's discovery entries and
-	// fail fast if any source resource does not exist on the target machine.
-	// Shadowed entries (outputs of nodes in this graph) are skipped — their
-	// producer will create them at execution time.
+	// Pre-flight resolution pass. Drive every Pending catalog entry to Active
+	// or Gone by calling r.Resolve() on each. Active and Gone entries are not
+	// touched (Active is already resolved; Gone is terminal). Any Pending
+	// entry whose Resolve fails transitions to Gone and contributes a
+	// URI-wrapped error to the aggregated result; a non-empty result aborts
+	// the run.
 	//
-	// This is the link-time symbol resolution pass. See the resource management
+	// This is the link-time symbol resolution pass. See the resource-management
 	// architecture doc §6.5.
 	//
 	// Skipped in dry-run mode: dry-run validates graph structure without
 	// asserting target-machine state.
 	if !e.environment.DryRun {
-		if err = ResolveResources(graph.Catalog); err != nil {
+		if errs := graph.Catalog.ResolvePending(); len(errs) > 0 {
 			graph.State = StateFailed
-			return nil, err
+			return nil, errors.Join(errs...)
 		}
 	}
 

@@ -408,8 +408,9 @@ func ExtractTagSpecific(value string) (specific, typeID string, err error) {
 	return specific, typeID, nil
 }
 
-// typeIDOf returns the canonical Go type id for goType: PkgPath() + "." + Name(). Pointer types are normalized to their
-// element.
+// typeIDOf returns the canonical Go type id for goType: PkgPath() + "." + Name().
+//
+// Pointer types are normalized to their element.
 func typeIDOf(goType reflect.Type) string {
 
 	if goType.Kind() == reflect.Pointer {
