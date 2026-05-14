@@ -11,19 +11,22 @@ import (
 	"strings"
 )
 
-// stringType is the cached [reflect.Type] of the Go string type, consulted by [op.ResourceBase.CanConvert] and
-// [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
-var stringType = reflect.TypeFor[string]()
-
-// ErrUnimplemented is returned by [op.ResourceBase.Digest] as a default. Concrete Resource types that need a
-// working Digest (every type save sentinels) must override [Resource.Digest] — content hashing is type-specific
-// (full file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
-var ErrUnimplemented = errors.New("op: unimplemented")
-
-// tagURIPrefix is the fixed prefix of every canonical [Resource] URI. The form is the RFC 4151 tag URI
-// "tag:<authority>,<date>:" where the authority and date are locked constants: the authority identifies the
-// devlore project and the date identifies the entitlement epoch (not the mint time).
+// tagURIPrefix is the fixed prefix of every canonical [Resource] URI.
+//
+// It is an RFC 4151 tag URI of the form "tag:<authority>,<date>:" where the authority and date are locked constants.
+// The authority identifies the devlore project, and the date identifies the entitlement epoch (not the mint time).
 const tagURIPrefix = "tag:devlore.noblefactor.com,2026-01-01:"
+
+var (
+	// ErrUnimplemented is returned by [op.ResourceBase.Digest] as a default. Concrete Resource types that need a
+	// working Digest (every type save sentinels) must override [Resource.Digest] — content hashing is type-specific
+	// (full file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
+	ErrUnimplemented = errors.New("op: unimplemented")
+
+	// stringType is the cached [reflect.Type] of the Go string type, consulted by [op.ResourceBase.CanConvert] and
+	// [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
+	stringType = reflect.TypeFor[string]()
+)
 
 // Resource is the interface for all resource receiverTypes.
 //
@@ -412,11 +415,9 @@ func ExtractTagSpecific(value string) (specific, typeID string, err error) {
 //
 // Pointer types are normalized to their element.
 func typeIDOf(goType reflect.Type) string {
-
 	if goType.Kind() == reflect.Pointer {
 		goType = goType.Elem()
 	}
-
 	return goType.PkgPath() + "." + goType.Name()
 }
 
