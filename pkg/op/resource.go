@@ -13,7 +13,7 @@ import (
 
 // stringType is the cached [reflect.Type] of the Go string type, consulted by [op.ResourceBase.CanConvert] and
 // [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
-var stringType = reflect.TypeOf("")
+var stringType = reflect.TypeFor[string]()
 
 // ErrUnimplemented is returned by [op.ResourceBase.Digest] as a default. Concrete Resource types that need a
 // working Digest (every type save sentinels) must override [Resource.Digest] — content hashing is type-specific
@@ -70,16 +70,16 @@ type ResourceBase struct {
 // (PkgPath() + "." + Name()). Pointer types are normalized to their element.
 //
 // An empty <specific> is valid and produces the deferred ("known-at-execution") form — the shape constructed by
-// [Defer] when a Resource's identity is not known until the producing node has executed.
+// [op.Defer] when a resource's identity is not known until the producing node has executed.
 //
 // Parameters:
-//   - runtimeEnvironment: the execution context; embedded via ProviderBase.
-//   - specific: the scheme-specific identity payload. Must not contain '#', reserved as the fragment delimiter.
-//   - goType: the concrete Go type whose identity is placed in the fragment.
+//   - `runtimeEnvironment`: the execution context; embedded via ProviderBase.
+//   - `specific`: the scheme-specific identity payload. Must not contain '#', reserved as the fragment delimiter.
+//   - `goType`: the concrete Go type whose identity is placed in the fragment.
 //
 // Returns:
-//   - ResourceBase: the constructed base with uri, specific, and typeID all populated.
-//   - error: non-nil when specific contains '#' or goType has empty PkgPath and Name.
+//   - `ResourceBase`: the constructed base with uri, specific, and typeID all populated.
+//   - `error`: non-nil when specific contains '#' or goType has empty PkgPath and Name.
 func NewResourceBase(runtimeEnvironment *RuntimeEnvironment, specific string, goType reflect.Type) (ResourceBase, error) {
 
 	if strings.Contains(specific, "#") {
@@ -162,11 +162,11 @@ func (b *ResourceBase) URI() string {
 // additional targets override [ResourceBase.Convert] and delegate to this method for the string case.
 //
 // Parameters:
-//   - target: the destination Go type the caller wants to project the resource into.
+//   - `target`: the destination Go type the caller wants to project the resource into.
 //
 // Returns:
-//   - any: the resource's URI (as a Go string) when `target` is string.
-//   - error: non-nil if `target` is not a conversion this base recognizes.
+//   - `any`: the resource's URI (as a Go string) when `target` is string.
+//   - `error`: non-nil if `target` is not a conversion this base recognizes.
 func (b *ResourceBase) ConvertTo(target reflect.Type) (any, error) {
 
 	if target == stringType {
@@ -196,8 +196,8 @@ func (b *ResourceBase) Digest() (Digest, error) {
 // with their own stamp (size + mtime + inode for files; HTTP ETag header for appnet; etc.).
 //
 // Returns:
-//   - string: the URI.
-//   - error: nil.
+//   - `string`: the URI.
+//   - `error`: nil.
 func (b *ResourceBase) Etag() (string, error) {
 	return b.uri, nil
 }
@@ -210,8 +210,8 @@ func (b *ResourceBase) Etag() (string, error) {
 // serialization.
 //
 // Returns:
-//   - []byte: the JSON-encoded URI string.
-//   - error: any error from [json.Marshal]; none under normal conditions.
+//   - `[]byte`: the JSON-encoded URI string.
+//   - `error`: any error from [json.Marshal]; none under normal conditions.
 func (b *ResourceBase) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.uri)
 }
@@ -223,8 +223,8 @@ func (b *ResourceBase) MarshalJSON() ([]byte, error) {
 // [UnmarshalText] (implemented per concrete Resource type) reconstructs an equivalent resource.
 //
 // Returns:
-//   - []byte: the URI as UTF-8 bytes.
-//   - error: nil under normal conditions; included to satisfy the [encoding.TextMarshaler] interface.
+//   - `[]byte`: the URI as UTF-8 bytes.
+//   - `error`: nil under normal conditions; included to satisfy the [encoding.TextMarshaler] interface.
 func (b *ResourceBase) MarshalText() ([]byte, error) {
 	return []byte(b.uri), nil
 }
@@ -236,8 +236,8 @@ func (b *ResourceBase) MarshalText() ([]byte, error) {
 // additional fields override [ResourceBase.MarshalYAML] with their own representation.
 //
 // Returns:
-//   - any: the URI string.
-//   - error: nil under normal conditions; included to satisfy the yaml.Marshaler interface.
+//   - `any`: the URI string.
+//   - `error`: nil under normal conditions; included to satisfy the yaml.Marshaler interface.
 func (b *ResourceBase) MarshalYAML() (any, error) {
 	return b.uri, nil
 }
@@ -255,7 +255,7 @@ func (b *ResourceBase) Resolve() error { return nil }
 //
 // Every concrete Resource type must override to return one of [AddressingLocation] or [AddressingContent]. The
 // boot-discipline test in pkg/op/addressing_test.go (added in 13.0(k) sub-step k.12) walks every announced Resource
-// type and asserts none returns AddressingUnknown.
+// type and asserts none returns [AddressingUnknown].
 //
 // Returns:
 //   - AddressingMode: [AddressingUnknown].
@@ -270,10 +270,10 @@ func (b *ResourceBase) Addressing() AddressingMode {
 // [file.Resource] that projects to an op.Path) and delegating to this method for the string case.
 //
 // Parameters:
-//   - target: the destination Go type the caller wants to project the resource into.
+//   - `target`: the destination Go type the caller wants to project the resource into.
 //
 // Returns:
-//   - bool: true if the `target` is the Go string type; false otherwise.
+//   - `bool`: true if `target` is the Go string type; false otherwise.
 func (b *ResourceBase) CanConvertTo(target reflect.Type) bool {
 	return target == stringType
 }
@@ -292,10 +292,10 @@ func (b *ResourceBase) CanConvertTo(target reflect.Type) bool {
 //   - Nil-safe: b.Equal(nil) returns false.
 //
 // Parameters:
-//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//   - `other`: the value to compare against; may be any, including nil or a non-Resource.
 //
 // Returns:
-//   - bool: true if other is a [Resource] with the same URI as b.
+//   - `bool`: true if other is a [Resource] with the same URI as b.
 func (b *ResourceBase) Equal(other any) bool {
 
 	if other == nil {
@@ -380,30 +380,29 @@ func Defer[R any, PR interface {
 // specific is valid and denotes the deferred ("known-at-execution") form.
 //
 // Parameters:
-//   - s: the URI to parse.
+//   - `value`: the URI to parse.
 //
 // Returns:
-//   - specific: the scheme-specific payload (this may be empty and indicates that it's unknown at the moment).
-//   - typeID: the fragment — the canonical Go type id of the Resource type.
-//   - err: non-nil on any syntactic defect.
-func ExtractTagSpecific(s string) (specific, typeID string, err error) {
+//   - `specific`: the scheme-specific payload (this may be empty and indicates that it's unknown at the moment).
+//   - `typeID`: the fragment — the canonical Go type id of the Resource type.
+//   - `err`: non-nil on any syntactic defect.
+func ExtractTagSpecific(value string) (specific, typeID string, err error) {
 
-	if !strings.HasPrefix(s, tagURIPrefix) {
-		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q lacks prefix %q", s, tagURIPrefix)
+	if !strings.HasPrefix(value, tagURIPrefix) {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q lacks prefix %q", value, tagURIPrefix)
 	}
 
-	rest := s[len(tagURIPrefix):]
-	i := strings.Index(rest, "#")
+	rest := value[len(tagURIPrefix):]
 
-	if i < 0 {
-		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has no '#' fragment delimiter", s)
+	var found bool
+	specific, typeID, found = strings.Cut(rest, "#")
+
+	if !found {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has no '#' fragment delimiter", value)
 	}
-
-	specific = rest[:i]
-	typeID = rest[i+1:]
 
 	if typeID == "" {
-		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has empty fragment", s)
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has empty fragment", value)
 	}
 
 	return specific, typeID, nil
@@ -413,7 +412,7 @@ func ExtractTagSpecific(s string) (specific, typeID string, err error) {
 // element.
 func typeIDOf(goType reflect.Type) string {
 
-	if goType.Kind() == reflect.Ptr {
+	if goType.Kind() == reflect.Pointer {
 		goType = goType.Elem()
 	}
 
