@@ -191,7 +191,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		if _, err := engine.Run(g); err != nil {
+		if _, err := engine.Run(g, nil); err != nil {
 			scope := g.Provenance.Scope
 			if scope == "" {
 				scope = "default"
@@ -381,7 +381,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		if _, err := engine.Run(g); err != nil {
+		if _, err := engine.Run(g, nil); err != nil {
 			scope := g.Provenance.Scope
 			if scope == "" {
 				scope = "default"
@@ -680,7 +680,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	eng := op.NewGraphExecutor(spec)
 
-	if _, runErr := eng.Run(graph); runErr != nil {
+	if _, runErr := eng.Run(graph, nil); runErr != nil {
 		cli.Error("%s: %v", relTarget, runErr)
 		return upgradeResultError
 	}

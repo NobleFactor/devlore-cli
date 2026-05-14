@@ -230,7 +230,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		tracer.Record("executing graph: %d nodes", len(graph.Nodes()))
 	}
 
-	_, execErr := executor.Run(graph)
+	_, execErr := executor.Run(graph, nil)
 
 	if tracer.Enabled() {
 		if execErr != nil {

@@ -280,7 +280,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			continue
 		}
 
-		if _, err := executor.Run(buildResult.Graph); err != nil {
+		if _, err := executor.Run(buildResult.Graph, nil); err != nil {
 			cli.Error("Error deploying %q: %v", rp.pkg.Name, err)
 			lastErr = err
 			continue

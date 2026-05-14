@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/binding"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
@@ -21,6 +22,7 @@ var (
 type GraphExecutor struct {
 	hooks       *HookRegistry
 	environment *RuntimeEnvironment
+	variables   map[string]binding.Variable
 }
 
 // NewGraphExecutor creates an executor with the given environment spec.
@@ -50,11 +52,18 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 //
 // Parameters:
 //   - graph: the execution graph to run.
+//   - variables: the resolved variable map produced by [binding.VariableResolver.Resolve], one entry per
+//     [Variable] slot the graph references. The executor stashes the map on its receiver so internal
+//     dispatch paths can read from it during slot resolution. Phase 5 wires a preflight pass that aggregates
+//     missing-required and type-mismatch errors before dispatch. Pass nil or an empty map for callers that
+//     do not yet use [Variable] slots.
 //
 // Returns:
 //   - any: the terminal node's output value, or nil if no node produced output.
 //   - error: non-nil if any node or subgraph fails.
-func (e *GraphExecutor) Run(graph *Graph) (any, error) {
+func (e *GraphExecutor) Run(graph *Graph, variables map[string]binding.Variable) (any, error) {
+
+	e.variables = variables
 
 	if graph.State != StatePending {
 		return nil, fmt.Errorf("graph already executed (state: %s)", graph.State)
@@ -304,7 +313,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 		}
 	}
 
-	slots := node.ResolveSlots(ec, results, overrides)
+	slots := node.ResolveSlots(e.variables, results, overrides)
 	ec.Results = results
 	e.hooks.FireNodeStart(ec, node.ID(), slots)
 

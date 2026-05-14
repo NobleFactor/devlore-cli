@@ -3,16 +3,9 @@
 
 package op
 
-// region Properties
-
-// Properties provides ambient runtime context for EnvironmentValue resolution.
-type Properties interface {
-	Property(key string) (any, bool)
-}
-
-// endregion
-
-// region Slot
+import (
+	"github.com/NobleFactor/devlore-cli/pkg/binding"
+)
 
 // Slot binds a Method parameter to its value in a Node.
 type Slot struct {
@@ -20,8 +13,16 @@ type Slot struct {
 	Value     SlotValue
 }
 
-// Immediate returns the unwrapped Go value if this slot holds an ImmediateValue, or nil otherwise.
-// Nil-safe: returns nil on a nil receiver.
+// region EXPORTED METHODS
+
+// region State management
+
+// Immediate returns the unwrapped Go value if this slot holds an ImmediateValue, or nil otherwise. Nil-safe:
+// returns nil on a nil receiver.
+//
+// Returns:
+//   - any: the wrapped value when the slot's value is an ImmediateValue; nil for nil receiver or any other
+//     SlotValue variant.
 func (s *Slot) Immediate() any {
 
 	if s == nil {
@@ -35,45 +36,77 @@ func (s *Slot) Immediate() any {
 
 // endregion
 
-// region SlotValue — sealed interface
-
-// SlotValue is the value bound to a Slot. Sealed: only ImmediateValue,
-// PromiseValue, and EnvironmentValue implement it. Extensibility is
-// prevented — the set is closed at three.
-type SlotValue interface {
-	isSlotValue()
-	Resolve(props Properties, results map[string]any) any
-}
-
 // endregion
 
-// region ImmediateValue
+// SlotValue is the value bound to a Slot. Sealed at three variants — [ImmediateValue], [PromiseValue], and
+// [Variable]. The set is closed; callers cannot extend it because the marker method isSlotValue is unexported.
+//
+// Resolve returns the slot's resolved Go value at execution time. The variables map carries the binding
+// layer's resolved variables (one entry per [Variable] slot the graph references); the results map carries
+// completed-node outputs for promise resolution. Variants ignore the parameters they do not need.
+type SlotValue interface {
+	isSlotValue()
+	Resolve(variables map[string]binding.Variable, results map[string]any) any
+}
 
 // ImmediateValue is a Go value known at plan time.
 type ImmediateValue struct {
 	Value any
 }
 
-func (ImmediateValue) isSlotValue() {}
+// region EXPORTED METHODS
 
-func (iv ImmediateValue) Resolve(_ Properties, _ map[string]any) any {
+// region Behaviors
+
+// Resolve returns the wrapped Go value verbatim. The variables and results maps are ignored.
+//
+// Parameters:
+//   - variables: the resolved variable map (ignored).
+//   - results: the completed-node results map (ignored).
+//
+// Returns:
+//   - any: the wrapped value.
+func (iv ImmediateValue) Resolve(_ map[string]binding.Variable, _ map[string]any) any {
+
 	return iv.Value
 }
 
 // endregion
 
-// region PromiseValue
+// endregion
 
-// PromiseValue references the output of another executable unit (node or subgraph),
-// resolved to a Go value at execution time via the scope-chain results.
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// isSlotValue marks [ImmediateValue] as a sealed [SlotValue] implementation.
+func (ImmediateValue) isSlotValue() {}
+
+// endregion
+
+// endregion
+
+// PromiseValue references the output of another executable unit (node or subgraph), resolved to a Go value at
+// execution time via the scope-chain results map.
 type PromiseValue struct {
 	NodeRef string
 	Slot    string
 }
 
-func (PromiseValue) isSlotValue() {}
+// region EXPORTED METHODS
 
-func (pv PromiseValue) Resolve(_ Properties, results map[string]any) any {
+// region Behaviors
+
+// Resolve returns the referenced producer's result from the results map.
+//
+// Parameters:
+//   - variables: the resolved variable map (ignored).
+//   - results: the completed-node results map.
+//
+// Returns:
+//   - any: results[pv.NodeRef], or nil if results is nil.
+func (pv PromiseValue) Resolve(_ map[string]binding.Variable, results map[string]any) any {
+
 	if results == nil {
 		return nil
 	}
@@ -82,23 +115,57 @@ func (pv PromiseValue) Resolve(_ Properties, results map[string]any) any {
 
 // endregion
 
-// region EnvironmentValue
+// endregion
 
-// EnvironmentValue binds a slot to a Properties property,
-// resolved at execution time. Authored at plan time via a starlark
-// surface such as plan.env("target_root").
-type EnvironmentValue struct {
-	Key string
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// isSlotValue marks [PromiseValue] as a sealed [SlotValue] implementation.
+func (PromiseValue) isSlotValue() {}
+
+// endregion
+
+// endregion
+
+// Variable references a binding-layer variable by name. Authored at plan time via plan.var("name");
+// resolved at execution time via the variable map passed to [GraphExecutor.Run] (assembled by
+// [binding.VariableResolver] from layered sources — override / flag / env / config / default).
+type Variable struct {
+	Name string
 }
 
-func (EnvironmentValue) isSlotValue() {}
+// region EXPORTED METHODS
 
-func (ev EnvironmentValue) Resolve(props Properties, _ map[string]any) any {
-	if props == nil {
+// region Behaviors
+
+// Resolve returns the value of the named variable from the supplied variable map.
+//
+// Parameters:
+//   - variables: the resolved variable map keyed by parameter name.
+//   - results: the completed-node results map (ignored).
+//
+// Returns:
+//   - any: variables[v.Name].Value, or nil if the variable is absent or the map is nil.
+func (v Variable) Resolve(variables map[string]binding.Variable, _ map[string]any) any {
+
+	if variables == nil {
 		return nil
 	}
-	v, _ := props.Property(ev.Key)
-	return v
+	return variables[v.Name].Value
 }
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// isSlotValue marks [Variable] as a sealed [SlotValue] implementation.
+func (Variable) isSlotValue() {}
+
+// endregion
 
 // endregion

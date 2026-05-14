@@ -28,6 +28,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/pkg/binding"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
@@ -219,7 +220,7 @@ func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
 // Execute is the unified entry point for every top-level execution path: top-level graph runs, subgraph invocations,
 // gather iterations, choose branches, and test harnesses all funnel through here. Resolution order per slot is
 // overrides[param.Name] when present, then the unit's baked-in Slot.Value (ImmediateValue, PromiseValue, or
-// EnvironmentValue) resolved via its Resolve(env, results) method.
+// Variable) resolved via its Resolve(variables, results) method.
 //
 // Overrides route to topological root children only — non-root children receive inputs via promises, not from outside
 // the subgraph. Overrides are runtime-only; they do not serialize into the graph.
@@ -555,7 +556,7 @@ func (n *Node) SlotByName(name string) *Slot {
 }
 
 // SetSlot sets a slot's value. Node must be bound to a method.
-// The value may be any of ImmediateValue, PromiseValue, or EnvironmentValue.
+// The value may be any of ImmediateValue, PromiseValue, or Variable.
 func (n *Node) SetSlot(name string, value SlotValue) {
 
 	param := n.requireParam(name, "SetSlot")
@@ -566,9 +567,9 @@ func (n *Node) SetSlot(name string, value SlotValue) {
 
 // region Behaviors
 
-// ResolvedSlots returns all slot values as a flat map, resolving promises and environment bindings.
-func (n *Node) ResolvedSlots(props Properties, results map[string]any) map[string]any {
-	return n.ResolveSlots(props, results, nil)
+// ResolvedSlots returns all slot values as a flat map, resolving promises and variable bindings.
+func (n *Node) ResolvedSlots(variables map[string]binding.Variable, results map[string]any) map[string]any {
+	return n.ResolveSlots(variables, results, nil)
 }
 
 // ResolveSlots returns all slot values with caller-supplied overrides applied.
@@ -576,16 +577,16 @@ func (n *Node) ResolvedSlots(props Properties, results map[string]any) map[strin
 // that entry's Resolve is used; otherwise the baked-in Slot.Value is resolved.
 // Overrides whose keys do not match any slot parameter are silently ignored —
 // the caller-facing parameter surface is the authority.
-func (n *Node) ResolveSlots(props Properties, results map[string]any, overrides map[string]SlotValue) map[string]any {
+func (n *Node) ResolveSlots(variables map[string]binding.Variable, results map[string]any, overrides map[string]SlotValue) map[string]any {
 
 	out := make(map[string]any, len(n.Slots))
 	for _, slot := range n.Slots {
 		name := slot.Parameter.Name
 		if ov, ok := overrides[name]; ok {
-			out[name] = ov.Resolve(props, results)
+			out[name] = ov.Resolve(variables, results)
 			continue
 		}
-		out[name] = slot.Value.Resolve(props, results)
+		out[name] = slot.Value.Resolve(variables, results)
 	}
 	return out
 }
