@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 )
 
@@ -210,7 +212,7 @@ var MaxRetries = 3
 	}
 	t.Cleanup(func() { os.Chdir(origDir) })
 
-	r := NewApplication()
+	r := NewApplication(&cobra.Command{Use: "star"})
 
 	// Load the test extension.
 	if err := r.LoadExtensionsFrom(filepath.Join(dir, "star", "extensions")); err != nil {

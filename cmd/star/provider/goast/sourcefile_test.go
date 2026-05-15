@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/goast/doctaxonomy"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 const testSource = `package example
@@ -302,12 +301,9 @@ func TestSourceFile_CleanupAndSave(t *testing.T) {
 	}
 
 	// Inject context with styling config.
-	sf.ctx = &op.RuntimeEnvironment{}
-	sf.ctx.Data = map[string]any{
-		"schema_registry": doctaxonomy.DefaultRegistry(),
-		"spacing_rules":   DefaultSpacingRules(),
-		"line_width":      120,
-	}
+	sf.schemaReg = doctaxonomy.DefaultRegistry()
+	sf.spacing = DefaultSpacingRules()
+	sf.width = 120
 
 	// Write to temp file.
 	tmp := filepath.Join(t.TempDir(), "test.go")
@@ -405,12 +401,9 @@ func TestSourceFile_AllStyles_RoundTrip(t *testing.T) {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
 
-	sf.ctx = &op.RuntimeEnvironment{}
-	sf.ctx.Data = map[string]any{
-		"schema_registry": doctaxonomy.DefaultRegistry(),
-		"spacing_rules":   DefaultSpacingRules(),
-		"line_width":      120,
-	}
+	sf.schemaReg = doctaxonomy.DefaultRegistry()
+	sf.spacing = DefaultSpacingRules()
+	sf.width = 120
 
 	tmp := filepath.Join(t.TempDir(), "allstyles.go")
 	sf.filename = tmp
@@ -495,12 +488,9 @@ type ConfigAccessor struct{}
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
 
-	sf.ctx = &op.RuntimeEnvironment{}
-	sf.ctx.Data = map[string]any{
-		"schema_registry": nobleFactorRegistry(),
-		"spacing_rules":   DefaultSpacingRules(),
-		"line_width":      120,
-	}
+	sf.schemaReg = nobleFactorRegistry()
+	sf.spacing = DefaultSpacingRules()
+	sf.width = 120
 
 	tmp := filepath.Join(t.TempDir(), "test.go")
 	sf.filename = tmp
@@ -546,12 +536,9 @@ func TestSourceFile_RealFile_RoundTrip(t *testing.T) {
 				t.Fatalf("LoadSourceFile: %v", err)
 			}
 
-			sf.ctx = &op.RuntimeEnvironment{}
-			sf.ctx.Data = map[string]any{
-				"schema_registry": doctaxonomy.DefaultRegistry(),
-				"spacing_rules":   DefaultSpacingRules(),
-				"line_width":      120,
-			}
+			sf.schemaReg = doctaxonomy.DefaultRegistry()
+			sf.spacing = DefaultSpacingRules()
+			sf.width = 120
 
 			tmp := filepath.Join(t.TempDir(), name)
 			sf.filename = tmp

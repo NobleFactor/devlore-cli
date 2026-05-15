@@ -3,18 +3,22 @@
 
 package op
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/application"
+)
 
 // VariableResolver assembles variable values from layered sources with explicit precedence. Construction
-// captures the four sources (overrides, flags, config) plus the program name from which the env-var prefix
-// is derived. The resolver is read-only after construction except for the internal resolved map populated by
-// [VariableResolver.Resolve].
+// captures a reference to the [application.Application] whose source maps (Flags / Config / Overrides) and
+// Name drive the cascade. The resolver is read-only after construction except for the internal resolved map
+// populated by [VariableResolver.Resolve].
 //
 // Precedence (descending; first hit wins per parameter):
 //
 //  1. Override  — programmatic force.
 //  2. Flag      — command-line argument.
-//  3. Env       — process environment, prefix = strings.ToUpper(programName) + "_".
+//  3. Env       — process environment, prefix = strings.ToUpper(app.Name) + "_".
 //  4. Config    — config map.
 //  5. Default   — the parameter's declared default.
 //
@@ -22,37 +26,41 @@ import "strings"
 // populates an empty map and returns no errors. Phase 2 lands the precedence walk and the type-assertion +
 // env-string-parsing logic.
 type VariableResolver struct {
-	envPrefix string
-	flags     map[string]any
-	config    map[string]any
-	overrides map[string]any
+	app *application.Application
 
 	resolved map[string]Variable // populated by Resolve; nil until then
 }
 
-// NewVariableResolver constructs a [VariableResolver] from the four source inputs.
+// NewVariableResolver constructs a [VariableResolver] from a tool's [application.Application]. The
+// resolver derives its env-var prefix from `strings.ToUpper(app.Name) + "_"` and reads source maps directly
+// from `app.Flags`, `app.Config`, `app.Overrides` at resolve time.
 //
 // Parameters:
-//   - `programName`: the program name (e.g., "writ"); uppercased + "_" forms the env-var prefix.
-//   - flags: parameter-name-keyed map of values parsed from command-line flags.
-//   - config: parameter-name-keyed map of values loaded from config files.
-//   - overrides: parameter-name-keyed map of programmatic overrides (highest precedence).
+//   - `app`: the application handle whose source maps drive the cascade. Must be non-nil.
 //
 // Returns:
 //   - *VariableResolver: the constructed resolver.
-func NewVariableResolver(programName string, flags, config, overrides map[string]any) *VariableResolver {
+func NewVariableResolver(app *application.Application) *VariableResolver {
 
-	return &VariableResolver{
-		envPrefix: strings.ToUpper(programName) + "_",
-		flags:     flags,
-		config:    config,
-		overrides: overrides,
-	}
+	return &VariableResolver{app: app}
 }
 
 // region EXPORTED METHODS
 
 // region State management
+
+// EnvPrefix returns the env-var lookup prefix derived from `strings.ToUpper(app.Name) + "_"`. Empty when
+// the underlying application has no Name.
+//
+// Returns:
+//   - `string`: the env-var prefix (e.g., "WRIT_") or "" when app.Name is empty.
+func (r *VariableResolver) EnvPrefix() string {
+
+	if r.app == nil || r.app.Name == "" {
+		return ""
+	}
+	return strings.ToUpper(r.app.Name) + "_"
+}
 
 // Get returns the [Variable] resolved for the named parameter. Panics if called before
 // [VariableResolver.Resolve].

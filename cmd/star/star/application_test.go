@@ -10,6 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	_ "github.com/NobleFactor/devlore-cli/cmd/star/inventory"
@@ -22,7 +23,7 @@ import (
 
 func TestRuntime_DiscoverAndLoad(t *testing.T) {
 	t.Run("empty embedded FS loads without error", func(t *testing.T) {
-		r := NewApplication()
+		r := NewApplication(&cobra.Command{Use: "star"})
 		loader := NewExtensionLoader(fstest.MapFS{})
 
 		err := r.DiscoverAndLoad(loader)
@@ -32,7 +33,7 @@ func TestRuntime_DiscoverAndLoad(t *testing.T) {
 	})
 
 	t.Run("loads embedded extensions", func(t *testing.T) {
-		r := NewApplication()
+		r := NewApplication(&cobra.Command{Use: "star"})
 		loader := NewExtensionLoader(buildTestEmbeddedFS(t))
 
 		err := r.DiscoverAndLoad(loader)
@@ -61,7 +62,7 @@ func TestRuntime_DiscoverAndLoad(t *testing.T) {
 func TestRuntime_loadExtensionCommands(t *testing.T) {
 	t.Run("command name transformation", func(t *testing.T) {
 		ext := buildTestExtensionFromDir(t, "com.example.LintCopyright", "lint.copyright", "commands/lint-copyright.star")
-		r := NewApplication()
+		r := NewApplication(&cobra.Command{Use: "star"})
 
 		err := r.loadExtensionCommands(ext)
 		if err != nil {
@@ -106,7 +107,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 			cmd.Extension = ext
 		}
 
-		r := NewApplication()
+		r := NewApplication(&cobra.Command{Use: "star"})
 		err := r.loadExtensionCommands(ext)
 		if err != nil {
 			t.Fatalf("loadExtensionCommands() error = %v", err)
@@ -141,7 +142,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 	})
 
 	t.Run("no commands is no-op", func(t *testing.T) {
-		r := NewApplication()
+		r := NewApplication(&cobra.Command{Use: "star"})
 		ext := &Extension{Name: "com.example.NoCommand"}
 
 		err := r.loadExtensionCommands(ext)
@@ -151,7 +152,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 	})
 
 	t.Run("empty implementation is skipped", func(t *testing.T) {
-		r := NewApplication()
+		r := NewApplication(&cobra.Command{Use: "star"})
 		ext := &Extension{
 			Name: "com.example.EmptyImpl",
 			Commands: []*Command{
@@ -193,7 +194,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 			cmd.Extension = ext
 		}
 
-		r := NewApplication()
+		r := NewApplication(&cobra.Command{Use: "star"})
 		err := r.loadExtensionCommands(ext)
 		if err != nil {
 			t.Fatalf("loadExtensionCommands() error = %v", err)
@@ -210,7 +211,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 
 	t.Run("command references parent extension", func(t *testing.T) {
 		ext := buildTestExtensionFromDir(t, "com.example.ParentRef", "parent.ref", "commands/ref.star")
-		r := NewApplication()
+		r := NewApplication(&cobra.Command{Use: "star"})
 
 		err := r.loadExtensionCommands(ext)
 		if err != nil {
@@ -235,10 +236,12 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 // =============================================================================
 
 func TestRuntime_Config(t *testing.T) {
-	r := NewApplication()
+	r := NewApplication(&cobra.Command{Use: "star"})
 
-	if r.config != nil {
-		t.Error("expected config to be nil initially")
+	// NewApplication eagerly initializes r.config so the same instance can be stamped into
+	// Application.Overrides["config"]. Once-initialized, Config() returns the same pointer on every call.
+	if r.config == nil {
+		t.Fatal("expected config to be initialized by NewApplication")
 	}
 
 	cfg := r.Config()

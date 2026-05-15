@@ -12,6 +12,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
@@ -42,24 +43,29 @@ func newCtx(t *testing.T) *op.RuntimeEnvironment {
 
 	t.Helper()
 	return &op.RuntimeEnvironment{
-		Context:  context.Background(),
-		Registry: op.NewReceiverRegistry(),
-		Status:   status.NewNarrator("test", sink.Discard()),
+		Application: &application.Application{Name: "test"},
+		Context:     context.Background(),
+		Registry:    op.NewReceiverRegistry(),
+		Status:      status.NewNarrator("test", sink.Discard()),
 	}
 }
 
-// dryRunCtx creates a test context with DryRun enabled and a buffer-backed status narrator.
+// dryRunCtx creates a test context with dry-run enabled and a buffer-backed status narrator.
 //
 // The Status field is a *status.Narrator wrapping a captured-bytes [sink.Sink] so dry-run
 // narration emitted by the action layer (which calls ctx.Status.Note) is observable for assertions
-// against the returned buffer.
+// against the returned buffer. Dry-run is set via the [application.Application]'s Flags map under the
+// canonical "dry-run" key; the framework reads it via [application.Application.DryRun].
 func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 
 	t.Helper()
 	s, buf := sink.Capture()
 	return &op.RuntimeEnvironment{
+		Application: &application.Application{
+			Name:  "test",
+			Flags: map[string]any{"dry-run": true},
+		},
 		Context:  context.Background(),
-		DryRun:   true,
 		Registry: op.NewReceiverRegistry(),
 		Status:   status.NewNarrator("test", s),
 	}, buf

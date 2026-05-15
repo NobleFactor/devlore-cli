@@ -14,7 +14,7 @@ import (
 func testProvider(t *testing.T) *Provider {
 	t.Helper()
 	ctx := &op.RuntimeEnvironment{}
-	return &Provider{ProviderBase: op.NewProviderBase(ctx), Graph: op.NewGraph(ctx)}
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func TestChoose_ReturnsRecoveryStack(t *testing.T) {

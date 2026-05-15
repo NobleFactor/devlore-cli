@@ -155,20 +155,23 @@ Generate shell completions with:
   star completion fish > ~/.config/fish/completions/star.fish`,
 	}
 
-	runtimeEnvironment := op.NewRuntimeEnvironment(ctx,
-		op.NewRuntimeEnvironmentSpec("star", op.NewReceiverRegistry()).
-			WithRoot(op.NewRootReaderWriter(wd)).
-			WithApplication(application.NewApplication("star", rootCmd))
-
-	defer runtimeEnvironment.Close()
-
-	runtime := starruntime.NewApplication(runtimeEnvironment, rootCmd))
-
-	// Global flags
-
+	// Global flags — declared BEFORE building the Application so that rootCmd has the persistent flag
+	// surface in place when application.NewApplication walks cmd.Flags(). (Cobra hasn't parsed argv yet;
+	// user-supplied values land via Refresh in PersistentPreRunE below.)
 	var silent bool
 	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
 	rootCmd.PersistentFlags().BoolVar(&silent, "silent", false, "Suppress all status messages")
+
+	// Build the session: star.NewApplication owns the underlying op.RuntimeEnvironment via its
+	// starlarkbridge.Runtime. Defer Close once.
+	runtime := starruntime.NewApplication(rootCmd)
+	defer func() { _ = runtime.Close() }()
+
+	// Refresh Application.Flags from cobra's parsed argv at command-dispatch time.
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		runtime.Refresh(cmd)
+		return nil
+	}
 
 	cobra.OnInitialize(func() {
 

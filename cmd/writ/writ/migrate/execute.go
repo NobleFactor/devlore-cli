@@ -10,6 +10,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -68,7 +69,11 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	}
 
 	// Perform renames
-	fp := file.NewProvider(&op.RuntimeEnvironment{ProgramName: "writ", Root: op.NewRootReaderWriter(analysis.SourceRoot), Registry: op.NewReceiverRegistry()})
+	fp := file.NewProvider(&op.RuntimeEnvironment{
+		Application: &application.Application{Name: "writ"},
+		Root:        op.NewRootReaderWriter(analysis.SourceRoot),
+		Registry:    op.NewReceiverRegistry(),
+	})
 	for _, node := range renameNodes {
 		source, ok := node.SlotByName("source").Immediate().(string)
 		if !ok || source == "" {

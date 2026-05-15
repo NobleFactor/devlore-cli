@@ -10,6 +10,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/goast/doctaxonomy"
 	"github.com/NobleFactor/devlore-cli/cmd/star/star"
 	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -149,9 +150,13 @@ lint:
 		t.Fatalf("MergeYAML: %v", err)
 	}
 
-	// Create provider with config in context — same wiring as the runtime.
+	// Create provider with config in Application.Overrides — same wiring as the runtime, where star main
+	// stamps cfg into Overrides before any provider's NewProvider runs.
 	ctx := &op.RuntimeEnvironment{
-		Data: map[string]any{"config": cfg},
+		Application: &application.Application{
+			Name:      "test",
+			Overrides: map[string]any{"config": cfg},
+		},
 	}
 	p := NewProvider(ctx)
 

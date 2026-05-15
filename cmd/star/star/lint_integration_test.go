@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 )
 
@@ -64,7 +66,7 @@ func setupLintRuntime(t *testing.T, testDir string) (*Application, error) {
 	}
 
 	// Create runtime
-	r := NewApplication()
+	r := NewApplication(&cobra.Command{Use: "star"})
 
 	// Change to test directory for config loading
 	origDir, err := os.Getwd()
@@ -519,7 +521,7 @@ func TestLintCommands_NoConfigOutsideGitRepo(t *testing.T) {
 		t.Fatalf("findProjectRoot: %v", err)
 	}
 
-	r := NewApplication()
+	r := NewApplication(&cobra.Command{Use: "star"})
 
 	origDir, err := os.Getwd()
 	if err != nil {

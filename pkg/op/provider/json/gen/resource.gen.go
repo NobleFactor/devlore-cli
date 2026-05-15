@@ -19,6 +19,7 @@ func init() {
 			return provider.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, identity)
 		},
 		map[string][]string{
+			"Equal":    {"other"},
 			"Validate": {"schema_json"},
 		},
 	)

@@ -311,7 +311,12 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		resolverProgramName = spec.ProgramName
 	}
 
-	resolver := op.NewVariableResolver(resolverProgramName, r.sources.Flags, r.sources.Config, r.sources.Overrides)
+	resolver := op.NewVariableResolver(&application.Application{
+		Name:      resolverProgramName,
+		Flags:     r.sources.Flags,
+		Config:    r.sources.Config,
+		Overrides: r.sources.Overrides,
+	})
 	resolveErrs := resolver.Resolve(nil)
 	if len(resolveErrs) > 0 {
 		return nil, fmt.Errorf("variable resolution: %v", resolveErrs)

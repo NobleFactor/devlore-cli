@@ -22,6 +22,7 @@ import (
 	"sync"
 	tmpl "text/template"
 
+	cfg "github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/goast/doctaxonomy"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -34,9 +35,15 @@ type Provider struct {
 	fileCache sync.Map // path → *parsedFile (AST cache)
 }
 
-// NewProvider creates a new Provider. Validates that all six comment styles have handlers in the merged config. Missing
-// styles are repaired from defaults with a warning.
+// NewProvider creates a new Provider. Validates that all six comment styles have handlers in the merged
+// config. Missing styles are repaired from defaults with a warning. Declares interest in the "config"
+// variable so the resolver populates it from the [application.Application]'s source maps at construction
+// time.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
+	_ = ctx.RegisterParameter(op.Parameter{
+		Name: "config",
+		Type: reflect.TypeOf((*cfg.Config)(nil)),
+	})
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	return p
 }
@@ -734,19 +741,18 @@ func (p *Provider) schemaRegistry() *doctaxonomy.SchemaRegistry {
 	return reg
 }
 
-// configSchemas attempts to build a SchemaRegistry from the config stored in the provider's context data.
+// configSchemas attempts to build a SchemaRegistry from the resolved "config" variable.
 func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
-	cfgVal, ok := p.RuntimeEnvironment().variables["config"]
-	if !ok || cfgVal == nil {
+	v, ok := p.RuntimeEnvironment().VariableByName("config")
+	if !ok || v.Value == nil {
+		return nil
+	}
+	c, ok := v.Value.(*cfg.Config)
+	if !ok || c == nil {
 		return nil
 	}
 
-	cfg, ok := cfgVal.(configNavigator)
-	if !ok {
-		return nil
-	}
-
-	schemasVal := cfg.Navigate("lint.go_style.comment_schemas")
+	schemasVal := c.Navigate("lint.go_style.comment_schemas")
 	if schemasVal == nil {
 		return nil
 	}
@@ -754,19 +760,18 @@ func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
 	return schemasFromConfig(schemasVal)
 }
 
-// spacingRules reads SpacingRules from config, falling back to defaults.
+// spacingRules reads SpacingRules from the resolved "config" variable, falling back to defaults.
 func (p *Provider) spacingRules() SpacingRules {
-	cfgVal, ok := p.RuntimeEnvironment().variables["config"]
-	if !ok || cfgVal == nil {
+	v, ok := p.RuntimeEnvironment().VariableByName("config")
+	if !ok || v.Value == nil {
+		return DefaultSpacingRules()
+	}
+	c, ok := v.Value.(*cfg.Config)
+	if !ok || c == nil {
 		return DefaultSpacingRules()
 	}
 
-	cfg, ok := cfgVal.(configNavigator)
-	if !ok {
-		return DefaultSpacingRules()
-	}
-
-	val := cfg.Navigate("lint.go_style.spacing_rules")
+	val := c.Navigate("lint.go_style.spacing_rules")
 	if val == nil {
 		return DefaultSpacingRules()
 	}
@@ -809,17 +814,17 @@ func spacingRulesFromConfig(val interface{}) SpacingRules {
 	return rules
 }
 
-// configLineWidth reads the line width from config, defaulting to 120.
+// configLineWidth reads the line width from the resolved "config" variable, defaulting to 120.
 func (p *Provider) configLineWidth() int {
-	cfgVal, ok := p.RuntimeEnvironment().variables["config"]
-	if !ok || cfgVal == nil {
+	v, ok := p.RuntimeEnvironment().VariableByName("config")
+	if !ok || v.Value == nil {
 		return 120
 	}
-	cfg, ok := cfgVal.(configNavigator)
-	if !ok {
+	c, ok := v.Value.(*cfg.Config)
+	if !ok || c == nil {
 		return 120
 	}
-	val := cfg.Navigate("lint.go_style.line_width")
+	val := c.Navigate("lint.go_style.line_width")
 	if val == nil {
 		return 120
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
+	"github.com/spf13/cobra"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 )
@@ -30,8 +31,10 @@ var DryRun bool
 // Application manages Starlark script execution for the star CLI.
 //
 // Holds the extension registry, the loaded-command map keyed by space-separated name, the unified config
-// (lazily initialized), and the [starlarkbridge.Runtime].
+// (lazily initialized), the [starlarkbridge.Runtime], and a typed reference to the
+// [application.Application] whose Flags / Overrides this Application populates and refreshes.
 type Application struct {
+	app      *application.Application // typed reference to the application handle bound to the env
 	commands map[string]*Command
 	config   *config.Config // Unified config for builtin and extension config.
 	registry *ExtensionRegistry
@@ -40,27 +43,53 @@ type Application struct {
 
 // NewApplication creates a new star Application with a fully initialized Starlark runtime.
 //
-// Constructs the receiver registry, builds a [op.RuntimeEnvironmentSpec] with every registered module
-// exposed and the current working directory wired as the read+write filesystem root, then hands the spec to
-// [starlarkbridge.NewRuntime].
+// Constructs the receiver registry, builds a [op.RuntimeEnvironmentSpec] (with the active cobra command's
+// flag projection on the [application.Application]), and hands the spec to [starlarkbridge.NewRuntime]
+// which builds the session env. The star Application is the session owner — its [Application.Close]
+// releases the env.
+//
+// After the bridge is built, populates [application.Application.Overrides] with two star-internal handles
+// that providers read at construction time via [op.RuntimeEnvironment.RegisterParameter]:
+//
+//   - "config":       *config.Config — the unified config (fresh instance; populated lazily by
+//     [Application.Config] and by [Application.DiscoverAndLoad]).
+//   - "command_tree": star.Application (self) — implements the [commands.CommandTree] contract.
+//
+// "current_command" is mutated per-cobra-dispatch by [Command.Run]; the commands provider reads it directly
+// from Overrides.
+//
+// Parameters:
+//   - `rootCmd`: the cobra root command. Its persistent-flag surface drives the Application's Flags map.
 //
 // Returns:
-//   - *Application: the initialized application.
-func NewApplication() *Application {
+//   - *Application: the initialized application; caller must defer [Application.Close].
+func NewApplication(rootCmd *cobra.Command) *Application {
 
 	wd, err := os.Getwd()
 	assert.Nil("os.Getwd err", err)
 
-	runtime := starlarkbridge.NewRuntime(op.NewRuntimeEnvironmentSpec("star", op.NewReceiverRegistry()).
-		WithApplication(application.NewApplication("star", Flags: map[string]any{"dry-run": DryRun}).
-		WithModules(registry.Modules()...).
-		WithRoot(op.NewRootReaderWriter(wd)))
+	app := application.NewApplication("star", rootCmd)
 
-	return &Application{
+	registry := op.NewReceiverRegistry()
+	bridge := starlarkbridge.NewRuntime(op.NewRuntimeEnvironmentSpec("star", registry).
+		WithModules(registry.Modules()...).
+		WithRoot(op.NewRootReaderWriter(wd)).
+		WithApplication(app))
+
+	starApp := &Application{
 		commands: make(map[string]*Command),
 		registry: NewExtensionRegistry(),
-		star:     runtime,
+		star:     bridge,
+		app:      app,
 	}
+
+	if app.Overrides == nil {
+		app.Overrides = make(map[string]any)
+	}
+	app.Overrides["config"] = starApp.Config()
+	app.Overrides["command_tree"] = commands.CommandTree(starApp)
+
+	return starApp
 }
 
 // region EXPORTED METHODS
@@ -100,12 +129,24 @@ func (r *Application) Registry() *ExtensionRegistry {
 
 // Fallible actions
 
-// Close releases all resources held by the application.
+// Close releases the underlying [op.RuntimeEnvironment] this Application owns. Idempotent via
+// [op.RuntimeEnvironment.Close]'s sync.Once. Callers `defer runtime.Close()` in main.
 //
 // Returns:
-//   - error: non-nil if releasing resources fails.
+//   - `error`: the joined error from closing the env's owned resources, or nil on success.
 func (r *Application) Close() error {
-	return nil
+	return r.star.ExecutionContext().Close()
+}
+
+// Refresh repopulates [application.Application.Flags] from the cobra command's parsed argv. Intended to be
+// invoked from [cobra.Command.PersistentPreRunE] so the framework sees the user's actual `--dry-run` /
+// `--silent` / etc. values at command-dispatch time, not the zero values present at process startup.
+//
+// Parameters:
+//   - `cmd`: the cobra command whose parsed flags drive the refresh.
+func (r *Application) Refresh(cmd *cobra.Command) {
+	fresh := application.NewApplication("star", cmd)
+	r.app.Flags = fresh.Flags
 }
 
 // DiscoverAndLoad uses the given loader to discover extensions, then registers and activates them.

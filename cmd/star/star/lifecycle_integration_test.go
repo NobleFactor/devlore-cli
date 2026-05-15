@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/NobleFactor/devlore-cli/cmd/star/star"
 
 	_ "github.com/NobleFactor/devlore-cli/cmd/star/inventory"
@@ -56,7 +58,7 @@ func TestLifecycle_DiscoverRegisterActivate(t *testing.T) {
 	}
 
 	// Step 2+3: register and Activate via DiscoverAndLoad on a fresh runtime.
-	runtime := star.NewApplication()
+	runtime := star.NewApplication(&cobra.Command{Use: "star"})
 	if err := runtime.DiscoverAndLoad(loader); err != nil {
 		t.Fatalf("DiscoverAndLoad() error: %v", err)
 	}
@@ -101,7 +103,7 @@ func TestLifecycle_EmbeddedExtensions(t *testing.T) {
 	embeddedFS := os.DirFS(extDir)
 
 	loader := star.NewExtensionLoader(embeddedFS)
-	runtime := star.NewApplication()
+	runtime := star.NewApplication(&cobra.Command{Use: "star"})
 
 	if err := runtime.DiscoverAndLoad(loader); err != nil {
 		t.Fatalf("DiscoverAndLoad() error: %v", err)

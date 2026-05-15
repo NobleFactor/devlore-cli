@@ -101,6 +101,15 @@ func (c *Command) Run(flags map[string]string, positional ...string) error {
 		"dry_run": starlark.Bool(DryRun),
 	})
 
+	// Set current_command so the commands provider can read it via Application.Overrides during this
+	// dispatch. Per-dispatch mutation — doesn't fit RegisterParameter's construction-time resolution model.
+	if c.runtime != nil && c.runtime.app != nil {
+		if c.runtime.app.Overrides == nil {
+			c.runtime.app.Overrides = make(map[string]any)
+		}
+		c.runtime.app.Overrides["current_command"] = c.Name
+	}
+
 	// Do run(command, ctx).
 	_, err := starlark.Call(thread, c.RunFunc, starlark.Tuple{c, ctx}, nil)
 	if err != nil {

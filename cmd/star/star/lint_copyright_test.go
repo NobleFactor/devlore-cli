@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 )
 
@@ -194,7 +196,7 @@ func setupExtension(t *testing.T, testDir string) (*Application, error) {
 	})
 
 	// Create runtime (Root picks up current working directory)
-	r := NewApplication()
+	r := NewApplication(&cobra.Command{Use: "star"})
 
 	// Load extensions from the project's star/extensions directory
 	extDir := filepath.Join(projectRoot, "cmd", "star", "extensions")

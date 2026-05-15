@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	starlarklib "go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
@@ -71,7 +72,7 @@ func TestConfigIntegration(t *testing.T) {
 				config.SetGitWorkspaceRoot(t.TempDir())
 				defer config.ResetGitWorkspaceRoot()
 
-				r := NewApplication()
+				r := NewApplication(&cobra.Command{Use: "star"})
 				if err := r.LoadExtensionsFrom(extDir); err != nil {
 					t.Fatalf("LoadExtensionsFrom: %v", err)
 				}
@@ -114,7 +115,7 @@ func TestConfigIntegration(t *testing.T) {
 				config.SetGitWorkspaceRoot(tmpDir)
 				defer config.ResetGitWorkspaceRoot()
 
-				r := NewApplication()
+				r := NewApplication(&cobra.Command{Use: "star"})
 				if err := r.LoadExtensionsFrom(extDir); err != nil {
 					t.Fatalf("LoadExtensionsFrom: %v", err)
 				}
@@ -138,7 +139,7 @@ func TestConfigIntegration(t *testing.T) {
 				config.SetGitWorkspaceRoot(t.TempDir())
 				defer config.ResetGitWorkspaceRoot()
 
-				r := NewApplication()
+				r := NewApplication(&cobra.Command{Use: "star"})
 				if err := r.LoadExtensionsFrom(extDir); err != nil {
 					t.Fatalf("LoadExtensionsFrom: %v", err)
 				}
