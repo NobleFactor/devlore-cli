@@ -19,6 +19,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -250,9 +251,13 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	spec := op.NewRuntimeEnvironmentSpec("lore", actionReg).
 		WithRoot(root).
-		WithDryRun(cfg.DryRun)
+		WithApplication(&application.Application{
+			Name:  "lore",
+			Flags: map[string]any{"dry-run": cfg.DryRun},
+		})
 
-	executor := op.NewGraphExecutor(spec)
+	executor := op.NewGraphExecutor(ctx, spec)
+	defer func() { _ = executor.Close() }()
 
 	var lastErr error
 	for _, rp := range resolved {

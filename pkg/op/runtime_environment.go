@@ -10,7 +10,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 	"github.com/NobleFactor/devlore-cli/pkg/process"
@@ -20,13 +22,31 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// RuntimeEnvironment provides the execution environment for providers, resources, and graphs.
+// RuntimeEnvironment is the session-scoped execution context for providers, resources, and graphs.
+//
+// One env per session. A session is bounded by a single CLI command invocation, a single test in the test
+// harness, or any other unit of work that owns a graph's plan-then-execute lifecycle. Long-running processes
+// (test runners, daemons, repls) construct a fresh env per session; one process may produce many envs over
+// its lifetime.
+//
+// The env owns the [Root] handle and is the single point of Close responsibility — see
+// [RuntimeEnvironment.Close]. Every other type in this package that holds a *RuntimeEnvironment
+// ([starlarkbridge.Runtime], [GraphExecutor], [Graph]) is a co-user of the session, not an owner; callers
+// construct the env, defer Close once, and pass it by pointer to whatever needs it.
+//
+// All session-shared state (Catalog, Registry, variable map, provider cache, RecoverySite, …) lives on this
+// struct so plan-time and execute-time machinery operate on the same instances.
 type RuntimeEnvironment struct {
 
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
 	ProgramName string
 
-	// BackupSuffix is appended to back-up filenames during conflict resolution.
+	// Application is the tool-side handle carrying the variable-resolver source maps (flags / config /
+	// overrides) and the tool's program name. Framework code reads system flags such as "dry_run" directly
+	// from `Application.Flags` via the [RuntimeEnvironment.DryRun] helper.
+	Application *application.Application
+
+	// BackupSuffix is appended to back up filenames during conflict resolution.
 	BackupSuffix string
 
 	// Catalog is the resource catalog for the current execution session.
@@ -40,15 +60,8 @@ type RuntimeEnvironment struct {
 
 	// Context carries a deadline, a cancellation signal, and other values across API boundaries.
 	//
-	// See  https://pkg.go.dev/context.
+	// See https://pkg.go.dev/context.
 	Context context.Context
-
-	// Data holds tool-provided context: template variables, identities, segment maps, etc. Each tool populates this
-	// before calling GraphExecutor.Run().
-	Data map[string]any
-
-	// DryRun prevents filesystem modifications when true.
-	DryRun bool
 
 	// Platform provides platform abstractions (package manager, service manager) to do providers.
 	//
@@ -101,16 +114,32 @@ type RuntimeEnvironment struct {
 	// Init(ctx.Thread) before Fn().
 	Thread starlark.Thread
 
-	// mutex guards the providers map for concurrent access.
+	// mutex guards the provider's map for concurrent access.
 	mutex sync.Mutex
 
-	// providers caches lazily-constructed provider instances by name.
+	// providers is a map of lazily constructed provider instances by name.
 	providers map[string]any
+
+	// variables is the binding-layer resolved variable map, populated by [VariableResolver.Resolve] during
+	// the executor's preflight pass. Phase 1 ships this nil-initialized; Phase 4 wires the preflight pass.
+	variables map[string]Variable
+
+	// variableResolver assembles binding-layer variable values from the spec's flag / config / override
+	// sources plus the process environment. Read by the executor's preflight pass to populate variables.
+	variableResolver *VariableResolver
+
+	// closeOnce guards [RuntimeEnvironment.Close] so the close path runs exactly once per env, regardless of
+	// how many defers fire.
+	closeOnce sync.Once
+
+	// closeErr captures the joined error from the close-once execution and is returned by every Close call
+	// after the first.
+	closeErr error
 }
 
 // region EXPORTED METHODS
 
-// NewRuntimeEnvironment constructs a fully-populated [RuntimeEnvironment] from this spec.
+// NewRuntimeEnvironment constructs a fully populated [RuntimeEnvironment] from this spec.
 //
 // It performs defaulting (BackupSuffix → ".<ProgramName>-backup", Status → [status.Narrator]
 // over [sink.Stderr], Result → [result.Pipeline] writing JSON to [sink.Stdout]) and wires the
@@ -137,12 +166,16 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		resultSink = result.NewPipeline(nil, result.JSONFormatter{}, sink.Stdout())
 	}
 
+	app := spec.Application
+	if app == nil {
+		app = &application.Application{Name: spec.ProgramName}
+	}
+
 	env := &RuntimeEnvironment{
 		ProgramName:        spec.ProgramName,
+		Application:        app,
 		Catalog:            NewResourceCatalog(),
 		Context:            ctx,
-		Data:               spec.Data,
-		DryRun:             spec.DryRun,
 		Platform:           spec.Platform,
 		Registry:           spec.Registry,
 		Results:            make(map[string]any),
@@ -152,6 +185,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		Result:             resultSink,
 		BackupSuffix:       backupSuffix,
 		ConflictResolution: spec.ConflictResolution,
+		variableResolver:   NewVariableResolver(app.Name, app.Flags, app.Config, app.Overrides),
 	}
 
 	if spec.Root != nil {
@@ -166,15 +200,15 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 // ActionByName returns a resolved Action for the given dotted action name (e.g., "file.write_text").
 //
 // The name is split into provider name and method name. The provider must play the action role. The provider instance
-// is cached — subsequent calls for the same provider reuse the instance.
+// is cached. Subsequent calls for the same provider reuse the instance.
 //
 // Parameters:
-//   - name: the dotted action name (e.g., "file.write_text").
+//   - `name`: the dotted action name (e.g., "file.write_text").
 //
 // Returns:
-//   - Action: the resolved action wrapping the provider instance and method.
-//   - error: non-nil if the provider is not a registered action, the method doesn't exist, or construction fails.
-func (ctx *RuntimeEnvironment) ActionByName(name string) (Action, error) {
+//   - `Action`: the resolved action wrapping the provider instance and method.
+//   - `error`: non-nil if the provider is not a registered action, the method doesn't exist, or construction fails.
+func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 
 	dot := strings.LastIndex(name, ".")
 	if dot < 0 {
@@ -184,7 +218,7 @@ func (ctx *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 	receiverName := name[:dot]
 	methodSnake := name[dot+1:]
 
-	prt, ok := ctx.Registry.ActionByName(receiverName)
+	prt, ok := re.Registry.ActionByName(receiverName)
 	if !ok {
 		return nil, fmt.Errorf("unknown action provider: %s", receiverName)
 	}
@@ -201,71 +235,94 @@ func (ctx *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 		return nil, fmt.Errorf("action %q: method %q not found on %q", name, methodSnake, receiverName)
 	}
 
-	if _, err := ctx.cachedProvider(prt); err != nil {
+	if _, err := re.cachedProvider(prt); err != nil {
 		return nil, err
 	}
 
 	return newAction(prt, method, name), nil
 }
 
-// Capture executes cmd, returning stdout bytes verbatim and streaming stderr through the runtime environment's
-// status UI.
+// Close releases the session's owned resources — currently the [Root] handle. Idempotent: the close path
+// runs exactly once per env regardless of how many times Close is called. The first call performs the close
+// and stores any joined error; subsequent calls return the stored error without re-closing.
+//
+// Callers construct the env, defer Close once, then hand the env by pointer to whatever uses it
+// ([starlarkbridge.Runtime], [GraphExecutor], providers, …). Holders do not implement their own Close — the
+// env is the single owner.
+//
+// Returns:
+//   - `error`: the joined error from closing the env's owned resources, or nil on success.
+func (re *RuntimeEnvironment) Close() error {
+
+	re.closeOnce.Do(func() {
+		iox.Close(&re.closeErr, re.Root)
+	})
+	return re.closeErr
+}
+
+// Capture executes cmd, returning stdout bytes verbatim and streaming stderr through the environment's status UI.
 //
 // In dry-run, the command is narrated and nil bytes are returned with a nil error.
 //
 // Parameters:
-//   - cmd: the prepared exec.Cmd; its Stdout, Stderr, and Cancel fields are overwritten by the runner.
+//   - `cmd`: the prepared exec.Cmd; its Stdout, Stderr, and Cancel fields are overwritten by the runner.
 //
 // Returns:
 //   - []byte: the captured stdout (nil in dry-run).
-//   - error: a wrapped exit-error including the stderr tail on non-zero exit.
-func (ctx *RuntimeEnvironment) Capture(cmd *exec.Cmd) ([]byte, error) {
-
-	return ctx.runner().Capture(cmd)
+//   - `error`: a wrapped exit-error including the stderr tail on non-zero exit.
+func (re *RuntimeEnvironment) Capture(cmd *exec.Cmd) ([]byte, error) {
+	return re.runner().Capture(cmd)
 }
 
-// Emit captures stdout, applies parse to produce a typed value, then forwards the value to the runtime environment's
-// result sink.
+// Emit captures stdout, applies parse to produce a typed value, and emits that value to the environment's result sink.
 //
 // Stderr streams through the status UI. In dry-run, the command is narrated and nil is returned without invoking
 // parse.
 //
 // Parameters:
-//   - cmd:   the prepared exec.Cmd.
-//   - parse: converts captured stdout bytes into the typed value forwarded to the result sink.
+//   - `cmd`: the prepared exec.Cmd.
+//   - `parse`: converts captured stdout bytes into the typed value forwarded to the result sink.
 //
 // Returns:
-//   - error: a wrapped exit-error, parse error, or sink error; nil on success.
-func (ctx *RuntimeEnvironment) Emit(cmd *exec.Cmd, parse func([]byte) (any, error)) error {
-
-	return ctx.runner().Emit(cmd, parse)
+//   - `error`: a wrapped exit-error, parse error, or sink error; nil on success.
+func (re *RuntimeEnvironment) Emit(cmd *exec.Cmd, parse func([]byte) (any, error)) error {
+	return re.runner().Emit(cmd, parse)
 }
 
 // ModuleByName returns a cached provider instance for the named module, constructing it on first access.
 //
 // Parameters:
-//   - name: the module name (e.g., "file", "ui").
+//   - `name`: the module name (e.g., "file", "ui").
 //
 // Returns:
-//   - any: the provider instance.
-//   - error: non-nil if the name is not a registered module or construction fails.
-func (ctx *RuntimeEnvironment) ModuleByName(name string) (any, error) {
+//   - `any`: the provider instance.
+//   - `error`: non-nil if the name is not a registered module or construction fails.
+func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 
-	prt, ok := ctx.Registry.ModuleByName(name)
+	prt, ok := re.Registry.ModuleByName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown module: %s", name)
 	}
 
-	return ctx.cachedProvider(prt)
+	return re.cachedProvider(prt)
 }
 
-// Property returns a value from the tool-provided context data.
-func (ctx *RuntimeEnvironment) Property(key string) (any, bool) {
+// VariableByName returns the binding-layer [Variable] resolved for the named parameter. Returns the zero
+// [Variable] and false until the executor's preflight pass calls [VariableResolver.Resolve].
+//
+// Parameters:
+//   - `name`: the parameter name.
+//
+// Returns:
+//   - Variable: the resolved variable, or the zero value when absent.
+//   - `bool`: true if a variable was resolved for this name; false otherwise.
+func (re *RuntimeEnvironment) VariableByName(name string) (Variable, bool) {
 
-	if ctx.Data == nil {
-		return nil, false
+	if re.variables == nil {
+		return Variable{}, false
 	}
-	v, ok := ctx.Data[key]
+
+	v, ok := re.variables[name]
 	return v, ok
 }
 
@@ -274,13 +331,13 @@ func (ctx *RuntimeEnvironment) Property(key string) (any, bool) {
 // In dry-run, the command is narrated and nil is returned without launching it.
 //
 // Parameters:
-//   - cmd: the prepared exec.Cmd; its Stdout, Stderr, and Cancel fields are overwritten by the runner.
+//   - `cmd`: the prepared exec.Cmd; its Stdout, Stderr, and Cancel fields are overwritten by the runner.
 //
 // Returns:
-//   - error: a wrapped exit-error including the stderr tail on non-zero exit.
-func (ctx *RuntimeEnvironment) Run(cmd *exec.Cmd) error {
+//   - `error`: a wrapped exit-error including the stderr tail on non-zero exit.
+func (re *RuntimeEnvironment) Run(cmd *exec.Cmd) error {
 
-	return ctx.runner().Run(cmd)
+	return re.runner().Run(cmd)
 }
 
 // endregion
@@ -291,13 +348,12 @@ func (ctx *RuntimeEnvironment) Run(cmd *exec.Cmd) error {
 
 // region Behaviors
 
-// runner builds a process.Runner from this environment's status, result, dryrun, and context.
+// runner builds a process.Runner
 //
 // Returns:
 //   - *process.Runner: the runner bound to the current configuration.
-func (ctx *RuntimeEnvironment) runner() *process.Runner {
-
-	return process.NewRunner(ctx.Context, ctx.DryRun, ctx.Result, ctx.Status)
+func (re *RuntimeEnvironment) runner() *process.Runner {
+	return process.NewRunner(re.Context, re.Application.DryRun(), re.Result, re.Status)
 }
 
 // cachedProvider returns a cached provider instance for the given type descriptor, constructing it on first access.
@@ -306,37 +362,37 @@ func (ctx *RuntimeEnvironment) runner() *process.Runner {
 // a sibling. Double-check after construction handles concurrent callers.
 //
 // Parameters:
-//   - prt: the provider receiver type descriptor.
+//   - `prt`: the provider receiver type descriptor.
 //
 // Returns:
-//   - any: the provider instance.
-//   - error: non-nil if construction fails.
-func (ctx *RuntimeEnvironment) cachedProvider(prt ProviderReceiverType) (any, error) {
+//   - `any`: the provider instance.
+//   - `error`: non-nil if construction fails.
+func (re *RuntimeEnvironment) cachedProvider(prt ProviderReceiverType) (any, error) {
 
 	name := prt.Name()
 
-	ctx.mutex.Lock()
-	if p, ok := ctx.providers[name]; ok {
-		ctx.mutex.Unlock()
+	re.mutex.Lock()
+	if p, ok := re.providers[name]; ok {
+		re.mutex.Unlock()
 		return p, nil
 	}
-	ctx.mutex.Unlock()
+	re.mutex.Unlock()
 
-	p, err := prt.Construct()(ctx)
+	p, err := prt.Construct()(re)
 	if err != nil {
 		return nil, fmt.Errorf("construct provider %s: %w", name, err)
 	}
 
-	ctx.mutex.Lock()
-	if existing, ok := ctx.providers[name]; ok {
-		ctx.mutex.Unlock()
+	re.mutex.Lock()
+	if existing, ok := re.providers[name]; ok {
+		re.mutex.Unlock()
 		return existing, nil
 	}
-	if ctx.providers == nil {
-		ctx.providers = make(map[string]any)
+	if re.providers == nil {
+		re.providers = make(map[string]any)
 	}
-	ctx.providers[name] = p
-	ctx.mutex.Unlock()
+	re.providers[name] = p
+	re.mutex.Unlock()
 
 	return p, nil
 }

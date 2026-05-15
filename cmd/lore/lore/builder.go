@@ -223,10 +223,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		DryRun:         cfg.DryRun,
 	}
 
-	graph := op.NewGraph(&op.RuntimeEnvironment{
-		ProgramName: "lore",
-		Registry:    reg,
-	})
+	graph := op.NewGraph()
 
 	var packages []string
 	var err error
@@ -460,8 +457,7 @@ func prepareScriptEnv(
 ) {
 
 	runtime := starlarkbridge.NewRuntime(op.NewRuntimeEnvironmentSpec("lore", reg).
-		WithModules(reg.Modules()...).
-		WithData(map[string]any{"graph": graph}))
+		WithModules(reg.Modules()...))
 
 	globals := runtime.Predeclared()
 

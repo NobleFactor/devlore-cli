@@ -25,7 +25,7 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 }
 
 func (p *Provider) loadConfig() (*cfg.Config, error) {
-	if c, ok := p.RuntimeEnvironment().Data["config"].(*cfg.Config); ok && c != nil {
+	if c, ok := p.RuntimeEnvironment().variables["config"].(*cfg.Config); ok && c != nil {
 		return c, nil
 	}
 	return cfg.Load()

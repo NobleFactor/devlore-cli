@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/goast/doctaxonomy"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // CommentStyle identifies how a comment is classified for formatting.
@@ -122,7 +121,12 @@ type SourceFile struct {
 	funcDecls []*FuncDecl
 	typeIndex map[string]*GenDeclNode
 	funcIndex map[string]*FuncDecl
-	ctx       *op.RuntimeEnvironment
+
+	// Provider-derived state stamped at LoadSourceFile time. Replaces the prior pattern of stashing these on
+	// RuntimeEnvironment.variables — goast owns its own state, the runtime environment doesn't.
+	schemaReg *doctaxonomy.SchemaRegistry
+	spacing   SpacingRules
+	width     int
 }
 
 // GenDeclNode represents a general declaration (type, var, const, import).
@@ -268,32 +272,29 @@ func (sf *SourceFile) PackageName() string { return sf.file.Name.Name }
 // Name returns the filename.
 func (sf *SourceFile) Name() string { return sf.filename }
 
-// schemaRegistry reads the schema registry from context.
+// schemaRegistry returns the schema registry stamped on this file at LoadSourceFile time. Falls back to the
+// default registry if no value was stamped.
 func (sf *SourceFile) schemaRegistry() *doctaxonomy.SchemaRegistry {
-	if cfgVal, ok := sf.ctx.Data["schema_registry"]; ok {
-		if reg, ok := cfgVal.(*doctaxonomy.SchemaRegistry); ok {
-			return reg
-		}
+	if sf.schemaReg != nil {
+		return sf.schemaReg
 	}
 	return doctaxonomy.DefaultRegistry()
 }
 
-// spacingRules reads spacing rules from context.
+// spacingRules returns the spacing rules stamped on this file at LoadSourceFile time. Falls back to
+// [DefaultSpacingRules] if no rules were stamped.
 func (sf *SourceFile) spacingRules() SpacingRules {
-	if cfgVal, ok := sf.ctx.Data["spacing_rules"]; ok {
-		if rules, ok := cfgVal.(SpacingRules); ok {
-			return rules
-		}
+	if sf.spacing != (SpacingRules{}) {
+		return sf.spacing
 	}
 	return DefaultSpacingRules()
 }
 
-// lineWidth reads the line width from context.
+// lineWidth returns the line-width budget stamped on this file at LoadSourceFile time. Defaults to 120 when
+// zero.
 func (sf *SourceFile) lineWidth() int {
-	if cfgVal, ok := sf.ctx.Data["line_width"]; ok {
-		if w, ok := cfgVal.(int); ok {
-			return w
-		}
+	if sf.width > 0 {
+		return sf.width
 	}
 	return 120
 }

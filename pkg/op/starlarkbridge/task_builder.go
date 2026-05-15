@@ -468,6 +468,17 @@ func (p *NodeBuilder) fillSlot(node *op.Node, slot *op.Slot, sv starlark.Value) 
 		return nil
 	}
 
+	// op.Variable reference produced by plan.variable(name, default_value=...). The immediate method returns
+	// *op.Variable; the toStarlark path wraps it in a *goReceiver. fillSlot unwraps and stamps
+	// op.VariableValue{Name} into the slot. Default propagation into the parameter surface is Phase 3.
+
+	if gr, ok := sv.(*goReceiver); ok {
+		if v, ok := gr.instance.(*op.Variable); ok {
+			node.SetSlot(name, op.VariableValue{Name: v.Name})
+			return nil
+		}
+	}
+
 	// Projector: extract the Go value the slot's parameter type wants, via the implementer's own projection logic.
 	//
 	// This is the op.Convert cascade for the goReceiver, target-type switch for Promise/Invocation. It preserves

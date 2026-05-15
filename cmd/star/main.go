@@ -155,10 +155,17 @@ Generate shell completions with:
   star completion fish > ~/.config/fish/completions/star.fish`,
 	}
 
-	// Create runtime early so we can starlarkbridge flags to it
-	runtime := starruntime.NewApplication()
+	runtimeEnvironment := op.NewRuntimeEnvironment(ctx,
+		op.NewRuntimeEnvironmentSpec("star", op.NewReceiverRegistry()).
+			WithRoot(op.NewRootReaderWriter(wd)).
+			WithApplication(application.NewApplication("star", rootCmd))
+
+	defer runtimeEnvironment.Close()
+
+	runtime := starruntime.NewApplication(runtimeEnvironment, rootCmd))
 
 	// Global flags
+
 	var silent bool
 	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
 	rootCmd.PersistentFlags().BoolVar(&silent, "silent", false, "Suppress all status messages")

@@ -702,11 +702,9 @@ func (p *Provider) LoadSourceFile(path string) (*SourceFile, error) {
 		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}
 	sf.filename = path
-	ctx := p.RuntimeEnvironment()
-	ctx.Data["schema_registry"] = p.schemaRegistry()
-	ctx.Data["spacing_rules"] = p.spacingRules()
-	ctx.Data["line_width"] = p.configLineWidth()
-	sf.ctx = ctx
+	sf.schemaReg = p.schemaRegistry()
+	sf.spacing = p.spacingRules()
+	sf.width = p.configLineWidth()
 	return sf, nil
 }
 
@@ -738,7 +736,7 @@ func (p *Provider) schemaRegistry() *doctaxonomy.SchemaRegistry {
 
 // configSchemas attempts to build a SchemaRegistry from the config stored in the provider's context data.
 func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
-	cfgVal, ok := p.RuntimeEnvironment().Data["config"]
+	cfgVal, ok := p.RuntimeEnvironment().variables["config"]
 	if !ok || cfgVal == nil {
 		return nil
 	}
@@ -758,7 +756,7 @@ func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
 
 // spacingRules reads SpacingRules from config, falling back to defaults.
 func (p *Provider) spacingRules() SpacingRules {
-	cfgVal, ok := p.RuntimeEnvironment().Data["config"]
+	cfgVal, ok := p.RuntimeEnvironment().variables["config"]
 	if !ok || cfgVal == nil {
 		return DefaultSpacingRules()
 	}
@@ -813,7 +811,7 @@ func spacingRulesFromConfig(val interface{}) SpacingRules {
 
 // configLineWidth reads the line width from config, defaulting to 120.
 func (p *Provider) configLineWidth() int {
-	cfgVal, ok := p.RuntimeEnvironment().Data["config"]
+	cfgVal, ok := p.RuntimeEnvironment().variables["config"]
 	if !ok || cfgVal == nil {
 		return 120
 	}

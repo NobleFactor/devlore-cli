@@ -13,6 +13,8 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
@@ -27,49 +29,38 @@ var DryRun bool
 
 // Application manages Starlark script execution for the star CLI.
 //
-// Holds the extension registry, the loaded-command map keyed by space-separated name, the unified config (lazily
-// initialized), the [starlarkbridge.Runtime], and the shared context-data map that providers read at execution time.
+// Holds the extension registry, the loaded-command map keyed by space-separated name, the unified config
+// (lazily initialized), and the [starlarkbridge.Runtime].
 type Application struct {
-	registry *ExtensionRegistry
 	commands map[string]*Command
 	config   *config.Config // Unified config for builtin and extension config.
+	registry *ExtensionRegistry
 	star     *starlarkbridge.Runtime
-	data     map[string]any // Shared context data (dry_run, config, command_tree, etc.).
 }
 
 // NewApplication creates a new star Application with a fully initialized Starlark runtime.
 //
-// Constructs the receiver registry, builds a [op.RuntimeEnvironmentSpec] with every registered module exposed and the
-// current working directory wired as the read+write filesystem root, hands the spec to [starlarkbridge.NewRuntime],
-// and inserts the resulting Application into the shared context-data map under the "command_tree" key so providers
-// can read it lazily.
+// Constructs the receiver registry, builds a [op.RuntimeEnvironmentSpec] with every registered module
+// exposed and the current working directory wired as the read+write filesystem root, then hands the spec to
+// [starlarkbridge.NewRuntime].
 //
 // Returns:
 //   - *Application: the initialized application.
 func NewApplication() *Application {
 
-	wd, _ := os.Getwd()
-	data := map[string]any{"dry_run": DryRun}
+	wd, err := os.Getwd()
+	assert.Nil("os.Getwd err", err)
 
-	registry := op.NewReceiverRegistry()
-
-	cfg := op.NewRuntimeEnvironmentSpec("star", registry).
+	runtime := starlarkbridge.NewRuntime(op.NewRuntimeEnvironmentSpec("star", op.NewReceiverRegistry()).
+		WithApplication(application.NewApplication("star", Flags: map[string]any{"dry-run": DryRun}).
 		WithModules(registry.Modules()...).
-		WithRoot(op.NewRootReaderWriter(wd)).
-		WithData(data)
+		WithRoot(op.NewRootReaderWriter(wd)))
 
-	star := starlarkbridge.NewRuntime(cfg)
-
-	rt := &Application{
-		registry: NewExtensionRegistry(),
+	return &Application{
 		commands: make(map[string]*Command),
-		star:     star,
-		data:     data,
+		registry: NewExtensionRegistry(),
+		star:     runtime,
 	}
-
-	data["command_tree"] = rt
-
-	return rt
 }
 
 // region EXPORTED METHODS
@@ -150,7 +141,6 @@ func (r *Application) DiscoverAndLoad(loader *ExtensionLoader) error {
 	if err := r.Config().LoadFromFiles(); err != nil {
 		return fmt.Errorf("load config files: %w", err)
 	}
-	r.data["config"] = r.Config()
 
 	for _, ext := range extensions {
 		ext.SetConfig(r.Config())
@@ -201,7 +191,6 @@ func (r *Application) LoadExtensionsFrom(dir string) error {
 	if err := r.Config().LoadFromFiles(); err != nil {
 		return fmt.Errorf("load config files: %w", err)
 	}
-	r.data["config"] = r.Config()
 
 	for _, ext := range extensions {
 		ext.SetConfig(r.Config())

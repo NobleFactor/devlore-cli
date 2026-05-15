@@ -30,7 +30,6 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 // +devlore:root=true
 type Provider struct {
 	op.ProviderBase
-	Graph *op.Graph
 }
 
 // Case is one branch of a [Provider.Choose] dispatch.
@@ -48,16 +47,11 @@ type Case struct {
 
 // NewProvider creates a flow Provider bound to the given context.
 //
-// The graph is extracted from ctx.Data["graph"].
+// The graph reference is not captured at construction — flow methods read it per dispatch from
+// [op.ActivationRecord.Graph], stamped by the executor when the activation is built.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	var graph *op.Graph
-	if g, ok := ctx.Data["graph"].(*op.Graph); ok {
-		graph = g
-	}
-	return &Provider{
-		ProviderBase: op.NewProviderBase(ctx),
-		Graph:        graph,
-	}
+
+	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 // region EXPORTED METHODS
@@ -214,7 +208,12 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 		limit = p.RuntimeEnvironment().Platform.DefaultConcurrency()
 	}
 
-	body, err := p.Graph.ResolveExecutable(do)
+	graph := activationRecord.Graph
+	if graph == nil {
+		return nil, nil, fmt.Errorf("gather: dispatch has no graph in scope")
+	}
+
+	body, err := graph.ResolveExecutable(do)
 
 	if err != nil {
 		return nil, nil, fmt.Errorf("gather: %w", err)
@@ -255,7 +254,7 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 
 			iterStack := op.NewRecoveryStack()
 
-			r, runErr := p.Graph.ExecuteWithStack(gatherCtx, body, iterStack, map[string]op.SlotValue{
+			r, runErr := graph.ExecuteWithStack(gatherCtx, body, iterStack, map[string]op.SlotValue{
 				inputName: op.ImmediateValue{Value: item},
 			})
 

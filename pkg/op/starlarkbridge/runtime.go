@@ -193,22 +193,21 @@ func (rt *Runtime) NewModule(name string) (starlark.Value, bool) {
 	return nil, false
 }
 
-// Invoke executes a starlark script with per-invocation settings.
+// Invoke executes a starlark script.
 //
 // Script loading is confined to root via [os.OpenRoot] — relative load calls cannot escape. The `@devlore//` module
-// loader resolves provider names from the registry. DryRun and Data are set on the shared [op.RuntimeEnvironment] for the
-// duration of the invocation.
+// loader resolves provider names from the registry. Dry-run mode is read from the tool's
+// [application.Application] (carried on the shared [op.RuntimeEnvironment]); the caller does not pass it
+// per-invocation.
 //
 // Parameters:
-//   - script: path to the script file, relative to root.
-//   - root: filesystem root for script loading (confined via [os.OpenRoot]).
-//   - data: per-invocation context data (replaces RuntimeEnvironment.Data for this invocation).
-//   - dryRun: per-invocation dry-run flag.
+//   - `script`: path to the script file, relative to root.
+//   - `root`: filesystem root for script loading (confined via [os.OpenRoot]).
 //
 // Returns:
 //   - [starlark.StringDict]: the script's global bindings after execution.
-//   - error: non-nil if the script fails to load or execute.
-func (rt *Runtime) Invoke(script string, root string, data map[string]any, dryRun bool) (result starlark.StringDict, err error) {
+//   - `error`: non-nil if the script fails to load or execute.
+func (rt *Runtime) Invoke(script string, root string) (result starlark.StringDict, err error) {
 
 	// Confine script loading to root.
 
@@ -228,11 +227,6 @@ func (rt *Runtime) Invoke(script string, root string, data map[string]any, dryRu
 	if err != nil {
 		return nil, fmt.Errorf("cannot read script %q: %w", script, err)
 	}
-
-	// Set per-invocation state on the shared RuntimeEnvironment.
-
-	rt.environment.Data = data
-	rt.environment.DryRun = dryRun
 
 	// Dialect options.
 

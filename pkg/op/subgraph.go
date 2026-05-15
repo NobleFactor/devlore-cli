@@ -65,9 +65,9 @@ type Subgraph struct {
 	Branch bool
 }
 
-// NewSubgraph constructs a Subgraph with the given identifier. Additional
-// fields may be set on the returned pointer. The parameter surface is
-// populated later via FinalizeParameters once children and edges are set.
+// NewSubgraph constructs a Subgraph with the given identifier. Additional fields may be set on the returned
+// pointer. The parameter surface (executableUnit.parameters) is left nil; the topological-root bubble-up that
+// populates it is Phase 3 work.
 func NewSubgraph(id string) *Subgraph {
 	return &Subgraph{executableUnit: executableUnit{id: id}}
 }

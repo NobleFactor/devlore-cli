@@ -53,7 +53,7 @@ func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (R
 		panic(fmt.Sprintf("%s: %v", a.name, err))
 	}
 
-	if runtimeEnvironment.DryRun {
+	if runtimeEnvironment.Application.DryRun() {
 		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
 		return nil, nil, nil
 	}
@@ -109,7 +109,7 @@ func (a *fallibleAction) Do(activationRecord *ActivationRecord, slots map[string
 		return nil, nil, err
 	}
 
-	if runtimeEnvironment.DryRun {
+	if runtimeEnvironment.Application.DryRun() {
 		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
 		return nil, nil, nil
 	}
@@ -162,7 +162,7 @@ func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[str
 		return nil, nil, err
 	}
 
-	if runtimeEnvironment.DryRun {
+	if runtimeEnvironment.Application.DryRun() {
 		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
 		return nil, nil, nil
 	}

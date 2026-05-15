@@ -101,11 +101,6 @@ func (c *Command) Run(flags map[string]string, positional ...string) error {
 		"dry_run": starlark.Bool(DryRun),
 	})
 
-	// Set current command name in context data for the commands provider.
-	if c.runtime != nil && c.runtime.data != nil {
-		c.runtime.data["current_command"] = c.Name
-	}
-
 	// Do run(command, ctx).
 	_, err := starlark.Call(thread, c.RunFunc, starlark.Tuple{c, ctx}, nil)
 	if err != nil {

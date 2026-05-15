@@ -4,6 +4,7 @@
 package writ
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
@@ -661,7 +663,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	target := filepath.Join(targetRoot, relTarget)
 	nodes, edges := buildUpgradeChain(reg, actions, relTarget, entry, target)
 
-	graph := op.NewGraph(nil)
+	graph := op.NewGraph()
 	for _, node := range nodes {
 		graph.AddNode(node)
 	}
@@ -676,9 +678,13 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	spec := op.NewRuntimeEnvironmentSpec("writ", reg).
 		WithRoot(root).
 		WithSops(sopsClient).
-		WithData(engineData)
+		WithApplication(&application.Application{
+			Name:  "writ",
+			Flags: map[string]any{"dry-run": cfg.DryRun},
+		})
 
-	eng := op.NewGraphExecutor(spec)
+	eng := op.NewGraphExecutor(context.Background(), spec)
+	defer func() { _ = eng.Close() }()
 
 	if _, runErr := eng.Run(graph, nil); runErr != nil {
 		cli.Error("%s: %v", relTarget, runErr)

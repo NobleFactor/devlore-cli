@@ -19,7 +19,8 @@ import (
 // Node and Subgraph have an unexported `id` (via embedded executableUnit);
 // their marshalers project it to "id". The `parameters` field is not
 // serialized — a plan-time computed surface rebuilt on load via Bind for
-// Node and FinalizeParameters for Subgraph. See Fork E in
+// Node. The Subgraph parameter-surface rebuild (topological-root union) is
+// Phase 3 work and not yet wired. See Fork E in
 // docs/plans/extract-starlark-from-op/phase-7.md.
 
 // region Graph marshalers

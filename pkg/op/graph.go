@@ -28,7 +28,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/pkg/binding"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
@@ -83,18 +82,23 @@ type Graph struct {
 	ctx *RuntimeEnvironment
 }
 
-// NewGraph creates a Graph with the given execution context.
+// NewGraph creates a Graph with no bound runtime environment.
 //
-// Parameters:
-//   - ctx: the execution context providing registry, root, platform, and other session state.
-func NewGraph(runtimeEnvironment *RuntimeEnvironment) *Graph {
+// The graph is plan-structure data at construction — nodes, edges, slot values, Catalog, provenance,
+// checksum. An env is bound only when a session-owner (a planner via [Plan] or the [GraphExecutor] via
+// [GraphExecutor.Run]) calls [Graph.Rebind] for the duration of that session, and [Graph.Unbind] when the
+// session ends.
+//
+// Returns:
+//   - *Graph: the freshly constructed, env-less graph.
+func NewGraph() *Graph {
 
 	return &Graph{
 		Root:      NewSubgraph("root"),
+		Catalog:   NewResourceCatalog(),
 		Version:   GraphFormatVersion,
 		Timestamp: time.Now(),
 		State:     StatePending,
-		ctx:       runtimeEnvironment,
 	}
 }
 
@@ -200,19 +204,28 @@ func findSubgraph(children []SubgraphChild, id string) *Subgraph {
 	return nil
 }
 
-// Rebind replaces the graph's execution context and clears the action cache.
+// Rebind binds the graph to a runtime environment for the duration of a session. Both planning
+// ([Plan]) and execution ([GraphExecutor.Run]) call Rebind on entry and [Graph.Unbind] on exit, so the
+// graph's `ctx` field is authoritative only inside the active session. Between sessions (after Unbind,
+// before the next Rebind) the field is nil.
 //
-// This is the handoff point between planning and execution. During planning, the graph holds the StarlarkRuntime's
-// context (read-only root, no recovery site). At execution time, the executor creates a new RuntimeEnvironment with a
-// confined root, recovery site, and execution-specific settings, then calls Rebind to switch the graph over.
+// The two-session split is structural — a graph planned in one environment may be executed in another
+// (different machine, different time). Each session-owner installs its own env via Rebind for the duration
+// of the work it controls.
 //
 // Parameters:
-//   - ctx: the new execution context.
+//   - `runtimeEnvironment`: the env to bind for the duration of the active session.
 func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
 	g.ctx = runtimeEnvironment
 	for _, n := range g.Nodes() {
 		n.graph = g
 	}
+}
+
+// Unbind clears the graph's bound runtime environment. Called by session-owners ([Plan], [GraphExecutor.Run])
+// when their session ends so the graph carries no stale env reference across the handoff to a later session.
+func (g *Graph) Unbind() {
+	g.ctx = nil
 }
 
 // Execute runs an executable unit (Node or Subgraph) with caller-supplied slot overrides.
@@ -568,7 +581,7 @@ func (n *Node) SetSlot(name string, value SlotValue) {
 // region Behaviors
 
 // ResolvedSlots returns all slot values as a flat map, resolving promises and variable bindings.
-func (n *Node) ResolvedSlots(variables map[string]binding.Variable, results map[string]any) map[string]any {
+func (n *Node) ResolvedSlots(variables map[string]Variable, results map[string]any) map[string]any {
 	return n.ResolveSlots(variables, results, nil)
 }
 
@@ -577,7 +590,7 @@ func (n *Node) ResolvedSlots(variables map[string]binding.Variable, results map[
 // that entry's Resolve is used; otherwise the baked-in Slot.Value is resolved.
 // Overrides whose keys do not match any slot parameter are silently ignored —
 // the caller-facing parameter surface is the authority.
-func (n *Node) ResolveSlots(variables map[string]binding.Variable, results map[string]any, overrides map[string]SlotValue) map[string]any {
+func (n *Node) ResolveSlots(variables map[string]Variable, results map[string]any, overrides map[string]SlotValue) map[string]any {
 
 	out := make(map[string]any, len(n.Slots))
 	for _, slot := range n.Slots {

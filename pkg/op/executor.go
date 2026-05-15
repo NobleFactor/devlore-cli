@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
-	"github.com/NobleFactor/devlore-cli/pkg/binding"
-	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 var (
@@ -22,19 +20,44 @@ var (
 type GraphExecutor struct {
 	hooks       *HookRegistry
 	environment *RuntimeEnvironment
-	variables   map[string]binding.Variable
+	variables   map[string]Variable
 }
 
-// NewGraphExecutor creates an executor with the given environment spec.
+// NewGraphExecutor creates an executor that owns a freshly-built execution environment derived from spec.
+//
+// The executor is the session owner for execution work. Its env's lifetime matches the executor's; callers
+// `defer executor.Close()` to release it. The provided ctx is propagated into the env's `Context` field —
+// signal handlers, timeouts, request-scoped values flow through to providers and subprocesses.
 //
 // Parameters:
-//   - spec: the execution environment configuration.
+//   - `ctx`: the parent context whose cancellation / values flow through `env.Context` into providers.
+//   - `spec`: the execution-environment configuration.
 //
 // Returns:
-//   - *GraphExecutor: the configured executor.
-func NewGraphExecutor(spec *RuntimeEnvironmentSpec) *GraphExecutor {
+//   - *GraphExecutor: the configured executor; call [GraphExecutor.Close] when done.
+func NewGraphExecutor(ctx context.Context, spec *RuntimeEnvironmentSpec) *GraphExecutor {
 	assert.NotNil("spec", spec)
-	return &GraphExecutor{environment: NewRuntimeEnvironment(context.Background(), spec)}
+	return &GraphExecutor{environment: NewRuntimeEnvironment(ctx, spec)}
+}
+
+// Close releases the executor's owned runtime environment. Idempotent — delegates to
+// [RuntimeEnvironment.Close], which runs the close path exactly once per env regardless of how many times
+// it is invoked.
+//
+// Returns:
+//   - `error`: the joined error from closing the env's owned resources, or nil on success.
+func (e *GraphExecutor) Close() error {
+	return e.environment.Close()
+}
+
+// Environment exposes the executor-owned runtime environment for callers that need to construct or pass
+// graph-companion objects (e.g., a [starlarkbridge.Runtime] sharing the executor's env). Callers must not
+// retain the reference past the executor's lifetime.
+//
+// Returns:
+//   - *RuntimeEnvironment: the executor's env.
+func (e *GraphExecutor) Environment() *RuntimeEnvironment {
+	return e.environment
 }
 
 // SetHooks sets the lifecycle hook registry for this executor.
@@ -52,16 +75,16 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 //
 // Parameters:
 //   - graph: the execution graph to run.
-//   - variables: the resolved variable map produced by [binding.VariableResolver.Resolve], one entry per
-//     [Variable] slot the graph references. The executor stashes the map on its receiver so internal
-//     dispatch paths can read from it during slot resolution. Phase 5 wires a preflight pass that aggregates
+//   - variables: the resolved variable map produced by [VariableResolver.Resolve], one entry per
+//     [VariableValue] slot the graph references. The executor stashes the map on its receiver so internal
+//     dispatch paths can read from it during slot resolution. Phase 4 wires a preflight pass that aggregates
 //     missing-required and type-mismatch errors before dispatch. Pass nil or an empty map for callers that
-//     do not yet use [Variable] slots.
+//     do not yet use [VariableValue] slots.
 //
 // Returns:
-//   - any: the terminal node's output value, or nil if no node produced output.
-//   - error: non-nil if any node or subgraph fails.
-func (e *GraphExecutor) Run(graph *Graph, variables map[string]binding.Variable) (any, error) {
+//   - `any`: the terminal node's output value, or nil if no node produced output.
+//   - `error`: non-nil if any node or subgraph fails.
+func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, error) {
 
 	e.variables = variables
 
@@ -69,9 +92,8 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]binding.Variable)
 		return nil, fmt.Errorf("graph already executed (state: %s)", graph.State)
 	}
 
-	var err error
-	defer iox.Close(&err, e.environment.Root)
 	graph.Rebind(e.environment)
+	defer graph.Unbind()
 
 	// Pre-flight resolution pass. Drive every Pending catalog entry to Active
 	// or Gone by calling r.Resolve() on each. Active and Gone entries are not
@@ -85,7 +107,7 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]binding.Variable)
 	//
 	// Skipped in dry-run mode: dry-run validates graph structure without
 	// asserting target-machine state.
-	if !e.environment.DryRun {
+	if !e.environment.Application.DryRun() {
 		if errs := graph.Catalog.ResolvePending(); len(errs) > 0 {
 			graph.State = StateFailed
 			return nil, errors.Join(errs...)
@@ -317,7 +339,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 	ec.Results = results
 	e.hooks.FireNodeStart(ec, node.ID(), slots)
 
-	activationRecord := &ActivationRecord{Runtime: ec, SiteID: node.ID(), Context: ec.Context}
+	activationRecord := &ActivationRecord{Runtime: ec, SiteID: node.ID(), Context: ec.Context, Graph: node.graph}
 	result, complement, err := action.Do(activationRecord, slots)
 	if err != nil {
 

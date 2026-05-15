@@ -119,6 +119,7 @@ func TestReceiverType_Methods(t *testing.T) {
 	expected := []string{
 		"Case",
 		"Options",
+		"Variable",
 	}
 
 	var got []string

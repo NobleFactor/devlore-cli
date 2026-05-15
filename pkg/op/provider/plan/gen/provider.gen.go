@@ -17,7 +17,8 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string][]string{
-			"Case":    {"when", "then"},
-			"Options": {"label", "retry_policy"},
+			"Case":     {"when", "then"},
+			"Options":  {"label", "retry_policy"},
+			"Variable": {"name", "default_value"},
 		})
 }

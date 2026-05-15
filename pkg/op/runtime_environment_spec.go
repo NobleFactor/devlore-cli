@@ -4,6 +4,7 @@
 package op
 
 import (
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 	"github.com/NobleFactor/devlore-cli/pkg/result"
@@ -45,7 +46,12 @@ type RuntimeEnvironmentSpec struct {
 	// Registry is the receiver type registry.
 	Registry *ReceiverRegistry
 
-	// BackupSuffix is appended to backup filenames during conflict resolution.
+	// Application is the tool-side handle that carries the variable-resolver source maps (flags / config /
+	// overrides) and the tool's program name. Tools set this via [WithApplication]; pkg/op builds the
+	// [VariableResolver] from it at [NewRuntimeEnvironment] time.
+	Application *application.Application
+
+	// BackupSuffix is appended to back up filenames during conflict resolution.
 	//
 	// Defaults to ".<ProgramName>-backup" when empty.
 	BackupSuffix string
@@ -53,12 +59,6 @@ type RuntimeEnvironmentSpec struct {
 	// ConflictResolution chooses how to handle preflight conflicts.
 	// Zero value is ResolutionStop.
 	ConflictResolution ConflictResolution
-
-	// Data holds tool-provided context: template variables, identities, segment maps, etc.
-	Data map[string]any
-
-	// DryRun prevents filesystem modifications when true.
-	DryRun bool
 
 	// Platform classifies the host (OS, arch, distro, version) and gives access to the managers available to providers.
 	//
@@ -68,8 +68,8 @@ type RuntimeEnvironmentSpec struct {
 
 	// Result is the primary output sink.
 	//
-	// Carries structured data destined for the user or downstream tooling (JSON / YAML / CSV / template). Same instance
-	// flows from the client's bootstrap into the runtime environment. When nil, [RuntimeEnvironmentSpec.Build]
+	// Carries structured data destined for the user or downstream tooling (JSON / YAML / CSV / template). The same
+	// instance flows from the client's bootstrap into the runtime environment. When nil, [RuntimeEnvironmentSpec.Build]
 	// defaults to a [result.Pipeline] writing JSON to [sink.Stdout].
 	Result *result.Pipeline
 
@@ -81,19 +81,19 @@ type RuntimeEnvironmentSpec struct {
 	// No Nil when SOPS is not configured.
 	Sops *sops.Client
 
-	// Status is the user-facing side-channel narrator. Carries categorized status messages and starlark `print()` output.
+	// Status is the user-facing side-channel narrator.
 	//
-	// Same instance flows from the client's bootstrap into the runtime environment. When nil,
-	// [RuntimeEnvironmentSpec.Build] defaults to a [status.Narrator] writing through [sink.Stderr]; pass a Narrator
-	// wrapping [sink.Discard] to suppress.
+	// It Carries categorized status messages and starlark `print()` output. The same instance flows from the client's
+	// bootstrap into the runtime environment. When nil, [RuntimeEnvironmentSpec.Build] defaults to a [status.Narrator]
+	// writing through [sink.Stderr]; pass a Narrator wrapping [sink.Discard] to suppress.
 	Status *status.Narrator
 }
 
 // NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name and registry.
 //
 // Parameters:
-//   - programName: the name of the running tool (e.g., "lore", "writ").
-//   - registry: the receiver type registry.
+//   - `programName`: the name of the running tool (e.g., "lore", "writ").
+//   - `registry`: the receiver type registry.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the initialized config.
@@ -110,10 +110,24 @@ func NewRuntimeEnvironmentSpec(programName string, registry *ReceiverRegistry) *
 
 // region State management
 
+// WithApplication sets the tool-side [application.Application] handle. The constructed runtime environment
+// builds its [VariableResolver] from the Application's Name / Flags / Config / Overrides; framework code
+// also reads system flags (e.g., "dry_run") directly from `Application.Flags`.
+//
+// Parameters:
+//   - `app`: the application handle the tool main constructed.
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithApplication(app *application.Application) *RuntimeEnvironmentSpec {
+	c.Application = app
+	return c
+}
+
 // WithBackupSuffix sets the backup filename suffix.
 //
 // Parameters:
-//   - suffix: the suffix (e.g. ".bak").
+//   - `suffix`: the suffix (e.g. ".bak").
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
@@ -125,7 +139,7 @@ func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnviron
 // WithConflictResolution sets the conflict resolution strategy.
 //
 // Parameters:
-//   - res: the resolution strategy.
+//   - `res`: the resolution strategy.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
@@ -134,34 +148,10 @@ func (c *RuntimeEnvironmentSpec) WithConflictResolution(res ConflictResolution) 
 	return c
 }
 
-// WithData sets the tool-provided context data.
-//
-// Parameters:
-//   - data: the context data map.
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithData(data map[string]any) *RuntimeEnvironmentSpec {
-	c.Data = data
-	return c
-}
-
-// WithDryRun sets the dry-run mode (no filesystem modifications when true).
-//
-// Parameters:
-//   - dryRun: true to prevent filesystem modifications.
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithDryRun(value bool) *RuntimeEnvironmentSpec {
-	c.DryRun = value
-	return c
-}
-
 // WithModules sets the modules to expose as Starlark globals.
 //
 // Parameters:
-//   - modules: the selected provider receiver types.
+//   - `modules`: the selected provider receiver types.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
@@ -173,7 +163,7 @@ func (c *RuntimeEnvironmentSpec) WithModules(modules ...ProviderReceiverType) *R
 // WithPlatform sets the interface-typed platform capability for the constructed runtime environment.
 //
 // Parameters:
-//   - p: the [platform.Platform] instance — construct via [platform.Linux] / [platform.Darwin] /
+//   - `p`: the [platform.Platform] instance — construct via [platform.Linux] / [platform.Darwin] /
 //     [platform.Windows] for explicit fixtures or via [platform.Detect] for host detection.
 //
 // Returns:
@@ -186,7 +176,7 @@ func (c *RuntimeEnvironmentSpec) WithPlatform(p platform.Platform) *RuntimeEnvir
 // WithResult sets the primary output sink for the constructed runtime environment.
 //
 // Parameters:
-//   - pipeline: the [result.Pipeline] instance — typically constructed via [result.NewPipeline].
+//   - `pipeline`: the [result.Pipeline] instance — typically constructed via [result.NewPipeline].
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
@@ -198,7 +188,7 @@ func (c *RuntimeEnvironmentSpec) WithResult(pipeline *result.Pipeline) *RuntimeE
 // WithRoot sets the scoped filesystem root for provider I/O.
 //
 // Parameters:
-//   - root: the filesystem root.
+//   - `root`: the filesystem root.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
@@ -210,7 +200,7 @@ func (c *RuntimeEnvironmentSpec) WithRoot(root Root) *RuntimeEnvironmentSpec {
 // WithSops sets the SOPS client for decryption and signing.
 //
 // Parameters:
-//   - client: the SOPS client (nil means SOPS is not configured).
+//   - `client`: the SOPS client (nil means SOPS is not configured).
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
@@ -222,7 +212,7 @@ func (c *RuntimeEnvironmentSpec) WithSops(client *sops.Client) *RuntimeEnvironme
 // WithStatus sets the side-channel narrator for the constructed runtime environment.
 //
 // Parameters:
-//   - narrator: the [status.Narrator] instance — typically the same one held by the cli facade via [cli.SetUI].
+//   - `narrator`: the [status.Narrator] instance — typically the same one held by the cli facade via [cli.SetUI].
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.

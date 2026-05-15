@@ -4,6 +4,7 @@
 package writ
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -13,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
@@ -29,7 +31,7 @@ const CurrentVersion = op.GraphFormatVersion
 //   - *op.Graph: graph with context populated from config
 func NewGraph(cfg *Config) *op.Graph {
 
-	g := op.NewGraph(nil)
+	g := op.NewGraph()
 	g.Provenance = op.Provenance{
 		Tool:       cfg.Tool,
 		SourceRoot: cfg.SourceRoot,
@@ -52,7 +54,7 @@ func NewGraph(cfg *Config) *op.Graph {
 //   - *op.Graph: graph with scope and target root set
 func NewScopedGraph(cfg *Config, scope, targetRoot string) *op.Graph {
 
-	g := op.NewGraph(nil)
+	g := op.NewGraph()
 	g.Provenance = op.Provenance{
 		Tool:       cfg.Tool,
 		Scope:      scope,
@@ -221,11 +223,13 @@ func ConfigureEngine(cfg *Config, targetRoot string) (*op.GraphExecutor, error) 
 	spec := op.NewRuntimeEnvironmentSpec("writ", op.NewReceiverRegistry()).
 		WithRoot(root).
 		WithSops(sopsClient).
-		WithData(engineData).
-		WithDryRun(cfg.DryRun)
+		WithApplication(&application.Application{
+			Name:  "writ",
+			Flags: map[string]any{"dry-run": cfg.DryRun},
+		})
 
-	// Create engine
-	return op.NewGraphExecutor(spec), nil
+	// Create engine. The caller owns the returned executor's lifetime and must defer Close.
+	return op.NewGraphExecutor(context.Background(), spec), nil
 }
 
 // graphBuiltinTemplateData returns the built-in template variables for graph building.

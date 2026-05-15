@@ -113,11 +113,30 @@ func (p *Provider) Options(label string, retryPolicy *op.RetryPolicy) *starlarkb
 	}
 }
 
+// Variable constructs an [op.Variable] reference that the bridge translates to [op.VariableValue]{Name: name}
+// at slot-fill time. Authored as `plan.variable(name)` (required) or `plan.variable(name, default_value=value)`
+// (optional with a fallback). The default arg is accepted by Phase 1 but not yet propagated into the
+// parameter surface — that wiring lands in Phase 3.
+//
+// Parameters:
+//   - `name`: the variable name to look up in the resolved variable map at execute time.
+//   - defaultValue: the optional fallback value when no source supplies the variable. A nil value means
+//     "no default declared" (the variable is required).
+//
+// Returns:
+//   - *op.Variable: the variable reference value (Value and Source are zero until the resolver fills them).
+func (p *Provider) Variable(name string, defaultValue any) *op.Variable {
+
+	_ = defaultValue // Phase 3 wires default propagation into the parameter surface.
+	return &op.Variable{Name: name}
+}
+
 // ResolveAttr implements [op.AttributeResolver].
 //
-// Walks the attribute tiers in order (Tier 2 peer builtins → Tier 3 sub-namespace adapters) and returns the first
-// match. Tier 1 (Provider's own methods) is handled upstream by the executing-receiver path and never reaches
-// ResolveAttr. Root-planned providers are excluded from Tier 3 — their methods surface flat via Tier 2 instead.
+// Walks the attribute tiers in order (Tier 2 peer builtins → Tier 3 sub-namespace adapters) and returns the
+// first match. Tier 1 (Provider's own methods) is handled upstream by the executing-receiver path and never
+// reaches ResolveAttr. Root-planned providers are excluded from Tier 3 — their methods surface flat via Tier
+// 2 instead.
 func (p *Provider) ResolveAttr(name string) any {
 
 	// Tier 2: root-planned peer method builtins. peerBuiltins is write-once at construction, so no lock needed.

@@ -33,12 +33,12 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 }
 
 func (p *Provider) tree() CommandTree {
-	t, _ := p.RuntimeEnvironment().Data[DataKeyCommandTree].(CommandTree)
+	t, _ := p.RuntimeEnvironment().variables[DataKeyCommandTree].(CommandTree)
 	return t
 }
 
 func (p *Provider) currentCommand() string {
-	s, _ := p.RuntimeEnvironment().Data[DataKeyCurrentCommand].(string)
+	s, _ := p.RuntimeEnvironment().variables[DataKeyCurrentCommand].(string)
 	return s
 }
 

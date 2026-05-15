@@ -41,12 +41,12 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 }
 
 func (p *Provider) isDryRun() bool {
-	v, _ := p.RuntimeEnvironment().Data[DataKeyDryRun].(bool)
+	v, _ := p.RuntimeEnvironment().variables[DataKeyDryRun].(bool)
 	return v
 }
 
 func (p *Provider) config() *cfg.Config {
-	v, _ := p.RuntimeEnvironment().Data[DataKeyConfig].(*cfg.Config)
+	v, _ := p.RuntimeEnvironment().variables[DataKeyConfig].(*cfg.Config)
 	return v
 }
 

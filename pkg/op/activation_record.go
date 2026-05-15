@@ -48,4 +48,10 @@ type ActivationRecord struct {
 	// `http.NewRequestWithContext`) so cancellation propagates from the session root down through the
 	// dispatch.
 	Context context.Context
+
+	// Graph is the operation graph this activation belongs to, when one exists. Set by graph-mode dispatch
+	// (the executor stamps `node.graph` here when building the activation); nil for immediate-mode dispatch
+	// (starlark bridge) and compensation unwinds where no graph is in scope. Providers that need to
+	// traverse the graph (e.g., [flow.Provider] for choose / gather / wait_until) read this field.
+	Graph *Graph
 }

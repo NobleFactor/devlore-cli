@@ -25,7 +25,7 @@ type planBuilder struct {
 func newPlanBuilder(reg *op.ReceiverRegistry, project string) *planBuilder {
 	return &planBuilder{
 		reg:     reg,
-		graph:   op.NewGraph(nil),
+		graph:   op.NewGraph(),
 		project: project,
 	}
 }

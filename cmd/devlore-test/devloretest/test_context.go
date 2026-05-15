@@ -18,13 +18,19 @@ import (
 
 // Expectation represents a single test assertion queued during script execution.
 type Expectation struct {
-	Kind    string         // "file_exists", "no_file", "node_count", "error", "equal"
+	Kind    string         // "file_exists", "no_file", "node_count", "error", "equal", "variable", "variable_namespace"
 	Path    string         // for file expectations
 	Content string         // optional expected content
 	Count   int            // for node_count
 	Pattern string         // for error expectations
 	Got     starlark.Value // for equal expectations
 	Want    starlark.Value // for equal expectations
+
+	// Fields for "variable" and "variable_namespace" expectations.
+	VarName       string          // the parameter name to look up in the resolved variable map
+	VarValue      *starlark.Value // when non-nil, assert variables[VarName].Value equals the wrapped value
+	VarSource     *string         // when non-nil, assert variables[VarName].Source.String() equals *VarSource
+	VarSourceKind *string         // when non-nil, assert variables[VarName].Source.Kind.String() equals *VarSourceKind
 }
 
 // Failure records a failed expectation.
@@ -39,12 +45,32 @@ type TestContext struct {
 	tmpDir       string
 	root         op.Root
 	expectations []Expectation
+	sources      *BindingSources        // shared pointer to the Runner's BindingSources; mutated by t.set_* builtins
+	variables    map[string]op.Variable // populated by SetResolvedVariables after the resolver runs; consumed in Check
 }
 
 // NewTestContext creates a TestContext rooted at the given temp directory. When root is non-nil, file checks
 // (checkFileExists, checkNoFile) are scoped through op.Root.
-func NewTestContext(tmpDir string, root op.Root) *TestContext {
-	return &TestContext{tmpDir: tmpDir, root: root}
+//
+// Parameters:
+//   - tmpDir: the temp directory the test owns; used as the root for t.tmp paths.
+//   - root: optional op.Root that scopes file-check I/O; nil falls back to plain os calls.
+//   - sources: shared pointer to the Runner's BindingSources; t.set_* builtins write through this pointer
+//     so the Runner sees what the .star configured.
+//
+// Returns:
+//   - *TestContext: the constructed context.
+func NewTestContext(tmpDir string, root op.Root, sources *BindingSources) *TestContext {
+	return &TestContext{tmpDir: tmpDir, root: root, sources: sources}
+}
+
+// SetResolvedVariables records the variable map produced by the variable resolver so variable expectations
+// can be checked.
+//
+// Parameters:
+//   - `v`: the resolved variable map from [op.VariableResolver.Variables].
+func (tc *TestContext) SetResolvedVariables(v map[string]op.Variable) {
+	tc.variables = v
 }
 
 // --- Published methods ---
@@ -82,6 +108,16 @@ func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 				failures = append(failures, *f)
 			}
 
+		case "variable":
+			if f := tc.checkVariable(exp); f != nil {
+				failures = append(failures, *f)
+			}
+
+		case "variable_namespace":
+			if f := tc.checkVariableNamespace(exp); f != nil {
+				failures = append(failures, *f)
+			}
+
 		case "equal":
 			eq, err := starlark.Equal(exp.Got, exp.Want)
 			if err != nil {
@@ -109,14 +145,20 @@ func (tc *TestContext) Expectations() []Expectation {
 // StarlarkValue returns the `t` namespace as a Starlark struct.
 func (tc *TestContext) StarlarkValue() starlark.Value {
 	return starlarkstruct.FromStringDict(starlark.String("t"), starlark.StringDict{
-		"tmp":               starlark.NewBuiltin("t.tmp", tc.starTmp),
-		"mkdir":             starlark.NewBuiltin("t.mkdir", tc.starMkdir),
-		"write":             starlark.NewBuiltin("t.write", tc.starWrite),
-		"expect_file":       starlark.NewBuiltin("t.expect_file", tc.starExpectFile),
-		"expect_no_file":    starlark.NewBuiltin("t.expect_no_file", tc.starExpectNoFile),
-		"expect_node_count": starlark.NewBuiltin("t.expect_node_count", tc.starExpectNodeCount),
-		"expect_error":      starlark.NewBuiltin("t.expect_error", tc.starExpectError),
-		"expect_equal":      starlark.NewBuiltin("t.expect_equal", tc.starExpectEqual),
+		"tmp":                       starlark.NewBuiltin("t.tmp", tc.starTmp),
+		"mkdir":                     starlark.NewBuiltin("t.mkdir", tc.starMkdir),
+		"write":                     starlark.NewBuiltin("t.write", tc.starWrite),
+		"expect_file":               starlark.NewBuiltin("t.expect_file", tc.starExpectFile),
+		"expect_no_file":            starlark.NewBuiltin("t.expect_no_file", tc.starExpectNoFile),
+		"expect_node_count":         starlark.NewBuiltin("t.expect_node_count", tc.starExpectNodeCount),
+		"expect_error":              starlark.NewBuiltin("t.expect_error", tc.starExpectError),
+		"expect_equal":              starlark.NewBuiltin("t.expect_equal", tc.starExpectEqual),
+		"set_overrides":             starlark.NewBuiltin("t.set_overrides", tc.starSetOverrides),
+		"set_flags":                 starlark.NewBuiltin("t.set_flags", tc.starSetFlags),
+		"set_env_prefix":            starlark.NewBuiltin("t.set_env_prefix", tc.starSetEnvPrefix),
+		"set_config":                starlark.NewBuiltin("t.set_config", tc.starSetConfig),
+		"expect_variable":           starlark.NewBuiltin("t.expect_variable", tc.starExpectVariable),
+		"expect_variable_namespace": starlark.NewBuiltin("t.expect_variable_namespace", tc.starExpectVariableNamespace),
 	})
 }
 
@@ -375,3 +417,171 @@ func (tc *TestContext) stat(abs string) (os.FileInfo, error) {
 
 	return os.Stat(abs)
 }
+
+// --- Binding source setters ---
+
+// starSetOverrides implements t.set_overrides(dict).
+func (tc *TestContext) starSetOverrides(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var d *starlark.Dict
+	if err := starlark.UnpackPositionalArgs("t.set_overrides", args, kwargs, 1, &d); err != nil {
+		return nil, err
+	}
+	m, err := starlarkDictToGoMap(d)
+	if err != nil {
+		return nil, fmt.Errorf("t.set_overrides: %w", err)
+	}
+	tc.sources.Overrides = m
+	return starlark.None, nil
+}
+
+// starSetFlags implements t.set_flags(dict).
+func (tc *TestContext) starSetFlags(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var d *starlark.Dict
+	if err := starlark.UnpackPositionalArgs("t.set_flags", args, kwargs, 1, &d); err != nil {
+		return nil, err
+	}
+	m, err := starlarkDictToGoMap(d)
+	if err != nil {
+		return nil, fmt.Errorf("t.set_flags: %w", err)
+	}
+	tc.sources.Flags = m
+	return starlark.None, nil
+}
+
+// starSetEnvPrefix implements t.set_env_prefix(prefix).
+func (tc *TestContext) starSetEnvPrefix(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var prefix string
+	if err := starlark.UnpackPositionalArgs("t.set_env_prefix", args, kwargs, 1, &prefix); err != nil {
+		return nil, err
+	}
+	tc.sources.EnvPrefix = prefix
+	return starlark.None, nil
+}
+
+// starSetConfig implements t.set_config(dict).
+func (tc *TestContext) starSetConfig(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var d *starlark.Dict
+	if err := starlark.UnpackPositionalArgs("t.set_config", args, kwargs, 1, &d); err != nil {
+		return nil, err
+	}
+	m, err := starlarkDictToGoMap(d)
+	if err != nil {
+		return nil, fmt.Errorf("t.set_config: %w", err)
+	}
+	tc.sources.Config = m
+	return starlark.None, nil
+}
+
+// --- Variable assertions ---
+
+// starExpectVariable implements t.expect_variable(name, value=None, origin=None, origin_namespace=None).
+// Each kwarg is independently optional; supplied kwargs are asserted, unsupplied kwargs are wildcarded.
+func (tc *TestContext) starExpectVariable(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	value := starlark.Value(starlark.None)
+	origin := starlark.Value(starlark.None)
+	originNs := starlark.Value(starlark.None)
+	if err := starlark.UnpackArgs("t.expect_variable", args, kwargs,
+		"name", &name,
+		"value?", &value,
+		"origin?", &origin,
+		"origin_namespace?", &originNs,
+	); err != nil {
+		return nil, err
+	}
+
+	exp := Expectation{Kind: "variable", VarName: name}
+	if value != starlark.None {
+		v := value
+		exp.VarValue = &v
+	}
+	if s, ok := origin.(starlark.String); ok {
+		o := string(s)
+		exp.VarSource = &o
+	}
+	if s, ok := originNs.(starlark.String); ok {
+		ns := string(s)
+		exp.VarSourceKind = &ns
+	}
+
+	tc.expectations = append(tc.expectations, exp)
+	return starlark.None, nil
+}
+
+// starExpectVariableNamespace implements t.expect_variable_namespace(name, namespace).
+func (tc *TestContext) starExpectVariableNamespace(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name, namespace string
+	if err := starlark.UnpackPositionalArgs("t.expect_variable_namespace", args, kwargs, 2, &name, &namespace); err != nil {
+		return nil, err
+	}
+	tc.expectations = append(tc.expectations, Expectation{
+		Kind:          "variable_namespace",
+		VarName:       name,
+		VarSourceKind: &namespace,
+	})
+	return starlark.None, nil
+}
+
+// checkVariable evaluates an Expectation{Kind: "variable"} against the resolved variable map.
+func (tc *TestContext) checkVariable(exp Expectation) *Failure {
+
+	v, ok := tc.variables[exp.VarName]
+	if !ok {
+		return &Failure{
+			Expectation: fmt.Sprintf("variable(%s)", exp.VarName),
+			Message:     "variable not resolved",
+		}
+	}
+
+	if exp.VarValue != nil {
+		goExpected := starlarkValueToGo(*exp.VarValue)
+		if !equalValues(v.Value, goExpected) {
+			return &Failure{
+				Expectation: fmt.Sprintf("variable(%s, value=%v)", exp.VarName, goExpected),
+				Message:     fmt.Sprintf("got %v (%T), want %v (%T)", v.Value, v.Value, goExpected, goExpected),
+			}
+		}
+	}
+
+	if exp.VarSource != nil {
+		if got := v.Source.String(); got != *exp.VarSource {
+			return &Failure{
+				Expectation: fmt.Sprintf("variable(%s, source=%q)", exp.VarName, *exp.VarSource),
+				Message:     fmt.Sprintf("got source %q", got),
+			}
+		}
+	}
+
+	if exp.VarSourceKind != nil {
+		if got := v.Source.Kind.String(); got != *exp.VarSourceKind {
+			return &Failure{
+				Expectation: fmt.Sprintf("variable(%s, source_kind=%q)", exp.VarName, *exp.VarSourceKind),
+				Message:     fmt.Sprintf("got source kind %q", got),
+			}
+		}
+	}
+
+	return nil
+}
+
+// checkVariableNamespace evaluates an Expectation{Kind: "variable_namespace"}.
+func (tc *TestContext) checkVariableNamespace(exp Expectation) *Failure {
+
+	v, ok := tc.variables[exp.VarName]
+	if !ok {
+		return &Failure{
+			Expectation: fmt.Sprintf("variable_namespace(%s)", exp.VarName),
+			Message:     "variable not resolved",
+		}
+	}
+
+	if got := v.Source.Kind.String(); got != *exp.VarSourceKind {
+		return &Failure{
+			Expectation: fmt.Sprintf("variable_namespace(%s, %q)", exp.VarName, *exp.VarSourceKind),
+			Message:     fmt.Sprintf("got source kind %q", got),
+		}
+	}
+
+	return nil
+}
+

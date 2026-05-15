@@ -513,7 +513,8 @@ func (s *Session) executeStep() *console.Step {
 		WithRoot(root)
 
 	// Execute the graph
-	executor := op.NewGraphExecutor(spec)
+	executor := op.NewGraphExecutor(context.Background(), spec)
+	defer func() { _ = executor.Close() }()
 
 	_, err = executor.Run(s.graph, nil)
 	if err != nil {

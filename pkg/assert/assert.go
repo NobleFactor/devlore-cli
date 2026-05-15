@@ -39,6 +39,22 @@ func (e *AssertionError) Error() string {
 
 // region EXPORTED FUNCTIONS
 
+// Nil panics with an [*AssertionError] when v is a non-nil interface or a non-nil typed pointer / map /
+// slice / channel / function. Use for invariants where a value must be absent — typically an error from a
+// call whose failure indicates a corrupted environment or programmer error (e.g. [os.Getwd] at init time).
+//
+// Parameters:
+//   - `name`: short identifier of the value being checked (e.g. "os.Getwd err").
+//   - `v`:    the value to inspect; non-nil interfaces and non-nil typed reference values both fail.
+func Nil(name string, v any) {
+
+	if isNil(v) {
+		return
+	}
+
+	raise(2, fmt.Sprintf("%s: expected nil, got %v", name, v))
+}
+
 // NotNil panics with an [*AssertionError] when v is a nil interface or a typed nil pointer / map / slice / channel /
 // function. Use for constructor preconditions where a required collaborator must be supplied.
 //

@@ -14,9 +14,23 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
+
+// BindingSources captures the variable-resolver source maps the runner threads into the resolver at
+// graph-execution time. The runner and the [TestContext] share a pointer to the same instance so .star-side
+// setters (t.set_overrides, t.set_flags, t.set_env_prefix, t.set_config) and Go-side runner options write to
+// the same place. EnvPrefix is treated as a program-name override for the resolver's env-prefix derivation;
+// when non-empty it is passed in lieu of the spec's ProgramName so tests can simulate writ-style or
+// lore-style env lookups under the devlore-test harness.
+type BindingSources struct {
+	Overrides map[string]any
+	Flags     map[string]any
+	EnvPrefix string
+	Config    map[string]any
+}
 
 // Result is the structured output of a test run.
 type Result struct {
@@ -99,6 +113,66 @@ type Runner struct {
 	receivers        []op.ReceiverType
 	withGraphBuilder bool
 	graph            *op.Graph
+	sources          *BindingSources
+}
+
+// WithOverrides supplies an explicit-runtime-force ([op.VariableSourceKindOverride]) map of variable values
+// for the variable resolver to consume at execute time.
+//
+// Parameters:
+//   - `m`: parameter-name keyed map of override values.
+//
+// Returns:
+//   - Option: a runner option that records the override map.
+func WithOverrides(m map[string]any) Option {
+	return func(r *Runner) { r.sources.Overrides = m }
+}
+
+// WithFlags supplies a command-line-argument ([op.VariableSourceKindFlag]) map of variable values for the
+// variable resolver to consume at execute time.
+//
+// Parameters:
+//   - `m`: parameter-name keyed map of flag-derived values.
+//
+// Returns:
+//   - Option: a runner option that records the flag map.
+func WithFlags(m map[string]any) Option {
+	return func(r *Runner) { r.sources.Flags = m }
+}
+
+// WithEnvPrefix overrides the program-name string the resolver uses to derive its env-var prefix. The
+// resolver always derives `strings.ToUpper(programName) + "_"` as its env prefix; supplying a different
+// program name here lets a test simulate writ-style or lore-style env lookups while running under the
+// devlore-test harness. When unset, the resolver derives the prefix from the spec's ProgramName.
+//
+// Parameters:
+//   - `programPrefix`: the program-name override (e.g., "writ" for `WRIT_*` env lookups).
+//
+// Returns:
+//   - Option: a runner option that records the env prefix.
+func WithEnvPrefix(programPrefix string) Option {
+	return func(r *Runner) { r.sources.EnvPrefix = programPrefix }
+}
+
+// WithConfig supplies a configuration ([op.VariableSourceKindConfig]) map of variable values for the
+// variable resolver to consume at execute time.
+//
+// Parameters:
+//   - `m`: parameter-name keyed map of config values.
+//
+// Returns:
+//   - Option: a runner option that records the config map.
+func WithConfig(m map[string]any) Option {
+	return func(r *Runner) { r.sources.Config = m }
+}
+
+// Sources returns the runner's [BindingSources] pointer. Used by [TestContext] to share the same source maps
+// for inline .star-side setters (t.set_overrides etc.).
+//
+// Returns:
+//   - *BindingSources: the shared sources pointer.
+func (r *Runner) Sources() *BindingSources {
+	return r.sources
 }
 
 // Graph returns the execution graph after Start completes. Returns nil before Start is called.
@@ -119,8 +193,9 @@ func (r *Runner) Graph() *op.Graph {
 //   - *Runner: the configured test runner.
 func NewRunner(script string, opts ...Option) *Runner {
 	r := &Runner{
-		script: script,
-		writer: io.Discard,
+		script:  script,
+		writer:  io.Discard,
+		sources: &BindingSources{},
 	}
 	for _, o := range opts {
 		o(r)
@@ -155,15 +230,19 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	spec := op.NewRuntimeEnvironmentSpec("devlore-test", receiverRegistry).
 		WithModules(receiverRegistry.Modules()...).
 		WithRoot(root).
-		WithDryRun(r.dryRun)
+		WithApplication(&application.Application{
+			Name:  "devlore-test",
+			Flags: map[string]any{"dry-run": r.dryRun},
+		})
 
 	runtimeEnvironment := op.NewRuntimeEnvironment(ctx, spec)
-	graph := op.NewGraph(runtimeEnvironment)
+	graph := op.NewGraph()
+	graph.Rebind(runtimeEnvironment)
 	r.graph = graph
 
-	// 3. Create Runtime with graph in Data so the plan provider can find it
+	// 3. Create Runtime. The graph reference no longer flows through the env data bag (killed in 13.0(n)
+	//    Phase 1); flow.Provider reads it from ActivationRecord.Graph stamped by the executor.
 
-	spec.WithData(map[string]any{"graph": graph})
 	bs := starlarkbridge.NewRuntime(spec)
 
 	// 4. Build Starlark globals
@@ -177,7 +256,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		return nil, fmt.Errorf("creating test tmp dir: %w", err)
 	}
 
-	tc := NewTestContext(testTmpDir, root)
+	tc := NewTestContext(testTmpDir, root, r.sources)
 	globals["t"] = tc.StarlarkValue()
 
 	// 6. Set up tracer
@@ -222,15 +301,33 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	wrapUngroupedNodes(graph)
 
-	// 10. Execute graph
+	// 10. Build variable resolver from accumulated sources and resolve. Phase 1 has no graph.Parameters()
+	// surface yet (Phase 3 adds it), so we pass nil parameters and the resolver produces an empty map.
+	// The resolver still records sources from runner options and t.set_* calls so future phases can build
+	// on the same wiring without harness changes.
 
-	executor := op.NewGraphExecutor(spec)
+	resolverProgramName := r.sources.EnvPrefix
+	if resolverProgramName == "" {
+		resolverProgramName = spec.ProgramName
+	}
+
+	resolver := op.NewVariableResolver(resolverProgramName, r.sources.Flags, r.sources.Config, r.sources.Overrides)
+	resolveErrs := resolver.Resolve(nil)
+	if len(resolveErrs) > 0 {
+		return nil, fmt.Errorf("variable resolution: %v", resolveErrs)
+	}
+	tc.SetResolvedVariables(resolver.Variables())
+
+	// 11. Execute graph
+
+	executor := op.NewGraphExecutor(ctx, spec)
+	defer func() { _ = executor.Close() }()
 
 	if tracer.Enabled() {
 		tracer.Record("executing graph: %d nodes", len(graph.Nodes()))
 	}
 
-	_, execErr := executor.Run(graph, nil)
+	_, execErr := executor.Run(graph, resolver.Variables())
 
 	if tracer.Enabled() {
 		if execErr != nil {
