@@ -5,6 +5,7 @@
 package star
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -31,31 +32,33 @@ var DryRun bool
 // Application manages Starlark script execution for the star CLI.
 //
 // Holds the extension registry, the loaded-command map keyed by space-separated name, the unified config
-// (lazily initialized), the [starlarkbridge.Runtime], and a typed reference to the
-// [application.Application] whose Flags / Overrides this Application populates and refreshes.
+// (lazily initialized), the [starlarkbridge.Runtime], a typed reference to the [application.Application]
+// whose Flags / Overrides this Application populates and refreshes, and the [op.RuntimeEnvironment] this
+// Application owns. The bridge borrows the env; star.Application closes it on shutdown.
 type Application struct {
 	app      *application.Application // typed reference to the application handle bound to the env
 	commands map[string]*Command
 	config   *config.Config // Unified config for builtin and extension config.
+	env      *op.RuntimeEnvironment // session-scoped env owned by this Application; Close releases it.
 	registry *ExtensionRegistry
 	star     *starlarkbridge.Runtime
 }
 
 // NewApplication creates a new star Application with a fully initialized Starlark runtime.
 //
-// Constructs the receiver registry, builds a [op.RuntimeEnvironmentSpec] (with the active cobra command's
-// flag projection on the [application.Application]), and hands the spec to [starlarkbridge.NewRuntime]
-// which builds the session env. The star Application is the session owner — its [Application.Close]
-// releases the env.
+// Constructs the receiver registry, builds a [op.RuntimeEnvironmentSpec] (with the active cobra command's flag
+// projection on the [application.Application]), and hands the spec to [starlarkbridge.NewRuntime] which builds the
+// session env. The star Application is the session owner — its [Application.Close] releases the env.
 //
-// After the bridge is built, populates [application.Application.Overrides] with two star-internal handles
-// that providers read at construction time via [op.RuntimeEnvironment.RegisterParameter]:
+// After the bridge is built, populates [application.Application.Overrides] with two star-internal handles that
+// providers read at construction time via [op.RuntimeEnvironment.RegisterParameter]:
 //
-//   - "config":       *config.Config — the unified config (fresh instance; populated lazily by
-//     [Application.Config] and by [Application.DiscoverAndLoad]).
-//   - "command_tree": star.Application (self) — implements the [commands.CommandTree] contract.
+//   - `config`: *config.Config — the unified config (fresh instance; populated lazily by [Application.Config] and by
+//     [Application.DiscoverAndLoad]).
 //
-// "current_command" is mutated per-cobra-dispatch by [Command.Run]; the commands provider reads it directly
+//   - `command_tree`: star.Application (self) — implements the [commands.CommandTree] contract.
+//
+// The `current_command` is mutated per-cobra-dispatch by [Command.Run]; the `commands` provider reads it directly
 // from Overrides.
 //
 // Parameters:
@@ -69,23 +72,27 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 	assert.Nil("os.Getwd err", err)
 
 	app := application.NewApplication("star", rootCmd)
-
 	registry := op.NewReceiverRegistry()
-	bridge := starlarkbridge.NewRuntime(op.NewRuntimeEnvironmentSpec("star", registry).
+
+	spec := op.NewRuntimeEnvironmentSpec("star", registry).
+		WithApplication(app).
 		WithModules(registry.Modules()...).
-		WithRoot(op.NewRootReaderWriter(wd)).
-		WithApplication(app))
+		WithRoot(op.NewRootReaderWriter(wd))
+	env := op.NewRuntimeEnvironment(context.Background(), spec)
+	bridge := starlarkbridge.NewRuntime(env)
 
 	starApp := &Application{
 		commands: make(map[string]*Command),
 		registry: NewExtensionRegistry(),
 		star:     bridge,
 		app:      app,
+		env:      env,
 	}
 
 	if app.Overrides == nil {
 		app.Overrides = make(map[string]any)
 	}
+
 	app.Overrides["config"] = starApp.Config()
 	app.Overrides["command_tree"] = commands.CommandTree(starApp)
 
@@ -135,7 +142,7 @@ func (r *Application) Registry() *ExtensionRegistry {
 // Returns:
 //   - `error`: the joined error from closing the env's owned resources, or nil on success.
 func (r *Application) Close() error {
-	return r.star.ExecutionContext().Close()
+	return r.env.Close()
 }
 
 // Refresh repopulates [application.Application.Flags] from the cobra command's parsed argv. Intended to be

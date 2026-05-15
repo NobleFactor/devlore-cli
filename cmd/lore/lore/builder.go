@@ -4,6 +4,7 @@
 package lore
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -456,8 +458,11 @@ func prepareScriptEnv(
 	error, //nolint:unparam // error return reserved for future use
 ) {
 
-	runtime := starlarkbridge.NewRuntime(op.NewRuntimeEnvironmentSpec("lore", reg).
-		WithModules(reg.Modules()...))
+	spec := op.NewRuntimeEnvironmentSpec("lore", reg).
+		WithModules(reg.Modules()...).
+		WithApplication(&application.Application{Name: "lore"})
+	env := op.NewRuntimeEnvironment(context.Background(), spec)
+	runtime := starlarkbridge.NewRuntime(env)
 
 	globals := runtime.Predeclared()
 

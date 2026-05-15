@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 
@@ -19,15 +20,6 @@ import (
 
 var _ op.Provider = (*Provider)(nil)
 
-// RuntimeEnvironment Data keys.
-const (
-	// DataKeyDryRun is the context Data key for dry-run mode.
-	DataKeyDryRun = "dry_run"
-
-	// DataKeyConfig is the context Data key for the unified config.
-	DataKeyConfig = "config"
-)
-
 // Provider provides repository setup operations.
 //
 // +devlore:access=immediate
@@ -35,19 +27,28 @@ type Provider struct {
 	op.ProviderBase
 }
 
-// NewProvider creates a setup provider bound to the given context.
+// NewProvider creates a setup provider bound to the given context. Declares interest in the "config"
+// variable so the resolver populates it from the [application.Application]'s source maps at construction
+// time. Dry-run is read via [op.RuntimeEnvironment.Application.DryRun] — no parameter declaration needed.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
+	_ = ctx.RegisterParameter(op.Parameter{
+		Name: "config",
+		Type: reflect.TypeOf((*cfg.Config)(nil)),
+	})
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) isDryRun() bool {
-	v, _ := p.RuntimeEnvironment().variables[DataKeyDryRun].(bool)
-	return v
+	return p.RuntimeEnvironment().Application.DryRun()
 }
 
 func (p *Provider) config() *cfg.Config {
-	v, _ := p.RuntimeEnvironment().variables[DataKeyConfig].(*cfg.Config)
-	return v
+	v, ok := p.RuntimeEnvironment().VariableByName("config")
+	if !ok {
+		return nil
+	}
+	c, _ := v.Value.(*cfg.Config)
+	return c
 }
 
 func (p *Provider) gitRoot() string {

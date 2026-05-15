@@ -13,11 +13,30 @@ import (
 // The executor logs a warning and continues unwinding.
 var ErrNotCompensable = errors.New("action is not compensable")
 
-// Result is data that flows to downstream nodes via edges (e.g., file content, a rendered template, a query result).
+// Action is a pure, infallible value transformer.
 //
-// The executor stores this keyed by node ID and resolves promise slots from stored Results before calling downstream
-// Do.
-type Result = any
+// Do returns (result, nil, nil). An [Action] has no side effects and cannot fail.
+type Action interface {
+	FullName() string
+	Name() string
+	Params() []Parameter
+	Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error)
+}
+
+// FallibleAction has side effects and can fail.
+//
+// Do returns (result, nil, error).
+type FallibleAction interface {
+	Action
+}
+
+// CompensableAction has side effects, can fail, and can be undone.
+//
+// Do returns (result, complement, error).
+type CompensableAction interface {
+	Action
+	Undo(activationRecord *ActivationRecord, complement Complement) error
+}
 
 // Complement is the state captured by Do and passed to Undo during saga rollback.
 //
@@ -62,27 +81,8 @@ type Parameter struct {
 	Default  any
 }
 
-// Action is a pure, infallible value transformer. No side effects, cannot fail.
+// Result is data that flows to downstream nodes via edges (e.g., file content, a rendered template, a query result).
 //
-// Do returns (result, nil, nil).
-type Action interface {
-	FullName() string
-	Name() string
-	Params() []Parameter
-	Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error)
-}
-
-// FallibleAction has side effects and can fail.
-//
-// Do returns (result, nil, error).
-type FallibleAction interface {
-	Action
-}
-
-// CompensableAction has side effects, can fail, and can be undone.
-//
-// Do returns (result, complement, error).
-type CompensableAction interface {
-	Action
-	Undo(activationRecord *ActivationRecord, complement Complement) error
-}
+// The executor stores this keyed by node ID and resolves promise slots from stored Results before calling downstream
+// Do.
+type Result = any

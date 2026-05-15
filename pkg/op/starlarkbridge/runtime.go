@@ -4,7 +4,6 @@
 package starlarkbridge
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -26,25 +25,27 @@ type Runtime struct {
 	registry    *op.ReceiverRegistry
 }
 
-// NewRuntime creates a fully initialized runtime from the given configuration.
+// NewRuntime creates a fully initialized runtime that borrows the supplied [op.RuntimeEnvironment].
 //
-// The RuntimeEnvironment is built internally from the config. Providers are constructed and cached as the predeclared
-// starlark globals. The config itself is not retained.
+// The runtime does NOT own the env's lifetime — the caller (typically an [op.Plan] closure, a tool
+// session-owner like [star.Application], or a wrapper that explicitly built the env) constructs the env,
+// passes it here for the duration of starlark work, and is responsible for `defer env.Close()`. Providers
+// are constructed and cached as the predeclared starlark globals from `env.Registry.Modules()`.
 //
 // Parameters:
-//   - spec: configuration specifying the registry, module selection, root, and runtime options.
+//   - `env`: the runtime environment to borrow. Its Registry's full module set is exposed as starlark globals.
 //
 // Returns:
-//   - *Runtime: the initialized runtime.
-func NewRuntime(spec *op.RuntimeEnvironmentSpec) *Runtime {
+//   - *Runtime: the initialized runtime borrowing the supplied env.
+func NewRuntime(env *op.RuntimeEnvironment) *Runtime {
 
-	runtimeEnvironment := op.NewRuntimeEnvironment(context.Background(), spec)
+	modules := env.Registry.Modules()
 
 	runtime := &Runtime{
-		environment: runtimeEnvironment,
+		environment: env,
 		cache:       make(map[string]*loaderEntry),
-		modules:     spec.Modules,
-		registry:    spec.Registry,
+		modules:     modules,
+		registry:    env.Registry,
 	}
 
 	// Build predeclared globals from the selected modules. Registration branches on the access × root combination
@@ -63,7 +64,7 @@ func NewRuntime(spec *op.RuntimeEnvironmentSpec) *Runtime {
 
 	predeclared := starlark.StringDict{}
 
-	for _, module := range spec.Modules {
+	for _, module := range modules {
 
 		dispatch := module.Roles().Dispatch()
 		isRoot := module.Roles().Placement()&op.RoleRoot != 0

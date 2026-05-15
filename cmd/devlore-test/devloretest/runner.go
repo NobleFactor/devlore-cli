@@ -213,7 +213,7 @@ func NewRunner(script string, opts ...Option) *Runner {
 //   - error: non-nil if script loading or graph execution fails unexpectedly.
 func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
-	// 1. Create temp directory
+	// 1. Create a temp directory
 
 	tmpDir, err := os.MkdirTemp("", "devlore-test-*")
 	if err != nil {
@@ -235,69 +235,71 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 			Flags: map[string]any{"dry-run": r.dryRun},
 		})
 
-	runtimeEnvironment := op.NewRuntimeEnvironment(ctx, spec)
-	graph := op.NewGraph()
-	graph.Rebind(runtimeEnvironment)
-	r.graph = graph
-
-	// 3. Create Runtime. The graph reference no longer flows through the env data bag (killed in 13.0(n)
-	//    Phase 1); flow.Provider reads it from ActivationRecord.Graph stamped by the executor.
-
-	bs := starlarkbridge.NewRuntime(spec)
-
-	// 4. Build Starlark globals
-	globals := bs.Predeclared()
-
-	// 5. Create TestContext rooted at .devlore/tmp/ under tmpDir
-
-	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
-
-	if err := os.MkdirAll(testTmpDir, 0o750); err != nil {
-		return nil, fmt.Errorf("creating test tmp dir: %w", err)
-	}
-
-	tc := NewTestContext(testTmpDir, root, r.sources)
-	globals["t"] = tc.StarlarkValue()
-
-	// 6. Set up tracer
-
-	tracer := NewTracer(r.trace)
-
-	// 7. Configure thread
-
-	thread := &starlark.Thread{
-		Name:  "devlore-test",
-		Print: tracer.PrintHandler(),
-	}
-
-	// 8. Read and execute .star script
+	// 3. Read the script.
 
 	scriptData, err := os.ReadFile(r.script)
 	if err != nil {
 		return nil, fmt.Errorf("reading script %s: %w", r.script, err)
 	}
 
-	opts := &syntax.FileOptions{
-		Set:             true,
-		GlobalReassign:  true,
-		TopLevelControl: true,
-	}
+	// 4. Create TestContext rooted at .devlore/tmp/ under tmpDir.
 
+	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
+	if err := os.MkdirAll(testTmpDir, 0o750); err != nil {
+		return nil, fmt.Errorf("creating test tmp dir: %w", err)
+	}
+	tc := NewTestContext(testTmpDir, root, r.sources)
+
+	// 5. Set up tracer.
+
+	tracer := NewTracer(r.trace)
 	if tracer.Enabled() {
 		tracer.Record("script: %s", r.script)
 		tracer.Record("tmpdir: %s", tmpDir)
 	}
 
-	_, err = starlark.ExecFileOptions(opts, thread, r.script, scriptData, globals)
-	if err != nil {
-		// Check if we expected an error
-		if hasErrorExpectation(tc) {
-			return r.buildResult(graph, tc, tracer, err), nil
+	// 6. Run the planning session via op.Plan. The closure pulls the env from the graph (so the
+	//    starlark bridge shares the same env the graph is bound to — single env per planning
+	//    session, no dual-env smell). scriptExecErr is hoisted so the post-Plan path can build a
+	//    result that includes expected-error assertions.
+
+	var scriptExecErr error
+
+	graph, planErr := op.Plan(ctx, spec, func(g *op.Graph) error {
+
+		bridge := starlarkbridge.NewRuntime(g.RuntimeEnvironment())
+		globals := bridge.Predeclared()
+		globals["t"] = tc.StarlarkValue()
+
+		thread := &starlark.Thread{
+			Name:  "devlore-test",
+			Print: tracer.PrintHandler(),
 		}
-		return nil, fmt.Errorf("executing script: %w", err)
+
+		opts := &syntax.FileOptions{
+			Set:             true,
+			GlobalReassign:  true,
+			TopLevelControl: true,
+		}
+
+		_, scriptExecErr = starlark.ExecFileOptions(opts, thread, r.script, scriptData, globals)
+		if scriptExecErr != nil && !hasErrorExpectation(tc) {
+			return fmt.Errorf("executing script: %w", scriptExecErr)
+		}
+		return nil
+	})
+	if planErr != nil {
+		return nil, planErr
+	}
+	r.graph = graph
+
+	// 7. If the script failed with an expected error, surface the result early.
+
+	if scriptExecErr != nil {
+		return r.buildResult(graph, tc, tracer, scriptExecErr), nil
 	}
 
-	// 9. Wrap nodes in a main phase for saga-pattern compensation.
+	// 8. Wrap nodes in a main phase for saga-pattern compensation.
 
 	wrapUngroupedNodes(graph)
 
