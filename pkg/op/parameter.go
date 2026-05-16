@@ -10,37 +10,40 @@ import (
 	"strings"
 )
 
-// parseParameters walks the announce map and converts wire-form tokens to fully-typed Parameter values.
+// parseParameters walks the `announce` map and converts wire-form tokens to fully typed Parameter values.
 //
 // The wire form arrives at AnnounceProvider, AnnounceResource, and AnnounceType as a map[string][]string of
 // codegen-emitted parameter-name tokens. parseParameters is the boundary that converts that wire form into
 // runtime-typed Parameter values, so ReceiverType construction and everything below it consume Parameter values
-// directly and never see raw tokens. For each method, the function looks up the corresponding reflect.Method on
-// providerType to source per-parameter reflect.Type info, then calls parseParameterToken once per token. Cross-
-// parameter validation (variadic-must-be-last, kwargs-must-be-last) is deferred to NewMethod, which has the full
+// directly and never see raw tokens. For each method, the function looks up the corresponding `[reflect.Method]` on
+// providerType to source per-parameter reflect.Type info, then calls parseParameterToken once per token.
+// Cross-parameter validation (variadic-must-be-last, kwargs-must-be-last) is deferred to [NewMethod], which has the full
 // Go-method context already.
 //
 // Parameters:
-//   - providerType: the announced type's reflect.Type. Used to resolve per-method reflect.Method values via
+//   - providerType: the announced type's `[reflect.Type]`. Used to resolve per-method reflect.Method values via
 //     MethodByName so each parameter token can be paired with its Go parameter type.
 //   - methodParameters: the codegen-emitted wire map. Each value is a list of parameter-name tokens for one
 //     method, in the same order as the Go method's non-receiver parameters (a leading context.Context, if
 //     present, is implicit and not represented in the wire list).
 //
 // Returns:
-//   - map[string][]Parameter: the parsed map, ready to be passed to NewProviderReceiverType,
-//     NewResourceReceiverType, or newReceiverType.
-//   - error: non-nil if any token is malformed, if a default expression cannot be parsed against its parameter
-//     type, if the announce map names a method that does not exist on providerType, or if a method's token list
-//     has more entries than the Go method has parameter slots.
+//   - `map[string][]Parameter`: the parsed map, ready to be passed to NewProviderReceiverType, NewResourceReceiverType,
+//     or newReceiverType.
+//   - `error`: non-nil if any token is malformed, if a default expression cannot be parsed against its parameter type,
+//     if the `announce` map names a method that does not exist on providerType, or if a method's token list has more
+//     entries than the Go method has parameter slots.
 func parseParameters(providerType reflect.Type, methodParameters map[string][]string) (map[string][]Parameter, error) {
 
 	out := make(map[string][]Parameter, len(methodParameters))
 
-	// Promote value types to pointer types so pointer-receiver methods are visible to MethodByName. Mirrors the
-	// promotion in newReceiverType — provider methods are conventionally declared on the pointer receiver, but
-	// callers commonly pass the value-type reflect.Type to AnnounceProvider.
+	// Promote value types to pointer types so pointer-receiver methods are visible to MethodByName.
+	//
+	// Mirrors the promotion in newReceiverType — provider methods are conventionally declared on the pointer receiver,
+	// but callers commonly pass the value-type `reflect.Type` to `AnnounceProvider`.
+
 	methodType := providerType
+
 	if methodType.Kind() != reflect.Pointer {
 		methodType = reflect.PointerTo(methodType)
 	}
@@ -53,6 +56,7 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 		}
 
 		ctxOffset := 0
+
 		if m.Type.NumIn() >= 2 && m.Type.In(1) == activationRecordType {
 			ctxOffset = 1
 		}
@@ -85,39 +89,38 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 	return out, nil
 }
 
-// parseParameterToken cracks one wire-form parameter token into a fully-typed Parameter.
+// parseParameterToken cracks one wire-form parameter token into a fully typed Parameter.
 //
 // The token grammar emitted by codegen is:
 //
-//	token       := variadic | kwargs | named
-//	variadic    := "*"  name
-//	kwargs      := "**" name
-//	named       := name ( "?" ( "=" defaultExpr )? )?
+//	token := variadic | kwargs | named
+//	variadic := "*" name
+//	kwargs := "**" name
+//	named := name ( "?" ( "=" defaultExpr )? )?
 //
-// Variadic ("*") and kwargs ("**") tokens MAY NOT carry an optional marker ("?") or a default expression
-// ("=value"); both are inherently "zero or more" in shape and have no coherent default semantic. Named params
-// MAY carry "?" (marks the parameter optional — caller may omit the kwarg) and MAY additionally carry "=value"
-// (typed default — caller-omitted slots are filled with this value). The "=value" segment requires a leading
-// "?".
+// Variadic ("*") and kwargs ("**") tokens MAY NOT carry an optional marker ("?") or a default expression ("=value");
+// both are inherently "zero or more" in shape and have no coherent default semantic. Named params MAY carry "?" (marks
+// the parameter optional — caller may omit the kwarg) and MAY additionally carry "=value" (typed default —
+// caller-omitted slots are filled with this value). The "=value" segment requires a leading "?".
 //
-// When a default expression is present, parseParameterToken delegates to parseDefaultExpression to parse the
-// expression text against paramType. The returned Parameter has a Default whose dynamic type is exactly paramType
-// (preserving the Q2 invariant: Parameter.Default always holds a Go-native value at Parameter.Type). Defaults are
-// rejected upfront for parameters whose target implements Resource — Resource defaults would require slot-fill-
-// time URI conversion through op.Convert Step 7 with a live RuntimeEnvironment, which is unavailable at announce
-// time; the rejection error documents the deferred path.
+// When a default expression is present, parseParameterToken delegates to parseDefaultExpression to parse the expression
+// text against paramType. The returned Parameter has a Default whose dynamic type is exactly paramType (preserving the
+// Q2 invariant: Parameter.Default always holds a Go-native value at Parameter.Type). Defaults are rejected upfront for
+// parameters whose target implements Resource — Resource defaults would require slot-fill-time URI conversion through
+// op.Convert Step 7 with a live RuntimeEnvironment, which is unavailable at announcement time; the rejection error
+// documents the deferred path.
 //
 // Parameters:
-//   - raw: the wire token to parse (e.g., "destination_path", "mode?", "mode?=0o666", "*parts", "**kwargs").
-//   - paramType: the Go-method parameter type the token corresponds to. Used to type-check the default
+//   - `raw`: the wire token to parse (e.g., "destination_path", "mode?", "mode?=0o666", "*parts", "**kwargs").
+//   - `paramType`: the Go-method parameter type the token corresponds to. Used to type-check the default
 //     expression and to detect Resource-typed parameters.
 //
 // Returns:
-//   - Parameter: the fully-typed Parameter, with Name (clean — no decoration), Type, Optional, Variadic, Kwargs,
-//     and Default populated.
-//   - error: non-nil if the token is malformed, if a default expression accompanies a variadic or kwargs token,
-//     if a default expression accompanies a non-optional named token, if the default expression cannot be parsed
-//     against paramType, or if paramType implements Resource.
+//   - `Parameter`: the fully typed Parameter, with Name (clean — no decoration), Type, Optional, Variadic, Kwargs, and
+//     Default populated.
+//   - `error`: non-nil if the token is malformed, if a default expression accompanies a variadic or kwargs token, if a
+//     default expression accompanies a non-optional named token, if the default expression cannot be parsed against
+//     paramType, or if paramType implements Resource.
 func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) {
 
 	if raw == "" {
@@ -184,8 +187,8 @@ func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) 
 		return Parameter{}, fmt.Errorf("token %q is missing a parameter name before '?'", raw)
 	}
 
-	// rest is what follows the '?'. Three cases: empty (just optional, no default), "=value" (optional with
-	// default), or anything else (malformed).
+	// `rest` is what follows the '?'. Three cases: empty (just optional, no default), "=value" (optional with default),
+	// or anything else (malformed).
 
 	if rest == "" {
 		return Parameter{Name: name, Type: paramType, Optional: true}, nil
@@ -225,35 +228,35 @@ func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) 
 
 // parseDefaultExpression converts a directive's literal default-value text to a Go value at target's named type.
 //
-// The text comes from a +devlore:defaults directive (e.g., the "0o666" in `+devlore:defaults mode=0o666`). It is
-// a Go-literal dialect — strconv-grade parsing is enough; full Go expressions are out of scope. Dispatch is by
-// target.Kind: bool via strconv.ParseBool, signed integer kinds via strconv.ParseInt with base 0 (auto-detects
-// 0x / 0o / 0b / decimal), unsigned integer kinds via strconv.ParseUint with base 0, float kinds via
-// strconv.ParseFloat, and string via direct pass-through with optional surrounding double-quotes stripped. The
-// parsed primitive is then widened to target's named type via reflect.Value.Convert so that the returned any
-// boxes a value whose dynamic type matches target exactly (e.g., os.FileMode(0o666), not uint32(0o666)).
+// The text comes from a +devlore:defaults directive (e.g., the "0o666" in `+devlore:defaults mode=0o666`). It is a
+// Go-literal dialect — strconv-grade parsing is enough; full Go expressions are out of scope. Dispatch is by
+// target.Kind: bool via strconv.ParseBool, signed integer kinds via strconv.ParseInt with base 0 (auto-detects 0x / 0o
+// / 0b / decimal), unsigned integer kinds via strconv.ParseUint with base 0, float kinds via strconv.ParseFloat, and
+// string via direct pass-through with optional surrounding double-quotes stripped. The parsed primitive is then widened
+// to `target`'s named type via reflect.Value.Convert so that the returned any boxes a value whose dynamic type matches
+// `target` exactly (e.g., os.FileMode(0o666), not uint32(0o666)).
 //
-// op.Convert is intentionally not used here. op.Convert is the runtime type-projection cascade used at every
-// dispatch site; it is type-driven, not source-syntax-driven, and cannot parse "0o666" against os.FileMode.
-// Adding a string-source step to op.Convert would mix layers — a stray string in any caller's slot would
-// silently parse instead of erroring. parseDefaultExpression keeps the directive-dialect parser local to
-// defaults.
+// op.Convert is intentionally not used here. op.Convert is the runtime type-projection cascade used at every dispatch
+// site; it is type-driven, not source-syntax-driven, and cannot parse "0o666" against os.FileMode. Adding a string
+// source step to op.Convert would mix layers — a stray string in any caller's slot would silently parse instead of
+// erroring. parseDefaultExpression keeps the directive-dialect parser local to defaults.
 //
 // Parameters:
-//   - expr: the literal default-value text, as it appeared after '=' in the directive.
-//   - target: the parameter's reflect.Type. Determines the strconv routine and the named-type widening.
+//   - `expr`: the literal default-value text, as it appeared after '=' in the directive.
+//   - `target`: the parameter's `[reflect.Type]`. Determines the strconv routine and the named-type widening.
 //
 // Returns:
-//   - any: the parsed value, boxed in any with dynamic type equal to target.
-//   - error: non-nil if expr is malformed for target's kind, if a string default has unbalanced quotes, or if
-//     target's kind is not one of the supported defaultable kinds (bool, int*, uint*, float*, string).
+//   - `any`: the parsed value, boxed in any with dynamic type equal to target.
+//   - `error`: non-nil if expr is malformed for target's kind, if a string default has unbalanced quotes, or if
+//     `target`'s kind is not one of the supported defaultable kinds (bool, int*, uint*, float*, string).
 func parseDefaultExpression(expr string, target reflect.Type) (any, error) {
 
-	// Deferred-default discriminator: directive values wrapped in `{{ ... }}` braces are runtime-resolved
-	// expressions parsed at announce time but evaluated at slot-fill against the live runtime
-	// environment. Detection is purely textual; parseDeferred handles parser dispatch and validator-stub
-	// wiring. The target type is unused here — type widening happens at slot-fill via [Convert] inside
-	// [treeDefault.Resolve], so deferred defaults can produce any type the funcmap supports.
+	// Deferred-default discriminator: directive values wrapped in `{{ ... }}` braces are runtime-resolved expressions
+	// parsed at announcement time but evaluated at slot-fill against the live runtime environment. Detection is purely
+	// textual; parseDeferred handles parser dispatch and validator-stub wiring. The target type is unused here. Type
+	// widening happens at slot-fill via [Convert] inside [treeDefault.Resolve], so deferred defaults can produce any
+	// type the func map supports.
+
 	if strings.HasPrefix(expr, "{{") && strings.HasSuffix(expr, "}}") {
 		return parseDeferred(expr)
 	}
@@ -296,6 +299,15 @@ func parseDefaultExpression(expr string, target reflect.Type) (any, error) {
 
 		return reflect.ValueOf(v).Convert(target).Interface(), nil
 
+	case reflect.Complex64, reflect.Complex128:
+
+		v, err := strconv.ParseComplex(expr, target.Bits())
+		if err != nil {
+			return nil, fmt.Errorf("parse default %q as %s: %w", expr, target, err)
+		}
+
+		return reflect.ValueOf(v).Convert(target).Interface(), nil
+
 	case reflect.String:
 
 		s, err := stripOptionalQuotes(expr)
@@ -307,7 +319,7 @@ func parseDefaultExpression(expr string, target reflect.Type) (any, error) {
 
 	default:
 		return nil, fmt.Errorf(
-			"default values for kind %s are not supported (only bool, int*, uint*, float*, string)",
+			"default values for kind %s are not supported (only bool, int*, uint*, float*, complex*, string)",
 			target.Kind(),
 		)
 	}
@@ -315,8 +327,8 @@ func parseDefaultExpression(expr string, target reflect.Type) (any, error) {
 
 // stripOptionalQuotes returns the inner content of a double-quoted string, or s itself if there are no quotes.
 //
-// Returns an error if exactly one of the leading or trailing quote is present — a typo by the directive author,
-// not a valid form.
+// Returns an error if exactly one of the leading or trailing quote is present — a typo by the directive author, not a
+// valid form.
 func stripOptionalQuotes(s string) (string, error) {
 
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {

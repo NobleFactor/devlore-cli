@@ -319,7 +319,9 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		Config:    r.sources.Config,
 		Overrides: r.sources.Overrides,
 	})
-	resolveErrs := resolver.Resolve(nil)
+	// graph is unbound at this point (op.Plan deferred Unbind); pass nil env. Phase 4 wires the real
+	// preflight pass inside GraphExecutor.Run where env is live.
+	resolveErrs := resolver.Resolve(nil, nil)
 	if len(resolveErrs) > 0 {
 		return nil, fmt.Errorf("variable resolution: %v", resolveErrs)
 	}

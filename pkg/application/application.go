@@ -14,6 +14,8 @@
 package application
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -32,8 +34,9 @@ type Application struct {
 	Name string
 
 	// Flags carries values parsed from command-line arguments. Consumed by [op.VariableResolver] under
-	// [op.VariableSourceKindFlag]. Keys are the cobra/pflag flag names (kebab-case as the user typed them);
-	// values are the typed Go value pflag parsed.
+	// [op.VariableSourceKindFlag]. Keys are snake-case (normalized from cobra/pflag's kebab-case at
+	// [NewApplication] time so `--dry-run` lands under `Flags["dry_run"]`); values are the typed Go value
+	// pflag parsed.
 	//
 	// Populated by [NewApplication] via [pflag.FlagSet.Visit] — only flags the user explicitly supplied are
 	// present. A lookup for a flag the user did not pass returns the zero value via map-zero semantics.
@@ -49,20 +52,26 @@ type Application struct {
 }
 
 // DryRun reports whether the user supplied `--dry-run` on the active command. Reads
-// [Application.Flags] under the canonical key "dry-run" (the cobra flag name verbatim). Returns false when
-// the flag was not supplied, when its value is not a bool, or when [Application.Flags] is nil.
+// [Application.Flags] under the canonical snake-case key "dry_run" (normalized from cobra's "dry-run"
+// at [NewApplication] time). Returns false when the flag was not supplied, when its value is not a
+// bool, or when [Application.Flags] is nil.
 //
 // Returns:
 //   - `bool`: true when `--dry-run` was supplied; false otherwise.
 func (a *Application) DryRun() bool {
 
-	v, _ := a.Flags["dry-run"].(bool)
+	v, _ := a.Flags["dry_run"].(bool)
 	return v
 }
 
 // NewApplication constructs an [Application] from a cobra command's parsed flag state. Walks the command's
 // merged pflag set (cobra merges persistent + local automatically when [cobra.Command.Flags] is called on
-// the leaf) and stamps each user-supplied flag into [Application.Flags]. Defaults are not stamped.
+// the leaf) and stamps each user-supplied flag into [Application.Flags] under its snake-case form (cobra's
+// kebab-case flag name with hyphens replaced by underscores). Defaults are not stamped.
+//
+// The kebab→snake normalization makes [Application.Flags] uniform with [op.VariableResolver]'s parameter
+// name conventions (snake_case throughout); the resolver's flag-source step matches the parameter name
+// verbatim against the snake-case keys.
 //
 // Config and Overrides are left nil. Tools that source either layer populate them via direct field
 // assignment after construction.
@@ -77,13 +86,26 @@ func NewApplication(name string, cmd *cobra.Command) *Application {
 
 	flags := make(map[string]any)
 	cmd.Flags().Visit(func(f *pflag.Flag) {
-		flags[f.Name] = flagValue(cmd, f)
+		flags[kebabToSnake(f.Name)] = flagValue(cmd, f)
 	})
 
 	return &Application{
 		Name:  name,
 		Flags: flags,
 	}
+}
+
+// kebabToSnake converts a cobra/pflag kebab-case flag name to snake_case by replacing every '-' with
+// '_'. Idempotent on already-snake names.
+//
+// Parameters:
+//   - `name`: the kebab-case flag name (e.g., "dry-run", "target-root").
+//
+// Returns:
+//   - `string`: the snake-case form (e.g., "dry_run", "target_root").
+func kebabToSnake(name string) string {
+
+	return strings.ReplaceAll(name, "-", "_")
 }
 
 // flagValue extracts the typed Go value of a [pflag.Flag] by switching on its declared type. The pflag
