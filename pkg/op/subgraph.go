@@ -4,7 +4,10 @@
 package op
 
 import (
+	"sort"
 	"time"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // SubgraphStatus represents the execution state of a subgraph.
@@ -66,11 +69,133 @@ type Subgraph struct {
 }
 
 // NewSubgraph constructs a Subgraph with the given identifier. Additional fields may be set on the returned
-// pointer. The parameter surface (executableUnit.parameters) is left nil; the topological-root bubble-up that
-// populates it is Phase 3 work.
+// pointer. The parameter surface is computed lazily by [Subgraph.Parameters] via a graph-walk over children's
+// slots (plan-doc D3); no precomputation needed.
 func NewSubgraph(id string) *Subgraph {
 	return &Subgraph{executableUnit: executableUnit{id: id}}
 }
+
+// region EXPORTED METHODS
+
+// region State management
+
+// AddChild appends a child (Node or Subgraph) to this subgraph's Children and stamps the child's parent
+// pointer to this subgraph. Centralizing wiring through this method keeps ownership accurate (plan-doc
+// D11) without callers having to remember to maintain the pointer themselves.
+//
+// Parameters:
+//   - `child`: the [SubgraphChild] variant to attach. Exactly one of Node or Subgraph must be set; AddChild
+//     stamps the parent pointer on whichever is present.
+func (s *Subgraph) AddChild(child SubgraphChild) {
+
+	s.Children = append(s.Children, child)
+	if child.Node != nil {
+		child.Node.parent = s
+	}
+	if child.Subgraph != nil {
+		child.Subgraph.parent = s
+	}
+}
+
+// endregion
+
+// region Behaviors
+
+// Parameters returns the bubble-up variable surface of this subgraph — the deduplicated set of
+// [VariableValue] references walked across every child's slots, recursing into nested subgraphs (plan-doc
+// D3). This shadows the embedded [executableUnit.Parameters] for *Subgraph callers and for interface
+// dispatch through [ExecutableUnit] on *Subgraph.
+//
+// Discovery is a graph-walk: for each child node, iterate its slots; for each slot whose Value is a
+// [VariableValue], contribute a [Parameter] under the variable's Name, carrying the slot's declared Type
+// and Default. For each child subgraph, recurse — its [Subgraph.Parameters] already returns deduped,
+// type-checked entries; merge them into the parent's working set. [ImmediateValue] and [PromiseValue]
+// slot fills do not contribute (they are intrinsically resolved at execute time).
+//
+// Same-name + same-Type collapses to one entry. Same name + different Type is a plan-time error
+// (panic via [assert.Failf]) because the variable map at runtime is keyed by name and carries one value.
+//
+// Returns:
+//   - []Parameter: the deduplicated bubble-up surface, in stable order by Name.
+func (s *Subgraph) Parameters() []Parameter {
+
+	seen := make(map[string]Parameter)
+
+	for _, child := range s.Children {
+
+		if child.Node != nil {
+			for _, slot := range child.Node.Slots {
+
+				vv, ok := slot.Value.(VariableValue)
+				if !ok {
+					continue
+				}
+
+				bubbled := Parameter{
+					Name:    vv.Name,
+					Type:    slot.Parameter.Type,
+					Default: slot.Parameter.Default,
+				}
+
+				s.mergeBubbled(seen, bubbled)
+			}
+			continue
+		}
+
+		if child.Subgraph != nil {
+			for _, bubbled := range child.Subgraph.Parameters() {
+				s.mergeBubbled(seen, bubbled)
+			}
+		}
+	}
+
+	out := make([]Parameter, 0, len(seen))
+	names := make([]string, 0, len(seen))
+
+	for name := range seen {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+	for _, name := range names {
+		out = append(out, seen[name])
+	}
+
+	return out
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// mergeBubbled merges a single bubbled [Parameter] into the seen map, panicking via [assert.Failf] on a
+// same-name + different-Type collision (plan-doc D3 plan-time error).
+//
+// Parameters:
+//   - `seen`: the accumulating dedup map keyed by variable name.
+//   - `bubbled`: the candidate entry to merge.
+func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
+
+	existing, dup := seen[bubbled.Name]
+	if !dup {
+		seen[bubbled.Name] = bubbled
+		return
+	}
+
+	if existing.Type != bubbled.Type {
+		assert.Failf(
+			"subgraph %q: variable %q declared with incompatible types %s and %s across slots",
+			s.ID(), bubbled.Name, existing.Type, bubbled.Type)
+	}
+}
+
+// endregion
+
+// endregion
 
 // SubgraphChild is a child of a subgraph or graph — either a node or a nested subgraph.
 // Exactly one field is set.

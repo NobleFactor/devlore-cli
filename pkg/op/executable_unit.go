@@ -21,17 +21,35 @@ type ExecutableUnit interface {
 
 // executableUnit is the shared state embedded by Node and Subgraph.
 //
-// Both fields are unexported; callers read through the ID() and Parameters() methods and write through the
-// constructors (NewNode, NewSubgraph) and plan-time hooks (Node.Bind).
+// All fields are unexported; callers read through the ID() / Parameters() / Parent() methods and write
+// through the constructors (NewNode, NewSubgraph), plan-time hooks (Node.Bind), and the
+// (s *Subgraph).AddChild method that stamps the parent pointer.
+//
+// The parent pointer is the forward-compatibility scaffolding for the frame-based execution model
+// (plan-doc D11). It models structural ownership: each executable unit knows the Subgraph that
+// contains it. The graph's Root subgraph has parent == nil; everything else has a non-nil parent
+// after AddChild wires it in.
 type executableUnit struct {
 	id         string
 	parameters []Parameter
+	parent     *Subgraph
 }
 
 // ID returns the identifier.
 func (e *executableUnit) ID() string { return e.id }
 
 // Parameters returns the precomputed parameter surface.
+//
+// For Node, this is the full Go-method signature (populated by Node.Bind from method.Parameters());
+// for Subgraph, this is shadowed by *Subgraph.Parameters() which computes the bubble-up variable
+// surface dynamically via a graph-walk (plan-doc D3).
 func (e *executableUnit) Parameters() []Parameter { return e.parameters }
+
+// Parent returns the Subgraph that owns this executable unit, or nil for the graph root.
+//
+// Returns:
+//   - *Subgraph: the owning subgraph, or nil if this is the graph's root or has not yet been added
+//     to any parent.
+func (e *executableUnit) Parent() *Subgraph { return e.parent }
 
 // endregion

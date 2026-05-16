@@ -112,21 +112,23 @@ func (g *Graph) Edges() []Edge { return g.Root.Edges }
 
 // region State management
 
-// AddNode appends a node as a root-level child of the graph and sets the node's back-reference.
+// AddNode appends a node as a root-level child of the graph and sets the node's back-reference. Routing
+// through [Subgraph.AddChild] stamps the node's parent pointer to the graph's Root (plan-doc D11).
 //
 // Parameters:
-//   - node: the node to append.
+//   - `node`: the node to append.
 func (g *Graph) AddNode(node *Node) {
 	node.graph = g
-	g.Root.Children = append(g.Root.Children, SubgraphChild{Node: node})
+	g.Root.AddChild(SubgraphChild{Node: node})
 }
 
-// AddSubgraph appends a subgraph as a root-level child of the graph.
+// AddSubgraph appends a subgraph as a root-level child of the graph. Routing through
+// [Subgraph.AddChild] stamps the subgraph's parent pointer to the graph's Root (plan-doc D11).
 //
 // Parameters:
-//   - sg: the subgraph to append.
+//   - `sg`: the subgraph to append.
 func (g *Graph) AddSubgraph(sg *Subgraph) {
-	g.Root.Children = append(g.Root.Children, SubgraphChild{Subgraph: sg})
+	g.Root.AddChild(SubgraphChild{Subgraph: sg})
 }
 
 // Nodes returns all nodes in the graph by walking the tree recursively.
