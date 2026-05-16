@@ -8,7 +8,7 @@ import (
 	"reflect"
 )
 
-// resourceInterfaceType is the [reflect.Type] of [Resource], cached for [Convert]'s registered-Resource step.
+// resourceInterfaceType is the `[reflect.Type]` of [Resource], cached for [Convert]'s registered-Resource step.
 var resourceInterfaceType = reflect.TypeFor[Resource]()
 
 // Convert projects a Go value into the target type via the type-matching cascade.
@@ -134,6 +134,7 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 	// conventionally sit on the pointer receiver.
 
 	var probe any
+
 	if target.Kind() == reflect.Pointer {
 		probe = reflect.New(target.Elem()).Interface()
 	} else {
