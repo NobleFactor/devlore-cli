@@ -328,7 +328,7 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 					sg.SetRetryPolicy(retryPolicy)
 				}
 			case *lorepackage.NativePMAction:
-				if err := addNativePMNodes(graph, pkg, a, reg); err != nil {
+				if err := addNativePMNodes(sg, pkg, a, reg); err != nil {
 					return fmt.Errorf("subgraph %q: %w", phaseName, err)
 				}
 			default:
@@ -490,22 +490,25 @@ func prepareScriptEnv(
 	return thread, globals, pkgContext, nil
 }
 
-// addNativePMNodes adds nodes for a native package manager action.
-// Uses namespaced action names (pkg.install, pkg.upgrade, pkg.remove) that
-// work on all platforms. The actual package manager is determined at execution
-// time via op.RuntimeEnvironment.Platform.
+// addNativePMNodes adds a native-package-manager node directly as a child of target.
+//
+// Uses namespaced action names (`pkg.install`, `pkg.upgrade`, `pkg.remove`) that work on all platforms.
+// The actual package manager is determined at execution time via
+// [op.RuntimeEnvironment.Platform]. The node is parented to target via `AddChild`, which stamps
+// `parentID = target.ID()` per the D11 by-ID ownership model — no post-hoc re-parenting needed.
 //
 // Parameters:
-//   - graph: the execution graph to populate.
-//   - pkg: the resolved package release.
-//   - action: the native package manager action.
-//   - reg: the action registry for resolving action names.
+//   - `target`: the subgraph that will own this node as a child.
+//   - `pkg`: the resolved package release.
+//   - `action`: the native package manager action.
+//   - `reg`: the action registry for resolving action names. Reserved for future use.
 //
 // Returns:
-//   - error: reserved for future use (currently always nil).
-func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *op.ReceiverRegistry) error { //nolint:unparam // error return reserved for future use
-	// Determine the dotted action name
+//   - `error`: reserved for future use (currently always nil).
+func addNativePMNodes(target *op.Subgraph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *op.ReceiverRegistry) error { //nolint:unparam // error return reserved for future use
+
 	var actionName string
+
 	switch action.Command {
 	case lorepackage.PMInstall:
 		actionName = "pkg.install"
@@ -517,14 +520,13 @@ func addNativePMNodes(graph *op.Graph, pkg *lorepackage.Release, action *lorepac
 		actionName = "pkg.install"
 	}
 
-	// Create the node with resolved action
 	node := op.NewNode(fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName))
 	node.Receiver = actionName
 	node.Origin = pkg.Name
 	node.SetSlot("packages", op.ImmediateValue{Value: strings.Join(action.Packages, ",")})
 	node.SetSlot("phase", op.ImmediateValue{Value: action.PhaseName})
 
-	graph.AddNode(node)
+	target.AddChild(op.SubgraphChild{Node: node})
 	return nil
 }
 
