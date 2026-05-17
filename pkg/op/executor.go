@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
@@ -262,94 +261,31 @@ func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, child
 	return lastResult, nil
 }
 
-// executeSubgraph runs a subgraph with retry logic, recursively executing its children.
+// executeSubgraph is the executor entry point for an [op.Subgraph]. Body intentionally stripped —
+// the prior implementation predated the four-terminal model, the frame-chain execution model
+// (plan-doc D11), and the by-ID containment model (Phase 3.5). The rewrite is scheduled for
+// Phase 5 (alongside plan.assemble / plan.run) so the executor matches the post-materialization
+// Subgraph shape: per-dispatch [Frame] minting populated from [Subgraph.FrameBindings],
+// [Subgraph.Items] propagation to the body, retry per the frame-chain [effectiveRetryPolicy]
+// rule, and [errorAction] dispatch on failure.
 //
-// The subgraph does not derive its own cancellation scope — it propagates the caller's ctx down to its children.
-// External cancel (root) and ancestor-gather cancel both reach the children via ctx inheritance; executeNode's
-// entry-time ctx.Err() check picks them up at the next node boundary.
+// Until that rewrite lands, calling this function is a programming error — it surfaces loudly so
+// any path that reaches container dispatch in Phase 4.5 fails fast with a clear pointer to the
+// pending work, instead of producing silent garbage from a stale implementation.
 //
 // Parameters:
-//   - ctx: the cancellation context threaded from the caller.
-//   - graph: the root graph (for dispatch access and compensation lookup).
-//   - sg: the subgraph to execute.
-//   - results: the accumulated node results for promise resolution.
-//   - stack: the recovery stack for compensation.
-//   - overrides: caller-supplied slot overrides, routed to topological roots within the subgraph.
+//   - `ctx`: ignored.
+//   - `graph`: ignored.
+//   - `sg`: ignored.
+//   - `results`: ignored.
+//   - `stack`: ignored.
+//   - `overrides`: ignored.
 //
 // Returns:
-//   - any: the last child's output value within the subgraph, or nil.
-//   - error: non-nil if the subgraph fails after all retry attempts.
-func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
-
-	maxAttempts := 1
-
-	if sg.RetryPolicy() != nil {
-		maxAttempts += sg.RetryPolicy().MaxAttempts
-	}
-
-	ec := graph.RuntimeEnvironment()
-
-	var lastErr error
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-
-		// Apply backoff delay before retries (not before first attempt)
-		if attempt > 0 && sg.RetryPolicy() != nil {
-			delay := sg.RetryPolicy().ComputeDelay(attempt - 1)
-			if delay > 0 {
-				select {
-				case <-ec.Context.Done():
-					return nil, ec.Context.Err()
-				case <-time.After(delay):
-				}
-			}
-		}
-
-		// Reset inner node statuses for retry
-		if attempt > 0 {
-			resetSubgraphNodes(sg)
-		}
-
-		e.hooks.FireSubgraphStart(ec, sg.ID())
-
-		childResult, innerErr := e.executeChildren(ctx, graph, sg.Children, sg.Edges, results, stack, overrides)
-
-		e.hooks.FireSubgraphComplete(ec, sg.ID(), innerErr)
-
-		attemptRecord := Attempt{
-			Number:    attempt + 1,
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
-
-		if innerErr == nil {
-			attemptRecord.Status = "completed"
-			sg.Attempts = append(sg.Attempts, attemptRecord)
-			sg.Status = SubgraphCompleted
-			return childResult, nil
-		}
-
-		attemptRecord.Status = "failed"
-		attemptRecord.Error = innerErr.Error()
-		sg.Attempts = append(sg.Attempts, attemptRecord)
-		lastErr = innerErr
-	}
-
-	return nil, lastErr
-}
-
-// resetSubgraphNodes resets all node statuses within a subgraph back to pending for retry.
-// Walks the subgraph tree recursively.
-func resetSubgraphNodes(sg *Subgraph) {
-	for _, c := range sg.Children {
-		if c.Node != nil {
-			c.Node.Status = StatusPending
-			c.Node.Error = ""
-			c.Node.Timestamp = ""
-		}
-		if c.Subgraph != nil {
-			resetSubgraphNodes(c.Subgraph)
-		}
-	}
+//   - `any`: always nil.
+//   - `error`: always non-nil; describes the pending Phase 5 rewrite.
+func (e *GraphExecutor) executeSubgraph(_ context.Context, _ *Graph, sg *Subgraph, _ map[string]any, _ *RecoveryStack, _ map[string]SlotValue) (any, error) {
+	return nil, fmt.Errorf("executeSubgraph(%q): body stripped pending Phase 5 rewrite (frame minting + FrameBindings + Items + errorAction); see plan-doc D11", sg.ID())
 }
 
 // executeNode resolves slots, dispatches the action, stores the result, and pushes a recovery entry.
