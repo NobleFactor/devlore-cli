@@ -49,9 +49,6 @@ type Subgraph struct {
 	// Status of this subgraph: pending, completed, failed, rolled_back, skipped.
 	Status SubgraphStatus
 
-	// Retry governs retry behavior when inner children fail.
-	Retry *RetryPolicy
-
 	// Compensate is the ID of the compensating subgraph for rollback.
 	Compensate string
 
@@ -79,21 +76,28 @@ func NewSubgraph(id string) *Subgraph {
 
 // region State management
 
-// AddChild appends a child (Node or Subgraph) to this subgraph's Children and stamps the child's parent
-// pointer to this subgraph. Centralizing wiring through this method keeps ownership accurate (plan-doc
-// D11) without callers having to remember to maintain the pointer themselves.
+// AddChild appends a child (Node or Subgraph) to this subgraph's Children and stamps the child's parentID
+// to this subgraph's ID. Centralizing wiring through this method keeps ownership accurate (plan-doc D11)
+// without callers having to remember to maintain the back-reference themselves.
+//
+// Idempotent on parentID under multi-Graph reuse: the same Invocation referenced from two different
+// Graphs' assemblies both stamp `parentID = "root"` (constant Root ID) — silent success. Adding the same
+// child to a Subgraph with a different ID panics (a unit cannot belong to two different Subgraphs at the
+// same time within a single Graph context).
 //
 // Parameters:
 //   - `child`: the [SubgraphChild] variant to attach. Exactly one of Node or Subgraph must be set; AddChild
-//     stamps the parent pointer on whichever is present.
+//     stamps parentID on whichever is present.
 func (s *Subgraph) AddChild(child SubgraphChild) {
 
 	s.Children = append(s.Children, child)
+
 	if child.Node != nil {
-		child.Node.parent = s
+		child.Node.stampParent(s.ID())
 	}
+
 	if child.Subgraph != nil {
-		child.Subgraph.parent = s
+		child.Subgraph.stampParent(s.ID())
 	}
 }
 

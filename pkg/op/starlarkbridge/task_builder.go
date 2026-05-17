@@ -298,7 +298,7 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 
 	// Apply the retry policy from options (if supplied) to the node before it joins the graph.
 	if opts != nil && opts.RetryPolicy != nil {
-		node.Retry = opts.RetryPolicy
+		node.SetRetryPolicy(opts.RetryPolicy)
 	}
 
 	// Register an Invocation under the effective label.

@@ -507,9 +507,6 @@ type Node struct {
 	// ProviderReceiverType from the registry, constructs the provider, and dispatches via Method.Do.
 	Receiver string
 
-	// Retry is the retry policy for this node (nil = no retry).
-	Retry *RetryPolicy
-
 	// Slots holds input values for this node, ordered by method parameter position.
 	Slots []*Slot
 

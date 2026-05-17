@@ -36,10 +36,10 @@ type Provider struct {
 //
 // Both fields are typed any to accept the variety of values plan.choose's branches handle: literal scalars, resolved
 // values, or detached invocations from prior plan.* calls. The structural materialization at plan.run (step 16) and the
-// executor's choose dispatch resolve the values; this type is pure data.
+// executor's `choose` dispatch resolve the values; this type is pure data.
 //
-// Constructed by plan.case(when=..., then=...) (an immediate method on plan.Provider) and passed as a variadic
-// argument to plan.choose.
+// Constructed by plan.case(when=..., then=...) (an immediate method on plan.Provider) and passed as a variadic argument
+// to plan.choose.
 type Case struct {
 	When any // condition the branch tests against (literal, value, or invocation reference)
 	Then any // body the branch produces if When is truthy (literal, value, or invocation reference)
@@ -57,23 +57,23 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 // region EXPORTED METHODS
 
 // Choose walks the cases in declaration order, resolving each case's When and yielding the first branch whose When is
-// truthy. Once a match is found, only that case's Then is evaluated; remaining cases are short-circuited (their Whens
-// and Thens are never resolved). If no case matches, `defaultValue` is returned.
+// truthy. Once a match is found, only that case's Then is evaluated; remaining cases are short-circuited (their When
+// and Then arguments are never resolved). If no case matches, `defaultValue` is returned.
 //
 // Surfaces in starlark as plan.choose(default_value, plan.case(when=..., then=...), ...) because flow is a root-planned
 // provider (phase-8 D12). Branches are detached by default per D5 — each plan.case is a pure data container constructed
 // by plan.case(...) and passed by value; the When and Then fields hold whatever the starlark author supplied (literal
-// scalar, op.Resource, or *starlarkbridge.Invocation reference), which the executor's choose dispatch resolves at
+// scalar, op.Resource, or *starlarkbridge.Invocation reference), which the executor's `choose` dispatch resolves at
 // execution time. This method is the codegen-discoverable signature; the structural materialization (lazy branch
 // dispatch via [op.Graph.ExecuteWithStack]) is wired by plan.run (step 16).
 //
 // Truthiness rule (the executor's contract; encoded here as the stub fallback):
 //
-//   - bool: true is truthy.
-//   - integer: zero is falsy, others truthy.
-//   - string: empty is falsy, others truthy.
-//   - nil: falsy.
-//   - anything else (op.Resource, non-nil pointer, etc.): truthy.
+//   - `bool`: true is truthy.
+//   - `integer`: zero is falsy, others truthy.
+//   - `string`: empty is falsy, others truthy.
+//   - `nil`: falsy.
+//   - Anything else (op.Resource, non-nil pointer, etc.): truthy.
 //
 // When matches starlark.Value.Truth() for native starlark types. When a Case's When is a *starlarkbridge.Invocation
 // reference, the executor dispatches the When invocation and applies the truthiness rule to its resolved value.
@@ -85,7 +85,7 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 // express the homogeneous case statically; the return type is any.
 //
 // Parameters:
-//   - `defaultValue`: the value used when no case's When is truthy.
+//   - `defaultValue`: the value used when no `case`'s When is truthy.
 //   - `cases`: the variadic cases to evaluate in declaration order.
 //
 // Returns:
@@ -177,24 +177,24 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 // CompensateGather.
 //
 // On any iteration failure gather cancels its scoped ctx to signal the other iterations to bail at their next
-// node, waits for all iterations to finish, unwinds the locally-held stacks, and returns (nil, nil, err) so no
+// node, waits for all iterations to finish, unwinds the locally held stacks, and returns (nil, nil, err) so no
 // residue lands on the parent stack.
 //
 // Cancellation scope is derived as a child of ctx: a cancel on ctx (root or ancestor gather) propagates down to
 // iterations, while a cancel on the derived gatherCtx stays scoped to this gather's iterations only.
 //
 // Parameters:
-//   - activationRecord: the per-dispatch record; cancellation flows through `activationRecord.Context` and a
+//   - `activationRecord`: the per-dispatch record; cancellation flows through `activationRecord.Context` and a
 //     scoped child is derived for this gather's iterations.
-//   - items: the list of items to iterate over.
-//   - do: subgraph or node ID of the body to execute per item.
-//   - limit: max concurrent iterations; defaults to the platform concurrency when non-positive.
+//   - `items`: the list of items to iterate over.
+//   - `do`: subgraph or node ID of the body to execute per item.
+//   - `limit`: max concurrent iterations; defaults to the platform concurrency when non-positive.
 //
 // Returns:
-//   - []any: terminal result from each iteration, indexed by original item order; nil on failure.
-//   - *op.RecoveryStack: a single stack containing the per-iteration sub-stacks in completion order via
+//   - `[]any`: terminal result from each iteration, indexed by original item order; nil on failure.
+//   - `*op.RecoveryStack`: a single stack containing the per-iteration substacks in completion order via
 //     [op.RecoveryStack.PushNested]. On failure, returns nil.
-//   - error: non-nil if any iteration failed or the body is malformed.
+//   - `error`: non-nil if any iteration failed or the body is malformed.
 func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do string, limit int) ([]any, *op.RecoveryStack, error) {
 
 	if len(items) == 0 {
@@ -260,7 +260,6 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 	}
 
 	completed := make([]completion, 0, len(items))
-
 	var firstErr error
 
 	for range items {
@@ -293,9 +292,9 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 		return nil, nil, fmt.Errorf("gather: %w", firstErr)
 	}
 
+	gathered := op.NewRecoveryStack()
 	results := make([]any, len(items))
 
-	gathered := op.NewRecoveryStack()
 	for _, c := range completed {
 		results[c.index] = c.result
 		gathered.PushNested(c.stack)
@@ -307,15 +306,15 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 // CompensateGather unwinds the per-iteration recovery stacks accumulated by a successful Gather.
 //
 // Called by the executor when the parent stack unwinds and hits gather's compensable entry. The single returned
-// [op.RecoveryStack] holds one nested sub-stack per iteration in completion order; [op.RecoveryStack.Unwind] walks
-// the entries LIFO so the iteration that finished last (and therefore produced the freshest side effects) undoes
-// first, mirroring standard compensation semantics.
+// [op.RecoveryStack] holds one nested substack per iteration in completion order; [op.RecoveryStack.Unwind] walks the
+// entries LIFO so the iteration that finished last (and therefore produced the freshest side effects) undoes first,
+// mirroring standard compensation semantics.
 //
 // Parameters:
-//   - stack: the gather stack as returned by Gather (one nested sub-stack per iteration in completion order).
+//   - `stack`: the gather stack as returned by Gather (one nested substack per iteration in completion order).
 //
 // Returns:
-//   - error: a joined error across any sub-stack that failed to unwind; nil on total success.
+//   - `error`: a joined error across any substack that failed to unwind; nil on total success.
 func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 
 	if stack == nil {
@@ -327,24 +326,24 @@ func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 // Subgraph bundles a set of detached invocations into one executable unit.
 //
 // Surfaces in starlark as plan.subgraph(...) because flow is a root-planned provider (phase-8 D12). The variadic
-// children are detached invocations from prior plan.* calls; step 11's target-type dispatch fills the slot with
-// each child's structural reference (an [op.ExecutableUnit]) rather than a value-side promise. The container's
-// output is the list of terminal values produced by the children in topological order, typed []any per D3.
+// children are detached invocations from prior plan.* calls; step 11's target-type dispatch fills the slot with each
+// child's structural reference (an [op.ExecutableUnit]) rather than a value-side promise. The container's output is the
+// list of terminal values produced by the children in topological order, typed []any per D3.
 //
-// Empty subgraphs are a plan-time error per D10 — enforced at plan.run materialization (step 16), not in this
-// method body. plan.run also walks the children to materialize the structural [op.Subgraph] in the executable
-// graph; this method is the codegen-discoverable signature that defines the surface, not the runtime executor of
-// the subgraph itself (which is handled by the [op.Graph] dispatcher once materialization completes).
+// Empty subgraphs are a plan-time error per D10 — enforced at plan.run materialization (step 16), not in this method
+// body. plan.run also walks the children to materialize the structural [op.Subgraph] in the executable graph; this
+// method is the codegen-discoverable signature that defines the surface, not the runtime executor of the subgraph
+// itself (which is handled by the [op.Graph] dispatcher once materialization completes).
 //
 // Parameters:
-//   - children: the variadic invocations bundled into this subgraph.
+//   - `children`: the variadic invocations bundled into this subgraph.
 //
 // Returns:
-//   - []any: the list of terminal values, in topological order.
-//   - *op.RecoveryStack: the subgraph's local saga stack. Currently empty — phase-8 / step 16's plan.run
-//     materialization + executor.op.Subgraph traversal populates it with the children's compensation entries
-//     and splices it onto the parent on success.
-//   - error: non-nil if subgraph construction fails.
+//   - `[]any`: the list of terminal values, in topological order.
+//   - `*op.RecoveryStack`: the subgraph's local saga stack. Currently empty — phase-8 / step 16's plan.run
+//     materialization + executor.op.Subgraph traversal populates it with the children's compensation entries and
+//     splices it onto the parent on success.
+//   - `error`: non-nil if subgraph construction fails.
 func (p *Provider) Subgraph(children ...op.ExecutableUnit) ([]any, *op.RecoveryStack, error) {
 
 	results := make([]any, 0, len(children))
@@ -356,15 +355,15 @@ func (p *Provider) Subgraph(children ...op.ExecutableUnit) ([]any, *op.RecoveryS
 
 // CompensateSubgraph unwinds the subgraph's local saga stack as a single transactional unit.
 //
-// The stack carries one entry per compensable child (a Receipt or a deeper nested sub-stack). Unwind walks
-// LIFO and dispatches per entry kind, recursing into nested sub-stacks. Until phase-8 / step 16 wires the
+// The stack carries one entry per compensable child (a Receipt or a deeper nested substack). Unwind walks
+// LIFO and dispatches per entry kind, recursing into nested substacks. Until phase-8 / step 16 wires the
 // executor-side population, the stack is empty and Unwind is a no-op.
 //
 // Parameters:
-//   - stack: the [op.RecoveryStack] returned by the forward Subgraph call.
+//   - `stack`: the [op.RecoveryStack] returned by the forward Subgraph call.
 //
 // Returns:
-//   - error: non-nil if any entry fails to unwind.
+//   - `error`: non-nil if any entry fails to unwind.
 func (p *Provider) CompensateSubgraph(stack *op.RecoveryStack) error {
 
 	if stack == nil {
@@ -376,14 +375,14 @@ func (p *Provider) CompensateSubgraph(stack *op.RecoveryStack) error {
 // WaitUntil polls a predicate at the configured interval until it returns true or the timeout expires.
 //
 // Parameters:
-//   - target: the value to evaluate the predicate against.
-//   - predicate: condition to evaluate.
-//   - timeout: maximum wait time.
-//   - interval: poll interval (default 5s).
+//   - `target`: the value to evaluate the predicate against.
+//   - `predicate`: condition to evaluate.
+//   - `timeout`: maximum wait time.
+//   - `interval`: poll interval (default 5s).
 //
 // Returns:
-//   - any: the target value when the predicate returns true.
-//   - error: non-nil if the timeout expires or the predicate fails.
+//   - `any`: the target value when the predicate returns true.
+//   - `error`: non-nil if the timeout expires or the predicate fails.
 func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), timeout, interval time.Duration) (any, error) {
 
 	if timeout == 0 {

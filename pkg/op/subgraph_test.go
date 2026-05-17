@@ -207,14 +207,15 @@ func TestSubgraph_AddChild_StampsParent_Node(t *testing.T) {
 
 	sg := NewSubgraph("sg")
 	n := NewNode("n1")
-	if n.Parent() != nil {
-		t.Fatalf("fresh Node.Parent() = %v, want nil", n.Parent())
+
+	if n.ParentID() != "" {
+		t.Fatalf("fresh Node.ParentID() = %q, want empty", n.ParentID())
 	}
 
 	sg.AddChild(SubgraphChild{Node: n})
 
-	if n.Parent() != sg {
-		t.Errorf("Node.Parent() not stamped: got %v, want %v", n.Parent(), sg)
+	if n.ParentID() != sg.ID() {
+		t.Errorf("Node.ParentID() not stamped: got %q, want %q", n.ParentID(), sg.ID())
 	}
 }
 
@@ -222,14 +223,15 @@ func TestSubgraph_AddChild_StampsParent_Subgraph(t *testing.T) {
 
 	outer := NewSubgraph("outer")
 	inner := NewSubgraph("inner")
-	if inner.Parent() != nil {
-		t.Fatalf("fresh Subgraph.Parent() = %v, want nil", inner.Parent())
+
+	if inner.ParentID() != "" {
+		t.Fatalf("fresh Subgraph.ParentID() = %q, want empty", inner.ParentID())
 	}
 
 	outer.AddChild(SubgraphChild{Subgraph: inner})
 
-	if inner.Parent() != outer {
-		t.Errorf("Subgraph.Parent() not stamped: got %v, want %v", inner.Parent(), outer)
+	if inner.ParentID() != outer.ID() {
+		t.Errorf("Subgraph.ParentID() not stamped: got %q, want %q", inner.ParentID(), outer.ID())
 	}
 }
 
@@ -244,18 +246,22 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	middle.AddChild(SubgraphChild{Subgraph: inner})
 	outer.AddChild(SubgraphChild{Subgraph: middle})
 
-	// Walk up: leaf → inner → middle → outer → nil
-	if leaf.Parent() != inner {
-		t.Errorf("leaf.Parent() = %v, want inner", leaf.Parent())
+	// Walk up the parent-ID chain: leaf → inner → middle → outer → "" (root of this tree).
+
+	if leaf.ParentID() != inner.ID() {
+		t.Errorf("leaf.ParentID() = %q, want %q", leaf.ParentID(), inner.ID())
 	}
-	if inner.Parent() != middle {
-		t.Errorf("inner.Parent() = %v, want middle", inner.Parent())
+
+	if inner.ParentID() != middle.ID() {
+		t.Errorf("inner.ParentID() = %q, want %q", inner.ParentID(), middle.ID())
 	}
-	if middle.Parent() != outer {
-		t.Errorf("middle.Parent() = %v, want outer", middle.Parent())
+
+	if middle.ParentID() != outer.ID() {
+		t.Errorf("middle.ParentID() = %q, want %q", middle.ParentID(), outer.ID())
 	}
-	if outer.Parent() != nil {
-		t.Errorf("outer.Parent() = %v, want nil (root of this tree)", outer.Parent())
+
+	if outer.ParentID() != "" {
+		t.Errorf("outer.ParentID() = %q, want empty (root of this tree)", outer.ParentID())
 	}
 }
 
@@ -265,18 +271,20 @@ func TestGraph_AddNodeAndAddSubgraph_StampParent(t *testing.T) {
 
 	n := NewNode("n")
 	g.AddNode(n)
-	if n.Parent() != g.Root {
-		t.Errorf("AddNode: parent = %v, want g.Root", n.Parent())
+
+	if n.ParentID() != g.Root.ID() {
+		t.Errorf("AddNode: ParentID() = %q, want %q (g.Root)", n.ParentID(), g.Root.ID())
 	}
 
 	sg := NewSubgraph("sg")
 	g.AddSubgraph(sg)
-	if sg.Parent() != g.Root {
-		t.Errorf("AddSubgraph: parent = %v, want g.Root", sg.Parent())
+
+	if sg.ParentID() != g.Root.ID() {
+		t.Errorf("AddSubgraph: ParentID() = %q, want %q (g.Root)", sg.ParentID(), g.Root.ID())
 	}
 
-	if g.Root.Parent() != nil {
-		t.Errorf("Root.Parent() = %v, want nil (graph root)", g.Root.Parent())
+	if g.Root.ParentID() != "" {
+		t.Errorf("Root.ParentID() = %q, want empty (graph root)", g.Root.ParentID())
 	}
 }
 

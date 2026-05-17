@@ -283,8 +283,8 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 
 	maxAttempts := 1
 
-	if sg.Retry != nil {
-		maxAttempts += sg.Retry.MaxAttempts
+	if sg.RetryPolicy() != nil {
+		maxAttempts += sg.RetryPolicy().MaxAttempts
 	}
 
 	ec := graph.RuntimeEnvironment()
@@ -294,8 +294,8 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 
 		// Apply backoff delay before retries (not before first attempt)
-		if attempt > 0 && sg.Retry != nil {
-			delay := sg.Retry.ComputeDelay(attempt - 1)
+		if attempt > 0 && sg.RetryPolicy() != nil {
+			delay := sg.RetryPolicy().ComputeDelay(attempt - 1)
 			if delay > 0 {
 				select {
 				case <-ec.Context.Done():

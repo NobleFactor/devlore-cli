@@ -109,7 +109,12 @@ func (g *Graph) applyPayload(p *graphPayload) {
 	if g.Root == nil {
 		g.Root = NewSubgraph("root")
 	}
-	g.Root.Children = p.Children
+
+	g.Root.Children = nil
+	for _, child := range p.Children {
+		g.Root.AddChild(child)
+	}
+
 	g.Root.Edges = p.Edges
 	g.Checksum = p.Checksum
 	g.Collisions = p.Collisions
@@ -146,7 +151,7 @@ func (n *Node) MarshalJSON() ([]byte, error) {
 		Error:       n.Error,
 		Layer:       n.Layer,
 		Origin:      n.Origin,
-		Retry:       n.Retry,
+		Retry:       n.RetryPolicy(),
 		Slots:       n.Slots,
 		Timestamp:   n.Timestamp,
 	})
@@ -177,7 +182,7 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 	n.Error = payload.Error
 	n.Layer = payload.Layer
 	n.Origin = payload.Origin
-	n.Retry = payload.Retry
+	n.SetRetryPolicy(payload.Retry)
 	n.Slots = payload.Slots
 	n.Timestamp = payload.Timestamp
 	return nil
@@ -204,7 +209,7 @@ func (n *Node) MarshalYAML() (any, error) {
 		Error:       n.Error,
 		Layer:       n.Layer,
 		Origin:      n.Origin,
-		Retry:       n.Retry,
+		Retry:       n.RetryPolicy(),
 		Slots:       n.Slots,
 		Timestamp:   n.Timestamp,
 	}, nil
@@ -235,7 +240,7 @@ func (n *Node) UnmarshalYAML(unmarshal func(any) error) error {
 	n.Error = payload.Error
 	n.Layer = payload.Layer
 	n.Origin = payload.Origin
-	n.Retry = payload.Retry
+	n.SetRetryPolicy(payload.Retry)
 	n.Slots = payload.Slots
 	n.Timestamp = payload.Timestamp
 	return nil
@@ -264,7 +269,7 @@ func (s *Subgraph) MarshalJSON() ([]byte, error) {
 		Status:     s.Status,
 		Children:   s.Children,
 		Edges:      s.Edges,
-		Retry:      s.Retry,
+		Retry:      s.RetryPolicy(),
 		Compensate: s.Compensate,
 		Attempts:   s.Attempts,
 		State:      s.State,
@@ -293,9 +298,14 @@ func (s *Subgraph) UnmarshalJSON(data []byte) error {
 	s.executableUnit = executableUnit{id: payload.ID}
 	s.Name = payload.Name
 	s.Status = payload.Status
-	s.Children = payload.Children
+
+	s.Children = nil
+	for _, child := range payload.Children {
+		s.AddChild(child)
+	}
+
 	s.Edges = payload.Edges
-	s.Retry = payload.Retry
+	s.SetRetryPolicy(payload.Retry)
 	s.Compensate = payload.Compensate
 	s.Attempts = payload.Attempts
 	s.State = payload.State
@@ -322,7 +332,7 @@ func (s *Subgraph) MarshalYAML() (any, error) {
 		Status:     s.Status,
 		Children:   s.Children,
 		Edges:      s.Edges,
-		Retry:      s.Retry,
+		Retry:      s.RetryPolicy(),
 		Compensate: s.Compensate,
 		Attempts:   s.Attempts,
 		State:      s.State,
@@ -351,9 +361,14 @@ func (s *Subgraph) UnmarshalYAML(unmarshal func(any) error) error {
 	s.executableUnit = executableUnit{id: payload.ID}
 	s.Name = payload.Name
 	s.Status = payload.Status
-	s.Children = payload.Children
+
+	s.Children = nil
+	for _, child := range payload.Children {
+		s.AddChild(child)
+	}
+
 	s.Edges = payload.Edges
-	s.Retry = payload.Retry
+	s.SetRetryPolicy(payload.Retry)
 	s.Compensate = payload.Compensate
 	s.Attempts = payload.Attempts
 	s.State = payload.State

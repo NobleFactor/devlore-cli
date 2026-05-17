@@ -272,7 +272,7 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 		policy.MaxDelay = maxDelay
 	}
 
-	p.node.Retry = policy
+	p.node.SetRetryPolicy(policy)
 	return p, nil
 }
 

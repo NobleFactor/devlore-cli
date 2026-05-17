@@ -324,8 +324,8 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 				if err != nil {
 					return fmt.Errorf("subgraph %q: %w", phaseName, err)
 				}
-				if retryPolicy != nil && sg.Retry == nil {
-					sg.Retry = retryPolicy
+				if retryPolicy != nil && sg.RetryPolicy() == nil {
+					sg.SetRetryPolicy(retryPolicy)
 				}
 			case *lorepackage.NativePMAction:
 				if err := addNativePMNodes(graph, pkg, a, reg); err != nil {
