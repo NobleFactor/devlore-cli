@@ -23,7 +23,7 @@ func init() {
 			"Elevate":   {},
 			"Failed":    {"format", "*args", "**kwargs"},
 			"Gather":    {"items", "do", "limit"},
-			"Subgraph":  {"*children"},
+			"Subgraph":  {"items", "**kwargs"},
 			"WaitUntil": {"target", "predicate", "timeout", "interval"},
 		})
 }

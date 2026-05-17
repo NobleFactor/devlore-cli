@@ -323,34 +323,30 @@ func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 	return stack.Unwind()
 }
 
-// Subgraph bundles a set of detached invocations into one executable unit.
+// Subgraph is the uniform-signature container marker for plan.subgraph(...).
 //
-// Surfaces in starlark as plan.subgraph(...) because flow is a root-planned provider (phase-8 D12). The variadic
-// children are detached invocations from prior plan.* calls; step 11's target-type dispatch fills the slot with each
-// child's structural reference (an [op.ExecutableUnit]) rather than a value-side promise. The container's output is the
-// list of terminal values produced by the children in topological order, typed []any per D3.
-//
-// Empty subgraphs are a plan-time error per D10 — enforced at plan.run materialization (step 16), not in this method
-// body. plan.run also walks the children to materialize the structural [op.Subgraph] in the executable graph; this
-// method is the codegen-discoverable signature that defines the surface, not the runtime executor of the subgraph
-// itself (which is handled by the [op.Graph] dispatcher once materialization completes).
+// The body is intentionally a no-op placeholder. Container semantics — walking [op.Subgraph.Children],
+// minting a [Frame] from [op.Subgraph.FrameBindings], propagating [op.Subgraph.Items] to the body,
+// applying [effectiveRetryPolicy], dispatching [op.Subgraph.ErrorAction] on failure — are handled by
+// the executor's container dispatch path (Phase 5 rewrite, see plan-doc D11). This method exists to
+// declare the uniform shape — `items []any` plus `kwargs map[string]any` — so the bridge's codegen-
+// driven registration and the receiver registry know plan.subgraph's signature. The bridge's container
+// path classifies `body=` / `items=` / `error_action=` / `retry_policy=` directly into Subgraph
+// fields; this method is never invoked at runtime under the container model.
 //
 // Parameters:
-//   - `children`: the variadic invocations bundled into this subgraph.
+//   - `items`: the resolved value of the reserved `items=` kwarg. Typically nil for plain Subgraph;
+//     populated by gather/choose/wait_until when they share this signature.
+//   - `kwargs`: frame-binding kwargs the bridge classified out (everything except `body=`, `items=`,
+//     `error_action=`, `retry_policy=`).
 //
 // Returns:
-//   - `[]any`: the list of terminal values, in topological order.
-//   - `*op.RecoveryStack`: the subgraph's local saga stack. Currently empty — phase-8 / step 16's plan.run
-//     materialization + executor.op.Subgraph traversal populates it with the children's compensation entries and
-//     splices it onto the parent on success.
-//   - `error`: non-nil if subgraph construction fails.
-func (p *Provider) Subgraph(children ...op.ExecutableUnit) ([]any, *op.RecoveryStack, error) {
-
-	results := make([]any, 0, len(children))
-	for range children {
-		results = append(results, nil)
-	}
-	return results, op.NewRecoveryStack(), nil
+//   - `any`: nil. The container's real output flows from the executor's Children walk.
+//   - `*op.RecoveryStack`: an empty stack. The executor populates the local stack as children dispatch;
+//     this method does not.
+//   - `error`: always nil.
+func (p *Provider) Subgraph(items []any, kwargs map[string]any) (any, *op.RecoveryStack, error) {
+	return nil, op.NewRecoveryStack(), nil
 }
 
 // CompensateSubgraph unwinds the subgraph's local saga stack as a single transactional unit.

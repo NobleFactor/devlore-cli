@@ -169,13 +169,21 @@ func (p *NodeBuilder) dispatch(_ *starlark.Thread, builtin *starlark.Builtin, ar
 	// the node at execute time.
 	label := builtin.Name()
 	name := label[strings.LastIndex(label, ".")+1:]
-	method := p.methods[name]
-	params := method.Parameters()
 
 	// actionName is the always-dotted "<provider>.<method>" form written onto the node for execute-time lookup via
 	// op.RuntimeEnvironment.ActionByName. Display-side concerns (error messages, auto-labels) use the builtin's label,
 	// which reflects the receiver's placement (bare for root, dotted for non-root).
 	actionName := p.receiverType.Name() + "." + name
+
+	// Container methods (flow.Subgraph today; choose/gather/wait_until as Steps 13/14/15 land) dispatch through a
+	// separate path that builds op.Subgraph rather than op.Node and classifies reserved kwargs (body=, items=,
+	// error_action=, retry_policy=) directly into Subgraph fields.
+	if isContainerMethod(actionName) {
+		return p.dispatchContainer(label, actionName, args, kwargs)
+	}
+
+	method := p.methods[name]
+	params := method.Parameters()
 
 	// Extract the reserved `options` kwarg before UnpackArgs sees it. Options is a cross-cutting per-invocation
 	// concern (label + retry policy) reserved by the planner (D7). Method registration rejects any provider that

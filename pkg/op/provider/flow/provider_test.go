@@ -87,12 +87,12 @@ func TestSubgraph_ReturnsRecoveryStack(t *testing.T) {
 
 	p := testProvider(t)
 
-	results, stack, err := p.Subgraph()
+	result, stack, err := p.Subgraph(nil, nil)
 	if err != nil {
 		t.Fatalf("Subgraph() error = %v", err)
 	}
-	if len(results) != 0 {
-		t.Errorf("Subgraph() with no children returned %d results; want 0", len(results))
+	if result != nil {
+		t.Errorf("Subgraph() returned %v; want nil (container method is a placeholder marker)", result)
 	}
 	if stack == nil {
 		t.Fatal("Subgraph() returned nil *RecoveryStack; want empty stack per the saga-shape contract")
@@ -115,7 +115,7 @@ func TestSubgraph_CompensateSubgraph_RoundTrip(t *testing.T) {
 
 	p := testProvider(t)
 
-	_, stack, err := p.Subgraph()
+	_, stack, err := p.Subgraph(nil, nil)
 	if err != nil {
 		t.Fatalf("Subgraph() error = %v", err)
 	}
