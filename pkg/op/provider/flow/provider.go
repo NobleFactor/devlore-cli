@@ -34,9 +34,9 @@ type Provider struct {
 
 // Case is one branch of a [Provider.Choose] dispatch.
 //
-// Both fields are typed any to accept the variety of values plan.choose's branches handle: literal scalars,
-// resolved values, or detached invocations from prior plan.* calls. The structural materialization at plan.run
-// (step 16) and the executor's choose dispatch resolve the values; this type is pure data.
+// Both fields are typed any to accept the variety of values plan.choose's branches handle: literal scalars, resolved
+// values, or detached invocations from prior plan.* calls. The structural materialization at plan.run (step 16) and the
+// executor's choose dispatch resolve the values; this type is pure data.
 //
 // Constructed by plan.case(when=..., then=...) (an immediate method on plan.Provider) and passed as a variadic
 // argument to plan.choose.
@@ -56,17 +56,16 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 // region EXPORTED METHODS
 
-// Choose walks the cases in declaration order, resolving each case's When and yielding the first branch whose
-// When is truthy. Once a match is found, only that case's Then is evaluated; remaining cases are
-// short-circuited (their Whens and Thens are never resolved). If no case matches, defaultValue is returned.
+// Choose walks the cases in declaration order, resolving each case's When and yielding the first branch whose When is
+// truthy. Once a match is found, only that case's Then is evaluated; remaining cases are short-circuited (their Whens
+// and Thens are never resolved). If no case matches, `defaultValue` is returned.
 //
-// Surfaces in starlark as plan.choose(default_value, plan.case(when=..., then=...), ...) because flow is a
-// root-planned provider (phase-8 D12). Branches are detached by default per D5 — each plan.case is a pure data
-// container constructed by plan.case(...) and passed by value; the When and Then fields hold whatever the
-// starlark author supplied (literal scalar, op.Resource, or *starlarkbridge.Invocation reference), which the
-// executor's choose dispatch resolves at execute time. This method is the codegen-discoverable signature; the
-// structural materialization (lazy branch dispatch via [op.Graph.ExecuteWithStack]) is wired by plan.run
-// (step 16).
+// Surfaces in starlark as plan.choose(default_value, plan.case(when=..., then=...), ...) because flow is a root-planned
+// provider (phase-8 D12). Branches are detached by default per D5 — each plan.case is a pure data container constructed
+// by plan.case(...) and passed by value; the When and Then fields hold whatever the starlark author supplied (literal
+// scalar, op.Resource, or *starlarkbridge.Invocation reference), which the executor's choose dispatch resolves at
+// execution time. This method is the codegen-discoverable signature; the structural materialization (lazy branch
+// dispatch via [op.Graph.ExecuteWithStack]) is wired by plan.run (step 16).
 //
 // Truthiness rule (the executor's contract; encoded here as the stub fallback):
 //
@@ -76,29 +75,27 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 //   - nil: falsy.
 //   - anything else (op.Resource, non-nil pointer, etc.): truthy.
 //
-// When matches starlark.Value.Truth() for native starlark types. When a Case's When is an
-// *starlarkbridge.Invocation reference, the executor dispatches the When invocation and applies the truthiness
-// rule to its resolved value.
+// When matches starlark.Value.Truth() for native starlark types. When a Case's When is a *starlarkbridge.Invocation
+// reference, the executor dispatches the When invocation and applies the truthiness rule to its resolved value.
 //
-// Compensable per the [op.Method] convention: returns (result, complement, error). The complement is the
-// recovery state of whichever branch actually ran, so [Provider.CompensateChoose] can unwind it on a later
-// parent-level failure.
+// Compensable per the [op.Method] convention: returns (result, complement, error). The complement is the recovery state
+// of whichever branch actually ran, so [Provider.CompensateChoose] can unwind it on a later parent-level failure.
 //
-// Container output type per D3: T when defaultValue and every case's Then are homogeneous, any otherwise. Go
-// can't express the homogeneous case statically; the return type is any.
+// Container output type per D3: T when defaultValue and every case's Then are homogeneous, any otherwise. Go can't
+// express the homogeneous case statically; the return type is any.
 //
 // Parameters:
-//   - defaultValue: the value used when no case's When is truthy.
-//   - cases: the variadic cases to evaluate in declaration order.
+//   - `defaultValue`: the value used when no case's When is truthy.
+//   - `cases`: the variadic cases to evaluate in declaration order.
 //
 // Returns:
-//   - any: the chosen branch's value (or defaultValue when no case matches).
-//   - *op.RecoveryStack: the recovery state of the executed branch, for [Provider.CompensateChoose]. Currently
-//     an empty stack — the chosen branch's actual compensation is collected by the executor's traversal of the
-//     materialized op.Choose node, not by this method body. Phase-8 / step 13's plan.choose redesign reshapes
-//     the runtime semantics; phase-8 / step 16 (plan.run + executor.op.Choose handling) wires the local-stack
-//     splice. The empty stack here keeps the saga-shape contract intact in the meantime.
-//   - error: non-nil if branch evaluation fails.
+//   - `any`: the chosen branch's value (or defaultValue when no case matches).
+//   - `*op.RecoveryStack`: the recovery state of the executed branch, for [Provider.CompensateChoose]. Currently, an
+//     empty stack — the chosen branch's actual compensation is collected by the executor's traversal of the
+//     materialized op.Choose node, not by this method body. Phase-8 / step 13's plan.choose redesign reshapes the
+//     runtime semantics; phase-8 / step 16 (plan.run + executor.op.Choose handling) wires the local-stack splice. The
+//     empty stack here keeps the saga-shape contract intact in the meantime.
+//   - `error`: non-nil if branch evaluation fails.
 func (p *Provider) Choose(defaultCase any, cases ...Case) (any, *op.RecoveryStack, error) {
 
 	for _, c := range cases {
@@ -112,15 +109,15 @@ func (p *Provider) Choose(defaultCase any, cases ...Case) (any, *op.RecoveryStac
 
 // CompensateChoose unwinds the recovery state captured by a successful [Provider.Choose] call.
 //
-// Today this is structurally a delegation to [op.RecoveryStack.Unwind] — the stack is empty until phase-8 /
-// step 16 lands the executor-side traversal that pushes the chosen branch's compensation entries into it. Once
-// that's wired, this body still does the same thing: unwinds whatever the executor populated.
+// Today this is structurally a delegation to [op.RecoveryStack.Unwind] — the stack is empty until phase-8 / step 16
+// lands the executor-side traversal that pushes the chosen branch's compensation entries into it. Once that's wired,
+// this body still does the same thing: unwinds whatever the executor populated.
 //
 // Parameters:
-//   - stack: the [op.RecoveryStack] returned by the forward Choose call.
+//   - `stack`: the [op.RecoveryStack] returned by the forward Choose call.
 //
 // Returns:
-//   - error: non-nil if the unwind fails.
+//   - `error`: non-nil if the unwind fails.
 func (p *Provider) CompensateChoose(stack *op.RecoveryStack) error {
 
 	if stack == nil {
@@ -132,10 +129,10 @@ func (p *Provider) CompensateChoose(stack *op.RecoveryStack) error {
 // Complete is the default, healthy conclusion of a graph path.
 //
 // Parameters:
-//   - output: optional output value.
+//   - `output`: optional output value.
 //
 // Returns:
-//   - any: the output value.
+//   - `any`: the output value.
 func (p *Provider) Complete(output any) any {
 	return output
 }
@@ -143,12 +140,12 @@ func (p *Provider) Complete(output any) any {
 // Degraded marks a branch as non-optimal while allowing graph execution to continue.
 //
 // Parameters:
-//   - format: format string.
-//   - args: positional format arguments.
-//   - kwargs: keyword arguments for template rendering.
+//   - `format`: format string.
+//   - `args`: positional format arguments.
+//   - `kwargs`: keyword arguments for template rendering.
 //
 // Returns:
-//   - string: the rendered warning message.
+//   - `string`: the rendered warning message.
 func (p *Provider) Degraded(format string, args []any, kwargs map[string]any) string {
 	rendered := op.RenderError(format, args, kwargs)
 	_, _ = fmt.Fprintln(os.Stderr, "degraded:", rendered)
@@ -162,12 +159,12 @@ func (p *Provider) Elevate() {
 // Failed halts graph execution immediately.
 //
 // Parameters:
-//   - format: format string.
-//   - args: positional format arguments.
-//   - kwargs: keyword arguments for template rendering.
+//   - `format`: format string.
+//   - `args`: positional format arguments.
+//   - `kwargs`: keyword arguments for template rendering.
 //
 // Returns:
-//   - error: always non-nil FatalError.
+//   - `error`: always non-nil FatalError.
 func (p *Provider) Failed(format string, args []any, kwargs map[string]any) error {
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }

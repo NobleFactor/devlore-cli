@@ -73,20 +73,28 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 // The graph root is treated as an implicit subgraph. The executor calls executeChildren on the root's children,
 // applying Kahn's algorithm at each level and recursing into child subgraphs.
 //
+// Run's preflight pipeline is:
+//
+//  1. [GraphExecutor.bindVariables] — runs in every mode (including dry-run). Reads
+//     `graph.Parameters()` and calls [VariableResolver.Resolve] against the env's
+//     [application.Application] source maps. Missing-required and type-mismatch
+//     errors aggregate; a non-empty result fails the run before any dispatch.
+//  2. [ResourceCatalog.ResolvePending] — runs in regular mode only. Drives Pending
+//     catalog entries to Active or Gone; this pass touches target-machine state
+//     (filesystem/network probes) so dry-run skips it.
+//
 // Parameters:
-//   - graph: the execution graph to run.
-//   - variables: the resolved variable map produced by [VariableResolver.Resolve], one entry per
-//     [VariableValue] slot the graph references. The executor stashes the map on its receiver so internal
-//     dispatch paths can read from it during slot resolution. Phase 4 wires a preflight pass that aggregates
-//     missing-required and type-mismatch errors before dispatch. Pass nil or an empty map for callers that
-//     do not yet use [VariableValue] slots.
+//   - `graph`: the execution graph to run.
+//   - `variables`: caller-supplied variable bindings. Merged on top of the resolver's
+//     output as the highest-priority layer; pass nil or an empty map for the common
+//     case where the resolver alone produces the variable surface. Useful for tests
+//     that want to inject specific variable values without going through Application
+//     plumbing.
 //
 // Returns:
 //   - `any`: the terminal node's output value, or nil if no node produced output.
-//   - `error`: non-nil if any node or subgraph fails.
+//   - `error`: non-nil if preflight fails or any node or subgraph fails.
 func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, error) {
-
-	e.variables = variables
 
 	if graph.State != StatePending {
 		return nil, fmt.Errorf("graph already executed (state: %s)", graph.State)
@@ -94,6 +102,11 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, e
 
 	graph.Rebind(e.environment)
 	defer graph.Unbind()
+
+	if err := e.bindVariables(graph, variables); err != nil {
+		graph.State = StateFailed
+		return nil, err
+	}
 
 	// Pre-flight resolution pass. Drive every Pending catalog entry to Active
 	// or Gone by calling r.Resolve() on each. Active and Gone entries are not
@@ -141,6 +154,49 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, e
 	}
 
 	return result, nil
+}
+
+// bindVariables runs the binding-layer preflight pass: walk `graph.Parameters()` (the bubble-up variable
+// surface), drive the env's [VariableResolver] against the env's [application.Application] source maps,
+// and merge the resolved variables into `env.variables` and `e.variables` ready for slot resolution at
+// dispatch time. Caller-supplied `callerVariables` are layered on top as the highest-priority source —
+// useful for tests injecting specific bindings without going through Application plumbing.
+//
+// Variable resolution is pure (reads in-memory Application maps and process env; no filesystem or network
+// probes), so the pass runs in both regular and dry-run modes. This is intentional: dry-run output that
+// renders slot values needs them resolved.
+//
+// Parameters:
+//   - `graph`: the bound execution graph; `graph.Parameters()` drives the resolver's parameter input.
+//   - `callerVariables`: optional caller-supplied bindings that override resolver output.
+//
+// Returns:
+//   - `error`: nil on success; on failure, the joined aggregated error from the resolver (missing-required
+//     and type-mismatch entries).
+func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]Variable) error {
+
+	params := graph.Parameters()
+
+	resolver := e.environment.variableResolver
+	if errs := resolver.Resolve(e.environment, params); len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	if e.environment.variables == nil {
+		e.environment.variables = make(map[string]Variable, len(params)+len(callerVariables))
+	}
+
+	for name, v := range resolver.Variables() {
+		e.environment.variables[name] = v
+	}
+
+	for name, v := range callerVariables {
+		e.environment.variables[name] = v
+	}
+
+	e.variables = e.environment.variables
+
+	return nil
 }
 
 // executeChildren walks a sorted children list, dispatching each child through [Graph.dispatch].

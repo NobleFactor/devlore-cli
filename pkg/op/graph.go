@@ -105,6 +105,14 @@ func NewGraph() *Graph {
 // Children returns the root-level children of the graph.
 func (g *Graph) Children() []SubgraphChild { return g.Root.Children }
 
+// Parameters returns the bubble-up variable surface of the graph — the deduplicated, type-checked
+// set of [VariableValue] references walked across the root subgraph's children (plan-doc D3).
+// Consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
+//
+// Returns:
+//   - []Parameter: the bubble-up surface, stable-sorted by Name.
+func (g *Graph) Parameters() []Parameter { return g.Root.Parameters() }
+
 // Edges returns the ordering edges at the root level.
 func (g *Graph) Edges() []Edge { return g.Root.Edges }
 
