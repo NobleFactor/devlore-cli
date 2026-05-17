@@ -11,21 +11,21 @@ import (
 
 // Subgraph is a subsystem of the graph — a functional, structural, and transactional boundary.
 //
-// Subgraphs are recursive: a subgraph contains nodes and child subgraphs, forming a tree. The graph is
-// the root of the tree. All subgraphs participate in the saga pattern: retry, compensation, status
-// tracking. Nodes and subgraphs are peers at any level — both are vertices in the same topological sort.
+// Subgraphs are recursive: a subgraph contains nodes and child subgraphs, forming a tree. The graph is the root of the
+// tree. All subgraphs participate in the saga pattern: retry, compensation, status tracking. Nodes and subgraphs are
+// peers at any level — both are vertices in the same topological sort.
 type Subgraph struct {
 	executableUnit
 
-	// Name is the subgraph name (e.g., "install").
+	// Name is the name of the subgraph (e.g., "install").
 	Name string
 
-	// Children are the nodes and child subgraphs in declaration order. Execution proceeds through this
-	// list after topological sorting by edges at this level.
+	// Children are the nodes and child subgraphs in declaration order. Execution proceeds through this list after
+	// topological sorting by edges at this level.
 	Children []SubgraphChild
 
-	// Edges are ordering constraints between children at this level. Each edge references children by
-	// ID (both node IDs and subgraph IDs).
+	// Edges are ordering constraints between children at this level. Each edge references children by ID (both node IDs
+	// and subgraph IDs).
 	Edges []Edge
 
 	// Status of this subgraph: pending, completed, failed, rolled_back, skipped.
@@ -79,8 +79,7 @@ func NewSubgraph(id string) *Subgraph {
 
 // region State management
 
-// AddChild appends a child (Node or Subgraph) to this subgraph's Children and stamps the child's parentID to this
-// subgraph's ID.
+// AddChild appends an [ExecutableUnit] to this subgraph's Children and stamps its parentID to this subgraph's ID.
 //
 // Centralizing wiring through this method keeps ownership accurate (plan-doc D11) without callers having to remember to
 // maintain the back-reference themselves.
@@ -91,8 +90,8 @@ func NewSubgraph(id string) *Subgraph {
 // context).
 //
 // Parameters:
-//   - `child`: the [SubgraphChild] variant to attach. Exactly one of Node or Subgraph must be set;
-//     AddChild stamps parentID on whichever is present.
+//   - `child`: the [SubgraphChild] variant to attach. Exactly one of Node or Subgraph must be set; AddChild stamps
+//     parentID on whichever is present.
 func (s *Subgraph) AddChild(child SubgraphChild) {
 
 	s.Children = append(s.Children, child)
@@ -110,24 +109,30 @@ func (s *Subgraph) AddChild(child SubgraphChild) {
 
 // region Behaviors
 
-// Parameters returns the bubble-up variable surface of this subgraph.
+// Parameters are the exposed bubble-up variable surface of this subgraph.
 //
 // The deduplicated set of [VariableValue] references walked across every child's slots, recursing into nested subgraphs
-// (plan-doc D3). This shadows the embedded [executableUnit.Parameters] for *Subgraph callers and for interface dispatch
-// through [ExecutableUnit] on *Subgraph.
+// (plan-doc D3), MINUS the variables this subgraph binds locally via [Subgraph.FrameBindings]. The exposed surface is
+// what a parent caller must supply when invoking this subgraph: variables already bound locally are resolved within
+// this subgraph's frame at dispatch time and do not propagate up. This shadows the embedded [executableUnit.Parameters]
+// for *Subgraph callers and for interface dispatch through [ExecutableUnit] on *Subgraph.
 //
 // Discovery is a graph-walk: for each child node, iterate its slots; for each slot whose Value is a [VariableValue],
 // contribute a [Parameter] under the variable's Name, carrying the slot's declared Type and Default. For each child
-// subgraph, recurse — its [Subgraph.Parameters] already returns deduped, type-checked entries; merge them into the
-// parent's working set. [ImmediateValue] and [PromiseValue] slot fills do not contribute (they are intrinsically
-// resolved at execution time).
+// subgraph, recurse — its [Subgraph.Parameters] already returns its own deduped, locally-filtered exposed surface;
+// merge those entries into the parent's working set. [ImmediateValue] and [PromiseValue] slot fills do not contribute
+// (they are intrinsically resolved at execution time).
 //
 // Parameters with the same name and same type collapse to one entry. Parameters with the same name and different types
 // are caught as plan-time errors (panic via [assert.Failf]) because the variable map at runtime is keyed by name and
 // carries one value.
 //
+// After the bubble-up walk completes, any entry whose Name is a key in [Subgraph.FrameBindings] is removed from the
+// result — those variables are bound locally and not part of the caller's interface. An empty or nil FrameBindings
+// map produces no filtering.
+//
 // Returns:
-//   - []Parameter: the deduplicated bubble-up surface, in stable order by Name.
+//   - []Parameter: the exposed, deduplicated bubble-up surface, in stable order by Name.
 func (s *Subgraph) Parameters() []Parameter {
 
 	seen := make(map[string]Parameter)
@@ -158,6 +163,10 @@ func (s *Subgraph) Parameters() []Parameter {
 				s.mergeBubbled(seen, bubbled)
 			}
 		}
+	}
+
+	for name := range s.FrameBindings {
+		delete(seen, name)
 	}
 
 	out := make([]Parameter, 0, len(seen))
@@ -199,9 +208,11 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
 	}
 
 	if existing.Type != bubbled.Type {
-		assert.Failf(
-			"subgraph %q: variable %q declared with incompatible types %s and %s across slots",
-			s.ID(), bubbled.Name, existing.Type, bubbled.Type)
+		assert.Failf("subgraph %q: variable %q declared with incompatible types %s and %s across slots",
+			s.ID(),
+			bubbled.Name,
+			existing.Type,
+			bubbled.Type)
 	}
 }
 
@@ -243,7 +254,7 @@ type RollbackEntry struct {
 
 // SubgraphChild is a child of a subgraph or graph — either a node or a nested subgraph.
 //
-// Exactly one field is set.
+// It is eitherExactly one field is set.
 type SubgraphChild struct {
 
 	// Node is the [Node] this child wraps; nil when this child wraps a Subgraph.
@@ -285,12 +296,16 @@ type SubgraphStatus string
 const (
 	// SubgraphPending indicates the subgraph has not yet been executed.
 	SubgraphPending SubgraphStatus = "pending"
+
 	// SubgraphCompleted indicates the subgraph executed successfully.
 	SubgraphCompleted SubgraphStatus = "completed"
+
 	// SubgraphFailed indicates the subgraph failed during execution.
 	SubgraphFailed SubgraphStatus = "failed"
+
 	// SubgraphRolledBack indicates the subgraph was rolled back after failure.
 	SubgraphRolledBack SubgraphStatus = "rolled_back"
+
 	// SubgraphSkipped indicates the subgraph was skipped.
 	SubgraphSkipped SubgraphStatus = "skipped"
 )

@@ -203,6 +203,87 @@ func TestSubgraph_Parameters_SortedByName(t *testing.T) {
 	}
 }
 
+func TestSubgraph_Parameters_FrameBindings_FullyBoundReturnsEmpty(t *testing.T) {
+
+	sg := NewSubgraph("sg")
+	sg.AddChild(SubgraphChild{Node: nodeWithSlots("n",
+		stringSlot("path", VariableValue{Name: "dest_dir"}),
+	)})
+	sg.FrameBindings = map[string]SlotValue{
+		"dest_dir": ImmediateValue{Value: "/tmp/x"},
+	}
+
+	params := sg.Parameters()
+	if len(params) != 0 {
+		t.Errorf("len = %d, want 0 (dest_dir is bound locally)", len(params))
+	}
+}
+
+func TestSubgraph_Parameters_FrameBindings_PartialBindingFiltersOnlyMatching(t *testing.T) {
+
+	sg := NewSubgraph("sg")
+	sg.AddChild(SubgraphChild{Node: nodeWithSlots("n",
+		stringSlot("p1", VariableValue{Name: "alpha"}),
+		stringSlot("p2", VariableValue{Name: "beta"}),
+	)})
+	sg.FrameBindings = map[string]SlotValue{
+		"alpha": ImmediateValue{Value: "hello"},
+	}
+
+	params := sg.Parameters()
+	if len(params) != 1 {
+		t.Fatalf("len = %d, want 1 (alpha bound; beta exposed)", len(params))
+	}
+	if params[0].Name != "beta" {
+		t.Errorf("Name = %q, want beta (alpha was filtered out)", params[0].Name)
+	}
+}
+
+func TestSubgraph_Parameters_FrameBindings_NestedHidesFromOuter(t *testing.T) {
+
+	// Inner subgraph references "secret" and binds it locally via FrameBindings; "secret" must NOT bubble up to
+	// outer. Outer references "shared" only via its own child node; that variable stays exposed.
+
+	inner := NewSubgraph("inner")
+	inner.AddChild(SubgraphChild{Node: nodeWithSlots("inner_node",
+		stringSlot("p", VariableValue{Name: "secret"}),
+	)})
+	inner.FrameBindings = map[string]SlotValue{
+		"secret": ImmediateValue{Value: "hidden"},
+	}
+
+	outer := NewSubgraph("outer")
+	outer.AddChild(SubgraphChild{Subgraph: inner})
+	outer.AddChild(SubgraphChild{Node: nodeWithSlots("outer_node",
+		stringSlot("q", VariableValue{Name: "shared"}),
+	)})
+
+	params := outer.Parameters()
+	if len(params) != 1 {
+		t.Fatalf("len = %d, want 1 (inner's secret is filtered at its own level; only shared bubbles up)", len(params))
+	}
+	if params[0].Name != "shared" {
+		t.Errorf("Name = %q, want shared", params[0].Name)
+	}
+}
+
+func TestSubgraph_Parameters_FrameBindings_EmptyMapIsNoOp(t *testing.T) {
+
+	sg := NewSubgraph("sg")
+	sg.AddChild(SubgraphChild{Node: nodeWithSlots("n",
+		stringSlot("path", VariableValue{Name: "dest_dir"}),
+	)})
+	sg.FrameBindings = map[string]SlotValue{}
+
+	params := sg.Parameters()
+	if len(params) != 1 {
+		t.Fatalf("len = %d, want 1 (empty FrameBindings does not filter)", len(params))
+	}
+	if params[0].Name != "dest_dir" {
+		t.Errorf("Name = %q, want dest_dir", params[0].Name)
+	}
+}
+
 func TestSubgraph_AddChild_StampsParent_Node(t *testing.T) {
 
 	sg := NewSubgraph("sg")
