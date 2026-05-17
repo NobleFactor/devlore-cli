@@ -299,10 +299,6 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		return r.buildResult(graph, tc, tracer, scriptExecErr), nil
 	}
 
-	// 8. Wrap nodes in a main phase for saga-pattern compensation.
-
-	wrapUngroupedNodes(graph)
-
 	// 10. Build variable resolver from accumulated sources and resolve. Phase 1 has no graph.Parameters()
 	// surface yet (Phase 3 adds it), so we pass nil parameters and the resolver produces an empty map.
 	// The resolver still records sources from runner options and t.set_* calls so future phases can build
@@ -388,54 +384,6 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 	}
 
 	return result
-}
-
-// wrapUngroupedNodes wraps root-level node children into a "test" main subgraph.
-// Nodes created by choose-branch lambdas already belong to branch subgraphs; the remaining
-// root-level nodes (predicates, choose, top-level actions) must be wrapped so the executor
-// runs them and choose can dispatch branch subgraphs internally.
-func wrapUngroupedNodes(graph *op.Graph) {
-
-	var nodeChildren []op.SubgraphChild
-	var sgChildren []op.SubgraphChild
-
-	for _, c := range graph.Root.Children {
-		if c.Node != nil {
-			nodeChildren = append(nodeChildren, c)
-		} else {
-			sgChildren = append(sgChildren, c)
-		}
-	}
-
-	if len(nodeChildren) == 0 {
-		return
-	}
-
-	// Collect IDs of nodes being moved into the main subgraph.
-	nodeIDs := make(map[string]bool, len(nodeChildren))
-	for _, c := range nodeChildren {
-		nodeIDs[c.ChildID()] = true
-	}
-
-	// Move edges whose endpoints are both in the main subgraph.
-	var mainEdges, keptEdges []op.Edge
-	for _, e := range graph.Root.Edges {
-		if nodeIDs[e.From] && nodeIDs[e.To] {
-			mainEdges = append(mainEdges, e)
-		} else {
-			keptEdges = append(keptEdges, e)
-		}
-	}
-	graph.Root.Edges = keptEdges
-
-	mainSG := op.NewSubgraph("subgraph.test")
-	mainSG.Name = "test"
-	mainSG.Children = nodeChildren
-	mainSG.Edges = mainEdges
-	mainSG.Status = op.SubgraphPending
-
-	// Prepend main subgraph so it runs before branch subgraphs.
-	graph.Root.Children = append([]op.SubgraphChild{{Subgraph: mainSG}}, sgChildren...)
 }
 
 // hasErrorExpectation returns true if any expectation is of kind "error".

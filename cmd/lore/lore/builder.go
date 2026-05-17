@@ -314,9 +314,6 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 		sg.Name = phaseName
 		sg.Status = op.SubgraphPending
 
-		// Snapshot current children count to capture nodes added by sub-functions.
-		childrenBefore := len(graph.Root.Children)
-
 		for _, action := range actions {
 			switch a := action.(type) {
 			case *lorepackage.ScriptAction:
@@ -335,27 +332,6 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 				return fmt.Errorf("unknown action type: %T", action)
 			}
 		}
-
-		// Move newly added children from graph root into the subgraph.
-		newChildren := graph.Root.Children[childrenBefore:]
-		sg.Children = append(sg.Children, newChildren...)
-		graph.Root.Children = graph.Root.Children[:childrenBefore]
-
-		// Move edges whose endpoints are both in this subgraph.
-		childIDs := make(map[string]bool, len(newChildren))
-		for _, c := range newChildren {
-			childIDs[c.ChildID()] = true
-		}
-
-		var kept []op.Edge
-		for _, e := range graph.Root.Edges {
-			if childIDs[e.From] && childIDs[e.To] {
-				sg.Edges = append(sg.Edges, e)
-			} else {
-				kept = append(kept, e)
-			}
-		}
-		graph.Root.Edges = kept
 
 		graph.AddSubgraph(sg)
 	}
