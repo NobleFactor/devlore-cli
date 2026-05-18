@@ -217,9 +217,9 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 // Returns:
 //   - any: the last child's output value, or nil if no child produced output.
 //   - error: non-nil if any child fails.
-func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, children []SubgraphChild, edges []Edge, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, children []ExecutableUnit, edges []Edge, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
-	sorted := SortChildren(children, edges)
+	sorted := sortChildren(children, edges)
 
 	hasIncoming := make(map[string]bool, len(edges))
 
@@ -232,22 +232,11 @@ func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, child
 	for _, child := range sorted {
 
 		var childOverrides map[string]SlotValue
-		if !hasIncoming[child.ChildID()] {
+		if !hasIncoming[child.ID()] {
 			childOverrides = overrides
 		}
 
-		var unit ExecutableUnit
-
-		switch {
-		case child.Node != nil:
-			unit = child.Node
-		case child.Subgraph != nil:
-			unit = child.Subgraph
-		default:
-			continue
-		}
-
-		childResult, err := graph.dispatch(ctx, e, stack, unit, results, childOverrides)
+		childResult, err := graph.dispatch(ctx, e, stack, child, results, childOverrides)
 
 		if err != nil {
 			return nil, err

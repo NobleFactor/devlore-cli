@@ -12,42 +12,90 @@ import (
 
 // Custom marshalers for Graph, Node, and Subgraph.
 //
-// Graph has a Root *Subgraph; its Children / Edges live on Root but appear at
-// the graph's top level in the wire format. The Graph marshalers project
-// Root.Children / Root.Edges to top-level "children" / "edges" keys.
+// Graph has a Root *Subgraph; its Children / Edges live on Root but appear at the graph's top level in the wire format.
+// The Graph marshalers project Root.Children / Root.Edges to top-level "children" / "edges" keys.
 //
-// Node and Subgraph have an unexported `id` (via embedded executableUnit);
-// their marshalers project it to "id". The `parameters` field is not
-// serialized — a plan-time computed surface rebuilt on load via Bind for
-// Node. The Subgraph parameter-surface rebuild (topological-root union) is
-// Phase 3 work and not yet wired. See Fork E in
+// Node and Subgraph have an unexported `id` (via embedded executableUnit); their marshalers project it to "id". The
+// `parameters` field is not serialized — a plan-time computed surface rebuilt on load via Bind for Node. The Subgraph
+// parameter-surface rebuild (topological-root union) is Phase 3 work and not yet wired. See Fork E in
 // docs/plans/extract-starlark-from-op/phase-7.md.
 
 // region Graph marshalers
 
-// graphPayload is the canonical wire shape for Graph. Used by both JSON and
-// YAML marshalers; the tags apply to whichever encoder reads the struct.
+// subgraphChildPayload is the serialization-only discriminated-union representation of a single child in a
+// Subgraph's list of children. Exactly one of Node or Subgraph is non-nil per entry; the field name in
+// the JSON/YAML payload (`"node"` vs. `"subgraph"`) is the type discriminator. Lives only on the wire;
+// the in-memory model is Subgraph.children []ExecutableUnit walked via interface assertion.
+type subgraphChildPayload struct {
+	Node     *Node     `json:"node,omitempty" yaml:"node,omitempty"`
+	Subgraph *Subgraph `json:"subgraph,omitempty" yaml:"subgraph,omitempty"`
+}
+
+// toSubgraphChildrenPayloads converts an in-memory []ExecutableUnit into the discriminated wire form. Each child
+// becomes a subgraphChildPayload with exactly one of Node or Subgraph set per its concrete type.
+func toSubgraphChildrenPayloads(children []ExecutableUnit) []subgraphChildPayload {
+
+	if len(children) == 0 {
+		return nil
+	}
+
+	out := make([]subgraphChildPayload, 0, len(children))
+
+	for _, c := range children {
+		switch t := c.(type) {
+		case *Node:
+			out = append(out, subgraphChildPayload{Node: t})
+		case *Subgraph:
+			out = append(out, subgraphChildPayload{Subgraph: t})
+		}
+	}
+
+	return out
+}
+
+// applySubgraphChildrenPayloads replays a parsed []subgraphChildrenPayload back onto a Subgraph via [Subgraph.AddChild]. AddChild
+// stamps each child's parentID and appends to the in-memory children slice. Existing children are
+// cleared first.
+func applySubgraphChildrenPayloads(sg *Subgraph, wires []subgraphChildPayload) {
+
+	sg.children = nil
+
+	for _, w := range wires {
+		switch {
+		case w.Node != nil:
+			sg.AddChild(w.Node)
+		case w.Subgraph != nil:
+			sg.AddChild(w.Subgraph)
+		}
+	}
+}
+
+// graphPayload is the canonical wire shape for Graph.
+//
+// Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct.
 type graphPayload struct {
-	Children   []SubgraphChild `json:"children" yaml:"children"`
-	Edges      []Edge          `json:"edges,omitempty" yaml:"edges,omitempty"`
-	Checksum   string          `json:"checksum,omitempty" yaml:"checksum,omitempty"`
-	Collisions []Collision     `json:"collisions,omitempty" yaml:"collisions,omitempty"`
-	Provenance Provenance      `json:"provenance" yaml:"provenance"`
-	Rollback   []RollbackEntry `json:"rollback,omitempty" yaml:"rollback,omitempty"`
-	Signature  *sops.Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
-	State      GraphState      `json:"state" yaml:"state"`
-	Timestamp  time.Time       `json:"timestamp" yaml:"timestamp"`
-	Version    string          `json:"version" yaml:"version"`
+	Children   []subgraphChildPayload `json:"children" yaml:"children"`
+	Edges      []Edge                 `json:"edges,omitempty" yaml:"edges,omitempty"`
+	Checksum   string                 `json:"checksum,omitempty" yaml:"checksum,omitempty"`
+	Collisions []Collision            `json:"collisions,omitempty" yaml:"collisions,omitempty"`
+	Provenance Provenance             `json:"provenance" yaml:"provenance"`
+	Rollback   []RollbackEntry        `json:"rollback,omitempty" yaml:"rollback,omitempty"`
+	Signature  *sops.Signature        `json:"signature,omitempty" yaml:"signature,omitempty"`
+	State      GraphState             `json:"state" yaml:"state"`
+	Timestamp  time.Time              `json:"timestamp" yaml:"timestamp"`
+	Version    string                 `json:"version" yaml:"version"`
 }
 
 func (g *Graph) MarshalJSON() ([]byte, error) {
 
-	var children []SubgraphChild
+	var children []subgraphChildPayload
 	var edges []Edge
+
 	if g.Root != nil {
-		children = g.Root.Children
+		children = toSubgraphChildrenPayloads(g.Root.children)
 		edges = g.Root.Edges
 	}
+
 	return json.Marshal(graphPayload{
 		Children:   children,
 		Edges:      edges,
@@ -74,10 +122,10 @@ func (g *Graph) UnmarshalJSON(data []byte) error {
 
 func (g *Graph) MarshalYAML() (any, error) {
 
-	var children []SubgraphChild
+	var children []subgraphChildPayload
 	var edges []Edge
 	if g.Root != nil {
-		children = g.Root.Children
+		children = toSubgraphChildrenPayloads(g.Root.children)
 		edges = g.Root.Edges
 	}
 	return graphPayload{
@@ -110,10 +158,7 @@ func (g *Graph) applyPayload(p *graphPayload) {
 		g.Root = NewSubgraph("root")
 	}
 
-	g.Root.Children = nil
-	for _, child := range p.Children {
-		g.Root.AddChild(child)
-	}
+	applySubgraphChildrenPayloads(g.Root, p.Children)
 
 	g.Root.Edges = p.Edges
 	g.Checksum = p.Checksum
@@ -253,21 +298,21 @@ func (n *Node) UnmarshalYAML(unmarshal func(any) error) error {
 func (s *Subgraph) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(struct {
-		ID         string           `json:"id"`
-		Name       string           `json:"name"`
-		Status     SubgraphStatus   `json:"status"`
-		Children   []SubgraphChild  `json:"children"`
-		Edges      []Edge           `json:"edges,omitempty"`
-		Retry      *RetryPolicy     `json:"retry,omitempty"`
-		Compensate string           `json:"compensate,omitempty"`
-		Attempts   []Attempt        `json:"attempts,omitempty"`
-		State      map[string]any   `json:"state,omitempty"`
-		Branch     bool             `json:"branch,omitempty"`
+		ID         string                 `json:"id"`
+		Name       string                 `json:"name"`
+		Status     SubgraphStatus         `json:"status"`
+		Children   []subgraphChildPayload `json:"children"`
+		Edges      []Edge                 `json:"edges,omitempty"`
+		Retry      *RetryPolicy           `json:"retry,omitempty"`
+		Compensate string                 `json:"compensate,omitempty"`
+		Attempts   []Attempt              `json:"attempts,omitempty"`
+		State      map[string]any         `json:"state,omitempty"`
+		Branch     bool                   `json:"branch,omitempty"`
 	}{
 		ID:         s.id,
 		Name:       s.Name,
 		Status:     s.Status,
-		Children:   s.Children,
+		Children:   toSubgraphChildrenPayloads(s.children),
 		Edges:      s.Edges,
 		Retry:      s.RetryPolicy(),
 		Compensate: s.Compensate,
@@ -280,16 +325,16 @@ func (s *Subgraph) MarshalJSON() ([]byte, error) {
 func (s *Subgraph) UnmarshalJSON(data []byte) error {
 
 	var payload struct {
-		ID         string           `json:"id"`
-		Name       string           `json:"name"`
-		Status     SubgraphStatus   `json:"status"`
-		Children   []SubgraphChild  `json:"children"`
-		Edges      []Edge           `json:"edges,omitempty"`
-		Retry      *RetryPolicy     `json:"retry,omitempty"`
-		Compensate string           `json:"compensate,omitempty"`
-		Attempts   []Attempt        `json:"attempts,omitempty"`
-		State      map[string]any   `json:"state,omitempty"`
-		Branch     bool             `json:"branch,omitempty"`
+		ID         string                 `json:"id"`
+		Name       string                 `json:"name"`
+		Status     SubgraphStatus         `json:"status"`
+		Children   []subgraphChildPayload `json:"children"`
+		Edges      []Edge                 `json:"edges,omitempty"`
+		Retry      *RetryPolicy           `json:"retry,omitempty"`
+		Compensate string                 `json:"compensate,omitempty"`
+		Attempts   []Attempt              `json:"attempts,omitempty"`
+		State      map[string]any         `json:"state,omitempty"`
+		Branch     bool                   `json:"branch,omitempty"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return err
@@ -299,10 +344,7 @@ func (s *Subgraph) UnmarshalJSON(data []byte) error {
 	s.Name = payload.Name
 	s.Status = payload.Status
 
-	s.Children = nil
-	for _, child := range payload.Children {
-		s.AddChild(child)
-	}
+	applySubgraphChildrenPayloads(s, payload.Children)
 
 	s.Edges = payload.Edges
 	s.SetRetryPolicy(payload.Retry)
@@ -316,21 +358,21 @@ func (s *Subgraph) UnmarshalJSON(data []byte) error {
 func (s *Subgraph) MarshalYAML() (any, error) {
 
 	return struct {
-		ID         string           `yaml:"id"`
-		Name       string           `yaml:"name"`
-		Status     SubgraphStatus   `yaml:"status"`
-		Children   []SubgraphChild  `yaml:"children"`
-		Edges      []Edge           `yaml:"edges,omitempty"`
-		Retry      *RetryPolicy     `yaml:"retry,omitempty"`
-		Compensate string           `yaml:"compensate,omitempty"`
-		Attempts   []Attempt        `yaml:"attempts,omitempty"`
-		State      map[string]any   `yaml:"state,omitempty"`
-		Branch     bool             `yaml:"branch,omitempty"`
+		ID         string                 `yaml:"id"`
+		Name       string                 `yaml:"name"`
+		Status     SubgraphStatus         `yaml:"status"`
+		Children   []subgraphChildPayload `yaml:"children"`
+		Edges      []Edge                 `yaml:"edges,omitempty"`
+		Retry      *RetryPolicy           `yaml:"retry,omitempty"`
+		Compensate string                 `yaml:"compensate,omitempty"`
+		Attempts   []Attempt              `yaml:"attempts,omitempty"`
+		State      map[string]any         `yaml:"state,omitempty"`
+		Branch     bool                   `yaml:"branch,omitempty"`
 	}{
 		ID:         s.id,
 		Name:       s.Name,
 		Status:     s.Status,
-		Children:   s.Children,
+		Children:   toSubgraphChildrenPayloads(s.children),
 		Edges:      s.Edges,
 		Retry:      s.RetryPolicy(),
 		Compensate: s.Compensate,
@@ -343,16 +385,16 @@ func (s *Subgraph) MarshalYAML() (any, error) {
 func (s *Subgraph) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var payload struct {
-		ID         string           `yaml:"id"`
-		Name       string           `yaml:"name"`
-		Status     SubgraphStatus   `yaml:"status"`
-		Children   []SubgraphChild  `yaml:"children"`
-		Edges      []Edge           `yaml:"edges,omitempty"`
-		Retry      *RetryPolicy     `yaml:"retry,omitempty"`
-		Compensate string           `yaml:"compensate,omitempty"`
-		Attempts   []Attempt        `yaml:"attempts,omitempty"`
-		State      map[string]any   `yaml:"state,omitempty"`
-		Branch     bool             `yaml:"branch,omitempty"`
+		ID         string                 `yaml:"id"`
+		Name       string                 `yaml:"name"`
+		Status     SubgraphStatus         `yaml:"status"`
+		Children   []subgraphChildPayload `yaml:"children"`
+		Edges      []Edge                 `yaml:"edges,omitempty"`
+		Retry      *RetryPolicy           `yaml:"retry,omitempty"`
+		Compensate string                 `yaml:"compensate,omitempty"`
+		Attempts   []Attempt              `yaml:"attempts,omitempty"`
+		State      map[string]any         `yaml:"state,omitempty"`
+		Branch     bool                   `yaml:"branch,omitempty"`
 	}
 	if err := unmarshal(&payload); err != nil {
 		return err
@@ -362,10 +404,7 @@ func (s *Subgraph) UnmarshalYAML(unmarshal func(any) error) error {
 	s.Name = payload.Name
 	s.Status = payload.Status
 
-	s.Children = nil
-	for _, child := range payload.Children {
-		s.AddChild(child)
-	}
+	applySubgraphChildrenPayloads(s, payload.Children)
 
 	s.Edges = payload.Edges
 	s.SetRetryPolicy(payload.Retry)

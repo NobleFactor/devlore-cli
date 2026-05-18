@@ -102,9 +102,6 @@ func NewGraph() *Graph {
 	}
 }
 
-// Children returns the root-level children of the graph.
-func (g *Graph) Children() []SubgraphChild { return g.Root.Children }
-
 // Parameters returns the bubble-up variable surface of the graph — the deduplicated, type-checked
 // set of [VariableValue] references walked across the root subgraph's children (plan-doc D3).
 // Consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
@@ -127,7 +124,7 @@ func (g *Graph) Edges() []Edge { return g.Root.Edges }
 //   - `node`: the node to append.
 func (g *Graph) AddNode(node *Node) {
 	node.graph = g
-	g.Root.AddChild(SubgraphChild{Node: node})
+	g.Root.AddChild(node)
 }
 
 // AddSubgraph appends a subgraph as a root-level child of the graph. Routing through
@@ -136,25 +133,25 @@ func (g *Graph) AddNode(node *Node) {
 // Parameters:
 //   - `sg`: the subgraph to append.
 func (g *Graph) AddSubgraph(sg *Subgraph) {
-	g.Root.AddChild(SubgraphChild{Subgraph: sg})
+	g.Root.AddChild(sg)
 }
 
 // Nodes returns all nodes in the graph by walking the tree recursively.
 // The returned slice is in tree-walk order (depth-first, declaration order).
 func (g *Graph) Nodes() []*Node {
 	var nodes []*Node
-	collectNodes(g.Root.Children, &nodes)
+	collectNodes(g.Root.children, &nodes)
 	return nodes
 }
 
 // collectNodes recursively collects all nodes from a children list.
-func collectNodes(children []SubgraphChild, out *[]*Node) {
+func collectNodes(children []ExecutableUnit, out *[]*Node) {
 	for _, c := range children {
-		if c.Node != nil {
-			*out = append(*out, c.Node)
-		}
-		if c.Subgraph != nil {
-			collectNodes(c.Subgraph.Children, out)
+		switch t := c.(type) {
+		case *Node:
+			*out = append(*out, t)
+		case *Subgraph:
+			collectNodes(t.children, out)
 		}
 	}
 }
@@ -177,7 +174,7 @@ func (g *Graph) Filename() string {
 // SubgraphByID returns the subgraph with the given ID, or nil if not found.
 // Searches the tree recursively.
 func (g *Graph) SubgraphByID(id string) *Subgraph {
-	return findSubgraph(g.Root.Children, id)
+	return findSubgraph(g.Root.children, id)
 }
 
 // ResolveExecutable returns the executable unit with the given ID, or an
@@ -200,15 +197,17 @@ func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 }
 
 // findSubgraph recursively searches for a subgraph by ID.
-func findSubgraph(children []SubgraphChild, id string) *Subgraph {
+func findSubgraph(children []ExecutableUnit, id string) *Subgraph {
 	for _, c := range children {
-		if c.Subgraph != nil {
-			if c.Subgraph.ID() == id {
-				return c.Subgraph
-			}
-			if found := findSubgraph(c.Subgraph.Children, id); found != nil {
-				return found
-			}
+		sg, ok := c.(*Subgraph)
+		if !ok {
+			continue
+		}
+		if sg.ID() == id {
+			return sg
+		}
+		if found := findSubgraph(sg.children, id); found != nil {
+			return found
 		}
 	}
 	return nil
@@ -380,17 +379,17 @@ func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryS
 func (g *Graph) CanonicalContent() ([]byte, error) {
 
 	type canonicalGraph struct {
-		Children   []SubgraphChild `yaml:"children"`
-		Collisions []Collision     `yaml:"collisions,omitempty"`
-		Context    Provenance      `yaml:"context"`
-		Edges      []Edge          `yaml:"edges,omitempty"`
-		State      GraphState      `yaml:"state"`
-		Timestamp  string          `yaml:"timestamp"`
-		Version    string          `yaml:"version"`
+		Children   []subgraphChildPayload `yaml:"children"`
+		Collisions []Collision            `yaml:"collisions,omitempty"`
+		Context    Provenance             `yaml:"context"`
+		Edges      []Edge                 `yaml:"edges,omitempty"`
+		State      GraphState             `yaml:"state"`
+		Timestamp  string                 `yaml:"timestamp"`
+		Version    string                 `yaml:"version"`
 	}
 
 	canonical := canonicalGraph{
-		Children:   g.Root.Children,
+		Children:   toSubgraphChildrenPayloads(g.Root.children),
 		Collisions: g.Collisions,
 		Context:    g.Provenance,
 		Edges:      g.Root.Edges,
@@ -412,19 +411,13 @@ func (g *Graph) Summary() GraphExecutionSummary {
 	return g.summary
 }
 
-// SortChildren sorts a children list by the given edges using Kahn's algorithm.
+// sortChildren sorts a children list by the given edges using Kahn's algorithm.
 // Nodes and subgraphs are peers — both are vertices referenced by ID.
 // Returns the children in topological order. If no edges, returns declaration order.
-func SortChildren(children []SubgraphChild, edges []Edge) []SubgraphChild {
+func sortChildren(children []ExecutableUnit, edges []Edge) []ExecutableUnit {
 
 	if len(edges) == 0 || len(children) <= 1 {
 		return children
-	}
-
-	// Build ID → index map and extract node pointers for topological sort.
-	idToChild := make(map[string]SubgraphChild, len(children))
-	for _, c := range children {
-		idToChild[c.ChildID()] = c
 	}
 
 	return topologicalSortChildren(children, edges)
@@ -893,22 +886,22 @@ const (
 // region HELPER FUNCTIONS
 
 // topologicalSortChildren orders children (nodes and subgraphs) respecting edge constraints (Kahn's algorithm).
-// Nodes and subgraphs are peers — both are vertices referenced by ChildID().
+// Nodes and subgraphs are peers — both are vertices referenced by ID().
 //
 // Parameters:
 //   - children: the children to sort.
 //   - edges: the directed edges expressing ordering constraints.
 //
 // Returns:
-//   - []SubgraphChild: the topologically sorted children (cycles broken by appending unsorted children).
-func topologicalSortChildren(children []SubgraphChild, edges []Edge) []SubgraphChild { //nolint:gocognit // complexity is inherent to the algorithm
+//   - []ExecutableUnit: the topologically sorted children (cycles broken by appending unsorted children).
+func topologicalSortChildren(children []ExecutableUnit, edges []Edge) []ExecutableUnit { //nolint:gocognit // complexity is inherent to the algorithm
 
-	childMap := make(map[string]SubgraphChild, len(children))
+	childMap := make(map[string]ExecutableUnit, len(children))
 	inDegree := make(map[string]int, len(children))
 	adj := make(map[string][]string)
 
 	for _, c := range children {
-		id := c.ChildID()
+		id := c.ID()
 		childMap[id] = c
 		inDegree[id] = 0
 	}
@@ -926,13 +919,13 @@ func topologicalSortChildren(children []SubgraphChild, edges []Edge) []SubgraphC
 
 	var queue []string
 	for _, c := range children {
-		id := c.ChildID()
+		id := c.ID()
 		if inDegree[id] == 0 {
 			queue = append(queue, id)
 		}
 	}
 
-	var sorted []SubgraphChild
+	var sorted []ExecutableUnit
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]
@@ -949,10 +942,10 @@ func topologicalSortChildren(children []SubgraphChild, edges []Edge) []SubgraphC
 	if len(sorted) < len(children) {
 		visited := make(map[string]bool, len(sorted))
 		for _, c := range sorted {
-			visited[c.ChildID()] = true
+			visited[c.ID()] = true
 		}
 		for _, c := range children {
-			if !visited[c.ChildID()] {
+			if !visited[c.ID()] {
 				sorted = append(sorted, c)
 			}
 		}

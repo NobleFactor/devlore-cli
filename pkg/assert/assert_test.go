@@ -111,6 +111,29 @@ func TestTrueFails(t *testing.T) {
 	}
 }
 
+func TestTruefPasses(t *testing.T) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Truef panicked on true condition: %v", r)
+		}
+	}()
+
+	assert.Truef(true, "got %d, want %d", 3, 5)
+}
+
+func TestTruefFails(t *testing.T) {
+
+	got := recoverError(t, func() { assert.Truef(false, "got %d, want %d", 3, 5) })
+
+	if got == nil {
+		t.Fatal("expected panic")
+	}
+	if got.Message != "got 3, want 5" {
+		t.Errorf("Message = %q, want %q", got.Message, "got 3, want 5")
+	}
+}
+
 func TestUnreachable(t *testing.T) {
 
 	got := recoverError(t, func() { assert.Unreachable("default branch") })

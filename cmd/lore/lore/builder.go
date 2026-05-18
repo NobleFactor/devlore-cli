@@ -502,7 +502,7 @@ func addNativePMNodes(target *op.Subgraph, pkg *lorepackage.Release, action *lor
 	node.SetSlot("packages", op.ImmediateValue{Value: strings.Join(action.Packages, ",")})
 	node.SetSlot("phase", op.ImmediateValue{Value: action.PhaseName})
 
-	target.AddChild(op.SubgraphChild{Node: node})
+	target.AddChild(node)
 	return nil
 }
 

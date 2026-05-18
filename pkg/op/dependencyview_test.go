@@ -12,7 +12,7 @@ import (
 func nodesGraph(ids []string, edges []Edge) *Graph {
 	root := NewSubgraph("root")
 	for _, id := range ids {
-		root.Children = append(root.Children, SubgraphChild{Node: NewNode(id)})
+		root.AddChild(NewNode(id))
 	}
 	root.Edges = edges
 	return &Graph{Root: root}

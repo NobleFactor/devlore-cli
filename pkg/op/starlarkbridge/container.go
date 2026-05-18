@@ -80,14 +80,7 @@ func (p *NodeBuilder) dispatchContainer(label, actionName string, args starlark.
 	sg.Status = op.SubgraphPending
 
 	for _, childInv := range bodyChildren {
-		switch t := childInv.Target.(type) {
-		case *op.Node:
-			sg.AddChild(op.SubgraphChild{Node: t})
-		case *op.Subgraph:
-			sg.AddChild(op.SubgraphChild{Subgraph: t})
-		default:
-			return nil, fmt.Errorf("%s: body element has unexpected target type %T", label, t)
-		}
+		sg.AddChild(childInv.Target)
 	}
 
 	if errorAction != nil {
