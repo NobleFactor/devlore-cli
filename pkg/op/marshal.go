@@ -16,59 +16,11 @@ import (
 // The Graph marshalers project Root.Children / Root.Edges to top-level "children" / "edges" keys.
 //
 // Node and Subgraph have an unexported `id` (via embedded executableUnit); their marshalers project it to "id". The
-// `parameters` field is not serialized — a plan-time computed surface rebuilt on load via Bind for Node. The Subgraph
-// parameter-surface rebuild (topological-root union) is Phase 3 work and not yet wired. See Fork E in
+// `parameters` field is not serialized — a plan-time computed surface rebuilt on loading via Bind for Node. The
+// Subgraph parameter-surface rebuild (topological-root union) is Phase 3 work and not yet wired. See Fork E in
 // docs/plans/extract-starlark-from-op/phase-7.md.
 
 // region Graph marshalers
-
-// subgraphChildPayload is the serialization-only discriminated-union representation of a single child in a
-// Subgraph's list of children. Exactly one of Node or Subgraph is non-nil per entry; the field name in
-// the JSON/YAML payload (`"node"` vs. `"subgraph"`) is the type discriminator. Lives only on the wire;
-// the in-memory model is Subgraph.children []ExecutableUnit walked via interface assertion.
-type subgraphChildPayload struct {
-	Node     *Node     `json:"node,omitempty" yaml:"node,omitempty"`
-	Subgraph *Subgraph `json:"subgraph,omitempty" yaml:"subgraph,omitempty"`
-}
-
-// toSubgraphChildrenPayloads converts an in-memory []ExecutableUnit into the discriminated wire form. Each child
-// becomes a subgraphChildPayload with exactly one of Node or Subgraph set per its concrete type.
-func toSubgraphChildrenPayloads(children []ExecutableUnit) []subgraphChildPayload {
-
-	if len(children) == 0 {
-		return nil
-	}
-
-	out := make([]subgraphChildPayload, 0, len(children))
-
-	for _, c := range children {
-		switch t := c.(type) {
-		case *Node:
-			out = append(out, subgraphChildPayload{Node: t})
-		case *Subgraph:
-			out = append(out, subgraphChildPayload{Subgraph: t})
-		}
-	}
-
-	return out
-}
-
-// applySubgraphChildrenPayloads replays a parsed []subgraphChildrenPayload back onto a Subgraph via [Subgraph.AddChild]. AddChild
-// stamps each child's parentID and appends to the in-memory children slice. Existing children are
-// cleared first.
-func applySubgraphChildrenPayloads(sg *Subgraph, wires []subgraphChildPayload) {
-
-	sg.children = nil
-
-	for _, w := range wires {
-		switch {
-		case w.Node != nil:
-			sg.AddChild(w.Node)
-		case w.Subgraph != nil:
-			sg.AddChild(w.Subgraph)
-		}
-	}
-}
 
 // graphPayload is the canonical wire shape for Graph.
 //
@@ -158,7 +110,7 @@ func (g *Graph) applyPayload(p *graphPayload) {
 		g.Root = NewSubgraph("root")
 	}
 
-	applySubgraphChildrenPayloads(g.Root, p.Children)
+	g.Root.applyChildPayloads(p.Children)
 
 	g.Root.Edges = p.Edges
 	g.Checksum = p.Checksum
@@ -344,7 +296,7 @@ func (s *Subgraph) UnmarshalJSON(data []byte) error {
 	s.Name = payload.Name
 	s.Status = payload.Status
 
-	applySubgraphChildrenPayloads(s, payload.Children)
+	s.applyChildPayloads(payload.Children)
 
 	s.Edges = payload.Edges
 	s.SetRetryPolicy(payload.Retry)
@@ -352,6 +304,7 @@ func (s *Subgraph) UnmarshalJSON(data []byte) error {
 	s.Attempts = payload.Attempts
 	s.State = payload.State
 	s.Branch = payload.Branch
+
 	return nil
 }
 
@@ -404,7 +357,7 @@ func (s *Subgraph) UnmarshalYAML(unmarshal func(any) error) error {
 	s.Name = payload.Name
 	s.Status = payload.Status
 
-	applySubgraphChildrenPayloads(s, payload.Children)
+	s.applyChildPayloads(payload.Children)
 
 	s.Edges = payload.Edges
 	s.SetRetryPolicy(payload.Retry)
@@ -413,6 +366,56 @@ func (s *Subgraph) UnmarshalYAML(unmarshal func(any) error) error {
 	s.State = payload.State
 	s.Branch = payload.Branch
 	return nil
+}
+
+// subgraphChildPayload is the serialization representation of a single child in a Subgraph's list of children.
+//
+// Exactly one of Node or Subgraph is non-nil per entry; the field name in the JSON/YAML payload (`"node"` vs.
+// `"subgraph"`) is the type discriminator. Lives only on the wire; the in-memory model is Subgraph.children
+// []ExecutableUnit walked via interface assertion.
+type subgraphChildPayload struct {
+	Node     *Node     `json:"node,omitempty" yaml:"node,omitempty"`
+	Subgraph *Subgraph `json:"subgraph,omitempty" yaml:"subgraph,omitempty"`
+}
+
+// toSubgraphChildrenPayloads converts an in-memory []ExecutableUnit into the discriminated wire form.
+//
+// Each child becomes a subgraphChildPayload with exactly one of Node or Subgraph set per its concrete type.
+func toSubgraphChildrenPayloads(children []ExecutableUnit) []subgraphChildPayload {
+
+	if len(children) == 0 {
+		return nil
+	}
+
+	out := make([]subgraphChildPayload, 0, len(children))
+
+	for _, c := range children {
+		switch t := c.(type) {
+		case *Node:
+			out = append(out, subgraphChildPayload{Node: t})
+		case *Subgraph:
+			out = append(out, subgraphChildPayload{Subgraph: t})
+		}
+	}
+
+	return out
+}
+
+// applyChildPayloads replays a parsed []subgraphChildrenPayload back onto a Subgraph via [Subgraph.AddChild].
+//
+// It stamps each child's parentID and appends to the in-memory children slice. Existing children are cleared first.
+func (s *Subgraph) applyChildPayloads(payloads []subgraphChildPayload) {
+
+	s.children = nil
+
+	for _, payload := range payloads {
+		switch {
+		case payload.Node != nil:
+			s.AddChild(payload.Node)
+		case payload.Subgraph != nil:
+			s.AddChild(payload.Subgraph)
+		}
+	}
 }
 
 // endregion
