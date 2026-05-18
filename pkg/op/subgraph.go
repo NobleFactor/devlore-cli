@@ -125,12 +125,7 @@ func (s *Subgraph) AddChild(child ExecutableUnit) {
 	}
 	s.childrenByID[child.ID()] = child
 
-	switch t := child.(type) {
-	case *Node:
-		t.stampParent(s.ID())
-	case *Subgraph:
-		t.stampParent(s.ID())
-	}
+	child.stampParent(s.ID())
 }
 
 // ChildByID returns this subgraph's direct child with the given ID, or nil when no direct child carries that ID.
@@ -167,12 +162,7 @@ func (s *Subgraph) Children() []ExecutableUnit { return s.children }
 func (s *Subgraph) SetErrorAction(ea ExecutableUnit) {
 
 	if ea != nil {
-		switch t := ea.(type) {
-		case *Node:
-			t.stampParent(s.ID())
-		case *Subgraph:
-			t.stampParent(s.ID())
-		}
+		ea.stampParent(s.ID())
 	}
 	s.errorAction = ea
 }
@@ -283,7 +273,9 @@ func (s *Subgraph) childIDs() []string {
 }
 
 // descendantNodes walks this subgraph's tree and returns every [*Node] found at any depth in tree-walk
-// order (depth-first, declaration order). Nil-safe on a nil receiver.
+// order (depth-first, declaration order).
+//
+// Nil-safe on a nil receiver.
 //
 // Returns:
 //   - []*Node: the flat node list in tree-walk order; nil when no nodes are present.
@@ -311,8 +303,9 @@ func (s *Subgraph) descendantNodes() []*Node {
 	return out
 }
 
-// descendantSubgraphByID searches this subgraph's tree for a nested [*Subgraph] with the given ID. The
-// receiver itself is not considered. Nil-safe on a nil receiver.
+// descendantSubgraphByID searches this subgraph's tree for a nested [*Subgraph] with the given ID.
+//
+// The receiver itself is not considered. This method is nil-safe on a nil receiver.
 //
 // Parameters:
 //   - `id`: the Subgraph ID to find.
@@ -341,8 +334,9 @@ func (s *Subgraph) descendantSubgraphByID(id string) *Subgraph {
 	return nil
 }
 
-// descendantSubgraphs walks this subgraph's tree and returns every nested [*Subgraph] found at any depth
-// (excluding the receiver itself) in tree-walk order. Nil-safe on a nil receiver.
+// descendantSubgraphs walks this subgraph's tree and returns every nested [*Subgraph] found at any depth.
+//
+// The walk excludes the receiver itself. This method is nil-safe on a nil receiver.
 //
 // Returns:
 //   - []*Subgraph: the flat subgraph list in tree-walk order; nil when no nested subgraphs are present.
@@ -391,22 +385,20 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
 		bubbled.Type)
 }
 
-// sortChildren replaces this subgraph's children slice with the result of
-// [Subgraph.topologicallySortedChildren]. Called at assembly time so the in-memory order — and the
-// serialized form — reflect the execution order. The executor iterates children in this order without
-// re-sorting.
+// sortChildren replaces this subgraph's children slice with the result of [Subgraph.topologicallySortedChildren].
+//
+// Called at assembly time so the in-memory order — and the serialized form — reflect the execution order. The executor
+// iterates children in this order without re-sorting.
 func (s *Subgraph) sortChildren() {
 
 	s.children = s.topologicallySortedChildren()
 }
 
-// topologicallySortedChildren returns `s.children` ordered topologically per [Subgraph.Edges] using
-// Kahn's algorithm. Nodes and Subgraphs are peers — both are vertices referenced by ID. Returns the
-// receiver's `children` slice unchanged when no sort is needed (0 or 1 children, or no edges).
+// topologicallySortedChildren returns `s.children` ordered topologically per [Subgraph.Edges] using Kahn's algorithm.
 //
-// On cycles, the subset that can be sorted is placed first; the remaining children are appended in
-// their original declaration order so dispatch makes forward progress (the cycle itself will surface
-// as a separate validation error rather than block sort).
+// Nodes and Subgraphs are peers. Both are vertices referenced by ID. On cycles, the subset that can be sorted is placed
+// first; the remaining children are appended in their original declaration order so dispatch makes forward progress.
+// The cycle itself will surface as a separate validation error rather than blocking the sort.
 //
 // Returns:
 //   - []ExecutableUnit: the topologically sorted children.

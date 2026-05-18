@@ -16,9 +16,15 @@ import (
 // Nodes and subgraphs share one ID space and are interchangeable wherever a reference is valid (Phase 7
 // invariant). Parameters reports the unit's input surface and is consumed by flow combinators (e.g.,
 // gather) to discover the body's expected input.
+//
+// stampParent is package-internal — exposed on the interface so [Subgraph.AddChild] and
+// [Subgraph.SetErrorAction] can stamp ownership without a *Node / *Subgraph type-switch. Because the
+// method is unexported, the interface is closed to same-package implementations — only [*Node] and
+// [*Subgraph] satisfy it.
 type ExecutableUnit interface {
 	ID() string
 	Parameters() []Parameter
+	stampParent(parentID string)
 }
 
 // endregion
