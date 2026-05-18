@@ -152,6 +152,31 @@ func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.childrenByID[i
 //   - []ExecutableUnit: the direct children.
 func (s *Subgraph) Children() []ExecutableUnit { return s.children }
 
+// SetErrorAction sets this subgraph's failure handler and stamps its parentID to this subgraph's ID,
+// shadowing the embedded [executableUnit.SetErrorAction] so the post-assemble invariant — every
+// Invocation Target has a non-empty parentID — covers `error_action=` assignments.
+//
+// The error_action unit belongs to the Subgraph it handles errors for; stamping parent here makes the
+// error_action discoverable by the registry's orphan scan via the same parentID chain as ordinary
+// children. Passing nil clears the field without stamping. Re-assignment on a non-nil unit with a
+// conflicting parentID panics through [executableUnit.stampParent] (a unit cannot belong to two
+// different Subgraphs at the same time).
+//
+// Parameters:
+//   - `ea`: the failure-handling executable unit, or nil to clear.
+func (s *Subgraph) SetErrorAction(ea ExecutableUnit) {
+
+	if ea != nil {
+		switch t := ea.(type) {
+		case *Node:
+			t.stampParent(s.ID())
+		case *Subgraph:
+			t.stampParent(s.ID())
+		}
+	}
+	s.errorAction = ea
+}
+
 // endregion
 
 // region Behaviors

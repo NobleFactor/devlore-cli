@@ -369,6 +369,67 @@ func TestGraph_AddNodeAndAddSubgraph_StampParent(t *testing.T) {
 	}
 }
 
+func TestSubgraph_SetErrorAction_StampsParent_Node(t *testing.T) {
+
+	sg := NewSubgraph("sg")
+	handler := NewNode("on-failure")
+
+	if handler.ParentID() != "" {
+		t.Fatalf("fresh Node.ParentID() = %q, want empty", handler.ParentID())
+	}
+
+	sg.SetErrorAction(handler)
+
+	if handler.ParentID() != sg.ID() {
+		t.Errorf("handler.ParentID() = %q, want %q", handler.ParentID(), sg.ID())
+	}
+	if sg.ErrorAction() != handler {
+		t.Errorf("ErrorAction() did not return the handler")
+	}
+}
+
+func TestSubgraph_SetErrorAction_StampsParent_Subgraph(t *testing.T) {
+
+	outer := NewSubgraph("outer")
+	handler := NewSubgraph("on-failure")
+
+	outer.SetErrorAction(handler)
+
+	if handler.ParentID() != outer.ID() {
+		t.Errorf("handler.ParentID() = %q, want %q", handler.ParentID(), outer.ID())
+	}
+	if outer.ErrorAction() != handler {
+		t.Errorf("ErrorAction() did not return the handler")
+	}
+}
+
+func TestSubgraph_SetErrorAction_Nil_ClearsWithoutStamping(t *testing.T) {
+
+	sg := NewSubgraph("sg")
+	sg.SetErrorAction(nil)
+
+	if sg.ErrorAction() != nil {
+		t.Errorf("ErrorAction() = %v, want nil after SetErrorAction(nil)", sg.ErrorAction())
+	}
+}
+
+func TestSubgraph_SetErrorAction_RejectsConflictingReparent(t *testing.T) {
+
+	first := NewSubgraph("first")
+	second := NewSubgraph("second")
+	handler := NewNode("on-failure")
+
+	first.SetErrorAction(handler)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic on conflicting re-parent; got none")
+		}
+	}()
+
+	second.SetErrorAction(handler) // stampParent panics: already parented to "first".
+}
+
 func TestSubgraph_Parameters_EmptySubgraph(t *testing.T) {
 
 	sg := NewSubgraph("empty")
