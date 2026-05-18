@@ -47,12 +47,17 @@ type ExecutableUnit interface {
 // retryPolicy and errorAction are plan-doc D5 / D11 fields — every executable unit can carry them. Nil
 // retryPolicy means no retry; nil errorAction defaults to the flow.Provider.Failed sentinel at dispatch
 // time.
+//
+// errorAction is always a [*Subgraph]. Single-handler authoring shapes — bare Node or single-Invocation
+// values from `error_action=`-style kwargs — are auto-wrapped into a single-child Subgraph by the
+// bridge (see [starlarkbridge.dispatchContainer]) so the executor's failure dispatch is uniform: every
+// runnable block is a Subgraph dispatched through executeSubgraph.
 type executableUnit struct {
 	id          string
 	parameters  []Parameter
 	parentID    string
 	retryPolicy *RetryPolicy
-	errorAction ExecutableUnit
+	errorAction *Subgraph
 }
 
 // ID returns the identifier.
@@ -84,18 +89,21 @@ func (e *executableUnit) RetryPolicy() *RetryPolicy { return e.retryPolicy }
 //   - p: the retry policy to set. Pass nil to disable retry.
 func (e *executableUnit) SetRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
 
-// ErrorAction returns the failure handler for this unit, or nil when no error action is configured.
+// ErrorAction returns the failure-handler subgraph for this unit, or nil when no error action is
+// configured.
 //
 // Returns:
-//   - ExecutableUnit: the configured error-action unit, or nil. Nil defaults to the flow.Provider.Failed
-//     sentinel at dispatch time.
-func (e *executableUnit) ErrorAction() ExecutableUnit { return e.errorAction }
+//   - *Subgraph: the configured failure-handler subgraph, or nil. Nil defaults to the
+//     flow.Provider.Failed sentinel at dispatch time.
+func (e *executableUnit) ErrorAction() *Subgraph { return e.errorAction }
 
-// SetErrorAction sets the failure-handler unit.
+// SetErrorAction sets the failure-handler subgraph. The base implementation is a plain field write;
+// [Subgraph.SetErrorAction] shadows it to additionally stamp `parentID` on the handler so the
+// post-assemble orphan scan covers `error_action=` assignments.
 //
 // Parameters:
-//   - ea: the failure-handling executable unit. Pass nil to use the default flow.Provider.Failed sentinel.
-func (e *executableUnit) SetErrorAction(ea ExecutableUnit) { e.errorAction = ea }
+//   - `ea`: the failure-handling subgraph. Pass nil to use the default flow.Provider.Failed sentinel.
+func (e *executableUnit) SetErrorAction(ea *Subgraph) { e.errorAction = ea }
 
 // stampParent sets this unit's parentID with idempotency.
 //

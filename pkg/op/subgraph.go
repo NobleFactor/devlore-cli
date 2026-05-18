@@ -22,23 +22,22 @@ import (
 type Subgraph struct {
 	executableUnit
 
-	// Name is the name of the subgraph (e.g., "install").
-	Name string
+	// Attempts records retry history (populated during execution).
+	Attempts []Attempt
+
+	// Branch marks this subgraph as a conditional branch owned by a choose action.
+	//
+	// Branch subgraphs are not executed directly by the top-level executor; they are dispatched by the choose action's
+	// Do method.
+	Branch bool
+
+	// Compensate is the ID of the compensating subgraph for rollback.
+	Compensate string
 
 	// Edges are ordering constraints between children at this level.
 	//
 	// Each edge references children by ID (both node IDs and subgraph IDs).
 	Edges []Edge
-
-	// Status of this subgraph: pending, completed, failed, rolled_back, skipped.
-	Status SubgraphStatus
-
-	// Items is the value passed via the reserved `items=` kwarg at construction.
-	//
-	// For containers that iterate (gather, choose, wait_until), this is the iteration data; for plain Subgraph, it is
-	// typically nil. The executor resolves the SlotValue against the parent frame at dispatch time to get the concrete
-	// `[]any` passed to the container method's `items` parameter.
-	Items SlotValue
 
 	// FrameBindings are the kwarg-supplied bindings the executor uses to populate this subgraph's frame at run time.
 	//
@@ -48,22 +47,23 @@ type Subgraph struct {
 	// non-reserved kwargs end up here.
 	FrameBindings map[string]SlotValue
 
-	// Compensate is the ID of the compensating subgraph for rollback.
-	Compensate string
+	// Items is the value passed via the reserved `items=` kwarg at construction.
+	//
+	// For containers that iterate (gather, choose, wait_until), this is the iteration data; for plain Subgraph, it is
+	// typically nil. The executor resolves the SlotValue against the parent frame at dispatch time to get the concrete
+	// `[]any` passed to the container method's `items` parameter.
+	Items SlotValue
 
-	// Attempts records retry history (populated during execution).
-	Attempts []Attempt
+	// Name is the name of the subgraph (e.g., "install").
+	Name string
 
 	// State holds execution metadata captured during the forward pass.
 	//
 	// The compensating subgraph reads this to know what to undo.
 	State map[string]any
 
-	// Branch marks this subgraph as a conditional branch owned by a choose action.
-	//
-	// Branch subgraphs are not executed directly by the top-level executor; they are dispatched by the choose action's
-	// Do method.
-	Branch bool
+	// Status of this subgraph: pending, completed, failed, rolled_back, skipped.
+	Status SubgraphStatus
 
 	// children is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested
 	// [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID
@@ -81,7 +81,7 @@ type Subgraph struct {
 	// pendingChildren holds child IDs stashed by [Subgraph.UnmarshalJSON] / [Subgraph.UnmarshalYAML] before the
 	// surrounding Graph has built its unit table. [Graph.applyPayload] calls [Subgraph.linkChildren] once the
 	// table is populated; that method resolves each ID through [Subgraph.AddChild] and nils this slice. Always
-	// nil on a fully-assembled Subgraph.
+	// nil on a fully assembled Subgraph.
 	pendingChildren []string
 }
 
@@ -147,19 +147,23 @@ func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.childrenByID[i
 //   - []ExecutableUnit: the direct children.
 func (s *Subgraph) Children() []ExecutableUnit { return s.children }
 
-// SetErrorAction sets this subgraph's failure handler and stamps its parentID to this subgraph's ID,
-// shadowing the embedded [executableUnit.SetErrorAction] so the post-assemble invariant — every
-// Invocation Target has a non-empty parentID — covers `error_action=` assignments.
+// SetErrorAction sets this subgraph's failure-handler [*Subgraph] and stamps its parentID to this
+// subgraph's ID, shadowing the embedded [executableUnit.SetErrorAction] so the post-assemble
+// invariant — every Invocation Target has a non-empty parentID — covers `error_action=` assignments.
 //
-// The error_action unit belongs to the Subgraph it handles errors for; stamping parent here makes the
-// error_action discoverable by the registry's orphan scan via the same parentID chain as ordinary
-// children. Passing nil clears the field without stamping. Re-assignment on a non-nil unit with a
-// conflicting parentID panics through [executableUnit.stampParent] (a unit cannot belong to two
-// different Subgraphs at the same time).
+// The handler belongs to the Subgraph it handles errors for; stamping parent here makes it
+// discoverable by the registry's orphan scan via the same parentID chain as ordinary children.
+// Passing nil clears the field without stamping. Re-assignment on a non-nil handler with a
+// conflicting parentID panics through [executableUnit.stampParent] (a Subgraph cannot belong to two
+// different parents at the same time).
+//
+// Authoring shapes that supply a single non-Subgraph unit (e.g., a bare Node from
+// `error_action=plan.file.notify(...)` in `.star`) are auto-wrapped into a single-child Subgraph by
+// the bridge before reaching this method, so the field type stays uniform.
 //
 // Parameters:
-//   - `ea`: the failure-handling executable unit, or nil to clear.
-func (s *Subgraph) SetErrorAction(ea ExecutableUnit) {
+//   - `ea`: the failure-handler subgraph, or nil to clear.
+func (s *Subgraph) SetErrorAction(ea *Subgraph) {
 
 	if ea != nil {
 		ea.stampParent(s.ID())

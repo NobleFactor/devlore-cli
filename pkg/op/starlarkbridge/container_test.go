@@ -167,7 +167,7 @@ func TestExtractErrorActionKwarg_AbsentReturnsNil(t *testing.T) {
 	}
 }
 
-func TestExtractErrorActionKwarg_InvocationTarget(t *testing.T) {
+func TestExtractErrorActionKwarg_NodeAutoWrapsIntoSingleChildSubgraph(t *testing.T) {
 
 	cleanup := makeInvocationWithID(t, "cleanup", "file.remove")
 
@@ -175,21 +175,51 @@ func TestExtractErrorActionKwarg_InvocationTarget(t *testing.T) {
 		makeContainerKwarg("error_action", cleanup),
 	}
 
-	unit, remaining, err := extractErrorActionKwarg(kwargs)
+	handler, remaining, err := extractErrorActionKwarg(kwargs)
 	if err != nil {
 		t.Fatalf("extractErrorActionKwarg: %v", err)
 	}
 
-	if unit == nil {
-		t.Fatal("unit = nil, want the Invocation's Target")
+	if handler == nil {
+		t.Fatal("handler = nil, want auto-wrapped Subgraph around the Node")
 	}
 
-	if unit.ID() != "cleanup" {
-		t.Errorf("unit.ID() = %q, want %q", unit.ID(), "cleanup")
+	children := handler.Children()
+	if len(children) != 1 {
+		t.Fatalf("handler.Children() len = %d, want 1 (the wrapped Node)", len(children))
+	}
+
+	if children[0].ID() != "cleanup" {
+		t.Errorf("wrapped child ID = %q, want %q", children[0].ID(), "cleanup")
 	}
 
 	if len(remaining) != 0 {
 		t.Errorf("remaining kwargs len = %d, want 0", len(remaining))
+	}
+}
+
+func TestExtractErrorActionKwarg_SubgraphPassesThroughUnwrapped(t *testing.T) {
+
+	sg := op.NewSubgraph("recovery")
+	sg.Name = "recovery"
+	sg.Status = op.SubgraphPending
+
+	inv := &Invocation{
+		Label:  "recovery#1",
+		Target: sg,
+	}
+
+	kwargs := []starlark.Tuple{
+		makeContainerKwarg("error_action", inv),
+	}
+
+	handler, _, err := extractErrorActionKwarg(kwargs)
+	if err != nil {
+		t.Fatalf("extractErrorActionKwarg: %v", err)
+	}
+
+	if handler != sg {
+		t.Errorf("handler = %v, want the original Subgraph pointer (no wrap)", handler)
 	}
 }
 

@@ -179,12 +179,18 @@ func extractBodyKwarg(kwargs []starlark.Tuple) ([]*Invocation, []starlark.Tuple,
 	return nil, kwargs, nil
 }
 
-// extractErrorActionKwarg pulls the "error_action" kwarg and parses its value as an [op.ExecutableUnit].
+// extractErrorActionKwarg pulls the "error_action" kwarg and parses its value as a [*op.Subgraph].
+//
+// The failure-handler slot is always a Subgraph at the op level so the executor's failure dispatch is
+// uniform (every runnable block runs through executeSubgraph). Authoring shapes that supply a bare
+// Invocation whose Target is a [*op.Node] are auto-wrapped into a single-child Subgraph here.
 //
 // Accepted value shapes:
 //
-//   - `*Invocation`. Returns the Invocation's Target as the ExecutableUnit.
-//   - `starlark.NoneType`. Returns nil; treated as "no error action" (executor falls back to
+//   - `*Invocation` whose Target is a [*op.Subgraph]. Returns the Target directly.
+//   - `*Invocation` whose Target is a [*op.Node]. Auto-wraps the Node in a fresh single-child
+//     Subgraph and returns the wrapper.
+//   - `starlark.NoneType`. Returns nil; treated as "no error action" (executor falls back to the
 //     flow.Provider.Failed sentinel at dispatch time).
 //   - Anything else. Returns a descriptive error.
 //
@@ -192,10 +198,10 @@ func extractBodyKwarg(kwargs []starlark.Tuple) ([]*Invocation, []starlark.Tuple,
 //   - `kwargs`: the caller-supplied keyword arguments.
 //
 // Returns:
-//   - `op.ExecutableUnit`: the error-handling unit, or nil if error_action= was absent or None.
+//   - `*op.Subgraph`: the failure-handler subgraph, or nil if error_action= was absent or None.
 //   - `[]starlark.Tuple`: kwargs with the "error_action" entry removed.
 //   - `error`: non-nil if the error_action= value is of an unexpected type.
-func extractErrorActionKwarg(kwargs []starlark.Tuple) (op.ExecutableUnit, []starlark.Tuple, error) {
+func extractErrorActionKwarg(kwargs []starlark.Tuple) (*op.Subgraph, []starlark.Tuple, error) {
 
 	for i, kv := range kwargs {
 
@@ -204,13 +210,13 @@ func extractErrorActionKwarg(kwargs []starlark.Tuple) (op.ExecutableUnit, []star
 			continue
 		}
 
-		var unit op.ExecutableUnit
+		var handler *op.Subgraph
 
 		switch v := kv[1].(type) {
 
 		case *Invocation:
 
-			unit = v.Target
+			handler = wrapAsErrorActionSubgraph(v.Target)
 
 		case starlark.NoneType:
 
@@ -225,10 +231,32 @@ func extractErrorActionKwarg(kwargs []starlark.Tuple) (op.ExecutableUnit, []star
 		filtered = append(filtered, kwargs[:i]...)
 		filtered = append(filtered, kwargs[i+1:]...)
 
-		return unit, filtered, nil
+		return handler, filtered, nil
 	}
 
 	return nil, kwargs, nil
+}
+
+// wrapAsErrorActionSubgraph returns `target` directly when it is already a [*op.Subgraph]; otherwise
+// it constructs a fresh single-child Subgraph holding `target` and returns the wrapper. The wrapper
+// receives a generated ID derived from the synthetic receiver "flow.ErrorAction".
+//
+// Parameters:
+//   - `target`: the Invocation's Target — either a [*op.Subgraph] (returned as-is) or a [*op.Node]
+//     (wrapped into a single-child Subgraph).
+//
+// Returns:
+//   - `*op.Subgraph`: the handler subgraph, ready to be assigned via [op.Subgraph.SetErrorAction].
+func wrapAsErrorActionSubgraph(target op.ExecutableUnit) *op.Subgraph {
+
+	if sg, ok := target.(*op.Subgraph); ok {
+		return sg
+	}
+
+	wrapper := op.NewSubgraph(op.GenerateNodeID("flow.ErrorAction"))
+	wrapper.Status = op.SubgraphPending
+	wrapper.AddChild(target)
+	return wrapper
 }
 
 // extractRetryPolicyKwarg pulls the "retry_policy" kwarg and parses its value as a [*op.RetryPolicy].
