@@ -24,6 +24,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -40,11 +41,6 @@ const GraphFormatVersion = "6"
 // Before Run(): State is "pending", represents the plan
 // After Run(): State is "executed", represents the receipt
 type Graph struct {
-
-	// Root is the graph's root subgraph. All top-level children and edges live
-	// here. Graph.Children() / Graph.Edges() are read accessors that return
-	// Root's fields. Execution starts from Graph.Execute(g.Root, nil).
-	Root *Subgraph
 
 	// Catalog is the append-only resource catalog for planning.
 	//
@@ -63,14 +59,16 @@ type Graph struct {
 	// Rollback records compensating actions executed during rollback (populated on failure).
 	Rollback []RollbackEntry
 
+	// Root is the graph's root subgraph. All top-level children and edges live here.
+	//
+	// [Graph.Edges] is the read accessor that returns Root's edges. Execution starts from [Graph.Execute](g.Root, nil).
+	Root *Subgraph
+
 	// Signature contains the cryptographic signature (optional).
 	Signature *sops.Signature
 
 	// State is the execution state (pending, executed, failed).
 	State GraphState
-
-	// Summary contains execution statistics (populated after Summary()).
-	summary GraphExecutionSummary
 
 	// Timestamp is when the graph was created/executed.
 	Timestamp time.Time
@@ -78,19 +76,30 @@ type Graph struct {
 	// Version is the graph format version.
 	Version string
 
-	// ctx is the execution context for this graph. Replaced by Rebind at the planning-to-execution handoff.
+	// ctx is the execution environment for this graph. Replaced by Rebind at the planning-to-execution handoff.
 	ctx *RuntimeEnvironment
+
+	// Summary contains execution statistics (populated after Summary()).
+	summary GraphExecutionSummary
+
+	// unitsByID is the unit symbol table populated by [Graph.UnmarshalJSON] / [Graph.UnmarshalYAML] (and, in
+	// Phase 5, by `plan.assemble`).
+	//
+	// Maps unit ID to the materialized [*Node] or [*Subgraph]. Empty for Graphs built directly via the planning API
+	// ([Graph.AddNode] / [Graph.AddSubgraph]) — those callers walk the children tree directly. Used by
+	// [Subgraph.linkChildren] at unmarshal to resolve child IDs.
+	unitsByID map[string]ExecutableUnit
 }
 
 // NewGraph creates a Graph with no bound runtime environment.
 //
-// The graph is plan-structure data at construction — nodes, edges, slot values, Catalog, provenance,
-// checksum. An env is bound only when a session-owner (a planner via [Plan] or the [GraphExecutor] via
-// [GraphExecutor.Run]) calls [Graph.Rebind] for the duration of that session, and [Graph.Unbind] when the
-// session ends.
+// The graph is plan-structure data at construction — nodes, edges, slot values, Catalog, provenance, checksum.
+//
+// A [RuntimeEnvironment] is bound only when a session-owner (a planner via [Plan] or the [GraphExecutor] via
+// [GraphExecutor.Run]) calls [Graph.Rebind] for the duration of that session, and [Graph.Unbind] when the session ends.
 //
 // Returns:
-//   - *Graph: the freshly constructed, env-less graph.
+//   - `*Graph`: the freshly constructed, env-less graph.
 func NewGraph() *Graph {
 
 	return &Graph{
@@ -102,12 +111,13 @@ func NewGraph() *Graph {
 	}
 }
 
-// Parameters returns the bubble-up variable surface of the graph — the deduplicated, type-checked
-// set of [VariableValue] references walked across the root subgraph's children (plan-doc D3).
-// Consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
+// Parameters are the bubble-up variable surface of the graph.
+//
+// It is the deduplicated, type-checked set of [VariableValue] references walked across the root subgraph's children
+// (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
 //
 // Returns:
-//   - []Parameter: the bubble-up surface, stable-sorted by Name.
+//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name.
 func (g *Graph) Parameters() []Parameter { return g.Root.Parameters() }
 
 // Edges returns the ordering edges at the root level.
@@ -117,8 +127,9 @@ func (g *Graph) Edges() []Edge { return g.Root.Edges }
 
 // region State management
 
-// AddNode appends a node as a root-level child of the graph and sets the node's back-reference. Routing
-// through [Subgraph.AddChild] stamps the node's parent pointer to the graph's Root (plan-doc D11).
+// AddNode appends a node as a root-level child of the graph and sets the node's back-reference.
+//
+// Routing through [Subgraph.AddChild] stamps the node's parent pointer to the graph's Root (plan-doc D11).
 //
 // Parameters:
 //   - `node`: the node to append.
@@ -127,8 +138,9 @@ func (g *Graph) AddNode(node *Node) {
 	g.Root.AddChild(node)
 }
 
-// AddSubgraph appends a subgraph as a root-level child of the graph. Routing through
-// [Subgraph.AddChild] stamps the subgraph's parent pointer to the graph's Root (plan-doc D11).
+// AddSubgraph appends a subgraph as a root-level child of the graph.
+//
+// Routing through [Subgraph.AddChild] stamps the subgraph's parent pointer to the graph's Root (plan-doc D11).
 //
 // Parameters:
 //   - `sg`: the subgraph to append.
@@ -137,24 +149,12 @@ func (g *Graph) AddSubgraph(sg *Subgraph) {
 }
 
 // Nodes returns all nodes in the graph by walking the tree recursively.
+//
 // The returned slice is in tree-walk order (depth-first, declaration order).
-func (g *Graph) Nodes() []*Node {
-	var nodes []*Node
-	collectNodes(g.Root.children, &nodes)
-	return nodes
-}
-
-// collectNodes recursively collects all nodes from a children list.
-func collectNodes(children []ExecutableUnit, out *[]*Node) {
-	for _, c := range children {
-		switch t := c.(type) {
-		case *Node:
-			*out = append(*out, t)
-		case *Subgraph:
-			collectNodes(t.children, out)
-		}
-	}
-}
+//
+// Returns:
+//   - []*Node: the flat node list in tree-walk order; nil when no nodes are present.
+func (g *Graph) Nodes() []*Node { return g.Root.descendantNodes() }
 
 // RuntimeEnvironment returns a point to the graph's execution context.
 func (g *Graph) RuntimeEnvironment() *RuntimeEnvironment { return g.ctx }
@@ -165,22 +165,29 @@ func (g *Graph) RuntimeEnvironment() *RuntimeEnvironment { return g.ctx }
 func (g *Graph) Filename() string {
 
 	ts := g.Timestamp.Format("2006-01-02T15-04-05")
+
 	if g.Provenance.Scope != "" {
 		return fmt.Sprintf("%s-%s.yaml", g.Provenance.Scope, ts)
 	}
+
 	return fmt.Sprintf("%s.yaml", ts)
 }
 
-// SubgraphByID returns the subgraph with the given ID, or nil if not found.
-// Searches the tree recursively.
-func (g *Graph) SubgraphByID(id string) *Subgraph {
-	return findSubgraph(g.Root.children, id)
-}
+// SubgraphByID returns the descendant subgraph with the given ID, or nil if no descendant has that ID.
+//
+// Searches the tree recursively; ID never returns the graph root.
+//
+// Parameters:
+//   - `id`: the Subgraph ID to find.
+//
+// Returns:
+//   - *Subgraph: the matching descendant, or nil.
+func (g *Graph) SubgraphByID(id string) *Subgraph { return g.Root.descendantSubgraphByID(id) }
 
-// ResolveExecutable returns the executable unit with the given ID, or an
-// error if no such unit exists. Nodes and subgraphs share one ID space
-// (Phase 7 invariant); ResolveExecutable is the single lookup gather,
-// choose, and other combinators use to resolve a body reference.
+// ResolveExecutable returns the executable unit with the given ID, or an error if no such unit exists.
+//
+// Nodes and subgraphs share one ID space (Phase 7 invariant); ResolveExecutable is the single lookup gather, choose,
+// and other combinators use to resolve a body reference.
 func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 	if g.Root != nil && g.Root.ID() == id {
 		return g.Root, nil
@@ -196,27 +203,11 @@ func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 	return nil, fmt.Errorf("no executable unit with ID %q", id)
 }
 
-// findSubgraph recursively searches for a subgraph by ID.
-func findSubgraph(children []ExecutableUnit, id string) *Subgraph {
-	for _, c := range children {
-		sg, ok := c.(*Subgraph)
-		if !ok {
-			continue
-		}
-		if sg.ID() == id {
-			return sg
-		}
-		if found := findSubgraph(sg.children, id); found != nil {
-			return found
-		}
-	}
-	return nil
-}
-
-// Rebind binds the graph to a runtime environment for the duration of a session. Both planning
-// ([Plan]) and execution ([GraphExecutor.Run]) call Rebind on entry and [Graph.Unbind] on exit, so the
-// graph's `ctx` field is authoritative only inside the active session. Between sessions (after Unbind,
-// before the next Rebind) the field is nil.
+// Rebind binds the graph to a runtime environment for the duration of a session.
+//
+// Both planning ([Plan]) and execution ([GraphExecutor.Run]) call Rebind on entry and [Graph.Unbind] on exit, so the
+// graph's `ctx` field is authoritative only inside the active session. Between sessions (after Unbind, before the next
+// Rebind) the field is nil.
 //
 // The two-session split is structural — a graph planned in one environment may be executed in another
 // (different machine, different time). Each session-owner installs its own env via Rebind for the duration
@@ -225,14 +216,18 @@ func findSubgraph(children []ExecutableUnit, id string) *Subgraph {
 // Parameters:
 //   - `runtimeEnvironment`: the env to bind for the duration of the active session.
 func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
+
 	g.ctx = runtimeEnvironment
+
 	for _, n := range g.Nodes() {
 		n.graph = g
 	}
 }
 
-// Unbind clears the graph's bound runtime environment. Called by session-owners ([Plan], [GraphExecutor.Run])
-// when their session ends so the graph carries no stale env reference across the handoff to a later session.
+// Unbind clears the graph's bound runtime environment.
+//
+// Called by session-owners ([Plan], [GraphExecutor.Run]) when their session ends, so the graph carries no stale env
+// reference across the handoff to a later session.
 func (g *Graph) Unbind() {
 	g.ctx = nil
 }
@@ -251,12 +246,12 @@ func (g *Graph) Unbind() {
 // during this invocation. Nested combinators that need to own their own stack call [Graph.ExecuteWithStack] instead.
 //
 // Parameters:
-//   - exec: the executable unit to run.
-//   - overrides: caller-supplied slot overrides; nil for none.
+//   - `exec`: the executable unit to run.
+//   - `overrides`: caller-supplied slot overrides; nil for none.
 //
 // Returns:
-//   - any: the unit's terminal result, or nil when it produces no output.
-//   - error: non-nil if the unit fails or the graph is not yet rebound.
+//   - `any`: the unit's terminal result, or nil when it produces no output.
+//   - `error`: non-nil if the unit fails or the graph is not yet rebound.
 func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (any, error) {
 
 	if exec == nil {
@@ -300,14 +295,14 @@ func (g *Graph) Execute(exec ExecutableUnit, overrides map[string]SlotValue) (an
 // cooperatively.
 //
 // Parameters:
-//   - ctx: the combinator's scoped cancellation context; propagates to iteration bodies via dispatch.
-//   - exec: the executable unit to run for this iteration.
-//   - stack: the caller-owned recovery stack that collects the iteration's compensations.
-//   - overrides: caller-supplied slot overrides for the iteration, typically the bound iteration input.
+//   - `ctx`: the combinator's scoped cancellation context; propagates to iteration bodies via dispatch.
+//   - `exec`: the executable unit to run for this iteration.
+//   - `stack`: the caller-owned recovery stack that collects the iteration's compensations.
+//   - `overrides`: caller-supplied slot overrides for the iteration, typically the bound iteration input.
 //
 // Returns:
-//   - any: the unit's terminal result, or nil when it produces no output.
-//   - error: non-nil if the unit fails or the graph is not yet rebound; the stack is returned to the caller intact.
+//   - `any`: the unit's terminal result, or nil when it produces no output.
+//   - `error`: non-nil if the unit fails or the graph is not yet rebound; the stack is returned to the caller intact.
 func (g *Graph) ExecuteWithStack(ctx context.Context, exec ExecutableUnit, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
 
 	if exec == nil {
@@ -331,26 +326,26 @@ func (g *Graph) ExecuteWithStack(ctx context.Context, exec ExecutableUnit, stack
 // dispatch is the single Node/Subgraph dispatch site that every unit invocation flows through.
 //
 // Callers supply the live [GraphExecutor], [RecoveryStack], results map, and [context.Context], so the same executor
-// state and cancellation scope thread from the top-level entry down through recursive executeChildren calls. This is
-// the hook site: observability hooks and cancellation checks attached here (the ctx.Err() check happens in
-// executeNode) see every unit dispatch regardless of nesting depth.
+// state and cancellation scope thread from the top-level entry down through recursive child dispatch (Phase 5 wires
+// that recursion via the rewritten [GraphExecutor.executeSubgraph]). This is the hook site: observability hooks and
+// cancellation checks attached here (the ctx.Err() check happens in executeNode) see every unit dispatch regardless of
+// nesting depth.
 //
-// [Graph.Execute] and [GraphExecutor.Run] are the two external bootstraps that seed a fresh executor and stack
-// before calling dispatch; [Graph.ExecuteWithStack] is the combinator entry (e.g. gather) that brings its own
-// stack and scoped ctx. executeChildren reuses its caller's executor, stack, and ctx so compensation unwinding and
-// cancellation propagation see the entire chain.
+// [Graph.Execute] and [GraphExecutor.Run] are the two external bootstraps that seed a fresh executor and stack before
+// calling dispatch; [Graph.ExecuteWithStack] is the combinator entry (e.g., gather) that brings its own stack and
+// scoped ctx.
 //
 // Parameters:
-//   - ctx: the cancellation context threaded from the nearest entry point.
-//   - e: the live executor whose hooks and state persist across the dispatch chain.
-//   - stack: the active recovery stack compensations are pushed onto.
-//   - exec: the executable unit to dispatch; must be a *Node or *Subgraph.
-//   - results: the accumulated node results for promise resolution.
-//   - overrides: caller-supplied slot overrides, if any.
+//   - `ctx`: the cancellation context threaded from the nearest entry point.
+//   - `e`: the live executor whose hooks and state persist across the dispatch chain.
+//   - `stack`: the active recovery stack compensations are pushed onto.
+//   - `exec`: the executable unit to dispatch; must be a *Node or *Subgraph.
+//   - `results`: the accumulated node results for promise resolution.
+//   - `overrides`: caller-supplied slot overrides, if any.
 //
 // Returns:
-//   - any: the unit's terminal result, or nil when it produces no output.
-//   - error: non-nil if the unit fails or the exec type is unrecognized.
+//   - `any`: the unit's terminal result, or nil when it produces no output.
+//   - `error`: non-nil if the unit fails or the exec type is unrecognized.
 func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryStack, exec ExecutableUnit, results map[string]any, overrides map[string]SlotValue) (any, error) {
 
 	switch unit := exec.(type) {
@@ -375,27 +370,50 @@ func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryS
 // region Behaviors
 
 // CanonicalContent returns the graph serialized as YAML without checksum and signature.
-// This is used for computing checksums and verifying signatures.
+//
+// Used for computing checksums and verifying signatures. The output mirrors the symbol-table wire form: top-level
+// `children` (root's children IDs in topological order), `subgraphs` (every non-root Subgraph sorted by ID), and
+// `nodes` (every Node sorted by ID).
+//
+// Returns:
+//   - `[]byte`: the canonical YAML bytes.
+//   - `error`: non-nil if YAML marshaling fails.
 func (g *Graph) CanonicalContent() ([]byte, error) {
 
 	type canonicalGraph struct {
-		Children   []subgraphChildPayload `yaml:"children"`
-		Collisions []Collision            `yaml:"collisions,omitempty"`
-		Context    Provenance             `yaml:"context"`
-		Edges      []Edge                 `yaml:"edges,omitempty"`
-		State      GraphState             `yaml:"state"`
-		Timestamp  string                 `yaml:"timestamp"`
-		Version    string                 `yaml:"version"`
+		Version    string      `yaml:"version"`
+		State      GraphState  `yaml:"state"`
+		Timestamp  string      `yaml:"timestamp"`
+		Children   []string    `yaml:"children"`
+		Edges      []Edge      `yaml:"edges,omitempty"`
+		Subgraphs  []*Subgraph `yaml:"subgraphs,omitempty"`
+		Nodes      []*Node     `yaml:"nodes,omitempty"`
+		Collisions []Collision `yaml:"collisions,omitempty"`
+		Context    Provenance  `yaml:"context"`
 	}
 
+	var rootEdges []Edge
+
+	if g.Root != nil {
+		rootEdges = g.Root.Edges
+	}
+
+	subgraphs := g.Root.descendantSubgraphs()
+	sort.Slice(subgraphs, func(i, j int) bool { return subgraphs[i].ID() < subgraphs[j].ID() })
+
+	nodes := g.Root.descendantNodes()
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID() < nodes[j].ID() })
+
 	canonical := canonicalGraph{
-		Children:   toSubgraphChildrenPayloads(g.Root.children),
-		Collisions: g.Collisions,
-		Context:    g.Provenance,
-		Edges:      g.Root.Edges,
+		Version:    g.Version,
 		State:      g.State,
 		Timestamp:  g.Timestamp.Format(time.RFC3339),
-		Version:    g.Version,
+		Children:   g.Root.childIDs(),
+		Edges:      rootEdges,
+		Subgraphs:  subgraphs,
+		Nodes:      nodes,
+		Collisions: g.Collisions,
+		Context:    g.Provenance,
 	}
 
 	return yaml.Marshal(canonical)
@@ -404,28 +422,19 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 // Summary calculates execution statistics from nodes.
 //
 // Returns:
-//   - GraphExecutionSummary: the computed summary.
+//   - `GraphExecutionSummary`: the computed summary.
 func (g *Graph) Summary() GraphExecutionSummary {
 
 	g.summary = newGraphExecutionSummary(g.Nodes())
 	return g.summary
 }
 
-// sortChildren sorts a children list by the given edges using Kahn's algorithm.
-// Nodes and subgraphs are peers — both are vertices referenced by ID.
-// Returns the children in topological order. If no edges, returns declaration order.
-func sortChildren(children []ExecutableUnit, edges []Edge) []ExecutableUnit {
-
-	if len(edges) == 0 || len(children) <= 1 {
-		return children
-	}
-
-	return topologicalSortChildren(children, edges)
-}
-
-// Serialize writes the graph to the given encoder.
+// Serialize writes this graph through `enc`, dispatching to [Graph.MarshalJSON] or [Graph.MarshalYAML]
+// per the encoder's concrete type. The result is the symbol-table wire form: top-level `children` IDs
+// from Root, plus the flat `subgraphs` and `nodes` lists sorted by ID.
 //
-// The checksum is computed before encoding.
+// Whatever value is currently in [Graph.Checksum] is emitted as-is; this method does not (re)compute it.
+// Callers that want a fresh checksum compute it from [Graph.CanonicalContent] and assign before calling.
 //
 // Usage:
 //
@@ -433,6 +442,12 @@ func sortChildren(children []ExecutableUnit, edges []Edge) []ExecutableUnit {
 //	enc.SetIndent(2)
 //	defer enc.Close()
 //	g.Serialize(enc)
+//
+// Parameters:
+//   - `enc`: the destination encoder; both `*json.Encoder` and `*yaml.Encoder` satisfy [Encoder].
+//
+// Returns:
+//   - `error`: the encoder's error, or nil on success.
 func (g *Graph) Serialize(enc Encoder) error {
 
 	return enc.Encode(g)
@@ -515,8 +530,9 @@ type Node struct {
 	slotsByName map[string]*Slot
 }
 
-// NewNode constructs a Node with the given identifier. Additional fields may
-// be set on the returned pointer; the identifier is immutable after this call.
+// NewNode constructs a Node with the given identifier.
+//
+// Additional fields may be set on the returned pointer; the identifier is immutable after this call.
 func NewNode(id string) *Node {
 	return &Node{executableUnit: executableUnit{id: id}}
 }
@@ -525,14 +541,16 @@ func NewNode(id string) *Node {
 
 // region State management
 
-// SetAction sets an action override on this node. When set, Action() returns this directly
-// instead of resolving via Receiver name and registry. Used by tests that inject mock actions.
+// SetAction sets an action override on this node.
+//
+// When set, [Action] returns this directly instead of resolving via Receiver name and registry. Used by tests that
+// inject mock actions.
 func (n *Node) SetAction(a Action) { n.action = a }
 
 // Action returns the resolved action for this node.
 //
-// If an action override is set (via SetAction), it is returned directly. Otherwise, the action
-// is looked up by name through the graph's execution context registry.
+// If an action override is set (via SetAction), it is returned directly. Otherwise, this method looks up by name in the
+// graph's runtime environment action registry.
 //
 // Returns:
 //   - Action: the resolved action.
@@ -544,14 +562,15 @@ func (n *Node) Action() (Action, error) {
 	return n.graph.ctx.ActionByName(n.Receiver)
 }
 
-// RuntimeEnvironment returns the execution context from this node's parent graph.
+// RuntimeEnvironment returns the [RuntimeEnvironment] of this node's parent graph.
 //
 // Returns:
 //   - *RuntimeEnvironment: the graph's execution context.
 func (n *Node) RuntimeEnvironment() *RuntimeEnvironment { return n.graph.ctx }
 
-// Bind associates this node with its resolved Method. Must be called before
-// SetSlot. Populates the node's parameter surface from the method.
+// Bind associates this node with its resolved Method.
+//
+// Must be called before SetSlot. Populates the node's parameter surface from the method.
 func (n *Node) Bind(method *Method) {
 
 	n.method = method
@@ -569,6 +588,7 @@ func (n *Node) SlotByName(name string) *Slot {
 }
 
 // SetSlot sets a slot's value. Node must be bound to a method.
+//
 // The value may be any of ImmediateValue, PromiseValue, or Variable.
 func (n *Node) SetSlot(name string, value SlotValue) {
 
@@ -586,10 +606,10 @@ func (n *Node) ResolvedSlots(variables map[string]Variable, results map[string]a
 }
 
 // ResolveSlots returns all slot values with caller-supplied overrides applied.
-// For each slot, if overrides contains an entry keyed by the parameter name,
-// that entry's Resolve is used; otherwise the baked-in Slot.Value is resolved.
-// Overrides whose keys do not match any slot parameter are silently ignored —
-// the caller-facing parameter surface is the authority.
+//
+// For each slot, if overrides contains an entry keyed by the parameter name, that entry's Resolve is used; otherwise
+// the baked-in Slot.Value is resolved. Overrides whose keys do not match any slot parameter are silently ignored — the
+// caller-facing parameter surface is the authority.
 func (n *Node) ResolveSlots(variables map[string]Variable, results map[string]any, overrides map[string]SlotValue) map[string]any {
 
 	out := make(map[string]any, len(n.Slots))
@@ -884,75 +904,6 @@ const (
 )
 
 // region HELPER FUNCTIONS
-
-// topologicalSortChildren orders children (nodes and subgraphs) respecting edge constraints (Kahn's algorithm).
-// Nodes and subgraphs are peers — both are vertices referenced by ID().
-//
-// Parameters:
-//   - children: the children to sort.
-//   - edges: the directed edges expressing ordering constraints.
-//
-// Returns:
-//   - []ExecutableUnit: the topologically sorted children (cycles broken by appending unsorted children).
-func topologicalSortChildren(children []ExecutableUnit, edges []Edge) []ExecutableUnit { //nolint:gocognit // complexity is inherent to the algorithm
-
-	childMap := make(map[string]ExecutableUnit, len(children))
-	inDegree := make(map[string]int, len(children))
-	adj := make(map[string][]string)
-
-	for _, c := range children {
-		id := c.ID()
-		childMap[id] = c
-		inDegree[id] = 0
-	}
-
-	for _, edge := range edges {
-		if _, fromOK := childMap[edge.From]; !fromOK {
-			continue
-		}
-		if _, toOK := childMap[edge.To]; !toOK {
-			continue
-		}
-		adj[edge.From] = append(adj[edge.From], edge.To)
-		inDegree[edge.To]++
-	}
-
-	var queue []string
-	for _, c := range children {
-		id := c.ID()
-		if inDegree[id] == 0 {
-			queue = append(queue, id)
-		}
-	}
-
-	var sorted []ExecutableUnit
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		sorted = append(sorted, childMap[id])
-
-		for _, neighbor := range adj[id] {
-			inDegree[neighbor]--
-			if inDegree[neighbor] == 0 {
-				queue = append(queue, neighbor)
-			}
-		}
-	}
-
-	if len(sorted) < len(children) {
-		visited := make(map[string]bool, len(sorted))
-		for _, c := range sorted {
-			visited[c.ID()] = true
-		}
-		for _, c := range children {
-			if !visited[c.ID()] {
-				sorted = append(sorted, c)
-			}
-		}
-	}
-
-	return sorted
-}
 
 // GitStyleChecksum computes a git-style checksum.
 //

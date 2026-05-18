@@ -4,10 +4,9 @@
 package op
 
 // FatalError signals that the graph must halt immediately.
-// The executor unwinds the recovery stack when it encounters this error.
 //
-// Defined in pkg/op/ so the executor can check for it via errors.As
-// without importing the flow package.
+// The executor unwinds the recovery stack when it encounters this error. It is defined in pkg/op/ so the executor can
+// check for it via errors.As without importing the flow package.
 type FatalError struct {
 	Message string
 }

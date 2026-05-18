@@ -69,8 +69,8 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 
 // Run executes all nodes in the graph, respecting ordering constraints.
 //
-// The graph root is treated as an implicit subgraph. The executor calls executeChildren on the root's children,
-// applying Kahn's algorithm at each level and recursing into child subgraphs.
+// The graph root is treated as an implicit subgraph. Subgraph dispatch and its children-walking machinery are
+// scheduled for Phase 5 alongside the [GraphExecutor.executeSubgraph] rewrite.
 //
 // Run's preflight pipeline is:
 //
@@ -196,58 +196,6 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 	e.variables = e.environment.variables
 
 	return nil
-}
-
-// executeChildren walks a sorted children list, dispatching each child through [Graph.dispatch].
-//
-// Topological roots — children with no incoming edges at this level — receive overrides. Non-root children consume
-// their inputs via promises resolved from the results map, so overrides bypass them. Each child dispatches through
-// graph.dispatch, reusing the caller's executor, recovery stack, and cancellation context so compensation unwinding
-// and cancel propagation see the entire chain.
-//
-// Parameters:
-//   - ctx: the cancellation context threaded from the caller.
-//   - graph: the root graph (for dispatch access).
-//   - children: the children to execute (declaration order).
-//   - edges: ordering constraints between children at this level.
-//   - results: the accumulated node results for promise resolution.
-//   - stack: the recovery stack for compensation.
-//   - overrides: caller-supplied slot overrides, routed to topological roots only.
-//
-// Returns:
-//   - any: the last child's output value, or nil if no child produced output.
-//   - error: non-nil if any child fails.
-func (e *GraphExecutor) executeChildren(ctx context.Context, graph *Graph, children []ExecutableUnit, edges []Edge, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
-
-	sorted := sortChildren(children, edges)
-
-	hasIncoming := make(map[string]bool, len(edges))
-
-	for _, edge := range edges {
-		hasIncoming[edge.To] = true
-	}
-
-	var lastResult any
-
-	for _, child := range sorted {
-
-		var childOverrides map[string]SlotValue
-		if !hasIncoming[child.ID()] {
-			childOverrides = overrides
-		}
-
-		childResult, err := graph.dispatch(ctx, e, stack, child, results, childOverrides)
-
-		if err != nil {
-			return nil, err
-		}
-
-		if childResult != nil {
-			lastResult = childResult
-		}
-	}
-
-	return lastResult, nil
 }
 
 // executeSubgraph is the executor entry point for an [op.Subgraph]. Body intentionally stripped —

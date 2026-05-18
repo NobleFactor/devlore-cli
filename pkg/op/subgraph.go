@@ -18,7 +18,7 @@ import (
 // children is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested [*Subgraph]).
 // The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID stamping and ordering
 // invariants are enforced. Wire-form serialization emits child IDs (plus inline child data) via custom marshalers in
-// `marshal.go`; deserialization rebuilds the slice through [Subgraph.AddChild].
+// `marshalers.go`; deserialization rebuilds the slice through [Subgraph.AddChild].
 type Subgraph struct {
 	executableUnit
 
@@ -65,8 +65,24 @@ type Subgraph struct {
 	// Do method.
 	Branch bool
 
-	// children is the unexported containment list. Mutated only by [Subgraph.AddChild] and topological sort.
+	// children is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested
+	// [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID
+	// stamping, the parallel by-ID index, and ordering invariants are enforced. Wire-form serialization emits child
+	// IDs via custom marshalers in `marshalers.go`; deserialization stashes the IDs in [Subgraph.pendingChildren] and
+	// rebuilds the slice through [Subgraph.linkChildren] once the surrounding Graph's unit table is populated.
 	children []ExecutableUnit
+
+	// childrenByID is the parallel index into children, keyed by [ExecutableUnit.ID]. Maintained by
+	// [Subgraph.AddChild] in lockstep with children. Powers [Subgraph.ChildByID] in O(1) and edge-endpoint
+	// resolution via [Subgraph.validateEdges] at unmarshal time. Slice reordering by [Subgraph.sortChildren]
+	// doesn't invalidate the map — entries are keyed by ID, not by position.
+	childrenByID map[string]ExecutableUnit
+
+	// pendingChildren holds child IDs stashed by [Subgraph.UnmarshalJSON] / [Subgraph.UnmarshalYAML] before the
+	// surrounding Graph has built its unit table. [Graph.applyPayload] calls [Subgraph.linkChildren] once the
+	// table is populated; that method resolves each ID through [Subgraph.AddChild] and nils this slice. Always
+	// nil on a fully-assembled Subgraph.
+	pendingChildren []string
 }
 
 // NewSubgraph constructs a [Subgraph] with the given identifier.
@@ -88,19 +104,26 @@ func NewSubgraph(id string) *Subgraph {
 
 // region State management
 
-// AddChild appends `child` to this subgraph and stamps its parent back-reference.
+// AddChild appends `child` to this subgraph, registers it in the [Subgraph.ChildByID] index, and stamps its parent
+// back-reference.
 //
-// Centralizing wiring through this method keeps ownership accurate for both [*Node] and nested [*Subgraph] children
-// (plan-doc D11) without callers having to remember to maintain the back-reference themselves. Idempotent on parentID
-// under multi-Graph reuse: the same Invocation referenced from two different Graphs' assemblies both stamp
-// `parentID = "root"` (constant Root ID) — silent success. Adding the same child to a Subgraph with a different ID
-// causes a panic (a unit cannot belong to two different Subgraphs at the same time within a single Graph context).
+// Centralizing wiring through this method keeps the children slice, the by-ID index, and the child's parentID in
+// lockstep for both [*Node] and nested [*Subgraph] children (plan-doc D11) — callers never need to update the index
+// directly. Idempotent on parentID under multi-Graph reuse: the same Invocation referenced from two different Graphs'
+// assemblies both stamp `parentID = "root"` (constant Root ID) — silent success. Adding the same child to a Subgraph
+// with a different ID causes a panic (a unit cannot belong to two different Subgraphs at the same time within a
+// single Graph context).
 //
 // Parameters:
 //   - `child`: the [ExecutableUnit] to attach.
 func (s *Subgraph) AddChild(child ExecutableUnit) {
 
 	s.children = append(s.children, child)
+
+	if s.childrenByID == nil {
+		s.childrenByID = make(map[string]ExecutableUnit)
+	}
+	s.childrenByID[child.ID()] = child
 
 	switch t := child.(type) {
 	case *Node:
@@ -109,6 +132,25 @@ func (s *Subgraph) AddChild(child ExecutableUnit) {
 		t.stampParent(s.ID())
 	}
 }
+
+// ChildByID returns this subgraph's direct child with the given ID, or nil when no direct child carries that ID.
+//
+// The lookup is local — it does not recurse into nested subgraphs.
+//
+// Parameters:
+//   - `id`: the child unit's ID.
+//
+// Returns:
+//   - `ExecutableUnit`: the matching direct child, or nil.
+func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.childrenByID[id] }
+
+// Children returns this subgraph's direct children in their assembled order — topological order once
+// [Subgraph.sortChildren] has run; otherwise declaration order. The returned slice aliases the unexported
+// storage; callers must not mutate it.
+//
+// Returns:
+//   - []ExecutableUnit: the direct children.
+func (s *Subgraph) Children() []ExecutableUnit { return s.children }
 
 // endregion
 
@@ -197,6 +239,110 @@ func (s *Subgraph) Parameters() []Parameter {
 
 // region Behaviors
 
+// childIDs returns the IDs of this subgraph's direct children in the same order as [Subgraph.Children].
+// Nil-safe on a nil receiver; returns nil for an empty `children` slice.
+//
+// Returns:
+//   - []string: the IDs in containment order; nil when no children are present.
+func (s *Subgraph) childIDs() []string {
+
+	if s == nil || len(s.children) == 0 {
+		return nil
+	}
+
+	out := make([]string, len(s.children))
+	for i, c := range s.children {
+		out[i] = c.ID()
+	}
+	return out
+}
+
+// descendantNodes walks this subgraph's tree and returns every [*Node] found at any depth in tree-walk
+// order (depth-first, declaration order). Nil-safe on a nil receiver.
+//
+// Returns:
+//   - []*Node: the flat node list in tree-walk order; nil when no nodes are present.
+func (s *Subgraph) descendantNodes() []*Node {
+
+	if s == nil {
+		return nil
+	}
+
+	var out []*Node
+
+	var walk func(*Subgraph)
+	walk = func(parent *Subgraph) {
+		for _, c := range parent.children {
+			switch t := c.(type) {
+			case *Node:
+				out = append(out, t)
+			case *Subgraph:
+				walk(t)
+			}
+		}
+	}
+	walk(s)
+
+	return out
+}
+
+// descendantSubgraphByID searches this subgraph's tree for a nested [*Subgraph] with the given ID. The
+// receiver itself is not considered. Nil-safe on a nil receiver.
+//
+// Parameters:
+//   - `id`: the Subgraph ID to find.
+//
+// Returns:
+//   - *Subgraph: the matching descendant, or nil when no descendant has that ID.
+func (s *Subgraph) descendantSubgraphByID(id string) *Subgraph {
+
+	if s == nil {
+		return nil
+	}
+
+	for _, c := range s.children {
+		sg, ok := c.(*Subgraph)
+		if !ok {
+			continue
+		}
+		if sg.ID() == id {
+			return sg
+		}
+		if found := sg.descendantSubgraphByID(id); found != nil {
+			return found
+		}
+	}
+
+	return nil
+}
+
+// descendantSubgraphs walks this subgraph's tree and returns every nested [*Subgraph] found at any depth
+// (excluding the receiver itself) in tree-walk order. Nil-safe on a nil receiver.
+//
+// Returns:
+//   - []*Subgraph: the flat subgraph list in tree-walk order; nil when no nested subgraphs are present.
+func (s *Subgraph) descendantSubgraphs() []*Subgraph {
+
+	if s == nil {
+		return nil
+	}
+
+	var out []*Subgraph
+
+	var walk func(*Subgraph)
+	walk = func(parent *Subgraph) {
+		for _, c := range parent.children {
+			if sg, ok := c.(*Subgraph); ok {
+				out = append(out, sg)
+				walk(sg)
+			}
+		}
+	}
+	walk(s)
+
+	return out
+}
+
 // mergeBubbled merges a single bubbled [Parameter] into the seen map.
 //
 // This method panics via [assert.Truef] on a same-name but different-type collision (plan-doc D3 plan-time error).
@@ -220,20 +366,87 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
 		bubbled.Type)
 }
 
-// sortChildren orders this subgraph's children topologically per [Subgraph.Edges].
-//
-// Called at assembly time (post-construction) so the in-memory children slice — and the serialized form — reflect the
-// execution order. The executor iterates children in this order without re-sorting. No-op when there are 0 or 1
-// children or when no edges constrain ordering.
-//
-// On cycles, the subset that can be sorted is placed first; the remaining children are appended in their original
-// declaration order so dispatch makes forward progress (the cycle itself will surface as a separate validation error
-// rather than block sort).
+// sortChildren replaces this subgraph's children slice with the result of
+// [Subgraph.topologicallySortedChildren]. Called at assembly time so the in-memory order — and the
+// serialized form — reflect the execution order. The executor iterates children in this order without
+// re-sorting.
 func (s *Subgraph) sortChildren() {
+
+	s.children = s.topologicallySortedChildren()
+}
+
+// topologicallySortedChildren returns `s.children` ordered topologically per [Subgraph.Edges] using
+// Kahn's algorithm. Nodes and Subgraphs are peers — both are vertices referenced by ID. Returns the
+// receiver's `children` slice unchanged when no sort is needed (0 or 1 children, or no edges).
+//
+// On cycles, the subset that can be sorted is placed first; the remaining children are appended in
+// their original declaration order so dispatch makes forward progress (the cycle itself will surface
+// as a separate validation error rather than block sort).
+//
+// Returns:
+//   - []ExecutableUnit: the topologically sorted children.
+func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:gocognit // complexity is inherent to the algorithm
+
 	if len(s.Edges) == 0 || len(s.children) <= 1 {
-		return
+		return s.children
 	}
-	s.children = topologicalSortChildren(s.children, s.Edges)
+
+	childMap := make(map[string]ExecutableUnit, len(s.children))
+	inDegree := make(map[string]int, len(s.children))
+	adj := make(map[string][]string)
+
+	for _, c := range s.children {
+		id := c.ID()
+		childMap[id] = c
+		inDegree[id] = 0
+	}
+
+	for _, edge := range s.Edges {
+		if _, fromOK := childMap[edge.From]; !fromOK {
+			continue
+		}
+		if _, toOK := childMap[edge.To]; !toOK {
+			continue
+		}
+		adj[edge.From] = append(adj[edge.From], edge.To)
+		inDegree[edge.To]++
+	}
+
+	var queue []string
+	for _, c := range s.children {
+		id := c.ID()
+		if inDegree[id] == 0 {
+			queue = append(queue, id)
+		}
+	}
+
+	var sorted []ExecutableUnit
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, childMap[id])
+
+		for _, neighbor := range adj[id] {
+			inDegree[neighbor]--
+			if inDegree[neighbor] == 0 {
+				queue = append(queue, neighbor)
+			}
+		}
+	}
+
+	if len(sorted) < len(s.children) {
+		visited := make(map[string]bool, len(sorted))
+		for _, c := range sorted {
+			visited[c.ID()] = true
+		}
+		for _, c := range s.children {
+			if !visited[c.ID()] {
+				sorted = append(sorted, c)
+			}
+		}
+	}
+
+	return sorted
 }
 
 // endregion
