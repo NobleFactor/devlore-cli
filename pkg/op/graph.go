@@ -914,6 +914,7 @@ func GitStyleChecksum(objectType string, basename string, content []byte) string
 	hash := sha256.New()
 	hash.Write([]byte(header))
 	hash.Write(content)
+
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
 }
 
