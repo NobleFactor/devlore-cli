@@ -17,6 +17,11 @@ import (
 // invariant). Parameters reports the unit's input surface and is consumed by flow combinators (e.g.,
 // gather) to discover the body's expected input.
 //
+// SetRetryPolicy and SetErrorAction are interface-level so plan.Provider.invocation can stamp the
+// reserved-kwarg payload on any planner's return value without a *Node / *Subgraph type-switch. Both
+// methods are already implemented by [*Node] and [*Subgraph] via the embedded [executableUnit]; the
+// interface entries promote them to interface-visible.
+//
 // stampParent is package-internal — exposed on the interface so [Subgraph.AddChild] and
 // [Subgraph.SetErrorAction] can stamp ownership without a *Node / *Subgraph type-switch. Because the
 // method is unexported, the interface is closed to same-package implementations — only [*Node] and
@@ -24,6 +29,8 @@ import (
 type ExecutableUnit interface {
 	ID() string
 	Parameters() []Parameter
+	SetRetryPolicy(p *RetryPolicy)
+	SetErrorAction(ea *Subgraph)
 	stampParent(parentID string)
 }
 
