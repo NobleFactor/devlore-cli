@@ -16,13 +16,13 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Tools":            {},
-			"PrecommitCheck":   {},
-			"PrecommitInstall": {},
-			"InitConfig":       {},
-			"InstallHook":      {"name"},
-			"UninstallHook":    {"name"},
-			"CheckHook":        {"name"},
+		map[string]op.MethodMetadata{
+			"Tools":            {ParameterNames: []string{}},
+			"PrecommitCheck":   {ParameterNames: []string{}},
+			"PrecommitInstall": {ParameterNames: []string{}},
+			"InitConfig":       {ParameterNames: []string{}},
+			"InstallHook":      {ParameterNames: []string{"name"}},
+			"UninstallHook":    {ParameterNames: []string{"name"}},
+			"CheckHook":        {ParameterNames: []string{"name"}},
 		})
 }

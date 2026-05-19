@@ -16,8 +16,8 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Case":     {"when", "then"},
-			"Variable": {"name", "default_value"},
+		map[string]op.MethodMetadata{
+			"Case":     {ParameterNames: []string{"when", "then"}},
+			"Variable": {ParameterNames: []string{"name", "default_value"}},
 		})
 }

@@ -95,6 +95,35 @@ type Planner interface {
 	) (ExecutableUnit, error)
 }
 
+// plannerForType resolves a reflect.Type declared in [MethodMetadata.Planner] to its singleton [Planner]
+// instance. Nil yields the default [ActionPlanner]. Handles both value-receiver and pointer-receiver
+// planner implementations: tries the zero-value-of-`t` shape first (value-receiver methods), then the
+// pointer-to-zero-value shape (pointer-receiver methods).
+//
+// Parameters:
+//   - `t`: the planner type declared in announcement metadata, or nil for the default planner.
+//
+// Returns:
+//   - Planner: the resolved planner instance.
+func plannerForType(t reflect.Type) Planner {
+
+	if t == nil {
+		return ActionPlanner{}
+	}
+
+	val := reflect.New(t).Elem().Interface()
+	if p, ok := val.(Planner); ok {
+		return p
+	}
+
+	val = reflect.New(t).Interface()
+	if p, ok := val.(Planner); ok {
+		return p
+	}
+
+	panic(fmt.Sprintf("op.plannerForType: %s does not implement Planner", t))
+}
+
 // ActionPlanner is the default vanilla planner — one starlark call produces one leaf [*Node].
 type ActionPlanner struct{}
 

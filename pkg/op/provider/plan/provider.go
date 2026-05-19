@@ -8,9 +8,6 @@
 package plan
 
 import (
-	"sync"
-
-	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -35,9 +32,8 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-	catalog      *op.ResourceCatalog       // session-scoped resource catalog; shared by every NodeBuilder
-	invocations  *op.InvocationRegistry    // session-scoped ledger; every NodeBuilder registers here
-	mutex        sync.Mutex                // guards adapters
+	catalog      *op.ResourceCatalog       // session-scoped resource catalog
+	invocations  *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
 	peerBuiltins map[string]starlark.Value // Tier 2: root-planned peer method builtins, write-once
 	rootNames    map[string]struct{}       // names of root providers (excluded from Tier 3 resolution)
 }
@@ -103,15 +99,9 @@ func (p *Provider) ResolveAttr(name string) any {
 		return builtin
 	}
 
-	// Tier 3: sub-namespace adapters, excluding root providers.
-
-	if _, isRoot := p.rootNames[name]; isRoot {
-		return nil
-	}
-
-	assert.Failf("Unimplemented: attribute resolution tier 3")
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	// Tier 3 (sub-namespace adapters) will be wired by the next phase. Until
+	// then, unknown names fall through to return nil so goReceiver reports a
+	// clean "no such attribute" instead of panicking.
 
 	return nil
 }

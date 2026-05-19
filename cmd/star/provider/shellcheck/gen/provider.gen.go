@@ -16,10 +16,10 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Lint":       {"path", "severity?=\"warning\""},
-			"Format":     {"path", "indent?=0", "fix?=false"},
-			"Parse":      {"path"},
-			"Complexity": {"path"},
+		map[string]op.MethodMetadata{
+			"Lint":       {ParameterNames: []string{"path", "severity?=\"warning\""}},
+			"Format":     {ParameterNames: []string{"path", "indent?=0", "fix?=false"}},
+			"Parse":      {ParameterNames: []string{"path"}},
+			"Complexity": {ParameterNames: []string{"path"}},
 		})
 }

@@ -422,8 +422,9 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
 		return
 	}
 
-	assert.Truef(existing.Type == bubbled.Type,
+	assert.Truef(
 		"subgraph %q: variable %q declared with incompatible types %s and %s across slots",
+		existing.Type == bubbled.Type,
 		s.ID(),
 		bubbled.Name,
 		existing.Type,

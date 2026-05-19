@@ -16,13 +16,13 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Current":  {},
-			"Parent":   {},
-			"Siblings": {},
-			"Children": {"parent?=\"\""},
-			"Query":    {"pattern"},
-			"Get":      {"name"},
-			"Run":      {"name", "flags"},
+		map[string]op.MethodMetadata{
+			"Current":  {ParameterNames: []string{}},
+			"Parent":   {ParameterNames: []string{}},
+			"Siblings": {ParameterNames: []string{}},
+			"Children": {ParameterNames: []string{"parent?=\"\""}},
+			"Query":    {ParameterNames: []string{"pattern"}},
+			"Get":      {ParameterNames: []string{"name"}},
+			"Run":      {ParameterNames: []string{"name", "flags"}},
 		})
 }

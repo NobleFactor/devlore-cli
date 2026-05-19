@@ -16,14 +16,14 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Find":            {"pattern", "text"},
-			"FindAll":         {"pattern", "text", "count"},
-			"FindAllSubmatch": {"pattern", "text", "count"},
-			"FindSubmatch":    {"pattern", "text"},
-			"Match":           {"pattern", "text"},
-			"Replace":         {"pattern", "text", "replacement"},
-			"ReplaceLiteral":  {"pattern", "text", "replacement"},
-			"Split":           {"pattern", "text", "count"},
+		map[string]op.MethodMetadata{
+			"Find":            {ParameterNames: []string{"pattern", "text"}},
+			"FindAll":         {ParameterNames: []string{"pattern", "text", "count"}},
+			"FindAllSubmatch": {ParameterNames: []string{"pattern", "text", "count"}},
+			"FindSubmatch":    {ParameterNames: []string{"pattern", "text"}},
+			"Match":           {ParameterNames: []string{"pattern", "text"}},
+			"Replace":         {ParameterNames: []string{"pattern", "text", "replacement"}},
+			"ReplaceLiteral":  {ParameterNames: []string{"pattern", "text", "replacement"}},
+			"Split":           {ParameterNames: []string{"pattern", "text", "count"}},
 		})
 }

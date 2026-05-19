@@ -16,13 +16,13 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Install":      {"packages", "manager", "cask"},
-			"Remove":       {"packages", "manager", "cask"},
-			"Upgrade":      {"packages", "manager", "cask"},
-			"Update":       {"manager"},
-			"Installed":    {"name"},
-			"NotInstalled": {"name"},
-			"VersionGTE":   {"name", "version"},
+		map[string]op.MethodMetadata{
+			"Install":      {ParameterNames: []string{"packages", "manager", "cask"}},
+			"Remove":       {ParameterNames: []string{"packages", "manager", "cask"}},
+			"Upgrade":      {ParameterNames: []string{"packages", "manager", "cask"}},
+			"Update":       {ParameterNames: []string{"manager"}},
+			"Installed":    {ParameterNames: []string{"name"}},
+			"NotInstalled": {ParameterNames: []string{"name"}},
+			"VersionGTE":   {ParameterNames: []string{"name", "version"}},
 		})
 }

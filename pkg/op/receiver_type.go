@@ -133,7 +133,7 @@ type dispatcher func(receiver any, args []any) (reflect.Value, reflect.Value, er
 //   - error: non-nil if the type cannot be introspected.
 func NewReceiverType(providerType reflect.Type, methodParameters map[string][]Parameter) (ReceiverType, error) {
 
-	base, err := newReceiverType(providerType, methodParameters, false)
+	base, err := newReceiverType(providerType, methodParameters, nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -234,9 +234,10 @@ func NewProviderReceiverType(
 	construct ProviderConstructor,
 	roles ProviderRole,
 	methodParameters map[string][]Parameter,
+	planners map[string]Planner,
 ) (ProviderReceiverType, error) {
 
-	base, err := newReceiverType(providerType, methodParameters, true)
+	base, err := newReceiverType(providerType, methodParameters, planners, true)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +291,7 @@ func NewResourceReceiverType(
 	methodParameters map[string][]Parameter,
 ) (ResourceReceiverType, error) {
 
-	base, err := newReceiverType(resourceType, methodParameters, false)
+	base, err := newReceiverType(resourceType, methodParameters, nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +327,7 @@ func (rt *resourceReceiverType) Construct() ResourceConstructor { return rt.cons
 // Returns:
 //   - receiverType: the populated base.
 //   - error: non-nil if method classification fails.
-func newReceiverType(providerType reflect.Type, methodParameters map[string][]Parameter, isProvider bool) (receiverType, error) {
+func newReceiverType(providerType reflect.Type, methodParameters map[string][]Parameter, planners map[string]Planner, isProvider bool) (receiverType, error) {
 
 	name := receiverName(providerType)
 
@@ -360,6 +361,14 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 
 				if err != nil {
 					return receiverType{}, err
+				}
+
+				if planners != nil {
+					planner := planners[reflectedMethod.Name]
+					if planner == nil {
+						planner = ActionPlanner{}
+					}
+					method.SetPlanner(planner)
 				}
 
 				methodMap[method.Name()] = method

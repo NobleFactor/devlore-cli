@@ -16,8 +16,8 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"RenderText":  {"content", "data"},
-			"RenderBytes": {"content", "data"},
+		map[string]op.MethodMetadata{
+			"RenderText":  {ParameterNames: []string{"content", "data"}},
+			"RenderBytes": {ParameterNames: []string{"content", "data"}},
 		})
 }

@@ -16,7 +16,7 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"IndexFiles": {"files", "with_docstrings", "with_globals"},
+		map[string]op.MethodMetadata{
+			"IndexFiles": {ParameterNames: []string{"files", "with_docstrings", "with_globals"}},
 		})
 }

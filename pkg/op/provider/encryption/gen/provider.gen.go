@@ -16,7 +16,7 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"DecryptSopsFile": {"source", "destination_path"},
+		map[string]op.MethodMetadata{
+			"DecryptSopsFile": {ParameterNames: []string{"source", "destination_path"}},
 		})
 }

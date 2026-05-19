@@ -209,7 +209,7 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 	assert.NotNil("activation", activation)
 	assert.True("activation.SiteID not empty", activation.SiteID != "")
 	assert.True("uri not empty", uri != "")
-	assert.NotNil("factory", factory)
+	assert.True("factory required", factory != nil)
 
 	// Cache hit: content-addressable singletons return existing for non-Gone states (Rule 6).
 	// Location-based — and Gone on either addressing — fall through to shadow (Rules 7 and "Gone is terminal,
@@ -266,7 +266,7 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error)) (Resource, error) {
 
 	assert.True("uri not empty", uri != "")
-	assert.NotNil("factory", factory)
+	assert.True("factory required", factory != nil)
 
 	// Cache hit: branch on state per the DiscoverResource rules (Rule 3 + Rule 4).
 	if id := c.Current(uri); id != "" {

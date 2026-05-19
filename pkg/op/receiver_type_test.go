@@ -84,7 +84,7 @@ func TestNewReceiverType_WithNamedParameters(t *testing.T) {
 		"Echo":  {"msg"},
 		"Parse": {"input"},
 	})
-	rt, err := newReceiverType(testProviderType, parsed, false)
+	rt, err := newReceiverType(testProviderType, parsed, nil, false)
 
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
@@ -110,7 +110,7 @@ func TestNewReceiverType_WithNamedParameters(t *testing.T) {
 
 func TestNewReceiverType_WithNilParameters_RegistersAllMethods(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, nil, false)
+	rt, err := newReceiverType(testProviderType, nil, nil, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestNewReceiverType_WithNilParameters_RegistersAllMethods(t *testing.T) {
 
 func TestNewReceiverType_WithNilParameters_MultiParam(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, nil, false)
+	rt, err := newReceiverType(testProviderType, nil, nil, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestNewReceiverType_WithNilParameters_MultiParam(t *testing.T) {
 
 func TestNewReceiverType_WithEmptyParameters_RegistersNoMethods(t *testing.T) {
 
-	rt, err := newReceiverType(testProviderType, make(map[string][]Parameter), false)
+	rt, err := newReceiverType(testProviderType, make(map[string][]Parameter), nil, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestNewReceiverType_MethodsSorted(t *testing.T) {
 		"Parse": {"input"},
 		"Ping":  {},
 	})
-	rt, err := newReceiverType(testProviderType, parsed, false)
+	rt, err := newReceiverType(testProviderType, parsed, nil, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestNewReceiverType_RejectsReservedParameterNames(t *testing.T) {
 			parsed := mustParseParameters(t, testProviderType, map[string][]string{
 				"Echo": tc.params,
 			})
-			_, err := newReceiverType(testProviderType, parsed, false)
+			_, err := newReceiverType(testProviderType, parsed, nil, false)
 
 			if err == nil {
 				t.Fatalf("expected error for reserved name %q, got nil", tc.name)
@@ -254,7 +254,7 @@ func TestNewReceiverType_AllowsVariadicMarkers(t *testing.T) {
 			parsed := mustParseParameters(t, testProviderType, map[string][]string{
 				"Echo": tc.params,
 			})
-			_, err := newReceiverType(testProviderType, parsed, false)
+			_, err := newReceiverType(testProviderType, parsed, nil, false)
 
 			// Should SUCCEED: markers are allowed even if Go method is not variadic (mappings land in slots)
 			if err != nil {
@@ -270,7 +270,7 @@ func TestReceiverType_Methods_Iterator(t *testing.T) {
 		"Echo":  {"msg"},
 		"Parse": {"input"},
 	})
-	rt, err := newReceiverType(testProviderType, parsed, false)
+	rt, err := newReceiverType(testProviderType, parsed, nil, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestReceiverType_Methods_Iterator(t *testing.T) {
 
 func TestReceiverType_MethodByName(t *testing.T) {
 
-	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Echo": {"msg"}}), false)
+	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Echo": {"msg"}}), nil, false)
 
 	if _, ok := rt.MethodByName("Echo"); !ok {
 		t.Error("MethodByName(Echo) failed")
@@ -300,7 +300,7 @@ func TestReceiverType_MethodByName(t *testing.T) {
 
 func TestReceiverType_ProviderType(t *testing.T) {
 
-	rt, _ := newReceiverType(testProviderType, nil, false)
+	rt, _ := newReceiverType(testProviderType, nil, nil, false)
 	if rt.ProviderType() != testProviderType {
 		t.Errorf("ProviderType() = %v, want %v", rt.ProviderType(), testProviderType)
 	}
@@ -309,7 +309,7 @@ func TestReceiverType_ProviderType(t *testing.T) {
 func TestReceiverType_Name_Resource(t *testing.T) {
 
 	type testLocalResource struct{ ResourceBase }
-	rt, _ := newReceiverType(reflect.TypeFor[*testLocalResource](), nil, false)
+	rt, _ := newReceiverType(reflect.TypeFor[*testLocalResource](), nil, nil, false)
 
 	if rt.Name() != "testLocalResource" {
 		t.Errorf("Name() = %q, want \"testLocalResource\"", rt.Name())
@@ -320,7 +320,7 @@ func TestReceiverType_Name_Resource(t *testing.T) {
 
 func TestDo_Action(t *testing.T) {
 
-	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Ping": {}}), false)
+	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Ping": {}}), nil, false)
 	p := &testProvider{}
 
 	res, undo, err := rt.Do("Ping", p, nil)
@@ -338,7 +338,7 @@ func TestDo_Action(t *testing.T) {
 
 func TestDo_FallibleAction(t *testing.T) {
 
-	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Validate": {"value"}}), false)
+	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Validate": {"value"}}), nil, false)
 	p := &testProvider{}
 
 	// Success
@@ -356,7 +356,7 @@ func TestDo_FallibleAction(t *testing.T) {
 
 func TestDo_Function(t *testing.T) {
 
-	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Echo": {"msg"}}), false)
+	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Echo": {"msg"}}), nil, false)
 	p := &testProvider{}
 
 	res, _, err := rt.Do("Echo", p, []any{"hello"})
@@ -371,7 +371,7 @@ func TestDo_Function(t *testing.T) {
 
 func TestDo_FallibleFunction(t *testing.T) {
 
-	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Parse": {"input"}}), false)
+	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Parse": {"input"}}), nil, false)
 	p := &testProvider{}
 
 	// Success
@@ -392,7 +392,7 @@ func TestDo_FallibleFunction(t *testing.T) {
 
 func TestDo_CompensableFunction(t *testing.T) {
 
-	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Create": {"name"}}), true)
+	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Create": {"name"}}), nil, true)
 	p := &testProvider{}
 
 	result, complement, err := rt.Do("Create", p, []any{"foo"})
@@ -417,7 +417,7 @@ func TestDo_NilArg_BecomesZeroValue(t *testing.T) {
 	parsed := mustParseParameters(t, testProviderType, map[string][]string{
 		"Echo": {"msg"},
 	})
-	rt, err := newReceiverType(testProviderType, parsed, false)
+	rt, err := newReceiverType(testProviderType, parsed, nil, false)
 	if err != nil {
 		t.Fatalf("newReceiverType: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestNewProviderReceiverType(t *testing.T) {
 
 	rt, err := NewProviderReceiverType(pType, construct, RoleAction, mustParseParameters(t, pType, map[string][]string{
 		"Echo": {"msg"},
-	}))
+	}), nil)
 
 	if err != nil {
 		t.Fatalf("NewProviderReceiverType: %v", err)

@@ -16,7 +16,7 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"ComputeStats": {"files", "with_bytes", "with_loc"},
+		map[string]op.MethodMetadata{
+			"ComputeStats": {ParameterNames: []string{"files", "with_bytes", "with_loc"}},
 		})
 }

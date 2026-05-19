@@ -16,12 +16,12 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Note":    {"msg"},
-			"Warn":    {"msg"},
-			"Error":   {"msg"},
-			"Succeed": {"msg"},
-			"Fail":    {"msg"},
-			"Print":   {"msg"},
+		map[string]op.MethodMetadata{
+			"Note":    {ParameterNames: []string{"msg"}},
+			"Warn":    {ParameterNames: []string{"msg"}},
+			"Error":   {ParameterNames: []string{"msg"}},
+			"Succeed": {ParameterNames: []string{"msg"}},
+			"Fail":    {ParameterNames: []string{"msg"}},
+			"Print":   {ParameterNames: []string{"msg"}},
 		})
 }

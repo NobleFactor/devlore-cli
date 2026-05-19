@@ -16,9 +16,9 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Get":  {},
-			"Show": {},
-			"Sync": {},
+		map[string]op.MethodMetadata{
+			"Get":  {ParameterNames: []string{}},
+			"Show": {ParameterNames: []string{}},
+			"Sync": {ParameterNames: []string{}},
 		})
 }

@@ -16,7 +16,7 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Extract": {"source", "prefix_path"},
+		map[string]op.MethodMetadata{
+			"Extract": {ParameterNames: []string{"source", "prefix_path"}},
 		})
 }

@@ -45,23 +45,6 @@ func TestNotNilPasses(t *testing.T) {
 
 	v := struct{}{}
 	assert.NotNil("v", &v)
-	assert.NotNil("s", "non-empty")
-	assert.NotNil("n", 0)
-}
-
-func TestNotNilFailsOnInterfaceNil(t *testing.T) {
-
-	got := recoverError(t, func() { assert.NotNil("Root", nil) })
-
-	if got == nil {
-		t.Fatal("expected panic")
-	}
-	if !strings.Contains(got.Message, "Root is required") {
-		t.Errorf("Message = %q, want contains \"Root is required\"", got.Message)
-	}
-	if !strings.HasSuffix(got.Function, "TestNotNilFailsOnInterfaceNil.func1") {
-		t.Errorf("Function = %q, want ends with TestNotNilFailsOnInterfaceNil.func1", got.Function)
-	}
 }
 
 func TestNotNilFailsOnTypedNilPointer(t *testing.T) {
@@ -73,18 +56,11 @@ func TestNotNilFailsOnTypedNilPointer(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected panic on typed-nil pointer")
 	}
-}
-
-func TestNotNilFailsOnTypedNilMapAndSlice(t *testing.T) {
-
-	var m map[string]int
-	var s []int
-
-	if got := recoverError(t, func() { assert.NotNil("m", m) }); got == nil {
-		t.Error("expected panic on nil map")
+	if !strings.Contains(got.Message, "p is required") {
+		t.Errorf("Message = %q, want contains \"p is required\"", got.Message)
 	}
-	if got := recoverError(t, func() { assert.NotNil("s", s) }); got == nil {
-		t.Error("expected panic on nil slice")
+	if !strings.HasSuffix(got.Function, "TestNotNilFailsOnTypedNilPointer.func1") {
+		t.Errorf("Function = %q, want ends with TestNotNilFailsOnTypedNilPointer.func1", got.Function)
 	}
 }
 
@@ -119,12 +95,12 @@ func TestTruefPasses(t *testing.T) {
 		}
 	}()
 
-	assert.Truef(true, "got %d, want %d", 3, 5)
+	assert.Truef("got %d, want %d", true, 3, 5)
 }
 
 func TestTruefFails(t *testing.T) {
 
-	got := recoverError(t, func() { assert.Truef(false, "got %d, want %d", 3, 5) })
+	got := recoverError(t, func() { assert.Truef("got %d, want %d", false, 3, 5) })
 
 	if got == nil {
 		t.Fatal("expected panic")

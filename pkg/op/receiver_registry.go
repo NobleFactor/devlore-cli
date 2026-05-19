@@ -168,7 +168,7 @@ func (a *announcements) validatorStub() map[string]any {
 
 // endregion
 
-// AnnounceProvider registers a provider with its roles.
+// AnnounceProvider registers a provider with its roles and per-method metadata.
 //
 // Called in init(). Roles are declared via [ProviderRole] flags: [RoleModule] for immediate-mode starlark globals,
 // [RoleAction] for plan-mode graph node creation.
@@ -177,14 +177,22 @@ func (a *announcements) validatorStub() map[string]any {
 // are discovered automatically by reflection in [NewProviderReceiverType]. No registration is required.
 //
 // Parameters:
-//   - providerType: the provider's reflect.Type.
-//   - roles: the provider's declared roles.
-//   - construct: creates a provider instance from RuntimeEnvironment.
-//   - methodParameters: starlark parameter names per Go method.
-func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct ProviderConstructor, methodParameters map[string][]string) {
+//   - `providerType`: the provider's reflect.Type.
+//   - `roles`: the provider's declared roles.
+//   - `construct`: creates a provider instance from RuntimeEnvironment.
+//   - `methods`: codegen-emitted [MethodMetadata] per Go method, keyed by the method's Go name.
+func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct ProviderConstructor, methods map[string]MethodMetadata) {
 
 	if roles.Dispatch() == 0 {
 		panic(fmt.Sprintf("AnnounceProvider(%s): roles must set at least one dispatch-zone bit (RoleModule or RoleAction); got %#x", providerType, uint(roles)))
+	}
+
+	methodParameters := make(map[string][]string, len(methods))
+	planners := make(map[string]Planner, len(methods))
+
+	for name, metadata := range methods {
+		methodParameters[name] = metadata.ParameterNames
+		planners[name] = plannerForType(metadata.Planner)
 	}
 
 	parsed, err := parseParameters(providerType, methodParameters)
@@ -192,7 +200,7 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
 	}
 
-	rt, err := NewProviderReceiverType(providerType, construct, roles, parsed)
+	rt, err := NewProviderReceiverType(providerType, construct, roles, parsed, planners)
 	if err != nil {
 		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
 	}
@@ -248,7 +256,7 @@ func AnnounceType(goType reflect.Type, methodParameters map[string][]string) {
 		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
 	}
 
-	base, err := newReceiverType(goType, parsed, false)
+	base, err := newReceiverType(goType, parsed, nil, false)
 	if err != nil {
 		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
 	}

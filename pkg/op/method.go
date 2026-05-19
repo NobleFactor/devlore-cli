@@ -38,6 +38,16 @@ func errFromValue(v reflect.Value) error {
 	return v.Interface().(error)
 }
 
+// MethodMetadata is the codegen-emitted record describing one method on a registered provider.
+//
+// Carries source-level information that Go reflection can't see: the starlark parameter spelling and,
+// optionally, the planner type that materializes the method's calls into an [ExecutableUnit]. Absent
+// Planner means the method uses [ActionPlanner] — the default vanilla leaf-node dispatcher.
+type MethodMetadata struct {
+	ParameterNames []string     // starlark parameter name tokens, ordered to match the Go method's parameter slots
+	Planner        reflect.Type // optional; nil means default ActionPlanner
+}
+
 // MethodKind identifies the signature and capabilities of a method.
 type MethodKind int
 
@@ -77,6 +87,7 @@ type Method struct {
 	kind                       MethodKind      // classified from return signature
 	parameters                 []Parameter     // named parameters (excluding receiver and any leading activation)
 	plan                       *reflect.Method // plan-time output spec companion; nil if the method has no plan companion
+	planner                    Planner         // plan-mode dispatch strategy; nil for resource methods; default ActionPlanner for provider methods
 	undo                       *reflect.Method // compensation companion; nil unless compensable
 	undoFirstParamIsActivation bool            // true when `undo`'s first parameter (after receiver) is *ActivationRecord
 }
@@ -358,6 +369,24 @@ func (m *Method) ParameterByName(name string) (Parameter, bool) {
 
 // Parameters returns the named parameters of the method, excluding the receiver and any leading context.Context.
 func (m *Method) Parameters() []Parameter { return m.parameters }
+
+// Planner returns the plan-mode dispatch strategy for this method.
+//
+// Nil for resource methods (resources are not plan-dispatchable). Provider methods carry the planner
+// declared at announcement; absent declaration means [ActionPlanner].
+//
+// Returns:
+//   - Planner: the dispatch strategy, or nil for resource methods.
+func (m *Method) Planner() Planner { return m.planner }
+
+// SetPlanner stamps the plan-mode dispatch strategy on this method.
+//
+// Called by the receiver-type construction path at announcement time. Resource methods skip this call;
+// provider methods receive either the announcement-declared planner or [ActionPlanner] by default.
+//
+// Parameters:
+//   - `planner`: the dispatch strategy resolved at announcement.
+func (m *Method) SetPlanner(planner Planner) { m.planner = planner }
 
 // ReceiverType returns the reflect.Type of the method's receiver.
 func (m *Method) ReceiverType() reflect.Type { return m.do.Type.In(0) }

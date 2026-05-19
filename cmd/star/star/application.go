@@ -69,7 +69,7 @@ type Application struct {
 func NewApplication(rootCmd *cobra.Command) *Application {
 
 	wd, err := os.Getwd()
-	assert.Nil("os.Getwd err", err)
+	assert.True("os.Getwd succeeded", err == nil)
 
 	app := application.NewApplication("star", rootCmd)
 	registry := op.NewReceiverRegistry()

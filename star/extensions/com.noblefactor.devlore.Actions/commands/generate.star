@@ -44,7 +44,6 @@ GEN_TEMPLATE_FILES = {
     "receiver_type_test": "gen/receiver_type.gen_test.go",
     "module_test": "gen/module.gen_test.go",
     "action_test": "gen/action.gen_test.go",
-    "node_builder_test": "gen/node_builder.gen_test.go",
     "resource": "gen/resource.gen.go",
     # dependent_type uses dynamic filenames: gen/<type_snake>.gen.go
 }
@@ -55,7 +54,6 @@ LOCAL_TEMPLATES = {
     "receiver_type_test": "receiver_type.gen_test.go.template",
     "module_test": "module.gen_test.go.template",
     "action_test": "action.gen_test.go.template",
-    "node_builder_test": "node_builder.gen_test.go.template",
     "resource": "resource.gen.go.template",
     "dependent_type": "dependent_type.gen.go.template",
 }
@@ -960,10 +958,8 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         emit_file(command, "action_test", provider_desc, "gen/action.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate plan-adapter tests (plan adapter — node creation from starlark calls).
-    if access in ["planned", "both"]:
-        emit_file(command, "node_builder_test", provider_desc, "gen/node_builder.gen_test.go",
-                 struct_short, len(provider_method_descs), output_dir, write_files)
+    # node_builder_test emission retired with NodeBuilder (Phase 5). Planner-shim
+    # tests will be reintroduced when the plan.Provider.Invocation path lands.
 
     generated_count = 1
 

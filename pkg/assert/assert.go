@@ -13,7 +13,6 @@ package assert
 
 import (
 	"fmt"
-	"reflect"
 	"runtime"
 )
 
@@ -39,32 +38,37 @@ func (e *AssertionError) Error() string {
 
 // region EXPORTED FUNCTIONS
 
-// Nil panics with an [*AssertionError] when v is a non-nil interface or a non-nil typed pointer / map / slice / channel
-// / function. Use for invariants where a value must be absent — typically an error from a call whose failure indicates
-// a corrupted environment or programmer error (e.g. [os.Getwd] at init time).
+// Nil panics with an [*AssertionError] when `value` is non-nil.
+//
+// Constrained to pointer types so the nil check is type-safe; the compiler rejects non-nillable inputs
+// (strings, ints, structs, …) at the call site rather than letting the assertion silently succeed.
+//
+// For interface or function nil-checks (where the value is not addressable as `*T`), use [True] with an
+// explicit predicate: `assert.True("err nil", err == nil)`.
 //
 // Parameters:
-//   - `name`: a short identifier of the value being checked (e.g. "os.Getwd err").
-//   - `v`: the value to inspect; non-nil interfaces and non-nil typed reference values both fail.
-func Nil(name string, v any) {
+//   - `name`: a short identifier of the value being checked (e.g. "cache entry").
+//   - `value`: the pointer to inspect.
+func Nil[T any](name string, value *T) {
 
-	if isNil(v) {
+	if value == nil {
 		return
 	}
 
-	raise(2, fmt.Sprintf("%s: expected nil, got %v", name, v))
+	raise(2, fmt.Sprintf("%s: expected nil, got %v", name, value))
 }
 
-// NotNil panics with an [*AssertionError] when v is a nil interface or a typed nil pointer/map/slice/channel/function.
+// NotNil panics with an [*AssertionError] when `value` is nil.
 //
-// Use for constructor preconditions where a required collaborator must be supplied.
+// Constrained to pointer types so the nil check is type-safe; the compiler rejects non-nillable inputs
+// at the call site. For interface or function nil-checks, use [True] with an explicit predicate.
 //
 // Parameters:
 //   - `name`: a short identifier of the value being checked (e.g. "Root", "cfg.Registry").
-//   - `v`: the value to inspect; nil interfaces and typed-nil reference values both fail.
-func NotNil(name string, v any) {
+//   - `value`: the pointer to inspect.
+func NotNil[T any](name string, value *T) {
 
-	if !isNil(v) {
+	if value != nil {
 		return
 	}
 
@@ -90,10 +94,10 @@ func True(claim string, condition bool) {
 // Use for inline invariants whose failure message needs interpolation (type names, indices, registry keys, …).
 //
 // Parameters:
+//   - `format`: a [fmt.Sprintf] format string describing the invariant.
 //   - `condition`: the condition; failure raises with the formatted message.
-//   - `format`: a [fmt.Sprintf] format string.
 //   - `args`: the format arguments.
-func Truef(condition bool, format string, args ...any) {
+func Truef(format string, condition bool, args ...any) {
 	if condition {
 		return
 	}
@@ -146,36 +150,6 @@ func callerFrame(skip int) (string, string, int) {
 	frame, _ := runtime.CallersFrames(pcs[:]).Next()
 
 	return shortFunc(frame.Function), frame.File, frame.Line
-}
-
-// isNil reports whether v is a nil interface or a typed-nil reference value.
-//
-// A plain `v == nil` only catches nil interfaces; pointers, maps, slices, channels, and functions held inside an
-// interface compare unequal to nil even when their underlying value is zero. This helper handles both shapes — falling
-// back to [reflect.Value.IsNil] on the kinds where typed-nil is meaningful. NotNil runs only on the panic-imminent
-// path, so the reflection cost is irrelevant.
-//
-// Parameters:
-//   - `v`: the value to inspect.
-//
-// Returns:
-//   - `bool`: true if v is nil in any of the senses above.
-func isNil(v any) bool {
-
-	if v == nil {
-		return true
-	}
-
-	rv := reflect.ValueOf(v)
-
-	switch rv.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
-		return rv.IsNil()
-	default:
-		Unreachable("unexpected reflect.Kind")
-	}
-
-	return false
 }
 
 // raise builds an [*AssertionError] from the caller skip frames up the stack and panics with it.

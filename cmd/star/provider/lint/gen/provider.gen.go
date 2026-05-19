@@ -16,10 +16,10 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Go":          {"paths?", "config?=\"\"", "skip_mod_tidy?=false"},
-			"Shell":       {"files?", "severity?=\"warning\"", "indent?=0"},
-			"Markdown":    {"files?", "fix?=false"},
-			"EnsureTools": {},
+		map[string]op.MethodMetadata{
+			"Go":          {ParameterNames: []string{"paths?", "config?=\"\"", "skip_mod_tidy?=false"}},
+			"Shell":       {ParameterNames: []string{"files?", "severity?=\"warning\"", "indent?=0"}},
+			"Markdown":    {ParameterNames: []string{"files?", "fix?=false"}},
+			"EnsureTools": {ParameterNames: []string{}},
 		})
 }

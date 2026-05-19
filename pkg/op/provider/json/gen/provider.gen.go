@@ -16,10 +16,10 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Encode":       {"value"},
-			"EncodeIndent": {"value", "indent"},
-			"Decode":       {"data"},
-			"Parse":        {"data"},
+		map[string]op.MethodMetadata{
+			"Encode":       {ParameterNames: []string{"value"}},
+			"EncodeIndent": {ParameterNames: []string{"value", "indent"}},
+			"Decode":       {ParameterNames: []string{"data"}},
+			"Parse":        {ParameterNames: []string{"data"}},
 		})
 }

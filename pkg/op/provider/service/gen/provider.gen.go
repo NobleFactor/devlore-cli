@@ -16,14 +16,14 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Disable": {"name"},
-			"Enable":  {"name"},
-			"Restart": {"name"},
-			"Start":   {"name"},
-			"Stop":    {"name"},
-			"Enabled": {"name"},
-			"Exists":  {"name"},
-			"Running": {"name"},
+		map[string]op.MethodMetadata{
+			"Disable": {ParameterNames: []string{"name"}},
+			"Enable":  {ParameterNames: []string{"name"}},
+			"Restart": {ParameterNames: []string{"name"}},
+			"Start":   {ParameterNames: []string{"name"}},
+			"Stop":    {ParameterNames: []string{"name"}},
+			"Enabled": {ParameterNames: []string{"name"}},
+			"Exists":  {ParameterNames: []string{"name"}},
+			"Running": {ParameterNames: []string{"name"}},
 		})
 }

@@ -16,11 +16,11 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Arch":     {},
-			"Distro":   {},
-			"Hostname": {},
-			"OS":       {},
-			"Version":  {},
+		map[string]op.MethodMetadata{
+			"Arch":     {ParameterNames: []string{}},
+			"Distro":   {ParameterNames: []string{}},
+			"Hostname": {ParameterNames: []string{}},
+			"OS":       {ParameterNames: []string{}},
+			"Version":  {ParameterNames: []string{}},
 		})
 }

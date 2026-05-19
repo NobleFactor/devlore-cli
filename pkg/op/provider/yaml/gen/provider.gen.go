@@ -16,9 +16,9 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Encode": {"value"},
-			"Decode": {"data"},
-			"Parse":  {"data"},
+		map[string]op.MethodMetadata{
+			"Encode": {ParameterNames: []string{"value"}},
+			"Decode": {ParameterNames: []string{"data"}},
+			"Parse":  {ParameterNames: []string{"data"}},
 		})
 }

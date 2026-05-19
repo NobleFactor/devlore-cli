@@ -16,14 +16,14 @@ func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.RoleAction|op.RoleRoot,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
-		map[string][]string{
-			"Choose":    {"default_case", "*cases"},
-			"Complete":  {"output"},
-			"Degraded":  {"format", "*args", "**kwargs"},
-			"Elevate":   {},
-			"Failed":    {"format", "*args", "**kwargs"},
-			"Gather":    {"items", "do", "limit"},
-			"Subgraph":  {"items", "**kwargs"},
-			"WaitUntil": {"target", "predicate", "timeout", "interval"},
+		map[string]op.MethodMetadata{
+			"Choose":    {ParameterNames: []string{"default_case", "*cases"}},
+			"Complete":  {ParameterNames: []string{"output"}},
+			"Degraded":  {ParameterNames: []string{"format", "*args", "**kwargs"}},
+			"Elevate":   {ParameterNames: []string{}},
+			"Failed":    {ParameterNames: []string{"format", "*args", "**kwargs"}},
+			"Gather":    {ParameterNames: []string{"items", "do", "limit"}},
+			"Subgraph":  {ParameterNames: []string{"items", "**kwargs"}},
+			"WaitUntil": {ParameterNames: []string{"target", "predicate", "timeout", "interval"}},
 		})
 }
