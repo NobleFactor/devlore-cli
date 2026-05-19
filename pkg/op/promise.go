@@ -1,25 +1,24 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package starlarkbridge
+package op
 
 import (
 	"fmt"
 	"reflect"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
 
 // Promise represents the promise of an output from a producing node. When passed to a plan function's slot, the
-// consumer's slot is filled with a [op.PromiseValue] that references the producer node by ID.
+// consumer's slot is filled with a [PromiseValue] that references the producer node by ID.
 //
 // Per phase-8 D5, Promise is detached — it holds no graph reference. The producer→consumer edge is implicit in the
-// consumer slot's PromiseValue and is materialized by plan.run when it builds the [op.Graph] from the reachable
+// consumer slot's PromiseValue and is materialized by plan.run when it builds the [Graph] from the reachable
 // invocation set.
 type Promise struct {
 	// node is the action that produces this output
-	node *op.Node
+	node *Node
 
 	// slot identifies which output of the node this represents (empty = default)
 	slot string
@@ -33,7 +32,7 @@ type Promise struct {
 //
 // Returns:
 //   - *Promise: the new promise handle.
-func NewPromise(node *op.Node, slot string) *Promise {
+func NewPromise(node *Node, slot string) *Promise {
 
 	return &Promise{
 		node: node,
@@ -49,7 +48,7 @@ func NewPromise(node *op.Node, slot string) *Promise {
 //
 // Returns:
 //   - *Node: the producing node.
-func (p *Promise) Node() *op.Node {
+func (p *Promise) Node() *Node {
 
 	return p.node
 }
@@ -150,25 +149,25 @@ func (p *Promise) AttrNames() []string {
 
 // FillSlot fills a slot in the consumer node with this promise.
 //
-// The slot is set to a [op.PromiseValue] that references the producer node by ID. The producer→consumer edge is
+// The slot is set to a [PromiseValue] that references the producer node by ID. The producer→consumer edge is
 // implicit in this reference and materialized by plan.run when it walks the reachable invocation set and builds the
-// [op.Graph] (phase-8 D5). No edge struct is accumulated during dispatch.
+// [Graph] (phase-8 D5). No edge struct is accumulated during dispatch.
 //
 // Parameters:
 //   - consumer: the node receiving the promise.
 //   - slot: the slot name to fill.
-func (p *Promise) FillSlot(consumer *op.Node, slot string) {
+func (p *Promise) FillSlot(consumer *Node, slot string) {
 
-	consumer.SetSlot(slot, op.PromiseValue{NodeRef: p.node.ID(), Slot: p.slot})
+	consumer.SetSlot(slot, PromiseValue{NodeRef: p.node.ID(), Slot: p.slot})
 }
 
 // Project returns the Promise rendered for the given target type. For a *Promise or interface{} target the
-// Promise itself is returned; for an op.PromiseValue target the slot-ref shape is returned; for any other
+// Promise itself is returned; for an PromiseValue target the slot-ref shape is returned; for any other
 // target it errors — promises are not directly resolvable to Go scalar types at plan time.
 func (p *Promise) Project(target reflect.Type) (any, error) {
 
 	promiseType := reflect.TypeFor[*Promise]()
-	promiseValueType := reflect.TypeFor[op.PromiseValue]()
+	promiseValueType := reflect.TypeFor[PromiseValue]()
 
 	if target.Kind() == reflect.Interface {
 		return p, nil
@@ -177,7 +176,7 @@ func (p *Promise) Project(target reflect.Type) (any, error) {
 		return p, nil
 	}
 	if target == promiseValueType {
-		return op.PromiseValue{NodeRef: p.node.ID(), Slot: p.slot}, nil
+		return PromiseValue{NodeRef: p.node.ID(), Slot: p.slot}, nil
 	}
 	return nil, fmt.Errorf("cannot project Promise to %s (promises resolve at execute time)", target)
 }
@@ -248,18 +247,18 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 		return nil, fmt.Errorf("retry(): max_attempts must be non-negative, got %d", maxAttempts)
 	}
 
-	policy := &op.RetryPolicy{
+	policy := &RetryPolicy{
 		MaxAttempts: maxAttempts,
 	}
 
 	if backoff != "" {
 		switch backoff {
 		case "none":
-			policy.Backoff = op.BackoffNone
+			policy.Backoff = BackoffNone
 		case "linear":
-			policy.Backoff = op.BackoffLinear
+			policy.Backoff = BackoffLinear
 		case "exponential":
-			policy.Backoff = op.BackoffExponential
+			policy.Backoff = BackoffExponential
 		default:
 			return nil, fmt.Errorf("retry(): unknown backoff %q (use none, linear, or exponential)", backoff)
 		}

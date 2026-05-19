@@ -44,6 +44,7 @@ type Resource interface {
 	Addressing() AddressingMode
 	Digest() (Digest, error)
 	Etag() (string, error)
+	ProducerID() string
 	State() State
 
 	Resolve() error

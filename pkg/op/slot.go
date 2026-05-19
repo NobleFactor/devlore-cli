@@ -30,6 +30,37 @@ func (s *Slot) Immediate() any {
 	return nil
 }
 
+// ProducerID returns the ID of the unit producing this slot's value, or empty string when the slot has no
+// implicit producer dependency.
+//
+// Resolution by SlotValue variant:
+//   - [PromiseValue]: the producer is the unit named by [PromiseValue.NodeRef].
+//   - [ImmediateValue] whose Value is an [op.Resource] with a non-empty [Resource.ProducerID]: the producer
+//     is the catalog-stamped producer node.
+//   - [VariableValue] or any other shape: no producer dependency — returns empty.
+//
+// Consumed by [Subgraph.MaterializeEdges] during graph assembly to emit sibling-level edges.
+//
+// Returns:
+//   - `string`: the producer's ID, or empty string when none.
+func (s *Slot) ProducerID() string {
+
+	if s == nil {
+		return ""
+	}
+
+	switch v := s.Value.(type) {
+	case PromiseValue:
+		return v.NodeRef
+	case ImmediateValue:
+		if r, ok := v.Value.(Resource); ok {
+			return r.ProducerID()
+		}
+	}
+
+	return ""
+}
+
 // endregion
 
 // endregion

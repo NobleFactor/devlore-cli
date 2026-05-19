@@ -147,6 +147,29 @@ func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.childrenByID[i
 //   - []ExecutableUnit: the direct children.
 func (s *Subgraph) Children() []ExecutableUnit { return s.children }
 
+// MaterializeEdges walks this subgraph and every nested [*Subgraph] descendant. For each direct [*Node]
+// child encountered, it inspects every slot and emits an [Edge] from the slot's producer (via
+// [Slot.ProducerID]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list.
+//
+// Called by [plan.Provider.Assemble] post-rooting so each Subgraph's local edge constraints reflect the
+// slot-level dependencies (PromiseValue NodeRefs and Resource producerIDs) baked into its children.
+// Recurses into nested subgraphs so the whole tree is covered in one call.
+func (s *Subgraph) MaterializeEdges() {
+
+	for _, child := range s.children {
+		switch t := child.(type) {
+		case *Node:
+			for _, slot := range t.Slots {
+				if pid := slot.ProducerID(); pid != "" {
+					s.Edges = append(s.Edges, Edge{From: pid, To: t.ID()})
+				}
+			}
+		case *Subgraph:
+			t.MaterializeEdges()
+		}
+	}
+}
+
 // SetErrorAction sets this subgraph's failure-handler [*Subgraph] and stamps its parentID to this
 // subgraph's ID, shadowing the embedded [executableUnit.SetErrorAction] so the post-assemble
 // invariant — every Invocation Target has a non-empty parentID — covers `error_action=` assignments.
@@ -164,11 +187,27 @@ func (s *Subgraph) Children() []ExecutableUnit { return s.children }
 // Parameters:
 //   - `ea`: the failure-handler subgraph, or nil to clear.
 func (s *Subgraph) SetErrorAction(ea *Subgraph) {
-
 	if ea != nil {
 		ea.stampParent(s.ID())
 	}
 	s.errorAction = ea
+}
+
+// SortAll sorts this subgraph's children topologically per [Subgraph.Edges] and recurses into every
+// nested [*Subgraph] child. Each Subgraph in the tree ends up with its `children` slice in topological
+// order, so the executor iterates without re-sorting.
+//
+// Called by [plan.Provider.Assemble] post-edge-materialization so the in-memory and serialized order
+// match the execution order.
+func (s *Subgraph) SortAll() {
+
+	s.sortChildren()
+
+	for _, child := range s.children {
+		if sub, ok := child.(*Subgraph); ok {
+			sub.SortAll()
+		}
+	}
 }
 
 // endregion
@@ -270,9 +309,11 @@ func (s *Subgraph) childIDs() []string {
 	}
 
 	out := make([]string, len(s.children))
+
 	for i, c := range s.children {
 		out[i] = c.ID()
 	}
+
 	return out
 }
 
@@ -289,9 +330,9 @@ func (s *Subgraph) descendantNodes() []*Node {
 		return nil
 	}
 
+	var walk func(*Subgraph)
 	var out []*Node
 
-	var walk func(*Subgraph)
 	walk = func(parent *Subgraph) {
 		for _, c := range parent.children {
 			switch t := c.(type) {
@@ -302,8 +343,8 @@ func (s *Subgraph) descendantNodes() []*Node {
 			}
 		}
 	}
-	walk(s)
 
+	walk(s)
 	return out
 }
 
@@ -350,9 +391,9 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 		return nil
 	}
 
+	var walk func(*Subgraph)
 	var out []*Subgraph
 
-	var walk func(*Subgraph)
 	walk = func(parent *Subgraph) {
 		for _, c := range parent.children {
 			if sg, ok := c.(*Subgraph); ok {
@@ -361,8 +402,8 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 			}
 		}
 	}
-	walk(s)
 
+	walk(s)
 	return out
 }
 
@@ -434,6 +475,7 @@ func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:goc
 	}
 
 	var queue []string
+
 	for _, c := range s.children {
 		id := c.ID()
 		if inDegree[id] == 0 {
@@ -442,6 +484,7 @@ func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:goc
 	}
 
 	var sorted []ExecutableUnit
+
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package starlarkbridge
+package op
 
 import (
 	"fmt"
@@ -77,10 +77,10 @@ func (r *InvocationRegistry) AutoLabel(providerMethod string) string {
 // ByLabel returns the invocation registered under label, or nil if no such label exists.
 //
 // Parameters:
-//   - label: the label to look up.
+//   - `label`: the label to look up.
 //
 // Returns:
-//   - *Invocation: the registered invocation, or nil if not found.
+//   - `*Invocation`: the registered invocation, or nil if not found.
 func (r *InvocationRegistry) ByLabel(label string) *Invocation {
 
 	r.mutex.Lock()
@@ -95,11 +95,11 @@ func (r *InvocationRegistry) ByLabel(label string) *Invocation {
 // user-provided label (from [Options.Label]) or an auto-generated one from [InvocationRegistry.AutoLabel].
 //
 // Parameters:
-//   - label: the unique label for this invocation.
-//   - invocation: the invocation to register.
+//   - `label`: the unique label for this invocation.
+//   - `invocation`: the invocation to register.
 //
 // Returns:
-//   - error: non-nil if label is already registered.
+//   - `error`: non-nil if label is already registered.
 func (r *InvocationRegistry) Register(label string, invocation *Invocation) error {
 
 	r.mutex.Lock()
