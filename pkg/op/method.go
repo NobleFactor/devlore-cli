@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // activationRecordType is cached for detecting provider methods whose first parameter (after the receiver)
@@ -568,7 +570,8 @@ func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, err
 		return results[0], results[1], errFromValue(results[2])
 	}
 
-	panic("unreachable")
+	assert.Unreachable("Method.Invoke: exhaustive switch on m.kind")
+	return reflect.Value{}, reflect.Value{}, nil
 }
 
 // String returns the full Go method signature in human-readable form.

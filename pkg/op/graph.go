@@ -29,6 +29,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
@@ -630,13 +631,9 @@ func (n *Node) ResolveSlots(variables map[string]Variable, results map[string]an
 
 func (n *Node) requireParam(name, caller string) Parameter {
 
-	if n.method == nil {
-		panic(fmt.Sprintf("%s: node %q is not bound to a method", caller, n.ID()))
-	}
+	assert.Truef(n.method != nil, "%s: node %q is not bound to a method", caller, n.ID())
 	param, ok := n.method.ParameterByName(name)
-	if !ok {
-		panic(fmt.Sprintf("%s: parameter %q not found on method %s", caller, name, n.method.Name()))
-	}
+	assert.Truef(ok, "%s: parameter %q not found on method %s", caller, name, n.method.Name())
 	return param
 }
 

@@ -4,8 +4,6 @@
 package op
 
 import (
-	"fmt"
-
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
@@ -55,10 +53,12 @@ type ExecutableUnit interface {
 // retryPolicy means no retry; nil errorAction defaults to the flow.Provider.Failed sentinel at dispatch
 // time.
 //
-// errorAction is always a [*Subgraph]. Single-handler authoring shapes — bare Node or single-Invocation
-// values from `error_action=`-style kwargs — are auto-wrapped into a single-child Subgraph by the
-// bridge (see [starlarkbridge.dispatchContainer]) so the executor's failure dispatch is uniform: every
-// runnable block is a Subgraph dispatched through executeSubgraph.
+// errorAction is always a [*Subgraph]. Authoring grammar at the .star surface is
+// `error_action=[invocation, ...]` — a list of invocations, never a bare invocation. The plan-side
+// helper `subgraphFromInvocations` materializes the list into a Subgraph by `NewSubgraph` + per-element
+// `AddChild`. Same primitive shape as `body=` for `plan.subgraph` (the list IS the subgraph
+// specification). The executor's failure dispatch can stay branch-free: every error handler is a
+// Subgraph dispatched through executeSubgraph.
 type executableUnit struct {
 	id          string
 	parameters  []Parameter
@@ -104,9 +104,10 @@ func (e *executableUnit) SetRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
 //     flow.Provider.Failed sentinel at dispatch time.
 func (e *executableUnit) ErrorAction() *Subgraph { return e.errorAction }
 
-// SetErrorAction sets the failure-handler subgraph. The base implementation is a plain field write;
-// [Subgraph.SetErrorAction] shadows it to additionally stamp `parentID` on the handler so the
-// post-assemble orphan scan covers `error_action=` assignments.
+// SetErrorAction sets the failure-handler subgraph.
+//
+// The base implementation is a plain field `write`. [Subgraph.SetErrorAction] shadows it to additionally stamp
+// `parentID` on the handler so the post-assembly orphan scan covers `error_action=` assignments.
 //
 // Parameters:
 //   - `ea`: the failure-handling subgraph. Pass nil to use the default flow.Provider.Failed sentinel.
@@ -114,22 +115,21 @@ func (e *executableUnit) SetErrorAction(ea *Subgraph) { e.errorAction = ea }
 
 // stampParent sets this unit's parentID with idempotency.
 //
-// Calling again with the same parentID succeeds silently; calling with a different non-empty parentID
-// panics — within a single Graph context, a unit can be a child of only one Subgraph at a time. Cross-
-// Graph reuse via the constant "root" ID for graph.Root is the use case the idempotency permits.
+// Calling again with the same parentID succeeds silently; calling with a different non-empty parentID panics — within a
+// single Graph context, a unit can be a child of only one Subgraph at a time. Cross-graph reuse via the constant
+// "root" ID for graph.Root is the use case the idempotency permits.
 //
 // Parameters:
-//   - newParentID: the parent Subgraph's ID to stamp. Must not be empty (asserted).
+//   - `newParentID`: the parent Subgraph's ID to stamp. Must not be empty (asserted).
 func (e *executableUnit) stampParent(newParentID string) {
 
 	assert.True("newParentID not empty", newParentID != "")
 
-	if e.parentID != "" && e.parentID != newParentID {
-		panic(fmt.Sprintf(
-			"executableUnit %q already has parentID %q; cannot re-parent to %q",
-			e.id, e.parentID, newParentID,
-		))
-	}
+	assert.Truef(e.parentID == "" || e.parentID == newParentID,
+		"executableUnit %q already has parentID %q; cannot re-parent to %q",
+		e.id,
+		e.parentID,
+		newParentID)
 
 	e.parentID = newParentID
 }

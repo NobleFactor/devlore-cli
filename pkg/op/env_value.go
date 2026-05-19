@@ -60,9 +60,11 @@ func (envValue) CanConvertTo(target reflect.Type) bool {
 	if target == nil {
 		return false
 	}
+
 	if target.Implements(envValueResourceType) {
 		return false
 	}
+
 	return true
 }
 
@@ -145,23 +147,26 @@ func (e envValue) ConvertTo(target reflect.Type) (any, error) {
 			return nil, fmt.Errorf("parse %q as %s: %w", raw, target, err)
 		}
 		return reflect.ValueOf(v).Convert(target).Interface(), nil
-	}
 
-	probe := reflect.New(target).Interface()
+	default:
 
-	if tu, ok := probe.(encoding.TextUnmarshaler); ok {
-		if err := tu.UnmarshalText([]byte(raw)); err != nil {
-			return nil, fmt.Errorf("UnmarshalText %q into %s: %w", raw, target, err)
+		probe := reflect.New(target).Interface()
+
+		if tu, ok := probe.(encoding.TextUnmarshaler); ok {
+			if err := tu.UnmarshalText([]byte(raw)); err != nil {
+				return nil, fmt.Errorf("UnmarshalText %q into %s: %w", raw, target, err)
+			}
+			return reflect.ValueOf(probe).Elem().Interface(), nil
 		}
-		return reflect.ValueOf(probe).Elem().Interface(), nil
-	}
 
-	out := reflect.New(target).Interface()
+		out := reflect.New(target).Interface()
 
-	if err := json.Unmarshal([]byte(raw), out); err != nil {
-		return nil, fmt.Errorf("unmarshal %q as %s: %w", raw, target, err)
+		if err := json.Unmarshal([]byte(raw), out); err != nil {
+			return nil, fmt.Errorf("unmarshal %q as %s: %w", raw, target, err)
+		}
+
+		return reflect.ValueOf(out).Elem().Interface(), nil
 	}
-	return reflect.ValueOf(out).Elem().Interface(), nil
 }
 
 // endregion

@@ -4,8 +4,9 @@
 package op
 
 import (
-	"fmt"
 	"reflect"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // DefaultFunc is the signature every entry in the deferred-default registry conforms to.
@@ -51,9 +52,8 @@ type DefaultFunc func(env *RuntimeEnvironment, siblings map[string]any, args []r
 //   - If name is already registered.
 func RegisterDefaultFunc(name string, fn DefaultFunc) {
 
-	if err := announced.registerDefaultFunc(name, fn); err != nil {
-		panic(fmt.Sprintf("op.RegisterDefaultFunc: %v", err))
-	}
+	err := announced.registerDefaultFunc(name, fn)
+	assert.NoError("op.RegisterDefaultFunc", err)
 }
 
 // endregion

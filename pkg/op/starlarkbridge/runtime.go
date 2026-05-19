@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
@@ -27,10 +28,10 @@ type Runtime struct {
 
 // NewRuntime creates a fully initialized runtime that borrows the supplied [op.RuntimeEnvironment].
 //
-// The runtime does NOT own the env's lifetime — the caller (typically an [op.Plan] closure, a tool
-// session-owner like [star.Application], or a wrapper that explicitly built the env) constructs the env,
-// passes it here for the duration of starlark work, and is responsible for `defer env.Close()`. Providers
-// are constructed and cached as the predeclared starlark globals from `env.Registry.Modules()`.
+// The runtime does NOT own the env's lifetime — the caller (typically an [op.Plan] closure, a tool session-owner like
+// [star.Application], or a wrapper that explicitly built the env) constructs the env, passes it here for the duration
+// of starlark work, and is responsible for `defer env.Close()`. Providers are constructed and cached as the predeclared
+// starlark globals from `env.Registry.Modules()`.
 //
 // Parameters:
 //   - `env`: the runtime environment to borrow. Its Registry's full module set is exposed as starlark globals.
@@ -52,12 +53,12 @@ func NewRuntime(env *op.RuntimeEnvironment) *Runtime {
 	// declared by each provider (see phase-8 D12):
 	//
 	//   immediate, root=false → top-level global under the provider's name (status quo for plan, pkg, archive, …).
-	//   immediate, root=true  → each method installed as its own top-level predeclared entry; the provider instance
-	//                            itself is not exposed. Reserved; no Phase 8 provider uses this row.
-	//   planned,   root=false → NOT registered; reached via plan.<provider>.<method> through plan.Provider's
-	//                            sub-namespace dispatch (status quo for file, git, service, …).
-	//   planned,   root=true  → NOT registered; plan.Provider discovers the provider via registry.RootProviders()
-	//                            and hosts its methods flat at the plan namespace root via Tier 2 dispatch (flow).
+	//   immediate, root=true → each method installed as its own top-level predeclared entry; the provider instance
+	//                          itself is not exposed. Reserved; no Phase 8 provider uses this row.
+	//   planned, root=false → NOT registered; reached via plan.<provider>.<method> through plan.Provider's
+	//                         sub-namespace dispatch (status quo for file, git, service, …).
+	//   planned, root=true → NOT registered; plan.Provider discovers the provider via registry.RootProviders()
+	//                        and hosts its methods flat at the plan namespace root via Tier 2 dispatch (flow).
 	//
 	// Providers that declare both RoleModule and RoleAction (access=both) register their module side per the
 	// dispatch-zone rows above; their planned side is reached via plan.* regardless of placement.
@@ -90,32 +91,31 @@ func NewRuntime(env *op.RuntimeEnvironment) *Runtime {
 		}
 
 		hasAttrs, ok := sv.(starlark.HasAttrs)
-		if !ok {
-			panic(fmt.Sprintf("provider %s wrapper (%T) does not implement starlark.HasAttrs",
-				module.Name(),
-				sv))
-		}
+
+		assert.Truef(ok, "provider %s wrapper (%T) does not implement starlark.HasAttrs",
+			module.Name(),
+			sv)
 
 		for m := range module.Methods() {
 
 			snake := op.CamelToSnake(m.Name())
 
 			if existing, collides := predeclared[snake]; collides {
-				panic(fmt.Sprintf("top-level global %q declared on both %s (root immediate) and existing predeclared (%T)",
+				assert.Failf("top-level global %q declared on both %s (root immediate) and existing predeclared (%T)",
 					snake,
 					module.Name(),
-					existing))
+					existing)
 			}
 
 			attr, err := hasAttrs.Attr(snake)
-			if err != nil {
-				panic(fmt.Sprintf("provider %q: method %q (snake_case %q) registered in receiver type but Attr(%q) failed — registry/Attr mismatch: %v",
-					module.Name(),
-					m.Name(),
-					snake,
-					snake,
-					err))
-			}
+
+			assert.Truef(err != nil,
+				"provider %q: method %q (snake_case %q) registered in receiver type but Attr(%q) failed — registry/Attr mismatch: %v",
+				module.Name(),
+				m.Name(),
+				snake,
+				snake,
+				err)
 
 			predeclared[snake] = attr
 		}
@@ -128,6 +128,14 @@ func NewRuntime(env *op.RuntimeEnvironment) *Runtime {
 // region EXPORTED METHODS
 
 // region State management
+
+// Environment returns the runtime environment context.
+//
+// Returns:
+//   - *op.RuntimeEnvironment: the environment.
+func (rt *Runtime) Environment() *op.RuntimeEnvironment {
+	return rt.environment
+}
 
 // Modules returns the selected modules.
 //
@@ -145,14 +153,6 @@ func (rt *Runtime) Modules() []op.ProviderReceiverType {
 func (rt *Runtime) Registry() *op.ReceiverRegistry {
 
 	return rt.registry
-}
-
-// ExecutionContext returns the runtime environment context.
-//
-// Returns:
-//   - *op.RuntimeEnvironment: the environment.
-func (rt *Runtime) ExecutionContext() *op.RuntimeEnvironment {
-	return rt.environment
 }
 
 // Predeclared returns the cached predeclared starlark globals dict built from the selected modules.
@@ -304,7 +304,7 @@ type loaderEntry struct {
 
 // region Behaviors
 
-// buildOne constructs a [starlark.Value] from a provider receiver type via the RuntimeEnvironment provider cache.
+// buildOne constructs a [starlark.Value] from a provider receiver type via the Environment provider cache.
 //
 // Parameters:
 //   - prt: the provider receiver type.

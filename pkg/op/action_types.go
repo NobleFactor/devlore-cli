@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // action wraps a Method for graph execution. Infallible — no error, no undo.
@@ -49,9 +51,7 @@ func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (R
 	runtimeEnvironment := activationRecord.Runtime
 
 	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
-	if err != nil {
-		panic(fmt.Sprintf("%s: %v", a.name, err))
-	}
+	assert.NoError(a.name, err)
 
 	if runtimeEnvironment.Application.DryRun() {
 		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
@@ -59,9 +59,7 @@ func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (R
 	}
 
 	result, _, err := a.method.Invoke(activationRecord, provider, slots)
-	if err != nil {
-		panic(fmt.Sprintf("%s: unexpected error from infallible method: %v", a.name, err))
-	}
+	assert.NoError(a.name+": unexpected error from infallible method", err)
 	return result, nil, nil
 }
 
@@ -214,7 +212,8 @@ func newAction(rt ProviderReceiverType, method *Method, name string) Action {
 	case MethodCompensableFunction:
 		return &compensableAction{receiverType: rt, method: method, name: name}
 	default:
-		panic(fmt.Sprintf("newAction: unknown method kind %d for %s", method.Kind(), name))
+		assert.Failf("newAction: unknown method kind %d for %s", method.Kind(), name)
+		return nil
 	}
 }
 

@@ -97,7 +97,7 @@ func True(claim string, condition bool) {
 //   - `format`: a [fmt.Sprintf] format string describing the invariant.
 //   - `condition`: the condition; failure raises with the formatted message.
 //   - `args`: the format arguments.
-func Truef(format string, condition bool, args ...any) {
+func Truef(condition bool, format string, args ...any) {
 	if condition {
 		return
 	}
@@ -124,6 +124,24 @@ func Unreachable(reason string) {
 //   - `args`: the format arguments.
 func Failf(format string, args ...any) {
 	raise(2, fmt.Sprintf(format, args...))
+}
+
+// NoError panics with an [*AssertionError] when `err` is non-nil.
+//
+// Use for downstream errors that indicate a bug — not a recoverable runtime condition. The panic
+// message has the form "<context>: <err>". For sites where `context` itself needs interpolation,
+// build it with [fmt.Sprintf] at the call site or use [Failf] directly.
+//
+// Parameters:
+//   - `context`: short label identifying the operation that produced `err` (e.g. "op.Defer").
+//   - `err`: the error to inspect.
+func NoError(context string, err error) {
+
+	if err == nil {
+		return
+	}
+
+	raise(2, fmt.Sprintf("%s: %v", context, err))
 }
 
 // endregion

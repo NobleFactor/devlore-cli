@@ -416,13 +416,7 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
 		return
 	}
 
-	assert.Truef(
-		"subgraph %q: variable %q declared with incompatible types %s and %s across slots",
-		existing.Type == bubbled.Type,
-		s.ID(),
-		bubbled.Name,
-		existing.Type,
-		bubbled.Type)
+	assert.Truef(existing.Type == bubbled.Type, "subgraph %q: variable %q declared with incompatible types %s and %s across slots", s.ID(), bubbled.Name, existing.Type, bubbled.Type)
 }
 
 // sortChildren replaces this subgraph's children slice with the result of [Subgraph.topologicallySortedChildren].

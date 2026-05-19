@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"sort"
 	"sync"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // announcements is the package-level registry of all init-time announcements: receiver types (providers,
@@ -183,9 +185,9 @@ func (a *announcements) validatorStub() map[string]any {
 //   - `methods`: codegen-emitted [MethodMetadata] per Go method, keyed by the method's Go name.
 func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct ProviderConstructor, methods map[string]MethodMetadata) {
 
-	if roles.Dispatch() == 0 {
-		panic(fmt.Sprintf("AnnounceProvider(%s): roles must set at least one dispatch-zone bit (RoleModule or RoleAction); got %#x", providerType, uint(roles)))
-	}
+	label := fmt.Sprintf("AnnounceProvider(%s)", providerType)
+
+	assert.Truef(roles.Dispatch() != 0, "%s: roles must set at least one dispatch-zone bit (RoleModule or RoleAction); got %#x", label, uint(roles))
 
 	methodParameters := make(map[string][]string, len(methods))
 	planners := make(map[string]Planner, len(methods))
@@ -196,18 +198,13 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 	}
 
 	parsed, err := parseParameters(providerType, methodParameters)
-	if err != nil {
-		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
-	}
+	assert.NoError(label, err)
 
 	rt, err := NewProviderReceiverType(providerType, construct, roles, parsed, planners)
-	if err != nil {
-		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
-	}
+	assert.NoError(label, err)
 
-	if err := announced.registerReceiverType(rt); err != nil {
-		panic(fmt.Sprintf("AnnounceProvider(%s): %v", providerType, err))
-	}
+	err = announced.registerReceiverType(rt)
+	assert.NoError(label, err)
 }
 
 // AnnounceResource registers a resource type.
@@ -225,19 +222,16 @@ func AnnounceResource(
 	methodParameters map[string][]string,
 ) {
 
+	label := fmt.Sprintf("AnnounceResource(%s)", resourceType)
+
 	parsed, err := parseParameters(resourceType, methodParameters)
-	if err != nil {
-		panic(fmt.Sprintf("AnnounceResource(%s): %v", resourceType, err))
-	}
+	assert.NoError(label, err)
 
 	rt, err := NewResourceReceiverType(resourceType, construct, parsed)
-	if err != nil {
-		panic(fmt.Sprintf("AnnounceResource(%s): %v", resourceType, err))
-	}
+	assert.NoError(label, err)
 
-	if err := announced.registerReceiverType(rt); err != nil {
-		panic(fmt.Sprintf("AnnounceResource(%s): %v", resourceType, err))
-	}
+	err = announced.registerReceiverType(rt)
+	assert.NoError(label, err)
 }
 
 // AnnounceType registers a bare receiver type for an arbitrary Go struct.
@@ -251,19 +245,16 @@ func AnnounceResource(
 //   - methodParameters: starlark parameter names per Go method.
 func AnnounceType(goType reflect.Type, methodParameters map[string][]string) {
 
+	label := fmt.Sprintf("AnnounceType(%s)", goType)
+
 	parsed, err := parseParameters(goType, methodParameters)
-	if err != nil {
-		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
-	}
+	assert.NoError(label, err)
 
 	base, err := newReceiverType(goType, parsed, nil, false)
-	if err != nil {
-		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
-	}
+	assert.NoError(label, err)
 
-	if err := announced.registerReceiverType(&base); err != nil {
-		panic(fmt.Sprintf("AnnounceType(%s): %v", goType, err))
-	}
+	err = announced.registerReceiverType(&base)
+	assert.NoError(label, err)
 }
 
 // ReceiverRegistry stores receiver types in four sorted lists plus cross-cutting lookup maps.

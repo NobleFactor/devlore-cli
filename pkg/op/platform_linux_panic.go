@@ -5,6 +5,9 @@
 
 package op
 
+import "github.com/NobleFactor/devlore-cli/pkg/assert"
+
 func newLinux() *Platform {
-	panic("newLinux called on non-linux platform")
+	assert.Unreachable("newLinux called on non-linux platform")
+	return nil
 }

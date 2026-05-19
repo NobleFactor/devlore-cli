@@ -48,6 +48,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // ansiRe matches ANSI escape sequences (CSI and OSC).
@@ -303,9 +305,7 @@ func (s *Session) Set(name, value string) *Session {
 // Must runs a command and panics if it fails.
 func (s *Session) Must(command string) *Result {
 	result := s.Run(command)
-	if result.Failed() {
-		panic(fmt.Sprintf("command failed: %s\n%s", result.String(), result.Stderr))
-	}
+	assert.Truef(!result.Failed(), "command failed: %s\n%s", result.String(), result.Stderr)
 	return result
 }
 

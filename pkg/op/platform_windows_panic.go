@@ -5,6 +5,9 @@
 
 package op
 
+import "github.com/NobleFactor/devlore-cli/pkg/assert"
+
 func newWindows() *Platform {
-	panic("newWindows called on non-windows platform")
+	assert.Unreachable("newWindows called on non-windows platform")
+	return nil
 }

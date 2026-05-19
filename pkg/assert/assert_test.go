@@ -95,12 +95,12 @@ func TestTruefPasses(t *testing.T) {
 		}
 	}()
 
-	assert.Truef("got %d, want %d", true, 3, 5)
+	assert.Truef(true, "got %d, want %d", 3, 5)
 }
 
 func TestTruefFails(t *testing.T) {
 
-	got := recoverError(t, func() { assert.Truef("got %d, want %d", false, 3, 5) })
+	got := recoverError(t, func() { assert.Truef(false, "got %d, want %d", 3, 5) })
 
 	if got == nil {
 		t.Fatal("expected panic")
@@ -131,6 +131,29 @@ func TestFailf(t *testing.T) {
 	}
 	if got.Message != "got 3, want 5" {
 		t.Errorf("Message = %q, want %q", got.Message, "got 3, want 5")
+	}
+}
+
+func TestNoErrorPasses(t *testing.T) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("NoError panicked on nil error: %v", r)
+		}
+	}()
+
+	assert.NoError("op.Defer", nil)
+}
+
+func TestNoErrorFails(t *testing.T) {
+
+	got := recoverError(t, func() { assert.NoError("op.Defer", errors.New("bad path")) })
+
+	if got == nil {
+		t.Fatal("expected panic")
+	}
+	if got.Message != "op.Defer: bad path" {
+		t.Errorf("Message = %q, want %q", got.Message, "op.Defer: bad path")
 	}
 }
 

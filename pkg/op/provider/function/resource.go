@@ -18,6 +18,7 @@ import (
 	"go.starlark.net/syntax"
 	"golang.org/x/exp/mmap"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -647,9 +648,7 @@ func programToBytes(prog *starlark.Program) (_ []byte, err error) {
 //     false.
 func funcError(target reflect.Type, numValues int, hasError bool, err error) []reflect.Value {
 
-	if !hasError {
-		panic(fmt.Sprintf("starlark bridge: %v", err))
-	}
+	assert.Truef(hasError, "starlark bridge: %v", err)
 
 	out := make([]reflect.Value, target.NumOut())
 

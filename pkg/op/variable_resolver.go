@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // VariableResolver assembles variable values from layered sources with explicit precedence.
@@ -78,9 +79,7 @@ func (r *VariableResolver) EnvPrefix() string {
 //   - `bool`: true if a variable was resolved for this name; false otherwise.
 func (r *VariableResolver) Get(name string) (Variable, bool) {
 
-	if r.resolved == nil {
-		panic("op.VariableResolver: Get called before Resolve")
-	}
+	assert.True("op.VariableResolver: Get called before Resolve", r.resolved != nil)
 	v, ok := r.resolved[name]
 	return v, ok
 }
@@ -91,9 +90,7 @@ func (r *VariableResolver) Get(name string) (Variable, bool) {
 //   - map[string]Variable: the resolved variable map, keyed by parameter name.
 func (r *VariableResolver) Variables() map[string]Variable {
 
-	if r.resolved == nil {
-		panic("op.VariableResolver: Variables called before Resolve")
-	}
+	assert.True("op.VariableResolver: Variables called before Resolve", r.resolved != nil)
 	return r.resolved
 }
 

@@ -5,6 +5,9 @@
 
 package op
 
+import "github.com/NobleFactor/devlore-cli/pkg/assert"
+
 func newDarwin() *Platform {
-	panic("newDarwin called on non-darwin platform")
+	assert.Unreachable("newDarwin called on non-darwin platform")
+	return nil
 }

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // tagURIPrefix is the fixed prefix of every canonical [Resource] URI.
@@ -370,9 +372,7 @@ func Defer[R any, PR interface {
 	v := PR(new(R))
 
 	base, err := NewResourceBase(runtimeEnvironment, "", reflect.TypeFor[PR]())
-	if err != nil {
-		panic(fmt.Sprintf("op.Defer: %v", err))
-	}
+	assert.NoError("op.Defer", err)
 
 	*v.resourceBase() = base
 	return v

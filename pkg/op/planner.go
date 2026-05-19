@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // executableUnitType caches the reflect.Type of [ExecutableUnit] for [Planner] implementations that need
@@ -121,7 +123,8 @@ func plannerForType(t reflect.Type) Planner {
 		return p
 	}
 
-	panic(fmt.Sprintf("op.plannerForType: %s does not implement Planner", t))
+	assert.Failf("op.plannerForType: %s does not implement Planner", t)
+	return nil
 }
 
 // ActionPlanner is the default vanilla planner — one starlark call produces one leaf [*Node].

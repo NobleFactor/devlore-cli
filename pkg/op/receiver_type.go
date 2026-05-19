@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // ReceiverType is the base interface for all receiver descriptors.
@@ -532,7 +534,8 @@ func compileDispatcher(m *Method) dispatcher {
 		}
 	}
 
-	panic("unreachable")
+	assert.Unreachable("receiver_type: exhaustive switch on m.kind")
+	return nil
 }
 
 // methodFromReflectedMethod creates a [Method] from a reflected Go method on a receiver type.

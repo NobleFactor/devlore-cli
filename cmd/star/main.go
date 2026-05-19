@@ -15,6 +15,7 @@ import (
 	cli2 "github.com/NobleFactor/devlore-cli/cmd/star/cli"
 	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/spf13/cobra"
@@ -415,10 +416,8 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 			cobraCmd.Flags().String(flag.Name, flag.Default, flag.Help)
 		}
 		if flag.Required {
-			if err := cobraCmd.MarkFlagRequired(flag.Name); err != nil {
-				// Flag was just added, this can't fail
-				panic(fmt.Sprintf("failed to mark flag %q as required: %v", flag.Name, err))
-			}
+			err := cobraCmd.MarkFlagRequired(flag.Name)
+			assert.NoError(fmt.Sprintf("MarkFlagRequired(%q)", flag.Name), err)
 		}
 	}
 
