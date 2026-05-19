@@ -258,16 +258,17 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		tracer.Record("tmpdir: %s", tmpDir)
 	}
 
-	// 6. Run the planning session via op.Plan. The closure pulls the env from the graph (so the
-	//    starlark bridge shares the same env the graph is bound to — single env per planning
-	//    session, no dual-env smell). scriptExecErr is hoisted so the post-Plan path can build a
-	//    result that includes expected-error assertions.
+	// 6. Run the planning session via op.Plan. The closure receives the planning env directly and
+	//    evaluates the .star script for its side effects. Graph hand-off via plan.assemble lands in
+	//    Layer A step 3; today the closure returns nil and the post-Plan path executes against an
+	//    empty graph until plan.assemble is wired up. scriptExecErr is hoisted so the post-Plan
+	//    path can build a result that includes expected-error assertions.
 
 	var scriptExecErr error
 
-	graph, planErr := op.Plan(ctx, spec, func(g *op.Graph) error {
+	graph, planErr := op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
 
-		bridge := starlarkbridge.NewRuntime(g.RuntimeEnvironment())
+		bridge := starlarkbridge.NewRuntime(env)
 		globals := bridge.Predeclared()
 		globals["t"] = tc.StarlarkValue()
 
@@ -284,9 +285,9 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 		_, scriptExecErr = starlark.ExecFileOptions(opts, thread, r.script, scriptData, globals)
 		if scriptExecErr != nil && !hasErrorExpectation(tc) {
-			return fmt.Errorf("executing script: %w", scriptExecErr)
+			return nil, fmt.Errorf("executing script: %w", scriptExecErr)
 		}
-		return nil
+		return nil, nil
 	})
 	if planErr != nil {
 		return nil, planErr

@@ -25,12 +25,6 @@ type Subgraph struct {
 	// Attempts records retry history (populated during execution).
 	Attempts []Attempt
 
-	// Branch marks this subgraph as a conditional branch owned by a choose action.
-	//
-	// Branch subgraphs are not executed directly by the top-level executor; they are dispatched by the choose action's
-	// Do method.
-	Branch bool
-
 	// Compensate is the ID of the compensating subgraph for rollback.
 	Compensate string
 

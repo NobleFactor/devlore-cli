@@ -298,7 +298,6 @@ type subgraphPayload struct {
 	Compensate string         `json:"compensate,omitempty" yaml:"compensate,omitempty"`
 	Attempts   []Attempt      `json:"attempts,omitempty"   yaml:"attempts,omitempty"`
 	State      map[string]any `json:"state,omitempty"      yaml:"state,omitempty"`
-	Branch     bool           `json:"branch,omitempty"     yaml:"branch,omitempty"`
 }
 
 func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshalPayload()) }
@@ -347,7 +346,6 @@ func (s *Subgraph) applyPayload(p *subgraphPayload) {
 	s.Compensate = p.Compensate
 	s.Attempts = p.Attempts
 	s.State = p.State
-	s.Branch = p.Branch
 
 	s.children = nil
 	s.childrenByID = nil
@@ -392,7 +390,6 @@ func (s *Subgraph) marshalPayload() subgraphPayload {
 		Compensate: s.Compensate,
 		Attempts:   s.Attempts,
 		State:      s.State,
-		Branch:     s.Branch,
 	}
 }
 
