@@ -249,7 +249,7 @@ func projectKwargValue(value any) op.SlotValue {
 	case *op.Invocation:
 		return op.PromiseValue{NodeRef: v.Target.ID(), Slot: ""}
 	case *op.Promise:
-		return op.PromiseValue{NodeRef: v.Node().ID(), Slot: v.Slot()}
+		return op.PromiseValue{NodeRef: v.Unit().ID(), Slot: v.Slot()}
 	case *op.Variable:
 		return op.VariableValue{Name: v.Name}
 	default:
