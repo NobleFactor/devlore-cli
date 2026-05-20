@@ -180,7 +180,7 @@ func (p *Promise) AttrNames() []string {
 //   - `slot`: the slot name to fill.
 func (p *Promise) FillSlot(consumer *Node, slot string) {
 
-	consumer.SetSlot(slot, PromiseValue{NodeRef: p.unit.ID(), Slot: p.slot})
+	consumer.SetSlot(slot, PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot})
 }
 
 // Project returns the Promise rendered for the given target type. For a *Promise or interface{} target the
@@ -198,7 +198,7 @@ func (p *Promise) Project(target reflect.Type) (any, error) {
 		return p, nil
 	}
 	if target == promiseValueType {
-		return PromiseValue{NodeRef: p.unit.ID(), Slot: p.slot}, nil
+		return PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot}, nil
 	}
 	return nil, fmt.Errorf("cannot project Promise to %s (promises resolve at execute time)", target)
 }

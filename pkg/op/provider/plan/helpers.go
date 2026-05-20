@@ -160,6 +160,40 @@ func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.
 	return subgraphFromInvocations("error_action", invocations), nil
 }
 
+// projectToSlotValue projects a Go value (post-[starlarkbridge.StarlarkToGoTyped] with target=any)
+// into a [op.SlotValue]. Same projection that flow's planner uses for kwarg values:
+//
+//   - *op.Invocation → PromiseValue referencing the invocation's Target by ID.
+//   - *op.Promise    → PromiseValue referencing the producing unit by ID with the producer's slot.
+//   - *op.Variable   → VariableValue carrying the variable's name.
+//   - anything else  → ImmediateValue wrapping the raw value.
+//
+// Used by [Provider.assembleBuiltin] to convert non-reserved kwargs into the
+// `map[string]op.SlotValue` that [Provider.Assemble] expects for frame bindings on the graph root.
+//
+// Parameters:
+//   - `value`: the Go value to project.
+//
+// Returns:
+//   - op.SlotValue: the projected slot value.
+func projectToSlotValue(value any) op.SlotValue {
+
+	switch v := value.(type) {
+
+	case *op.Invocation:
+		return op.PromiseValue{UnitRef: v.Target.ID(), Slot: ""}
+
+	case *op.Promise:
+		return op.PromiseValue{UnitRef: v.Unit().ID(), Slot: v.Slot()}
+
+	case *op.Variable:
+		return op.VariableValue{Name: v.Name}
+
+	default:
+		return op.ImmediateValue{Value: value}
+	}
+}
+
 // subgraphFromInvocations materializes a *op.Subgraph from a list of invocations by appending each
 // invocation's Target as a child.
 //

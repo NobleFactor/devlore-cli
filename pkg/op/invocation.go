@@ -10,7 +10,7 @@ package op
 //
 // Per phase-8 D2, the binding layer picks which field to use based on the target parameter's type at the
 // binding site — slots typed [ExecutableUnit] consume Target; value-typed slots consume Promise and the
-// resulting slot PromiseValue carries the producer's NodeRef for plan.run to materialize into an edge.
+// resulting slot PromiseValue carries the producer's UnitRef for plan.run to materialize into an edge.
 //
 // Attribute access on an Invocation delegates to the wrapped Promise so the starlark surface matches what
 // callers saw before dispatch switched its return type from *Promise to *Invocation — same node slots,
@@ -29,7 +29,7 @@ type Invocation struct {
 //
 // Delegates to Result.FillSlot, preserving the detachment contract established by phase-8 D5 — only the slot
 // PromiseValue is written; no edge struct accumulates during dispatch. plan.run materializes the
-// producer→consumer edge at graph construction time from the consumer slot's NodeRef.
+// producer→consumer edge at graph construction time from the consumer slot's UnitRef.
 //
 // Parameters:
 //   - consumer: the node receiving this invocation's output.

@@ -69,7 +69,7 @@ func TestSubgraph_Parameters_ImmediateAndPromise_DoNotContribute(t *testing.T) {
 	sg.AddChild(nodeWithSlots("n1",
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 		stringSlot("mode", ImmediateValue{Value: "0755"}),
-		stringSlot("source", PromiseValue{NodeRef: "upstream"}),
+		stringSlot("source", PromiseValue{UnitRef: "upstream"}),
 	))
 
 	params := sg.Parameters()
@@ -425,7 +425,7 @@ func TestSubgraph_Parameters_NodeWithNoVariableSlots(t *testing.T) {
 	sg := NewSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n",
 		stringSlot("a", ImmediateValue{Value: "x"}),
-		stringSlot("b", PromiseValue{NodeRef: "upstream"}),
+		stringSlot("b", PromiseValue{UnitRef: "upstream"}),
 	))
 
 	params := sg.Parameters()

@@ -49,12 +49,12 @@ var (
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-	catalog       *op.ResourceCatalog       // session-scoped resource catalog
-	invocations   *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
-	rootNames     map[string]struct{}       // names of root providers (excluded from Tier 1 resolution)
-	adapters      map[string]*adapter       // Tier 1: per-sub-namespace adapters, lazily populated
-	adaptersMutex sync.Mutex                // guards adapters
-	promotedBuiltins  map[string]starlark.Value // Tier 2: root-placed providers' promoted method builtins, write-once
+	catalog          *op.ResourceCatalog       // session-scoped resource catalog
+	invocations      *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
+	rootNames        map[string]struct{}       // names of root providers (excluded from Tier 1 resolution)
+	adapters         map[string]*adapter       // Tier 1: per-sub-namespace adapters, lazily populated
+	adaptersMutex    sync.Mutex                // guards adapters
+	promotedBuiltins map[string]starlark.Value // Tier 2: root-placed providers' promoted method builtins, write-once
 }
 
 // NewProvider creates a plan Provider bound to the given context.
@@ -70,11 +70,11 @@ type Provider struct {
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 	p := &Provider{
-		ProviderBase: op.NewProviderBase(ctx),
-		catalog:      op.NewResourceCatalog(),
-		invocations:  op.NewInvocationRegistry(),
-		rootNames:    make(map[string]struct{}),
-		adapters:     make(map[string]*adapter),
+		ProviderBase:     op.NewProviderBase(ctx),
+		catalog:          op.NewResourceCatalog(),
+		invocations:      op.NewInvocationRegistry(),
+		rootNames:        make(map[string]struct{}),
+		adapters:         make(map[string]*adapter),
 		promotedBuiltins: make(map[string]starlark.Value),
 	}
 
@@ -113,12 +113,14 @@ func (p *Provider) Case(when any, then any) *flow.Case {
 //     [op.ReceiverRegistry.RootProviders] at construction. `promotedBuiltins` is write-once, so
 //     the read is lock-free.
 //  2. Tier 1 — sub-namespace adapters (`plan.file`, `plan.shell`, ...). Looked up via
-//     [op.ReceiverRegistry.PlannerByName]; root-planned providers are excluded so their methods
+//     [op.ReceiverRegistry.PlannerByName]; root-placed providers are excluded so their methods
 //     surface flat via Tier 2 instead. On hit, the adapter is minted via [Provider.adapterFor]
 //     (lazy, cached).
-//  3. Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble`, ...) — handled upstream
-//     by the executing-receiver path that wraps plan.Provider as a goReceiver. Those lookups
-//     never reach ResolveAttr.
+//
+// Tier 3 (this Provider's own methods — `plan.case`, `plan.variable`, `plan.assemble`,
+// `plan.run`, `plan.save`, `plan.load`, `plan.clear`) is resolved upstream by the goReceiver
+// path's method lookup via the codegen-emitted [op.MethodMetadata]; those names never reach
+// ResolveAttr.
 //
 // A final miss returns nil so the upstream goReceiver reports a clean NoSuchAttr instead of
 // panicking.
@@ -127,8 +129,8 @@ func (p *Provider) Case(when any, then any) *flow.Case {
 //   - `name`: the snake-cased attribute name from starlark.
 //
 // Returns:
-//   - `any`: the resolved attribute (a [starlark.Value] from promotedBuiltins or an [*adapter]), or
-//     nil when no tier matches.
+//   - `any`: the resolved attribute (a [starlark.Value] from promotedBuiltins, or an
+//     [*adapter]), or nil when no tier matches.
 func (p *Provider) ResolveAttr(name string) any {
 
 	if builtin, ok := p.promotedBuiltins[name]; ok {
@@ -176,33 +178,34 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 
 // Assemble materializes a [*op.Graph] from a list of plan-time invocations.
 //
+// Signature is codegen-compatible — all parameter types are reachable from starlark via the
+// standard [starlarkbridge] conversion path; plan-specific projections happen inside this method.
+//
 // Pipeline:
 //
 //  1. Allocate a fresh [*op.Graph] via [op.NewGraph].
 //  2. Bind it to this Provider's runtime environment via [op.Graph.Rebind].
 //  3. Root each invocation's Target as a child of `graph.Root` via [op.Subgraph.AddChild],
 //     which stamps `parentID = "root"` on the Target.
-//  4. Stamp `retryPolicy` and `errorAction` on `graph.Root` via the [op.ExecutableUnit] setters
-//     when non-nil.
-//  5. Copy `frameBindings` into `graph.Root.FrameBindings`.
-//  6. Materialize the per-Subgraph edge constraints from slot-level dependencies via
-//     [op.Subgraph.MaterializeEdges] (PromiseValue NodeRefs and Resource producerIDs).
-//  7. Topologically sort each reachable Subgraph's children via [op.Subgraph.SortAll].
-//  8. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an
+//  4. Stamp `retryPolicy` on `graph.Root` via [op.ExecutableUnit.SetRetryPolicy] when non-nil.
+//  5. If `errorAction` is non-empty, materialize the list of invocations into a `*op.Subgraph`
+//     via [subgraphFromInvocations] and stamp it via [op.Subgraph.SetErrorAction].
+//  6. Project each `frameBindings` entry through [projectToSlotValue] (ImmediateValue /
+//     PromiseValue / VariableValue) and stamp the result on `graph.Root.FrameBindings`.
+//  7. Materialize the per-Subgraph edge constraints from slot-level dependencies via
+//     [op.Subgraph.MaterializeEdges] (PromiseValue UnitRefs and Resource producerIDs).
+//  8. Topologically sort each reachable Subgraph's children via [op.Subgraph.SortAll].
+//  9. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an
 //     orphan (it wasn't rooted by this Assemble call and isn't a child of any other container).
 //     Aggregate via [errors.Join] and return `(nil, err)` when the set is non-empty.
 //
-// `error_action=[...]` authoring at the .star surface is a list of invocations, not a Subgraph
-// constructor (see D11 / D12); the bridge's reserved-kwarg splitter materializes that list into a
-// `*op.Subgraph` via [subgraphFromInvocations] before calling in here, so by the time `errorAction`
-// reaches this method it is already a fully-formed Subgraph.
-//
 // Parameters:
-//   - `invocations`: the top-level invocations to root. Each invocation's Target is stamped under
-//     `graph.Root`.
+//   - `invocations`: the top-level invocations to root under `graph.Root`.
 //   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
-//   - `errorAction`: the resolved error-handler Subgraph from `error_action=[...]`, or nil.
-//   - `frameBindings`: the non-reserved kwargs to populate as frame bindings on `graph.Root`, or nil.
+//   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally
+//     into a Subgraph; empty / nil means no error action.
+//   - `frameBindings`: the non-reserved kwargs to populate as frame bindings on `graph.Root`.
+//     Values are projected to [op.SlotValue] via [projectToSlotValue].
 //
 // Returns:
 //   - *op.Graph: the assembled graph, bound to this Provider's env.
@@ -211,8 +214,8 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 func (p *Provider) Assemble(
 	invocations []*op.Invocation,
 	retryPolicy *op.RetryPolicy,
-	errorAction *op.Subgraph,
-	frameBindings map[string]op.SlotValue,
+	errorAction []*op.Invocation,
+	frameBindings map[string]any,
 ) (*op.Graph, error) {
 
 	graph := op.NewGraph()
@@ -225,8 +228,8 @@ func (p *Provider) Assemble(
 	if retryPolicy != nil {
 		graph.Root.SetRetryPolicy(retryPolicy)
 	}
-	if errorAction != nil {
-		graph.Root.SetErrorAction(errorAction)
+	if len(errorAction) > 0 {
+		graph.Root.SetErrorAction(subgraphFromInvocations("error_action", errorAction))
 	}
 
 	if len(frameBindings) > 0 {
@@ -234,7 +237,7 @@ func (p *Provider) Assemble(
 			graph.Root.FrameBindings = make(map[string]op.SlotValue, len(frameBindings))
 		}
 		for name, value := range frameBindings {
-			graph.Root.FrameBindings[name] = value
+			graph.Root.FrameBindings[name] = projectToSlotValue(value)
 		}
 	}
 

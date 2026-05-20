@@ -146,7 +146,7 @@ func (s *Subgraph) Children() []ExecutableUnit { return s.children }
 // [Slot.ProducerID]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list.
 //
 // Called by [plan.Provider.Assemble] post-rooting so each Subgraph's local edge constraints reflect the
-// slot-level dependencies (PromiseValue NodeRefs and Resource producerIDs) baked into its children.
+// slot-level dependencies (PromiseValue UnitRefs and Resource producerIDs) baked into its children.
 // Recurses into nested subgraphs so the whole tree is covered in one call.
 func (s *Subgraph) MaterializeEdges() {
 

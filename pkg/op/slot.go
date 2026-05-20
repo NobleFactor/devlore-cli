@@ -34,7 +34,7 @@ func (s *Slot) Immediate() any {
 // implicit producer dependency.
 //
 // Resolution by SlotValue variant:
-//   - [PromiseValue]: the producer is the unit named by [PromiseValue.NodeRef].
+//   - [PromiseValue]: the producer is the unit named by [PromiseValue.UnitRef].
 //   - [ImmediateValue] whose Value is an [op.Resource] with a non-empty [Resource.ProducerID]: the producer
 //     is the catalog-stamped producer node.
 //   - [VariableValue] or any other shape: no producer dependency — returns empty.
@@ -51,7 +51,7 @@ func (s *Slot) ProducerID() string {
 
 	switch v := s.Value.(type) {
 	case PromiseValue:
-		return v.NodeRef
+		return v.UnitRef
 	case ImmediateValue:
 		if r, ok := v.Value.(Resource); ok {
 			return r.ProducerID()
@@ -117,7 +117,7 @@ func (ImmediateValue) isSlotValue() {}
 // PromiseValue references the output of another executable unit (node or subgraph), resolved to a Go value at
 // execution time via the scope-chain results map.
 type PromiseValue struct {
-	NodeRef string
+	UnitRef string
 	Slot    string
 }
 
@@ -132,13 +132,13 @@ type PromiseValue struct {
 //   - results: the completed-node results map.
 //
 // Returns:
-//   - `any`: results[pv.NodeRef], or nil if results is nil.
+//   - `any`: results[pv.UnitRef], or nil if results is nil.
 func (pv PromiseValue) Resolve(_ map[string]Variable, results map[string]any) any {
 
 	if results == nil {
 		return nil
 	}
-	return results[pv.NodeRef]
+	return results[pv.UnitRef]
 }
 
 // endregion
