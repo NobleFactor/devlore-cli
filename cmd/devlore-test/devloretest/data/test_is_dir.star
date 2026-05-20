@@ -17,4 +17,4 @@ plan.choose(
 )
 
 t.expect_file(file, content="dir exists")
-t.expect_node_count(4)  # mkdir + is_dir + write_text + choose
+t.expect_unit_count(4)  # mkdir + is_dir + write_text + choose

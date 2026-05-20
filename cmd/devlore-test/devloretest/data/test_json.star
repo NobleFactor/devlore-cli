@@ -5,4 +5,4 @@
 plan.json.encode(value={"key": "value"})
 plan.json.encode_indent(value={"key": "value"}, indent="  ")
 plan.json.decode(data='{"key":"value"}')
-t.expect_node_count(3)
+t.expect_unit_count(3)

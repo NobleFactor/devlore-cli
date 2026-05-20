@@ -91,7 +91,8 @@ func TestOutputFlags_Type(t *testing.T) {
 // --- runner wiring ---
 
 func TestRunCmd_BasicExecution(t *testing.T) {
-	script := writeScript(t, `t.expect_node_count(0)`)
+	script := writeScript(t, `graph = plan.assemble([])
+t.expect_unit_count(0)`)
 	result, err := runCmd(t, script)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -99,15 +100,18 @@ func TestRunCmd_BasicExecution(t *testing.T) {
 	if !result.Passed {
 		t.Errorf("expected pass, got failures: %v", result.Failures)
 	}
-	if result.NodeCount != 0 {
-		t.Errorf("node_count = %d, want 0", result.NodeCount)
+	if result.UnitCount != 0 {
+		t.Errorf("unit_count = %d, want 0", result.UnitCount)
 	}
 }
 
 func TestRunCmd_DryRun(t *testing.T) {
 	script := writeScript(t, `
-plan.shell.exec(command="echo hello")
-t.expect_node_count(1)
+graph = plan.assemble([
+    plan.shell.exec(command="echo hello"),
+])
+plan.run(graph)
+t.expect_unit_count(1)
 `)
 	result, err := runCmd(t, script, "--dry-run")
 	if err != nil {
@@ -116,13 +120,14 @@ t.expect_node_count(1)
 	if !result.Passed {
 		t.Errorf("expected pass, got failures: %v", result.Failures)
 	}
-	if result.NodeCount != 1 {
-		t.Errorf("node_count = %d, want 1", result.NodeCount)
+	if result.UnitCount != 1 {
+		t.Errorf("unit_count = %d, want 1", result.UnitCount)
 	}
 }
 
 func TestRunCmd_Trace(t *testing.T) {
-	script := writeScript(t, `t.expect_node_count(0)`)
+	script := writeScript(t, `graph = plan.assemble([])
+t.expect_unit_count(0)`)
 	result, err := runCmd(t, script, "--trace")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -133,7 +138,8 @@ func TestRunCmd_Trace(t *testing.T) {
 }
 
 func TestRunCmd_InvalidReceiptFormat(t *testing.T) {
-	script := writeScript(t, `t.expect_node_count(0)`)
+	script := writeScript(t, `graph = plan.assemble([])
+t.expect_unit_count(0)`)
 	_, err := runCmd(t, script, "--receipt-format", "xml")
 	if err == nil {
 		t.Fatal("expected error for invalid receipt format")
@@ -144,8 +150,11 @@ func TestRunCmd_ReceiptJSON(t *testing.T) {
 	dir := t.TempDir()
 	receiptFile := filepath.Join(dir, "receipt.json")
 	script := writeScript(t, `
-plan.shell.exec(command="echo hello")
-t.expect_node_count(1)
+graph = plan.assemble([
+    plan.shell.exec(command="echo hello"),
+])
+plan.run(graph)
+t.expect_unit_count(1)
 `)
 	cmd := newRunCmd()
 	cmd.SilenceErrors = true
@@ -176,8 +185,11 @@ func TestRunCmd_OutputRouting(t *testing.T) {
 	receiptFile := filepath.Join(dir, "receipt.yaml")
 
 	script := writeScript(t, `
-plan.shell.exec(command="echo routed")
-t.expect_node_count(1)
+graph = plan.assemble([
+    plan.shell.exec(command="echo routed"),
+])
+plan.run(graph)
+t.expect_unit_count(1)
 `)
 	cmd := newRunCmd()
 	cmd.SilenceErrors = true

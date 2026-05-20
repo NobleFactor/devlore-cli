@@ -12,4 +12,4 @@ plan.file.backup(path=written, backup_suffix=".bak")
 
 # Backup is a rename — the original should no longer exist.
 t.expect_no_file(src)
-t.expect_node_count(2)
+t.expect_unit_count(2)

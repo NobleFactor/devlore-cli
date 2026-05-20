@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
@@ -35,7 +36,7 @@ type BindingSources struct {
 // Result is the structured output of a test run.
 type Result struct {
 	Passed           bool      `json:"passed"`
-	NodeCount        int       `json:"node_count"`
+	UnitCount        int       `json:"unit_count"`
 	ExpectationCount int       `json:"expectation_count"`
 	Failures         []Failure `json:"failures"`
 	Trace            []string  `json:"trace,omitempty"`
@@ -266,12 +267,20 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	//    GraphExecutor or calls executor.Run — that path remains available for Go-side callers
 	//    (writ adopt, et al.) that don't go through a .star script.
 	//
+	//    After the script returns, the assembled graph is reachable via the script's globals:
+	//    plan.assemble returns the *op.Graph wrapped as a Projector (the starlarkbridge
+	//    *goReceiver). If the script assigned the value to a top-level variable named "graph",
+	//    the runner unwraps it via [graphFromGlobals] for assertion inspection. Scripts that
+	//    don't assign the result get nil here — structure assertions will then fail with a
+	//    clean "no graph assembled" message in [TestContext.Check].
+	//
 	//    scriptExecErr is hoisted so the post-Plan path can build a Result that surfaces it
 	//    (including expected-error assertions checked downstream by [Runner.buildResult]).
 	//    Variable resolution and dispatch preflight happen inside the GraphExecutor that
 	//    plan.run constructs (D10 — bindVariables); the runner has no role in those steps.
 
 	var scriptExecErr error
+	var scriptGlobals starlark.StringDict
 
 	graph, planErr := op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
 
@@ -290,12 +299,12 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 			TopLevelControl: true,
 		}
 
-		_, scriptExecErr = starlark.ExecFileOptions(opts, thread, r.script, scriptData, globals)
+		scriptGlobals, scriptExecErr = starlark.ExecFileOptions(opts, thread, r.script, scriptData, globals)
 		if scriptExecErr != nil && !hasErrorExpectation(tc) {
 			return nil, fmt.Errorf("executing script: %w", scriptExecErr)
 		}
 
-		return nil, nil
+		return graphFromGlobals(scriptGlobals), nil
 	})
 	if planErr != nil {
 		return nil, planErr
@@ -334,9 +343,14 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 		failures = []Failure{}
 	}
 
+	unitCount := 0
+	if graph != nil {
+		unitCount = graph.UnitCount()
+	}
+
 	result := &Result{
 		Passed:           len(failures) == 0,
-		NodeCount:        len(graph.Nodes()),
+		UnitCount:        unitCount,
 		ExpectationCount: len(tc.Expectations()),
 		Failures:         failures,
 	}
@@ -371,4 +385,55 @@ func hasErrorExpectation(tc *TestContext) bool {
 		}
 	}
 	return false
+}
+
+// graphFromGlobals unwraps the `graph` global from a script's post-execution starlark.StringDict
+// and projects it back to a *op.Graph.
+//
+// Convention: .star test scripts that want the harness to assert against the assembled graph
+// write `graph = plan.assemble([...])` at the top level. plan.assemble returns a *op.Graph that
+// the bridge wraps as a starlarkbridge.Projector; this helper looks for that variable in `globals`
+// and projects the wrapped value back to *op.Graph.
+//
+// Returns nil when:
+//   - `globals` is nil (script didn't run).
+//   - `globals["graph"]` doesn't exist (script didn't assign the conventional name).
+//   - The value at that key isn't a Projector or doesn't project to *op.Graph.
+//
+// Scripts that don't assemble a graph (or use a different variable name) leave the runner with a
+// nil graph, which surfaces as a clean "no graph assembled" failure in [TestContext.Check]
+// rather than a panic.
+//
+// Parameters:
+//   - `globals`: the starlark.StringDict returned by [starlark.ExecFileOptions].
+//
+// Returns:
+//   - *op.Graph: the assembled graph, or nil if not present / not projectable.
+func graphFromGlobals(globals starlark.StringDict) *op.Graph {
+
+	if globals == nil {
+		return nil
+	}
+
+	value, ok := globals["graph"]
+	if !ok {
+		return nil
+	}
+
+	projector, ok := value.(starlarkbridge.Projector)
+	if !ok {
+		return nil
+	}
+
+	projected, err := projector.Project(reflect.TypeFor[*op.Graph]())
+	if err != nil {
+		return nil
+	}
+
+	graph, ok := projected.(*op.Graph)
+	if !ok {
+		return nil
+	}
+
+	return graph
 }

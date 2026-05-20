@@ -7,4 +7,4 @@ dest = t.tmp("shell_output.txt")
 plan.shell.exec(command="printf 'from shell' > " + dest)
 
 t.expect_file(dest, content="from shell")
-t.expect_node_count(1)
+t.expect_unit_count(1)

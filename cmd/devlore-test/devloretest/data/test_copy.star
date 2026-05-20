@@ -10,4 +10,4 @@ dst = t.tmp("destination.txt")
 plan.file.copy(source=written, destination_path=dst, chmod=0o644)
 
 t.expect_file(dst, content="copy me")
-t.expect_node_count(2)
+t.expect_unit_count(2)

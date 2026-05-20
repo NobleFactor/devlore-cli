@@ -3,4 +3,4 @@
 # Validates: staranalysis.analyze (callable with empty input)
 
 result = staranalysis.analyze(files=[])
-t.expect_node_count(0)
+t.expect_unit_count(0)

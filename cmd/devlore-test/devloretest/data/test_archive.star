@@ -3,4 +3,4 @@
 # Validates: plan.archive.extract (registration + node creation)
 
 plan.archive.extract(source="/tmp/fake.tar.gz", prefix_path="")
-t.expect_node_count(1)
+t.expect_unit_count(1)

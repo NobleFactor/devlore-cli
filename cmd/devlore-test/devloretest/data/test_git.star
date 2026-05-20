@@ -5,4 +5,4 @@
 cloned = plan.git.clone(repository="https://example.com/repo.git", directory="/tmp/repo")
 plan.git.checkout(repo=cloned, ref="main")
 plan.git.pull(repo=cloned)
-t.expect_node_count(3)
+t.expect_unit_count(3)

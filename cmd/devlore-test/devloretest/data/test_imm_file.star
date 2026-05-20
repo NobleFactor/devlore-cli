@@ -54,4 +54,4 @@ matches = file.glob(pattern=t.tmp("imm_dir/*.txt"), honor_gitignore=False)
 t.expect_equal(len(matches), 2)
 
 # No graph nodes — all immediate
-t.expect_node_count(0)
+t.expect_unit_count(0)

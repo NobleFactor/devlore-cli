@@ -3,4 +3,4 @@
 # Validates: starcode.capture (callable with no-match pattern)
 
 result = starcode.capture(pattern="*.nonexistent_extension_xyz")
-t.expect_node_count(0)
+t.expect_unit_count(0)

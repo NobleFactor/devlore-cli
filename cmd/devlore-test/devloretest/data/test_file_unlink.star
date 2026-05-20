@@ -11,4 +11,4 @@ plan.file.unlink(path=linked, prune=False, boundary="")
 
 t.expect_file(target, content="keep me")
 t.expect_no_file(link)
-t.expect_node_count(3)
+t.expect_unit_count(3)

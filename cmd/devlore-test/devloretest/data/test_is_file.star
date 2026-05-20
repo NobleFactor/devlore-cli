@@ -17,4 +17,4 @@ plan.choose(
 )
 
 t.expect_file(dst, content="file check")
-t.expect_node_count(4)  # write_text + is_file + copy + choose
+t.expect_unit_count(4)  # write_text + is_file + copy + choose

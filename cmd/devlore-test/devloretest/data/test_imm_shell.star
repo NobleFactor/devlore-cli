@@ -6,4 +6,4 @@
 result = shell.exec(command="echo hello")
 t.expect_equal(result, "echo hello")
 
-t.expect_node_count(0)
+t.expect_unit_count(0)

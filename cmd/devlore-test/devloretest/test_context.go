@@ -18,10 +18,10 @@ import (
 
 // Expectation represents a single test assertion queued during script execution.
 type Expectation struct {
-	Kind    string         // "file_exists", "no_file", "node_count", "error", "equal", "variable", "variable_namespace"
+	Kind    string         // "file_exists", "no_file", "unit_count", "error", "equal", "variable", "variable_namespace"
 	Path    string         // for file expectations
 	Content string         // optional expected content
-	Count   int            // for node_count
+	Count   int            // for unit_count
 	Pattern string         // for error expectations
 	Got     starlark.Value // for equal expectations
 	Want    starlark.Value // for equal expectations
@@ -94,11 +94,18 @@ func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 				failures = append(failures, *f)
 			}
 
-		case "node_count":
-			if len(graph.Nodes()) != exp.Count {
+		case "unit_count":
+			if graph == nil {
 				failures = append(failures, Failure{
-					Expectation: fmt.Sprintf("node_count(%d)", exp.Count),
-					Message:     fmt.Sprintf("got %d nodes", len(graph.Nodes())),
+					Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
+					Message:     "no graph assembled (script did not assign `graph = plan.assemble([...])`)",
+				})
+				continue
+			}
+			if got := graph.UnitCount(); got != exp.Count {
+				failures = append(failures, Failure{
+					Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
+					Message:     fmt.Sprintf("got %d units", got),
 				})
 			}
 
@@ -150,7 +157,7 @@ func (tc *TestContext) StarlarkValue() starlark.Value {
 		"write":                     starlark.NewBuiltin("t.write", tc.starWrite),
 		"expect_file":               starlark.NewBuiltin("t.expect_file", tc.starExpectFile),
 		"expect_no_file":            starlark.NewBuiltin("t.expect_no_file", tc.starExpectNoFile),
-		"expect_node_count":         starlark.NewBuiltin("t.expect_node_count", tc.starExpectNodeCount),
+		"expect_unit_count":         starlark.NewBuiltin("t.expect_unit_count", tc.starExpectUnitCount),
 		"expect_error":              starlark.NewBuiltin("t.expect_error", tc.starExpectError),
 		"expect_equal":              starlark.NewBuiltin("t.expect_equal", tc.starExpectEqual),
 		"set_overrides":             starlark.NewBuiltin("t.set_overrides", tc.starSetOverrides),
@@ -339,15 +346,16 @@ func (tc *TestContext) starExpectNoFile(_ *starlark.Thread, _ *starlark.Builtin,
 	return starlark.None, nil
 }
 
-// starExpectNodeCount implements t.expect_node_count(n).
-func (tc *TestContext) starExpectNodeCount(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+// starExpectUnitCount implements t.expect_unit_count(n). Asserts the total count of [ExecutableUnit]
+// descendants of the assembled graph's Root — Nodes and Subgraphs both count.
+func (tc *TestContext) starExpectUnitCount(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var count int
-	if err := starlark.UnpackPositionalArgs("t.expect_node_count", args, kwargs, 1, &count); err != nil {
+	if err := starlark.UnpackPositionalArgs("t.expect_unit_count", args, kwargs, 1, &count); err != nil {
 		return nil, err
 	}
 
 	tc.expectations = append(tc.expectations, Expectation{
-		Kind:  "node_count",
+		Kind:  "unit_count",
 		Count: count,
 	})
 	return starlark.None, nil

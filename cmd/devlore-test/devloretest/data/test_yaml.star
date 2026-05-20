@@ -4,4 +4,4 @@
 
 plan.yaml.encode(value={"key": "value"})
 plan.yaml.decode(data="key: value\n")
-t.expect_node_count(2)
+t.expect_unit_count(2)

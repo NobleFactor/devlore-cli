@@ -6,4 +6,4 @@ plan.complete(output=42)
 # Complete with no output (nil)
 plan.complete()
 
-t.expect_node_count(2)
+t.expect_unit_count(2)

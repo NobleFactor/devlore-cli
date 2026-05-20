@@ -6,4 +6,4 @@ plan.template.render_text(
     content="hello {{.Name}}",
     data={"Name": "world"},
 )
-t.expect_node_count(1)
+t.expect_unit_count(1)

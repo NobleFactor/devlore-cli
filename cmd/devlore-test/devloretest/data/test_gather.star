@@ -21,4 +21,4 @@ plan.shell.exec(command="cat " + a + " " + b + " > " + c)
 t.expect_file(a, content="alpha")
 t.expect_file(b, content="bravo")
 t.expect_file(c, content="alphabravo")
-t.expect_node_count(3)  # write_text(a) + write_text(b) + shell.exec
+t.expect_unit_count(3)  # write_text(a) + write_text(b) + shell.exec

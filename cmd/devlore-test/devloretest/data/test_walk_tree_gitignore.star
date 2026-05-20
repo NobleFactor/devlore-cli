@@ -29,4 +29,4 @@ t.expect_equal(paths[0], ".gitignore")
 t.expect_equal(paths[1], "also_keep.md")
 t.expect_equal(paths[2], "keep.txt")
 
-t.expect_node_count(0)
+t.expect_unit_count(0)

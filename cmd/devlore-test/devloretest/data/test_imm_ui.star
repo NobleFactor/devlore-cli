@@ -8,4 +8,4 @@ ui.warn("test warning")
 ui.success("test success")
 ui.error("test error")
 
-t.expect_node_count(0)
+t.expect_unit_count(0)

@@ -54,6 +54,16 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 		return value, nil
 	}
 
+	// Step 1.5: empty interface (`any`) target. Any non-nil value satisfies `any` — return as-is. Crucially,
+	// SKIP the pointer-deref of step 2: a *T value passed to an `any`-typed target must preserve its pointer
+	// shape, because callers downstream (e.g., a method whose signature is `[]*T`) need the pointer back. The
+	// bridge's early-projection path uses this when goReceiver.Project(reflect.TypeFor[any]()) asks for the
+	// natural Go form of a wrapped instance — *op.Invocation must come back as *op.Invocation, not op.Invocation.
+
+	if target.Kind() == reflect.Interface && target.NumMethod() == 0 {
+		return value, nil
+	}
+
 	// Step 2: assignability with pointer-deref. Dereference pointers so a *T value reaches a T target through the
 	// underlying assignability rule.
 

@@ -30,4 +30,4 @@ parts = regexp.split(pattern=",", text="a,b,c", count=-1)
 t.expect_equal(len(parts), 3)
 t.expect_equal(parts[0], "a")
 
-t.expect_node_count(0)
+t.expect_unit_count(0)

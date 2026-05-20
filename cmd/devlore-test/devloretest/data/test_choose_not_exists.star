@@ -18,4 +18,4 @@ plan.choose(
 
 t.expect_no_file(phantom)
 t.expect_no_file(canary)
-t.expect_node_count(3)  # exists + write_text (in branch) + choose
+t.expect_unit_count(3)  # exists + write_text (in branch) + choose

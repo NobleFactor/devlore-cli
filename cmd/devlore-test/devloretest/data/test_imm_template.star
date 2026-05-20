@@ -8,4 +8,4 @@ result = template.render_text(
 )
 t.expect_equal(result, "hello world")
 
-t.expect_node_count(0)
+t.expect_unit_count(0)

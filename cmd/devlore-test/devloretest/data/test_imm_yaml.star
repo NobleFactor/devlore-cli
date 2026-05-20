@@ -6,4 +6,4 @@ encoded = yaml.encode({"key": "value"})
 decoded = yaml.decode(encoded)
 t.expect_equal(decoded["key"], "value")
 
-t.expect_node_count(0)
+t.expect_unit_count(0)

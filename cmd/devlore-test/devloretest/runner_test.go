@@ -37,8 +37,8 @@ func TestWriteText(t *testing.T) {
 			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
 		}
 	}
-	if result.NodeCount != 1 {
-		t.Errorf("node_count = %d, want 1", result.NodeCount)
+	if result.UnitCount != 1 {
+		t.Errorf("unit_count = %d, want 1", result.UnitCount)
 	}
 	if result.ExpectationCount != 2 {
 		t.Errorf("expectation_count = %d, want 2", result.ExpectationCount)
@@ -57,8 +57,8 @@ func TestCopy(t *testing.T) {
 			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
 		}
 	}
-	if result.NodeCount != 2 {
-		t.Errorf("node_count = %d, want 2", result.NodeCount)
+	if result.UnitCount != 2 {
+		t.Errorf("unit_count = %d, want 2", result.UnitCount)
 	}
 }
 

@@ -10,4 +10,4 @@ plan.file.glob(pattern=t.tmp("globdir/*.txt"), honor_gitignore=False)
 
 t.expect_file(t.tmp("globdir/a.txt"), content="a")
 t.expect_file(t.tmp("globdir/b.txt"), content="b")
-t.expect_node_count(4)  # mkdir + write_text + write_text + glob
+t.expect_unit_count(4)  # mkdir + write_text + write_text + glob

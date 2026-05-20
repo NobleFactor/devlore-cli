@@ -20,4 +20,4 @@ plan.file.read_text(resource=copied)
 
 t.expect_file(src, content="lifecycle test")
 t.expect_file(dst, content="lifecycle test")
-t.expect_node_count(3)
+t.expect_unit_count(3)

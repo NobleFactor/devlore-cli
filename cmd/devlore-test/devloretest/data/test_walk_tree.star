@@ -28,4 +28,4 @@ t.expect_equal(paths[2], "sub")
 t.expect_equal(paths[3], "sub/c.txt")
 
 # No graph nodes — all immediate.
-t.expect_node_count(0)
+t.expect_unit_count(0)

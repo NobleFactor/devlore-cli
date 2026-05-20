@@ -3,4 +3,4 @@
 
 plan.degraded("disk space low")
 
-t.expect_node_count(1)
+t.expect_unit_count(1)

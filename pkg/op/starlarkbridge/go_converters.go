@@ -279,24 +279,43 @@ func toGo(sv starlark.Value, target reflect.Type) (any, error) {
 	return rv.Interface(), nil
 }
 
-// toNaturalGo maps a Starlark value to its natural Go representation.
+// toNaturalGo is the bridge's central starlark → Go translation: hand it any [starlark.Value], get back
+// the natural Go value or an error.
+//
+// Primitives (None, String, Int, Bool, Float, Bytes) map to their Go equivalents. Containers (List,
+// Tuple, Set, Dict) recurse through toNaturalGo per element. Wrapped Go values — anything implementing
+// the bridge's [Projector] interface (notably [*goReceiver] over a registered Go instance, plus
+// [*op.Promise]) — are asked to project to `any`; the Projector returns the underlying Go value, which
+// is what callers handing the result to [op.Convert] need.
+//
+// The fall-through passthrough is a deliberate temporary: starlark types without a Projector path —
+// the known case is [*starlark.Function], which maps to a *function.Resource through
+// `function.NewResource` but needs an [op.ActivationRecord] this function doesn't have — return as-is
+// for now. The plan-doc tracks the follow-up: every starlark type that has a Go form must reach it
+// through this function, with the fall-through becoming an explicit case or an error.
 func toNaturalGo(sv starlark.Value) (any, error) {
 
 	switch v := sv.(type) {
+
 	case starlark.NoneType:
 		return nil, nil
+
 	case starlark.String:
 		return string(v), nil
+
 	case starlark.Int:
 		i, ok := v.Int64()
 		if !ok {
 			return nil, fmt.Errorf("int out of range")
 		}
 		return i, nil
+
 	case starlark.Bool:
 		return bool(v), nil
+
 	case starlark.Float:
 		return float64(v), nil
+
 	case starlark.Bytes:
 		return []byte(v), nil
 
@@ -340,9 +359,14 @@ func toNaturalGo(sv starlark.Value) (any, error) {
 
 		return res, nil
 
-	default:
-		return sv, nil
+	case Projector:
+		return v.Project(reflect.TypeFor[any]())
 	}
+
+	// Fall-through: starlark types without a Projector path (notably *starlark.Function — see this
+	// function's doc comment). Returned as-is; downstream conversion (op.Convert with a typed target
+	// + the registered Resource constructor) handles target-aware projection.
+	return sv, nil
 }
 
 // endregion

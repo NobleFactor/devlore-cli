@@ -10,4 +10,4 @@ plan.file.move(source=written, destination_path=dst)
 
 t.expect_no_file(src)
 t.expect_file(dst, content="moving data")
-t.expect_node_count(2)
+t.expect_unit_count(2)

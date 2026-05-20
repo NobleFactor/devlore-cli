@@ -157,6 +157,28 @@ func (g *Graph) AddSubgraph(sg *Subgraph) {
 //   - []*Node: the flat node list in tree-walk order; nil when no nodes are present.
 func (g *Graph) Nodes() []*Node { return g.Root.descendantNodes() }
 
+// Subgraphs returns every [*Subgraph] descendant of [Graph.Root].
+//
+// The result does NOT include the Root subgraph itself — it lists only authored / planner-emitted
+// container units below it. Used by [Graph.UnitCount] and by harness assertions that want to count
+// or inspect every executable unit produced by `plan.assemble`.
+//
+// Returns:
+//   - []*Subgraph: the descendant subgraphs in tree-walk order.
+func (g *Graph) Subgraphs() []*Subgraph { return g.Root.descendantSubgraphs() }
+
+// UnitCount returns the total count of [ExecutableUnit] descendants of [Graph.Root] — both [*Node]
+// and [*Subgraph] children. Excludes the Root itself.
+//
+// This is the count the harness asserts against via `t.expect_unit_count(n)`: a `plan.choose`
+// container materializes as a Subgraph that holds its branch's children, so a script with
+// `write_text` + `exists` + `choose(then=remove)` produces unit count 4 (3 Nodes + 1 Subgraph),
+// not 3.
+//
+// Returns:
+//   - int: the total descendant-unit count.
+func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
+
 // RuntimeEnvironment returns a point to the graph's execution context.
 func (g *Graph) RuntimeEnvironment() *RuntimeEnvironment { return g.ctx }
 

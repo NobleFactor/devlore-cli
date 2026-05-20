@@ -27,4 +27,4 @@ t.expect_equal(len(paths), 2)
 t.expect_equal(paths[0], "hello.py")
 t.expect_equal(paths[1], "main.py")
 
-t.expect_node_count(0)
+t.expect_unit_count(0)

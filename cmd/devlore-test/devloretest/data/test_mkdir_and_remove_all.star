@@ -19,4 +19,4 @@ plan.file.write_text(destination_path=file, content="nested content", chmod=0o64
 plan.file.remove_all(path=dir, prune=False, boundary="")
 
 t.expect_no_file(file)
-t.expect_node_count(3)
+t.expect_unit_count(3)

@@ -20,4 +20,4 @@ plan.choose(
 
 # Step 3: After removal, the file should be gone.
 t.expect_no_file(dest)
-t.expect_node_count(4)  # write_text + exists + remove + choose
+t.expect_unit_count(4)  # write_text + exists + remove + choose
