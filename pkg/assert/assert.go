@@ -19,7 +19,7 @@ import (
 // AssertionError is the typed panic value produced by every helper in this package.
 //
 // Function holds the short form of the calling function (last path segment, e.g. "starlarkbridge.NewRuntime") rather
-// than the fully qualified import path; File and Line point at the assert call site itself.
+// than the fully qualified import path; File and Line point at the assert function's call site.
 type AssertionError struct {
 	Function string
 	File     string
@@ -75,6 +75,8 @@ func Nil[T any](name string, value *T) {
 // Parameters:
 //   - `name`: a short identifier of the value being checked (e.g. "items", "cfg.Headers").
 //   - `value`: the collection or string to inspect.
+//
+//goland:noinspection GoUnusedExportedFunction
 func NonEmpty[T ~[]E | ~map[K]V | ~string, E any, K comparable, V any](name string, value T) T {
 	if len(value) != 0 {
 		return value
@@ -110,7 +112,7 @@ func NonZero[T comparable](name string, value T) T {
 // Use for inline invariants that are not ergonomic to express as a NonZero/Unreachable check.
 //
 // Parameters:
-//   - `claim`: short prose describing the invariant that must hold (e.g. "boundary not empty").
+//   - `claim`: short prose describing the invariant that must hold (e.g. "boundary is not empty").
 //   - `cond`: the condition; failure raises with a message "<claim>".
 func True(claim string, condition bool) {
 	if condition {
@@ -119,7 +121,7 @@ func True(claim string, condition bool) {
 	raise(2, claim)
 }
 
-// Truef panics with an [*AssertionError] whose Message is fmt.Sprintf(format, args...) when condition is false.
+// Truef panics with an [*AssertionError] whose Message is fmt.Sprintf(format, args...) when the condition is false.
 //
 // Use for inline invariants whose failure message needs interpolation (type names, indices, registry keys, …).
 //
@@ -171,7 +173,7 @@ func Unreachable(reason string) {
 //   - `skip`: number of frames to skip from the call to [runtime.Callers].
 //
 // Returns:
-//   - `string`: the short function name (last path segment + function), or "?" if unknown.
+//   - `string`: the short function name (last path segment plus function), or "?" if unknown.
 //   - `string`: the source file, or "?" if unknown.
 //   - `int`: the line number, or 0 if unknown.
 func callerFrame(skip int) (string, string, int) {
@@ -187,7 +189,7 @@ func callerFrame(skip int) (string, string, int) {
 	return shortFunc(frame.Function), frame.File, frame.Line
 }
 
-// raise builds an [*AssertionError] from the caller skip frames up the stack and panics with it.
+// raise builds an [*AssertionError] from the caller's skip frames up the stack and panics with it.
 //
 // Parameters:
 //   - `skip`: number of frames between raise and the user's call site (2 for the public helpers).
@@ -216,7 +218,7 @@ func raise(skip int, message string) {
 //   - `name`: the fully qualified function name from [runtime.Frame.Function].
 //
 // Returns:
-//   - `string`: the trimmed function name, or "?" if name is empty.
+//   - `string`: the trimmed function name, or "?" if `name` is empty.
 func shortFunc(name string) string {
 
 	if name == "" {
