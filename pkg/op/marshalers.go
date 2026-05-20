@@ -165,7 +165,7 @@ func (n *Node) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		ID          string            `json:"id"`
 		Receiver    string            `json:"receiver"`
-		Status      NodeStatus        `json:"status"`
+		Status      Status        `json:"status"`
 		Annotations map[string]string `json:"annotations,omitempty"`
 		Error       string            `json:"error,omitempty"`
 		Layer       string            `json:"layer,omitempty"`
@@ -192,7 +192,7 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 	var payload struct {
 		ID          string            `json:"id"`
 		Receiver    string            `json:"receiver"`
-		Status      NodeStatus        `json:"status"`
+		Status      Status        `json:"status"`
 		Annotations map[string]string `json:"annotations,omitempty"`
 		Error       string            `json:"error,omitempty"`
 		Layer       string            `json:"layer,omitempty"`
@@ -225,7 +225,7 @@ func (n *Node) MarshalYAML() (any, error) {
 	return struct {
 		ID          string            `yaml:"id"`
 		Receiver    string            `yaml:"receiver"`
-		Status      NodeStatus        `yaml:"status"`
+		Status      Status        `yaml:"status"`
 		Annotations map[string]string `yaml:"annotations,omitempty"`
 		Error       string            `yaml:"error,omitempty"`
 		Layer       string            `yaml:"layer,omitempty"`
@@ -252,7 +252,7 @@ func (n *Node) UnmarshalYAML(unmarshal func(any) error) error {
 	var payload struct {
 		ID          string            `yaml:"id"`
 		Receiver    string            `yaml:"receiver"`
-		Status      NodeStatus        `yaml:"status"`
+		Status      Status        `yaml:"status"`
 		Annotations map[string]string `yaml:"annotations,omitempty"`
 		Error       string            `yaml:"error,omitempty"`
 		Layer       string            `yaml:"layer,omitempty"`
@@ -291,7 +291,7 @@ func (n *Node) UnmarshalYAML(unmarshal func(any) error) error {
 type subgraphPayload struct {
 	ID         string         `json:"id"                   yaml:"id"`
 	Name       string         `json:"name"                 yaml:"name"`
-	Status     SubgraphStatus `json:"status"               yaml:"status"`
+	Status     Status `json:"status"               yaml:"status"`
 	Children   []string       `json:"children"             yaml:"children"`
 	Edges      []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
 	Retry      *RetryPolicy   `json:"retry,omitempty"      yaml:"retry,omitempty"`
@@ -347,8 +347,8 @@ func (s *Subgraph) applyPayload(p *subgraphPayload) {
 	s.Attempts = p.Attempts
 	s.State = p.State
 
-	s.children = nil
-	s.childrenByID = nil
+	s.executableUnits = nil
+	s.executableUnitsByID = nil
 	s.pendingChildren = p.Children
 }
 

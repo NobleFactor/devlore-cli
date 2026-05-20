@@ -39,7 +39,7 @@ type HistoryRecord struct {
 	Action string `json:"action" yaml:"action"`
 
 	// Status of this action: completed, skipped, failed.
-	Status op.NodeStatus `json:"status" yaml:"status"`
+	Status op.Status `json:"status" yaml:"status"`
 }
 
 // PackageEntry represents a lore package's lifecycle history.

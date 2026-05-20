@@ -124,7 +124,7 @@ func buildAdoptSubgraph(id string) *Subgraph {
 
 	sg := NewSubgraph(id)
 	sg.Name = "adopt"
-	sg.Status = SubgraphPending
+	sg.Status = StatusPending
 
 	mkdir := newAdoptNode(id+".mkdir", "file.Mkdir")
 	move := newAdoptNode(id+".move", "file.Move")
@@ -185,8 +185,8 @@ func expectSubgraph(t *testing.T, name string, g *Graph, sgID string) {
 	if sg.Name != "adopt" {
 		t.Errorf("[%s] %s.Name = %q, want %q", name, sgID, sg.Name, "adopt")
 	}
-	if sg.Status != SubgraphPending {
-		t.Errorf("[%s] %s.Status = %q, want %q", name, sgID, sg.Status, SubgraphPending)
+	if sg.Status != StatusPending {
+		t.Errorf("[%s] %s.Status = %q, want %q", name, sgID, sg.Status, StatusPending)
 	}
 
 	wantChildren := []string{sgID + ".mkdir", sgID + ".move", sgID + ".link"}
@@ -246,8 +246,8 @@ func expectParentIDStamps(t *testing.T, name string, g *Graph) {
 // childIDsOf returns the IDs of the given Subgraph's direct children in order.
 func childIDsOf(sg *Subgraph) []string {
 
-	ids := make([]string, len(sg.children))
-	for i, c := range sg.children {
+	ids := make([]string, len(sg.executableUnits))
+	for i, c := range sg.executableUnits {
 		ids[i] = c.ID()
 	}
 	return ids

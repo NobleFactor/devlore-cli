@@ -312,7 +312,7 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 		sgID := fmt.Sprintf("subgraph.%s.%s", pkg.Name, phaseName)
 		sg := op.NewSubgraph(sgID)
 		sg.Name = phaseName
-		sg.Status = op.SubgraphPending
+		sg.Status = op.StatusPending
 
 		for _, action := range actions {
 			switch a := action.(type) {

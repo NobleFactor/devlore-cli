@@ -57,25 +57,27 @@ type Subgraph struct {
 	State map[string]any
 
 	// Status of this subgraph: pending, completed, failed, rolled_back, skipped.
-	Status SubgraphStatus
+	Status Status
 
-	// children is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested
-	// [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID
-	// stamping, the parallel by-ID index, and ordering invariants are enforced. Wire-form serialization emits child
-	// IDs via custom marshalers in `marshalers.go`; deserialization stashes the IDs in [Subgraph.pendingChildren] and
-	// rebuilds the slice through [Subgraph.linkChildren] once the surrounding Graph's unit table is populated.
-	children []ExecutableUnit
+	// executableUnits is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a
+	// nested [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's
+	// where parent-ID stamping, the parallel by-ID index, and ordering invariants are enforced. Wire-form
+	// serialization emits child IDs via custom marshalers in `marshalers.go`; deserialization stashes the
+	// IDs in [Subgraph.pendingChildren] and rebuilds the slice through [Subgraph.linkChildren] once the
+	// surrounding Graph's unit table is populated.
+	executableUnits []ExecutableUnit
 
-	// childrenByID is the parallel index into children, keyed by [ExecutableUnit.ID]. Maintained by
-	// [Subgraph.AddChild] in lockstep with children. Powers [Subgraph.ChildByID] in O(1) and edge-endpoint
-	// resolution via [Subgraph.validateEdges] at unmarshal time. Slice reordering by [Subgraph.sortChildren]
-	// doesn't invalidate the map — entries are keyed by ID, not by position.
-	childrenByID map[string]ExecutableUnit
+	// executableUnitsByID is the parallel index into executableUnits, keyed by [ExecutableUnit.ID].
+	// Maintained by [Subgraph.AddChild] in lockstep with executableUnits. Powers [Subgraph.ChildByID]
+	// in O(1) and edge-endpoint resolution via [Subgraph.validateEdges] at unmarshal time. Slice
+	// reordering by [Subgraph.sortChildren] doesn't invalidate the map — entries are keyed by ID, not by
+	// position.
+	executableUnitsByID map[string]ExecutableUnit
 
-	// pendingChildren holds child IDs stashed by [Subgraph.UnmarshalJSON] / [Subgraph.UnmarshalYAML] before the
-	// surrounding Graph has built its unit table. [Graph.applyPayload] calls [Subgraph.linkChildren] once the
-	// table is populated; that method resolves each ID through [Subgraph.AddChild] and nils this slice. Always
-	// nil on a fully assembled Subgraph.
+	// pendingChildren holds child IDs stashed by [Subgraph.UnmarshalJSON] / [Subgraph.UnmarshalYAML]
+	// before the surrounding Graph has built its unit table. [Graph.applyPayload] calls
+	// [Subgraph.linkChildren] once the table is populated; that method resolves each ID through
+	// [Subgraph.AddChild] and nils this slice. Always nil on a fully assembled Subgraph.
 	pendingChildren []string
 }
 
@@ -112,12 +114,12 @@ func NewSubgraph(id string) *Subgraph {
 //   - `child`: the [ExecutableUnit] to attach.
 func (s *Subgraph) AddChild(child ExecutableUnit) {
 
-	s.children = append(s.children, child)
+	s.executableUnits = append(s.executableUnits, child)
 
-	if s.childrenByID == nil {
-		s.childrenByID = make(map[string]ExecutableUnit)
+	if s.executableUnitsByID == nil {
+		s.executableUnitsByID = make(map[string]ExecutableUnit)
 	}
-	s.childrenByID[child.ID()] = child
+	s.executableUnitsByID[child.ID()] = child
 
 	child.stampParent(s.ID())
 }
@@ -131,7 +133,7 @@ func (s *Subgraph) AddChild(child ExecutableUnit) {
 //
 // Returns:
 //   - `ExecutableUnit`: the matching direct child, or nil.
-func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.childrenByID[id] }
+func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.executableUnitsByID[id] }
 
 // Children returns this subgraph's direct children in their assembled order — topological order once
 // [Subgraph.sortChildren] has run; otherwise declaration order. The returned slice aliases the unexported
@@ -139,7 +141,7 @@ func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.childrenByID[i
 //
 // Returns:
 //   - []ExecutableUnit: the direct children.
-func (s *Subgraph) Children() []ExecutableUnit { return s.children }
+func (s *Subgraph) Children() []ExecutableUnit { return s.executableUnits }
 
 // MaterializeEdges walks this subgraph and every nested [*Subgraph] descendant. For each direct [*Node]
 // child encountered, it inspects every slot and emits an [Edge] from the slot's producer (via
@@ -150,7 +152,7 @@ func (s *Subgraph) Children() []ExecutableUnit { return s.children }
 // Recurses into nested subgraphs so the whole tree is covered in one call.
 func (s *Subgraph) MaterializeEdges() {
 
-	for _, child := range s.children {
+	for _, child := range s.executableUnits {
 		switch t := child.(type) {
 		case *Node:
 			for _, slot := range t.Slots {
@@ -197,7 +199,7 @@ func (s *Subgraph) SortAll() {
 
 	s.sortChildren()
 
-	for _, child := range s.children {
+	for _, child := range s.executableUnits {
 		if sub, ok := child.(*Subgraph); ok {
 			sub.SortAll()
 		}
@@ -236,7 +238,7 @@ func (s *Subgraph) Parameters() []Parameter {
 
 	seen := make(map[string]Parameter)
 
-	for _, child := range s.children {
+	for _, child := range s.executableUnits {
 
 		switch t := child.(type) {
 
@@ -298,13 +300,13 @@ func (s *Subgraph) Parameters() []Parameter {
 //   - []string: the IDs in containment order; nil when no children are present.
 func (s *Subgraph) childIDs() []string {
 
-	if s == nil || len(s.children) == 0 {
+	if s == nil || len(s.executableUnits) == 0 {
 		return nil
 	}
 
-	out := make([]string, len(s.children))
+	out := make([]string, len(s.executableUnits))
 
-	for i, c := range s.children {
+	for i, c := range s.executableUnits {
 		out[i] = c.ID()
 	}
 
@@ -328,7 +330,7 @@ func (s *Subgraph) descendantNodes() []*Node {
 	var out []*Node
 
 	walk = func(parent *Subgraph) {
-		for _, c := range parent.children {
+		for _, c := range parent.executableUnits {
 			switch t := c.(type) {
 			case *Node:
 				out = append(out, t)
@@ -357,7 +359,7 @@ func (s *Subgraph) descendantSubgraphByID(id string) *Subgraph {
 		return nil
 	}
 
-	for _, c := range s.children {
+	for _, c := range s.executableUnits {
 		sg, ok := c.(*Subgraph)
 		if !ok {
 			continue
@@ -389,7 +391,7 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 	var out []*Subgraph
 
 	walk = func(parent *Subgraph) {
-		for _, c := range parent.children {
+		for _, c := range parent.executableUnits {
 			if sg, ok := c.(*Subgraph); ok {
 				out = append(out, sg)
 				walk(sg)
@@ -425,10 +427,10 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
 // iterates children in this order without re-sorting.
 func (s *Subgraph) sortChildren() {
 
-	s.children = s.topologicallySortedChildren()
+	s.executableUnits = s.topologicallySortedChildren()
 }
 
-// topologicallySortedChildren returns `s.children` ordered topologically per [Subgraph.Edges] using Kahn's algorithm.
+// topologicallySortedChildren returns `s.executableUnits` ordered topologically per [Subgraph.Edges] using Kahn's algorithm.
 //
 // Nodes and Subgraphs are peers. Both are vertices referenced by ID. On cycles, the subset that can be sorted is placed
 // first; the remaining children are appended in their original declaration order so dispatch makes forward progress.
@@ -438,15 +440,15 @@ func (s *Subgraph) sortChildren() {
 //   - []ExecutableUnit: the topologically sorted children.
 func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:gocognit // complexity is inherent to the algorithm
 
-	if len(s.Edges) == 0 || len(s.children) <= 1 {
-		return s.children
+	if len(s.Edges) == 0 || len(s.executableUnits) <= 1 {
+		return s.executableUnits
 	}
 
-	childMap := make(map[string]ExecutableUnit, len(s.children))
-	inDegree := make(map[string]int, len(s.children))
+	childMap := make(map[string]ExecutableUnit, len(s.executableUnits))
+	inDegree := make(map[string]int, len(s.executableUnits))
 	adj := make(map[string][]string)
 
-	for _, c := range s.children {
+	for _, c := range s.executableUnits {
 		id := c.ID()
 		childMap[id] = c
 		inDegree[id] = 0
@@ -465,7 +467,7 @@ func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:goc
 
 	var queue []string
 
-	for _, c := range s.children {
+	for _, c := range s.executableUnits {
 		id := c.ID()
 		if inDegree[id] == 0 {
 			queue = append(queue, id)
@@ -487,12 +489,12 @@ func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:goc
 		}
 	}
 
-	if len(sorted) < len(s.children) {
+	if len(sorted) < len(s.executableUnits) {
 		visited := make(map[string]bool, len(sorted))
 		for _, c := range sorted {
 			visited[c.ID()] = true
 		}
-		for _, c := range s.children {
+		for _, c := range s.executableUnits {
 			if !visited[c.ID()] {
 				sorted = append(sorted, c)
 			}
@@ -538,22 +540,3 @@ type RollbackEntry struct {
 	Error string `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
-// SubgraphStatus represents the execution state of a subgraph.
-type SubgraphStatus string
-
-const (
-	// SubgraphPending indicates the subgraph has not yet been executed.
-	SubgraphPending SubgraphStatus = "pending"
-
-	// SubgraphCompleted indicates the subgraph executed successfully.
-	SubgraphCompleted SubgraphStatus = "completed"
-
-	// SubgraphFailed indicates the subgraph failed during execution.
-	SubgraphFailed SubgraphStatus = "failed"
-
-	// SubgraphRolledBack indicates the subgraph was rolled back after failure.
-	SubgraphRolledBack SubgraphStatus = "rolled_back"
-
-	// SubgraphSkipped indicates the subgraph was skipped.
-	SubgraphSkipped SubgraphStatus = "skipped"
-)

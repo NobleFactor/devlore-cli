@@ -542,7 +542,7 @@ type Node struct {
 	Slots []*Slot
 
 	// Status of this node: pending, completed, skipped, failed.
-	Status NodeStatus
+	Status Status
 
 	// Timestamp is when this action completed.
 	Timestamp string
@@ -687,19 +687,23 @@ func (n *Node) rebuildSlotsByName() {
 
 // endregion
 
-// NodeStatus represents the execution status of a node.
-type NodeStatus string
+// Status is the unified execution status for [ExecutableUnit]s. Both Nodes and Subgraphs use the same
+// status set — a rollback at a Subgraph boundary cascades to every Node inside it, so there's no
+// kind-specific status that's not shared.
+type Status string
 
-// NodeStatus constants define the possible statuses of a node.
+// Status constants define the possible statuses of an executable unit.
 const (
-	// StatusCompleted indicates the node executed successfully.
-	StatusCompleted NodeStatus = "completed"
-	// StatusFailed indicates the node failed during execution.
-	StatusFailed NodeStatus = "failed"
-	// StatusPending indicates the node has not yet been executed.
-	StatusPending NodeStatus = "pending"
-	// StatusSkipped indicates the node was skipped.
-	StatusSkipped NodeStatus = "skipped"
+	// StatusCompleted indicates the unit executed successfully.
+	StatusCompleted Status = "completed"
+	// StatusFailed indicates the unit failed during execution.
+	StatusFailed Status = "failed"
+	// StatusPending indicates the unit has not yet been executed.
+	StatusPending Status = "pending"
+	// StatusRolledBack indicates the unit was rolled back after failure.
+	StatusRolledBack Status = "rolled_back"
+	// StatusSkipped indicates the unit was skipped.
+	StatusSkipped Status = "skipped"
 )
 
 // Provenance contains tool-specific metadata stored in the graph.

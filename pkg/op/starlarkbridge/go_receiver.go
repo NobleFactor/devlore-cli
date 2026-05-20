@@ -25,11 +25,11 @@ var (
 
 // goReceiver wraps a registered Go instance for starlark use.
 //
-// It implements [starlark.Value], [starlark.HasAttrs], [starlark.Comparable], and [Projector]. Attribute
-// resolution checks exported struct fields first (projected to starlark via [toStarlarkReflect]); on
-// miss, it checks the wrapped instance's methods (dispatched through [op.Method.Invoke]); on miss, it
-// delegates to [op.AttributeResolver.ResolveAttr] when the wrapped instance implements it. A final miss
-// surfaces as a starlark NoSuchAttr error via [NoSuchAttrError].
+// It implements [starlark.Value], [starlark.HasAttrs], [starlark.Comparable], and [Projector]. Attribute resolution
+// checks exported struct fields first (projected to starlark via [toStarlarkReflect]); on miss, it checks the wrapped
+// instance's methods (dispatched through [op.Method.Invoke]); on miss, it delegates to
+// [op.AttributeResolver.ResolveAttr] when the wrapped instance implements it. A final miss surfaces as a starlark
+// NoSuchAttr error via [NoSuchAttrError].
 type goReceiver struct {
 	receiverType op.ReceiverType
 	instance     any                   // An instance of receiverType.
@@ -71,7 +71,7 @@ func NewGoReceiver(value any) (starlark.HasAttrs, error) {
 //   - `instance`: the Go provider instance.
 //
 // Returns:
-//   - starlark.HasAttrs: the bound starlark surface.
+//   - [starlark.HasAttrs]: the bound starlark surface.
 func NewProvider(receiverType op.ReceiverType, instance any) starlark.HasAttrs {
 	return newGoReceiver(receiverType, instance)
 }
@@ -130,11 +130,11 @@ func newGoReceiver(receiverType op.ReceiverType, instance any) *goReceiver {
 
 // String implements [starlark.Value].
 //
-// Delegates to the wrapped instance's [fmt.Stringer.String] when the instance satisfies it; otherwise
-// returns the receiver type's name.
+// Delegates to the wrapped instance's [fmt.Stringer.String] when the instance satisfies it; otherwise returns the
+// receiver type's name.
 //
 // Returns:
-//   - string: the wrapped value's string representation, or the receiver type's name.
+//   - `string`: the wrapped value's string representation, or the receiver type's name.
 func (g *goReceiver) String() string {
 
 	if stringer, ok := g.instance.(fmt.Stringer); ok {
@@ -170,7 +170,7 @@ func (g *goReceiver) Truth() starlark.Bool { return true }
 // Starlark's set/dict keys. Non-Resource values are unhashable; starlark surfaces this as a runtime error.
 //
 // Returns:
-//   - uint32: a stable hash derived from the Resource's URI.
+//   - `uint32`: a stable hash derived from the Resource's URI.
 //   - `error`: non-nil when the wrapped instance is not a URI-bearing [op.Resource].
 func (g *goReceiver) Hash() (uint32, error) {
 
@@ -281,7 +281,7 @@ func (g *goReceiver) runtimeEnvironment() *op.RuntimeEnvironment {
 //   - `v`: the Go value to project.
 //
 // Returns:
-//   - starlark.Value: the projected starlark value.
+//   - [starlark.Value]: the projected starlark value.
 //   - `error`: non-nil when the reflection-based projection fails.
 func (g *goReceiver) toStarlark(v any) (starlark.Value, error) {
 
@@ -305,7 +305,7 @@ func (g *goReceiver) toStarlark(v any) (starlark.Value, error) {
 //   - `rv`: the map's [`reflect.Value`].
 //
 // Returns:
-//   - starlark.Value: the projected dict.
+//   - [starlark.Value]: the projected dict.
 //   - `error`: non-nil when any key or value fails projection or [starlark.Dict.SetKey] fails.
 func (g *goReceiver) toStarlarkMap(rv reflect.Value) (starlark.Value, error) {
 
@@ -800,7 +800,7 @@ func elem(v reflect.Value) reflect.Value {
 //   - `t`: the [`reflect.Type`] to introspect.
 //
 // Returns:
-//   - *typeInfo: the field metadata, or nil for non-struct types.
+//   - `*typeInfo`: the field metadata, or nil for non-struct types.
 func getTypeInfo(t reflect.Type) *typeInfo {
 
 	for t.Kind() == reflect.Pointer {
@@ -845,7 +845,7 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 //   - `s`: the input string.
 //
 // Returns:
-//   - uint32: the hash value.
+//   - `uint32`: the hash value.
 func hashString(s string) uint32 {
 
 	var hash uint32
